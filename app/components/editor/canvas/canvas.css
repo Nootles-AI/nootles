@@ -1,0 +1,260 @@
+/* ===== Diagram canvas ==================================================== */
+.ab-canvas {
+  position: relative;
+  width: 100%;
+  height: 440px;
+  margin: 8px 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: #fcfcfd;
+}
+.ab-editor .ProseMirror-selectednode .ab-canvas {
+  border-color: #c2bdcc;
+}
+.ab-canvas .react-flow {
+  background: transparent;
+}
+.ab-canvas .react-flow__attribution {
+  display: none;
+}
+.ab-canvas .react-flow__node {
+  font-family: var(--font-sans), system-ui, sans-serif;
+}
+.ab-canvas .react-flow__pane {
+  cursor: default;
+}
+
+/* ---- Shapes ------------------------------------------------------------- */
+.ab-shape {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  animation: ab-shape-pop 0.16s cubic-bezier(0.2, 0.9, 0.3, 1.1);
+}
+@keyframes ab-shape-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+.ab-shape:not(.is-selected):not(.is-editing):hover .ab-shape-bg {
+  border-color: #c2bdcc;
+  box-shadow:
+    0 2px 4px rgba(20, 15, 40, 0.08),
+    0 10px 22px rgba(20, 15, 40, 0.08);
+}
+.ab-shape-bg {
+  position: absolute;
+  inset: 0;
+  background: #ffffff;
+  border: 1.5px solid #d6d3de;
+  box-shadow:
+    0 1px 2px rgba(20, 15, 40, 0.06),
+    0 4px 12px rgba(20, 15, 40, 0.05);
+  transition:
+    border-color 0.12s ease,
+    box-shadow 0.12s ease;
+}
+.ab-shape-rectangle .ab-shape-bg {
+  border-radius: 10px;
+}
+.ab-shape-ellipse .ab-shape-bg {
+  border-radius: 50%;
+}
+/* True rhombus via SVG (points align to the mid-side connection handles). */
+.ab-shape-diamond-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  /* Click-transparent so React Flow's node-drag works when grabbing the shape
+     body (the node div and label handle selection / editing). */
+  pointer-events: none;
+  filter: drop-shadow(0 1px 2px rgba(20, 15, 40, 0.07))
+    drop-shadow(0 5px 13px rgba(20, 15, 40, 0.06));
+}
+.ab-shape-diamond-svg polygon {
+  fill: #ffffff;
+  stroke: #d6d3de;
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+  transition: stroke 0.12s ease;
+}
+.ab-shape-diamond.is-selected .ab-shape-diamond-svg polygon {
+  stroke: #6b6675;
+  stroke-width: 2.5;
+}
+.ab-shape-diamond:not(.is-selected):not(.is-editing):hover .ab-shape-diamond-svg polygon {
+  stroke: #c2bdcc;
+}
+.ab-shape-text .ab-shape-bg {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+}
+.ab-shape.is-selected .ab-shape-bg {
+  border-color: #6b6675;
+  box-shadow: 0 0 0 2.5px rgba(92, 82, 112, 0.18);
+}
+.ab-shape-text.is-selected .ab-shape-bg {
+  border: 1.5px dashed #b3aec0;
+  box-shadow: none;
+}
+
+/* label */
+.ab-shape-label {
+  position: relative;
+  z-index: 1;
+  max-width: 90%;
+  padding: 3px 8px;
+  text-align: center;
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--foreground);
+  outline: none;
+  overflow-wrap: anywhere;
+  cursor: default;
+}
+.ab-shape.is-editing .ab-shape-label {
+  cursor: text;
+}
+.ab-shape-label:empty::before {
+  content: "Type\2026";
+  color: var(--muted);
+  opacity: 0.5;
+}
+.ab-shape-text .ab-shape-label {
+  font-size: 14px;
+  font-weight: 450;
+}
+
+/* ---- Connection handles ------------------------------------------------- */
+.ab-canvas .react-flow__handle {
+  width: 11px;
+  height: 11px;
+  min-width: 11px;
+  min-height: 11px;
+  background: #ffffff;
+  border: 1.5px solid #a49fb0;
+  border-radius: 50%;
+  opacity: 0;
+  /* No transform here — React Flow uses transform to position the handle, so
+     overriding it would make the dot jump. Grow via box-shadow instead. */
+  transition:
+    opacity 0.12s ease,
+    background 0.1s ease,
+    border-color 0.1s ease,
+    box-shadow 0.1s ease;
+}
+.ab-shape:hover .react-flow__handle,
+.ab-shape.is-selected .react-flow__handle,
+.ab-canvas .react-flow__handle.connectingfrom,
+.ab-canvas .react-flow__handle.connectingto {
+  opacity: 1;
+}
+.ab-canvas .react-flow__handle:hover {
+  background: #6b6675;
+  border-color: #6b6675;
+  box-shadow: 0 0 0 4px rgba(107, 102, 117, 0.18);
+}
+.ab-canvas .react-flow__handle-top {
+  top: -6px;
+}
+.ab-canvas .react-flow__handle-bottom {
+  bottom: -6px;
+}
+.ab-canvas .react-flow__handle-left {
+  left: -6px;
+}
+.ab-canvas .react-flow__handle-right {
+  right: -6px;
+}
+
+/* Empty-state hint */
+.ab-canvas-hint {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 4;
+  transform: translate(-50%, -50%);
+  padding: 7px 14px;
+  font-size: 13px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.7);
+  border-radius: 8px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+/* ---- Edges -------------------------------------------------------------- */
+.ab-canvas .react-flow__edge-path {
+  stroke: #9a95a6;
+  stroke-width: 1.5;
+}
+.ab-canvas .react-flow__edge.selected .react-flow__edge-path,
+.ab-canvas .react-flow__edge:hover .react-flow__edge-path {
+  stroke: #6b6675;
+  stroke-width: 2;
+}
+.ab-canvas .react-flow__connection-path {
+  stroke: #b3aec0;
+  stroke-width: 1.5;
+}
+.ab-canvas .react-flow__selection {
+  background: rgba(92, 82, 112, 0.06);
+  border: 1px solid rgba(92, 82, 112, 0.3);
+}
+
+/* ---- Floating toolbar --------------------------------------------------- */
+.ab-canvas-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-top: 12px;
+  padding: 4px;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(10px);
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  box-shadow:
+    0 2px 6px rgba(20, 15, 40, 0.06),
+    0 10px 28px rgba(20, 15, 40, 0.1);
+}
+.ab-canvas-tool {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 7px;
+  color: #55505f;
+  transition:
+    background 0.1s ease,
+    color 0.1s ease;
+}
+.ab-canvas-tool:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--foreground);
+}
+.ab-canvas-tool:disabled {
+  opacity: 0.32;
+  cursor: default;
+}
+.ab-canvas-tool-sep {
+  width: 1px;
+  height: 18px;
+  margin: 0 4px;
+  background: var(--border);
+}

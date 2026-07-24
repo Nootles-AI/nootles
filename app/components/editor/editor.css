@@ -1,0 +1,211 @@
+/* Blend BlockNote into the page: transparent background, our font, and text
+   aligned with the page title. BlockNote reserves a 54px inline gutter for its
+   side menu; we zero it and let the drag-handle / + button live in the page's
+   own left padding instead, so body text lines up flush with the title. */
+.ab-editor {
+  background: transparent;
+  --bn-colors-editor-background: transparent;
+}
+
+.ab-editor .bn-editor {
+  padding-inline: 0;
+  background: transparent;
+  font-family: inherit;
+}
+
+/* ---- Custom code block (CodeMirror) ---------------------------------- */
+/* Neutralize BlockNote's built-in codeBlock styling (it targets the shared
+   `codeBlock` type name): kill its dark background, radius and padding so our
+   own `.ab-code` fully controls the look. */
+.ab-editor [data-content-type="codeBlock"] {
+  background: transparent;
+  border-radius: 0;
+  padding: 0;
+  color: inherit;
+}
+
+.ab-code {
+  --code-bg: #262233;
+  --code-topbar: #221e2e;
+  --code-fg-muted: #8f8aa3;
+  --code-border: #35304a;
+  width: 100%;
+  margin: 4px 0;
+  /* No overflow clipping so the language dropdown can expand past the bottom
+     edge. Horizontal code overflow is handled by CodeMirror's own scroller. */
+  background: var(--code-bg);
+  border: 1px solid var(--code-border);
+}
+
+.ab-code-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 30px;
+  padding: 0 6px 0 8px;
+  background: var(--code-topbar);
+  border-bottom: 1px solid var(--code-border);
+  font-size: 11px;
+  color: var(--code-fg-muted);
+}
+
+.ab-code-lang {
+  position: relative;
+}
+
+.ab-code-lang-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  color: var(--code-fg-muted);
+  font-family: var(--font-mono), ui-monospace, monospace;
+}
+.ab-code-lang-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: #cfc9dd;
+}
+
+.ab-code-lang-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 20;
+  min-width: 150px;
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 4px;
+  background: var(--code-topbar);
+  border: 1px solid var(--code-border);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+.ab-code-lang-menu button {
+  display: block;
+  width: 100%;
+  padding: 4px 8px;
+  border-radius: 4px;
+  text-align: left;
+  font-size: 12px;
+  color: #cfc9dd;
+}
+.ab-code-lang-menu button:hover {
+  background: rgba(255, 255, 255, 0.07);
+}
+.ab-code-lang-menu button.is-active {
+  color: #cbb8ff;
+}
+
+.ab-code-delete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  color: var(--code-fg-muted);
+}
+.ab-code-delete:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #e58f8f;
+}
+
+.ab-cm .cm-editor {
+  background: transparent;
+}
+.ab-cm .cm-scroller {
+  overflow-x: auto;
+}
+
+/* ---- Inline math (KaTeX render + MathLive edit) ---------------------- */
+.ab-math-inline {
+  cursor: pointer;
+  padding: 0 3px;
+  border-radius: 4px;
+  transition: background 0.12s ease;
+}
+.ab-math-inline:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+.ab-math-inline.is-editing {
+  display: inline-block;
+  background: rgba(0, 0, 0, 0.04);
+}
+.ab-math-placeholder {
+  color: var(--muted);
+  font-style: italic;
+  font-size: 0.9em;
+}
+
+.ab-mathfield-host {
+  display: inline-block;
+}
+.ab-mathfield-host math-field {
+  display: inline-block;
+  min-width: 3ch;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 1em;
+  /* Neutral (not blue) caret / selection to match the light document. */
+  --caret-color: var(--foreground);
+  --primary-color: var(--foreground);
+  --selection-background-color: rgba(0, 0, 0, 0.12);
+  --contains-highlight-background-color: transparent;
+  --smart-fence-color: var(--muted);
+}
+/* Declutter the inline field — hide MathLive's menu + virtual-keyboard toggles. */
+.ab-mathfield-host math-field::part(menu-toggle),
+.ab-mathfield-host math-field::part(virtual-keyboard-toggle) {
+  display: none;
+}
+
+/* ---- Reactive math block ------------------------------------------------ */
+.ab-mathblock {
+  margin: 6px 0;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  outline: none;
+}
+/* BlockNote draws a blue node-selection ring on a selected block's children;
+   suppress it globally (blocks carry their own neutral selected state). */
+.ab-editor .bn-block-content.ProseMirror-selectednode > *,
+.ab-editor .ProseMirror-selectednode > .bn-block-content > * {
+  outline: none;
+}
+.ab-mathblock:focus-within {
+  border-color: color-mix(in srgb, var(--foreground) 22%, transparent);
+}
+.ab-mathblock-row {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  min-height: 1.9em;
+  padding: 1px 0;
+}
+.ab-mathblock-input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.ab-mathblock-input .ab-mathfield-host,
+.ab-mathblock-input math-field {
+  display: block;
+  width: 100%;
+  min-width: 0;
+}
+.ab-mathblock-value {
+  flex: 0 0 auto;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.ab-mathblock-error {
+  flex: 0 0 auto;
+  color: #b3563f;
+  font-size: 0.82em;
+  font-style: italic;
+  white-space: nowrap;
+}
