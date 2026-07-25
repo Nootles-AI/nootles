@@ -33,6 +33,7 @@ export function serializeCanvas(nodes: ShapeNode[], edges: CanvasEdge[]): string
       target: e.target,
       sourceHandle: e.sourceHandle ?? null,
       targetHandle: e.targetHandle ?? null,
+      ...(typeof e.label === "string" && e.label ? { label: e.label } : {}),
     })),
   });
 }

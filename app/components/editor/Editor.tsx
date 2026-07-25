@@ -10,8 +10,10 @@ import {
 } from "@blocknote/react";
 import { useBlockNoteSync } from "@convex-dev/prosemirror-sync/blocknote";
 import { api } from "@/convex/_generated/api";
+import { Id } from "@/convex/_generated/dataModel";
 import { schema } from "./schema";
 import { BlockSideMenu } from "./BlockSideMenu";
+import { SubstrateHarness } from "./ai/SubstrateHarness";
 import "./editor.css";
 
 type EditorInstance = typeof schema.BlockNoteEditor;
@@ -71,7 +73,13 @@ function customSlashItems(editor: EditorInstance): DefaultReactSuggestionItem[] 
  * presentation and the (custom) schema. The slash menu's "Code Block" item
  * targets our `codeBlock` type, which is the CodeMirror-backed block.
  */
-export function Editor({ docId }: { docId: string }) {
+export function Editor({
+  docId,
+  pageId,
+}: {
+  docId: string;
+  pageId?: Id<"pages">;
+}) {
   const sync = useBlockNoteSync<EditorInstance>(api.prosemirror, docId, {
     editorOptions: { schema },
   });
@@ -92,23 +100,28 @@ export function Editor({ docId }: { docId: string }) {
 
   const editor = sync.editor;
   return (
-    <BlockNoteView
-      editor={editor}
-      theme="light"
-      className="ab-editor"
-      sideMenu={false}
-      slashMenu={false}
-    >
-      <BlockSideMenu />
-      <SuggestionMenuController
-        triggerCharacter="/"
-        getItems={async (query) =>
-          filterItems(
-            [...getDefaultReactSlashMenuItems(editor), ...customSlashItems(editor)],
-            query,
-          )
-        }
-      />
-    </BlockNoteView>
+    <>
+      <BlockNoteView
+        editor={editor}
+        theme="light"
+        className="ab-editor"
+        sideMenu={false}
+        slashMenu={false}
+      >
+        <BlockSideMenu />
+        <SuggestionMenuController
+          triggerCharacter="/"
+          getItems={async (query) =>
+            filterItems(
+              [...getDefaultReactSlashMenuItems(editor), ...customSlashItems(editor)],
+              query,
+            )
+          }
+        />
+      </BlockNoteView>
+      {process.env.NODE_ENV !== "production" && pageId && (
+        <SubstrateHarness editor={editor} pageId={pageId} />
+      )}
+    </>
   );
 }

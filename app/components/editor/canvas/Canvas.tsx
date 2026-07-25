@@ -67,13 +67,30 @@ function CanvasInner({
   const rf = useReactFlow<ShapeNodeT, CanvasEdge>();
   const wrapper = useRef<HTMLDivElement>(null);
   const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Last value we persisted; distinguishes our own round-tripped writes from
+  // genuinely external `source` changes (AI ops, another synced tab).
+  const lastSource = useRef(source);
 
   const persist = useCallback(() => {
     if (persistTimer.current) clearTimeout(persistTimer.current);
     persistTimer.current = setTimeout(() => {
-      onChange(serializeCanvas(rf.getNodes(), rf.getEdges()));
+      const s = serializeCanvas(rf.getNodes(), rf.getEdges());
+      lastSource.current = s;
+      onChange(s);
     }, 500);
   }, [rf, onChange]);
+
+  // Reconcile external `source` changes (an AI op, or the same doc edited in
+  // another tab). Our own debounced writes set `lastSource` first, so they
+  // no-op here and never fight the user's in-progress drag/edit.
+  useEffect(() => {
+    if (source === lastSource.current) return;
+    lastSource.current = source;
+    const parsed = parseCanvas(source);
+    setNodes(parsed.nodes);
+    setEdges(parsed.edges);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [source]);
 
   const onConnect: OnConnect = useCallback(
     (connection) => {

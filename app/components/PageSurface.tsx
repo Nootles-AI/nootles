@@ -54,7 +54,7 @@ export function PageSurface({ pageId }: { pageId: Id<"pages"> }) {
           className="w-full text-4xl font-bold tracking-tight outline-none"
         />
         <div className="mt-6">
-          <Editor docId={page.docId} />
+          <Editor docId={page.docId} pageId={pageId} />
         </div>
       </div>
     </main>

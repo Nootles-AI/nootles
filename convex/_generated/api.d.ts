@@ -8,6 +8,10 @@
  * @module
  */
 
+import type * as ai_checkpoints from "../ai/checkpoints.js";
+import type * as ai_context from "../ai/context.js";
+import type * as ai_opLog from "../ai/opLog.js";
+import type * as ai_operations from "../ai/operations.js";
 import type * as auth from "../auth.js";
 import type * as pages from "../pages.js";
 import type * as projects from "../projects.js";
@@ -20,6 +24,10 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  "ai/checkpoints": typeof ai_checkpoints;
+  "ai/context": typeof ai_context;
+  "ai/opLog": typeof ai_opLog;
+  "ai/operations": typeof ai_operations;
   auth: typeof auth;
   pages: typeof pages;
   projects: typeof projects;

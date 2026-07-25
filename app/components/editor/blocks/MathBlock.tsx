@@ -49,6 +49,9 @@ function MathBlockView({
   const ceClass = useRef<typeof ComputeEngine | null>(null);
   const recomputeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Last value we persisted; lets us tell our own round-tripped writes apart
+  // from genuinely external `source` changes (AI ops, another synced tab).
+  const lastSource = useRef(source);
 
   const recompute = (rs: Row[]) => {
     if (!ceClass.current) return;
@@ -81,11 +84,24 @@ function MathBlockView({
   };
   const schedulePersist = (rs: Row[]) => {
     if (persistTimer.current) clearTimeout(persistTimer.current);
-    persistTimer.current = setTimeout(
-      () => onChange(rs.map((r) => r.latex).join("\n")),
-      400,
-    );
+    persistTimer.current = setTimeout(() => {
+      const s = rs.map((r) => r.latex).join("\n");
+      lastSource.current = s;
+      onChange(s);
+    }, 400);
   };
+
+  // Reconcile external `source` changes (an AI op, or the same doc edited in
+  // another tab). Our own debounced writes set `lastSource` first, so they
+  // no-op here and never stomp the caret mid-edit.
+  useEffect(() => {
+    if (source === lastSource.current) return;
+    lastSource.current = source;
+    const rs = sourceToRows(source);
+    setRows(rs);
+    scheduleRecompute(rs);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [source]);
 
   const updateRow = (id: number, latex: string) => {
     setRows((prev) => {
