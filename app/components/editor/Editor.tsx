@@ -14,6 +14,9 @@ import { Id } from "@/convex/_generated/dataModel";
 import { schema } from "./schema";
 import { BlockSideMenu } from "./BlockSideMenu";
 import { SubstrateHarness } from "./ai/SubstrateHarness";
+import { completionExtension } from "./ai/completionExtension";
+import { useTabCompletion } from "./ai/useTabCompletion";
+import { useActionSuggestion } from "./ai/useActionSuggestion";
 import "./editor.css";
 
 type EditorInstance = typeof schema.BlockNoteEditor;
@@ -81,8 +84,11 @@ export function Editor({
   pageId?: Id<"pages">;
 }) {
   const sync = useBlockNoteSync<EditorInstance>(api.prosemirror, docId, {
-    editorOptions: { schema },
+    editorOptions: { schema, extensions: [completionExtension] },
   });
+
+  useTabCompletion(sync.editor);
+  useActionSuggestion(sync.editor, pageId);
 
   // First open of a page has no document yet — create an empty one seamlessly.
   // Guarded per-docId so StrictMode's double-invoke can't create twice.

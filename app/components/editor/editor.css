@@ -209,3 +209,30 @@
   font-style: italic;
   white-space: nowrap;
 }
+
+/* ---- Ghost text (AI tab completion) --------------------------------- */
+.ab-ghost {
+  color: #b0abbf;
+  opacity: 0.85;
+  pointer-events: none;
+  user-select: none;
+  white-space: pre-wrap;
+}
+
+/* ---- Action hint chip (AI structured suggestions) ------------------- */
+.ab-action-chip {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 0.4em;
+  padding: 0.05em 0.5em;
+  border: 1px solid var(--border, #e5e2ee);
+  border-radius: 9999px;
+  background: #f6f4fb;
+  color: #6b6580;
+  font-size: 0.8em;
+  font-weight: 500;
+  white-space: nowrap;
+  user-select: none;
+  pointer-events: none;
+  vertical-align: baseline;
+}
