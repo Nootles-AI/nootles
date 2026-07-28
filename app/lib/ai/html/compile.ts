@@ -129,16 +129,22 @@ function updateOps(next: DocNode, current: DocNode): Operation[] {
       }
     }
 
-    const key = (e: { from: string; to: string }) => `${e.from}->${e.to}`;
-    const currentEdges = new Set(current.edges.map(key));
+    // Existing shapes keep their ids; new ones take the tempId minted above.
+    const resolve = edgeResolver(next.nodes, (n, i) => n.id ?? `n${i}`);
+    const existingPairs = new Set(
+      current.edges.map((e) => `${e.from}->${e.to}`),
+    );
     next.edges.forEach((e, i) => {
-      if (currentEdges.has(key(e))) return;
+      const from = resolve(e.from);
+      const to = resolve(e.to);
+      if (!from || !to) return;
+      if (existingPairs.has(`${from}->${to}`)) return;
       ops.push({
         kind: "connectEdge",
         blockId: id,
         tempId: `e${i}`,
-        source: { tempId: e.from },
-        target: { tempId: e.to },
+        source: { tempId: from },
+        target: { tempId: to },
         ...(e.label ? { label: e.label } : {}),
       });
     });
@@ -146,6 +152,33 @@ function updateOps(next: DocNode, current: DocNode): Operation[] {
   }
 
   return ops;
+}
+
+/**
+ * Maps whatever an `<ab-edge>` calls a node onto the id the node will actually
+ * have. A model writing a fresh diagram has no reason to invent matching ids, so
+ * it refers to nodes however it likes — `id="n1"`, the visible label, or by
+ * position. Accept all of those; an edge we still can't place is dropped rather
+ * than failing validation and taking the whole diagram with it.
+ */
+function edgeResolver(
+  nodes: Array<{ id?: string; label: string }>,
+  idFor: (n: { id?: string; label: string }, i: number) => string,
+): (ref: string) => string | null {
+  const map = new Map<string, string>();
+  const add = (key: string | undefined, value: string) => {
+    const k = key?.trim();
+    if (k && !map.has(k)) map.set(k, value);
+  };
+  nodes.forEach((n, i) => add(n.id, idFor(n, i)));
+  nodes.forEach((n, i) => add(n.label, idFor(n, i)));
+  nodes.forEach((n, i) => {
+    const id = idFor(n, i);
+    add(`n${i + 1}`, id);
+    add(`${i + 1}`, id);
+    add(`${i}`, id);
+  });
+  return (ref) => map.get(ref.trim()) ?? null;
 }
 
 function newBlockFor(node: DocNode, tempId: string): NewBlock {
@@ -235,26 +268,31 @@ export function compileDocHtml(next: DocNode[], ctx: CompileContext): Batch {
       for (const d of flatten(node.children)) insertedWithParent.add(d);
     }
     if (node.type === "canvas") {
+      const shapeId = (n: { id?: string }, i: number) => n.id ?? `${tempId}n${i}`;
       node.nodes.forEach((n, i) =>
         ops.push({
           kind: "addShape",
           blockId: tempId,
-          tempId: n.id ?? `${tempId}n${i}`,
+          tempId: shapeId(n, i),
           shape: n.shape,
           position: { x: n.x ?? i * 220, y: n.y ?? 0 },
           label: n.label,
         }),
       );
-      node.edges.forEach((e, i) =>
+      const resolve = edgeResolver(node.nodes, shapeId);
+      node.edges.forEach((e, i) => {
+        const from = resolve(e.from);
+        const to = resolve(e.to);
+        if (!from || !to) return; // unplaceable edge — drop it, keep the diagram
         ops.push({
           kind: "connectEdge",
           blockId: tempId,
           tempId: `${tempId}e${i}`,
-          source: { tempId: e.from },
-          target: { tempId: e.to },
+          source: { tempId: from },
+          target: { tempId: to },
           ...(e.label ? { label: e.label } : {}),
-        }),
-      );
+        });
+      });
     }
     if (existing) ops.push({ kind: "removeBlock", blockId: existing.id! });
     anchor = { at: "after", ref: tempId };
