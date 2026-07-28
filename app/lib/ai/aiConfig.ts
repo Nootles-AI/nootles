@@ -57,6 +57,7 @@ export const AI = {
     "javascript",
     "jsx",
     "python",
+    "java",
     "json",
     "html",
     "css",

@@ -12,6 +12,7 @@ import { applyBatch } from "@/app/lib/ai/apply";
 import { toDocHtml, toDocHtmlSplit } from "@/app/lib/ai/html/serialize";
 import { parseDocHtml } from "@/app/lib/ai/html/parse";
 import { compileDocHtml, layoutDiagram } from "@/app/lib/ai/html/compile";
+import { INLINE_TAGS } from "@/app/lib/ai/html/grammar";
 import type { Batch } from "@/convex/ai/operations";
 import {
   setGhost,
@@ -37,9 +38,27 @@ const PREAMBLE = `<!-- auto-board document. Blocks: <p>, <h2>, <ul><li>, <blockq
 <ab-diagram><ab-node shape="rectangle" x="0" y="0">Step</ab-node><ab-edge from="n1" to="n2"></ab-edge></ab-diagram> -->
 `;
 
-/** A completion that opens or closes an element, rather than continuing prose. */
+/** The first block-level tag in the text, or -1. Inline marks are skipped:
+ * `<code>`, `<strong>` and friends are prose, not a new block. */
+function findBlockTag(text: string): number {
+  const re = /<\s*(\/?)([a-zA-Z][\w-]*)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text))) {
+    if (!INLINE_TAGS.has(m[2].toLowerCase())) return m.index;
+  }
+  return -1;
+}
+
+/**
+ * A completion that opens or closes a BLOCK, rather than continuing prose.
+ *
+ * Inline marks must not count. Treating them as structure truncated
+ * "the <code>maxRetries</code> option controls…" at the closing tag and tried
+ * to compile the fragment into ops, so inline code in a suggestion arrived as a
+ * mangled half-sentence.
+ */
 function isStructural(text: string): boolean {
-  return /<\s*\/?[a-zA-Z]/.test(text);
+  return findBlockTag(text) !== -1;
 }
 
 /**
@@ -48,7 +67,7 @@ function isStructural(text: string): boolean {
  * drawing the diagram is one suggestion, and both halves have to be visible.
  */
 function proseTail(text: string): string {
-  const cut = text.search(/<\s*\/?[a-zA-Z]/);
+  const cut = findBlockTag(text);
   return (cut === -1 ? text : text.slice(0, cut)).replace(/\n+$/, "");
 }
 
@@ -79,7 +98,7 @@ function endOfElement(text: string, tag: string): number {
  * says the element closed, so the stream can be cut short.
  */
 function firstBlock(acc: string): { text: string; done: boolean } {
-  const cut = acc.search(/<\s*\/?[a-zA-Z]/);
+  const cut = findBlockTag(acc);
   if (cut === -1) return { text: acc, done: false };
   let head = acc.slice(0, cut);
   let rest = acc.slice(cut);

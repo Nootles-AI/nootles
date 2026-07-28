@@ -8,65 +8,70 @@
    the shell derives from those two numbers; don't hand-tune per component. */
 :root {
   /* ---- Palette ----------------------------------------------------------
-     Everything sits on hue 296. That hue wasn't chosen, it was found: the code
-     surface, ghost ink, shape lines and canvas edges already clustered at
-     293-301, while the neutrals pulled the opposite way at hue 106. Unifying
-     on 296 makes the tint feel inevitable rather than applied.
+     Surfaces and ink are neutral: chroma never exceeds 0.006, which is below
+     the threshold where a hue is perceptible. They read as paper and graphite,
+     not as a tint. A tinted ramp was tried and pulled the whole surface toward
+     a colour it did not need.
 
-     Chroma stays under 0.025 for every neutral — enough that the surface reads
-     as tinted, not enough to read as coloured. Every text value below was
-     solved for the lightest tone that still clears WCAG AA on the darkest
-     surface it can land on; the measured ratio is noted. */
+     Colour appears in exactly one place — the accent, for AI activity. That is
+     the only thing on screen that should look alive.
+
+     Every text value was solved for the lightest tone that still clears WCAG AA
+     on the darkest surface it can land on; the measured ratio is noted. */
 
   /* Surfaces: chrome recedes, the document advances. */
-  --background: oklch(1 0 296);            /* the page itself           */
-  --surface: oklch(0.972 0.006 296);       /* panels                    */
-  --sunken: oklch(0.955 0.008 296);        /* wells inside panels       */
-  --elevated: oklch(1 0.002 296);          /* menus, popovers (+shadow) */
+  --background: oklch(1 0 90);            /* the page itself           */
+  --surface: oklch(0.975 0.002 90);       /* panels                    */
+  --sunken: oklch(0.958 0.003 90);        /* wells inside panels       */
+  --elevated: oklch(1 0 90);          /* menus, popovers (+shadow) */
 
   /* Lines. Used sparingly — separation is mostly by surface value now. */
-  --border: oklch(0.928 0.008 296);
-  --border-strong: oklch(0.87 0.012 296);
+  --border: oklch(0.93 0.003 90);
+  --border-strong: oklch(0.875 0.004 90);
 
   /* Ink */
-  --foreground: oklch(0.25 0.014 296);     /* 16.1:1 on background      */
-  --muted: oklch(0.536 0.022 296);         /* 4.54:1 on sunken          */
-  --faint: oklch(0.72 0.016 296);          /* decorative only, no text  */
+  --foreground: oklch(0.25 0.005 90);     /* 16.1:1 on background      */
+  --muted: oklch(0.535 0.004 90);         /* 4.54:1 on sunken          */
+  --faint: oklch(0.72 0.004 90);          /* decorative only, no text  */
 
-  /* Accent — reserved for AI/live moments. Never decoration, never a
-     selection ring on a block or shape. */
-  --accent: oklch(0.564 0.17 296);         /* 4.53:1 on surface         */
-  --accent-soft: oklch(0.7 0.12 296);      /* glow, non-text only       */
-  --accent-on-dark: oklch(0.632 0.11 296); /* 4.50:1 on code topbar     */
+  /* Accent — the only colour on the whole surface, and it is reserved for AI
+     activity: the streaming head and the focus ring. Never decoration, never a
+     selection ring on a block or shape.
+
+     Amber, because a glow is warm light. The accent itself darkens to ochre to
+     clear AA as text; the glow keeps the gold, and nothing reads it as text. */
+  --accent: oklch(0.542 0.145 75);         /* 5.11:1 on background      */
+  --accent-soft: oklch(0.716 0.116 75);    /* glow, non-text only       */
+  --accent-on-dark: oklch(0.636 0.12 75);  /* 4.51:1 on code-bg         */
 
   --danger: oklch(0.563 0.127 35);
   --danger-on-dark: oklch(0.739 0.105 20);
 
   /* Interaction states — the only four values any hover should reach for. */
-  --hover: oklch(0.25 0.014 296 / 0.045);
-  --active: oklch(0.25 0.014 296 / 0.075);
-  --selected: oklch(0.25 0.014 296 / 0.06);
-  --hover-on-dark: oklch(1 0 296 / 0.07);
-  --active-on-dark: oklch(1 0 296 / 0.1);
+  --hover: oklch(0.25 0.005 90 / 0.05);
+  --active: oklch(0.25 0.005 90 / 0.08);
+  --selected: oklch(0.25 0.005 90 / 0.065);
+  --hover-on-dark: oklch(1 0 90 / 0.07);
+  --active-on-dark: oklch(1 0 90 / 0.1);
 
   /* Code surfaces */
-  --code-bg: oklch(0.264 0.032 296);
-  --code-topbar: oklch(0.247 0.03 296);
-  --code-border: oklch(0.326 0.046 296);
-  --code-fg: oklch(0.828 0.03 296);        /* 9.0:1 on code-bg          */
-  --code-fg-muted: oklch(0.638 0.04 296);  /* 4.50:1 on code-bg         */
+  --code-bg: oklch(0.255 0.005 90);
+  --code-topbar: oklch(0.225 0.005 90);
+  --code-border: oklch(0.33 0.006 90);
+  --code-fg: oklch(0.85 0.004 90);        /* 9.0:1 on code-bg          */
+  --code-fg-muted: oklch(0.64 0.005 90);  /* 4.50:1 on code-bg         */
 
   /* Canvas line ramp — cooler than panel borders so shapes read as objects
      sitting on a surface rather than as chrome. */
-  --shape-line: oklch(0.86 0.014 296);
-  --shape-line-hover: oklch(0.79 0.02 296);
-  --shape-line-active: oklch(0.52 0.024 296);
-  --edge-line: oklch(0.68 0.025 296);
+  --shape-line: oklch(0.865 0.004 90);
+  --shape-line-hover: oklch(0.79 0.005 90);
+  --shape-line-active: oklch(0.52 0.006 90);
+  --edge-line: oklch(0.68 0.005 90);
 
   /* Suggestion ink. Legible enough to read before you accept it, tinted
      enough to read as not-yet-real. */
-  --ghost: oklch(0.55 0.03 296);           /* 4.52:1 on surface         */
-  --ghost-on-code: oklch(0.638 0.05 296);  /* 4.50:1 on code-bg         */
+  --ghost: oklch(0.54 0.006 90);           /* 4.50:1 on sunken          */
+  --ghost-on-code: oklch(0.632 0.006 90);  /* 4.55:1 on code-bg         */
 
   /* ---- Type -------------------------------------------------------------
      One sans for reading and chrome; mono carries metadata (labels, counts,
@@ -155,6 +160,14 @@ body {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
   border-radius: var(--radius-sm);
+}
+
+/* Inline renames and the page title are exempt: a text field already shows
+   where focus is with its caret, and a ring around a name you are editing in
+   place reads like a form field appeared. The caret is the indicator. */
+.ab-bare-focus:focus-visible,
+.ab-bare-focus:focus {
+  outline: none;
 }
 }
 
@@ -290,9 +303,9 @@ body {
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   box-shadow:
-    0 1px 2px oklch(0.25 0.014 296 / 0.04),
-    0 4px 12px oklch(0.25 0.014 296 / 0.06),
-    0 16px 40px oklch(0.25 0.014 296 / 0.1);
+    0 1px 2px oklch(0.25 0.005 90 / 0.05),
+    0 4px 12px oklch(0.25 0.005 90 / 0.07),
+    0 16px 40px oklch(0.25 0.005 90 / 0.1);
   animation: ab-menu-in var(--dur) var(--ease);
 }
 @keyframes ab-menu-in {
@@ -344,7 +357,7 @@ body {
   background: linear-gradient(
     90deg,
     transparent 0%,
-    oklch(1 0 296 / 0.75) 50%,
+    oklch(1 0 90 / 0.8) 50%,
     transparent 100%
   );
   animation: ab-sweep 1.7s var(--ease) infinite;
@@ -356,13 +369,17 @@ body {
 }
 
 /* ---- Streaming ---------------------------------------------------------
-   A luminous head sits where generation is happening and travels with the
-   text, because it is simply the last inline box. Text behind it is already
-   settled and fully legible — the effect marks the edge, it never dims what
-   you are being asked to read.
+   A luminous head marks the end of the suggestion. While tokens are arriving
+   it pulses and travels with the text, because it is simply the last inline
+   box. Once the stream settles it stays put and goes steady: it is then
+   showing exactly where the caret will land if you press Tab.
 
-   Deliberately NOT gradient-masked text: you have to be able to read a
-   suggestion before you accept it. */
+   So the two states read as: pulsing = still generating, steady = this is
+   where you will be.
+
+   Text behind it is always fully legible — the effect marks the edge, it never
+   dims what you are being asked to read. Deliberately NOT gradient-masked
+   text: you have to be able to read a suggestion before accepting it. */
 .ab-stream-head::after {
   content: "";
   display: inline-block;
@@ -375,7 +392,10 @@ body {
   box-shadow:
     0 0 4px var(--accent-soft),
     0 0 10px var(--accent-soft),
-    0 0 20px oklch(0.7 0.12 296 / 0.5);
+    0 0 22px color-mix(in oklch, var(--accent-soft) 55%, transparent);
+}
+/* Only while tokens are still arriving. */
+.ab-stream-head.is-live::after {
   animation: ab-pulse 1.15s var(--ease) infinite;
 }
 @keyframes ab-pulse {
@@ -386,12 +406,12 @@ body {
 
 /* A block still being generated carries the same accent, as a quiet edge. */
 .ab-generating {
-  box-shadow: inset 0 0 0 1px oklch(0.7 0.12 296 / 0.35);
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--accent-soft) 40%, transparent);
   animation: ab-breathe 2s var(--ease) infinite;
 }
 @keyframes ab-breathe {
   50% {
-    box-shadow: inset 0 0 0 1px oklch(0.7 0.12 296 / 0.12);
+    box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--accent-soft) 14%, transparent);
   }
 }
 }

@@ -99,10 +99,14 @@ function metaDispatch(view: EditorView, value: Suggestion) {
   }
 }
 
-function ghostWidget(text: string, streaming = false) {
+/**
+ * `live` = tokens are still arriving, so the head pulses. When false the head
+ * stays but goes steady, marking where the caret lands if you press Tab.
+ */
+function ghostWidget(text: string, live = false) {
   return () => {
     const span = document.createElement("span");
-    span.className = streaming ? "ab-ghost ab-stream-head" : "ab-ghost";
+    span.className = "ab-ghost ab-stream-head" + (live ? " is-live" : "");
     span.textContent = text;
     return span;
   };

@@ -100,6 +100,19 @@ export const MARK_TAGS: Record<Mark, string> = {
   code: "code",
 };
 
+/**
+ * Tags that live INSIDE a paragraph. A completion containing one of these is
+ * still prose — it is not opening a new block.
+ *
+ * Without this distinction "the <code>maxRetries</code> option controls…" was
+ * read as structural markup and truncated at </code>, so inline code in a
+ * suggestion came back as a mangled half-sentence.
+ */
+export const INLINE_TAGS = new Set([
+  "strong", "b", "em", "i", "u", "s", "code", "a", "span", "sup", "sub",
+  "ab-math", "br",
+]);
+
 export const TAG_TO_MARK: Record<string, Mark> = {
   strong: "bold",
   b: "bold",

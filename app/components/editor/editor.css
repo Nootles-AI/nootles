@@ -39,7 +39,10 @@
   /* No overflow clipping so the language dropdown can expand past the bottom
      edge. Horizontal code overflow is handled by CodeMirror's own scroller. */
   background: var(--code-bg);
-  border-radius: var(--radius);
+  /* Square. There is no overflow clipping (so the language menu can escape the
+     bottom edge), which meant the topbar painted over the top corners while the
+     bottom two stayed rounded — visibly lopsided. */
+  border-radius: 0;
 }
 
 .ab-code-topbar {
@@ -133,6 +136,24 @@
 }
 .ab-cm .cm-scroller {
   overflow-x: auto;
+}
+
+/* ---- Inline code ------------------------------------------------------
+   For variable names and short identifiers inside a sentence. Sized in em so
+   it tracks the surrounding text, and nudged down slightly because mono
+   digits and lowercase run visually larger than the body sans at equal px. */
+.ab-editor .bn-inline-content code,
+.ab-editor code {
+  padding: 0.12em 0.34em;
+  border-radius: var(--radius-sm);
+  background: var(--sunken);
+  box-shadow: inset 0 0 0 1px var(--border);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 0.88em;
+  color: var(--foreground);
+  white-space: pre-wrap;
+  /* Don't let a long identifier blow out the measure. */
+  overflow-wrap: anywhere;
 }
 
 /* ---- Inline math (KaTeX render + MathLive edit) ---------------------- */

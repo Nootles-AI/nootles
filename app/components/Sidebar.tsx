@@ -116,7 +116,7 @@ export function Sidebar({
                   }}
                   // Sits in the same box as the selected row — no field chrome,
                   // just a caret, so renaming doesn't shift the row.
-                  className="ab-row is-selected w-full truncate"
+                  className="ab-row ab-bare-focus is-selected w-full truncate"
                 />
               ) : (
                 <button

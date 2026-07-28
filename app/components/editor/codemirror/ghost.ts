@@ -18,7 +18,10 @@ class GhostWidget extends WidgetType {
   constructor(
     readonly text: string,
     readonly block: boolean,
+    /** Tokens still arriving — the head pulses rather than sitting steady. */
     readonly streaming = false,
+    /** This widget ends the suggestion, so it carries the caret marker. */
+    readonly head = false,
   ) {
     super();
   }
@@ -26,12 +29,17 @@ class GhostWidget extends WidgetType {
     return (
       other.text === this.text &&
       other.block === this.block &&
-      other.streaming === this.streaming
+      other.streaming === this.streaming &&
+      other.head === this.head
     );
   }
   toDOM() {
     const el = document.createElement(this.block ? "div" : "span");
-    el.className = this.streaming ? "ab-cm-ghost ab-stream-head" : "ab-cm-ghost";
+    // Head only on the trailing widget, so there is exactly one caret marker.
+    el.className =
+      "ab-cm-ghost" +
+      (this.head ? " ab-stream-head" : "") +
+      (this.head && this.streaming ? " is-live" : "");
     // Set here rather than in the stylesheet: CodeMirror injects its own rules
     // for content children, which win over ours and collapse the indentation.
     el.style.whiteSpace = "pre";
@@ -73,7 +81,8 @@ const ghostField = StateField.define<{
       if (first) {
         decos.push(
           Decoration.widget({
-            widget: new GhostWidget(first, false, v.streaming && !rest.length),
+            // Head goes on whichever widget ends the suggestion.
+            widget: new GhostWidget(first, false, v.streaming, !rest.length),
             side: 1,
           }).range(v.pos),
         );
@@ -81,7 +90,7 @@ const ghostField = StateField.define<{
       if (rest.length) {
         decos.push(
           Decoration.widget({
-            widget: new GhostWidget(rest.join("\n"), true, v.streaming),
+            widget: new GhostWidget(rest.join("\n"), true, v.streaming, true),
             side: 1,
             block: true,
           }).range(state.doc.lineAt(v.pos).to),

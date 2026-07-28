@@ -13,6 +13,7 @@ export const LANGUAGES: LangDef[] = [
   { id: "tsx", label: "TSX", load: async () => (await import("@codemirror/lang-javascript")).javascript({ typescript: true, jsx: true }) },
   { id: "javascript", label: "JavaScript", load: async () => (await import("@codemirror/lang-javascript")).javascript() },
   { id: "jsx", label: "JSX", load: async () => (await import("@codemirror/lang-javascript")).javascript({ jsx: true }) },
+  { id: "java", label: "Java", load: async () => (await import("@codemirror/lang-java")).java() },
   { id: "python", label: "Python", load: async () => (await import("@codemirror/lang-python")).python() },
   { id: "json", label: "JSON", load: async () => (await import("@codemirror/lang-json")).json() },
   { id: "html", label: "HTML", load: async () => (await import("@codemirror/lang-html")).html() },

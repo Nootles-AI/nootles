@@ -123,7 +123,7 @@ export function ProjectsScreen() {
                       setEditingId(null);
                     }
                   }}
-                  className="ab-row is-selected flex-1 truncate font-medium"
+                  className="ab-row ab-bare-focus is-selected flex-1 truncate font-medium"
                 />
               ) : (
                 <>

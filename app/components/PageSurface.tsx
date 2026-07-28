@@ -74,7 +74,7 @@ export function PageSurface({ pageId }: { pageId: Id<"pages"> }) {
           }}
           placeholder="Untitled"
           label="Page title"
-          className="w-full text-[length:var(--text-title)] font-semibold tracking-[-0.02em] text-balance outline-none"
+          className="ab-bare-focus w-full text-[length:var(--text-title)] font-semibold tracking-[-0.02em] text-balance outline-none"
         />
         <div className="mt-8">
           <Editor docId={page.docId} pageId={pageId} />
