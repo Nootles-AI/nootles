@@ -41,6 +41,27 @@ export const AI = {
   minContextChars: 14,
 
   /**
+   * Reformat suggestions for a finished block. A transformation rather than a
+   * continuation, so this is a few-shot instruct call, not fill-in-the-middle.
+   *
+   * Gemini Flash was measured against Haiku 4.5 and GPT-4.1-mini on the real
+   * task: fastest of the three (0.5-1.3s), and the only one to read "x squared
+   * plus 2x plus 1" as a math block and a numbered sequence as a diagram —
+   * the others fell back to a bullet list. All three correctly declined on
+   * ordinary prose, which is the case that matters most.
+   */
+  reformat: {
+    model: "google/gemini-2.5-flash",
+    maxTokens: 900,
+    /** More than three chips is a menu, not a suggestion. */
+    maxCandidates: 3,
+    /** After the caret leaves a block, before asking. */
+    debounceMs: 500,
+    /** Blocks shorter than this are not worth reshaping. */
+    minChars: 24,
+  },
+
+  /**
    * Per-page eagerness. "create" is the default — the model writes what is not
    * there yet. "complete" only finishes what you started: it cannot know what
    * comes next while you are taking notes on something, so an ungrounded guess

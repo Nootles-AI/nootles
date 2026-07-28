@@ -541,3 +541,65 @@ body {
   border: 0;
 }
 }
+
+@layer components {
+/* ---- Reformat bar -------------------------------------------------------
+   Sits beside the block it would reshape. Metadata voice, like the mode
+   toggle, because it is chrome commenting on the document rather than part
+   of it. */
+.ab-reformat {
+  position: fixed;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: var(--radius);
+  background: var(--elevated);
+  border: 1px solid var(--border);
+  box-shadow:
+    0 1px 2px oklch(0.25 0.005 90 / 0.05),
+    0 6px 20px oklch(0.25 0.005 90 / 0.1);
+  animation: ab-menu-in var(--dur) var(--ease);
+}
+.ab-reformat-step {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 24px;
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  transition: background var(--dur-fast) var(--ease);
+}
+.ab-reformat-step:hover {
+  background: var(--hover);
+  color: var(--foreground);
+}
+.ab-reformat-count {
+  padding: 0 2px;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--text-meta);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.ab-reformat-apply {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-ui);
+  color: var(--foreground);
+  white-space: nowrap;
+  transition: background var(--dur-fast) var(--ease);
+}
+.ab-reformat-apply:hover {
+  background: var(--hover);
+}
+.ab-reformat-key {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--text-meta);
+  color: var(--muted);
+}
+}

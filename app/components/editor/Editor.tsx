@@ -21,6 +21,8 @@ import { InlineCodeButton } from "./InlineCodeButton";
 import { SubstrateHarness } from "./ai/SubstrateHarness";
 import { completionExtension } from "./ai/completionExtension";
 import { useTabCompletion, type PageMode } from "./ai/useTabCompletion";
+import { useReformat } from "./ai/useReformat";
+import { ReformatBar } from "./ai/ReformatBar";
 import "./editor.css";
 
 type EditorInstance = typeof schema.BlockNoteEditor;
@@ -136,6 +138,7 @@ export function Editor({
   });
 
   useTabCompletion(sync.editor, pageId, title, mode);
+  const reformat = useReformat(sync.editor);
 
   // First open of a page has no document yet — create an empty one seamlessly.
   // Guarded per-docId so StrictMode's double-invoke can't create twice.
@@ -174,6 +177,15 @@ export function Editor({
           }
         />
       </BlockNoteView>
+      {reformat.state && (
+        <ReformatBar
+          editor={editor}
+          state={reformat.state}
+          onAccept={reformat.accept}
+          onDismiss={reformat.dismiss}
+          onCycle={reformat.cycle}
+        />
+      )}
       {process.env.NODE_ENV !== "production" && pageId && (
         <SubstrateHarness editor={editor} pageId={pageId} />
       )}
