@@ -6,10 +6,13 @@ import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import { Editable } from "./Editable";
 import { Editor } from "./editor/Editor";
+import { ModeToggle } from "./ModeToggle";
+import type { PageMode } from "./editor/ai/useTabCompletion";
 
 export function PageSurface({ pageId }: { pageId: Id<"pages"> }) {
   const page = useQuery(api.pages.get, { pageId });
   const rename = useMutation(api.pages.rename);
+  const setMode = useMutation(api.pages.setMode);
 
   // Persist title edits on a debounce. The Editable owns the text; we only read
   // it on input and write through.
@@ -76,8 +79,19 @@ export function PageSurface({ pageId }: { pageId: Id<"pages"> }) {
           label="Page title"
           className="ab-bare-focus w-full text-[length:var(--text-title)] font-semibold tracking-[-0.02em] text-balance outline-none"
         />
-        <div className="mt-8">
-          <Editor docId={page.docId} pageId={pageId} title={page.title} />
+        <div className="mt-4 flex justify-end">
+          <ModeToggle
+            mode={(page.mode ?? "compose") as PageMode}
+            onChange={(mode) => setMode({ pageId, mode })}
+          />
+        </div>
+        <div className="mt-4">
+          <Editor
+            docId={page.docId}
+            pageId={pageId}
+            title={page.title}
+            mode={(page.mode ?? "compose") as PageMode}
+          />
         </div>
       </div>
     </main>

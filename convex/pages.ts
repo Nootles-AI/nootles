@@ -42,6 +42,16 @@ export const create = mutation({
   },
 });
 
+export const setMode = mutation({
+  args: {
+    pageId: v.id("pages"),
+    mode: v.union(v.literal("compose"), v.literal("transcribe")),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.pageId, { mode: args.mode });
+  },
+});
+
 export const rename = mutation({
   args: { pageId: v.id("pages"), title: v.string() },
   handler: async (ctx, args) => {

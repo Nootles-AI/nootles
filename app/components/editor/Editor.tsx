@@ -20,7 +20,7 @@ import { PageTitleProvider } from "./PageTitleContext";
 import { InlineCodeButton } from "./InlineCodeButton";
 import { SubstrateHarness } from "./ai/SubstrateHarness";
 import { completionExtension } from "./ai/completionExtension";
-import { useTabCompletion } from "./ai/useTabCompletion";
+import { useTabCompletion, type PageMode } from "./ai/useTabCompletion";
 import "./editor.css";
 
 type EditorInstance = typeof schema.BlockNoteEditor;
@@ -122,17 +122,20 @@ export function Editor({
   docId,
   pageId,
   title = "",
+  mode = "compose",
 }: {
   docId: string;
   pageId?: Id<"pages">;
   /** Emitted as <title> in the model's view of the document. */
   title?: string;
+  /** How eager ambient suggestions should be on this page. */
+  mode?: PageMode;
 }) {
   const sync = useBlockNoteSync<EditorInstance>(api.prosemirror, docId, {
     editorOptions: { schema, extensions: [completionExtension] },
   });
 
-  useTabCompletion(sync.editor, pageId, title);
+  useTabCompletion(sync.editor, pageId, title, mode);
 
   // First open of a page has no document yet — create an empty one seamlessly.
   // Guarded per-docId so StrictMode's double-invoke can't create twice.

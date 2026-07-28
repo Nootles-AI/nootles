@@ -12,7 +12,7 @@ import { applyBatch } from "@/app/lib/ai/apply";
 import { toDocHtml, toDocHtmlSplit } from "@/app/lib/ai/html/serialize";
 import { parseDocHtml } from "@/app/lib/ai/html/parse";
 import { compileDocHtml, layoutDiagram } from "@/app/lib/ai/html/compile";
-import { INLINE_TAGS } from "@/app/lib/ai/html/grammar";
+import { INLINE_TAGS, grounding } from "@/app/lib/ai/html/grammar";
 import type { Batch } from "@/convex/ai/operations";
 import {
   setGhost,
@@ -248,10 +248,23 @@ function describe(batch: Batch): { label: string; preview?: Preview } {
  * shown: bare text streams as ghost text, markup is compiled into ops and
  * offered as a previewed block. Tab accepts either.
  */
+export type PageMode = "compose" | "transcribe";
+
+/**
+ * Cut a completion to its first clause. Transcribe suggests a few words you
+ * were obviously about to type, never a paragraph you did not ask for.
+ */
+function firstClause(text: string, max: number): string {
+  const end = text.search(/[.!?;:](\s|$)/);
+  const cut = end === -1 ? text : text.slice(0, end + 1);
+  return cut.length > max ? cut.slice(0, max).replace(/\s+\S*$/, "") : cut;
+}
+
 export function useTabCompletion(
   editor: Editor | null | undefined,
   pageId?: Id<"pages"> | null,
   title = "",
+  mode: PageMode = "compose",
 ) {
   const appendBatch = useMutation(api.ai.opLog.appendBatch);
   const logSuggestion = useMutation(api.ai.suggestions.log);
@@ -313,10 +326,14 @@ export function useTabCompletion(
         title,
       });
       if (!split) return null;
-      // Enough written to complete from.
-      const visible = split.prefix.replace(/<[^>]*>/g, "").trim();
-      if (visible.length < AI.minContextChars) return null;
-      return { ...split, cursorBlockId, blocks };
+      // Enough written to complete from. Transcribe wants more before it
+      // speaks at all.
+      const bare = split.prefix.replace(/<[^>]*>/g, "");
+      const visible = bare.trim();
+      if (visible.length < AI.modes[mode].minContextChars) return null;
+      // Untrimmed: whether the caret sits mid-word decides what transcribe is
+      // willing to offer.
+      return { ...split, cursorBlockId, blocks, visible, midWord: /\w$/.test(bare) };
     };
 
     const run = async (mySeq: number) => {
@@ -326,6 +343,7 @@ export function useTabCompletion(
       abort = controller;
       const started = performance.now();
 
+      const limits = AI.modes[mode];
       let acc = "";
       let raw = "";
       let lastSig = "";
@@ -351,6 +369,8 @@ export function useTabCompletion(
           const bounded = firstBlock(raw);
           acc = bounded.text;
           if (bounded.done) break; // the block closed; nothing after it is ours
+          // Nobody wants a diagram proposed while someone is still talking.
+          if (!limits.allowBlocks && isStructural(acc)) return clear();
           if (isStructural(acc)) {
             // Draw what has arrived so far. The batch stays null until the
             // stream ends, so Tab queues rather than applying a half-diagram.
@@ -370,6 +390,8 @@ export function useTabCompletion(
             if (!headLitAt) headLitAt = performance.now();
             // Plain text to insert, raw markup to render.
             setGhost(view(), displayText(acc), true, acc);
+            // One clause is all transcribe ever offers; stop paying for more.
+            if (displayText(acc).length >= limits.maxChars) break;
           }
         }
       } catch {
@@ -378,6 +400,31 @@ export function useTabCompletion(
       // We have all we intend to use; stop paying for the rest of the stream.
       controller.abort();
       if (mySeq !== seq) return;
+
+      // Transcribe only keeps what could have been read off the page: a
+      // continuation reusing its vocabulary, or the ending of the word being
+      // typed. Ungrounded guesses measured 0.00 overlap and ran 2-3x longer,
+      // and during a meeting they are pure noise.
+      if (limits.minGrounding > 0) {
+        acc = firstClause(acc, limits.maxChars);
+        // Mid-word, the only genuinely inferable part is the rest of that word.
+        // The model volunteers a whole clause after it — "y window will need to
+        // be widened" — and judging that clause as a unit threw away the one
+        // piece that was certain. Take the word, drop the speculation.
+        if (ctx.midWord) {
+          const head = displayText(acc).match(/^\S+/)?.[0] ?? "";
+          acc = head;
+        }
+        const shown = displayText(acc);
+        if (!shown.trim()) return clear();
+        const finishesAWord = !/\s/.test(shown.trim());
+        if (
+          !finishesAWord &&
+          grounding(ctx.visible, shown) < limits.minGrounding
+        ) {
+          return clear();
+        }
+      }
 
       // Plain prose — no markup at all — is the fast path: the ghost text IS
       // the insertion, so accepting is a plain insertText.
@@ -461,7 +508,7 @@ export function useTabCompletion(
       defer(() => {
         if (mySeq === seq) clearSuggestion(view());
       });
-      timer = setTimeout(() => void run(mySeq), AI.timing.ghostDebounceMs);
+      timer = setTimeout(() => void run(mySeq), AI.modes[mode].debounceMs);
     };
 
     const unsubChange = editor.onChange(schedule, false);
@@ -474,5 +521,5 @@ export function useTabCompletion(
       abort?.abort();
       setActionApplyHandler(null);
     };
-  }, [editor, pageId, title]);
+  }, [editor, pageId, title, mode]);
 }

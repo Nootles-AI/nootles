@@ -91,6 +91,23 @@ export type DocNode =
       edges: Array<{ from: string; to: string; label?: string }>;
     };
 
+/**
+ * Content words shared between two texts, as a share of the completion's own.
+ *
+ * The cheap stand-in for "could this have been inferred from the page?".
+ * Codestral's FIM endpoint refuses logprobs ("Logprobs are not enabled for
+ * this model"), so there is no token confidence to read; overlap with what the
+ * page already says is the next best thing, and it separated invention from
+ * inference cleanly when measured.
+ */
+export function grounding(pageText: string, completion: string): number {
+  const words = (s: string) => s.toLowerCase().match(/[a-z][a-z0-9]{3,}/g) ?? [];
+  const have = new Set(words(pageText));
+  const w = words(completion);
+  if (!w.length) return 1; // punctuation or a word ending — nothing invented
+  return w.filter((x) => have.has(x)).length / w.length;
+}
+
 /** Inline marks ⇄ their standard HTML elements. `code` is INLINE code. */
 export const MARK_TAGS: Record<Mark, string> = {
   bold: "strong",

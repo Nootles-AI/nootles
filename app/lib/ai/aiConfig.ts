@@ -40,6 +40,44 @@ export const AI = {
    */
   minContextChars: 14,
 
+  /**
+   * Per-page eagerness. Compose is the default — you are writing from your own
+   * head and inference is the point. Transcribe is for notes taken ON
+   * something: the model cannot know what the speaker says next, so an
+   * ungrounded guess is pure noise no matter how good it is.
+   *
+   * Transcribe does not switch suggestions off. It raises the bar to things
+   * actually derivable from the page. Thresholds come from measured
+   * completions: genuinely inferable ones (finishing a series, finishing a
+   * word) came back at 7-25 characters and reused the page's own vocabulary,
+   * while invented ones ran 38-70 characters at ZERO overlap — and tended to
+   * parrot the preamble's example identifiers, the tell that the model had
+   * nothing to go on.
+   */
+  modes: {
+    compose: {
+      debounceMs: 350,
+      minContextChars: 14,
+      /** Blocks (code, math, diagram) may be proposed. */
+      allowBlocks: true,
+      maxChars: Infinity,
+      minGrounding: 0,
+    },
+    transcribe: {
+      debounceMs: 700,
+      minContextChars: 40,
+      allowBlocks: false,
+      /** One clause, never a paragraph. */
+      maxChars: 90,
+      /**
+       * Share of the completion's content words that already appear on the
+       * page. Invented continuations measured 0.00; a series continuation
+       * measured 1.00. Half is a deliberately blunt line between them.
+       */
+      minGrounding: 0.5,
+    },
+  },
+
   projection: {
     /** Blocks either side of the cursor included in the prompt. */
     window: 4,

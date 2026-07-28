@@ -438,3 +438,35 @@ body {
     scroll-behavior: auto !important;
   }
 }
+
+@layer components {
+/* ---- Page mode toggle ---------------------------------------------------
+   Metadata, so it speaks in the mono voice with the section labels and page
+   counts rather than competing with the document. */
+.ab-mode {
+  display: inline-flex;
+  gap: 1px;
+  padding: 2px;
+  border-radius: var(--radius);
+  background: var(--sunken);
+}
+.ab-mode-btn {
+  padding: 3px 9px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--text-meta);
+  letter-spacing: 0.02em;
+  color: var(--muted);
+  transition:
+    background var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
+}
+.ab-mode-btn:hover {
+  color: var(--foreground);
+}
+.ab-mode-btn.is-on {
+  background: var(--background);
+  color: var(--foreground);
+  box-shadow: 0 1px 2px oklch(0.25 0.005 90 / 0.06);
+}
+}

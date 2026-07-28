@@ -29,6 +29,18 @@ export default defineSchema({
     ownerId: v.string(),
     projectId: v.id("projects"),
     title: v.string(),
+    /**
+     * How eager ambient suggestions should be on this page.
+     *
+     * "compose" is the default: you are writing from your own head, so
+     * inference is the value. "transcribe" is for notes taken ON something —
+     * a meeting, a video — where the model cannot know what is said next, so
+     * every guess is noise. Transcribe does not silence it, it raises the bar
+     * to things genuinely derivable from what is already on the page.
+     *
+     * Optional so existing pages read as "compose" without a migration.
+     */
+    mode: v.optional(v.union(v.literal("compose"), v.literal("transcribe"))),
     // Manual ordering within the project sidebar.
     order: v.number(),
     // prosemirror-sync document id for this page's block flow.
