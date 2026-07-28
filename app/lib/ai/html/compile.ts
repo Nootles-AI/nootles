@@ -91,6 +91,7 @@ function updateOps(next: DocNode, current: DocNode): Operation[] {
 
   if (next.type === "canvas" && current.type === "canvas") {
     const currentById = new Map(current.nodes.filter((n) => n.id).map((n) => [n.id!, n]));
+    const place = layoutFor(next.nodes);
     const seen = new Set<string>();
 
     next.nodes.forEach((n, i) => {
@@ -117,8 +118,7 @@ function updateOps(next: DocNode, current: DocNode): Operation[] {
         blockId: id,
         tempId: n.id ?? `n${i}`,
         shape: n.shape,
-        // Absent coordinates mean "lay it out for me"; stack as a fallback.
-        position: { x: n.x ?? i * 220, y: n.y ?? 0 },
+        position: place(n, i),
         label: n.label,
       });
     });
@@ -179,6 +179,24 @@ function edgeResolver(
     add(`${i}`, id);
   });
   return (ref) => map.get(ref.trim()) ?? null;
+}
+
+/**
+ * Coordinates a model writes are not trustworthy: it commonly gives every node
+ * `x="0" y="0"`, or omits them. Stacked shapes look like a single shape, and the
+ * edges between them collapse to zero-length lines — which reads as "the diagram
+ * lost its edges". So we only honour coordinates when they actually separate the
+ * nodes, and otherwise lay them out ourselves.
+ */
+function layoutFor(
+  nodes: Array<{ x?: number; y?: number }>,
+): (n: { x?: number; y?: number }, i: number) => { x: number; y: number } {
+  const distinct = new Set(
+    nodes.map((n) => (n.x === undefined || n.y === undefined ? "?" : `${n.x},${n.y}`)),
+  );
+  const usable = !distinct.has("?") && distinct.size === nodes.length;
+  return (n, i) =>
+    usable ? { x: n.x!, y: n.y! } : { x: i * 220, y: 0 };
 }
 
 function newBlockFor(node: DocNode, tempId: string): NewBlock {
@@ -269,13 +287,14 @@ export function compileDocHtml(next: DocNode[], ctx: CompileContext): Batch {
     }
     if (node.type === "canvas") {
       const shapeId = (n: { id?: string }, i: number) => n.id ?? `${tempId}n${i}`;
+      const place = layoutFor(node.nodes);
       node.nodes.forEach((n, i) =>
         ops.push({
           kind: "addShape",
           blockId: tempId,
           tempId: shapeId(n, i),
           shape: n.shape,
-          position: { x: n.x ?? i * 220, y: n.y ?? 0 },
+          position: place(n, i),
           label: n.label,
         }),
       );
