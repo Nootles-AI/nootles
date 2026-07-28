@@ -4,10 +4,8 @@ import { useEffect, useRef } from "react";
 import { BlockNoteView } from "@blocknote/mantine";
 import "@blocknote/mantine/style.css";
 import {
-  blockTypeSelectItems,
   getDefaultReactSlashMenuItems,
   getFormattingToolbarItems,
-  useDictionary,
   FormattingToolbar,
   FormattingToolbarController,
   SuggestionMenuController,
@@ -28,19 +26,24 @@ import "./editor.css";
 type EditorInstance = typeof schema.BlockNoteEditor;
 
 /**
- * The default toolbar plus an inline-code button, sat next to the other text
- * styles rather than tacked on the end. BlockNote ships bold/italic/underline/
- * strike and stops there, but the document grammar has always had `<code>` —
- * so without this the AI could produce a mark the user could not.
+ * The default toolbar plus an inline-code button, next to the other text styles
+ * rather than tacked on the end. BlockNote ships bold/italic/underline/strike
+ * and stops there, but the document grammar has always had `<code>` — so
+ * without this the AI could produce a mark the user could not.
  *
- * `getFormattingToolbarItems` needs the block-type list passed in; supplying
- * children to FormattingToolbar bypasses the default that would otherwise do it,
- * and without them the "Paragraph" dropdown renders with nothing to choose.
+ * `getFormattingToolbarItems` is called with no argument, exactly as the stock
+ * toolbar does: BlockTypeSelect then falls back to its own dictionary-derived
+ * option list.
+ *
+ * Note the `formattingToolbar={false}` on BlockNoteView above. Without it the
+ * default UI mounts its own controller too, and two controllers sharing one
+ * extension store fight over the open state — clicking the block-type dropdown
+ * closed the whole toolbar. Same reason sideMenu and slashMenu are disabled.
  */
 function Toolbar() {
-  const items = getFormattingToolbarItems(blockTypeSelectItems(useDictionary()));
-  const i = items.findIndex((el) => el.key === "strikeStyleButton");
+  const items = getFormattingToolbarItems();
   const code = <InlineCodeButton key="codeStyleButton" />;
+  const i = items.findIndex((el) => el.key === "strikeStyleButton");
   return (
     <FormattingToolbar>
       {i === -1
@@ -49,6 +52,8 @@ function Toolbar() {
     </FormattingToolbar>
   );
 }
+
+
 
 function filterItems(
   items: DefaultReactSuggestionItem[],
@@ -152,6 +157,7 @@ export function Editor({
         className="ab-editor"
         sideMenu={false}
         slashMenu={false}
+        formattingToolbar={false}
       >
         <BlockSideMenu />
         <FormattingToolbarController formattingToolbar={Toolbar} />
