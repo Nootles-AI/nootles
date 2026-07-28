@@ -1,11 +1,13 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
-import { ChevronsUpDown, PanelLeft, Plus } from "./Icons";
+import { Check, ChevronsUpDown, PanelLeft, Plus, Settings } from "./Icons";
 import { Editable } from "./Editable";
+import { Menu, MenuItem } from "./Menu";
 
 type Props = {
   width: number;
@@ -33,7 +35,6 @@ export function Sidebar({
   const createPage = useMutation(api.pages.create);
   const renamePage = useMutation(api.pages.rename);
 
-  const [switcherOpen, setSwitcherOpen] = useState(false);
   const [editingId, setEditingId] = useState<Id<"pages"> | null>(null);
   const [draft, setDraft] = useState("");
 
@@ -50,32 +51,49 @@ export function Sidebar({
   return (
     <aside
       style={{ width }}
-      className="flex h-full shrink-0 flex-col border-r border-border bg-surface"
+      className="ab-panel border-r border-border"
+      aria-label="Pages"
     >
-      <div className="flex items-center justify-between px-3 py-2.5">
-        <span className="px-1 text-sm font-semibold tracking-tight">auto-board</span>
+      <div className="ab-panel-head">
+        <span className="ab-panel-title">auto-board</span>
         <button
           onClick={onCollapse}
           aria-label="Collapse sidebar"
-          className="rounded p-1 text-muted hover:bg-black/5 hover:text-foreground"
+          title="Collapse sidebar"
+          className="ab-icon-btn"
         >
           <PanelLeft />
         </button>
       </div>
 
       {/* Pages fill the sidebar; the project switcher is pinned at the bottom. */}
-      <div className="flex-1 overflow-y-auto px-2">
-        <SectionLabel
-          label="Pages"
-          onAdd={
-            selectedProjectId
-              ? () => createPage({ projectId: selectedProjectId }).then(onSelectPage)
-              : undefined
-          }
-        />
-        <ul className="mt-1 space-y-0.5">
+      <nav className="flex-1 overflow-y-auto px-2 pb-2">
+        <div className="ab-section-label">
+          <span>Pages</span>
+          {selectedProjectId && (
+            <button
+              onClick={() =>
+                createPage({ projectId: selectedProjectId }).then(onSelectPage)
+              }
+              aria-label="New page"
+              title="New page"
+              className="ab-icon-btn"
+            >
+              <Plus />
+            </button>
+          )}
+        </div>
+
+        <ul className="space-y-px">
           {!selectedProjectId && (
-            <li className="px-2 py-1 text-xs text-muted">No project selected</li>
+            <li className="px-2 py-1 text-[13px] text-muted">
+              No project selected
+            </li>
+          )}
+          {sortedPages?.length === 0 && (
+            <li className="px-2 py-1 text-[13px] text-muted">
+              No pages yet — press + to add one.
+            </li>
           )}
           {sortedPages?.map((pg) => (
             <li key={pg._id}>
@@ -83,6 +101,7 @@ export function Sidebar({
                 <Editable
                   autoFocus
                   value={draft}
+                  label="Page name"
                   onInput={setDraft}
                   onBlur={commitRename}
                   onKeyDown={(e) => {
@@ -95,8 +114,9 @@ export function Sidebar({
                       setEditingId(null);
                     }
                   }}
-                  // Visually identical to the selected row — no box, just a caret.
-                  className="w-full truncate rounded-md bg-black/5 px-2 py-1 text-sm font-medium outline-none"
+                  // Sits in the same box as the selected row — no field chrome,
+                  // just a caret, so renaming doesn't shift the row.
+                  className="ab-row is-selected w-full truncate"
                 />
               ) : (
                 <button
@@ -106,95 +126,69 @@ export function Sidebar({
                     setDraft(pg.title);
                   }}
                   title="Double-click to rename"
-                  className={`w-full truncate rounded-md px-2 py-1 text-left text-sm ${
-                    selectedPageId === pg._id
-                      ? "bg-black/5 font-medium"
-                      : "text-foreground/80 hover:bg-black/5"
+                  aria-current={selectedPageId === pg._id ? "page" : undefined}
+                  className={`ab-row w-full${
+                    selectedPageId === pg._id ? " is-selected" : ""
                   }`}
                 >
-                  {pg.title || "Untitled"}
+                  <span className="ab-row-label">{pg.title || "Untitled"}</span>
                 </button>
               )}
             </li>
           ))}
         </ul>
-      </div>
+      </nav>
 
-      {/* Project switcher */}
-      <div className="relative border-t border-border p-2">
-        {switcherOpen && (
-          <>
-            <div
-              className="fixed inset-0 z-10"
-              onClick={() => setSwitcherOpen(false)}
-            />
-            <div className="absolute bottom-full left-2 right-2 z-20 mb-1 overflow-hidden rounded-lg border border-border bg-background shadow-lg">
-              <ul className="max-h-64 overflow-y-auto py-1">
-                {projects?.map((p) => (
-                  <li key={p._id}>
-                    <button
-                      onClick={() => {
-                        onSelectProject(p._id);
-                        setSwitcherOpen(false);
-                      }}
-                      className={`w-full truncate px-3 py-1.5 text-left text-sm hover:bg-black/5 ${
-                        selectedProjectId === p._id ? "font-medium" : ""
-                      }`}
-                    >
-                      {p.title}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-              <button
+      <div className="border-t border-border p-2">
+        <Menu
+          label="Switch project"
+          side="top"
+          align="start"
+          trigger={(p) => (
+            <button {...p} className="ab-row w-full">
+              <span className="ab-row-label font-medium">
+                {currentProject?.title || "No project"}
+              </span>
+              <ChevronsUpDown className="shrink-0 text-muted" />
+            </button>
+          )}
+        >
+          {(close) => (
+            <>
+              {projects?.map((p) => (
+                <MenuItem
+                  key={p._id}
+                  onClick={() => {
+                    onSelectProject(p._id);
+                    close();
+                  }}
+                >
+                  <span className="ab-row-label">{p.title || "Untitled"}</span>
+                  {p._id === selectedProjectId && (
+                    <Check width={14} height={14} className="text-muted" />
+                  )}
+                </MenuItem>
+              ))}
+              <div className="ab-menu-sep" />
+              <MenuItem
                 onClick={() => {
                   createProject({ title: "Untitled project" }).then((id) => {
                     onSelectProject(id);
-                    setSwitcherOpen(false);
+                    close();
                   });
                 }}
-                className="flex w-full items-center gap-2 border-t border-border px-3 py-2 text-left text-sm text-muted hover:bg-black/5 hover:text-foreground"
               >
-                <Plus width={14} height={14} /> New project
-              </button>
-            </div>
-          </>
-        )}
-        <button
-          onClick={() => setSwitcherOpen((v) => !v)}
-          className="flex w-full items-center justify-between rounded-md px-2 py-1.5 hover:bg-black/5"
-        >
-          <span className="truncate text-sm font-medium">
-            {currentProject?.title ?? "No project"}
-          </span>
-          <ChevronsUpDown className="shrink-0 text-muted" />
-        </button>
+                <Plus width={14} height={14} />
+                New project
+              </MenuItem>
+              <Link href="/projects" role="menuitem" className="ab-menu-item">
+                <Settings width={14} height={14} />
+                Manage projects
+              </Link>
+            </>
+          )}
+        </Menu>
       </div>
     </aside>
-  );
-}
-
-function SectionLabel({
-  label,
-  onAdd,
-}: {
-  label: string;
-  onAdd?: () => void;
-}) {
-  return (
-    <div className="flex items-center justify-between px-2 pt-1">
-      <span className="text-xs font-medium uppercase tracking-wide text-muted">
-        {label}
-      </span>
-      {onAdd && (
-        <button
-          onClick={onAdd}
-          aria-label={`Add ${label}`}
-          className="rounded p-0.5 text-muted hover:bg-black/5 hover:text-foreground"
-        >
-          <Plus width={14} height={14} />
-        </button>
-      )}
-    </div>
   );
 }

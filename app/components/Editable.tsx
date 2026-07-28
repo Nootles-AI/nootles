@@ -17,6 +17,7 @@ export function Editable({
   placeholder,
   className,
   autoFocus,
+  label,
 }: {
   value: string;
   onInput: (text: string) => void;
@@ -25,6 +26,8 @@ export function Editable({
   placeholder?: string;
   className?: string;
   autoFocus?: boolean;
+  /** Accessible name — role="textbox" is unlabelled without it. */
+  label?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
 
@@ -54,6 +57,7 @@ export function Editable({
       contentEditable
       suppressContentEditableWarning
       role="textbox"
+      aria-label={label ?? placeholder}
       spellCheck={false}
       translate="no"
       data-placeholder={placeholder}

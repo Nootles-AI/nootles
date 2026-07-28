@@ -40,7 +40,11 @@ export function PageSurface({ pageId }: { pageId: Id<"pages"> }) {
 
   return (
     <main className="flex flex-1 flex-col overflow-auto">
-      <div className="mx-auto w-full max-w-3xl px-12 py-16">
+      {/* Anchored left, not centred. Centring measured the column against the
+          space the panels left over, so collapsing chat slid every line of text
+          sideways. A document surface should hold still, like a code editor.
+          The left gutter also houses BlockNote's drag handle and + button. */}
+      <div className="w-full max-w-3xl px-6 py-12 sm:px-12 sm:py-16">
         <Editable
           value={page.title}
           onInput={persistTitle}
@@ -51,7 +55,8 @@ export function PageSurface({ pageId }: { pageId: Id<"pages"> }) {
             }
           }}
           placeholder="Untitled"
-          className="w-full text-4xl font-bold tracking-tight outline-none"
+          label="Page title"
+          className="w-full text-4xl font-bold tracking-tight text-balance outline-none"
         />
         <div className="mt-6">
           <Editor docId={page.docId} pageId={pageId} />
