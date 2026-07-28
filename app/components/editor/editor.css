@@ -270,3 +270,39 @@
   opacity: 0.55;
   font-style: italic;
 }
+
+/* ---- Faded diagram preview (AI insertDiagram suggestion) ------------- */
+.ab-diagram-preview {
+  margin: 0.4rem 0;
+  border: 1px dashed var(--border, #e5e2ee);
+  border-radius: 6px;
+  background: #fbfaff;
+  opacity: 0.75;
+  overflow: hidden;
+  user-select: none;
+  pointer-events: none;
+}
+.ab-diagram-preview .ab-code-preview-head {
+  color: #6b6580;
+  border-bottom-color: var(--border, #e5e2ee);
+}
+.ab-diagram-preview-svg {
+  display: block;
+  width: 100%;
+  max-height: 220px;
+  padding: 0.5rem 0;
+}
+.ab-diagram-preview-shape {
+  fill: #fff;
+  stroke: #b0abbf;
+  stroke-width: 1.5;
+}
+.ab-diagram-preview-edge {
+  stroke: #b0abbf;
+  stroke-width: 1.5;
+}
+.ab-diagram-preview-text {
+  fill: #6b6580;
+  font-size: 15px;
+  font-family: inherit;
+}

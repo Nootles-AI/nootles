@@ -19,6 +19,7 @@ import {
 import "@xyflow/react/dist/style.css";
 import "./canvas.css";
 import { ShapeNode } from "./ShapeNode";
+import { CanvasAiContext } from "./canvasAi";
 import { CanvasToolbar } from "./CanvasToolbar";
 import { layoutCanvas } from "./autoLayout";
 import {
@@ -297,10 +298,24 @@ function CanvasInner({
   );
 }
 
-export function Canvas(props: { source: string; onChange: (source: string) => void }) {
+export function Canvas({
+  getDocContext,
+  ...props
+}: {
+  source: string;
+  onChange: (source: string) => void;
+  /** Surrounding page text, used to inform shape-label completion. */
+  getDocContext?: () => string;
+}) {
+  const ai = useMemo(
+    () => ({ getDocContext: getDocContext ?? (() => "") }),
+    [getDocContext],
+  );
   return (
     <ReactFlowProvider>
-      <CanvasInner {...props} />
+      <CanvasAiContext.Provider value={ai}>
+        <CanvasInner {...props} />
+      </CanvasAiContext.Provider>
     </ReactFlowProvider>
   );
 }

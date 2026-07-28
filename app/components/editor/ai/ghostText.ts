@@ -20,7 +20,19 @@ import type { Batch } from "@/convex/ai/operations";
  * it's delegated to a handler the action controller registers.
  */
 
-export type CodePreview = { language: string; code: string };
+export type PreviewNode = {
+  tempId: string;
+  shape: string;
+  label: string;
+  x: number;
+  y: number;
+};
+export type PreviewEdge = { source: string; target: string; label?: string };
+
+/** What a suggestion will produce, rendered faded before it is accepted. */
+export type Preview =
+  | { kind: "code"; language: string; code: string }
+  | { kind: "diagram"; nodes: PreviewNode[]; edges: PreviewEdge[] };
 
 export type Suggestion =
   | { kind: "ghost"; text: string; pos: number }
@@ -36,18 +48,25 @@ export type Suggestion =
       batch: Batch | null;
       // When present (insertCode), render a faded preview of the block below the
       // line instead of just a chip.
-      preview?: CodePreview;
+      preview?: Preview;
     }
   | null;
 
 const META = "ab-suggestion";
 export const ghostTextKey = new PluginKey<Suggestion>("ab-suggestion");
 
+// Tab pressed while content was still generating. Rather than do nothing (which
+// reads as broken) we remember the intent and apply the moment the batch lands.
+let armedAccept = false;
+
 type ActionApply = (batch: Batch) => void;
 let actionApplyHandler: ActionApply | null = null;
 /** The action controller registers how an accepted action batch is applied+logged. */
 export function setActionApplyHandler(fn: ActionApply | null) {
   actionApplyHandler = fn;
+  // Teardown (page switch / unmount): drop any queued Tab. Leaving it set would
+  // auto-apply the next page's first suggestion without the user asking.
+  if (!fn) armedAccept = false;
 }
 
 // Showing/clearing a suggestion is a meta-only transaction (no doc/selection
@@ -84,7 +103,106 @@ function chipWidget(label: string, pending: boolean) {
   };
 }
 
-function codePreviewWidget(preview: CodePreview) {
+const SVG_NS = "http://www.w3.org/2000/svg";
+// Match the canvas's real default shape sizes so the preview reads true.
+const NODE_W = 148;
+const NODE_H = 64;
+
+function svgEl(name: string, attrs: Record<string, string | number>) {
+  const el = document.createElementNS(SVG_NS, name);
+  for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, String(v));
+  return el;
+}
+
+/** A faded, to-scale sketch of the diagram that accepting would insert. */
+function diagramPreviewWidget(nodes: PreviewNode[], edges: PreviewEdge[]) {
+  return () => {
+    const wrap = document.createElement("div");
+    wrap.className = "ab-diagram-preview";
+    wrap.contentEditable = "false";
+
+    const head = document.createElement("div");
+    head.className = "ab-code-preview-head";
+    head.textContent = `⇥ Tab to insert · diagram (${nodes.length} shapes)`;
+    wrap.appendChild(head);
+
+    const minX = Math.min(...nodes.map((n) => n.x));
+    const minY = Math.min(...nodes.map((n) => n.y));
+    const maxX = Math.max(...nodes.map((n) => n.x)) + NODE_W;
+    const maxY = Math.max(...nodes.map((n) => n.y)) + NODE_H;
+    const pad = 24;
+    const svg = svgEl("svg", {
+      class: "ab-diagram-preview-svg",
+      viewBox: `${minX - pad} ${minY - pad} ${maxX - minX + pad * 2} ${maxY - minY + pad * 2}`,
+      preserveAspectRatio: "xMidYMid meet",
+    });
+
+    // Edges first so shapes sit on top.
+    const byId = new Map(nodes.map((n) => [n.tempId, n]));
+    for (const e of edges) {
+      const a = byId.get(e.source);
+      const b = byId.get(e.target);
+      if (!a || !b) continue;
+      svg.appendChild(
+        svgEl("line", {
+          class: "ab-diagram-preview-edge",
+          x1: a.x + NODE_W / 2,
+          y1: a.y + NODE_H / 2,
+          x2: b.x + NODE_W / 2,
+          y2: b.y + NODE_H / 2,
+        }),
+      );
+    }
+
+    for (const n of nodes) {
+      const cx = n.x + NODE_W / 2;
+      const cy = n.y + NODE_H / 2;
+      if (n.shape === "ellipse") {
+        svg.appendChild(
+          svgEl("ellipse", {
+            class: "ab-diagram-preview-shape",
+            cx,
+            cy,
+            rx: NODE_W / 2,
+            ry: NODE_H / 2,
+          }),
+        );
+      } else if (n.shape === "diamond") {
+        svg.appendChild(
+          svgEl("polygon", {
+            class: "ab-diagram-preview-shape",
+            points: `${cx},${n.y} ${n.x + NODE_W},${cy} ${cx},${n.y + NODE_H} ${n.x},${cy}`,
+          }),
+        );
+      } else if (n.shape !== "text") {
+        svg.appendChild(
+          svgEl("rect", {
+            class: "ab-diagram-preview-shape",
+            x: n.x,
+            y: n.y,
+            width: NODE_W,
+            height: NODE_H,
+            rx: 8,
+          }),
+        );
+      }
+      const text = svgEl("text", {
+        class: "ab-diagram-preview-text",
+        x: cx,
+        y: cy,
+        "text-anchor": "middle",
+        "dominant-baseline": "central",
+      });
+      text.textContent = n.label;
+      svg.appendChild(text);
+    }
+
+    wrap.appendChild(svg);
+    return wrap;
+  };
+}
+
+function codePreviewWidget(preview: { language: string; code: string }) {
   return () => {
     const wrap = document.createElement("div");
     wrap.className = "ab-code-preview";
@@ -133,8 +251,8 @@ export function ghostTextPlugin(): Plugin<Suggestion> {
           ]);
         }
 
-        // Action with a code preview: render a faded block just below the line,
-        // exactly where accepting will insert it.
+        // With a preview, render a faded version of the real thing just below
+        // the line — exactly where accepting will insert it.
         if (s.preview) {
           let after = s.pos;
           try {
@@ -142,10 +260,17 @@ export function ghostTextPlugin(): Plugin<Suggestion> {
           } catch {
             after = s.pos;
           }
+          const p = s.preview;
+          const widget =
+            p.kind === "code"
+              ? codePreviewWidget(p)
+              : diagramPreviewWidget(p.nodes, p.edges);
+          const sig =
+            p.kind === "code" ? p.code.length : `${p.nodes.length}-${p.edges.length}`;
           return DecorationSet.create(state.doc, [
-            Decoration.widget(after, codePreviewWidget(s.preview), {
+            Decoration.widget(after, widget, {
               side: 1,
-              key: `ab-preview-${after}-${s.preview.code.length}`,
+              key: `ab-preview-${after}-${p.kind}-${sig}`,
             }),
           ]);
         }
@@ -186,13 +311,22 @@ export function setAction(
   view: EditorView,
   label: string,
   batch: Batch | null,
-  preview?: CodePreview,
+  preview?: Preview,
 ) {
+  // The user already hit Tab while this was loading — honour it now rather than
+  // making them press it again.
+  if (batch && armedAccept) {
+    armedAccept = false;
+    if (ghostTextKey.getState(view.state)) metaDispatch(view, null);
+    actionApplyHandler?.(batch);
+    return;
+  }
   const pos = view.state.selection.from;
   metaDispatch(view, { kind: "action", label, pos, batch, preview });
 }
 
 export function clearSuggestion(view: EditorView) {
+  armedAccept = false;
   if (!ghostTextKey.getState(view.state)) return;
   metaDispatch(view, null);
 }
@@ -209,8 +343,12 @@ export function acceptSuggestion(view: EditorView): boolean {
     view.dispatch(tr);
     return true;
   }
-  // Content still generating — let Tab do its normal thing rather than swallow it.
-  if (!s.batch) return false;
+  // Content still generating: remember the Tab and apply as soon as it lands.
+  // Consuming the key (true) matters — falling through would indent instead.
+  if (!s.batch) {
+    armedAccept = true;
+    return true;
+  }
   // action: clear the chip, then hand the batch to the registered applier.
   const batch = s.batch;
   clearSuggestion(view);

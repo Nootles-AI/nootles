@@ -258,3 +258,12 @@
   margin: 0 4px;
   background: var(--border);
 }
+
+/* Ghost completion inside a shape label. */
+.ab-shape-ghost {
+  color: #a9a4b8;
+  opacity: 0.9;
+  user-select: none;
+  pointer-events: none;
+  white-space: pre;
+}

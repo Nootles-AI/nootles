@@ -23,7 +23,7 @@ import {
   clearSuggestion,
   isSuggestionDispatch,
   setActionApplyHandler,
-  type CodePreview,
+  type Preview,
 } from "./ghostText";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -37,7 +37,7 @@ type Ctx = {
   anchorText: string;
 };
 
-type Entry = { label: string; batch: Batch; preview?: CodePreview };
+type Entry = { label: string; batch: Batch; preview?: Preview };
 
 /**
  * The ambient suggestion lane, as a 3-tier filter.
@@ -136,7 +136,7 @@ export function useActionSuggestion(
       p: Proposal,
       ctx: Ctx,
       signal: AbortSignal,
-    ): Promise<{ action: Action; preview?: CodePreview } | null> => {
+    ): Promise<{ action: Action; preview?: Preview } | null> => {
       if (p.kind === "formatCode") {
         return {
           action: {
@@ -182,7 +182,7 @@ export function useActionSuggestion(
         if (!out?.code) return null;
         return {
           action: { kind: "insertCode", language: out.language, code: out.code },
-          preview: { language: out.language, code: out.code },
+          preview: { kind: "code", language: out.language, code: out.code },
         };
       }
 
@@ -204,12 +204,19 @@ export function useActionSuggestion(
           nodes: out.nodes,
           edges: out.edges ?? [],
         },
+        preview: {
+          kind: "diagram",
+          nodes: out.nodes,
+          edges: out.edges ?? [],
+        },
       };
     };
 
     const display = (e: Entry, kind: string, latencyMs: number) => {
-      setAction(view(), e.label, e.batch, e.preview);
+      // Claim `shown` first: if a Tab was queued while this was loading,
+      // setAction applies immediately and the handler needs to see it.
       shown = { kind, latencyMs };
+      setAction(view(), e.label, e.batch, e.preview);
     };
 
     const run = async (mySeq: number) => {
@@ -258,7 +265,7 @@ export function useActionSuggestion(
       setAction(view(), p.label, null);
 
       // Tier 2 — content.
-      let mat: { action: Action; preview?: CodePreview } | null = null;
+      let mat: { action: Action; preview?: Preview } | null = null;
       try {
         mat = await materialize(p, ctx, controller.signal);
       } catch {
@@ -311,8 +318,13 @@ export function useActionSuggestion(
         record(shown.kind, true, true, "dismissed", shown.latencyMs);
         shown = null;
       }
-      clearSuggestion(view());
       const mySeq = seq;
+      // We are inside the editor's transaction cycle here (onChange fires during
+      // updateState). Dispatching another transaction synchronously re-enters
+      // rendering and trips "Maximum update depth exceeded", so defer it.
+      defer(() => {
+        if (mySeq === seq) clearSuggestion(view());
+      });
       timer = setTimeout(() => void run(mySeq), AI.timing.actionDebounceMs);
     };
 

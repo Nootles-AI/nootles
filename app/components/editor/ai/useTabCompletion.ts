@@ -80,11 +80,19 @@ export function useTabCompletion(editor: Editor | null | undefined) {
       }
     };
 
+    let seq = 0;
     const schedule = () => {
       if (isSuggestionDispatch()) return; // our own suggestion transaction
       if (timer) clearTimeout(timer);
       abort?.abort();
-      clearSuggestion(editor.prosemirrorView);
+      seq++;
+      const mySeq = seq;
+      // onChange fires inside the editor's transaction cycle; dispatching another
+      // transaction synchronously from here re-enters rendering and trips
+      // "Maximum update depth exceeded". Defer it out of the cycle.
+      setTimeout(() => {
+        if (mySeq === seq) clearSuggestion(editor.prosemirrorView);
+      }, 0);
       timer = setTimeout(run, DEBOUNCE_MS);
     };
 
