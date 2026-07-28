@@ -27,15 +27,23 @@ import {
 type Editor = BlockNoteEditor<any, any, any>;
 
 /**
- * One example of each custom element, so a cold document still completes into
- * our grammar. Measured: given no example, the model falls back to standard
- * `<pre><code>`; given one, it adopts our elements exactly. A comment is the
- * natural place for it — the parser ignores comments entirely.
+ * One example of each element, so a cold document still completes into our
+ * grammar. A comment is the natural place for it — the parser ignores comments
+ * entirely.
+ *
+ * Measured, twice. With no example of the block elements the model falls back
+ * to standard `<pre><code>`; with one it adopts ours exactly. With no example
+ * of the INLINE marks it does something worse than omit them — it reaches for a
+ * block to do an inline job, emitting
+ * `<ab-code-block lang="python">open_connection</ab-code-block>` for a single
+ * identifier mid-sentence. With one example it writes `<code>` there instead,
+ * and will use several in a sentence where that reads better.
  */
 const PREAMBLE = `<!-- auto-board document. Blocks: <p>, <h2>, <ul><li>, <blockquote>,
 <ab-code-block lang="python">code</ab-code-block>,
 <ab-math-block><ab-math-line>a = 1</ab-math-line></ab-math-block>,
-<ab-diagram><ab-node shape="rectangle" x="0" y="0">Step</ab-node><ab-edge from="n1" to="n2"></ab-edge></ab-diagram> -->
+<ab-diagram><ab-node shape="rectangle" x="0" y="0">Step</ab-node><ab-edge from="n1" to="n2"></ab-edge></ab-diagram>
+Inline: <code>maxRetries</code>, <strong>bold</strong>, <em>italic</em>, <ab-math>x^2</ab-math> -->
 `;
 
 /** The first block-level tag in the text, or -1. Inline marks are skipped:

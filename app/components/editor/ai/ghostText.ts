@@ -178,8 +178,15 @@ function renderInline(source: string, into: HTMLElement) {
 function ghostWidget(source: string, live = false) {
   return () => {
     const span = document.createElement("span");
-    span.className = "ab-ghost ab-stream-head" + (live ? " is-live" : "");
+    span.className = "ab-ghost";
     renderInline(source, span);
+    // The head marks the end of a suggestion, so it only belongs where there is
+    // one. Whitespace-only and markup-only completions render no glyphs, and
+    // the bar was left sitting in an empty block on its own.
+    if (span.textContent?.trim()) {
+      span.classList.add("ab-stream-head");
+      if (live) span.classList.add("is-live");
+    }
     return span;
   };
 }
@@ -352,7 +359,7 @@ export function ghostTextPlugin(): Plugin<Suggestion> {
         if (!s) return null;
 
         if (s.kind === "ghost") {
-          if (!s.text) return null;
+          if (!s.text.trim()) return null;
           return DecorationSet.create(state.doc, [
             Decoration.widget(s.pos, ghostWidget(s.markup ?? s.text, s.streaming), {
               side: 1,
@@ -367,7 +374,7 @@ export function ghostTextPlugin(): Plugin<Suggestion> {
         // The prose half of the completion, shown at the caret exactly like a
         // plain ghost — the block preview below is the other half of the same
         // suggestion, and Tab accepts them together.
-        if (s.tail) {
+        if (s.tail?.trim()) {
           decos.push(
             // The tail is the live edge while a block is still generating.
             Decoration.widget(s.pos, ghostWidget(s.tail, !s.batch), {
@@ -453,7 +460,11 @@ export function setGhost(
 ) {
   if (ghostTextKey.getState(view.state)?.kind === "action") return;
   const pos = view.state.selection.from;
-  metaDispatch(view, text ? { kind: "ghost", text, pos, streaming, markup } : null);
+  // Whitespace alone is not a suggestion; showing it would leave a bare caret.
+  metaDispatch(
+    view,
+    text.trim() ? { kind: "ghost", text, pos, streaming, markup } : null,
+  );
 }
 
 /** Show an action suggestion (chip, or a faded preview) carrying its op batch. */
