@@ -1,22 +1,86 @@
 @import "tailwindcss";
 
-/* auto-board is light-mode only for v0. */
+/* auto-board is light-mode only for v0.
+
+   Geometry note: panel chrome uses a single 8px outer inset. Row buttons add
+   8px of their own padding and icon buttons are 32px boxes around a 16px glyph
+   — so text and glyphs both land 16px from the panel edge. Every alignment in
+   the shell derives from those two numbers; don't hand-tune per component. */
 :root {
+  /* Surfaces */
   --background: #ffffff;
-  --foreground: #1f2023;
   --surface: #fbfbfa;
+  --elevated: #ffffff;
+
+  /* Ink. `muted` is the floor for readable text (4.95:1 on surface); `faint`
+     is decorative only — dividers, disabled glyphs — never body copy. */
+  --foreground: #1f2023;
+  --muted: #6e6e69;
+  --faint: #a3a39e;
+
+  /* Lines */
   --border: #ececeb;
-  --muted: #8a8a86;
+  --border-strong: #d8d8d5;
+
+  /* Interaction states. Every hover in the app was an ad-hoc literal before
+     this; these are the only four values that should ever be reached for. */
+  --hover: rgb(0 0 0 / 0.045);
+  --active: rgb(0 0 0 / 0.075);
+  --selected: rgb(0 0 0 / 0.06);
+  /* Same states on the dark code surface. */
+  --hover-on-dark: rgb(255 255 255 / 0.07);
+  --active-on-dark: rgb(255 255 255 / 0.1);
   --accent: #2f6feb;
+  --accent-on-dark: #cbb8ff;
+  --danger: #b3563f;
+  --danger-on-dark: #e58f8f;
+
+  /* Control geometry */
+  --inset: 8px;
+  --control: 32px;
+  --control-sm: 24px;
+  --radius-sm: 4px;
+  --radius: 6px;
+  --radius-lg: 10px;
+
+  /* Motion. Product UI: state feedback, not choreography. */
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --dur-fast: 110ms;
+  --dur: 170ms;
+
+  /* Semantic z-index scale — never write a raw z-value. */
+  --z-base: 1;
+  --z-dropdown: 20;
+  --z-sticky: 30;
+  --z-overlay: 40;
+  --z-modal: 50;
+  --z-toast: 60;
+  --z-tooltip: 70;
+
+  /* Code surfaces (the code block and its previews share these). */
+  --code-bg: #262233;
+  --code-topbar: #221e2e;
+  --code-fg: #cfc9dd;
+  --code-fg-muted: #8f8aa3;
+  --code-border: #35304a;
+
+  /* Suggestion ink. Violet-tinted so it reads as "not yet real" while still
+     clearing AA — you have to be able to read what Tab will insert. */
+  --ghost: #787284;
+  --ghost-on-code: #918ba6;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-surface: var(--surface);
+  --color-elevated: var(--elevated);
   --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
   --color-muted: var(--muted);
+  --color-faint: var(--faint);
   --color-accent: var(--accent);
+  --color-danger: var(--danger);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
@@ -26,15 +90,196 @@ body {
   height: 100%;
 }
 
-/* Placeholder for empty contentEditable fields (see Editable.tsx). */
-[contenteditable][data-placeholder]:empty::before {
-  content: attr(data-placeholder);
-  color: color-mix(in srgb, var(--foreground) 25%, transparent);
-  pointer-events: none;
-}
-
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+}
+
+@layer base {
+/* Placeholder for empty contentEditable fields (see Editable.tsx). */
+[contenteditable][data-placeholder]:empty::before {
+  content: attr(data-placeholder);
+  color: var(--faint);
+  pointer-events: none;
+}
+
+/* ---- Focus -------------------------------------------------------------
+   One ring for the whole app. Several fields set `outline: none` for their
+   resting state; this puts a visible ring back for keyboard users, which is
+   the part that was missing entirely. */
+:where(a, button, [role="button"], [role="menuitem"], [contenteditable], [tabindex]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-radius: var(--radius-sm);
+}
+}
+
+@layer components {
+/* ---- Shell chrome primitives -------------------------------------------
+   These live in the `components` layer so Tailwind utilities always win. As
+   plain selectors defined after the Tailwind import they silently beat
+   `text-danger` and `w-auto` — same specificity, later in the file.
+
+   The sidebar and chat panel are the same object with different contents, so
+   they share these. Alignment lives here, once. */
+
+.ab-panel {
+  display: flex;
+  height: 100%;
+  flex-shrink: 0;
+  flex-direction: column;
+  background: var(--surface);
+}
+
+.ab-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: var(--inset);
+}
+
+.ab-panel-title {
+  /* 8px panel inset + 8px here = the same 16px as every row below it. */
+  padding-inline: var(--inset);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 32px box around a 16px glyph: the glyph edge lands at 16px, flush with row
+   text, and the target clears the 24px minimum with room to spare. */
+.ab-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--control);
+  height: var(--control);
+  flex-shrink: 0;
+  border-radius: var(--radius);
+  color: var(--muted);
+  transition:
+    background var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
+}
+.ab-icon-btn:hover {
+  background: var(--hover);
+  color: var(--foreground);
+}
+.ab-icon-btn:active {
+  background: var(--active);
+}
+.ab-icon-btn:disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+.ab-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: var(--control);
+  padding-inline: var(--inset);
+  border-radius: var(--radius);
+  text-align: left;
+  font-size: 13px;
+  color: color-mix(in srgb, var(--foreground) 82%, transparent);
+  transition:
+    background var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
+}
+.ab-row:hover {
+  background: var(--hover);
+  color: var(--foreground);
+}
+.ab-row:active {
+  background: var(--active);
+}
+.ab-row.is-selected {
+  background: var(--selected);
+  color: var(--foreground);
+  font-weight: 500;
+}
+.ab-row-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ab-section-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: var(--control);
+  padding-left: var(--inset);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* ---- Menus --------------------------------------------------------------
+   Rendered with position:fixed via a portal-free anchor so they can never be
+   clipped by a panel's overflow. */
+.ab-menu {
+  z-index: var(--z-dropdown);
+  min-width: 200px;
+  padding: 4px;
+  background: var(--elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow:
+    0 1px 2px rgb(20 15 40 / 0.04),
+    0 8px 28px rgb(20 15 40 / 0.12);
+  animation: ab-menu-in var(--dur) var(--ease);
+}
+@keyframes ab-menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.98);
+  }
+}
+.ab-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: var(--control);
+  padding-inline: var(--inset);
+  border-radius: var(--radius-sm);
+  text-align: left;
+  font-size: 13px;
+  color: var(--foreground);
+  transition: background var(--dur-fast) var(--ease);
+}
+.ab-menu-item:hover,
+.ab-menu-item:focus-visible {
+  background: var(--hover);
+}
+.ab-menu-item.is-danger:hover {
+  color: var(--danger);
+}
+.ab-menu-sep {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--border);
+}
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

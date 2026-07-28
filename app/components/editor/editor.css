@@ -25,10 +25,6 @@
 }
 
 .ab-code {
-  --code-bg: #262233;
-  --code-topbar: #221e2e;
-  --code-fg-muted: #8f8aa3;
-  --code-border: #35304a;
   width: 100%;
   margin: 4px 0;
   /* No overflow clipping so the language dropdown can expand past the bottom
@@ -41,8 +37,8 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 30px;
-  padding: 0 6px 0 8px;
+  height: 34px;
+  padding: 0 5px 0 8px;
   background: var(--code-topbar);
   border-bottom: 1px solid var(--code-border);
   font-size: 11px;
@@ -57,15 +53,21 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  min-height: var(--control-sm);
   padding: 2px 6px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   font-size: 11px;
   color: var(--code-fg-muted);
   font-family: var(--font-mono), ui-monospace, monospace;
 }
+.ab-code-lang-btn {
+  transition:
+    background var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
+}
 .ab-code-lang-btn:hover {
-  background: rgba(255, 255, 255, 0.06);
-  color: #cfc9dd;
+  background: var(--hover-on-dark);
+  color: var(--code-fg);
 }
 
 .ab-code-lang-menu {
@@ -80,36 +82,41 @@
   background: var(--code-topbar);
   border: 1px solid var(--code-border);
   border-radius: 6px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.35);
 }
 .ab-code-lang-menu button {
-  display: block;
+  display: flex;
+  align-items: center;
   width: 100%;
-  padding: 4px 8px;
+  min-height: var(--control-sm);
+  padding: 2px 8px;
   border-radius: 4px;
   text-align: left;
   font-size: 12px;
-  color: #cfc9dd;
+  color: var(--code-fg);
 }
 .ab-code-lang-menu button:hover {
-  background: rgba(255, 255, 255, 0.07);
+  background: var(--hover-on-dark);
 }
 .ab-code-lang-menu button.is-active {
-  color: #cbb8ff;
+  color: var(--accent-on-dark);
 }
 
 .ab-code-delete {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
-  border-radius: 4px;
+  width: var(--control-sm);
+  height: var(--control-sm);
+  border-radius: var(--radius-sm);
   color: var(--code-fg-muted);
+  transition:
+    background var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
 }
 .ab-code-delete:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: #e58f8f;
+  background: var(--active-on-dark);
+  color: var(--danger-on-dark);
 }
 
 .ab-cm .cm-editor {
@@ -127,11 +134,11 @@
   transition: background 0.12s ease;
 }
 .ab-math-inline:hover {
-  background: rgba(0, 0, 0, 0.05);
+  background: var(--hover);
 }
 .ab-math-inline.is-editing {
   display: inline-block;
-  background: rgba(0, 0, 0, 0.04);
+  background: var(--selected);
 }
 .ab-math-placeholder {
   color: var(--muted);
@@ -152,7 +159,7 @@
   /* Neutral (not blue) caret / selection to match the light document. */
   --caret-color: var(--foreground);
   --primary-color: var(--foreground);
-  --selection-background-color: rgba(0, 0, 0, 0.12);
+  --selection-background-color: rgb(0 0 0 / 0.12);
   --contains-highlight-background-color: transparent;
   --smart-fence-color: var(--muted);
 }
@@ -164,6 +171,7 @@
 
 /* ---- Reactive math block ------------------------------------------------ */
 .ab-mathblock {
+  transition: border-color var(--dur) var(--ease);
   margin: 6px 0;
   padding: 8px 12px;
   border: 1px solid var(--border);
@@ -204,7 +212,7 @@
 }
 .ab-mathblock-error {
   flex: 0 0 auto;
-  color: #b3563f;
+  color: var(--danger);
   font-size: 0.82em;
   font-style: italic;
   white-space: nowrap;
@@ -212,8 +220,7 @@
 
 /* ---- Ghost text (AI tab completion) --------------------------------- */
 .ab-ghost {
-  color: #b0abbf;
-  opacity: 0.85;
+  color: var(--ghost);
   pointer-events: none;
   user-select: none;
   white-space: pre-wrap;
@@ -225,10 +232,10 @@
   align-items: center;
   margin-left: 0.4em;
   padding: 0.05em 0.5em;
-  border: 1px solid var(--border, #e5e2ee);
+  border: 1px solid var(--border);
   border-radius: 9999px;
-  background: #f6f4fb;
-  color: #6b6580;
+  background: var(--surface);
+  color: var(--muted);
   font-size: 0.8em;
   font-weight: 500;
   white-space: nowrap;
@@ -240,9 +247,9 @@
 /* ---- Faded code-block preview (AI insertCode suggestion) ------------ */
 .ab-code-preview {
   margin: 0.4rem 0;
-  border: 1px dashed var(--code-border, #35304a);
+  border: 1px dashed var(--code-border);
   border-radius: 4px;
-  background: color-mix(in srgb, var(--code-bg, #262233) 55%, transparent);
+  background: color-mix(in srgb, var(--code-bg) 62%, transparent);
   opacity: 0.7;
   overflow: hidden;
   user-select: none;
@@ -250,15 +257,15 @@
 }
 .ab-code-preview-head {
   padding: 0.2rem 0.6rem;
-  border-bottom: 1px dashed var(--code-border, #35304a);
-  color: var(--code-fg-muted, #8f8aa3);
+  border-bottom: 1px dashed var(--code-border);
+  color: var(--code-fg-muted);
   font-size: 0.72rem;
   font-weight: 500;
 }
 .ab-code-preview-body {
   margin: 0;
   padding: 0.5rem 0.7rem;
-  color: #cfc9dd;
+  color: var(--code-fg);
   font-family: var(--font-mono), ui-monospace, monospace;
   font-size: 0.82rem;
   line-height: 1.5;
@@ -274,17 +281,17 @@
 /* ---- Faded diagram preview (AI insertDiagram suggestion) ------------- */
 .ab-diagram-preview {
   margin: 0.4rem 0;
-  border: 1px dashed var(--border, #e5e2ee);
-  border-radius: 6px;
-  background: #fbfaff;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
   opacity: 0.75;
   overflow: hidden;
   user-select: none;
   pointer-events: none;
 }
 .ab-diagram-preview .ab-code-preview-head {
-  color: #6b6580;
-  border-bottom-color: var(--border, #e5e2ee);
+  color: var(--muted);
+  border-bottom-color: var(--border);
 }
 .ab-diagram-preview-svg {
   display: block;
@@ -293,24 +300,23 @@
   padding: 0.4rem 0;
 }
 .ab-diagram-preview-shape {
-  fill: #fff;
-  stroke: #b0abbf;
+  fill: var(--background);
+  stroke: var(--faint);
   stroke-width: 1.5;
 }
 .ab-diagram-preview-edge {
-  stroke: #b0abbf;
+  stroke: var(--faint);
   stroke-width: 1.5;
 }
 .ab-diagram-preview-text {
-  fill: #6b6580;
+  fill: var(--muted);
   font-size: 15px;
   font-family: inherit;
 }
 
 /* Ghost completion inside a code block. */
 .ab-cm-ghost {
-  color: #6f6a80;
-  opacity: 0.85;
+  color: var(--ghost-on-code);
   white-space: pre;
   pointer-events: none;
   user-select: none;
@@ -318,8 +324,8 @@
 
 /* Completion showing inside a math block: the rest of the line, and new lines. */
 .ab-mathblock-ghost {
-  color: #6f6a80;
-  opacity: 0.55;
+  color: var(--ghost);
+  opacity: 0.8;
   pointer-events: none;
   user-select: none;
 }
@@ -328,18 +334,18 @@
 .ab-math-preview {
   margin: 0.4rem 0;
   padding-bottom: 0.35rem;
-  border: 1px dashed #e2e0e8;
-  border-radius: 4px;
-  background: #fbfbfd;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
   opacity: 0.7;
   user-select: none;
   pointer-events: none;
 }
 .ab-math-preview .ab-code-preview-head {
-  border-bottom-color: #e2e0e8;
-  color: #8f8aa3;
+  border-bottom-color: var(--border);
+  color: var(--muted);
 }
 .ab-math-preview-row {
   padding: 0.3rem 0.75rem 0;
-  color: #6f6a80;
+  color: var(--ghost);
 }
