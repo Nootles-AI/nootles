@@ -130,21 +130,31 @@ export function useReformat(editor: Editor | null | undefined) {
       const end = blocks.findIndex((b) => b.id === left);
       if (end === -1) return;
 
-      // Walk back over consecutive non-empty paragraphs. A writer presses Enter
-      // between the lines of one code snippet or table, so the thing being
-      // reshaped is usually a run of blocks rather than a single one. An empty
-      // paragraph or any other block type ends the run — those are the writer
-      // saying "this bit is finished".
+      // Walk back over the paragraphs that belong with this one. Enter starts a
+      // new block, so one snippet or table arrives as several — and people put a
+      // blank line between rows, so a single empty paragraph is spacing, not a
+      // boundary. Two in a row, or any other block type, is the writer saying
+      // this bit is finished.
       const isProse = (b: AnyBlock | undefined) =>
         !!b && b.type === "paragraph" && !!blockText(b).trim();
+      const isBlank = (b: AnyBlock | undefined) =>
+        !!b && b.type === "paragraph" && !blockText(b).trim();
       if (!isProse(blocks[end])) return;
+
       let start = end;
-      while (
-        start > 0 &&
-        end - start + 1 < AI.reformat.maxBlocks &&
-        isProse(blocks[start - 1])
-      ) {
-        start--;
+      let sawBlank = false;
+      for (let i = end - 1; i >= 0 && end - i < AI.reformat.maxBlocks; i--) {
+        if (isProse(blocks[i])) {
+          start = i;
+          sawBlank = false;
+          continue;
+        }
+        // One blank is tolerated and swept up with the run; a second ends it.
+        if (isBlank(blocks[i]) && !sawBlank) {
+          sawBlank = true;
+          continue;
+        }
+        break;
       }
 
       const runBlocks = blocks.slice(start, end + 1);

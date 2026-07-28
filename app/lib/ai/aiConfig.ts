@@ -57,8 +57,13 @@ export const AI = {
     maxCandidates: 3,
     /** After the caret leaves a block, before asking. */
     debounceMs: 500,
-    /** Runs shorter than this are not worth reshaping. */
-    minChars: 24,
+    /**
+     * Runs shorter than this are not worth asking about. Deliberately low: the
+     * model declines on its own far more reliably than a character count can,
+     * and a compact table ("i | i + 2 / 0 | 2 / 1 | 3") is only 27 characters —
+     * a stricter gate threw the clearest cases away before ever asking.
+     */
+    minChars: 12,
     /**
      * How many consecutive paragraphs to consider as one thing. Pressing Enter
      * starts a new block, so a pasted snippet or a typed table arrives as
