@@ -13,42 +13,21 @@ import { parseDocHtml } from "@/app/lib/ai/html/parse";
 import { compileDocHtml } from "@/app/lib/ai/html/compile";
 
 /**
- * Dev-only harness that proves the AI substrate WITHOUT any model: author an op
- * batch as JSON → validate → apply to the live editor, watch the projection
- * update, and snapshot / restore checkpoints. This is the gate the substrate has
- * to pass before an LLM is wired in (the model will just produce the same batch
- * JSON this panel lets you hand-author).
+ * Dev-only harness for the AI substrate, with no model involved.
+ *
+ * The document is shown in the auto-board HTML language — the one surface the
+ * AI reads and writes — and the pane is editable, so an edit runs exactly the
+ * path a completion takes: parse → compile → validate → apply.
+ *
+ * Ops are deliberately an OUTPUT only. They're the intermediate representation
+ * everything compiles down to, not an authoring surface, so there's no way to
+ * hand-write them here — that would imply a second modality that doesn't exist.
  */
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Editor = BlockNoteEditor<any, any, any>;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyPartialBlock = PartialBlock<any, any, any>;
-
-const EXAMPLE = `{
-  "ops": [
-    { "kind": "insertBlocks", "at": { "at": "docEnd" }, "blocks": [
-      { "tempId": "h", "type": "heading", "props": { "level": 2 },
-        "content": [{ "type": "text", "text": "AI substrate demo" }] },
-      { "tempId": "p", "type": "paragraph", "content": [
-        { "type": "text", "text": "Energy " },
-        { "type": "math", "latex": "E=mc^2" },
-        { "type": "text", "text": " is famous.", "marks": ["italic"] }
-      ] },
-      { "tempId": "code", "type": "codeBlock",
-        "props": { "language": "typescript", "code": "const x = 42;" } },
-      { "tempId": "math", "type": "mathBlock",
-        "props": { "source": "a = 3\\nb = 4\\nc = a + b" } },
-      { "tempId": "cv", "type": "canvas" }
-    ] },
-    { "kind": "addShape", "blockId": "cv", "tempId": "s1", "shape": "rectangle",
-      "position": { "x": 40, "y": 60 }, "label": "Start" },
-    { "kind": "addShape", "blockId": "cv", "tempId": "s2", "shape": "diamond",
-      "position": { "x": 280, "y": 60 }, "label": "Decision" },
-    { "kind": "connectEdge", "blockId": "cv", "tempId": "e1",
-      "source": { "tempId": "s1" }, "target": { "tempId": "s2" }, "label": "go" }
-  ]
-}`;
 
 export function SubstrateHarness({
   editor,
@@ -58,7 +37,6 @@ export function SubstrateHarness({
   pageId: Id<"pages">;
 }) {
   const [open, setOpen] = useState(false);
-  const [text, setText] = useState(EXAMPLE);
   const [log, setLog] = useState<{ ok: boolean; msg: string } | null>(null);
   const [tick, setTick] = useState(0);
   /** Null while mirroring the live document; a string once you start editing. */
@@ -70,71 +48,8 @@ export function SubstrateHarness({
 
   const refresh = useCallback(() => setTick((t) => t + 1), []);
 
-  const projection = useMemo(() => {
-    void tick; // recompute when we bump the tick after a mutation
-    try {
-      return project(editor.document as unknown as AnyBlock[]).text;
-    } catch (e) {
-      return `projection error: ${String(e)}`;
-    }
-  }, [editor, tick]);
-
-  const parseInput = (): unknown | null => {
-    try {
-      return JSON.parse(text);
-    } catch (e) {
-      setLog({ ok: false, msg: `JSON parse error: ${String(e)}` });
-      return null;
-    }
-  };
-
-  const onValidate = () => {
-    const input = parseInput();
-    if (input === null) return;
-    const index = project(editor.document as unknown as AnyBlock[]).index;
-    const res = resolveBatch(input, index);
-    setLog(
-      res.ok
-        ? { ok: true, msg: `Valid — ${res.batch.ops.length} op(s) ready.` }
-        : { ok: false, msg: `Rejected:\n- ${res.errors.join("\n- ")}` },
-    );
-  };
-
-  const onApply = async () => {
-    const input = parseInput();
-    if (input === null) return;
-    const index = project(editor.document as unknown as AnyBlock[]).index;
-    const res = resolveBatch(input, index);
-    if (!res.ok) {
-      setLog({ ok: false, msg: `Rejected (nothing applied):\n- ${res.errors.join("\n- ")}` });
-      return;
-    }
-    const chatPromptId = crypto.randomUUID();
-    // Checkpoint before mutating, so a bad batch is one restore away.
-    await createCheckpoint({
-      pageId,
-      chatPromptId,
-      docSnapshot: editor.document,
-    });
-    const result = applyBatch(editor, res.batch);
-    await appendBatch({
-      pageId,
-      chatPromptId,
-      source: "ai",
-      ops: res.batch.ops,
-    });
-    refresh();
-    setLog({
-      ok: true,
-      msg: `Applied ${res.batch.ops.length} op(s). Minted ids: ${JSON.stringify(result)}`,
-    });
-  };
-
-  // The document in the auto-board HTML language — what the model reads and
-  // writes. Editing it here exercises the whole path: parse → compile → validate
-  // → apply, which is exactly what a completion will do.
   const currentHtml = useMemo(() => {
-    void tick;
+    void tick; // recompute after a mutation
     try {
       return toDocHtml(editor.document as unknown as AnyBlock[]);
     } catch (e) {
@@ -198,10 +113,8 @@ export function SubstrateHarness({
   };
 
   const onRestore = (snapshot: unknown) => {
-    editor.replaceBlocks(
-      editor.document,
-      snapshot as AnyPartialBlock[],
-    );
+    editor.replaceBlocks(editor.document, snapshot as AnyPartialBlock[]);
+    setHtmlDraft(null);
     refresh();
     setLog({ ok: true, msg: "Restored to checkpoint." });
   };
@@ -232,26 +145,34 @@ export function SubstrateHarness({
       </div>
 
       <div className="flex flex-col gap-2 overflow-y-auto p-3 text-xs">
-        <label className="font-medium text-muted">Op batch (JSON)</label>
+        <label className="flex items-center justify-between font-medium text-muted">
+          <span>
+            Document HTML{" "}
+            {htmlDraft !== null && (
+              <span className="text-[10px] font-normal text-amber-700">(edited)</span>
+            )}
+          </span>
+          <span className="text-[10px] font-normal">
+            id present → update · absent → insert
+          </span>
+        </label>
         <textarea
-          value={text}
-          onChange={(e) => setText(e.target.value)}
+          value={htmlValue}
+          onChange={(e) => setHtmlDraft(e.target.value)}
           spellCheck={false}
-          className="h-48 w-full resize-y rounded border border-border bg-surface p-2 font-mono text-[11px] leading-snug outline-none"
+          className="h-72 w-full resize-y rounded border border-border bg-surface p-2 font-mono text-[11px] leading-snug outline-none"
         />
         <div className="flex flex-wrap gap-2">
-          <HarnessBtn onClick={onValidate}>Validate</HarnessBtn>
-          <HarnessBtn onClick={onApply} primary>
-            Apply
+          <HarnessBtn onClick={onApplyHtml} primary>
+            Apply HTML
           </HarnessBtn>
+          <HarnessBtn onClick={() => setHtmlDraft(null)}>Reload from doc</HarnessBtn>
           <HarnessBtn onClick={onSnapshot}>Snapshot</HarnessBtn>
-          <HarnessBtn onClick={() => setText(EXAMPLE)}>Reset example</HarnessBtn>
-          <HarnessBtn onClick={refresh}>Refresh projection</HarnessBtn>
         </div>
 
         {log && (
           <pre
-            className={`whitespace-pre-wrap rounded border p-2 text-[11px] ${
+            className={`max-h-64 overflow-auto whitespace-pre-wrap rounded border p-2 text-[11px] ${
               log.ok
                 ? "border-green-200 bg-green-50 text-green-800"
                 : "border-red-200 bg-red-50 text-red-800"
@@ -260,35 +181,6 @@ export function SubstrateHarness({
             {log.msg}
           </pre>
         )}
-
-        <label className="mt-1 flex items-center justify-between font-medium text-muted">
-          <span>
-            Document HTML{" "}
-            {htmlDraft !== null && (
-              <span className="font-normal text-[10px] text-amber-700">(edited)</span>
-            )}
-          </span>
-          <span className="font-normal text-[10px]">
-            id present → update · absent → insert
-          </span>
-        </label>
-        <textarea
-          value={htmlValue}
-          onChange={(e) => setHtmlDraft(e.target.value)}
-          spellCheck={false}
-          className="h-56 w-full resize-y rounded border border-border bg-surface p-2 font-mono text-[11px] leading-snug outline-none"
-        />
-        <div className="flex flex-wrap gap-2">
-          <HarnessBtn onClick={onApplyHtml} primary>
-            Apply HTML
-          </HarnessBtn>
-          <HarnessBtn onClick={() => setHtmlDraft(null)}>Reload from doc</HarnessBtn>
-        </div>
-
-        <label className="mt-1 font-medium text-muted">Projection (legacy)</label>
-        <pre className="max-h-32 overflow-auto whitespace-pre-wrap rounded border border-border bg-surface p-2 font-mono text-[11px] leading-snug">
-          {projection || "(empty document)"}
-        </pre>
 
         <label className="mt-1 font-medium text-muted">
           Checkpoints ({checkpoints?.length ?? 0})
@@ -303,7 +195,8 @@ export function SubstrateHarness({
                 className="flex items-center justify-between rounded border border-border px-2 py-1"
               >
                 <span className="truncate text-muted">
-                  {new Date(c.createdAt).toLocaleTimeString()} · {c.chatPromptId.slice(0, 8)}
+                  {new Date(c.createdAt).toLocaleTimeString()} ·{" "}
+                  {c.chatPromptId.slice(0, 8)}
                 </span>
                 <button
                   onClick={() => onRestore(c.docSnapshot)}
