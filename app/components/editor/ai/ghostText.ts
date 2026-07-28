@@ -20,9 +20,24 @@ import type { Batch } from "@/convex/ai/operations";
  * it's delegated to a handler the action controller registers.
  */
 
+export type CodePreview = { language: string; code: string };
+
 export type Suggestion =
   | { kind: "ghost"; text: string; pos: number }
-  | { kind: "action"; label: string; pos: number; batch: Batch }
+  | {
+      kind: "action";
+      label: string;
+      pos: number;
+      /**
+       * Null while Tier 2 content is still being generated: the chip shows
+       * immediately (so the suggestion feels instant) but Tab stays inert until
+       * there is something real to apply.
+       */
+      batch: Batch | null;
+      // When present (insertCode), render a faded preview of the block below the
+      // line instead of just a chip.
+      preview?: CodePreview;
+    }
   | null;
 
 const META = "ab-suggestion";
@@ -60,12 +75,29 @@ function ghostWidget(text: string) {
   };
 }
 
-function chipWidget(label: string) {
+function chipWidget(label: string, pending: boolean) {
   return () => {
     const span = document.createElement("span");
-    span.className = "ab-action-chip";
-    span.textContent = `⇥ ${label}`;
+    span.className = pending ? "ab-action-chip is-pending" : "ab-action-chip";
+    span.textContent = pending ? `${label}…` : `⇥ ${label}`;
     return span;
+  };
+}
+
+function codePreviewWidget(preview: CodePreview) {
+  return () => {
+    const wrap = document.createElement("div");
+    wrap.className = "ab-code-preview";
+    wrap.contentEditable = "false";
+    const head = document.createElement("div");
+    head.className = "ab-code-preview-head";
+    head.textContent = `⇥ Tab to insert · ${preview.language}`;
+    const body = document.createElement("pre");
+    body.className = "ab-code-preview-body";
+    body.textContent = preview.code;
+    wrap.appendChild(head);
+    wrap.appendChild(body);
+    return wrap;
   };
 }
 
@@ -89,19 +121,43 @@ export function ghostTextPlugin(): Plugin<Suggestion> {
       decorations(state): DecorationSet | null {
         const s = ghostTextKey.getState(state);
         if (!s) return null;
-        const dom =
-          s.kind === "ghost"
-            ? s.text
-              ? ghostWidget(s.text)
-              : null
-            : chipWidget(s.label);
-        if (!dom) return null;
-        const deco = Decoration.widget(s.pos, dom, {
-          side: 1,
-          ignoreSelection: true,
-          key: `ab-sugg-${s.pos}-${s.kind === "ghost" ? s.text : s.label}`,
-        });
-        return DecorationSet.create(state.doc, [deco]);
+
+        if (s.kind === "ghost") {
+          if (!s.text) return null;
+          return DecorationSet.create(state.doc, [
+            Decoration.widget(s.pos, ghostWidget(s.text), {
+              side: 1,
+              ignoreSelection: true,
+              key: `ab-ghost-${s.pos}-${s.text}`,
+            }),
+          ]);
+        }
+
+        // Action with a code preview: render a faded block just below the line,
+        // exactly where accepting will insert it.
+        if (s.preview) {
+          let after = s.pos;
+          try {
+            after = state.doc.resolve(s.pos).after();
+          } catch {
+            after = s.pos;
+          }
+          return DecorationSet.create(state.doc, [
+            Decoration.widget(after, codePreviewWidget(s.preview), {
+              side: 1,
+              key: `ab-preview-${after}-${s.preview.code.length}`,
+            }),
+          ]);
+        }
+
+        const pending = s.batch === null;
+        return DecorationSet.create(state.doc, [
+          Decoration.widget(s.pos, chipWidget(s.label, pending), {
+            side: 1,
+            ignoreSelection: true,
+            key: `ab-chip-${s.pos}-${s.label}-${pending ? "p" : "r"}`,
+          }),
+        ]);
       },
     },
   });
@@ -125,10 +181,15 @@ export function setGhost(view: EditorView, text: string) {
   metaDispatch(view, text ? { kind: "ghost", text, pos } : null);
 }
 
-/** Show an action hint chip at the caret, carrying its validated op batch. */
-export function setAction(view: EditorView, label: string, batch: Batch) {
+/** Show an action suggestion (chip, or a faded preview) carrying its op batch. */
+export function setAction(
+  view: EditorView,
+  label: string,
+  batch: Batch | null,
+  preview?: CodePreview,
+) {
   const pos = view.state.selection.from;
-  metaDispatch(view, { kind: "action", label, pos, batch });
+  metaDispatch(view, { kind: "action", label, pos, batch, preview });
 }
 
 export function clearSuggestion(view: EditorView) {
@@ -148,8 +209,11 @@ export function acceptSuggestion(view: EditorView): boolean {
     view.dispatch(tr);
     return true;
   }
+  // Content still generating — let Tab do its normal thing rather than swallow it.
+  if (!s.batch) return false;
   // action: clear the chip, then hand the batch to the registered applier.
+  const batch = s.batch;
   clearSuggestion(view);
-  actionApplyHandler?.(s.batch);
+  actionApplyHandler?.(batch);
   return true;
 }

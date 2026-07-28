@@ -5,8 +5,9 @@
  * where a code model writes the code).
  */
 
+import { AI } from "./aiConfig";
+
 const FIM_URL = "https://api.mistral.ai/v1/fim/completions";
-const MODEL = "codestral-2508";
 const MAX_BEFORE = 4000;
 const MAX_AFTER = 1000;
 
@@ -33,10 +34,10 @@ async function fimFetch(
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: MODEL,
+      model: AI.fim.model,
       prompt,
       suffix,
-      max_tokens: opts.maxTokens ?? 32,
+      max_tokens: opts.maxTokens ?? AI.fim.ghostMaxTokens,
       temperature: 0.2,
       stop: opts.stop ?? ["\n\n", "\n"],
       stream,

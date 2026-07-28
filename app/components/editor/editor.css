@@ -236,3 +236,37 @@
   pointer-events: none;
   vertical-align: baseline;
 }
+
+/* ---- Faded code-block preview (AI insertCode suggestion) ------------ */
+.ab-code-preview {
+  margin: 0.4rem 0;
+  border: 1px dashed var(--code-border, #35304a);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--code-bg, #262233) 55%, transparent);
+  opacity: 0.7;
+  overflow: hidden;
+  user-select: none;
+  pointer-events: none;
+}
+.ab-code-preview-head {
+  padding: 0.2rem 0.6rem;
+  border-bottom: 1px dashed var(--code-border, #35304a);
+  color: var(--code-fg-muted, #8f8aa3);
+  font-size: 0.72rem;
+  font-weight: 500;
+}
+.ab-code-preview-body {
+  margin: 0;
+  padding: 0.5rem 0.7rem;
+  color: #cfc9dd;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+/* Chip shown before Tier 2 content has arrived — Tab stays inert until then. */
+.ab-action-chip.is-pending {
+  opacity: 0.55;
+  font-style: italic;
+}

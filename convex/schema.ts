@@ -109,6 +109,31 @@ export default defineSchema({
     createdAt: v.number(),
   }).index("by_page", ["pageId", "createdAt"]),
 
+  /**
+   * Every ambient suggestion the pipeline considered, and what became of it.
+   * This is the eval signal for tuning the heuristics/gate — and the training
+   * set if we ever distil an in-house model.
+   */
+  suggestionLog: defineTable({
+    ownerId: v.string(),
+    pageId: v.id("pages"),
+    /** Heuristic proposal kind: code | formatCode | formatMath | reformat | diagram. */
+    kind: v.string(),
+    /** Did the Tier 1 gate confirm it? */
+    gateOk: v.boolean(),
+    /** Was a chip actually rendered? */
+    shown: v.boolean(),
+    outcome: v.union(
+      v.literal("gated"),
+      v.literal("accepted"),
+      v.literal("dismissed"),
+      v.literal("superseded"),
+      v.literal("failed"),
+    ),
+    latencyMs: v.number(),
+    createdAt: v.number(),
+  }).index("by_page", ["pageId", "createdAt"]),
+
   /** Per-project evolving Q&A that primes every LLM request. */
   contextSheet: defineTable({
     ownerId: v.string(),

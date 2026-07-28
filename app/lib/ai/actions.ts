@@ -19,6 +19,10 @@ export const REFORMAT_TARGETS = [
   "numberedListItem",
   "checkListItem",
   "quote",
+  // Existing text that is actually code / math → a code or math block. Their
+  // text goes into props (not inline content); the compiler handles that.
+  "codeBlock",
+  "mathBlock",
 ] as const;
 
 export const ACTION_KINDS = [
@@ -30,7 +34,7 @@ export const ACTION_KINDS = [
   "reformat",
 ] as const;
 
-const diagramNode = z.object({
+export const diagramNode = z.object({
   tempId: z.string(),
   shape: shapeKind,
   label: z.string(),
@@ -38,11 +42,18 @@ const diagramNode = z.object({
   y: z.number(),
 });
 
-const diagramEdge = z.object({
+export const diagramEdge = z.object({
   source: z.string(),
   target: z.string(),
   label: z.string().optional(),
 });
+
+/** Tier 2 output for the diagram branch (the only branch needing a strong model). */
+export const diagramOutput = z.object({
+  nodes: z.array(diagramNode).min(1),
+  edges: z.array(diagramEdge),
+});
+export type DiagramOutput = z.infer<typeof diagramOutput>;
 
 export const action = z.object({
   kind: z.enum(ACTION_KINDS),

@@ -168,9 +168,42 @@ export function compileAction(
     }
 
     case "reformat": {
-      const blockIds = action.blockIds ?? [];
-      if (!blockIds.length || !action.to) return null;
       const to = action.to;
+      if (!to) return null;
+      // Only reformat plain-text blocks, and never one that is already the
+      // target type. A code/math/canvas block keeps its text in props, not
+      // inline content, so reformatting it would read empty and wipe it.
+      const blockIds = (action.blockIds ?? []).filter((id) => {
+        const b = editor.getBlock(id);
+        return b && Array.isArray(b.content) && b.type !== to;
+      });
+      if (!blockIds.length) return null;
+
+      // Code/math blocks hold their text in props (not inline content), so the
+      // selected lines merge into ONE block instead of one block per line.
+      if (to === "codeBlock" || to === "mathBlock") {
+        const text = blockIds
+          .map((id) => toPlain(editor.getBlock(id)?.content))
+          .join("\n");
+        const props: Record<string, string | number | boolean> =
+          to === "codeBlock"
+            ? { language: action.language ?? "text", code: text }
+            : { source: text };
+        return {
+          ops: [
+            {
+              kind: "insertBlocks",
+              at: { at: "after", ref: blockIds[0] },
+              blocks: [{ tempId: "rc", type: to, props }],
+            },
+            ...blockIds.map(
+              (id): Operation => ({ kind: "removeBlock", blockId: id }),
+            ),
+          ],
+        };
+      }
+
+      // Prose type change: per block, preserving inline content.
       const props = reformatProps(to, action.headingLevel);
       const ops: Operation[] = [];
       blockIds.forEach((id, i) => {

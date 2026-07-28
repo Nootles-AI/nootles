@@ -101,9 +101,14 @@ function tag(id: string): string {
   return `⟦${id}⟧`;
 }
 
-function projectCanvas(block: AnyBlock, index: DocIndex, lines: string[]) {
+function projectCanvas(
+  block: AnyBlock,
+  index: DocIndex,
+  lines: string[],
+  emit: boolean,
+) {
   const { nodes, edges } = parseCanvas(String(block.props.data ?? ""));
-  lines.push(`canvas ${tag(block.id)}`);
+  if (emit) lines.push(`canvas ${tag(block.id)}`);
   for (const n of nodes) {
     index.shapes.set(n.id, { canvasBlockId: block.id });
     const label = (n.data?.label ?? "").replace(/\n/g, " ");
@@ -123,70 +128,150 @@ function projectCanvas(block: AnyBlock, index: DocIndex, lines: string[]) {
   }
 }
 
+type EmitCtx = {
+  /** Ids whose TEXT should be emitted; null means emit everything. */
+  emit: Set<string> | null;
+  cursorBlockId?: string;
+  recentIds?: Set<string>;
+};
+
 function projectBlock(
   block: AnyBlock,
   index: DocIndex,
   lines: string[],
   parentId: string | undefined,
+  ctx: EmitCtx,
 ) {
   const hasContent = Array.isArray(block.content);
   index.blocks.set(block.id, { type: block.type, hasContent, parentId });
+
+  // Blocks outside the window are still indexed (so id validation covers the
+  // whole document) but contribute no text to the prompt.
+  const doEmit = !ctx.emit || ctx.emit.has(block.id);
+  const startLine = lines.length;
+  const push = (s: string) => {
+    if (doEmit) lines.push(s);
+  };
 
   const id = tag(block.id);
   switch (block.type) {
     case "heading": {
       const level = Number(block.props.level ?? 1);
-      lines.push(`${id} ${"#".repeat(level)} ${inlineToText(block.content)}`);
+      push(`${id} ${"#".repeat(level)} ${inlineToText(block.content)}`);
       break;
     }
     case "bulletListItem":
-      lines.push(`${id} - ${inlineToText(block.content)}`);
+      push(`${id} - ${inlineToText(block.content)}`);
       break;
     case "numberedListItem":
-      lines.push(`${id} 1. ${inlineToText(block.content)}`);
+      push(`${id} 1. ${inlineToText(block.content)}`);
       break;
     case "checkListItem": {
       const box = block.props.checked ? "[x]" : "[ ]";
-      lines.push(`${id} - ${box} ${inlineToText(block.content)}`);
+      push(`${id} - ${box} ${inlineToText(block.content)}`);
       break;
     }
     case "quote":
-      lines.push(`${id} > ${inlineToText(block.content)}`);
+      push(`${id} > ${inlineToText(block.content)}`);
       break;
     case "codeBlock": {
       const lang = String(block.props.language ?? "");
       const code = String(block.props.code ?? "");
-      lines.push(`${id} \`\`\`${lang}`);
-      for (const l of code.split("\n")) lines.push(`  ${l}`);
-      lines.push("  ```");
+      push(`${id} \`\`\`${lang}`);
+      for (const l of code.split("\n")) push(`  ${l}`);
+      push("  ```");
       break;
     }
     case "mathBlock": {
       const source = String(block.props.source ?? "");
       const rows = source.length ? source.split("\n") : [""];
       index.mathRows.set(block.id, rows.length);
-      lines.push(`${id} math`);
-      rows.forEach((r, i) => lines.push(`  [${i}] ${r}`));
+      push(`${id} math`);
+      rows.forEach((r, i) => push(`  [${i}] ${r}`));
       break;
     }
     case "canvas":
-      projectCanvas(block, index, lines);
+      projectCanvas(block, index, lines, doEmit);
       break;
     default:
       // paragraph and any other text block.
-      lines.push(`${id} ${inlineToText(block.content)}`);
+      push(`${id} ${inlineToText(block.content)}`);
+  }
+
+  // Anchor the model's attention: say plainly where the caret is, and which
+  // blocks the user has touched this session.
+  if (doEmit && lines.length > startLine) {
+    const mark =
+      block.id === ctx.cursorBlockId
+        ? "   ◀ CURSOR IS HERE"
+        : ctx.recentIds?.has(block.id)
+          ? "   (just edited)"
+          : "";
+    if (mark) lines[startLine] += mark;
   }
 
   for (const child of block.children ?? []) {
-    projectBlock(child, index, lines, block.id);
+    projectBlock(child, index, lines, block.id, ctx);
   }
 }
 
-export function project(blocks: AnyBlock[]): { text: string; index: DocIndex } {
+function collectIds(block: AnyBlock, out: Set<string>) {
+  out.add(block.id);
+  for (const c of block.children ?? []) collectIds(c, out);
+}
+
+export type ProjectOptions = {
+  cursorBlockId?: string;
+  /** Top-level blocks to include either side of the cursor. Omit for the whole doc. */
+  window?: number;
+  /** Blocks edited this session, marked so the model prefers fresh content. */
+  recentIds?: Set<string>;
+};
+
+/**
+ * `text` is what the model reads; `index` always covers the WHOLE document so
+ * `resolveBatch` can validate any id the model returns even when the prompt was
+ * windowed.
+ */
+export function project(
+  blocks: AnyBlock[],
+  opts: ProjectOptions = {},
+): { text: string; index: DocIndex } {
   const index = emptyIndex();
   const lines: string[] = [];
-  for (const block of blocks) projectBlock(block, index, lines, undefined);
-  return { text: lines.join("\n"), index };
+
+  let emit: Set<string> | null = null;
+  let elidedBefore = false;
+  let elidedAfter = false;
+  if (opts.cursorBlockId && opts.window !== undefined) {
+    const center = blocks.findIndex((b) => {
+      const ids = new Set<string>();
+      collectIds(b, ids);
+      return ids.has(opts.cursorBlockId!);
+    });
+    if (center !== -1) {
+      const lo = Math.max(0, center - opts.window);
+      const hi = Math.min(blocks.length - 1, center + opts.window);
+      elidedBefore = lo > 0;
+      elidedAfter = hi < blocks.length - 1;
+      emit = new Set<string>();
+      for (let i = lo; i <= hi; i++) collectIds(blocks[i], emit);
+    }
+  }
+
+  const ctx: EmitCtx = {
+    emit,
+    cursorBlockId: opts.cursorBlockId,
+    recentIds: opts.recentIds,
+  };
+  for (const block of blocks) projectBlock(block, index, lines, undefined, ctx);
+
+  const text = [
+    ...(elidedBefore ? ["… (earlier blocks omitted)"] : []),
+    ...lines,
+    ...(elidedAfter ? ["… (later blocks omitted)"] : []),
+  ].join("\n");
+  return { text, index };
 }
 
 export { inlinePlain };
