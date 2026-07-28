@@ -277,6 +277,17 @@ export type CompileContext = {
   anchorBlockId?: string;
   /** Current document in the same normalized shape, for like-for-like diffing. */
   current: DocNode[];
+  /**
+   * Block ids this rewrite is allowed to consume. Any of them the rewrite does
+   * not keep is removed.
+   *
+   * Absent (the default) nothing is removed for being missing, which is what
+   * makes it safe to hand the compiler a fragment of the document. But folding
+   * several paragraphs into one code block or table is exactly a case where the
+   * others must go, and the caller is the only one who knows which blocks were
+   * on the table.
+   */
+  replacing?: string[];
 };
 
 export function compileDocHtml(next: DocNode[], ctx: CompileContext): Batch {
@@ -364,6 +375,18 @@ export function compileDocHtml(next: DocNode[], ctx: CompileContext): Batch {
     if (existing) ops.push({ kind: "removeBlock", blockId: existing.id! });
     anchor = { at: "after", ref: tempId };
   });
+
+  // Anything the caller offered up that the rewrite did not keep. Ordered last
+  // so the replacement is already in place before the originals go.
+  if (ctx.replacing?.length) {
+    const kept = new Set(all.filter((n) => n.id).map((n) => n.id!));
+    for (const id of ctx.replacing) {
+      if (kept.has(id)) continue;
+      if (!currentById.has(id)) continue;
+      if (ops.some((o) => o.kind === "removeBlock" && o.blockId === id)) continue;
+      ops.push({ kind: "removeBlock", blockId: id });
+    }
+  }
 
   return { ops };
 }

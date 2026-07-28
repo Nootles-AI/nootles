@@ -57,8 +57,14 @@ export const AI = {
     maxCandidates: 3,
     /** After the caret leaves a block, before asking. */
     debounceMs: 500,
-    /** Blocks shorter than this are not worth reshaping. */
+    /** Runs shorter than this are not worth reshaping. */
     minChars: 24,
+    /**
+     * How many consecutive paragraphs to consider as one thing. Pressing Enter
+     * starts a new block, so a pasted snippet or a typed table arrives as
+     * several — but past a point a "run" is just the document.
+     */
+    maxBlocks: 12,
   },
 
   /**

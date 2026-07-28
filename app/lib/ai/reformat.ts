@@ -14,7 +14,12 @@ import { AI } from "./aiConfig";
 
 export type ReformatCandidate = { label: string; html: string };
 
-const SYSTEM = `You reformat ONE block of a document into other shapes it could take.
+const SYSTEM = `You reformat a RUN OF BLOCKS into other shapes it could take.
+
+You are given one or more consecutive blocks. Pressing Enter starts a new
+block, so something the writer thinks of as one thing — a code snippet, a
+table, a list — usually arrives as several paragraphs in a row. Folding them
+back into a single block is the most valuable thing you do here.
 
 The document is HTML with a few custom elements:
   <ab-code-block lang="python">code</ab-code-block>
@@ -26,8 +31,14 @@ The document is HTML with a few custom elements:
   <ul><li><input type="checkbox">todo</li></ul>   checklist
   <ul><li>item</li></ul>            bullet list
 
+Code blocks must name their language:
+  plaintext typescript tsx javascript jsx python java json html css markdown sql rust
+Pick the one the code is actually written in; use plaintext if it is not one of these.
+
 Rules:
-- Copy the input block's id onto the FIRST element you output.
+- Copy the FIRST input block's id onto the FIRST element you output.
+- When you fold several blocks into one, output just the one block. The others
+  are removed for you.
 - Only offer shapes the content genuinely already fits. Usually 0-2, never more than 3.
 - Never invent facts, never add content. Only rearrange what is written.
 - If nothing fits, return [].
@@ -46,6 +57,14 @@ const SHOTS: Array<{ in: string; out: string }> = [
   {
     in: `<p id="b">Sam owns ingest, Priya owns search, Dev owns the UI</p>`,
     out: `[{"label":"Table","html":"<table id=\\"b\\"><tr><th>Owner</th><th>Area</th></tr><tr><td>Sam</td><td>ingest</td></tr><tr><td>Priya</td><td>search</td></tr><tr><td>Dev</td><td>the UI</td></tr></table>"},{"label":"Bullet list","html":"<ul><li id=\\"b\\">Sam owns ingest</li><li>Priya owns search</li><li>Dev owns the UI</li></ul>"}]`,
+  },
+  {
+    in: `<p id="e">def greet(name):</p>\n<p id="f">    print(f"hi {name}")</p>\n<p id="g">greet("Sam")</p>`,
+    out: `[{"label":"Code block","html":"<ab-code-block id=\\"e\\" lang=\\"python\\">def greet(name):\\n    print(f\\"hi {name}\\")\\ngreet(\\"Sam\\")</ab-code-block>"}]`,
+  },
+  {
+    in: `<p id="h">Region North revenue 4.2m</p>\n<p id="i">Region South revenue 3.1m</p>`,
+    out: `[{"label":"Table","html":"<table id=\\"h\\"><tr><th>Region</th><th>Revenue</th></tr><tr><td>North</td><td>4.2m</td></tr><tr><td>South</td><td>3.1m</td></tr></table>"}]`,
   },
   {
     in: `<p id="c">Set the maxRetries option before calling connect()</p>`,

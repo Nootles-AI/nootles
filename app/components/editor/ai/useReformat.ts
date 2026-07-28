@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { BlockNoteEditor } from "@blocknote/core";
 import { AI } from "@/app/lib/ai/aiConfig";
 import type { ReformatCandidate } from "@/app/lib/ai/reformat";
-import { project, type AnyBlock } from "@/app/lib/ai/projection";
+import { blockText, project, type AnyBlock } from "@/app/lib/ai/projection";
 import { resolveBatch } from "@/app/lib/ai/validate";
 import { applyBatch } from "@/app/lib/ai/apply";
 import { toDocHtml } from "@/app/lib/ai/html/serialize";
@@ -16,8 +16,10 @@ import { hasSuggestion } from "./ghostText";
 type Editor = BlockNoteEditor<any, any, any>;
 
 export type ReformatState = {
-  /** Anchored to the block being reshaped, so the bar can sit beside it. */
+  /** Anchored to the first block of the run, so the bar sits beside it. */
   blockId: string;
+  /** Every block the rewrite may consume — the run, not just one block. */
+  blockIds: string[];
   candidates: ReformatCandidate[];
   index: number;
 };
@@ -60,6 +62,9 @@ export function useReformat(editor: Editor | null | undefined) {
       const batch = compileDocHtml(next, {
         current,
         anchorBlockId: state.blockId,
+        // Folding a run into one block means the rest have to go, and only we
+        // know which ones were on the table.
+        replacing: state.blockIds,
       });
       if (!batch.ops.length) return;
       const { index } = project(blocks);
@@ -78,7 +83,11 @@ export function useReformat(editor: Editor | null | undefined) {
     let lastBlockId: string | null = null;
     let seq = 0;
 
-    const run = async (blockId: string, html: string, mySeq: number) => {
+    const run = async (
+      blockIds: string[],
+      html: string,
+      mySeq: number,
+    ) => {
       const controller = new AbortController();
       abort = controller;
       try {
@@ -93,7 +102,7 @@ export function useReformat(editor: Editor | null | undefined) {
           candidates: ReformatCandidate[];
         };
         if (mySeq !== seq || !candidates?.length) return;
-        setState({ blockId, candidates, index: 0 });
+        setState({ blockId: blockIds[0], blockIds, candidates, index: 0 });
       } catch {
         // superseded or offline
       }
@@ -118,19 +127,36 @@ export function useReformat(editor: Editor | null | undefined) {
       if (!left) return;
 
       const blocks = editor.document as unknown as AnyBlock[];
-      const block = blocks.find((b) => b.id === left);
-      if (!block) return;
-      // Only prose is worth reshaping — a code block or diagram is already a
-      // deliberate choice of modality.
-      if (block.type !== "paragraph") return;
-      const html = toDocHtml([block]);
+      const end = blocks.findIndex((b) => b.id === left);
+      if (end === -1) return;
+
+      // Walk back over consecutive non-empty paragraphs. A writer presses Enter
+      // between the lines of one code snippet or table, so the thing being
+      // reshaped is usually a run of blocks rather than a single one. An empty
+      // paragraph or any other block type ends the run — those are the writer
+      // saying "this bit is finished".
+      const isProse = (b: AnyBlock | undefined) =>
+        !!b && b.type === "paragraph" && !!blockText(b).trim();
+      if (!isProse(blocks[end])) return;
+      let start = end;
+      while (
+        start > 0 &&
+        end - start + 1 < AI.reformat.maxBlocks &&
+        isProse(blocks[start - 1])
+      ) {
+        start--;
+      }
+
+      const runBlocks = blocks.slice(start, end + 1);
+      const html = toDocHtml(runBlocks);
       if (html.replace(/<[^>]*>/g, "").trim().length < AI.reformat.minChars) {
         return;
       }
 
+      const ids = runBlocks.map((b) => b.id);
       const mySeq = seq;
       timer = setTimeout(
-        () => defer(() => void run(left, html, mySeq)),
+        () => defer(() => void run(ids, html, mySeq)),
         AI.reformat.debounceMs,
       );
     };
