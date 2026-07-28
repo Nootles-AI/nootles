@@ -246,15 +246,18 @@ export function propose(input: HeuristicInput): Proposal | null {
     });
   }
 
-  // 2. Prose introduces code that isn't written yet. Asking for a *diagram* of
-  // something code-shaped is not a request for code.
+  // 2. Prose introduces code that isn't written yet. Naming a language counts
+  // as strongly as a code noun does — "…the same logic written in TypeScript:"
+  // is plainly a code intro, but matches no noun in the list. Asking for a
+  // *diagram* of something code-shaped is not a request for code.
+  const mentionedLanguage = languageFromMention(text);
   if (
     text.endsWith(":") &&
-    CODE_NOUNS.test(text) &&
+    (CODE_NOUNS.test(text) || mentionedLanguage !== undefined) &&
     !DIAGRAM_NOUNS.test(text) &&
     !followedBy("codeBlock")
   ) {
-    const language = normalizeLanguage(languageFromMention(text));
+    const language = normalizeLanguage(mentionedLanguage);
     candidates.push({
       kind: "code",
       label: "Insert code block",
