@@ -289,8 +289,8 @@
 .ab-diagram-preview-svg {
   display: block;
   width: 100%;
-  max-height: 220px;
-  padding: 0.5rem 0;
+  height: calc(100% - 26px);
+  padding: 0.4rem 0;
 }
 .ab-diagram-preview-shape {
   fill: #fff;

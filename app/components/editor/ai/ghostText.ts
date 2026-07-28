@@ -6,6 +6,11 @@ import {
 } from "prosemirror-state";
 import { Decoration, DecorationSet, type EditorView } from "prosemirror-view";
 import type { Batch } from "@/convex/ai/operations";
+import {
+  canvasHeightFor,
+  SHAPE_H,
+  SHAPE_W,
+} from "@/app/components/editor/canvas/types";
 
 /**
  * The suggestion plugin: at the caret it shows AT MOST ONE suggestion, either
@@ -104,9 +109,9 @@ function chipWidget(label: string, pending: boolean) {
 }
 
 const SVG_NS = "http://www.w3.org/2000/svg";
-// Match the canvas's real default shape sizes so the preview reads true.
-const NODE_W = 148;
-const NODE_H = 64;
+// Match the canvas's real defaults so the preview reads true.
+const NODE_W = SHAPE_W;
+const NODE_H = SHAPE_H;
 
 function svgEl(name: string, attrs: Record<string, string | number>) {
   const el = document.createElementNS(SVG_NS, name);
@@ -120,6 +125,8 @@ function diagramPreviewWidget(nodes: PreviewNode[], edges: PreviewEdge[]) {
     const wrap = document.createElement("div");
     wrap.className = "ab-diagram-preview";
     wrap.contentEditable = "false";
+    // Same height the real canvas will take, so accepting doesn't jump.
+    wrap.style.height = `${canvasHeightFor(nodes)}px`;
 
     const head = document.createElement("div");
     head.className = "ab-code-preview-head";
@@ -300,8 +307,16 @@ export function hasGhost(state: EditorState): boolean {
   return ghostTextKey.getState(state)?.kind === "ghost";
 }
 
-/** Show inline prose ghost text at the caret (empty text clears it). */
+/**
+ * Show inline prose ghost text at the caret (empty text clears it).
+ *
+ * Both lanes share this single suggestion slot, and the action lane is much
+ * slower (a diagram takes seconds). Without this guard a ghost completion
+ * arriving mid-flight silently replaces an action chip or preview, which is why
+ * previews appeared only sometimes. Actions win.
+ */
 export function setGhost(view: EditorView, text: string) {
+  if (ghostTextKey.getState(view.state)?.kind === "action") return;
   const pos = view.state.selection.from;
   metaDispatch(view, text ? { kind: "ghost", text, pos } : null);
 }

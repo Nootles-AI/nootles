@@ -23,6 +23,7 @@ import { CanvasAiContext } from "./canvasAi";
 import { CanvasToolbar } from "./CanvasToolbar";
 import { layoutCanvas } from "./autoLayout";
 import {
+  canvasHeightFor,
   parseCanvas,
   serializeCanvas,
   type ShapeNode as ShapeNodeT,
@@ -63,6 +64,11 @@ function CanvasInner({
   onChange: (source: string) => void;
 }) {
   const initial = useMemo(() => parseCanvas(source), []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Fit the canvas to its content so a small diagram doesn't sit in a mostly
+  // empty box — and so the faded preview (same formula) is the same height as
+  // the result. Derived from the PERSISTED source, not live node state, so it
+  // can't resize while a shape is being dragged.
+  const height = useMemo(() => canvasHeightFor(parseCanvas(source).nodes), [source]);
   const [nodes, setNodes, onNodesChange] = useNodesState<ShapeNodeT>(initial.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState<CanvasEdge>(initial.edges);
   const rf = useReactFlow<ShapeNodeT, CanvasEdge>();
@@ -254,7 +260,12 @@ function CanvasInner({
     nodes.some((n) => n.selected) || edges.some((e) => e.selected);
 
   return (
-    <div ref={wrapper} className="ab-canvas" contentEditable={false}>
+    <div
+      ref={wrapper}
+      className="ab-canvas"
+      contentEditable={false}
+      style={{ height }}
+    >
       {nodes.length === 0 && (
         <div className="ab-canvas-hint">
           Add a shape from the toolbar, or double-click anywhere
@@ -307,10 +318,14 @@ export function Canvas({
   /** Surrounding page text, used to inform shape-label completion. */
   getDocContext?: () => string;
 }) {
-  const ai = useMemo(
-    () => ({ getDocContext: getDocContext ?? (() => "") }),
-    [getDocContext],
-  );
+  // Keep the context value referentially stable. CanvasBlock passes a fresh
+  // closure on every render, and a changing context value would re-render every
+  // shape on each editor update.
+  const ctxRef = useRef(getDocContext);
+  useEffect(() => {
+    ctxRef.current = getDocContext;
+  });
+  const ai = useMemo(() => ({ getDocContext: () => ctxRef.current?.() ?? "" }), []);
   return (
     <ReactFlowProvider>
       <CanvasAiContext.Provider value={ai}>
