@@ -39,18 +39,45 @@ export function ReformatBar({
   useLayoutEffect(() => {
     const bar = ref.current;
     if (!bar) return;
+
+    // The END of the run, because that is where the writing stopped and where
+    // the eye already is.
+    const last = state.blockIds[state.blockIds.length - 1] ?? state.blockId;
     const el = editor.domElement?.querySelector<HTMLElement>(
-      `[data-id="${state.blockId}"]`,
+      `[data-id="${last}"]`,
     );
-    const rect = el?.getBoundingClientRect();
-    if (!rect) {
+    if (!el) {
       bar.style.visibility = "hidden";
       return;
     }
-    bar.style.top = `${rect.top}px`;
-    bar.style.left = `${rect.right + 12}px`;
+
+    // A block spans the whole column, so its right edge is nowhere near short
+    // text like "2 | 4". Measuring the text itself puts the bar beside the
+    // words rather than out in the margin.
+    const content = el.querySelector<HTMLElement>(".bn-inline-content") ?? el;
+    const range = document.createRange();
+    range.selectNodeContents(content);
+    const rects = range.getClientRects();
+    const rect = rects[rects.length - 1] ?? content.getBoundingClientRect();
+    range.detach?.();
+    if (!rect.height) {
+      bar.style.visibility = "hidden";
+      return;
+    }
+
+    const width = bar.offsetWidth || 160;
+    const gap = 10;
+    // Beside the text, unless that would run off the edge — then underneath it.
+    let left = rect.right + gap;
+    let top = rect.top + rect.height / 2 - bar.offsetHeight / 2;
+    if (left + width > window.innerWidth - 12) {
+      left = Math.max(12, rect.left);
+      top = rect.bottom + 6;
+    }
+    bar.style.top = `${Math.round(top)}px`;
+    bar.style.left = `${Math.round(left)}px`;
     bar.style.visibility = "visible";
-  }, [editor, state.blockId, index]);
+  }, [editor, state.blockId, state.blockIds, index]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
