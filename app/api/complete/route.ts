@@ -1,11 +1,15 @@
+import { AI } from "@/app/lib/ai/aiConfig";
 import { streamFim } from "@/app/lib/ai/fim";
 
 /**
- * Ghost-text completion via Mistral Codestral's fill-in-the-middle endpoint.
- * FIM sees the text before AND after the caret and returns a raw continuation —
- * no chat wrapper, no leading-space stripping, sub-200ms first token. The client
- * aborts on each keystroke; `req.signal` propagates upstream so a superseded
- * completion stops at once.
+ * Inline completion. The caller sends the document split at the caret in the
+ * auto-board HTML language, and Codestral fills the middle.
+ *
+ * Because the language is markup, "should this become a code block?" is not a
+ * decision anyone has to make — a code block is simply what comes next in the
+ * grammar. Mid-paragraph the closing tag is already in the suffix, so the model
+ * emits bare text; at a boundary it closes the current element and opens the
+ * next, exactly as it behaves in code.
  */
 export async function POST(req: Request) {
   let body: unknown;
@@ -15,13 +19,21 @@ export async function POST(req: Request) {
     return new Response("Invalid JSON", { status: 400 });
   }
 
-  const { before, after } = (body ?? {}) as { before?: unknown; after?: unknown };
+  const { before, after, mode } = (body ?? {}) as {
+    before?: unknown;
+    after?: unknown;
+    mode?: unknown;
+  };
   if (typeof before !== "string") {
     return new Response("`before` must be a string", { status: 400 });
   }
 
+  const html = mode === "html";
   return streamFim(before, typeof after === "string" ? after : "", {
-    maxTokens: 32,
+    // Structure spans lines, so stopping at a newline would truncate a block
+    // mid-way. Plain prose stays short because the suffix bounds it.
+    maxTokens: html ? AI.fim.htmlMaxTokens : AI.fim.ghostMaxTokens,
+    stop: html ? [] : undefined,
     signal: req.signal,
   });
 }

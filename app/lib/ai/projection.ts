@@ -28,6 +28,37 @@ type InlineItem =
   | { type: "link"; href?: string; content?: InlineItem[] }
   | { type: string; props?: Record<string, unknown> };
 
+export type FlatBlock = { id: string; type: string; text: string };
+
+/** Plain text of a block, whatever kind it is. */
+export function blockText(block: AnyBlock): string {
+  if (block.type === 'codeBlock') return String(block.props?.code ?? '');
+  if (block.type === 'mathBlock') return String(block.props?.source ?? '');
+  if (!Array.isArray(block.content)) return '';
+  return (block.content as Array<Record<string, unknown>>)
+    .map((i) => {
+      if (i.type === 'text') return String(i.text ?? '');
+      if (i.type === 'math') {
+        return String((i.props as { latex?: string } | undefined)?.latex ?? '');
+      }
+      return '';
+    })
+    .join('');
+}
+
+/** Document-order flat view of the block tree. */
+export function flattenBlocks(blocks: AnyBlock[]): FlatBlock[] {
+  const out: FlatBlock[] = [];
+  const walk = (bs: AnyBlock[]) => {
+    for (const b of bs) {
+      out.push({ id: b.id, type: b.type, text: blockText(b) });
+      if (b.children?.length) walk(b.children);
+    }
+  };
+  walk(blocks);
+  return out;
+}
+
 export type BlockIndexEntry = {
   type: string;
   /** Whether the block holds inline content (rejects setBlockContent otherwise). */

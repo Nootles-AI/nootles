@@ -1,8 +1,7 @@
 "use client";
 
 import { createReactBlockSpec } from "@blocknote/react";
-import { flattenBlocks } from "@/app/lib/ai/heuristics";
-import type { AnyBlock } from "@/app/lib/ai/projection";
+import { flattenBlocks, type AnyBlock } from "@/app/lib/ai/projection";
 import { Canvas } from "../canvas/Canvas";
 
 /** How many preceding blocks of page text to hand the canvas for context. */

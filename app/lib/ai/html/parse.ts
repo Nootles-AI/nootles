@@ -1,3 +1,4 @@
+import { normalizeLanguage } from "../aiConfig";
 import {
   canonicalTag,
   RAW_TEXT_TAGS,
@@ -203,7 +204,7 @@ function elementToNode(el: Element, raw: string[]): DocNode | null {
     return {
       type: "codeBlock",
       id,
-      language: el.getAttribute("lang") ?? "plaintext",
+      language: normalizeLanguage(el.getAttribute("lang") ?? undefined),
       code: rawOf(inner as Element, raw).replace(/^\n/, "").replace(/\s+$/, ""),
     };
   }
