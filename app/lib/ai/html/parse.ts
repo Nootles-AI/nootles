@@ -202,6 +202,20 @@ function elementToNode(el: Element, raw: string[]): DocNode | null {
   // Context only — the title is a page field, not a block. Emitted by the
   // serializer, never parsed back.
   if (tag === "title") return null;
+  if (tag === "table") {
+    const rows: Run[][][] = [];
+    let header = false;
+    el.querySelectorAll("tr").forEach((tr, r) => {
+      const cells: Run[][] = [];
+      tr.querySelectorAll("th, td").forEach((cell) => {
+        if (cell.tagName.toLowerCase() === "th" && r === 0) header = true;
+        cells.push(normalizeRuns(runsOf(cell)));
+      });
+      if (cells.length) rows.push(cells);
+    });
+    if (!rows.length) return null;
+    return { type: "table", ...(id ? { id } : {}), header, rows };
+  }
   if (tag === "ab-code-block" || tag === "pre") {
     const inner = tag === "pre" ? el.querySelector("code") ?? el : el;
     return {

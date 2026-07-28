@@ -103,6 +103,25 @@ function blockToHtml(block: AnyBlock): string {
     }
     case "quote":
       return `<blockquote${id}>${inner}</blockquote>`;
+    case "table": {
+      // Standard elements with the right meaning, so nothing to teach: a header
+      // row is <th>, everything else <td>. BlockNote marks headers with a
+      // `headerRows` count, which the parser turns back into this.
+      const content = block.content as
+        | { rows?: Array<{ cells?: unknown[] }>; headerRows?: number }
+        | undefined;
+      const headerRows = Number(content?.headerRows ?? 0);
+      const rows = (content?.rows ?? [])
+        .map((row, r) => {
+          const tag = r < headerRows ? "th" : "td";
+          const cells = (row.cells ?? [])
+            .map((cell) => `<${tag}>${runsToHtml(cell)}</${tag}>`)
+            .join("");
+          return `\n  <tr>${cells}</tr>`;
+        })
+        .join("");
+      return `<table${id}>${rows}\n</table>`;
+    }
     case "codeBlock": {
       const lang = String(block.props.language ?? "plaintext");
       // Raw, unescaped — the parser reads this element as raw text.

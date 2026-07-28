@@ -124,6 +124,19 @@ export function applyBatch(editor: Editor, batch: Batch): ApplyResult {
           type: nb.type,
           ...(nb.props ? { props: nb.props } : {}),
           ...(nb.content ? { content: compileInline(nb.content) } : {}),
+          // BlockNote holds a table as `tableContent` rather than a run list.
+          // Column widths are left undefined so it sizes them itself.
+          ...(nb.rows
+            ? {
+                content: {
+                  type: "tableContent",
+                  columnWidths: (nb.rows[0] ?? []).map(() => undefined),
+                  rows: nb.rows.map((cells) => ({
+                    cells: cells.map(compileInline),
+                  })),
+                },
+              }
+            : {}),
           ...(nb.children?.length
             ? { children: nb.children.map(toPartial) }
             : {}),

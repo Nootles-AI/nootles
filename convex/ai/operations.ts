@@ -33,6 +33,7 @@ export const BLOCK_TYPES = [
   "codeBlock",
   "mathBlock",
   "canvas",
+  "table",
 ] as const;
 export const blockType = z.enum(BLOCK_TYPES);
 export type BlockType = z.infer<typeof blockType>;
@@ -92,6 +93,12 @@ export interface NewBlock {
   type: BlockType;
   props?: BlockProps;
   content?: InlineRun[];
+  /**
+   * Table cells, when `type` is "table": rows of cells, each cell its own run
+   * list. Kept separate from `content` because a table is two-dimensional and
+   * `content` is a flat run list everywhere else.
+   */
+  rows?: InlineRun[][][];
   children?: NewBlock[];
 }
 
@@ -101,6 +108,7 @@ export const newBlock: z.ZodType<NewBlock> = z.lazy(() =>
     type: blockType,
     props: blockProps.optional(),
     content: z.array(inlineRun).optional(),
+    rows: z.array(z.array(z.array(inlineRun))).optional(),
     children: z.array(newBlock).optional(),
   }),
 );

@@ -76,6 +76,14 @@ export type DocNode =
       /** Nested list items — an indented outline. */
       children?: DocNode[];
     }
+  | {
+      type: "table";
+      id?: string;
+      /** First row is a header row when true — `<th>` rather than `<td>`. */
+      header?: boolean;
+      /** rows[r][c] is one cell's runs. */
+      rows: Run[][][];
+    }
   | { type: "codeBlock"; id?: string; language: string; code: string }
   | { type: "mathBlock"; id?: string; rows: string[] }
   | {

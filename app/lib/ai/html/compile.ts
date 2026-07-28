@@ -254,6 +254,10 @@ function newBlockFor(node: DocNode, tempId: string): NewBlock {
     type: node.type,
     ...(props ? { props } : {}),
     ...("content" in node ? { content: runsToInline(node.content) } : {}),
+    // A table is two-dimensional, so it travels in `rows` rather than `content`.
+    ...(node.type === "table"
+      ? { rows: node.rows.map((row) => row.map(runsToInline)) }
+      : {}),
     ...(children ? { children } : {}),
   };
 }
