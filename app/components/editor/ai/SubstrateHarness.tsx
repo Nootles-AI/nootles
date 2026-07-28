@@ -8,6 +8,9 @@ import { Id } from "@/convex/_generated/dataModel";
 import { project, type AnyBlock } from "@/app/lib/ai/projection";
 import { resolveBatch } from "@/app/lib/ai/validate";
 import { applyBatch } from "@/app/lib/ai/apply";
+import { toDocHtml } from "@/app/lib/ai/html/serialize";
+import { parseDocHtml } from "@/app/lib/ai/html/parse";
+import { compileDocHtml } from "@/app/lib/ai/html/compile";
 
 /**
  * Dev-only harness that proves the AI substrate WITHOUT any model: author an op
@@ -58,6 +61,8 @@ export function SubstrateHarness({
   const [text, setText] = useState(EXAMPLE);
   const [log, setLog] = useState<{ ok: boolean; msg: string } | null>(null);
   const [tick, setTick] = useState(0);
+  /** Null while mirroring the live document; a string once you start editing. */
+  const [htmlDraft, setHtmlDraft] = useState<string | null>(null);
 
   const appendBatch = useMutation(api.ai.opLog.appendBatch);
   const createCheckpoint = useMutation(api.ai.checkpoints.create);
@@ -123,6 +128,64 @@ export function SubstrateHarness({
       ok: true,
       msg: `Applied ${res.batch.ops.length} op(s). Minted ids: ${JSON.stringify(result)}`,
     });
+  };
+
+  // The document in the auto-board HTML language — what the model reads and
+  // writes. Editing it here exercises the whole path: parse → compile → validate
+  // → apply, which is exactly what a completion will do.
+  const currentHtml = useMemo(() => {
+    void tick;
+    try {
+      return toDocHtml(editor.document as unknown as AnyBlock[]);
+    } catch (e) {
+      return `serialize error: ${String(e)}`;
+    }
+  }, [editor, tick]);
+
+  const htmlValue = htmlDraft ?? currentHtml;
+
+  const onApplyHtml = async () => {
+    try {
+      const current = parseDocHtml(currentHtml);
+      const next = parseDocHtml(htmlValue);
+      const doc = editor.document as unknown as AnyBlock[];
+      const anchorBlockId = doc[doc.length - 1]?.id ?? "";
+      const batch = compileDocHtml(next, { anchorBlockId, current });
+      if (!batch.ops.length) {
+        setLog({ ok: true, msg: "No differences — compiled to 0 ops." });
+        return;
+      }
+      const { index } = project(doc);
+      const resolved = resolveBatch(batch, index);
+      if (!resolved.ok) {
+        setLog({
+          ok: false,
+          msg: `Rejected (nothing applied):\n- ${resolved.errors.join("\n- ")}`,
+        });
+        return;
+      }
+      const chatPromptId = crypto.randomUUID();
+      await createCheckpoint({ pageId, chatPromptId, docSnapshot: editor.document });
+      applyBatch(editor, resolved.batch);
+      await appendBatch({
+        pageId,
+        chatPromptId,
+        source: "ai",
+        ops: resolved.batch.ops,
+      });
+      setHtmlDraft(null);
+      refresh();
+      setLog({
+        ok: true,
+        msg: `Applied ${resolved.batch.ops.length} op(s):\n${JSON.stringify(
+          resolved.batch.ops,
+          null,
+          1,
+        )}`,
+      });
+    } catch (e) {
+      setLog({ ok: false, msg: `HTML apply failed: ${String(e)}` });
+    }
   };
 
   const onSnapshot = async () => {
@@ -198,8 +261,32 @@ export function SubstrateHarness({
           </pre>
         )}
 
-        <label className="mt-1 font-medium text-muted">Projection</label>
-        <pre className="max-h-52 overflow-auto whitespace-pre-wrap rounded border border-border bg-surface p-2 font-mono text-[11px] leading-snug">
+        <label className="mt-1 flex items-center justify-between font-medium text-muted">
+          <span>
+            Document HTML{" "}
+            {htmlDraft !== null && (
+              <span className="font-normal text-[10px] text-amber-700">(edited)</span>
+            )}
+          </span>
+          <span className="font-normal text-[10px]">
+            id present → update · absent → insert
+          </span>
+        </label>
+        <textarea
+          value={htmlValue}
+          onChange={(e) => setHtmlDraft(e.target.value)}
+          spellCheck={false}
+          className="h-56 w-full resize-y rounded border border-border bg-surface p-2 font-mono text-[11px] leading-snug outline-none"
+        />
+        <div className="flex flex-wrap gap-2">
+          <HarnessBtn onClick={onApplyHtml} primary>
+            Apply HTML
+          </HarnessBtn>
+          <HarnessBtn onClick={() => setHtmlDraft(null)}>Reload from doc</HarnessBtn>
+        </div>
+
+        <label className="mt-1 font-medium text-muted">Projection (legacy)</label>
+        <pre className="max-h-32 overflow-auto whitespace-pre-wrap rounded border border-border bg-surface p-2 font-mono text-[11px] leading-snug">
           {projection || "(empty document)"}
         </pre>
 
