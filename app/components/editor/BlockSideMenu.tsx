@@ -7,14 +7,22 @@ import {
   DragHandleButton,
   DragHandleMenu,
   BlockColorsItem,
+  RemoveBlockItem,
   useBlockNoteEditor,
   useComponentsContext,
+  useExtensionState,
 } from "@blocknote/react";
+import { SideMenuExtension } from "@blocknote/core/extensions";
 
-/* BlockNote's side menu is context-driven — it passes no block/editor via
-   props. Clicking the drag handle moves the text cursor to that block, so the
-   built-in items (and ours) read the target via getTextCursorPosition(). The
-   side-menu prop types are also incomplete, hence the `Any` casts. */
+/* BlockNote's side menu is context-driven — it passes no block via props. The
+   target comes from the side-menu extension's own state, which is what the
+   built-in items read.
+
+   It must NOT come from getTextCursorPosition(): code, math and diagram blocks
+   hold no editable content, so a text cursor can never land in one. Asking for
+   the cursor's block while hovering a code block returns a NEIGHBOUR, and the
+   menu then deletes or duplicates that instead. The side-menu prop types are
+   incomplete, hence the `Any` casts. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
 
@@ -40,20 +48,25 @@ function duplicateBlock(editor: Any, block: Any) {
 function CustomDragHandleMenu() {
   const editor = useBlockNoteEditor();
   const Components = useComponentsContext()!;
-  const currentBlock = () => (editor as Any).getTextCursorPosition().block;
+  const block = useExtensionState(SideMenuExtension, {
+    editor,
+    selector: (s) => s?.block,
+  }) as Any;
+
+  if (!block) return null;
 
   return (
     <DragHandleMenu>
-      <Components.Generic.Menu.Item onClick={() => duplicateBlock(editor, currentBlock())}>
+      <Components.Generic.Menu.Item onClick={() => duplicateBlock(editor, block)}>
         Duplicate
       </Components.Generic.Menu.Item>
-      <Components.Generic.Menu.Item onClick={() => void copyBlock(editor, currentBlock())}>
+      <Components.Generic.Menu.Item onClick={() => void copyBlock(editor, block)}>
         Copy
       </Components.Generic.Menu.Item>
       <BlockColorsItem>Colors</BlockColorsItem>
-      <Components.Generic.Menu.Item onClick={() => editor.removeBlocks([currentBlock().id])}>
-        Delete
-      </Components.Generic.Menu.Item>
+      {/* BlockNote's own item — it also removes a whole multi-block selection
+          when the hovered block is part of one. */}
+      <RemoveBlockItem>Delete</RemoveBlockItem>
     </DragHandleMenu>
   );
 }
