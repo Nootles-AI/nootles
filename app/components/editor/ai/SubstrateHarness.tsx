@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { BlockNoteEditor, PartialBlock } from "@blocknote/core";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
@@ -47,6 +47,32 @@ export function SubstrateHarness({
   const checkpoints = useQuery(api.ai.checkpoints.list, { pageId });
 
   const refresh = useCallback(() => setTick((t) => t + 1), []);
+
+  /**
+   * Mirror the live document. `editor` is a stable reference and `tick` only
+   * moved on a button press, so the pane silently went stale the moment you
+   * typed — it was showing whatever the doc looked like when it was opened.
+   *
+   * Only while the pane is open (this is dev-only, but typing must stay O(1)
+   * when it isn't) and only while you have not started editing, so a draft is
+   * never clobbered mid-edit. Coalesced on a frame so a burst of keystrokes
+   * costs one re-serialize.
+   */
+  useEffect(() => {
+    if (!open || htmlDraft !== null) return;
+    let queued: ReturnType<typeof setTimeout> | null = null;
+    const unsub = editor.onChange(() => {
+      if (queued) return;
+      queued = setTimeout(() => {
+        queued = null;
+        refresh();
+      }, 120);
+    }, false);
+    return () => {
+      if (queued) clearTimeout(queued);
+      unsub?.();
+    };
+  }, [editor, open, htmlDraft, refresh]);
 
   const currentHtml = useMemo(() => {
     void tick; // recompute after a mutation
@@ -129,7 +155,11 @@ export function SubstrateHarness({
   if (!open) {
     return (
       <button
-        onClick={() => setOpen(true)}
+        onClick={() => {
+          setHtmlDraft(null);
+          refresh();
+          setOpen(true);
+        }}
         className="fixed bottom-4 right-4 z-50 rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-muted shadow-sm hover:text-foreground"
         title="AI substrate harness (dev)"
       >
