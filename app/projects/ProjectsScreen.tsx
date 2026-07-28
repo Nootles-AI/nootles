@@ -42,7 +42,10 @@ export function ProjectsScreen() {
   };
 
   return (
-    <main className="mx-auto w-full max-w-3xl px-6 py-12 sm:px-8 sm:py-16">
+    <main
+      className="mx-auto w-full px-6 py-12 sm:px-8 sm:py-20"
+      style={{ maxWidth: "calc(var(--measure) + 7rem)" }}
+    >
       <Link
         href="/"
         className="ab-row -ml-2 mb-6 inline-flex pr-3 text-muted"
@@ -52,7 +55,9 @@ export function ProjectsScreen() {
       </Link>
 
       <div className="mb-1 flex items-end justify-between gap-4">
-        <h1 className="text-2xl font-semibold tracking-tight">Projects</h1>
+        <h1 className="text-[length:var(--text-title)] font-semibold tracking-[-0.02em]">
+          Projects
+        </h1>
         <button
           onClick={() =>
             createProject({ title: "Untitled project" }).then((id) => {
@@ -60,31 +65,36 @@ export function ProjectsScreen() {
               setEditingId(id);
             })
           }
-          className="ab-row gap-1.5 border border-border bg-background px-3 font-medium"
+          className="ab-row gap-1.5 bg-sunken px-3 font-medium"
         >
           <Plus width={14} height={14} />
           New project
         </button>
       </div>
-      <p className="text-sm text-muted">
+      <p className="text-[13px] text-muted">
         Click a project to open it. Double-click the name to rename, or use
         the ⋯ menu.
       </p>
 
       {projects === undefined ? (
-        <ul className="mt-6 space-y-px" aria-hidden>
+        // Same row height as the real list, so content swaps in without reflow.
+        <ul className="mt-6" aria-busy="true" aria-label="Loading projects">
           {[0, 1, 2].map((i) => (
-            <li
-              key={i}
-              className="h-14 animate-pulse rounded-lg bg-surface"
-              style={{ animationDelay: `${i * 60}ms` }}
-            />
+            <li key={i} className="flex items-center gap-3 py-0.5">
+              <span
+                className="ab-skeleton h-4 flex-1"
+                style={{ maxWidth: `${[62, 44, 53][i]}%`, animationDelay: `${i * 120}ms` }}
+              />
+              <span className="ab-skeleton hidden h-3 w-20 sm:block" />
+              <span className="ab-skeleton h-3 w-20" />
+              <span className="w-8" />
+            </li>
           ))}
         </ul>
       ) : projects.length === 0 ? (
-        <div className="mt-10 rounded-lg border border-dashed border-border-strong px-6 py-12 text-center">
+        <div className="mt-10 rounded-lg bg-surface px-6 py-14 text-center">
           <p className="text-sm font-medium">No projects yet</p>
-          <p className="mx-auto mt-1 max-w-sm text-sm text-muted">
+          <p className="mx-auto mt-1.5 max-w-sm text-[13px] text-muted">
             A project holds a set of pages. Create one to start writing, and it
             arrives with a blank page ready to go.
           </p>
@@ -94,7 +104,7 @@ export function ProjectsScreen() {
           {projects.map((p) => (
             <li
               key={p._id}
-              className="group flex items-center gap-3 border-b border-border py-2 last:border-b-0"
+              className="group flex items-center gap-3 py-0.5"
             >
               {editingId === p._id ? (
                 <Editable
@@ -130,10 +140,10 @@ export function ProjectsScreen() {
                       {p.title || "Untitled project"}
                     </span>
                   </button>
-                  <span className="hidden w-20 shrink-0 text-right text-sm tabular-nums text-muted sm:block">
+                  <span className="ab-meta hidden w-20 shrink-0 text-right sm:block">
                     {p.pageCount} {p.pageCount === 1 ? "page" : "pages"}
                   </span>
-                  <span className="w-20 shrink-0 text-right text-sm text-muted">
+                  <span className="ab-meta w-20 shrink-0 text-right">
                     {when(p.updatedAt)}
                   </span>
                 </>

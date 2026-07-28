@@ -217,9 +217,7 @@ function EdgeRail({
 }) {
   return (
     <div
-      className={`flex h-full shrink-0 flex-col bg-surface p-2 ${
-        side === "left" ? "border-r border-border" : "border-l border-border"
-      }`}
+      className="flex h-full shrink-0 flex-col bg-surface p-2"
     >
       <button
         onClick={onClick}

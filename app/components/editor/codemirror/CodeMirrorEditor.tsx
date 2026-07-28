@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import { EditorState, Compartment, StateEffect } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
+import { AI } from "@/app/lib/ai/aiConfig";
 import { eveningExtensions } from "./theme";
 import { codeGhostExtension, setCodeGhost } from "./ghost";
 import { loadLanguage } from "./languages";
@@ -133,6 +134,8 @@ export function CodeMirrorEditor({
         if (!res.ok || !res.body) return;
         const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
         let acc = "";
+        let settled = "";
+        let headLitAt = 0;
         for (;;) {
           const { value, done } = await reader.read();
           if (done) break;
@@ -142,7 +145,27 @@ export function CodeMirrorEditor({
           const cut = acc.indexOf("</");
           const text = (cut === -1 ? acc : acc.slice(0, cut)).replace(/\s+$/, "");
           if (view.state.selection.main.head !== offset) return;
-          if (text) view.dispatch({ effects: setCodeGhost.of(text) });
+          if (text) {
+            if (!headLitAt) headLitAt = performance.now();
+            view.dispatch({
+              effects: setCodeGhost.of({ text, streaming: true }),
+            });
+            settled = text;
+          }
+        }
+        // The stream stopped: drop the live edge, keep the suggestion — but
+        // hold the head long enough to actually be seen (see aiConfig).
+        if (settled) {
+          const done = settled;
+          const settle = () => {
+            if (view.state.selection.main.head !== offset) return;
+            view.dispatch({
+              effects: setCodeGhost.of({ text: done, streaming: false }),
+            });
+          };
+          const lit = performance.now() - headLitAt;
+          if (lit >= AI.timing.minStreamHeadMs) settle();
+          else setTimeout(settle, AI.timing.minStreamHeadMs - lit);
         }
       } catch {
         // superseded or offline

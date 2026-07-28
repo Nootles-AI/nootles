@@ -7,33 +7,83 @@
    — so text and glyphs both land 16px from the panel edge. Every alignment in
    the shell derives from those two numbers; don't hand-tune per component. */
 :root {
-  /* Surfaces */
-  --background: #ffffff;
-  --surface: #fbfbfa;
-  --elevated: #ffffff;
+  /* ---- Palette ----------------------------------------------------------
+     Everything sits on hue 296. That hue wasn't chosen, it was found: the code
+     surface, ghost ink, shape lines and canvas edges already clustered at
+     293-301, while the neutrals pulled the opposite way at hue 106. Unifying
+     on 296 makes the tint feel inevitable rather than applied.
 
-  /* Ink. `muted` is the floor for readable text (4.95:1 on surface); `faint`
-     is decorative only — dividers, disabled glyphs — never body copy. */
-  --foreground: #1f2023;
-  --muted: #6e6e69;
-  --faint: #a3a39e;
+     Chroma stays under 0.025 for every neutral — enough that the surface reads
+     as tinted, not enough to read as coloured. Every text value below was
+     solved for the lightest tone that still clears WCAG AA on the darkest
+     surface it can land on; the measured ratio is noted. */
 
-  /* Lines */
-  --border: #ececeb;
-  --border-strong: #d8d8d5;
+  /* Surfaces: chrome recedes, the document advances. */
+  --background: oklch(1 0 296);            /* the page itself           */
+  --surface: oklch(0.972 0.006 296);       /* panels                    */
+  --sunken: oklch(0.955 0.008 296);        /* wells inside panels       */
+  --elevated: oklch(1 0.002 296);          /* menus, popovers (+shadow) */
 
-  /* Interaction states. Every hover in the app was an ad-hoc literal before
-     this; these are the only four values that should ever be reached for. */
-  --hover: rgb(0 0 0 / 0.045);
-  --active: rgb(0 0 0 / 0.075);
-  --selected: rgb(0 0 0 / 0.06);
-  /* Same states on the dark code surface. */
-  --hover-on-dark: rgb(255 255 255 / 0.07);
-  --active-on-dark: rgb(255 255 255 / 0.1);
-  --accent: #2f6feb;
-  --accent-on-dark: #cbb8ff;
-  --danger: #b3563f;
-  --danger-on-dark: #e58f8f;
+  /* Lines. Used sparingly — separation is mostly by surface value now. */
+  --border: oklch(0.928 0.008 296);
+  --border-strong: oklch(0.87 0.012 296);
+
+  /* Ink */
+  --foreground: oklch(0.25 0.014 296);     /* 16.1:1 on background      */
+  --muted: oklch(0.536 0.022 296);         /* 4.54:1 on sunken          */
+  --faint: oklch(0.72 0.016 296);          /* decorative only, no text  */
+
+  /* Accent — reserved for AI/live moments. Never decoration, never a
+     selection ring on a block or shape. */
+  --accent: oklch(0.564 0.17 296);         /* 4.53:1 on surface         */
+  --accent-soft: oklch(0.7 0.12 296);      /* glow, non-text only       */
+  --accent-on-dark: oklch(0.632 0.11 296); /* 4.50:1 on code topbar     */
+
+  --danger: oklch(0.563 0.127 35);
+  --danger-on-dark: oklch(0.739 0.105 20);
+
+  /* Interaction states — the only four values any hover should reach for. */
+  --hover: oklch(0.25 0.014 296 / 0.045);
+  --active: oklch(0.25 0.014 296 / 0.075);
+  --selected: oklch(0.25 0.014 296 / 0.06);
+  --hover-on-dark: oklch(1 0 296 / 0.07);
+  --active-on-dark: oklch(1 0 296 / 0.1);
+
+  /* Code surfaces */
+  --code-bg: oklch(0.264 0.032 296);
+  --code-topbar: oklch(0.247 0.03 296);
+  --code-border: oklch(0.326 0.046 296);
+  --code-fg: oklch(0.828 0.03 296);        /* 9.0:1 on code-bg          */
+  --code-fg-muted: oklch(0.638 0.04 296);  /* 4.50:1 on code-bg         */
+
+  /* Canvas line ramp — cooler than panel borders so shapes read as objects
+     sitting on a surface rather than as chrome. */
+  --shape-line: oklch(0.86 0.014 296);
+  --shape-line-hover: oklch(0.79 0.02 296);
+  --shape-line-active: oklch(0.52 0.024 296);
+  --edge-line: oklch(0.68 0.025 296);
+
+  /* Suggestion ink. Legible enough to read before you accept it, tinted
+     enough to read as not-yet-real. */
+  --ghost: oklch(0.55 0.03 296);           /* 4.52:1 on surface         */
+  --ghost-on-code: oklch(0.638 0.05 296);  /* 4.50:1 on code-bg         */
+
+  /* ---- Type -------------------------------------------------------------
+     One sans for reading and chrome; mono carries metadata (labels, counts,
+     timestamps) which is where the identity shows. Fixed rem-free px scale:
+     product UI is viewed at consistent DPI and fluid type helps nothing. */
+  --text-meta: 11px;      /* mono: section labels        */
+  --text-meta-lg: 12px;   /* mono: counts, timestamps    */
+  --text-ui: 13px;        /* rows, menus, buttons        */
+  --text-body: 15px;      /* the document                */
+  --text-title: 30px;     /* page title                  */
+  --leading-body: 1.7;
+  --tracking-meta: 0.06em;
+
+  /* The content column. 600px is the floor set by the canvas: a three-wide
+     diagram needs 588px (2 x 220 spacing + 148 shape). Code and diagrams share
+     this width with prose — they do not break out of it. */
+  --measure: 600px;
 
   /* Control geometry */
   --inset: 8px;
@@ -47,6 +97,7 @@
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
   --dur-fast: 110ms;
   --dur: 170ms;
+  --dur-slow: 320ms;
 
   /* Semantic z-index scale — never write a raw z-value. */
   --z-base: 1;
@@ -56,30 +107,22 @@
   --z-modal: 50;
   --z-toast: 60;
   --z-tooltip: 70;
-
-  /* Code surfaces (the code block and its previews share these). */
-  --code-bg: #262233;
-  --code-topbar: #221e2e;
-  --code-fg: #cfc9dd;
-  --code-fg-muted: #8f8aa3;
-  --code-border: #35304a;
-
-  /* Suggestion ink. Violet-tinted so it reads as "not yet real" while still
-     clearing AA — you have to be able to read what Tab will insert. */
-  --ghost: #787284;
-  --ghost-on-code: #918ba6;
 }
+
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-surface: var(--surface);
+  --color-sunken: var(--sunken);
   --color-elevated: var(--elevated);
   --color-border: var(--border);
   --color-border-strong: var(--border-strong);
   --color-muted: var(--muted);
   --color-faint: var(--faint);
   --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-ghost: var(--ghost);
   --color-danger: var(--danger);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
@@ -143,7 +186,7 @@ body {
 .ab-panel-title {
   /* 8px panel inset + 8px here = the same 16px as every row below it. */
   padding-inline: var(--inset);
-  font-size: 13px;
+  font-size: var(--text-ui);
   font-weight: 600;
   letter-spacing: -0.01em;
   white-space: nowrap;
@@ -186,7 +229,7 @@ body {
   padding-inline: var(--inset);
   border-radius: var(--radius);
   text-align: left;
-  font-size: 13px;
+  font-size: var(--text-ui);
   color: color-mix(in srgb, var(--foreground) 82%, transparent);
   transition:
     background var(--dur-fast) var(--ease),
@@ -212,17 +255,28 @@ body {
   text-overflow: ellipsis;
 }
 
+/* Metadata is where the mono shows: section labels, counts, timestamps. It
+   is the one place the type system has a second voice. */
 .ab-section-label {
   display: flex;
   align-items: center;
   justify-content: space-between;
   height: var(--control);
   padding-left: var(--inset);
-  font-size: 11px;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--text-meta);
   font-weight: 500;
-  letter-spacing: 0.04em;
+  letter-spacing: var(--tracking-meta);
   text-transform: uppercase;
   color: var(--muted);
+}
+
+.ab-meta {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--text-meta-lg);
+  letter-spacing: 0.01em;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
 }
 
 /* ---- Menus --------------------------------------------------------------
@@ -236,8 +290,9 @@ body {
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   box-shadow:
-    0 1px 2px rgb(20 15 40 / 0.04),
-    0 8px 28px rgb(20 15 40 / 0.12);
+    0 1px 2px oklch(0.25 0.014 296 / 0.04),
+    0 4px 12px oklch(0.25 0.014 296 / 0.06),
+    0 16px 40px oklch(0.25 0.014 296 / 0.1);
   animation: ab-menu-in var(--dur) var(--ease);
 }
 @keyframes ab-menu-in {
@@ -255,7 +310,7 @@ body {
   padding-inline: var(--inset);
   border-radius: var(--radius-sm);
   text-align: left;
-  font-size: 13px;
+  font-size: var(--text-ui);
   color: var(--foreground);
   transition: background var(--dur-fast) var(--ease);
 }
@@ -271,9 +326,89 @@ body {
   margin: 4px 0;
   background: var(--border);
 }
+
+/* ---- Loading -----------------------------------------------------------
+   Placeholders match the shape of what replaces them, so content swaps in
+   without reflow. The sweep is the only thing that moves. */
+.ab-skeleton {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.ab-skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    oklch(1 0 296 / 0.75) 50%,
+    transparent 100%
+  );
+  animation: ab-sweep 1.7s var(--ease) infinite;
+}
+@keyframes ab-sweep {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+/* ---- Streaming ---------------------------------------------------------
+   A luminous head sits where generation is happening and travels with the
+   text, because it is simply the last inline box. Text behind it is already
+   settled and fully legible — the effect marks the edge, it never dims what
+   you are being asked to read.
+
+   Deliberately NOT gradient-masked text: you have to be able to read a
+   suggestion before you accept it. */
+.ab-stream-head::after {
+  content: "";
+  display: inline-block;
+  width: 2px;
+  height: 1.05em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  border-radius: 1px;
+  background: var(--accent);
+  box-shadow:
+    0 0 4px var(--accent-soft),
+    0 0 10px var(--accent-soft),
+    0 0 20px oklch(0.7 0.12 296 / 0.5);
+  animation: ab-pulse 1.15s var(--ease) infinite;
+}
+@keyframes ab-pulse {
+  50% {
+    opacity: 0.4;
+  }
+}
+
+/* A block still being generated carries the same accent, as a quiet edge. */
+.ab-generating {
+  box-shadow: inset 0 0 0 1px oklch(0.7 0.12 296 / 0.35);
+  animation: ab-breathe 2s var(--ease) infinite;
+}
+@keyframes ab-breathe {
+  50% {
+    box-shadow: inset 0 0 0 1px oklch(0.7 0.12 296 / 0.12);
+  }
+}
 }
 
 @media (prefers-reduced-motion: reduce) {
+  /* A 0.01ms sweep would still flash. These two just stop. */
+  .ab-skeleton::after,
+  .ab-stream-head::after {
+    animation: none !important;
+  }
+  .ab-skeleton::after {
+    display: none;
+  }
+  .ab-generating {
+    animation: none !important;
+  }
+
   *,
   *::before,
   *::after {

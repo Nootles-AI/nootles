@@ -23,6 +23,14 @@ export const AI = {
 
   timing: {
     ghostDebounceMs: 350,
+    /**
+     * How long the streaming head stays lit at minimum. Short prose usually
+     * arrives in a single chunk — measured, the head was being shown and torn
+     * down 1ms apart, so the glow never rendered at all. Holding it briefly
+     * turns that into an "it just landed" beat, and long streams are unaffected
+     * because they exceed this on their own.
+     */
+    minStreamHeadMs: 450,
   },
 
   /**

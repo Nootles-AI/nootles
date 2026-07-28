@@ -12,21 +12,26 @@ import {
  * syncs), and Tab turns it into real text.
  */
 
-export const setCodeGhost = StateEffect.define<string | null>();
+export const setCodeGhost = StateEffect.define<{ text: string; streaming: boolean } | null>();
 
 class GhostWidget extends WidgetType {
   constructor(
     readonly text: string,
     readonly block: boolean,
+    readonly streaming = false,
   ) {
     super();
   }
   eq(other: GhostWidget) {
-    return other.text === this.text && other.block === this.block;
+    return (
+      other.text === this.text &&
+      other.block === this.block &&
+      other.streaming === this.streaming
+    );
   }
   toDOM() {
     const el = document.createElement(this.block ? "div" : "span");
-    el.className = "ab-cm-ghost";
+    el.className = this.streaming ? "ab-cm-ghost ab-stream-head" : "ab-cm-ghost";
     // Set here rather than in the stylesheet: CodeMirror injects its own rules
     // for content children, which win over ours and collapse the indentation.
     el.style.whiteSpace = "pre";
@@ -38,12 +43,18 @@ class GhostWidget extends WidgetType {
   }
 }
 
-const ghostField = StateField.define<{ text: string; pos: number } | null>({
+const ghostField = StateField.define<{
+  text: string;
+  pos: number;
+  streaming: boolean;
+} | null>({
   create: () => null,
   update(value, tr) {
     for (const e of tr.effects) {
       if (e.is(setCodeGhost)) {
-        return e.value ? { text: e.value, pos: tr.state.selection.main.head } : null;
+        return e.value
+          ? { ...e.value, pos: tr.state.selection.main.head }
+          : null;
       }
     }
     // Any edit or cursor move invalidates it.
@@ -62,7 +73,7 @@ const ghostField = StateField.define<{ text: string; pos: number } | null>({
       if (first) {
         decos.push(
           Decoration.widget({
-            widget: new GhostWidget(first, false),
+            widget: new GhostWidget(first, false, v.streaming && !rest.length),
             side: 1,
           }).range(v.pos),
         );
@@ -70,7 +81,7 @@ const ghostField = StateField.define<{ text: string; pos: number } | null>({
       if (rest.length) {
         decos.push(
           Decoration.widget({
-            widget: new GhostWidget(rest.join("\n"), true),
+            widget: new GhostWidget(rest.join("\n"), true, v.streaming),
             side: 1,
             block: true,
           }).range(state.doc.lineAt(v.pos).to),

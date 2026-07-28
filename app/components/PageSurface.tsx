@@ -23,7 +23,22 @@ export function PageSurface({ pageId }: { pageId: Id<"pages"> }) {
   );
 
   if (page === undefined) {
-    return <div className="flex-1" />;
+    // Mirrors the real column so the title and first paragraphs land in place.
+    return (
+      <main className="flex flex-1 flex-col overflow-hidden" aria-busy="true">
+        <div
+          className="w-full px-6 py-12 sm:px-14 sm:py-20"
+          style={{ maxWidth: "calc(var(--measure) + 7rem)" }}
+        >
+          <div className="ab-skeleton h-8 w-1/2" />
+          <div className="mt-8 space-y-3">
+            <div className="ab-skeleton h-4 w-full" />
+            <div className="ab-skeleton h-4 w-11/12" />
+            <div className="ab-skeleton h-4 w-2/3" />
+          </div>
+        </div>
+      </main>
+    );
   }
   if (page === null) {
     return (
@@ -44,7 +59,10 @@ export function PageSurface({ pageId }: { pageId: Id<"pages"> }) {
           space the panels left over, so collapsing chat slid every line of text
           sideways. A document surface should hold still, like a code editor.
           The left gutter also houses BlockNote's drag handle and + button. */}
-      <div className="w-full max-w-3xl px-6 py-12 sm:px-12 sm:py-16">
+      <div
+        className="w-full px-6 py-12 sm:px-14 sm:py-20"
+        style={{ maxWidth: "calc(var(--measure) + 7rem)" }}
+      >
         <Editable
           value={page.title}
           onInput={persistTitle}
@@ -56,9 +74,9 @@ export function PageSurface({ pageId }: { pageId: Id<"pages"> }) {
           }}
           placeholder="Untitled"
           label="Page title"
-          className="w-full text-4xl font-bold tracking-tight text-balance outline-none"
+          className="w-full text-[length:var(--text-title)] font-semibold tracking-[-0.02em] text-balance outline-none"
         />
-        <div className="mt-6">
+        <div className="mt-8">
           <Editor docId={page.docId} pageId={pageId} />
         </div>
       </div>

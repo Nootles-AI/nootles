@@ -51,7 +51,7 @@ export function Sidebar({
   return (
     <aside
       style={{ width }}
-      className="ab-panel border-r border-border"
+      className="ab-panel"
       aria-label="Pages"
     >
       <div className="ab-panel-head">
@@ -139,7 +139,7 @@ export function Sidebar({
         </ul>
       </nav>
 
-      <div className="border-t border-border p-2">
+      <div className="p-2">
         <Menu
           label="Switch project"
           side="top"

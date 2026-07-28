@@ -283,6 +283,7 @@ export function useTabCompletion(
       let acc = "";
       let raw = "";
       let lastSig = "";
+      let headLitAt = 0;
       try {
         const res = await fetch("/api/complete", {
           method: "POST",
@@ -320,7 +321,8 @@ export function useTabCompletion(
               );
             }
           } else {
-            setGhost(view(), acc.replace(/^\n+/, ""));
+            if (!headLitAt) headLitAt = performance.now();
+            setGhost(view(), acc.replace(/^\n+/, ""), true);
           }
         }
       } catch {
@@ -331,8 +333,18 @@ export function useTabCompletion(
       if (mySeq !== seq) return;
 
       if (!isStructural(acc)) {
-        // Prose already streamed in as ghost text.
-        if (acc.trim()) shown = { kind: "prose", latencyMs: elapsed(started) };
+        // Prose already streamed in; drop the live edge once it has stopped,
+        // but never before the head has been visible long enough to see.
+        if (acc.trim()) {
+          const text = acc.replace(/^\n+/, "");
+          const lit = headLitAt ? performance.now() - headLitAt : Infinity;
+          const settle = () => {
+            if (mySeq === seq) setGhost(view(), text, false);
+          };
+          if (lit >= AI.timing.minStreamHeadMs) settle();
+          else setTimeout(settle, AI.timing.minStreamHeadMs - lit);
+          shown = { kind: "prose", latencyMs: elapsed(started) };
+        }
         return;
       }
 

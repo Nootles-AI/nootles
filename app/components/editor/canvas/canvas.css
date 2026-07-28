@@ -1,12 +1,4 @@
 /* ===== Diagram canvas ==================================================== */
-/* The canvas keeps a slightly cooler line ramp than the document chrome — the
-   shapes need to read as objects on a surface, not as panel borders. */
-:root {
-  --shape-line: #d6d3de;
-  --shape-line-hover: #c2bdcc;
-  --shape-line-active: #6b6675;
-  --edge-line: #9a95a6;
-}
 .ab-canvas {
   position: relative;
   width: 100%;
@@ -14,13 +6,13 @@
      serializer mirrors this ceiling when it sizes previews. */
   height: clamp(260px, 46vh, 440px);
   margin: 8px 0;
-  border: 1px solid var(--border);
-  border-radius: 10px;
+  border: none;
+  border-radius: var(--radius-lg);
   overflow: hidden;
-  background: var(--background);
+  background: var(--sunken);
 }
 .ab-editor .ProseMirror-selectednode .ab-canvas {
-  border-color: var(--border-strong);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
 }
 .ab-canvas .react-flow {
   background: transparent;

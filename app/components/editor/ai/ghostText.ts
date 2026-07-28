@@ -42,7 +42,7 @@ export type Preview =
   | { kind: "diagram"; nodes: PreviewNode[]; edges: PreviewEdge[] };
 
 export type Suggestion =
-  | { kind: "ghost"; text: string; pos: number }
+  | { kind: "ghost"; text: string; pos: number; streaming?: boolean }
   | {
       kind: "action";
       label: string;
@@ -99,10 +99,10 @@ function metaDispatch(view: EditorView, value: Suggestion) {
   }
 }
 
-function ghostWidget(text: string) {
+function ghostWidget(text: string, streaming = false) {
   return () => {
     const span = document.createElement("span");
-    span.className = "ab-ghost";
+    span.className = streaming ? "ab-ghost ab-stream-head" : "ab-ghost";
     span.textContent = text;
     return span;
   };
@@ -278,10 +278,10 @@ export function ghostTextPlugin(): Plugin<Suggestion> {
         if (s.kind === "ghost") {
           if (!s.text) return null;
           return DecorationSet.create(state.doc, [
-            Decoration.widget(s.pos, ghostWidget(s.text), {
+            Decoration.widget(s.pos, ghostWidget(s.text, s.streaming), {
               side: 1,
               ignoreSelection: true,
-              key: `ab-ghost-${s.pos}-${s.text}`,
+              key: `ab-ghost-${s.pos}-${s.text}-${s.streaming ? "s" : ""}`,
             }),
           ]);
         }
@@ -293,10 +293,11 @@ export function ghostTextPlugin(): Plugin<Suggestion> {
         // suggestion, and Tab accepts them together.
         if (s.tail) {
           decos.push(
-            Decoration.widget(s.pos, ghostWidget(s.tail), {
+            // The tail is the live edge while a block is still generating.
+            Decoration.widget(s.pos, ghostWidget(s.tail, !s.batch), {
               side: 1,
               ignoreSelection: true,
-              key: `ab-tail-${s.pos}-${s.tail}`,
+              key: `ab-tail-${s.pos}-${s.tail}-${s.batch ? "r" : "s"}`,
             }),
           );
         }
@@ -368,10 +369,10 @@ export function hasGhost(state: EditorState): boolean {
  * arriving mid-flight silently replaces an action chip or preview, which is why
  * previews appeared only sometimes. Actions win.
  */
-export function setGhost(view: EditorView, text: string) {
+export function setGhost(view: EditorView, text: string, streaming = false) {
   if (ghostTextKey.getState(view.state)?.kind === "action") return;
   const pos = view.state.selection.from;
-  metaDispatch(view, text ? { kind: "ghost", text, pos } : null);
+  metaDispatch(view, text ? { kind: "ghost", text, pos, streaming } : null);
 }
 
 /** Show an action suggestion (chip, or a faded preview) carrying its op batch. */

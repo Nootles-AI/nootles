@@ -12,7 +12,7 @@ export function ChatPanel({
   return (
     <aside
       style={{ width }}
-      className="ab-panel border-l border-border"
+      className="ab-panel"
       aria-label="Chat"
     >
       <div className="ab-panel-head">
@@ -42,7 +42,7 @@ export function ChatPanel({
           rows={1}
           aria-label="Ask auto-board"
           placeholder="Ask auto-board…"
-          className="w-full resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted disabled:cursor-not-allowed disabled:opacity-60"
+          className="w-full resize-none rounded-lg bg-sunken px-3 py-2 text-[13px] text-foreground placeholder:text-muted disabled:cursor-not-allowed disabled:opacity-70"
         />
       </div>
     </aside>
