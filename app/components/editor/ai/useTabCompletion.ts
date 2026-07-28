@@ -11,7 +11,7 @@ import { resolveBatch } from "@/app/lib/ai/validate";
 import { applyBatch } from "@/app/lib/ai/apply";
 import { toDocHtml, toDocHtmlSplit } from "@/app/lib/ai/html/serialize";
 import { parseDocHtml } from "@/app/lib/ai/html/parse";
-import { compileDocHtml } from "@/app/lib/ai/html/compile";
+import { compileDocHtml, layoutDiagram } from "@/app/lib/ai/html/compile";
 import type { Batch } from "@/convex/ai/operations";
 import {
   setGhost,
@@ -42,6 +42,45 @@ const PREAMBLE = `<!-- auto-board document. Blocks: <p>, <h2>, <ul><li>, <blockq
 /** A completion that opens or closes an element, rather than continuing prose. */
 function isStructural(text: string): boolean {
   return /<\s*\/?[a-zA-Z]/.test(text);
+}
+
+/**
+ * Preview built from a HALF-ARRIVED completion, so a diagram draws itself as its
+ * shapes come in rather than sitting behind a spinner for a few seconds.
+ *
+ * The partial markup is malformed by definition — the last tag is usually cut
+ * mid-attribute — but DOM parsing is forgiving, so complete elements come back
+ * and the rest is ignored. Positions run through the same layout the compiler
+ * uses, so nothing shifts when the finished version replaces it.
+ */
+function partialPreview(acc: string): { label: string; preview?: Preview } | null {
+  let nodes;
+  try {
+    nodes = parseDocHtml(acc);
+  } catch {
+    return null;
+  }
+  const canvas = nodes.find((n) => n.type === "canvas");
+  if (canvas && canvas.type === "canvas") {
+    if (!canvas.nodes.length) return { label: "Add diagram" };
+    const laid = layoutDiagram(canvas.nodes, canvas.edges);
+    return { label: "Add diagram", preview: { kind: "diagram", ...laid } };
+  }
+  const code = nodes.find((n) => n.type === "codeBlock");
+  if (code && code.type === "codeBlock") {
+    return {
+      label: "Insert code block",
+      preview: { kind: "code", language: code.language, code: code.code },
+    };
+  }
+  return null;
+}
+
+/** Cheap signal for "enough has arrived to be worth redrawing". */
+function previewSignature(acc: string): string {
+  const closed = (acc.match(/<\/ab-node>/g) ?? []).length;
+  const edges = (acc.match(/<ab-edge/g) ?? []).length;
+  return `${closed}:${edges}:${acc.length >> 5}`;
 }
 
 /** Human label + preview for whatever the completion turned out to be. */
@@ -179,6 +218,7 @@ export function useTabCompletion(
       const started = performance.now();
 
       let acc = "";
+      let lastSig = "";
       try {
         const res = await fetch("/api/complete", {
           method: "POST",
@@ -198,8 +238,14 @@ export function useTabCompletion(
           if (mySeq !== seq) return;
           acc += value;
           if (isStructural(acc)) {
-            // Can't render markup until it's complete; show intent meanwhile.
-            setAction(view(), "Thinking", null);
+            // Draw what has arrived so far. The batch stays null until the
+            // stream ends, so Tab queues rather than applying a half-diagram.
+            const sig = previewSignature(acc);
+            if (sig !== lastSig) {
+              lastSig = sig;
+              const partial = partialPreview(acc);
+              setAction(view(), partial?.label ?? "Thinking", null, partial?.preview);
+            }
           } else {
             setGhost(view(), acc.replace(/^\n+/, ""));
           }

@@ -215,6 +215,34 @@ function layoutFor(
   return (n) => ({ x: n.x!, y: n.y! });
 }
 
+/**
+ * Positions and edge references for a diagram, as the compiler would resolve
+ * them. Shared with the streaming preview so a half-arrived diagram is drawn
+ * exactly where the finished one will land — no shuffle on accept.
+ */
+export function layoutDiagram(
+  nodes: Array<{ id?: string; shape: string; label: string; x?: number; y?: number }>,
+  edges: Array<{ from: string; to: string; label?: string }>,
+) {
+  const idFor = (n: { id?: string }, i: number) => n.id ?? `n${i}`;
+  const place = layoutFor(nodes);
+  const resolve = edgeResolver(nodes, idFor);
+  return {
+    nodes: nodes.map((n, i) => ({
+      tempId: idFor(n, i),
+      shape: n.shape,
+      label: n.label,
+      ...place(n, i),
+    })),
+    edges: edges.flatMap((e) => {
+      const source = resolve(e.from);
+      const target = resolve(e.to);
+      if (!source || !target) return [];
+      return [{ source, target, ...(e.label ? { label: e.label } : {}) }];
+    }),
+  };
+}
+
 function newBlockFor(node: DocNode, tempId: string): NewBlock {
   const props = propsOf(node);
   const children =
