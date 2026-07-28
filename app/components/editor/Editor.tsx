@@ -122,7 +122,7 @@ export function Editor({
   docId,
   pageId,
   title = "",
-  mode = "compose",
+  mode = "create",
 }: {
   docId: string;
   pageId?: Id<"pages">;

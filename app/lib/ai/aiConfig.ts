@@ -41,12 +41,12 @@ export const AI = {
   minContextChars: 14,
 
   /**
-   * Per-page eagerness. Compose is the default — you are writing from your own
-   * head and inference is the point. Transcribe is for notes taken ON
-   * something: the model cannot know what the speaker says next, so an
-   * ungrounded guess is pure noise no matter how good it is.
+   * Per-page eagerness. "create" is the default — the model writes what is not
+   * there yet. "complete" only finishes what you started: it cannot know what
+   * comes next while you are taking notes on something, so an ungrounded guess
+   * is invention no matter how good the model is.
    *
-   * Transcribe does not switch suggestions off. It raises the bar to things
+   * Complete does not switch suggestions off. It raises the bar to things
    * actually derivable from the page. Thresholds come from measured
    * completions: genuinely inferable ones (finishing a series, finishing a
    * word) came back at 7-25 characters and reused the page's own vocabulary,
@@ -55,7 +55,7 @@ export const AI = {
    * nothing to go on.
    */
   modes: {
-    compose: {
+    create: {
       debounceMs: 350,
       minContextChars: 14,
       /** Blocks (code, math, diagram) may be proposed. */
@@ -63,7 +63,7 @@ export const AI = {
       maxChars: Infinity,
       minGrounding: 0,
     },
-    transcribe: {
+    complete: {
       debounceMs: 700,
       minContextChars: 40,
       allowBlocks: false,

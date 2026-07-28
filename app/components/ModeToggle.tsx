@@ -3,27 +3,19 @@
 import { useId } from "react";
 import type { PageMode } from "./editor/ai/useTabCompletion";
 
+/** Both tooltips describe what the model does, not what you happen to be doing. */
 const MODES: { id: PageMode; label: string; hint: string }[] = [
-  {
-    id: "compose",
-    label: "Compose",
-    hint: "Writing from your own head. Suggestions lean in, and can propose code, math and diagrams.",
-  },
-  {
-    id: "transcribe",
-    label: "Transcribe",
-    hint: "Notes on a meeting or video. Only suggests what the page already implies — finishing a word, or continuing a list.",
-  },
+  { id: "create", label: "Create", hint: "Writes what is not there yet." },
+  { id: "complete", label: "Complete", hint: "Only finishes what you started." },
 ];
 
 /**
- * Which way the page leans. Deliberately visible rather than inferred: in a
- * meeting you already know you are transcribing, and a switch you can flip
- * beats any amount of guessing at it.
+ * How far the model is allowed to go on this page. Deliberately a switch rather
+ * than something inferred: you already know which one you want, and a control
+ * you can flip beats any amount of guessing at it.
  *
- * The hint is the whole point of the control — "transcribe" means nothing on
- * its own — so it is a real tooltip rather than a `title` attribute, which
- * waits over a second and cannot be styled.
+ * The hint is the whole point of the control, so it is a real tooltip rather
+ * than a `title` attribute, which waits over a second and cannot be styled.
  */
 export function ModeToggle({
   mode,

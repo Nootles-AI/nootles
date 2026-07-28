@@ -66,9 +66,9 @@ export function PageSurface({ pageId }: { pageId: Id<"pages"> }) {
         className="w-full px-6 py-12 sm:px-14 sm:py-20"
         style={{ maxWidth: "calc(var(--measure) + 7rem)" }}
       >
-        <div className="mb-6 flex justify-end">
+        <div className="mb-6 flex justify-start">
           <ModeToggle
-            mode={(page.mode ?? "compose") as PageMode}
+            mode={(page.mode ?? "create") as PageMode}
             onChange={(mode) => setMode({ pageId, mode })}
           />
         </div>
@@ -90,7 +90,7 @@ export function PageSurface({ pageId }: { pageId: Id<"pages"> }) {
             docId={page.docId}
             pageId={pageId}
             title={page.title}
-            mode={(page.mode ?? "compose") as PageMode}
+            mode={(page.mode ?? "create") as PageMode}
           />
         </div>
       </div>

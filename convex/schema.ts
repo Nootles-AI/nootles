@@ -32,15 +32,15 @@ export default defineSchema({
     /**
      * How eager ambient suggestions should be on this page.
      *
-     * "compose" is the default: you are writing from your own head, so
-     * inference is the value. "transcribe" is for notes taken ON something —
-     * a meeting, a video — where the model cannot know what is said next, so
-     * every guess is noise. Transcribe does not silence it, it raises the bar
-     * to things genuinely derivable from what is already on the page.
+     * "create" is the default: the model writes what is not there yet, and may
+     * propose code, math and diagrams. "complete" only finishes what you have
+     * started — it keeps a suggestion solely when the page itself supports it,
+     * which is what you want while taking notes ON something, where the model
+     * cannot know what comes next and every guess is invention.
      *
-     * Optional so existing pages read as "compose" without a migration.
+     * Optional so existing pages read as "create" without a migration.
      */
-    mode: v.optional(v.union(v.literal("compose"), v.literal("transcribe"))),
+    mode: v.optional(v.union(v.literal("create"), v.literal("complete"))),
     // Manual ordering within the project sidebar.
     order: v.number(),
     // prosemirror-sync document id for this page's block flow.

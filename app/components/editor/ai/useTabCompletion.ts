@@ -248,11 +248,11 @@ function describe(batch: Batch): { label: string; preview?: Preview } {
  * shown: bare text streams as ghost text, markup is compiled into ops and
  * offered as a previewed block. Tab accepts either.
  */
-export type PageMode = "compose" | "transcribe";
+export type PageMode = "create" | "complete";
 
 /**
- * Cut a completion to its first clause. Transcribe suggests a few words you
- * were obviously about to type, never a paragraph you did not ask for.
+ * Cut a completion to its first clause. Complete offers a few words you were
+ * obviously about to type, never a paragraph you did not ask for.
  */
 function firstClause(text: string, max: number): string {
   const end = text.search(/[.!?;:](\s|$)/);
@@ -264,7 +264,7 @@ export function useTabCompletion(
   editor: Editor | null | undefined,
   pageId?: Id<"pages"> | null,
   title = "",
-  mode: PageMode = "compose",
+  mode: PageMode = "create",
 ) {
   const appendBatch = useMutation(api.ai.opLog.appendBatch);
   const logSuggestion = useMutation(api.ai.suggestions.log);
@@ -326,12 +326,12 @@ export function useTabCompletion(
         title,
       });
       if (!split) return null;
-      // Enough written to complete from. Transcribe wants more before it
+      // Enough written to complete from. "complete" wants more before it
       // speaks at all.
       const bare = split.prefix.replace(/<[^>]*>/g, "");
       const visible = bare.trim();
       if (visible.length < AI.modes[mode].minContextChars) return null;
-      // Untrimmed: whether the caret sits mid-word decides what transcribe is
+      // Untrimmed: whether the caret sits mid-word decides what "complete" is
       // willing to offer.
       return { ...split, cursorBlockId, blocks, visible, midWord: /\w$/.test(bare) };
     };
@@ -390,7 +390,7 @@ export function useTabCompletion(
             if (!headLitAt) headLitAt = performance.now();
             // Plain text to insert, raw markup to render.
             setGhost(view(), displayText(acc), true, acc);
-            // One clause is all transcribe ever offers; stop paying for more.
+            // One clause is all "complete" ever offers; stop paying for more.
             if (displayText(acc).length >= limits.maxChars) break;
           }
         }
@@ -401,7 +401,7 @@ export function useTabCompletion(
       controller.abort();
       if (mySeq !== seq) return;
 
-      // Transcribe only keeps what could have been read off the page: a
+      // "complete" only keeps what could have been read off the page: a
       // continuation reusing its vocabulary, or the ending of the word being
       // typed. Ungrounded guesses measured 0.00 overlap and ran 2-3x longer,
       // and during a meeting they are pure noise.
