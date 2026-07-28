@@ -8,6 +8,7 @@ import type { ComputeEngine } from "@cortex-js/compute-engine";
 import { MathField } from "../math/MathField";
 import { evaluateLines, type LineResult } from "../math/engine";
 import { toDocHtmlSplit } from "@/app/lib/ai/html/serialize";
+import { usePageTitle } from "../PageTitleContext";
 import type { AnyBlock } from "@/app/lib/ai/projection";
 
 type Row = { id: number; latex: string };
@@ -80,8 +81,13 @@ function MathBlockView({
   source: string;
   onChange: (source: string) => void;
   /** Document HTML split at the caret inside this block, for completion. */
-  getFimContext?: (offset: number) => { prefix: string; suffix: string } | null;
+  getFimContext?: (
+    offset: number,
+    title: string,
+  ) => { prefix: string; suffix: string } | null;
 }) {
+  // A page-level fact, reached from deep in the editor tree.
+  const pageTitle = usePageTitle();
   const [rows, setRows] = useState<Row[]>(() => sourceToRows(source));
   const [results, setResults] = useState<LineResult[]>([]);
   const [ghost, setGhost] = useState<MathGhost | null>(null);
@@ -175,7 +181,7 @@ function MathBlockView({
     const offset =
       rs.slice(0, idx).reduce((n, r) => n + r.latex.length + 1, 0) +
       rs[idx].latex.length;
-    const ctx = build(offset);
+    const ctx = build(offset, pageTitle);
     if (!ctx) return;
     const controller = new AbortController();
     abortRef.current = controller;
@@ -321,11 +327,12 @@ export const mathBlockSpec = createReactBlockSpec(
         onChange={(source) =>
           editor.updateBlock(block.id, { props: { source } })
         }
-        getFimContext={(offset) =>
+        getFimContext={(offset, title) =>
           toDocHtmlSplit(
             editor.document as unknown as AnyBlock[],
             block.id,
             offset,
+            { title },
           )
         }
       />

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { createReactBlockSpec } from "@blocknote/react";
 import { CodeMirrorEditor } from "../codemirror/CodeMirrorEditor";
 import { toDocHtmlSplit } from "@/app/lib/ai/html/serialize";
+import { usePageTitle } from "../PageTitleContext";
 import type { AnyBlock } from "@/app/lib/ai/projection";
 import { LANGUAGES, languageLabel } from "../codemirror/languages";
 
@@ -66,7 +67,10 @@ type CodeBlockViewProps = {
   onChangeCode: (value: string) => void;
   onChangeLanguage: (id: string) => void;
   onDelete: () => void;
-  getFimContext?: (offset: number) => { prefix: string; suffix: string } | null;
+  getFimContext?: (
+    offset: number,
+    title: string,
+  ) => { prefix: string; suffix: string } | null;
 };
 
 function CodeBlockView({
@@ -77,6 +81,9 @@ function CodeBlockView({
   onDelete,
   getFimContext,
 }: CodeBlockViewProps) {
+  // A page-level fact, reached from deep in the editor tree.
+  const title = usePageTitle();
+
   // Debounce persistence: CodeMirror holds the live text; we only write it into
   // the block prop after a pause (and flush on blur/unmount), so typing stays
   // O(1) instead of rewriting the whole string into ProseMirror per keystroke.
@@ -122,7 +129,9 @@ function CodeBlockView({
         language={language}
         onChange={handleChange}
         onBlur={() => flushRef.current()}
-        getFimContext={getFimContext}
+        // The page title is a page-level fact and this block sits deep in the
+        // editor tree, so it comes from context and is handed back up.
+        getFimContext={(offset) => getFimContext?.(offset, title) ?? null}
       />
     </div>
   );
@@ -151,11 +160,12 @@ export const codeBlockSpec = createReactBlockSpec(
         onDelete={() => editor.removeBlocks([block.id])}
         // The caret lives in CodeMirror, not ProseMirror, so we place it in the
         // serialized document ourselves — the model still sees the whole page.
-        getFimContext={(offset) =>
+        getFimContext={(offset, title) =>
           toDocHtmlSplit(
             editor.document as unknown as AnyBlock[],
             block.id,
             offset,
+            { title },
           )
         }
       />

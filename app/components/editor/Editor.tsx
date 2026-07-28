@@ -4,7 +4,12 @@ import { useEffect, useRef } from "react";
 import { BlockNoteView } from "@blocknote/mantine";
 import "@blocknote/mantine/style.css";
 import {
+  blockTypeSelectItems,
   getDefaultReactSlashMenuItems,
+  getFormattingToolbarItems,
+  useDictionary,
+  FormattingToolbar,
+  FormattingToolbarController,
   SuggestionMenuController,
   type DefaultReactSuggestionItem,
 } from "@blocknote/react";
@@ -13,12 +18,37 @@ import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import { schema } from "./schema";
 import { BlockSideMenu } from "./BlockSideMenu";
+import { PageTitleProvider } from "./PageTitleContext";
+import { InlineCodeButton } from "./InlineCodeButton";
 import { SubstrateHarness } from "./ai/SubstrateHarness";
 import { completionExtension } from "./ai/completionExtension";
 import { useTabCompletion } from "./ai/useTabCompletion";
 import "./editor.css";
 
 type EditorInstance = typeof schema.BlockNoteEditor;
+
+/**
+ * The default toolbar plus an inline-code button, sat next to the other text
+ * styles rather than tacked on the end. BlockNote ships bold/italic/underline/
+ * strike and stops there, but the document grammar has always had `<code>` —
+ * so without this the AI could produce a mark the user could not.
+ *
+ * `getFormattingToolbarItems` needs the block-type list passed in; supplying
+ * children to FormattingToolbar bypasses the default that would otherwise do it,
+ * and without them the "Paragraph" dropdown renders with nothing to choose.
+ */
+function Toolbar() {
+  const items = getFormattingToolbarItems(blockTypeSelectItems(useDictionary()));
+  const i = items.findIndex((el) => el.key === "strikeStyleButton");
+  const code = <InlineCodeButton key="codeStyleButton" />;
+  return (
+    <FormattingToolbar>
+      {i === -1
+        ? [...items, code]
+        : [...items.slice(0, i + 1), code, ...items.slice(i + 1)]}
+    </FormattingToolbar>
+  );
+}
 
 function filterItems(
   items: DefaultReactSuggestionItem[],
@@ -45,6 +75,14 @@ function customSlashItems(editor: EditorInstance): DefaultReactSuggestionItem[] 
         const block = editor.getTextCursorPosition().block;
         editor.updateBlock(block, { type: "canvas", props: { data: "" } });
       },
+    },
+    {
+      title: "Inline code",
+      subtext: "Format text as code, for variable names",
+      aliases: ["code", "inline code", "mono", "variable", "`"],
+      group: "Inline",
+      // Empty selection just arms the mark, so whatever you type next is code.
+      onItemClick: () => editor.toggleStyles({ code: true }),
     },
     {
       title: "Math equation",
@@ -78,15 +116,18 @@ function customSlashItems(editor: EditorInstance): DefaultReactSuggestionItem[] 
 export function Editor({
   docId,
   pageId,
+  title = "",
 }: {
   docId: string;
   pageId?: Id<"pages">;
+  /** Emitted as <title> in the model's view of the document. */
+  title?: string;
 }) {
   const sync = useBlockNoteSync<EditorInstance>(api.prosemirror, docId, {
     editorOptions: { schema, extensions: [completionExtension] },
   });
 
-  useTabCompletion(sync.editor, pageId);
+  useTabCompletion(sync.editor, pageId, title);
 
   // First open of a page has no document yet — create an empty one seamlessly.
   // Guarded per-docId so StrictMode's double-invoke can't create twice.
@@ -104,7 +145,7 @@ export function Editor({
 
   const editor = sync.editor;
   return (
-    <>
+    <PageTitleProvider value={title}>
       <BlockNoteView
         editor={editor}
         theme="light"
@@ -113,6 +154,7 @@ export function Editor({
         slashMenu={false}
       >
         <BlockSideMenu />
+        <FormattingToolbarController formattingToolbar={Toolbar} />
         <SuggestionMenuController
           triggerCharacter="/"
           getItems={async (query) =>
@@ -126,6 +168,6 @@ export function Editor({
       {process.env.NODE_ENV !== "production" && pageId && (
         <SubstrateHarness editor={editor} pageId={pageId} />
       )}
-    </>
+    </PageTitleProvider>
   );
 }

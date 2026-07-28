@@ -199,6 +199,9 @@ function elementToNode(el: Element, raw: string[]): DocNode | null {
     };
   }
 
+  // Context only — the title is a page field, not a block. Emitted by the
+  // serializer, never parsed back.
+  if (tag === "title") return null;
   if (tag === "ab-code-block" || tag === "pre") {
     const inner = tag === "pre" ? el.querySelector("code") ?? el : el;
     return {

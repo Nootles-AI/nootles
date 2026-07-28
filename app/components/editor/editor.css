@@ -379,3 +379,21 @@
   padding: 0.3rem 0.75rem 0;
   color: var(--ghost);
 }
+
+/* Inline marks inside a suggestion render for real, so the preview matches what
+   accepting produces. They inherit the ghost colour; only the shape differs. */
+.ab-ghost code {
+  padding: 0.1em 0.3em;
+  border-radius: var(--radius-sm);
+  background: var(--sunken);
+  box-shadow: inset 0 0 0 1px var(--border);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 0.88em;
+  color: inherit;
+}
+.ab-ghost strong {
+  font-weight: 600;
+}
+.ab-ghost .katex {
+  color: inherit;
+}

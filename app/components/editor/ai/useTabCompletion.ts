@@ -114,6 +114,22 @@ function firstBlock(acc: string): { text: string; done: boolean } {
   return { text: head + rest.slice(0, end), done: true };
 }
 
+/** Any tag at all — inline marks included. */
+function hasMarkup(text: string): boolean {
+  return /<\s*\/?[a-zA-Z]/.test(text);
+}
+
+/**
+ * What the ghost SHOWS. Inline markup is rendered away, including a tag still
+ * mid-arrival, so the reader never sees a raw `<strong>` or a dangling `<str`.
+ */
+function displayText(text: string): string {
+  return text
+    .replace(/<\/?[a-zA-Z][\w-]*(?:\s[^>]*)?>/g, "")
+    .replace(/<[^>]*$/, "")
+    .replace(/^\n+/, "");
+}
+
 /**
  * Preview built from a HALF-ARRIVED completion, so a diagram draws itself as its
  * shapes come in rather than sitting behind a spinner for a few seconds.
@@ -227,6 +243,7 @@ function describe(batch: Batch): { label: string; preview?: Preview } {
 export function useTabCompletion(
   editor: Editor | null | undefined,
   pageId?: Id<"pages"> | null,
+  title = "",
 ) {
   const appendBatch = useMutation(api.ai.opLog.appendBatch);
   const logSuggestion = useMutation(api.ai.suggestions.log);
@@ -284,7 +301,9 @@ export function useTabCompletion(
         return null;
       }
       const blocks = editor.document as unknown as AnyBlock[];
-      const split = toDocHtmlSplit(blocks, cursorBlockId, sel.$from.parentOffset);
+      const split = toDocHtmlSplit(blocks, cursorBlockId, sel.$from.parentOffset, {
+        title,
+      });
       if (!split) return null;
       // Enough written to complete from.
       const visible = split.prefix.replace(/<[^>]*>/g, "").trim();
@@ -341,7 +360,8 @@ export function useTabCompletion(
             }
           } else {
             if (!headLitAt) headLitAt = performance.now();
-            setGhost(view(), acc.replace(/^\n+/, ""), true);
+            // Plain text to insert, raw markup to render.
+            setGhost(view(), displayText(acc), true, acc);
           }
         }
       } catch {
@@ -351,14 +371,16 @@ export function useTabCompletion(
       controller.abort();
       if (mySeq !== seq) return;
 
-      if (!isStructural(acc)) {
-        // Prose already streamed in; drop the live edge once it has stopped,
-        // but never before the head has been visible long enough to see.
+      // Plain prose — no markup at all — is the fast path: the ghost text IS
+      // the insertion, so accepting is a plain insertText.
+      if (!isStructural(acc) && !hasMarkup(acc)) {
+        // Drop the live edge once the stream stops, but never before the head
+        // has been visible long enough to see.
         if (acc.trim()) {
-          const text = acc.replace(/^\n+/, "");
+          const text = displayText(acc);
           const lit = headLitAt ? performance.now() - headLitAt : Infinity;
           const settle = () => {
-            if (mySeq === seq) setGhost(view(), text, false);
+            if (mySeq === seq) setGhost(view(), text, false, acc);
           };
           if (lit >= AI.timing.minStreamHeadMs) settle();
           else setTimeout(settle, AI.timing.minStreamHeadMs - lit);
@@ -367,8 +389,10 @@ export function useTabCompletion(
         return;
       }
 
-      // Structural: rebuild the document with the completion spliced in, and
-      // let the compiler work out which ops that implies.
+      // Everything else goes through the compiler: rebuild the document with the
+      // completion spliced in and let it work out which ops that implies. That
+      // includes prose carrying only inline marks — it does not open a block, but
+      // `<strong>` still has to become bold rather than five literal characters.
       try {
         const next = parseDocHtml(ctx.prefix + acc + ctx.suffix);
         const current = parseDocHtml(toDocHtml(ctx.blocks));
@@ -380,6 +404,14 @@ export function useTabCompletion(
         const { index } = project(ctx.blocks);
         const resolved = resolveBatch(batch, index);
         if (!resolved.ok) return clear();
+        if (!isStructural(acc)) {
+          // Inline marks only. Still prose to the reader: ghost text, no chip and
+          // no preview — but Tab applies the compiled batch, so the marks land.
+          shown = { kind: "prose+marks", latencyMs: elapsed(started) };
+          // Raw markup: the tail renders it, and Tab applies the batch.
+          setAction(view(), "Apply suggestion", resolved.batch, undefined, acc);
+          return;
+        }
         const { label, preview } = describe(resolved.batch);
         shown = { kind: label, latencyMs: elapsed(started) };
         setAction(view(), label, resolved.batch, preview, proseTail(acc));
@@ -434,5 +466,5 @@ export function useTabCompletion(
       abort?.abort();
       setActionApplyHandler(null);
     };
-  }, [editor, pageId]);
+  }, [editor, pageId, title]);
 }

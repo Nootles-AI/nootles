@@ -102,3 +102,11 @@ export function ArrowLeft(props: SVGProps<SVGSVGElement>) {
     </svg>
   );
 }
+
+export function Code(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <path d="m16 18 6-6-6-6M8 6l-6 6 6 6" />
+    </svg>
+  );
+}

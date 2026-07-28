@@ -42,7 +42,18 @@ export type Preview =
   | { kind: "diagram"; nodes: PreviewNode[]; edges: PreviewEdge[] };
 
 export type Suggestion =
-  | { kind: "ghost"; text: string; pos: number; streaming?: boolean }
+  | {
+      kind: "ghost";
+      /** Plain text — this is what gets inserted on accept. */
+      text: string;
+      pos: number;
+      streaming?: boolean;
+      /**
+       * The same completion with its inline markup intact, for rendering only.
+       * Kept apart from `text` so accepting can never paste a literal `<code>`.
+       */
+      markup?: string;
+    }
   | {
       kind: "action";
       label: string;
@@ -99,15 +110,76 @@ function metaDispatch(view: EditorView, value: Suggestion) {
   }
 }
 
+/** Inline elements the ghost renders for real; anything else is unwrapped. */
+const GHOST_TAGS: Record<string, string> = {
+  strong: "strong",
+  b: "strong",
+  em: "em",
+  i: "em",
+  u: "u",
+  s: "s",
+  code: "code",
+};
+
+/**
+ * Renders a completion's inline markup into real nodes, so a suggestion looks
+ * the way it will look once accepted — bold is bold, `code` wears the code
+ * chrome, `<ab-math>` renders through KaTeX.
+ *
+ * Showing the raw tags instead was the tell that the preview and the accepted
+ * result were two different things. Parsing is forgiving by design: mid-stream
+ * the last tag is usually incomplete, and the parser simply drops it.
+ */
+function renderInline(source: string, into: HTMLElement) {
+  const body = new DOMParser().parseFromString(
+    `<body>${source}</body>`,
+    "text/html",
+  ).body;
+
+  const walk = (node: Node, parent: HTMLElement) => {
+    for (const child of Array.from(node.childNodes)) {
+      if (child.nodeType === Node.TEXT_NODE) {
+        parent.appendChild(document.createTextNode(child.textContent ?? ""));
+        continue;
+      }
+      if (child.nodeType !== Node.ELEMENT_NODE) continue;
+      const el = child as Element;
+      const tag = el.tagName.toLowerCase();
+
+      if (tag === "ab-math") {
+        const span = document.createElement("span");
+        try {
+          span.innerHTML = katex.renderToString(el.textContent ?? "", {
+            throwOnError: false,
+          });
+        } catch {
+          span.textContent = el.textContent ?? "";
+        }
+        parent.appendChild(span);
+        continue;
+      }
+
+      const mapped = GHOST_TAGS[tag];
+      // Unknown tag: keep its text, drop the wrapper. A half-arrived block tag
+      // must never show up as literal angle brackets.
+      const next = mapped ? document.createElement(mapped) : parent;
+      if (mapped) parent.appendChild(next);
+      walk(el, next as HTMLElement);
+    }
+  };
+
+  walk(body, into);
+}
+
 /**
  * `live` = tokens are still arriving, so the head pulses. When false the head
  * stays but goes steady, marking where the caret lands if you press Tab.
  */
-function ghostWidget(text: string, live = false) {
+function ghostWidget(source: string, live = false) {
   return () => {
     const span = document.createElement("span");
     span.className = "ab-ghost ab-stream-head" + (live ? " is-live" : "");
-    span.textContent = text;
+    renderInline(source, span);
     return span;
   };
 }
@@ -282,10 +354,10 @@ export function ghostTextPlugin(): Plugin<Suggestion> {
         if (s.kind === "ghost") {
           if (!s.text) return null;
           return DecorationSet.create(state.doc, [
-            Decoration.widget(s.pos, ghostWidget(s.text, s.streaming), {
+            Decoration.widget(s.pos, ghostWidget(s.markup ?? s.text, s.streaming), {
               side: 1,
               ignoreSelection: true,
-              key: `ab-ghost-${s.pos}-${s.text}-${s.streaming ? "s" : ""}`,
+              key: `ab-ghost-${s.pos}-${s.markup ?? s.text}-${s.streaming ? "s" : ""}`,
             }),
           ]);
         }
@@ -373,10 +445,15 @@ export function hasGhost(state: EditorState): boolean {
  * arriving mid-flight silently replaces an action chip or preview, which is why
  * previews appeared only sometimes. Actions win.
  */
-export function setGhost(view: EditorView, text: string, streaming = false) {
+export function setGhost(
+  view: EditorView,
+  text: string,
+  streaming = false,
+  markup?: string,
+) {
   if (ghostTextKey.getState(view.state)?.kind === "action") return;
   const pos = view.state.selection.from;
-  metaDispatch(view, text ? { kind: "ghost", text, pos, streaming } : null);
+  metaDispatch(view, text ? { kind: "ghost", text, pos, streaming, markup } : null);
 }
 
 /** Show an action suggestion (chip, or a faded preview) carrying its op batch. */

@@ -22,6 +22,16 @@ type SerializeOptions = {
   cursorBlockId?: string;
   /** Top-level blocks to include either side of the cursor. */
   window?: number;
+  /**
+   * The page title, emitted as <title>. It is the strongest single piece of
+   * context the model gets — a page called "Intro to Java" should not be
+   * completing Python — and it doubles as the file name.
+   *
+   * Standard element, standard meaning, so nothing new to teach. It is context
+   * only: the parser drops it, so a completion can never turn the title into a
+   * block. Renaming the page stays a separate operation.
+   */
+  title?: string;
 };
 
 const ESCAPE: Record<string, string> = {
@@ -286,5 +296,7 @@ export function toDocHtml(
     }
   }
 
-  return blocksToHtml(visible);
+  const body = blocksToHtml(visible);
+  const title = opts.title?.trim();
+  return title ? `<title>${esc(title)}</title>\n${body}` : body;
 }

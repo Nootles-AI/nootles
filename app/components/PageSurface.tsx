@@ -77,7 +77,7 @@ export function PageSurface({ pageId }: { pageId: Id<"pages"> }) {
           className="ab-bare-focus w-full text-[length:var(--text-title)] font-semibold tracking-[-0.02em] text-balance outline-none"
         />
         <div className="mt-8">
-          <Editor docId={page.docId} pageId={pageId} />
+          <Editor docId={page.docId} pageId={pageId} title={page.title} />
         </div>
       </div>
     </main>
