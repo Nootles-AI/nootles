@@ -66,6 +66,12 @@ export function PageSurface({ pageId }: { pageId: Id<"pages"> }) {
         className="w-full px-6 py-12 sm:px-14 sm:py-20"
         style={{ maxWidth: "calc(var(--measure) + 7rem)" }}
       >
+        <div className="mb-6 flex justify-end">
+          <ModeToggle
+            mode={(page.mode ?? "compose") as PageMode}
+            onChange={(mode) => setMode({ pageId, mode })}
+          />
+        </div>
         <Editable
           value={page.title}
           onInput={persistTitle}
@@ -79,13 +85,7 @@ export function PageSurface({ pageId }: { pageId: Id<"pages"> }) {
           label="Page title"
           className="ab-bare-focus w-full text-[length:var(--text-title)] font-semibold tracking-[-0.02em] text-balance outline-none"
         />
-        <div className="mt-4 flex justify-end">
-          <ModeToggle
-            mode={(page.mode ?? "compose") as PageMode}
-            onChange={(mode) => setMode({ pageId, mode })}
-          />
-        </div>
-        <div className="mt-4">
+        <div className="mt-8">
           <Editor
             docId={page.docId}
             pageId={pageId}
