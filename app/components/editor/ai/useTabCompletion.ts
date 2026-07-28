@@ -25,8 +25,6 @@ import {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Editor = BlockNoteEditor<any, any, any>;
 
-const MIN_CONTEXT = 3;
-
 /**
  * One example of each custom element, so a cold document still completes into
  * our grammar. Measured: given no example, the model falls back to standard
@@ -206,7 +204,7 @@ export function useTabCompletion(
       if (!split) return null;
       // Enough written to complete from.
       const visible = split.prefix.replace(/<[^>]*>/g, "").trim();
-      if (visible.length < MIN_CONTEXT) return null;
+      if (visible.length < AI.minContextChars) return null;
       return { ...split, cursorBlockId, blocks };
     };
 

@@ -29,7 +29,7 @@ function MathInlineView({
     return (
       <span className="ab-math-inline is-editing" contentEditable={false}>
         <MathField
-          initialValue={latex}
+          value={latex}
           onChange={onChange}
           onBlur={() => setEditing(false)}
           onEnter={() => setEditing(false)}

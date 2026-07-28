@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { EditorState, Compartment } from "@codemirror/state";
+import { EditorState, Compartment, StateEffect } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { eveningExtensions } from "./theme";
+import { codeGhostExtension, setCodeGhost } from "./ghost";
 import { loadLanguage } from "./languages";
 
 /**
@@ -20,11 +21,14 @@ export function CodeMirrorEditor({
   language,
   onChange,
   onBlur,
+  getFimContext,
 }: {
   initialValue: string;
   language: string;
   onChange: (value: string) => void;
   onBlur?: () => void;
+  /** Document HTML split at the caret inside this block, for completion. */
+  getFimContext?: (offset: number) => { prefix: string; suffix: string } | null;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -52,6 +56,7 @@ export function CodeMirrorEditor({
           history(),
           keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
           langCompartment.current.of([]),
+          codeGhostExtension,
           EditorState.tabSize.of(2),
           eveningExtensions,
           EditorView.updateListener.of((u) => {
@@ -92,6 +97,74 @@ export function CodeMirrorEditor({
       changes: { from: 0, to: view.state.doc.length, insert: initialValue },
     });
   }, [initialValue]);
+
+  // Completion inside the block. The document is serialized into the auto-board
+  // HTML language with the caret placed inside this <ab-code-block>, so the model
+  // sees the whole page — the prose introducing the code, the diagram beside it —
+  // and the closing tag sits in the suffix, so it returns bare code.
+  const ctxRef = useRef(getFimContext);
+  useEffect(() => {
+    ctxRef.current = getFimContext;
+  });
+
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let abort: AbortController | null = null;
+
+    const run = async () => {
+      const build = ctxRef.current;
+      if (!build) return;
+      const sel = view.state.selection.main;
+      if (!sel.empty) return;
+      const offset = sel.head;
+      const ctx = build(offset);
+      if (!ctx) return;
+      const controller = new AbortController();
+      abort = controller;
+      try {
+        const res = await fetch("/api/complete", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ before: ctx.prefix, after: ctx.suffix, mode: "html" }),
+          signal: controller.signal,
+        });
+        if (!res.ok || !res.body) return;
+        const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+        let acc = "";
+        for (;;) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          acc += value;
+          // The completion should stay inside the element; if the model starts
+          // closing it, we've got everything that belongs in the block.
+          const cut = acc.indexOf("</");
+          const text = (cut === -1 ? acc : acc.slice(0, cut)).replace(/\s+$/, "");
+          if (view.state.selection.main.head !== offset) return;
+          if (text) view.dispatch({ effects: setCodeGhost.of(text) });
+        }
+      } catch {
+        // superseded or offline
+      }
+    };
+
+    const schedule = () => {
+      if (timer) clearTimeout(timer);
+      abort?.abort();
+      timer = setTimeout(() => void run(), 400);
+    };
+
+    const listener = EditorView.updateListener.of((u) => {
+      if (u.docChanged || u.selectionSet) schedule();
+    });
+    view.dispatch({ effects: StateEffect.appendConfig.of(listener) });
+
+    return () => {
+      if (timer) clearTimeout(timer);
+      abort?.abort();
+    };
+  }, []);
 
   // Swap the language grammar without destroying the editor.
   useEffect(() => {

@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { createReactBlockSpec } from "@blocknote/react";
 import { CodeMirrorEditor } from "../codemirror/CodeMirrorEditor";
+import { toDocHtmlSplit } from "@/app/lib/ai/html/serialize";
+import type { AnyBlock } from "@/app/lib/ai/projection";
 import { LANGUAGES, languageLabel } from "../codemirror/languages";
 
 function CaretDown() {
@@ -64,6 +66,7 @@ type CodeBlockViewProps = {
   onChangeCode: (value: string) => void;
   onChangeLanguage: (id: string) => void;
   onDelete: () => void;
+  getFimContext?: (offset: number) => { prefix: string; suffix: string } | null;
 };
 
 function CodeBlockView({
@@ -72,6 +75,7 @@ function CodeBlockView({
   onChangeCode,
   onChangeLanguage,
   onDelete,
+  getFimContext,
 }: CodeBlockViewProps) {
   // Debounce persistence: CodeMirror holds the live text; we only write it into
   // the block prop after a pause (and flush on blur/unmount), so typing stays
@@ -118,6 +122,7 @@ function CodeBlockView({
         language={language}
         onChange={handleChange}
         onBlur={() => flushRef.current()}
+        getFimContext={getFimContext}
       />
     </div>
   );
@@ -144,6 +149,15 @@ export const codeBlockSpec = createReactBlockSpec(
           editor.updateBlock(block.id, { props: { language: id } })
         }
         onDelete={() => editor.removeBlocks([block.id])}
+        // The caret lives in CodeMirror, not ProseMirror, so we place it in the
+        // serialized document ourselves — the model still sees the whole page.
+        getFimContext={(offset) =>
+          toDocHtmlSplit(
+            editor.document as unknown as AnyBlock[],
+            block.id,
+            offset,
+          )
+        }
       />
     ),
   },

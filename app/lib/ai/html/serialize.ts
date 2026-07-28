@@ -12,7 +12,13 @@ import { MARK_TAGS, type Mark, type Run } from "./grammar";
  */
 
 type SerializeOptions = {
-  /** Marks the block holding the caret, so completions know where they are. */
+  /**
+   * The block holding the caret. Used only to centre the window — deliberately
+   * NOT emitted as an attribute. Fill-in-the-middle already locates the caret at
+   * the prefix/suffix boundary, and a marker attribute is worse than redundant:
+   * the model copies it into the blocks it writes, so completions came back
+   * carrying a stray `data-cursor="1"`.
+   */
   cursorBlockId?: string;
   /** Top-level blocks to include either side of the cursor. */
   window?: number;
@@ -76,22 +82,21 @@ export function runsToHtmlFromRuns(runs: Run[]): string {
     .join("");
 }
 
-function blockToHtml(block: AnyBlock, cursorBlockId?: string): string {
+function blockToHtml(block: AnyBlock): string {
   const id = attr("id", block.id);
-  const cursor = block.id === cursorBlockId ? ' data-cursor="1"' : "";
   const inner = runsToHtml(block.content);
 
   switch (block.type) {
     case "heading": {
       const level = Math.min(3, Math.max(1, Number(block.props.level ?? 2)));
-      return `<h${level}${id}${cursor}>${inner}</h${level}>`;
+      return `<h${level}${id}>${inner}</h${level}>`;
     }
     case "quote":
-      return `<blockquote${id}${cursor}>${inner}</blockquote>`;
+      return `<blockquote${id}>${inner}</blockquote>`;
     case "codeBlock": {
       const lang = String(block.props.language ?? "plaintext");
       // Raw, unescaped — the parser reads this element as raw text.
-      return `<ab-code-block${id}${cursor}${attr("lang", lang)}>${String(
+      return `<ab-code-block${id}${attr("lang", lang)}>${String(
         block.props.code ?? "",
       )}</ab-code-block>`;
     }
@@ -99,7 +104,7 @@ function blockToHtml(block: AnyBlock, cursorBlockId?: string): string {
       const source = String(block.props.source ?? "");
       const rows = source.length ? source.split("\n") : [""];
       const lines = rows.map((r) => `\n  <ab-math-line>${r}</ab-math-line>`).join("");
-      return `<ab-math-block${id}${cursor}>${lines}\n</ab-math-block>`;
+      return `<ab-math-block${id}>${lines}\n</ab-math-block>`;
     }
     case "canvas": {
       const { nodes, edges } = parseCanvas(String(block.props.data ?? ""));
@@ -124,10 +129,10 @@ function blockToHtml(block: AnyBlock, cursorBlockId?: string): string {
           )}></ab-edge>`;
         })
         .join("");
-      return `<ab-diagram${id}${cursor}>${nodeHtml}${edgeHtml}\n</ab-diagram>`;
+      return `<ab-diagram${id}>${nodeHtml}${edgeHtml}\n</ab-diagram>`;
     }
     default:
-      return `<p${id}${cursor}>${inner}</p>`;
+      return `<p${id}>${inner}</p>`;
   }
 }
 
@@ -138,9 +143,8 @@ function listTagFor(type: string): "ul" | "ol" | null {
   return null;
 }
 
-function listItemHtml(block: AnyBlock, cursorBlockId?: string): string {
+function listItemHtml(block: AnyBlock): string {
   const id = attr("id", block.id);
-  const cursor = block.id === cursorBlockId ? ' data-cursor="1"' : "";
   const box =
     block.type === "checkListItem"
       ? `<input type="checkbox"${block.props.checked ? " checked" : ""}>`
@@ -148,13 +152,13 @@ function listItemHtml(block: AnyBlock, cursorBlockId?: string): string {
   // Nested items live INSIDE the parent <li>, which is how HTML expresses an
   // indented outline — and how the model expects to read and write one.
   const nested = block.children?.length
-    ? blocksToHtml(block.children, cursorBlockId)
+    ? blocksToHtml(block.children)
     : "";
-  return `<li${id}${cursor}>${box}${runsToHtml(block.content)}${nested}</li>`;
+  return `<li${id}>${box}${runsToHtml(block.content)}${nested}</li>`;
 }
 
 /** Serializes a sibling list, grouping consecutive items into one <ul>/<ol>. */
-function blocksToHtml(blocks: AnyBlock[], cursorBlockId?: string): string {
+function blocksToHtml(blocks: AnyBlock[]): string {
   const out: string[] = [];
   let i = 0;
   while (i < blocks.length) {
@@ -162,17 +166,17 @@ function blocksToHtml(blocks: AnyBlock[], cursorBlockId?: string): string {
     if (tag) {
       const items: string[] = [];
       while (i < blocks.length && listTagFor(blocks[i].type) === tag) {
-        items.push(listItemHtml(blocks[i], cursorBlockId));
+        items.push(listItemHtml(blocks[i]));
         i++;
       }
       out.push(`<${tag}>${items.join("")}</${tag}>`);
       continue;
     }
-    out.push(blockToHtml(blocks[i], cursorBlockId));
+    out.push(blockToHtml(blocks[i]));
     // Children of non-list blocks are un-nested, as BlockNote's own HTML
     // export does — HTML has no way to nest a paragraph under a paragraph.
     if (blocks[i].children?.length) {
-      out.push(blocksToHtml(blocks[i].children!, cursorBlockId));
+      out.push(blocksToHtml(blocks[i].children!));
     }
     i++;
   }
@@ -201,6 +205,19 @@ function withCaret(
       return b.children?.length
         ? { ...b, children: withCaret(b.children, cursorBlockId, offset) }
         : b;
+    }
+    // Code and math keep their text in props rather than inline content, and
+    // they're void nodes in ProseMirror — the caret is inside CodeMirror or
+    // MathLive, not the document. Splitting the prop puts the marker in the
+    // right place anyway, so completing inside them is the same FIM call.
+    if (b.type === "codeBlock" || b.type === "mathBlock") {
+      const key = b.type === "codeBlock" ? "code" : "source";
+      const text = String(b.props?.[key] ?? "");
+      const cut = Math.max(0, Math.min(offset, text.length));
+      return {
+        ...b,
+        props: { ...b.props, [key]: text.slice(0, cut) + CARET + text.slice(cut) },
+      };
     }
     const content = Array.isArray(b.content)
       ? (b.content as Array<Record<string, unknown>>)
@@ -269,5 +286,5 @@ export function toDocHtml(
     }
   }
 
-  return blocksToHtml(visible, opts.cursorBlockId);
+  return blocksToHtml(visible);
 }

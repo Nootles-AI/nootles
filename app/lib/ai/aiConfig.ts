@@ -25,6 +25,13 @@ export const AI = {
     ghostDebounceMs: 350,
   },
 
+  /**
+   * Visible characters before the caret needed before we complete at all. Too
+   * low and a couple of characters is enough to provoke a whole block — typing
+   * "a =" was proposing a math block before there was anything to go on.
+   */
+  minContextChars: 14,
+
   projection: {
     /** Blocks either side of the cursor included in the prompt. */
     window: 4,

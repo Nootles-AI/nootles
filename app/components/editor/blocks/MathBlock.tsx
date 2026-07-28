@@ -1,14 +1,54 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import katex from "katex";
 import "katex/dist/katex.min.css";
 import { createReactBlockSpec } from "@blocknote/react";
 import type { ComputeEngine } from "@cortex-js/compute-engine";
 import { MathField } from "../math/MathField";
 import { evaluateLines, type LineResult } from "../math/engine";
+import { toDocHtmlSplit } from "@/app/lib/ai/html/serialize";
+import type { AnyBlock } from "@/app/lib/ai/projection";
 
 type Row = { id: number; latex: string };
+
+/** A completion showing under the caret: the rest of this row, plus new rows. */
+type MathGhost = { rowId: number; tail: string; rows: string[] };
+
+/**
+ * Reads a completion back out of the grammar. The model finishes the open
+ * `<ab-math-line>` and may open more, so the text before the first closing tag
+ * completes the current row and each closed line after it is a new row.
+ *
+ * A line whose closing tag hasn't streamed in yet is dropped — half an equation
+ * is worse than none.
+ */
+function parseMathCompletion(acc: string): Omit<MathGhost, "rowId"> | null {
+  const end = acc.indexOf("</ab-math-block");
+  const parts = (end === -1 ? acc : acc.slice(0, end)).split("</ab-math-line>");
+  const tail = parts[0].trim();
+  const rows = parts
+    .slice(1, -1)
+    .map((s) => (s.match(/<ab-math-line[^>]*>([\s\S]*)/)?.[1] ?? "").trim())
+    .filter(Boolean);
+  if (!tail && !rows.length) return null;
+  return { tail, rows };
+}
+
+function GhostLatex({ latex }: { latex: string }) {
+  let html: string;
+  try {
+    html = katex.renderToString(latex, { throwOnError: false });
+  } catch {
+    return <span className="ab-mathblock-ghost">{latex}</span>;
+  }
+  return (
+    <span
+      className="ab-mathblock-ghost"
+      dangerouslySetInnerHTML={{ __html: html }}
+    />
+  );
+}
 
 function sourceToRows(source: string): Row[] {
   const lines = source.length ? source.split("\n") : [""];
@@ -35,12 +75,16 @@ function ResultView({ result }: { result?: LineResult }) {
 function MathBlockView({
   source,
   onChange,
+  getFimContext,
 }: {
   source: string;
   onChange: (source: string) => void;
+  /** Document HTML split at the caret inside this block, for completion. */
+  getFimContext?: (offset: number) => { prefix: string; suffix: string } | null;
 }) {
   const [rows, setRows] = useState<Row[]>(() => sourceToRows(source));
   const [results, setResults] = useState<LineResult[]>([]);
+  const [ghost, setGhost] = useState<MathGhost | null>(null);
   const [focusId, setFocusId] = useState<number | null>(
     source === "" ? 1 : null,
   );
@@ -103,11 +147,104 @@ function MathBlockView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [source]);
 
+  // Completion inside the block. The caret is inside a MathLive field rather
+  // than the document, so we place it in the serialized HTML by offset — the
+  // model still reads the whole page and answers in <ab-math-line>s.
+  const ctxRef = useRef(getFimContext);
+  const ghostRef = useRef<MathGhost | null>(null);
+  const completeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+  const seqRef = useRef(0);
+  useEffect(() => {
+    ctxRef.current = getFimContext;
+    ghostRef.current = ghost;
+  });
+  useEffect(
+    () => () => {
+      if (completeTimer.current) clearTimeout(completeTimer.current);
+      abortRef.current?.abort();
+    },
+    [],
+  );
+
+  const runComplete = async (rs: Row[], rowId: number, mySeq: number) => {
+    const build = ctxRef.current;
+    const idx = rs.findIndex((r) => r.id === rowId);
+    if (!build || idx === -1) return;
+    // Offset of the row's end within `source` — the rows joined by newlines.
+    const offset =
+      rs.slice(0, idx).reduce((n, r) => n + r.latex.length + 1, 0) +
+      rs[idx].latex.length;
+    const ctx = build(offset);
+    if (!ctx) return;
+    const controller = new AbortController();
+    abortRef.current = controller;
+    try {
+      const res = await fetch("/api/complete", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ before: ctx.prefix, after: ctx.suffix, mode: "html" }),
+        signal: controller.signal,
+      });
+      if (!res.ok || !res.body) return;
+      const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+      let acc = "";
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        if (seqRef.current !== mySeq) return;
+        acc += value;
+        const parsed = parseMathCompletion(acc);
+        if (parsed) setGhost({ rowId, ...parsed });
+      }
+    } catch {
+      // superseded or offline
+    }
+  };
+
+  const scheduleComplete = (rs: Row[], rowId: number) => {
+    if (completeTimer.current) clearTimeout(completeTimer.current);
+    abortRef.current?.abort();
+    seqRef.current++;
+    setGhost(null);
+    const mySeq = seqRef.current;
+    completeTimer.current = setTimeout(
+      () => void runComplete(rs, rowId, mySeq),
+      450,
+    );
+  };
+
+  /** Tab: fold the showing completion into the rows. */
+  const acceptGhost = (): boolean => {
+    const g = ghostRef.current;
+    if (!g) return false;
+    seqRef.current++;
+    abortRef.current?.abort();
+    setGhost(null);
+    setRows((prev) => {
+      const idx = prev.findIndex((r) => r.id === g.rowId);
+      if (idx === -1) return prev;
+      const added = g.rows.map((latex) => ({ id: nextId.current++, latex }));
+      const next = [
+        ...prev.slice(0, idx),
+        { ...prev[idx], latex: prev[idx].latex + g.tail },
+        ...added,
+        ...prev.slice(idx + 1),
+      ];
+      if (added.length) setFocusId(added[added.length - 1].id);
+      scheduleRecompute(next);
+      schedulePersist(next);
+      return next;
+    });
+    return true;
+  };
+
   const updateRow = (id: number, latex: string) => {
     setRows((prev) => {
       const next = prev.map((r) => (r.id === id ? { ...r, latex } : r));
       scheduleRecompute(next);
       schedulePersist(next);
+      scheduleComplete(next, id);
       return next;
     });
   };
@@ -138,18 +275,34 @@ function MathBlockView({
   return (
     <div className="ab-mathblock" contentEditable={false}>
       {rows.map((row, i) => (
-        <div className="ab-mathblock-row" key={row.id}>
-          <div className="ab-mathblock-input">
-            <MathField
-              initialValue={row.latex}
-              autoFocus={row.id === focusId}
-              onChange={(l) => updateRow(row.id, l)}
-              onEnter={() => addRowAfter(row.id)}
-              onBackspaceEmpty={() => removeRow(row.id)}
-            />
+        <Fragment key={row.id}>
+          <div className="ab-mathblock-row">
+            <div className="ab-mathblock-input">
+              <MathField
+                value={row.latex}
+                autoFocus={row.id === focusId}
+                onChange={(l) => updateRow(row.id, l)}
+                onEnter={() => addRowAfter(row.id)}
+                onBackspaceEmpty={() => removeRow(row.id)}
+                onTab={acceptGhost}
+                onEscape={() => setGhost(null)}
+              />
+              {ghost?.rowId === row.id && ghost.tail ? (
+                <GhostLatex latex={ghost.tail} />
+              ) : null}
+            </div>
+            <ResultView result={results[i]} />
           </div>
-          <ResultView result={results[i]} />
-        </div>
+          {ghost?.rowId === row.id
+            ? ghost.rows.map((latex, j) => (
+                <div className="ab-mathblock-row" key={`ghost-${j}`}>
+                  <div className="ab-mathblock-input">
+                    <GhostLatex latex={latex} />
+                  </div>
+                </div>
+              ))
+            : null}
+        </Fragment>
       ))}
     </div>
   );
@@ -167,6 +320,13 @@ export const mathBlockSpec = createReactBlockSpec(
         source={block.props.source}
         onChange={(source) =>
           editor.updateBlock(block.id, { props: { source } })
+        }
+        getFimContext={(offset) =>
+          toDocHtmlSplit(
+            editor.document as unknown as AnyBlock[],
+            block.id,
+            offset,
+          )
         }
       />
     ),
