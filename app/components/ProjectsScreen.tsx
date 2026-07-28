@@ -1,14 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
-import { ArrowLeft, MoreHorizontal, Plus } from "@/app/components/Icons";
-import { Editable } from "@/app/components/Editable";
-import { Menu, MenuItem } from "@/app/components/Menu";
+import { MoreHorizontal, Plus } from "./Icons";
+import { Editable } from "./Editable";
+import { Menu, MenuItem } from "./Menu";
 
 /** "2d ago" / "Jul 12" — coarse enough that it never needs to re-render. */
 function when(ms: number): string {
@@ -33,7 +32,7 @@ export function ProjectsScreen() {
   const [confirmingId, setConfirmingId] = useState<Id<"projects"> | null>(null);
   const [draft, setDraft] = useState("");
 
-  const open = (id: Id<"projects">) => router.push(`/?project=${id}`);
+  const open = (id: Id<"projects">) => router.push(`/p/${id}`);
 
   const commitRename = (id: Id<"projects">) => {
     const title = draft.trim();
@@ -46,14 +45,6 @@ export function ProjectsScreen() {
       className="mx-auto w-full px-6 py-12 sm:px-8 sm:py-20"
       style={{ maxWidth: "calc(var(--measure) + 7rem)" }}
     >
-      <Link
-        href="/"
-        className="ab-row -ml-2 mb-6 inline-flex pr-3 text-muted"
-      >
-        <ArrowLeft width={14} height={14} />
-        Back to workspace
-      </Link>
-
       <div className="mb-1 flex items-end justify-between gap-4">
         <h1 className="text-[length:var(--text-title)] font-semibold tracking-[-0.02em]">
           Projects
@@ -123,7 +114,7 @@ export function ProjectsScreen() {
                       setEditingId(null);
                     }
                   }}
-                  className="ab-row ab-bare-focus is-selected flex-1 truncate font-medium"
+                  className="ab-row-edit ab-bare-focus is-selected flex-1 font-medium"
                 />
               ) : (
                 <>

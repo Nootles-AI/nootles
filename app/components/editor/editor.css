@@ -397,3 +397,10 @@
 .ab-ghost .katex {
   color: inherit;
 }
+
+/* BlockNote draws a vertical guide beside every nested block. On a checklist
+   that is one rule per level of indent, which reads as table chrome rather than
+   an outline — the indent already says everything the line was saying. */
+.ab-editor .bn-block-group .bn-block-group > .bn-block-outer::before {
+  display: none;
+}

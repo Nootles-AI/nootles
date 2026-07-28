@@ -1,12 +1,11 @@
-import { Suspense } from "react";
-import { Workspace } from "./components/Workspace";
+import type { Metadata } from "next";
+import { ProjectsScreen } from "./components/ProjectsScreen";
 
+export const metadata: Metadata = {
+  title: "auto-board",
+};
+
+/** The root is the project manager, the way a docs app opens on your files. */
 export default function Home() {
-  // Workspace reads ?project= via useSearchParams, which suspends during a
-  // static render — without this boundary the production build fails.
-  return (
-    <Suspense fallback={<div className="flex-1" />}>
-      <Workspace />
-    </Suspense>
-  );
+  return <ProjectsScreen />;
 }

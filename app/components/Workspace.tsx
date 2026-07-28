@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
@@ -21,11 +20,7 @@ const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n
    being in-flow and become overlays the user summons. */
 const COMPACT = "(max-width: 1023px)";
 
-export function Workspace() {
-  // /projects links back as /?project=<id>, so the URL seeds the selection and
-  // an explicit in-app switch overrides it.
-  const fromUrl = useSearchParams().get("project") as Id<"projects"> | null;
-  const [projectId, setProjectId] = useState<Id<"projects"> | null>(null);
+export function Workspace({ projectId }: { projectId: Id<"projects"> }) {
   const [pageId, setPageId] = useState<Id<"pages"> | null>(null);
 
   const [leftWidth, setLeftWidth] = useState(LEFT.def);
@@ -81,17 +76,10 @@ export function Workspace() {
     [],
   );
 
-  // Selection is derived, not synced via effects: `projectId`/`pageId` are the
-  // user's explicit overrides; when unset (or stale for the current project) we
-  // fall back to the first available item. This avoids set-state-in-effect
-  // cascades.
-  const projects = useQuery(api.projects.list);
-  const effectiveProjectId = projectId ?? fromUrl ?? projects?.[0]?._id ?? null;
-
-  const pages = useQuery(
-    api.pages.listByProject,
-    effectiveProjectId ? { projectId: effectiveProjectId } : "skip",
-  );
+  // The project comes from the route now. Only the page is a selection, and it
+  // is derived rather than synced via effects: `pageId` is the explicit
+  // override, and when unset or stale we fall back to the first page.
+  const pages = useQuery(api.pages.listByProject, { projectId });
   const sortedPages = pages
     ? [...pages].sort((a, b) => a.order - b.order)
     : undefined;
@@ -103,12 +91,8 @@ export function Workspace() {
   const sidebar = (
     <Sidebar
       width={compact ? 288 : leftWidth}
-      selectedProjectId={effectiveProjectId}
+      projectId={projectId}
       selectedPageId={effectivePageId}
-      onSelectProject={(id) => {
-        setProjectId(id);
-        setPageId(null);
-      }}
       onSelectPage={(id) => {
         setPageId(id);
         setDrawer(null);
@@ -144,7 +128,7 @@ export function Workspace() {
         {effectivePageId ? (
           <PageSurface pageId={effectivePageId} />
         ) : (
-          <EmptyWorkspace hasProjects={!!projects && projects.length > 0} />
+          <EmptyWorkspace />
         )}
       </div>
 
@@ -184,16 +168,12 @@ export function Workspace() {
   );
 }
 
-function EmptyWorkspace({ hasProjects }: { hasProjects: boolean }) {
+function EmptyWorkspace() {
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-1.5 px-6 text-center">
-      <p className="text-sm font-medium">
-        {hasProjects ? "No page open" : "Nothing here yet"}
-      </p>
+      <p className="text-sm font-medium">No pages yet</p>
       <p className="max-w-xs text-sm text-muted">
-        {hasProjects
-          ? "Pick a page from the sidebar, or press + to start a new one."
-          : "Create a project from the switcher at the bottom of the sidebar."}
+        Press + in the sidebar to start one.
       </p>
     </div>
   );

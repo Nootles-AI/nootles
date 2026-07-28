@@ -260,6 +260,22 @@ body {
   color: var(--foreground);
   font-weight: 500;
 }
+/* An inline rename sits in the same box as the row it replaces. It cannot be
+   a flex container though: a contentEditable flex parent puts the caret against
+   the top of the line box rather than with the text. Block layout with the row
+   height as the line height centres both the text and the caret. */
+.ab-row-edit {
+  display: block;
+  height: var(--control);
+  line-height: var(--control);
+  padding-inline: var(--inset);
+  border-radius: var(--radius);
+  font-size: var(--text-ui);
+  color: var(--foreground);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
 .ab-row-label {
   flex: 1 1 auto;
   min-width: 0;

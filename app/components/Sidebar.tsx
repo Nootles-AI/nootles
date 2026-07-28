@@ -5,57 +5,77 @@ import Link from "next/link";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
-import { Check, ChevronsUpDown, PanelLeft, Plus, Settings } from "./Icons";
+import { ArrowLeft, PanelLeft, Plus } from "./Icons";
 import { Editable } from "./Editable";
-import { Menu, MenuItem } from "./Menu";
 
 type Props = {
   width: number;
-  selectedProjectId: Id<"projects"> | null;
+  projectId: Id<"projects">;
   selectedPageId: Id<"pages"> | null;
-  onSelectProject: (id: Id<"projects">) => void;
   onSelectPage: (id: Id<"pages">) => void;
   onCollapse: () => void;
 };
 
 export function Sidebar({
   width,
-  selectedProjectId,
+  projectId,
   selectedPageId,
-  onSelectProject,
   onSelectPage,
   onCollapse,
 }: Props) {
-  const projects = useQuery(api.projects.list);
-  const pages = useQuery(
-    api.pages.listByProject,
-    selectedProjectId ? { projectId: selectedProjectId } : "skip",
-  );
-  const createProject = useMutation(api.projects.create);
+  const project = useQuery(api.projects.get, { projectId });
+  const pages = useQuery(api.pages.listByProject, { projectId });
   const createPage = useMutation(api.pages.create);
   const renamePage = useMutation(api.pages.rename);
+  const removePage = useMutation(api.pages.remove);
+  const renameProject = useMutation(api.projects.rename);
 
-  const [editingId, setEditingId] = useState<Id<"pages"> | null>(null);
+  const [editing, setEditing] = useState<Id<"pages"> | "project" | null>(null);
+  const [confirming, setConfirming] = useState<Id<"pages"> | null>(null);
   const [draft, setDraft] = useState("");
+  /** Where a right-click opened the page menu, in viewport coordinates. */
+  const [ctx, setCtx] = useState<{ id: Id<"pages">; x: number; y: number } | null>(
+    null,
+  );
 
-  const currentProject = projects?.find((p) => p._id === selectedProjectId);
   const sortedPages = pages?.slice().sort((a, b) => a.order - b.order);
 
-  const commitRename = () => {
-    // Empty is allowed: the sidebar shows an "Untitled" fallback and the doc
-    // title falls back to its grayed placeholder.
-    if (editingId) renamePage({ pageId: editingId, title: draft.trim() });
-    setEditingId(null);
+  const commit = () => {
+    const title = draft.trim();
+    if (editing === "project") {
+      if (title) renameProject({ projectId, title });
+    } else if (editing) {
+      // Empty is allowed: the row falls back to "Untitled".
+      renamePage({ pageId: editing, title });
+    }
+    setEditing(null);
+  };
+
+  const startRename = (id: Id<"pages"> | "project", current: string) => {
+    setDraft(current);
+    setEditing(id);
+  };
+
+  const keys = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      commit();
+    }
+    if (e.key === "Escape") {
+      e.preventDefault();
+      setEditing(null);
+    }
   };
 
   return (
-    <aside
-      style={{ width }}
-      className="ab-panel"
-      aria-label="Pages"
-    >
+    <aside style={{ width }} className="ab-panel" aria-label="Pages">
+      {/* Back to the project list, the way a docs app returns to your files —
+          there is no project switcher here because the route is the project. */}
       <div className="ab-panel-head">
-        <span className="ab-panel-title">auto-board</span>
+        <Link href="/" className="ab-row min-w-0 flex-1 text-muted" title="All projects">
+          <ArrowLeft width={14} height={14} className="shrink-0" />
+          <span className="ab-row-label">Projects</span>
+        </Link>
         <button
           onClick={onCollapse}
           aria-label="Collapse sidebar"
@@ -66,30 +86,46 @@ export function Sidebar({
         </button>
       </div>
 
-      {/* Pages fill the sidebar; the project switcher is pinned at the bottom. */}
+      <div className="px-2 pb-2">
+        {editing === "project" ? (
+          <Editable
+            autoFocus
+            value={draft}
+            label="Project name"
+            onInput={setDraft}
+            onBlur={commit}
+            onKeyDown={keys}
+            className="ab-row-edit ab-bare-focus w-full font-semibold"
+          />
+        ) : (
+          <button
+            onDoubleClick={() =>
+              startRename("project", project?.title ?? "")
+            }
+            title="Double-click to rename"
+            className="ab-row w-full font-semibold"
+          >
+            <span className="ab-row-label">
+              {project?.title || "Untitled project"}
+            </span>
+          </button>
+        )}
+      </div>
+
       <nav className="flex-1 overflow-y-auto px-2 pb-2">
         <div className="ab-section-label">
           <span>Pages</span>
-          {selectedProjectId && (
-            <button
-              onClick={() =>
-                createPage({ projectId: selectedProjectId }).then(onSelectPage)
-              }
-              aria-label="New page"
-              title="New page"
-              className="ab-icon-btn"
-            >
-              <Plus />
-            </button>
-          )}
+          <button
+            onClick={() => createPage({ projectId }).then(onSelectPage)}
+            aria-label="New page"
+            title="New page"
+            className="ab-icon-btn"
+          >
+            <Plus />
+          </button>
         </div>
 
         <ul className="space-y-px">
-          {!selectedProjectId && (
-            <li className="px-2 py-1 text-[13px] text-muted">
-              No project selected
-            </li>
-          )}
           {sortedPages?.length === 0 && (
             <li className="px-2 py-1 text-[13px] text-muted">
               No pages yet — press + to add one.
@@ -97,35 +133,25 @@ export function Sidebar({
           )}
           {sortedPages?.map((pg) => (
             <li key={pg._id}>
-              {editingId === pg._id ? (
+              {editing === pg._id ? (
                 <Editable
                   autoFocus
                   value={draft}
                   label="Page name"
                   onInput={setDraft}
-                  onBlur={commitRename}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      commitRename();
-                    }
-                    if (e.key === "Escape") {
-                      e.preventDefault();
-                      setEditingId(null);
-                    }
-                  }}
-                  // Sits in the same box as the selected row — no field chrome,
-                  // just a caret, so renaming doesn't shift the row.
-                  className="ab-row ab-bare-focus is-selected w-full truncate"
+                  onBlur={commit}
+                  onKeyDown={keys}
+                  className="ab-row-edit ab-bare-focus is-selected w-full"
                 />
               ) : (
                 <button
                   onClick={() => onSelectPage(pg._id)}
-                  onDoubleClick={() => {
-                    setEditingId(pg._id);
-                    setDraft(pg.title);
+                  onDoubleClick={() => startRename(pg._id, pg.title)}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    setCtx({ id: pg._id, x: e.clientX, y: e.clientY });
                   }}
-                  title="Double-click to rename"
+                  title="Double-click to rename · right-click for more"
                   aria-current={selectedPageId === pg._id ? "page" : undefined}
                   className={`ab-row w-full${
                     selectedPageId === pg._id ? " is-selected" : ""
@@ -139,56 +165,133 @@ export function Sidebar({
         </ul>
       </nav>
 
-      <div className="p-2">
-        <Menu
-          label="Switch project"
-          side="top"
-          align="start"
-          trigger={(p) => (
-            <button {...p} className="ab-row w-full">
-              <span className="ab-row-label font-medium">
-                {currentProject?.title || "No project"}
-              </span>
-              <ChevronsUpDown className="shrink-0 text-muted" />
-            </button>
-          )}
-        >
-          {(close) => (
-            <>
-              {projects?.map((p) => (
-                <MenuItem
-                  key={p._id}
-                  onClick={() => {
-                    onSelectProject(p._id);
-                    close();
-                  }}
-                >
-                  <span className="ab-row-label">{p.title || "Untitled"}</span>
-                  {p._id === selectedProjectId && (
-                    <Check width={14} height={14} className="text-muted" />
-                  )}
-                </MenuItem>
-              ))}
-              <div className="ab-menu-sep" />
-              <MenuItem
-                onClick={() => {
-                  createProject({ title: "Untitled project" }).then((id) => {
-                    onSelectProject(id);
-                    close();
-                  });
-                }}
-              >
-                <Plus width={14} height={14} />
-                New project
-              </MenuItem>
-              <Link href="/projects" role="menuitem" className="ab-menu-item">
-                <Settings width={14} height={14} />
-                Manage projects
-              </Link>
-            </>
-          )}
-        </Menu>
-      </div>
+      {ctx && (
+        <PageContextMenu
+          x={ctx.x}
+          y={ctx.y}
+          onClose={() => setCtx(null)}
+          onRename={() => {
+            const pg = sortedPages?.find((p) => p._id === ctx.id);
+            startRename(ctx.id, pg?.title ?? "");
+            setCtx(null);
+          }}
+          onDelete={() => {
+            setConfirming(ctx.id);
+            setCtx(null);
+          }}
+        />
+      )}
+
+      {confirming && (
+        <ConfirmDelete
+          title={
+            sortedPages?.find((p) => p._id === confirming)?.title || "Untitled"
+          }
+          onCancel={() => setConfirming(null)}
+          onConfirm={() => {
+            removePage({ pageId: confirming });
+            setConfirming(null);
+          }}
+        />
+      )}
     </aside>
+  );
+}
+
+/** A menu anchored where the pointer was, dismissed by Escape or a click out. */
+function PageContextMenu({
+  x,
+  y,
+  onClose,
+  onRename,
+  onDelete,
+}: {
+  x: number;
+  y: number;
+  onClose: () => void;
+  onRename: () => void;
+  onDelete: () => void;
+}) {
+  return (
+    <>
+      <div
+        className="fixed inset-0"
+        style={{ zIndex: "var(--z-dropdown)" }}
+        onMouseDown={onClose}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          onClose();
+        }}
+      />
+      <div
+        role="menu"
+        aria-label="Page actions"
+        className="ab-menu fixed"
+        style={{ top: y, left: x, minWidth: 168 }}
+        onKeyDown={(e) => e.key === "Escape" && onClose()}
+      >
+        <button role="menuitem" className="ab-menu-item" onClick={onRename}>
+          Rename
+        </button>
+        <div className="ab-menu-sep" />
+        <button
+          role="menuitem"
+          className="ab-menu-item is-danger"
+          onClick={onDelete}
+        >
+          Delete page
+        </button>
+      </div>
+    </>
+  );
+}
+
+/**
+ * Deleting a page takes its diagrams, checkpoints and history with it, so it
+ * asks first — and names the page, since the menu was opened by a right-click
+ * that may not have been where you thought.
+ */
+function ConfirmDelete({
+  title,
+  onCancel,
+  onConfirm,
+}: {
+  title: string;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <>
+      <button
+        aria-label="Cancel"
+        onClick={onCancel}
+        className="fixed inset-0 bg-foreground/15"
+        style={{ zIndex: "var(--z-overlay)" }}
+      />
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Delete ${title}`}
+        className="ab-menu fixed left-1/2 top-1/3 w-[19rem] -translate-x-1/2 p-4"
+        style={{ zIndex: "var(--z-modal)" }}
+      >
+        <p className="text-sm font-medium">Delete “{title}”?</p>
+        <p className="mt-1.5 text-[13px] text-muted">
+          Its diagrams and history go too. This cannot be undone.
+        </p>
+        <div className="mt-4 flex justify-end gap-1">
+          <button onClick={onCancel} className="ab-row px-2.5">
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            autoFocus
+            className="ab-row px-2.5 font-medium text-danger"
+          >
+            Delete
+          </button>
+        </div>
+      </div>
+    </>
   );
 }

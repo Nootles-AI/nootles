@@ -58,3 +58,41 @@ export const rename = mutation({
     await ctx.db.patch(args.pageId, { title: args.title });
   },
 });
+
+/**
+ * Deletes a page and everything hanging off it — the same cascade
+ * `projects.remove` runs for each of its pages.
+ *
+ * Irreversible; the UI confirms first. The prosemirror-sync document keyed by
+ * `docId` is deliberately left alone: it belongs to the sync component rather
+ * than this schema, and orphaning it costs storage, not correctness.
+ */
+export const remove = mutation({
+  args: { pageId: v.id("pages") },
+  handler: async (ctx, args) => {
+    const canvases = await ctx.db
+      .query("canvases")
+      .withIndex("by_page", (q) => q.eq("pageId", args.pageId))
+      .collect();
+    for (const canvas of canvases) {
+      for (const table of ["shapes", "edges"] as const) {
+        const rows = await ctx.db
+          .query(table)
+          .withIndex("by_canvas", (q) => q.eq("canvasId", canvas._id))
+          .collect();
+        await Promise.all(rows.map((r) => ctx.db.delete(r._id)));
+      }
+      await ctx.db.delete(canvas._id);
+    }
+
+    for (const table of ["opLog", "checkpoints", "suggestionLog"] as const) {
+      const rows = await ctx.db
+        .query(table)
+        .withIndex("by_page", (q) => q.eq("pageId", args.pageId))
+        .collect();
+      await Promise.all(rows.map((r) => ctx.db.delete(r._id)));
+    }
+
+    await ctx.db.delete(args.pageId);
+  },
+});
