@@ -323,3 +323,23 @@
   pointer-events: none;
   user-select: none;
 }
+
+/* ---- Faded math-block preview (AI suggestion) ----------------------- */
+.ab-math-preview {
+  margin: 0.4rem 0;
+  padding-bottom: 0.35rem;
+  border: 1px dashed #e2e0e8;
+  border-radius: 4px;
+  background: #fbfbfd;
+  opacity: 0.7;
+  user-select: none;
+  pointer-events: none;
+}
+.ab-math-preview .ab-code-preview-head {
+  border-bottom-color: #e2e0e8;
+  color: #8f8aa3;
+}
+.ab-math-preview-row {
+  padding: 0.3rem 0.75rem 0;
+  color: #6f6a80;
+}

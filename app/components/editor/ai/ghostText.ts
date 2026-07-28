@@ -5,6 +5,7 @@ import {
   type EditorState,
 } from "prosemirror-state";
 import { Decoration, DecorationSet, type EditorView } from "prosemirror-view";
+import katex from "katex";
 import type { Batch } from "@/convex/ai/operations";
 import {
   canvasHeightFor,
@@ -37,6 +38,7 @@ export type PreviewEdge = { source: string; target: string; label?: string };
 /** What a suggestion will produce, rendered faded before it is accepted. */
 export type Preview =
   | { kind: "code"; language: string; code: string }
+  | { kind: "math"; lines: string[] }
   | { kind: "diagram"; nodes: PreviewNode[]; edges: PreviewEdge[] };
 
 export type Suggestion =
@@ -54,6 +56,13 @@ export type Suggestion =
       // When present (insertCode), render a faded preview of the block below the
       // line instead of just a chip.
       preview?: Preview;
+      /**
+       * Prose the completion adds to the current block before opening the new
+       * one. A suggestion that finishes "Here's a dia" into "…diagram of the
+       * quadratic formula:" and then draws the diagram has to show BOTH halves,
+       * or the preview looks like it appeared out of nowhere.
+       */
+      tail?: string;
     }
   | null;
 
@@ -209,6 +218,25 @@ function diagramPreviewWidget(nodes: PreviewNode[], edges: PreviewEdge[]) {
   };
 }
 
+function mathPreviewWidget(lines: string[]) {
+  return () => {
+    const wrap = document.createElement("div");
+    wrap.className = "ab-math-preview";
+    wrap.contentEditable = "false";
+    const head = document.createElement("div");
+    head.className = "ab-code-preview-head";
+    head.textContent = "⇥ Tab to insert · math";
+    wrap.appendChild(head);
+    for (const latex of lines) {
+      const row = document.createElement("div");
+      row.className = "ab-math-preview-row";
+      row.innerHTML = katex.renderToString(latex, { throwOnError: false });
+      wrap.appendChild(row);
+    }
+    return wrap;
+  };
+}
+
 function codePreviewWidget(preview: { language: string; code: string }) {
   return () => {
     const wrap = document.createElement("div");
@@ -258,6 +286,21 @@ export function ghostTextPlugin(): Plugin<Suggestion> {
           ]);
         }
 
+        const decos: Decoration[] = [];
+
+        // The prose half of the completion, shown at the caret exactly like a
+        // plain ghost — the block preview below is the other half of the same
+        // suggestion, and Tab accepts them together.
+        if (s.tail) {
+          decos.push(
+            Decoration.widget(s.pos, ghostWidget(s.tail), {
+              side: 1,
+              ignoreSelection: true,
+              key: `ab-tail-${s.pos}-${s.tail}`,
+            }),
+          );
+        }
+
         // With a preview, render a faded version of the real thing just below
         // the line — exactly where accepting will insert it.
         if (s.preview) {
@@ -271,25 +314,35 @@ export function ghostTextPlugin(): Plugin<Suggestion> {
           const widget =
             p.kind === "code"
               ? codePreviewWidget(p)
-              : diagramPreviewWidget(p.nodes, p.edges);
+              : p.kind === "math"
+                ? mathPreviewWidget(p.lines)
+                : diagramPreviewWidget(p.nodes, p.edges);
           const sig =
-            p.kind === "code" ? p.code.length : `${p.nodes.length}-${p.edges.length}`;
-          return DecorationSet.create(state.doc, [
+            p.kind === "code"
+              ? p.code.length
+              : p.kind === "math"
+                ? p.lines.join("|")
+                : `${p.nodes.length}-${p.edges.length}`;
+          decos.push(
             Decoration.widget(after, widget, {
               side: 1,
               key: `ab-preview-${after}-${p.kind}-${sig}`,
             }),
-          ]);
+          );
+        } else if (!s.tail) {
+          // Only when there is nothing else to show. A chip next to streaming
+          // ghost text reads as two competing suggestions rather than one.
+          const pending = s.batch === null;
+          decos.push(
+            Decoration.widget(s.pos, chipWidget(s.label, pending), {
+              side: 1,
+              ignoreSelection: true,
+              key: `ab-chip-${s.pos}-${s.label}-${pending ? "p" : "r"}`,
+            }),
+          );
         }
 
-        const pending = s.batch === null;
-        return DecorationSet.create(state.doc, [
-          Decoration.widget(s.pos, chipWidget(s.label, pending), {
-            side: 1,
-            ignoreSelection: true,
-            key: `ab-chip-${s.pos}-${s.label}-${pending ? "p" : "r"}`,
-          }),
-        ]);
+        return DecorationSet.create(state.doc, decos);
       },
     },
   });
@@ -327,6 +380,7 @@ export function setAction(
   label: string,
   batch: Batch | null,
   preview?: Preview,
+  tail?: string,
 ) {
   // The user already hit Tab while this was loading — honour it now rather than
   // making them press it again.
@@ -337,7 +391,7 @@ export function setAction(
     return;
   }
   const pos = view.state.selection.from;
-  metaDispatch(view, { kind: "action", label, pos, batch, preview });
+  metaDispatch(view, { kind: "action", label, pos, batch, preview, tail });
 }
 
 export function clearSuggestion(view: EditorView) {

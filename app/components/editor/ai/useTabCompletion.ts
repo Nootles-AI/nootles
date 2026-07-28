@@ -43,6 +43,59 @@ function isStructural(text: string): boolean {
 }
 
 /**
+ * The prose a structural completion writes before it opens its first element.
+ * Finishing "Here's a dia" into "…gram of the quadratic formula:" and then
+ * drawing the diagram is one suggestion, and both halves have to be visible.
+ */
+function proseTail(text: string): string {
+  const cut = text.search(/<\s*\/?[a-zA-Z]/);
+  return (cut === -1 ? text : text.slice(0, cut)).replace(/\n+$/, "");
+}
+
+/** Index just past `<tag>…</tag>`, counting nesting, or -1 if it never closes. */
+function endOfElement(text: string, tag: string): number {
+  const re = new RegExp(`<(/?)${tag}(?=[\\s/>])`, "gi");
+  let depth = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text))) {
+    if (!m[1]) {
+      depth++;
+      continue;
+    }
+    if (--depth > 0) continue;
+    const gt = text.indexOf(">", m.index);
+    return gt === -1 ? -1 : gt + 1;
+  }
+  return -1;
+}
+
+/**
+ * The completion cut down to one block: the prose finishing the current block,
+ * the tag closing it, and the first element opened after that.
+ *
+ * Left alone the model keeps writing — asked to finish "Here's a dia" it drew
+ * the diagram and then toured every other block type in the grammar. That made
+ * the preview a lie, showing one block where Tab would have applied five. `done`
+ * says the element closed, so the stream can be cut short.
+ */
+function firstBlock(acc: string): { text: string; done: boolean } {
+  const cut = acc.search(/<\s*\/?[a-zA-Z]/);
+  if (cut === -1) return { text: acc, done: false };
+  let head = acc.slice(0, cut);
+  let rest = acc.slice(cut);
+  const closing = /^<\/[a-zA-Z][\w-]*\s*>\s*/.exec(rest);
+  if (closing) {
+    head += closing[0];
+    rest = rest.slice(closing[0].length);
+  }
+  const open = /^<([a-zA-Z][\w-]*)[^>]*>/.exec(rest);
+  if (!open) return { text: head + rest, done: false };
+  const end = endOfElement(rest, open[1]);
+  if (end === -1) return { text: head + rest, done: false };
+  return { text: head + rest.slice(0, end), done: true };
+}
+
+/**
  * Preview built from a HALF-ARRIVED completion, so a diagram draws itself as its
  * shapes come in rather than sitting behind a spinner for a few seconds.
  *
@@ -71,6 +124,12 @@ function partialPreview(acc: string): { label: string; preview?: Preview } | nul
       preview: { kind: "code", language: code.language, code: code.code },
     };
   }
+  const math = nodes.find((n) => n.type === "mathBlock");
+  if (math && math.type === "mathBlock") {
+    const lines = math.rows.filter(Boolean);
+    if (!lines.length) return { label: "Insert math block" };
+    return { label: "Insert math block", preview: { kind: "math", lines } };
+  }
   return null;
 }
 
@@ -78,7 +137,7 @@ function partialPreview(acc: string): { label: string; preview?: Preview } | nul
 function previewSignature(acc: string): string {
   const closed = (acc.match(/<\/ab-node>/g) ?? []).length;
   const edges = (acc.match(/<ab-edge/g) ?? []).length;
-  return `${closed}:${edges}:${acc.length >> 5}`;
+  return `${proseTail(acc)}:${closed}:${edges}:${acc.length >> 5}`;
 }
 
 /** Human label + preview for whatever the completion turned out to be. */
@@ -124,7 +183,13 @@ function describe(batch: Batch): { label: string; preview?: Preview } {
         ...(nodes.length ? { preview: { kind: "diagram", nodes, edges } } : {}),
       };
     }
-    if (block.type === "mathBlock") return { label: "Insert math block" };
+    if (block.type === "mathBlock") {
+      const lines = String(block.props?.source ?? "").split("\n").filter(Boolean);
+      return {
+        label: "Insert math block",
+        ...(lines.length ? { preview: { kind: "math" as const, lines } } : {}),
+      };
+    }
     if (block.type === "heading") return { label: "Insert heading" };
   }
   return { label: "Apply suggestion" };
@@ -216,6 +281,7 @@ export function useTabCompletion(
       const started = performance.now();
 
       let acc = "";
+      let raw = "";
       let lastSig = "";
       try {
         const res = await fetch("/api/complete", {
@@ -234,7 +300,10 @@ export function useTabCompletion(
           const { value, done } = await reader.read();
           if (done) break;
           if (mySeq !== seq) return;
-          acc += value;
+          raw += value;
+          const bounded = firstBlock(raw);
+          acc = bounded.text;
+          if (bounded.done) break; // the block closed; nothing after it is ours
           if (isStructural(acc)) {
             // Draw what has arrived so far. The batch stays null until the
             // stream ends, so Tab queues rather than applying a half-diagram.
@@ -242,7 +311,13 @@ export function useTabCompletion(
             if (sig !== lastSig) {
               lastSig = sig;
               const partial = partialPreview(acc);
-              setAction(view(), partial?.label ?? "Thinking", null, partial?.preview);
+              setAction(
+                view(),
+                partial?.label ?? "Thinking",
+                null,
+                partial?.preview,
+                proseTail(acc),
+              );
             }
           } else {
             setGhost(view(), acc.replace(/^\n+/, ""));
@@ -251,6 +326,8 @@ export function useTabCompletion(
       } catch {
         return; // superseded or offline
       }
+      // We have all we intend to use; stop paying for the rest of the stream.
+      controller.abort();
       if (mySeq !== seq) return;
 
       if (!isStructural(acc)) {
@@ -274,7 +351,7 @@ export function useTabCompletion(
         if (!resolved.ok) return clear();
         const { label, preview } = describe(resolved.batch);
         shown = { kind: label, latencyMs: elapsed(started) };
-        setAction(view(), label, resolved.batch, preview);
+        setAction(view(), label, resolved.batch, preview, proseTail(acc));
       } catch {
         clear();
       }
