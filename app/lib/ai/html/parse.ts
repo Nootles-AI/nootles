@@ -1,4 +1,5 @@
 import {
+  canonicalTag,
   RAW_TEXT_TAGS,
   TAG_TO_MARK,
   type DocNode,
@@ -52,11 +53,35 @@ function textOf(el: Element): string {
   return el.textContent ?? "";
 }
 
+/**
+ * Raw-text bodies bypass the DOM, so entities in them are never decoded. We
+ * emit code unescaped and models mostly follow suit, but they sometimes escape
+ * out of habit — leaving a literal `&gt;` in the code. Decode the standard few;
+ * code that genuinely means the characters `&gt;` is far rarer than code that
+ * means `>`.
+ */
+const ENTITIES: Record<string, string> = {
+  "&lt;": "<",
+  "&gt;": ">",
+  "&quot;": '"',
+  "&#39;": "'",
+  "&apos;": "'",
+  "&amp;": "&", // last: so &amp;lt; decodes to &lt; rather than <
+};
+
+function decodeEntities(text: string): string {
+  let out = text;
+  for (const [entity, char] of Object.entries(ENTITIES)) {
+    out = out.split(entity).join(char);
+  }
+  return out;
+}
+
 function rawOf(el: Element, raw: string[]): string {
   const i = el.getAttribute("data-raw");
   if (i === null) return textOf(el);
   const body = raw[Number(i)];
-  return body === undefined ? textOf(el) : body;
+  return body === undefined ? textOf(el) : decodeEntities(body);
 }
 
 function idOf(el: Element): string | undefined {
@@ -83,7 +108,7 @@ function runsOf(node: Node, marks: Mark[] = []): Run[] {
     if (child.nodeType !== 1) return;
     const el = child as Element;
     const tag = el.tagName.toLowerCase();
-    if (tag === "ab-math") {
+    if (canonicalTag(tag) === "ab-math") {
       out.push({ type: "math", latex: textOf(el) });
       return;
     }
@@ -133,7 +158,7 @@ function shapeOf(el: Element): ShapeKind {
 }
 
 function elementToNode(el: Element, raw: string[]): DocNode | null {
-  const tag = el.tagName.toLowerCase();
+  const tag = canonicalTag(el.tagName);
   const id = idOf(el);
 
   if (/^h[1-6]$/.test(tag)) {
@@ -184,21 +209,21 @@ function elementToNode(el: Element, raw: string[]): DocNode | null {
   }
 
   if (tag === "ab-math-block") {
-    const rows = Array.from(el.querySelectorAll("ab-math-line")).map((l) =>
+    const rows = Array.from(el.querySelectorAll("ab-math-line, math-line")).map((l) =>
       rawOf(l, raw).trim(),
     );
     return { type: "mathBlock", id, rows: rows.length ? rows : [""] };
   }
 
   if (tag === "ab-diagram") {
-    const nodes = Array.from(el.querySelectorAll("ab-node")).map((n) => ({
+    const nodes = Array.from(el.querySelectorAll("ab-node, node")).map((n) => ({
       id: idOf(n),
       shape: shapeOf(n),
       label: textOf(n).trim(),
       x: num(n, "x"),
       y: num(n, "y"),
     }));
-    const edges = Array.from(el.querySelectorAll("ab-edge"))
+    const edges = Array.from(el.querySelectorAll("ab-edge, edge"))
       .map((e) => ({
         from: e.getAttribute("from") ?? "",
         to: e.getAttribute("to") ?? "",

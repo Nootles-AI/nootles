@@ -184,6 +184,72 @@ function collectIds(block: AnyBlock, out: Set<string>) {
   for (const c of block.children ?? []) collectIds(c, out);
 }
 
+/**
+ * A marker placed at the caret before serializing. Chosen so escaping can't
+ * touch it (no `&`, `<`, `>`) and prose can't contain it.
+ */
+const CARET = "\u0001CARET\u0001";
+
+/** Copy of the block tree with a marker run spliced in at the caret. */
+function withCaret(
+  blocks: AnyBlock[],
+  cursorBlockId: string,
+  offset: number,
+): AnyBlock[] {
+  return blocks.map((b) => {
+    if (b.id !== cursorBlockId) {
+      return b.children?.length
+        ? { ...b, children: withCaret(b.children, cursorBlockId, offset) }
+        : b;
+    }
+    const content = Array.isArray(b.content)
+      ? (b.content as Array<Record<string, unknown>>)
+      : [];
+    const out: Array<Record<string, unknown>> = [];
+    let acc = 0;
+    let placed = false;
+    for (const item of content) {
+      const text = item.type === "text" ? String(item.text ?? "") : "";
+      if (!placed && item.type === "text" && offset <= acc + text.length) {
+        const cut = Math.max(0, offset - acc);
+        out.push({ ...item, text: text.slice(0, cut) });
+        out.push({ type: "text", text: CARET, styles: {} });
+        out.push({ ...item, text: text.slice(cut) });
+        placed = true;
+      } else {
+        out.push(item);
+      }
+      acc += text.length;
+    }
+    if (!placed) out.push({ type: "text", text: CARET, styles: {} });
+    return { ...b, content: out };
+  });
+}
+
+/**
+ * The document in HTML, split at the caret — the two halves a fill-in-the-middle
+ * model needs. Serializing a marked-up copy and splitting the string means
+ * nesting, lists and custom elements are handled without special cases.
+ *
+ * Mid-paragraph the closing `</p>` lands in the suffix, so a prose completion is
+ * bare text; at a block boundary the model closes the current element and opens
+ * the next, which is exactly how it behaves in code.
+ */
+export function toDocHtmlSplit(
+  blocks: AnyBlock[],
+  cursorBlockId: string,
+  offset: number,
+  opts: SerializeOptions = {},
+): { prefix: string; suffix: string } | null {
+  const html = toDocHtml(withCaret(blocks, cursorBlockId, offset), {
+    ...opts,
+    cursorBlockId,
+  });
+  const i = html.indexOf(CARET);
+  if (i === -1) return null;
+  return { prefix: html.slice(0, i), suffix: html.slice(i + CARET.length) };
+}
+
 export function toDocHtml(
   blocks: AnyBlock[],
   opts: SerializeOptions = {},

@@ -19,7 +19,38 @@
  */
 
 /** Elements whose content is code/LaTeX and must never be read as markup. */
-export const RAW_TEXT_TAGS = ["ab-code-block", "ab-math-line"] as const;
+export const RAW_TEXT_TAGS = [
+  "ab-code-block",
+  "code-block",
+  "codeblock",
+  "ab-math-line",
+  "math-line",
+] as const;
+
+/**
+ * We emit one canonical name per construct but accept the plausible variants a
+ * model reaches for. Strict in what we write, liberal in what we read: a model
+ * writing `<code-block>` instead of `<ab-code-block>` is a naming preference,
+ * not an error, and silently dropping it would look like the feature failing.
+ */
+export const TAG_ALIASES: Record<string, string> = {
+  "code-block": "ab-code-block",
+  codeblock: "ab-code-block",
+  "math-block": "ab-math-block",
+  mathblock: "ab-math-block",
+  "math-line": "ab-math-line",
+  diagram: "ab-diagram",
+  flowchart: "ab-diagram",
+  node: "ab-node",
+  edge: "ab-edge",
+  math: "ab-math",
+};
+
+/** Canonical tag name for an element, resolving accepted aliases. */
+export function canonicalTag(tag: string): string {
+  const t = tag.toLowerCase();
+  return TAG_ALIASES[t] ?? t;
+}
 
 export type Mark = "bold" | "italic" | "underline" | "strike" | "code";
 
