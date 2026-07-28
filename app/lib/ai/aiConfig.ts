@@ -13,8 +13,12 @@ export const AI = {
     model: "codestral-2508",
     /** Prose completions are bounded by the suffix, so they stay short. */
     ghostMaxTokens: 32,
-    /** Structure spans several lines. */
-    htmlMaxTokens: 160,
+    /**
+     * Structure spans many lines. A five-node flowchart with labelled edges
+     * runs past 160 tokens, and truncation silently drops the trailing edges —
+     * which reads as "the diagram lost its arrows".
+     */
+    htmlMaxTokens: 420,
   },
 
   timing: {

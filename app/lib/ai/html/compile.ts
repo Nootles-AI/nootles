@@ -188,15 +188,31 @@ function edgeResolver(
  * lost its edges". So we only honour coordinates when they actually separate the
  * nodes, and otherwise lay them out ourselves.
  */
+const COL = 220;
+const ROW = 140;
+
 function layoutFor(
   nodes: Array<{ x?: number; y?: number }>,
 ): (n: { x?: number; y?: number }, i: number) => { x: number; y: number } {
-  const distinct = new Set(
-    nodes.map((n) => (n.x === undefined || n.y === undefined ? "?" : `${n.x},${n.y}`)),
-  );
-  const usable = !distinct.has("?") && distinct.size === nodes.length;
-  return (n, i) =>
-    usable ? { x: n.x!, y: n.y! } : { x: i * 220, y: 0 };
+  const row = (_n: unknown, i: number) => ({ x: i * COL, y: 0 });
+  if (nodes.some((n) => n.x === undefined || n.y === undefined)) return row;
+
+  const xs = nodes.map((n) => n.x!);
+  const ys = nodes.map((n) => n.y!);
+  const width = Math.max(...xs) - Math.min(...xs);
+  const height = Math.max(...ys) - Math.min(...ys);
+
+  // Every node on the same point: no information to preserve.
+  if (width === 0 && height === 0) return row;
+
+  // A whole diagram spanning a couple of units isn't pixels — the model is
+  // writing grid indices (0,0), (0,1), (-1,2)… Scaling rather than flattening
+  // keeps the structure it intended, like a diamond branching left and right.
+  if (width <= 20 && height <= 20) {
+    return (n) => ({ x: n.x! * COL, y: n.y! * ROW });
+  }
+
+  return (n) => ({ x: n.x!, y: n.y! });
 }
 
 function newBlockFor(node: DocNode, tempId: string): NewBlock {
