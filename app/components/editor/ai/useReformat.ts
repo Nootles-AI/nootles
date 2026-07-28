@@ -10,7 +10,6 @@ import { applyBatch } from "@/app/lib/ai/apply";
 import { toDocHtml } from "@/app/lib/ai/html/serialize";
 import { parseDocHtml } from "@/app/lib/ai/html/parse";
 import { compileDocHtml } from "@/app/lib/ai/html/compile";
-import { hasSuggestion } from "./ghostText";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Editor = BlockNoteEditor<any, any, any>;
@@ -80,14 +79,10 @@ export function useReformat(editor: Editor | null | undefined) {
     if (!editor) return;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let abort: AbortController | null = null;
-    let lastBlockId: string | null = null;
+    let lastKey = "";
     let seq = 0;
 
-    const run = async (
-      blockIds: string[],
-      html: string,
-      mySeq: number,
-    ) => {
+    const request = async (ids: string[], html: string, mySeq: number) => {
       const controller = new AbortController();
       abort = controller;
       try {
@@ -102,87 +97,99 @@ export function useReformat(editor: Editor | null | undefined) {
           candidates: ReformatCandidate[];
         };
         if (mySeq !== seq || !candidates?.length) return;
-        setState({ blockId: blockIds[0], blockIds, candidates, index: 0 });
+        setState({ blockId: ids[0], blockIds: ids, candidates, index: 0 });
       } catch {
         // superseded or offline
       }
     };
 
-    const onSelection = () => {
-      let blockId: string | null = null;
+    const isProse = (b: AnyBlock | undefined) =>
+      !!b && b.type === "paragraph" && !!blockText(b).trim();
+    const isBlank = (b: AnyBlock | undefined) =>
+      !!b && b.type === "paragraph" && !blockText(b).trim();
+
+    /**
+     * The run of paragraphs the caret is in or has just left.
+     *
+     * Enter starts a new block, so one snippet or table arrives as several — and
+     * people put a blank line between rows, so a single empty paragraph is
+     * spacing. Two in a row, or any other block type, ends it.
+     */
+    const runAtCursor = (): AnyBlock[] | null => {
+      let cursorId: string;
       try {
-        blockId = editor.getTextCursorPosition().block.id as string;
+        cursorId = editor.getTextCursorPosition().block.id as string;
       } catch {
-        return;
+        return null;
       }
-      if (blockId === lastBlockId) return;
-
-      const left = lastBlockId;
-      lastBlockId = blockId;
-      // The caret moved to a different block, so the previous one is finished.
-      seq++;
-      setState(null);
-      if (timer) clearTimeout(timer);
-      abort?.abort();
-      if (!left) return;
-
       const blocks = editor.document as unknown as AnyBlock[];
-      const end = blocks.findIndex((b) => b.id === left);
-      if (end === -1) return;
+      let end = blocks.findIndex((b) => b.id === cursorId);
+      if (end === -1) return null;
+      // Sitting on a fresh empty block: the run is the one just finished.
+      while (end >= 0 && !isProse(blocks[end])) end--;
+      if (end < 0) return null;
 
-      // Walk back over the paragraphs that belong with this one. Enter starts a
-      // new block, so one snippet or table arrives as several — and people put a
-      // blank line between rows, so a single empty paragraph is spacing, not a
-      // boundary. Two in a row, or any other block type, is the writer saying
-      // this bit is finished.
-      const isProse = (b: AnyBlock | undefined) =>
-        !!b && b.type === "paragraph" && !!blockText(b).trim();
-      const isBlank = (b: AnyBlock | undefined) =>
-        !!b && b.type === "paragraph" && !blockText(b).trim();
-      if (!isProse(blocks[end])) return;
-
-      let start = end;
+      let first = end;
       let sawBlank = false;
       for (let i = end - 1; i >= 0 && end - i < AI.reformat.maxBlocks; i--) {
         if (isProse(blocks[i])) {
-          start = i;
+          first = i;
           sawBlank = false;
           continue;
         }
-        // One blank is tolerated and swept up with the run; a second ends it.
         if (isBlank(blocks[i]) && !sawBlank) {
           sawBlank = true;
           continue;
         }
         break;
       }
+      return blocks.slice(first, end + 1);
+    };
 
-      const runBlocks = blocks.slice(start, end + 1);
-      const html = toDocHtml(runBlocks);
+    /**
+     * Runs on edits and on caret moves alike. Leaving a block finishes it, but so
+     * does simply stopping — type an obvious table and never move, and waiting
+     * for you to leave would mean never offering it at all.
+     */
+    const schedule = () => {
+      const run = runAtCursor();
+      if (!run?.length) return;
+      const html = toDocHtml(run);
+      const key = run.map((b) => b.id).join(",") + "|" + html;
+      // Same run, same text: whatever is showing already answers it.
+      if (key === lastKey) return;
+      lastKey = key;
+
+      seq++;
+      setState(null);
+      if (timer) clearTimeout(timer);
+      abort?.abort();
+
       if (html.replace(/<[^>]*>/g, "").trim().length < AI.reformat.minChars) {
         return;
       }
-
-      const ids = runBlocks.map((b) => b.id);
+      const ids = run.map((b) => b.id);
       const mySeq = seq;
       timer = setTimeout(
-        () => defer(() => void run(ids, html, mySeq)),
+        () => defer(() => void request(ids, html, mySeq)),
         AI.reformat.debounceMs,
       );
     };
 
-    const unsub = editor.onSelectionChange(onSelection, false);
+    const unsubChange = editor.onChange(schedule, false);
+    const unsubSelection = editor.onSelectionChange(schedule, false);
     return () => {
-      unsub?.();
+      unsubChange?.();
+      unsubSelection?.();
       if (timer) clearTimeout(timer);
       abort?.abort();
       seq++;
     };
   }, [editor]);
 
-  // The inline completion owns Tab. Standing aside avoids two suggestions
-  // competing for one key at the same caret.
-  const blocked = !!editor && hasSuggestion(editor.prosemirrorState);
-
-  return { state: blocked ? null : state, accept, dismiss, cycle };
+  // Whether an inline completion is showing is settled when a key is pressed,
+  // not here. Reading it during render both hid the bar for most of a typing
+  // session — a completion is showing far more often than not — and was not
+  // reactive, so the bar stayed hidden after the ghost had gone.
+  return { state, accept, dismiss, cycle };
 }

@@ -55,8 +55,8 @@ export const AI = {
     maxTokens: 900,
     /** More than three chips is a menu, not a suggestion. */
     maxCandidates: 3,
-    /** After the caret leaves a block, before asking. */
-    debounceMs: 500,
+    /** Quiet time before asking — a pause counts as finishing. */
+    debounceMs: 900,
     /**
      * Runs shorter than this are not worth asking about. Deliberately low: the
      * model declines on its own far more reliably than a character count can,

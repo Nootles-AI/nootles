@@ -3,6 +3,7 @@
 import { useEffect, useLayoutEffect, useRef } from "react";
 import type { BlockNoteEditor } from "@blocknote/core";
 import { ChevronLeft, ChevronRight } from "@/app/components/Icons";
+import { hasSuggestion } from "./ghostText";
 import type { ReformatState } from "./useReformat";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -57,6 +58,10 @@ export function ReformatBar({
         e.preventDefault();
         onDismiss();
       } else if (e.key === "Tab") {
+        // Both lanes want Tab. The inline completion sits at the caret and is
+        // the more immediate of the two, so it wins while it is showing and
+        // this listener stays out of the way.
+        if (hasSuggestion(editor.prosemirrorState)) return;
         e.preventDefault();
         onAccept();
       } else if (many && (e.key === "ArrowRight" || e.key === "ArrowLeft")) {
@@ -69,7 +74,7 @@ export function ReformatBar({
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [onAccept, onDismiss, onCycle, many]);
+  }, [editor, onAccept, onDismiss, onCycle, many]);
 
   return (
     <div
