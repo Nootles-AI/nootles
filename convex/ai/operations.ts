@@ -82,14 +82,28 @@ export const position = z.discriminatedUnion("at", [
 ]);
 export type Position = z.infer<typeof position>;
 
-/** A block to be created; `tempId` is resolved to a real id by the applier. */
-export const newBlock = z.object({
-  tempId: z.string(),
-  type: blockType,
-  props: blockProps.optional(),
-  content: z.array(inlineRun).optional(),
-});
-export type NewBlock = z.infer<typeof newBlock>;
+/**
+ * A block to be created; `tempId` is resolved to a real id by the applier.
+ * `children` carries nesting (an indented list item), so an outline can be
+ * inserted in one op rather than being flattened.
+ */
+export interface NewBlock {
+  tempId: string;
+  type: BlockType;
+  props?: BlockProps;
+  content?: InlineRun[];
+  children?: NewBlock[];
+}
+
+export const newBlock: z.ZodType<NewBlock> = z.lazy(() =>
+  z.object({
+    tempId: z.string(),
+    type: blockType,
+    props: blockProps.optional(),
+    content: z.array(inlineRun).optional(),
+    children: z.array(newBlock).optional(),
+  }),
+);
 
 /** Reference to a shape: an existing id, or a `tempId` minted earlier in the batch. */
 export const shapeRef = z.union([

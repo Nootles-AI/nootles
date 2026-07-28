@@ -1,4 +1,10 @@
-import type { Batch, InlineRun, Operation } from "@/convex/ai/operations";
+import type {
+  Batch,
+  InlineRun,
+  NewBlock,
+  Operation,
+  Position,
+} from "@/convex/ai/operations";
 import type { DocNode, Run } from "./grammar";
 
 /**
@@ -142,38 +148,79 @@ function updateOps(next: DocNode, current: DocNode): Operation[] {
   return ops;
 }
 
-function newBlockFor(node: DocNode, tempId: string) {
+function newBlockFor(node: DocNode, tempId: string): NewBlock {
   const props = propsOf(node);
+  const children =
+    "children" in node && node.children?.length
+      ? node.children.map((c, i) => newBlockFor(c, `${tempId}c${i}`))
+      : undefined;
   return {
     tempId,
     type: node.type,
     ...(props ? { props } : {}),
     ...("content" in node ? { content: runsToInline(node.content) } : {}),
+    ...(children ? { children } : {}),
   };
 }
 
+/** Nested items are ordinary blocks with their own ids — flatten for diffing. */
+function flatten(nodes: DocNode[]): DocNode[] {
+  return nodes.flatMap((n) =>
+    "children" in n && n.children?.length ? [n, ...flatten(n.children)] : [n],
+  );
+}
+
 export type CompileContext = {
-  /** Where untagged (new) blocks are inserted. */
-  anchorBlockId: string;
+  /**
+   * Fallback insertion point for new blocks, used only when their position
+   * can't be inferred from surrounding tagged blocks. Normally the cursor block.
+   */
+  anchorBlockId?: string;
   /** Current document in the same normalized shape, for like-for-like diffing. */
   current: DocNode[];
 };
 
 export function compileDocHtml(next: DocNode[], ctx: CompileContext): Batch {
   const currentById = new Map(
-    ctx.current.filter((n) => n.id).map((n) => [n.id!, n]),
+    flatten(ctx.current)
+      .filter((n) => n.id)
+      .map((n) => [n.id!, n]),
   );
   const ops: Operation[] = [];
-  let anchor = ctx.anchorBlockId;
+  // Position of the last thing we placed; new blocks follow it.
+  let anchor: Position | null = null;
   let temp = 0;
 
-  for (const node of next) {
+  // Existing nested items are addressable by id, so diff over the flattened
+  // tree; only genuinely new blocks keep their nesting (carried via `children`).
+  // A newly inserted block brings its descendants with it, so they're skipped
+  // here rather than inserted twice.
+  const all = flatten(next);
+  const insertedWithParent = new Set<DocNode>();
+
+  all.forEach((node, i) => {
+    if (insertedWithParent.has(node)) return;
     const existing = node.id ? currentById.get(node.id) : undefined;
 
     if (existing && existing.type === node.type) {
       ops.push(...updateOps(node, existing));
-      anchor = node.id!;
-      continue;
+      anchor = { at: "after", ref: node.id! };
+      return;
+    }
+
+    // Placement: after whatever preceded it, else BEFORE the next known block
+    // (so a new block written at the top of the document lands at the top),
+    // else the caller's fallback.
+    let at: Position;
+    if (anchor) {
+      at = anchor;
+    } else {
+      const following = all
+        .slice(i + 1)
+        .find((n) => n.id && currentById.has(n.id));
+      if (following) at = { at: "before", ref: following.id! };
+      else if (ctx.anchorBlockId) at = { at: "after", ref: ctx.anchorBlockId };
+      else at = { at: "docEnd" };
     }
 
     // Either brand new, or the same id with a different type — the vocabulary
@@ -181,9 +228,12 @@ export function compileDocHtml(next: DocNode[], ctx: CompileContext): Batch {
     const tempId = `t${temp++}`;
     ops.push({
       kind: "insertBlocks",
-      at: { at: "after", ref: anchor },
+      at,
       blocks: [newBlockFor(node, tempId)],
     });
+    if ("children" in node && node.children?.length) {
+      for (const d of flatten(node.children)) insertedWithParent.add(d);
+    }
     if (node.type === "canvas") {
       node.nodes.forEach((n, i) =>
         ops.push({
@@ -207,8 +257,8 @@ export function compileDocHtml(next: DocNode[], ctx: CompileContext): Batch {
       );
     }
     if (existing) ops.push({ kind: "removeBlock", blockId: existing.id! });
-    anchor = tempId;
-  }
+    anchor = { at: "after", ref: tempId };
+  });
 
   return { ops };
 }

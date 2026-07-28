@@ -86,14 +86,6 @@ function blockToHtml(block: AnyBlock, cursorBlockId?: string): string {
       const level = Math.min(3, Math.max(1, Number(block.props.level ?? 2)));
       return `<h${level}${id}${cursor}>${inner}</h${level}>`;
     }
-    case "bulletListItem":
-      return `<ul><li${id}${cursor}>${inner}</li></ul>`;
-    case "numberedListItem":
-      return `<ol><li${id}${cursor}>${inner}</li></ol>`;
-    case "checkListItem": {
-      const checked = block.props.checked ? " checked" : "";
-      return `<ul><li${id}${cursor}><input type="checkbox"${checked}> ${inner}</li></ul>`;
-    }
     case "quote":
       return `<blockquote${id}${cursor}>${inner}</blockquote>`;
     case "codeBlock": {
@@ -139,6 +131,54 @@ function blockToHtml(block: AnyBlock, cursorBlockId?: string): string {
   }
 }
 
+/** Which list element a block belongs in, or null if it isn't a list item. */
+function listTagFor(type: string): "ul" | "ol" | null {
+  if (type === "bulletListItem" || type === "checkListItem") return "ul";
+  if (type === "numberedListItem") return "ol";
+  return null;
+}
+
+function listItemHtml(block: AnyBlock, cursorBlockId?: string): string {
+  const id = attr("id", block.id);
+  const cursor = block.id === cursorBlockId ? ' data-cursor="1"' : "";
+  const box =
+    block.type === "checkListItem"
+      ? `<input type="checkbox"${block.props.checked ? " checked" : ""}>`
+      : "";
+  // Nested items live INSIDE the parent <li>, which is how HTML expresses an
+  // indented outline — and how the model expects to read and write one.
+  const nested = block.children?.length
+    ? blocksToHtml(block.children, cursorBlockId)
+    : "";
+  return `<li${id}${cursor}>${box}${runsToHtml(block.content)}${nested}</li>`;
+}
+
+/** Serializes a sibling list, grouping consecutive items into one <ul>/<ol>. */
+function blocksToHtml(blocks: AnyBlock[], cursorBlockId?: string): string {
+  const out: string[] = [];
+  let i = 0;
+  while (i < blocks.length) {
+    const tag = listTagFor(blocks[i].type);
+    if (tag) {
+      const items: string[] = [];
+      while (i < blocks.length && listTagFor(blocks[i].type) === tag) {
+        items.push(listItemHtml(blocks[i], cursorBlockId));
+        i++;
+      }
+      out.push(`<${tag}>${items.join("")}</${tag}>`);
+      continue;
+    }
+    out.push(blockToHtml(blocks[i], cursorBlockId));
+    // Children of non-list blocks are un-nested, as BlockNote's own HTML
+    // export does — HTML has no way to nest a paragraph under a paragraph.
+    if (blocks[i].children?.length) {
+      out.push(blocksToHtml(blocks[i].children!, cursorBlockId));
+    }
+    i++;
+  }
+  return out.join("\n");
+}
+
 function collectIds(block: AnyBlock, out: Set<string>) {
   out.add(block.id);
   for (const c of block.children ?? []) collectIds(c, out);
@@ -163,13 +203,5 @@ export function toDocHtml(
     }
   }
 
-  const out: string[] = [];
-  const walk = (bs: AnyBlock[]) => {
-    for (const b of bs) {
-      out.push(blockToHtml(b, opts.cursorBlockId));
-      if (b.children?.length) walk(b.children);
-    }
-  };
-  walk(visible);
-  return out.join("\n");
+  return blocksToHtml(visible, opts.cursorBlockId);
 }

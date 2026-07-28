@@ -42,6 +42,8 @@ export type DocNode =
       level?: number;
       checked?: boolean;
       content: Run[];
+      /** Nested list items — an indented outline. */
+      children?: DocNode[];
     }
   | { type: "codeBlock"; id?: string; language: string; code: string }
   | { type: "mathBlock"; id?: string; rows: string[] }

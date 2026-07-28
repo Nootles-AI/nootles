@@ -64,7 +64,14 @@ export function SubstrateHarness({
       const current = parseDocHtml(currentHtml);
       const next = parseDocHtml(htmlValue);
       const doc = editor.document as unknown as AnyBlock[];
-      const anchorBlockId = doc[doc.length - 1]?.id ?? "";
+      // Only a fallback: placement is normally inferred from the surrounding
+      // tagged blocks. The caret is the sensible default when it can't be.
+      let anchorBlockId: string | undefined;
+      try {
+        anchorBlockId = editor.getTextCursorPosition().block.id as string;
+      } catch {
+        anchorBlockId = doc[doc.length - 1]?.id;
+      }
       const batch = compileDocHtml(next, { anchorBlockId, current });
       if (!batch.ops.length) {
         setLog({ ok: true, msg: "No differences — compiled to 0 ops." });

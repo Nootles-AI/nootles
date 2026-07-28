@@ -6,7 +6,13 @@ import {
   type CanvasEdge,
   type ShapeKind,
 } from "@/app/components/editor/canvas/types";
-import type { Batch, InlineRun, Mark, Position } from "@/convex/ai/operations";
+import type {
+  Batch,
+  InlineRun,
+  Mark,
+  NewBlock,
+  Position,
+} from "@/convex/ai/operations";
 
 /**
  * The applier: turns a validated op batch into the EXACT same BlockNote editor
@@ -112,11 +118,17 @@ export function applyBatch(editor: Editor, batch: Batch): ApplyResult {
     switch (op.kind) {
       case "insertBlocks": {
         const { ref, placement } = resolvePosition(op.at);
-        const partials: AnyPartialBlock[] = op.blocks.map((nb) => ({
+        // BlockNote's PartialBlock takes `children` directly, so nesting round-
+        // trips natively. Only top-level tempIds get resolved to real ids.
+        const toPartial = (nb: NewBlock): AnyPartialBlock => ({
           type: nb.type,
           ...(nb.props ? { props: nb.props } : {}),
           ...(nb.content ? { content: compileInline(nb.content) } : {}),
-        }));
+          ...(nb.children?.length
+            ? { children: nb.children.map(toPartial) }
+            : {}),
+        });
+        const partials: AnyPartialBlock[] = op.blocks.map(toPartial);
         const inserted = editor.insertBlocks(partials, ref, placement);
         op.blocks.forEach((nb, i) => {
           const real = inserted[i]?.id;

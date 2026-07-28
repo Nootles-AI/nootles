@@ -88,6 +88,9 @@ function runsOf(node: Node, marks: Mark[] = []): Run[] {
       return;
     }
     if (tag === "input") return; // checkbox marker, handled by the list item
+    // A nested list is structure, not text — it becomes children, so it must not
+    // bleed into the parent item's content.
+    if (tag === "ul" || tag === "ol") return;
     const mark = TAG_TO_MARK[tag];
     out.push(...runsOf(el, mark && !marks.includes(mark) ? [...marks, mark] : marks));
   });
@@ -145,13 +148,20 @@ function elementToNode(el: Element, raw: string[]): DocNode | null {
   if (tag === "blockquote") return { type: "quote", id, content: normalizeRuns(runsOf(el)) };
 
   if (tag === "li") {
-    const checkbox = el.querySelector('input[type="checkbox"]');
+    // Nested <ul>/<ol> inside this item are its children.
+    const children = Array.from(el.children)
+      .filter((c) => ["ul", "ol"].includes(c.tagName.toLowerCase()))
+      .flatMap((list) => elementsToNodes(list, raw));
+    const nested = children.length ? { children } : {};
+
+    const checkbox = el.querySelector(':scope > input[type="checkbox"]');
     if (checkbox) {
       return {
         type: "checkListItem",
         id,
         checked: checkbox.hasAttribute("checked"),
         content: normalizeRuns(runsOf(el)),
+        ...nested,
       };
     }
     const ordered = el.parentElement?.tagName.toLowerCase() === "ol";
@@ -159,6 +169,7 @@ function elementToNode(el: Element, raw: string[]): DocNode | null {
       type: ordered ? "numberedListItem" : "bulletListItem",
       id,
       content: normalizeRuns(runsOf(el)),
+      ...nested,
     };
   }
 
@@ -203,6 +214,20 @@ function elementToNode(el: Element, raw: string[]): DocNode | null {
 /** Container elements we walk through rather than treat as blocks. */
 const TRANSPARENT = new Set(["ul", "ol", "div", "section", "article", "body"]);
 
+/** Children of `parent` as document nodes, descending through containers. */
+function elementsToNodes(parent: Element, raw: string[]): DocNode[] {
+  const out: DocNode[] = [];
+  Array.from(parent.children).forEach((el) => {
+    if (TRANSPARENT.has(el.tagName.toLowerCase())) {
+      out.push(...elementsToNodes(el, raw));
+      return;
+    }
+    const node = elementToNode(el, raw);
+    if (node) out.push(node);
+  });
+  return out;
+}
+
 export function parseDocHtml(
   html: string,
   parseHtml: ParseHtml = defaultParseHtml,
@@ -211,20 +236,5 @@ export function parseDocHtml(
   // Wrap explicitly: given a bare fragment, DOM implementations disagree about
   // whether content lands in <body> or at the document root.
   const doc = parseHtml(`<!DOCTYPE html><html><body>${safe}</body></html>`);
-  const out: DocNode[] = [];
-
-  const walk = (parent: Element) => {
-    Array.from(parent.children).forEach((el) => {
-      const tag = el.tagName.toLowerCase();
-      if (TRANSPARENT.has(tag)) {
-        walk(el);
-        return;
-      }
-      const node = elementToNode(el, raw);
-      if (node) out.push(node);
-    });
-  };
-
-  walk(doc.body);
-  return out;
+  return elementsToNodes(doc.body, raw);
 }
