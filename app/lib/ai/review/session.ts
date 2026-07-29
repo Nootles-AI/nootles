@@ -60,6 +60,12 @@ export type TurnReview = {
   pages: PageReview[];
 };
 
+/** Where a page stood before a rewind was previewed, so Cancel can return to it. */
+export type ReturnPoint = {
+  pageId: Id<"pages">;
+  checkpointId: Id<"checkpoints">;
+};
+
 export type StageResult = {
   added: number;
   removed: number;
@@ -241,47 +247,109 @@ export class ReviewSession {
    */
   restoreCheckpoint(chatPromptId: string) {
     return this.enqueue(async () => {
-      const row = await this.deps.convex.query(api.chat.turns.byPrompt, {
-        chatPromptId,
-      });
-      if (!row) return;
+      await this.runRestore(chatPromptId);
+      await this.runSettleRestore(chatPromptId);
+    });
+  }
 
-      // From the trace, where the page and the checkpoint it was taken from are
-      // written down together — the two id arrays on the row are parallel by
-      // construction, which is a thing to rely on only when there is no
-      // alternative.
-      const pages = ((row.trace ?? {}) as StoredTrace).pages ?? [];
-      for (const { pageId, checkpointId } of pages) {
-        const before = await this.checkpointDoc(checkpointId);
-        if (!before) continue;
-        this.deps.openPage(pageId);
-        const editor = await this.deps.editorFor(pageId).catch(() => null);
-        if (!editor) {
-          throw new Error(
-            "That page did not finish loading, so it was left as it is.",
-          );
-        }
-        restoreDocument(editor, before);
-        this.edited.delete(key(chatPromptId, pageId));
-      }
+  /**
+   * The same rewind, shown rather than done.
+   *
+   * Rolls the pages back and hands back the way forward again, so the change
+   * can be looked at before it is agreed to. The document really moves —
+   * judging a rendering of a rewind is judging the wrong thing — and what makes
+   * that safe is that where it came from is checkpointed first.
+   *
+   * Only the pages. The conversation is not truncated until the rewind is
+   * confirmed, so a preview left open by a closed tab settles as "notes rolled
+   * back, conversation intact", which is a state the UI already offers by name.
+   */
+  previewRestore(chatPromptId: string): Promise<ReturnPoint[]> {
+    return this.enqueue(() => this.runRestore(chatPromptId));
+  }
 
-      // The turn is answered by being undone, and a turn still awaiting review
-      // must leave the unreviewed set or its diff outlives the change.
-      const live = this.find(chatPromptId);
-      if (live) await this.commit({ ...live, status: "rejected" });
-      else {
-        await this.deps.convex.mutation(api.chat.turns.save, {
-          threadId: row.threadId,
-          projectId: row.projectId,
-          chatPromptId,
-          pageIds: row.pageIds,
-          checkpointIds: row.checkpointIds,
-          trace: row.trace,
-          hunks: row.hunks,
-          status: "rejected",
-        });
+  /** Puts back what `previewRestore` rolled away from. */
+  cancelRestore(points: readonly ReturnPoint[]) {
+    return this.enqueue(async () => {
+      for (const { pageId, checkpointId } of points) {
+        const forward = await this.checkpointDoc(checkpointId);
+        if (!forward) continue;
+        await this.writePage(pageId, forward);
       }
     });
+  }
+
+  /** Records that the turn was undone, once the rewind has been confirmed. */
+  settleRestore(chatPromptId: string) {
+    return this.enqueue(() => this.runSettleRestore(chatPromptId));
+  }
+
+  private async runRestore(chatPromptId: string): Promise<ReturnPoint[]> {
+    const row = await this.deps.convex.query(api.chat.turns.byPrompt, {
+      chatPromptId,
+    });
+    if (!row) return [];
+
+    // From the trace, where the page and the checkpoint it was taken from are
+    // written down together — the two id arrays on the row are parallel by
+    // construction, which is a thing to rely on only when there is no
+    // alternative.
+    const pages = ((row.trace ?? {}) as StoredTrace).pages ?? [];
+    const points: ReturnPoint[] = [];
+    for (const { pageId, checkpointId } of pages) {
+      const before = await this.checkpointDoc(checkpointId);
+      if (!before) continue;
+      const editor = await this.editorOn(pageId);
+      points.push({
+        pageId,
+        checkpointId: await this.deps.convex.mutation(api.ai.checkpoints.create, {
+          pageId,
+          chatPromptId: `rewind:${chatPromptId}`,
+          docSnapshot: convexSafe(editor.document as unknown as AnyBlock[]),
+        }),
+      });
+      restoreDocument(editor, before);
+      this.edited.delete(key(chatPromptId, pageId));
+    }
+    return points;
+  }
+
+  private async runSettleRestore(chatPromptId: string) {
+    // The turn is answered by being undone, and a turn still awaiting review
+    // must leave the unreviewed set or its diff outlives the change.
+    const live = this.find(chatPromptId);
+    if (live) {
+      await this.commit({ ...live, status: "rejected" });
+      return;
+    }
+    const row = await this.deps.convex.query(api.chat.turns.byPrompt, {
+      chatPromptId,
+    });
+    if (!row) return;
+    await this.deps.convex.mutation(api.chat.turns.save, {
+      threadId: row.threadId,
+      projectId: row.projectId,
+      chatPromptId,
+      pageIds: row.pageIds,
+      checkpointIds: row.checkpointIds,
+      trace: row.trace,
+      hunks: row.hunks,
+      status: "rejected",
+    });
+  }
+
+  private async writePage(pageId: Id<"pages">, blocks: AnyBlock[]) {
+    restoreDocument(await this.editorOn(pageId), blocks);
+  }
+
+  /** The live editor for a page, opened first because only the open page has one. */
+  private async editorOn(pageId: Id<"pages">): Promise<LiveEditor> {
+    this.deps.openPage(pageId);
+    const editor = await this.deps.editorFor(pageId).catch(() => null);
+    if (!editor) {
+      throw new Error("That page did not finish loading, so it was left as it is.");
+    }
+    return editor;
   }
 
   /**

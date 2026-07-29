@@ -814,6 +814,60 @@ a.ab-chip:hover {
   color: var(--foreground);
 }
 
+/* On its way out, not gone: what a rewind would drop stays legible, because
+   what is about to be lost is exactly what the decision is about. */
+.ab-turn.is-dropping {
+  opacity: 0.4;
+  transition: opacity var(--dur) var(--ease);
+}
+.ab-turn.is-dropping .ab-rewind {
+  display: none;
+}
+
+.ab-rewind-draft {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ab-rewind-input {
+  width: 100%;
+  resize: none;
+  overflow: hidden;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  outline: none;
+}
+.ab-rewind-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.ab-rewind-action {
+  height: 22px;
+  padding-inline: 8px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-meta);
+  color: var(--muted);
+  transition:
+    background var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
+}
+.ab-rewind-action:hover {
+  background: var(--hover);
+  color: var(--foreground);
+}
+.ab-rewind-action.is-primary {
+  background: var(--foreground);
+  color: var(--elevated);
+}
+.ab-rewind-action.is-primary:hover {
+  background: var(--foreground);
+  opacity: 0.85;
+  color: var(--elevated);
+}
+
 /* A menu item that carries its consequence under its name. The hint is the
    part people actually read here, because the three choices differ only in
    what they leave behind. */

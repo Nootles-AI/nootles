@@ -6,11 +6,12 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { ChevronsUpDown, PanelRight, Plus } from "./Icons";
 import { ChatComposer } from "./chat/ChatComposer";
-import { ChatTranscript } from "./chat/ChatTranscript";
+import { ChatTranscript, type RewindScope } from "./chat/ChatTranscript";
 import { ThreadPicker } from "./chat/ThreadPicker";
 import { useReview } from "./ReviewContext";
 import { useProjectChat, type ChatDraft } from "@/app/lib/ai/chat/useProjectChat";
 import type { AbMessage, ChatMode } from "@/app/lib/ai/chat/types";
+import type { ReturnPoint } from "@/app/lib/ai/review/session";
 
 export function ChatPanel({
   width,
@@ -30,8 +31,17 @@ export function ChatPanel({
   const [picked, setPicked] = useState<Id<"chatThreads"> | null>(null);
   const [picking, setPicking] = useState(false);
   const [mode, setMode] = useState<ChatMode>("agent");
-  /** The last message a rewind handed back, and how many have been handed back. */
-  const [restored, setRestored] = useState({ text: "", n: 0 });
+  /**
+   * A rewind being decided: which message it winds back to, what it covers, and
+   * where each page stood before it was previewed. Nothing here has happened to
+   * the conversation yet — only the pages have moved, and `points` is the way
+   * back from that.
+   */
+  const [rewind, setRewind] = useState<{
+    uiId: string;
+    scope: RewindScope;
+    points: ReturnPoint[];
+  } | null>(null);
 
   // Derived during render, like Workspace's effective page: a thread the user
   // picked, unless it has since been deleted, in which case the newest one.
@@ -69,6 +79,48 @@ export function ChatPanel({
     // Only the first question names the thread; later ones must not rewrite it.
     if (!active?.title) nameThreadFrom(titleFor(draft));
     void send(draft);
+  };
+
+  /**
+   * Show the rewind. The pages roll back so they can be read, the exchange
+   * below greys out, and the question opens for editing — but the thread is not
+   * touched until it is confirmed.
+   *
+   * "Notes only" keeps the conversation, so there is no message to edit and
+   * nothing to confirm in: it just happens.
+   */
+  const startRewind = async (message: AbMessage, scope: RewindScope) => {
+    const promptId = message.metadata?.chatPromptId;
+    if (scope === "notes") {
+      if (promptId) void review.restoreCheckpoint(promptId);
+      return;
+    }
+    const points =
+      scope === "both" && promptId ? await review.previewRestore(promptId) : [];
+    setRewind({ uiId: message.id, scope, points });
+  };
+
+  const cancelRewind = async () => {
+    if (!rewind) return;
+    setRewind(null);
+    if (rewind.points.length) await review.cancelRestore(rewind.points);
+  };
+
+  /**
+   * Make it real: record that the turn was undone, drop this message and
+   * everything after it, and ask again if anything was left in the box. An
+   * empty box is a rewind and nothing more, which is how "put it back and stop"
+   * is said.
+   */
+  const commitRewind = async (text: string) => {
+    if (!rewind) return;
+    const message = chat.messages.find((m) => m.id === rewind.uiId);
+    const promptId = message?.metadata?.chatPromptId;
+    setRewind(null);
+    if (rewind.scope === "both" && promptId) await review.settleRestore(promptId);
+    await chat.rewind(rewind.uiId);
+    const asked = text.trim();
+    if (asked) void onSend({ text: asked, attachments: [], mentions: [] });
   };
 
   return (
@@ -122,31 +174,14 @@ export function ChatPanel({
         projectId={projectId}
         threadId={threadId}
         onAnswerApproval={chat.answerApproval}
-        onRewind={(message, what) => {
-          // Pages first: rewinding them needs the turn this message started, and
-          // dropping the message is what takes that record away.
-          const promptId = message.metadata?.chatPromptId;
-          const notes =
-            what !== "conversation" && promptId
-              ? review.restoreCheckpoint(promptId)
-              : Promise.resolve();
-          void notes.then(async () => {
-            if (what === "notes") return;
-            await chat.rewind(message.id);
-            // Handed back rather than thrown away: a rewind is almost always
-            // the first half of asking again, differently.
-            setRestored((prior) => ({ text: textOf(message), n: prior.n + 1 }));
-          });
-        }}
+        rewinding={rewind?.uiId ?? null}
+        onRewind={(message, what) => void startRewind(message, what)}
+        onRewindCancel={() => void cancelRewind()}
+        onRewindCommit={(text) => void commitRewind(text)}
         error={chat.error}
       />
 
-      {/* Re-keyed so a rewound message becomes the draft: the composer owns the
-          text from the moment it mounts, and this is how it is handed a new one
-          without a second source of truth for what is written. */}
       <ChatComposer
-        key={restored.n}
-        initialText={restored.text}
         disabled={!chat.ready}
         busy={chat.busy}
         mode={mode}
@@ -158,19 +193,6 @@ export function ChatPanel({
       />
     </aside>
   );
-}
-
-/**
- * What was typed, out of a message that also carries what came with it.
- *
- * Only the text: a mention is a chip standing for a page as it was when the
- * question was asked, and an attachment lives in storage — neither survives
- * being pasted back into a box as characters.
- */
-function textOf(message: AbMessage): string {
-  return message.parts
-    .flatMap((part) => (part.type === "text" ? [part.text] : []))
-    .join("\n");
 }
 
 /** A thread is named after what was asked — or, asked nothing, after what came. */

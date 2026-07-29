@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { useId, useLayoutEffect, useRef, useState } from "react";
 import { useConvex, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -46,7 +46,6 @@ export function ChatComposer({
   mode,
   projectId,
   pageId,
-  initialText = "",
   onModeChange,
   onSend,
   onStop,
@@ -56,12 +55,6 @@ export function ChatComposer({
   mode: ChatMode;
   projectId: Id<"projects">;
   pageId: Id<"pages"> | null;
-  /**
-   * What the box starts with — a message handed back by a rewind. Read once,
-   * on mount, because the composer owns the draft from then on: the caller
-   * remounts this to hand over a new one rather than fighting it for control.
-   */
-  initialText?: string;
   onModeChange: (mode: ChatMode) => void;
   onSend: (draft: ChatDraft) => Promise<void>;
   onStop: () => void;
@@ -69,8 +62,8 @@ export function ChatComposer({
   const convex = useConvex();
   const pages = useQuery(api.pages.listByProject, { projectId });
 
-  const [text, setText] = useState(initialText);
-  const [caret, setCaret] = useState(initialText.length);
+  const [text, setText] = useState("");
+  const [caret, setCaret] = useState(0);
   const [files, setFiles] = useState<PendingAttachment[]>([]);
   const [picks, setPicks] = useState<MentionPick[]>([]);
   const [note, setNote] = useState<string | null>(null);
@@ -91,16 +84,6 @@ export function ChatComposer({
   /** Where the caret goes once React has written the new text. */
   const restore = useRef<number | null>(null);
   const menuId = useId();
-
-  // A rewound message arrives ready to be edited and sent again, so the box it
-  // landed in takes the caret. Empty on every ordinary mount, which is why this
-  // does not steal focus from the document on the way in.
-  useEffect(() => {
-    if (!initialText) return;
-    const el = ref.current;
-    el?.focus();
-    el?.setSelectionRange(initialText.length, initialText.length);
-  }, [initialText]);
 
   // Derived during render rather than tracked: the menu IS the "@" being typed.
   const trigger = disabled ? null : mentionTrigger(text, caret);

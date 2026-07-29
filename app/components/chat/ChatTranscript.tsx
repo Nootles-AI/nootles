@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   getToolName,
   isToolUIPart,
@@ -31,7 +31,10 @@ export function ChatTranscript({
   projectId,
   threadId,
   onAnswerApproval,
+  rewinding,
   onRewind,
+  onRewindCancel,
+  onRewindCommit,
   error,
 }: {
   messages: AbMessage[];
@@ -40,7 +43,11 @@ export function ChatTranscript({
   projectId: Id<"projects">;
   threadId: Id<"chatThreads"> | null;
   onAnswerApproval: (approved: boolean) => void;
+  /** The message being rewound to, held open while it is decided. */
+  rewinding: string | null;
   onRewind: (message: AbMessage, what: RewindScope) => void;
+  onRewindCancel: () => void;
+  onRewindCommit: (text: string) => void;
   error?: Error;
 }) {
   const restorable = useQuery(
@@ -72,11 +79,28 @@ export function ChatTranscript({
     );
   }
 
+  // Everything from the rewind point on is on its way out, and says so rather
+  // than vanishing early: what is about to be lost is exactly what the decision
+  // is about.
+  const from = rewinding ? messages.findIndex((m) => m.id === rewinding) : -1;
+
   return (
     <div ref={scrollerRef} className="ab-transcript">
-      {messages.map((message) => (
-        <div key={message.id} className={`ab-turn is-${message.role}`}>
-          {message.parts.map((part, i) => {
+      {messages.map((message, index) => (
+        <div
+          key={message.id}
+          className={`ab-turn is-${message.role}${
+            from >= 0 && index > from ? " is-dropping" : ""
+          }`}
+        >
+          {message.id === rewinding ? (
+            <RewindDraft
+              initial={textOf(message)}
+              onCancel={onRewindCancel}
+              onCommit={onRewindCommit}
+            />
+          ) : (
+          message.parts.map((part, i) => {
             if (part.type === "text") {
               return (
                 <p key={i} className="ab-turn-text">
@@ -116,8 +140,9 @@ export function ChatTranscript({
               );
             }
             return null;
-          })}
-          {message.role === "user" && !busy && (
+          })
+          )}
+          {message.role === "user" && !busy && !rewinding && (
             <Rewind
               pageCount={pagesChangedBy(restorable, message.metadata?.chatPromptId)}
               onRewind={(what) => onRewind(message, what)}
@@ -137,6 +162,72 @@ export function ChatTranscript({
       )}
       {error && <div className="ab-turn-error">{error.message}</div>}
       <div ref={endRef} />
+    </div>
+  );
+}
+
+/**
+ * The question, open for editing, with the rewind already showing.
+ *
+ * Nothing here is committed. The pages have been rolled back so they can be
+ * looked at, the exchange below is greyed rather than gone, and both are only
+ * made real by the button on the right. Losing focus is not an answer — people
+ * click into the document to read what the rewind did, and a state that
+ * collapsed when they did would be unusable for the one thing it is for.
+ */
+function RewindDraft({
+  initial,
+  onCancel,
+  onCommit,
+}: {
+  initial: string;
+  onCancel: () => void;
+  onCommit: (text: string) => void;
+}) {
+  const [text, setText] = useState(initial);
+  const ref = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    const el = ref.current;
+    el?.focus();
+    el?.setSelectionRange(initial.length, initial.length);
+  }, [initial]);
+
+  // Grown to fit rather than scrolled: the message was readable whole a moment
+  // ago and editing it should not be the thing that hides half of it.
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [text]);
+
+  return (
+    <div className="ab-rewind-draft">
+      <textarea
+        ref={ref}
+        className="ab-rewind-input"
+        value={text}
+        rows={1}
+        aria-label="Edit this message and rewind to it"
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            onCommit(text);
+          }
+        }}
+      />
+      <div className="ab-rewind-actions">
+        <button className="ab-rewind-action" onClick={onCancel}>
+          Cancel
+        </button>
+        {/* One button, and it says what it will do. Emptying the box is how you
+            say "put it back and ask nothing" — the rewind still happens. */}
+        <button className="ab-rewind-action is-primary" onClick={() => onCommit(text)}>
+          {text.trim() ? "Send" : "Rewind"}
+        </button>
+      </div>
     </div>
   );
 }
@@ -211,6 +302,19 @@ function Rewind({
 }
 
 export type RewindScope = "both" | "conversation" | "notes";
+
+/**
+ * What was typed, out of a message that also carries what came with it.
+ *
+ * Only the text is editable: a mention stands for a page as it was when the
+ * question was asked, and an attachment lives in storage — neither survives
+ * being turned back into characters in a box.
+ */
+function textOf(message: AbMessage): string {
+  return message.parts
+    .flatMap((part) => (part.type === "text" ? [part.text] : []))
+    .join("\n");
+}
 
 /**
  * How many pages this message changed, and so whether undoing them is on offer.
