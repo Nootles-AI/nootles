@@ -82,6 +82,20 @@ export class EditorRegistry {
   }
 }
 
+/**
+ * How far this editor has caught up, or -1 while it cannot yet say.
+ *
+ * TipTap builds its initial state with no plugins and configures them only when
+ * the view is created, so an unmounted editor is missing the very collab plugin
+ * it was constructed with, and `getVersion` throws reading a version off it.
+ * The window is real — the editor exists a render before BlockNote mounts it,
+ * and this is read during render. `headless` is BlockNote's name for that
+ * window, flipped on the same mount event subscribed to below.
+ */
+function collabVersion(editor: LiveEditor | null): number {
+  return editor && !editor.headless ? getVersion(editor.prosemirrorState) : -1;
+}
+
 const RegistryContext = createContext<EditorRegistry | null>(null);
 
 export function EditorRegistryProvider({ children }: { children: ReactNode }) {
@@ -121,13 +135,20 @@ export function useRegisterEditor(
         // ourselves advances the collab version without touching the document,
         // and BlockNote only emits a change when the document changed — so the
         // gate would shut on a local edit with nothing left to reopen it.
+        // `mount` matters just as much: a page that arrives already caught up
+        // gets no transaction afterwards, and its version only becomes readable
+        // once the view exists.
         const tiptap = editor?._tiptapEditor;
         tiptap?.on("transaction", onStoreChange);
-        return () => void tiptap?.off("transaction", onStoreChange);
+        tiptap?.on("mount", onStoreChange);
+        return () => {
+          tiptap?.off("transaction", onStoreChange);
+          tiptap?.off("mount", onStoreChange);
+        };
       },
       [editor],
     ),
-    () => (editor ? getVersion(editor.prosemirrorState) : -1),
+    () => collabVersion(editor),
     () => -1,
   );
 
