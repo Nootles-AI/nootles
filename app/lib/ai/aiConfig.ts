@@ -85,6 +85,27 @@ export const AI = {
   },
 
   /**
+   * The chat agent. A different job from the ambient lanes: it runs a tool loop
+   * over the whole project rather than completing one caret position, so it
+   * wants reasoning and long-context reliability over latency.
+   *
+   * Verified live against OpenRouter's model list; `claude-sonnet-5` and
+   * `claude-opus-5` are also available on the same key if this proves too weak
+   * at long multi-step edits — switching is this one line.
+   */
+  chat: {
+    model: "anthropic/claude-sonnet-4.6",
+    /**
+     * Ceiling on tool round-trips in one turn. Editing several pages costs a
+     * step each for open/read/edit, so this is roughly "touch six pages", with
+     * headroom for the model to re-read after a failed validation.
+     */
+    maxSteps: 24,
+    /** Cap on a single `read_page` result, so one long page can't eat the window. */
+    maxPageChars: 24_000,
+  },
+
+  /**
    * Per-page eagerness. "create" is the default — the model writes what is not
    * there yet. "complete" only finishes what you started: it cannot know what
    * comes next while you are taking notes on something, so an ungrounded guess

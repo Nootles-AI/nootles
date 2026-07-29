@@ -104,6 +104,8 @@ export function Workspace({ projectId }: { projectId: Id<"projects"> }) {
   const chat = (
     <ChatPanel
       width={compact ? 288 : rightWidth}
+      projectId={projectId}
+      pageId={effectivePageId}
       onCollapse={() => (compact ? setDrawer(null) : setRightOpen(false))}
     />
   );

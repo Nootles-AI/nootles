@@ -543,6 +543,126 @@ body {
 }
 
 @layer components {
+/* ---- Chat ---------------------------------------------------------------
+   The panel reads as part of the surface, not as a chat app bolted to its
+   side: only the user's turns get a container, and the assistant answers in
+   the document's own voice. That alternation is legible without avatars,
+   bubbles or rules. */
+.ab-transcript {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.ab-turn-text {
+  margin: 0;
+  font-size: var(--text-ui);
+  line-height: 1.65;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.ab-turn-text + .ab-turn-text {
+  margin-top: 0.6em;
+}
+.ab-turn.is-user {
+  padding: 7px 10px;
+  border-radius: var(--radius);
+  background: var(--sunken);
+}
+.ab-turn.is-assistant {
+  color: var(--foreground);
+}
+.ab-turn-pending,
+.ab-turn-error {
+  font-size: var(--text-ui);
+  color: var(--muted);
+}
+.ab-turn-error {
+  color: var(--danger);
+}
+
+.ab-composer {
+  margin: 0 8px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--elevated);
+  transition: border-color var(--dur-fast) var(--ease);
+}
+.ab-composer:focus-within {
+  border-color: var(--border-strong);
+}
+.ab-composer-input {
+  display: block;
+  width: 100%;
+  resize: none;
+  padding: 9px 11px 4px;
+  background: transparent;
+  font-size: var(--text-ui);
+  line-height: 1.55;
+  color: var(--foreground);
+}
+.ab-composer-input::placeholder {
+  color: var(--muted);
+}
+.ab-composer-input:focus {
+  outline: none;
+}
+.ab-composer-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0 5px 5px;
+}
+.ab-composer-send {
+  height: 24px;
+  padding: 0 9px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-meta-lg);
+  font-weight: 500;
+  color: var(--muted);
+  transition:
+    background var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
+}
+.ab-composer-send:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--foreground);
+}
+.ab-composer-send:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.ab-thread-row {
+  display: flex;
+  align-items: center;
+}
+/* Revealed on hover: a delete control beside every row reads as a list of
+   things to delete rather than a list of chats. */
+.ab-thread-delete {
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease);
+}
+.ab-thread-row:hover .ab-thread-delete,
+.ab-thread-delete:focus-visible {
+  opacity: 1;
+}
+.ab-thread-check {
+  display: inline-flex;
+  width: 13px;
+  flex: none;
+  color: var(--muted);
+}
+.ab-thread-age {
+  margin-left: auto;
+  padding-left: 8px;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--text-meta);
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+
 /* ---- Reformat bar -------------------------------------------------------
    Sits beside the block it would reshape, wearing the accent — this is the
    model offering something, the same event the streaming head marks, so it

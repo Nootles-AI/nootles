@@ -14,6 +14,8 @@ import type * as ai_opLog from "../ai/opLog.js";
 import type * as ai_operations from "../ai/operations.js";
 import type * as ai_suggestions from "../ai/suggestions.js";
 import type * as auth from "../auth.js";
+import type * as chat_messages from "../chat/messages.js";
+import type * as chat_threads from "../chat/threads.js";
 import type * as pages from "../pages.js";
 import type * as projects from "../projects.js";
 import type * as prosemirror from "../prosemirror.js";
@@ -31,6 +33,8 @@ declare const fullApi: ApiFromModules<{
   "ai/operations": typeof ai_operations;
   "ai/suggestions": typeof ai_suggestions;
   auth: typeof auth;
+  "chat/messages": typeof chat_messages;
+  "chat/threads": typeof chat_threads;
   pages: typeof pages;
   projects: typeof projects;
   prosemirror: typeof prosemirror;

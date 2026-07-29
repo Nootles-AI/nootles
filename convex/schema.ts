@@ -156,4 +156,87 @@ export default defineSchema({
     source: v.union(v.literal("human"), v.literal("ai")),
     createdAt: v.number(),
   }).index("by_project", ["projectId"]),
+
+  // ---- Chat ---------------------------------------------------------------
+
+  /**
+   * A conversation. Scoped to the PROJECT rather than the page: a thread
+   * outlives switching pages, and the agent can work across several of them in
+   * one turn. The open page travels with each message instead.
+   */
+  chatThreads: defineTable({
+    ownerId: v.string(),
+    projectId: v.id("projects"),
+    title: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_project", ["projectId", "updatedAt"]),
+
+  chatMessages: defineTable({
+    ownerId: v.string(),
+    threadId: v.id("chatThreads"),
+    /** The AI SDK's own message id, so a resend can be made idempotent. */
+    uiId: v.string(),
+    role: v.union(v.literal("user"), v.literal("assistant"), v.literal("system")),
+    /** Position in the thread; the sort key, because timestamps can collide. */
+    seq: v.number(),
+    /**
+     * `UIMessage.parts` stored VERBATIM. Tool calls and their results are
+     * already parts, so a reloaded thread re-renders exactly as it streamed and
+     * `convertToModelMessages` round-trips it back to the model without a
+     * bespoke translation layer to keep in sync.
+     */
+    parts: v.any(),
+    metadata: v.optional(v.any()),
+    /** Links a turn to its checkpoints and op-log rows. */
+    chatPromptId: v.optional(v.string()),
+    /** Which page was open when this was sent — resolves "@current-page". */
+    pageIdAtSend: v.optional(v.id("pages")),
+    /**
+     * Attachment sidecar. The storage id is the durable reference; URLs are
+     * re-derived on read, never persisted, because they expire.
+     */
+    attachments: v.optional(
+      v.array(
+        v.object({
+          storageId: v.id("_storage"),
+          partIndex: v.number(),
+          mediaType: v.string(),
+          filename: v.optional(v.string()),
+        }),
+      ),
+    ),
+    createdAt: v.number(),
+  }).index("by_thread", ["threadId", "seq"]),
+
+  /**
+   * One agent turn that touched the document, and where its review stands.
+   *
+   * `status: "pending"` IS "still under review", so reloading mid-review
+   * rehydrates the diff rather than stranding the document with changes the
+   * user never accepted. The trace records what each op actually did — resolved
+   * anchors and the ids it produced — so rejecting a hunk can replay effects
+   * deterministically instead of re-minting ids.
+   */
+  chatTurns: defineTable({
+    ownerId: v.string(),
+    threadId: v.id("chatThreads"),
+    projectId: v.id("projects"),
+    chatPromptId: v.string(),
+    /** Pages this turn edited; one checkpoint each, taken on first edit. */
+    pageIds: v.array(v.id("pages")),
+    checkpointIds: v.array(v.id("checkpoints")),
+    trace: v.any(),
+    hunks: v.any(),
+    status: v.union(
+      v.literal("streaming"),
+      v.literal("pending"),
+      v.literal("accepted"),
+      v.literal("rejected"),
+      v.literal("failed"),
+    ),
+    createdAt: v.number(),
+  })
+    .index("by_thread", ["threadId", "createdAt"])
+    .index("by_prompt", ["chatPromptId"]),
 });
