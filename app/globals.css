@@ -794,6 +794,9 @@ a.ab-chip:hover {
 /* Metadata voice, and quiet until wanted: a rewind sits under every question
    but is almost never the thing you came to do. */
 .ab-rewind {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   align-self: flex-start;
   margin-top: 4px;
   font-family: var(--font-mono), ui-monospace, monospace;

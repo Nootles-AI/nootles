@@ -10,7 +10,7 @@ import { ChatTranscript } from "./chat/ChatTranscript";
 import { ThreadPicker } from "./chat/ThreadPicker";
 import { useReview } from "./ReviewContext";
 import { useProjectChat, type ChatDraft } from "@/app/lib/ai/chat/useProjectChat";
-import type { ChatMode } from "@/app/lib/ai/chat/types";
+import type { AbMessage, ChatMode } from "@/app/lib/ai/chat/types";
 
 export function ChatPanel({
   width,
@@ -30,6 +30,8 @@ export function ChatPanel({
   const [picked, setPicked] = useState<Id<"chatThreads"> | null>(null);
   const [picking, setPicking] = useState(false);
   const [mode, setMode] = useState<ChatMode>("agent");
+  /** The last message a rewind handed back, and how many have been handed back. */
+  const [restored, setRestored] = useState({ text: "", n: 0 });
 
   // Derived during render, like Workspace's effective page: a thread the user
   // picked, unless it has since been deleted, in which case the newest one.
@@ -128,14 +130,23 @@ export function ChatPanel({
             what !== "conversation" && promptId
               ? review.restoreCheckpoint(promptId)
               : Promise.resolve();
-          void notes.then(() =>
-            what === "notes" ? undefined : chat.rewind(message.id),
-          );
+          void notes.then(async () => {
+            if (what === "notes") return;
+            await chat.rewind(message.id);
+            // Handed back rather than thrown away: a rewind is almost always
+            // the first half of asking again, differently.
+            setRestored((prior) => ({ text: textOf(message), n: prior.n + 1 }));
+          });
         }}
         error={chat.error}
       />
 
+      {/* Re-keyed so a rewound message becomes the draft: the composer owns the
+          text from the moment it mounts, and this is how it is handed a new one
+          without a second source of truth for what is written. */}
       <ChatComposer
+        key={restored.n}
+        initialText={restored.text}
         disabled={!chat.ready}
         busy={chat.busy}
         mode={mode}
@@ -147,6 +158,19 @@ export function ChatPanel({
       />
     </aside>
   );
+}
+
+/**
+ * What was typed, out of a message that also carries what came with it.
+ *
+ * Only the text: a mention is a chip standing for a page as it was when the
+ * question was asked, and an attachment lives in storage — neither survives
+ * being pasted back into a box as characters.
+ */
+function textOf(message: AbMessage): string {
+  return message.parts
+    .flatMap((part) => (part.type === "text" ? [part.text] : []))
+    .join("\n");
 }
 
 /** A thread is named after what was asked — or, asked nothing, after what came. */

@@ -11,7 +11,7 @@ import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { ConfirmDelete } from "@/app/components/ConfirmDelete";
-import { Paperclip } from "@/app/components/Icons";
+import { ArrowLeft, Paperclip } from "@/app/components/Icons";
 import { Menu, MenuItem } from "@/app/components/Menu";
 import type { PendingApproval } from "@/app/lib/ai/chat/BrowserChat";
 import type { AbMessage } from "@/app/lib/ai/chat/types";
@@ -157,22 +157,27 @@ function Rewind({
   onRewind: (what: RewindScope) => void;
 }) {
   const pages = pageCount === 1 ? "the page" : `all ${pageCount} pages`;
-  // Undoing pages is offered only where there are pages to undo, so a question
-  // that was only ever a question shows the one thing it can actually do rather
-  // than two dead lines explaining why it cannot.
-  const options: { scope: RewindScope; label: string; hint: string }[] = pageCount
-    ? [
-        { scope: "both", label: "Notes and conversation", hint: `Undo ${pages}, drop this exchange` },
-        { scope: "conversation", label: "Conversation only", hint: "Drop this exchange, keep the notes" },
-        { scope: "notes", label: "Notes only", hint: `Undo ${pages}, keep the conversation` },
-      ]
-    : [
-        {
-          scope: "conversation",
-          label: "Conversation only",
-          hint: "This message changed no notes",
-        },
-      ];
+  // Undoing pages is offered only where there are pages to undo. A question
+  // that changed nothing therefore has exactly one thing it can do, and a menu
+  // to choose it from would be a click asking permission to do the obvious.
+  if (!pageCount) {
+    return (
+      <button
+        className="ab-rewind"
+        onClick={() => onRewind("conversation")}
+        title="Take this message back — it changed no notes"
+      >
+        <ArrowLeft width={11} height={11} />
+        Rewind
+      </button>
+    );
+  }
+
+  const options: { scope: RewindScope; label: string; hint: string }[] = [
+    { scope: "both", label: "Notes and conversation", hint: `Undo ${pages}, drop this exchange` },
+    { scope: "conversation", label: "Conversation only", hint: "Drop this exchange, keep the notes" },
+    { scope: "notes", label: "Notes only", hint: `Undo ${pages}, keep the conversation` },
+  ];
 
   return (
     <Menu
@@ -180,6 +185,7 @@ function Rewind({
       label="Rewind to before this message"
       trigger={(props) => (
         <button {...props} className="ab-rewind">
+          <ArrowLeft width={11} height={11} />
           Rewind
         </button>
       )}
