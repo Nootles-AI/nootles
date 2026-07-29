@@ -380,6 +380,41 @@
   color: var(--ghost);
 }
 
+/* ---- Faded table preview (AI table suggestion) ----------------------- */
+.ab-table-preview {
+  margin: 0.4rem 0;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  opacity: 0.7;
+  overflow: hidden;
+  user-select: none;
+  pointer-events: none;
+}
+.ab-table-preview .ab-code-preview-head {
+  border-bottom-color: var(--border);
+  color: var(--muted);
+}
+.ab-table-preview-grid {
+  width: 100%;
+  border-collapse: collapse;
+  color: var(--ghost);
+  font-size: 0.9em;
+}
+.ab-table-preview-grid th,
+.ab-table-preview-grid td {
+  padding: 0.28rem 0.6rem;
+  border: 1px dashed var(--border);
+  text-align: left;
+  /* The real table sizes columns to content; dashed borders alone are enough
+     to read this as a grid without pretending to final column widths. */
+  vertical-align: top;
+}
+.ab-table-preview-grid th {
+  background: var(--sunken);
+  font-weight: 600;
+}
+
 /* Inline marks inside a suggestion render for real, so the preview matches what
    accepting produces. They inherit the ghost colour; only the shape differs. */
 .ab-ghost code {

@@ -44,6 +44,8 @@ export const TAG_ALIASES: Record<string, string> = {
   node: "ab-node",
   edge: "ab-edge",
   math: "ab-math",
+  file: "ab-file",
+  attachment: "ab-file",
 };
 
 /** Canonical tag name for an element, resolving accepted aliases. */
@@ -68,10 +70,13 @@ export type DocNode =
         | "bulletListItem"
         | "numberedListItem"
         | "checkListItem"
+        | "toggleListItem"
         | "quote";
       id?: string;
       level?: number;
       checked?: boolean;
+      /** First number of an `<ol start="5">`. */
+      start?: number;
       content: Run[];
       /** Nested list items — an indented outline. */
       children?: DocNode[];
@@ -86,6 +91,21 @@ export type DocNode =
     }
   | { type: "codeBlock"; id?: string; language: string; code: string }
   | { type: "mathBlock"; id?: string; rows: string[] }
+  /** `<hr>` — nothing to carry but its position. */
+  | { type: "divider"; id?: string }
+  /**
+   * Media. All four are the same shape, and all four are standard elements
+   * except the file, which has no standard equivalent that means "an attachment
+   * sitting in the document" — `<a download>` is a link, not a block.
+   */
+  | {
+      type: "image" | "video" | "audio" | "file";
+      id?: string;
+      url: string;
+      /** `alt` on an image, the visible label on a file. */
+      caption?: string;
+      name?: string;
+    }
   | {
       type: "canvas";
       id?: string;

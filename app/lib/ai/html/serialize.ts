@@ -98,11 +98,33 @@ function blockToHtml(block: AnyBlock): string {
 
   switch (block.type) {
     case "heading": {
-      const level = Math.min(3, Math.max(1, Number(block.props.level ?? 2)));
+      const level = Math.min(6, Math.max(1, Number(block.props.level ?? 2)));
       return `<h${level}${id}>${inner}</h${level}>`;
     }
     case "quote":
       return `<blockquote${id}>${inner}</blockquote>`;
+    case "divider":
+      return `<hr${id}>`;
+    case "image":
+      // alt, not a caption element: the model's job is to know what the picture
+      // is, and alt says that in the one place every model already looks.
+      return `<img${id}${attr("src", String(block.props.url ?? ""))}${attr(
+        "alt",
+        String(block.props.caption ?? block.props.name ?? ""),
+      )}>`;
+    case "video":
+    case "audio":
+      return `<${block.type}${id}${attr("src", String(block.props.url ?? ""))}${attr(
+        "title",
+        String(block.props.caption ?? block.props.name ?? ""),
+      )}></${block.type}>`;
+    case "file":
+      // The one construct here with no standard element: `<a download>` is a
+      // link inside prose, not a block sitting in the document.
+      return `<ab-file${id}${attr("href", String(block.props.url ?? ""))}${attr(
+        "name",
+        String(block.props.name ?? ""),
+      )}>${esc(String(block.props.caption ?? ""))}</ab-file>`;
     case "table": {
       // Standard elements with the right meaning, so nothing to teach: a header
       // row is <th>, everything else <td>. BlockNote marks headers with a
@@ -160,8 +182,15 @@ function blockToHtml(block: AnyBlock): string {
         .join("");
       return `<ab-diagram${id}>${nodeHtml}${edgeHtml}\n</ab-diagram>`;
     }
-    default:
+    case "paragraph":
       return `<p${id}>${inner}</p>`;
+    default:
+      // A block type the grammar has no tag for. Emitted opaque and named
+      // rather than as an empty <p>: an empty paragraph reads as a gap to fill,
+      // and the model duly filled it, which the validator then rejected — and
+      // it rejected the whole batch, so good edits beside it died too. This
+      // keeps the block's position visible while denying authorship of it.
+      return `<ab-block${id}${attr("type", block.type)}></ab-block>`;
   }
 }
 
@@ -186,19 +215,40 @@ function listItemHtml(block: AnyBlock): string {
   return `<li${id}>${box}${runsToHtml(block.content)}${nested}</li>`;
 }
 
+/**
+ * A toggle is `<details>`/`<summary>` — the standard element for exactly this,
+ * so there is nothing to teach. Its children stay INSIDE, which also fixes the
+ * old flattening: collapsed content used to serialize as ordinary top-level
+ * paragraphs, leaving the model unable to tell what was inside the toggle from
+ * what merely followed it.
+ */
+function toggleHtml(block: AnyBlock): string {
+  const id = attr("id", block.id);
+  const nested = block.children?.length ? `\n${blocksToHtml(block.children)}\n` : "";
+  return `<details${id}><summary>${runsToHtml(block.content)}</summary>${nested}</details>`;
+}
+
 /** Serializes a sibling list, grouping consecutive items into one <ul>/<ol>. */
 function blocksToHtml(blocks: AnyBlock[]): string {
   const out: string[] = [];
   let i = 0;
   while (i < blocks.length) {
+    if (blocks[i].type === "toggleListItem") {
+      out.push(toggleHtml(blocks[i]));
+      i++;
+      continue;
+    }
     const tag = listTagFor(blocks[i].type);
     if (tag) {
+      // A list that doesn't begin at 1 says so, the way HTML does.
+      const first = Number(blocks[i].props?.start ?? 1);
+      const start = tag === "ol" && first > 1 ? attr("start", first) : "";
       const items: string[] = [];
       while (i < blocks.length && listTagFor(blocks[i].type) === tag) {
         items.push(listItemHtml(blocks[i]));
         i++;
       }
-      out.push(`<${tag}>${items.join("")}</${tag}>`);
+      out.push(`<${tag}${start}>${items.join("")}</${tag}>`);
       continue;
     }
     out.push(blockToHtml(blocks[i]));

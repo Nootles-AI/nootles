@@ -22,18 +22,31 @@ import { z } from "zod";
 // Shared primitives
 // ---------------------------------------------------------------------------
 
-/** Block types the vocabulary can create/address (curated subset of BlockNote). */
+/**
+ * Block types the vocabulary can create/address.
+ *
+ * This must cover everything the editor can produce. Anything the slash menu
+ * offers but this list omits is invisible to the AI: the serializer has no tag
+ * for it, so it reaches the model as an empty paragraph — which reads as a gap
+ * to fill rather than as content to leave alone.
+ */
 export const BLOCK_TYPES = [
   "paragraph",
   "heading",
   "bulletListItem",
   "numberedListItem",
   "checkListItem",
+  "toggleListItem",
   "quote",
   "codeBlock",
   "mathBlock",
   "canvas",
   "table",
+  "divider",
+  "image",
+  "video",
+  "audio",
+  "file",
 ] as const;
 export const blockType = z.enum(BLOCK_TYPES);
 export type BlockType = z.infer<typeof blockType>;
@@ -99,6 +112,11 @@ export interface NewBlock {
    * `content` is a flat run list everywhere else.
    */
   rows?: InlineRun[][][];
+  /**
+   * Leading rows of a table that are headers. Lives here rather than in `props`
+   * because BlockNote holds it in the table's *content*, not its props.
+   */
+  headerRows?: number;
   children?: NewBlock[];
 }
 
@@ -109,6 +127,7 @@ export const newBlock: z.ZodType<NewBlock> = z.lazy(() =>
     props: blockProps.optional(),
     content: z.array(inlineRun).optional(),
     rows: z.array(z.array(z.array(inlineRun))).optional(),
+    headerRows: z.number().int().min(0).optional(),
     children: z.array(newBlock).optional(),
   }),
 );

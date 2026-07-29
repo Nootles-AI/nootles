@@ -166,12 +166,54 @@ function elementToNode(el: Element, raw: string[]): DocNode | null {
     return {
       type: "heading",
       id,
-      level: Math.min(3, Number(tag[1])),
+      level: Number(tag[1]),
       content: normalizeRuns(runsOf(el)),
     };
   }
   if (tag === "p") return { type: "paragraph", id, content: normalizeRuns(runsOf(el)) };
   if (tag === "blockquote") return { type: "quote", id, content: normalizeRuns(runsOf(el)) };
+  if (tag === "hr") return { type: "divider", id };
+
+  // An unmapped block, echoed back by the model. It is shown one so it can see
+  // the block is there; parsing it back would let it author a block the
+  // vocabulary cannot name, so it stops here.
+  if (tag === "ab-block") return null;
+
+  if (tag === "details") {
+    const summary = el.querySelector(":scope > summary");
+    const children = Array.from(el.children)
+      .filter((c) => c.tagName.toLowerCase() !== "summary")
+      .flatMap((c) =>
+        TRANSPARENT.has(c.tagName.toLowerCase())
+          ? elementsToNodes(c, raw)
+          : ([elementToNode(c, raw)].filter(Boolean) as DocNode[]),
+      );
+    return {
+      type: "toggleListItem",
+      id,
+      content: normalizeRuns(summary ? runsOf(summary) : []),
+      ...(children.length ? { children } : {}),
+    };
+  }
+
+  if (tag === "img" || tag === "video" || tag === "audio" || tag === "ab-file") {
+    const type = tag === "ab-file" ? "file" : (tag === "img" ? "image" : tag);
+    const url = el.getAttribute(tag === "ab-file" ? "href" : "src") ?? "";
+    // Without a source there is no media — a bare <img> would otherwise become
+    // an empty block sitting in the document.
+    if (!url) return null;
+    const caption =
+      el.getAttribute("alt") ??
+      el.getAttribute("title") ??
+      (tag === "ab-file" ? textOf(el).trim() : "");
+    return {
+      type: type as "image" | "video" | "audio" | "file",
+      id,
+      url,
+      ...(caption ? { caption } : {}),
+      ...(el.getAttribute("name") ? { name: el.getAttribute("name")! } : {}),
+    };
+  }
 
   if (tag === "li") {
     // Nested <ul>/<ol> inside this item are its children.

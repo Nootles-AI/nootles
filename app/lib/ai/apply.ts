@@ -131,6 +131,7 @@ export function applyBatch(editor: Editor, batch: Batch): ApplyResult {
                 content: {
                   type: "tableContent",
                   columnWidths: (nb.rows[0] ?? []).map(() => undefined),
+                  ...(nb.headerRows ? { headerRows: nb.headerRows } : {}),
                   rows: nb.rows.map((cells) => ({
                     cells: cells.map(compileInline),
                   })),

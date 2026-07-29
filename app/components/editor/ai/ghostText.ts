@@ -39,7 +39,9 @@ export type PreviewEdge = { source: string; target: string; label?: string };
 export type Preview =
   | { kind: "code"; language: string; code: string }
   | { kind: "math"; lines: string[] }
-  | { kind: "diagram"; nodes: PreviewNode[]; edges: PreviewEdge[] };
+  | { kind: "diagram"; nodes: PreviewNode[]; edges: PreviewEdge[] }
+  /** Cells are inline MARKUP, not plain text, so a bold or `code` cell previews as one. */
+  | { kind: "table"; header: boolean; rows: string[][] };
 
 export type Suggestion =
   | {
@@ -320,6 +322,38 @@ function mathPreviewWidget(lines: string[]) {
   };
 }
 
+function tablePreviewWidget(preview: { header: boolean; rows: string[][] }) {
+  return () => {
+    const wrap = document.createElement("div");
+    wrap.className = "ab-table-preview";
+    wrap.contentEditable = "false";
+    const head = document.createElement("div");
+    head.className = "ab-code-preview-head";
+    const cols = preview.rows[0]?.length ?? 0;
+    const bodyRows = preview.rows.length - (preview.header ? 1 : 0);
+    head.textContent = `⇥ Tab to insert · ${bodyRows}×${cols} table`;
+    wrap.appendChild(head);
+
+    const table = document.createElement("table");
+    table.className = "ab-table-preview-grid";
+    const tbody = document.createElement("tbody");
+    preview.rows.forEach((cells, r) => {
+      const tr = document.createElement("tr");
+      for (const cell of cells) {
+        const td = document.createElement(preview.header && r === 0 ? "th" : "td");
+        // Same renderer as the ghost, so a cell holding maths or inline code
+        // previews as the thing it will become rather than as its tags.
+        renderInline(cell, td);
+        tr.appendChild(td);
+      }
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    wrap.appendChild(table);
+    return wrap;
+  };
+}
+
 function codePreviewWidget(preview: { language: string; code: string }) {
   return () => {
     const wrap = document.createElement("div");
@@ -400,13 +434,17 @@ export function ghostTextPlugin(): Plugin<Suggestion> {
               ? codePreviewWidget(p)
               : p.kind === "math"
                 ? mathPreviewWidget(p.lines)
-                : diagramPreviewWidget(p.nodes, p.edges);
+                : p.kind === "table"
+                  ? tablePreviewWidget(p)
+                  : diagramPreviewWidget(p.nodes, p.edges);
           const sig =
             p.kind === "code"
               ? p.code.length
               : p.kind === "math"
                 ? p.lines.join("|")
-                : `${p.nodes.length}-${p.edges.length}`;
+                : p.kind === "table"
+                  ? p.rows.map((r) => r.join("|")).join("¶")
+                  : `${p.nodes.length}-${p.edges.length}`;
           decos.push(
             Decoration.widget(after, widget, {
               side: 1,

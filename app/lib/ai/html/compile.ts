@@ -27,6 +27,7 @@ const PROSE = new Set([
   "bulletListItem",
   "numberedListItem",
   "checkListItem",
+  "toggleListItem",
   "quote",
 ]);
 
@@ -42,11 +43,23 @@ function sameRuns(a: Run[], b: Run[]): boolean {
   return JSON.stringify(runsToInline(a)) === JSON.stringify(runsToInline(b));
 }
 
+const MEDIA = new Set(["image", "video", "audio", "file"]);
+
 function propsOf(node: DocNode): Record<string, string | number | boolean> | undefined {
   if (node.type === "heading") return { level: node.level ?? 2 };
   if (node.type === "checkListItem") return { checked: node.checked ?? false };
+  if (node.type === "numberedListItem" && node.start !== undefined) {
+    return { start: node.start };
+  }
   if (node.type === "codeBlock") return { language: node.language, code: node.code };
   if (node.type === "mathBlock") return { source: node.rows.join("\n") };
+  if (MEDIA.has(node.type) && "url" in node) {
+    return {
+      url: node.url,
+      ...(node.caption !== undefined ? { caption: node.caption } : {}),
+      ...(node.name !== undefined ? { name: node.name } : {}),
+    };
+  }
   return undefined;
 }
 
@@ -85,6 +98,17 @@ function updateOps(next: DocNode, current: DocNode): Operation[] {
   if (next.type === "mathBlock" && current.type === "mathBlock") {
     if (next.rows.join("\n") !== current.rows.join("\n")) {
       ops.push({ kind: "setMathRows", blockId: id, rows: next.rows });
+    }
+    return ops;
+  }
+
+  // Media holds no inline content, so everything about it lives in props — a
+  // re-captioned image is a props update, not a content one.
+  if (MEDIA.has(next.type)) {
+    const p = propsOf(next);
+    const cp = propsOf(current);
+    if (p && JSON.stringify(p) !== JSON.stringify(cp)) {
+      ops.push({ kind: "updateBlockProps", blockId: id, props: p });
     }
     return ops;
   }
@@ -256,7 +280,10 @@ function newBlockFor(node: DocNode, tempId: string): NewBlock {
     ...("content" in node ? { content: runsToInline(node.content) } : {}),
     // A table is two-dimensional, so it travels in `rows` rather than `content`.
     ...(node.type === "table"
-      ? { rows: node.rows.map((row) => row.map(runsToInline)) }
+      ? {
+          rows: node.rows.map((row) => row.map(runsToInline)),
+          ...(node.header ? { headerRows: 1 } : {}),
+        }
       : {}),
     ...(children ? { children } : {}),
   };

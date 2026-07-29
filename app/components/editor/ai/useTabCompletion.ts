@@ -7,12 +7,16 @@ import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import { AI } from "@/app/lib/ai/aiConfig";
 import { project, type AnyBlock } from "@/app/lib/ai/projection";
-import { resolveBatch } from "@/app/lib/ai/validate";
+import { resolveBatch, warnRejected } from "@/app/lib/ai/validate";
 import { applyBatch } from "@/app/lib/ai/apply";
-import { toDocHtml, toDocHtmlSplit } from "@/app/lib/ai/html/serialize";
+import {
+  toDocHtml,
+  toDocHtmlSplit,
+  runsToHtmlFromRuns,
+} from "@/app/lib/ai/html/serialize";
 import { parseDocHtml } from "@/app/lib/ai/html/parse";
 import { compileDocHtml, layoutDiagram } from "@/app/lib/ai/html/compile";
-import { INLINE_TAGS, grounding } from "@/app/lib/ai/html/grammar";
+import { INLINE_TAGS, grounding, type Run } from "@/app/lib/ai/html/grammar";
 import type { Batch } from "@/convex/ai/operations";
 import {
   setGhost,
@@ -39,7 +43,9 @@ type Editor = BlockNoteEditor<any, any, any>;
  * identifier mid-sentence. With one example it writes `<code>` there instead,
  * and will use several in a sentence where that reads better.
  */
-const PREAMBLE = `<!-- auto-board document. Blocks: <p>, <h2>, <ul><li>, <blockquote>,
+const PREAMBLE = `<!-- auto-board document. Blocks: <p>, <h2>, <ul><li>, <ol><li>, <blockquote>, <hr>,
+<table><tr><th>Region</th></tr><tr><td>North</td></tr></table>,
+<details><summary>Toggle</summary><p>inside</p></details>,
 <ab-code-block lang="python">code</ab-code-block>,
 <ab-math-block><ab-math-line>a = 1</ab-math-line></ab-math-block>,
 <ab-diagram><ab-node shape="rectangle" x="0" y="0">Step</ab-node><ab-edge from="n1" to="n2"></ab-edge></ab-diagram>
@@ -173,7 +179,24 @@ function partialPreview(acc: string): { label: string; preview?: Preview } | nul
     if (!lines.length) return { label: "Insert math block" };
     return { label: "Insert math block", preview: { kind: "math", lines } };
   }
+  const table = nodes.find((n) => n.type === "table");
+  if (table && table.type === "table") {
+    if (!table.rows.length) return { label: "Insert table" };
+    return { label: "Insert table", preview: tablePreview(table.header, table.rows) };
+  }
   return null;
+}
+
+/** Table cells as inline markup, so the preview renders marks and maths. */
+function tablePreview(
+  header: boolean | undefined,
+  rows: Run[][][],
+): Extract<Preview, { kind: "table" }> {
+  return {
+    kind: "table",
+    header: !!header,
+    rows: rows.map((cells) => cells.map(runsToHtmlFromRuns)),
+  };
 }
 
 /** Cheap signal for "enough has arrived to be worth redrawing". */
@@ -231,6 +254,17 @@ function describe(batch: Batch): { label: string; preview?: Preview } {
       return {
         label: "Insert math block",
         ...(lines.length ? { preview: { kind: "math" as const, lines } } : {}),
+      };
+    }
+    if (block.type === "table") {
+      // A table travels in `rows` rather than `content`, because it is the one
+      // block that is two-dimensional.
+      const rows = (block.rows ?? []) as unknown as Run[][][];
+      return {
+        label: "Insert table",
+        ...(rows.length
+          ? { preview: tablePreview(!!block.headerRows, rows) }
+          : {}),
       };
     }
     if (block.type === "heading") return { label: "Insert heading" };
@@ -458,7 +492,10 @@ export function useTabCompletion(
         if (!batch.ops.length) return clear();
         const { index } = project(ctx.blocks);
         const resolved = resolveBatch(batch, index);
-        if (!resolved.ok) return clear();
+        if (!resolved.ok) {
+          warnRejected("completion", resolved);
+          return clear();
+        }
         if (!isStructural(acc)) {
           // Inline marks only. Still prose to the reader: ghost text, no chip and
           // no preview — but Tab applies the compiled batch, so the marks land.
