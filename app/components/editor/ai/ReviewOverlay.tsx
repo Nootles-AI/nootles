@@ -56,8 +56,13 @@ export function ReviewOverlay({
     [run, session],
   );
 
+  // Drawn once the set can be answered, not while it is still growing. A hunk
+  // the agent is still adding to gets regrouped, and regrouped it has a new id
+  // — so its buttons would settle nothing, and a control that does nothing is
+  // worse than one that is not there yet. The bar carries the count meanwhile.
   const spec: ReviewSpec = useMemo(() => {
     const hunks: ReviewHunk[] = pending.flatMap((turn) => {
+      if (session.isWriting(turn.chatPromptId)) return [];
       const page = turn.pages.find((p) => p.pageId === pageId);
       // Without the checkpoint there is no "before", and a diff drawn against a
       // guess is worse than one drawn a moment later.
@@ -129,9 +134,15 @@ export function ReviewOverlay({
   // case — so a bar that spoke only for the newest turn would leave the earlier
   // ones with no way to be answered at all.
   const oldest = pending[0];
+  // Up from the first change rather than at the end of the turn. The edits are
+  // applied for real as they are made, so withholding the bar until the agent
+  // stops talking leaves the document visibly rewritten with nothing on screen
+  // to answer it — which reads as the bar being late, or missing.
+  const writing = pending.some((turn) => session.isWriting(turn.chatPromptId));
   return (
     <ReviewBar
       turns={pending}
+      writing={writing}
       failure={failure}
       onKeep={() => run(session.acceptAll())}
       onDiscard={() => run(session.rejectAll())}
@@ -148,12 +159,15 @@ export function ReviewOverlay({
  */
 function ReviewBar({
   turns,
+  writing,
   failure,
   onKeep,
   onDiscard,
   onRevert,
 }: {
   turns: TurnReview[];
+  /** The agent is still editing into this set, so it is not answerable yet. */
+  writing: boolean;
   failure: string | null;
   onKeep: () => void;
   onDiscard: () => void;
@@ -176,19 +190,28 @@ function ReviewBar({
         {turns.length > 1 ? ` · ${turns.length} messages` : ""}
       </span>
       <span className="ab-review-sep" aria-hidden />
-      <button className="ab-review-action" onClick={onKeep}>
-        Keep all
-      </button>
-      <button className="ab-review-action" onClick={onDiscard}>
-        Discard all
-      </button>
-      <button
-        className="ab-review-action is-quiet"
-        onClick={onRevert}
-        title="Put the page back exactly as it was, including anything you have typed since"
-      >
-        Revert
-      </button>
+      {/* A hunk the agent is still growing can be regrouped, and regrouped it
+          has a different id — so it cannot honestly be answered yet. The bar
+          says why instead of offering buttons that would quietly do nothing. */}
+      {writing ? (
+        <span className="ab-review-count">still writing…</span>
+      ) : (
+        <>
+          <button className="ab-review-action" onClick={onKeep}>
+            Keep all
+          </button>
+          <button className="ab-review-action" onClick={onDiscard}>
+            Discard all
+          </button>
+          <button
+            className="ab-review-action is-quiet"
+            onClick={onRevert}
+            title="Put the page back exactly as it was, including anything you have typed since"
+          >
+            Revert
+          </button>
+        </>
+      )}
       {failure && <span className="ab-review-failure">{failure}</span>}
     </div>
   );

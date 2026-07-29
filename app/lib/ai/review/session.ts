@@ -84,6 +84,8 @@ export class ReviewSession {
   private listeners = new Set<() => void>();
   private turns: TurnReview[] = [];
   private running: Omit<TurnReview, "status" | "pages"> | null = null;
+  /** The turn the loop is still writing, as opposed to the one it wrote last. */
+  private writing: string | null = null;
   /**
    * Blocks the user has rewritten by hand since a turn staged them, per turn and
    * page. Deliberately outside `TurnReview`: it is written on keystrokes, and
@@ -119,6 +121,7 @@ export class ReviewSession {
   beginTurn(turn: { threadId: Id<"chatThreads">; projectId: Id<"projects">; chatPromptId: string }) {
     const previous = this.running;
     this.running = turn;
+    this.writing = turn.chatPromptId;
     // A second net under `endTurn`, which fires from an effect in the chat
     // panel and therefore does not fire at all if that panel unmounts or the
     // tab closes mid-turn. A turn left "streaming" is a turn with changes on
@@ -130,9 +133,16 @@ export class ReviewSession {
     this.emit([...this.turns]);
   }
 
-  /** Whether this session is still staging edits into a turn. */
+  /**
+   * Whether the loop is still going.
+   *
+   * Not the same question as `running`, which stays pointed at the last turn on
+   * purpose so a tool call arriving a beat late still has somewhere to stage.
+   * Answering both from one field is what kept the review bar hidden until the
+   * NEXT question was asked.
+   */
   isWriting(chatPromptId: string): boolean {
-    return this.running?.chatPromptId === chatPromptId;
+    return this.writing === chatPromptId;
   }
 
   /**
@@ -146,7 +156,6 @@ export class ReviewSession {
   isOpen(turn: TurnReview): boolean {
     return (
       (turn.status === "pending" || turn.status === "streaming") &&
-      !this.isWriting(turn.chatPromptId) &&
       turn.pages.some((p) =>
         p.hunks.some((h) => (p.status[h.id] ?? "pending") === "pending"),
       )
@@ -160,6 +169,13 @@ export class ReviewSession {
    * instead of failing.
    */
   endTurn(chatPromptId: string) {
+    // Outside the queue, and first: this is what puts the bar on screen, and
+    // making it wait behind whatever Convex writes are in flight is the
+    // difference between answering immediately and answering a second later.
+    if (this.writing === chatPromptId) {
+      this.writing = null;
+      this.emit([...this.turns]);
+    }
     return this.enqueue(async () => {
       const turn = this.find(chatPromptId);
       if (!turn || turn.status !== "streaming") return;
