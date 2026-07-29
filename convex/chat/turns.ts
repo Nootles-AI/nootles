@@ -1,0 +1,93 @@
+import { mutation, query } from "../_generated/server";
+import { v } from "convex/values";
+import { getOwnerId } from "../auth";
+
+/**
+ * One agent turn that touched the document, and where its review stands.
+ *
+ * The row exists so that closing the tab mid-review is survivable. The edits are
+ * already in the document — they were applied for real, because an approximation
+ * is not what the user should be asked to judge — so without this the page would
+ * come back changed with no way left to say no.
+ *
+ * `trace` is what the applier did, `hunks` is what the user is being asked
+ * about. Keyed by `chatPromptId`, which is also what ties the turn to its
+ * checkpoints and its op-log rows.
+ */
+
+const status = v.union(
+  v.literal("streaming"),
+  v.literal("pending"),
+  v.literal("accepted"),
+  v.literal("rejected"),
+  v.literal("failed"),
+);
+
+export const save = mutation({
+  args: {
+    threadId: v.id("chatThreads"),
+    projectId: v.id("projects"),
+    chatPromptId: v.string(),
+    pageIds: v.array(v.id("pages")),
+    checkpointIds: v.array(v.id("checkpoints")),
+    trace: v.any(),
+    hunks: v.any(),
+    status,
+  },
+  handler: async (ctx, args) => {
+    const ownerId = await getOwnerId(ctx);
+    const existing = await ctx.db
+      .query("chatTurns")
+      .withIndex("by_prompt", (q) => q.eq("chatPromptId", args.chatPromptId))
+      .unique();
+
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        pageIds: args.pageIds,
+        checkpointIds: args.checkpointIds,
+        trace: args.trace,
+        hunks: args.hunks,
+        status: args.status,
+      });
+      return existing._id;
+    }
+    return await ctx.db.insert("chatTurns", {
+      ownerId,
+      threadId: args.threadId,
+      projectId: args.projectId,
+      chatPromptId: args.chatPromptId,
+      pageIds: args.pageIds,
+      checkpointIds: args.checkpointIds,
+      trace: args.trace,
+      hunks: args.hunks,
+      status: args.status,
+      createdAt: Date.now(),
+    });
+  },
+});
+
+/**
+ * Turns whose changes are on the page but unanswered. "streaming" is in there
+ * because a reload is one of the ways a stream ends — the row never got the
+ * chance to say so, and the edits are no less unreviewed for it.
+ */
+export const unreviewed = query({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, args) => {
+    const ownerId = await getOwnerId(ctx);
+    const groups = await Promise.all(
+      (["streaming", "pending"] as const).map((s) =>
+        ctx.db
+          .query("chatTurns")
+          .withIndex("by_project_status", (q) =>
+            q.eq("projectId", args.projectId).eq("status", s),
+          )
+          .collect(),
+      ),
+    );
+    return groups
+      .flat()
+      .filter((t) => t.ownerId === ownerId)
+      .sort((a, b) => a.createdAt - b.createdAt);
+  },
+});

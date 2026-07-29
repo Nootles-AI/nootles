@@ -433,6 +433,187 @@
   color: inherit;
 }
 
+/* ---- Review: the pending change, drawn in the document ----------------
+   A tint and a rule in the margin, nothing more. The rule is what you scan
+   for and the tint is what you read inside; a border on all four sides made
+   the page look like a form. Both are painted with `box-shadow` and a
+   background so they cost no layout — a review must not move the text it is
+   asking about. */
+.ab-editor .ab-diff {
+  position: relative;
+  border-radius: var(--radius-sm);
+}
+.ab-editor .ab-diff::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -14px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--border-strong);
+}
+.ab-editor .ab-diff-add,
+.ab-editor .ab-diff-whole,
+.ab-editor .ab-diff-move {
+  background: var(--diff-add-bg);
+  box-shadow: 0 0 0 3px var(--diff-add-bg);
+}
+.ab-editor .ab-diff-add::before,
+.ab-editor .ab-diff-whole::before,
+.ab-editor .ab-diff-move::before,
+.ab-editor .ab-diff-edit::before {
+  background: var(--diff-add-line);
+}
+/* Once the user has rewritten it, the block is theirs. The rule stays so the
+   change is still findable; the colour goes, because there is no longer a
+   decision attached to it. */
+.ab-editor .ab-diff-kept::before {
+  background: var(--border-strong);
+}
+
+/* Words this change added. Ink stays --foreground: a green word is a word you
+   read as a colour first, and the wash already says what it needs to. */
+.ab-editor .ab-diff-ins {
+  background: var(--diff-add-bg);
+  box-shadow: 0 0 0 1px var(--diff-add-bg);
+  border-radius: 2px;
+}
+/* Words it removed, put back where they stood, struck. */
+.ab-editor .ab-diff-del {
+  color: var(--diff-del);
+  background: var(--diff-del-bg);
+  border-radius: 2px;
+  text-decoration-color: color-mix(in oklch, var(--diff-del) 60%, transparent);
+  white-space: pre-wrap;
+  user-select: none;
+}
+
+/* ---- Review: blocks the change deleted -------------------------------- */
+.ab-diff-removed {
+  margin-block: 4px;
+  user-select: none;
+}
+.ab-diff-gone {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  padding: 1px 8px;
+  border-left: 2px solid var(--diff-del-line);
+  background: var(--diff-del-bg);
+  color: var(--diff-del);
+}
+.ab-diff-removed > .ab-diff-gone + .ab-diff-gone {
+  border-top: 1px solid color-mix(in oklch, var(--diff-del-line) 30%, transparent);
+}
+/* A deleted block goes with its subtree, so the facsimile shows the subtree —
+   at the indent it had, inside the wash that already says it is gone. */
+.ab-diff-gone-children {
+  flex-basis: 100%;
+  padding-left: 16px;
+}
+.ab-diff-gone-children > .ab-diff-gone {
+  padding-inline: 0;
+  border-left: none;
+  background: none;
+}
+.ab-diff-gone-mark {
+  flex: none;
+  font-size: 0.85em;
+  opacity: 0.7;
+}
+.ab-diff-gone-line {
+  text-decoration-color: color-mix(in oklch, var(--diff-del) 55%, transparent);
+}
+.ab-diff-gone-line[data-level="1"] {
+  font-size: 1.4em;
+  font-weight: 600;
+}
+.ab-diff-gone-line[data-level="2"] {
+  font-size: 1.2em;
+  font-weight: 600;
+}
+.ab-diff-gone-line[data-level="3"] {
+  font-weight: 600;
+}
+/* A deleted code block or diagram keeps its own chrome — it is still that
+   block — and the wrapper is what says it is gone. */
+.ab-diff-gone > .ab-code-preview,
+.ab-diff-gone > .ab-math-preview,
+.ab-diff-gone > .ab-table-preview,
+.ab-diff-gone > .ab-diagram-preview {
+  flex: 1;
+  margin-block: 4px;
+  opacity: 0.55;
+}
+/* Past three, a run of deletions is a fact about the page rather than
+   something to read, so it says how much and waits to be asked. */
+.ab-diff-collapsed {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px dashed var(--diff-del-line);
+  background: var(--diff-del-bg);
+  color: var(--diff-del);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--text-meta);
+  letter-spacing: var(--tracking-meta);
+}
+.ab-diff-collapsed:hover {
+  border-style: solid;
+}
+
+/* ---- Review: the per-hunk answer -------------------------------------- */
+/* Zero height, so the buttons hang in the right-hand gutter without the text
+   column knowing they are there. */
+.ab-diff-actions {
+  position: relative;
+  height: 0;
+}
+.ab-diff-actions-inner {
+  position: absolute;
+  top: 1px;
+  left: 100%;
+  display: flex;
+  gap: 2px;
+  margin-left: 10px;
+  opacity: 0.5;
+  transition: opacity var(--dur-fast) var(--ease);
+}
+.ab-diff-actions-inner:hover,
+.ab-diff-actions-inner:focus-within {
+  opacity: 1;
+}
+.ab-diff-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--control-sm);
+  height: var(--control-sm);
+  border-radius: var(--radius-sm);
+  background: var(--elevated);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  transition:
+    color var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease);
+}
+.ab-diff-btn svg {
+  width: 13px;
+  height: 13px;
+}
+.ab-diff-btn.is-keep:hover {
+  color: var(--diff-add);
+  border-color: var(--diff-add-line);
+}
+.ab-diff-btn.is-discard:hover {
+  color: var(--diff-del);
+  border-color: var(--diff-del-line);
+}
+
 /* BlockNote draws a vertical guide beside every nested block. On a checklist
    that is one rule per level of indent, which reads as table chrome rather than
    an outline — the indent already says everything the line was saying. */

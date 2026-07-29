@@ -6,6 +6,7 @@ import { useQuery, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import { ArrowLeft, PanelLeft, Plus } from "./Icons";
+import { ConfirmDeleteDialog } from "./ConfirmDelete";
 import { Editable } from "./Editable";
 
 type Props = {
@@ -183,7 +184,7 @@ export function Sidebar({
       )}
 
       {confirming && (
-        <ConfirmDelete
+        <ConfirmDeleteDialog
           title={
             sortedPages?.find((p) => p._id === confirming)?.title || "Untitled"
           }
@@ -241,56 +242,6 @@ function PageContextMenu({
         >
           Delete page
         </button>
-      </div>
-    </>
-  );
-}
-
-/**
- * Deleting a page takes its diagrams, checkpoints and history with it, so it
- * asks first — and names the page, since the menu was opened by a right-click
- * that may not have been where you thought.
- */
-function ConfirmDelete({
-  title,
-  onCancel,
-  onConfirm,
-}: {
-  title: string;
-  onCancel: () => void;
-  onConfirm: () => void;
-}) {
-  return (
-    <>
-      <button
-        aria-label="Cancel"
-        onClick={onCancel}
-        className="fixed inset-0 bg-foreground/15"
-        style={{ zIndex: "var(--z-overlay)" }}
-      />
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label={`Delete ${title}`}
-        className="ab-menu fixed left-1/2 top-1/3 w-[19rem] -translate-x-1/2 p-4"
-        style={{ zIndex: "var(--z-modal)" }}
-      >
-        <p className="text-sm font-medium">Delete “{title}”?</p>
-        <p className="mt-1.5 text-[13px] text-muted">
-          Its diagrams and history go too. This cannot be undone.
-        </p>
-        <div className="mt-4 flex justify-end gap-1">
-          <button onClick={onCancel} className="ab-row px-2.5">
-            Cancel
-          </button>
-          <button
-            onClick={onConfirm}
-            autoFocus
-            className="ab-row px-2.5 font-medium text-danger"
-          >
-            Delete
-          </button>
-        </div>
       </div>
     </>
   );

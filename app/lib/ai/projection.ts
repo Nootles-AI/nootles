@@ -30,20 +30,26 @@ type InlineItem =
 
 export type FlatBlock = { id: string; type: string; text: string };
 
-/** Plain text of a block, whatever kind it is. */
-export function blockText(block: AnyBlock): string {
-  if (block.type === 'codeBlock') return String(block.props?.code ?? '');
-  if (block.type === 'mathBlock') return String(block.props?.source ?? '');
-  if (!Array.isArray(block.content)) return '';
-  return (block.content as Array<Record<string, unknown>>)
+/** Plain text of a run list, links included — their words are the block's words. */
+function runsText(content: unknown): string {
+  if (!Array.isArray(content)) return '';
+  return (content as Array<Record<string, unknown>>)
     .map((i) => {
       if (i.type === 'text') return String(i.text ?? '');
       if (i.type === 'math') {
         return String((i.props as { latex?: string } | undefined)?.latex ?? '');
       }
+      if (i.type === 'link') return runsText(i.content);
       return '';
     })
     .join('');
+}
+
+/** Plain text of a block, whatever kind it is. */
+export function blockText(block: AnyBlock): string {
+  if (block.type === 'codeBlock') return String(block.props?.code ?? '');
+  if (block.type === 'mathBlock') return String(block.props?.source ?? '');
+  return runsText(block.content);
 }
 
 /** Document-order flat view of the block tree. */

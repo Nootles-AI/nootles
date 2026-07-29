@@ -5,6 +5,7 @@ import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import { useMediaQuery } from "@/app/lib/useMediaQuery";
+import { useOpenPage } from "./OpenPageContext";
 import { Sidebar } from "./Sidebar";
 import { PageSurface } from "./PageSurface";
 import { ChatPanel } from "./ChatPanel";
@@ -21,7 +22,7 @@ const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n
 const COMPACT = "(max-width: 1023px)";
 
 export function Workspace({ projectId }: { projectId: Id<"projects"> }) {
-  const [pageId, setPageId] = useState<Id<"pages"> | null>(null);
+  const { selected, open } = useOpenPage();
 
   const [leftWidth, setLeftWidth] = useState(LEFT.def);
   const [rightWidth, setRightWidth] = useState(RIGHT.def);
@@ -77,15 +78,16 @@ export function Workspace({ projectId }: { projectId: Id<"projects"> }) {
   );
 
   // The project comes from the route now. Only the page is a selection, and it
-  // is derived rather than synced via effects: `pageId` is the explicit
-  // override, and when unset or stale we fall back to the first page.
+  // is derived rather than synced via effects: `selected` is the explicit
+  // override — whoever made it, the sidebar or the agent — and when unset or
+  // stale we fall back to the first page.
   const pages = useQuery(api.pages.listByProject, { projectId });
   const sortedPages = pages
     ? [...pages].sort((a, b) => a.order - b.order)
     : undefined;
   const effectivePageId =
-    pageId && sortedPages?.some((p) => p._id === pageId)
-      ? pageId
+    selected && sortedPages?.some((p) => p._id === selected)
+      ? selected
       : (sortedPages?.[0]?._id ?? null);
 
   const sidebar = (
@@ -94,7 +96,7 @@ export function Workspace({ projectId }: { projectId: Id<"projects"> }) {
       projectId={projectId}
       selectedPageId={effectivePageId}
       onSelectPage={(id) => {
-        setPageId(id);
+        open(id);
         setDrawer(null);
       }}
       onCollapse={() => (compact ? setDrawer(null) : setLeftOpen(false))}

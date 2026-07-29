@@ -47,6 +47,19 @@
   --danger: oklch(0.563 0.127 35);
   --danger-on-dark: oklch(0.739 0.105 20);
 
+  /* Diff — the only other colour, and it appears only while a change is under
+     review. Two hues, kept at or below the chroma --danger already spends, so a
+     marked-up page still reads as paper with two things noted on it rather than
+     as a syntax highlighter. Solved the same way as the ink above: the lightest
+     tone that still clears AA on the darkest surface it can land on, which for
+     these is their own tint. */
+  --diff-add: oklch(0.53 0.095 148);       /* 4.56:1 on --diff-add-bg   */
+  --diff-add-bg: oklch(0.962 0.024 148);
+  --diff-add-line: oklch(0.63 0.105 148);  /* rule, never text          */
+  --diff-del: oklch(0.548 0.115 25);       /* 4.55:1 on --diff-del-bg   */
+  --diff-del-bg: oklch(0.958 0.019 25);
+  --diff-del-line: oklch(0.64 0.12 25);    /* rule, never text          */
+
   /* Interaction states — the only four values any hover should reach for. */
   --hover: oklch(0.25 0.005 90 / 0.05);
   --active: oklch(0.25 0.005 90 / 0.08);
@@ -522,6 +535,13 @@ body {
     opacity var(--dur) var(--ease),
     transform var(--dur) var(--ease);
 }
+/* Bottom-of-panel controls flip it, where a downward tooltip would fall
+   outside the panel. */
+.ab-tip.is-up::after {
+  top: auto;
+  bottom: calc(100% + 8px);
+  transform: translateY(2px);
+}
 .ab-tip:hover::after,
 .ab-tip:focus-visible::after {
   opacity: 1;
@@ -582,16 +602,152 @@ body {
 .ab-turn-error {
   color: var(--danger);
 }
+/* What the agent did on the way to answering. The mono voice files it with the
+   section labels and page counts — a record of work, not part of the reply. */
+.ab-turn-step {
+  margin: 0;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--text-meta-lg);
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.ab-turn-step + .ab-turn-text,
+.ab-turn-text + .ab-turn-step {
+  margin-top: 0.6em;
+}
+.ab-turn-step.is-failed {
+  color: var(--danger);
+}
+/* The one thing in the transcript that acts on the project when clicked, so it
+   is given the delete dialog's surface rather than the conversation's. */
+.ab-turn-confirm {
+  padding: 11px 12px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--elevated);
+}
+
+/* Something that came with the question — a file attached to it, a page it
+   pointed at. It is a label on the message, not part of what was said, so it
+   takes the metadata voice and never the accent. */
+.ab-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  margin: 1px 4px 1px 0;
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--elevated);
+  font-size: var(--text-meta-lg);
+  color: var(--muted);
+  transition:
+    border-color var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
+}
+a.ab-chip:hover {
+  border-color: var(--border-strong);
+  color: var(--foreground);
+}
+.ab-chip-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ab-chip-remove {
+  display: inline-flex;
+  margin-right: -2px;
+  color: var(--faint);
+  transition: color var(--dur-fast) var(--ease);
+}
+.ab-chip-remove:hover {
+  color: var(--foreground);
+}
 
 .ab-composer {
+  position: relative;
   margin: 0 8px 8px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--elevated);
-  transition: border-color var(--dur-fast) var(--ease);
+  transition:
+    border-color var(--dur-fast) var(--ease),
+    background var(--dur-fast) var(--ease);
 }
 .ab-composer:focus-within {
   border-color: var(--border-strong);
+}
+/* A drop target says so by looking like a well, which is what it is about to
+   become. No dashed outline: the box is already outlined. */
+.ab-composer.is-dropping {
+  border-color: var(--border-strong);
+  background: var(--sunken);
+}
+.ab-composer-files {
+  display: flex;
+  flex-wrap: wrap;
+  padding: 8px 9px 0;
+}
+.ab-composer-note {
+  margin: 0;
+  padding: 8px 11px 0;
+  font-size: var(--text-meta-lg);
+  color: var(--danger);
+}
+.ab-composer-attach {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--control-sm);
+  height: var(--control-sm);
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  transition:
+    background var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
+}
+.ab-composer-attach:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--foreground);
+}
+.ab-composer-attach:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Spans the box and opens above it: a textarea will not say where its caret is
+   without a mirrored copy of itself, and a menu that covered the conversation
+   to sit beside one character would be the worse trade. */
+.ab-mention-menu {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: -1px;
+  right: -1px;
+  max-height: 232px;
+  overflow-y: auto;
+}
+.ab-mention-item {
+  justify-content: space-between;
+  gap: 12px;
+}
+.ab-mention-item.is-active {
+  background: var(--hover);
+}
+.ab-mention-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ab-mention-hint {
+  flex: none;
+  max-width: 45%;
+  overflow: hidden;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--text-meta);
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .ab-composer-input {
   display: block;
@@ -611,7 +767,8 @@ body {
 }
 .ab-composer-actions {
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  justify-content: space-between;
   padding: 0 5px 5px;
 }
 .ab-composer-send {
@@ -754,5 +911,76 @@ body {
   font-family: var(--font-mono), ui-monospace, monospace;
   font-size: var(--text-meta);
   color: color-mix(in oklch, var(--accent) 60%, var(--muted));
+}
+
+/* ---- Review bar ---------------------------------------------------------
+   The turn-level answer, at the foot of the window. Neutral on purpose: the
+   green and red on this screen belong to the change itself, and a bar wearing
+   them would compete with the thing it is asking about. */
+.ab-review-bar {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  max-width: min(560px, calc(100vw - 32px));
+  padding: 3px 3px 3px 10px;
+  border-radius: 999px;
+  background: var(--elevated);
+  border: 1px solid var(--border);
+  box-shadow:
+    0 1px 2px oklch(0.25 0.005 90 / 0.05),
+    0 6px 20px oklch(0.25 0.005 90 / 0.1);
+  animation: ab-menu-in var(--dur) var(--ease);
+}
+/* Both bars live at the foot of the window and both can be up at once. The
+   review is the standing question, so it keeps the spot and the transient one
+   steps above it. */
+.ab-review-bar ~ .ab-reformat-switcher {
+  bottom: 66px;
+}
+.ab-review-count {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--text-meta);
+  letter-spacing: var(--tracking-meta);
+  color: var(--muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.ab-review-sep {
+  width: 1px;
+  height: 14px;
+  margin-inline: 6px;
+  background: var(--border);
+}
+.ab-review-action {
+  height: 24px;
+  padding: 0 9px;
+  border-radius: 999px;
+  font-size: var(--text-meta-lg);
+  color: var(--foreground);
+  white-space: nowrap;
+  transition:
+    background var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
+}
+.ab-review-action:hover {
+  background: var(--hover);
+}
+/* Revert throws away work the user may have done since. It stays reachable and
+   stops asking for attention. */
+.ab-review-action.is-quiet {
+  color: var(--muted);
+}
+.ab-review-action.is-quiet:hover {
+  color: var(--danger);
+  background: color-mix(in oklch, var(--danger) 8%, transparent);
+}
+.ab-review-failure {
+  padding-inline: 8px;
+  font-size: var(--text-meta-lg);
+  color: var(--danger);
 }
 }

@@ -1,4 +1,11 @@
-import { AbstractChat, type ChatInit, type ChatState, type ChatStatus } from "ai";
+import {
+  AbstractChat,
+  getToolName,
+  isToolUIPart,
+  type ChatInit,
+  type ChatState,
+  type ChatStatus,
+} from "ai";
 import type { AbMessage } from "./types";
 
 /**
@@ -11,17 +18,55 @@ import type { AbMessage } from "./types";
  * anyway, to hydrate a thread from Convex and to persist as it goes.
  */
 
+/** A tool call the model has made that will not run until the user allows it. */
+export type PendingApproval = {
+  id: string;
+  toolName: string;
+  input: unknown;
+};
+
 export type ChatSnapshot = {
   messages: AbMessage[];
   status: ChatStatus;
   error: Error | undefined;
+  /**
+   * Whether a turn is still in progress. Wider than `status`, which goes back to
+   * "ready" the moment a stream ends — and both a tool the browser has to answer
+   * and a call waiting on the user end one, so the middle of a turn looks idle to
+   * `status` alone.
+   */
+  busy: boolean;
+  /** What the turn is waiting to be allowed to do, if anything. */
+  approval: PendingApproval | null;
 };
+
+/** Whether a tool call has an answer the model can be handed. */
+export function isAnswered(part: AbMessage["parts"][number]): boolean {
+  return (
+    !isToolUIPart(part) ||
+    part.state === "output-available" ||
+    part.state === "output-error" ||
+    part.state === "output-denied"
+  );
+}
+
+function pendingApproval(messages: AbMessage[]): PendingApproval | null {
+  const last = messages[messages.length - 1];
+  if (last?.role !== "assistant") return null;
+  for (const part of last.parts) {
+    if (isToolUIPart(part) && part.state === "approval-requested") {
+      return { id: part.approval.id, toolName: getToolName(part), input: part.input };
+    }
+  }
+  return null;
+}
 
 export class ChatStore implements ChatState<AbMessage> {
   private listeners = new Set<() => void>();
   private _messages: AbMessage[];
   private _status: ChatStatus = "ready";
   private _error: Error | undefined;
+  private running = new Set<string>();
   /**
    * A frozen view handed to React. Rebuilt on every mutation so
    * `useSyncExternalStore` sees a new reference and re-renders, and stable
@@ -35,7 +80,18 @@ export class ChatStore implements ChatState<AbMessage> {
   }
 
   private build(): ChatSnapshot {
-    return { messages: this._messages, status: this._status, error: this._error };
+    const approval = pendingApproval(this._messages);
+    return {
+      messages: this._messages,
+      status: this._status,
+      error: this._error,
+      busy:
+        this._status === "submitted" ||
+        this._status === "streaming" ||
+        this.running.size > 0 ||
+        approval !== null,
+      approval,
+    };
   }
 
   private emit() {
@@ -87,6 +143,37 @@ export class ChatStore implements ChatState<AbMessage> {
     this.emit();
   };
 
+  /** A client tool the loop is waiting on, keyed by its call id. */
+  toolStarted = (toolCallId: string) => {
+    this.running.add(toolCallId);
+    this.emit();
+  };
+
+  toolSettled = (toolCallId: string) => {
+    this.running.delete(toolCallId);
+    this.emit();
+  };
+
+  toolsAbandoned = () => {
+    this.running.clear();
+    this.emit();
+  };
+
+  /**
+   * Forgets calls that were never answered — a tool the browser abandoned, a
+   * deletion nobody allowed. They are also what the thread is saved without, so
+   * this is the transcript catching up with its own record; leaving them would
+   * re-send the model a question with no answer, which providers reject.
+   */
+  dropUnansweredCalls = () => {
+    const last = this._messages[this._messages.length - 1];
+    if (last?.role !== "assistant") return;
+    const parts = last.parts.filter(isAnswered);
+    if (parts.length === last.parts.length) return;
+    this._messages = [...this._messages.slice(0, -1), { ...last, parts }];
+    this.emit();
+  };
+
   snapshot = <T,>(value: T): T => structuredClone(value);
 
   subscribe = (listener: () => void) => {
@@ -101,6 +188,7 @@ export class ChatStore implements ChatState<AbMessage> {
 
 export class BrowserChat extends AbstractChat<AbMessage> {
   readonly store: ChatStore;
+  private cancellations = 0;
 
   constructor({
     store,
@@ -109,4 +197,25 @@ export class BrowserChat extends AbstractChat<AbMessage> {
     super({ ...init, state: store });
     this.store = store;
   }
+
+  /**
+   * Which turn is current. Work that outlives the turn it started in — a client
+   * tool still running when the user pressed Stop — compares against this
+   * before touching the loop.
+   */
+  get turn() {
+    return this.cancellations;
+  }
+
+  /**
+   * Abandons the turn in progress. `stop()` alone cannot: it aborts a request,
+   * and between a client tool's call arriving and its result going back there
+   * is no request to abort.
+   */
+  cancel = async () => {
+    this.cancellations++;
+    this.store.toolsAbandoned();
+    await this.stop();
+    this.store.dropUnansweredCalls();
+  };
 }

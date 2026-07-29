@@ -111,6 +111,22 @@ export function Code(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+export function Paperclip(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M21.4 11.1 12.2 20.3a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.9-2.9l8.5-8.5" />
+    </svg>
+  );
+}
+
+export function X(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M18 6 6 18M6 6l12 12" />
+    </svg>
+  );
+}
+
 /**
  * Marks something the model is offering. Filled rather than stroked — at 11px a
  * 2px stroke closes up into a blob, and this needs to read at chip size.

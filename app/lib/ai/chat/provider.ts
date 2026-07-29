@@ -10,7 +10,16 @@ import { AI } from "../aiConfig";
  * document execute in the browser.
  */
 export function chatModel() {
+  return openrouter().chat(AI.chat.model);
+}
+
+/** The model behind `search_web`, which reads result pages rather than reasons. */
+export function searchModel() {
+  return openrouter().chat(AI.chat.search.model);
+}
+
+function openrouter() {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) throw new Error("OPENROUTER_API_KEY is not set");
-  return createOpenRouter({ apiKey }).chat(AI.chat.model);
+  return createOpenRouter({ apiKey });
 }

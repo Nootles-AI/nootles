@@ -117,6 +117,20 @@ function runsOf(node: Node, marks: Mark[] = []): Run[] {
     // A nested list is structure, not text — it becomes children, so it must not
     // bleed into the parent item's content.
     if (tag === "ul" || tag === "ol") return;
+    if (tag === "a") {
+      const href = el.getAttribute("href")?.trim();
+      const inner = runsOf(el, marks);
+      // A link holds text and nothing else. Anything else the model put inside
+      // one has no destination to carry, so it stays beside it — an <a> we
+      // cannot make a link of is still words the block said.
+      const text = inner.filter((r) => r.type === "text");
+      if (href && text.length === inner.length) {
+        out.push({ type: "link", href, content: text });
+        return;
+      }
+      out.push(...inner);
+      return;
+    }
     const mark = TAG_TO_MARK[tag];
     out.push(...runsOf(el, mark && !marks.includes(mark) ? [...marks, mark] : marks));
   });
@@ -198,10 +212,17 @@ function elementToNode(el: Element, raw: string[]): DocNode | null {
 
   if (tag === "img" || tag === "video" || tag === "audio" || tag === "ab-file") {
     const type = tag === "ab-file" ? "file" : (tag === "img" ? "image" : tag);
-    const url = el.getAttribute(tag === "ab-file" ? "href" : "src") ?? "";
+    // No source stated is not an empty source: a model re-captioning an image
+    // has no reason to repeat the URL it was shown, and reading the omission as
+    // "" would blank the picture. Undefined means the block keeps its source.
+    const url = el.getAttribute(tag === "ab-file" ? "href" : "src") || undefined;
     // Without a source there is no media — a bare <img> would otherwise become
-    // an empty block sitting in the document.
-    if (!url) return null;
+    // an empty block sitting in the document. One carrying an id is a different
+    // thing: media exists in the document from the moment it is inserted until
+    // something is uploaded to it, so dropping those would leave the round trip
+    // short of blocks the model was just shown, and a block the round trip
+    // loses is one the compiler reads as new and duplicates.
+    if (!url && !id) return null;
     const caption =
       el.getAttribute("alt") ??
       el.getAttribute("title") ??

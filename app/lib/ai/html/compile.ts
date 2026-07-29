@@ -5,7 +5,7 @@ import type {
   Operation,
   Position,
 } from "@/convex/ai/operations";
-import type { DocNode, Run } from "./grammar";
+import type { DocNode, Run, TextRun } from "./grammar";
 
 /**
  * Compiles parsed document-language nodes into a Phase-2 op batch.
@@ -31,12 +31,20 @@ const PROSE = new Set([
   "quote",
 ]);
 
+const textToInline = (r: TextRun): Extract<InlineRun, { type: "text" }> => ({
+  type: "text",
+  text: r.text,
+  ...(r.marks?.length ? { marks: r.marks } : {}),
+});
+
 function runsToInline(runs: Run[]): InlineRun[] {
-  return runs.map((r) =>
-    r.type === "math"
-      ? { type: "math", latex: r.latex }
-      : { type: "text", text: r.text, ...(r.marks?.length ? { marks: r.marks } : {}) },
-  );
+  return runs.map((r) => {
+    if (r.type === "math") return { type: "math", latex: r.latex };
+    if (r.type === "link") {
+      return { type: "link", href: r.href, content: r.content.map(textToInline) };
+    }
+    return textToInline(r);
+  });
 }
 
 function sameRuns(a: Run[], b: Run[]): boolean {
@@ -55,7 +63,7 @@ function propsOf(node: DocNode): Record<string, string | number | boolean> | und
   if (node.type === "mathBlock") return { source: node.rows.join("\n") };
   if (MEDIA.has(node.type) && "url" in node) {
     return {
-      url: node.url,
+      ...(node.url !== undefined ? { url: node.url } : {}),
       ...(node.caption !== undefined ? { caption: node.caption } : {}),
       ...(node.name !== undefined ? { name: node.name } : {}),
     };
@@ -95,6 +103,23 @@ function updateOps(next: DocNode, current: DocNode): Operation[] {
     return ops;
   }
 
+  if (next.type === "table" && current.type === "table") {
+    const rows = next.rows.map((row) => row.map(runsToInline));
+    const same =
+      JSON.stringify(rows) ===
+        JSON.stringify(current.rows.map((row) => row.map(runsToInline))) &&
+      !!next.header === !!current.header;
+    if (!same) {
+      ops.push({
+        kind: "setTableRows",
+        blockId: id,
+        rows,
+        ...(next.header ? { headerRows: 1 } : {}),
+      });
+    }
+    return ops;
+  }
+
   if (next.type === "mathBlock" && current.type === "mathBlock") {
     if (next.rows.join("\n") !== current.rows.join("\n")) {
       ops.push({ kind: "setMathRows", blockId: id, rows: next.rows });
@@ -103,12 +128,14 @@ function updateOps(next: DocNode, current: DocNode): Operation[] {
   }
 
   // Media holds no inline content, so everything about it lives in props — a
-  // re-captioned image is a props update, not a content one.
+  // re-captioned image is a props update, not a content one. What the model did
+  // not state it did not mean to change, so the patch carries only the fields it
+  // gave, and only where they differ; `updateBlockProps` merges the rest.
   if (MEDIA.has(next.type)) {
-    const p = propsOf(next);
-    const cp = propsOf(current);
-    if (p && JSON.stringify(p) !== JSON.stringify(cp)) {
-      ops.push({ kind: "updateBlockProps", blockId: id, props: p });
+    const cp = propsOf(current) ?? {};
+    const patch = Object.entries(propsOf(next) ?? {}).filter(([k, v]) => cp[k] !== v);
+    if (patch.length) {
+      ops.push({ kind: "updateBlockProps", blockId: id, props: Object.fromEntries(patch) });
     }
     return ops;
   }
@@ -117,6 +144,10 @@ function updateOps(next: DocNode, current: DocNode): Operation[] {
     const currentById = new Map(current.nodes.filter((n) => n.id).map((n) => [n.id!, n]));
     const place = layoutFor(next.nodes);
     const seen = new Set<string>();
+    // Namespaced by the diagram they belong to: `tempId`s are unique across the
+    // whole batch, and two diagrams edited in one call would otherwise both call
+    // their first new node `n0`.
+    const nameFor = (n: { id?: string }, i: number) => n.id ?? `${id}n${i}`;
 
     next.nodes.forEach((n, i) => {
       if (n.id && currentById.has(n.id)) {
@@ -140,7 +171,7 @@ function updateOps(next: DocNode, current: DocNode): Operation[] {
       ops.push({
         kind: "addShape",
         blockId: id,
-        tempId: n.id ?? `n${i}`,
+        tempId: nameFor(n, i),
         shape: n.shape,
         position: place(n, i),
         label: n.label,
@@ -154,7 +185,7 @@ function updateOps(next: DocNode, current: DocNode): Operation[] {
     }
 
     // Existing shapes keep their ids; new ones take the tempId minted above.
-    const resolve = edgeResolver(next.nodes, (n, i) => n.id ?? `n${i}`);
+    const resolve = edgeResolver(next.nodes, nameFor);
     const existingPairs = new Set(
       current.edges.map((e) => `${e.from}->${e.to}`),
     );
@@ -166,7 +197,7 @@ function updateOps(next: DocNode, current: DocNode): Operation[] {
       ops.push({
         kind: "connectEdge",
         blockId: id,
-        tempId: `e${i}`,
+        tempId: `${id}e${i}`,
         source: { tempId: from },
         target: { tempId: to },
         ...(e.label ? { label: e.label } : {}),
@@ -296,6 +327,21 @@ function flatten(nodes: DocNode[]): DocNode[] {
   );
 }
 
+/** Each block's ancestors, outermost first. */
+function ancestry(
+  nodes: DocNode[],
+  above: string[] = [],
+  out = new Map<string, string[]>(),
+): Map<string, string[]> {
+  for (const n of nodes) {
+    if (n.id) out.set(n.id, above);
+    if ("children" in n && n.children?.length) {
+      ancestry(n.children, n.id ? [...above, n.id] : above, out);
+    }
+  }
+  return out;
+}
+
 export type CompileContext = {
   /**
    * Fallback insertion point for new blocks, used only when their position
@@ -318,11 +364,13 @@ export type CompileContext = {
 };
 
 export function compileDocHtml(next: DocNode[], ctx: CompileContext): Batch {
-  const currentById = new Map(
-    flatten(ctx.current)
-      .filter((n) => n.id)
-      .map((n) => [n.id!, n]),
-  );
+  const currentOrder = flatten(ctx.current).filter((n) => n.id);
+  const currentById = new Map(currentOrder.map((n) => [n.id!, n]));
+  // A rewrite that consumes blocks belongs where those blocks are. Without this
+  // the two headline cases — a type change, and folding a run into one table —
+  // have no tagged neighbour to place against and land at the end of the page.
+  const consumed = new Set(ctx.replacing ?? []);
+  const firstConsumed = currentOrder.find((n) => consumed.has(n.id!))?.id;
   const ops: Operation[] = [];
   // Position of the last thing we placed; new blocks follow it.
   let anchor: Position | null = null;
@@ -335,6 +383,31 @@ export function compileDocHtml(next: DocNode[], ctx: CompileContext): Batch {
   const all = flatten(next);
   const insertedWithParent = new Set<DocNode>();
 
+  // Everything this rewrite takes away: blocks whose type changed — the
+  // vocabulary has no op for that, so they are replaced — and whatever the
+  // caller offered up that the rewrite did not keep.
+  const kept = new Set(all.flatMap((n) => (n.id ? [n.id] : [])));
+  const doomed = new Set<string>([
+    ...all.flatMap((n) => {
+      const c = n.id ? currentById.get(n.id) : undefined;
+      return c && c.type !== n.type ? [n.id!] : [];
+    }),
+    ...[...consumed].filter((id) => currentById.has(id) && !kept.has(id)),
+  ]);
+  const above = ancestry(ctx.current);
+  /**
+   * The outermost block on its way out that this one is inside. A block leaves
+   * with its parent, so that is where a removal has to be named — and where
+   * anything written beside it has to go, since inserting next to a block inside
+   * the doomed one puts it inside too, and the removal then takes it along.
+   */
+  const doomedAncestor = (id: string) => (above.get(id) ?? []).find((a) => doomed.has(a));
+  const relocate = (at: Position): Position => {
+    if (at.at !== "before" && at.at !== "after") return at;
+    const outer = doomedAncestor(at.ref);
+    return outer ? { at: "before", ref: outer } : at;
+  };
+
   all.forEach((node, i) => {
     if (insertedWithParent.has(node)) return;
     const existing = node.id ? currentById.get(node.id) : undefined;
@@ -345,17 +418,21 @@ export function compileDocHtml(next: DocNode[], ctx: CompileContext): Batch {
       return;
     }
 
-    // Placement: after whatever preceded it, else BEFORE the next known block
-    // (so a new block written at the top of the document lands at the top),
-    // else the caller's fallback.
+    // Placement: where the block it replaces stands, else after whatever
+    // preceded it, else BEFORE the next known block (so a new block written at
+    // the top of the document lands at the top), else where the rewrite is
+    // consuming from, else the caller's fallback.
     let at: Position;
-    if (anchor) {
+    if (existing) {
+      at = { at: "before", ref: existing.id! };
+    } else if (anchor) {
       at = anchor;
     } else {
       const following = all
         .slice(i + 1)
         .find((n) => n.id && currentById.has(n.id));
       if (following) at = { at: "before", ref: following.id! };
+      else if (firstConsumed) at = { at: "before", ref: firstConsumed };
       else if (ctx.anchorBlockId) at = { at: "after", ref: ctx.anchorBlockId };
       else at = { at: "docEnd" };
     }
@@ -365,7 +442,7 @@ export function compileDocHtml(next: DocNode[], ctx: CompileContext): Batch {
     const tempId = `t${temp++}`;
     ops.push({
       kind: "insertBlocks",
-      at,
+      at: relocate(at),
       blocks: [newBlockFor(node, tempId)],
     });
     if ("children" in node && node.children?.length) {
@@ -399,19 +476,25 @@ export function compileDocHtml(next: DocNode[], ctx: CompileContext): Batch {
         });
       });
     }
-    if (existing) ops.push({ kind: "removeBlock", blockId: existing.id! });
+    // The replacement is a different block, so the original's children have to
+    // be carried across by hand — `removeBlock` takes a whole subtree, and the
+    // rewrite said nothing about what was nested under the block it retyped.
+    if (existing && "children" in existing) {
+      let to: Position = { at: "after", ref: tempId };
+      for (const child of existing.children ?? []) {
+        if (!child.id || doomed.has(child.id)) continue;
+        ops.push({ kind: "moveBlock", blockId: child.id, to });
+        to = { at: "after", ref: child.id };
+      }
+    }
     anchor = { at: "after", ref: tempId };
   });
 
-  // Anything the caller offered up that the rewrite did not keep. Ordered last
-  // so the replacement is already in place before the originals go.
-  if (ctx.replacing?.length) {
-    const kept = new Set(all.filter((n) => n.id).map((n) => n.id!));
-    for (const id of ctx.replacing) {
-      if (kept.has(id)) continue;
-      if (!currentById.has(id)) continue;
-      if (ops.some((o) => o.kind === "removeBlock" && o.blockId === id)) continue;
-      ops.push({ kind: "removeBlock", blockId: id });
+  // Removals last, so every replacement is in place — and every child lifted out
+  // — before the originals go. In document order, outermost only.
+  for (const node of currentOrder) {
+    if (doomed.has(node.id!) && !doomedAncestor(node.id!)) {
+      ops.push({ kind: "removeBlock", blockId: node.id! });
     }
   }
 

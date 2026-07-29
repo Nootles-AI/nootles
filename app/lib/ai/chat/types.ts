@@ -1,5 +1,6 @@
 import type { UIMessage } from "ai";
 import type { Id } from "@/convex/_generated/dataModel";
+import type { AbDataParts } from "./parts";
 
 /** Which tools the server may offer this turn. */
 export type ChatMode = "agent" | "ask";
@@ -18,4 +19,4 @@ export type AbMetadata = {
   chatPromptId?: string;
 };
 
-export type AbMessage = UIMessage<AbMetadata>;
+export type AbMessage = UIMessage<AbMetadata, AbDataParts>;

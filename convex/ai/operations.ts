@@ -66,14 +66,28 @@ export type Vec2 = z.infer<typeof vec2>;
 /**
  * A run of inline content. The model never emits raw ProseMirror JSON — only
  * these typed runs, which the applier compiles into BlockNote inline content.
+ *
+ * A link is a run of its own, not a mark: it carries a destination rather than a
+ * style, and every mark is a boolean. Without it the write half would be
+ * strictly smaller than the read half — the serializer shows the model an
+ * `<a href>` it could not say back, so rewriting any sentence holding a link
+ * would flatten it to plain text.
  */
+const textRun = z.object({
+  type: z.literal("text"),
+  text: z.string(),
+  marks: z.array(mark).optional(),
+});
+
 export const inlineRun = z.discriminatedUnion("type", [
-  z.object({
-    type: z.literal("text"),
-    text: z.string(),
-    marks: z.array(mark).optional(),
-  }),
+  textRun,
   z.object({ type: z.literal("math"), latex: z.string() }),
+  // Text only, because that is all the editor's link can hold.
+  z.object({
+    type: z.literal("link"),
+    href: z.string(),
+    content: z.array(textRun),
+  }),
 ]);
 export type InlineRun = z.infer<typeof inlineRun>;
 
@@ -161,6 +175,18 @@ const setBlockContent = z.object({
   content: z.array(inlineRun),
 });
 
+/**
+ * Every cell of a table at once. Its own op because `content` is a flat run list
+ * everywhere else: without it an existing table could only be rewritten by
+ * replacing it, which loses the id the rewrite addressed it by.
+ */
+const setTableRows = z.object({
+  kind: z.literal("setTableRows"),
+  blockId: z.string(),
+  rows: z.array(z.array(z.array(inlineRun))),
+  headerRows: z.number().int().min(0).optional(),
+});
+
 const moveBlock = z.object({
   kind: z.literal("moveBlock"),
   blockId: z.string(),
@@ -244,6 +270,7 @@ export const operation = z.discriminatedUnion("kind", [
   insertBlocks,
   updateBlockProps,
   setBlockContent,
+  setTableRows,
   moveBlock,
   removeBlock,
   setMathRows,

@@ -126,6 +126,24 @@ export const remove = mutation({
       .collect();
     await Promise.all(sheet.map((r) => ctx.db.delete(r._id)));
 
+    // The conversations about a project go with it. Turns in particular outlive
+    // the pages they edited — they are what a reload reads to find changes still
+    // awaiting an answer — so orphaned ones would accumulate for good.
+    const threads = await ctx.db
+      .query("chatThreads")
+      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+      .collect();
+    for (const thread of threads) {
+      for (const table of ["chatMessages", "chatTurns"] as const) {
+        const rows = await ctx.db
+          .query(table)
+          .withIndex("by_thread", (q) => q.eq("threadId", thread._id))
+          .collect();
+        await Promise.all(rows.map((r) => ctx.db.delete(r._id)));
+      }
+      await ctx.db.delete(thread._id);
+    }
+
     await ctx.db.delete(args.projectId);
   },
 });

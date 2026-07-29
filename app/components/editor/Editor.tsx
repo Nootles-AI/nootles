@@ -15,11 +15,14 @@ import { useBlockNoteSync } from "@convex-dev/prosemirror-sync/blocknote";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import { schema } from "./schema";
+import { useRegisterEditor } from "./EditorRegistry";
 import { BlockSideMenu } from "./BlockSideMenu";
 import { PageTitleProvider } from "./PageTitleContext";
 import { InlineCodeButton } from "./InlineCodeButton";
 import { SubstrateHarness } from "./ai/SubstrateHarness";
 import { completionExtension } from "./ai/completionExtension";
+import { reviewExtension } from "./ai/reviewExtension";
+import { ReviewOverlay } from "./ai/ReviewOverlay";
 import { useTabCompletion, type PageMode } from "./ai/useTabCompletion";
 import { useReformat } from "./ai/useReformat";
 import { ReformatBar } from "./ai/ReformatBar";
@@ -134,9 +137,10 @@ export function Editor({
   mode?: PageMode;
 }) {
   const sync = useBlockNoteSync<EditorInstance>(api.prosemirror, docId, {
-    editorOptions: { schema, extensions: [completionExtension] },
+    editorOptions: { schema, extensions: [completionExtension, reviewExtension] },
   });
 
+  useRegisterEditor(pageId, sync.editor, docId);
   useTabCompletion(sync.editor, pageId, title, mode);
   const reformat = useReformat(sync.editor);
 
@@ -177,6 +181,7 @@ export function Editor({
           }
         />
       </BlockNoteView>
+      {pageId && <ReviewOverlay editor={editor} pageId={pageId} />}
       {reformat.state && (
         <ReformatBar
           editor={editor}

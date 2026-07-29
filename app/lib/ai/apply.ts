@@ -11,8 +11,10 @@ import type {
   InlineRun,
   Mark,
   NewBlock,
+  Operation,
   Position,
 } from "@/convex/ai/operations";
+import type { AnyBlock } from "./projection";
 
 /**
  * The applier: turns a validated op batch into the EXACT same BlockNote editor
@@ -26,6 +28,11 @@ import type {
  * batch are resolved to those real ids as we go, so later ops can reference
  * nodes created earlier in the same batch.
  *
+ * It also records what each op DID — where it landed, what it produced, what it
+ * changed, what it deleted. Minting is what makes an op non-repeatable, so none
+ * of that can be re-derived once the call has ended, and a review answered per
+ * hunk has to know it (see app/lib/ai/review/).
+ *
  * Assumes the batch already passed `resolveBatch` (references are valid). Take a
  * checkpoint before calling this if you need to undo a partially-applied batch.
  */
@@ -37,9 +44,11 @@ type Editor = BlockNoteEditor<any, any, any>;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyPartialBlock = PartialBlock<any, any, any>;
 
+type BNText = { type: "text"; text: string; styles: Partial<Record<Mark, boolean>> };
 type BNInline =
-  | { type: "text"; text: string; styles: Partial<Record<Mark, boolean>> }
-  | { type: "math"; props: { latex: string } };
+  | BNText
+  | { type: "math"; props: { latex: string } }
+  | { type: "link"; href: string; content: BNText[] };
 
 const DEFAULT_SIZE: Record<ShapeKind, { width: number; height: number }> = {
   rectangle: { width: 148, height: 64 },
@@ -50,31 +59,99 @@ const DEFAULT_SIZE: Record<ShapeKind, { width: number; height: number }> = {
 
 const uuid = () => crypto.randomUUID();
 
+const styled = (r: { text: string; marks?: Mark[] }): BNText => ({
+  type: "text",
+  text: r.text,
+  styles: Object.fromEntries((r.marks ?? []).map((m) => [m, true])),
+});
+
 function compileInline(runs: InlineRun[]): BNInline[] {
-  return runs.map((r) =>
-    r.type === "text"
-      ? {
-          type: "text" as const,
-          text: r.text,
-          styles: Object.fromEntries((r.marks ?? []).map((m) => [m, true])),
-        }
-      : { type: "math" as const, props: { latex: r.latex } },
-  );
+  return runs.map((r) => {
+    if (r.type === "math") return { type: "math" as const, props: { latex: r.latex } };
+    if (r.type === "link") {
+      return { type: "link" as const, href: r.href, content: r.content.map(styled) };
+    }
+    return styled(r);
+  });
 }
 
-export type ApplyResult = {
+/**
+ * BlockNote holds a table as `tableContent` rather than a run list. Column
+ * widths are the user's, not the model's — left undefined only when there is no
+ * previous set to keep, which is BlockNote's "size these yourself".
+ */
+function tableContent(
+  rows: InlineRun[][][],
+  headerRows?: number,
+  columnWidths?: Array<number | undefined>,
+) {
+  return {
+    type: "tableContent" as const,
+    columnWidths: columnWidths ?? (rows[0] ?? []).map(() => undefined),
+    ...(headerRows ? { headerRows } : {}),
+    rows: rows.map((cells) => ({ cells: cells.map(compileInline) })),
+  };
+}
+
+/** `tempId` → the real id it was given, for blocks (including nested ones). */
+export type IdMap = {
   blocks: Record<string, string>;
   shapes: Record<string, string>;
   edges: Record<string, string>;
 };
 
+/**
+ * What one op actually did. Enough to undo it without re-deriving anything:
+ * `anchor` is the position with `docStart`/`docEnd` already resolved to a
+ * concrete block, and `produced` is post-apply block JSON, ids baked in.
+ */
+export type OpTrace = {
+  opIndex: number;
+  anchor?: { ref: string; placement: "before" | "after" };
+  produced?: AnyBlock[];
+  /** Existing blocks the op changed in place. */
+  touched?: string[];
+  /**
+   * Blocks it left where they were but somewhere else. Kept apart from
+   * `touched` because nothing about them changed except position, and position
+   * is the one thing rewriting their content cannot put back.
+   */
+  moved?: string[];
+  /** Blocks it deleted, as they were. */
+  removed?: AnyBlock[];
+};
+
+export type ApplyResult = IdMap & { trace: OpTrace[] };
+
 export function applyBatch(editor: Editor, batch: Batch): ApplyResult {
   const blockIds = new Map<string, string>();
   const shapeIds = new Map<string, string>();
   const edgeIds = new Map<string, string>();
+  const trace: OpTrace[] = [];
 
   const rBlock = (id: string) => blockIds.get(id) ?? id;
   const rShape = (id: string) => shapeIds.get(id) ?? id;
+
+  const clone = (block: unknown) => structuredClone(block) as AnyBlock;
+  const read = (id: string) => {
+    const block = editor.getBlock(id);
+    return block ? clone(block) : undefined;
+  };
+
+  /**
+   * The applier only resolves top-level `tempId`s, but BlockNote mints an id for
+   * every descendant of an inserted block too. Walking the returned tree beside
+   * the one we asked for is what gives every nested item a real name — without
+   * it an inserted outline reaches the hunks and the op log under `tempId`s,
+   * which mean nothing once the call that minted them has ended.
+   */
+  const mapIds = (nb: NewBlock, block: AnyBlock) => {
+    blockIds.set(nb.tempId, block.id);
+    nb.children?.forEach((child, i) => {
+      const real = block.children?.[i];
+      if (real) mapIds(child, real);
+    });
+  };
 
   const firstId = () => editor.document[0].id as string;
   const lastId = () => {
@@ -114,7 +191,9 @@ export function applyBatch(editor: Editor, batch: Batch): ApplyResult {
     } as AnyPartialBlock);
   };
 
-  for (const op of batch.ops) {
+  const runOp = (op: Operation, opIndex: number) => {
+    const entry: OpTrace = { opIndex };
+    trace.push(entry);
     switch (op.kind) {
       case "insertBlocks": {
         const { ref, placement } = resolvePosition(op.at);
@@ -124,20 +203,7 @@ export function applyBatch(editor: Editor, batch: Batch): ApplyResult {
           type: nb.type,
           ...(nb.props ? { props: nb.props } : {}),
           ...(nb.content ? { content: compileInline(nb.content) } : {}),
-          // BlockNote holds a table as `tableContent` rather than a run list.
-          // Column widths are left undefined so it sizes them itself.
-          ...(nb.rows
-            ? {
-                content: {
-                  type: "tableContent",
-                  columnWidths: (nb.rows[0] ?? []).map(() => undefined),
-                  ...(nb.headerRows ? { headerRows: nb.headerRows } : {}),
-                  rows: nb.rows.map((cells) => ({
-                    cells: cells.map(compileInline),
-                  })),
-                },
-              }
-            : {}),
+          ...(nb.rows ? { content: tableContent(nb.rows, nb.headerRows) } : {}),
           ...(nb.children?.length
             ? { children: nb.children.map(toPartial) }
             : {}),
@@ -145,41 +211,74 @@ export function applyBatch(editor: Editor, batch: Batch): ApplyResult {
         const partials: AnyPartialBlock[] = op.blocks.map(toPartial);
         const inserted = editor.insertBlocks(partials, ref, placement);
         op.blocks.forEach((nb, i) => {
-          const real = inserted[i]?.id;
-          if (real) blockIds.set(nb.tempId, real);
+          const real = inserted[i] as AnyBlock | undefined;
+          if (real) mapIds(nb, real);
         });
+        entry.anchor = { ref, placement };
+        entry.produced = inserted.map(clone);
         break;
       }
       case "updateBlockProps":
+        entry.touched = [rBlock(op.blockId)];
         editor.updateBlock(rBlock(op.blockId), {
           props: op.props,
         } as AnyPartialBlock);
         break;
       case "setBlockContent":
+        entry.touched = [rBlock(op.blockId)];
         editor.updateBlock(rBlock(op.blockId), {
           content: compileInline(op.content),
         } as AnyPartialBlock);
         break;
+      case "setTableRows": {
+        const real = rBlock(op.blockId);
+        entry.touched = [real];
+        const held = (
+          editor.getBlock(real)?.content as
+            | { columnWidths?: Array<number | undefined> }
+            | undefined
+        )?.columnWidths;
+        const columns = op.rows[0]?.length ?? 0;
+        editor.updateBlock(real, {
+          content: tableContent(
+            op.rows,
+            op.headerRows,
+            held?.length === columns ? held : undefined,
+          ),
+        } as AnyPartialBlock);
+        break;
+      }
       case "moveBlock": {
         const real = rBlock(op.blockId);
         const { ref, placement } = resolvePosition(op.to);
         if (ref === real) break;
         const block = editor.getBlock(real);
         if (!block) break;
+        entry.anchor = { ref, placement };
+        entry.moved = [real];
         editor.removeBlocks([real]);
         editor.insertBlocks([block as AnyPartialBlock], ref, placement);
         break;
       }
-      case "removeBlock":
-        editor.removeBlocks([rBlock(op.blockId)]);
+      case "removeBlock": {
+        const real = rBlock(op.blockId);
+        const gone = read(real);
+        // Already went with its parent. `removeBlocks` throws on an id it cannot
+        // find, and a batch that dies halfway leaves a document nobody can review.
+        if (!gone) break;
+        entry.removed = [gone];
+        editor.removeBlocks([real]);
         break;
+      }
       case "setMathRows":
+        entry.touched = [rBlock(op.blockId)];
         editor.updateBlock(rBlock(op.blockId), {
           props: { source: op.rows.join("\n") },
         } as AnyPartialBlock);
         break;
       case "updateMathRow": {
         const real = rBlock(op.blockId);
+        entry.touched = [real];
         const block = editor.getBlock(real);
         const source = String(
           (block?.props as { source?: string } | undefined)?.source ?? "",
@@ -195,6 +294,7 @@ export function applyBatch(editor: Editor, batch: Batch): ApplyResult {
       }
       case "addShape": {
         const real = rBlock(op.blockId);
+        entry.touched = [real];
         const { nodes, edges } = readCanvas(real);
         const id = uuid();
         shapeIds.set(op.tempId, id);
@@ -212,6 +312,7 @@ export function applyBatch(editor: Editor, batch: Batch): ApplyResult {
       }
       case "updateShape": {
         const real = rBlock(op.blockId);
+        entry.touched = [real];
         const { nodes, edges } = readCanvas(real);
         const sid = rShape(op.shapeId);
         const next = nodes.map((n) => {
@@ -233,6 +334,7 @@ export function applyBatch(editor: Editor, batch: Batch): ApplyResult {
       }
       case "removeShape": {
         const real = rBlock(op.blockId);
+        entry.touched = [real];
         const { nodes, edges } = readCanvas(real);
         const sid = rShape(op.shapeId);
         writeCanvas(
@@ -244,6 +346,7 @@ export function applyBatch(editor: Editor, batch: Batch): ApplyResult {
       }
       case "connectEdge": {
         const real = rBlock(op.blockId);
+        entry.touched = [real];
         const { nodes, edges } = readCanvas(real);
         const id = uuid();
         edgeIds.set(op.tempId, id);
@@ -262,6 +365,7 @@ export function applyBatch(editor: Editor, batch: Batch): ApplyResult {
       }
       case "disconnectEdge": {
         const real = rBlock(op.blockId);
+        entry.touched = [real];
         const { nodes, edges } = readCanvas(real);
         writeCanvas(
           real,
@@ -272,6 +376,7 @@ export function applyBatch(editor: Editor, batch: Batch): ApplyResult {
       }
       case "setEdgeLabel": {
         const real = rBlock(op.blockId);
+        entry.touched = [real];
         const { nodes, edges } = readCanvas(real);
         const next = edges.map((e) =>
           e.id === op.edgeId ? { ...e, label: op.label } : e,
@@ -280,11 +385,20 @@ export function applyBatch(editor: Editor, batch: Batch): ApplyResult {
         break;
       }
     }
-  }
+  };
 
+  batch.ops.forEach(runOp);
+
+  // Read back at the end rather than at insert time: a canvas is inserted empty
+  // and filled by the ops that follow it in the same batch, so the block handed
+  // back by `insertBlocks` is the diagram before it had anything in it.
+  for (const entry of trace) {
+    if (entry.produced) entry.produced = entry.produced.map((b) => read(b.id) ?? b);
+  }
   return {
     blocks: Object.fromEntries(blockIds),
     shapes: Object.fromEntries(shapeIds),
     edges: Object.fromEntries(edgeIds),
+    trace,
   };
 }

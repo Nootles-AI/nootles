@@ -87,30 +87,20 @@ export function resolveBatch(input: unknown, index: DocIndex): ResolveResult {
     if (!b) errors.push(`${ctx}: unknown block ${tag(id)}`);
     return b ?? null;
   };
-  const requireCanvas = (id: string, ctx: string): boolean => {
+  const requireType = (id: string, type: string, ctx: string): boolean => {
     const b = blocks.get(id);
     if (!b) {
       errors.push(`${ctx}: unknown block ${tag(id)}`);
       return false;
     }
-    if (b.type !== "canvas") {
-      errors.push(`${ctx}: block ${tag(id)} is a ${b.type}, not a canvas`);
+    if (b.type !== type) {
+      errors.push(`${ctx}: block ${tag(id)} is a ${b.type}, not a ${type}`);
       return false;
     }
     return true;
   };
-  const requireMath = (id: string, ctx: string): boolean => {
-    const b = blocks.get(id);
-    if (!b) {
-      errors.push(`${ctx}: unknown block ${tag(id)}`);
-      return false;
-    }
-    if (b.type !== "mathBlock") {
-      errors.push(`${ctx}: block ${tag(id)} is a ${b.type}, not a mathBlock`);
-      return false;
-    }
-    return true;
-  };
+  const requireCanvas = (id: string, ctx: string) => requireType(id, "canvas", ctx);
+  const requireMath = (id: string, ctx: string) => requireType(id, "mathBlock", ctx);
   const checkPositionRef = (
     at: { at: string; ref?: string },
     ctx: string,
@@ -179,6 +169,9 @@ export function resolveBatch(input: unknown, index: DocIndex): ResolveResult {
         }
         break;
       }
+      case "setTableRows":
+        requireType(op.blockId, "table", ctx);
+        break;
       case "moveBlock":
         requireBlock(op.blockId, ctx);
         checkPositionRef(op.to, ctx);

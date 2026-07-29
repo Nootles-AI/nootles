@@ -238,5 +238,8 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_thread", ["threadId", "createdAt"])
-    .index("by_prompt", ["chatPromptId"]),
+    .index("by_prompt", ["chatPromptId"])
+    // Review outlives the conversation it came from: a reload has to find every
+    // turn still awaiting an answer without knowing which thread asked.
+    .index("by_project_status", ["projectId", "status"]),
 });

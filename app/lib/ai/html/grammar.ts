@@ -56,9 +56,18 @@ export function canonicalTag(tag: string): string {
 
 export type Mark = "bold" | "italic" | "underline" | "strike" | "code";
 
+export type TextRun = { type: "text"; text: string; marks?: Mark[] };
+
+/**
+ * `<a href>` is a run rather than a mark, because a destination is not a style:
+ * two adjacent links are two links, and merging them the way marks merge would
+ * lose one of the hrefs. Its content is text only — that is what the editor can
+ * hold — so the write half can express exactly what the read half emits.
+ */
 export type Run =
-  | { type: "text"; text: string; marks?: Mark[] }
-  | { type: "math"; latex: string };
+  | TextRun
+  | { type: "math"; latex: string }
+  | { type: "link"; href: string; content: TextRun[] };
 
 export type ShapeKind = "rectangle" | "ellipse" | "diamond" | "text";
 
@@ -101,7 +110,8 @@ export type DocNode =
   | {
       type: "image" | "video" | "audio" | "file";
       id?: string;
-      url: string;
+      /** Absent means the source was not stated — the block keeps the one it has. */
+      url?: string;
       /** `alt` on an image, the visible label on a file. */
       caption?: string;
       name?: string;

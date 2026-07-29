@@ -103,6 +103,46 @@ export const AI = {
     maxSteps: 24,
     /** Cap on a single `read_page` result, so one long page can't eat the window. */
     maxPageChars: 24_000,
+    /**
+     * How long `open_page` waits for a page's editor to catch up with the
+     * server. The wait itself is a round trip; this is only the point at which a
+     * page that is never going to load fails one tool call instead of hanging
+     * the turn behind it.
+     */
+    editorWaitMs: 10_000,
+    /**
+     * The web search behind `search_web`. A separate, cheap model on purpose:
+     * the searching model only has to read result pages and answer from them,
+     * which Flash does in ~2.3s with citations — asking Sonnet to do it would
+     * cost a second long-context call per search for no better answer.
+     */
+    search: {
+      model: "google/gemini-2.5-flash",
+      maxResults: 5,
+    },
+    /**
+     * What the composer will take from a drag, a paste or the file button.
+     *
+     * The byte cap is the vision providers' own: Anthropic refuses an image
+     * past 5MB once base64 has inflated it by a third, so the file itself has
+     * to stay under ~3.7MB. The character cap is the window's: a text file is
+     * inlined into the message verbatim, so a long one is spent context on
+     * every later turn of the thread, not just the turn it was attached to.
+     */
+    attachments: {
+      maxBytes: 3_500_000,
+      maxTextChars: 60_000,
+    },
+  },
+
+  review: {
+    /**
+     * Quiet time before the set of blocks the user has rewritten inside a
+     * pending change reaches its row. Keystrokes are not worth a mutation each,
+     * and the only thing lost to a reload inside the window is one block's
+     * Discard button coming back.
+     */
+    editedFlushMs: 700,
   },
 
   /**

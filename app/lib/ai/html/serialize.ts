@@ -56,7 +56,7 @@ function marksOf(styles: unknown): Mark[] {
   return (Object.keys(MARK_TAGS) as Mark[]).filter((m) => s[m] === true);
 }
 
-function runsToHtml(content: unknown): string {
+export function runsToHtml(content: unknown): string {
   if (!Array.isArray(content)) return "";
   return (content as Array<Record<string, unknown>>)
     .map((item) => {
@@ -85,6 +85,9 @@ export function runsToHtmlFromRuns(runs: Run[]): string {
   return runs
     .map((r) => {
       if (r.type === "math") return `<ab-math>${r.latex}</ab-math>`;
+      if (r.type === "link") {
+        return `<a${attr("href", r.href)}>${runsToHtmlFromRuns(r.content)}</a>`;
+      }
       let out = esc(r.text);
       for (const m of r.marks ?? []) out = `<${MARK_TAGS[m]}>${out}</${MARK_TAGS[m]}>`;
       return out;
@@ -137,7 +140,13 @@ function blockToHtml(block: AnyBlock): string {
         .map((row, r) => {
           const tag = r < headerRows ? "th" : "td";
           const cells = (row.cells ?? [])
-            .map((cell) => `<${tag}>${runsToHtml(cell)}</${tag}>`)
+            // BlockNote wraps each cell in a `tableCell` around its runs; the
+            // bare run list is what the applier writes on insert, and what
+            // older documents hold.
+            .map((cell) => {
+              const runs = Array.isArray(cell) ? cell : (cell as { content?: unknown })?.content;
+              return `<${tag}>${runsToHtml(runs)}</${tag}>`;
+            })
             .join("");
           return `\n  <tr>${cells}</tr>`;
         })
@@ -368,4 +377,44 @@ export function toDocHtml(
   const body = blocksToHtml(visible);
   const title = opts.title?.trim();
   return title ? `<title>${esc(title)}</title>\n${body}` : body;
+}
+
+/**
+ * As much of the document as fits in `maxChars`, cut between top-level blocks.
+ *
+ * Never inside one, which a cut by characters or by lines cannot promise: a
+ * table, a maths block and a diagram each span several lines, and the id that
+ * addresses the whole of one is on its opening tag. Handed half a table the
+ * model reads it as the table, rewrites it, and the compiler — diffing against
+ * the real document — reads the rows it was never shown as rows it deleted
+ * (measured: a 12-row table cut after row 4 compiles to setTableRows with 4).
+ *
+ * A single block over the cap is dropped whole for the same reason.
+ */
+export function toDocHtmlWithin(
+  blocks: AnyBlock[],
+  maxChars: number,
+  opts: SerializeOptions = {},
+): { html: string; dropped: number } {
+  const whole = toDocHtml(blocks, opts);
+  if (whole.length <= maxChars) return { html: whole, dropped: 0 };
+
+  // Length grows with the number of blocks kept, so the boundary is findable
+  // without serializing every prefix.
+  let kept = 0;
+  let lo = 0;
+  let hi = blocks.length - 1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (toDocHtml(blocks.slice(0, mid), opts).length <= maxChars) {
+      kept = mid;
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  return {
+    html: toDocHtml(blocks.slice(0, kept), opts),
+    dropped: blocks.length - kept,
+  };
 }

@@ -8,7 +8,8 @@ import { ChevronsUpDown, PanelRight, Plus } from "./Icons";
 import { ChatComposer } from "./chat/ChatComposer";
 import { ChatTranscript } from "./chat/ChatTranscript";
 import { ThreadPicker } from "./chat/ThreadPicker";
-import { useProjectChat } from "@/app/lib/ai/chat/useProjectChat";
+import { useProjectChat, type ChatDraft } from "@/app/lib/ai/chat/useProjectChat";
+import type { ChatMode } from "@/app/lib/ai/chat/types";
 
 export function ChatPanel({
   width,
@@ -26,6 +27,7 @@ export function ChatPanel({
 
   const [picked, setPicked] = useState<Id<"chatThreads"> | null>(null);
   const [picking, setPicking] = useState(false);
+  const [mode, setMode] = useState<ChatMode>("agent");
 
   // Derived during render, like Workspace's effective page: a thread the user
   // picked, unless it has since been deleted, in which case the newest one.
@@ -34,37 +36,36 @@ export function ChatPanel({
       ? picked
       : (threads?.[0]?._id ?? null);
 
-  const chat = useProjectChat({ threadId, pageId, mode: "agent" });
+  const chat = useProjectChat({ threadId, projectId, pageId, mode });
 
   /**
-   * A message typed before any thread existed. Creating the thread is async and
-   * re-keys the chat, so the text waits here for one render rather than being
-   * sent to a chat that is about to be replaced.
+   * A message written before any thread existed. Creating the thread is async
+   * and re-keys the chat, so the draft waits here for one render rather than
+   * being sent to a chat that is about to be replaced.
    */
-  const queued = useRef<string | null>(null);
+  const queued = useRef<ChatDraft | null>(null);
   const { ready, send, nameThreadFrom } = chat;
 
   useEffect(() => {
-    const text = queued.current;
-    if (!text || !threadId || !ready) return;
+    const draft = queued.current;
+    if (!draft || !threadId || !ready) return;
     queued.current = null;
-    nameThreadFrom(text);
-    void send(text);
+    nameThreadFrom(titleFor(draft));
+    void send(draft);
   }, [threadId, ready, send, nameThreadFrom]);
 
   const active = threads?.find((t) => t._id === threadId);
 
-  const onSend = async (text: string) => {
+  const onSend = async (draft: ChatDraft) => {
     if (!threadId) {
-      queued.current = text;
+      queued.current = draft;
       setPicked(await createThread({ projectId }));
       return;
     }
     // Only the first question names the thread; later ones must not rewrite it.
-    if (!active?.title) nameThreadFrom(text);
-    void send(text);
+    if (!active?.title) nameThreadFrom(titleFor(draft));
+    void send(draft);
   };
-  const busy = chat.status === "submitted" || chat.status === "streaming";
 
   return (
     <aside style={{ width }} className="ab-panel relative" aria-label="Chat">
@@ -110,14 +111,30 @@ export function ChatPanel({
         />
       )}
 
-      <ChatTranscript messages={chat.messages} busy={busy} error={chat.error} />
+      <ChatTranscript
+        messages={chat.messages}
+        busy={chat.busy}
+        approval={chat.approval}
+        projectId={projectId}
+        onAnswerApproval={chat.answerApproval}
+        error={chat.error}
+      />
 
       <ChatComposer
         disabled={!chat.ready}
-        busy={busy}
+        busy={chat.busy}
+        mode={mode}
+        projectId={projectId}
+        pageId={pageId}
+        onModeChange={setMode}
         onSend={onSend}
         onStop={chat.stop}
       />
     </aside>
   );
+}
+
+/** A thread is named after what was asked — or, asked nothing, after what came. */
+function titleFor(draft: ChatDraft): string {
+  return draft.text || draft.attachments[0]?.filename || "";
 }
