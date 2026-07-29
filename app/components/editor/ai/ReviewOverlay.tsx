@@ -32,7 +32,13 @@ export function ReviewOverlay({
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(EMPTY);
   const [failure, setFailure] = useState<string | null>(null);
 
-  const pending = useMemo(() => turns.filter((t) => t.status === "pending"), [turns]);
+  // Which turns are open is the session's judgement, not the row's: a stored
+  // "streaming" outlives the turn it described whenever the effect that ends it
+  // never ran, and read literally it hides this bar for good.
+  const pending = useMemo(
+    () => turns.filter((turn) => session.isOpen(turn)),
+    [turns, session],
+  );
 
   const expand = useCallback((runId: string) => {
     setExpanded((prior) => new Set(prior).add(runId));
@@ -117,16 +123,19 @@ export function ReviewOverlay({
     return () => void tiptap.off("update", onUpdate);
   }, [editor, session, pageId]);
 
-  const turn = pending[pending.length - 1];
-  if (!turn) return null;
+  if (!pending.length) return null;
+  // One bar for everything unanswered, and the buttons take all of it. Changes
+  // stack — asking a second question about the same paragraph is the ordinary
+  // case — so a bar that spoke only for the newest turn would leave the earlier
+  // ones with no way to be answered at all.
+  const oldest = pending[0];
   return (
     <ReviewBar
-      turn={turn}
-      others={pending.length - 1}
+      turns={pending}
       failure={failure}
-      onKeep={() => run(session.acceptAll(turn.chatPromptId))}
-      onDiscard={() => run(session.rejectAll(turn.chatPromptId))}
-      onRevert={() => run(session.revertTurn(turn.chatPromptId))}
+      onKeep={() => run(session.acceptAll())}
+      onDiscard={() => run(session.rejectAll())}
+      onRevert={() => run(session.revertTurn(oldest.chatPromptId))}
     />
   );
 }
@@ -138,33 +147,33 @@ export function ReviewOverlay({
  * on this screen belongs to the diff.
  */
 function ReviewBar({
-  turn,
-  others,
+  turns,
   failure,
   onKeep,
   onDiscard,
   onRevert,
 }: {
-  turn: TurnReview;
-  others: number;
+  turns: TurnReview[];
   failure: string | null;
   onKeep: () => void;
   onDiscard: () => void;
   onRevert: () => void;
 }) {
-  const open = turn.pages.flatMap((page) =>
-    page.hunks.filter((h) => (page.status[h.id] ?? "pending") === "pending"),
-  );
-  const pages = turn.pages.filter((page) =>
-    page.hunks.some((h) => (page.status[h.id] ?? "pending") === "pending"),
-  ).length;
+  const isOpen = (page: TurnReview["pages"][number]) =>
+    page.hunks.filter((h) => (page.status[h.id] ?? "pending") === "pending");
+  const open = turns.flatMap((turn) => turn.pages.flatMap(isOpen));
+  const pages = new Set(
+    turns.flatMap((turn) =>
+      turn.pages.filter((page) => isOpen(page).length).map((page) => page.pageId),
+    ),
+  ).size;
 
   return (
     <div className="ab-review-bar" style={{ zIndex: "var(--z-sticky)" }} role="status">
       <span className="ab-review-count">
         {open.length} change{open.length === 1 ? "" : "s"}
         {pages > 1 ? ` · ${pages} pages` : ""}
-        {others ? ` · ${others} earlier` : ""}
+        {turns.length > 1 ? ` · ${turns.length} messages` : ""}
       </span>
       <span className="ab-review-sep" aria-hidden />
       <button className="ab-review-action" onClick={onKeep}>

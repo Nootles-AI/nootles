@@ -12,6 +12,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { ConfirmDelete } from "@/app/components/ConfirmDelete";
 import { Paperclip } from "@/app/components/Icons";
+import { Menu, MenuItem } from "@/app/components/Menu";
 import type { PendingApproval } from "@/app/lib/ai/chat/BrowserChat";
 import type { AbMessage } from "@/app/lib/ai/chat/types";
 
@@ -30,7 +31,7 @@ export function ChatTranscript({
   projectId,
   threadId,
   onAnswerApproval,
-  onRestore,
+  onRewind,
   error,
 }: {
   messages: AbMessage[];
@@ -39,7 +40,7 @@ export function ChatTranscript({
   projectId: Id<"projects">;
   threadId: Id<"chatThreads"> | null;
   onAnswerApproval: (approved: boolean) => void;
-  onRestore: (chatPromptId: string) => void;
+  onRewind: (message: AbMessage, what: RewindScope) => void;
   error?: Error;
 }) {
   const restorable = useQuery(
@@ -75,13 +76,6 @@ export function ChatTranscript({
     <div ref={scrollerRef} className="ab-transcript">
       {messages.map((message) => (
         <div key={message.id} className={`ab-turn is-${message.role}`}>
-          {message.role === "user" && (
-            <RestorePoint
-              chatPromptId={message.metadata?.chatPromptId}
-              turns={restorable}
-              onRestore={onRestore}
-            />
-          )}
           {message.parts.map((part, i) => {
             if (part.type === "text") {
               return (
@@ -123,6 +117,12 @@ export function ChatTranscript({
             }
             return null;
           })}
+          {message.role === "user" && !busy && (
+            <Rewind
+              pageCount={pagesChangedBy(restorable, message.metadata?.chatPromptId)}
+              onRewind={(what) => onRewind(message, what)}
+            />
+          )}
         </div>
       ))}
 
@@ -142,40 +142,82 @@ export function ChatTranscript({
 }
 
 /**
- * "Put the pages back the way they were before I asked this."
+ * "Put things back to just before I asked this."
  *
- * Sits on the question rather than on the answer, because that is what it winds
- * back to. Only appears where there is a checkpoint to reach, so a thread of
- * questions carries no chrome at all — and it outlives keeping the change,
- * which is the point: accepting is not supposed to be the irreversible step.
+ * Sits under the question rather than the answer, because that is what it winds
+ * back to. Every question has one — a thread can always lose its last exchange
+ * — but only a question that changed a page offers to undo the pages, so the
+ * choice on offer is the choice that exists.
  */
-function RestorePoint({
-  chatPromptId,
-  turns,
-  onRestore,
+function Rewind({
+  pageCount,
+  onRewind,
 }: {
-  chatPromptId?: string;
-  turns?: { chatPromptId: string; pageCount: number; status: string }[];
-  onRestore: (chatPromptId: string) => void;
+  pageCount: number;
+  onRewind: (what: RewindScope) => void;
 }) {
-  const turn = chatPromptId
-    ? turns?.find((t) => t.chatPromptId === chatPromptId)
-    : undefined;
-  // A turn still under review has its own Discard, which is the better answer
-  // while it is being offered.
-  if (!turn || turn.status === "pending" || turn.status === "streaming") return null;
+  const pages = pageCount === 1 ? "the page" : `all ${pageCount} pages`;
+  // Undoing pages is offered only where there are pages to undo, so a question
+  // that was only ever a question shows the one thing it can actually do rather
+  // than two dead lines explaining why it cannot.
+  const options: { scope: RewindScope; label: string; hint: string }[] = pageCount
+    ? [
+        { scope: "both", label: "Notes and conversation", hint: `Undo ${pages}, drop this exchange` },
+        { scope: "conversation", label: "Conversation only", hint: "Drop this exchange, keep the notes" },
+        { scope: "notes", label: "Notes only", hint: `Undo ${pages}, keep the conversation` },
+      ]
+    : [
+        {
+          scope: "conversation",
+          label: "Conversation only",
+          hint: "This message changed no notes",
+        },
+      ];
 
   return (
-    <button
-      className="ab-restore"
-      onClick={() => onRestore(turn.chatPromptId)}
-      title={`Put ${
-        turn.pageCount === 1 ? "the page" : `all ${turn.pageCount} pages`
-      } back as they were before this message`}
+    <Menu
+      side="bottom"
+      label="Rewind to before this message"
+      trigger={(props) => (
+        <button {...props} className="ab-rewind">
+          Rewind
+        </button>
+      )}
     >
-      Restore checkpoint
-    </button>
+      {(close) =>
+        options.map((option) => (
+          <MenuItem
+            key={option.scope}
+            onClick={() => {
+              close();
+              onRewind(option.scope);
+            }}
+          >
+            <span className="ab-menu-stack">
+              <span>{option.label}</span>
+              <span className="ab-menu-hint">{option.hint}</span>
+            </span>
+          </MenuItem>
+        ))
+      }
+    </Menu>
   );
+}
+
+export type RewindScope = "both" | "conversation" | "notes";
+
+/**
+ * How many pages this message changed, and so whether undoing them is on offer.
+ * A turn that failed left nothing behind to undo, whatever it touched on the
+ * way.
+ */
+function pagesChangedBy(
+  turns: { chatPromptId: string; pageCount: number; status: string }[] | undefined,
+  chatPromptId: string | undefined,
+): number {
+  if (!chatPromptId) return 0;
+  const turn = turns?.find((t) => t.chatPromptId === chatPromptId);
+  return turn && turn.status !== "failed" ? turn.pageCount : 0;
 }
 
 function FileChip({ filename, href }: { filename: string; href?: string }) {

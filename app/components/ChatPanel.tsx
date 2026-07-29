@@ -120,7 +120,18 @@ export function ChatPanel({
         projectId={projectId}
         threadId={threadId}
         onAnswerApproval={chat.answerApproval}
-        onRestore={(id) => void review.restoreCheckpoint(id)}
+        onRewind={(message, what) => {
+          // Pages first: rewinding them needs the turn this message started, and
+          // dropping the message is what takes that record away.
+          const promptId = message.metadata?.chatPromptId;
+          const notes =
+            what !== "conversation" && promptId
+              ? review.restoreCheckpoint(promptId)
+              : Promise.resolve();
+          void notes.then(() =>
+            what === "notes" ? undefined : chat.rewind(message.id),
+          );
+        }}
         error={chat.error}
       />
 

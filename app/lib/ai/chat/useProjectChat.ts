@@ -61,6 +61,7 @@ export function useProjectChat({
     threadId ? { threadId } : "skip",
   );
   const putMessage = useMutation(api.chat.messages.put);
+  const truncateFrom = useMutation(api.chat.messages.truncateFrom);
   const renameThread = useMutation(api.chat.threads.rename);
   const convex = useConvex();
   const { open } = useOpenPage();
@@ -78,6 +79,7 @@ export function useProjectChat({
     mode,
     persisted,
     putMessage,
+    truncateFrom,
     renameThread,
     convex,
     open,
@@ -92,6 +94,7 @@ export function useProjectChat({
       mode,
       persisted,
       putMessage,
+      truncateFrom,
       renameThread,
       convex,
       open,
@@ -305,6 +308,28 @@ export function useProjectChat({
 
   const stop = useCallback(() => void chat?.cancel(), [chat]);
 
+  /**
+   * Puts the conversation back to just before a message was sent.
+   *
+   * Both halves, because the transcript on screen is not read back from the
+   * database — the store is the live copy and the rows are its record. The
+   * store goes first so nothing on screen outlives the thread it belongs to,
+   * and the turn is cancelled because rewinding past an answer still arriving
+   * would leave it streaming into a message that no longer exists.
+   */
+  const rewind = useCallback(
+    async (uiId: string) => {
+      const { threadId: id } = latest.current;
+      if (!chat || !id) return;
+      const index = chat.messages.findIndex((m) => m.id === uiId);
+      if (index < 0) return;
+      await chat.cancel();
+      chat.store.truncateTo(index);
+      await latest.current.truncateFrom({ threadId: id, uiId });
+    },
+    [chat],
+  );
+
   return {
     messages: snapshot.messages,
     error: snapshot.error,
@@ -314,6 +339,7 @@ export function useProjectChat({
     nameThreadFrom,
     answerApproval,
     stop,
+    rewind,
     ready: hydrated && !!chat,
   };
 }

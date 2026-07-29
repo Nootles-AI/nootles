@@ -791,22 +791,40 @@ a.ab-chip:hover {
   cursor: not-allowed;
 }
 
-/* Metadata voice, and quiet until wanted: a rewind is always there but is
-   almost never the thing you came to do. */
-.ab-restore {
+/* Metadata voice, and quiet until wanted: a rewind sits under every question
+   but is almost never the thing you came to do. */
+.ab-rewind {
   align-self: flex-start;
-  margin-bottom: 4px;
+  margin-top: 4px;
   font-family: var(--font-mono), ui-monospace, monospace;
   font-size: var(--text-meta);
   letter-spacing: var(--tracking-meta);
   color: var(--faint);
   transition: color var(--dur-fast) var(--ease);
 }
-.ab-turn:hover .ab-restore,
-.ab-restore:focus-visible {
+.ab-turn:hover .ab-rewind,
+.ab-rewind:focus-visible,
+.ab-rewind[aria-expanded="true"] {
   color: var(--muted);
 }
-.ab-restore:hover {
+.ab-rewind:hover {
+  color: var(--foreground);
+}
+
+/* A menu item that carries its consequence under its name. The hint is the
+   part people actually read here, because the three choices differ only in
+   what they leave behind. */
+.ab-menu-stack {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+}
+.ab-menu-hint {
+  font-size: var(--text-meta);
+  color: var(--muted);
+}
+.ab-menu-item:hover .ab-menu-hint {
   color: var(--foreground);
 }
 

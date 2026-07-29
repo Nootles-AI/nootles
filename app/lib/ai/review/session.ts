@@ -111,7 +111,40 @@ export class ReviewSession {
 
   /** The turn edits will stage into. Nothing is written until one arrives. */
   beginTurn(turn: { threadId: Id<"chatThreads">; projectId: Id<"projects">; chatPromptId: string }) {
+    const previous = this.running;
     this.running = turn;
+    // A second net under `endTurn`, which fires from an effect in the chat
+    // panel and therefore does not fire at all if that panel unmounts or the
+    // tab closes mid-turn. A turn left "streaming" is a turn with changes on
+    // the page and no bar offering them, so the arrival of the next question —
+    // proof the last one is over — settles it.
+    if (previous && previous.chatPromptId !== turn.chatPromptId) {
+      void this.endTurn(previous.chatPromptId);
+    }
+    this.emit([...this.turns]);
+  }
+
+  /** Whether this session is still staging edits into a turn. */
+  isWriting(chatPromptId: string): boolean {
+    return this.running?.chatPromptId === chatPromptId;
+  }
+
+  /**
+   * Whether this turn has changes on the page that nobody has answered.
+   *
+   * A row says "streaming" until `endTurn` says otherwise, and that is a
+   * liveness claim made by a React effect — trusted literally it hides the
+   * review bar for good. This session knows which turn it is actually writing,
+   * so anything else has finished whatever its row still says.
+   */
+  isOpen(turn: TurnReview): boolean {
+    return (
+      (turn.status === "pending" || turn.status === "streaming") &&
+      !this.isWriting(turn.chatPromptId) &&
+      turn.pages.some((p) =>
+        p.hunks.some((h) => (p.status[h.id] ?? "pending") === "pending"),
+      )
+    );
   }
 
   /**
@@ -172,7 +205,7 @@ export class ReviewSession {
   revertTurn(chatPromptId: string) {
     return this.enqueue(async () => {
       const turn = this.find(chatPromptId);
-      if (!turn || turn.status !== "pending") return;
+      if (!turn || this.isWriting(chatPromptId)) return;
       for (const { pageId } of turn.pages) {
         const current = this.find(chatPromptId);
         const page = current?.pages.find((p) => p.pageId === pageId);
@@ -296,7 +329,10 @@ export class ReviewSession {
    */
   isKept(chatPromptId: string, pageId: Id<"pages">, hunk: Hunk): boolean {
     const edited = this.editedIn(chatPromptId, pageId);
-    return [...hunk.added, ...hunk.changed, ...hunk.moved].some((id) => edited.has(id));
+    const superseded = this.supersededIn(chatPromptId, pageId);
+    return [...hunk.added, ...hunk.changed, ...hunk.moved].some(
+      (id) => edited.has(id) || superseded.has(id),
+    );
   }
 
   /** Turns that were left unanswered — a reload, a closed tab. */
@@ -393,9 +429,6 @@ export class ReviewSession {
     if (!running) throw new Error("No turn is running");
     const { chatPromptId } = running;
 
-    const held = this.heldElsewhere(pageId, chatPromptId, batch);
-    if (held) throw new Error(held);
-
     let page = this.find(chatPromptId)?.pages.find((p) => p.pageId === pageId);
     if (!page) {
       const before = convexSafe(editor.document as unknown as AnyBlock[]);
@@ -476,50 +509,29 @@ export class ReviewSession {
   }
 
   /**
-   * Whether an earlier turn is still waiting on an answer about these blocks.
+   * Blocks a LATER turn has since changed, for one of this turn's pages.
    *
-   * Several turns may have changes on one page — each undoes only its own — but
-   * not two on the same BLOCK: each turn's checkpoint is that block as its own
-   * edit found it, so undoing the older one would write back a version the newer
-   * one never saw.
+   * Changes stack — a second question about the same paragraph is the normal
+   * case, not an error — but the older change can then no longer be taken back
+   * on its own: its checkpoint holds that block as its own edit found it, and
+   * writing that back would undo the newer edit as well, silently.
+   *
+   * So it is treated exactly like a block the user retyped, which is the same
+   * situation with a different author: the change stands, and the affordance to
+   * discard it goes rather than lying about what it would do.
    */
-  private heldElsewhere(
-    pageId: Id<"pages">,
-    chatPromptId: string,
-    batch: Batch,
-  ): string | null {
-    const wanted = new Set(
-      batch.ops.flatMap((op) => {
-        const id = target(op);
-        return id === undefined ? [] : [id];
-      }),
-    );
-    if (!wanted.size) return null;
-
-    for (const turn of this.turns) {
-      if (turn.chatPromptId === chatPromptId) continue;
+  private supersededIn(chatPromptId: string, pageId: Id<"pages">): ReadonlySet<string> {
+    const mine = this.turns.findIndex((t) => t.chatPromptId === chatPromptId);
+    if (mine < 0) return EMPTY;
+    const later = new Set<string>();
+    for (const turn of this.turns.slice(mine + 1)) {
       const page = turn.pages.find((p) => p.pageId === pageId);
       if (!page) continue;
-      const open = page.hunks.filter((h) => (page.status[h.id] ?? "pending") === "pending");
-      const spoken = new Set(
-        open.flatMap((h) => [
-          ...h.added,
-          ...h.changed,
-          ...h.moved,
-          ...h.removed.map((b) => b.id),
-        ]),
-      );
-      const clash = [...wanted].filter((id) => spoken.has(id));
-      if (clash.length) {
-        return [
-          `Those blocks were changed by an earlier message and the user has not kept or discarded that change yet: ${clash
-            .map((id) => `"${id}"`)
-            .join(", ")}.`,
-          "Say so, and ask them to answer it before you edit the same blocks again. Other parts of the page are free.",
-        ].join(" ");
+      for (const hunk of page.hunks) {
+        for (const id of [...hunk.added, ...hunk.changed, ...hunk.moved]) later.add(id);
       }
     }
-    return null;
+    return later;
   }
 
   private withPage(
@@ -541,7 +553,7 @@ export class ReviewSession {
       const page = turn?.pages.find((p) => p.status[hunkId] === "pending");
       // Nothing is answerable while the turn is still writing: a hunk it is
       // still growing can be regrouped, and regrouped it has a different id.
-      if (!turn || !page || turn.status === "streaming") return;
+      if (!turn || !page || this.isWriting(turn.chatPromptId)) return;
       const hunk = page.hunks.find((h) => h.id === hunkId);
       const undo =
         to === "rejected" && hunk && !this.isKept(turn.chatPromptId, page.pageId, hunk)
@@ -558,7 +570,9 @@ export class ReviewSession {
     return this.enqueue(async () => {
       const wanted = this.turns
         .filter(
-          (t) => t.status !== "streaming" && (!chatPromptId || t.chatPromptId === chatPromptId),
+          (t) =>
+            !this.isWriting(t.chatPromptId) &&
+            (!chatPromptId || t.chatPromptId === chatPromptId),
         )
         .map((t) => ({
           chatPromptId: t.chatPromptId,

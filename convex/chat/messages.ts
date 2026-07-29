@@ -104,14 +104,28 @@ export const put = mutation({
   },
 });
 
-/** Drops a message and everything after it — the "retry from here" path. */
+/**
+ * Drops a message and everything after it — the conversation half of a rewind.
+ *
+ * Addressed by the SDK's own message id rather than by `seq`, so the caller
+ * names the message it can actually see. A message that is already gone deletes
+ * nothing rather than guessing at a position: rewinding twice to the same place
+ * should be the second one doing nothing, not taking the thread with it.
+ */
 export const truncateFrom = mutation({
-  args: { threadId: v.id("chatThreads"), seq: v.number() },
+  args: { threadId: v.id("chatThreads"), uiId: v.string() },
   handler: async (ctx, args) => {
+    const from = await ctx.db
+      .query("chatMessages")
+      .withIndex("by_thread", (q) => q.eq("threadId", args.threadId))
+      .filter((q) => q.eq(q.field("uiId"), args.uiId))
+      .first();
+    if (!from) return 0;
+
     const rows = await ctx.db
       .query("chatMessages")
       .withIndex("by_thread", (q) =>
-        q.eq("threadId", args.threadId).gte("seq", args.seq),
+        q.eq("threadId", args.threadId).gte("seq", from.seq),
       )
       .collect();
     await Promise.all(rows.map((r) => ctx.db.delete(r._id)));

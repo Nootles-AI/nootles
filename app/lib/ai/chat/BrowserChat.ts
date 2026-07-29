@@ -133,6 +133,12 @@ export class ChatStore implements ChatState<AbMessage> {
     this.emit();
   };
 
+  /** Keeps the first `count` messages and forgets the rest — the rewind. */
+  truncateTo = (count: number) => {
+    this._messages = this._messages.slice(0, count);
+    this.emit();
+  };
+
   replaceMessage = (index: number, message: AbMessage) => {
     const next = this._messages.slice();
     // Cloned because the SDK keeps mutating the message it handed us as more
