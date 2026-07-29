@@ -28,16 +28,24 @@ export function ChatTranscript({
   busy,
   approval,
   projectId,
+  threadId,
   onAnswerApproval,
+  onRestore,
   error,
 }: {
   messages: AbMessage[];
   busy: boolean;
   approval: PendingApproval | null;
   projectId: Id<"projects">;
+  threadId: Id<"chatThreads"> | null;
   onAnswerApproval: (approved: boolean) => void;
+  onRestore: (chatPromptId: string) => void;
   error?: Error;
 }) {
+  const restorable = useQuery(
+    api.chat.turns.restorable,
+    threadId ? { threadId } : "skip",
+  );
   const endRef = useRef<HTMLDivElement>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
 
@@ -67,6 +75,13 @@ export function ChatTranscript({
     <div ref={scrollerRef} className="ab-transcript">
       {messages.map((message) => (
         <div key={message.id} className={`ab-turn is-${message.role}`}>
+          {message.role === "user" && (
+            <RestorePoint
+              chatPromptId={message.metadata?.chatPromptId}
+              turns={restorable}
+              onRestore={onRestore}
+            />
+          )}
           {message.parts.map((part, i) => {
             if (part.type === "text") {
               return (
@@ -123,6 +138,43 @@ export function ChatTranscript({
       {error && <div className="ab-turn-error">{error.message}</div>}
       <div ref={endRef} />
     </div>
+  );
+}
+
+/**
+ * "Put the pages back the way they were before I asked this."
+ *
+ * Sits on the question rather than on the answer, because that is what it winds
+ * back to. Only appears where there is a checkpoint to reach, so a thread of
+ * questions carries no chrome at all — and it outlives keeping the change,
+ * which is the point: accepting is not supposed to be the irreversible step.
+ */
+function RestorePoint({
+  chatPromptId,
+  turns,
+  onRestore,
+}: {
+  chatPromptId?: string;
+  turns?: { chatPromptId: string; pageCount: number; status: string }[];
+  onRestore: (chatPromptId: string) => void;
+}) {
+  const turn = chatPromptId
+    ? turns?.find((t) => t.chatPromptId === chatPromptId)
+    : undefined;
+  // A turn still under review has its own Discard, which is the better answer
+  // while it is being offered.
+  if (!turn || turn.status === "pending" || turn.status === "streaming") return null;
+
+  return (
+    <button
+      className="ab-restore"
+      onClick={() => onRestore(turn.chatPromptId)}
+      title={`Put ${
+        turn.pageCount === 1 ? "the page" : `all ${turn.pageCount} pages`
+      } back as they were before this message`}
+    >
+      Restore checkpoint
+    </button>
   );
 }
 

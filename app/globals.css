@@ -791,6 +791,25 @@ a.ab-chip:hover {
   cursor: not-allowed;
 }
 
+/* Metadata voice, and quiet until wanted: a rewind is always there but is
+   almost never the thing you came to do. */
+.ab-restore {
+  align-self: flex-start;
+  margin-bottom: 4px;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--text-meta);
+  letter-spacing: var(--tracking-meta);
+  color: var(--faint);
+  transition: color var(--dur-fast) var(--ease);
+}
+.ab-turn:hover .ab-restore,
+.ab-restore:focus-visible {
+  color: var(--muted);
+}
+.ab-restore:hover {
+  color: var(--foreground);
+}
+
 .ab-thread-row {
   display: flex;
   align-items: center;

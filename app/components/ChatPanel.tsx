@@ -8,6 +8,7 @@ import { ChevronsUpDown, PanelRight, Plus } from "./Icons";
 import { ChatComposer } from "./chat/ChatComposer";
 import { ChatTranscript } from "./chat/ChatTranscript";
 import { ThreadPicker } from "./chat/ThreadPicker";
+import { useReview } from "./ReviewContext";
 import { useProjectChat, type ChatDraft } from "@/app/lib/ai/chat/useProjectChat";
 import type { ChatMode } from "@/app/lib/ai/chat/types";
 
@@ -23,6 +24,7 @@ export function ChatPanel({
   onCollapse: () => void;
 }) {
   const threads = useQuery(api.chat.threads.list, { projectId });
+  const review = useReview();
   const createThread = useMutation(api.chat.threads.create);
 
   const [picked, setPicked] = useState<Id<"chatThreads"> | null>(null);
@@ -116,7 +118,9 @@ export function ChatPanel({
         busy={chat.busy}
         approval={chat.approval}
         projectId={projectId}
+        threadId={threadId}
         onAnswerApproval={chat.answerApproval}
+        onRestore={(id) => void review.restoreCheckpoint(id)}
         error={chat.error}
       />
 

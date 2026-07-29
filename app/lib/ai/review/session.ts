@@ -195,6 +195,63 @@ export class ReviewSession {
   }
 
   /**
+   * Puts every page a turn touched back to the checkpoint it was taken from,
+   * whatever the user has since said about it.
+   *
+   * The rewind, as opposed to the review. `revertTurn` only speaks for a turn
+   * still being decided; this one answers "put it back the way it was before I
+   * asked", which has to keep working after the change was kept — otherwise
+   * accepting is irreversible, and nobody accepts freely under that.
+   *
+   * The row is fetched rather than read from memory: a settled turn is not in
+   * the unreviewed set, which is the only thing this session holds.
+   */
+  restoreCheckpoint(chatPromptId: string) {
+    return this.enqueue(async () => {
+      const row = await this.deps.convex.query(api.chat.turns.byPrompt, {
+        chatPromptId,
+      });
+      if (!row) return;
+
+      // From the trace, where the page and the checkpoint it was taken from are
+      // written down together — the two id arrays on the row are parallel by
+      // construction, which is a thing to rely on only when there is no
+      // alternative.
+      const pages = ((row.trace ?? {}) as StoredTrace).pages ?? [];
+      for (const { pageId, checkpointId } of pages) {
+        const before = await this.checkpointDoc(checkpointId);
+        if (!before) continue;
+        this.deps.openPage(pageId);
+        const editor = await this.deps.editorFor(pageId).catch(() => null);
+        if (!editor) {
+          throw new Error(
+            "That page did not finish loading, so it was left as it is.",
+          );
+        }
+        restoreDocument(editor, before);
+        this.edited.delete(key(chatPromptId, pageId));
+      }
+
+      // The turn is answered by being undone, and a turn still awaiting review
+      // must leave the unreviewed set or its diff outlives the change.
+      const live = this.find(chatPromptId);
+      if (live) await this.commit({ ...live, status: "rejected" });
+      else {
+        await this.deps.convex.mutation(api.chat.turns.save, {
+          threadId: row.threadId,
+          projectId: row.projectId,
+          chatPromptId,
+          pageIds: row.pageIds,
+          checkpointIds: row.checkpointIds,
+          trace: row.trace,
+          hunks: row.hunks,
+          status: "rejected",
+        });
+      }
+    });
+  }
+
+  /**
    * Blocks the user just rewrote by hand. A change they have since edited is
    * theirs, and the review stops offering to take it back — undoing it would
    * throw away work nobody asked to lose.

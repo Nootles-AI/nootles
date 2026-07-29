@@ -66,6 +66,45 @@ export const save = mutation({
   },
 });
 
+/** One turn, whatever became of it — the row a rewind is planned from. */
+export const byPrompt = query({
+  args: { chatPromptId: v.string() },
+  handler: async (ctx, args) => {
+    const ownerId = await getOwnerId(ctx);
+    const row = await ctx.db
+      .query("chatTurns")
+      .withIndex("by_prompt", (q) => q.eq("chatPromptId", args.chatPromptId))
+      .unique();
+    return row?.ownerId === ownerId ? row : null;
+  },
+});
+
+/**
+ * Which prompts in a thread can still be rewound to, and to what.
+ *
+ * Answering a review settles it but does not spend the checkpoint: keeping a
+ * change is a decision like any other, and "put it back the way it was before I
+ * asked" has to survive it. Deliberately thin — the transcript only needs to
+ * know which messages get the affordance.
+ */
+export const restorable = query({
+  args: { threadId: v.id("chatThreads") },
+  handler: async (ctx, args) => {
+    const ownerId = await getOwnerId(ctx);
+    const rows = await ctx.db
+      .query("chatTurns")
+      .withIndex("by_thread", (q) => q.eq("threadId", args.threadId))
+      .collect();
+    return rows
+      .filter((t) => t.ownerId === ownerId && t.checkpointIds.length)
+      .map((t) => ({
+        chatPromptId: t.chatPromptId,
+        pageCount: t.pageIds.length,
+        status: t.status,
+      }));
+  },
+});
+
 /**
  * Turns whose changes are on the page but unanswered. "streaming" is in there
  * because a reload is one of the ways a stream ends — the row never got the

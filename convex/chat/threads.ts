@@ -63,11 +63,17 @@ export const touch = mutation({
 });
 
 /**
- * Deletes a thread and its messages and turns.
+ * Deletes a thread and its messages.
  *
  * Checkpoints and op-log rows are deliberately NOT deleted: they belong to the
  * page's history, not the conversation's, and the document still reflects the
  * edits a deleted thread made.
+ *
+ * Neither is a turn the user has not answered yet. Its changes are already in
+ * the document — they were applied for real — so deleting the row would leave
+ * the page changed with the diff gone and no way left to say no. The review is
+ * found by project rather than by thread, so an orphaned turn still resolves;
+ * once answered, it is swept with everything else.
  */
 export const remove = mutation({
   args: { threadId: v.id("chatThreads") },
@@ -82,7 +88,10 @@ export const remove = mutation({
       .query("chatTurns")
       .withIndex("by_thread", (q) => q.eq("threadId", args.threadId))
       .collect();
-    await Promise.all(turns.map((t) => ctx.db.delete(t._id)));
+    const settled = turns.filter(
+      (t) => t.status !== "pending" && t.status !== "streaming",
+    );
+    await Promise.all(settled.map((t) => ctx.db.delete(t._id)));
 
     await ctx.db.delete(args.threadId);
   },
