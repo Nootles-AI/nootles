@@ -3,9 +3,9 @@
 import { useCallback, useEffect, useState } from "react";
 import type { BlockNoteEditor } from "@blocknote/core";
 import { AI } from "@/app/lib/ai/aiConfig";
-import type { ReformatCandidate } from "@/app/lib/ai/reformat";
+import { carriedOver, type ReformatCandidate } from "@/app/lib/ai/reformat";
 import { blockText, project, type AnyBlock } from "@/app/lib/ai/projection";
-import { resolveBatch } from "@/app/lib/ai/validate";
+import { resolveBatch, warnRejected } from "@/app/lib/ai/validate";
 import { applyBatch } from "@/app/lib/ai/apply";
 import { toDocHtml } from "@/app/lib/ai/html/serialize";
 import { parseDocHtml } from "@/app/lib/ai/html/parse";
@@ -58,17 +58,35 @@ export function useReformat(editor: Editor | null | undefined) {
       const blocks = editor.document as unknown as AnyBlock[];
       const current = parseDocHtml(toDocHtml(blocks));
       const next = parseDocHtml(candidate.html);
+      // Only let this candidate consume the blocks it actually carried. The run
+      // is offered to every candidate, but they cover different amounts of it:
+      // folding four rows into a table consumes all four, wrapping one phrase in
+      // inline maths consumes one. Handing the whole run to each of them deleted
+      // the blocks the accepted candidate never mentioned.
+      const produced = candidate.html.replace(/<[^>]*>/g, " ");
+      const consumable = state.blockIds.filter((id) => {
+        const block = blocks.find((x) => x.id === id);
+        if (!block) return false;
+        return carriedOver(blockText(block), produced) >= AI.reformat.consumedRatio;
+      });
+
+      if (!consumable.length) return;
+
+      // The model is told to carry the run's first id onto its output, but a
+      // candidate covering only part of the run then lands on a block it never
+      // read — a table built from two rows overwrote the sentence introducing
+      // them. Re-point it at the first block it did consume.
+      next[0] = { ...next[0], id: consumable[0] };
+
       const batch = compileDocHtml(next, {
         current,
-        anchorBlockId: state.blockId,
-        // Folding a run into one block means the rest have to go, and only we
-        // know which ones were on the table.
-        replacing: state.blockIds,
+        anchorBlockId: consumable[0],
+        replacing: consumable,
       });
       if (!batch.ops.length) return;
       const { index } = project(blocks);
       const resolved = resolveBatch(batch, index);
-      if (!resolved.ok) return;
+      if (!resolved.ok) return warnRejected("reformat", resolved);
       applyBatch(editor, resolved.batch);
     } catch {
       // A malformed rewrite is dropped rather than half-applied.

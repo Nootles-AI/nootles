@@ -2,7 +2,7 @@
 
 import { useEffect, useLayoutEffect, useRef } from "react";
 import type { BlockNoteEditor } from "@blocknote/core";
-import { ChevronLeft, ChevronRight } from "@/app/components/Icons";
+import { ChevronLeft, ChevronRight, Sparkle } from "@/app/components/Icons";
 import { hasSuggestion } from "./ghostText";
 import type { ReformatState } from "./useReformat";
 
@@ -10,7 +10,13 @@ import type { ReformatState } from "./useReformat";
 type Editor = BlockNoteEditor<any, any, any>;
 
 /**
- * A small bar beside the block it would reshape.
+ * A small chip beside the block it would reshape, plus — when there is more
+ * than one shape on offer — a counter at the foot of the window.
+ *
+ * They are separate because they are different things: the chip names what will
+ * happen to the text it is touching, while the counter is a control for the set
+ * of suggestions. Putting the counter in the chip made a one-word label read as
+ * a toolbar.
  *
  * Positioned from the block's own rect rather than the caret: the suggestion is
  * about the block you just left, so anchoring it to where the caret went would
@@ -90,6 +96,10 @@ export function ReformatBar({
         // this listener stays out of the way.
         if (hasSuggestion(editor.prosemirrorState)) return;
         e.preventDefault();
+        // ProseMirror runs its own keydown handling whether or not the default
+        // was prevented, so without this BlockNote also nests the block and the
+        // reformat lands indented.
+        e.stopPropagation();
         onAccept();
       } else if (many && (e.key === "ArrowRight" || e.key === "ArrowLeft")) {
         // Only claim the arrows when there is somewhere to cycle to.
@@ -104,16 +114,27 @@ export function ReformatBar({
   }, [editor, onAccept, onDismiss, onCycle, many]);
 
   return (
-    <div
-      ref={ref}
-      className="ab-reformat"
-      // Hidden until measured, so it never flashes at the top-left corner.
-      style={{ visibility: "hidden", zIndex: "var(--z-dropdown)" }}
-      role="status"
-      aria-label={`Reformat suggestion: ${candidates[index].label}`}
-    >
+    <>
+      <div
+        ref={ref}
+        className="ab-reformat"
+        // Hidden until measured, so it never flashes at the top-left corner.
+        style={{ visibility: "hidden", zIndex: "var(--z-dropdown)" }}
+        role="status"
+        aria-label={`Reformat suggestion: ${candidates[index].label}`}
+      >
+        <button className="ab-reformat-apply" onClick={onAccept}>
+          <Sparkle className="ab-reformat-mark" aria-hidden />
+          {candidates[index].label}
+          <span className="ab-reformat-key">⇥</span>
+        </button>
+      </div>
+
       {many && (
-        <>
+        <div
+          className="ab-reformat-switcher"
+          style={{ zIndex: "var(--z-dropdown)" }}
+        >
           <button
             className="ab-reformat-step"
             onClick={() => onCycle(-1)}
@@ -133,12 +154,8 @@ export function ReformatBar({
           >
             <ChevronRight width={12} height={12} />
           </button>
-        </>
+        </div>
       )}
-      <button className="ab-reformat-apply" onClick={onAccept}>
-        {candidates[index].label}
-        <span className="ab-reformat-key">⇥</span>
-      </button>
-    </div>
+    </>
   );
 }

@@ -19,7 +19,36 @@ export type ResolveResult =
   | { ok: true; batch: Batch }
   | { ok: false; errors: string[] };
 
-const CONTENTLESS = new Set(["codeBlock", "mathBlock", "canvas"]);
+/**
+ * A rejected batch is invisible by design — the suggestion simply never appears,
+ * which is right for the reader and terrible for us. This is the one place that
+ * says so out loud, in development only.
+ *
+ * Deliberately NOT a partial apply: a batch is atomic because its ops are
+ * interdependent. Folding four paragraphs into a table compiles to one
+ * `insertBlocks` plus four `removeBlock`s, so applying "the valid ones" after
+ * dropping the insert deletes the rows and creates nothing.
+ */
+export function warnRejected(where: string, result: ResolveResult): void {
+  if (result.ok || process.env.NODE_ENV === "production") return;
+  console.warn(`[auto-board] ${where}: batch rejected\n  ${result.errors.join("\n  ")}`);
+}
+
+/**
+ * Blocks that hold no inline content: their text, if any, lives in props. An
+ * op trying to write runs into one of these is always a mistake, and catching
+ * it here is what stops a stray rewrite turning a divider into a paragraph.
+ */
+const CONTENTLESS = new Set([
+  "codeBlock",
+  "mathBlock",
+  "canvas",
+  "divider",
+  "image",
+  "video",
+  "audio",
+  "file",
+]);
 
 function typeHasContent(type: string): boolean {
   return !CONTENTLESS.has(type);

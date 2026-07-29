@@ -70,6 +70,18 @@ export const AI = {
      * several — but past a point a "run" is just the document.
      */
     maxBlocks: 12,
+    /**
+     * How much of a block's wording a candidate must carry before applying that
+     * candidate is allowed to remove the block. Candidates cover different
+     * amounts of a run, and offering the whole run to every one of them deleted
+     * the blocks a candidate never mentioned.
+     *
+     * Measured over real candidates: blocks a candidate absorbed score 0.67-1.0
+     * (folding "Sam owns ingest" into cells drops "owns" into the header),
+     * untouched blocks score 0.0. The gap is wide, and erring low only leaves a
+     * block behind — visible, undoable — where erring high destroys text.
+     */
+    consumedRatio: 0.5,
   },
 
   /**

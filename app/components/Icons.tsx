@@ -110,3 +110,15 @@ export function Code(props: SVGProps<SVGSVGElement>) {
     </svg>
   );
 }
+
+/**
+ * Marks something the model is offering. Filled rather than stroked — at 11px a
+ * 2px stroke closes up into a blob, and this needs to read at chip size.
+ */
+export function Sparkle(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} fill="currentColor" stroke="none" {...props}>
+      <path d="M12 2.6c.45 4.85 4.1 8.5 8.95 8.95v.9c-4.85.45-8.5 4.1-8.95 8.95h-.9c-.45-4.85-4.1-8.5-8.95-8.95v-.9c4.85-.45 8.5-4.1 8.95-8.95Z" />
+    </svg>
+  );
+}
