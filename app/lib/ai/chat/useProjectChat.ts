@@ -19,7 +19,7 @@ import { runClientTool, type ToolContext } from "./clientTools";
 import { resolveMentions, type MentionPick } from "./mentions";
 import type { MentionData } from "./parts";
 import { isClientTool } from "./tools";
-import type { AbMessage, ChatMode } from "./types";
+import type { AbMessage } from "./types";
 
 /** What the composer hands over: the words, and what was attached to them. */
 export type ChatDraft = {
@@ -49,12 +49,10 @@ export function useProjectChat({
   threadId,
   projectId,
   pageId,
-  mode,
 }: {
   threadId: Id<"chatThreads"> | null;
   projectId: Id<"projects">;
   pageId: Id<"pages"> | null;
-  mode: ChatMode;
 }) {
   const persisted = useQuery(
     api.chat.messages.list,
@@ -76,7 +74,6 @@ export function useProjectChat({
     threadId,
     projectId,
     pageId,
-    mode,
     persisted,
     putMessage,
     truncateFrom,
@@ -91,7 +88,6 @@ export function useProjectChat({
       threadId,
       projectId,
       pageId,
-      mode,
       persisted,
       putMessage,
       truncateFrom,
@@ -170,7 +166,6 @@ export function useProjectChat({
         prepareSendMessagesRequest: ({ messages }) => ({
           body: {
             messages,
-            mode: latest.current.mode,
             projectId: latest.current.projectId,
             pageId: latest.current.pageId,
           },
@@ -239,7 +234,7 @@ export function useProjectChat({
 
   const send = useCallback(
     async (draft: ChatDraft) => {
-      const { threadId: id, projectId: pid, pageId: page, mode: m } = latest.current;
+      const { threadId: id, projectId: pid, pageId: page } = latest.current;
       // Never into a turn that is still running: the loop hands a tool result to
       // whatever message is last, and that would now be this one.
       if (!chat || !id || !hasContent(draft) || chat.store.getSnapshot().busy) return;
@@ -260,7 +255,7 @@ export function useProjectChat({
         id: crypto.randomUUID(),
         role: "user" as const,
         parts,
-        metadata: { pageIdAtSend: page ?? undefined, mode: m, chatPromptId },
+        metadata: { pageIdAtSend: page ?? undefined, chatPromptId },
       };
       void latest.current.putMessage({
         threadId: id,

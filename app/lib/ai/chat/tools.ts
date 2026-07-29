@@ -135,18 +135,3 @@ export function isClientTool(name: string): name is (typeof CLIENT_TOOLS)[number
   return (CLIENT_TOOLS as readonly string[]).includes(name);
 }
 
-/**
- * Ask mode's whole vocabulary — the tools that only look. Anything that changes
- * the project joins `TOOLS` but must never be added here; that is the entire
- * difference between the two modes.
- *
- * `open_page` changes no data, and is still left out: it moves the page the user
- * is reading, and answering a question is no reason to do that. Nothing is lost
- * — `read_page` reads any page without opening it.
- */
-export const ASK_TOOLS = [
-  "list_pages",
-  "read_page",
-  "read_open_page",
-  "search_web",
-] as const satisfies readonly ToolName[];

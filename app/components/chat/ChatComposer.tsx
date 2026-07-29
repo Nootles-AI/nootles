@@ -5,7 +5,6 @@ import { useConvex, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { Paperclip, X } from "../Icons";
-import { ChatModeToggle } from "./ChatModeToggle";
 import { MentionMenu } from "./MentionMenu";
 import {
   acceptFile,
@@ -23,7 +22,6 @@ import {
   type MentionItem,
   type MentionPick,
 } from "@/app/lib/ai/chat/mentions";
-import type { ChatMode } from "@/app/lib/ai/chat/types";
 import type { ChatDraft } from "@/app/lib/ai/chat/useProjectChat";
 
 /**
@@ -33,9 +31,6 @@ import type { ChatDraft } from "@/app/lib/ai/chat/useProjectChat";
  * a fixed one-line box hides the paragraph you are trying to write, and a
  * fixed-tall one wastes the panel when you are asking a short question.
  *
- * The mode sits on the action row rather than in the panel header: it is part
- * of what you are about to send, and it is the last thing you want to change
- * before sending it.
  *
  * Files are read and checked the moment they are dropped, but uploaded only on
  * Send: a file you thought better of never reaches storage.
@@ -43,19 +38,15 @@ import type { ChatDraft } from "@/app/lib/ai/chat/useProjectChat";
 export function ChatComposer({
   disabled,
   busy,
-  mode,
   projectId,
   pageId,
-  onModeChange,
   onSend,
   onStop,
 }: {
   disabled: boolean;
   busy: boolean;
-  mode: ChatMode;
   projectId: Id<"projects">;
   pageId: Id<"pages"> | null;
-  onModeChange: (mode: ChatMode) => void;
   onSend: (draft: ChatDraft) => Promise<void>;
   onStop: () => void;
 }) {
@@ -289,7 +280,6 @@ export function ChatComposer({
 
       <div className="ab-composer-actions">
         <div className="flex items-center gap-1">
-          <ChatModeToggle mode={mode} onChange={onModeChange} />
           <button
             className="ab-composer-attach"
             onClick={() => fileInput.current?.click()}

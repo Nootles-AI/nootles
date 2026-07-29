@@ -10,7 +10,7 @@ import { ChatTranscript, type RewindScope } from "./chat/ChatTranscript";
 import { ThreadPicker } from "./chat/ThreadPicker";
 import { useReview } from "./ReviewContext";
 import { useProjectChat, type ChatDraft } from "@/app/lib/ai/chat/useProjectChat";
-import type { AbMessage, ChatMode } from "@/app/lib/ai/chat/types";
+import type { AbMessage } from "@/app/lib/ai/chat/types";
 import type { ReturnPoint } from "@/app/lib/ai/review/session";
 
 export function ChatPanel({
@@ -30,7 +30,6 @@ export function ChatPanel({
 
   const [picked, setPicked] = useState<Id<"chatThreads"> | null>(null);
   const [picking, setPicking] = useState(false);
-  const [mode, setMode] = useState<ChatMode>("agent");
   /**
    * A rewind being decided: which message it winds back to, what it covers, and
    * where each page stood before it was previewed. Nothing here has happened to
@@ -50,7 +49,7 @@ export function ChatPanel({
       ? picked
       : (threads?.[0]?._id ?? null);
 
-  const chat = useProjectChat({ threadId, projectId, pageId, mode });
+  const chat = useProjectChat({ threadId, projectId, pageId });
 
   /**
    * A message written before any thread existed. Creating the thread is async
@@ -184,10 +183,8 @@ export function ChatPanel({
       <ChatComposer
         disabled={!chat.ready}
         busy={chat.busy}
-        mode={mode}
         projectId={projectId}
         pageId={pageId}
-        onModeChange={setMode}
         onSend={onSend}
         onStop={chat.stop}
       />

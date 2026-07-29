@@ -3,7 +3,6 @@ import type { Id } from "@/convex/_generated/dataModel";
 import type { AbDataParts } from "./parts";
 
 /** Which tools the server may offer this turn. */
-export type ChatMode = "agent" | "ask";
 
 /**
  * Travels with each message and is persisted alongside it.
@@ -14,7 +13,6 @@ export type ChatMode = "agent" | "ask";
  */
 export type AbMetadata = {
   pageIdAtSend?: Id<"pages">;
-  mode?: ChatMode;
   /** Links a turn to its checkpoints and op-log rows. */
   chatPromptId?: string;
 };

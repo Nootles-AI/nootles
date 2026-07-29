@@ -13,8 +13,7 @@ import { convertDataPart } from "@/app/lib/ai/chat/parts";
 import { chatModel } from "@/app/lib/ai/chat/provider";
 import { OUT_OF_STEPS, SYSTEM, openPageNote } from "@/app/lib/ai/chat/prompt";
 import { chatTools } from "@/app/lib/ai/chat/serverTools";
-import { ASK_TOOLS } from "@/app/lib/ai/chat/tools";
-import type { AbMessage, ChatMode } from "@/app/lib/ai/chat/types";
+import type { AbMessage } from "@/app/lib/ai/chat/types";
 
 /**
  * The chat agent's loop.
@@ -35,11 +34,10 @@ export async function POST(req: Request) {
     return new Response("Invalid JSON", { status: 400 });
   }
 
-  const { messages, projectId, pageId, mode } = (body ?? {}) as {
+  const { messages, projectId, pageId } = (body ?? {}) as {
     messages?: AbMessage[];
     projectId?: Id<"projects">;
     pageId?: Id<"pages">;
-    mode?: ChatMode;
   };
   if (!Array.isArray(messages)) {
     return new Response("`messages` must be an array", { status: 400 });
@@ -80,7 +78,7 @@ export async function POST(req: Request) {
     tools: chatTools(projectId),
     // Ask is a promise the user can see: the tools that could change something
     // are not merely discouraged, they are absent from the request.
-    activeTools: spent ? [] : mode === "ask" ? ASK_TOOLS : undefined,
+    activeTools: spent ? [] : undefined,
     stopWhen: stepCountIs(Math.max(1, budget)),
     experimental_download: downloadAttachments,
     abortSignal: req.signal,
