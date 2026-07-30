@@ -104,6 +104,12 @@ export const AI = {
     /** Cap on a single `read_page` result, so one long page can't eat the window. */
     maxPageChars: 24_000,
     /**
+     * How much of a page read from an EARLIER turn the model still gets to see.
+     * Enough for the first line — what an edit did, or the title a read opened
+     * with — and not the page itself, which has moved on. See `transcript.ts`.
+     */
+    staleReadChars: 200,
+    /**
      * How long `open_page` waits for a page's editor to catch up with the
      * server. The wait itself is a round trip; this is only the point at which a
      * page that is never going to load fails one tool call instead of hanging

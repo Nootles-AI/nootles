@@ -2,8 +2,6 @@ import type { UIMessage } from "ai";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { AbDataParts } from "./parts";
 
-/** Which tools the server may offer this turn. */
-
 /**
  * Travels with each message and is persisted alongside it.
  *

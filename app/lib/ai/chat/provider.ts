@@ -10,7 +10,10 @@ import { AI } from "../aiConfig";
  * document execute in the browser.
  */
 export function chatModel() {
-  return openrouter().chat(AI.chat.model);
+  // Usage accounting on, because the cached share of the prompt is the only way
+  // to tell a cache breakpoint that is working from one that is being ignored,
+  // and OpenRouter leaves those counts out unless asked.
+  return openrouter().chat(AI.chat.model, { usage: { include: true } });
 }
 
 /** The model behind `search_web`, which reads result pages rather than reasons. */

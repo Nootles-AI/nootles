@@ -5,6 +5,8 @@ import {
   stepCountIs,
   streamText,
   toUIMessageStream,
+  type LanguageModelUsage,
+  type SystemModelMessage,
 } from "ai";
 import type { Id } from "@/convex/_generated/dataModel";
 import { AI } from "@/app/lib/ai/aiConfig";
@@ -13,6 +15,7 @@ import { convertDataPart } from "@/app/lib/ai/chat/parts";
 import { chatModel } from "@/app/lib/ai/chat/provider";
 import { OUT_OF_STEPS, SYSTEM, openPageNote } from "@/app/lib/ai/chat/prompt";
 import { chatTools } from "@/app/lib/ai/chat/serverTools";
+import { cached, markCachePoints, shortenStaleReads } from "@/app/lib/ai/chat/transcript";
 import type { AbMessage } from "@/app/lib/ai/chat/types";
 
 /**
@@ -54,10 +57,12 @@ export async function POST(req: Request) {
   // something the model reads; without it they are UI and nothing more.
   // Named explicitly: inference reads `Omit<UI_MESSAGE, "id">` and falls back to
   // the base message, which has no data parts for `convertDataPart` to convert.
-  const conversation = await convertToModelMessages<AbMessage>(messages, {
-    ignoreIncompleteToolCalls: true,
-    convertDataPart,
-  });
+  const history = shortenStaleReads(
+    await convertToModelMessages<AbMessage>(messages, {
+      ignoreIncompleteToolCalls: true,
+      convertDataPart,
+    }),
+  );
 
   // A turn that has spent its budget gets one last step with no tools, which is
   // what ends it: an answer from what it has, rather than another call it cannot
@@ -69,24 +74,54 @@ export async function POST(req: Request) {
   const budget = AI.chat.maxSteps - stepsTaken(messages);
   const spent = budget <= 0 && !answeringApproval(messages);
 
+  const note = openPageNote(pageId);
   const result = streamText({
     model: chatModel(),
-    system: SYSTEM + openPageNote(pageId),
-    messages: spent
-      ? [...conversation, { role: "user", content: OUT_OF_STEPS }]
-      : conversation,
+    // Two instructions, not one concatenated string: the breakpoint goes after
+    // the standing prompt so the tool schemas and the prompt itself stay cached
+    // across a turn, while the note that moves with the open page sits after it
+    // and takes nothing with it when it changes.
+    instructions: [
+      { role: "system", content: SYSTEM, providerOptions: cached() },
+      ...(note ? [{ role: "system", content: note } satisfies SystemModelMessage] : []),
+    ],
+    messages: markCachePoints(
+      spent ? [...history, { role: "user", content: OUT_OF_STEPS }] : history,
+    ),
     tools: chatTools(projectId),
-    // Ask is a promise the user can see: the tools that could change something
-    // are not merely discouraged, they are absent from the request.
+    // The tools that could change something are not merely discouraged, they are
+    // absent from the request.
     activeTools: spent ? [] : undefined,
     stopWhen: stepCountIs(Math.max(1, budget)),
     experimental_download: downloadAttachments,
     abortSignal: req.signal,
+    onEnd: report,
   });
 
   return createUIMessageStreamResponse({
     stream: toUIMessageStream({ stream: result.stream }),
   });
+}
+
+/**
+ * What the request cost, in development only.
+ *
+ * The one thing about this loop that cannot be read off the code is whether the
+ * prefix the breakpoints mark is actually being hit — a cached input token is
+ * worth about a tenth of a fresh one, so `cache` against `fresh` is the whole
+ * measurement, and a run of `fresh` means something above has stopped matching.
+ */
+function report({ totalUsage }: { totalUsage: LanguageModelUsage }) {
+  if (process.env.NODE_ENV === "production") return;
+  const { inputTokens, outputTokens, inputTokenDetails: details } = totalUsage;
+  const cache = details.cacheReadTokens ?? 0;
+  const wrote = details.cacheWriteTokens ?? 0;
+  const fresh = details.noCacheTokens ?? (inputTokens ?? 0) - cache - wrote;
+  const share = inputTokens ? Math.round((cache / inputTokens) * 100) : 0;
+  console.log(
+    `[chat] in ${inputTokens ?? "?"} (cache ${cache}, wrote ${wrote}, fresh ${fresh}` +
+      `, ${share}% cached) out ${outputTokens ?? "?"}`,
+  );
 }
 
 /**

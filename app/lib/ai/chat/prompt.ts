@@ -56,13 +56,18 @@ about one.`;
  * title, which are not unique. Re-derived per request rather than fixed for the
  * turn, because `open_page` moves what is on screen mid-turn.
  *
+ * Sent as its own instruction rather than appended to `SYSTEM`, because it is the
+ * one part of the prompt that changes mid-turn and a cached prefix has to match
+ * exactly: concatenated, one `open_page` would throw away the cached copy of
+ * everything above it — the tool schemas included — for the sake of a sentence.
+ *
  * The id is checked against the shape Convex mints before it goes anywhere near
  * the prompt: it arrives from the client, and text in a system prompt is
  * instruction.
  */
 export function openPageNote(pageId: string | undefined): string {
   if (!pageId || !/^[a-z0-9]{20,40}$/.test(pageId)) return "";
-  return `\n\nThe open page is ${pageId} — that is what "this page" means.`;
+  return `The open page is ${pageId} — that is what "this page" means.`;
 }
 
 /**
