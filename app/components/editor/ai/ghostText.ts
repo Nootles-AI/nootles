@@ -7,9 +7,12 @@ import {
 import { Decoration, DecorationSet, type EditorView } from "prosemirror-view";
 import type { Batch } from "@/convex/ai/operations";
 import {
+  ghostBlocksElement,
+  ghostBlocksKey,
   previewElement,
   previewKey,
   renderInline,
+  type GhostBlock,
   type Preview,
   type PreviewEdge,
   type PreviewNode,
@@ -45,7 +48,12 @@ export type Suggestion =
     }
   | {
       kind: "action";
-      label: string;
+      /**
+       * What the chip says, when there is something worth saying. Absent for a
+       * completion we can only describe generically — there is no chip then, and
+       * the tail or the preview is what shows it instead.
+       */
+      label?: string;
       pos: number;
       /**
        * Null while Tier 2 content is still being generated: the chip shows
@@ -56,6 +64,12 @@ export type Suggestion =
       // When present (insertCode), render a faded preview of the block below the
       // line instead of just a chip.
       preview?: Preview;
+      /**
+       * Whole text blocks the completion adds after the current one. Blocks that
+       * are only text get no preview chrome — they are drawn as the blocks they
+       * will become, in the place they will land.
+       */
+      blocks?: GhostBlock[];
       /**
        * Prose the completion adds to the current block before opening the new
        * one. A suggestion that finishes "Here's a dia" into "…diagram of the
@@ -100,18 +114,19 @@ function metaDispatch(view: EditorView, value: Suggestion) {
 }
 
 /**
- * `live` = tokens are still arriving, so the head pulses. When false the head
- * stays but goes steady, marking where the caret lands if you press Tab.
+ * `live` = tokens are still arriving, so the cursor pulses. `head` = this is the
+ * end of the suggestion; false when whole blocks follow below and the cursor
+ * belongs at the end of those instead.
  */
-function ghostWidget(source: string, live = false) {
+function ghostWidget(source: string, live = false, head = true) {
   return () => {
     const span = document.createElement("span");
     span.className = "ab-ghost";
     renderInline(source, span);
-    // The head marks the end of a suggestion, so it only belongs where there is
-    // one. Whitespace-only and markup-only completions render no glyphs, and
+    // The cursor marks the end of a suggestion, so it only belongs where there
+    // is one. Whitespace-only and markup-only completions render no glyphs, and
     // the bar was left sitting in an empty block on its own.
-    if (span.textContent?.trim()) {
+    if (head && span.textContent?.trim()) {
       span.classList.add("ab-stream-head");
       if (live) span.classList.add("is-live");
     }
@@ -182,25 +197,31 @@ export function ghostTextPlugin(): Plugin<Suggestion> {
         // plain ghost — the block preview below is the other half of the same
         // suggestion, and Tab accepts them together.
         if (s.tail?.trim()) {
+          // The cursor sits at the END of the suggestion, so the tail only
+          // carries it when nothing is drawn below it.
+          const head = !s.blocks?.length;
           decos.push(
             // The tail is the live edge while a block is still generating.
-            Decoration.widget(s.pos, ghostWidget(s.tail, !s.batch), {
+            Decoration.widget(s.pos, ghostWidget(s.tail, !s.batch, head), {
               side: 1,
               ignoreSelection: true,
-              key: `ab-tail-${s.pos}-${s.tail}-${s.batch ? "r" : "s"}`,
+              key: `ab-tail-${s.pos}-${s.tail}-${s.batch ? "r" : "s"}-${head ? "h" : ""}`,
             }),
           );
+        }
+
+        // Everything below the caret's line lands just after the current block,
+        // which is exactly where accepting will put it.
+        let after = s.pos;
+        try {
+          after = state.doc.resolve(s.pos).after();
+        } catch {
+          after = s.pos;
         }
 
         // With a preview, render a faded version of the real thing just below
         // the line — exactly where accepting will insert it.
         if (s.preview) {
-          let after = s.pos;
-          try {
-            after = state.doc.resolve(s.pos).after();
-          } catch {
-            after = s.pos;
-          }
           const p = s.preview;
           const label = `⇥ Tab to insert · ${headOf(p)}`;
           decos.push(
@@ -209,9 +230,20 @@ export function ghostTextPlugin(): Plugin<Suggestion> {
               key: `ab-preview-${after}-${previewKey(p)}`,
             }),
           );
-        } else if (!s.tail) {
-          // Only when there is nothing else to show. A chip next to streaming
-          // ghost text reads as two competing suggestions rather than one.
+        } else if (s.blocks?.length) {
+          const blocks = s.blocks;
+          const live = !s.batch;
+          decos.push(
+            Decoration.widget(after, () => ghostBlocksElement(blocks, live), {
+              side: 1,
+              key: `ab-ghost-blocks-${after}-${live ? "s" : "r"}-${ghostBlocksKey(blocks)}`,
+            }),
+          );
+        } else if (!s.tail && s.label) {
+          // Only when there is nothing else to show, and only when it has
+          // something to say. A chip next to streaming ghost text reads as two
+          // competing suggestions rather than one, and a chip that can only
+          // manage "Apply suggestion" is a control with no subject.
           const pending = s.batch === null;
           decos.push(
             Decoration.widget(s.pos, chipWidget(s.label, pending), {
@@ -263,24 +295,24 @@ export function setGhost(
   );
 }
 
-/** Show an action suggestion (chip, or a faded preview) carrying its op batch. */
+/** Show an action suggestion (chip, preview, or ghost blocks) with its batch. */
 export function setAction(
   view: EditorView,
-  label: string,
-  batch: Batch | null,
-  preview?: Preview,
-  tail?: string,
+  action: Omit<Extract<Suggestion, { kind: "action" }>, "kind" | "pos">,
 ) {
   // The user already hit Tab while this was loading — honour it now rather than
   // making them press it again.
-  if (batch && armedAccept) {
+  if (action.batch && armedAccept) {
     armedAccept = false;
     if (ghostTextKey.getState(view.state)) metaDispatch(view, null);
-    actionApplyHandler?.(batch);
+    actionApplyHandler?.(action.batch);
     return;
   }
-  const pos = view.state.selection.from;
-  metaDispatch(view, { kind: "action", label, pos, batch, preview, tail });
+  metaDispatch(view, {
+    kind: "action",
+    pos: view.state.selection.from,
+    ...action,
+  });
 }
 
 export function clearSuggestion(view: EditorView) {

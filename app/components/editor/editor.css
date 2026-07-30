@@ -156,6 +156,41 @@
   overflow-wrap: anywhere;
 }
 
+/* ---- Links -------------------------------------------------------------
+   Underlined rather than coloured. A blue link would be the one accent in a
+   document that has otherwise been kept to ink and paper, and the palette's
+   two colours are already spoken for — accent means the AI is working, and
+   green and red belong to the diff. An underline is what a link has always
+   been, and it says so without asking for the eye.
+
+   The offset and thinner rule keep it from reading as a strikethrough on
+   descenders, which is the failure mode of a text-decoration underline at
+   body size. */
+.ab-editor .bn-inline-content a,
+.ab-editor a {
+  color: var(--foreground);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in oklch, var(--foreground) 35%, transparent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+  cursor: pointer;
+  transition: text-decoration-color var(--dur-fast) var(--ease);
+  /* A pasted url is one long word, and one long word widens the measure. */
+  overflow-wrap: anywhere;
+}
+.ab-editor .bn-inline-content a:hover,
+.ab-editor a:hover {
+  text-decoration-color: var(--foreground);
+}
+/* The facsimile of a deleted block renders its links as anchors with no href,
+   so they take the wash and the strike with everything else rather than
+   standing out as the one live-looking thing in it. */
+.ab-diff-gone a {
+  color: inherit;
+  text-decoration-color: currentColor;
+  cursor: default;
+}
+
 /* ---- Inline math (KaTeX render + MathLive edit) ---------------------- */
 .ab-math-inline {
   cursor: pointer;
@@ -254,6 +289,17 @@
   pointer-events: none;
   user-select: none;
   white-space: pre-wrap;
+}
+/* Whole blocks a completion would add. They wear the editor's own block classes
+   so its stylesheet lays them out; all that is left to say is that they are not
+   real yet. */
+.ab-editor .ab-ghost-blocks {
+  color: var(--ghost);
+  pointer-events: none;
+  user-select: none;
+}
+.ab-editor .ab-ghost-blocks .bn-inline-content code {
+  color: inherit;
 }
 
 /* ---- Action hint chip (AI structured suggestions) ------------------- */
@@ -547,25 +593,6 @@
   margin-block: 4px;
   opacity: 0.55;
 }
-/* Past three, a run of deletions is a fact about the page rather than
-   something to read, so it says how much and waits to be asked. */
-.ab-diff-collapsed {
-  display: inline-flex;
-  align-items: center;
-  height: 22px;
-  padding: 0 10px;
-  border-radius: 999px;
-  border: 1px dashed var(--diff-del-line);
-  background: var(--diff-del-bg);
-  color: var(--diff-del);
-  font-family: var(--font-mono), ui-monospace, monospace;
-  font-size: var(--text-meta);
-  letter-spacing: var(--tracking-meta);
-}
-.ab-diff-collapsed:hover {
-  border-style: solid;
-}
-
 /* ---- Review: the per-hunk answer -------------------------------------- */
 /* Zero height, so the buttons hang in the right-hand gutter without the text
    column knowing they are there. */

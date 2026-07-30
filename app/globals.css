@@ -296,6 +296,26 @@ body {
   white-space: nowrap;
   text-overflow: ellipsis;
 }
+/* Unanswered agent changes on a page. The two colours on this row are the diff's
+   own — the one place the palette is allowed an opinion — and they are the same
+   tokens the change itself is drawn in, so the badge and the page agree. Mono
+   and tabular, like every other count in the app, so the digits do not shuffle
+   as they climb. */
+.ab-row-diff {
+  flex: none;
+  display: flex;
+  gap: 5px;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--text-meta);
+  letter-spacing: var(--tracking-meta);
+  font-variant-numeric: tabular-nums;
+}
+.ab-row-diff-add {
+  color: var(--diff-add);
+}
+.ab-row-diff-del {
+  color: var(--diff-del);
+}
 
 /* Metadata is where the mono shows: section labels, counts, timestamps. It
    is the one place the type system has a second voice. */
@@ -446,9 +466,11 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  /* A 0.01ms sweep would still flash. These two just stop. */
+  /* A 0.01ms sweep would still flash. These just stop — the thinking dot stays
+     visible and steady, which with the word beside it still says "working". */
   .ab-skeleton::after,
-  .ab-stream-head::after {
+  .ab-stream-head::after,
+  .ab-thinking-dot {
     animation: none !important;
   }
   .ab-skeleton::after {
@@ -586,6 +608,92 @@ body {
 .ab-turn-text + .ab-turn-text {
   margin-top: 0.6em;
 }
+
+/* ---- Markdown in a reply -----------------------------------------------
+   The panel is a column of a few hundred pixels, so this is emphasis rather
+   than hierarchy: a heading is heavier and a touch larger, and that is all.
+   Six sizes would turn a two-paragraph answer into a document. */
+.ab-md-heading {
+  margin: 0;
+  font-size: var(--text-ui);
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--foreground);
+  overflow-wrap: anywhere;
+}
+.ab-md-heading[data-level="1"] {
+  font-size: calc(var(--text-ui) + 2px);
+}
+.ab-md-heading[data-level="2"] {
+  font-size: calc(var(--text-ui) + 1px);
+}
+/* A heading earns its space above, and gives it back to whatever it introduces. */
+* + .ab-md-heading {
+  margin-top: 0.9em;
+}
+.ab-md-heading + * {
+  margin-top: 0.3em;
+}
+
+.ab-md-list {
+  margin: 0;
+  padding-left: 1.35em;
+  font-size: var(--text-ui);
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+ul.ab-md-list {
+  list-style: disc;
+}
+ol.ab-md-list {
+  list-style: decimal;
+}
+.ab-md-list li::marker {
+  color: var(--muted);
+}
+.ab-md-list li + li {
+  margin-top: 0.25em;
+}
+* + .ab-md-list {
+  margin-top: 0.5em;
+}
+.ab-md-list + * {
+  margin-top: 0.6em;
+}
+
+.ab-md-rule {
+  margin: 0.85em 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+
+/* Code in a reply is the same chip it is in the document, so a variable name
+   reads the same wherever it is mentioned. */
+.ab-turn.is-assistant code {
+  padding: 0.12em 0.34em;
+  border-radius: var(--radius-sm);
+  background: var(--sunken);
+  box-shadow: inset 0 0 0 1px var(--border);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 0.88em;
+  overflow-wrap: anywhere;
+}
+.ab-turn.is-assistant strong {
+  font-weight: 600;
+}
+/* Underlined rather than coloured, the same as a link in the document. */
+.ab-turn.is-assistant a {
+  color: var(--foreground);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in oklch, var(--foreground) 35%, transparent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+  overflow-wrap: anywhere;
+  transition: text-decoration-color var(--dur-fast) var(--ease);
+}
+.ab-turn.is-assistant a:hover {
+  text-decoration-color: var(--foreground);
+}
 .ab-turn.is-user {
   padding: 7px 10px;
   border-radius: var(--radius);
@@ -602,6 +710,26 @@ body {
 .ab-turn-error {
   color: var(--danger);
 }
+/* Waiting on the agent. Accent and a pulse, which is what the inline suggestion
+   already uses to say "still generating" — one vocabulary for AI at work. The
+   label itself holds still: the movement is the dot's job, and a word that
+   breathes is a word you read twice. */
+.ab-turn-pending {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.ab-thinking-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow:
+    0 0 4px var(--accent-soft),
+    0 0 10px color-mix(in oklch, var(--accent-soft) 60%, transparent);
+  animation: ab-pulse 1.15s var(--ease) infinite;
+}
 /* What the agent did on the way to answering. The mono voice files it with the
    section labels and page counts — a record of work, not part of the reply. */
 .ab-turn-step {
@@ -617,6 +745,17 @@ body {
 }
 .ab-turn-step.is-failed {
   color: var(--danger);
+}
+/* The step still going. Baseline-aligned rather than centred: the dot belongs
+   with the first line of the label, not halfway down a wrapped one. */
+.ab-turn-step.is-running {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+}
+.ab-turn-step.is-running .ab-thinking-dot {
+  position: relative;
+  top: -1px;
 }
 /* The one thing in the transcript that acts on the project when clicked, so it
    is given the delete dialog's surface rather than the conversation's. */
@@ -663,6 +802,63 @@ a.ab-chip:hover {
 }
 .ab-chip-remove:hover {
   color: var(--foreground);
+}
+
+/* ---- The thread's own answer ------------------------------------------
+   Sits in the gap between the transcript and the box, taking the composer's
+   left and right margin so the three read as one column. Neutral, like the bar
+   under the document: the colour on this screen belongs to the change itself,
+   and this is a control for a set of them. */
+.ab-chat-review {
+  flex: none;
+  margin: 0 8px 6px;
+  padding: 5px 5px 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--elevated);
+}
+.ab-chat-review-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ab-chat-review-count {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--text-meta);
+  letter-spacing: var(--tracking-meta);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.ab-chat-review-actions {
+  flex: none;
+  display: flex;
+  gap: 2px;
+}
+.ab-chat-review-btn {
+  height: 24px;
+  padding: 0 9px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-meta-lg);
+  color: var(--muted);
+  white-space: nowrap;
+  transition:
+    background var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
+}
+.ab-chat-review-btn:hover {
+  background: var(--hover);
+  color: var(--foreground);
+}
+/* Keeping is the ordinary answer, so it is the one that reads as the default. */
+.ab-chat-review-btn.is-keep {
+  color: var(--foreground);
+}
+.ab-chat-review-failure {
+  margin-top: 4px;
+  font-size: var(--text-meta-lg);
+  color: var(--danger);
 }
 
 .ab-composer {

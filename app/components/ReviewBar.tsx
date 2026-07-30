@@ -1,6 +1,6 @@
 "use client";
 
-import type { PageReview } from "@/app/lib/ai/review/session";
+import { pendingHunks } from "@/app/lib/ai/review/session";
 import { useOpenReviews, useReview, useReviewFailure } from "./ReviewContext";
 
 /**
@@ -25,10 +25,10 @@ export function ReviewBar() {
   // question about the same paragraph is the ordinary case — so a bar that spoke
   // only for the newest turn would leave the earlier ones with no way to be
   // answered at all.
-  const hunks = open.flatMap((turn) => turn.pages.flatMap(unanswered));
+  const hunks = open.flatMap((turn) => turn.pages.flatMap(pendingHunks));
   const pages = new Set(
     open.flatMap((turn) =>
-      turn.pages.filter((page) => unanswered(page).length).map((page) => page.pageId),
+      turn.pages.filter((page) => pendingHunks(page).length).map((page) => page.pageId),
     ),
   ).size;
   const oldest = open[0];
@@ -77,8 +77,4 @@ export function ReviewBar() {
       {failure && <span className="ab-review-failure">{failure}</span>}
     </div>
   );
-}
-
-function unanswered(page: PageReview) {
-  return page.hunks.filter((hunk) => (page.status[hunk.id] ?? "pending") === "pending");
 }

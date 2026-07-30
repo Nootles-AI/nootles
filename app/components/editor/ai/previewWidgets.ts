@@ -27,6 +27,14 @@ export type PreviewNode = {
 };
 export type PreviewEdge = { source: string; target: string; label?: string };
 
+/**
+ * A block that needs drawing to be understood.
+ *
+ * Ordinary text is deliberately not in here. A paragraph or a list the
+ * completion would add is already legible as itself, and framing it in a
+ * preview box says "here is a rendering of some text" about something that was
+ * only ever text — it shows as ghost text instead, like any other prose.
+ */
 export type Preview =
   | { kind: "code"; language: string; code: string }
   | { kind: "math"; lines: string[] }
@@ -43,6 +51,11 @@ const GHOST_TAGS: Record<string, string> = {
   u: "u",
   s: "s",
   code: "code",
+  // Kept so a link in a deleted block still reads as one. No attributes are
+  // copied here — by design, and it means the href does not come with it, so
+  // what lands is an anchor that looks like a link and cannot be followed. That
+  // is the right thing for a block that is not in the document any more.
+  a: "a",
 };
 
 /**
@@ -93,6 +106,127 @@ export function renderInline(source: string, into: HTMLElement) {
   };
 
   walk(body, into);
+}
+
+/**
+ * A text block the document does not have yet. `html` is inline MARKUP, so a
+ * bold word or a piece of `code` previews as itself.
+ */
+export type GhostBlock = {
+  type: string;
+  level?: number;
+  checked?: boolean;
+  /** First number of a numbered run that does not begin at 1. */
+  start?: number;
+  html: string;
+  children?: GhostBlock[];
+};
+
+function div(className: string): HTMLElement {
+  const el = document.createElement("div");
+  if (className) el.className = className;
+  return el;
+}
+
+/**
+ * One block, wearing the editor's own class names.
+ *
+ * `index` is the number a numbered item shows. BlockNote reads it off
+ * `data-index` (via `--index: attr(data-index)`), which in the real document a
+ * plugin maintains — outside it, nobody does, and every item renders as a bare
+ * ".".
+ */
+function ghostBlock(block: GhostBlock, index?: number): HTMLElement {
+  const outer = div("bn-block-outer");
+  const inner = div("bn-block");
+  const content = div("bn-block-content");
+  content.dataset.contentType = block.type;
+  if (block.type === "heading") content.dataset.level = String(block.level ?? 2);
+  if (index !== undefined) content.dataset.index = String(index);
+
+  const inline = document.createElement("p");
+  inline.className = "bn-inline-content";
+  renderInline(block.html, inline);
+
+  if (block.type === "quote") {
+    const quote = document.createElement("blockquote");
+    quote.appendChild(inline);
+    content.appendChild(quote);
+  } else if (block.type === "checkListItem") {
+    const box = div("");
+    const tick = document.createElement("input");
+    tick.type = "checkbox";
+    tick.disabled = true;
+    tick.checked = !!block.checked;
+    box.appendChild(tick);
+    content.appendChild(box);
+    content.appendChild(inline);
+  } else {
+    content.appendChild(inline);
+  }
+
+  inner.appendChild(content);
+  if (block.children?.length) {
+    // Nested items sit in a group of their own, which is what the editor's
+    // stylesheet indents — so the outline steps in by the same amount it will
+    // once the suggestion is real.
+    const group = div("bn-block-group");
+    appendGhostBlocks(group, block.children);
+    inner.appendChild(group);
+  }
+  outer.appendChild(inner);
+  return outer;
+}
+
+function appendGhostBlocks(parent: HTMLElement, blocks: GhostBlock[]) {
+  // Numbered items count within their own run, and anything else between two of
+  // them starts the count again — the same thing the document would do. A run
+  // opens at its own `start` when it has one, so a list carrying on from 4
+  // previews as 4 rather than as a second list beginning at 1.
+  let ordinal = 0;
+  for (const block of blocks) {
+    if (block.type !== "numberedListItem") ordinal = 0;
+    else ordinal = ordinal ? ordinal + 1 : (block.start ?? 1);
+    parent.appendChild(ghostBlock(block, ordinal || undefined));
+  }
+}
+
+/**
+ * Whole blocks a completion would add, drawn the way the editor draws its own.
+ *
+ * Reusing the editor's class names rather than restyling by hand is the whole
+ * point: markers, indent and vertical rhythm all come from the stylesheet that
+ * will lay the blocks out for real, so the preview cannot drift from the result
+ * and accepting does not shift the page.
+ *
+ * NOT a `.bn-block-group` at the top — that class is what the editor indents
+ * when it is nested inside another, and the preview is not an indent.
+ */
+export function ghostBlocksElement(blocks: GhostBlock[], live = false): HTMLElement {
+  const wrap = div("ab-ghost-blocks");
+  wrap.contentEditable = "false";
+  appendGhostBlocks(wrap, blocks);
+  // The preview cursor, at the end of the last block drawn. A suggestion makes
+  // one promise — this is what you get, and this is where you will be — so it
+  // gets one cursor, and `caretTarget` lands the real one in the same place.
+  const lines = wrap.querySelectorAll("p.bn-inline-content");
+  const end = lines[lines.length - 1];
+  if (end) {
+    end.classList.add("ab-stream-head");
+    if (live) end.classList.add("is-live");
+  }
+  return wrap;
+}
+
+/** A signature that changes whenever the drawing would, for widget reuse keys. */
+export function ghostBlocksKey(blocks: GhostBlock[]): string {
+  return blocks
+    .map(
+      (b) =>
+        `${b.type}${b.level ?? ""}${b.start ?? ""}${b.checked ?? ""}:${b.html}` +
+        (b.children ? `(${ghostBlocksKey(b.children)})` : ""),
+    )
+    .join("|");
 }
 
 const SVG_NS = "http://www.w3.org/2000/svg";

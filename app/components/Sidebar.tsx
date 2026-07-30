@@ -8,6 +8,7 @@ import { Id } from "@/convex/_generated/dataModel";
 import { ArrowLeft, PanelLeft, Plus } from "./Icons";
 import { ConfirmDeleteDialog } from "./ConfirmDelete";
 import { Editable } from "./Editable";
+import { usePageChanges, type PageChange } from "./ReviewContext";
 
 type Props = {
   width: number;
@@ -26,6 +27,7 @@ export function Sidebar({
 }: Props) {
   const project = useQuery(api.projects.get, { projectId });
   const pages = useQuery(api.pages.listByProject, { projectId });
+  const changes = usePageChanges();
   const createPage = useMutation(api.pages.create);
   const renamePage = useMutation(api.pages.rename);
   const removePage = useMutation(api.pages.remove);
@@ -159,6 +161,7 @@ export function Sidebar({
                   }`}
                 >
                   <span className="ab-row-label">{pg.title || "Untitled"}</span>
+                  <ChangeCount change={changes.get(pg._id)} />
                 </button>
               )}
             </li>
@@ -196,6 +199,26 @@ export function Sidebar({
         />
       )}
     </aside>
+  );
+}
+
+/**
+ * What the agent has done to a page that nobody has answered yet.
+ *
+ * Counted in blocks rather than lines, because a block is what the review can
+ * actually keep or discard. Sits beside the title rather than replacing it: it
+ * is a reason to open the page, not the name of one.
+ */
+function ChangeCount({ change }: { change: PageChange | undefined }) {
+  if (!change?.added && !change?.removed) return null;
+  return (
+    <span
+      className="ab-row-diff"
+      title={`${change.added} added, ${change.removed} removed, awaiting review`}
+    >
+      {change.added > 0 && <span className="ab-row-diff-add">+{change.added}</span>}
+      {change.removed > 0 && <span className="ab-row-diff-del">−{change.removed}</span>}
+    </span>
   );
 }
 

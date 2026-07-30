@@ -14,7 +14,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useOpenPage } from "@/app/components/OpenPageContext";
 import { useEditorRegistry } from "@/app/components/editor/EditorRegistry";
-import { ReviewSession, type TurnReview } from "@/app/lib/ai/review/session";
+import { pendingHunks, ReviewSession, type TurnReview } from "@/app/lib/ai/review/session";
 
 const ReviewContext = createContext<ReviewSession | null>(null);
 
@@ -85,6 +85,36 @@ export function useOpenReviews(): readonly TurnReview[] {
   const session = useReview();
   const turns = useReviewTurns();
   return useMemo(() => turns.filter((turn) => session.isOpen(turn)), [turns, session]);
+}
+
+/** How much of a page is waiting to be answered, as a diff would count it. */
+export type PageChange = { added: number; removed: number };
+
+/**
+ * Unanswered changes per page.
+ *
+ * A rewritten block counts on both sides, because that is what it is: the block
+ * that was there goes, and a different one takes its place. A block that only
+ * moved counts on neither — nothing about the page's content would change if it
+ * were kept, and a page whose only pending change is a move shows no badge
+ * rather than a truthless "+0 −0".
+ */
+export function usePageChanges(): ReadonlyMap<Id<"pages">, PageChange> {
+  const open = useOpenReviews();
+  return useMemo(() => {
+    const counts = new Map<Id<"pages">, PageChange>();
+    for (const turn of open) {
+      for (const page of turn.pages) {
+        const at = counts.get(page.pageId) ?? { added: 0, removed: 0 };
+        for (const hunk of pendingHunks(page)) {
+          at.added += hunk.added.length + hunk.changed.length;
+          at.removed += hunk.removed.length + hunk.changed.length;
+        }
+        counts.set(page.pageId, at);
+      }
+    }
+    return counts;
+  }, [open]);
 }
 
 /** Why the last answer could not be given, if it could not. */

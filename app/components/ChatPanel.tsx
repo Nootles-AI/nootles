@@ -6,6 +6,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { ChevronsUpDown, PanelRight, Plus } from "./Icons";
 import { ChatComposer } from "./chat/ChatComposer";
+import { ChatReviewBar } from "./chat/ChatReviewBar";
 import { ChatTranscript, type RewindScope } from "./chat/ChatTranscript";
 import { ThreadPicker } from "./chat/ThreadPicker";
 import { useReview } from "./ReviewContext";
@@ -179,6 +180,10 @@ export function ChatPanel({
         onRewindCommit={(text) => void commitRewind(text)}
         error={chat.error}
       />
+
+      {/* Between the transcript and the box: it answers what you have just read,
+          and it is the last thing passed on the way to asking the next thing. */}
+      <ChatReviewBar threadId={threadId} />
 
       <ChatComposer
         disabled={!chat.ready}

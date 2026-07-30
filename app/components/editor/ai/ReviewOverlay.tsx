@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { getBlocksChangedByTransaction } from "@blocknote/core";
 import type { Transaction } from "prosemirror-state";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -29,11 +29,6 @@ export function ReviewOverlay({
 }) {
   const session = useReview();
   const pending = useOpenReviews();
-  const [expanded, setExpanded] = useState<ReadonlySet<string>>(EMPTY);
-
-  const expand = useCallback((runId: string) => {
-    setExpanded((prior) => new Set(prior).add(runId));
-  }, []);
 
   const answer = useCallback(
     (hunkId: string, verdict: "accepted" | "rejected") => {
@@ -75,8 +70,8 @@ export function ReviewOverlay({
           }),
         );
     });
-    return hunks.length ? { hunks, expanded, answer, expand } : null;
-  }, [pending, pageId, session, expanded, answer, expand]);
+    return hunks.length ? { hunks, answer } : null;
+  }, [pending, pageId, session, answer]);
 
   useEffect(() => {
     const view = editor.prosemirrorView;
@@ -119,7 +114,6 @@ export function ReviewOverlay({
   return null;
 }
 
-const EMPTY: ReadonlySet<string> = new Set();
 /** Change sources that are the user taking an edit back rather than making one. */
 const HISTORY: ReadonlySet<string> = new Set(["undo", "redo", "undo-redo"]);
 

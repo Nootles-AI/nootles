@@ -123,6 +123,52 @@ export type OpTrace = {
 
 export type ApplyResult = IdMap & { trace: OpTrace[] };
 
+type Wants = (block: AnyBlock) => boolean;
+
+const holdsText: Wants = (b) => Array.isArray(b.content);
+const holdsWords: Wants = (b) => Array.isArray(b.content) && b.content.length > 0;
+
+/** The last block in a subtree the caret could sit in. */
+function lastLeaf(block: AnyBlock, wants: Wants): string | undefined {
+  const children = block.children ?? [];
+  for (let i = children.length - 1; i >= 0; i--) {
+    const found = lastLeaf(children[i], wants);
+    if (found) return found;
+  }
+  return wants(block) ? (block.id as string) : undefined;
+}
+
+function lastProduced(result: ApplyResult, wants: Wants): string | undefined {
+  for (let i = result.trace.length - 1; i >= 0; i--) {
+    const produced = result.trace[i].produced;
+    if (!produced?.length) continue;
+    for (let j = produced.length - 1; j >= 0; j--) {
+      const found = lastLeaf(produced[j], wants);
+      if (found) return found;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Where the caret belongs once a batch has been applied: the end of the last
+ * block it actually wrote. Accepting a suggestion should leave you where you
+ * would be if you had typed it, and after a three-item list that is the end of
+ * item three.
+ *
+ * A block with WORDS in it is preferred over merely one that could hold them,
+ * because splicing a completion into the middle of a paragraph leaves the far
+ * half of that paragraph behind as an empty block at the end of the batch.
+ * Nothing draws it — it is the seam, not the suggestion — so landing the caret
+ * there reads as overshooting onto a blank line.
+ *
+ * `undefined` when the batch wrote nothing to sit in (a diagram, say), in which
+ * case the caret is better left alone.
+ */
+export function caretTarget(result: ApplyResult): string | undefined {
+  return lastProduced(result, holdsWords) ?? lastProduced(result, holdsText);
+}
+
 export function applyBatch(editor: Editor, batch: Batch): ApplyResult {
   const blockIds = new Map<string, string>();
   const shapeIds = new Map<string, string>();

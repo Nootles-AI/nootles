@@ -4,7 +4,7 @@ import { Decoration, DecorationSet, type EditorView } from "prosemirror-view";
 import type { HunkKind } from "@/app/lib/ai/review/hunks";
 import { tokenDiff } from "@/app/lib/ai/review/textDiff";
 import { anchorFor, seats, type Anchor, type Seat, type Where } from "@/app/lib/ai/review/undo";
-import { flattenBlocks, type AnyBlock } from "@/app/lib/ai/projection";
+import type { AnyBlock } from "@/app/lib/ai/projection";
 import { runsToHtml } from "@/app/lib/ai/html/serialize";
 import { previewElement, previewOf, renderInline } from "./previewWidgets";
 
@@ -44,10 +44,7 @@ export type ReviewHunk = {
 
 export type ReviewSpec = {
   hunks: ReviewHunk[];
-  /** Runs of deletions the user has asked to see in full. */
-  expanded: ReadonlySet<string>;
   answer: (hunkId: string, answer: "accepted" | "rejected") => void;
-  expand: (runId: string) => void;
 } | null;
 
 const META = "ab-review";
@@ -182,12 +179,10 @@ export function reviewDecorations(doc: Node, spec: NonNullable<ReviewSpec>): Dec
         const pos = anchorPos(anchor, at);
         if (pos === null) continue;
         const runId = `${hunk.id}:${run[0].id}`;
-        const open =
-          flattenBlocks(run).length <= COLLAPSE_ABOVE || spec.expanded.has(runId);
         decos.push(
-          Decoration.widget(pos, () => removedWidget(run, open, runId, spec), {
+          Decoration.widget(pos, () => removedWidget(run), {
             side: anchor?.placement === "before" ? -1 : 1,
-            key: `ab-review-gone-${runId}-${open ? "open" : "shut"}`,
+            key: `ab-review-gone-${runId}`,
             ...INERT,
           }),
         );
@@ -214,8 +209,6 @@ const INERT = {
   ignoreSelection: true,
   stopEvent: () => true,
 } as const;
-
-const COLLAPSE_ABOVE = 3;
 
 function blockMark(
   seat: Seated,
@@ -389,27 +382,18 @@ function goneBlock(block: AnyBlock): HTMLElement {
   return wrap;
 }
 
-function removedWidget(
-  run: AnyBlock[],
-  open: boolean,
-  runId: string,
-  spec: NonNullable<ReviewSpec>,
-): HTMLElement {
+/**
+ * Every deleted block, struck through where it stood.
+ *
+ * A run used to fold itself behind a count once it passed three blocks, on the
+ * grounds that a long deletion is a fact rather than something to read. But the
+ * question the review asks is whether to put this back, and a count cannot be
+ * answered — the one thing a reviewer needs is the words that would return.
+ */
+function removedWidget(run: AnyBlock[]): HTMLElement {
   const wrap = document.createElement("div");
   wrap.className = "ab-diff-removed";
   wrap.contentEditable = "false";
-
-  if (!open) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "ab-diff-collapsed";
-    // Everything that would come back, not just the tops of the subtrees.
-    button.textContent = `${flattenBlocks(run).length} blocks removed`;
-    button.addEventListener("click", () => spec.expand(runId));
-    wrap.appendChild(button);
-    return wrap;
-  }
-
   for (const block of run) wrap.appendChild(goneBlock(block));
   return wrap;
 }

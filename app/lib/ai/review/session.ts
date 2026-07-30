@@ -60,6 +60,18 @@ export type TurnReview = {
   pages: PageReview[];
 };
 
+/**
+ * The hunks on a page that nobody has answered.
+ *
+ * Shared because three surfaces count them — the bar under the document, the
+ * one in the chat, and the badge on each page in the sidebar — and three
+ * private copies of "pending" would be three chances to disagree about what is
+ * still outstanding.
+ */
+export function pendingHunks(page: PageReview): Hunk[] {
+  return page.hunks.filter((hunk) => (page.status[hunk.id] ?? "pending") === "pending");
+}
+
 /** Where a page stood before a rewind was previewed, so Cancel can return to it. */
 export type ReturnPoint = {
   pageId: Id<"pages">;

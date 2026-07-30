@@ -15,6 +15,7 @@ import { ArrowLeft, Paperclip } from "@/app/components/Icons";
 import { Menu, MenuItem } from "@/app/components/Menu";
 import type { PendingApproval } from "@/app/lib/ai/chat/BrowserChat";
 import type { AbMessage } from "@/app/lib/ai/chat/types";
+import { Markdown } from "./Markdown";
 
 /**
  * The conversation.
@@ -102,7 +103,13 @@ export function ChatTranscript({
           ) : (
           message.parts.map((part, i) => {
             if (part.type === "text") {
-              return (
+              // Only what the agent wrote is read as markdown. A question is
+              // shown as it was typed — someone who wrote an asterisk meant an
+              // asterisk, and reformatting their own words back at them is the
+              // one place this would be wrong.
+              return message.role === "assistant" ? (
+                <Markdown key={i} text={part.text} />
+              ) : (
                 <p key={i} className="ab-turn-text">
                   {part.text}
                 </p>
@@ -133,8 +140,19 @@ export function ChatTranscript({
               // not as a line claiming it is under way.
               if (part.state === "approval-requested") return null;
               const failed = part.state === "output-error";
+              // The step that is still running carries the pulse, because it is
+              // the one that knows what is happening: "Writing…" beside a live
+              // dot says more than "Thinking…" ever did, and there is only ever
+              // one of them on screen.
+              const running = isRunning(part);
               return (
-                <p key={i} className={`ab-turn-step${failed ? " is-failed" : ""}`}>
+                <p
+                  key={i}
+                  className={`ab-turn-step${failed ? " is-failed" : ""}${
+                    running ? " is-running" : ""
+                  }`}
+                >
+                  {running && <span className="ab-thinking-dot" aria-hidden />}
                   {stepLine(part)}
                 </p>
               );
@@ -158,7 +176,16 @@ export function ChatTranscript({
           onAnswer={onAnswerApproval}
         />
       ) : (
-        busy && <div className="ab-turn-pending">Thinking…</div>
+        // Only when nothing else is already saying what is happening. A step
+        // still running says it better, and both at once read as two things
+        // going on when there is one.
+        busy &&
+        !messages[messages.length - 1]?.parts.some(isRunning) && (
+          <div className="ab-turn-pending" role="status">
+            <span className="ab-thinking-dot" aria-hidden />
+            Thinking…
+          </div>
+        )
       )}
       {error && <div className="ab-turn-error">{error.message}</div>}
       <div ref={endRef} />
@@ -406,6 +433,27 @@ const STEPS: Record<string, { doing: string; failed: string }> = {
  * labels — what the agent did, never the arguments it did it with. A JSON dump
  * is noise to everyone except the person debugging the prompt.
  */
+/**
+ * States in which a step is still going, and its line therefore ends in "…".
+ *
+ * Named rather than derived from "not finished": `approval-requested` is a
+ * question waiting on the user, which is not the agent working, and a spinner
+ * against it would say the opposite of what is true.
+ */
+const RUNNING: ReadonlySet<string> = new Set([
+  "input-streaming",
+  "input-available",
+  "approval-responded",
+]);
+
+/** Whether this part is a tool call that has not finished yet. */
+function isRunning(part: AbMessage["parts"][number]): boolean {
+  // An approval that was refused is settled, whatever its state still reads as.
+  return (
+    isToolUIPart(part) && RUNNING.has(part.state) && part.approval?.approved !== false
+  );
+}
+
 function stepLine(part: ToolUIPart | DynamicToolUIPart): string {
   const name = getToolName(part);
   const step = STEPS[name];

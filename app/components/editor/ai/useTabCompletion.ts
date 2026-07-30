@@ -8,13 +8,15 @@ import { Id } from "@/convex/_generated/dataModel";
 import { AI } from "@/app/lib/ai/aiConfig";
 import { project, type AnyBlock } from "@/app/lib/ai/projection";
 import { resolveBatch, warnRejected } from "@/app/lib/ai/validate";
-import { applyBatch } from "@/app/lib/ai/apply";
+import { applyBatch, caretTarget } from "@/app/lib/ai/apply";
 import {
   toDocHtml,
   toDocHtmlSplit,
   runsToHtmlFromRuns,
 } from "@/app/lib/ai/html/serialize";
 import { parseDocHtml } from "@/app/lib/ai/html/parse";
+import { asListItems } from "@/app/lib/ai/html/listify";
+import type { DocNode } from "@/app/lib/ai/html/grammar";
 import { compileDocHtml, layoutDiagram } from "@/app/lib/ai/html/compile";
 import { INLINE_TAGS, grounding, type Run } from "@/app/lib/ai/html/grammar";
 import type { Batch } from "@/convex/ai/operations";
@@ -26,6 +28,7 @@ import {
   setActionApplyHandler,
   type Preview,
 } from "./ghostText";
+import type { GhostBlock } from "./previewWidgets";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Editor = BlockNoteEditor<any, any, any>;
@@ -184,6 +187,7 @@ function partialPreview(acc: string): { label: string; preview?: Preview } | nul
     if (!table.rows.length) return { label: "Insert table" };
     return { label: "Insert table", preview: tablePreview(table.header, table.rows) };
   }
+  // Whatever is left is text, and text is shown as text.
   return null;
 }
 
@@ -206,8 +210,11 @@ function previewSignature(acc: string): string {
   return `${proseTail(acc)}:${closed}:${edges}:${acc.length >> 5}`;
 }
 
-/** Human label + preview for whatever the completion turned out to be. */
-function describe(batch: Batch): { label: string; preview?: Preview } {
+/**
+ * Human label + preview for whatever the completion turned out to be, or null
+ * when the only honest answer would be a generic one.
+ */
+function describe(batch: Batch): { label: string; preview?: Preview } | null {
   for (const op of batch.ops) {
     if (op.kind !== "insertBlocks") continue;
     const block = op.blocks[0];
@@ -267,9 +274,50 @@ function describe(batch: Batch): { label: string; preview?: Preview } {
           : {}),
       };
     }
-    if (block.type === "heading") return { label: "Insert heading" };
+    if (block.type === "heading") return null;
   }
-  return { label: "Apply suggestion" };
+  // Ordinary text is described from the markup instead — see `textFromMarkup`.
+  return null;
+}
+
+/**
+ * A text-only completion as the blocks it will become.
+ *
+ * Blocks that are only text get no preview chrome and no chip: they are already
+ * legible as themselves, so they are drawn as themselves, below the caret's line
+ * where accepting will put them.
+ *
+ * Takes the nodes the completion authored, read in their place in the document
+ * — see `authored`. Built from the PARSED completion rather than the compiled batch, because the
+ * two carry inline marks differently — the batch says `marks: ["bold"]` while
+ * `runsToHtml` reads `styles: { bold: true }`, so serialising the batch quietly
+ * returns the words with every mark and every equation stripped. It type-checks
+ * either way; `content` is `unknown` on that path.
+ */
+function blocksFromMarkup(nodes: DocNode[]): GhostBlock[] {
+  const convert = (list: DocNode[]): GhostBlock[] =>
+    list.flatMap((node) => {
+      if (!("content" in node)) return [];
+      const html = runsToHtmlFromRuns(node.content ?? []);
+      const children =
+        "children" in node && node.children?.length ? convert(node.children) : [];
+      // An empty paragraph is the seam left by splicing into the middle of a
+      // block, not something the completion wrote. Drawing it would put a blank
+      // row in the preview and, worse, disagree with `caretTarget`, which lands
+      // the caret in the last block that actually has words in it.
+      if (node.type === "paragraph" && !html.trim() && !children.length) return [];
+      return [
+        {
+          type: node.type,
+          ...(node.level !== undefined ? { level: node.level } : {}),
+          ...(node.checked !== undefined ? { checked: node.checked } : {}),
+          ...(node.start !== undefined ? { start: node.start } : {}),
+          html,
+          ...(children.length ? { children } : {}),
+        },
+      ];
+    });
+  return convert(nodes);
 }
 
 /**
@@ -324,7 +372,8 @@ export function useTabCompletion(
     setActionApplyHandler((batch) => {
       const s = shown;
       shown = null;
-      applyBatch(editor, batch);
+      const target = caretTarget(applyBatch(editor, batch));
+      if (target) editor.setTextCursorPosition(target, "end");
       if (!pageId) return;
       defer(() => {
         void appendRef
@@ -378,6 +427,32 @@ export function useTabCompletion(
       const started = performance.now();
 
       const limits = AI.modes[mode];
+      // How many blocks stand before the caret. Whatever the parse returns past
+      // this is what the completion added, read in its place in the document —
+      // a bare `<li>` cannot say which kind of list it belongs to on its own.
+      const written = parseDocHtml(ctx.prefix).length;
+      // The caret's own block included: the completion writes into it too, and
+      // it is the block a "1." the user just typed is sitting in.
+      const from = Math.max(0, written - 1);
+      /**
+       * The completion's own blocks, normalized the way typing them would be.
+       * Bounded at `end` — the document carries on past the caret, and rewriting
+       * a list marker in a paragraph further down the page would be an edit
+       * nobody asked for.
+       */
+      const authored = (nodes: DocNode[], end: number): DocNode[] => [
+        ...nodes.slice(0, from),
+        ...asListItems(nodes.slice(from, end)),
+        ...nodes.slice(end),
+      ];
+      const preview = (text: string) => {
+        try {
+          const nodes = parseDocHtml(ctx.prefix + text);
+          return blocksFromMarkup(authored(nodes, nodes.length).slice(written));
+        } catch {
+          return [];
+        }
+      };
       let acc = "";
       let raw = "";
       let lastSig = "";
@@ -412,13 +487,24 @@ export function useTabCompletion(
             if (sig !== lastSig) {
               lastSig = sig;
               const partial = partialPreview(acc);
-              setAction(
-                view(),
-                partial?.label ?? "Thinking",
-                null,
-                partial?.preview,
-                proseTail(acc),
-              );
+              if (partial?.preview) {
+                setAction(view(), {
+                  label: partial.label,
+                  batch: null,
+                  preview: partial.preview,
+                  tail: proseTail(acc),
+                });
+              } else if (!partial) {
+                // Text so far: the words are the whole of it. A block whose tag
+                // has arrived but whose contents have not shows nothing yet —
+                // a chip standing in for it would be an offer with nothing to
+                // read, which is what the finished version is not allowed to
+                // make either.
+                const blocks = preview(acc);
+                if (blocks.length) {
+                  setAction(view(), { batch: null, tail: proseTail(acc), blocks });
+                }
+              }
             }
           } else {
             if (!headLitAt) headLitAt = performance.now();
@@ -483,7 +569,8 @@ export function useTabCompletion(
       // includes prose carrying only inline marks — it does not open a block, but
       // `<strong>` still has to become bold rather than five literal characters.
       try {
-        const next = parseDocHtml(ctx.prefix + acc + ctx.suffix);
+        const ends = parseDocHtml(ctx.prefix + acc).length;
+        const next = authored(parseDocHtml(ctx.prefix + acc + ctx.suffix), ends);
         const current = parseDocHtml(toDocHtml(ctx.blocks));
         const batch = compileDocHtml(next, {
           current,
@@ -501,12 +588,31 @@ export function useTabCompletion(
           // no preview — but Tab applies the compiled batch, so the marks land.
           shown = { kind: "prose+marks", latencyMs: elapsed(started) };
           // Raw markup: the tail renders it, and Tab applies the batch.
-          setAction(view(), "Apply suggestion", resolved.batch, undefined, acc);
+          setAction(view(), { batch: resolved.batch, tail: acc });
           return;
         }
-        const { label, preview } = describe(resolved.batch);
-        shown = { kind: label, latencyMs: elapsed(started) };
-        setAction(view(), label, resolved.batch, preview, proseTail(acc));
+        // Blocks with chrome of their own are described from the batch, whose
+        // positions are the ones the applier will use.
+        const described = describe(resolved.batch);
+        if (described?.preview) {
+          shown = { kind: described.label, latencyMs: elapsed(started) };
+          setAction(view(), {
+            label: described.label,
+            batch: resolved.batch,
+            preview: described.preview,
+            tail: proseTail(acc),
+          });
+          return;
+        }
+        // Everything else is text. It shows as ghost text at the caret, and Tab
+        // applies the batch — so the structure still lands, the reader just is
+        // not shown a rendering of some words they can already read. Nothing to
+        // show at all means nothing to offer: a Tab that does something
+        // unannounced is what the rule exists to prevent.
+        const blocks = preview(acc);
+        if (!blocks.length) return clear();
+        shown = { kind: "text", latencyMs: elapsed(started) };
+        setAction(view(), { batch: resolved.batch, tail: proseTail(acc), blocks });
       } catch {
         clear();
       }

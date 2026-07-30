@@ -160,7 +160,7 @@ export function SubstrateHarness({
           refresh();
           setOpen(true);
         }}
-        className="fixed bottom-4 right-4 z-50 rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-muted shadow-sm hover:text-foreground"
+        className="fixed bottom-4 left-4 z-50 rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-muted shadow-sm hover:text-foreground"
         title="AI substrate harness (dev)"
       >
         substrate
@@ -169,7 +169,7 @@ export function SubstrateHarness({
   }
 
   return (
-    <div className="fixed bottom-4 right-4 z-50 flex max-h-[80vh] w-[460px] flex-col overflow-hidden rounded-lg border border-border bg-background shadow-xl">
+    <div className="fixed bottom-4 left-4 z-50 flex max-h-[80vh] w-[460px] flex-col overflow-hidden rounded-lg border border-border bg-background shadow-xl">
       <div className="flex items-center justify-between border-b border-border px-3 py-2">
         <span className="text-xs font-semibold tracking-tight">AI substrate harness</span>
         <button
