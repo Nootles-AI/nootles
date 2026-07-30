@@ -4,15 +4,15 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { getBlocksChangedByTransaction } from "@blocknote/core";
 import type { Transaction } from "prosemirror-state";
 import type { Id } from "@/convex/_generated/dataModel";
-import { useReview, useReviewTurns } from "@/app/components/ReviewContext";
+import { useOpenReviews, useReview } from "@/app/components/ReviewContext";
 import type { LiveEditor } from "@/app/components/editor/EditorRegistry";
 import { isReviewWriting } from "@/app/lib/ai/review/attribution";
-import type { TurnReview } from "@/app/lib/ai/review/session";
 import { setReview, type ReviewHunk, type ReviewSpec } from "./reviewDecorations";
 
 /**
- * The face of the review pipeline: what the agent changed, drawn where it
- * changed it, and a way to say yes or no to any of it.
+ * The review as this page shows it: what the agent changed, drawn where it
+ * changed it, and a way to say yes or no to any of it. The whole-turn answer
+ * lives in `ReviewBar`, which outlives this page.
  *
  * The document is never locked while this is up. People read a change by
  * editing it, and a review that forbade that would be a modal dialog wearing a
@@ -28,32 +28,20 @@ export function ReviewOverlay({
   pageId: Id<"pages">;
 }) {
   const session = useReview();
-  const turns = useReviewTurns();
+  const pending = useOpenReviews();
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(EMPTY);
-  const [failure, setFailure] = useState<string | null>(null);
-
-  // Which turns are open is the session's judgement, not the row's: a stored
-  // "streaming" outlives the turn it described whenever the effect that ends it
-  // never ran, and read literally it hides this bar for good.
-  const pending = useMemo(
-    () => turns.filter((turn) => session.isOpen(turn)),
-    [turns, session],
-  );
 
   const expand = useCallback((runId: string) => {
     setExpanded((prior) => new Set(prior).add(runId));
   }, []);
 
-  const run = useCallback((work: Promise<unknown>) => {
-    setFailure(null);
-    void work.catch((e: Error) => setFailure(e.message));
-  }, []);
-
   const answer = useCallback(
     (hunkId: string, verdict: "accepted" | "rejected") => {
-      run(verdict === "accepted" ? session.accept(hunkId) : session.reject(hunkId));
+      session.answer(
+        verdict === "accepted" ? session.accept(hunkId) : session.reject(hunkId),
+      );
     },
-    [run, session],
+    [session],
   );
 
   // Drawn once the set can be answered, not while it is still growing. A hunk
@@ -128,93 +116,7 @@ export function ReviewOverlay({
     return () => void tiptap.off("update", onUpdate);
   }, [editor, session, pageId]);
 
-  if (!pending.length) return null;
-  // One bar for everything unanswered, and the buttons take all of it. Changes
-  // stack — asking a second question about the same paragraph is the ordinary
-  // case — so a bar that spoke only for the newest turn would leave the earlier
-  // ones with no way to be answered at all.
-  const oldest = pending[0];
-  // Up from the first change rather than at the end of the turn. The edits are
-  // applied for real as they are made, so withholding the bar until the agent
-  // stops talking leaves the document visibly rewritten with nothing on screen
-  // to answer it — which reads as the bar being late, or missing.
-  const writing = pending.some((turn) => session.isWriting(turn.chatPromptId));
-  return (
-    <ReviewBar
-      turns={pending}
-      writing={writing}
-      failure={failure}
-      onKeep={() => run(session.acceptAll())}
-      onDiscard={() => run(session.rejectAll())}
-      onRevert={() => run(session.revertTurn(oldest.chatPromptId))}
-    />
-  );
-}
-
-/**
- * One bar for the whole turn, at the foot of the window rather than beside the
- * text — it is a control for the SET of changes, the same distinction the
- * reformat switcher draws, and it stays neutral for the same reason: the colour
- * on this screen belongs to the diff.
- */
-function ReviewBar({
-  turns,
-  writing,
-  failure,
-  onKeep,
-  onDiscard,
-  onRevert,
-}: {
-  turns: TurnReview[];
-  /** The agent is still editing into this set, so it is not answerable yet. */
-  writing: boolean;
-  failure: string | null;
-  onKeep: () => void;
-  onDiscard: () => void;
-  onRevert: () => void;
-}) {
-  const isOpen = (page: TurnReview["pages"][number]) =>
-    page.hunks.filter((h) => (page.status[h.id] ?? "pending") === "pending");
-  const open = turns.flatMap((turn) => turn.pages.flatMap(isOpen));
-  const pages = new Set(
-    turns.flatMap((turn) =>
-      turn.pages.filter((page) => isOpen(page).length).map((page) => page.pageId),
-    ),
-  ).size;
-
-  return (
-    <div className="ab-review-bar" style={{ zIndex: "var(--z-sticky)" }} role="status">
-      <span className="ab-review-count">
-        {open.length} change{open.length === 1 ? "" : "s"}
-        {pages > 1 ? ` · ${pages} pages` : ""}
-        {turns.length > 1 ? ` · ${turns.length} messages` : ""}
-      </span>
-      <span className="ab-review-sep" aria-hidden />
-      {/* A hunk the agent is still growing can be regrouped, and regrouped it
-          has a different id — so it cannot honestly be answered yet. The bar
-          says why instead of offering buttons that would quietly do nothing. */}
-      {writing ? (
-        <span className="ab-review-count">still writing…</span>
-      ) : (
-        <>
-          <button className="ab-review-action" onClick={onKeep}>
-            Keep all
-          </button>
-          <button className="ab-review-action" onClick={onDiscard}>
-            Discard all
-          </button>
-          <button
-            className="ab-review-action is-quiet"
-            onClick={onRevert}
-            title="Put the page back exactly as it was, including anything you have typed since"
-          >
-            Revert
-          </button>
-        </>
-      )}
-      {failure && <span className="ab-review-failure">{failure}</span>}
-    </div>
-  );
+  return null;
 }
 
 const EMPTY: ReadonlySet<string> = new Set();

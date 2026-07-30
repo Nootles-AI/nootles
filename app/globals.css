@@ -1031,8 +1031,9 @@ a.ab-chip:hover {
 }
 /* Both bars live at the foot of the window and both can be up at once. The
    review is the standing question, so it keeps the spot and the transient one
-   steps above it. */
-.ab-review-bar ~ .ab-reformat-switcher {
+   steps above it. Matched from the body because the two are no longer siblings:
+   the review bar belongs to the project, the switcher to the page. */
+body:has(.ab-review-bar) .ab-reformat-switcher {
   bottom: 66px;
 }
 .ab-review-count {

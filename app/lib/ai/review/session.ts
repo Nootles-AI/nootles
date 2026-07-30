@@ -87,6 +87,15 @@ export class ReviewSession {
   /** The turn the loop is still writing, as opposed to the one it wrote last. */
   private writing: string | null = null;
   /**
+   * Why the last answer could not be given.
+   *
+   * Here rather than in the bar that shows it because the two places an answer
+   * comes from are in different parts of the tree — the per-hunk buttons are
+   * drawn into the document, the whole-turn ones live above the workspace — and
+   * there is one place on screen to report either of them failing.
+   */
+  private failure: string | null = null;
+  /**
    * Blocks the user has rewritten by hand since a turn staged them, per turn and
    * page. Deliberately outside `TurnReview`: it is written on keystrokes, and
    * every path that rebuilds a turn does so across an await, so anything living
@@ -116,6 +125,14 @@ export class ReviewSession {
   };
 
   getSnapshot = (): readonly TurnReview[] => this.turns;
+
+  getFailure = (): string | null => this.failure;
+
+  /** Gives an answer, and holds on to why if it could not be given. */
+  answer(work: Promise<unknown>) {
+    this.setFailure(null);
+    void work.catch((e: Error) => this.setFailure(e.message));
+  }
 
   /** The turn edits will stage into. Nothing is written until one arrives. */
   beginTurn(turn: { threadId: Id<"chatThreads">; projectId: Id<"projects">; chatPromptId: string }) {
@@ -473,6 +490,21 @@ export class ReviewSession {
 
   private emit(turns: TurnReview[]) {
     this.turns = turns;
+    // A failure is about an attempt to answer something. Once nothing is open it
+    // has no subject left, and the bar it would be shown in has gone — so held
+    // any longer it would be sitting there waiting to reappear over the next
+    // turn's changes, which it was never about.
+    if (this.failure && !turns.some((turn) => this.isOpen(turn))) this.failure = null;
+    this.notify();
+  }
+
+  private setFailure(message: string | null) {
+    if (this.failure === message) return;
+    this.failure = message;
+    this.notify();
+  }
+
+  private notify() {
     for (const listener of this.listeners) listener();
   }
 

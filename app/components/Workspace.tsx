@@ -9,6 +9,7 @@ import { useOpenPage } from "./OpenPageContext";
 import { Sidebar } from "./Sidebar";
 import { PageSurface } from "./PageSurface";
 import { ChatPanel } from "./ChatPanel";
+import { ReviewBar } from "./ReviewBar";
 import { ResizeHandle } from "./ResizeHandle";
 import { PanelLeft, PanelRight } from "./Icons";
 
@@ -149,6 +150,10 @@ export function Workspace({ projectId }: { projectId: Id<"projects"> }) {
           expanded={openDrawer === "right"}
         />
       )}
+
+      {/* Here rather than under the editor: the changes it answers for can span
+          pages, and the agent opens pages on its own. */}
+      <ReviewBar />
 
       {openDrawer && (
         <>

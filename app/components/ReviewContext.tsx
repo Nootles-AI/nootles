@@ -4,6 +4,7 @@ import {
   createContext,
   useContext,
   useEffect,
+  useMemo,
   useState,
   useSyncExternalStore,
   type ReactNode,
@@ -70,5 +71,28 @@ export function useReviewTurns(): readonly TurnReview[] {
     session.subscribe,
     session.getSnapshot,
     session.getSnapshot,
+  );
+}
+
+/**
+ * The turns with changes nobody has answered yet.
+ *
+ * Which turns are open is the session's judgement, not the row's: a stored
+ * "streaming" outlives the turn it described whenever the effect that ends it
+ * never ran, and read literally it hides the review for good.
+ */
+export function useOpenReviews(): readonly TurnReview[] {
+  const session = useReview();
+  const turns = useReviewTurns();
+  return useMemo(() => turns.filter((turn) => session.isOpen(turn)), [turns, session]);
+}
+
+/** Why the last answer could not be given, if it could not. */
+export function useReviewFailure(): string | null {
+  const session = useReview();
+  return useSyncExternalStore(
+    session.subscribe,
+    session.getFailure,
+    session.getFailure,
   );
 }
