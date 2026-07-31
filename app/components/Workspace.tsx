@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
@@ -33,6 +33,23 @@ const COMPACT = "(max-width: 1023px)";
    what "deselect" means — and the panels have to be in here, because a field in
    one takes focus off the canvas without meaning to leave it. */
 const CANVAS_SHELL = ".ab-canvas, .ab-lyr, .ab-style-panel, .ab-toolbar";
+
+/* Room left above a diagram too tall to centre. */
+const REVEAL_TOP = 24;
+/* Under this, the scroll is not worth the motion. */
+const REVEAL_SLOP = 8;
+
+/* The nearest ancestor that actually scrolls. The page column is the usual
+   answer, but the editor nests a scroller of its own, so the question is asked
+   of the tree rather than assumed. */
+function scrollParent(el: HTMLElement): HTMLElement | null {
+  for (let p = el.parentElement; p; p = p.parentElement) {
+    const overflow = getComputedStyle(p).overflowY;
+    const scrolls = overflow === "auto" || overflow === "scroll";
+    if (scrolls && p.scrollHeight > p.clientHeight) return p;
+  }
+  return null;
+}
 
 export function Workspace({ projectId }: { projectId: Id<"projects"> }) {
   const { selected, open } = useOpenPage();
@@ -98,6 +115,86 @@ export function Workspace({ projectId }: { projectId: Id<"projects"> }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [openDrawer]);
 
+  /* Whether a pointer is down anywhere. Read by the centring below, which must
+     not move the page while one is. */
+  const pressed = useRef(false);
+  useEffect(() => {
+    const down = () => (pressed.current = true);
+    const up = () => (pressed.current = false);
+    window.addEventListener("pointerdown", down, true);
+    window.addEventListener("pointerup", up, true);
+    window.addEventListener("pointercancel", up, true);
+    return () => {
+      window.removeEventListener("pointerdown", down, true);
+      window.removeEventListener("pointerup", up, true);
+      window.removeEventListener("pointercancel", up, true);
+    };
+  }, []);
+
+  /**
+   * Entering a diagram brings it to the middle of the column.
+   *
+   * A canvas is usually half past the fold when you click into it, and
+   * everything around it reorients at that moment — both rails turn over to it
+   * and the toolbar comes to its edge. The diagram should be the thing you are
+   * looking at when they do.
+   *
+   * Keyed on the block, not on `canvas`: that object is rebuilt whenever the
+   * api changes, which includes picking a different tool, and re-centring the
+   * page under someone who just pressed R would be its own kind of rude.
+   */
+  const activeCanvasId = canvas?.blockId ?? null;
+  const activeCanvas = canvas?.api.viewport.containerRef;
+  useEffect(() => {
+    const el = activeCanvas?.current;
+    if (!activeCanvasId || !el) return;
+
+    const centre = () => {
+      const scroller = scrollParent(el);
+      if (!scroller) return;
+      const box = el.getBoundingClientRect();
+      const view = scroller.getBoundingClientRect();
+      // Centre what fits, and show the top of what does not: a diagram cropped
+      // at both ends is worse than one that starts where you can see it.
+      const offset = Math.max(REVEAL_TOP, (view.height - box.height) / 2);
+      const top = scroller.scrollTop + (box.top - view.top) - offset;
+      if (Math.abs(top - scroller.scrollTop) < REVEAL_SLOP) return;
+      scroller.scrollTo({
+        top,
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+          ? "auto"
+          : "smooth",
+      });
+    };
+
+    // A block claims the shell on pointer-DOWN, so the press that opened this
+    // canvas may still be the start of a drag on it — and the canvas measures
+    // some drags in scene coordinates, which move when the page does. Scrolling
+    // under a live drag would pull the shape out from under the cursor, so the
+    // centring waits for the release. Activation from focus or the keyboard has
+    // no press to wait for and lands at once.
+    if (!pressed.current) {
+      centre();
+      return;
+    }
+    // The first release only, whichever kind it is — this canvas stays active
+    // long after it, and every later click in the panels is a release too.
+    let done = false;
+    const onRelease = () => {
+      if (done) return;
+      done = true;
+      stop();
+      centre();
+    };
+    const stop = () => {
+      window.removeEventListener("pointerup", onRelease, true);
+      window.removeEventListener("pointercancel", onRelease, true);
+    };
+    window.addEventListener("pointerup", onRelease, true);
+    window.addEventListener("pointercancel", onRelease, true);
+    return stop;
+  }, [activeCanvasId, activeCanvas]);
+
   const onResizeLeft = useCallback(
     (clientX: number) => setLeftWidth(clamp(clientX, LEFT.min, LEFT.max)),
     [],
@@ -149,7 +246,7 @@ export function Workspace({ projectId }: { projectId: Id<"projects"> }) {
         {canvasPanels ? (
           <>
             <aside
-              className="ab-panel"
+              className="ab-panel ab-rail-l"
               style={{ width: leftWidth }}
               aria-label="Layers"
             >
@@ -269,9 +366,7 @@ function EdgeRail({
   expanded: boolean;
 }) {
   return (
-    <div
-      className="flex h-full shrink-0 flex-col bg-surface p-2"
-    >
+    <div className="flex h-full shrink-0 flex-col bg-surface p-2">
       <button
         onClick={onClick}
         aria-label={label}

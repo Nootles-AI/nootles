@@ -71,7 +71,7 @@ export function Sidebar({
   };
 
   return (
-    <aside style={{ width }} className="ab-panel" aria-label="Pages">
+    <aside style={{ width }} className="ab-panel ab-rail-l" aria-label="Pages">
       {/* Back to the project list, the way a docs app returns to your files —
           there is no project switcher here because the route is the project. */}
       <div className="ab-panel-head">

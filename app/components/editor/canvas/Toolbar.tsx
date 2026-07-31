@@ -1,23 +1,32 @@
 "use client";
 
 /**
- * The canvas toolbar — at the foot of the window, not inside the block.
+ * The canvas toolbar — floating over the diagram it serves.
  *
- * A canvas block is 600px of a document column; a toolbar drawn inside one
- * would sit on top of the diagram it is meant to serve. So it lives where the
- * review bar lives, speaks for whichever canvas is being edited, and stands
- * down while a review is open — two bars asking for the same corner is one
- * bar too many, and the unanswered question outranks the tool palette.
+ * It is not inside the block: a canvas block is 600px of a document column, and
+ * the panels it belongs with are the window's. So it is a fixed pill that
+ * *tracks* the canvas instead, and it stands down while a review is open — two
+ * bars asking for the same corner is one bar too many, and the unanswered
+ * question outranks the tool palette.
  *
  * It takes the stores rather than values: the zoom readout and the undo state
  * subscribe here, so a pan re-renders this pill and nothing else.
  */
 
-import { useSyncExternalStore, type ReactNode } from "react";
+import {
+  useLayoutEffect,
+  useRef,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
 import { Check, FountainPen } from "@/app/components/Icons";
 import { Menu, MenuItem } from "@/app/components/Menu";
 import { Tooltip } from "@/app/components/Tooltip";
-import { isSnapEnabled, setSnapEnabled, subscribe as subscribeSnap } from "./engine/snapping";
+import {
+  isSnapEnabled,
+  setSnapEnabled,
+  subscribe as subscribeSnap,
+} from "./engine/snapping";
 import { useSceneHistory, type SceneStore } from "./engine/useScene";
 import {
   SHORTCUTS_BY_ID,
@@ -26,10 +35,7 @@ import {
   type CanvasTool,
   type ShortcutId,
 } from "./engine/shortcuts";
-import {
-  useViewportValue,
-  type ViewportController,
-} from "./engine/useViewport";
+import { useViewportValue, type ViewportController } from "./engine/useViewport";
 import { absoluteSelectionBounds } from "./scene/geometry";
 import "./canvas.css";
 
@@ -141,6 +147,87 @@ const ZOOM_STEP = 1.25;
 const neverChanges = () => () => {};
 const notApple = () => false;
 
+/** Clear of the canvas's own bottom grip, which is a 10px strip. */
+const CANVAS_GAP = 14;
+/** The lowest the pill may sit in the window — where it used to be pinned. */
+const WINDOW_FLOOR = 20;
+/** Keeps it off the window edge on a canvas wider than the viewport. */
+const EDGE = 8;
+
+/**
+ * Follows the canvas rather than the window.
+ *
+ * Three rules, in the order they bind. The pill wants to float just inside the
+ * canvas's bottom edge. It may not sit lower in the window than `WINDOW_FLOOR`,
+ * so on a diagram taller than the fold it stays put while the page scrolls
+ * under it. And it may not rise above the canvas's own top edge, so scrolling
+ * past the diagram takes the toolbar with it instead of leaving it hovering
+ * over prose it has nothing to do with.
+ *
+ * Written straight to the element. A pill that re-rendered on every scroll
+ * frame would be the most expensive thing on the page.
+ *
+ * `top`/`left` rather than a transform, deliberately. A transform — and
+ * `will-change: transform` with it — makes the element a containing block for
+ * its fixed descendants, and the zoom menu, the settings menu and every
+ * tooltip in the pill are `position: fixed` and rendered inline. Under a
+ * transformed dock they would anchor to the pill instead of to the window.
+ */
+function useDock(viewport: ViewportController) {
+  const dock = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    const el = dock.current;
+    const canvas = viewport.containerRef.current;
+    if (!el || !canvas) return;
+
+    let frame = 0;
+
+    const place = () => {
+      frame = 0;
+      const r = canvas.getBoundingClientRect();
+      const w = el.offsetWidth;
+      const h = el.offsetHeight;
+
+      const left = Math.min(
+        Math.max(EDGE, r.left + (r.width - w) / 2),
+        window.innerWidth - w - EDGE,
+      );
+      const inCanvas = r.bottom - CANVAS_GAP - h;
+      const floor = window.innerHeight - WINDOW_FLOOR - h;
+      const top = Math.max(r.top + CANVAS_GAP, Math.min(inCanvas, floor));
+
+      el.style.left = `${Math.round(left)}px`;
+      el.style.top = `${Math.round(top)}px`;
+      el.style.visibility = "visible";
+    };
+
+    const schedule = () => {
+      if (frame === 0) frame = requestAnimationFrame(place);
+    };
+
+    place();
+    // Captured: the page column scrolls, not the window, and a scroll event
+    // does not bubble.
+    window.addEventListener("scroll", schedule, true);
+    window.addEventListener("resize", schedule);
+    // The canvas resizes by grip and by the rails opening; the pill's own width
+    // changes when the zoom readout gains a digit.
+    const observer = new ResizeObserver(schedule);
+    observer.observe(canvas);
+    observer.observe(el);
+
+    return () => {
+      if (frame) cancelAnimationFrame(frame);
+      window.removeEventListener("scroll", schedule, true);
+      window.removeEventListener("resize", schedule);
+      observer.disconnect();
+    };
+  }, [viewport]);
+
+  return dock;
+}
+
 function Button({
   label,
   hint,
@@ -185,6 +272,7 @@ export interface ToolbarProps {
 export function Toolbar({ store, viewport, tool, onTool }: ToolbarProps) {
   const { zoom } = useViewportValue(viewport);
   const { canUndo, canRedo } = useSceneHistory(store);
+  const dock = useDock(viewport);
 
   // `navigator` does not exist on the server, and a glyph that differed between
   // the two renders would be a hydration mismatch. Read as an external value,
@@ -201,131 +289,136 @@ export function Toolbar({ store, viewport, tool, onTool }: ToolbarProps) {
   const fit = () => {
     const scene = store.getScene();
     const bounds = scene.nodes.length
-      ? absoluteSelectionBounds(scene, scene.nodes.map((node) => node.id))
+      ? absoluteSelectionBounds(
+          scene,
+          scene.nodes.map((node) => node.id),
+        )
       : { x: 0, y: 0, w: scene.w, h: scene.h };
     if (bounds.w > 0 && bounds.h > 0) viewport.zoomToFit(bounds);
   };
 
   return (
-    <div className="ab-toolbar" role="toolbar" aria-label="Canvas">
-      {TOOLS.map(({ tool: id, id: shortcut, icon }) => (
+    <div ref={dock} className="ab-toolbar-dock">
+      <div className="ab-toolbar" role="toolbar" aria-label="Canvas">
+        {TOOLS.map(({ tool: id, id: shortcut, icon }) => (
+          <Button
+            key={id}
+            label={SHORTCUTS_BY_ID[shortcut].label}
+            hint={hint(shortcut)}
+            pressed={tool === id}
+            onClick={() => onTool(id)}
+          >
+            {icon}
+          </Button>
+        ))}
+
+        <span className="ab-toolbar-sep" aria-hidden />
+
         <Button
-          key={id}
-          label={SHORTCUTS_BY_ID[shortcut].label}
-          hint={hint(shortcut)}
-          pressed={tool === id}
-          onClick={() => onTool(id)}
+          label="Undo"
+          hint={hint("edit.undo")}
+          disabled={!canUndo}
+          onClick={store.undo}
         >
-          {icon}
+          {UNDO}
         </Button>
-      ))}
+        <Button
+          label="Redo"
+          hint={hint("edit.redo")}
+          disabled={!canRedo}
+          onClick={store.redo}
+        >
+          {REDO}
+        </Button>
 
-      <span className="ab-toolbar-sep" aria-hidden />
+        <span className="ab-toolbar-sep" aria-hidden />
 
-      <Button
-        label="Undo"
-        hint={hint("edit.undo")}
-        disabled={!canUndo}
-        onClick={store.undo}
-      >
-        {UNDO}
-      </Button>
-      <Button
-        label="Redo"
-        hint={hint("edit.redo")}
-        disabled={!canRedo}
-        onClick={store.redo}
-      >
-        {REDO}
-      </Button>
+        <Menu
+          label="Zoom"
+          side="top"
+          align="end"
+          trigger={(props) => (
+            <Tooltip label="Zoom">
+              <button
+                type="button"
+                {...props}
+                className="ab-toolbar-zoom"
+                onPointerDown={(e) => e.preventDefault()}
+              >
+                {Math.round(zoom * 100)}%
+              </button>
+            </Tooltip>
+          )}
+        >
+          {(close) => {
+            const item = (id: ShortcutId, fn: () => void) => (
+              <MenuItem
+                onClick={() => {
+                  fn();
+                  close();
+                }}
+              >
+                {SHORTCUTS_BY_ID[id].label}
+                <span className="ml-auto pl-4 font-mono text-[11px] text-[var(--muted)]">
+                  {hint(id)}
+                </span>
+              </MenuItem>
+            );
+            return (
+              <>
+                {item("view.zoomIn", () => viewport.zoomBy(ZOOM_STEP))}
+                {item("view.zoomOut", () => viewport.zoomBy(1 / ZOOM_STEP))}
+                {item("view.zoomReset", viewport.resetZoom)}
+                {item("view.zoomFit", fit)}
+              </>
+            );
+          }}
+        </Menu>
 
-      <span className="ab-toolbar-sep" aria-hidden />
+        <span className="ab-toolbar-sep" aria-hidden />
 
-      <Menu
-        label="Zoom"
-        side="top"
-        align="end"
-        trigger={(props) => (
-          <Tooltip label="Zoom">
-            <button
-              type="button"
-              {...props}
-              className="ab-toolbar-zoom"
-              onPointerDown={(e) => e.preventDefault()}
-            >
-              {Math.round(zoom * 100)}%
-            </button>
-          </Tooltip>
-        )}
-      >
-        {(close) => {
-          const item = (id: ShortcutId, fn: () => void) => (
-            <MenuItem
-              onClick={() => {
-                fn();
-                close();
-              }}
-            >
-              {SHORTCUTS_BY_ID[id].label}
-              <span className="ml-auto pl-4 font-mono text-[11px] text-[var(--muted)]">
-                {hint(id)}
-              </span>
-            </MenuItem>
-          );
-          return (
-            <>
-              {item("view.zoomIn", () => viewport.zoomBy(ZOOM_STEP))}
-              {item("view.zoomOut", () => viewport.zoomBy(1 / ZOOM_STEP))}
-              {item("view.zoomReset", viewport.resetZoom)}
-              {item("view.zoomFit", fit)}
-            </>
-          );
-        }}
-      </Menu>
-
-      <span className="ab-toolbar-sep" aria-hidden />
-
-      <Menu
-        label="Canvas settings"
-        side="top"
-        align="end"
-        trigger={(props) => (
-          <Tooltip label="Settings">
-            <button
-              type="button"
-              {...props}
-              className="ab-toolbar-btn"
-              aria-label="Settings"
-              onPointerDown={(e) => e.preventDefault()}
-            >
-              {GEAR}
-            </button>
-          </Tooltip>
-        )}
-      >
-        {/* Left open on click: a toggle you cannot watch flip is a toggle you
+        <Menu
+          label="Canvas settings"
+          side="top"
+          align="end"
+          trigger={(props) => (
+            <Tooltip label="Settings">
+              <button
+                type="button"
+                {...props}
+                className="ab-toolbar-btn"
+                aria-label="Settings"
+                onPointerDown={(e) => e.preventDefault()}
+              >
+                {GEAR}
+              </button>
+            </Tooltip>
+          )}
+        >
+          {/* Left open on click: a toggle you cannot watch flip is a toggle you
             have to reopen the menu to read. The box is drawn in both states and
             always occupies the same square, so the row neither goes blank when
             snapping is off nor changes width as it flips. */}
-        {() => (
-          <MenuItem onClick={() => setSnapEnabled(!snap)}>
-            <span
-              aria-hidden
-              className={`flex size-3.5 shrink-0 items-center justify-center rounded-[var(--radius-sm)] border transition-colors ${
-                snap
-                  ? "border-[var(--foreground)] bg-[var(--foreground)] text-[var(--background)]"
-                  : "border-[var(--border-strong)]"
-              }`}
-            >
-              {snap && <Check width={10} height={10} />}
-            </span>
-            Snap to guides
-            {/* The state a screen reader gets, since `MenuItem` is a plain
+          {() => (
+            <MenuItem onClick={() => setSnapEnabled(!snap)}>
+              <span
+                aria-hidden
+                className={`flex size-3.5 shrink-0 items-center justify-center rounded-[var(--radius-sm)] border transition-colors ${
+                  snap
+                    ? "border-[var(--foreground)] bg-[var(--foreground)] text-[var(--background)]"
+                    : "border-[var(--border-strong)]"
+                }`}
+              >
+                {snap && <Check width={10} height={10} />}
+              </span>
+              Snap to guides
+              {/* The state a screen reader gets, since `MenuItem` is a plain
                 menuitem rather than a menuitemcheckbox. */}
-            <span className="sr-only">{snap ? "On" : "Off"}</span>
-          </MenuItem>
-        )}
-      </Menu>
+              <span className="sr-only">{snap ? "On" : "Off"}</span>
+            </MenuItem>
+          )}
+        </Menu>
+      </div>
     </div>
   );
 }

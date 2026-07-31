@@ -210,6 +210,45 @@ body {
   background: var(--surface);
 }
 
+/* ---- Rail entrance ------------------------------------------------------
+   Editing a diagram hands both rails over — pages become layers, chat becomes
+   the inspector — and the swap used to be a cut. The incoming rail slides in
+   from its own outer edge, so the movement says which side of the window it
+   belongs to and reads as one panel arriving over another rather than as the
+   screen redrawing.
+
+   The class is baked into each panel rather than passed in: every one of these
+   only ever occupies one side, drawer included. */
+@keyframes ab-rail-in-l {
+  from {
+    opacity: 0;
+    transform: translateX(-24px);
+  }
+}
+@keyframes ab-rail-in-r {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+}
+@keyframes ab-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+.ab-rail-l {
+  animation: ab-rail-in-l var(--dur) var(--ease);
+}
+.ab-rail-r {
+  animation: ab-rail-in-r var(--dur) var(--ease);
+}
+@media (prefers-reduced-motion: reduce) {
+  .ab-rail-l,
+  .ab-rail-r {
+    animation: ab-fade-in var(--dur-fast) var(--ease);
+  }
+}
+
 .ab-panel-head {
   display: flex;
   align-items: center;

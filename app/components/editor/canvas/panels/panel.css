@@ -7,7 +7,13 @@
    223px of body carries two 93.5px fields, a 6px gap between them, and the
    24px action gutter the grid keeps reserved on every row. */
 
+/* Slides in from the right edge it belongs to, like the other rails; the
+   keyframes are the shell's. The reduced-motion fallback has to be stated here
+   rather than beside the others in globals.css — those sit in `@layer
+   components`, and an unlayered rule beats a layered one whatever the
+   specificity, so a layered override would never reach this. */
 .ab-style-panel {
+  animation: ab-rail-in-r var(--dur) var(--ease);
   display: flex;
   flex-direction: column;
   flex: none;
@@ -15,6 +21,11 @@
   height: 100%;
   background: var(--surface);
   border-left: 1px solid var(--border);
+}
+@media (prefers-reduced-motion: reduce) {
+  .ab-style-panel {
+    animation: ab-fade-in var(--dur-fast) var(--ease);
+  }
 }
 
 /* The layers rail announces itself and this one did not, which left the two

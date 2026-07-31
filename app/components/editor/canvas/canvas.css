@@ -184,18 +184,27 @@
 }
 
 /* ===== Toolbar ===========================================================
-   At the foot of the window, not inside the block — it speaks for whichever
-   canvas is being edited. Same pill, same slot as the review bar, which it
-   stands down for. */
+   Floats over the canvas it serves rather than sitting in the block, which is
+   600px of a document column. Two elements on purpose: the dock is placed by
+   `useDock`, which writes top/left on every scroll frame, and the pill carries
+   the entrance transform — separate elements, so the placement and the
+   animation cannot overwrite one another.
+
+   No transform on the dock, and no `will-change: transform` either: both would
+   make it the containing block for its fixed descendants, and the menus and
+   tooltips inside the pill are fixed and rendered inline. See `useDock`.
+
+   `visibility` starts hidden because the dock is placed from a measurement:
+   the first paint would otherwise land it in the window's top-left corner. */
+
+.ab-toolbar-dock {
+  position: fixed;
+  top: 0;
+  left: 0;
+  visibility: hidden;
+}
 
 .ab-toolbar {
-  position: fixed;
-  bottom: 20px;
-  /* Centred by the box model rather than by a transform, which the entrance
-     animation owns. */
-  inset-inline: 0;
-  width: fit-content;
-  margin-inline: auto;
   display: flex;
   align-items: center;
   gap: 2px;
@@ -206,7 +215,20 @@
   box-shadow:
     0 1px 2px oklch(0.25 0.005 90 / 0.05),
     0 6px 20px oklch(0.25 0.005 90 / 0.1);
-  animation: ab-menu-in var(--dur) var(--ease);
+  animation: ab-toolbar-in var(--dur) var(--ease);
+}
+
+/* Rises into place, in the direction it came from. */
+@keyframes ab-toolbar-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.97);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ab-toolbar {
+    animation: ab-fade-in var(--dur-fast) var(--ease);
+  }
 }
 
 .ab-toolbar-btn {

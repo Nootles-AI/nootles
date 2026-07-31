@@ -124,7 +124,7 @@ export function ChatPanel({
   };
 
   return (
-    <aside style={{ width }} className="ab-panel relative" aria-label="Chat">
+    <aside style={{ width }} className="ab-panel relative ab-rail-r" aria-label="Chat">
       <div className="ab-panel-head">
         <button
           className="ab-row min-w-0 flex-1"
