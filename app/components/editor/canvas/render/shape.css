@@ -1,0 +1,56 @@
+/* Canvas shapes.
+   Everything visual is inline, from the node's own `style`. These are the
+   invariants a node cannot state for itself, and nothing else belongs here. */
+
+.ab-node {
+  top: 0;
+  left: 0;
+  box-sizing: border-box;
+  /* Rotation is about the box centre for a <div> and an <svg> alike; an SVG
+     element would otherwise take its origin from the view box. */
+  transform-box: border-box;
+  transform-origin: 50% 50%;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* The one shape whose form is not a declaration in the grammar. */
+.ab-node-ellipse {
+  border-radius: 50%;
+}
+
+.ab-node.is-editing {
+  cursor: text;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* The label under edit. It is the shape's only child while it is open, so it
+   lands wherever the shape's own `display`/alignment puts its text. */
+.ab-edit {
+  outline: none;
+  user-select: text;
+  -webkit-user-select: text;
+  /* Empty, it would collapse to nothing and the caret would ride up to the top
+     of the shape; one line's worth of height keeps the caret on the line the
+     first character will occupy. */
+  min-height: 1lh;
+}
+
+/* Empty, there is nothing for the browser to hang a caret on. Blockified as a
+   flex item it is a box with no line box in it and no width; in an `<ab-text>`
+   the grammar wrote without a `display` it is a bare inline box, which
+   `min-height` does not apply to at all — so that shape showed no caret even
+   after the height fix above. A zero-width space from a pseudo-element gives
+   it the line box the first character will occupy, and unlike a real character
+   it is not a node: `textContent` is still "" and the commit reads "". */
+.ab-edit:empty::before {
+  content: "\200b";
+}
+/* Room for the caret itself, so a zero-width box at a `justify-content` edge
+   cannot paint it outside the shape. */
+.ab-edit:empty {
+  min-width: 1px;
+}

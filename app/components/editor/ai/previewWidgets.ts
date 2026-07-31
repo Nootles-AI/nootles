@@ -1,7 +1,7 @@
 import katex from "katex";
+import { migrateLegacyCanvas } from "@/app/components/editor/canvas/scene/migrate";
 import {
   canvasHeightFor,
-  parseCanvas,
   SHAPE_H,
   SHAPE_W,
 } from "@/app/components/editor/canvas/types";
@@ -414,6 +414,30 @@ type TableCell = unknown[] | { content?: unknown[] };
 type TableContent = { rows?: Array<{ cells?: TableCell[] }>; headerRows?: number };
 
 /**
+ * A diagram sketched from what the block stores — canvas HTML, or the JSON a
+ * document written before that still holds. Only the top level: the sketch
+ * draws every shape at one size, so a group's contents would be a row of
+ * identical boxes rather than the thing the group is.
+ */
+export function canvasPreview(
+  source: string,
+): Extract<Preview, { kind: "diagram" }> | null {
+  const scene = migrateLegacyCanvas(source);
+  if (!scene.nodes.length) return null;
+  return {
+    kind: "diagram",
+    nodes: scene.nodes.map((node) => ({
+      tempId: node.id,
+      shape: node.kind === "ellipse" || node.kind === "text" ? node.kind : "rectangle",
+      label: node.label,
+      x: node.x,
+      y: node.y,
+    })),
+    edges: [],
+  };
+}
+
+/**
  * How a block draws when it is not in the document. `null` for the ordinary
  * text blocks, which have no chrome of their own and are drawn as a line of
  * inline content by the caller.
@@ -430,25 +454,8 @@ export function previewOf(block: AnyBlock): Preview | null {
       const source = String(block.props?.source ?? "");
       return { kind: "math", lines: source.length ? source.split("\n") : [""] };
     }
-    case "canvas": {
-      const { nodes, edges } = parseCanvas(String(block.props?.data ?? ""));
-      if (!nodes.length) return null;
-      return {
-        kind: "diagram",
-        nodes: nodes.map((n) => ({
-          tempId: n.id,
-          shape: n.data?.shape ?? "rectangle",
-          label: n.data?.label ?? "",
-          x: n.position?.x ?? 0,
-          y: n.position?.y ?? 0,
-        })),
-        edges: edges.map((e) => ({
-          source: e.source,
-          target: e.target,
-          ...(typeof e.label === "string" ? { label: e.label } : {}),
-        })),
-      };
-    }
+    case "canvas":
+      return canvasPreview(String(block.props?.data ?? ""));
     case "table": {
       const content = block.content as TableContent | undefined;
       const rows = content?.rows ?? [];

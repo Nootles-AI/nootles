@@ -1,3 +1,5 @@
+import { parseScene } from "@/app/components/editor/canvas/scene/parse";
+import { serializeScene } from "@/app/components/editor/canvas/scene/serialize";
 import type {
   Batch,
   InlineRun,
@@ -53,6 +55,16 @@ function sameRuns(a: Run[], b: Run[]): boolean {
 
 const MEDIA = new Set(["image", "video", "audio", "file"]);
 
+/**
+ * A diagram as the block stores it, canonicalised through the canvas grammar's
+ * own parser — so a comparison is between two diagrams rather than between two
+ * ways of writing one, and so a model's markup lands normalized. The root id is
+ * dropped: it is the block's, and the block already knows its own name.
+ */
+function canvasData(html: string): string {
+  return serializeScene({ ...parseScene(html), id: undefined });
+}
+
 function propsOf(node: DocNode): Record<string, string | number | boolean> | undefined {
   if (node.type === "heading") return { level: node.level ?? 2 };
   if (node.type === "checkListItem") return { checked: node.checked ?? false };
@@ -61,6 +73,7 @@ function propsOf(node: DocNode): Record<string, string | number | boolean> | und
   }
   if (node.type === "codeBlock") return { language: node.language, code: node.code };
   if (node.type === "mathBlock") return { source: node.rows.join("\n") };
+  if (node.type === "canvas") return { data: canvasData(node.html) };
   if (MEDIA.has(node.type) && "url" in node) {
     return {
       ...(node.url !== undefined ? { url: node.url } : {}),
@@ -141,161 +154,17 @@ function updateOps(next: DocNode, current: DocNode): Operation[] {
   }
 
   if (next.type === "canvas" && current.type === "canvas") {
-    const currentById = new Map(current.nodes.filter((n) => n.id).map((n) => [n.id!, n]));
-    const place = layoutFor(next.nodes);
-    const seen = new Set<string>();
-    // Namespaced by the diagram they belong to: `tempId`s are unique across the
-    // whole batch, and two diagrams edited in one call would otherwise both call
-    // their first new node `n0`.
-    const nameFor = (n: { id?: string }, i: number) => n.id ?? `${id}n${i}`;
-
-    next.nodes.forEach((n, i) => {
-      if (n.id && currentById.has(n.id)) {
-        seen.add(n.id);
-        const c = currentById.get(n.id)!;
-        const patch: Record<string, unknown> = {};
-        if (n.label !== c.label) patch.label = n.label;
-        if (n.x !== undefined && n.y !== undefined && (n.x !== c.x || n.y !== c.y)) {
-          patch.position = { x: n.x, y: n.y };
-        }
-        if (Object.keys(patch).length) {
-          ops.push({
-            kind: "updateShape",
-            blockId: id,
-            shapeId: n.id,
-            patch: patch as { label?: string; position?: { x: number; y: number } },
-          });
-        }
-        return;
-      }
-      ops.push({
-        kind: "addShape",
-        blockId: id,
-        tempId: nameFor(n, i),
-        shape: n.shape,
-        position: place(n, i),
-        label: n.label,
-      });
-    });
-
-    for (const c of current.nodes) {
-      if (c.id && !seen.has(c.id)) {
-        ops.push({ kind: "removeShape", blockId: id, shapeId: c.id });
-      }
+    // Whole-diagram, deliberately. The shape-level ops still exist and stay
+    // dormant: review answers a hunk at a time, and until it can answer for one
+    // shape there is nothing for that granularity to buy.
+    const data = canvasData(next.html);
+    if (data !== canvasData(current.html)) {
+      ops.push({ kind: "updateBlockProps", blockId: id, props: { data } });
     }
-
-    // Existing shapes keep their ids; new ones take the tempId minted above.
-    const resolve = edgeResolver(next.nodes, nameFor);
-    const existingPairs = new Set(
-      current.edges.map((e) => `${e.from}->${e.to}`),
-    );
-    next.edges.forEach((e, i) => {
-      const from = resolve(e.from);
-      const to = resolve(e.to);
-      if (!from || !to) return;
-      if (existingPairs.has(`${from}->${to}`)) return;
-      ops.push({
-        kind: "connectEdge",
-        blockId: id,
-        tempId: `${id}e${i}`,
-        source: { tempId: from },
-        target: { tempId: to },
-        ...(e.label ? { label: e.label } : {}),
-      });
-    });
     return ops;
   }
 
   return ops;
-}
-
-/**
- * Maps whatever an `<ab-edge>` calls a node onto the id the node will actually
- * have. A model writing a fresh diagram has no reason to invent matching ids, so
- * it refers to nodes however it likes — `id="n1"`, the visible label, or by
- * position. Accept all of those; an edge we still can't place is dropped rather
- * than failing validation and taking the whole diagram with it.
- */
-function edgeResolver(
-  nodes: Array<{ id?: string; label: string }>,
-  idFor: (n: { id?: string; label: string }, i: number) => string,
-): (ref: string) => string | null {
-  const map = new Map<string, string>();
-  const add = (key: string | undefined, value: string) => {
-    const k = key?.trim();
-    if (k && !map.has(k)) map.set(k, value);
-  };
-  nodes.forEach((n, i) => add(n.id, idFor(n, i)));
-  nodes.forEach((n, i) => add(n.label, idFor(n, i)));
-  nodes.forEach((n, i) => {
-    const id = idFor(n, i);
-    add(`n${i + 1}`, id);
-    add(`${i + 1}`, id);
-    add(`${i}`, id);
-  });
-  return (ref) => map.get(ref.trim()) ?? null;
-}
-
-/**
- * Coordinates a model writes are not trustworthy: it commonly gives every node
- * `x="0" y="0"`, or omits them. Stacked shapes look like a single shape, and the
- * edges between them collapse to zero-length lines — which reads as "the diagram
- * lost its edges". So we only honour coordinates when they actually separate the
- * nodes, and otherwise lay them out ourselves.
- */
-const COL = 220;
-const ROW = 140;
-
-function layoutFor(
-  nodes: Array<{ x?: number; y?: number }>,
-): (n: { x?: number; y?: number }, i: number) => { x: number; y: number } {
-  const row = (_n: unknown, i: number) => ({ x: i * COL, y: 0 });
-  if (nodes.some((n) => n.x === undefined || n.y === undefined)) return row;
-
-  const xs = nodes.map((n) => n.x!);
-  const ys = nodes.map((n) => n.y!);
-  const width = Math.max(...xs) - Math.min(...xs);
-  const height = Math.max(...ys) - Math.min(...ys);
-
-  // Every node on the same point: no information to preserve.
-  if (width === 0 && height === 0) return row;
-
-  // A whole diagram spanning a couple of units isn't pixels — the model is
-  // writing grid indices (0,0), (0,1), (-1,2)… Scaling rather than flattening
-  // keeps the structure it intended, like a diamond branching left and right.
-  if (width <= 20 && height <= 20) {
-    return (n) => ({ x: n.x! * COL, y: n.y! * ROW });
-  }
-
-  return (n) => ({ x: n.x!, y: n.y! });
-}
-
-/**
- * Positions and edge references for a diagram, as the compiler would resolve
- * them. Shared with the streaming preview so a half-arrived diagram is drawn
- * exactly where the finished one will land — no shuffle on accept.
- */
-export function layoutDiagram(
-  nodes: Array<{ id?: string; shape: string; label: string; x?: number; y?: number }>,
-  edges: Array<{ from: string; to: string; label?: string }>,
-) {
-  const idFor = (n: { id?: string }, i: number) => n.id ?? `n${i}`;
-  const place = layoutFor(nodes);
-  const resolve = edgeResolver(nodes, idFor);
-  return {
-    nodes: nodes.map((n, i) => ({
-      tempId: idFor(n, i),
-      shape: n.shape,
-      label: n.label,
-      ...place(n, i),
-    })),
-    edges: edges.flatMap((e) => {
-      const source = resolve(e.from);
-      const target = resolve(e.to);
-      if (!source || !target) return [];
-      return [{ source, target, ...(e.label ? { label: e.label } : {}) }];
-    }),
-  };
 }
 
 function newBlockFor(node: DocNode, tempId: string): NewBlock {
@@ -447,34 +316,6 @@ export function compileDocHtml(next: DocNode[], ctx: CompileContext): Batch {
     });
     if ("children" in node && node.children?.length) {
       for (const d of flatten(node.children)) insertedWithParent.add(d);
-    }
-    if (node.type === "canvas") {
-      const shapeId = (n: { id?: string }, i: number) => n.id ?? `${tempId}n${i}`;
-      const place = layoutFor(node.nodes);
-      node.nodes.forEach((n, i) =>
-        ops.push({
-          kind: "addShape",
-          blockId: tempId,
-          tempId: shapeId(n, i),
-          shape: n.shape,
-          position: place(n, i),
-          label: n.label,
-        }),
-      );
-      const resolve = edgeResolver(node.nodes, shapeId);
-      node.edges.forEach((e, i) => {
-        const from = resolve(e.from);
-        const to = resolve(e.to);
-        if (!from || !to) return; // unplaceable edge — drop it, keep the diagram
-        ops.push({
-          kind: "connectEdge",
-          blockId: tempId,
-          tempId: `${tempId}e${i}`,
-          source: { tempId: from },
-          target: { tempId: to },
-          ...(e.label ? { label: e.label } : {}),
-        });
-      });
     }
     // The replacement is a different block, so the original's children have to
     // be carried across by hand — `removeBlock` takes a whole subtree, and the

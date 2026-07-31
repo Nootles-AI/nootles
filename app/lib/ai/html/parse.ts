@@ -6,7 +6,6 @@ import {
   type DocNode,
   type Mark,
   type Run,
-  type ShapeKind,
 } from "./grammar";
 
 /**
@@ -23,8 +22,6 @@ import {
  * the DOM ever sees them, and restored afterwards. The model can then write
  * whatever it likes inside them.
  */
-
-const SHAPES: ShapeKind[] = ["rectangle", "ellipse", "diamond", "text"];
 
 /** Browsers give us DOMParser; tests inject one. */
 export type ParseHtml = (html: string) => Document;
@@ -214,11 +211,6 @@ function normalizeRuns(runs: Run[]): Run[] {
   return out.filter((r) => r.type !== "text" || r.text.length > 0);
 }
 
-function shapeOf(el: Element): ShapeKind {
-  const s = (el.getAttribute("shape") ?? "rectangle").toLowerCase() as ShapeKind;
-  return SHAPES.includes(s) ? s : "rectangle";
-}
-
 function elementToNode(el: Element, raw: string[]): DocNode | null {
   const tag = canonicalTag(el.tagName);
   const id = idOf(el);
@@ -351,23 +343,10 @@ function elementToNode(el: Element, raw: string[]): DocNode | null {
     return { type: "mathBlock", id, rows: rows.length ? rows : [""] };
   }
 
-  if (tag === "ab-diagram") {
-    const nodes = Array.from(el.querySelectorAll("ab-node, node")).map((n) => ({
-      id: idOf(n),
-      shape: shapeOf(n),
-      label: textOf(n).trim(),
-      x: num(n, "x"),
-      y: num(n, "y"),
-    }));
-    const edges = Array.from(el.querySelectorAll("ab-edge, edge"))
-      .map((e) => ({
-        from: e.getAttribute("from") ?? "",
-        to: e.getAttribute("to") ?? "",
-        label: e.getAttribute("label") ?? undefined,
-      }))
-      .filter((e) => e.from && e.to);
-    return { type: "canvas", id, nodes, edges };
-  }
+  // Taken whole. The canvas grammar has its own parser, which the block and the
+  // compiler both go through, so re-reading the shapes here would be a second
+  // opinion about a document that already has one.
+  if (tag === "ab-diagram") return { type: "canvas", id, html: el.outerHTML };
 
   return null;
 }

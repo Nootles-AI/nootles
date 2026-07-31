@@ -1,270 +1,259 @@
-/* ===== Diagram canvas ==================================================== */
+/* ===== Canvas block ======================================================
+   The block wrapper, the clipping viewport, and the screen toolbar. Anything
+   a shape can say for itself is inline CSS from the grammar; anything the
+   selection says lives in render/overlay.css. Nothing else belongs here. */
+
+/* The canvas's one accent colour, and the only one in the app. It is declared
+   here rather than beside its first use because two surfaces need it and they
+   are not related by the tree: the overlay sits inside the block, the layers
+   panel is a window rail beside it. */
+:root {
+  --ab-select: #0d99ff;
+}
+
 .ab-canvas {
   position: relative;
   width: 100%;
-  /* Fluid so a short viewport is not dominated by one diagram; the
-     serializer mirrors this ceiling when it sizes previews. */
-  height: clamp(260px, 46vh, 440px);
   margin: 8px 0;
-  border: none;
   border-radius: var(--radius-lg);
-  overflow: hidden;
-  background: var(--sunken);
+  /* A shade above `--sunken`: that tone is tuned for a small well, and over a
+     field this large it reads as grey paper rather than as an empty surface. */
+  background: oklch(0.974 0.002 90);
 }
 .ab-editor .ProseMirror-selectednode .ab-canvas {
   box-shadow: inset 0 0 0 1px var(--border-strong);
 }
-.ab-canvas .react-flow {
-  background: transparent;
-}
-.ab-canvas .react-flow__attribution {
-  display: none;
-}
-.ab-canvas .react-flow__node {
-  font-family: var(--font-sans), system-ui, sans-serif;
-}
-.ab-canvas .react-flow__pane {
-  cursor: default;
-}
 
-/* ---- Shapes ------------------------------------------------------------- */
-.ab-shape {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  height: 100%;
-  animation: ab-shape-pop 0.16s cubic-bezier(0.2, 0.9, 0.3, 1.1);
-}
-@keyframes ab-shape-pop {
-  from {
-    opacity: 0;
-    transform: scale(0.9);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1);
-  }
-}
-.ab-shape:not(.is-selected):not(.is-editing):hover .ab-shape-bg {
-  border-color: var(--shape-line-hover);
-  box-shadow:
-    0 2px 4px rgb(20 15 40 / 0.08),
-    0 10px 22px rgb(20 15 40 / 0.08);
-}
-.ab-shape-bg {
+.ab-canvas-viewport {
   position: absolute;
   inset: 0;
-  background: var(--background);
-  border: 1.5px solid var(--shape-line);
-  box-shadow:
-    0 1px 2px rgb(20 15 40 / 0.06),
-    0 4px 12px rgb(20 15 40 / 0.05);
-  transition:
-    border-color 0.12s ease,
-    box-shadow 0.12s ease;
-}
-.ab-shape-rectangle .ab-shape-bg {
-  border-radius: 10px;
-}
-.ab-shape-ellipse .ab-shape-bg {
-  border-radius: 50%;
-}
-/* True rhombus via SVG (points align to the mid-side connection handles). */
-.ab-shape-diamond-svg {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  overflow: visible;
-  border: none;
-  background: transparent;
-  box-shadow: none;
-  /* Click-transparent so React Flow's node-drag works when grabbing the shape
-     body (the node div and label handle selection / editing). */
-  pointer-events: none;
-  filter: drop-shadow(0 1px 2px rgb(20 15 40 / 0.07))
-    drop-shadow(0 5px 13px rgb(20 15 40 / 0.06));
-}
-.ab-shape-diamond-svg polygon {
-  fill: var(--background);
-  stroke: var(--shape-line);
-  stroke-width: 1.5;
-  stroke-linejoin: round;
-  transition: stroke 0.12s ease;
-}
-.ab-shape-diamond.is-selected .ab-shape-diamond-svg polygon {
-  stroke: var(--shape-line-active);
-  stroke-width: 2.5;
-}
-.ab-shape-diamond:not(.is-selected):not(.is-editing):hover .ab-shape-diamond-svg polygon {
-  stroke: var(--shape-line-hover);
-}
-.ab-shape-text .ab-shape-bg {
-  background: transparent;
-  border: none;
-  box-shadow: none;
-}
-.ab-shape.is-selected .ab-shape-bg {
-  border-color: var(--shape-line-active);
-  box-shadow: 0 0 0 2.5px rgb(92 82 112 / 0.18);
-}
-.ab-shape-text.is-selected .ab-shape-bg {
-  border: 1.5px dashed var(--shape-line-hover);
-  box-shadow: none;
-}
-
-/* label */
-.ab-shape-label {
-  position: relative;
-  z-index: 1;
-  max-width: 90%;
-  padding: 3px 8px;
-  text-align: center;
-  font-size: 13px;
-  line-height: 1.35;
-  color: var(--foreground);
+  overflow: hidden;
+  border-radius: inherit;
   outline: none;
-  overflow-wrap: anywhere;
-  cursor: default;
+  /* The canvas owns every pointer gesture inside it; the browser's own
+     scroll, pinch and text-selection drag would each fight it for one.
+     An open label turns selection back on for itself, in render/shape.css. */
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  /* The toolbar's nib, hotspot on its tip, with a white halo so it survives a
+     dark shape underneath. Held as a property because the pen overlay covers
+     the viewport and has to set the same cursor for itself. */
+  /* Drawn at 17 rather than the icon's 24: a cursor is read at a glance and
+     sits under the hand, so the same nib at full size reads as a blot. The halo
+     is not decoration — without it the black nib vanishes on a dark shape. */
+  --ab-pen-cursor:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='17' height='17' viewBox='0 0 24 24'%3E%3Cpath d='M14 .1 23.9 9.8 20.6 11.5 17.1 18.9 2.6 23.3 .2 20.9 5.4 6.9 13.6 4.3 12.6 3.3ZM9.9 11a3.1 3.1 0 1 0 0 6.2 3.1 3.1 0 1 0 0-6.2ZM7.15 14.9 8.95 16.5 3.15 23.3 1.65 22.3Z' fill='%231a1a1a' fill-rule='evenodd' stroke='%23fff' stroke-width='1' stroke-linejoin='round' paint-order='stroke'/%3E%3C/svg%3E")
+      1 16,
+    crosshair;
 }
-.ab-shape.is-editing .ab-shape-label {
-  cursor: text;
+.ab-canvas-viewport[data-tool="hand"] {
+  cursor: grab;
 }
-.ab-shape-label:empty::before {
-  content: "Type\2026";
-  color: var(--muted);
-  opacity: 0.5;
+.ab-canvas-viewport[data-tool="pen"] {
+  cursor: var(--ab-pen-cursor);
 }
-.ab-shape-text .ab-shape-label {
-  font-size: 14px;
-  font-weight: 450;
+.ab-canvas-viewport[data-tool="rect"],
+.ab-canvas-viewport[data-tool="ellipse"],
+.ab-canvas-viewport[data-tool="text"] {
+  cursor: crosshair;
 }
-
-/* ---- Connection handles ------------------------------------------------- */
-.ab-canvas .react-flow__handle {
-  width: 11px;
-  height: 11px;
-  min-width: 11px;
-  min-height: 11px;
-  background: var(--background);
-  border: 1.5px solid var(--shape-line-active);
-  border-radius: 50%;
-  opacity: 0;
-  /* No transform here — React Flow uses transform to position the handle, so
-     overriding it would make the dot jump. Grow via box-shadow instead. */
-  transition:
-    opacity 0.12s ease,
-    background 0.1s ease,
-    border-color 0.1s ease,
-    box-shadow 0.1s ease;
-}
-.ab-shape:hover .react-flow__handle,
-.ab-shape.is-selected .react-flow__handle,
-.ab-canvas .react-flow__handle.connectingfrom,
-.ab-canvas .react-flow__handle.connectingto {
-  opacity: 1;
-}
-.ab-canvas .react-flow__handle:hover {
-  background: var(--shape-line-active);
-  border-color: var(--shape-line-active);
-  box-shadow: 0 0 0 4px rgb(107 102 117 / 0.18);
-}
-.ab-canvas .react-flow__handle-top {
-  top: -6px;
-}
-.ab-canvas .react-flow__handle-bottom {
-  bottom: -6px;
-}
-.ab-canvas .react-flow__handle-left {
-  left: -6px;
-}
-.ab-canvas .react-flow__handle-right {
-  right: -6px;
+/* Set imperatively for the duration of a hand-tool pan, so it costs no render.
+   `useViewport` owns the same property for space-pan and leaves it empty. */
+.ab-canvas-viewport.is-grabbing {
+  cursor: grabbing;
 }
 
-/* Empty-state hint */
+/* The one transformed element. Every shape is absolutely positioned inside it,
+   so pan and zoom are a single composited transform. */
+.ab-canvas-scene {
+  position: absolute;
+  inset: 0;
+}
+
 .ab-canvas-hint {
   position: absolute;
-  top: 50%;
-  left: 50%;
-  z-index: 4;
-  transform: translate(-50%, -50%);
-  padding: 7px 14px;
-  font-size: 13px;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: var(--text-ui);
   color: var(--muted);
-  background: color-mix(in srgb, var(--background) 78%, transparent);
-  border-radius: 8px;
   pointer-events: none;
-  white-space: nowrap;
 }
 
-/* ---- Edges -------------------------------------------------------------- */
-.ab-canvas .react-flow__edge-path {
-  stroke: var(--edge-line);
-  stroke-width: 1.5;
+/* The way back, bottom-right, only while the diagram is off screen. Clear of
+   both grips, so the corner they share stays draggable. */
+.ab-canvas-refit {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding-inline: 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--elevated);
+  font-size: var(--text-meta-lg);
+  color: var(--muted);
+  box-shadow:
+    0 1px 2px oklch(0.25 0.005 90 / 0.05),
+    0 4px 12px oklch(0.25 0.005 90 / 0.08);
+  animation: ab-menu-in var(--dur) var(--ease);
+  transition:
+    background var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
 }
-.ab-canvas .react-flow__edge.selected .react-flow__edge-path,
-.ab-canvas .react-flow__edge:hover .react-flow__edge-path {
-  stroke: var(--shape-line-active);
-  stroke-width: 2;
-}
-.ab-canvas .react-flow__connection-path {
-  stroke: var(--shape-line-hover);
-  stroke-width: 1.5;
-}
-.ab-canvas .react-flow__selection {
-  background: rgb(92 82 112 / 0.06);
-  border: 1px solid rgb(92 82 112 / 0.3);
+.ab-canvas-refit:hover {
+  background: var(--hover);
+  color: var(--foreground);
 }
 
-/* ---- Floating toolbar --------------------------------------------------- */
-.ab-canvas-toolbar {
+/* Bottom edge: drag to set an explicit height, double-click to fit again. */
+.ab-canvas-grip {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 10px;
+  cursor: ns-resize;
+}
+.ab-canvas-grip::after {
+  content: "";
+  position: absolute;
+  bottom: 4px;
+  left: 50%;
+  width: 32px;
+  height: 3px;
+  margin-left: -16px;
+  border-radius: 999px;
+  background: var(--faint);
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease);
+}
+.ab-canvas:hover .ab-canvas-grip::after {
+  opacity: 0.7;
+}
+
+/* Right edge only: drag to widen into the right margin, double-click to go back
+   to the column. The left edge stays pinned where the prose starts, exactly as
+   the top does, so widening a diagram never shifts the text around it. */
+.ab-canvas-grip-x {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 8px;
+  cursor: ew-resize;
+}
+.ab-canvas-grip-x::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: 3px;
+  width: 3px;
+  height: 32px;
+  margin-top: -16px;
+  border-radius: 999px;
+  background: var(--faint);
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease);
+}
+.ab-canvas:hover .ab-canvas-grip-x::after {
+  opacity: 0.7;
+}
+
+/* ===== Context menu ======================================================
+   The app's menu pill, opened at a point. Only the shortcut column and the
+   dead-entry state are its own. */
+
+.ab-ctx-key {
+  margin-left: auto;
+  padding-left: 16px;
+  font-size: var(--text-meta);
+  color: var(--muted);
+}
+/* Matches the toolbar's disabled state, which is the same idea one bar down. */
+.ab-ctx .ab-menu-item:disabled {
+  opacity: 0.32;
+  cursor: default;
+}
+.ab-ctx .ab-menu-item:disabled:hover {
+  background: transparent;
+}
+
+/* ===== Toolbar ===========================================================
+   At the foot of the window, not inside the block — it speaks for whichever
+   canvas is being edited. Same pill, same slot as the review bar, which it
+   stands down for. */
+
+.ab-toolbar {
+  position: fixed;
+  bottom: 20px;
+  /* Centred by the box model rather than by a transform, which the entrance
+     animation owns. */
+  inset-inline: 0;
+  width: fit-content;
+  margin-inline: auto;
   display: flex;
   align-items: center;
   gap: 2px;
-  margin-top: 12px;
   padding: 4px;
-  background: color-mix(in srgb, var(--background) 92%, transparent);
-  backdrop-filter: blur(10px);
+  border-radius: 999px;
+  background: var(--elevated);
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
   box-shadow:
-    0 1px 2px rgb(20 15 40 / 0.05),
-    0 8px 28px rgb(20 15 40 / 0.12);
+    0 1px 2px oklch(0.25 0.005 90 / 0.05),
+    0 6px 20px oklch(0.25 0.005 90 / 0.1);
+  animation: ab-menu-in var(--dur) var(--ease);
 }
-.ab-canvas-tool {
+
+.ab-toolbar-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: var(--control);
-  height: var(--control);
-  border-radius: var(--radius);
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
   color: var(--muted);
   transition:
     background var(--dur-fast) var(--ease),
     color var(--dur-fast) var(--ease);
 }
-.ab-canvas-tool:hover:not(:disabled) {
+.ab-toolbar-btn:hover:not(:disabled) {
   background: var(--hover);
   color: var(--foreground);
 }
-.ab-canvas-tool:disabled {
+.ab-toolbar-btn[aria-pressed="true"] {
+  background: var(--selected);
+  color: var(--foreground);
+}
+.ab-toolbar-btn:disabled {
   opacity: 0.32;
   cursor: default;
 }
-.ab-canvas-tool-sep {
+
+.ab-toolbar-sep {
   width: 1px;
-  height: 18px;
-  margin: 0 4px;
+  height: 16px;
+  margin-inline: 4px;
   background: var(--border);
 }
 
-/* Ghost completion inside a shape label. */
-.ab-shape-ghost {
-  color: var(--ghost);
-  user-select: none;
-  pointer-events: none;
-  white-space: pre;
+.ab-toolbar-zoom {
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--text-meta-lg);
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  transition:
+    background var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
+}
+.ab-toolbar-zoom:hover {
+  background: var(--hover);
+  color: var(--foreground);
 }

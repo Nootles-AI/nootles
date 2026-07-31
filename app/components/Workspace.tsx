@@ -1,10 +1,17 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import { useMediaQuery } from "@/app/lib/useMediaQuery";
+import { LayersPanel } from "./editor/canvas/panels/LayersPanel";
+import { Toolbar } from "./editor/canvas/Toolbar";
+import {
+  CanvasShellContext,
+  CanvasStylePanel,
+  type ActiveCanvas,
+} from "./editor/canvas/shell";
 import { useOpenPage } from "./OpenPageContext";
 import { Sidebar } from "./Sidebar";
 import { PageSurface } from "./PageSurface";
@@ -22,6 +29,11 @@ const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n
    being in-flow and become overlays the user summons. */
 const COMPACT = "(max-width: 1023px)";
 
+/* Everything that belongs to the canvas being edited. A press anywhere else is
+   what "deselect" means — and the panels have to be in here, because a field in
+   one takes focus off the canvas without meaning to leave it. */
+const CANVAS_SHELL = ".ab-canvas, .ab-lyr, .ab-style-panel, .ab-toolbar";
+
 export function Workspace({ projectId }: { projectId: Id<"projects"> }) {
   const { selected, open } = useOpenPage();
 
@@ -31,11 +43,18 @@ export function Workspace({ projectId }: { projectId: Id<"projects"> }) {
   const [rightOpen, setRightOpen] = useState(true);
   const [drawer, setDrawer] = useState<"left" | "right" | null>(null);
 
+  const [canvas, setCanvas] = useState<ActiveCanvas | null>(null);
+  const shell = useMemo(() => ({ active: canvas, set: setCanvas }), [canvas]);
+
   const compact = useMediaQuery(COMPACT);
   // Narrow: panels are overlays, and overlays start closed.
   const showLeft = leftOpen && !compact;
   const showRight = rightOpen && !compact;
   const openDrawer = compact ? drawer : null;
+  // Editing a diagram turns both rails over to it, collapsed or not — but only
+  // where there is room for them. The toolbar appears either way, and the
+  // diagram is fully editable without the panels.
+  const canvasPanels = compact ? null : canvas;
 
   // Restore persisted layout on the client. Defaults render first (so SSR and
   // the first client render match — no hydration mismatch), then we sync from
@@ -58,6 +77,17 @@ export function Workspace({ projectId }: { projectId: Id<"projects"> }) {
     localStorage.setItem("ab:leftOpen", leftOpen ? "1" : "0");
     localStorage.setItem("ab:rightOpen", rightOpen ? "1" : "0");
   }, [leftWidth, rightWidth, leftOpen, rightOpen]);
+
+  const editing = canvas !== null;
+  useEffect(() => {
+    if (!editing) return;
+    const onDown = (event: PointerEvent) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (!target?.closest(CANVAS_SHELL)) setCanvas(null);
+    };
+    window.addEventListener("pointerdown", onDown, true);
+    return () => window.removeEventListener("pointerdown", onDown, true);
+  }, [editing]);
 
   useEffect(() => {
     if (!openDrawer) return;
@@ -114,66 +144,100 @@ export function Workspace({ projectId }: { projectId: Id<"projects"> }) {
   );
 
   return (
-    <div className="flex h-screen w-full overflow-hidden">
-      {showLeft ? (
-        <>
-          {sidebar}
-          <ResizeHandle onResize={onResizeLeft} ariaLabel="Resize sidebar" />
-        </>
-      ) : (
-        <EdgeRail
-          side="left"
-          onClick={() => (compact ? setDrawer("left") : setLeftOpen(true))}
-          label="Open sidebar"
-          expanded={openDrawer === "left"}
-        />
-      )}
-
-      <div className="flex min-w-0 flex-1">
-        {effectivePageId ? (
-          <PageSurface pageId={effectivePageId} />
+    <CanvasShellContext value={shell}>
+      <div className="flex h-screen w-full overflow-hidden">
+        {canvasPanels ? (
+          <>
+            <aside
+              className="ab-panel"
+              style={{ width: leftWidth }}
+              aria-label="Layers"
+            >
+              <LayersPanel
+                store={canvasPanels.api.store}
+                selection={canvasPanels.api.selection}
+              />
+            </aside>
+            <ResizeHandle onResize={onResizeLeft} ariaLabel="Resize layers" />
+          </>
+        ) : showLeft ? (
+          <>
+            {sidebar}
+            <ResizeHandle onResize={onResizeLeft} ariaLabel="Resize sidebar" />
+          </>
         ) : (
-          <EmptyWorkspace />
+          <EdgeRail
+            side="left"
+            onClick={() => (compact ? setDrawer("left") : setLeftOpen(true))}
+            label="Open sidebar"
+            expanded={openDrawer === "left"}
+          />
+        )}
+
+        <div className="flex min-w-0 flex-1">
+          {effectivePageId ? (
+            <PageSurface pageId={effectivePageId} />
+          ) : (
+            <EmptyWorkspace />
+          )}
+        </div>
+
+        {canvasPanels ? (
+          <CanvasStylePanel api={canvasPanels.api} />
+        ) : showRight ? (
+          <>
+            <ResizeHandle onResize={onResizeRight} ariaLabel="Resize chat" />
+            {chat}
+          </>
+        ) : (
+          <EdgeRail
+            side="right"
+            onClick={() => (compact ? setDrawer("right") : setRightOpen(true))}
+            label="Open chat"
+            expanded={openDrawer === "right"}
+          />
+        )}
+
+        {/* One bar, one corner. The tool palette is transient and the review is a
+            standing question, so while a diagram is being edited the palette has
+            the slot and the review comes back the moment the diagram is let go.
+            Both are fixed, and the resize handles carry a z-index of their own —
+            hence the stacking context around this one. */}
+        <div className="relative" style={{ zIndex: "var(--z-sticky)" }}>
+          {canvas ? (
+            <Toolbar
+              store={canvas.api.store}
+              viewport={canvas.api.viewport}
+              tool={canvas.api.tool}
+              onTool={canvas.api.setTool}
+            />
+          ) : (
+            // Here rather than under the editor: the changes it answers for can
+            // span pages, and the agent opens pages on its own.
+            <ReviewBar />
+          )}
+        </div>
+
+        {openDrawer && (
+          <>
+            <button
+              aria-label="Close panel"
+              onClick={() => setDrawer(null)}
+              className="fixed inset-0 bg-foreground/15"
+              style={{ zIndex: "var(--z-overlay)" }}
+            />
+            <div
+              className={`fixed inset-y-0 ${
+                openDrawer === "left" ? "left-0" : "right-0"
+              } shadow-2xl`}
+              style={{ zIndex: "var(--z-modal)" }}
+            >
+              {openDrawer === "left" ? sidebar : chat}
+            </div>
+          </>
         )}
       </div>
-
-      {showRight ? (
-        <>
-          <ResizeHandle onResize={onResizeRight} ariaLabel="Resize chat" />
-          {chat}
-        </>
-      ) : (
-        <EdgeRail
-          side="right"
-          onClick={() => (compact ? setDrawer("right") : setRightOpen(true))}
-          label="Open chat"
-          expanded={openDrawer === "right"}
-        />
-      )}
-
-      {/* Here rather than under the editor: the changes it answers for can span
-          pages, and the agent opens pages on its own. */}
-      <ReviewBar />
-
-      {openDrawer && (
-        <>
-          <button
-            aria-label="Close panel"
-            onClick={() => setDrawer(null)}
-            className="fixed inset-0 bg-foreground/15"
-            style={{ zIndex: "var(--z-overlay)" }}
-          />
-          <div
-            className={`fixed inset-y-0 ${
-              openDrawer === "left" ? "left-0" : "right-0"
-            } shadow-2xl`}
-            style={{ zIndex: "var(--z-modal)" }}
-          >
-            {openDrawer === "left" ? sidebar : chat}
-          </div>
-        </>
-      )}
-    </div>
+    </CanvasShellContext>
   );
 }
 

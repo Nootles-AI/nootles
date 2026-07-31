@@ -1,0 +1,310 @@
+/* ===== Style-panel controls ==============================================
+   The properties panel is denser than the shell: 24px controls rather than 32,
+   because a row here is one property and you read a column of them at once.
+   Everything else — surfaces, ink, radii, motion — is the shell's, so the panel
+   reads as part of the app. No colour: the only hues on screen are the ones the
+   drawing itself is painted in. */
+
+.ab-ctl-section + .ab-ctl-section {
+  border-top: 1px solid var(--border);
+}
+
+/* Inherits the mono, uppercase, muted voice of `.ab-section-label`. */
+.ab-ctl-section-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+}
+.ab-ctl-section-toggle:hover {
+  color: var(--foreground);
+}
+.ab-ctl-chevron {
+  flex: none;
+  color: var(--faint);
+  transition: transform var(--dur-fast) var(--ease);
+}
+.ab-ctl-chevron.is-open {
+  transform: rotate(90deg);
+}
+.ab-ctl-section-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 2px var(--inset) 12px;
+}
+
+.ab-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: var(--control-sm);
+}
+.ab-field-label {
+  flex: 0 0 54px;
+  font-size: var(--text-meta-lg);
+  color: var(--muted);
+}
+.ab-field-body {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* ---- Number -------------------------------------------------------------
+   The whole box is the scrub handle; the caret only appears once you have
+   clicked in, so a drag anywhere across the field changes the value. */
+.ab-num {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: var(--control-sm);
+  padding-inline: 6px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  cursor: ew-resize;
+  touch-action: none;
+  transition: background var(--dur-fast) var(--ease);
+}
+.ab-num:hover,
+.ab-num.is-scrubbing {
+  background: var(--sunken);
+}
+.ab-num:focus-within {
+  background: var(--sunken);
+  border-color: var(--border-strong);
+  cursor: default;
+}
+.ab-num-label,
+.ab-num-unit {
+  flex: none;
+  font-size: var(--text-meta-lg);
+  color: var(--faint);
+  user-select: none;
+}
+.ab-num-input {
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  background: none;
+  outline: none;
+  font-size: var(--text-ui);
+  color: var(--foreground);
+  font-variant-numeric: tabular-nums;
+  cursor: inherit;
+}
+.ab-num-input::placeholder {
+  color: var(--faint);
+}
+.ab-num:focus-within .ab-num-input {
+  cursor: text;
+}
+
+/* ---- Swatches -----------------------------------------------------------
+   A checkerboard under every fill, so alpha reads as alpha rather than as a
+   paler colour. */
+.ab-ctl-swatch,
+.ab-ctl-select {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: var(--control-sm);
+  padding-inline: 5px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-ui);
+  color: var(--foreground);
+  transition: background var(--dur-fast) var(--ease);
+}
+.ab-ctl-swatch:hover,
+.ab-ctl-select:hover {
+  background: var(--sunken);
+}
+.ab-ctl-swatch-text,
+.ab-ctl-select-value {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-align: left;
+}
+.ab-ctl-select-caret {
+  flex: none;
+  color: var(--faint);
+}
+.ab-ctl-check {
+  display: inline-flex;
+  flex: none;
+  width: 12px;
+  color: var(--muted);
+}
+
+.ab-ctl-chip {
+  position: relative;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  box-shadow: inset 0 0 0 1px oklch(0.25 0.005 90 / 0.14);
+  background:
+    conic-gradient(
+        oklch(0.88 0.003 90) 0 25%,
+        oklch(1 0 90) 0 50%,
+        oklch(0.88 0.003 90) 0 75%,
+        oklch(1 0 90) 0
+      )
+      0 0 / 8px 8px;
+}
+.ab-ctl-chip-fill {
+  position: absolute;
+  inset: 0;
+}
+
+/* ---- Pickers ------------------------------------------------------------ */
+.ab-ctl-pop {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px;
+}
+
+.ab-ctl-sv {
+  position: relative;
+  height: 132px;
+  border-radius: var(--radius);
+  cursor: crosshair;
+  touch-action: none;
+  background-image:
+    linear-gradient(to top, oklch(0 0 90) 0%, oklch(0 0 90 / 0) 100%),
+    linear-gradient(to right, oklch(1 0 90) 0%, oklch(1 0 90 / 0) 100%);
+  box-shadow: inset 0 0 0 1px oklch(0.25 0.005 90 / 0.12);
+}
+
+.ab-ctl-slider {
+  position: relative;
+  height: 12px;
+  border-radius: 999px;
+  cursor: ew-resize;
+  touch-action: none;
+  box-shadow: inset 0 0 0 1px oklch(0.25 0.005 90 / 0.12);
+}
+.ab-ctl-slider.is-hue {
+  background: linear-gradient(
+    90deg,
+    #f00 0%,
+    #ff0 17%,
+    #0f0 33%,
+    #0ff 50%,
+    #00f 67%,
+    #f0f 83%,
+    #f00 100%
+  );
+}
+.ab-ctl-slider.is-alpha {
+  overflow: hidden;
+  background:
+    conic-gradient(
+        oklch(0.88 0.003 90) 0 25%,
+        oklch(1 0 90) 0 50%,
+        oklch(0.88 0.003 90) 0 75%,
+        oklch(1 0 90) 0
+      )
+      0 0 / 8px 8px;
+}
+.ab-ctl-alpha-fill {
+  position: absolute;
+  inset: 0;
+}
+
+/* Hollow, so the value it points at is the thing you see through it. */
+.ab-ctl-knob {
+  position: absolute;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  box-shadow:
+    inset 0 0 0 2px oklch(1 0 90),
+    0 0 0 1px oklch(0.25 0.005 90 / 0.4),
+    0 1px 3px oklch(0.25 0.005 90 / 0.25);
+}
+
+.ab-ctl-text {
+  height: var(--control-sm);
+  padding-inline: 6px;
+  border-radius: var(--radius-sm);
+  background: var(--sunken);
+  outline: none;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--text-meta-lg);
+  color: var(--foreground);
+}
+.ab-ctl-text:focus {
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+
+/* ---- Gradient bar ------------------------------------------------------- */
+.ab-ctl-bar {
+  position: relative;
+  height: 22px;
+  border-radius: var(--radius-sm);
+  cursor: copy;
+  touch-action: none;
+  box-shadow: inset 0 0 0 1px oklch(0.25 0.005 90 / 0.12);
+}
+.ab-ctl-stop {
+  position: absolute;
+  top: 50%;
+  width: 11px;
+  height: 11px;
+  border-radius: 3px;
+  transform: translate(-50%, -50%);
+  cursor: ew-resize;
+  box-shadow:
+    0 0 0 1.5px oklch(1 0 90),
+    0 0 0 2.5px oklch(0.25 0.005 90 / 0.3);
+}
+.ab-ctl-stop.is-on {
+  box-shadow:
+    0 0 0 1.5px oklch(1 0 90),
+    0 0 0 2.5px var(--foreground);
+}
+
+.ab-ctl-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ab-ctl-narrow {
+  display: flex;
+  flex: 0 0 72px;
+}
+.ab-ctl-remove {
+  width: var(--control-sm);
+  height: var(--control-sm);
+}
+
+/* A glyph instead of a word, in the shell's segmented well. */
+.ab-mode-btn.is-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 20px;
+  padding: 0;
+}

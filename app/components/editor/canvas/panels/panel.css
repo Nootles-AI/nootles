@@ -1,0 +1,31 @@
+/* ===== Style panel =======================================================
+   The right sidebar. Same paper, same 8px inset and same mono section labels
+   as the pages sidebar — it is the other half of the shell, not a second
+   design of it. One scroll column, hairline between sections, no accent. */
+
+.ab-style-panel {
+  display: flex;
+  flex-direction: column;
+  flex: none;
+  /* Figma's width, and the width two 88px number fields and their gap need. */
+  width: 240px;
+  height: 100%;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+}
+
+.ab-style-panel-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  /* The canvas scrolls the page behind this; the panel should not hand it a
+     wheel event once it has hit its own end. */
+  overscroll-behavior: contain;
+}
+
+/* Sections are the direct children, and one that does not apply renders
+   nothing at all — so the rule that draws the dividers is also the rule that
+   omits them. */
+.ab-style-panel-body > * + * {
+  border-top: 1px solid var(--border);
+}

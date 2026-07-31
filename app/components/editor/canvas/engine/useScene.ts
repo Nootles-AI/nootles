@@ -1,0 +1,422 @@
+"use client";
+
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+} from "react";
+import { migrateLegacyCanvas } from "../scene/migrate";
+import { applyOps } from "../scene/ops";
+import { serializeScene } from "../scene/serialize";
+import {
+  walk,
+  type NodeId,
+  type Scene,
+  type SceneNode,
+  type SceneOp,
+} from "../scene/types";
+
+/**
+ * The canvas editor's store — one `Scene`, one way to change it, one place it
+ * is persisted from.
+ *
+ * The store lives outside React on purpose. A canvas is hundreds of shapes and
+ * every gesture, panel and keystroke lands in the same tree, so holding the
+ * scene in a Context would re-render every shape on every change. Instead the
+ * store is read through {@link useSyncExternalStore}: one notification per
+ * change reaches every subscriber, but a component that reads a single node
+ * gets back the *same object* when its node did not change, and React bails out
+ * of the render. That only works because `./scene/ops` guarantees structural
+ * sharing — untouched subtrees keep their identity — so the granularity is a
+ * property of the data, not of a diffing pass here.
+ *
+ * ## History is bracketed, not sampled
+ *
+ * A drag emits one op at its end (per-frame work mutates the DOM directly), but
+ * a resize with a snap, a label edited character by character, or a panel slider
+ * dragged across a range all emit many. {@link SceneStore.begin} /
+ * {@link SceneStore.commit} bracket a continuous interaction: the "before"
+ * snapshot is taken once at `begin`, the entry is written once at `commit`, and
+ * an interaction that changed nothing — a press that turned out not to be a
+ * drag — writes nothing at all. Outside a bracket every `dispatch` is its own
+ * entry, which is what a menu command or a nudge should be.
+ *
+ * ## Undo rewinds the selection too
+ *
+ * As in Figma, an entry remembers what was selected before its change and undo
+ * puts that back, so undoing a move re-selects the shape and undoing a delete
+ * brings it back selected; redo restores the selection the change left behind,
+ * which is captured as the entry is stepped over. A selection change with no
+ * edit behind it is an entry of its own — but consecutive ones collapse, so a
+ * marquee drag, or five clicks in a row, costs one entry rather than one per
+ * frame and nobody has to press ⌘Z five times to reach their edit.
+ *
+ * ## `lastSource` is the loop breaker
+ *
+ * The block prop is both our output and our input: we write serialized HTML into
+ * it, and it comes straight back as a new `source`. `lastSource` records what we
+ * wrote, so our own round trip is recognised and ignored, and a `source` that
+ * does *not* match it is somebody else's edit — an AI op, or the same document
+ * open in another tab — which is adopted, and stays undoable.
+ */
+
+/** Entries of undo history. Bounded so a long session cannot grow without end. */
+const MAX_HISTORY = 100;
+
+/** How long after the last change the scene is written back to the block. */
+const PERSIST_MS = 500;
+
+/** Puts back whatever was selected at the moment it was captured. */
+export type RestoreSelection = () => void;
+
+/**
+ * The selection's side of undo. History keeps a thunk per entry rather than a
+ * selection value: what a selection *is* remains the selection store's
+ * business, and history only ever needs to put one back.
+ */
+export interface SelectionHistory {
+  /** A thunk restoring the selection as it stands right now. */
+  capture(): RestoreSelection;
+}
+
+interface HistoryEntry {
+  scene: Scene;
+  /** The selection as it stood while this scene was the current one. */
+  selection: RestoreSelection | null;
+  /** Nothing but the selection changed — consecutive ones collapse into one. */
+  selectionOnly: boolean;
+}
+
+export class SceneStore {
+  private scene: Scene;
+  /** Id → node for the current scene, built on demand and dropped on change. */
+  private index: Map<NodeId, SceneNode> | null = null;
+  private readonly listeners = new Set<() => void>();
+
+  private past: HistoryEntry[] = [];
+  private future: HistoryEntry[] = [];
+  /** Nesting depth of `begin`/`commit`; > 0 means a gesture is in progress. */
+  private depth = 0;
+  private gestureBefore: Scene | null = null;
+  private gestureSelection: RestoreSelection | null = null;
+
+  private selection: SelectionHistory | null = null;
+  /** Set for the rest of the task by any edit — see {@link recordSelection}. */
+  private justEdited = false;
+
+  private write: (source: string) => void = () => {};
+  private lastSource: string;
+  /** An external source that arrived mid-gesture, adopted once it ends. */
+  private pendingSource: string | null = null;
+  private timer: ReturnType<typeof setTimeout> | null = null;
+  private dirty = false;
+
+  constructor(source: string) {
+    this.scene = migrateLegacyCanvas(source);
+    this.lastSource = source;
+  }
+
+  /**
+   * Where a serialized scene goes. Kept mutable and set from an effect: the
+   * block hands down a fresh closure on every render, and capturing the first
+   * one would persist into a stale editor.
+   */
+  setWriter = (write: (source: string) => void): void => {
+    this.write = write;
+  };
+
+  /**
+   * Hook the selection into history, so undo and redo rewind it alongside the
+   * scene. `null` unhooks; without it every entry simply has no selection and
+   * history behaves exactly as it did before.
+   */
+  setSelectionHistory = (selection: SelectionHistory | null): void => {
+    this.selection = selection;
+  };
+
+  // -- Reading --------------------------------------------------------------
+
+  subscribe = (listener: () => void): (() => void) => {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  };
+
+  /** The whole scene. Its identity changes on every edit — prefer
+   *  {@link getNode} or {@link getRootNodes} where they will do. */
+  getScene = (): Scene => this.scene;
+
+  /** The top-level nodes, back-to-front. Keeps its identity through any edit
+   *  inside a group, so the surface is not re-rendered by one. */
+  getRootNodes = (): readonly SceneNode[] => this.scene.nodes;
+
+  /** The node with this id at any depth, or `null` once it is gone. */
+  getNode = (id: NodeId): SceneNode | null => {
+    if (!this.index) {
+      const index = new Map<NodeId, SceneNode>();
+      walk(this.scene.nodes, (node) => {
+        index.set(node.id, node);
+      });
+      this.index = index;
+    }
+    return this.index.get(id) ?? null;
+  };
+
+  canUndo = (): boolean => this.past.length > 0;
+
+  canRedo = (): boolean => this.future.length > 0;
+
+  // -- Writing --------------------------------------------------------------
+
+  /** Apply one op, or a group of ops that must land together. */
+  dispatch = (op: SceneOp | readonly SceneOp[]): void => {
+    const ops: readonly SceneOp[] = Array.isArray(op) ? op : [op];
+    if (ops.length === 0) return;
+    const before = this.scene;
+    const next = applyOps(before, ops);
+    if (next === before) return;
+    if (this.depth === 0) this.record(before, this.captureSelection());
+    this.future = [];
+    this.setScene(next, true);
+  };
+
+  /** Open a gesture: everything until the matching `commit` is one entry. */
+  begin = (): void => {
+    if (this.depth === 0) {
+      this.gestureBefore = this.scene;
+      this.gestureSelection = this.captureSelection();
+    }
+    this.depth += 1;
+  };
+
+  commit = (): void => {
+    if (this.depth === 0) return;
+    this.depth -= 1;
+    if (this.depth > 0) return;
+
+    const before = this.gestureBefore;
+    const selection = this.gestureSelection;
+    this.gestureBefore = null;
+    this.gestureSelection = null;
+    if (before && before !== this.scene) this.record(before, selection);
+
+    const source = this.pendingSource;
+    if (source !== null) {
+      this.pendingSource = null;
+      this.adopt(source);
+    }
+  };
+
+  /**
+   * Make a selection change undoable in its own right, given a thunk restoring
+   * what was selected before it. Called by the selection store; a selection
+   * that is a *consequence* of an edit never gets here, because:
+   *
+   * - inside a gesture the gesture's own entry already carries the selection;
+   * - in the same task as an edit the selection belongs to that edit — an
+   *   insert selects what it inserted, a delete clears what it removed — and
+   *   the edit's entry already restores the selection from before it;
+   * - consecutive selection steps collapse, so a marquee drag emitting one per
+   *   frame, or five clicks in a row, cost a single entry.
+   */
+  recordSelection = (restore: RestoreSelection): void => {
+    if (this.depth > 0 || this.justEdited) return;
+    const top = this.past[this.past.length - 1];
+    if (top?.selectionOnly && top.scene === this.scene) return;
+    this.push({ scene: this.scene, selection: restore, selectionOnly: true });
+    // Deliberately keeps `future`: selecting something is not an edit, and
+    // clicking around after an undo must not throw away the redo.
+    this.notify();
+  };
+
+  undo = (): void => {
+    if (this.depth > 0) return;
+    this.step(this.past, this.future);
+  };
+
+  redo = (): void => {
+    if (this.depth > 0) return;
+    this.step(this.future, this.past);
+  };
+
+  // -- Persistence ----------------------------------------------------------
+
+  /**
+   * Reconcile the block's `source`. Our own writes are recognised and ignored;
+   * anything else replaces the scene. A change that lands mid-gesture waits for
+   * the gesture to end rather than pulling the tree out from under it.
+   */
+  setSource = (source: string): void => {
+    if (source === this.lastSource) return;
+    if (this.depth > 0) {
+      this.pendingSource = source;
+      return;
+    }
+    this.adopt(source);
+  };
+
+  /** Write now, if there is anything unwritten. */
+  flush = (): void => {
+    this.cancelPersist();
+    if (!this.dirty) return;
+    this.dirty = false;
+    const html = serializeScene(this.scene);
+    if (html === this.lastSource) return;
+    this.lastSource = html;
+    this.write(html);
+  };
+
+  dispose = (): void => {
+    try {
+      this.flush();
+    } catch {
+      // Unmount is also how a block is deleted, and writing to a block that is
+      // already gone throws. Its content no longer matters; the edits made in
+      // the last 500ms before a page switch do.
+    }
+    this.listeners.clear();
+  };
+
+  // -- Internals ------------------------------------------------------------
+
+  /**
+   * One move along the history, in either direction: the state we are leaving
+   * becomes the other stack's next entry, so redo restores the selection an
+   * undone change had left behind.
+   */
+  private step(from: HistoryEntry[], to: HistoryEntry[]): void {
+    const entry = from.pop();
+    if (!entry) return;
+    to.push({
+      scene: this.scene,
+      selection: this.captureSelection(),
+      selectionOnly: entry.selectionOnly,
+    });
+    // A selection-only entry leaves the scene alone; it still notifies, since
+    // `canUndo` and `canRedo` have moved.
+    this.setScene(entry.scene, entry.scene !== this.scene);
+    entry.selection?.();
+  }
+
+  private setScene(scene: Scene, persist: boolean): void {
+    this.scene = scene;
+    this.index = null;
+    if (persist) {
+      this.dirty = true;
+      this.cancelPersist();
+      this.timer = setTimeout(this.flush, PERSIST_MS);
+    }
+    this.notify();
+  }
+
+  private notify(): void {
+    for (const listener of this.listeners) listener();
+  }
+
+  private adopt(source: string): void {
+    this.lastSource = source;
+    // Their write supersedes ours: a pending debounce would put the scene they
+    // replaced straight back.
+    this.cancelPersist();
+    this.dirty = false;
+    this.record(this.scene, this.captureSelection());
+    this.future = [];
+    this.setScene(migrateLegacyCanvas(source), false);
+  }
+
+  private captureSelection(): RestoreSelection | null {
+    return this.selection?.capture() ?? null;
+  }
+
+  private record(scene: Scene, selection: RestoreSelection | null): void {
+    this.push({ scene, selection, selectionOnly: false });
+    if (this.justEdited) return;
+    this.justEdited = true;
+    // A selection made in the same task as an edit is the edit's own doing, and
+    // no user gesture shares a task with the one before it.
+    queueMicrotask(() => {
+      this.justEdited = false;
+    });
+  }
+
+  private push(entry: HistoryEntry): void {
+    this.past.push(entry);
+    if (this.past.length > MAX_HISTORY) this.past.shift();
+  }
+
+  private cancelPersist(): void {
+    if (this.timer === null) return;
+    clearTimeout(this.timer);
+    this.timer = null;
+  }
+}
+
+export interface UseSceneOptions {
+  /** The canvas block's persisted string — canvas HTML, or legacy JSON. */
+  source: string;
+  /** Persists a new source onto the block. */
+  onChange: (source: string) => void;
+}
+
+/**
+ * The store for one canvas block. Parsed once, from whichever format the block
+ * was written in; written back on a 500ms debounce.
+ */
+export function useScene({ source, onChange }: UseSceneOptions): SceneStore {
+  const [store] = useState(() => new SceneStore(source));
+
+  useEffect(() => {
+    store.setWriter(onChange);
+  });
+
+  // Not derived state: `source` is an input the store reconciles against, and
+  // it no-ops on the writes we made ourselves.
+  useEffect(() => {
+    store.setSource(source);
+  }, [store, source]);
+
+  useEffect(() => () => store.dispose(), [store]);
+
+  return store;
+}
+
+/** The whole scene. Re-renders on every edit — the surface's own hook. */
+export function useSceneSnapshot(store: SceneStore): Scene {
+  return useSyncExternalStore(store.subscribe, store.getScene, store.getScene);
+}
+
+/** The top-level nodes. Re-renders only when that list changes. */
+export function useSceneNodes(store: SceneStore): readonly SceneNode[] {
+  return useSyncExternalStore(
+    store.subscribe,
+    store.getRootNodes,
+    store.getRootNodes,
+  );
+}
+
+/** One node. Re-renders only when *that* node changes — what `ShapeView` uses. */
+export function useSceneNode(store: SceneStore, id: NodeId): SceneNode | null {
+  const read = useCallback(() => store.getNode(id), [store, id]);
+  return useSyncExternalStore(store.subscribe, read, read);
+}
+
+/** Whether undo and redo have anything to do, as reactive state. */
+export function useSceneHistory(store: SceneStore): {
+  canUndo: boolean;
+  canRedo: boolean;
+} {
+  const canUndo = useSyncExternalStore(
+    store.subscribe,
+    store.canUndo,
+    store.canUndo,
+  );
+  const canRedo = useSyncExternalStore(
+    store.subscribe,
+    store.canRedo,
+    store.canRedo,
+  );
+  return useMemo(() => ({ canUndo, canRedo }), [canUndo, canRedo]);
+}

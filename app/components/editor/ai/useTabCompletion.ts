@@ -17,7 +17,7 @@ import {
 import { parseDocHtml } from "@/app/lib/ai/html/parse";
 import { asListItems } from "@/app/lib/ai/html/listify";
 import type { DocNode } from "@/app/lib/ai/html/grammar";
-import { compileDocHtml, layoutDiagram } from "@/app/lib/ai/html/compile";
+import { compileDocHtml } from "@/app/lib/ai/html/compile";
 import { INLINE_TAGS, grounding, type Run } from "@/app/lib/ai/html/grammar";
 import type { Batch } from "@/convex/ai/operations";
 import {
@@ -28,7 +28,7 @@ import {
   setActionApplyHandler,
   type Preview,
 } from "./ghostText";
-import type { GhostBlock } from "./previewWidgets";
+import { canvasPreview, type GhostBlock } from "./previewWidgets";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Editor = BlockNoteEditor<any, any, any>;
@@ -165,9 +165,8 @@ function partialPreview(acc: string): { label: string; preview?: Preview } | nul
   }
   const canvas = nodes.find((n) => n.type === "canvas");
   if (canvas && canvas.type === "canvas") {
-    if (!canvas.nodes.length) return { label: "Add diagram" };
-    const laid = layoutDiagram(canvas.nodes, canvas.edges);
-    return { label: "Add diagram", preview: { kind: "diagram", ...laid } };
+    const preview = canvasPreview(canvas.html);
+    return { label: "Add diagram", ...(preview ? { preview } : {}) };
   }
   const code = nodes.find((n) => n.type === "codeBlock");
   if (code && code.type === "codeBlock") {

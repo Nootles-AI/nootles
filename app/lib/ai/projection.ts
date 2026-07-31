@@ -1,4 +1,5 @@
-import { parseCanvas } from "@/app/components/editor/canvas/types";
+import { migrateLegacyCanvas } from "@/app/components/editor/canvas/scene/migrate";
+import { isGroup, type SceneNode } from "@/app/components/editor/canvas/scene/types";
 
 /**
  * Projection: a deterministic, id-tagged serialization of the document that an
@@ -138,31 +139,32 @@ function tag(id: string): string {
   return `⟦${id}⟧`;
 }
 
+/**
+ * A diagram, one shape per line, nested as the scene nests. Read through the
+ * canvas grammar's own parser, so every shape is indexed and id validation
+ * still covers the whole document even when the prompt is windowed.
+ */
 function projectCanvas(
   block: AnyBlock,
   index: DocIndex,
   lines: string[],
   emit: boolean,
 ) {
-  const { nodes, edges } = parseCanvas(String(block.props.data ?? ""));
+  const scene = migrateLegacyCanvas(String(block.props.data ?? ""));
   if (emit) lines.push(`canvas ${tag(block.id)}`);
-  for (const n of nodes) {
-    index.shapes.set(n.id, { canvasBlockId: block.id });
-    const label = (n.data?.label ?? "").replace(/\n/g, " ");
-    const w = Math.round(n.width ?? 0);
-    const h = Math.round(n.height ?? 0);
-    const x = Math.round(n.position?.x ?? 0);
-    const y = Math.round(n.position?.y ?? 0);
-    lines.push(
-      `  ${tag(n.id)} ${n.data?.shape ?? "rectangle"} "${label}" @(${x},${y}) ${w}x${h}`,
-    );
-  }
-  for (const e of edges) {
-    index.edges.set(e.id, { canvasBlockId: block.id });
-    const labelText = typeof e.label === "string" ? e.label : "";
-    const label = labelText ? ` : "${labelText}"` : "";
-    lines.push(`  ${tag(e.id)} ${tag(e.source)} -> ${tag(e.target)}${label}`);
-  }
+
+  const project = (nodes: readonly SceneNode[], depth: number) => {
+    for (const node of nodes) {
+      index.shapes.set(node.id, { canvasBlockId: block.id });
+      if (emit) {
+        const label = node.label.replace(/\n/g, " ");
+        const box = `@(${Math.round(node.x)},${Math.round(node.y)}) ${Math.round(node.w)}x${Math.round(node.h)}`;
+        lines.push(`${"  ".repeat(depth)}${tag(node.id)} ${node.kind} "${label}" ${box}`);
+      }
+      if (isGroup(node)) project(node.children, depth + 1);
+    }
+  };
+  project(scene.nodes, 1);
 }
 
 type EmitCtx = {

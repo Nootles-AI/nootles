@@ -127,6 +127,31 @@ export function X(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+/** The nib's outline, its breather hole and its slit, as one even-odd path.
+ *  Shared with the canvas cursor, which must be the same object at 24px. */
+export const NIB_PATH =
+  "M14 .1 23.9 9.8 20.6 11.5 17.1 18.9 2.6 23.3 .2 20.9 5.4 6.9 13.6 4.3 12.6 3.3Z" +
+  "M9.9 11a3.1 3.1 0 1 0 0 6.2 3.1 3.1 0 1 0 0-6.2Z" +
+  "M7.15 14.9 8.95 16.5 3.15 23.3 1.65 22.3Z";
+
+/**
+ * The pen tool, drawn the way Figma and Illustrator draw it: the nib itself,
+ * not the pen holding it — the blade, the breather hole, and the slit splitting
+ * the tine. Those three marks are what say "nib" rather than "wedge".
+ *
+ * Filled rather than stroked, unlike every other icon here, because that is what
+ * the shape is: an outline version loses the hole and the slit to their own
+ * stroke weight long before 17px. The fill is stated AFTER `props` on purpose —
+ * callers spread a preset carrying `fill: none`, which would erase it.
+ */
+export function FountainPen(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props} fill="currentColor" stroke="none">
+      <path d={NIB_PATH} fillRule="evenodd" />
+    </svg>
+  );
+}
+
 /**
  * Marks something the model is offering. Filled rather than stroked — at 11px a
  * 2px stroke closes up into a blob, and this needs to read at chip size.

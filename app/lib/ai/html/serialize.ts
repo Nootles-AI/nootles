@@ -1,4 +1,5 @@
-import { parseCanvas } from "@/app/components/editor/canvas/types";
+import { migrateLegacyCanvas } from "@/app/components/editor/canvas/scene/migrate";
+import { serializeScene } from "@/app/components/editor/canvas/scene/serialize";
 import type { AnyBlock } from "../projection";
 import { MARK_TAGS, type Mark, type Run } from "./grammar";
 
@@ -166,31 +167,15 @@ function blockToHtml(block: AnyBlock): string {
       const lines = rows.map((r) => `\n  <ab-math-line>${r}</ab-math-line>`).join("");
       return `<ab-math-block${id}>${lines}\n</ab-math-block>`;
     }
-    case "canvas": {
-      const { nodes, edges } = parseCanvas(String(block.props.data ?? ""));
-      const nodeHtml = nodes
-        .map(
-          (n) =>
-            `\n  <ab-node${attr("id", n.id)}${attr(
-              "shape",
-              String(n.data?.shape ?? "rectangle"),
-            )}${attr("x", Math.round(n.position?.x ?? 0))}${attr(
-              "y",
-              Math.round(n.position?.y ?? 0),
-            )}>${esc(String(n.data?.label ?? ""))}</ab-node>`,
-        )
-        .join("");
-      const edgeHtml = edges
-        .map((e) => {
-          const label = typeof e.label === "string" ? e.label : "";
-          return `\n  <ab-edge${attr("from", e.source)}${attr("to", e.target)}${attr(
-            "label",
-            label,
-          )}></ab-edge>`;
-        })
-        .join("");
-      return `<ab-diagram${id}>${nodeHtml}${edgeHtml}\n</ab-diagram>`;
-    }
+    case "canvas":
+      // The block stores this grammar, so there is nothing to translate — only
+      // the block's own id to put on it, which is how the compiler tells an
+      // edit of this diagram from a new one. Documents written before the
+      // canvas stored HTML come through the migrator on the way past.
+      return serializeScene({
+        ...migrateLegacyCanvas(String(block.props.data ?? "")),
+        id: block.id,
+      });
     case "paragraph":
       return `<p${id}>${inner}</p>`;
     default:

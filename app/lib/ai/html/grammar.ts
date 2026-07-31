@@ -41,8 +41,6 @@ export const TAG_ALIASES: Record<string, string> = {
   "math-line": "ab-math-line",
   diagram: "ab-diagram",
   flowchart: "ab-diagram",
-  node: "ab-node",
-  edge: "ab-edge",
   math: "ab-math",
   file: "ab-file",
   attachment: "ab-file",
@@ -68,8 +66,6 @@ export type Run =
   | TextRun
   | { type: "math"; latex: string }
   | { type: "link"; href: string; content: TextRun[] };
-
-export type ShapeKind = "rectangle" | "ellipse" | "diamond" | "text";
 
 export type DocNode =
   | {
@@ -116,18 +112,16 @@ export type DocNode =
       caption?: string;
       name?: string;
     }
-  | {
-      type: "canvas";
-      id?: string;
-      nodes: Array<{
-        id?: string;
-        shape: ShapeKind;
-        label: string;
-        x?: number;
-        y?: number;
-      }>;
-      edges: Array<{ from: string; to: string; label?: string }>;
-    };
+  /**
+   * A diagram, carried as the `<ab-diagram>` markup itself.
+   *
+   * Every other block is normalized into fields because the compiler diffs it
+   * field by field. A canvas is not: the block already STORES this grammar, so
+   * the shapes, their geometry and their CSS have exactly one representation
+   * and re-modelling it here could only lose something. See
+   * `app/components/editor/canvas/scene/` for the parser both halves share.
+   */
+  | { type: "canvas"; id?: string; html: string };
 
 /**
  * Content words shared between two texts, as a share of the completion's own.
