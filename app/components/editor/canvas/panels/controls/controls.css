@@ -159,6 +159,7 @@
 .ab-num,
 .ab-ctl-select,
 .ab-ctl-swatch {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 5px;
@@ -168,15 +169,43 @@
   padding-inline: var(--inset);
   border-radius: var(--radius-sm);
   background: var(--sunken);
+  /* So the mark's compartment is cut to the field's own corner rather than
+     squaring it off. */
+  overflow: hidden;
   font-size: var(--text-ui);
   color: var(--foreground);
-  transition:
-    background var(--dur-fast) var(--ease),
-    box-shadow var(--dur-fast) var(--ease);
+  transition: background var(--dur-fast) var(--ease);
 }
-.ab-num:hover,
-.ab-ctl-select:hover,
-.ab-ctl-swatch:hover {
+
+/* The ring, as a layer of its own.
+   It cannot be the field's own inset shadow: an inset shadow paints under the
+   element's children, and the name's compartment is a child sitting on the
+   left wall — so the ring ran round three sides and stopped dead where the
+   compartment began. A pseudo-element after the content paints over it, and the
+   ring closes. */
+.ab-num::after,
+.ab-ctl-select::after,
+.ab-ctl-swatch::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow: inset 0 0 0 1px transparent;
+  transition: box-shadow var(--dur-fast) var(--ease);
+}
+
+/* A field that names itself gives the name the wall: the compartment runs to
+   the field's own edge, so the padding that would hold it off belongs to the
+   compartment instead. */
+.ab-num:has(> .ab-ctl-mark),
+.ab-ctl-select:has(> .ab-ctl-mark),
+.ab-ctl-swatch:has(> .ab-ctl-mark) {
+  padding-left: 0;
+}
+.ab-num:hover::after,
+.ab-ctl-select:hover::after,
+.ab-ctl-swatch:hover::after {
   box-shadow: inset 0 0 0 1px var(--border-strong);
 }
 
@@ -186,32 +215,65 @@
   cursor: ew-resize;
   touch-action: none;
 }
-.ab-num.is-scrubbing {
+.ab-num.is-scrubbing::after {
   box-shadow: inset 0 0 0 1px var(--border-strong);
 }
 .ab-num:focus-within {
   background: var(--background);
-  box-shadow: inset 0 0 0 1px var(--border-strong);
   cursor: default;
 }
-/* The app's one focus ring. The input inside suppresses its own so the ring
-   draws around the whole field rather than the bare text box. */
-.ab-num:has(.ab-num-input:focus-visible) {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
+.ab-num:focus-within::after {
+  box-shadow: inset 0 0 0 1px var(--muted);
 }
 
-/* --faint is documented "decorative only, no text", and these are the only
-   thing naming what a field controls — so they are --muted, which clears AA. */
+/* No accent ring on a panel field.
+   The app's ring is a 2px amber outline standing 1px off the box — right for a
+   button in a page, far too loud around a 24px field in a column of them, and
+   it is the one warm thing in an otherwise neutral panel. The focused state is
+   carried instead by the field lifting to white behind a `--muted` hairline,
+   which clears the 3:1 a non-text indicator needs on its own; the compartment
+   beside it stays put, so the field never changes shape.
+
+   Stated here rather than by dropping `input` from the global selector: that
+   rule is what puts a visible ring on text fields everywhere ELSE in the app,
+   and it was added to fix a real 1.25:1 focus indicator. This file is
+   unlayered and globals.css is in `@layer base`, so this wins. */
+.ab-num:has(.ab-num-input:focus-visible),
+.ab-ctl-text:focus-visible {
+  outline: none;
+}
+
+/* The name, in its own compartment — Figma's move, and it earns its keep here
+   for the same reason: these fields are mostly two or three characters, and a
+   letter loose in the same well as its value reads as part of the value.
+
+   A step *darker* than the field, flush to three of its edges, so the two
+   halves are told apart by surface rather than by a rule. Darker rather than
+   lighter for two reasons: a glyph needs something to sit against, and the
+   field lifts to white when focused — so a lighter compartment was lighter at
+   rest and darker while you typed, which is the separation changing its mind.
+   Below the field in both states, it never does.
+
+   The ink is `--foreground`, not the `--muted` a label would normally take: a
+   14px glyph is a few thin strokes rather than a run of letters, and it needs
+   the weight that a word does not. */
 .ab-ctl-mark {
   display: inline-flex;
   flex: none;
+  /* Top and bottom as well as left: a compartment that stopped short of the
+     field's edge would be a chip sitting in it. */
+  align-self: stretch;
   align-items: center;
   justify-content: center;
-  min-width: 12px;
-  height: 14px;
+  min-width: var(--control-sm);
+  padding-inline: 5px;
+  /* Between the two line tones: --border-strong read as a slab against a 24px
+     field, --border was not enough to sit a glyph on. There is no token in the
+     gap, and mixing the two neighbours is more honest than inventing a third
+     grey that would then need keeping in step with them. */
+  background: color-mix(in oklab, var(--border), var(--border-strong));
   font-size: var(--text-meta-lg);
-  color: var(--muted);
+  color: var(--foreground);
   user-select: none;
 }
 .ab-num-unit {
@@ -301,7 +363,7 @@
 }
 .ab-ctl-text:focus {
   background: var(--background);
-  box-shadow: inset 0 0 0 1px var(--border-strong);
+  box-shadow: inset 0 0 0 1px var(--muted);
 }
 
 /* A disclosure inside a section body — one step below a section title, so it

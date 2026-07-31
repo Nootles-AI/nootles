@@ -181,8 +181,7 @@ export function AppearanceSection({ selection, patch, setStyle }: SectionProps) 
 
         <div className="ab-ctl-row">
           <SelectField
-            label="Blend"
-            name="Blend mode"
+            label="Blend mode"
             value={blendMixed ? "" : blends[0]}
             options={blendMixed ? [{ value: "", label: "Mixed" }, ...BLEND] : BLEND}
             onChange={(value) => {
