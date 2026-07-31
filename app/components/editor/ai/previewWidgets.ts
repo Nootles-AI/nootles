@@ -1,12 +1,13 @@
+import { createElement } from "react";
+import { createRoot, type Root } from "react-dom/client";
 import katex from "katex";
-import { migrateLegacyCanvas } from "@/app/components/editor/canvas/scene/migrate";
 import {
-  canvasHeightFor,
-  SHAPE_H,
-  SHAPE_W,
+  CANVAS_MIN_H,
+  sceneBlockHeight,
 } from "@/app/components/editor/canvas/types";
 import { runsToHtml } from "@/app/lib/ai/html/serialize";
 import type { AnyBlock } from "@/app/lib/ai/projection";
+import { ScenePreview, sceneFrom } from "./ScenePreview";
 
 /**
  * Faded facsimiles of the blocks the document does not (yet, or any longer)
@@ -18,14 +19,6 @@ import type { AnyBlock } from "@/app/lib/ai/projection";
  * drawing, and only the head line differs.
  */
 
-export type PreviewNode = {
-  tempId: string;
-  shape: string;
-  label: string;
-  x: number;
-  y: number;
-};
-export type PreviewEdge = { source: string; target: string; label?: string };
 
 /**
  * A block that needs drawing to be understood.
@@ -38,7 +31,14 @@ export type PreviewEdge = { source: string; target: string; label?: string };
 export type Preview =
   | { kind: "code"; language: string; code: string }
   | { kind: "math"; lines: string[] }
-  | { kind: "diagram"; nodes: PreviewNode[]; edges: PreviewEdge[] }
+  /**
+   * The diagram as the block stores it — canvas HTML, or the JSON a document
+   * written before that still holds. Carried as its source rather than as a
+   * digest of it, because the preview is drawn by the canvas's own renderer and
+   * that renderer takes a scene: anything summarised here would be a fact about
+   * the diagram that the drawing could then disagree with.
+   */
+  | { kind: "diagram"; source: string }
   /** Cells are inline MARKUP, not plain text, so a bold or `code` cell previews as one. */
   | { kind: "table"; header: boolean; rows: string[][] };
 
@@ -229,17 +229,6 @@ export function ghostBlocksKey(blocks: GhostBlock[]): string {
     .join("|");
 }
 
-const SVG_NS = "http://www.w3.org/2000/svg";
-// Match the canvas's real defaults so the preview reads true.
-const NODE_W = SHAPE_W;
-const NODE_H = SHAPE_H;
-
-function svgEl(name: string, attrs: Record<string, string | number>) {
-  const el = document.createElementNS(SVG_NS, name);
-  for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, String(v));
-  return el;
-}
-
 function head(label: string) {
   const el = document.createElement("div");
   el.className = "ab-code-preview-head";
@@ -247,87 +236,86 @@ function head(label: string) {
   return el;
 }
 
-/** A faded, to-scale sketch of a diagram. */
-function diagramPreview(nodes: PreviewNode[], edges: PreviewEdge[], label: string) {
+/**
+ * React roots mounted into preview widgets, so each can be torn down when
+ * ProseMirror drops the widget that owns it. A `WeakMap` rather than a property
+ * on the element: the element is ProseMirror's, and a preview is rebuilt on
+ * every keystroke of a streaming diagram.
+ */
+const roots = new WeakMap<Element, Root>();
+
+/**
+ * Unmount whatever a preview mounted. Handed to the widget decoration's
+ * `destroy`, which is the only signal that the preview has gone.
+ *
+ * Deferred, because `destroy` fires while ProseMirror is applying a
+ * transaction — which can be inside a React commit — and unmounting a root
+ * from there is the "synchronously unmount while rendering" warning.
+ */
+export function disposePreview(node: Node): void {
+  const el = node as Element;
+  // The widget's node is not always the preview: a review draws a removed
+  // diagram inside a wrapper that says it was removed, so the root is a
+  // descendant. Both are checked, and a node that mounted nothing costs a
+  // lookup that finds nothing.
+  const owners: Element[] = [el];
+  if (typeof el.querySelectorAll === "function") {
+    owners.push(...el.querySelectorAll(".ab-diagram-preview"));
+  }
+  for (const owner of owners) {
+    const root = roots.get(owner);
+    if (!root) continue;
+    roots.delete(owner);
+    queueMicrotask(() => root.unmount());
+  }
+}
+
+/**
+ * The box a diagram is about to land in, before there is one to draw.
+ *
+ * The same chrome the finished preview wears, so the two are one box that fills
+ * in rather than a chip that is replaced by something a different size — the
+ * head line is the only part that changes. Deliberately not a rendering of
+ * anything: the shapes here stand for a diagram, they do not claim to be the
+ * one arriving, which is why they are three plain bars and not four.
+ */
+export function diagramSkeleton(label: string): HTMLElement {
+  const wrap = document.createElement("div");
+  wrap.className = "ab-diagram-preview is-loading";
+  wrap.contentEditable = "false";
+  wrap.appendChild(head(label));
+
+  const surface = div("ab-diagram-preview-surface ab-skeleton");
+  surface.style.height = `${CANVAS_MIN_H}px`;
+  for (let i = 0; i < 3; i++) {
+    if (i) surface.appendChild(div("ab-skeleton-link"));
+    const box = div("ab-skeleton-shape");
+    // Staggered so it reads as something being drawn in order, rather than a
+    // panel of lights blinking together.
+    box.style.animationDelay = `${i * 0.16}s`;
+    surface.appendChild(box);
+  }
+  wrap.appendChild(surface);
+  return wrap;
+}
+
+/** The diagram, drawn by the canvas's own renderer. */
+function diagramPreview(source: string, label: string) {
   const wrap = document.createElement("div");
   wrap.className = "ab-diagram-preview";
   wrap.contentEditable = "false";
-  // Same height the real canvas takes, so accepting doesn't jump.
-  wrap.style.height = `${canvasHeightFor(nodes)}px`;
   wrap.appendChild(head(label));
 
-  const minX = Math.min(...nodes.map((n) => n.x));
-  const minY = Math.min(...nodes.map((n) => n.y));
-  const maxX = Math.max(...nodes.map((n) => n.x)) + NODE_W;
-  const maxY = Math.max(...nodes.map((n) => n.y)) + NODE_H;
-  const pad = 24;
-  const svg = svgEl("svg", {
-    class: "ab-diagram-preview-svg",
-    viewBox: `${minX - pad} ${minY - pad} ${maxX - minX + pad * 2} ${maxY - minY + pad * 2}`,
-    preserveAspectRatio: "xMidYMid meet",
-  });
+  const scene = sceneFrom(source);
+  const surface = div("ab-diagram-preview-surface");
+  // The height the block itself will take, by the block's own rule, so
+  // accepting does not move the page.
+  surface.style.height = `${sceneBlockHeight(scene)}px`;
+  wrap.appendChild(surface);
 
-  // Edges first so shapes sit on top.
-  const byId = new Map(nodes.map((n) => [n.tempId, n]));
-  for (const e of edges) {
-    const a = byId.get(e.source);
-    const b = byId.get(e.target);
-    if (!a || !b) continue;
-    svg.appendChild(
-      svgEl("line", {
-        class: "ab-diagram-preview-edge",
-        x1: a.x + NODE_W / 2,
-        y1: a.y + NODE_H / 2,
-        x2: b.x + NODE_W / 2,
-        y2: b.y + NODE_H / 2,
-      }),
-    );
-  }
-
-  for (const n of nodes) {
-    const cx = n.x + NODE_W / 2;
-    const cy = n.y + NODE_H / 2;
-    if (n.shape === "ellipse") {
-      svg.appendChild(
-        svgEl("ellipse", {
-          class: "ab-diagram-preview-shape",
-          cx,
-          cy,
-          rx: NODE_W / 2,
-          ry: NODE_H / 2,
-        }),
-      );
-    } else if (n.shape === "diamond") {
-      svg.appendChild(
-        svgEl("polygon", {
-          class: "ab-diagram-preview-shape",
-          points: `${cx},${n.y} ${n.x + NODE_W},${cy} ${cx},${n.y + NODE_H} ${n.x},${cy}`,
-        }),
-      );
-    } else if (n.shape !== "text") {
-      svg.appendChild(
-        svgEl("rect", {
-          class: "ab-diagram-preview-shape",
-          x: n.x,
-          y: n.y,
-          width: NODE_W,
-          height: NODE_H,
-          rx: 8,
-        }),
-      );
-    }
-    const text = svgEl("text", {
-      class: "ab-diagram-preview-text",
-      x: cx,
-      y: cy,
-      "text-anchor": "middle",
-      "dominant-baseline": "central",
-    });
-    text.textContent = n.label;
-    svg.appendChild(text);
-  }
-
-  wrap.appendChild(svg);
+  const root = createRoot(surface);
+  roots.set(wrap, root);
+  root.render(createElement(ScenePreview, { scene }));
   return wrap;
 }
 
@@ -392,7 +380,7 @@ export function previewElement(preview: Preview, label: string): HTMLElement {
     case "table":
       return tablePreview(preview, label);
     case "diagram":
-      return diagramPreview(preview.nodes, preview.edges, label);
+      return diagramPreview(preview.source, label);
   }
 }
 
@@ -406,7 +394,9 @@ export function previewKey(p: Preview): string {
     case "table":
       return `table-${p.rows.map((r) => r.join("|")).join("¶")}`;
     case "diagram":
-      return `diagram-${p.nodes.length}-${p.edges.length}`;
+      // The source itself. A count of shapes would hold the widget still while
+      // a streaming diagram moved them, and re-labelled them, under it.
+      return `diagram-${p.source.length}-${p.source}`;
   }
 }
 
@@ -414,27 +404,19 @@ type TableCell = unknown[] | { content?: unknown[] };
 type TableContent = { rows?: Array<{ cells?: TableCell[] }>; headerRows?: number };
 
 /**
- * A diagram sketched from what the block stores — canvas HTML, or the JSON a
- * document written before that still holds. Only the top level: the sketch
- * draws every shape at one size, so a group's contents would be a row of
- * identical boxes rather than the thing the group is.
+ * A diagram from what the block stores — canvas HTML, or the JSON a document
+ * written before that still holds. Groups, connectors and every kind's own
+ * geometry come with it: the canvas draws this, so whatever the canvas can draw
+ * the preview shows.
  */
 export function canvasPreview(
   source: string,
 ): Extract<Preview, { kind: "diagram" }> | null {
-  const scene = migrateLegacyCanvas(source);
-  if (!scene.nodes.length) return null;
-  return {
-    kind: "diagram",
-    nodes: scene.nodes.map((node) => ({
-      tempId: node.id,
-      shape: node.kind === "ellipse" || node.kind === "text" ? node.kind : "rectangle",
-      label: node.label,
-      x: node.x,
-      y: node.y,
-    })),
-    edges: [],
-  };
+  // Parsed only to answer "is there anything to show" — a diagram with no
+  // shapes in it is not an offer. The source travels on untouched, because the
+  // renderer parses it for itself.
+  if (!sceneFrom(source).nodes.length) return null;
+  return { kind: "diagram", source };
 }
 
 /**

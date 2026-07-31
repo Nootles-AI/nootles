@@ -6,7 +6,10 @@ import {
 } from "prosemirror-state";
 import { Decoration, DecorationSet, type EditorView } from "prosemirror-view";
 import type { Batch } from "@/convex/ai/operations";
+import { sceneSummary } from "./ScenePreview";
 import {
+  diagramSkeleton,
+  disposePreview,
   ghostBlocksElement,
   ghostBlocksKey,
   previewElement,
@@ -14,8 +17,6 @@ import {
   renderInline,
   type GhostBlock,
   type Preview,
-  type PreviewEdge,
-  type PreviewNode,
 } from "./previewWidgets";
 
 /**
@@ -31,7 +32,7 @@ import {
  * it's delegated to a handler the action controller registers.
  */
 
-export type { Preview, PreviewEdge, PreviewNode };
+export type { Preview };
 
 export type Suggestion =
   | {
@@ -70,6 +71,22 @@ export type Suggestion =
        * will become, in the place they will land.
        */
       blocks?: GhostBlock[];
+      /**
+       * A second call is out fetching what this suggestion is OF, and there is
+       * nothing to draw yet. Only the diagram lane sets it: the others compile
+       * from a completion that has already arrived, so their `preview` lands in
+       * the same breath as their chip.
+       */
+      loading?: boolean;
+      /**
+       * Accepts what has arrived so far, for a suggestion that is still being
+       * generated. Set only by the diagram lane, which can place a half-drawn
+       * diagram and go on drawing into it once it is in the document.
+       *
+       * Its presence is what makes Tab act now instead of queueing: without one
+       * there is nothing a partial suggestion could usefully become.
+       */
+      onAccept?: () => void;
       /**
        * Prose the completion adds to the current block before opening the new
        * one. A suggestion that finishes "Here's a dia" into "…diagram of the
@@ -142,7 +159,7 @@ function headOf(p: Preview): string {
     case "math":
       return "math";
     case "diagram":
-      return `diagram (${p.nodes.length} shapes)`;
+      return sceneSummary(p.source);
     case "table": {
       const cols = p.rows[0]?.length ?? 0;
       return `${p.rows.length - (p.header ? 1 : 0)}×${cols} table`;
@@ -223,11 +240,30 @@ export function ghostTextPlugin(): Plugin<Suggestion> {
         // the line — exactly where accepting will insert it.
         if (s.preview) {
           const p = s.preview;
-          const label = `⇥ Tab to insert · ${headOf(p)}`;
+          // Still arriving: Tab queues rather than applies, so the head must not
+          // yet promise an insert it cannot perform.
+          const label = s.batch
+            ? `⇥ Tab to insert · ${headOf(p)}`
+            : `Drawing… · ${headOf(p)}`;
           decos.push(
             Decoration.widget(after, () => previewElement(p, label), {
               side: 1,
               key: `ab-preview-${after}-${previewKey(p)}`,
+              // A diagram preview mounts the canvas renderer; this is the only
+              // notice we get that the widget has gone.
+              destroy: disposePreview,
+            }),
+          );
+        } else if (s.loading) {
+          // The box it will land in, in the place it will land, before there is
+          // anything to put in it — so the wait happens where the answer will
+          // appear rather than beside a chip that is about to be replaced.
+          decos.push(
+            Decoration.widget(after, () => diagramSkeleton("Drawing diagram…"), {
+              side: 1,
+              // Stable, so the pulse is not restarted by every keystroke's
+              // worth of suggestion state.
+              key: `ab-preview-loading-${after}`,
             }),
           );
         } else if (s.blocks?.length) {
@@ -301,11 +337,15 @@ export function setAction(
   action: Omit<Extract<Suggestion, { kind: "action" }>, "kind" | "pos">,
 ) {
   // The user already hit Tab while this was loading — honour it now rather than
-  // making them press it again.
-  if (action.batch && armedAccept) {
+  // making them press it again. Either way of accepting will do: a finished
+  // batch, or the first thing a still-generating suggestion can place. Without
+  // the second, a Tab pressed at the skeleton stayed queued for the whole of a
+  // diagram it was meant to cut short.
+  if (armedAccept && (action.batch || action.onAccept)) {
     armedAccept = false;
     if (ghostTextKey.getState(view.state)) metaDispatch(view, null);
-    actionApplyHandler?.(action.batch);
+    if (action.batch) actionApplyHandler?.(action.batch);
+    else action.onAccept?.();
     return;
   }
   metaDispatch(view, {
@@ -333,9 +373,18 @@ export function acceptSuggestion(view: EditorView): boolean {
     view.dispatch(tr);
     return true;
   }
-  // Content still generating: remember the Tab and apply as soon as it lands.
-  // Consuming the key (true) matters — falling through would indent instead.
   if (!s.batch) {
+    // Still generating, but there is something worth placing now: put it in and
+    // let it finish in the document, where the user can carry on typing beside
+    // it rather than waiting on it.
+    if (s.onAccept) {
+      const accept = s.onAccept;
+      clearSuggestion(view);
+      accept();
+      return true;
+    }
+    // Nothing to place yet: remember the Tab and apply as soon as it lands.
+    // Consuming the key (true) matters — falling through would indent instead.
     armedAccept = true;
     return true;
   }

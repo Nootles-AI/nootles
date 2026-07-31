@@ -15,6 +15,18 @@ export type FimOpts = {
   maxTokens?: number;
   stop?: string[];
   signal?: AbortSignal;
+  /**
+   * Grammar teaching prepended to the prompt, and the one part of it exempt
+   * from `MAX_BEFORE`.
+   *
+   * A seed has to lead to read as a preamble, and the document is trimmed from
+   * its head so the caret keeps its neighbourhood — so a seed concatenated into
+   * `before` is the first thing trimmed away, silently, on exactly the pages
+   * long enough to need trimming. Exempt rather than counted because it is a
+   * constant of the lane and the cap is there to bound the page: counted, the
+   * two would compete, and the page would lose ground every time the seed grew.
+   */
+  seed?: string;
 };
 
 async function fimFetch(
@@ -25,7 +37,8 @@ async function fimFetch(
 ): Promise<Response> {
   const key = process.env.MISTRAL_API_KEY;
   if (!key) throw new Error("MISTRAL_API_KEY is not set");
-  const prompt = before.length > MAX_BEFORE ? before.slice(-MAX_BEFORE) : before;
+  const trimmed = before.length > MAX_BEFORE ? before.slice(-MAX_BEFORE) : before;
+  const prompt = (opts.seed ?? "") + trimmed;
   const suffix = after.length > MAX_AFTER ? after.slice(0, MAX_AFTER) : after;
   return fetch(FIM_URL, {
     method: "POST",

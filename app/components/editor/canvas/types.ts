@@ -97,3 +97,32 @@ export function canvasHeightFor(
     Math.min(CANVAS_MAX_H, Math.max(CANVAS_MIN_H, content + CANVAS_PAD)),
   );
 }
+
+/**
+ * Marks a height the user set by hand. Without it there is no telling a dragged
+ * 320 from the 320 the content happens to need, and the block would stop
+ * growing with its diagram the first time anyone touched the grip.
+ */
+export const HEIGHT_ATTR = "data-height";
+/** The same, for a width the user widened past the document column. */
+export const WIDTH_ATTR = "data-width";
+export const FIXED = "fixed";
+export const CANVAS_MIN_W = 240;
+
+/**
+ * The height a canvas block takes, from the scene alone.
+ *
+ * Here rather than in the surface that draws it because the suggestion preview
+ * has to reach the same answer: it is drawn where the block will land, so a
+ * preview an inch shorter than the block is a page that jumps on Tab. One rule,
+ * one place — the pinned height included, which is the half a second copy of
+ * this would be most likely to forget.
+ */
+export function sceneBlockHeight(scene: {
+  h: number;
+  attrs: Record<string, string>;
+  nodes: ReadonlyArray<{ y: number; h: number }>;
+}): number {
+  if (scene.attrs[HEIGHT_ATTR] === FIXED) return Math.max(CANVAS_MIN_H, scene.h);
+  return canvasHeightFor(scene.nodes.map((node) => ({ y: node.y, height: node.h })));
+}

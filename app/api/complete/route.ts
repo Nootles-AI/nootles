@@ -19,9 +19,10 @@ export async function POST(req: Request) {
     return new Response("Invalid JSON", { status: 400 });
   }
 
-  const { before, after, mode } = (body ?? {}) as {
+  const { before, after, seed, mode } = (body ?? {}) as {
     before?: unknown;
     after?: unknown;
+    seed?: unknown;
     mode?: unknown;
   };
   if (typeof before !== "string") {
@@ -34,6 +35,9 @@ export async function POST(req: Request) {
     // mid-way. Plain prose stays short because the suffix bounds it.
     maxTokens: html ? AI.fim.htmlMaxTokens : AI.fim.ghostMaxTokens,
     stop: html ? [] : undefined,
+    // Its own field, never folded into `before`: the document is what gets
+    // trimmed, and a seed that travelled inside it would be trimmed first.
+    ...(typeof seed === "string" ? { seed } : {}),
     signal: req.signal,
   });
 }

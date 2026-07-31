@@ -141,6 +141,37 @@ export const AI = {
     },
   },
 
+  /**
+   * The diagram builder — the second stage of the completion lane.
+   *
+   * The FIM model writes `<ab-build-diagram>` where a diagram belongs and says
+   * in a phrase what it is for; this model turns that phrase into canvas HTML.
+   * Split because the two jobs want opposite things: the ambient lane is asked
+   * on every keystroke and must stay cheap, while the canvas grammar is seven
+   * kinds, an attribute/CSS split and a set of rules — teaching that in the FIM
+   * preamble would cost it on every prose completion, and `MAX_BEFORE` trims
+   * the preamble first anyway.
+   *
+   * Flash for the same reason `reformat` uses it: measured fastest of the three
+   * on a structured-rewrite task, and the only one that read a numbered
+   * sequence as a diagram. Swapping it is this one line.
+   */
+  diagram: {
+    model: "google/gemini-2.5-flash",
+    /**
+     * A UI mockup is the long case — a window, a toolbar, a sidebar and a few
+     * rows of controls runs past a thousand tokens, and truncation loses the
+     * closing tags, which reads as "half the mockup is missing".
+     */
+    maxTokens: 2600,
+    /**
+     * How much of the page the builder is shown, taken from just before the
+     * caret. It needs the wording to label shapes with what the page actually
+     * calls things; it does not need the whole document.
+     */
+    contextChars: 2000,
+  },
+
   review: {
     /**
      * Quiet time before the set of blocks the user has rewritten inside a

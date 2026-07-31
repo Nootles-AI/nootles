@@ -70,7 +70,14 @@ import {
   type StyleMap,
   type StylePatch,
 } from "../scene/types";
-import { CANVAS_MIN_H, canvasHeightFor } from "../types";
+import {
+  CANVAS_MIN_H,
+  CANVAS_MIN_W,
+  FIXED,
+  HEIGHT_ATTR,
+  WIDTH_ATTR,
+  sceneBlockHeight,
+} from "../types";
 import { defaultBox, newNode, type DrawKind } from "./newShape";
 import { Overlay, type OverlayApi } from "./Overlay";
 import { shapeWriter, type ShapeWriter } from "./svgShape";
@@ -78,17 +85,6 @@ import { PenTool } from "./PenTool";
 import { ShapeView } from "./ShapeView";
 import "../canvas.css";
 
-/**
- * Marks a height the user set by hand. Without it there is no telling a
- * dragged 320 from the 320 the content happens to need, and the block would
- * stop growing with its diagram the first time anyone touched the grip.
- */
-const HEIGHT_ATTR = "data-height";
-/** The same, for a width the user widened past the document column. */
-const WIDTH_ATTR = "data-width";
-const FIXED = "fixed";
-
-const CANVAS_MIN_W = 240;
 /** Kept clear either side, so a widened block cannot reach the window's edge. */
 const CANVAS_GUTTER = 32;
 
@@ -804,10 +800,7 @@ export function CanvasSurface({ source, onChange, onApi }: CanvasSurfaceProps) {
     [selection],
   );
 
-  const height =
-    scene.attrs[HEIGHT_ATTR] === FIXED
-      ? Math.max(CANVAS_MIN_H, scene.h)
-      : canvasHeightFor(scene.nodes.map((node) => ({ y: node.y, height: node.h })));
+  const height = sceneBlockHeight(scene);
   /** Unset until widened, so the block tracks the document column by default. */
   const width =
     scene.attrs[WIDTH_ATTR] === FIXED ? Math.max(CANVAS_MIN_W, scene.w) : null;

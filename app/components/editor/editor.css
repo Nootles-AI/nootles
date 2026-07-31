@@ -369,25 +369,50 @@
   color: var(--muted);
   border-bottom-color: var(--border);
 }
-.ab-diagram-preview-svg {
-  display: block;
+/* Hosts the real canvas renderer: `.ab-canvas-viewport` is absolute and fills
+   its nearest positioned ancestor, which is this. The height is set inline,
+   from the same rule the block itself sizes by. */
+.ab-diagram-preview-surface {
+  position: relative;
   width: 100%;
-  height: calc(100% - 26px);
-  padding: 0.4rem 0;
 }
-.ab-diagram-preview-shape {
-  fill: var(--background);
-  stroke: var(--faint);
-  stroke-width: 1.5;
+
+/* Waiting for the diagram. Stands in the place the diagram will occupy, so the
+   wait happens where the answer appears. */
+.ab-diagram-preview-surface.ab-skeleton {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
 }
-.ab-diagram-preview-edge {
-  stroke: var(--faint);
-  stroke-width: 1.5;
+.ab-skeleton-shape {
+  width: 132px;
+  height: 34px;
+  border-radius: 8px;
+  background: var(--faint);
+  animation: ab-skeleton-pulse 1.5s ease-in-out infinite;
 }
-.ab-diagram-preview-text {
-  fill: var(--muted);
-  font-size: 15px;
-  font-family: inherit;
+.ab-skeleton-link {
+  width: 1.5px;
+  height: 20px;
+  background: var(--faint);
+  opacity: 0.5;
+}
+@keyframes ab-skeleton-pulse {
+  0%,
+  100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 0.65;
+  }
+}
+/* A pulse is decoration; nobody should have to sit through it. */
+@media (prefers-reduced-motion: reduce) {
+  .ab-skeleton-shape {
+    animation: none;
+    opacity: 0.45;
+  }
 }
 
 /* Ghost completion inside a code block. */

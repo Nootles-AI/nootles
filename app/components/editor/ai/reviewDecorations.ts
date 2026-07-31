@@ -6,7 +6,12 @@ import { tokenDiff } from "@/app/lib/ai/review/textDiff";
 import { anchorFor, seats, type Anchor, type Seat, type Where } from "@/app/lib/ai/review/undo";
 import type { AnyBlock } from "@/app/lib/ai/projection";
 import { runsToHtml } from "@/app/lib/ai/html/serialize";
-import { previewElement, previewOf, renderInline } from "./previewWidgets";
+import {
+  disposePreview,
+  previewElement,
+  previewOf,
+  renderInline,
+} from "./previewWidgets";
 
 /**
  * The pending change, drawn in the document.
@@ -184,6 +189,9 @@ export function reviewDecorations(doc: Node, spec: NonNullable<ReviewSpec>): Dec
             side: anchor?.placement === "before" ? -1 : 1,
             key: `ab-review-gone-${runId}`,
             ...INERT,
+            // A removed diagram is drawn by the canvas renderer, so this run
+            // may own a React root — the only one of these widgets that can.
+            destroy: disposePreview,
           }),
         );
         claim(pos);

@@ -21,6 +21,11 @@ export function searchModel() {
   return openrouter().chat(AI.chat.search.model);
 }
 
+/** The model that expands `<ab-build-diagram>` into canvas HTML. */
+export function diagramModel() {
+  return openrouter().chat(AI.diagram.model);
+}
+
 function openrouter() {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) throw new Error("OPENROUTER_API_KEY is not set");

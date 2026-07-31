@@ -8,7 +8,9 @@ import { Id } from "@/convex/_generated/dataModel";
 import { AI } from "@/app/lib/ai/aiConfig";
 import { project, type AnyBlock } from "@/app/lib/ai/projection";
 import { resolveBatch, warnRejected } from "@/app/lib/ai/validate";
-import { applyBatch, caretTarget } from "@/app/lib/ai/apply";
+import { applyBatch, caretTarget, type ApplyResult } from "@/app/lib/ai/apply";
+import { migrateLegacyCanvas } from "@/app/components/editor/canvas/scene/migrate";
+import { serializeScene } from "@/app/components/editor/canvas/scene/serialize";
 import {
   toDocHtml,
   toDocHtmlSplit,
@@ -51,9 +53,72 @@ const PREAMBLE = `<!-- auto-board document. Blocks: <p>, <h2>, <ul><li>, <ol><li
 <details><summary>Toggle</summary><p>inside</p></details>,
 <ab-code-block lang="python">code</ab-code-block>,
 <ab-math-block><ab-math-line>a = 1</ab-math-line></ab-math-block>,
-<ab-diagram><ab-node shape="rectangle" x="0" y="0">Step</ab-node><ab-edge from="n1" to="n2"></ab-edge></ab-diagram>
-Inline: <code>maxRetries</code>, <strong>bold</strong>, <em>italic</em>, <ab-math>x^2</ab-math> -->
+Inline: <code>maxRetries</code>, <strong>bold</strong>, <em>italic</em>, <ab-math>x^2</ab-math>
+Anything drawn — diagram, mockup, chart, wireframe — is one element saying what it
+is for, with how it should look carried into the brief:
+<p>The deploy pipeline works like this:</p>
+<ab-build-diagram>a flowchart of the deploy pipeline</ab-build-diagram>
+<p>This is a mockup of an iPhone todo app. It's modern, sleek, in dark mode:</p>
+<ab-build-diagram>a mockup of a modern, sleek iPhone todo app, in dark mode</ab-build-diagram> -->
 `;
+
+/**
+ * A diagram, written as the one element that says what it is for.
+ *
+ * The canvas vocabulary is seven shape kinds, a connector, an attribute/CSS
+ * split and a handful of rules — far too much to teach in a preamble that
+ * prefixes EVERY completion, most of which are prose. So stage one writes only
+ * the brief, which is the part it is good at (it can see the paragraph the
+ * caret is in), and `/api/diagram` writes the shapes.
+ *
+ * Deliberately an element rather than a signal picked up by a heuristic: the
+ * model still decides, in the grammar, that a diagram comes next, exactly as it
+ * decides a code block does. Expanding it is a macro substitution — the markup
+ * lands where the element stood — so nothing outside the model classifies
+ * anything, and the rest of this lane cannot tell the difference.
+ */
+const BUILD_TAG = "ab-build-diagram";
+
+/**
+ * The brief so far, where the element began, and whether it has closed. Null
+ * until it opens. `at` is where the diagram is spliced in: the stream is
+ * already bounded to this element, so everything from there on is the macro.
+ */
+function diagramBrief(
+  text: string,
+): { brief: string; at: number; closed: boolean } | null {
+  const open = new RegExp(`<${BUILD_TAG}[^>]*>`, "i").exec(text);
+  if (!open) return null;
+  const rest = text.slice(open.index + open[0].length);
+  const close = new RegExp(`</${BUILD_TAG}\\s*>`, "i").exec(rest);
+  return {
+    brief: close ? rest.slice(0, close.index) : rest,
+    at: open.index,
+    closed: !!close,
+  };
+}
+
+/** The `<ab-diagram>` element out of a finished reply, or "". Models fence. */
+function diagramElement(text: string): string {
+  return /<ab-diagram[\s\S]*<\/ab-diagram>/i.exec(text)?.[0] ?? "";
+}
+
+/**
+ * The real id of the canvas a batch just inserted.
+ *
+ * The batch names it by `tempId`, which the applier resolves as it goes — so
+ * this is the only moment the two are both in hand, and the id is what the rest
+ * of the stream needs to keep writing into.
+ */
+function canvasIdOf(batch: Batch, result: ApplyResult): string | null {
+  for (const op of batch.ops) {
+    if (op.kind !== "insertBlocks") continue;
+    for (const block of op.blocks) {
+      if (block.type === "canvas") return result.blocks[block.tempId] ?? null;
+    }
+  }
+  return null;
+}
 
 /** The first block-level tag in the text, or -1. Inline marks are skipped:
  * `<code>`, `<strong>` and friends are prose, not a new block. */
@@ -202,11 +267,18 @@ function tablePreview(
   };
 }
 
-/** Cheap signal for "enough has arrived to be worth redrawing". */
+/**
+ * Cheap signal for "enough has arrived to be worth redrawing".
+ *
+ * Counts CLOSED shapes, not open ones: a shape whose tag has arrived but whose
+ * label has not would otherwise redraw the whole preview to add an empty box,
+ * and then again a moment later to fill it in.
+ */
 function previewSignature(acc: string): string {
-  const closed = (acc.match(/<\/ab-node>/g) ?? []).length;
-  const edges = (acc.match(/<ab-edge/g) ?? []).length;
-  return `${proseTail(acc)}:${closed}:${edges}:${acc.length >> 5}`;
+  const shapes = (acc.match(/<\/ab-(?:rect|ellipse|polygon|text|image|path|group)>/gi) ?? [])
+    .length;
+  const edges = (acc.match(/<\/ab-edge\s*>/gi) ?? []).length;
+  return `${proseTail(acc)}:${shapes}:${edges}:${acc.length >> 5}`;
 }
 
 /**
@@ -229,31 +301,12 @@ function describe(batch: Batch): { label: string; preview?: Preview } | null {
       };
     }
     if (block.type === "canvas") {
-      const nodes = batch.ops
-        .filter((o) => o.kind === "addShape")
-        .map((o, i) => {
-          const s = o as Extract<typeof o, { kind: "addShape" }>;
-          return {
-            tempId: s.tempId,
-            shape: s.shape as string,
-            label: s.label ?? "",
-            x: s.position?.x ?? i * 220,
-            y: s.position?.y ?? 0,
-          };
-        });
-      const edges = batch.ops
-        .filter((o) => o.kind === "connectEdge")
-        .map((o) => {
-          const e = o as Extract<typeof o, { kind: "connectEdge" }>;
-          return {
-            source: "tempId" in e.source ? e.source.tempId : e.source.shapeId,
-            target: "tempId" in e.target ? e.target.tempId : e.target.shapeId,
-          };
-        });
-      return {
-        label: "Add diagram",
-        ...(nodes.length ? { preview: { kind: "diagram", nodes, edges } } : {}),
-      };
+      // From the block's own data, which is where the compiler puts a diagram —
+      // it emits `props.data`, never the shape-level ops. Reading those instead
+      // found nothing, so the preview came back empty, and an "Add diagram"
+      // with nothing to show is refused below: the suggestion vanished.
+      const preview = canvasPreview(String(block.props?.data ?? ""));
+      return { label: "Add diagram", ...(preview ? { preview } : {}) };
     }
     if (block.type === "mathBlock") {
       const lines = String(block.props?.source ?? "").split("\n").filter(Boolean);
@@ -360,6 +413,14 @@ export function useTabCompletion(
     if (!editor) return;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let abort: AbortController | null = null;
+    /**
+     * A diagram the user accepted mid-flight, still being written into.
+     *
+     * Held apart from `abort` on purpose: that one is cancelled by the next
+     * keystroke, and the whole point of an accepted diagram is that the user
+     * goes on typing while it finishes. Only unmounting stops this one.
+     */
+    let liveAbort: AbortController | null = null;
     let seq = 0;
     let shown: { kind: string; latencyMs: number } | null = null;
 
@@ -368,30 +429,49 @@ export function useTabCompletion(
     // editor's update cycle re-enters rendering. Always defer writes out of it.
     const defer = (fn: () => void) => setTimeout(fn, 0);
 
-    setActionApplyHandler((batch) => {
+    /** Applies a batch, lands the caret after it, and records both. */
+    const applyNow = (batch: Batch) => {
       const s = shown;
       shown = null;
-      const target = caretTarget(applyBatch(editor, batch));
+      const result = applyBatch(editor, batch);
+      const target = caretTarget(result);
       if (target) editor.setTextCursorPosition(target, "end");
-      if (!pageId) return;
-      defer(() => {
-        void appendRef
-          .current({ pageId, source: "ai", ops: batch.ops })
-          .catch(() => {});
-        if (s) {
-          void logRef
-            .current({
-              pageId,
-              kind: s.kind,
-              gateOk: true,
-              shown: true,
-              outcome: "accepted",
-              latencyMs: s.latencyMs,
-            })
+      if (pageId) {
+        defer(() => {
+          void appendRef
+            .current({ pageId, source: "ai", ops: batch.ops })
             .catch(() => {});
-        }
+          if (s) {
+            void logRef
+              .current({
+                pageId,
+                kind: s.kind,
+                gateOk: true,
+                shown: true,
+                outcome: "accepted",
+                latencyMs: s.latencyMs,
+              })
+              .catch(() => {});
+          }
+        });
+      }
+      return result;
+    };
+    setActionApplyHandler(applyNow);
+
+    /**
+     * Writes into a diagram block that has already been accepted, while the
+     * builder is still drawing it.
+     *
+     * Through the op vocabulary rather than by touching the editor directly,
+     * because this is a mutation like any other — it just happens to have no
+     * one waiting to approve it.
+     */
+    const writeDiagram = (blockId: string, data: string) => {
+      applyBatch(editor, {
+        ops: [{ kind: "updateBlockProps", blockId, props: { data } }],
       });
-    });
+    };
 
     const context = () => {
       const state = editor.prosemirrorState;
@@ -416,6 +496,129 @@ export function useTabCompletion(
       // Untrimmed: whether the caret sits mid-word decides what "complete" is
       // willing to offer.
       return { ...split, cursorBlockId, blocks, visible, midWord: /\w$/.test(bare) };
+    };
+
+    /**
+     * Stage two: a brief becomes shapes.
+     *
+     * Returns the `<ab-diagram>` element, `""` when there was nothing worth
+     * drawing (the builder is allowed to decline — the brief came from a model
+     * that only saw one paragraph), and `null` when there is nothing left for
+     * the caller to do: the turn was superseded, or the user accepted the
+     * diagram mid-flight and it has been finishing in the document ever since.
+     *
+     * Two modes, and Tab is what moves between them. Until it is pressed the
+     * shapes go to the preview and `abort` owns the stream, so the next
+     * keystroke cancels it. After it, the diagram is a real block: the shapes go
+     * there instead, and the stream moves to `liveAbort` — out of reach of the
+     * typing the user is now free to do.
+     */
+    const buildDiagram = async (
+      brief: string,
+      page: string,
+      tail: string,
+      mySeq: number,
+      place: (diagram: string) => string | null,
+    ): Promise<string | null> => {
+      const controller = new AbortController();
+      abort = controller;
+      let out = "";
+      let lastSig = "";
+      /** The block the shapes are going into, once there is one. */
+      let live: string | null = null;
+
+      // Whole shapes only: the tail of the stream is usually a tag cut
+      // mid-attribute, and the scene parser drops it. Re-serialized so what is
+      // placed is closed and canonical — spliced in unclosed, the rest of the
+      // document would parse as being inside the diagram.
+      const soFar = (): string => {
+        const scene = migrateLegacyCanvas(out);
+        return scene.nodes.length ? serializeScene(scene) : "";
+      };
+
+      const accept = () => {
+        const drawn = soFar();
+        if (!drawn) return;
+        // Handed over BEFORE placing, not after. Placing changes the document,
+        // which runs `schedule()` synchronously, and the first thing that does
+        // is abort whatever `abort` is holding — so handing over afterwards
+        // cancelled the stream a moment before it was rescued.
+        if (abort === controller) abort = null;
+        liveAbort = controller;
+        const placed = place(drawn);
+        if (placed) {
+          live = placed;
+          return;
+        }
+        // Nothing landed, so this is still an ordinary suggestion: give the
+        // stream back to the keystroke that would have cancelled it.
+        liveAbort = null;
+        abort = controller;
+      };
+
+      try {
+        const res = await fetch("/api/diagram", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ brief, page, title }),
+          signal: controller.signal,
+        });
+        if (!res.ok || !res.body) return "";
+        const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+        for (;;) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          // Only while it is still a suggestion. Once placed it belongs to the
+          // document, and the document does not care what the caret is doing.
+          if (!live && mySeq !== seq) return null;
+          out += value;
+          const sig = previewSignature(out);
+          if (sig === lastSig) continue;
+          lastSig = sig;
+          if (live) {
+            // Straight into the block, so it fills in under the user while they
+            // carry on writing beneath it.
+            const drawn = soFar();
+            if (drawn) writeDiagram(live, drawn);
+            continue;
+          }
+          // Drawn as the shapes arrive, so a two-second call reads as a diagram
+          // building itself. Half-arrived markup is malformed by definition —
+          // the last tag is usually cut mid-attribute — and the canvas parser
+          // ignores what has not closed, so what is drawn is always whole
+          // shapes. Tab does not queue: `onAccept` places what is there.
+          const preview = canvasPreview(out);
+          if (preview) {
+            setAction(view(), {
+              label: "Add diagram",
+              batch: null,
+              preview,
+              tail,
+              onAccept: accept,
+            });
+          }
+        }
+      } catch {
+        // A placed diagram that was cut off keeps whatever it had drawn: it is
+        // in the document, and half a diagram the user can finish by hand beats
+        // one that empties itself.
+        return null;
+      }
+      if (!live) return diagramElement(out);
+      const finished = soFar();
+      if (finished) {
+        writeDiagram(live, finished);
+        if (pageId) {
+          const ops = [
+            { kind: "updateBlockProps" as const, blockId: live, props: { data: finished } },
+          ];
+          defer(() => {
+            void appendRef.current({ pageId, source: "ai", ops }).catch(() => {});
+          });
+        }
+      }
+      liveAbort = null;
+      return null;
     };
 
     const run = async (mySeq: number) => {
@@ -452,6 +655,38 @@ export function useTabCompletion(
           return [];
         }
       };
+      /**
+       * The completion as ops: the document rebuilt with it spliced in, and the
+       * difference taken. Null when there is nothing to do or the batch does
+       * not resolve — both of which mean there is no offer to make.
+       *
+       * Shared by the two things that need it, which no longer happen at the
+       * same time: the end of a completion, and a Tab pressed on a diagram that
+       * is still being drawn.
+       */
+      const compileWith = (completion: string): Batch | null => {
+        try {
+          const ends = parseDocHtml(ctx.prefix + completion).length;
+          const next = authored(
+            parseDocHtml(ctx.prefix + completion + ctx.suffix),
+            ends,
+          );
+          const current = parseDocHtml(toDocHtml(ctx.blocks));
+          const batch = compileDocHtml(next, {
+            current,
+            anchorBlockId: ctx.cursorBlockId,
+          });
+          if (!batch.ops.length) return null;
+          const resolved = resolveBatch(batch, project(ctx.blocks).index);
+          if (!resolved.ok) {
+            warnRejected("completion", resolved);
+            return null;
+          }
+          return resolved.batch;
+        } catch {
+          return null;
+        }
+      };
       let acc = "";
       let raw = "";
       let lastSig = "";
@@ -461,8 +696,9 @@ export function useTabCompletion(
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
-            before: PREAMBLE + ctx.prefix,
+            before: ctx.prefix,
             after: ctx.suffix,
+            seed: PREAMBLE,
             mode: "html",
           }),
           signal: controller.signal,
@@ -479,6 +715,20 @@ export function useTabCompletion(
           if (bounded.done) break; // the block closed; nothing after it is ours
           // Nobody wants a diagram proposed while someone is still talking.
           if (!limits.allowBlocks && isStructural(acc)) return clear();
+          // A brief, not a diagram. Show the prose half and a pending chip
+          // straight away — the shapes are a second call away, and a suggestion
+          // that sits blank for a second reads as one that is not coming.
+          const asked = diagramBrief(acc);
+          if (asked) {
+            setAction(view(), {
+              label: "Add diagram",
+              batch: null,
+              loading: true,
+              tail: proseTail(acc),
+            });
+            if (asked.closed) break;
+            continue;
+          }
           if (isStructural(acc)) {
             // Draw what has arrived so far. The batch stays null until the
             // stream ends, so Tab queues rather than applying a half-diagram.
@@ -519,6 +769,41 @@ export function useTabCompletion(
       // We have all we intend to use; stop paying for the rest of the stream.
       controller.abort();
       if (mySeq !== seq) return;
+
+      // The macro expands: the shapes land exactly where the element stood, so
+      // every line below this one treats the completion as though the model had
+      // written the diagram itself. The prose half comes along unchanged, which
+      // is what keeps "Here's the pipeline:" and the diagram one suggestion.
+      const asked = diagramBrief(acc);
+      if (asked) {
+        const brief = asked.brief.trim();
+        if (!brief) return clear();
+        const tail = proseTail(acc);
+        // Said straight away, because the element usually arrives whole in one
+        // chunk — `firstBlock` sees it close and breaks the loop before the
+        // chip above ever runs, and the shapes are a second call behind. Left
+        // to the first preview, the suggestion would sit blank for that second.
+        setAction(view(), { label: "Add diagram", batch: null, loading: true, tail });
+        const page = ctx.visible.slice(-AI.diagram.contextChars);
+        /**
+         * Puts a half-drawn diagram into the document and says where it landed,
+         * so the rest of the stream has somewhere to go. The same expansion the
+         * finished version does — the shapes replace the element, and the
+         * compiler works out the ops — only sooner.
+         */
+        const place = (drawn: string): string | null => {
+          const batch = compileWith(acc.slice(0, asked.at) + drawn);
+          if (!batch) return null;
+          shown = { kind: "Add diagram", latencyMs: elapsed(started) };
+          return canvasIdOf(batch, applyNow(batch));
+        };
+        const html = await buildDiagram(brief, page, tail, mySeq, place);
+        if (html === null) return;
+        // Nothing worth drawing, or nothing that parsed. Either way there is no
+        // honest offer to make.
+        if (!html) return clear();
+        acc = acc.slice(0, asked.at) + html;
+      }
 
       // "complete" only keeps what could have been read off the page: a
       // continuation reusing its vocabulary, or the ending of the word being
@@ -568,20 +853,9 @@ export function useTabCompletion(
       // includes prose carrying only inline marks — it does not open a block, but
       // `<strong>` still has to become bold rather than five literal characters.
       try {
-        const ends = parseDocHtml(ctx.prefix + acc).length;
-        const next = authored(parseDocHtml(ctx.prefix + acc + ctx.suffix), ends);
-        const current = parseDocHtml(toDocHtml(ctx.blocks));
-        const batch = compileDocHtml(next, {
-          current,
-          anchorBlockId: ctx.cursorBlockId,
-        });
-        if (!batch.ops.length) return clear();
-        const { index } = project(ctx.blocks);
-        const resolved = resolveBatch(batch, index);
-        if (!resolved.ok) {
-          warnRejected("completion", resolved);
-          return clear();
-        }
+        const compiled = compileWith(acc);
+        if (!compiled) return clear();
+        const resolved = { batch: compiled };
         if (!isStructural(acc)) {
           // Inline marks only. Still prose to the reader: ghost text, no chip and
           // no preview — but Tab applies the compiled batch, so the marks land.
@@ -661,6 +935,9 @@ export function useTabCompletion(
       unsubSelection?.();
       if (timer) clearTimeout(timer);
       abort?.abort();
+      // The one thing that stops a diagram the user already accepted: there is
+      // no editor left to write the rest of it into.
+      liveAbort?.abort();
       setActionApplyHandler(null);
     };
   }, [editor, pageId, title, mode]);
