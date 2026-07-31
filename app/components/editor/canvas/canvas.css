@@ -42,9 +42,14 @@
   /* Drawn at 17 rather than the icon's 24: a cursor is read at a glance and
      sits under the hand, so the same nib at full size reads as a blot. The halo
      is not decoration — without it the black nib vanishes on a dark shape. */
+  /* Mirrored vertically, so the tip points up-left and the body of the nib
+     trails down-right, out from under what you are about to draw on. The path
+     is `NIB_PATH` verbatim and the flip is a transform on top of it, so the
+     toolbar icon and the cursor stay the same object — only the cursor turns.
+     The hotspot moves with the tip: 17px tall, so y 16 becomes y 1. */
   --ab-pen-cursor:
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='17' height='17' viewBox='0 0 24 24'%3E%3Cpath d='M14 .1 23.9 9.8 20.6 11.5 17.1 18.9 2.6 23.3 .2 20.9 5.4 6.9 13.6 4.3 12.6 3.3ZM9.9 11a3.1 3.1 0 1 0 0 6.2 3.1 3.1 0 1 0 0-6.2ZM7.15 14.9 8.95 16.5 3.15 23.3 1.65 22.3Z' fill='%231a1a1a' fill-rule='evenodd' stroke='%23fff' stroke-width='1' stroke-linejoin='round' paint-order='stroke'/%3E%3C/svg%3E")
-      1 16,
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='17' height='17' viewBox='0 0 24 24'%3E%3Cpath transform='translate(0 24) scale(1 -1)' d='M14 .1 23.9 9.8 20.6 11.5 17.1 18.9 2.6 23.3 .2 20.9 5.4 6.9 13.6 4.3 12.6 3.3ZM9.9 11a3.1 3.1 0 1 0 0 6.2 3.1 3.1 0 1 0 0-6.2ZM7.15 14.9 8.95 16.5 3.15 23.3 1.65 22.3Z' fill='%231a1a1a' fill-rule='evenodd' stroke='%23fff' stroke-width='1' stroke-linejoin='round' paint-order='stroke'/%3E%3C/svg%3E")
+      1 1,
     crosshair;
 }
 .ab-canvas-viewport[data-tool="hand"] {
