@@ -1,9 +1,12 @@
 import { safeHref } from "@/app/lib/ai/html/parse";
 import {
   FULL_ARC,
+  isEdgeAttr,
+  isEdgeTag,
   isReservedAttr,
   kindForTag,
   type Scene,
+  type SceneEdge,
   type SceneNode,
   type SceneNodeBase,
   type SceneNodeKind,
@@ -246,14 +249,16 @@ function collectIds(el: Element, taken: Set<string>): void {
   }
 }
 
-function idFor(el: Element, mint: Mint): string {
+function idFor(el: Element, mint: Mint, prefix = "n"): string {
   const id = el.getAttribute("id")?.trim() ?? "";
   if (id && !mint.used.has(id)) {
     mint.used.add(id);
     return id;
   }
-  let fresh = `n${++mint.n}`;
-  while (mint.taken.has(fresh) || mint.used.has(fresh)) fresh = `n${++mint.n}`;
+  let fresh = `${prefix}${++mint.n}`;
+  while (mint.taken.has(fresh) || mint.used.has(fresh)) {
+    fresh = `${prefix}${++mint.n}`;
+  }
   mint.used.add(fresh);
   return fresh;
 }
@@ -344,11 +349,46 @@ function elementToNode(
 function childNodes(parent: Element, mint: Mint): SceneNode[] {
   const out: SceneNode[] = [];
   for (const el of Array.from(parent.children)) {
+    if (isEdgeTag(el.tagName)) continue;
     const kind = kindOf(el.tagName);
     if (kind) out.push(elementToNode(el, kind, mint));
     else out.push(...childNodes(el, mint));
   }
   return out;
+}
+
+/**
+ * Connectors, from anywhere in the document.
+ *
+ * The serializer writes them at the root, but a hand-written or model-written
+ * diagram may well tuck one inside the group whose shapes it joins — an edge
+ * belongs to neither end, so there is no wrong place to have put it. They are
+ * hoisted to the scene's flat list either way.
+ */
+function collectEdges(parent: Element, mint: Mint, out: SceneEdge[]): SceneEdge[] {
+  for (const el of Array.from(parent.children)) {
+    if (isEdgeTag(el.tagName)) out.push(elementToEdge(el, mint));
+    else collectEdges(el, mint, out);
+  }
+  return out;
+}
+
+function elementToEdge(el: Element, mint: Mint): SceneEdge {
+  const attrs: Record<string, string> = {};
+  for (const { name, value } of Array.from(el.attributes)) {
+    if (!isEdgeAttr(name)) attrs[name] = value;
+  }
+  return {
+    id: idFor(el, mint, "e"),
+    // Kept verbatim even when they name nothing: dropping a connector whose
+    // end has gone would lose it from a file the author can still fix. The
+    // renderer skips what it cannot resolve.
+    from: (el.getAttribute("from") ?? "").trim(),
+    to: (el.getAttribute("to") ?? "").trim(),
+    label: labelOf(el),
+    style: parseStyleAttr(el.getAttribute("style") ?? ""),
+    attrs,
+  };
 }
 
 function findRoot(el: Element): Element | null {
@@ -382,6 +422,7 @@ export function parseScene(
     h: num(root, ["h", "height"]),
     style: parseStyleAttr(root.getAttribute("style") ?? ""),
     nodes: childNodes(root, mint),
+    edges: collectEdges(root, mint, []),
     ...(id ? { id } : {}),
     attrs: root === doc.body ? {} : attrsOf(root),
   };

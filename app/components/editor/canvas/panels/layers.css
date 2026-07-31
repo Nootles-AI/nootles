@@ -151,3 +151,16 @@
   background: var(--ab-select);
   transform: translateY(-50%);
 }
+
+/* ---- Connectors ----------------------------------------------------------
+   Its own list under the tree. Flat by nature: an edge joins two nodes and is
+   a child of neither, so there is no depth to indent and nothing to drag it
+   into. It borrows the tree's row, minus the twisty and the drag. */
+.ab-lyr-edges {
+  flex: none;
+  /* Half the tree's share at most: the shapes are the document, and a long
+     connector list must not push them off the panel. */
+  max-height: 40%;
+  overflow-y: auto;
+  padding: 0 var(--inset) var(--inset);
+}

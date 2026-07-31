@@ -280,7 +280,7 @@ function cssKey(prop: string): string {
   return key;
 }
 
-function toCss(
+export function toCss(
   style: StyleMap,
   drop?: (prop: string) => boolean,
 ): CSSProperties {

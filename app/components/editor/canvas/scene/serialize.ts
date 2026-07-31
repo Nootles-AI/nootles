@@ -1,10 +1,13 @@
 import {
+  EDGE_TAG,
   LAYOUT_STYLE_PROPS,
   SCENE_TAG,
   TAG_BY_KIND,
   hasText,
+  isEdgeAttr,
   isReservedAttr,
   type Scene,
+  type SceneEdge,
   type SceneNode,
   type SceneNodeKind,
   type StyleMap,
@@ -131,6 +134,24 @@ function nodeHtml(node: SceneNode, depth: number, computed: boolean): string {
   return `${open}${hasText(node) ? escText(node.label) : ""}</${tag}>`;
 }
 
+/**
+ * A connector, always at the root and always after the shapes — it names two
+ * of them, so it reads as a statement about a document you have already seen.
+ * No geometry: where the line runs is worked out from the two boxes.
+ */
+function edgeHtml(edge: SceneEdge, depth: number): string {
+  const head =
+    attr("id", edge.id) +
+    attr("from", edge.from) +
+    attr("to", edge.to) +
+    Object.entries(edge.attrs)
+      .filter(([name]) => !isEdgeAttr(name))
+      .map(([name, value]) => attr(name, value))
+      .join("") +
+    styleAttr(edge.style);
+  return `${INDENT.repeat(depth)}<${EDGE_TAG}${head}>${escText(edge.label)}</${EDGE_TAG}>`;
+}
+
 export function serializeScene(scene: Scene): string {
   const head =
     (scene.id ? attr("id", scene.id) : "") +
@@ -140,7 +161,10 @@ export function serializeScene(scene: Scene): string {
     styleAttr(scene.style);
 
   const open = `<${SCENE_TAG}${head}>`;
-  if (scene.nodes.length === 0) return `${open}</${SCENE_TAG}>`;
-  const body = scene.nodes.map((node) => nodeHtml(node, 1, false)).join("\n");
-  return `${open}\n${body}\n</${SCENE_TAG}>`;
+  const lines = [
+    ...scene.nodes.map((node) => nodeHtml(node, 1, false)),
+    ...scene.edges.map((edge) => edgeHtml(edge, 1)),
+  ];
+  if (lines.length === 0) return `${open}</${SCENE_TAG}>`;
+  return `${open}\n${lines.join("\n")}\n</${SCENE_TAG}>`;
 }

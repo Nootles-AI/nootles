@@ -143,6 +143,10 @@
   align-items: center;
   gap: var(--ctl-gap);
 }
+/** Pushes what follows to the row's right edge. */
+.ab-ctl-grow {
+  flex: 1 1 auto;
+}
 .ab-ctl-narrow {
   display: flex;
   flex: 0 0 68px;

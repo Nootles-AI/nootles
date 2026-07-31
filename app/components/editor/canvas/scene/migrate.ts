@@ -28,7 +28,7 @@
 
 import { mintIds } from "./ops";
 import { parseScene, type ParseHtml } from "./parse";
-import type { Scene, SceneNode, StyleMap } from "./types";
+import type { Scene, SceneEdge, SceneNode, StyleMap } from "./types";
 
 /** A blank surface, in the size the grammar's examples use. */
 export const DEFAULT_SCENE_W = 960;
@@ -93,6 +93,7 @@ export function emptyScene(): Scene {
     h: DEFAULT_SCENE_H,
     style: {},
     nodes: [],
+    edges: [],
     attrs: {},
   };
 }
@@ -142,16 +143,55 @@ function fromLegacyJson(source: string): Scene {
   }
 
   place(nodes);
-  const scene: Scene = {
+  return {
     w: Math.max(DEFAULT_SCENE_W, Math.ceil(extent(nodes, "x"))),
     h: Math.max(DEFAULT_SCENE_H, Math.ceil(extent(nodes, "y"))),
     style: {},
     nodes,
-    attrs: edges.length
-      ? { "data-legacy-edges": JSON.stringify(edges) }
-      : {},
+    edges: toSceneEdges(edges, nodes),
+    attrs: {},
   };
-  return scene;
+}
+
+/**
+ * The old graph's edges, which the model now has somewhere to put.
+ *
+ * They were parked verbatim in a `data-legacy-edges` attribute by the rewrite
+ * that removed connectors — the note said "waiting for when connectors arrive",
+ * and this is that. React Flow's `source`/`target` are node ids, which the
+ * migration above preserves, so the only work is dropping the ends that no
+ * longer name anything and carrying the label across.
+ */
+function toSceneEdges(raw: unknown[], nodes: readonly SceneNode[]): SceneEdge[] {
+  const known = new Set(nodes.map((node) => node.id));
+  const used = new Set<string>();
+  const out: SceneEdge[] = [];
+  let n = 0;
+
+  for (const item of raw) {
+    if (!isRecord(item)) continue;
+    const from = typeof item.source === "string" ? item.source : "";
+    const to = typeof item.target === "string" ? item.target : "";
+    if (!known.has(from) || !known.has(to) || from === to) continue;
+
+    const id = typeof item.id === "string" ? item.id : "";
+    let edgeId = id && !used.has(id) && !known.has(id) ? id : "";
+    while (!edgeId) {
+      const fresh = `e${++n}`;
+      if (!used.has(fresh) && !known.has(fresh)) edgeId = fresh;
+    }
+    used.add(edgeId);
+
+    out.push({
+      id: edgeId,
+      from,
+      to,
+      label: typeof item.label === "string" ? item.label.trim() : "",
+      style: {},
+      attrs: {},
+    });
+  }
+  return out;
 }
 
 function toSceneNode(raw: Record<string, unknown>): SceneNode {

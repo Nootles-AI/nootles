@@ -134,6 +134,12 @@ export interface TransformGestureOptions {
   onSelect?(ids: NodeId[]): void;
   /** Raised when a gesture starts moving and when it ends. */
   onActiveChange?(active: boolean): void;
+  /**
+   * After each frame's DOM writes. For anything drawn *from* the shapes rather
+   * than by them — the connectors, whose route is a function of two boxes that
+   * this gesture is in the middle of moving.
+   */
+  onFrame?(): void;
   /** Grid pitch in scene px. `0`/omitted disables grid snapping. */
   grid?: number;
   /** Snap distance in SCREEN px, so it is constant at every zoom. */
@@ -894,6 +900,7 @@ function runFrame(session: Session, o: TransformGestureOptions) {
   if (session.mode === "reorder") {
     applyReorder(session, point);
     writeOverlay(session, o, NO_GUIDES);
+    o.onFrame?.();
     return;
   }
 
@@ -908,6 +915,9 @@ function runFrame(session: Session, o: TransformGestureOptions) {
   syncGhosts(session);
   writeFrames(session, session.mode === "resize");
   writeOverlay(session, o, guides);
+  // After the writes: whatever reads the shapes' live boxes must read them as
+  // they are this frame, not as they were last one.
+  o.onFrame?.();
 }
 
 function applyMove(

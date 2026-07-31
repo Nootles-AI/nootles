@@ -47,6 +47,7 @@ import { hugSize, hugsOf } from "./autoLayout";
 import { nodeBounds, normalizeAngle, rotateAround, unionBounds } from "./geometry";
 import { scalePath } from "./path";
 import {
+  edgesTouching,
   findNode,
   findParent,
   isContainer,
@@ -56,12 +57,14 @@ import {
   type Alignment,
   type AlignTarget,
   type DistributeAxis,
+  type EdgeId,
   type GroupNode,
   type NodeFrame,
   type NodeId,
   type Point,
   type Rect,
   type Scene,
+  type SceneEdge,
   type SceneLike,
   type SceneNode,
   type SceneNodeBase,
@@ -114,6 +117,16 @@ export function applyOp(scene: Scene, op: SceneOp): Scene {
       return align(scene, op.ids, op.to, op.relativeTo);
     case "distribute":
       return distribute(scene, op.ids, op.axis, op.spacing);
+    case "addEdge":
+      return addEdges(scene, op.edges);
+    case "removeEdge":
+      return removeEdges(scene, op.ids);
+    case "setEdgeLabel":
+      return setEdgeLabel(scene, op.id, op.label);
+    case "setEdgeStyle":
+      return setEdgeStyle(scene, op.ids, op.decls);
+    case "reconnect":
+      return reconnect(scene, op.id, op.from, op.to);
   }
 }
 
@@ -157,6 +170,8 @@ function reflowList(nodes: SceneNode[]): SceneNode[] {
 
 const ID_PREFIX = "n";
 const MINTED_ID = /^n(\d+)$/;
+const EDGE_PREFIX = "e";
+const MINTED_EDGE_ID = /^e(\d+)$/;
 
 /**
  * `count` ids that collide with nothing in the scene, deterministically: the
@@ -172,15 +187,31 @@ export function mintId(scene: SceneLike): NodeId {
   return mintIds(scene, 1)[0];
 }
 
-function mintInto(taken: Set<NodeId>, count: number): NodeId[] {
+/** Connector ids, counted separately so a document reads e1/e2 alongside
+ *  n1/n2 — but minted against every id in the scene, because both are `id`
+ *  attributes of one HTML document and may not collide. */
+function mintEdgeIds(scene: SceneLike, count: number): EdgeId[] {
+  return mintInto(collectIds(scene), count, EDGE_PREFIX, MINTED_EDGE_ID);
+}
+
+export function mintEdgeId(scene: SceneLike): EdgeId {
+  return mintEdgeIds(scene, 1)[0];
+}
+
+function mintInto(
+  taken: Set<string>,
+  count: number,
+  prefix: string = ID_PREFIX,
+  pattern: RegExp = MINTED_ID,
+): string[] {
   let counter = 0;
   for (const id of taken) {
-    const match = MINTED_ID.exec(id);
+    const match = pattern.exec(id);
     if (match) counter = Math.max(counter, Number(match[1]));
   }
-  const out: NodeId[] = [];
+  const out: string[] = [];
   while (out.length < count) {
-    const id = `${ID_PREFIX}${++counter}`;
+    const id = `${prefix}${++counter}`;
     if (taken.has(id)) continue;
     taken.add(id);
     out.push(id);
@@ -188,11 +219,14 @@ function mintInto(taken: Set<NodeId>, count: number): NodeId[] {
   return out;
 }
 
-function collectIds(scene: SceneLike): Set<NodeId> {
-  const ids = new Set<NodeId>();
+function collectIds(scene: SceneLike): Set<string> {
+  const ids = new Set<string>();
   walk(rootNodes(scene), (node) => {
     ids.add(node.id);
   });
+  if (!Array.isArray(scene)) {
+    for (const edge of (scene as Scene).edges ?? []) ids.add(edge.id);
+  }
   return ids;
 }
 
@@ -292,6 +326,26 @@ export function rotateNodes(
 
 /** Merge declarations onto each node's `style`; an `undefined` value removes
  *  one, which is how a control clears a property rather than writing `"none"`. */
+/** Declarations merged, `undefined` removing one. Returns the original object
+ *  when nothing changed, so callers can compare by identity. */
+export function mergeStyle(base: StyleMap, decls: StylePatch): StyleMap {
+  const style = { ...base };
+  let changed = false;
+  for (const prop of Object.keys(decls)) {
+    const value = decls[prop];
+    if (value === undefined) {
+      if (prop in style) {
+        delete style[prop];
+        changed = true;
+      }
+    } else if (style[prop] !== value) {
+      style[prop] = value;
+      changed = true;
+    }
+  }
+  return changed ? style : base;
+}
+
 export function setStyle(
   scene: Scene,
   ids: readonly NodeId[],
@@ -302,21 +356,8 @@ export function setStyle(
   return withNodes(
     scene,
     mapTree(scene.nodes, new Set(ids), (node) => {
-      const style = { ...node.style };
-      let changed = false;
-      for (const prop of props) {
-        const value = decls[prop];
-        if (value === undefined) {
-          if (prop in style) {
-            delete style[prop];
-            changed = true;
-          }
-        } else if (style[prop] !== value) {
-          style[prop] = value;
-          changed = true;
-        }
-      }
-      return changed ? patch(node, { style }) : node;
+      const style = mergeStyle(node.style, decls);
+      return style === node.style ? node : patch(node, { style });
     }),
   );
 }
@@ -482,7 +523,14 @@ export function insertNodes(
 /** Remove each id and its whole subtree. */
 export function removeNodes(scene: Scene, ids: readonly NodeId[]): Scene {
   if (!ids.length) return scene;
-  return withNodes(scene, extract(scene.nodes, new Set(ids), []));
+  // A connector into a node that is going — or into one of its descendants,
+  // since removing a group takes the whole subtree — has lost its anchor. It
+  // goes in the same op, so one undo puts both back.
+  const orphaned = edgesTouching(scene, ids);
+  const next = withNodes(scene, extract(scene.nodes, new Set(ids), []));
+  if (!orphaned.length) return next;
+  const gone = new Set(orphaned.map((edge) => edge.id));
+  return { ...next, edges: next.edges.filter((edge) => !gone.has(edge.id)) };
 }
 
 /**
@@ -1021,4 +1069,107 @@ function originOf(scene: SceneLike, parentId: NodeId | null): Point {
 
 function shift(rect: Rect, by: Point): Rect {
   return { x: rect.x + by.x, y: rect.y + by.y, w: rect.w, h: rect.h };
+}
+
+// ---------------------------------------------------------------------------
+// Edge ops
+// ---------------------------------------------------------------------------
+
+/** A connector needs two nodes that exist and are not the same one. Anything
+ *  else is dropped rather than stored: there is nothing to draw between. */
+function isDrawable(scene: Scene, edge: SceneEdge): boolean {
+  return (
+    edge.from !== edge.to &&
+    findNode(scene, edge.from) !== null &&
+    findNode(scene, edge.to) !== null
+  );
+}
+
+/** Already joined, either way round. A connector has no direction the geometry
+ *  can see, so a second one between the same pair would draw on top of the
+ *  first and only the top one could be clicked. */
+function alreadyJoined(edges: readonly SceneEdge[], edge: SceneEdge): boolean {
+  return edges.some(
+    (e) =>
+      (e.from === edge.from && e.to === edge.to) ||
+      (e.from === edge.to && e.to === edge.from),
+  );
+}
+
+export function addEdges(scene: Scene, edges: readonly SceneEdge[]): Scene {
+  const taken = new Set(scene.edges.map((edge) => edge.id));
+  const next = [...scene.edges];
+  for (const edge of edges) {
+    if (taken.has(edge.id)) continue;
+    if (!isDrawable(scene, edge) || alreadyJoined(next, edge)) continue;
+    taken.add(edge.id);
+    next.push(edge);
+  }
+  return next.length === scene.edges.length ? scene : { ...scene, edges: next };
+}
+
+export function removeEdges(scene: Scene, ids: readonly EdgeId[]): Scene {
+  if (!ids.length) return scene;
+  const gone = new Set(ids);
+  const next = scene.edges.filter((edge) => !gone.has(edge.id));
+  return next.length === scene.edges.length ? scene : { ...scene, edges: next };
+}
+
+/** One edge's fields, if it is there and the change is a change. */
+function patchEdge(
+  scene: Scene,
+  id: EdgeId,
+  fn: (edge: SceneEdge) => SceneEdge,
+): Scene {
+  let changed = false;
+  const next = scene.edges.map((edge) => {
+    if (edge.id !== id) return edge;
+    const updated = fn(edge);
+    if (updated !== edge) changed = true;
+    return updated;
+  });
+  return changed ? { ...scene, edges: next } : scene;
+}
+
+export function setEdgeLabel(scene: Scene, id: EdgeId, label: string): Scene {
+  return patchEdge(scene, id, (edge) =>
+    edge.label === label ? edge : { ...edge, label },
+  );
+}
+
+export function setEdgeStyle(
+  scene: Scene,
+  ids: readonly EdgeId[],
+  decls: StylePatch,
+): Scene {
+  const wanted = new Set(ids);
+  let changed = false;
+  const next = scene.edges.map((edge) => {
+    if (!wanted.has(edge.id)) return edge;
+    const style = mergeStyle(edge.style, decls);
+    if (style === edge.style) return edge;
+    changed = true;
+    return { ...edge, style };
+  });
+  return changed ? { ...scene, edges: next } : scene;
+}
+
+/**
+ * Re-aim one end or both — the swap in the inspector, and later a dragged
+ * endpoint. An end that would leave the edge undrawable is refused, so a swap
+ * cannot quietly produce a connector from a node to itself.
+ */
+export function reconnect(
+  scene: Scene,
+  id: EdgeId,
+  from?: NodeId,
+  to?: NodeId,
+): Scene {
+  return patchEdge(scene, id, (edge) => {
+    const next = { ...edge, from: from ?? edge.from, to: to ?? edge.to };
+    if (next.from === edge.from && next.to === edge.to) return edge;
+    if (!isDrawable(scene, next)) return edge;
+    const others = scene.edges.filter((e) => e.id !== id);
+    return alreadyJoined(others, next) ? edge : next;
+  });
 }

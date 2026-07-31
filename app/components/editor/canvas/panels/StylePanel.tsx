@@ -8,6 +8,7 @@ import {
   type NodeFrame,
   type NodeId,
   type Scene,
+  type SceneEdge,
   type SceneNode,
   type SceneOp,
   type ShapeParams,
@@ -25,6 +26,7 @@ import { NumberField } from "./controls/NumberField";
 import { PanelSection } from "./controls/PanelSection";
 import { rememberStyle } from "../render/newShape";
 import { AlignRow } from "./sections/AlignRow";
+import { EdgeSection } from "./sections/EdgeSection";
 import { AppearanceSection } from "./sections/AppearanceSection";
 import { EffectsSection } from "./sections/EffectsSection";
 import { FillSection } from "./sections/FillSection";
@@ -76,6 +78,8 @@ export type StylePanelProps = {
   store: SceneStore;
   /** Resolved selection in document order — `ResolvedSelection.nodes`. */
   selection: readonly SceneNode[];
+  /** Resolved connectors — `ResolvedSelection.edges`. Never both at once. */
+  edges: readonly SceneEdge[];
   onDiagramChange: (patch: DiagramPatch) => void;
   /** `CanvasApi.previewSize` — a size shown without being committed. */
   onPreviewSize?: (size: { w?: number; h?: number }) => void;
@@ -86,6 +90,7 @@ export type StylePanelProps = {
 export function StylePanel({
   store,
   selection,
+  edges,
   onDiagramChange,
   onPreviewSize,
   onPreviewStyle,
@@ -159,7 +164,24 @@ export function StylePanel({
           // the dividers says so — hence the handler here rather than a wrapper.
           onPointerDown={nodes.length ? hold : undefined}
         >
-          {nodes.length === 0 ? (
+          {edges.length > 0 ? (
+          // A connector has no box, so none of the shape sections apply to it.
+          // The panel shows the edge inspector instead of them, not with them.
+          <LiveEditContext value={live}>
+            <EdgeSection
+              scene={scene}
+              edges={edges}
+              setLabel={(id, label) => run([{ type: "setEdgeLabel", id, label }])}
+              setStyle={(ids, decls) =>
+                run([{ type: "setEdgeStyle", ids: [...ids], decls }])
+              }
+              reconnect={(id, from, to) =>
+                run([{ type: "reconnect", id, from, to }])
+              }
+              remove={(ids) => run([{ type: "removeEdge", ids: [...ids] }])}
+            />
+          </LiveEditContext>
+        ) : nodes.length === 0 ? (
             // Deliberately outside the live context: one of these costs a
             // re-parse of the whole canvas, so it is committed on release — and
             // previewed in the meantime by the surface, which needs neither.

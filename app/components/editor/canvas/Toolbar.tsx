@@ -115,6 +115,18 @@ const TOOLS: readonly { tool: CanvasTool; id: ShortcutId; icon: ReactNode }[] = 
     ),
   },
   {
+    tool: "connector",
+    id: "tool.connector",
+    // An elbow with a plug at each end: the shape the tool actually draws.
+    icon: (
+      <svg {...svg}>
+        <path d="M7 6h6a3 3 0 0 1 3 3v6" />
+        <circle cx="4.5" cy="6" r="2" />
+        <circle cx="16" cy="18.5" r="2" />
+      </svg>
+    ),
+  },
+  {
     tool: "pen",
     id: "tool.pen",
     // Smaller than its neighbours on purpose: it is the one solid glyph in a

@@ -70,12 +70,15 @@ import {
 import {
   isContainer,
   nodePath,
+  selectedEdges as selectedEdgesOf,
   selectedNodes,
   walk,
+  type EdgeId,
   type NodeId,
   type Point,
   type Rect,
   type Scene,
+  type SceneEdge,
   type SceneLike,
   type SceneNode,
 } from "../scene/types";
@@ -98,6 +101,14 @@ export interface SelectionSnapshot {
   enteredPath: readonly NodeId[];
   /** The node under the pointer that a click would take, for the overlay. */
   hoverId: NodeId | null;
+  /**
+   * Selected connectors. Mutually exclusive with `ids`: an edge has none of the
+   * properties a shape has, so a selection holding both would leave the
+   * inspector with nothing it could show for all of it. Selecting either kind
+   * clears the other.
+   */
+  edgeIds: readonly EdgeId[];
+  edgeSelected: ReadonlySet<EdgeId>;
 }
 
 /** Modifiers a click carries. */
@@ -156,16 +167,26 @@ export interface SelectionStore {
   marquee(rect: Rect, mods?: { shift?: boolean }): void;
   /** Report what is under the pointer; `null` clears it. */
   hover(point: Point | null, mods?: { deep?: boolean }): NodeId | null;
+
+  /** Select these connectors outright, clearing any node selection. */
+  selectEdges(ids: readonly EdgeId[]): void;
+  toggleEdge(id: EdgeId): void;
+  isEdgeSelected(id: EdgeId): boolean;
 }
 
 const NO_IDS: readonly NodeId[] = [];
 const NO_SET: ReadonlySet<NodeId> = new Set();
+
+const NO_EDGES: readonly EdgeId[] = [];
+const NO_EDGE_SET: ReadonlySet<EdgeId> = new Set();
 
 const EMPTY_SNAPSHOT: SelectionSnapshot = {
   ids: NO_IDS,
   selected: NO_SET,
   enteredPath: NO_IDS,
   hoverId: null,
+  edgeIds: NO_EDGES,
+  edgeSelected: NO_EDGE_SET,
 };
 
 // ---------------------------------------------------------------------------
@@ -306,23 +327,33 @@ export function createSelectionStore(initialScene: SceneLike): SelectionStore {
     ids: readonly NodeId[],
     enteredPath: readonly NodeId[],
     hoverId: NodeId | null,
+    edgeIds: readonly EdgeId[],
     record: boolean,
   ) => {
     const previous = snapshot;
     if (
       hoverId === previous.hoverId &&
       sameIds(ids, previous.ids) &&
-      sameIds(enteredPath, previous.enteredPath)
+      sameIds(enteredPath, previous.enteredPath) &&
+      sameIds(edgeIds, previous.edgeIds)
     ) {
       return;
     }
-    snapshot = { ids, selected: new Set(ids), enteredPath, hoverId };
+    snapshot = {
+      ids,
+      selected: new Set(ids),
+      enteredPath,
+      hoverId,
+      edgeIds,
+      edgeSelected: new Set(edgeIds),
+    };
     for (const listener of listeners) listener();
     if (!record || !history) return;
     // Hovering is not selecting, and must not become an undo step.
     if (
       sameIds(ids, previous.ids) &&
-      sameIds(enteredPath, previous.enteredPath)
+      sameIds(enteredPath, previous.enteredPath) &&
+      sameIds(edgeIds, previous.edgeIds)
     ) {
       return;
     }
@@ -333,13 +364,22 @@ export function createSelectionStore(initialScene: SceneLike): SelectionStore {
   const restoreTo =
     (state: SelectionSnapshot): RestoreSelection =>
     () =>
-      apply(state.ids, state.enteredPath, snapshot.hoverId, false);
+      apply(state.ids, state.enteredPath, snapshot.hoverId, state.edgeIds, false);
 
+  /** Selecting nodes. Always clears the edge selection — see the snapshot. */
   const commit = (
     ids: readonly NodeId[],
     enteredPath: readonly NodeId[],
     hoverId: NodeId | null,
-  ) => apply(ids, enteredPath, hoverId, true);
+  ) => apply(ids, enteredPath, hoverId, NO_EDGES, true);
+
+  /** Pointing at something changes neither selection. */
+  const commitHover = (hoverId: NodeId | null) =>
+    apply(snapshot.ids, snapshot.enteredPath, hoverId, snapshot.edgeIds, true);
+
+  /** Selecting connectors, which clears the node selection for the same reason. */
+  const commitEdges = (edgeIds: readonly EdgeId[]) =>
+    apply(NO_IDS, snapshot.enteredPath, snapshot.hoverId, edgeIds, true);
 
   const toggled = (id: NodeId): NodeId[] =>
     snapshot.selected.has(id)
@@ -421,7 +461,23 @@ export function createSelectionStore(initialScene: SceneLike): SelectionStore {
     },
 
     clear() {
-      commit(NO_IDS, NO_IDS, snapshot.hoverId);
+      apply(NO_IDS, NO_IDS, snapshot.hoverId, NO_EDGES, true);
+    },
+
+    selectEdges(ids) {
+      commitEdges([...ids]);
+    },
+
+    toggleEdge(id) {
+      commitEdges(
+        snapshot.edgeSelected.has(id)
+          ? snapshot.edgeIds.filter((e) => e !== id)
+          : [...snapshot.edgeIds, id],
+      );
+    },
+
+    isEdgeSelected(id) {
+      return snapshot.edgeSelected.has(id);
     },
 
     selectAll() {
@@ -473,12 +529,12 @@ export function createSelectionStore(initialScene: SceneLike): SelectionStore {
 
     hover(point, mods = {}) {
       if (!point) {
-        commit(snapshot.ids, snapshot.enteredPath, null);
+        commitHover(null);
         return null;
       }
       const chain = hitTestPath(scene, point);
       if (chain.length === 0) {
-        commit(snapshot.ids, snapshot.enteredPath, null);
+        commitHover(null);
         return null;
       }
       let node: SceneNode;
@@ -489,7 +545,7 @@ export function createSelectionStore(initialScene: SceneLike): SelectionStore {
         const depth = agreeDepth(entered, chain);
         node = chain[depth] ?? chain[chain.length - 1];
       }
-      commit(snapshot.ids, snapshot.enteredPath, node.id);
+      commitHover(node.id);
       return node.id;
     },
   };
@@ -546,6 +602,10 @@ export interface ResolvedSelection {
   /** The innermost entered container, i.e. the current level. */
   enteredId: NodeId | null;
   hoverId: NodeId | null;
+  /** The **authored** connectors — what the edge inspector reads and edits. */
+  edges: readonly SceneEdge[];
+  edgeIds: readonly EdgeId[];
+  edgeSelected: ReadonlySet<EdgeId>;
 }
 
 const EMPTY_BOUNDS: RotatedRect = { x: 0, y: 0, w: 0, h: 0, rot: 0 };
@@ -586,6 +646,10 @@ export function useSelection(store: SelectionStore, scene: SceneLike): ResolvedS
       enteredPath,
       enteredId: enteredPath.length ? enteredPath[enteredPath.length - 1] : null,
       hoverId: hover,
+      /** Resolved connectors, stale ids dropped — `nodes` for edges. */
+      edges: selectedEdgesOf(scene, snapshot.edgeIds),
+      edgeIds: snapshot.edgeIds,
+      edgeSelected: snapshot.edgeSelected,
     };
   }, [scene, snapshot]);
 }

@@ -1,0 +1,72 @@
+/* ===== Connectors =========================================================
+   The edge layer sits inside the transformed scene, so everything here is in
+   scene units and scales with the zoom — the same bargain the shapes make.
+
+   Neutral, like the rest of the canvas: a connector is drawn in the shape line
+   ramp, and selection is a weight and a colour step rather than a ring. */
+
+.ab-edges {
+  position: absolute;
+  inset: 0;
+  /* Scene coordinates run past the box; the lines must not be clipped by it. */
+  overflow: visible;
+  /* The layer is not a target — the hit paths inside it are. */
+  pointer-events: none;
+}
+
+.ab-edge-line {
+  fill: none;
+  stroke: var(--edge-line);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition:
+    stroke var(--dur-fast) var(--ease),
+    stroke-width var(--dur-fast) var(--ease);
+}
+
+/* Fat, invisible, and the only thing in the layer that takes a pointer. A
+   1.5px line is not a target; 12px of scene space either side of it is. */
+.ab-edge-hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 12;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+
+.ab-edge.is-hover .ab-edge-line {
+  stroke: var(--shape-line-hover);
+  stroke-width: 2;
+}
+
+/* The one place the canvas accent appears on a connector, and for the same
+   reason the layers panel uses it: this is the answer to a selection, not a
+   property of the thing. */
+.ab-edge.is-selected .ab-edge-line {
+  stroke: var(--ab-select);
+  stroke-width: 2;
+}
+
+/* ---- Labels --------------------------------------------------------------
+   HTML rather than SVG text, so a connector's label is set by the same
+   typography as a shape's. Centred on the midpoint of the line and shrink-
+   wrapped, with the canvas showing through behind it. */
+.ab-edge-label {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+  background: var(--background);
+  font-size: 12px;
+  line-height: 1.35;
+  white-space: pre-wrap;
+  color: var(--foreground);
+  pointer-events: none;
+  user-select: none;
+}
+.ab-edge-label.is-selected {
+  box-shadow: 0 0 0 1px var(--ab-select);
+}

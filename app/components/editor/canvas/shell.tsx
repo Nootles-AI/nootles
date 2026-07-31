@@ -38,6 +38,7 @@ export function CanvasStylePanel({ api }: { api: CanvasApi }) {
     <StylePanel
       store={api.store}
       selection={selection.nodes}
+      edges={selection.edges}
       onDiagramChange={api.setDiagram}
       onPreviewSize={api.previewSize}
       onPreviewStyle={api.previewStyle}

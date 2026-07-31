@@ -10,6 +10,7 @@ import type { SelectionStore } from "../engine/useSelection";
 import { unitPolygon } from "../scene/geometry";
 import {
   displayName,
+  edgeName,
   findNode,
   isContainer,
   nodePath,
@@ -477,6 +478,61 @@ export function LayersPanel({
         )}
       </div>
 
+      {/* Its own list, below the tree. A connector is not in the hierarchy —
+          it joins two things in it and belongs to neither — so it has no depth,
+          no parent and nothing to drag it into. */}
+      {scene.edges.length > 0 && (
+        <>
+          <div className="ab-section-label">
+            <span>Connectors</span>
+          </div>
+          <div
+            className="ab-lyr-edges"
+            role="listbox"
+            aria-label="Connectors"
+            aria-multiselectable
+          >
+            {scene.edges.map((edge) => {
+              const selected = snapshot.edgeSelected.has(edge.id);
+              return (
+                <div
+                  key={edge.id}
+                  role="option"
+                  tabIndex={0}
+                  aria-selected={selected}
+                  className={`ab-lyr-row${selected ? " is-selected" : ""}`}
+                  onPointerDown={(e) => {
+                    if (e.button !== 0) return;
+                    if (e.metaKey || e.ctrlKey || e.shiftKey) {
+                      selection.toggleEdge(edge.id);
+                    } else {
+                      selection.selectEdges([edge.id]);
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key !== "Enter" && e.key !== " ") return;
+                    e.preventDefault();
+                    selection.selectEdges([edge.id]);
+                  }}
+                >
+                  <span className="ab-lyr-twist" />
+                  <Glyph className="ab-lyr-icon" d={CONNECTOR_GLYPH} />
+                  <span className="ab-lyr-name">{edgeName(scene, edge)}</span>
+                  <Toggle
+                    on={false}
+                    label="Delete connector"
+                    glyph={CROSS}
+                    onClick={() =>
+                      store.dispatch({ type: "removeEdge", ids: [edge.id] })
+                    }
+                  />
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+
       {menu}
     </div>
   );
@@ -557,6 +613,10 @@ function glyphFor(node: SceneNode): string {
     .map((p, i) => `${i ? "L" : "M"}${at(p.x)} ${at(p.y)}`)
     .join("")}Z`;
 }
+
+/** The elbow the connector tool draws, at the size of a layer badge. */
+const CONNECTOR_GLYPH = "M4 7h9a4 4 0 0 1 4 4v6";
+const CROSS = "M6 6l12 12M18 6L6 18";
 
 const EYE =
   "M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6ZM9.5 12a2.5 2.5 0 1 0 5 0 2.5 2.5 0 1 0-5 0";

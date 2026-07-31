@@ -101,7 +101,8 @@ export type CanvasTool =
   | "polygon"
   | "diamond"
   | "text"
-  | "pen";
+  | "pen"
+  | "connector";
 
 /** The slice of tool state the keymap needs. */
 export interface ToolController {
@@ -150,6 +151,7 @@ export type ShortcutId =
   | "tool.diamond"
   | "tool.text"
   | "tool.pen"
+  | "tool.connector"
   | "tool.hand"
   | "edit.undo"
   | "edit.redo"
@@ -207,6 +209,7 @@ export const SHORTCUTS: readonly Shortcut[] = [
   { id: "tool.diamond", label: "Diamond", group: "Tools", keys: ["d"] },
   { id: "tool.text", label: "Text", group: "Tools", keys: ["t"] },
   { id: "tool.pen", label: "Pen", group: "Tools", keys: ["p"] },
+  { id: "tool.connector", label: "Connector", group: "Tools", keys: ["c"] },
   { id: "tool.hand", label: "Hand", group: "Tools", keys: ["h"] },
 
   { id: "edit.undo", label: "Undo", group: "Edit", keys: ["Mod+z"] },
@@ -656,6 +659,11 @@ function clipboardHtml(scene: Scene, ids: readonly NodeId[]): string | null {
     h: scene.h,
     style: {},
     nodes: flattened,
+    // Deliberately none. Paste re-mints every id it lands, so a connector
+    // carried across would name two nodes that do not exist there; copying the
+    // edges between a copied pair needs that id remap threaded through it, and
+    // that is its own change.
+    edges: [],
     attrs: {},
   });
 }
@@ -853,6 +861,7 @@ export function useCanvasShortcuts({
       "tool.diamond": () => setTool("diamond"),
       "tool.text": () => setTool("text"),
       "tool.pen": () => setTool("pen"),
+      "tool.connector": () => setTool("connector"),
       "tool.hand": () => setTool("hand"),
 
       "edit.undo": () => {
@@ -955,6 +964,14 @@ export function useCanvasShortcuts({
       },
 
       "edit.delete": () => {
+        // Connectors first: the two selections are mutually exclusive, so at
+        // most one of these is non-empty.
+        const edgeIds = latest.current.selection.getSnapshot().edgeIds;
+        if (edgeIds.length > 0) {
+          dispatch({ type: "removeEdge", ids: [...edgeIds] });
+          latest.current.selection.clear();
+          return true;
+        }
         const ids = targetIds();
         // Nothing selected: let the editor have the key, so ⌫ still removes the
         // block the canvas is sitting in.

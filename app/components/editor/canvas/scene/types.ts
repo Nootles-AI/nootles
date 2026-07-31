@@ -48,10 +48,22 @@
  * where its edges are": a polygon's side count and an ellipse's arc would, a
  * drop shadow would not.
  *
- * ## There are no edges
+ * ## Edges are the one thing that is not a node
  *
- * This pass has no connectors. Nothing here models them; do not add them
- * without a decision.
+ * A connector joins any two nodes — shapes, groups, anything the layers panel
+ * lists — so it belongs to neither of them and cannot live in the tree. It is a
+ * flat list on the scene instead, and `<ab-edge>` is written as a sibling of
+ * the shapes:
+ *
+ * ```html
+ * <ab-edge id="e1" from="s1" to="s5" style="stroke:#111">deploys</ab-edge>
+ * ```
+ *
+ * An edge stores only *which* nodes it joins. Which side it leaves and enters
+ * is derived from where the two boxes currently are, so moving a shape re-picks
+ * the plugs rather than leaving a connector reaching around behind it. That is
+ * a deliberate trade: the route is always sensible, and a hand-authored side
+ * would be one more thing to keep true.
  */
 
 // ---------------------------------------------------------------------------
@@ -64,6 +76,30 @@
  * and z-order changes constantly.
  */
 export type NodeId = string;
+
+/**
+ * A connector's stable identity. The same string space as {@link NodeId} — both
+ * are `id` attributes in one HTML document, so a mint has to avoid all of them
+ * at once — but a distinct name, because the two are never interchangeable at
+ * an api boundary.
+ */
+export type EdgeId = string;
+
+/**
+ * Which face of a node's box a connector meets. Four per node: the "plugs" the
+ * connector tool reveals, at the middle of each side of the selection box.
+ *
+ * Never serialized. {@link Scene} stores only the two node ids, and the side is
+ * worked out from the current geometry every time the edge is drawn.
+ */
+export type EdgeSide = "top" | "right" | "bottom" | "left";
+
+export const EDGE_SIDES: readonly EdgeSide[] = [
+  "top",
+  "right",
+  "bottom",
+  "left",
+];
 
 /** An axis-aligned box in scene units (px). `x`/`y` is the top-left corner. */
 export interface Rect {
@@ -369,6 +405,54 @@ export type TextBearingNode =
   | PolygonNode
   | TextNode;
 
+// ---------------------------------------------------------------------------
+// Edges
+// ---------------------------------------------------------------------------
+
+/**
+ * A connector between two nodes.
+ *
+ * No geometry of its own — that is the point. `from` and `to` name the nodes,
+ * and where the line runs is recomputed from their boxes on every draw, so a
+ * connector cannot go stale when a shape moves. Appearance is CSS in `style`,
+ * exactly as it is for a node: `stroke`, `stroke-width`, `stroke-dasharray`.
+ *
+ * `label` is the element's text content, the same place a shape's label lives.
+ */
+export interface SceneEdge {
+  id: EdgeId;
+  from: NodeId;
+  to: NodeId;
+  /** `""` when the element had no text, so absence and empty are one thing. */
+  label: string;
+  style: StyleMap;
+  /** Attributes outside {@link EDGE_ATTRS}, verbatim. */
+  attrs: Record<string, string>;
+}
+
+/** The connector element. */
+export const EDGE_TAG = "ab-edge";
+
+/** Tags accepted as a connector, canonical first. */
+export const EDGE_TAGS: readonly string[] = [
+  EDGE_TAG,
+  "ab-connector",
+  "ab-link",
+  "edge",
+  "connector",
+];
+
+/** Attributes the edge model owns; everything else is carried in `attrs`. */
+export const EDGE_ATTRS: readonly string[] = ["id", "from", "to", "style"];
+
+export function isEdgeTag(tag: string): boolean {
+  return EDGE_TAGS.includes(tag.toLowerCase());
+}
+
+export function isEdgeAttr(attr: string): boolean {
+  return EDGE_ATTRS.includes(attr.toLowerCase());
+}
+
 /**
  * A parsed canvas document.
  *
@@ -384,6 +468,12 @@ export interface Scene {
   /** Parsed `style` of `<ab-diagram>` — the surface's own background etc. */
   style: StyleMap;
   nodes: SceneNode[];
+  /**
+   * Connectors, in document order. Flat and never nested: an edge joins two
+   * nodes anywhere in the tree, so it is a child of neither. Serialized after
+   * the shapes, which is also the order they are drawn in — under everything.
+   */
+  edges: SceneEdge[];
   /**
    * `id` of `<ab-diagram>`. Optional because a document may omit it; preserved
    * so the round trip does not invent one.
@@ -559,7 +649,21 @@ export type SceneOp =
       ids: NodeId[];
       axis: DistributeAxis;
       spacing?: number;
-    };
+    }
+  /**
+   * Add already-built connectors, ids minted by the caller. An edge naming a
+   * node that is not in the scene is dropped by the applier rather than stored:
+   * a dangling connector has nothing to draw between.
+   */
+  | { type: "addEdge"; edges: SceneEdge[] }
+  | { type: "removeEdge"; ids: EdgeId[] }
+  | { type: "setEdgeLabel"; id: EdgeId; label: string }
+  | { type: "setEdgeStyle"; ids: EdgeId[]; decls: StylePatch }
+  /**
+   * Re-aim one end, or both. Omitting an end leaves it where it was, which is
+   * what makes a swap a single op.
+   */
+  | { type: "reconnect"; id: EdgeId; from?: NodeId; to?: NodeId };
 
 export type SceneOpType = SceneOp["type"];
 
@@ -809,4 +913,51 @@ export function selectedNodes(
     if (wanted.has(node.id)) out.push(node);
   });
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// Edge reads
+// ---------------------------------------------------------------------------
+
+/** A bare node list carries no connectors, which is not an error — the gesture
+ *  and panel code that holds one is asking about nodes. */
+function sceneEdges(scene: SceneLike): readonly SceneEdge[] {
+  return Array.isArray(scene) ? [] : ((scene as Scene).edges ?? []);
+}
+
+/** In document order, stale ids dropped — {@link selectedNodes} for edges. */
+export function selectedEdges(
+  scene: SceneLike,
+  selection: readonly EdgeId[],
+): SceneEdge[] {
+  const wanted = new Set(selection);
+  if (wanted.size === 0) return [];
+  return sceneEdges(scene).filter((edge) => wanted.has(edge.id));
+}
+
+/**
+ * Every connector with an end on one of these nodes, **including ends on their
+ * descendants** — deleting a group takes its children with it, and a connector
+ * into one of those children has lost its anchor just as surely.
+ */
+export function edgesTouching(
+  scene: Scene,
+  ids: readonly NodeId[],
+): SceneEdge[] {
+  const gone = new Set<NodeId>();
+  for (const id of ids) {
+    const node = findNode(scene, id);
+    if (node) walk([node], (n) => void gone.add(n.id));
+    else gone.add(id);
+  }
+  return scene.edges.filter((e) => gone.has(e.from) || gone.has(e.to));
+}
+
+/** How a connector reads in the layers panel and the inspector. */
+export function edgeName(scene: SceneLike, edge: SceneEdge): string {
+  const end = (id: NodeId) => {
+    const node = findNode(scene, id);
+    return node ? displayName(node) : "?";
+  };
+  return `${end(edge.from)} → ${end(edge.to)}`;
 }

@@ -34,6 +34,9 @@ import {
 } from "react";
 
 import { useContextMenu } from "../ContextMenu";
+import { ConnectorTool } from "./ConnectorTool";
+import { EdgeLayer } from "./EdgeLayer";
+import { reflowEdges } from "./liveEdges";
 import { useTransformGesture } from "../engine/gestures";
 import { useCanvasShortcuts, type CanvasTool } from "../engine/shortcuts";
 import type { SnapGuide } from "../engine/snapping";
@@ -62,6 +65,7 @@ import {
   type NodeId,
   type Point,
   type Rect,
+  type EdgeId,
   type Scene,
   type StyleMap,
   type StylePatch,
@@ -322,6 +326,27 @@ export function CanvasSurface({ source, onChange, onApi }: CanvasSurfaceProps) {
 
   const wrap = useRef<HTMLDivElement>(null);
   const overlay = useRef<OverlayApi>(null);
+
+  /**
+   * The connector under the pointer. Local rather than in the selection store:
+   * the store's hover drives the shape overlay, and a line is not a shape — it
+   * has no frame for the overlay to draw and nothing else asks about it.
+   */
+  const [hoverEdge, setHoverEdge] = useState<EdgeId | null>(null);
+
+  /**
+   * Picking a connector. Stops the event so the surface underneath does not
+   * also read it as a click on empty canvas and clear what was just selected.
+   */
+  const onEdgePick = useCallback(
+    (id: EdgeId, event: React.PointerEvent) => {
+      event.stopPropagation();
+      if (event.shiftKey) selection.toggleEdge(id);
+      else selection.selectEdges([id]);
+      containerRef.current?.focus({ preventScroll: true });
+    },
+    [selection, containerRef],
+  );
   /** True while one of this component's own drags owns the pointer. */
   const busy = useRef(false);
   /** The node whose double-click asked to edit its label, this event. */
@@ -412,6 +437,25 @@ export function CanvasSurface({ source, onChange, onApi }: CanvasSurfaceProps) {
     [viewport],
   );
 
+  /**
+   * The shapes' live boxes, read from the DOM rather than the scene: mid-drag
+   * the elements have moved and the model has not, and the element is the only
+   * one of the two telling the truth. Falls back to the scene for anything not
+   * rendered — a node inside a collapsed branch has no element to measure.
+   */
+  const reflowLive = useCallback(() => {
+    const scene = store.getScene();
+    if (scene.edges.length === 0) return;
+    reflowEdges(sceneRef.current, scene, (id) => {
+      const el = getElement(id);
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      const a = viewport.clientToScene({ x: r.left, y: r.top });
+      const b = viewport.clientToScene({ x: r.right, y: r.bottom });
+      return { x: a.x, y: a.y, w: b.x - a.x, h: b.y - a.y };
+    });
+  }, [store, sceneRef, getElement, viewport]);
+
   const gesture = useTransformGesture({
     store,
     getViewport: viewport.get,
@@ -422,6 +466,17 @@ export function CanvasSurface({ source, onChange, onApi }: CanvasSurfaceProps) {
     getElement,
     overlay,
     onSelect: (ids) => selection.select(ids),
+    // Connectors are drawn *from* the shapes, so they have to be re-routed by
+    // whatever is moving them — the scene does not change until the gesture
+    // commits, and a connector rendered from the scene would sit still while
+    // its shape slid away.
+    onFrame: reflowLive,
+    // A cancelled gesture puts the transforms back without touching the scene,
+    // so nothing re-renders and the paths written above would stay stale. One
+    // frame later the DOM has settled either way.
+    onActiveChange: (active) => {
+      if (!active) requestAnimationFrame(reflowLive);
+    },
   });
 
   /**
@@ -752,14 +807,10 @@ export function CanvasSurface({ source, onChange, onApi }: CanvasSurfaceProps) {
   const height =
     scene.attrs[HEIGHT_ATTR] === FIXED
       ? Math.max(CANVAS_MIN_H, scene.h)
-      : canvasHeightFor(
-          scene.nodes.map((node) => ({ y: node.y, height: node.h })),
-        );
+      : canvasHeightFor(scene.nodes.map((node) => ({ y: node.y, height: node.h })));
   /** Unset until widened, so the block tracks the document column by default. */
   const width =
-    scene.attrs[WIDTH_ATTR] === FIXED
-      ? Math.max(CANVAS_MIN_W, scene.w)
-      : null;
+    scene.attrs[WIDTH_ATTR] === FIXED ? Math.max(CANVAS_MIN_W, scene.w) : null;
 
   const onGripDown = (event: ReactPointerEvent) => {
     const el = wrap.current;
@@ -864,6 +915,15 @@ export function CanvasSurface({ source, onChange, onApi }: CanvasSurfaceProps) {
         onContextMenu={onContextMenu}
       >
         <div ref={sceneRef} className="ab-canvas-scene">
+          {/* Under the shapes: a connector reads as running behind the things
+              it joins, and its arrowhead lands on the box edge either way. */}
+          <EdgeLayer
+            scene={scene}
+            selected={sel.edgeSelected}
+            hoverId={hoverEdge}
+            onPick={onEdgePick}
+            onHover={setHoverEdge}
+          />
           {scene.nodes.map((node) => (
             <ShapeView
               key={node.id}
@@ -885,6 +945,18 @@ export function CanvasSurface({ source, onChange, onApi }: CanvasSurfaceProps) {
             onRadiusStart={gesture.startRadius}
           />
         </div>
+
+        {tool === "connector" && (
+          <ConnectorTool
+            store={store}
+            viewport={viewport}
+            selection={selection}
+            // Figma drops back to the move tool once a connector lands, so a
+            // second drag does not silently start another one; a drag that came
+            // to nothing leaves the tool up, because you meant to draw.
+            onFinish={(created) => created && changeTool("move")}
+          />
+        )}
 
         {(tool === "pen" || editPath) && (
           <PenTool
@@ -920,11 +992,7 @@ export function CanvasSurface({ source, onChange, onApi }: CanvasSurfaceProps) {
         onDoubleClick={() => fit(WIDTH_ATTR)}
       />
 
-      <Refit
-        viewport={viewport}
-        bounds={contentBounds}
-        onFrame={frameContent}
-      />
+      <Refit viewport={viewport} bounds={contentBounds} onFrame={frameContent} />
 
       {menu}
     </div>
