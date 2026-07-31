@@ -169,7 +169,16 @@ body {
    One ring for the whole app. Several fields set `outline: none` for their
    resting state; this puts a visible ring back for keyboard users, which is
    the part that was missing entirely. */
-:where(a, button, [role="button"], [role="menuitem"], [contenteditable], [tabindex]):focus-visible {
+:where(
+  a,
+  button,
+  input,
+  textarea,
+  [role="button"],
+  [role="menuitem"],
+  [contenteditable],
+  [tabindex]
+):focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
   border-radius: var(--radius-sm);
@@ -242,9 +251,25 @@ body {
 .ab-icon-btn:active {
   background: var(--active);
 }
+/* A latched icon button, the same grey wash the toolbar and the row selection
+   use. Sites used to say this with an inline `text-[var(--foreground)]`, which
+   changed the ink and left the box looking untouched. */
+.ab-icon-btn[aria-pressed="true"] {
+  background: var(--selected);
+  color: var(--foreground);
+}
 .ab-icon-btn:disabled {
   opacity: 0.4;
   pointer-events: none;
+}
+/* The properties panel runs on a 24px control, so its icon buttons match the
+   fields they sit beside. One modifier, because five call sites used to bolt
+   `size-6` onto the 32px box and one section ended up with a 32px eye next to
+   a 24px close in the same row. */
+.ab-icon-btn.is-sm {
+  width: var(--control-sm);
+  height: var(--control-sm);
+  border-radius: var(--radius-sm);
 }
 
 .ab-row {

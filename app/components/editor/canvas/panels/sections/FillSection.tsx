@@ -1,8 +1,11 @@
 "use client";
 
 import { X } from "@/app/components/Icons";
+import { Tooltip } from "@/app/components/Tooltip";
 import type { SceneNode } from "../../scene/types";
 import { ColorField } from "../controls/ColorField";
+import { Eye } from "../controls/glyphs";
+import { IconButton } from "../controls/IconButton";
 import { GradientField } from "../controls/GradientField";
 import { NumberField } from "../controls/NumberField";
 import { PanelSection } from "../controls/PanelSection";
@@ -70,12 +73,17 @@ const toUrl = (src: string) => `url("${src.replace(/"/g, "%22")}")`;
 function readFill(layer: Layer): Fill {
   const image = layer.values[IMAGE];
   if (image && image !== "none") {
-    if (/^(url|image-set)\(/i.test(image)) return { type: "image", paint: image, layer };
+    if (/^(url|image-set)\(/i.test(image))
+      return { type: "image", paint: image, layer };
     const g = parseGradient(image);
     // A two-stop gradient of one colour is how a solid rides above another
     // layer (see toLayer); read it back as the solid it is.
     if (g && isFlat(g)) return { type: "solid", paint: g.stops[0].color, layer };
-    return { type: g?.kind === "radial" ? "radial" : "linear", paint: image, layer };
+    return {
+      type: g?.kind === "radial" ? "radial" : "linear",
+      paint: image,
+      layer,
+    };
   }
   return { type: "solid", paint: layer.values[COLOR] ?? "", layer };
 }
@@ -101,7 +109,8 @@ function toLayer({ type, paint, layer }: Fill, last: boolean): Layer {
  *  has no alpha to set, so it has neither control. */
 function opacityOf({ type, paint }: Fill): number {
   if (type === "image") return 1;
-  const colour = type === "solid" ? paint : (parseGradient(paint)?.stops[0].color ?? "");
+  const colour =
+    type === "solid" ? paint : (parseGradient(paint)?.stops[0].color ?? "");
   return parseColor(colour)?.a ?? 1;
 }
 
@@ -131,9 +140,12 @@ function convert(fill: Fill, type: FillType): Fill {
       },
     };
   const g =
-    fill.type === "linear" || fill.type === "radial" ? parseGradient(fill.paint) : null;
+    fill.type === "linear" || fill.type === "radial"
+      ? parseGradient(fill.paint)
+      : null;
   const colour =
-    (g ? g.stops[0].color : fill.type === "solid" ? fill.paint : "") || DEFAULT_PAINT;
+    (g ? g.stops[0].color : fill.type === "solid" ? fill.paint : "") ||
+    DEFAULT_PAINT;
   if (type === "solid") return { ...fill, type, paint: colour };
   const stops = g?.stops ?? [
     { color: colour, pos: 0 },
@@ -209,12 +221,17 @@ function BoxFill({ nodes, patch }: { nodes: SceneNode[]; patch: Patch }) {
         ])
       }
     >
-      {mixed && <span className="text-muted text-[12px]">Mixed</span>}
+      {mixed && <span className="ab-ctl-empty">Mixed</span>}
+      {!mixed && fills.length === 0 && (
+        <span className="ab-ctl-empty">No fill</span>
+      )}
       {fills.map((fill, i) => (
         <FillRow
           key={i}
           fill={fill}
-          onChange={(next) => edit((own) => own.map((f, j) => (j === i ? next : f)))}
+          onChange={(next) =>
+            edit((own) => own.map((f, j) => (j === i ? next : f)))
+          }
           onRemove={() => edit((own) => own.filter((_, j) => j !== i))}
         />
       ))}
@@ -239,9 +256,10 @@ function FillRow({
   const bound = isBound(fill);
 
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className="ab-ctl-group">
       <div className="ab-ctl-row">
         <SelectField
+          name="Fill type"
           value={fill.type}
           options={TYPES}
           onChange={(type) => onChange(convert(fill, type as FillType))}
@@ -251,7 +269,7 @@ function FillRow({
           disabled={image || bound}
           onClick={() => onChange(withOpacity(fill, hidden ? 1 : 0))}
         >
-          <Eye off={hidden} />
+          <Eye off={hidden} width={15} height={15} />
         </IconButton>
         <IconButton label="Remove fill" onClick={onRemove}>
           <X width={13} height={13} />
@@ -308,12 +326,12 @@ function FillRow({
               }
             />
           ) : bound ? (
-            <span
-              className="text-faint flex h-6 items-center px-1.5 text-[13px] tabular-nums"
-              title="Opacity comes from the variable"
+            <Tooltip
+              label="Opacity comes from the variable"
+              className="ab-ctl-anchor"
             >
-              {Math.round(opacity * 100)}%
-            </span>
+              <span className="ab-ctl-bound">{Math.round(opacity * 100)}%</span>
+            </Tooltip>
           ) : (
             <NumberField
               value={Math.round(opacity * 100)}
@@ -339,60 +357,20 @@ function PathFill({ nodes, patch }: { nodes: SceneNode[]; patch: Patch }) {
     setProp(patch, new Set(nodes.map((node) => node.id)), "fill", next);
 
   return (
-    <PanelSection title="Fill" onAdd={filled ? undefined : () => set(DEFAULT_PAINT)}>
-      {filled && (
+    <PanelSection
+      title="Fill"
+      onAdd={filled ? undefined : () => set(DEFAULT_PAINT)}
+    >
+      {filled ? (
         <div className="ab-ctl-row">
           <ColorField value={value} mixed={mixed} onChange={set} />
           <IconButton label="Remove fill" onClick={() => set("none")}>
             <X width={13} height={13} />
           </IconButton>
         </div>
+      ) : (
+        <span className="ab-ctl-empty">No fill</span>
       )}
     </PanelSection>
-  );
-}
-
-function IconButton({
-  label,
-  disabled,
-  onClick,
-  children,
-}: {
-  label: string;
-  disabled?: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      className="ab-icon-btn ab-ctl-remove"
-      aria-label={label}
-      title={label}
-      disabled={disabled}
-      onClick={onClick}
-    >
-      {children}
-    </button>
-  );
-}
-
-function Eye({ off }: { off: boolean }) {
-  return (
-    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden>
-      <path
-        d="M1.5 8S4 4.25 8 4.25 14.5 8 14.5 8 12 11.75 8 11.75 1.5 8 1.5 8Z"
-        stroke="currentColor"
-        strokeWidth="1.15"
-      />
-      <circle cx="8" cy="8" r="1.6" stroke="currentColor" strokeWidth="1.15" />
-      {off && (
-        <path
-          d="M3 3 13 13"
-          stroke="currentColor"
-          strokeWidth="1.15"
-          strokeLinecap="round"
-        />
-      )}
-    </svg>
   );
 }

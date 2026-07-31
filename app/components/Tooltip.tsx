@@ -27,12 +27,18 @@ export function Tooltip({
   label,
   hint,
   side = "top",
+  className,
   children,
 }: {
   label: string;
   /** A formatted keyboard shortcut; `shortcutHint` produces these. */
   hint?: string;
   side?: "top" | "bottom";
+  /**
+   * For the anchor, which is a real box in the layout: a tooltip around a
+   * field in a grid has to carry the field's own sizing or it shrink-wraps it.
+   */
+  className?: string;
   children: ReactNode;
 }) {
   const anchor = useRef<HTMLSpanElement>(null);
@@ -71,7 +77,7 @@ export function Tooltip({
   return (
     <span
       ref={anchor}
-      className="inline-flex"
+      className={className ?? "inline-flex"}
       onPointerEnter={() => {
         window.clearTimeout(timer.current);
         timer.current = window.setTimeout(() => setOpen(true), DELAY);
@@ -103,9 +109,7 @@ export function Tooltip({
           }}
         >
           {label}
-          {hint && (
-            <span className="font-mono text-[11px] opacity-60">{hint}</span>
-          )}
+          {hint && <span className="font-mono text-[11px] opacity-60">{hint}</span>}
         </div>
       )}
     </span>

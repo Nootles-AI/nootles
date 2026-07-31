@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Tooltip } from "@/app/components/Tooltip";
+import { AspectLock, Corner, Rotation } from "../controls/glyphs";
 import { LENGTH_UNITS, NumberField } from "../controls/NumberField";
 import { PanelSection } from "../controls/PanelSection";
 import type { SceneNode } from "../../scene/types";
@@ -28,7 +29,12 @@ const CORNER_PROPS = [
   "border-bottom-left-radius",
 ] as const;
 
-const CORNER_LABELS = ["TL", "TR", "BR", "BL"];
+const CORNER_NAMES = [
+  "Top-left corner",
+  "Top-right corner",
+  "Bottom-right corner",
+  "Bottom-left corner",
+];
 
 /** Read in CSS order, shown in reading order — the second row is BL then BR. */
 const CORNER_ORDER = [0, 1, 3, 2];
@@ -73,22 +79,6 @@ const unitOf = (value: string) => {
   return (LENGTH_UNITS as readonly string[]).includes(unit) ? unit : "px";
 };
 
-function LinkGlyph({ on }: { on: boolean }) {
-  return (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden>
-      <path
-        d="M6.5 4.5h-1a3 3 0 0 0 0 6h1M9.5 4.5h1a3 3 0 0 1 0 6h-1"
-        stroke="currentColor"
-        strokeWidth="1.25"
-        strokeLinecap="round"
-      />
-      {on && (
-        <path d="M6 7.5h4" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
-      )}
-    </svg>
-  );
-}
-
 /**
  * Kinds `border-radius` cannot reach. A plain ellipse *is* a border radius, and
  * an arc ellipse and a path are both drawn as SVG paths — the property is
@@ -97,19 +87,15 @@ function LinkGlyph({ on }: { on: boolean }) {
  */
 const NO_RADIUS: ReadonlySet<string> = new Set(["ellipse", "path"]);
 
-function CornerGlyph() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden>
-      <path
-        d="M3 13.5V7a4 4 0 0 1 4-4h6.5"
-        stroke="currentColor"
-        strokeWidth="1.25"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-}
-
+/**
+ * Where, how big, and how turned — Figma's transform block.
+ *
+ * Two groups, because the section holds two questions: the box's placement and
+ * size, then the adjustments made to it. Rotation and corner radius used to be
+ * a bare "R" beside a bare "C", which read as rotation-beside-radius in a panel
+ * where "R" also meant right-padding one section down. Both wear glyphs now,
+ * and every field spells its name out in a tooltip.
+ */
 export function PositionSection({ selection, patch, setStyle }: SectionProps) {
   const [linked, setLinked] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -158,26 +144,29 @@ export function PositionSection({ selection, patch, setStyle }: SectionProps) {
     );
 
   return (
-    <PanelSection title="Position">
-      <div className="grid grid-cols-2 gap-1.5">
-        <NumberField
-          label="X"
-          value={x.value}
-          mixed={x.mixed}
-          onChange={(n) => patch(() => ({ x: n }))}
-        />
-        <NumberField
-          label="Y"
-          value={y.value}
-          mixed={y.mixed}
-          onChange={(n) => patch(() => ({ y: n }))}
-        />
-      </div>
+    <PanelSection title="Transform">
+      <div className="ab-ctl-group">
+        <div className="ab-ctl-grid">
+          <NumberField
+            label="X"
+            name="X position"
+            value={x.value}
+            mixed={x.mixed}
+            onChange={(n) => patch(() => ({ x: n }))}
+          />
+          <NumberField
+            label="Y"
+            name="Y position"
+            value={y.value}
+            mixed={y.mixed}
+            onChange={(n) => patch(() => ({ y: n }))}
+          />
+        </div>
 
-      <div className="flex items-center gap-1.5">
-        <div className="grid min-w-0 flex-1 grid-cols-2 gap-1.5">
+        <div className="ab-ctl-grid">
           <NumberField
             label="W"
+            name="Width"
             value={w.value}
             mixed={w.mixed}
             min={1}
@@ -185,79 +174,91 @@ export function PositionSection({ selection, patch, setStyle }: SectionProps) {
           />
           <NumberField
             label="H"
+            name="Height"
             value={h.value}
             mixed={h.mixed}
             min={1}
             onChange={setHeight}
           />
-        </div>
-        <Tooltip label="Lock aspect ratio">
-          <button
-            className={`ab-icon-btn size-6${linked ? " text-[var(--foreground)]" : ""}`}
-            aria-pressed={linked}
-            aria-label="Lock aspect ratio"
-            onClick={() => setLinked((v) => !v)}
+          <Tooltip
+            label={linked ? "Unlock aspect ratio" : "Lock aspect ratio"}
+            className="ab-ctl-slot"
           >
-            <LinkGlyph on={linked} />
-          </button>
-        </Tooltip>
+            <button
+              className="ab-icon-btn is-sm"
+              aria-pressed={linked}
+              aria-label="Lock aspect ratio"
+              onClick={() => setLinked((v) => !v)}
+            >
+              <AspectLock on={linked} />
+            </button>
+          </Tooltip>
+        </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-1.5">
-        <NumberField
-          label="R"
-          unit="°"
-          value={rot.value}
-          mixed={rot.mixed}
-          onChange={(n) => patch(() => ({ rot: n }))}
-        />
-        {rounds && (
-          <div className="flex min-w-0 items-center gap-0.5">
-            <div className="min-w-0 flex-1">
+      <div className="ab-ctl-group">
+        <div className="ab-ctl-grid">
+          <NumberField
+            label={<Rotation />}
+            name="Rotation"
+            unit="°"
+            value={rot.value}
+            mixed={rot.mixed}
+            onChange={(n) => patch(() => ({ rot: n }))}
+          />
+          {rounds && (
+            <>
               <NumberField
-                label="C"
+                label={<Corner />}
+                name="Corner radius"
                 value={px(corners[0])}
                 unit={unitOf(corners[0])}
                 units={LENGTH_UNITS}
                 mixed={radiusMixed || (!independent && !uniform)}
                 min={0}
                 onChange={(n, u) =>
-                  setStyle({ "border-radius": n === 0 ? undefined : `${n}${u}` })
+                  setStyle({
+                    "border-radius": n === 0 ? undefined : `${n}${u}`,
+                  })
                 }
               />
-            </div>
-            {perCorner && (
-              <Tooltip label="Independent corners">
-                <button
-                  className={`ab-icon-btn size-6${expanded ? " text-[var(--foreground)]" : ""}`}
-                  aria-pressed={expanded}
-                  aria-label="Independent corners"
-                  onClick={() => setExpanded((v) => !v)}
-                >
-                  <CornerGlyph />
-                </button>
-              </Tooltip>
-            )}
-          </div>
-        )}
-      </div>
-
-      {independent && (
-        <div className="grid grid-cols-2 gap-1.5">
-          {CORNER_ORDER.map((i) => (
-            <NumberField
-              key={CORNER_LABELS[i]}
-              label={CORNER_LABELS[i]}
-              value={px(corners[i])}
-              unit={unitOf(corners[i])}
-              units={LENGTH_UNITS}
-              mixed={radiusMixed}
-              min={0}
-              onChange={(n, u) => setCorner(i, n, u)}
-            />
-          ))}
+              {perCorner && (
+                <Tooltip label="Set each corner separately" className="ab-ctl-slot">
+                  <button
+                    className="ab-icon-btn is-sm"
+                    aria-pressed={expanded}
+                    aria-label="Set each corner separately"
+                    onClick={() => setExpanded((v) => !v)}
+                  >
+                    <Corner turn={1} />
+                  </button>
+                </Tooltip>
+              )}
+            </>
+          )}
         </div>
-      )}
+
+        {/* Two rows of two, spelled out: the grid's third column is the action
+            gutter, and four auto-placed fields would drop one into it. */}
+        {independent &&
+          [CORNER_ORDER.slice(0, 2), CORNER_ORDER.slice(2)].map((pair) => (
+            <div className="ab-ctl-grid" key={pair.join()}>
+              {pair.map((i) => (
+                <NumberField
+                  key={CORNER_NAMES[i]}
+                  label={<Corner turn={i} />}
+                  name={CORNER_NAMES[i]}
+                  value={px(corners[i])}
+                  unit={unitOf(corners[i])}
+                  units={LENGTH_UNITS}
+                  mixed={radiusMixed}
+                  min={0}
+                  onChange={(n, u) => setCorner(i, n, u)}
+                />
+              ))}
+            </div>
+          ))}
+      </div>
     </PanelSection>
   );
 }

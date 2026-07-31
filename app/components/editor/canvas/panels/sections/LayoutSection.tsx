@@ -1,14 +1,22 @@
 "use client";
 
 import { useState } from "react";
-import { Check } from "@/app/components/Icons";
+import { Tooltip } from "@/app/components/Tooltip";
 import { HUG, hugsOf, isAutoLayout, layoutOf } from "../../scene/autoLayout";
 import { isGroup, type StyleMap, type StylePatch } from "../../scene/types";
 import type { SectionProps } from "../StylePanel";
-import { Field } from "../controls/Field";
+import {
+  FlowColumn,
+  FlowGrid,
+  FlowNone,
+  FlowRow,
+  Gap,
+  PadAll,
+  PadSide,
+} from "../controls/glyphs";
 import { IconToggle, type ToggleOption } from "../controls/IconToggle";
 import { NumberField } from "../controls/NumberField";
-import { PanelSection } from "../controls/PanelSection";
+import { CheckRow, PanelSection } from "../controls/PanelSection";
 import { SelectField } from "../controls/SelectField";
 
 function merge(style: StyleMap, decls: StylePatch): StyleMap {
@@ -34,42 +42,12 @@ const DIRECTION_DECLS: Record<Direction, StylePatch> = {
   none: { display: undefined, "flex-direction": undefined },
 };
 
-/** Bars in a 16px box, each `x,y,w,h`. */
-function Glyph({ bars }: { bars: string }) {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden>
-      {bars.split(" ").map((bar) => {
-        const [x, y, w, h] = bar.split(",");
-        return (
-          <rect
-            key={bar}
-            x={x}
-            y={y}
-            width={w}
-            height={h}
-            rx="1"
-            fill="currentColor"
-            opacity="0.65"
-          />
-        );
-      })}
-    </svg>
-  );
-}
-
-/** The toggle carries `""` as well: on a mixed selection nothing is pressed. */
-const DIRECTIONS: ToggleOption<Direction | "">[] = (
-  [
-    { value: "row", label: "Horizontal", bars: "3,4,3,8 6.5,4,3,8 10,4,3,8" },
-    { value: "column", label: "Vertical", bars: "4,3,8,3 4,6.5,8,3 4,10,8,3" },
-    {
-      value: "grid",
-      label: "Grid",
-      bars: "3,3,4.5,4.5 8.5,3,4.5,4.5 3,8.5,4.5,4.5 8.5,8.5,4.5,4.5",
-    },
-    { value: "none", label: "None", bars: "2.5,3,6,5 7.5,8,6,5" },
-  ] as const
-).map(({ value, label, bars }) => ({ value, label, icon: <Glyph bars={bars} /> }));
+const DIRECTIONS: ToggleOption<Direction>[] = [
+  { value: "row", label: "Stack horizontally", icon: <FlowRow /> },
+  { value: "column", label: "Stack vertically", icon: <FlowColumn /> },
+  { value: "grid", label: "Arrange in a grid", icon: <FlowGrid /> },
+  { value: "none", label: "Place freely", icon: <FlowNone /> },
+];
 
 // ---------------------------------------------------------------------------
 // The 3x3 alignment picker
@@ -83,6 +61,10 @@ const CELLS = [0, 1, 2].flatMap((row) => [0, 1, 2].map((col) => ({ row, col })))
 /**
  * One picker for both axes: the grid is spatial, so which of `align-items` and
  * `justify-content` a column means depends on which way the flow runs.
+ *
+ * Framed as a well and left at its natural square, so it reads as the box the
+ * children are being placed inside. It used to be nine bare cells whose whole
+ * content was a 4px dot in `--faint` — the least discoverable control here.
  */
 function AlignPicker({
   horizontal,
@@ -100,33 +82,23 @@ function AlignPicker({
   const onRow = horizontal ? align : justify;
 
   return (
-    <div className="grid grid-cols-3 gap-px rounded-[var(--radius)] bg-[var(--sunken)] p-0.5">
+    <div className="ab-ctl-align3" role="group" aria-label="Align contents">
       {CELLS.map(({ row, col }) => {
         const on = col === onCol && row === onRow;
+        const name = `Align ${ROW_NAMES[row]} ${COL_NAMES[col]}`;
         return (
-          <button
-            key={`${row}${col}`}
-            aria-pressed={on}
-            aria-label={`Align ${ROW_NAMES[row]} ${COL_NAMES[col]}`}
-            title={`Align ${ROW_NAMES[row]} ${COL_NAMES[col]}`}
-            onClick={() =>
-              onPick(
-                POS[horizontal ? row : col],
-                POS[horizontal ? col : row],
-              )
-            }
-            className={`flex size-6 items-center justify-center rounded-[var(--radius-sm)] transition-colors ${
-              on
-                ? "bg-[var(--background)] text-[var(--foreground)]"
-                : "text-[var(--faint)] hover:bg-[var(--hover)]"
-            }`}
-          >
-            <span
-              className={
-                on ? "size-1.5 rounded-[1px] bg-current" : "size-1 rounded-full bg-current"
+          <Tooltip key={`${row}${col}`} label={name} className="ab-ctl-anchor">
+            <button
+              aria-pressed={on}
+              aria-label={name}
+              onClick={() =>
+                onPick(POS[horizontal ? row : col], POS[horizontal ? col : row])
               }
-            />
-          </button>
+              className="ab-ctl-align3-cell"
+            >
+              <span className={on ? "ab-ctl-align3-on" : "ab-ctl-align3-off"} />
+            </button>
+          </Tooltip>
         );
       })}
     </div>
@@ -135,11 +107,13 @@ function AlignPicker({
 
 // ---------------------------------------------------------------------------
 
+/** Padding, drawn rather than initialled. The letters used to be T/R/B/L, and
+ *  that "R" sat one section away from an "R" that meant rotation. */
 const SIDES = [
-  { key: "top", label: "T" },
-  { key: "right", label: "R" },
-  { key: "bottom", label: "B" },
-  { key: "left", label: "L" },
+  { key: "top", name: "Top padding", icon: <PadSide side="top" /> },
+  { key: "right", name: "Right padding", icon: <PadSide side="right" /> },
+  { key: "bottom", name: "Bottom padding", icon: <PadSide side="bottom" /> },
+  { key: "left", name: "Left padding", icon: <PadSide side="left" /> },
 ] as const;
 
 /**
@@ -149,8 +123,8 @@ const SIDES = [
  * other property in the grammar.
  */
 const AXES = [
-  { axis: "W", prop: "width", key: "w" },
-  { axis: "H", prop: "height", key: "h" },
+  { axis: "W", name: "Width behaviour", prop: "width", key: "w" },
+  { axis: "H", name: "Height behaviour", prop: "height", key: "h" },
 ] as const;
 
 /** A group turning auto-layout on hugs its contents, as in Figma; turning it
@@ -171,59 +145,6 @@ function columnCount(spec: string): number {
   if (repeat) return Number(repeat[1]);
   const tokens = spec.trim().split(/\s+/).filter(Boolean);
   return tokens.length || 1;
-}
-
-/** Figma's "Clip content", which is `overflow: hidden` — absent means the
- *  children may paint outside the box, and that is the default. */
-function ClipToggle({
-  on,
-  mixed,
-  onChange,
-}: {
-  on: boolean;
-  mixed: boolean;
-  onChange: (on: boolean) => void;
-}) {
-  return (
-    <button
-      role="checkbox"
-      aria-checked={mixed ? "mixed" : on}
-      onClick={() => onChange(!on)}
-      className="flex items-center gap-2 self-start text-[length:var(--text-meta-lg)] text-[var(--muted)] transition-colors hover:text-[var(--foreground)]"
-    >
-      <span
-        className={`flex size-3.5 items-center justify-center rounded-[var(--radius-sm)] border transition-colors ${
-          on && !mixed
-            ? "border-[var(--foreground)] bg-[var(--foreground)] text-[var(--background)]"
-            : "border-[var(--border-strong)]"
-        }`}
-      >
-        {mixed ? (
-          <span className="h-px w-1.5 bg-[var(--faint)]" />
-        ) : on ? (
-          <Check width={10} height={10} />
-        ) : null}
-      </span>
-      Clip content
-    </button>
-  );
-}
-
-function SidesGlyph() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden>
-      <rect
-        x="2.75"
-        y="2.75"
-        width="10.5"
-        height="10.5"
-        rx="2"
-        stroke="currentColor"
-        strokeWidth="1.25"
-        strokeDasharray="2.5 2"
-      />
-    </svg>
-  );
 }
 
 export function LayoutSection({ selection, patch }: SectionProps) {
@@ -253,7 +174,8 @@ export function LayoutSection({ selection, patch }: SectionProps) {
   const layout = layoutOf(groups[0]);
 
   const clip = (
-    <ClipToggle
+    <CheckRow
+      label="Clip content"
       on={groups[0].style.overflow === "hidden"}
       mixed={differs("overflow")}
       onChange={(on) => write({ overflow: on ? "hidden" : undefined })}
@@ -262,7 +184,11 @@ export function LayoutSection({ selection, patch }: SectionProps) {
 
   if (layout.mode === "none" && !differs("display")) {
     return (
-      <PanelSection title="Auto layout" onAdd={() => write({ display: "flex" })}>
+      <PanelSection
+        title="Auto layout"
+        onAdd={() => write({ display: "flex" })}
+        addLabel="Add auto layout"
+      >
         {clip}
       </PanelSection>
     );
@@ -296,62 +222,63 @@ export function LayoutSection({ selection, patch }: SectionProps) {
 
   return (
     <PanelSection title="Auto layout">
-      <Field label="Direction">
-        <IconToggle
-          value={differs("display") || differs("flex-direction") ? "" : direction}
-          options={DIRECTIONS}
-          onChange={(value) => {
-            if (value) write(DIRECTION_DECLS[value]);
-          }}
-        />
-      </Field>
-
-      <div className="grid grid-cols-2 gap-1.5">
-        <NumberField
-          label="Gap"
-          value={layout.gap}
-          mixed={differs("gap")}
-          min={0}
-          onChange={(n) => write({ gap: n === 0 ? undefined : `${n}px` })}
-        />
-        <div className="flex min-w-0 items-center gap-0.5">
-          <div className="min-w-0 flex-1">
-            <NumberField
-              label="Pad"
-              value={pad.top}
-              mixed={padMixed || (!expanded && !padUniform)}
-              min={0}
-              onChange={setPadding}
-            />
-          </div>
-          <button
-            className={`ab-icon-btn size-6${expanded ? " text-[var(--foreground)]" : ""}`}
-            aria-pressed={expanded}
-            aria-label="Independent padding"
-            title="Independent padding"
-            onClick={() => setExpanded((v) => !v)}
-          >
-            <SidesGlyph />
-          </button>
+      <div className="ab-ctl-group">
+        <div className="ab-ctl-row">
+          <IconToggle
+            value={differs("display") || differs("flex-direction") ? "" : direction}
+            options={DIRECTIONS}
+            onChange={(value) => write(DIRECTION_DECLS[value])}
+          />
         </div>
+
+        <div className="ab-ctl-grid">
+          <NumberField
+            label={<Gap />}
+            name="Gap between items"
+            value={layout.gap}
+            mixed={differs("gap")}
+            min={0}
+            onChange={(n) => write({ gap: n === 0 ? undefined : `${n}px` })}
+          />
+          <NumberField
+            label={<PadAll />}
+            name="Padding"
+            value={pad.top}
+            mixed={padMixed || (!expanded && !padUniform)}
+            min={0}
+            onChange={setPadding}
+          />
+          <Tooltip label="Set each side separately" className="ab-ctl-slot">
+            <button
+              className="ab-icon-btn is-sm"
+              aria-pressed={expanded}
+              aria-label="Set each side separately"
+              onClick={() => setExpanded((v) => !v)}
+            >
+              <PadSide side="left" />
+            </button>
+          </Tooltip>
+        </div>
+
+        {expanded &&
+          [SIDES.slice(0, 2), SIDES.slice(2)].map((pair) => (
+            <div className="ab-ctl-grid" key={pair[0].key}>
+              {pair.map((side) => (
+                <NumberField
+                  key={side.key}
+                  label={side.icon}
+                  name={side.name}
+                  value={pad[side.key]}
+                  mixed={padMixed}
+                  min={0}
+                  onChange={(n) => setSide(side.key, n)}
+                />
+              ))}
+            </div>
+          ))}
       </div>
 
-      {expanded && (
-        <div className="grid grid-cols-2 gap-1.5">
-          {SIDES.map((side) => (
-            <NumberField
-              key={side.key}
-              label={side.label}
-              value={pad[side.key]}
-              mixed={padMixed}
-              min={0}
-              onChange={(n) => setSide(side.key, n)}
-            />
-          ))}
-        </div>
-      )}
-
-      <Field label="Align">
+      <div className="ab-ctl-group">
         <AlignPicker
           horizontal={horizontal}
           align={POS.findIndex((p) => p === layout.alignItems)}
@@ -363,38 +290,44 @@ export function LayoutSection({ selection, patch }: SectionProps) {
             })
           }
         />
-      </Field>
 
-      {direction === "grid" && (
-        <Field label="Columns">
-          <NumberField
-            value={columnCount(layout.gridTemplateColumns)}
-            mixed={differs("grid-template-columns")}
-            min={1}
-            onChange={(n) =>
-              write({ "grid-template-columns": `repeat(${Math.round(n)}, auto)` })
-            }
-          />
-        </Field>
-      )}
+        {direction === "grid" && (
+          <div className="ab-ctl-grid">
+            <NumberField
+              label="Cols"
+              name="Grid columns"
+              value={columnCount(layout.gridTemplateColumns)}
+              mixed={differs("grid-template-columns")}
+              min={1}
+              onChange={(n) =>
+                write({
+                  "grid-template-columns": `repeat(${Math.round(n)}, auto)`,
+                })
+              }
+            />
+          </div>
+        )}
 
-      <Field label="Resize">
-        <div className="flex gap-1.5">
-          {AXES.map(({ axis, prop, key }) => (
+        <div className="ab-ctl-grid">
+          {AXES.map(({ axis, name, prop, key }) => (
             <SelectField
               key={prop}
+              label={axis}
               value={hugsOf(groups[0])[key] ? "hug" : "fixed"}
               options={[
-                { value: "fixed", label: `${axis}: Fixed` },
-                { value: "hug", label: `${axis}: Hug` },
+                { value: "fixed", label: "Fixed" },
+                { value: "hug", label: "Hug" },
               ]}
-              onChange={(mode) => write({ [prop]: mode === "hug" ? HUG : undefined })}
+              name={name}
+              onChange={(mode) =>
+                write({ [prop]: mode === "hug" ? HUG : undefined })
+              }
             />
           ))}
         </div>
-      </Field>
 
-      {clip}
+        {clip}
+      </div>
     </PanelSection>
   );
 }

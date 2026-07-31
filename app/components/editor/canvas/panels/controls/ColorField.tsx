@@ -37,11 +37,14 @@ const NO_VARS: readonly ColorVariable[] = [];
 const DOUBLE_MS = 220;
 
 export function ColorField({
+  label,
   value,
   onChange,
   onPreview,
   mixed,
 }: {
+  /** The mark drawn inside the control, as on every other field. */
+  label?: string;
   value: string;
   onChange: (value: string) => void;
   /**
@@ -114,7 +117,17 @@ export function ColorField({
       width={224}
       label="Colour"
       trigger={(p) => (
-        <button {...p} className="ab-ctl-swatch" onClick={() => click(p.onClick)}>
+        <button
+          {...p}
+          className="ab-ctl-swatch"
+          aria-label={label}
+          onClick={() => click(p.onClick)}
+        >
+          {label !== undefined && (
+            <span className="ab-ctl-mark" aria-hidden>
+              {label}
+            </span>
+          )}
           <Swatch color={mixed ? undefined : paint} />
           <span className="ab-ctl-swatch-text">
             {mixed ? "Mixed" : bound ? varLabel(bound) : displayColor(value)}
@@ -211,7 +224,7 @@ function Body({
     <>
       {bound !== null && (
         <div className="ab-ctl-row">
-          <span className="text-muted min-w-0 flex-1 truncate text-[11px]">
+          <span className="ab-ctl-note min-w-0 flex-1 truncate">
             {target
               ? `Editing ${varLabel(bound)}`
               : `${varLabel(bound)} — undefined`}
@@ -226,7 +239,9 @@ function Body({
         live={live !== null && target === null}
         onPreview={target === null ? onPreview : undefined}
         onChange={(css) =>
-          target ? target.api.setStyle(declareVariable(target.name, css)) : onChange(css)
+          target
+            ? target.api.setStyle(declareVariable(target.name, css))
+            : onChange(css)
         }
       />
       {api && (
@@ -270,11 +285,9 @@ function Variables({
   return (
     <div className="border-border flex flex-col gap-1 border-t pt-2">
       <div className="flex items-center justify-between">
-        <span className="text-muted text-[10px] font-medium tracking-wider uppercase">
-          Variables
-        </span>
+        <span className="ab-ctl-sublabel">Variables</span>
         <button
-          className="ab-icon-btn ab-ctl-remove"
+          className="ab-icon-btn is-sm"
           aria-label="Create variable from this colour"
           title="Create variable from this colour"
           onClick={() => setNaming(varLabel(nextVariableName(vars)))}
@@ -303,7 +316,7 @@ function Variables({
       )}
 
       {vars.length === 0 ? (
-        <span className="text-faint text-[11px]">No variables yet</span>
+        <span className="ab-ctl-note">No variables yet</span>
       ) : (
         <div className="flex max-h-[124px] flex-col gap-0.5 overflow-y-auto">
           {vars.map((v) => (
@@ -320,7 +333,7 @@ function Variables({
                 </span>
               </button>
               <button
-                className="ab-icon-btn ab-ctl-remove"
+                className="ab-icon-btn is-sm"
                 aria-label={`Delete ${varLabel(v.name)}`}
                 title="Delete variable"
                 onClick={() => remove(v)}
@@ -337,10 +350,7 @@ function Variables({
 
 function TextButton({ label, onClick }: { label: string; onClick: () => void }) {
   return (
-    <button
-      onClick={onClick}
-      className="text-muted hover:text-foreground h-[var(--control-sm)] flex-none rounded-[var(--radius-sm)] px-1.5 text-[11px] hover:bg-[var(--hover)]"
-    >
+    <button onClick={onClick} className="ab-ctl-textbtn">
       {label}
     </button>
   );
@@ -405,7 +415,9 @@ function Picker({
         className="ab-ctl-sv"
         style={{ backgroundColor: `hsl(${hue} 100% 50%)` }}
         onPointerDown={(e) =>
-          track(e, (x, y) => set(withHsv(hue, x, 1 - y)), commit, { batch: true })
+          track(e, (x, y) => set(withHsv(hue, x, 1 - y)), commit, {
+            batch: true,
+          })
         }
       >
         <span
@@ -478,4 +490,5 @@ function Picker({
   );
 }
 
-const isPlainHex = (text: string) => /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.test(text.trim());
+const isPlainHex = (text: string) =>
+  /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.test(text.trim());

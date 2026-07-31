@@ -190,7 +190,7 @@ function Editor({
           />
         </span>
         <button
-          className="ab-icon-btn ab-ctl-remove"
+          className="ab-icon-btn is-sm"
           aria-label="Remove stop"
           title="Remove stop"
           disabled={g.stops.length <= 2}

@@ -1,94 +1,219 @@
 /* ===== Style-panel controls ==============================================
-   The properties panel is denser than the shell: 24px controls rather than 32,
-   because a row here is one property and you read a column of them at once.
-   Everything else — surfaces, ink, radii, motion — is the shell's, so the panel
-   reads as part of the app. No colour: the only hues on screen are the ones the
-   drawing itself is painted in. */
+   The properties panel is denser than the shell — 24px controls rather than
+   32, because a row here is one property and you read a column of them at
+   once. Everything else is the shell's, so the panel reads as part of the app.
+   No colour: the only hues on screen are the ones the drawing is painted in.
 
-.ab-ctl-section + .ab-ctl-section {
-  border-top: 1px solid var(--border);
+   ---- The one geometry -----------------------------------------------------
+   Every row in the panel is the same three-column grid:
+
+       | 1fr  | 1fr  | 24px |
+         93.5   93.5   gutter
+
+   The third column is an action slot — the aspect lock, the independent-corner
+   toggle, the padding expander — and it is *reserved whether or not it is
+   used*. That is the whole fix: before this, a row with a trailing button
+   shrank its own fields, so W was 15px narrower than the X directly above it
+   and four different field widths appeared in one section.
+
+   Fields carry their own name inline (a letter, or a glyph from ./glyphs) and
+   pad by --inset, so every label lands 16px from the panel edge — the same
+   line the shell's rows and the section titles use. There is no label column;
+   a fixed one cost 54px of a 223px body and produced a second left edge. */
+
+.ab-style-panel {
+  /* Named so the grid and the action buttons cannot disagree about the slot. */
+  --ctl-gutter: var(--control-sm);
+  --ctl-gap: 6px;
 }
 
-/* Inherits the mono, uppercase, muted voice of `.ab-section-label`. */
-.ab-ctl-section-toggle {
+/* ---- Sections ------------------------------------------------------------
+   Weighted to the top: more air above a title than below it, so a heading
+   belongs to what follows rather than floating between two groups. The rule
+   between two sections is drawn once, by `.ab-style-panel-body > * + *`, which
+   also covers the align strip — this file used to declare it a second time. */
+.ab-ctl-head {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
+  height: var(--control);
+  margin-top: 6px;
+  /* 16px, so the title sits on the same line as the field labels below it. */
+  padding-left: calc(var(--inset) * 2);
+  padding-right: var(--inset);
+}
+
+.ab-ctl-title {
   flex: 1 1 auto;
   min-width: 0;
-  height: 100%;
-  color: inherit;
-  font: inherit;
-  letter-spacing: inherit;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-align: left;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--text-meta);
+  font-weight: 500;
+  letter-spacing: var(--tracking-meta);
+  text-transform: uppercase;
+  color: var(--muted);
+  transition: color var(--dur-fast) var(--ease);
 }
-.ab-ctl-section-toggle:hover {
+.ab-ctl-title:hover {
   color: var(--foreground);
 }
+
 .ab-ctl-chevron {
   flex: none;
-  color: var(--faint);
+  color: var(--muted);
   transition: transform var(--dur-fast) var(--ease);
 }
 .ab-ctl-chevron.is-open {
   transform: rotate(90deg);
 }
+
 .ab-ctl-section-body {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 2px var(--inset) 12px;
+  gap: var(--ctl-gap);
+  padding: 2px var(--inset) 14px;
 }
 
-.ab-field {
+/* Tight within a group, generous between them: the two stacked-list sections
+   used one 6px gap both inside a fill and between two of them, so a stack of
+   three read as nine unrelated rows. */
+.ab-ctl-group {
   display: flex;
+  flex-direction: column;
+  gap: var(--ctl-gap);
+  min-width: 0;
+}
+.ab-ctl-group + .ab-ctl-group {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+/* ---- The row grid -------------------------------------------------------- */
+.ab-ctl-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr var(--ctl-gutter);
+  gap: var(--ctl-gap);
   align-items: center;
-  gap: 8px;
-  min-height: var(--control-sm);
 }
-.ab-field-label {
-  flex: 0 0 54px;
-  font-size: var(--text-meta-lg);
-  color: var(--muted);
-}
-.ab-field-body {
+/* Placement classes go on the *grid item*, which is the tooltip's anchor where
+   there is one — not on the button inside it. All of them carry their own
+   display, since a bare `span` is inline and would shrink-wrap the control. */
+
+/* Both control columns, gutter still reserved. */
+.ab-ctl-wide {
   display: flex;
-  align-items: center;
-  gap: 6px;
+  grid-column: 1 / 3;
+  min-width: 0;
+}
+/* Everything, gutter included — for a control with no trailing action. */
+.ab-ctl-full {
+  display: flex;
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+.ab-ctl-slot {
+  display: flex;
+  grid-column: 3;
+  justify-self: center;
+}
+/* The second column through the gutter — for a control that pairs with one
+   field and has no action of its own. */
+.ab-ctl-wide-end {
+  display: flex;
+  grid-column: 2 / -1;
+  min-width: 0;
+}
+
+/* A tooltip's anchor wraps the control it explains, so it has to be the box
+   the grid or the flex row was going to size — not a shrink-wrap around it. */
+.ab-ctl-anchor {
+  display: flex;
   flex: 1 1 auto;
   min-width: 0;
 }
 
-/* ---- Number -------------------------------------------------------------
-   The whole box is the scrub handle; the caret only appears once you have
-   clicked in, so a drag anywhere across the field changes the value. */
-.ab-num {
+/* A flex row for popover interiors, which are not on the panel grid. */
+.ab-ctl-row {
   display: flex;
   align-items: center;
-  gap: 3px;
+  gap: var(--ctl-gap);
+}
+.ab-ctl-narrow {
+  display: flex;
+  flex: 0 0 68px;
+}
+
+/* ---- Fields --------------------------------------------------------------
+   A resting fill, so a field looks like somewhere you can type before you
+   point at it. Three states, one ladder: sunken at rest, a hairline on hover,
+   and lifted to the page's own white when focused. */
+.ab-num,
+.ab-ctl-select,
+.ab-ctl-swatch {
+  display: flex;
+  align-items: center;
+  gap: 5px;
   flex: 1 1 auto;
   min-width: 0;
   height: var(--control-sm);
-  padding-inline: 6px;
+  padding-inline: var(--inset);
   border-radius: var(--radius-sm);
-  border: 1px solid transparent;
-  cursor: ew-resize;
-  touch-action: none;
-  transition: background var(--dur-fast) var(--ease);
+  background: var(--sunken);
+  font-size: var(--text-ui);
+  color: var(--foreground);
+  transition:
+    background var(--dur-fast) var(--ease),
+    box-shadow var(--dur-fast) var(--ease);
 }
 .ab-num:hover,
+.ab-ctl-select:hover,
+.ab-ctl-swatch:hover {
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+
+/* The number box is the scrub handle, so the whole field takes the cursor —
+   until you are actually typing in it, when dragging selects text instead. */
+.ab-num {
+  cursor: ew-resize;
+  touch-action: none;
+}
 .ab-num.is-scrubbing {
-  background: var(--sunken);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
 }
 .ab-num:focus-within {
-  background: var(--sunken);
-  border-color: var(--border-strong);
+  background: var(--background);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
   cursor: default;
 }
-.ab-num-label,
+/* The app's one focus ring. The input inside suppresses its own so the ring
+   draws around the whole field rather than the bare text box. */
+.ab-num:has(.ab-num-input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* --faint is documented "decorative only, no text", and these are the only
+   thing naming what a field controls — so they are --muted, which clears AA. */
+.ab-ctl-mark {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  min-width: 12px;
+  height: 14px;
+  font-size: var(--text-meta-lg);
+  color: var(--muted);
+  user-select: none;
+}
 .ab-num-unit {
   flex: none;
   font-size: var(--text-meta-lg);
-  color: var(--faint);
+  color: var(--muted);
   user-select: none;
 }
 .ab-num-input {
@@ -103,33 +228,12 @@
   cursor: inherit;
 }
 .ab-num-input::placeholder {
-  color: var(--faint);
+  color: var(--muted);
 }
 .ab-num:focus-within .ab-num-input {
   cursor: text;
 }
 
-/* ---- Swatches -----------------------------------------------------------
-   A checkerboard under every fill, so alpha reads as alpha rather than as a
-   paler colour. */
-.ab-ctl-swatch,
-.ab-ctl-select {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex: 1 1 auto;
-  min-width: 0;
-  height: var(--control-sm);
-  padding-inline: 5px;
-  border-radius: var(--radius-sm);
-  font-size: var(--text-ui);
-  color: var(--foreground);
-  transition: background var(--dur-fast) var(--ease);
-}
-.ab-ctl-swatch:hover,
-.ab-ctl-select:hover {
-  background: var(--sunken);
-}
 .ab-ctl-swatch-text,
 .ab-ctl-select-value {
   flex: 1 1 auto;
@@ -141,7 +245,7 @@
 }
 .ab-ctl-select-caret {
   flex: none;
-  color: var(--faint);
+  color: var(--muted);
 }
 .ab-ctl-check {
   display: inline-flex;
@@ -150,51 +254,74 @@
   color: var(--muted);
 }
 
+/* ---- Swatches -----------------------------------------------------------
+   A checkerboard under every fill, so alpha reads as alpha rather than as a
+   paler colour. */
 .ab-ctl-chip {
   position: relative;
   flex: none;
-  width: 16px;
-  height: 16px;
-  border-radius: var(--radius-sm);
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
   overflow: hidden;
   box-shadow: inset 0 0 0 1px oklch(0.25 0.005 90 / 0.14);
-  background:
-    conic-gradient(
-        oklch(0.88 0.003 90) 0 25%,
-        oklch(1 0 90) 0 50%,
-        oklch(0.88 0.003 90) 0 75%,
-        oklch(1 0 90) 0
-      )
-      0 0 / 8px 8px;
+  background: conic-gradient(
+      oklch(0.88 0.003 90) 0 25%,
+      oklch(1 0 90) 0 50%,
+      oklch(0.88 0.003 90) 0 75%,
+      oklch(1 0 90) 0
+    )
+    0 0 / 8px 8px;
 }
 .ab-ctl-chip-fill {
   position: absolute;
   inset: 0;
 }
 
-/* ---- Pickers ------------------------------------------------------------ */
-.ab-ctl-pop {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+/* ---- Inline text --------------------------------------------------------
+   The hex box, an image URL, a variable name. Sits in a field's slot, so it
+   wears the field's own resting fill and takes the app's focus ring. */
+.ab-ctl-text {
+  height: var(--control-sm);
   min-width: 0;
-  padding: 10px;
+  padding-inline: var(--inset);
+  border-radius: var(--radius-sm);
+  background: var(--sunken);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--text-meta-lg);
+  color: var(--foreground);
+  transition: background var(--dur-fast) var(--ease);
+}
+.ab-ctl-text:hover {
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+.ab-ctl-text:focus {
+  background: var(--background);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
 }
 
-.ab-ctl-sv {
-  position: relative;
-  height: 132px;
-  border-radius: var(--radius);
-  cursor: crosshair;
-  touch-action: none;
-  background-image:
-    linear-gradient(to top, oklch(0 0 90) 0%, oklch(0 0 90 / 0) 100%),
-    linear-gradient(to right, oklch(1 0 90) 0%, oklch(1 0 90 / 0) 100%);
-  box-shadow: inset 0 0 0 1px oklch(0.25 0.005 90 / 0.12);
+/* A disclosure inside a section body — one step below a section title, so it
+   takes the row voice rather than the mono heading voice. */
+.ab-ctl-disclose {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  align-self: flex-start;
+  height: var(--control-sm);
+  padding-left: var(--inset);
+  font-size: var(--text-ui);
+  color: var(--muted);
+  transition: color var(--dur-fast) var(--ease);
+}
+.ab-ctl-disclose:hover {
+  color: var(--foreground);
 }
 
+/* ---- Sliders ------------------------------------------------------------- */
 .ab-ctl-slider {
   position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
   height: 12px;
   border-radius: 999px;
   cursor: ew-resize;
@@ -215,14 +342,13 @@
 }
 .ab-ctl-slider.is-alpha {
   overflow: hidden;
-  background:
-    conic-gradient(
-        oklch(0.88 0.003 90) 0 25%,
-        oklch(1 0 90) 0 50%,
-        oklch(0.88 0.003 90) 0 75%,
-        oklch(1 0 90) 0
-      )
-      0 0 / 8px 8px;
+  background: conic-gradient(
+      oklch(0.88 0.003 90) 0 25%,
+      oklch(1 0 90) 0 50%,
+      oklch(0.88 0.003 90) 0 75%,
+      oklch(1 0 90) 0
+    )
+    0 0 / 8px 8px;
 }
 .ab-ctl-alpha-fill {
   position: absolute;
@@ -244,18 +370,25 @@
     0 1px 3px oklch(0.25 0.005 90 / 0.25);
 }
 
-.ab-ctl-text {
-  height: var(--control-sm);
-  padding-inline: 6px;
-  border-radius: var(--radius-sm);
-  background: var(--sunken);
-  outline: none;
-  font-family: var(--font-mono), ui-monospace, monospace;
-  font-size: var(--text-meta-lg);
-  color: var(--foreground);
+/* ---- Pickers ------------------------------------------------------------- */
+.ab-ctl-pop {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px;
 }
-.ab-ctl-text:focus {
-  box-shadow: inset 0 0 0 1px var(--border-strong);
+
+.ab-ctl-sv {
+  position: relative;
+  height: 132px;
+  border-radius: var(--radius);
+  cursor: crosshair;
+  touch-action: none;
+  background-image:
+    linear-gradient(to top, oklch(0 0 90) 0%, oklch(0 0 90 / 0) 100%),
+    linear-gradient(to right, oklch(1 0 90) 0%, oklch(1 0 90 / 0) 100%);
+  box-shadow: inset 0 0 0 1px oklch(0.25 0.005 90 / 0.12);
 }
 
 /* ---- Gradient bar ------------------------------------------------------- */
@@ -285,26 +418,168 @@
     0 0 0 2.5px var(--foreground);
 }
 
-.ab-ctl-row {
+/* ---- Segmented toggles ---------------------------------------------------
+   The shell's `.ab-mode` well, sized for a glyph instead of a word, and
+   stretched so a toggle fills whatever column it is given — a fixed-width one
+   overflowed the text section's row by 12px. */
+.ab-mode.is-fill {
   display: flex;
-  align-items: center;
-  gap: 6px;
+  width: 100%;
 }
-.ab-ctl-narrow {
-  display: flex;
-  flex: 0 0 72px;
-}
-.ab-ctl-remove {
-  width: var(--control-sm);
-  height: var(--control-sm);
-}
-
-/* A glyph instead of a word, in the shell's segmented well. */
 .ab-mode-btn.is-icon {
   display: inline-flex;
+  flex: 1 1 0;
   align-items: center;
   justify-content: center;
-  width: 22px;
+  min-width: 0;
   height: 20px;
   padding: 0;
+}
+
+/* ---- The 3x3 alignment picker -------------------------------------------
+   Framed as a well and left at its natural square, so it reads as the box the
+   children are being placed inside rather than as nine loose buttons. */
+.ab-ctl-align3 {
+  display: grid;
+  grid-template-columns: repeat(3, var(--control-sm));
+  grid-template-rows: repeat(3, var(--control-sm));
+  gap: 1px;
+  width: max-content;
+  padding: 2px;
+  border-radius: var(--radius);
+  background: var(--sunken);
+}
+.ab-ctl-align3-cell {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  transition:
+    background var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
+}
+.ab-ctl-align3-cell:hover {
+  background: var(--hover);
+  color: var(--foreground);
+}
+.ab-ctl-align3-cell[aria-pressed="true"] {
+  background: var(--background);
+  color: var(--foreground);
+  box-shadow: 0 1px 2px oklch(0.25 0.005 90 / 0.06);
+}
+/* --muted, not --faint: a 4px decorative dot was the entire content of this
+   control, and it sat below the contrast floor for anything that carries
+   meaning. */
+.ab-ctl-align3-off {
+  width: 4px;
+  height: 4px;
+  border-radius: 999px;
+  background: currentColor;
+}
+.ab-ctl-align3-on {
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  background: currentColor;
+}
+
+/* ---- Checkbox ------------------------------------------------------------ */
+.ab-ctl-check-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: var(--control-sm);
+  padding-left: var(--inset);
+  font-size: var(--text-ui);
+  color: var(--muted);
+  transition: color var(--dur-fast) var(--ease);
+}
+.ab-ctl-check-row:hover {
+  color: var(--foreground);
+}
+.ab-ctl-box {
+  display: flex;
+  flex: none;
+  width: 14px;
+  height: 14px;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+  transition:
+    background var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease);
+}
+.ab-ctl-box.is-on {
+  border-color: var(--foreground);
+  background: var(--foreground);
+  color: var(--background);
+}
+.ab-ctl-box-mixed {
+  width: 6px;
+  height: 1px;
+  background: var(--muted);
+}
+
+/* ---- Notes and sub-labels ------------------------------------------------
+   All --muted. --faint is documented "decorative only, no text", and it was
+   carrying four separate strings the reader actually needs. */
+.ab-ctl-note {
+  font-size: var(--text-meta);
+  color: var(--muted);
+}
+.ab-ctl-sublabel {
+  font-size: var(--text-meta);
+  font-weight: 500;
+  letter-spacing: var(--tracking-meta);
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.ab-ctl-textbtn {
+  flex: none;
+  height: var(--control-sm);
+  padding-inline: 6px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-meta);
+  color: var(--muted);
+  transition:
+    background var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
+}
+.ab-ctl-textbtn:hover {
+  background: var(--hover);
+  color: var(--foreground);
+}
+/* A value the panel is showing but not offering to change — a bound paint's
+   opacity belongs to the variable it came from. */
+.ab-ctl-bound {
+  display: flex;
+  height: var(--control-sm);
+  align-items: center;
+  padding-inline: var(--inset);
+  font-size: var(--text-ui);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The values under a row's own header — dimmed together when the thing they
+   describe is switched off. */
+.ab-ctl-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ctl-gap);
+  min-width: 0;
+  transition: opacity var(--dur-fast) var(--ease);
+}
+.ab-ctl-stack.is-off {
+  opacity: 0.45;
+}
+
+/* ---- Empty section ------------------------------------------------------- */
+.ab-ctl-empty {
+  padding-left: var(--inset);
+  font-size: var(--text-ui);
+  color: var(--muted);
 }

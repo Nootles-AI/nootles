@@ -6,23 +6,42 @@ import "./controls.css";
 
 export type SelectOption = { value: string; label: string };
 
+/**
+ * A select carries its own name inline, the way the number fields do.
+ *
+ * "Normal" and "Uppercase" do not say which property they are the value of,
+ * and the panel has no label column to say it for them — a fixed one cost 54px
+ * of a 223px body and put a second left edge down the middle of every section.
+ */
 export function SelectField({
+  label,
+  name,
   value,
   onChange,
   options,
 }: {
+  /** The mark drawn inside the control. */
+  label?: string;
+  /** The name spoken for it — spell out what the mark abbreviates. */
+  name?: string;
   value: string;
   onChange: (value: string) => void;
   options: readonly SelectOption[];
 }) {
   const current = options.find((o) => o.value === value);
+  const spoken = name ?? label;
 
   return (
     <Menu
-      label="Options"
+      label={spoken ?? "Options"}
       side="bottom"
       trigger={(p) => (
-        <button {...p} className="ab-ctl-select">
+        <button {...p} className="ab-ctl-select" aria-label={spoken}>
+          {label !== undefined && (
+            <span className="ab-ctl-mark" aria-hidden>
+              {label}
+            </span>
+          )}
           <span className="ab-ctl-select-value">{current?.label ?? value}</span>
           <ChevronsUpDown width={12} height={12} className="ab-ctl-select-caret" />
         </button>

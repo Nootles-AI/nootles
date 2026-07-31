@@ -3,7 +3,7 @@
 import { useRef, useState } from "react";
 import { ChevronRight } from "@/app/components/Icons";
 import type { StyleMap } from "../../scene/types";
-import { Field } from "../controls/Field";
+import { Brightness, Contrast, Grayscale, Saturation } from "../controls/glyphs";
 import { useLiveEdit } from "../controls/live";
 import { NumberField } from "../controls/NumberField";
 import { PanelSection } from "../controls/PanelSection";
@@ -17,12 +17,14 @@ const BLEND = BLEND_MODES.map((id) => ({
   label: id[0].toUpperCase() + id.slice(1).replace(/-/g, " "),
 }));
 
-/** The `filter()` functions people reach for by name, as percentages. */
+/** The `filter()` functions people reach for by name, as percentages. Marked
+ *  with glyphs rather than initials — four of these two-up leaves no room for
+ *  a word, and "Con" is not a word. */
 const ADJUSTMENTS = [
-  { fn: "brightness", label: "Brightness", base: 100 },
-  { fn: "contrast", label: "Contrast", base: 100 },
-  { fn: "saturate", label: "Saturation", base: 100 },
-  { fn: "grayscale", label: "Grayscale", base: 0 },
+  { fn: "brightness", label: "Brightness", base: 100, mark: <Brightness /> },
+  { fn: "contrast", label: "Contrast", base: 100, mark: <Contrast /> },
+  { fn: "saturate", label: "Saturation", base: 100, mark: <Saturation /> },
+  { fn: "grayscale", label: "Grayscale", base: 0, mark: <Grayscale /> },
 ] as const;
 
 /** `brightness(1.2)` and `brightness(120%)` are the same filter. */
@@ -121,7 +123,11 @@ export function AppearanceSection({ selection, patch, setStyle }: SectionProps) 
 
   const adjustments = ADJUSTMENTS.map((a) => {
     const values = selection.map((n) => readAdjust(n.style, a.fn, a.base));
-    return { ...a, value: values[0], mixed: values.some((v) => v !== values[0]) };
+    return {
+      ...a,
+      value: values[0],
+      mixed: values.some((v) => v !== values[0]),
+    };
   });
   const adjusted = adjustments.some((a) => a.mixed || a.value !== a.base);
   const showAdjust = open ?? adjusted;
@@ -139,10 +145,16 @@ export function AppearanceSection({ selection, patch, setStyle }: SectionProps) 
           : i >= 0
             ? layers.map((l, j) =>
                 j === i
-                  ? { ...l, values: { ...l.values, "filter-value": `${value}%` } }
+                  ? {
+                      ...l,
+                      values: { ...l.values, "filter-value": `${value}%` },
+                    }
                   : l,
               )
-            : [...layers, { values: { "filter-fn": fn, "filter-value": `${value}%` } }];
+            : [
+                ...layers,
+                { values: { "filter-fn": fn, "filter-value": `${value}%` } },
+              ];
       const style = { ...node.style };
       const filter = serializeLayers("filter", next);
       if (filter) style.filter = filter;
@@ -152,12 +164,10 @@ export function AppearanceSection({ selection, patch, setStyle }: SectionProps) 
 
   return (
     <PanelSection title="Appearance">
-      <Field label="Opacity">
-        <div className="flex items-center gap-2">
-          <div className="min-w-0 flex-1">
-            <Slider value={opacity} onChange={setOpacity} />
-          </div>
-          <div className="w-16 shrink-0">
+      <div className="ab-ctl-group">
+        <div className="ab-ctl-row">
+          <Slider value={opacity} onChange={setOpacity} />
+          <span className="ab-ctl-narrow">
             <NumberField
               value={Math.round(opacity * 100)}
               mixed={opacityMixed}
@@ -166,47 +176,58 @@ export function AppearanceSection({ selection, patch, setStyle }: SectionProps) 
               max={100}
               onChange={(n) => setOpacity(n / 100)}
             />
-          </div>
+          </span>
         </div>
-      </Field>
 
-      <Field label="Blend">
-        <SelectField
-          value={blendMixed ? "" : blends[0]}
-          options={blendMixed ? [{ value: "", label: "Mixed" }, ...BLEND] : BLEND}
-          onChange={(value) => {
-            if (value)
-              setStyle({ "mix-blend-mode": value === "normal" ? undefined : value });
-          }}
-        />
-      </Field>
+        <div className="ab-ctl-row">
+          <SelectField
+            label="Blend"
+            name="Blend mode"
+            value={blendMixed ? "" : blends[0]}
+            options={blendMixed ? [{ value: "", label: "Mixed" }, ...BLEND] : BLEND}
+            onChange={(value) => {
+              if (value)
+                setStyle({
+                  "mix-blend-mode": value === "normal" ? undefined : value,
+                });
+            }}
+          />
+        </div>
+      </div>
 
-      <button
-        onClick={() => setOpen(!showAdjust)}
-        aria-expanded={showAdjust}
-        className="ab-ctl-section-toggle"
-      >
-        <ChevronRight
-          width={12}
-          height={12}
-          className={`ab-ctl-chevron${showAdjust ? " is-open" : ""}`}
-        />
-        <span>Adjust</span>
-      </button>
+      <div className="ab-ctl-group">
+        <button
+          onClick={() => setOpen(!showAdjust)}
+          aria-expanded={showAdjust}
+          className="ab-ctl-disclose"
+        >
+          <ChevronRight
+            width={12}
+            height={12}
+            className={`ab-ctl-chevron${showAdjust ? " is-open" : ""}`}
+          />
+          <span>Colour adjustments</span>
+        </button>
 
-      {showAdjust &&
-        adjustments.map((a) => (
-          <Field key={a.fn} label={a.label}>
-            <NumberField
-              value={a.value}
-              mixed={a.mixed}
-              unit="%"
-              min={0}
-              max={a.fn === "grayscale" ? 100 : 400}
-              onChange={(n) => setAdjust(a.fn, n, a.base)}
-            />
-          </Field>
-        ))}
+        {showAdjust &&
+          [adjustments.slice(0, 2), adjustments.slice(2)].map((pair) => (
+            <div className="ab-ctl-grid" key={pair[0].fn}>
+              {pair.map((a) => (
+                <NumberField
+                  key={a.fn}
+                  label={a.mark}
+                  name={a.label}
+                  value={a.value}
+                  mixed={a.mixed}
+                  unit="%"
+                  min={0}
+                  max={a.fn === "grayscale" ? 100 : 400}
+                  onChange={(n) => setAdjust(a.fn, n, a.base)}
+                />
+              ))}
+            </div>
+          ))}
+      </div>
     </PanelSection>
   );
 }

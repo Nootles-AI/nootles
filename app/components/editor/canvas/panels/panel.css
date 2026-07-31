@@ -1,17 +1,28 @@
 /* ===== Style panel =======================================================
-   The right sidebar. Same paper, same 8px inset and same mono section labels
+   The right rail. Same paper, same 8px inset and the same mono section labels
    as the pages sidebar — it is the other half of the shell, not a second
-   design of it. One scroll column, hairline between sections, no accent. */
+   design of it. One scroll column, hairline between sections, no accent.
+
+   240px is Figma's width and the width the panel's three-column row needs:
+   223px of body carries two 93.5px fields, a 6px gap between them, and the
+   24px action gutter the grid keeps reserved on every row. */
 
 .ab-style-panel {
   display: flex;
   flex-direction: column;
   flex: none;
-  /* Figma's width, and the width two 88px number fields and their gap need. */
   width: 240px;
   height: 100%;
   background: var(--surface);
   border-left: 1px solid var(--border);
+}
+
+/* The layers rail announces itself and this one did not, which left the two
+   halves of the same shell looking like different applications. Wears
+   `.ab-section-label`, so it is the same voice as PAGES and LAYERS. */
+.ab-style-panel-head {
+  flex: none;
+  padding-right: var(--inset);
 }
 
 .ab-style-panel-body {
@@ -25,7 +36,23 @@
 
 /* Sections are the direct children, and one that does not apply renders
    nothing at all — so the rule that draws the dividers is also the rule that
-   omits them. */
+   omits them. `.ab-ctl-section` carries its own top border for the same
+   reason; this one covers the align strip, which is not a section. */
 .ab-style-panel-body > * + * {
   border-top: 1px solid var(--border);
+}
+
+/* The alignment strip: the panel's one full-bleed row, and the only control
+   group that acts on the selection rather than on a property of it. */
+.ab-align-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ctl-gap);
+  padding: 6px var(--inset);
+}
+.ab-align-group {
+  display: flex;
+  align-items: center;
+  gap: 1px;
 }

@@ -8,14 +8,13 @@ import {
   type SceneNode,
   type ShapeParams,
 } from "../../scene/types";
+import { ArcRatio, ArcStart, ArcSweep, Sides } from "../controls/glyphs";
 import { NumberField } from "../controls/NumberField";
 import { PanelSection } from "../controls/PanelSection";
 import type { SectionProps } from "../StylePanel";
 
 /** Parametric kinds: the ones whose geometry is more than their box. */
-export function hasShapeParams(
-  node: SceneNode,
-): node is PolygonNode | EllipseNode {
+export function hasShapeParams(node: SceneNode): node is PolygonNode | EllipseNode {
   return node.kind === "polygon" || node.kind === "ellipse";
 }
 
@@ -71,23 +70,20 @@ export function ShapeSection({ selection, setShape }: SectionProps) {
     : null;
 
   const setSides = (n: number) =>
-    setShape((node) =>
-      node.kind === "polygon" ? { sides: Math.round(n) } : null,
-    );
+    setShape((node) => (node.kind === "polygon" ? { sides: Math.round(n) } : null));
 
   const setArc = (key: keyof Arc, value: number) =>
     setShape((node) =>
-      node.kind === "ellipse"
-        ? arcParams({ ...arcOf(node), [key]: value })
-        : null,
+      node.kind === "ellipse" ? arcParams({ ...arcOf(node), [key]: value }) : null,
     );
 
   return (
     <PanelSection title="Shape">
       {sides && (
-        <div className="grid grid-cols-2 gap-1.5">
+        <div className="ab-ctl-grid">
           <NumberField
-            label="Sides"
+            label={<Sides />}
+            name="Number of sides"
             value={sides.value}
             mixed={sides.mixed}
             min={3}
@@ -99,16 +95,18 @@ export function ShapeSection({ selection, setShape }: SectionProps) {
 
       {arc && (
         <>
-          <div className="grid grid-cols-2 gap-1.5">
+          <div className="ab-ctl-grid">
             <NumberField
-              label="Start"
+              label={<ArcStart />}
+              name="Arc start angle"
               unit="°"
               value={arc.start.value}
               mixed={arc.start.mixed}
               onChange={(n) => setArc("start", n)}
             />
             <NumberField
-              label="Sweep"
+              label={<ArcSweep />}
+              name="Arc sweep"
               unit="°"
               value={arc.sweep.value}
               mixed={arc.sweep.mixed}
@@ -117,9 +115,10 @@ export function ShapeSection({ selection, setShape }: SectionProps) {
               onChange={(n) => setArc("sweep", n)}
             />
           </div>
-          <div className="grid grid-cols-2 gap-1.5">
+          <div className="ab-ctl-grid">
             <NumberField
-              label="Ratio"
+              label={<ArcRatio />}
+              name="Inner radius"
               unit="%"
               value={round(arc.inner.value * 100)}
               mixed={arc.inner.mixed}

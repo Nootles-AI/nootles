@@ -3,7 +3,8 @@
 import { X } from "@/app/components/Icons";
 import type { SceneNode, StyleMap } from "../../scene/types";
 import { ColorField } from "../controls/ColorField";
-import { Field } from "../controls/Field";
+import { Dash as DashGlyph, StrokeWeight } from "../controls/glyphs";
+import { IconButton } from "../controls/IconButton";
 import { IconToggle } from "../controls/IconToggle";
 import { NumberField } from "../controls/NumberField";
 import { PanelSection } from "../controls/PanelSection";
@@ -38,32 +39,13 @@ const BOX_PROPS = [
   "outline-offset",
   ...EDGES.flatMap((part) => [`border-${part}`, `outline-${part}`]),
 ];
-const PATH_PROPS = [
-  "stroke",
-  "stroke-width",
-  "stroke-dasharray",
-  "stroke-linecap",
-];
+const PATH_PROPS = ["stroke", "stroke-width", "stroke-dasharray", "stroke-linecap"];
 
-function Line({ dash }: { dash?: string }) {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
-      <path
-        d="M2.5 8h11"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeDasharray={dash}
-      />
-    </svg>
-  );
-}
-
-const DASHES = [
-  { value: "solid", label: "Solid", dash: undefined },
-  { value: "dashed", label: "Dashed", dash: "4 3" },
-  { value: "dotted", label: "Dotted", dash: "0.1 3" },
-].map(({ value, label, dash }) => ({ value, label, icon: <Line dash={dash} /> }));
+const DASHES = (["solid", "dashed", "dotted"] as const).map((kind) => ({
+  value: kind,
+  label: kind[0].toUpperCase() + kind.slice(1),
+  icon: <DashGlyph kind={kind} />,
+}));
 
 // Named rather than drawn: three near-identical box glyphs are a guessing game,
 // and Figma spells this one out too.
@@ -74,14 +56,21 @@ const POSITIONS = [
 ];
 
 const dashOf = (value: string | undefined): Dash =>
-  value === DASHARRAY.dashed ? "dashed" : value === DASHARRAY.dotted ? "dotted" : "solid";
+  value === DASHARRAY.dashed
+    ? "dashed"
+    : value === DASHARRAY.dotted
+      ? "dotted"
+      : "solid";
 
 const styleOf = (value: string | undefined): Dash =>
   value === "dashed" ? "dashed" : value === "dotted" ? "dotted" : "solid";
 
 /** The shorthand as authored, or the same stroke spelled as longhands — which
  *  is what a model reaching for `border-width` writes. */
-function shorthandOf(style: StyleMap, prop: "border" | "outline"): string | undefined {
+function shorthandOf(
+  style: StyleMap,
+  prop: "border" | "outline",
+): string | undefined {
   const parts = EDGES.map((part) => style[`${prop}-${part}`]).filter(Boolean);
   return style[prop] ?? (parts.length ? parts.join(" ") : undefined);
 }
@@ -153,7 +142,8 @@ function writeStroke(node: SceneNode, stroke: Stroke | null): StyleMap {
     style.border = value;
   } else {
     style.outline = value;
-    if (stroke.position === "center") style["outline-offset"] = `${-stroke.width / 2}px`;
+    if (stroke.position === "center")
+      style["outline-offset"] = `${-stroke.width / 2}px`;
   }
   return style;
 }
@@ -175,7 +165,7 @@ export function StrokeSection({ selection, patch }: SectionProps) {
   if (!base)
     return (
       <PanelSection title="Stroke" onAdd={() => apply({})}>
-        {null}
+        <span className="ab-ctl-empty">No stroke</span>
       </PanelSection>
     );
 
@@ -190,18 +180,18 @@ export function StrokeSection({ selection, patch }: SectionProps) {
           mixed={differs((s) => s.color)}
           onChange={(color) => apply({ color })}
         />
-        <button
-          className="ab-icon-btn ab-ctl-remove"
-          aria-label="Remove stroke"
-          title="Remove stroke"
+        <IconButton
+          label="Remove stroke"
           onClick={() => patch((node) => ({ style: writeStroke(node, null) }))}
         >
           <X width={13} height={13} />
-        </button>
+        </IconButton>
       </div>
 
-      <Field label="Weight">
+      <div className="ab-ctl-grid">
         <NumberField
+          label={<StrokeWeight />}
+          name="Stroke weight"
           value={base.width}
           mixed={differs((s) => s.width)}
           unit="px"
@@ -209,16 +199,20 @@ export function StrokeSection({ selection, patch }: SectionProps) {
           step={0.5}
           onChange={(width) => apply({ width })}
         />
-        <IconToggle
-          value={differs((s) => s.dash) ? "" : base.dash}
-          options={DASHES}
-          onChange={(dash) => apply({ dash: dash as Dash })}
-        />
-      </Field>
+        <span className="ab-ctl-wide-end">
+          <IconToggle
+            value={differs((s) => s.dash) ? "" : base.dash}
+            options={DASHES}
+            onChange={(dash) => apply({ dash })}
+          />
+        </span>
+      </div>
 
       {!selection.every((node) => node.kind === "path") && (
-        <Field label="Position">
+        <div className="ab-ctl-row">
           <SelectField
+            label="Align"
+            name="Stroke alignment"
             value={differs((s) => s.position) ? "" : base.position}
             options={
               differs((s) => s.position)
@@ -229,7 +223,7 @@ export function StrokeSection({ selection, patch }: SectionProps) {
               if (position) apply({ position: position as Position });
             }}
           />
-        </Field>
+        </div>
       )}
     </PanelSection>
   );

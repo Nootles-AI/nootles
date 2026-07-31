@@ -1,6 +1,7 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useRef, useState, type ReactNode } from "react";
+import { Tooltip } from "@/app/components/Tooltip";
 import { useLiveEdit } from "./live";
 import "./controls.css";
 
@@ -36,7 +37,8 @@ function evaluate(src: string): number | null {
       return v;
     }
     const start = i;
-    while (i < src.length && (src[i] === "." || (src[i] >= "0" && src[i] <= "9"))) i++;
+    while (i < src.length && (src[i] === "." || (src[i] >= "0" && src[i] <= "9")))
+      i++;
     if (i === start) return null;
     const n = Number(src.slice(start, i));
     return Number.isFinite(n) ? n : null;
@@ -111,6 +113,7 @@ function parseEntry(
 
 export function NumberField({
   label,
+  name,
   value,
   onChange,
   onPreview,
@@ -121,7 +124,19 @@ export function NumberField({
   step = 1,
   mixed,
 }: {
-  label?: string;
+  /**
+   * What is drawn inside the field: a letter where one is universal (X, W), a
+   * glyph from `./glyphs` where it is not. "R" used to mean rotation in one
+   * section and right-padding in another, sitting one row from "C" for corner
+   * radius — a letter can only carry a name the whole app already agrees on.
+   */
+  label?: ReactNode;
+  /**
+   * The field's real name: its accessible name, and its tooltip. Always spell
+   * this out — the mark beside it is shorthand, and shorthand is exactly what
+   * a screen reader and a new user cannot expand.
+   */
+  name?: string;
   value: number;
   /** `unit` is the one the edit was made in — the field's own when untouched. */
   onChange: (value: number, unit: string) => void;
@@ -264,7 +279,7 @@ export function NumberField({
   // unless it says otherwise, and four corner fields reading "px" is noise.
   const suffix = units && unit === units[0] ? undefined : unit;
 
-  return (
+  const field = (
     <div
       className={`ab-num${preview !== null ? " is-scrubbing" : ""}`}
       onPointerDown={onPointerDown}
@@ -272,14 +287,18 @@ export function NumberField({
       onPointerUp={() => end(true)}
       onPointerCancel={() => end(false)}
     >
-      {label !== undefined && <span className="ab-num-label">{label}</span>}
+      {label !== undefined && (
+        <span className="ab-ctl-mark" aria-hidden>
+          {label}
+        </span>
+      )}
       <input
         ref={inputRef}
         type="text"
         inputMode="decimal"
         spellCheck={false}
         className="ab-num-input"
-        aria-label={label}
+        aria-label={name}
         value={shown}
         placeholder={mixed ? "Mixed" : undefined}
         onChange={(e) => setText(e.target.value)}
@@ -288,5 +307,15 @@ export function NumberField({
       />
       {suffix !== undefined && <span className="ab-num-unit">{suffix}</span>}
     </div>
+  );
+
+  // The mark inside the field is shorthand; the tooltip is where it is spelled
+  // out. Skipped when there is no mark to explain.
+  return name !== undefined && label !== undefined ? (
+    <Tooltip label={name} className="ab-ctl-anchor">
+      {field}
+    </Tooltip>
+  ) : (
+    field
   );
 }

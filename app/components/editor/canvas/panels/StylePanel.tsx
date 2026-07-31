@@ -20,7 +20,6 @@ import {
   type ColorVariablesApi,
 } from "./colorVariables";
 import { ColorField } from "./controls/ColorField";
-import { Field } from "./controls/Field";
 import { LiveEditContext, type LiveEdit } from "./controls/live";
 import { NumberField } from "./controls/NumberField";
 import { PanelSection } from "./controls/PanelSection";
@@ -145,38 +144,46 @@ export function StylePanel({
 
   return (
     <ColorVariablesContext value={colorVars}>
-    <aside className="ab-style-panel" aria-label="Design">
-      <div
-        className="ab-style-panel-body"
-        // Sections must stay the body's direct children — the rule that draws
-        // the dividers says so — hence the handler here rather than a wrapper.
-        onPointerDown={nodes.length ? hold : undefined}
-      >
-        {nodes.length === 0 ? (
-          // Deliberately outside the live context: one of these costs a
-          // re-parse of the whole canvas, so it is committed on release — and
-          // previewed in the meantime by the surface, which needs neither.
-          <DiagramFields
-            scene={scene}
-            onChange={changeDiagram}
-            onPreviewSize={onPreviewSize}
-            onPreviewStyle={onPreviewStyle}
-          />
-        ) : (
-          <LiveEditContext value={live}>
-            <AlignRow {...props} />
-            <PositionSection {...props} />
-            {nodes.some(hasShapeParams) && <ShapeSection {...props} />}
-            {nodes.some(isGroup) && <LayoutSection {...props} />}
-            {nodes.some(hasText) && <TypographySection {...props} />}
-            <AppearanceSection {...props} />
-            <FillSection {...props} />
-            <StrokeSection {...props} />
-            <EffectsSection {...props} />
-          </LiveEditContext>
-        )}
-      </div>
-    </aside>
+      <aside className="ab-style-panel" aria-label="Design">
+        {/* The layers rail says what it is; this one used to say nothing, which
+          left the two halves of the same shell looking unrelated. */}
+        <div className="ab-section-label ab-style-panel-head">
+          <span>{nodes.length === 0 ? "Canvas" : "Design"}</span>
+          {nodes.length > 1 && (
+            <span className="ab-meta">{nodes.length} selected</span>
+          )}
+        </div>
+        <div
+          className="ab-style-panel-body"
+          // Sections must stay the body's direct children — the rule that draws
+          // the dividers says so — hence the handler here rather than a wrapper.
+          onPointerDown={nodes.length ? hold : undefined}
+        >
+          {nodes.length === 0 ? (
+            // Deliberately outside the live context: one of these costs a
+            // re-parse of the whole canvas, so it is committed on release — and
+            // previewed in the meantime by the surface, which needs neither.
+            <DiagramFields
+              scene={scene}
+              onChange={changeDiagram}
+              onPreviewSize={onPreviewSize}
+              onPreviewStyle={onPreviewStyle}
+            />
+          ) : (
+            <LiveEditContext value={live}>
+              <AlignRow {...props} />
+              <PositionSection {...props} />
+              {nodes.some(hasShapeParams) && <ShapeSection {...props} />}
+              {nodes.some(isGroup) && <LayoutSection {...props} />}
+              {nodes.some(hasText) && <TypographySection {...props} />}
+              <AppearanceSection {...props} />
+              <FillSection {...props} />
+              <StrokeSection {...props} />
+              <EffectsSection {...props} />
+            </LiveEditContext>
+          )}
+        </div>
+      </aside>
     </ColorVariablesContext>
   );
 }
@@ -195,9 +202,10 @@ function DiagramFields({
 }) {
   return (
     <PanelSection title="Canvas">
-      <div className="grid grid-cols-2 gap-1.5">
+      <div className="ab-ctl-grid">
         <NumberField
           label="W"
+          name="Canvas width"
           value={scene.w}
           min={1}
           onChange={(w) => onChange({ w })}
@@ -205,14 +213,16 @@ function DiagramFields({
         />
         <NumberField
           label="H"
+          name="Canvas height"
           value={scene.h}
           min={1}
           onChange={(h) => onChange({ h })}
           onPreview={onPreviewSize && ((h) => onPreviewSize({ h }))}
         />
       </div>
-      <Field label="Background">
+      <div className="ab-ctl-row">
         <ColorField
+          label="Background"
           value={scene.style.background ?? ""}
           onChange={(background) =>
             onChange({ style: { background: background || undefined } })
@@ -221,7 +231,7 @@ function DiagramFields({
             onPreviewStyle && ((background) => onPreviewStyle({ background }))
           }
         />
-      </Field>
+      </div>
     </PanelSection>
   );
 }
