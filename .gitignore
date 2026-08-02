@@ -16,6 +16,8 @@
 # next.js
 /.next/
 /out/
+# A build cache moved aside when the disk filled rather than deleted outright.
+/.next-corrupt-cache/
 
 # production
 /build
@@ -23,6 +25,11 @@
 # misc
 .DS_Store
 *.pem
+
+# scratch harnesses. Kept out of the tree because eslint reads everything it
+# finds, and a throwaway script failing the repo's own lint is a false alarm
+# nobody can act on.
+/.abcheck/
 
 # debug
 npm-debug.log*
