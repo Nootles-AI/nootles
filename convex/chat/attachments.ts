@@ -1,6 +1,6 @@
 import { mutation, query } from "../_generated/server";
 import { v } from "convex/values";
-import { getOwnerId } from "../auth";
+import { requireOwner } from "../auth";
 
 /**
  * Files attached to a chat message.
@@ -18,12 +18,21 @@ import { getOwnerId } from "../auth";
 export const generateUploadUrl = mutation({
   args: {},
   handler: async (ctx) => {
-    await getOwnerId(ctx);
+    await requireOwner(ctx);
     return await ctx.storage.generateUploadUrl();
   },
 });
 
+/**
+ * Signed-in only, which is as far as ownership can reach here: a storage id is
+ * not a row, so there is nothing to hang an `ownerId` off. Closing it properly
+ * means recording who uploaded what — see the note in `chat/messages.ts` on
+ * where attachments get their meaning.
+ */
 export const url = query({
   args: { storageId: v.id("_storage") },
-  handler: async (ctx, args) => await ctx.storage.getUrl(args.storageId),
+  handler: async (ctx, args) => {
+    await requireOwner(ctx);
+    return await ctx.storage.getUrl(args.storageId);
+  },
 });

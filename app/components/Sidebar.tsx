@@ -6,6 +6,7 @@ import { useQuery, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import { ArrowLeft, PanelLeft, Plus } from "./Icons";
+import { AccountMenu } from "./AccountMenu";
 import { ConfirmDeleteDialog } from "./ConfirmDelete";
 import { Editable } from "./Editable";
 import { usePageChanges, type PageChange } from "./ReviewContext";
@@ -79,6 +80,7 @@ export function Sidebar({
           <ArrowLeft width={14} height={14} className="shrink-0" />
           <span className="ab-row-label">Projects</span>
         </Link>
+        <AccountMenu />
         <button
           onClick={onCollapse}
           aria-label="Collapse sidebar"

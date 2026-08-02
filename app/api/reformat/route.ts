@@ -1,4 +1,5 @@
 import { reformatCandidates } from "@/app/lib/ai/reformat";
+import { sessionToken } from "@/app/lib/session";
 
 /**
  * Reformat suggestions for one finished block. The caller sends the block in
@@ -7,6 +8,8 @@ import { reformatCandidates } from "@/app/lib/ai/reformat";
  * compiler treat the result as a replacement rather than an insertion.
  */
 export async function POST(req: Request) {
+  if (!(await sessionToken())) return new Response("Unauthorized", { status: 401 });
+
   let body: unknown;
   try {
     body = await req.json();

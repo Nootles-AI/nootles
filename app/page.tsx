@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Authed } from "./components/Authed";
 import { ProjectsScreen } from "./components/ProjectsScreen";
 
 export const metadata: Metadata = {
@@ -7,5 +8,9 @@ export const metadata: Metadata = {
 
 /** The root is the project manager, the way a docs app opens on your files. */
 export default function Home() {
-  return <ProjectsScreen />;
+  return (
+    <Authed>
+      <ProjectsScreen />
+    </Authed>
+  );
 }

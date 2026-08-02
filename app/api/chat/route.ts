@@ -17,6 +17,7 @@ import { OUT_OF_STEPS, SYSTEM, openPageNote } from "@/app/lib/ai/chat/prompt";
 import { chatTools } from "@/app/lib/ai/chat/serverTools";
 import { cached, markCachePoints, shortenStaleReads } from "@/app/lib/ai/chat/transcript";
 import type { AbMessage } from "@/app/lib/ai/chat/types";
+import { sessionToken } from "@/app/lib/session";
 
 /**
  * The chat agent's loop.
@@ -30,6 +31,9 @@ import type { AbMessage } from "@/app/lib/ai/chat/types";
 export const maxDuration = 60;
 
 export async function POST(req: Request) {
+  const token = await sessionToken();
+  if (!token) return new Response("Unauthorized", { status: 401 });
+
   let body: unknown;
   try {
     body = await req.json();
@@ -88,7 +92,7 @@ export async function POST(req: Request) {
     messages: markCachePoints(
       spent ? [...history, { role: "user", content: OUT_OF_STEPS }] : history,
     ),
-    tools: chatTools(projectId),
+    tools: chatTools(projectId, token),
     // The tools that could change something are not merely discouraged, they are
     // absent from the request.
     activeTools: spent ? [] : undefined,

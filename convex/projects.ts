@@ -1,14 +1,15 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
-import { getOwnerId } from "./auth";
+import { ownerId as currentOwner, readOwned, requireOwned, requireOwner } from "./auth";
 
 export const list = query({
   args: {},
   handler: async (ctx) => {
-    const ownerId = await getOwnerId(ctx);
+    const owner = await currentOwner(ctx);
+    if (!owner) return [];
     return await ctx.db
       .query("projects")
-      .withIndex("by_owner", (q) => q.eq("ownerId", ownerId))
+      .withIndex("by_owner", (q) => q.eq("ownerId", owner))
       .order("desc")
       .collect();
   },
@@ -16,13 +17,13 @@ export const list = query({
 
 export const get = query({
   args: { projectId: v.id("projects") },
-  handler: async (ctx, args) => await ctx.db.get(args.projectId),
+  handler: async (ctx, args) => await readOwned(ctx, "projects", args.projectId),
 });
 
 export const create = mutation({
   args: { title: v.string(), description: v.optional(v.string()) },
   handler: async (ctx, args) => {
-    const ownerId = await getOwnerId(ctx);
+    const ownerId = await requireOwner(ctx);
     const now = Date.now();
     const projectId = await ctx.db.insert("projects", {
       ownerId,
@@ -48,10 +49,11 @@ export const create = mutation({
 export const listWithCounts = query({
   args: {},
   handler: async (ctx) => {
-    const ownerId = await getOwnerId(ctx);
+    const owner = await currentOwner(ctx);
+    if (!owner) return [];
     const projects = await ctx.db
       .query("projects")
-      .withIndex("by_owner", (q) => q.eq("ownerId", ownerId))
+      .withIndex("by_owner", (q) => q.eq("ownerId", owner))
       .order("desc")
       .collect();
     return await Promise.all(
@@ -73,6 +75,7 @@ export const listWithCounts = query({
 export const rename = mutation({
   args: { projectId: v.id("projects"), title: v.string() },
   handler: async (ctx, args) => {
+    await requireOwned(ctx, "projects", args.projectId);
     await ctx.db.patch(args.projectId, { title: args.title });
   },
 });
@@ -88,6 +91,7 @@ export const rename = mutation({
 export const remove = mutation({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
+    await requireOwned(ctx, "projects", args.projectId);
     const pages = await ctx.db
       .query("pages")
       .withIndex("by_project", (q) => q.eq("projectId", args.projectId))

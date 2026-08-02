@@ -6,6 +6,7 @@ import { useQuery, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import { MoreHorizontal, Plus } from "./Icons";
+import { AccountMenu } from "./AccountMenu";
 import { Editable } from "./Editable";
 import { Menu, MenuItem } from "./Menu";
 
@@ -49,18 +50,21 @@ export function ProjectsScreen() {
         <h1 className="text-[length:var(--text-title)] font-semibold tracking-[-0.02em]">
           Projects
         </h1>
-        <button
-          onClick={() =>
-            createProject({ title: "Untitled project" }).then((id) => {
-              setDraft("Untitled project");
-              setEditingId(id);
-            })
-          }
-          className="ab-row gap-1.5 bg-sunken px-3 font-medium"
-        >
-          <Plus width={14} height={14} />
-          New project
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() =>
+              createProject({ title: "Untitled project" }).then((id) => {
+                setDraft("Untitled project");
+                setEditingId(id);
+              })
+            }
+            className="ab-row gap-1.5 bg-sunken px-3 font-medium"
+          >
+            <Plus width={14} height={14} />
+            New project
+          </button>
+          <AccountMenu />
+        </div>
       </div>
       <p className="text-[13px] text-muted">
         Click a project to open it. Double-click the name to rename, or use

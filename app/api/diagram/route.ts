@@ -1,4 +1,5 @@
 import { streamDiagram } from "@/app/lib/ai/diagram";
+import { sessionToken } from "@/app/lib/session";
 
 /**
  * Expands one `<ab-build-diagram>` into canvas HTML.
@@ -11,6 +12,8 @@ import { streamDiagram } from "@/app/lib/ai/diagram";
 export const maxDuration = 60;
 
 export async function POST(req: Request) {
+  if (!(await sessionToken())) return new Response("Unauthorized", { status: 401 });
+
   let body: unknown;
   try {
     body = await req.json();

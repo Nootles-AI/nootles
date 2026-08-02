@@ -14,13 +14,18 @@ import { noSuchPage, TOOLS } from "./tools";
  * only place the document exists as blocks. That asymmetry is the whole design:
  * everything that touches the document runs on one side, everything that only
  * needs the database or the network runs on the other.
+ *
+ * `token` is the caller's Clerk session token. Convex scopes every row by owner,
+ * so a client without it reads an empty project — these tools act as the user,
+ * not as the server.
  */
-export function chatTools(projectId: Id<"projects">) {
+export function chatTools(projectId: Id<"projects">, token: string) {
+  const convex = client(token);
   return {
     list_pages: tool({
       ...TOOLS.list_pages,
       execute: async () => {
-        const pages = await convex().query(api.pages.listByProject, { projectId });
+        const pages = await convex.query(api.pages.listByProject, { projectId });
         return pages
           .sort((a, b) => a.order - b.order)
           .map((p) => ({ pageId: p._id, title: p.title, order: p.order }));
@@ -62,9 +67,9 @@ export function chatTools(projectId: Id<"projects">) {
       ...TOOLS.create_page,
       execute: async ({ title, afterPageId }) => {
         const after = afterPageId
-          ? await ownedPage(projectId, afterPageId)
+          ? await ownedPage(convex, projectId, afterPageId)
           : undefined;
-        const pageId = await convex().mutation(api.pages.create, {
+        const pageId = await convex.mutation(api.pages.create, {
           projectId,
           title,
           ...(after ? { after: after._id } : {}),
@@ -76,8 +81,8 @@ export function chatTools(projectId: Id<"projects">) {
     rename_page: tool({
       ...TOOLS.rename_page,
       execute: async ({ pageId, title }) => {
-        const page = await ownedPage(projectId, pageId);
-        await convex().mutation(api.pages.rename, { pageId: page._id, title });
+        const page = await ownedPage(convex, projectId, pageId);
+        await convex.mutation(api.pages.rename, { pageId: page._id, title });
         return { pageId: page._id, title };
       },
     }),
@@ -92,8 +97,8 @@ export function chatTools(projectId: Id<"projects">) {
        */
       needsApproval: true,
       execute: async ({ pageId }) => {
-        const page = await ownedPage(projectId, pageId);
-        await convex().mutation(api.pages.remove, { pageId: page._id });
+        const page = await ownedPage(convex, projectId, pageId);
+        await convex.mutation(api.pages.remove, { pageId: page._id });
         return { pageId: page._id, title: page.title };
       },
     }),
@@ -107,8 +112,12 @@ export function chatTools(projectId: Id<"projects">) {
  * another project is the same mistake with a worse outcome, since these tools
  * rename and delete.
  */
-async function ownedPage(projectId: Id<"projects">, pageId: string) {
-  const page = await convex()
+async function ownedPage(
+  convex: ConvexHttpClient,
+  projectId: Id<"projects">,
+  pageId: string,
+) {
+  const page = await convex
     .query(api.pages.get, { pageId: pageId as Id<"pages"> })
     .catch(() => null);
   if (!page || page.projectId !== projectId) throw new Error(noSuchPage(pageId));
@@ -124,8 +133,10 @@ const SEARCH_SYSTEM = `Answer the question from current web results. Be specific
 name sources, give figures and dates rather than "recently". If the results do not
 answer it, say so instead of guessing.`;
 
-function convex() {
+function client(token: string) {
   const url = process.env.NEXT_PUBLIC_CONVEX_URL;
   if (!url) throw new Error("NEXT_PUBLIC_CONVEX_URL is not set");
-  return new ConvexHttpClient(url);
+  const convex = new ConvexHttpClient(url);
+  convex.setAuth(token);
+  return convex;
 }

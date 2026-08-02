@@ -1,5 +1,6 @@
 import { AI } from "@/app/lib/ai/aiConfig";
 import { streamFim } from "@/app/lib/ai/fim";
+import { sessionToken } from "@/app/lib/session";
 
 /**
  * Inline completion. The caller sends the document split at the caret in the
@@ -12,6 +13,8 @@ import { streamFim } from "@/app/lib/ai/fim";
  * next, exactly as it behaves in code.
  */
 export async function POST(req: Request) {
+  if (!(await sessionToken())) return new Response("Unauthorized", { status: 401 });
+
   let body: unknown;
   try {
     body = await req.json();

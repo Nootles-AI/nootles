@@ -1,6 +1,6 @@
 import { mutation, query } from "../_generated/server";
 import { v } from "convex/values";
-import { getOwnerId } from "../auth";
+import { readOwned, requireOwned } from "../auth";
 import { parseBatch } from "./operations";
 
 /**
@@ -20,7 +20,7 @@ export const appendBatch = mutation({
     ops: v.array(v.any()),
   },
   handler: async (ctx, args) => {
-    const ownerId = await getOwnerId(ctx);
+    const { ownerId } = await requireOwned(ctx, "pages", args.pageId);
     const check = parseBatch({
       pageId: args.pageId,
       chatPromptId: args.chatPromptId,
@@ -51,6 +51,7 @@ export const appendBatch = mutation({
 export const feed = query({
   args: { pageId: v.id("pages"), limit: v.optional(v.number()) },
   handler: async (ctx, args) => {
+    if (!(await readOwned(ctx, "pages", args.pageId))) return [];
     const rows = await ctx.db
       .query("opLog")
       .withIndex("by_page", (q) => q.eq("pageId", args.pageId))

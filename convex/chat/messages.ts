@@ -1,6 +1,6 @@
 import { mutation, query } from "../_generated/server";
 import { v } from "convex/values";
-import { getOwnerId } from "../auth";
+import { readOwned, requireOwned } from "../auth";
 
 /**
  * Thread messages, stored as the AI SDK's own `UIMessage.parts`.
@@ -28,6 +28,7 @@ const attachment = v.object({
 export const list = query({
   args: { threadId: v.id("chatThreads") },
   handler: async (ctx, args) => {
+    if (!(await readOwned(ctx, "chatThreads", args.threadId))) return [];
     const rows = await ctx.db
       .query("chatMessages")
       .withIndex("by_thread", (q) => q.eq("threadId", args.threadId))
@@ -69,7 +70,7 @@ export const put = mutation({
     attachments: v.optional(v.array(attachment)),
   },
   handler: async (ctx, args) => {
-    const ownerId = await getOwnerId(ctx);
+    const { ownerId } = await requireOwned(ctx, "chatThreads", args.threadId);
     const existing = await ctx.db
       .query("chatMessages")
       .withIndex("by_thread", (q) => q.eq("threadId", args.threadId))
@@ -115,6 +116,7 @@ export const put = mutation({
 export const truncateFrom = mutation({
   args: { threadId: v.id("chatThreads"), uiId: v.string() },
   handler: async (ctx, args) => {
+    await requireOwned(ctx, "chatThreads", args.threadId);
     const from = await ctx.db
       .query("chatMessages")
       .withIndex("by_thread", (q) => q.eq("threadId", args.threadId))

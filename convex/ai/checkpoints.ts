@@ -1,6 +1,6 @@
 import { mutation, query } from "../_generated/server";
 import { v } from "convex/values";
-import { getOwnerId } from "../auth";
+import { readOwned, requireOwned } from "../auth";
 
 /**
  * Checkpoints — full snapshots for Cursor-style rewind, taken just before an AI
@@ -19,7 +19,7 @@ export const create = mutation({
     canvasSnapshot: v.optional(v.any()),
   },
   handler: async (ctx, args) => {
-    const ownerId = await getOwnerId(ctx);
+    const { ownerId } = await requireOwned(ctx, "pages", args.pageId);
     return await ctx.db.insert("checkpoints", {
       ownerId,
       pageId: args.pageId,
@@ -34,6 +34,7 @@ export const create = mutation({
 export const list = query({
   args: { pageId: v.id("pages"), limit: v.optional(v.number()) },
   handler: async (ctx, args) => {
+    if (!(await readOwned(ctx, "pages", args.pageId))) return [];
     const rows = await ctx.db
       .query("checkpoints")
       .withIndex("by_page", (q) => q.eq("pageId", args.pageId))
@@ -45,7 +46,5 @@ export const list = query({
 
 export const get = query({
   args: { id: v.id("checkpoints") },
-  handler: async (ctx, args) => {
-    return await ctx.db.get(args.id);
-  },
+  handler: async (ctx, args) => await readOwned(ctx, "checkpoints", args.id),
 });

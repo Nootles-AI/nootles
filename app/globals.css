@@ -452,6 +452,35 @@ body {
   margin: 4px 0;
   background: var(--border);
 }
+/* A line of menu that is information rather than a target — the account a menu
+   belongs to. Item metrics, muted ink, no hover. */
+.ab-menu-caption {
+  display: flex;
+  align-items: center;
+  height: var(--control);
+  padding-inline: var(--inset);
+  font-size: var(--text-ui);
+  color: var(--muted);
+}
+
+/* The account monogram. A filled well rather than a ring: it reads as a token
+   at 20px, where a 1px outline would just look like a rounding error. */
+.ab-monogram {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--sunken);
+  box-shadow: inset 0 0 0 1px var(--border);
+  font-size: var(--text-meta);
+  font-weight: 500;
+  line-height: 1;
+  color: var(--muted);
+}
+.ab-icon-btn:hover .ab-monogram {
+  color: var(--foreground);
+}
 
 /* ---- Loading -----------------------------------------------------------
    Placeholders match the shape of what replaces them, so content swaps in

@@ -1,6 +1,6 @@
 import { mutation, query } from "../_generated/server";
 import { v } from "convex/values";
-import { getOwnerId } from "../auth";
+import { ownerId as currentOwner, readOwned, requireOwned } from "../auth";
 
 /**
  * One agent turn that touched the document, and where its review stands.
@@ -35,11 +35,15 @@ export const save = mutation({
     status,
   },
   handler: async (ctx, args) => {
-    const ownerId = await getOwnerId(ctx);
+    const { ownerId } = await requireOwned(ctx, "chatThreads", args.threadId);
     const existing = await ctx.db
       .query("chatTurns")
       .withIndex("by_prompt", (q) => q.eq("chatPromptId", args.chatPromptId))
       .unique();
+
+    // chatPromptId is client-supplied, so the upsert has to re-check: owning the
+    // thread does not entitle you to overwrite someone else's turn.
+    if (existing && existing.ownerId !== ownerId) throw new Error("Not found");
 
     if (existing) {
       await ctx.db.patch(existing._id, {
@@ -70,12 +74,13 @@ export const save = mutation({
 export const byPrompt = query({
   args: { chatPromptId: v.string() },
   handler: async (ctx, args) => {
-    const ownerId = await getOwnerId(ctx);
+    const owner = await currentOwner(ctx);
+    if (!owner) return null;
     const row = await ctx.db
       .query("chatTurns")
       .withIndex("by_prompt", (q) => q.eq("chatPromptId", args.chatPromptId))
       .unique();
-    return row?.ownerId === ownerId ? row : null;
+    return row?.ownerId === owner ? row : null;
   },
 });
 
@@ -90,13 +95,13 @@ export const byPrompt = query({
 export const restorable = query({
   args: { threadId: v.id("chatThreads") },
   handler: async (ctx, args) => {
-    const ownerId = await getOwnerId(ctx);
+    if (!(await readOwned(ctx, "chatThreads", args.threadId))) return [];
     const rows = await ctx.db
       .query("chatTurns")
       .withIndex("by_thread", (q) => q.eq("threadId", args.threadId))
       .collect();
     return rows
-      .filter((t) => t.ownerId === ownerId && t.checkpointIds.length)
+      .filter((t) => t.checkpointIds.length)
       .map((t) => ({
         chatPromptId: t.chatPromptId,
         pageCount: t.pageIds.length,
@@ -113,7 +118,7 @@ export const restorable = query({
 export const unreviewed = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
-    const ownerId = await getOwnerId(ctx);
+    if (!(await readOwned(ctx, "projects", args.projectId))) return [];
     const groups = await Promise.all(
       (["streaming", "pending"] as const).map((s) =>
         ctx.db
@@ -124,9 +129,6 @@ export const unreviewed = query({
           .collect(),
       ),
     );
-    return groups
-      .flat()
-      .filter((t) => t.ownerId === ownerId)
-      .sort((a, b) => a.createdAt - b.createdAt);
+    return groups.flat().sort((a, b) => a.createdAt - b.createdAt);
   },
 });

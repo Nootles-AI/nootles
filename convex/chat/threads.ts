@@ -1,6 +1,6 @@
 import { mutation, query } from "../_generated/server";
 import { v } from "convex/values";
-import { getOwnerId } from "../auth";
+import { readOwned, requireOwned } from "../auth";
 
 /**
  * Chat threads, scoped to a project.
@@ -13,25 +13,24 @@ import { getOwnerId } from "../auth";
 export const list = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
-    const ownerId = await getOwnerId(ctx);
+    if (!(await readOwned(ctx, "projects", args.projectId))) return [];
     return await ctx.db
       .query("chatThreads")
       .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
       .order("desc")
-      .collect()
-      .then((rows) => rows.filter((r) => r.ownerId === ownerId));
+      .collect();
   },
 });
 
 export const get = query({
   args: { threadId: v.id("chatThreads") },
-  handler: async (ctx, args) => await ctx.db.get(args.threadId),
+  handler: async (ctx, args) => await readOwned(ctx, "chatThreads", args.threadId),
 });
 
 export const create = mutation({
   args: { projectId: v.id("projects"), title: v.optional(v.string()) },
   handler: async (ctx, args) => {
-    const ownerId = await getOwnerId(ctx);
+    const { ownerId } = await requireOwned(ctx, "projects", args.projectId);
     const now = Date.now();
     return await ctx.db.insert("chatThreads", {
       ownerId,
@@ -47,6 +46,7 @@ export const create = mutation({
 export const rename = mutation({
   args: { threadId: v.id("chatThreads"), title: v.string() },
   handler: async (ctx, args) => {
+    await requireOwned(ctx, "chatThreads", args.threadId);
     await ctx.db.patch(args.threadId, {
       title: args.title,
       updatedAt: Date.now(),
@@ -58,6 +58,7 @@ export const rename = mutation({
 export const touch = mutation({
   args: { threadId: v.id("chatThreads") },
   handler: async (ctx, args) => {
+    await requireOwned(ctx, "chatThreads", args.threadId);
     await ctx.db.patch(args.threadId, { updatedAt: Date.now() });
   },
 });
@@ -78,6 +79,7 @@ export const touch = mutation({
 export const remove = mutation({
   args: { threadId: v.id("chatThreads") },
   handler: async (ctx, args) => {
+    await requireOwned(ctx, "chatThreads", args.threadId);
     const messages = await ctx.db
       .query("chatMessages")
       .withIndex("by_thread", (q) => q.eq("threadId", args.threadId))

@@ -1,6 +1,6 @@
 import { mutation, query } from "../_generated/server";
 import { v } from "convex/values";
-import { getOwnerId } from "../auth";
+import { readOwned, requireOwned } from "../auth";
 
 /**
  * Telemetry for the ambient suggestion pipeline. Every proposal that reaches
@@ -25,7 +25,7 @@ export const log = mutation({
     latencyMs: v.number(),
   },
   handler: async (ctx, args) => {
-    const ownerId = await getOwnerId(ctx);
+    const { ownerId } = await requireOwned(ctx, "pages", args.pageId);
     await ctx.db.insert("suggestionLog", {
       ownerId,
       ...args,
@@ -38,6 +38,7 @@ export const log = mutation({
 export const recent = query({
   args: { pageId: v.id("pages"), limit: v.optional(v.number()) },
   handler: async (ctx, args) => {
+    if (!(await readOwned(ctx, "pages", args.pageId))) return [];
     const rows = await ctx.db
       .query("suggestionLog")
       .withIndex("by_page", (q) => q.eq("pageId", args.pageId))
