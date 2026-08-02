@@ -1,11 +1,12 @@
 import {
-  edgePoints,
   elbowPoints,
+  obstaclesFor,
   pointsToPath,
   polylineMidpoint,
+  sceneObstacles,
 } from "../scene/edgePath";
 import { absoluteBounds } from "../scene/geometry";
-import type { NodeId, Rect, Scene } from "../scene/types";
+import { findNode, type NodeId, type Rect, type Scene } from "../scene/types";
 
 /**
  * Re-route the connectors mid-gesture, without going through the store.
@@ -28,6 +29,16 @@ import type { NodeId, Rect, Scene } from "../scene/types";
 /** A node's live box in scene units, or `null` to fall back to the scene. */
 export type LiveBox = (id: NodeId) => Rect | null;
 
+/** A top-level obstacle's live box: the node itself, which is the first id in
+ *  its own subtree. */
+function liveBoxOf(
+  covers: ReadonlySet<NodeId>,
+  boxOf: (id: NodeId) => Rect,
+): Rect | null {
+  for (const id of covers) return boxOf(id);
+  return null;
+}
+
 export function reflowEdges(
   root: HTMLElement | null,
   scene: Scene,
@@ -45,12 +56,24 @@ export function reflowEdges(
     return box;
   };
 
+  // The obstacles move with the shapes, so they are rebuilt from the live
+  // boxes too — a connector must route around where a shape IS, not where the
+  // scene still thinks it is.
+  const shapes = sceneObstacles(scene).map((o) => ({
+    ...o,
+    box: liveBoxOf(o.covers, boxOf) ?? o.box,
+  }));
+
   const writes: { id: string; d: string; at: { x: number; y: number } }[] = [];
   for (const edge of scene.edges) {
-    // `edgePoints` resolves both ends against the scene, which is what tells us
-    // whether the connector is drawable at all; the boxes come from `boxOf`.
-    if (!edgePoints(scene, edge)) continue;
-    const points = elbowPoints(boxOf(edge.from), boxOf(edge.to));
+    // Both ends have to still exist; the boxes themselves come from `boxOf`.
+    if (!findNode(scene, edge.from) || !findNode(scene, edge.to)) continue;
+    const points = elbowPoints(
+      boxOf(edge.from),
+      boxOf(edge.to),
+      undefined,
+      obstaclesFor(shapes, edge),
+    );
     writes.push({
       id: edge.id,
       d: pointsToPath(points),

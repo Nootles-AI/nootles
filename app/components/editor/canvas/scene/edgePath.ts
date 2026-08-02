@@ -2,7 +2,9 @@ import { absoluteBounds } from "./geometry";
 import {
   EDGE_SIDES,
   findNode,
+  walk,
   type EdgeSide,
+  type NodeId,
   type Point,
   type Rect,
   type Scene,
@@ -126,27 +128,190 @@ export function elbowPoints(
   from: Rect,
   to: Rect,
   sides?: [EdgeSide, EdgeSide],
+  obstacles: readonly Rect[] = [],
 ): Point[] {
   const [sideA, sideB] = sides ?? chooseSides(from, to);
+  const na = NORMAL[sideA];
+  const nb = NORMAL[sideB];
   const a = plugPoint(from, sideA);
   const b = plugPoint(to, sideB);
-  const a1 = step(a, NORMAL[sideA], STUB);
-  const b1 = step(b, NORMAL[sideB], STUB);
+  const axis = HORIZONTAL.has(sideA);
 
-  const aHorizontal = HORIZONTAL.has(sideA);
-  const bHorizontal = HORIZONTAL.has(sideB);
+  // Facing plugs on one axis: the ordinary case, and the only one that can
+  // meet in the middle of the gap.
+  const opposed =
+    axis === HORIZONTAL.has(sideB) && (axis ? nb.x === -na.x : nb.y === -na.y);
 
-  if (aHorizontal && bHorizontal) {
-    const mid = (a1.x + b1.x) / 2;
-    return simplify([a, a1, { x: mid, y: a1.y }, { x: mid, y: b1.y }, b1, b]);
+  if (opposed) {
+    // How far the two plugs stand apart along the axis they face down.
+    // Negative means they point past each other — the boxes overlap, or the
+    // target is behind the source — and there is no midpoint between them.
+    const facing = axis ? (b.x - a.x) * na.x : (b.y - a.y) * na.y;
+
+    // `>= 0`, not `> 0`: two boxes exactly touching have plugs in the same
+    // place, and there is no gap to route through. That collapses to a
+    // straight line — of no length at all when the plugs coincide — which is
+    // the honest answer. Sent round the loop instead it drew a full circuit
+    // back to the point it started from.
+    if (facing >= 0) {
+      // The stub shrinks to fit rather than overshooting. Two shapes closer
+      // together than a stub used to produce a Z folded onto its own line —
+      // four turns and a doubling back, all at the same y, which read as a
+      // single stroke. Half the gap each leaves them meeting in the middle,
+      // and `simplify` collapses what is left to the straight line it is.
+      const reach = Math.min(STUB, facing / 2);
+      const a1 = step(a, na, reach);
+      const b1 = step(b, nb, reach);
+      const direct = axis
+        ? simplify([
+            a,
+            a1,
+            { x: (a1.x + b1.x) / 2, y: a1.y },
+            { x: (a1.x + b1.x) / 2, y: b1.y },
+            b1,
+            b,
+          ])
+        : simplify([
+            a,
+            a1,
+            { x: a1.x, y: (a1.y + b1.y) / 2 },
+            { x: b1.x, y: (a1.y + b1.y) / 2 },
+            b1,
+            b,
+          ]);
+      // Straight through a shape that is not one of its ends is the one thing
+      // this route cannot be. Going round is longer and correct.
+      if (!blocked(direct, obstacles)) return direct;
+    }
+    return around(from, to, a, b, na, nb, axis, obstacles);
   }
-  if (!aHorizontal && !bHorizontal) {
-    const mid = (a1.y + b1.y) / 2;
-    return simplify([a, a1, { x: a1.x, y: mid }, { x: b1.x, y: mid }, b1, b]);
-  }
-  // One of each: the corner is where the horizontal run meets the vertical one.
-  const corner = aHorizontal ? { x: b1.x, y: a1.y } : { x: a1.x, y: b1.y };
+
+  // Different axes: one corner, where the horizontal run meets the vertical.
+  const a1 = step(a, na, STUB);
+  const b1 = step(b, nb, STUB);
+  const corner = axis ? { x: b1.x, y: a1.y } : { x: a1.x, y: b1.y };
   return simplify([a, a1, corner, b1, b]);
+}
+
+/**
+ * The loop back.
+ *
+ * When the plugs point past each other there is nothing between them to route
+ * through, so the line leaves both, runs out to a lane clear of both boxes, and
+ * comes back down the far side. The lane goes above or below (or left or right,
+ * for vertical plugs) — whichever is nearer the two plugs, so the detour is the
+ * shorter of the two ways round.
+ */
+function around(
+  from: Rect,
+  to: Rect,
+  a: Point,
+  b: Point,
+  na: Point,
+  nb: Point,
+  axis: boolean,
+  obstacles: readonly Rect[] = [],
+): Point[] {
+  const a1 = step(a, na, STUB);
+  const b1 = step(b, nb, STUB);
+
+  const build = (lane: number): Point[] =>
+    axis
+      ? simplify([a, a1, { x: a1.x, y: lane }, { x: b1.x, y: lane }, b1, b])
+      : simplify([a, a1, { x: lane, y: a1.y }, { x: lane, y: b1.y }, b1, b]);
+
+  // Only what the lane would actually cross is allowed to push it further out.
+  const lo = axis ? Math.min(a1.x, b1.x) : Math.min(a1.y, b1.y);
+  const hi = axis ? Math.max(a1.x, b1.x) : Math.max(a1.y, b1.y);
+  const across = obstacles.filter((o) =>
+    axis ? o.x < hi && o.x + o.w > lo : o.y < hi && o.y + o.h > lo,
+  );
+
+  const low = (r: Rect) => (axis ? r.y : r.x);
+  const high = (r: Rect) => (axis ? r.y + r.h : r.x + r.w);
+  const near = Math.min(low(from), low(to), ...across.map(low)) - STUB;
+  const far = Math.max(high(from), high(to), ...across.map(high)) + STUB;
+
+  const mid = axis ? (a.y + b.y) / 2 : (a.x + b.x) / 2;
+  const toNear = Math.abs(near - mid);
+  const toFar = Math.abs(far - mid);
+  // A tie is the common case in a flowchart — a column of boxes all centred on
+  // one line — so it needs a rule rather than a coin toss. A connector running
+  // back against the flow takes the near side and one running with it takes the
+  // far side, which is what keeps a loop-back off the edge that overshot it.
+  const backward = axis ? na.x < 0 : na.y < 0;
+  const preferNear = Math.abs(toNear - toFar) < EPSILON ? backward : toNear < toFar;
+
+  const first = build(preferNear ? near : far);
+  if (!blocked(first, obstacles)) return first;
+  const second = build(preferNear ? far : near);
+  return blocked(second, obstacles) ? first : second;
+}
+
+/**
+ * What a connector has to get past.
+ *
+ * A flowchart stacks its steps in a column, so the shortest route from one box
+ * to another two below it is a straight line down the middle — through the step
+ * in between, and along the very same line the two edges either side of it took.
+ * That is the loop-back reading as one stroke: not a degenerate path, but three
+ * correct paths drawn on top of each other.
+ *
+ * Only top-level nodes count. A connector into a group is a connector to the
+ * group's box, and its children are inside that box, so treating them as
+ * separate obstacles would make the group impossible to reach.
+ */
+export interface Obstacle {
+  /** The node and everything under it — an end inside a group is not in the
+   *  way of a connector to that group. */
+  covers: ReadonlySet<NodeId>;
+  box: Rect;
+}
+
+/** Computed once per scene and shared by every edge in it: `absoluteBounds`
+ *  walks the tree, and doing that per edge per frame is what a drag notices. */
+export function sceneObstacles(scene: Scene): Obstacle[] {
+  return scene.nodes
+    .filter((node) => !node.hidden)
+    .map((node) => {
+      const covers = new Set<NodeId>();
+      walk([node], (n) => void covers.add(n.id));
+      return { covers, box: absoluteBounds(scene, node.id) };
+    });
+}
+
+/** The obstacles that are not one of this connector's own ends. */
+export function obstaclesFor(
+  all: readonly Obstacle[],
+  edge: { from: NodeId; to: NodeId },
+): Rect[] {
+  return all
+    .filter((o) => !o.covers.has(edge.from) && !o.covers.has(edge.to))
+    .map((o) => o.box);
+}
+
+/** Axis-aligned segments only, which every route here is made of. A touch on
+ *  the boundary is not a crossing — connectors land on box edges by design. */
+function segmentHits(p: Point, q: Point, r: Rect): boolean {
+  const x0 = Math.min(p.x, q.x);
+  const x1 = Math.max(p.x, q.x);
+  const y0 = Math.min(p.y, q.y);
+  const y1 = Math.max(p.y, q.y);
+  return (
+    x1 > r.x + EPSILON &&
+    x0 < r.x + r.w - EPSILON &&
+    y1 > r.y + EPSILON &&
+    y0 < r.y + r.h - EPSILON
+  );
+}
+
+function blocked(points: readonly Point[], obstacles: readonly Rect[]): boolean {
+  for (let i = 1; i < points.length; i++) {
+    for (const box of obstacles) {
+      if (segmentHits(points[i - 1], points[i], box)) return true;
+    }
+  }
+  return false;
 }
 
 /** The two boxes a connector joins, or `null` if either end has gone. */
@@ -157,9 +322,19 @@ function edgeBoxes(scene: Scene, edge: SceneEdge): [Rect, Rect] | null {
 
 /** A connector's polyline in scene coordinates, or `null` if it cannot be
  *  drawn — a hand-authored edge naming a node that is not there. */
-export function edgePoints(scene: Scene, edge: SceneEdge): Point[] | null {
+export function edgePoints(
+  scene: Scene,
+  edge: SceneEdge,
+  obstacles?: readonly Rect[],
+): Point[] | null {
   const boxes = edgeBoxes(scene, edge);
-  return boxes ? elbowPoints(boxes[0], boxes[1]) : null;
+  if (!boxes) return null;
+  return elbowPoints(
+    boxes[0],
+    boxes[1],
+    undefined,
+    obstacles ?? obstaclesFor(sceneObstacles(scene), edge),
+  );
 }
 
 /** How much of each corner is turned into an arc, in scene units. */

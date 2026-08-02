@@ -1,7 +1,13 @@
 "use client";
 
 import { memo } from "react";
-import { edgePoints, pointsToPath, polylineMidpoint } from "../scene/edgePath";
+import {
+  edgePoints,
+  obstaclesFor,
+  pointsToPath,
+  polylineMidpoint,
+  sceneObstacles,
+} from "../scene/edgePath";
 import type { EdgeId, Scene } from "../scene/types";
 import { toCss } from "./ShapeView";
 import "./edges.css";
@@ -40,8 +46,10 @@ export const EdgeLayer = memo(function EdgeLayer({
 }: EdgeLayerProps) {
   if (scene.edges.length === 0) return null;
 
+  // One pass over the nodes for the whole layer, not one per connector.
+  const obstacles = sceneObstacles(scene);
   const drawn = scene.edges.flatMap((edge) => {
-    const points = edgePoints(scene, edge);
+    const points = edgePoints(scene, edge, obstaclesFor(obstacles, edge));
     // A connector naming a node that is not there is kept in the file — the
     // author can still fix it — but there is nothing to draw between.
     return points ? [{ edge, points }] : [];
