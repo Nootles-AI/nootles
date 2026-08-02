@@ -54,7 +54,8 @@ back into a single block is the most valuable thing you do here.
 The document is HTML with a few custom elements:
   <ab-code-block lang="python">code</ab-code-block>
   <ab-math-block><ab-math-line>a = 1</ab-math-line></ab-math-block>
-  <ab-diagram><ab-node shape="rectangle">Step</ab-node><ab-edge from="n1" to="n2"></ab-edge></ab-diagram>
+  <ab-diagram w="600" h="200"><ab-rect id="s1" x="40" y="40" w="180" h="56">Step</ab-rect>
+    <ab-rect id="s2" x="40" y="120" w="180" h="56">Next</ab-rect><ab-edge from="s1" to="s2"></ab-edge></ab-diagram>
   <ab-math>x^2</ab-math>            inline maths
   <code>maxRetries</code>           inline code
   <table><tr><th>A</th></tr><tr><td>b</td></tr></table>

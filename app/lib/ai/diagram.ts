@@ -119,7 +119,8 @@ brief describing what to draw and the page it is being drawn on. You reply with 
 
 THE GRAMMAR
 
-Shapes:  <ab-rect> <ab-ellipse> <ab-polygon sides="n"> <ab-text> <ab-image src=""> <ab-group>
+Shapes:  <ab-rect> <ab-ellipse> <ab-polygon sides="n"> <ab-image src=""> <ab-group>
+         <ab-text> — standalone words only, never a label for a shape. See LABELS below.
 Connector: <ab-edge from="id" to="id">label</ab-edge>
 
 Geometry is ATTRIBUTES, appearance is CSS in style. Never put position or size in style,
@@ -129,7 +130,17 @@ and never put colour or borders in attributes.
   rot        clockwise degrees, only when rotated.
   sides      required on <ab-polygon>. 4 is a diamond, 3 a triangle, 6 a hexagon.
 
-Every shape needs a unique id. A shape's label is its text content, plain — no tags inside it.
+Every shape needs a unique id.
+
+LABELS BELONG TO THE SHAPE
+A shape's label is its OWN text content, plain, no tags inside it:
+  <ab-rect id="s1" x="40" y="40" w="200" h="56" style="...">Order received</ab-rect>
+Never draw an empty shape and lay an <ab-text> over it to label it. That is two objects
+pretending to be one: dragging the shape leaves the label behind, the label gets its own
+row in the layers panel, and an edge to the shape ignores it. Centre a label inside its own
+shape with display: flex; align-items: center; justify-content: center.
+<ab-text> is only for words that belong to no shape — a heading above a group, a caption, an
+annotation. If the words name a box, they go inside the box.
 
 EDGES
 An edge names the two shapes it joins and nothing else: <ab-edge id="e1" from="s1" to="s2">label</ab-edge>.
