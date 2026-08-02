@@ -120,12 +120,36 @@ function canvasIdOf(batch: Batch, result: ApplyResult): string | null {
   return null;
 }
 
+/**
+ * Math is not markup.
+ *
+ * `<ab-math>i < n</ab-math>` carries a `<` that is a comparison, and a scanner
+ * looking for tags reads `< n` as one opening. Since `n` is not an inline mark
+ * the whole completion was then judged structural and thrown away — so a
+ * suggestion ending in an inequality appeared and vanished, while one ending in
+ * `a < b` survived, because `b` happens to be the bold tag.
+ *
+ * The interior is blanked rather than removed: `findBlockTag` returns an index
+ * that {@link proseTail} slices the ORIGINAL string with, so the mask has to be
+ * the same length as what it covers.
+ */
+function maskMath(text: string): string {
+  return text.replace(
+    /(<ab-math>)([\s\S]*?)(<\/ab-math>|$)/gi,
+    (_, open: string, body: string, close: string) =>
+      open + body.replace(/</g, " ") + close,
+  );
+}
+
 /** The first block-level tag in the text, or -1. Inline marks are skipped:
  * `<code>`, `<strong>` and friends are prose, not a new block. */
 function findBlockTag(text: string): number {
-  const re = /<\s*(\/?)([a-zA-Z][\w-]*)/g;
+  // No `\s*` after the `<`: a tag is written `<p>`, never `< p>`, and allowing
+  // the space is what let a bare `x < y` in prose read as an opening tag too.
+  const re = /<(\/?)([a-zA-Z][\w-]*)/g;
+  const scanned = maskMath(text);
   let m: RegExpExecArray | null;
-  while ((m = re.exec(text))) {
+  while ((m = re.exec(scanned))) {
     if (!INLINE_TAGS.has(m[2].toLowerCase())) return m.index;
   }
   return -1;
@@ -249,7 +273,10 @@ function partialPreview(acc: string): { label: string; preview?: Preview } | nul
   const table = nodes.find((n) => n.type === "table");
   if (table && table.type === "table") {
     if (!table.rows.length) return { label: "Insert table" };
-    return { label: "Insert table", preview: tablePreview(table.header, table.rows) };
+    return {
+      label: "Insert table",
+      preview: tablePreview(table.header, table.rows),
+    };
   }
   // Whatever is left is text, and text is shown as text.
   return null;
@@ -275,8 +302,9 @@ function tablePreview(
  * and then again a moment later to fill it in.
  */
 function previewSignature(acc: string): string {
-  const shapes = (acc.match(/<\/ab-(?:rect|ellipse|polygon|text|image|path|group)>/gi) ?? [])
-    .length;
+  const shapes = (
+    acc.match(/<\/ab-(?:rect|ellipse|polygon|text|image|path|group)>/gi) ?? []
+  ).length;
   const edges = (acc.match(/<\/ab-edge\s*>/gi) ?? []).length;
   return `${proseTail(acc)}:${shapes}:${edges}:${acc.length >> 5}`;
 }
@@ -309,7 +337,9 @@ function describe(batch: Batch): { label: string; preview?: Preview } | null {
       return { label: "Add diagram", ...(preview ? { preview } : {}) };
     }
     if (block.type === "mathBlock") {
-      const lines = String(block.props?.source ?? "").split("\n").filter(Boolean);
+      const lines = String(block.props?.source ?? "")
+        .split("\n")
+        .filter(Boolean);
       return {
         label: "Insert math block",
         ...(lines.length ? { preview: { kind: "math" as const, lines } } : {}),
@@ -321,9 +351,7 @@ function describe(batch: Batch): { label: string; preview?: Preview } | null {
       const rows = (block.rows ?? []) as unknown as Run[][][];
       return {
         label: "Insert table",
-        ...(rows.length
-          ? { preview: tablePreview(!!block.headerRows, rows) }
-          : {}),
+        ...(rows.length ? { preview: tablePreview(!!block.headerRows, rows) } : {}),
       };
     }
     if (block.type === "heading") return null;
@@ -495,7 +523,13 @@ export function useTabCompletion(
       if (visible.length < AI.modes[mode].minContextChars) return null;
       // Untrimmed: whether the caret sits mid-word decides what "complete" is
       // willing to offer.
-      return { ...split, cursorBlockId, blocks, visible, midWord: /\w$/.test(bare) };
+      return {
+        ...split,
+        cursorBlockId,
+        blocks,
+        visible,
+        midWord: /\w$/.test(bare),
+      };
     };
 
     /**
@@ -610,7 +644,11 @@ export function useTabCompletion(
         writeDiagram(live, finished);
         if (pageId) {
           const ops = [
-            { kind: "updateBlockProps" as const, blockId: live, props: { data: finished } },
+            {
+              kind: "updateBlockProps" as const,
+              blockId: live,
+              props: { data: finished },
+            },
           ];
           defer(() => {
             void appendRef.current({ pageId, source: "ai", ops }).catch(() => {});
@@ -710,65 +748,112 @@ export function useTabCompletion(
           if (done) break;
           if (mySeq !== seq) return;
           raw += value;
-          const bounded = firstBlock(raw);
-          acc = bounded.text;
-          if (bounded.done) break; // the block closed; nothing after it is ours
-          // Nobody wants a diagram proposed while someone is still talking.
-          if (!limits.allowBlocks && isStructural(acc)) return clear();
-          // A brief, not a diagram. Show the prose half and a pending chip
-          // straight away — the shapes are a second call away, and a suggestion
-          // that sits blank for a second reads as one that is not coming.
-          const asked = diagramBrief(acc);
-          if (asked) {
-            setAction(view(), {
-              label: "Add diagram",
-              batch: null,
-              loading: true,
-              tail: proseTail(acc),
-            });
-            if (asked.closed) break;
-            continue;
-          }
-          if (isStructural(acc)) {
-            // Draw what has arrived so far. The batch stays null until the
-            // stream ends, so Tab queues rather than applying a half-diagram.
-            const sig = previewSignature(acc);
-            if (sig !== lastSig) {
-              lastSig = sig;
-              const partial = partialPreview(acc);
-              if (partial?.preview) {
-                setAction(view(), {
-                  label: partial.label,
-                  batch: null,
-                  preview: partial.preview,
-                  tail: proseTail(acc),
-                });
-              } else if (!partial) {
-                // Text so far: the words are the whole of it. A block whose tag
-                // has arrived but whose contents have not shows nothing yet —
-                // a chip standing in for it would be an offer with nothing to
-                // read, which is what the finished version is not allowed to
-                // make either.
-                const blocks = preview(acc);
-                if (blocks.length) {
-                  setAction(view(), { batch: null, tail: proseTail(acc), blocks });
+          /**
+           * Nothing a half-arrived completion does may end it.
+           *
+           * Everything below draws markup that is malformed by definition — the
+           * last tag is usually cut mid-attribute, and a math row is cut
+           * mid-command. KaTeX only demotes a ParseError to red text, the canvas
+           * parser and the widget builders have refusals of their own, and any
+           * one of those throws used to reach the loop's own catch, which reads
+           * an exception as the stream having been superseded. A math block
+           * therefore died a character before it finished arriving.
+           *
+           * So a chunk that cannot be drawn is skipped, not fatal: `acc` keeps
+           * everything received, and the next chunk draws it with more of the
+           * expression present. The stream is only ever ended by the stream.
+           */
+          try {
+            const bounded = firstBlock(raw);
+            acc = bounded.text;
+            if (bounded.done) break; // the block closed; nothing after it is ours
+            // Nobody wants a diagram proposed while someone is still talking —
+            // but the words BEFORE the block are still a good completion, and
+            // throwing them out with it is what made "the formula is:" followed
+            // by a math block flash up and disappear. Keep the prose, drop the
+            // block; only a completion that is nothing but a block has nothing
+            // left to offer. Same rule the diagram branch below already follows.
+            if (!limits.allowBlocks && isStructural(acc)) {
+              const tail = proseTail(acc);
+              if (!tail.trim()) return clear();
+              acc = tail;
+              break;
+            }
+            // A brief, not a diagram. Show the prose half and a pending chip
+            // straight away — the shapes are a second call away, and a suggestion
+            // that sits blank for a second reads as one that is not coming.
+            const asked = diagramBrief(acc);
+            if (asked) {
+              setAction(view(), {
+                label: "Add diagram",
+                batch: null,
+                loading: true,
+                tail: proseTail(acc),
+              });
+              if (asked.closed) break;
+              continue;
+            }
+            if (isStructural(acc)) {
+              // Draw what has arrived so far. The batch stays null until the
+              // stream ends, so Tab queues rather than applying a half-diagram.
+              const sig = previewSignature(acc);
+              if (sig !== lastSig) {
+                lastSig = sig;
+                const partial = partialPreview(acc);
+                if (partial?.preview) {
+                  setAction(view(), {
+                    label: partial.label,
+                    batch: null,
+                    preview: partial.preview,
+                    tail: proseTail(acc),
+                  });
+                } else if (!partial) {
+                  // Text so far: the words are the whole of it. A block whose tag
+                  // has arrived but whose contents have not shows nothing yet —
+                  // a chip standing in for it would be an offer with nothing to
+                  // read, which is what the finished version is not allowed to
+                  // make either.
+                  const blocks = preview(acc);
+                  if (blocks.length) {
+                    setAction(view(), {
+                      batch: null,
+                      tail: proseTail(acc),
+                      blocks,
+                    });
+                  }
                 }
               }
+            } else {
+              if (!headLitAt) headLitAt = performance.now();
+              // Plain text to insert, raw markup to render.
+              setGhost(view(), displayText(acc), true, acc);
+              // One clause is all "complete" ever offers; stop paying for more.
+              if (displayText(acc).length >= limits.maxChars) break;
             }
-          } else {
-            if (!headLitAt) headLitAt = performance.now();
-            // Plain text to insert, raw markup to render.
-            setGhost(view(), displayText(acc), true, acc);
-            // One clause is all "complete" ever offers; stop paying for more.
-            if (displayText(acc).length >= limits.maxChars) break;
+          } catch (error) {
+            if (process.env.NODE_ENV !== "production") {
+              console.warn("[auto-board] completion: chunk not drawn\n  ", error);
+            }
+            continue;
           }
         }
-      } catch {
-        return; // superseded or offline
+      } catch (error) {
+        // Only the read itself gets here now. An abort is the ordinary way out
+        // — a keystroke superseded us — and says nothing.
+        if (controller.signal.aborted || mySeq !== seq) return;
+        if (process.env.NODE_ENV !== "production") {
+          console.warn("[auto-board] completion: stream failed\n  ", error);
+        }
+        return;
       }
       // We have all we intend to use; stop paying for the rest of the stream.
       controller.abort();
-      if (mySeq !== seq) return;
+      // Superseded while the stream was finishing. It used to `return` here,
+      // which left the half-built suggestion standing: the preview had already
+      // been drawn during the stream, but the batch behind it is only attached
+      // below — so the chip sat on "Drawing…" for ever, offering something it
+      // could no longer produce. Whoever superseded us is drawing their own.
+      if (mySeq !== seq) return clear();
 
       // The macro expands: the shapes land exactly where the element stood, so
       // every line below this one treats the completion as though the model had
@@ -783,7 +868,12 @@ export function useTabCompletion(
         // chunk — `firstBlock` sees it close and breaks the loop before the
         // chip above ever runs, and the shapes are a second call behind. Left
         // to the first preview, the suggestion would sit blank for that second.
-        setAction(view(), { label: "Add diagram", batch: null, loading: true, tail });
+        setAction(view(), {
+          label: "Add diagram",
+          batch: null,
+          loading: true,
+          tail,
+        });
         const page = ctx.visible.slice(-AI.diagram.contextChars);
         /**
          * Puts a half-drawn diagram into the document and says where it landed,
@@ -822,10 +912,7 @@ export function useTabCompletion(
         const shown = displayText(acc);
         if (!shown.trim()) return clear();
         const finishesAWord = !/\s/.test(shown.trim());
-        if (
-          !finishesAWord &&
-          grounding(ctx.visible, shown) < limits.minGrounding
-        ) {
+        if (!finishesAWord && grounding(ctx.visible, shown) < limits.minGrounding) {
           return clear();
         }
       }
@@ -886,7 +973,20 @@ export function useTabCompletion(
         if (!blocks.length) return clear();
         shown = { kind: "text", latencyMs: elapsed(started) };
         setAction(view(), { batch: resolved.batch, tail: proseTail(acc), blocks });
-      } catch {
+      } catch (error) {
+        // Never silently. A throw anywhere in here — the compiler, `describe`,
+        // or KaTeX, whose `throwOnError: false` suppresses a ParseError and
+        // nothing else — used to come out as the suggestion appearing and then
+        // vanishing, with no way to tell which of them had failed or why. The
+        // clear still happens; it just says so first.
+        if (process.env.NODE_ENV !== "production") {
+          console.warn(
+            "[auto-board] completion: dropped while previewing\n  ",
+            error,
+            "\n  completion was:",
+            acc,
+          );
+        }
         clear();
       }
     };
@@ -897,8 +997,43 @@ export function useTabCompletion(
       clearSuggestion(view());
     };
 
+    /**
+     * The document and selection as of the last real edit.
+     *
+     * `isSuggestionDispatch()` alone is not enough to recognise our own
+     * transactions. It is a depth counter held only for the synchronous span of
+     * `view.dispatch`, but `onChange` and `onSelectionChange` fire AFTER the
+     * transaction cycle — by which time the counter is back to zero and a
+     * suggestion appearing looks exactly like the user typing.
+     *
+     * It went unnoticed while a suggestion was drawn once, at the end. Drawing
+     * one AS IT STREAMS dispatches on every chunk, so a completion now had many
+     * chances to be mistaken for an edit and cancel ITSELF: `seq` moved on, the
+     * finishing code hit `if (mySeq !== seq) return`, and the half-built
+     * suggestion was left on screen with no batch behind it — the chip stuck on
+     * "Drawing…" — until the next schedule cleared it.
+     *
+     * A meta-only transaction changes neither the doc nor the selection, and
+     * ProseMirror keeps the same doc node when nothing edits it, so identity is
+     * the reliable test where the flag is not.
+     */
+    let seenDoc: unknown = null;
+    let seenSel: { from: number; to: number } | null = null;
+
     const schedule = () => {
       if (isSuggestionDispatch()) return; // our own suggestion transaction
+      const state = view()?.state;
+      if (state) {
+        const sel = { from: state.selection.from, to: state.selection.to };
+        const same =
+          state.doc === seenDoc &&
+          seenSel !== null &&
+          sel.from === seenSel.from &&
+          sel.to === seenSel.to;
+        seenDoc = state.doc;
+        seenSel = sel;
+        if (same) return; // a suggestion being drawn, not an edit
+      }
       if (timer) clearTimeout(timer);
       abort?.abort();
       seq++;
