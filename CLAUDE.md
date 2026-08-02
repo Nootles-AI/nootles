@@ -49,9 +49,9 @@ Project → Page (1:1 with a canvas surface) → Block[text | canvas] → Shape 
 | Editor | BlockNote (ProseMirror) + `@convex-dev/prosemirror-sync` |
 | Code blocks | CodeMirror 6 (grammars lazy-loaded per language) |
 | Math | MathLive (edit) + KaTeX (render) + `@cortex-js/compute-engine` (evaluate) |
-| Diagrams | xyflow / React Flow + elkjs (auto-layout) |
+| Diagrams | In-house canvas — no library. DOM + SVG renderer, CSS flex/grid auto-layout |
 
-- **Lazy-load heavy libraries** on demand (MathLive, Compute Engine, elk, per-language
+- **Lazy-load heavy libraries** on demand (MathLive, Compute Engine, per-language
   CodeMirror grammars). Don't pull them into the initial bundle.
 
 ## Framework: this is NOT stock Next.js
@@ -80,9 +80,12 @@ so they don't collide (that's why the canvas layout helper is `autoLayout.ts`).
 
 ## Persistence pattern (v0)
 
-- Canvas and math state persist as JSON inside a ProseMirror node attribute (debounced).
-  Fine for v0. For large diagrams or multiplayer, migrate shapes/edges to the dedicated
-  Convex `shapes`/`edges` tables (already in the schema) — flag before doing so.
+- Canvas and math state persist as text inside a ProseMirror node attribute (debounced):
+  the canvas as `<ab-diagram>` HTML, math as LaTeX source. Fine for v0. For large diagrams
+  or multiplayer, migrate shapes/edges to the dedicated Convex `shapes`/`edges` tables
+  (already in the schema) — flag before doing so.
+- The canvas HTML round-trip is exact: `serialize(parse(html)) === html`. Keep it that way —
+  it is the contract the AI layer edits diagrams through.
 
 ## Working style
 
@@ -105,3 +108,17 @@ substrate**: operation vocabulary + validator/applier, doc→text projection wit
 context spine (op-log + context sheet + agent threads), suggestion overlay + per-prompt
 checkpoints. Then the 6 AI modes, starting with tab completion. Build the apply-pipeline
 (preview → per-hunk accept/reject → checkpoint) once so every AI mode inherits it.
+
+<!-- convex-ai-start -->
+
+This project uses [Convex](https://convex.dev) as its backend.
+
+When working on Convex code, **always read
+`convex/_generated/ai/guidelines.md` first** for important guidelines on
+how to correctly use Convex APIs and patterns. The file contains rules that
+override what you may have learned about Convex from training data.
+
+Convex agent skills for common tasks can be installed by running
+`npx convex ai-files install`.
+
+<!-- convex-ai-end -->
