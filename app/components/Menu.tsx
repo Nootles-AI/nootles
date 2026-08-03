@@ -32,7 +32,7 @@ export function Menu({
     "aria-haspopup": "menu";
     "aria-expanded": boolean;
   }) => ReactNode;
-  children: (close: () => void) => ReactNode;
+  children: (close: (opts?: { restoreFocus?: boolean }) => void) => ReactNode;
   side?: Side;
   align?: Align;
   label: string;
@@ -49,7 +49,18 @@ export function Menu({
   // `close` is handed to the children render prop, so it must not touch a ref
   // during render. It only flips state; focus goes back to the trigger from an
   // effect once the menu has actually closed.
-  const close = useCallback(() => setOpen(false), []);
+  //
+  // `restoreFocus: false` is for an item that puts focus somewhere itself — a
+  // rename opening a field, say. Without it the restore lands AFTER the field
+  // has focused, pulls focus back to the trigger, and the field's blur commits
+  // and closes it: the action appears to do nothing at all.
+  // State rather than a ref precisely because `close` is handed to the render
+  // prop: a callback that writes a ref cannot be created during render.
+  const [restore, setRestore] = useState(true);
+  const close = useCallback((opts?: { restoreFocus?: boolean }) => {
+    setRestore(opts?.restoreFocus !== false);
+    setOpen(false);
+  }, []);
   const wasOpen = useRef(false);
   useEffect(() => {
     if (open) {
@@ -58,8 +69,8 @@ export function Menu({
     }
     if (!wasOpen.current) return;
     wasOpen.current = false;
-    triggerRef.current?.focus();
-  }, [open]);
+    if (restore) triggerRef.current?.focus();
+  }, [open, restore]);
 
   const place = useCallback(() => {
     const t = triggerRef.current;
@@ -130,7 +141,9 @@ export function Menu({
     <>
       {trigger({
         ref: triggerRef,
-        onClick: () => setOpen((v) => !v),
+        // Through `close` rather than a bare toggle, so every path that shuts
+        // the menu also resets whether focus comes back.
+        onClick: () => (open ? close() : setOpen(true)),
         "aria-haspopup": "menu",
         "aria-expanded": open,
       })}
@@ -140,7 +153,7 @@ export function Menu({
           <div
             className="fixed inset-0"
             style={{ zIndex: "var(--z-dropdown)" }}
-            onMouseDown={() => setOpen(false)}
+            onMouseDown={() => close()}
           />
           <div
             ref={menuRef}

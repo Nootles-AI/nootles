@@ -8,6 +8,7 @@ import { Id } from "@/convex/_generated/dataModel";
 import { GridView, ListView, MoreHorizontal, Plus } from "./Icons";
 import { AccountMenu } from "./AccountMenu";
 import { ConfirmDeleteDialog } from "./ConfirmDelete";
+import { ContextMenu } from "./ContextMenu";
 import { Editable } from "./Editable";
 import { Menu, MenuItem } from "./Menu";
 import { PagePreview } from "./PagePreview";
@@ -41,6 +42,9 @@ export function ProjectsScreen() {
   const [view, setView] = useState<View>("grid");
   const [editingId, setEditingId] = useState<Id<"projects"> | null>(null);
   const [confirming, setConfirming] = useState<Project | null>(null);
+  const [ctx, setCtx] = useState<{ project: Project; x: number; y: number } | null>(
+    null,
+  );
   const [draft, setDraft] = useState("");
   const [creating, setCreating] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
@@ -160,7 +164,13 @@ export function ProjectsScreen() {
         ) : view === "grid" ? (
           <ul className="nt-grid">
             {projects.map((p) => (
-              <li key={p._id}>
+              <li
+                key={p._id}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  setCtx({ project: p, x: e.clientX, y: e.clientY });
+                }}
+              >
                 <Card
                   project={p}
                   editing={editingId === p._id}
@@ -185,7 +195,14 @@ export function ProjectsScreen() {
             </div>
             <ul className="mt-1">
               {projects.map((p) => (
-                <li key={p._id} className="nt-list-row group">
+                <li
+                  key={p._id}
+                  className="nt-list-row group"
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    setCtx({ project: p, x: e.clientX, y: e.clientY });
+                  }}
+                >
                   <Row
                     project={p}
                     editing={editingId === p._id}
@@ -203,6 +220,22 @@ export function ProjectsScreen() {
           </div>
         )}
       </div>
+
+      {ctx && (
+        <ContextMenu
+          x={ctx.x}
+          y={ctx.y}
+          label={`Actions for ${ctx.project.title || "Untitled project"}`}
+          onClose={() => setCtx(null)}
+        >
+          <ProjectActions
+            close={() => setCtx(null)}
+            onOpen={() => open(ctx.project._id)}
+            onRename={() => startRename(ctx.project)}
+            onDelete={() => setConfirming(ctx.project)}
+          />
+        </ContextMenu>
+      )}
 
       {confirming && (
         <ConfirmDeleteDialog
@@ -249,29 +282,65 @@ function RowMenu({
       )}
     >
       {(close) => (
-        <>
-          <MenuItem onClick={onOpen}>Open</MenuItem>
-          <MenuItem
-            onClick={() => {
-              onRename();
-              close();
-            }}
-          >
-            Rename
-          </MenuItem>
-          <div className="nt-menu-sep" />
-          <MenuItem
-            danger
-            onClick={() => {
-              onDelete();
-              close();
-            }}
-          >
-            Delete…
-          </MenuItem>
-        </>
+        <ProjectActions
+          close={close}
+          onOpen={onOpen}
+          onRename={onRename}
+          onDelete={onDelete}
+        />
       )}
     </Menu>
+  );
+}
+
+/**
+ * The three things you can do to a project, written once so the ⋯ menu and the
+ * right-click menu cannot drift apart.
+ *
+ * Rename and delete both close with `restoreFocus: false`, because both hand
+ * focus to something of their own — the rename field, the confirm dialog — and
+ * a menu that insists on taking focus back afterwards undoes them.
+ */
+function ProjectActions({
+  close,
+  onOpen,
+  onRename,
+  onDelete,
+}: {
+  close: (opts?: { restoreFocus?: boolean }) => void;
+  onOpen: () => void;
+  onRename: () => void;
+  onDelete: () => void;
+}) {
+  return (
+    <>
+      <MenuItem
+        onClick={() => {
+          onOpen();
+          close();
+        }}
+      >
+        Open
+      </MenuItem>
+      <MenuItem
+        onClick={() => {
+          onRename();
+          close({ restoreFocus: false });
+        }}
+      >
+        Rename
+      </MenuItem>
+      <div className="nt-menu-sep" />
+      <MenuItem
+        danger
+        onClick={() => {
+          onDelete();
+          close({ restoreFocus: false });
+        }}
+      >
+        Delete…
+      </MenuItem>
+    </>
   );
 }
 

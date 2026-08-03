@@ -19,6 +19,7 @@ import type * as chat_messages from "../chat/messages.js";
 import type * as chat_threads from "../chat/threads.js";
 import type * as chat_turns from "../chat/turns.js";
 import type * as pages from "../pages.js";
+import type * as preview from "../preview.js";
 import type * as projects from "../projects.js";
 import type * as prosemirror from "../prosemirror.js";
 
@@ -40,6 +41,7 @@ declare const fullApi: ApiFromModules<{
   "chat/threads": typeof chat_threads;
   "chat/turns": typeof chat_turns;
   pages: typeof pages;
+  preview: typeof preview;
   projects: typeof projects;
   prosemirror: typeof prosemirror;
 }>;
