@@ -1,14 +1,21 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
-import { MoreHorizontal, Plus } from "./Icons";
+import { GridView, ListView, MoreHorizontal, Plus } from "./Icons";
 import { AccountMenu } from "./AccountMenu";
+import { ConfirmDeleteDialog } from "./ConfirmDelete";
 import { Editable } from "./Editable";
 import { Menu, MenuItem } from "./Menu";
+import { PagePreview } from "./PagePreview";
+
+type View = "grid" | "list";
+type Project = NonNullable<
+  ReturnType<typeof useQuery<typeof api.projects.listWithPreviews>>
+>[number];
 
 /** "2d ago" / "Jul 12" — coarse enough that it never needs to re-render. */
 function when(ms: number): string {
@@ -22,191 +29,465 @@ function when(ms: number): string {
   });
 }
 
+const pages = (n: number) => `${n} ${n === 1 ? "page" : "pages"}`;
+
 export function ProjectsScreen() {
   const router = useRouter();
-  const projects = useQuery(api.projects.listWithCounts);
+  const projects = useQuery(api.projects.listWithPreviews);
   const createProject = useMutation(api.projects.create);
   const renameProject = useMutation(api.projects.rename);
   const removeProject = useMutation(api.projects.remove);
 
+  const [view, setView] = useState<View>("grid");
   const [editingId, setEditingId] = useState<Id<"projects"> | null>(null);
-  const [confirmingId, setConfirmingId] = useState<Id<"projects"> | null>(null);
+  const [confirming, setConfirming] = useState<Project | null>(null);
   const [draft, setDraft] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
+
+  // Restore the persisted view on the client. The default renders first so SSR
+  // and the first client render agree; set-state-in-effect is correct here.
+  /* eslint-disable react-hooks/set-state-in-effect */
+  useEffect(() => {
+    if (localStorage.getItem("nt:projectsView") === "list") setView("list");
+  }, []);
+  /* eslint-enable react-hooks/set-state-in-effect */
+
+  useEffect(() => {
+    localStorage.setItem("nt:projectsView", view);
+  }, [view]);
 
   const open = (id: Id<"projects">) => router.push(`/p/${id}`);
 
+  const startRename = (p: Project) => {
+    setDraft(p.title);
+    setEditingId(p._id);
+  };
+
+  /**
+   * An empty name is not a rename, and silently restoring the old one looks
+   * like the keystroke was lost. It says so instead, and keeps the field open.
+   */
   const commitRename = (id: Id<"projects">) => {
     const title = draft.trim();
-    if (title) renameProject({ projectId: id, title });
+    if (!title) {
+      setFailure("A project needs a name.");
+      return;
+    }
     setEditingId(null);
+    renameProject({ projectId: id, title }).catch(() =>
+      setFailure("That rename didn’t save."),
+    );
+  };
+
+  const create = () => {
+    if (creating) return; // Two clicks used to mean two projects.
+    setCreating(true);
+    setFailure(null);
+    createProject({ title: "Untitled project" })
+      .then((id) => {
+        setDraft("Untitled project");
+        setEditingId(id);
+      })
+      .catch(() => setFailure("Couldn’t create that project."))
+      .finally(() => setCreating(false));
+  };
+
+  const confirmRemove = () => {
+    if (!confirming) return;
+    const doomed = confirming;
+    setConfirming(null);
+    removeProject({ projectId: doomed._id }).catch(() =>
+      setFailure(`Couldn’t delete “${doomed.title || "Untitled project"}”.`),
+    );
   };
 
   return (
     <main
-      className="mx-auto w-full px-6 py-12 sm:px-8 sm:py-20"
-      style={{ maxWidth: "calc(var(--measure) + 7rem)" }}
+      className="mx-auto w-full px-6 py-12 sm:px-8 sm:py-16"
+      style={{ maxWidth: "76rem" }}
     >
-      <div className="mb-1 flex items-end justify-between gap-4">
+      <header className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-[length:var(--text-title)] font-semibold tracking-[-0.02em]">
           Projects
         </h1>
+
         <div className="flex items-center gap-2">
+          <div className="nt-mode" role="group" aria-label="View">
+            <button
+              onClick={() => setView("grid")}
+              aria-pressed={view === "grid"}
+              aria-label="Grid view"
+              className={`nt-mode-btn is-icon${view === "grid" ? " is-on" : ""}`}
+            >
+              <GridView width={14} height={14} />
+            </button>
+            <button
+              onClick={() => setView("list")}
+              aria-pressed={view === "list"}
+              aria-label="List view"
+              className={`nt-mode-btn is-icon${view === "list" ? " is-on" : ""}`}
+            >
+              <ListView width={14} height={14} />
+            </button>
+          </div>
+
           <button
-            onClick={() =>
-              createProject({ title: "Untitled project" }).then((id) => {
-                setDraft("Untitled project");
-                setEditingId(id);
-              })
-            }
-            className="nt-row gap-1.5 bg-sunken px-3 font-medium"
+            onClick={create}
+            disabled={creating}
+            className="nt-row gap-1.5 bg-sunken px-3 font-medium disabled:opacity-60"
           >
             <Plus width={14} height={14} />
             New project
           </button>
           <AccountMenu />
         </div>
-      </div>
-      <p className="text-[13px] text-muted">
-        Click a project to open it. Double-click the name to rename, or use
-        the ⋯ menu.
-      </p>
+      </header>
 
-      {projects === undefined ? (
-        // Same row height as the real list, so content swaps in without reflow.
-        <ul className="mt-6" aria-busy="true" aria-label="Loading projects">
-          {[0, 1, 2].map((i) => (
-            <li key={i} className="flex items-center gap-3 py-0.5">
-              <span
-                className="nt-skeleton h-4 flex-1"
-                style={{ maxWidth: `${[62, 44, 53][i]}%`, animationDelay: `${i * 120}ms` }}
-              />
-              <span className="nt-skeleton hidden h-3 w-20 sm:block" />
-              <span className="nt-skeleton h-3 w-20" />
-              <span className="w-8" />
-            </li>
-          ))}
-        </ul>
-      ) : projects.length === 0 ? (
-        <div className="mt-10 rounded-lg bg-surface px-6 py-14 text-center">
-          <p className="text-sm font-medium">No projects yet</p>
-          <p className="mx-auto mt-1.5 max-w-sm text-[13px] text-muted">
-            A project holds a set of pages. Create one to start writing, and it
-            arrives with a blank page ready to go.
-          </p>
-        </div>
-      ) : (
-        <ul className="mt-6">
-          {projects.map((p) => (
-            <li
-              key={p._id}
-              className="group flex items-center gap-3 py-0.5"
-            >
-              {editingId === p._id ? (
-                <Editable
-                  autoFocus
-                  value={draft}
-                  label="Project name"
-                  onInput={setDraft}
-                  onBlur={() => commitRename(p._id)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      commitRename(p._id);
-                    }
-                    if (e.key === "Escape") {
-                      e.preventDefault();
-                      setEditingId(null);
-                    }
-                  }}
-                  className="nt-row-edit nt-bare-focus is-selected flex-1 font-medium"
+      {/* One place for anything that failed, rather than a mutation failing in
+          silence. It clears on the next successful action. */}
+      {failure && (
+        <p role="alert" className="mt-3 text-[13px] text-danger">
+          {failure}
+        </p>
+      )}
+
+      <div className="mt-8">
+        {projects === undefined ? (
+          <Skeletons view={view} />
+        ) : projects.length === 0 ? (
+          <Empty onCreate={create} disabled={creating} />
+        ) : view === "grid" ? (
+          <ul className="nt-grid">
+            {projects.map((p) => (
+              <li key={p._id}>
+                <Card
+                  project={p}
+                  editing={editingId === p._id}
+                  draft={draft}
+                  onDraft={setDraft}
+                  onOpen={() => open(p._id)}
+                  onRename={() => startRename(p)}
+                  onCommit={() => commitRename(p._id)}
+                  onCancel={() => setEditingId(null)}
+                  onDelete={() => setConfirming(p)}
                 />
-              ) : (
-                <>
-                  <button
-                    onClick={() => open(p._id)}
-                    onDoubleClick={() => {
-                      setDraft(p.title);
-                      setEditingId(p._id);
-                    }}
-                    title="Double-click to rename"
-                    className="nt-row flex-1 font-medium"
-                  >
-                    <span className="nt-row-label">
-                      {p.title || "Untitled project"}
-                    </span>
-                  </button>
-                  <span className="nt-meta hidden w-20 shrink-0 text-right sm:block">
-                    {p.pageCount} {p.pageCount === 1 ? "page" : "pages"}
-                  </span>
-                  <span className="nt-meta w-20 shrink-0 text-right">
-                    {when(p.updatedAt)}
-                  </span>
-                </>
-              )}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <div>
+            <div className="nt-list-head" aria-hidden="true">
+              <span className="flex-1">Name</span>
+              <span className="nt-col-pages">Pages</span>
+              <span className="nt-col-when">Edited</span>
+              <span className="nt-col-actions" />
+            </div>
+            <ul className="mt-1">
+              {projects.map((p) => (
+                <li key={p._id} className="nt-list-row group">
+                  <Row
+                    project={p}
+                    editing={editingId === p._id}
+                    draft={draft}
+                    onDraft={setDraft}
+                    onOpen={() => open(p._id)}
+                    onRename={() => startRename(p)}
+                    onCommit={() => commitRename(p._id)}
+                    onCancel={() => setEditingId(null)}
+                    onDelete={() => setConfirming(p)}
+                  />
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
 
-              {confirmingId === p._id ? (
-                <span className="flex shrink-0 items-center gap-1">
-                  <button
-                    onClick={() => setConfirmingId(null)}
-                    className="nt-row px-2.5"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={() => {
-                      removeProject({ projectId: p._id });
-                      setConfirmingId(null);
-                    }}
-                    className="nt-row px-2.5 font-medium text-danger"
-                  >
-                    Delete {p.pageCount} {p.pageCount === 1 ? "page" : "pages"}
-                  </button>
-                </span>
-              ) : (
-                <Menu
-                  label={`Actions for ${p.title || "Untitled project"}`}
-                  side="bottom"
-                  align="end"
-                  trigger={(t) => (
-                    <button
-                      {...t}
-                      aria-label={`Actions for ${p.title || "Untitled project"}`}
-                      className="nt-icon-btn opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 aria-expanded:opacity-100"
-                    >
-                      <MoreHorizontal />
-                    </button>
-                  )}
-                >
-                  {(close) => (
-                    <>
-                      <MenuItem onClick={() => open(p._id)}>Open</MenuItem>
-                      <MenuItem
-                        onClick={() => {
-                          setDraft(p.title);
-                          setEditingId(p._id);
-                          close();
-                        }}
-                      >
-                        Rename
-                      </MenuItem>
-                      <div className="nt-menu-sep" />
-                      <MenuItem
-                        danger
-                        onClick={() => {
-                          setConfirmingId(p._id);
-                          close();
-                        }}
-                      >
-                        Delete…
-                      </MenuItem>
-                    </>
-                  )}
-                </Menu>
-              )}
-            </li>
-          ))}
-        </ul>
+      {confirming && (
+        <ConfirmDeleteDialog
+          title={confirming.title || "Untitled project"}
+          what={`“${confirming.title || "Untitled project"}” and its ${pages(
+            confirming.pageCount,
+          )}`}
+          onCancel={() => setConfirming(null)}
+          onConfirm={confirmRemove}
+        />
       )}
     </main>
+  );
+}
+
+/** The actions every view offers, so the two never drift apart. */
+function RowMenu({
+  project,
+  onOpen,
+  onRename,
+  onDelete,
+  className,
+}: {
+  project: Project;
+  onOpen: () => void;
+  onRename: () => void;
+  onDelete: () => void;
+  className?: string;
+}) {
+  const name = project.title || "Untitled project";
+  return (
+    <Menu
+      label={`Actions for ${name}`}
+      side="bottom"
+      align="end"
+      trigger={(t) => (
+        <button
+          {...t}
+          aria-label={`Actions for ${name}`}
+          className={`nt-icon-btn ${className ?? ""}`}
+        >
+          <MoreHorizontal />
+        </button>
+      )}
+    >
+      {(close) => (
+        <>
+          <MenuItem onClick={onOpen}>Open</MenuItem>
+          <MenuItem
+            onClick={() => {
+              onRename();
+              close();
+            }}
+          >
+            Rename
+          </MenuItem>
+          <div className="nt-menu-sep" />
+          <MenuItem
+            danger
+            onClick={() => {
+              onDelete();
+              close();
+            }}
+          >
+            Delete…
+          </MenuItem>
+        </>
+      )}
+    </Menu>
+  );
+}
+
+/** The rename field, identical in both views so the interaction is one thing. */
+function NameField({
+  draft,
+  onDraft,
+  onCommit,
+  onCancel,
+  className,
+}: {
+  draft: string;
+  onDraft: (v: string) => void;
+  onCommit: () => void;
+  onCancel: () => void;
+  className: string;
+}) {
+  return (
+    <Editable
+      autoFocus
+      value={draft}
+      label="Project name"
+      onInput={onDraft}
+      onBlur={onCommit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          onCommit();
+        }
+        if (e.key === "Escape") {
+          e.preventDefault();
+          onCancel();
+        }
+      }}
+      className={className}
+    />
+  );
+}
+
+function Card({
+  project,
+  editing,
+  draft,
+  onDraft,
+  onOpen,
+  onRename,
+  onCommit,
+  onCancel,
+  onDelete,
+}: {
+  project: Project;
+  editing: boolean;
+  draft: string;
+  onDraft: (v: string) => void;
+  onOpen: () => void;
+  onRename: () => void;
+  onCommit: () => void;
+  onCancel: () => void;
+  onDelete: () => void;
+}) {
+  const name = project.title || "Untitled project";
+  return (
+    <div className="nt-card group">
+      {/* The thumbnail is the target; the footer is chrome. Nesting the menu
+          inside this button would be a button inside a button. */}
+      <button onClick={onOpen} aria-label={`Open ${name}`} className="nt-card-open">
+        <PagePreview lines={project.preview} />
+      </button>
+
+      <div className="nt-card-foot">
+        <div className="min-w-0 flex-1">
+          {editing ? (
+            <NameField
+              draft={draft}
+              onDraft={onDraft}
+              onCommit={onCommit}
+              onCancel={onCancel}
+              className="nt-bare-focus nt-card-name block w-full"
+            />
+          ) : (
+            <p className="nt-card-name">{name}</p>
+          )}
+          <p className="nt-card-meta">
+            <span>{pages(project.pageCount)}</span>
+            <span aria-hidden="true">·</span>
+            <span>{when(project.updatedAt)}</span>
+          </p>
+        </div>
+        <RowMenu
+          project={project}
+          onOpen={onOpen}
+          onRename={onRename}
+          onDelete={onDelete}
+          className="is-sm"
+        />
+      </div>
+    </div>
+  );
+}
+
+function Row({
+  project,
+  editing,
+  draft,
+  onDraft,
+  onOpen,
+  onRename,
+  onCommit,
+  onCancel,
+  onDelete,
+}: {
+  project: Project;
+  editing: boolean;
+  draft: string;
+  onDraft: (v: string) => void;
+  onOpen: () => void;
+  onRename: () => void;
+  onCommit: () => void;
+  onCancel: () => void;
+  onDelete: () => void;
+}) {
+  const name = project.title || "Untitled project";
+  return (
+    <>
+      {editing ? (
+        <NameField
+          draft={draft}
+          onDraft={onDraft}
+          onCommit={onCommit}
+          onCancel={onCancel}
+          className="nt-row-edit nt-bare-focus is-selected min-w-0 flex-1 font-medium"
+        />
+      ) : (
+        <button onClick={onOpen} className="nt-row min-w-0 flex-1 font-medium">
+          <span className="nt-row-label">{name}</span>
+        </button>
+      )}
+      {/* Held in the layout while renaming rather than unmounted, so the row
+          does not change shape as the field opens. */}
+      <span className="nt-meta nt-col-pages" aria-hidden={editing}>
+        {editing ? "" : project.pageCount}
+      </span>
+      <span className="nt-meta nt-col-when" aria-hidden={editing}>
+        {editing ? "" : when(project.updatedAt)}
+      </span>
+      <span className="nt-col-actions">
+        <RowMenu
+          project={project}
+          onOpen={onOpen}
+          onRename={onRename}
+          onDelete={onDelete}
+          className="opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 aria-expanded:opacity-100"
+        />
+      </span>
+    </>
+  );
+}
+
+/**
+ * Loading takes the shape of the view it is loading into, so content swaps in
+ * without the page rearranging under the cursor.
+ */
+function Skeletons({ view }: { view: View }) {
+  if (view === "list") {
+    return (
+      <ul aria-busy="true" aria-label="Loading projects">
+        {[0, 1, 2, 3].map((i) => (
+          <li key={i} className="nt-list-row">
+            <span
+              className="nt-skeleton ml-2 h-4 flex-1"
+              style={{ maxWidth: `${[52, 38, 61, 45][i]}%`, animationDelay: `${i * 110}ms` }}
+            />
+            <span className="nt-skeleton nt-col-pages h-3" />
+            <span className="nt-skeleton nt-col-when h-3" />
+            <span className="nt-col-actions" />
+          </li>
+        ))}
+      </ul>
+    );
+  }
+  return (
+    <ul className="nt-grid" aria-busy="true" aria-label="Loading projects">
+      {[0, 1, 2, 3, 4, 5].map((i) => (
+        <li key={i}>
+          <div className="nt-card">
+            <span
+              className="nt-skeleton block aspect-[4/3] rounded-none"
+              style={{ animationDelay: `${i * 90}ms` }}
+            />
+            <div className="nt-card-foot">
+              <span className="nt-skeleton h-3.5 flex-1" style={{ maxWidth: "60%" }} />
+            </div>
+          </div>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** Teaches what a project is, and offers the one action worth taking. */
+function Empty({ onCreate, disabled }: { onCreate: () => void; disabled: boolean }) {
+  return (
+    <div className="rounded-lg bg-surface px-6 py-16 text-center">
+      <p className="text-sm font-medium">No projects yet</p>
+      <p className="mx-auto mt-1.5 max-w-sm text-[13px] text-muted">
+        A project holds a set of pages — prose, diagrams and maths in one place.
+        The first one arrives with a blank page ready to go.
+      </p>
+      <button
+        onClick={onCreate}
+        disabled={disabled}
+        className="nt-row mx-auto mt-5 gap-1.5 bg-background px-3 font-medium disabled:opacity-60"
+      >
+        <Plus width={14} height={14} />
+        New project
+      </button>
+    </div>
   );
 }

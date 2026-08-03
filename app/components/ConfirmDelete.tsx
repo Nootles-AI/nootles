@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect } from "react";
+
 /**
  * What is about to be lost, and the two ways out.
  *
@@ -45,16 +47,35 @@ export function ConfirmDelete({
 /**
  * The modal form, for a deletion the user started. It names the page, since the
  * menu was opened by a right-click that may not have been where you thought.
+ *
+ * Escape cancels. Worth stating because the alternative is a dialog you can
+ * only leave by choosing one of two buttons, one of which is irreversible —
+ * and the reflex when you realise you opened the wrong row is to hit Escape,
+ * not to hunt for Cancel.
  */
 export function ConfirmDeleteDialog({
   title,
+  what,
   onCancel,
   onConfirm,
 }: {
   title: string;
+  /** Overrides the phrase after "Delete", for a thing that is not just a page. */
+  what?: string;
   onCancel: () => void;
   onConfirm: () => void;
 }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onCancel();
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onCancel]);
+
   return (
     <>
       <button
@@ -71,7 +92,7 @@ export function ConfirmDeleteDialog({
         style={{ zIndex: "var(--z-modal)" }}
       >
         <ConfirmDelete
-          what={`“${title}”`}
+          what={what ?? `“${title}”`}
           focusConfirm
           onCancel={onCancel}
           onConfirm={onConfirm}

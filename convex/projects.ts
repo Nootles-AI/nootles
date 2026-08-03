@@ -1,6 +1,8 @@
 import { mutation, query } from "./_generated/server";
+import { components } from "./_generated/api";
 import { v } from "convex/values";
 import { ownerId as currentOwner, readOwned, requireOwned, requireOwner } from "./auth";
+import { previewFromSnapshot } from "./preview";
 
 export const list = query({
   args: {},
@@ -45,8 +47,19 @@ export const create = mutation({
   },
 });
 
-/** Projects plus the page count the management screen shows per row. */
-export const listWithCounts = query({
+/**
+ * Everything the projects screen draws: the count, when the project was last
+ * touched, and a miniature of its first page for the grid's thumbnails.
+ *
+ * The thumbnail costs one snapshot read per project, which is the expensive
+ * part of this query — a snapshot is the whole document. It is bounded to the
+ * FIRST page for that reason, and {@link previewFromSnapshot} throws all but a
+ * dozen lines away before any of it crosses the wire. If a library ever grows
+ * past a screenful of projects this is the thing to change: stamp a short
+ * excerpt onto the page row as it saves and read that instead. Premature now,
+ * and the note is here so the tradeoff is visible when it stops being.
+ */
+export const listWithPreviews = query({
   args: {},
   handler: async (ctx) => {
     const owner = await currentOwner(ctx);
@@ -54,21 +67,40 @@ export const listWithCounts = query({
     const projects = await ctx.db
       .query("projects")
       .withIndex("by_owner", (q) => q.eq("ownerId", owner))
-      .order("desc")
       .collect();
-    return await Promise.all(
+
+    const rows = await Promise.all(
       projects.map(async (p) => {
+        // Ordered by the index, so the first row is the page the sidebar shows
+        // at the top — the one a thumbnail of "this project" should be of.
         const pages = await ctx.db
           .query("pages")
           .withIndex("by_project", (q) => q.eq("projectId", p._id))
           .collect();
+
+        const first = pages[0];
+        const snapshot = first
+          ? await ctx.runQuery(components.prosemirrorSync.lib.getSnapshot, {
+              id: first.docId,
+            })
+          : null;
+
         return {
           ...p,
           pageCount: pages.length,
-          updatedAt: pages.reduce((m, pg) => Math.max(m, pg.createdAt), p.createdAt),
+          firstPageTitle: first?.title ?? "",
+          preview: previewFromSnapshot(snapshot?.content ?? null),
+          updatedAt: pages.reduce(
+            (m, pg) => Math.max(m, pg.updatedAt ?? pg.createdAt),
+            p.createdAt,
+          ),
         };
       }),
     );
+
+    // Most recently touched first. Sorted here rather than by an index because
+    // `updatedAt` is derived from the pages, not stored on the project.
+    return rows.sort((a, b) => b.updatedAt - a.updatedAt);
   },
 });
 

@@ -332,6 +332,12 @@ body {
 .nt-row:active {
   background: var(--active);
 }
+/* The row vocabulary was missing its disabled state, so every call site that
+   needed one bolted on its own opacity and left the row still hoverable. */
+.nt-row:disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
 .nt-row.is-selected {
   background: var(--selected);
   color: var(--foreground);
@@ -612,6 +618,16 @@ body {
   background: var(--background);
   color: var(--foreground);
   box-shadow: 0 1px 2px oklch(0.25 0.005 90 / 0.06);
+}
+/* A segment carrying a glyph instead of a word. Square, so the two read as a
+   pair rather than as one wide and one narrow. */
+.nt-mode-btn.is-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 22px;
+  padding: 0;
 }
 }
 
@@ -1366,5 +1382,250 @@ body:has(.nt-review-bar) .nt-reformat-switcher {
   padding-inline: 8px;
   font-size: var(--text-meta-lg);
   color: var(--danger);
+}
+}
+
+@layer components {
+/* ---- Projects screen ----------------------------------------------------
+   Two views of one list. The grid is for recognising a project by the look of
+   its first page; the list is for scanning many by name and date. They share
+   the row vocabulary the rest of the shell uses — nothing here invents a
+   second way to say "hover" or "selected". */
+
+.nt-grid {
+  display: grid;
+  /* Fluid without breakpoints. 232px is the width below which the thumbnail
+     stops resolving into a page and becomes grey noise. */
+  grid-template-columns: repeat(auto-fill, minmax(232px, 1fr));
+  gap: 20px 16px;
+}
+
+/* The card is a link to a project, so the whole of it takes the press. The
+   border is the only thing separating it from the page: no shadow at rest,
+   because twenty resting shadows is a texture, not a hierarchy. */
+.nt-card {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--background);
+  overflow: hidden;
+  text-align: left;
+  transition:
+    border-color var(--dur-fast) var(--ease),
+    background var(--dur-fast) var(--ease);
+}
+.nt-card:hover {
+  border-color: var(--border-strong);
+}
+.nt-card:active {
+  background: var(--hover);
+}
+/* The card and its footer menu are siblings, not nested buttons — so the card
+   shows the pressed state and the footer stays clickable on its own. */
+.nt-card-open {
+  display: block;
+  width: 100%;
+  text-align: left;
+}
+/* The card clips its thumbnail, which would clip an outset focus ring with it.
+   Drawn inside instead, so keyboard focus is visible at all. */
+.nt-card-open:focus-visible {
+  outline-offset: -2px;
+}
+
+.nt-card-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 8px 8px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+.nt-card-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--text-ui);
+  font-weight: 500;
+  color: var(--foreground);
+}
+.nt-card-meta {
+  display: flex;
+  gap: 8px;
+  margin-top: 1px;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--text-meta);
+  letter-spacing: var(--tracking-meta);
+  text-transform: uppercase;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- The miniature ------------------------------------------------------
+   A picture of a page, at about a third of reading size. Everything in here is
+   decorative — `aria-hidden` on the container — which is why it is allowed to
+   go below the type floor the rest of the app holds to. */
+.nt-thumb {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  overflow: hidden;
+  padding: 14px 14px 0;
+  background: var(--background);
+  font-size: 6.5px;
+  line-height: 1.75;
+  color: var(--muted);
+}
+/* The page does not end at the crop, so it fades rather than being guillotined
+   mid-word. */
+.nt-thumb::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  height: 42%;
+  background: linear-gradient(to bottom, transparent, var(--background) 88%);
+  pointer-events: none;
+}
+.nt-thumb.is-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+/* An unwritten page: one short line where the first words would be. */
+.nt-thumb-blank {
+  width: 34%;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--border);
+}
+
+.nt-thumb-h {
+  margin-top: 9px;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--foreground);
+}
+.nt-thumb-h:first-child {
+  margin-top: 0;
+}
+.nt-thumb-p {
+  margin-top: 4px;
+}
+.nt-thumb-li {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  margin-top: 2px;
+  padding-left: 5px;
+}
+.nt-thumb-marker {
+  flex: none;
+  width: 2px;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--faint);
+}
+.nt-thumb-quote {
+  margin-top: 4px;
+  padding-left: 7px;
+  color: var(--faint);
+  font-style: italic;
+}
+.nt-thumb-code {
+  margin-top: 5px;
+  padding: 4px 5px;
+  border-radius: 2px;
+  background: var(--sunken);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 6px;
+  white-space: pre;
+  overflow: hidden;
+}
+/* The void blocks. Drawn as the room they take up, which is all you can see of
+   a diagram at this size anyway. */
+.nt-thumb-canvas,
+.nt-thumb-media {
+  display: block;
+  height: 30px;
+  margin-top: 6px;
+  border-radius: 3px;
+  background: var(--sunken);
+}
+.nt-thumb-table {
+  display: block;
+  height: 22px;
+  margin-top: 6px;
+  border-radius: 2px;
+  background:
+    repeating-linear-gradient(to right, var(--border) 0 1px, transparent 1px 33.3%),
+    repeating-linear-gradient(to bottom, var(--border) 0 1px, transparent 1px 7px),
+    var(--surface);
+}
+.nt-thumb-rule {
+  display: block;
+  height: 1px;
+  margin: 7px 0;
+  background: var(--border);
+}
+.nt-thumb-gap {
+  display: block;
+  height: 5px;
+}
+/* Every line is one line. A paragraph that wrapped five times would push the
+   shape of the page off the bottom of a card three inches tall. */
+.nt-thumb-h,
+.nt-thumb-p,
+.nt-thumb-li,
+.nt-thumb-quote {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* ---- List view ----------------------------------------------------------
+   A table in everything but markup. The columns are fixed so the dates form a
+   column you can read down, which is the entire reason to be in this view. */
+.nt-list-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 28px;
+  padding-inline: var(--inset);
+  border-bottom: 1px solid var(--border);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--text-meta);
+  font-weight: 500;
+  letter-spacing: var(--tracking-meta);
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.nt-list-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.nt-list-row + .nt-list-row {
+  margin-top: 1px;
+}
+/* Reserved so a row does not change width when its menu appears, and so the
+   count and date sit under their headings. */
+.nt-col-pages {
+  flex: none;
+  width: 72px;
+  text-align: right;
+}
+.nt-col-when {
+  flex: none;
+  width: 88px;
+  text-align: right;
+}
+.nt-col-actions {
+  flex: none;
+  width: var(--control);
 }
 }

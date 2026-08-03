@@ -95,6 +95,26 @@ export function MoreHorizontal(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+/** The two ways the projects screen can be laid out. */
+export function GridView(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <rect x="3" y="3" width="7" height="7" rx="1.5" />
+      <rect x="14" y="3" width="7" height="7" rx="1.5" />
+      <rect x="3" y="14" width="7" height="7" rx="1.5" />
+      <rect x="14" y="14" width="7" height="7" rx="1.5" />
+    </svg>
+  );
+}
+
+export function ListView(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M4 6h16M4 12h16M4 18h16" />
+    </svg>
+  );
+}
+
 export function ArrowLeft(props: SVGProps<SVGSVGElement>) {
   return (
     <svg {...base} {...props}>

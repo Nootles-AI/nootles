@@ -14,6 +14,9 @@ import { GoogleMark } from "../components/GoogleMark";
  * returns the newer signals resource. That one wants the whole transfer ladder
  * spelled out in the callback; this pairs with `AuthenticateWithRedirectCallback`,
  * which already knows how to turn a first-time Google user into an account.
+ *
+ * Three groups separated by space alone — who this is, the way in, and the
+ * footnote. Nothing here is doing hierarchy with colour or a rule.
  */
 export default function SignInPage() {
   const { isLoaded } = useAuth();
@@ -22,7 +25,7 @@ export default function SignInPage() {
   const [going, setGoing] = useState(false);
 
   const start = async () => {
-    if (!isLoaded) return;
+    if (!isLoaded || going) return;
     setFailed(false);
     setGoing(true);
     try {
@@ -39,32 +42,46 @@ export default function SignInPage() {
   };
 
   return (
-    <main className="flex flex-1 items-center justify-center px-6 pb-24">
-      <div className="w-full max-w-[20rem]">
+    // Sits a little above true centre: a block of text centred by measurement
+    // reads as low, and this one has all its weight at the top.
+    <main className="flex flex-1 items-center justify-center px-6 pb-[10vh]">
+      <div className="w-full max-w-[19rem]">
         <h1 className="text-[length:var(--text-title)] font-semibold tracking-[-0.02em]">
           Nootles
         </h1>
-        <p className="mt-1 text-[13px] text-muted">
-          An AI-native planning surface — notes, canvas, and an ambient copilot.
+        <p className="mt-2 text-[13px] leading-relaxed text-muted">
+          Notes, diagrams and maths on one page, with an AI that works in it
+          alongside you.
         </p>
 
         <button
           onClick={start}
           disabled={!isLoaded || going}
-          className="nt-row mt-8 h-9 w-full justify-center gap-2 border bg-sunken font-medium disabled:opacity-60"
+          aria-busy={going}
+          className="nt-row mt-9 h-9 w-full justify-center gap-2 border bg-sunken font-medium"
           style={{ borderColor: "var(--border)" }}
         >
           <GoogleMark width={16} height={16} />
-          Continue with Google
+          {going ? "Taking you to Google…" : "Continue with Google"}
         </button>
 
+        {/*
+          One region rather than a message that appears and shoves the page
+          down, and `aria-live` rather than a `role` that switches to "alert"
+          only once it has something to say — a live region has to be in the
+          document before the text lands for the change to be announced.
+        */}
         <p
-          role={failed ? "alert" : undefined}
-          className="mt-3 text-[length:var(--text-meta-lg)] text-muted"
+          aria-live="polite"
+          className="mt-3 min-h-8 text-[length:var(--text-meta-lg)] leading-relaxed text-muted"
         >
-          {failed
-            ? "That didn't go through. Try again."
-            : "New here? Signing in creates your account."}
+          {failed ? (
+            <span className="text-danger">
+              That didn’t go through. Try again.
+            </span>
+          ) : (
+            "New here? Signing in creates your account."
+          )}
         </p>
       </div>
     </main>

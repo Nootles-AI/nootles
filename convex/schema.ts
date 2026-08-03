@@ -46,6 +46,17 @@ export default defineSchema({
     // prosemirror-sync document id for this page's block flow.
     docId: v.string(),
     createdAt: v.number(),
+    /**
+     * Last time the page's content changed, stamped from the sync component's
+     * `onSnapshot` hook — which already runs on the editor's debounce, so this
+     * costs no write per keystroke. Coarse by construction: a page edited and
+     * left alone for less than one debounce reads as its previous value, which
+     * is well inside the granularity anything displays it at.
+     *
+     * Optional because pages written before it existed have no value; readers
+     * fall back to `createdAt`.
+     */
+    updatedAt: v.optional(v.number()),
   })
     .index("by_project", ["projectId", "order"])
     .index("by_doc", ["docId"]),

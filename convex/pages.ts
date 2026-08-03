@@ -78,7 +78,7 @@ export const rename = mutation({
   args: { pageId: v.id("pages"), title: v.string() },
   handler: async (ctx, args) => {
     await requireOwned(ctx, "pages", args.pageId);
-    await ctx.db.patch(args.pageId, { title: args.title });
+    await ctx.db.patch(args.pageId, { title: args.title, updatedAt: Date.now() });
   },
 });
 
