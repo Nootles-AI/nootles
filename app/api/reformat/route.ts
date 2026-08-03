@@ -3,7 +3,7 @@ import { sessionToken } from "@/app/lib/session";
 
 /**
  * Reformat suggestions for one finished block. The caller sends the block in
- * the auto-board HTML language; the model returns the shapes that block could
+ * the Nootles HTML language; the model returns the shapes that block could
  * take, each as rewritten HTML carrying the same id — which is what lets the
  * compiler treat the result as a replacement rather than an insertion.
  */

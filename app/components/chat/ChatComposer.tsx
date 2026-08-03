@@ -179,7 +179,7 @@ export function ChatComposer({
 
   return (
     <div
-      className={`ab-composer${dropping ? " is-dropping" : ""}`}
+      className={`nt-composer${dropping ? " is-dropping" : ""}`}
       onDragOver={(e) => {
         if (!e.dataTransfer.types.includes("Files")) return;
         e.preventDefault();
@@ -206,18 +206,18 @@ export function ChatComposer({
       )}
 
       {note && (
-        <p role="status" className="ab-composer-note">
+        <p role="status" className="nt-composer-note">
           {note}
         </p>
       )}
 
       {files.length > 0 && (
-        <div className="ab-composer-files">
+        <div className="nt-composer-files">
           {files.map((file) => (
-            <span key={file.id} className="ab-chip">
-              <span className="ab-chip-label">{file.filename}</span>
+            <span key={file.id} className="nt-chip">
+              <span className="nt-chip-label">{file.filename}</span>
               <button
-                className="ab-chip-remove"
+                className="nt-chip-remove"
                 aria-label={`Remove ${file.filename}`}
                 onClick={() => setFiles((current) => current.filter((f) => f.id !== file.id))}
               >
@@ -233,7 +233,7 @@ export function ChatComposer({
         rows={1}
         value={text}
         disabled={disabled}
-        aria-label="Ask auto-board"
+        aria-label="Ask Nootles"
         // The box stays a textbox rather than becoming a combobox: it is one for
         // three keystrokes out of a message, and the role would cost it
         // `aria-multiline` for the rest. `aria-activedescendant` is what a
@@ -241,7 +241,7 @@ export function ChatComposer({
         aria-controls={open ? menuId : undefined}
         aria-activedescendant={open ? `${menuId}-${activeIndex}` : undefined}
         placeholder="Ask, or describe a change…"
-        className="ab-composer-input"
+        className="nt-composer-input"
         onChange={(e) => write(e.target)}
         onClick={(e) => setCaret(e.currentTarget.selectionStart)}
         onKeyUp={(e) => setCaret(e.currentTarget.selectionStart)}
@@ -278,10 +278,10 @@ export function ChatComposer({
         }}
       />
 
-      <div className="ab-composer-actions">
+      <div className="nt-composer-actions">
         <div className="flex items-center gap-1">
           <button
-            className="ab-composer-attach"
+            className="nt-composer-attach"
             onClick={() => fileInput.current?.click()}
             disabled={disabled}
             aria-label="Attach a file"
@@ -291,12 +291,12 @@ export function ChatComposer({
           </button>
         </div>
         {busy ? (
-          <button className="ab-composer-send" onClick={onStop} title="Stop">
+          <button className="nt-composer-send" onClick={onStop} title="Stop">
             Stop
           </button>
         ) : (
           <button
-            className="ab-composer-send"
+            className="nt-composer-send"
             onClick={() => void submit()}
             disabled={!ready}
             title="Send (↵)"

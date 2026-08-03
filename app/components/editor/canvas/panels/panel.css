@@ -12,8 +12,8 @@
    rather than beside the others in globals.css — those sit in `@layer
    components`, and an unlayered rule beats a layered one whatever the
    specificity, so a layered override would never reach this. */
-.ab-style-panel {
-  animation: ab-rail-in-r var(--dur) var(--ease);
+.nt-style-panel {
+  animation: nt-rail-in-r var(--dur) var(--ease);
   display: flex;
   flex-direction: column;
   flex: none;
@@ -23,20 +23,20 @@
   border-left: 1px solid var(--border);
 }
 @media (prefers-reduced-motion: reduce) {
-  .ab-style-panel {
-    animation: ab-fade-in var(--dur-fast) var(--ease);
+  .nt-style-panel {
+    animation: nt-fade-in var(--dur-fast) var(--ease);
   }
 }
 
 /* The layers rail announces itself and this one did not, which left the two
    halves of the same shell looking like different applications. Wears
-   `.ab-section-label`, so it is the same voice as PAGES and LAYERS. */
-.ab-style-panel-head {
+   `.nt-section-label`, so it is the same voice as PAGES and LAYERS. */
+.nt-style-panel-head {
   flex: none;
   padding-right: var(--inset);
 }
 
-.ab-style-panel-body {
+.nt-style-panel-body {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
@@ -47,22 +47,22 @@
 
 /* Sections are the direct children, and one that does not apply renders
    nothing at all — so the rule that draws the dividers is also the rule that
-   omits them. `.ab-ctl-section` carries its own top border for the same
+   omits them. `.nt-ctl-section` carries its own top border for the same
    reason; this one covers the align strip, which is not a section. */
-.ab-style-panel-body > * + * {
+.nt-style-panel-body > * + * {
   border-top: 1px solid var(--border);
 }
 
 /* The alignment strip: the panel's one full-bleed row, and the only control
    group that acts on the selection rather than on a property of it. */
-.ab-align-strip {
+.nt-align-strip {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--ctl-gap);
   padding: 6px var(--inset);
 }
-.ab-align-group {
+.nt-align-group {
   display: flex;
   align-items: center;
   gap: 1px;

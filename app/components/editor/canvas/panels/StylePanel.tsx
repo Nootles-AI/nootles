@@ -149,17 +149,17 @@ export function StylePanel({
 
   return (
     <ColorVariablesContext value={colorVars}>
-      <aside className="ab-style-panel" aria-label="Design">
+      <aside className="nt-style-panel" aria-label="Design">
         {/* The layers rail says what it is; this one used to say nothing, which
           left the two halves of the same shell looking unrelated. */}
-        <div className="ab-section-label ab-style-panel-head">
+        <div className="nt-section-label nt-style-panel-head">
           <span>{nodes.length === 0 ? "Canvas" : "Design"}</span>
           {nodes.length > 1 && (
-            <span className="ab-meta">{nodes.length} selected</span>
+            <span className="nt-meta">{nodes.length} selected</span>
           )}
         </div>
         <div
-          className="ab-style-panel-body"
+          className="nt-style-panel-body"
           // Sections must stay the body's direct children — the rule that draws
           // the dividers says so — hence the handler here rather than a wrapper.
           onPointerDown={nodes.length ? hold : undefined}
@@ -224,7 +224,7 @@ function DiagramFields({
 }) {
   return (
     <PanelSection title="Canvas">
-      <div className="ab-ctl-grid">
+      <div className="nt-ctl-grid">
         <NumberField
           label="W"
           name="Canvas width"
@@ -242,7 +242,7 @@ function DiagramFields({
           onPreview={onPreviewSize && ((h) => onPreviewSize({ h }))}
         />
       </div>
-      <div className="ab-ctl-row">
+      <div className="nt-ctl-row">
         <ColorField
           label="Background"
           value={scene.style.background ?? ""}

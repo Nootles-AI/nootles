@@ -40,29 +40,29 @@ export function ThreadPicker({
       <div
         role="menu"
         aria-label="Chats"
-        className="ab-menu absolute left-2 right-2 top-10 max-h-80 overflow-y-auto"
+        className="nt-menu absolute left-2 right-2 top-10 max-h-80 overflow-y-auto"
       >
         {!threads.length && (
           <div className="px-2 py-1.5 text-[13px] text-muted">No chats yet.</div>
         )}
         {threads.map((thread) => (
-          <div key={thread._id} className="ab-thread-row">
+          <div key={thread._id} className="nt-thread-row">
             <button
               role="menuitem"
-              className="ab-menu-item flex-1"
+              className="nt-menu-item flex-1"
               onClick={() => {
                 onPick(thread._id);
                 onClose();
               }}
             >
-              <span className="ab-thread-check">
+              <span className="nt-thread-check">
                 {thread._id === activeId && <Check width={13} height={13} />}
               </span>
-              <span className="ab-row-label">{thread.title || "New chat"}</span>
-              <span className="ab-thread-age">{ago(thread.updatedAt)}</span>
+              <span className="nt-row-label">{thread.title || "New chat"}</span>
+              <span className="nt-thread-age">{ago(thread.updatedAt)}</span>
             </button>
             <button
-              className="ab-icon-btn ab-thread-delete"
+              className="nt-icon-btn nt-thread-delete"
               aria-label={`Delete ${thread.title || "New chat"}`}
               title="Delete chat"
               onClick={() => {

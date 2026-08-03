@@ -48,23 +48,23 @@ export function ChatReviewBar({ threadId }: { threadId: Id<"chatThreads"> | null
     );
 
   return (
-    <div className="ab-chat-review">
-      <div className="ab-chat-review-row">
-        <span className="ab-chat-review-count">
+    <div className="nt-chat-review">
+      <div className="nt-chat-review-row">
+        <span className="nt-chat-review-count">
           {hunks.length} change{hunks.length === 1 ? "" : "s"}
           {pages > 1 ? ` · ${pages} pages` : ""}
         </span>
         {/* A hunk the agent is still growing gets regrouped under a new id, so a
             button here would settle nothing. It says so instead. */}
         {writing ? (
-          <span className="ab-chat-review-count">still writing…</span>
+          <span className="nt-chat-review-count">still writing…</span>
         ) : (
-          <div className="ab-chat-review-actions">
-            <button className="ab-chat-review-btn" onClick={() => answerAll("rejected")}>
+          <div className="nt-chat-review-actions">
+            <button className="nt-chat-review-btn" onClick={() => answerAll("rejected")}>
               Discard
             </button>
             <button
-              className="ab-chat-review-btn is-keep"
+              className="nt-chat-review-btn is-keep"
               onClick={() => answerAll("accepted")}
             >
               Keep
@@ -72,7 +72,7 @@ export function ChatReviewBar({ threadId }: { threadId: Id<"chatThreads"> | null
           </div>
         )}
       </div>
-      {failure && <p className="ab-chat-review-failure">{failure}</p>}
+      {failure && <p className="nt-chat-review-failure">{failure}</p>}
     </div>
   );
 }

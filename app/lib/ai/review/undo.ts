@@ -182,7 +182,7 @@ function nameEmptyBlock(tr: Transaction): string | null {
     if (named) return false;
     const attrs = node.type.spec.attrs;
     if (!attrs || !("id" in attrs) || node.attrs.id) return true;
-    named = `ab-restore-${crypto.randomUUID()}`;
+    named = `nt-restore-${crypto.randomUUID()}`;
     tr.setNodeAttribute(pos, "id", named);
     return false;
   });

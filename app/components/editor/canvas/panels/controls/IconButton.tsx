@@ -25,7 +25,7 @@ export function IconButton({
   return (
     <Tooltip label={label}>
       <button
-        className="ab-icon-btn is-sm"
+        className="nt-icon-btn is-sm"
         aria-label={label}
         disabled={disabled}
         onClick={onClick}

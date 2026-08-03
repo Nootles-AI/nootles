@@ -97,13 +97,13 @@ function Slider({
 
   return (
     <div
-      className="ab-ctl-slider"
+      className="nt-ctl-slider"
       style={{
         background: `linear-gradient(90deg, var(--border-strong) ${shown * 100}%, var(--sunken) ${shown * 100}%)`,
       }}
       onPointerDown={start}
     >
-      <span className="ab-ctl-knob" style={{ left: `${shown * 100}%` }} />
+      <span className="nt-ctl-knob" style={{ left: `${shown * 100}%` }} />
     </div>
   );
 }
@@ -164,10 +164,10 @@ export function AppearanceSection({ selection, patch, setStyle }: SectionProps) 
 
   return (
     <PanelSection title="Appearance">
-      <div className="ab-ctl-group">
-        <div className="ab-ctl-row">
+      <div className="nt-ctl-group">
+        <div className="nt-ctl-row">
           <Slider value={opacity} onChange={setOpacity} />
-          <span className="ab-ctl-narrow">
+          <span className="nt-ctl-narrow">
             <NumberField
               value={Math.round(opacity * 100)}
               mixed={opacityMixed}
@@ -179,7 +179,7 @@ export function AppearanceSection({ selection, patch, setStyle }: SectionProps) 
           </span>
         </div>
 
-        <div className="ab-ctl-row">
+        <div className="nt-ctl-row">
           <SelectField
             label="Blend mode"
             value={blendMixed ? "" : blends[0]}
@@ -194,23 +194,23 @@ export function AppearanceSection({ selection, patch, setStyle }: SectionProps) 
         </div>
       </div>
 
-      <div className="ab-ctl-group">
+      <div className="nt-ctl-group">
         <button
           onClick={() => setOpen(!showAdjust)}
           aria-expanded={showAdjust}
-          className="ab-ctl-disclose"
+          className="nt-ctl-disclose"
         >
           <ChevronRight
             width={12}
             height={12}
-            className={`ab-ctl-chevron${showAdjust ? " is-open" : ""}`}
+            className={`nt-ctl-chevron${showAdjust ? " is-open" : ""}`}
           />
           <span>Colour adjustments</span>
         </button>
 
         {showAdjust &&
           [adjustments.slice(0, 2), adjustments.slice(2)].map((pair) => (
-            <div className="ab-ctl-grid" key={pair[0].fn}>
+            <div className="nt-ctl-grid" key={pair[0].fn}>
               {pair.map((a) => (
                 <NumberField
                   key={a.fn}

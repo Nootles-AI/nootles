@@ -82,21 +82,21 @@ function AlignPicker({
   const onRow = horizontal ? align : justify;
 
   return (
-    <div className="ab-ctl-align3" role="group" aria-label="Align contents">
+    <div className="nt-ctl-align3" role="group" aria-label="Align contents">
       {CELLS.map(({ row, col }) => {
         const on = col === onCol && row === onRow;
         const name = `Align ${ROW_NAMES[row]} ${COL_NAMES[col]}`;
         return (
-          <Tooltip key={`${row}${col}`} label={name} className="ab-ctl-anchor">
+          <Tooltip key={`${row}${col}`} label={name} className="nt-ctl-anchor">
             <button
               aria-pressed={on}
               aria-label={name}
               onClick={() =>
                 onPick(POS[horizontal ? row : col], POS[horizontal ? col : row])
               }
-              className="ab-ctl-align3-cell"
+              className="nt-ctl-align3-cell"
             >
-              <span className={on ? "ab-ctl-align3-on" : "ab-ctl-align3-off"} />
+              <span className={on ? "nt-ctl-align3-on" : "nt-ctl-align3-off"} />
             </button>
           </Tooltip>
         );
@@ -222,8 +222,8 @@ export function LayoutSection({ selection, patch }: SectionProps) {
 
   return (
     <PanelSection title="Auto layout">
-      <div className="ab-ctl-group">
-        <div className="ab-ctl-row">
+      <div className="nt-ctl-group">
+        <div className="nt-ctl-row">
           <IconToggle
             value={differs("display") || differs("flex-direction") ? "" : direction}
             options={DIRECTIONS}
@@ -231,7 +231,7 @@ export function LayoutSection({ selection, patch }: SectionProps) {
           />
         </div>
 
-        <div className="ab-ctl-grid">
+        <div className="nt-ctl-grid">
           <NumberField
             label={<Gap />}
             name="Gap between items"
@@ -248,9 +248,9 @@ export function LayoutSection({ selection, patch }: SectionProps) {
             min={0}
             onChange={setPadding}
           />
-          <Tooltip label="Set each side separately" className="ab-ctl-slot">
+          <Tooltip label="Set each side separately" className="nt-ctl-slot">
             <button
-              className="ab-icon-btn is-sm"
+              className="nt-icon-btn is-sm"
               aria-pressed={expanded}
               aria-label="Set each side separately"
               onClick={() => setExpanded((v) => !v)}
@@ -262,7 +262,7 @@ export function LayoutSection({ selection, patch }: SectionProps) {
 
         {expanded &&
           [SIDES.slice(0, 2), SIDES.slice(2)].map((pair) => (
-            <div className="ab-ctl-grid" key={pair[0].key}>
+            <div className="nt-ctl-grid" key={pair[0].key}>
               {pair.map((side) => (
                 <NumberField
                   key={side.key}
@@ -278,7 +278,7 @@ export function LayoutSection({ selection, patch }: SectionProps) {
           ))}
       </div>
 
-      <div className="ab-ctl-group">
+      <div className="nt-ctl-group">
         <AlignPicker
           horizontal={horizontal}
           align={POS.findIndex((p) => p === layout.alignItems)}
@@ -292,7 +292,7 @@ export function LayoutSection({ selection, patch }: SectionProps) {
         />
 
         {direction === "grid" && (
-          <div className="ab-ctl-grid">
+          <div className="nt-ctl-grid">
             <NumberField
               label="Cols"
               name="Grid columns"
@@ -308,7 +308,7 @@ export function LayoutSection({ selection, patch }: SectionProps) {
           </div>
         )}
 
-        <div className="ab-ctl-grid">
+        <div className="nt-ctl-grid">
           {AXES.map(({ axis, name, prop, key }) => (
             <SelectField
               key={prop}

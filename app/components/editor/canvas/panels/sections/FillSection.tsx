@@ -221,9 +221,9 @@ function BoxFill({ nodes, patch }: { nodes: SceneNode[]; patch: Patch }) {
         ])
       }
     >
-      {mixed && <span className="ab-ctl-empty">Mixed</span>}
+      {mixed && <span className="nt-ctl-empty">Mixed</span>}
       {!mixed && fills.length === 0 && (
-        <span className="ab-ctl-empty">No fill</span>
+        <span className="nt-ctl-empty">No fill</span>
       )}
       {fills.map((fill, i) => (
         <FillRow
@@ -256,8 +256,8 @@ function FillRow({
   const bound = isBound(fill);
 
   return (
-    <div className="ab-ctl-group">
-      <div className="ab-ctl-row">
+    <div className="nt-ctl-group">
+      <div className="nt-ctl-row">
         <SelectField
           name="Fill type"
           value={fill.type}
@@ -276,7 +276,7 @@ function FillRow({
         </IconButton>
       </div>
 
-      <div className="ab-ctl-row">
+      <div className="nt-ctl-row">
         {fill.type === "solid" ? (
           <ColorField
             value={fill.paint}
@@ -291,7 +291,7 @@ function FillRow({
             spellCheck={false}
             placeholder="Image URL"
             aria-label="Image URL"
-            className="ab-ctl-text min-w-0 flex-1"
+            className="nt-ctl-text min-w-0 flex-1"
             defaultValue={srcOf(fill.paint)}
             onBlur={(e) => onChange({ ...fill, paint: toUrl(e.target.value) })}
             onKeyDown={(e) => {
@@ -305,7 +305,7 @@ function FillRow({
           />
         )}
 
-        <span className="ab-ctl-narrow">
+        <span className="nt-ctl-narrow">
           {image ? (
             <SelectField
               value={fill.layer.values[SIZE] ?? "auto"}
@@ -328,9 +328,9 @@ function FillRow({
           ) : bound ? (
             <Tooltip
               label="Opacity comes from the variable"
-              className="ab-ctl-anchor"
+              className="nt-ctl-anchor"
             >
-              <span className="ab-ctl-bound">{Math.round(opacity * 100)}%</span>
+              <span className="nt-ctl-bound">{Math.round(opacity * 100)}%</span>
             </Tooltip>
           ) : (
             <NumberField
@@ -362,14 +362,14 @@ function PathFill({ nodes, patch }: { nodes: SceneNode[]; patch: Patch }) {
       onAdd={filled ? undefined : () => set(DEFAULT_PAINT)}
     >
       {filled ? (
-        <div className="ab-ctl-row">
+        <div className="nt-ctl-row">
           <ColorField value={value} mixed={mixed} onChange={set} />
           <IconButton label="Remove fill" onClick={() => set("none")}>
             <X width={13} height={13} />
           </IconButton>
         </div>
       ) : (
-        <span className="ab-ctl-empty">No fill</span>
+        <span className="nt-ctl-empty">No fill</span>
       )}
     </PanelSection>
   );

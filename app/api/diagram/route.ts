@@ -2,7 +2,7 @@ import { streamDiagram } from "@/app/lib/ai/diagram";
 import { sessionToken } from "@/app/lib/session";
 
 /**
- * Expands one `<ab-build-diagram>` into canvas HTML.
+ * Expands one `<nt-build-diagram>` into canvas HTML.
  *
  * The second half of the completion lane: stage one decides, in the grammar,
  * that a diagram comes next and says in a phrase what it is for; this turns

@@ -48,7 +48,7 @@ const BLUR_TYPE = { filter: "blur", "backdrop-filter": "backdrop" } as const;
  * round-trips through the grammar untouched. The cost is that re-showing an
  * effect returns it to the end of its own stack rather than its old position.
  */
-const off = (stack: FxStack) => `--ab-off-${stack}`;
+const off = (stack: FxStack) => `--nt-off-${stack}`;
 
 const isBlur = (stack: FxStack, layer: Layer) =>
   layer.values[`${stack}-fn`] === "blur";
@@ -174,9 +174,9 @@ export function EffectsSection({ selection, patch }: SectionProps) {
       }
     >
       {!aligned ? (
-        <span className="ab-ctl-empty">Mixed</span>
+        <span className="nt-ctl-empty">Mixed</span>
       ) : lists[0].length === 0 ? (
-        <span className="ab-ctl-empty">No effects</span>
+        <span className="nt-ctl-empty">No effects</span>
       ) : (
         lists[0].map((fx, i) => {
           const stack = STACK[fx.type];
@@ -198,8 +198,8 @@ export function EffectsSection({ selection, patch }: SectionProps) {
           );
 
           return (
-            <div key={i} className="ab-ctl-group">
-              <div className="ab-ctl-row">
+            <div key={i} className="nt-ctl-group">
+              <div className="nt-ctl-row">
                 <SelectField
                   name="Effect type"
                   value={fx.type}
@@ -220,18 +220,18 @@ export function EffectsSection({ selection, patch }: SectionProps) {
                 </IconButton>
               </div>
 
-              <div className={`ab-ctl-stack${fx.hidden ? " is-off" : ""}`}>
+              <div className={`nt-ctl-stack${fx.hidden ? " is-off" : ""}`}>
                 {stack === "box-shadow" ? (
                   <>
-                    <div className="ab-ctl-grid">
+                    <div className="nt-ctl-grid">
                       {number("box-shadow-h", "X", "Offset X")}
                       {number("box-shadow-v", "Y", "Offset Y")}
                     </div>
-                    <div className="ab-ctl-grid">
+                    <div className="nt-ctl-grid">
                       {number("box-shadow-blur", <Blur />, "Blur radius", 0)}
                       {number("box-shadow-spread", <Spread />, "Spread")}
                     </div>
-                    <div className="ab-ctl-row">
+                    <div className="nt-ctl-row">
                       <ColorField
                         value={read(i, "box-shadow-color")}
                         mixed={differs(i, "box-shadow-color")}
@@ -242,7 +242,7 @@ export function EffectsSection({ selection, patch }: SectionProps) {
                     </div>
                   </>
                 ) : (
-                  <div className="ab-ctl-grid">
+                  <div className="nt-ctl-grid">
                     {number(`${stack}-value`, <Blur />, "Blur radius", 0)}
                   </div>
                 )}

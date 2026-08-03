@@ -117,7 +117,7 @@ export const ShapeView = memo(function ShapeView({
 
   const shape = shapeOf(node);
   const style = boxStyle(node, flow, shape);
-  const className = `ab-node ab-node-${node.kind}${editing ? " is-editing" : ""}`;
+  const className = `nt-node nt-node-${node.kind}${editing ? " is-editing" : ""}`;
 
   if (node.kind === "path") {
     return (
@@ -178,7 +178,7 @@ export const ShapeView = memo(function ShapeView({
       {editing ? (
         <span
           ref={label}
-          className="ab-edit"
+          className="nt-edit"
           contentEditable
           // While a label is open the canvas keymap already stands down (it
           // tests `isContentEditable`); this is for the ProseMirror editor

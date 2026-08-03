@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "auto-board",
+  title: "Nootles",
   description: "An AI-native planning surface — notes, canvas, and an ambient copilot.",
 };
 

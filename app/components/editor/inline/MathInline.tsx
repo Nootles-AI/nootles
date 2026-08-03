@@ -27,7 +27,7 @@ function MathInlineView({
 
   if (editing) {
     return (
-      <span className="ab-math-inline is-editing" contentEditable={false}>
+      <span className="nt-math-inline is-editing" contentEditable={false}>
         <MathField
           value={latex}
           onChange={onChange}
@@ -41,7 +41,7 @@ function MathInlineView({
   if (latex.trim() === "") {
     return (
       <span
-        className="ab-math-inline ab-math-placeholder"
+        className="nt-math-inline nt-math-placeholder"
         contentEditable={false}
         role="button"
         tabIndex={0}
@@ -54,7 +54,7 @@ function MathInlineView({
 
   return (
     <span
-      className="ab-math-inline"
+      className="nt-math-inline"
       contentEditable={false}
       role="button"
       tabIndex={0}

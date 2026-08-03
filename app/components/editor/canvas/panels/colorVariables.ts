@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Colour variables are CSS custom properties on `<ab-diagram>`'s own style —
+ * Colour variables are CSS custom properties on `<nt-diagram>`'s own style —
  * `--brand: #6366f1` — referenced by shapes as `var(--brand)`. There is no
  * registry: the grammar already stores both halves, so a variable round-trips
  * for free and an AI edit reads the same way a human one does.

@@ -21,7 +21,7 @@
    line the shell's rows and the section titles use. There is no label column;
    a fixed one cost 54px of a 223px body and produced a second left edge. */
 
-.ab-style-panel {
+.nt-style-panel {
   /* Named so the grid and the action buttons cannot disagree about the slot. */
   --ctl-gutter: var(--control-sm);
   --ctl-gap: 6px;
@@ -30,9 +30,9 @@
 /* ---- Sections ------------------------------------------------------------
    Weighted to the top: more air above a title than below it, so a heading
    belongs to what follows rather than floating between two groups. The rule
-   between two sections is drawn once, by `.ab-style-panel-body > * + *`, which
+   between two sections is drawn once, by `.nt-style-panel-body > * + *`, which
    also covers the align strip — this file used to declare it a second time. */
-.ab-ctl-head {
+.nt-ctl-head {
   display: flex;
   align-items: center;
   gap: 2px;
@@ -43,7 +43,7 @@
   padding-right: var(--inset);
 }
 
-.ab-ctl-title {
+.nt-ctl-title {
   flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
@@ -58,20 +58,20 @@
   color: var(--muted);
   transition: color var(--dur-fast) var(--ease);
 }
-.ab-ctl-title:hover {
+.nt-ctl-title:hover {
   color: var(--foreground);
 }
 
-.ab-ctl-chevron {
+.nt-ctl-chevron {
   flex: none;
   color: var(--muted);
   transition: transform var(--dur-fast) var(--ease);
 }
-.ab-ctl-chevron.is-open {
+.nt-ctl-chevron.is-open {
   transform: rotate(90deg);
 }
 
-.ab-ctl-section-body {
+.nt-ctl-section-body {
   display: flex;
   flex-direction: column;
   gap: var(--ctl-gap);
@@ -81,20 +81,20 @@
 /* Tight within a group, generous between them: the two stacked-list sections
    used one 6px gap both inside a fill and between two of them, so a stack of
    three read as nine unrelated rows. */
-.ab-ctl-group {
+.nt-ctl-group {
   display: flex;
   flex-direction: column;
   gap: var(--ctl-gap);
   min-width: 0;
 }
-.ab-ctl-group + .ab-ctl-group {
+.nt-ctl-group + .nt-ctl-group {
   margin-top: 8px;
   padding-top: 8px;
   border-top: 1px solid var(--border);
 }
 
 /* ---- The row grid -------------------------------------------------------- */
-.ab-ctl-grid {
+.nt-ctl-grid {
   display: grid;
   grid-template-columns: 1fr 1fr var(--ctl-gutter);
   gap: var(--ctl-gap);
@@ -105,25 +105,25 @@
    display, since a bare `span` is inline and would shrink-wrap the control. */
 
 /* Both control columns, gutter still reserved. */
-.ab-ctl-wide {
+.nt-ctl-wide {
   display: flex;
   grid-column: 1 / 3;
   min-width: 0;
 }
 /* Everything, gutter included — for a control with no trailing action. */
-.ab-ctl-full {
+.nt-ctl-full {
   display: flex;
   grid-column: 1 / -1;
   min-width: 0;
 }
-.ab-ctl-slot {
+.nt-ctl-slot {
   display: flex;
   grid-column: 3;
   justify-self: center;
 }
 /* The second column through the gutter — for a control that pairs with one
    field and has no action of its own. */
-.ab-ctl-wide-end {
+.nt-ctl-wide-end {
   display: flex;
   grid-column: 2 / -1;
   min-width: 0;
@@ -131,23 +131,23 @@
 
 /* A tooltip's anchor wraps the control it explains, so it has to be the box
    the grid or the flex row was going to size — not a shrink-wrap around it. */
-.ab-ctl-anchor {
+.nt-ctl-anchor {
   display: flex;
   flex: 1 1 auto;
   min-width: 0;
 }
 
 /* A flex row for popover interiors, which are not on the panel grid. */
-.ab-ctl-row {
+.nt-ctl-row {
   display: flex;
   align-items: center;
   gap: var(--ctl-gap);
 }
 /** Pushes what follows to the row's right edge. */
-.ab-ctl-grow {
+.nt-ctl-grow {
   flex: 1 1 auto;
 }
-.ab-ctl-narrow {
+.nt-ctl-narrow {
   display: flex;
   flex: 0 0 68px;
 }
@@ -156,9 +156,9 @@
    A resting fill, so a field looks like somewhere you can type before you
    point at it. Three states, one ladder: sunken at rest, a hairline on hover,
    and lifted to the page's own white when focused. */
-.ab-num,
-.ab-ctl-select,
-.ab-ctl-swatch {
+.nt-num,
+.nt-ctl-select,
+.nt-ctl-swatch {
   position: relative;
   display: flex;
   align-items: center;
@@ -183,9 +183,9 @@
    left wall — so the ring ran round three sides and stopped dead where the
    compartment began. A pseudo-element after the content paints over it, and the
    ring closes. */
-.ab-num::after,
-.ab-ctl-select::after,
-.ab-ctl-swatch::after {
+.nt-num::after,
+.nt-ctl-select::after,
+.nt-ctl-swatch::after {
   content: "";
   position: absolute;
   inset: 0;
@@ -198,31 +198,31 @@
 /* A field that names itself gives the name the wall: the compartment runs to
    the field's own edge, so the padding that would hold it off belongs to the
    compartment instead. */
-.ab-num:has(> .ab-ctl-mark),
-.ab-ctl-select:has(> .ab-ctl-mark),
-.ab-ctl-swatch:has(> .ab-ctl-mark) {
+.nt-num:has(> .nt-ctl-mark),
+.nt-ctl-select:has(> .nt-ctl-mark),
+.nt-ctl-swatch:has(> .nt-ctl-mark) {
   padding-left: 0;
 }
-.ab-num:hover::after,
-.ab-ctl-select:hover::after,
-.ab-ctl-swatch:hover::after {
+.nt-num:hover::after,
+.nt-ctl-select:hover::after,
+.nt-ctl-swatch:hover::after {
   box-shadow: inset 0 0 0 1px var(--border-strong);
 }
 
 /* The number box is the scrub handle, so the whole field takes the cursor —
    until you are actually typing in it, when dragging selects text instead. */
-.ab-num {
+.nt-num {
   cursor: ew-resize;
   touch-action: none;
 }
-.ab-num.is-scrubbing::after {
+.nt-num.is-scrubbing::after {
   box-shadow: inset 0 0 0 1px var(--border-strong);
 }
-.ab-num:focus-within {
+.nt-num:focus-within {
   background: var(--background);
   cursor: default;
 }
-.ab-num:focus-within::after {
+.nt-num:focus-within::after {
   box-shadow: inset 0 0 0 1px var(--muted);
 }
 
@@ -238,8 +238,8 @@
    rule is what puts a visible ring on text fields everywhere ELSE in the app,
    and it was added to fix a real 1.25:1 focus indicator. This file is
    unlayered and globals.css is in `@layer base`, so this wins. */
-.ab-num:has(.ab-num-input:focus-visible),
-.ab-ctl-text:focus-visible {
+.nt-num:has(.nt-num-input:focus-visible),
+.nt-ctl-text:focus-visible {
   outline: none;
 }
 
@@ -257,7 +257,7 @@
    The ink is `--foreground`, not the `--muted` a label would normally take: a
    14px glyph is a few thin strokes rather than a run of letters, and it needs
    the weight that a word does not. */
-.ab-ctl-mark {
+.nt-ctl-mark {
   display: inline-flex;
   flex: none;
   /* Top and bottom as well as left: a compartment that stopped short of the
@@ -276,13 +276,13 @@
   color: var(--foreground);
   user-select: none;
 }
-.ab-num-unit {
+.nt-num-unit {
   flex: none;
   font-size: var(--text-meta-lg);
   color: var(--muted);
   user-select: none;
 }
-.ab-num-input {
+.nt-num-input {
   flex: 1 1 auto;
   width: 100%;
   min-width: 0;
@@ -293,15 +293,15 @@
   font-variant-numeric: tabular-nums;
   cursor: inherit;
 }
-.ab-num-input::placeholder {
+.nt-num-input::placeholder {
   color: var(--muted);
 }
-.ab-num:focus-within .ab-num-input {
+.nt-num:focus-within .nt-num-input {
   cursor: text;
 }
 
-.ab-ctl-swatch-text,
-.ab-ctl-select-value {
+.nt-ctl-swatch-text,
+.nt-ctl-select-value {
   flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
@@ -309,11 +309,11 @@
   text-overflow: ellipsis;
   text-align: left;
 }
-.ab-ctl-select-caret {
+.nt-ctl-select-caret {
   flex: none;
   color: var(--muted);
 }
-.ab-ctl-check {
+.nt-ctl-check {
   display: inline-flex;
   flex: none;
   width: 12px;
@@ -323,7 +323,7 @@
 /* ---- Swatches -----------------------------------------------------------
    A checkerboard under every fill, so alpha reads as alpha rather than as a
    paler colour. */
-.ab-ctl-chip {
+.nt-ctl-chip {
   position: relative;
   flex: none;
   width: 14px;
@@ -339,7 +339,7 @@
     )
     0 0 / 8px 8px;
 }
-.ab-ctl-chip-fill {
+.nt-ctl-chip-fill {
   position: absolute;
   inset: 0;
 }
@@ -347,7 +347,7 @@
 /* ---- Inline text --------------------------------------------------------
    The hex box, an image URL, a variable name. Sits in a field's slot, so it
    wears the field's own resting fill and takes the app's focus ring. */
-.ab-ctl-text {
+.nt-ctl-text {
   height: var(--control-sm);
   min-width: 0;
   padding-inline: var(--inset);
@@ -358,17 +358,17 @@
   color: var(--foreground);
   transition: background var(--dur-fast) var(--ease);
 }
-.ab-ctl-text:hover {
+.nt-ctl-text:hover {
   box-shadow: inset 0 0 0 1px var(--border-strong);
 }
-.ab-ctl-text:focus {
+.nt-ctl-text:focus {
   background: var(--background);
   box-shadow: inset 0 0 0 1px var(--muted);
 }
 
 /* A disclosure inside a section body — one step below a section title, so it
    takes the row voice rather than the mono heading voice. */
-.ab-ctl-disclose {
+.nt-ctl-disclose {
   display: flex;
   align-items: center;
   gap: 4px;
@@ -379,12 +379,12 @@
   color: var(--muted);
   transition: color var(--dur-fast) var(--ease);
 }
-.ab-ctl-disclose:hover {
+.nt-ctl-disclose:hover {
   color: var(--foreground);
 }
 
 /* ---- Sliders ------------------------------------------------------------- */
-.ab-ctl-slider {
+.nt-ctl-slider {
   position: relative;
   flex: 1 1 auto;
   min-width: 0;
@@ -394,7 +394,7 @@
   touch-action: none;
   box-shadow: inset 0 0 0 1px oklch(0.25 0.005 90 / 0.12);
 }
-.ab-ctl-slider.is-hue {
+.nt-ctl-slider.is-hue {
   background: linear-gradient(
     90deg,
     #f00 0%,
@@ -406,7 +406,7 @@
     #f00 100%
   );
 }
-.ab-ctl-slider.is-alpha {
+.nt-ctl-slider.is-alpha {
   overflow: hidden;
   background: conic-gradient(
       oklch(0.88 0.003 90) 0 25%,
@@ -416,13 +416,13 @@
     )
     0 0 / 8px 8px;
 }
-.ab-ctl-alpha-fill {
+.nt-ctl-alpha-fill {
   position: absolute;
   inset: 0;
 }
 
 /* Hollow, so the value it points at is the thing you see through it. */
-.ab-ctl-knob {
+.nt-ctl-knob {
   position: absolute;
   top: 50%;
   width: 12px;
@@ -437,7 +437,7 @@
 }
 
 /* ---- Pickers ------------------------------------------------------------- */
-.ab-ctl-pop {
+.nt-ctl-pop {
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -445,7 +445,7 @@
   padding: 10px;
 }
 
-.ab-ctl-sv {
+.nt-ctl-sv {
   position: relative;
   height: 132px;
   border-radius: var(--radius);
@@ -458,7 +458,7 @@
 }
 
 /* ---- Gradient bar ------------------------------------------------------- */
-.ab-ctl-bar {
+.nt-ctl-bar {
   position: relative;
   height: 22px;
   border-radius: var(--radius-sm);
@@ -466,7 +466,7 @@
   touch-action: none;
   box-shadow: inset 0 0 0 1px oklch(0.25 0.005 90 / 0.12);
 }
-.ab-ctl-stop {
+.nt-ctl-stop {
   position: absolute;
   top: 50%;
   width: 11px;
@@ -478,21 +478,21 @@
     0 0 0 1.5px oklch(1 0 90),
     0 0 0 2.5px oklch(0.25 0.005 90 / 0.3);
 }
-.ab-ctl-stop.is-on {
+.nt-ctl-stop.is-on {
   box-shadow:
     0 0 0 1.5px oklch(1 0 90),
     0 0 0 2.5px var(--foreground);
 }
 
 /* ---- Segmented toggles ---------------------------------------------------
-   The shell's `.ab-mode` well, sized for a glyph instead of a word, and
+   The shell's `.nt-mode` well, sized for a glyph instead of a word, and
    stretched so a toggle fills whatever column it is given — a fixed-width one
    overflowed the text section's row by 12px. */
-.ab-mode.is-fill {
+.nt-mode.is-fill {
   display: flex;
   width: 100%;
 }
-.ab-mode-btn.is-icon {
+.nt-mode-btn.is-icon {
   display: inline-flex;
   flex: 1 1 0;
   align-items: center;
@@ -505,7 +505,7 @@
 /* ---- The 3x3 alignment picker -------------------------------------------
    Framed as a well and left at its natural square, so it reads as the box the
    children are being placed inside rather than as nine loose buttons. */
-.ab-ctl-align3 {
+.nt-ctl-align3 {
   display: grid;
   grid-template-columns: repeat(3, var(--control-sm));
   grid-template-rows: repeat(3, var(--control-sm));
@@ -515,7 +515,7 @@
   border-radius: var(--radius);
   background: var(--sunken);
 }
-.ab-ctl-align3-cell {
+.nt-ctl-align3-cell {
   display: flex;
   width: 100%;
   align-items: center;
@@ -526,11 +526,11 @@
     background var(--dur-fast) var(--ease),
     color var(--dur-fast) var(--ease);
 }
-.ab-ctl-align3-cell:hover {
+.nt-ctl-align3-cell:hover {
   background: var(--hover);
   color: var(--foreground);
 }
-.ab-ctl-align3-cell[aria-pressed="true"] {
+.nt-ctl-align3-cell[aria-pressed="true"] {
   background: var(--background);
   color: var(--foreground);
   box-shadow: 0 1px 2px oklch(0.25 0.005 90 / 0.06);
@@ -538,13 +538,13 @@
 /* --muted, not --faint: a 4px decorative dot was the entire content of this
    control, and it sat below the contrast floor for anything that carries
    meaning. */
-.ab-ctl-align3-off {
+.nt-ctl-align3-off {
   width: 4px;
   height: 4px;
   border-radius: 999px;
   background: currentColor;
 }
-.ab-ctl-align3-on {
+.nt-ctl-align3-on {
   width: 7px;
   height: 7px;
   border-radius: 2px;
@@ -552,7 +552,7 @@
 }
 
 /* ---- Checkbox ------------------------------------------------------------ */
-.ab-ctl-check-row {
+.nt-ctl-check-row {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -562,10 +562,10 @@
   color: var(--muted);
   transition: color var(--dur-fast) var(--ease);
 }
-.ab-ctl-check-row:hover {
+.nt-ctl-check-row:hover {
   color: var(--foreground);
 }
-.ab-ctl-box {
+.nt-ctl-box {
   display: flex;
   flex: none;
   width: 14px;
@@ -578,12 +578,12 @@
     background var(--dur-fast) var(--ease),
     border-color var(--dur-fast) var(--ease);
 }
-.ab-ctl-box.is-on {
+.nt-ctl-box.is-on {
   border-color: var(--foreground);
   background: var(--foreground);
   color: var(--background);
 }
-.ab-ctl-box-mixed {
+.nt-ctl-box-mixed {
   width: 6px;
   height: 1px;
   background: var(--muted);
@@ -592,18 +592,18 @@
 /* ---- Notes and sub-labels ------------------------------------------------
    All --muted. --faint is documented "decorative only, no text", and it was
    carrying four separate strings the reader actually needs. */
-.ab-ctl-note {
+.nt-ctl-note {
   font-size: var(--text-meta);
   color: var(--muted);
 }
-.ab-ctl-sublabel {
+.nt-ctl-sublabel {
   font-size: var(--text-meta);
   font-weight: 500;
   letter-spacing: var(--tracking-meta);
   text-transform: uppercase;
   color: var(--muted);
 }
-.ab-ctl-textbtn {
+.nt-ctl-textbtn {
   flex: none;
   height: var(--control-sm);
   padding-inline: 6px;
@@ -614,13 +614,13 @@
     background var(--dur-fast) var(--ease),
     color var(--dur-fast) var(--ease);
 }
-.ab-ctl-textbtn:hover {
+.nt-ctl-textbtn:hover {
   background: var(--hover);
   color: var(--foreground);
 }
 /* A value the panel is showing but not offering to change — a bound paint's
    opacity belongs to the variable it came from. */
-.ab-ctl-bound {
+.nt-ctl-bound {
   display: flex;
   height: var(--control-sm);
   align-items: center;
@@ -632,19 +632,19 @@
 
 /* The values under a row's own header — dimmed together when the thing they
    describe is switched off. */
-.ab-ctl-stack {
+.nt-ctl-stack {
   display: flex;
   flex-direction: column;
   gap: var(--ctl-gap);
   min-width: 0;
   transition: opacity var(--dur-fast) var(--ease);
 }
-.ab-ctl-stack.is-off {
+.nt-ctl-stack.is-off {
   opacity: 0.45;
 }
 
 /* ---- Empty section ------------------------------------------------------- */
-.ab-ctl-empty {
+.nt-ctl-empty {
   padding-left: var(--inset);
   font-size: var(--text-ui);
   color: var(--muted);

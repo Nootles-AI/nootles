@@ -60,7 +60,7 @@ const GHOST_TAGS: Record<string, string> = {
 
 /**
  * Renders inline markup into real nodes, so a preview looks the way the block
- * looks — bold is bold, `code` wears the code chrome, `<ab-math>` renders
+ * looks — bold is bold, `code` wears the code chrome, `<nt-math>` renders
  * through KaTeX.
  *
  * Showing the raw tags instead was the tell that the preview and the real thing
@@ -83,7 +83,7 @@ export function renderInline(source: string, into: HTMLElement) {
       const el = child as Element;
       const tag = el.tagName.toLowerCase();
 
-      if (tag === "ab-math") {
+      if (tag === "nt-math") {
         const span = document.createElement("span");
         try {
           span.innerHTML = katex.renderToString(el.textContent ?? "", {
@@ -203,7 +203,7 @@ function appendGhostBlocks(parent: HTMLElement, blocks: GhostBlock[]) {
  * when it is nested inside another, and the preview is not an indent.
  */
 export function ghostBlocksElement(blocks: GhostBlock[], live = false): HTMLElement {
-  const wrap = div("ab-ghost-blocks");
+  const wrap = div("nt-ghost-blocks");
   wrap.contentEditable = "false";
   appendGhostBlocks(wrap, blocks);
   // The preview cursor, at the end of the last block drawn. A suggestion makes
@@ -212,7 +212,7 @@ export function ghostBlocksElement(blocks: GhostBlock[], live = false): HTMLElem
   const lines = wrap.querySelectorAll("p.bn-inline-content");
   const end = lines[lines.length - 1];
   if (end) {
-    end.classList.add("ab-stream-head");
+    end.classList.add("nt-stream-head");
     if (live) end.classList.add("is-live");
   }
   return wrap;
@@ -231,7 +231,7 @@ export function ghostBlocksKey(blocks: GhostBlock[]): string {
 
 function head(label: string) {
   const el = document.createElement("div");
-  el.className = "ab-code-preview-head";
+  el.className = "nt-code-preview-head";
   el.textContent = label;
   return el;
 }
@@ -260,7 +260,7 @@ export function disposePreview(node: Node): void {
   // lookup that finds nothing.
   const owners: Element[] = [el];
   if (typeof el.querySelectorAll === "function") {
-    owners.push(...el.querySelectorAll(".ab-diagram-preview"));
+    owners.push(...el.querySelectorAll(".nt-diagram-preview"));
   }
   for (const owner of owners) {
     const root = roots.get(owner);
@@ -281,15 +281,15 @@ export function disposePreview(node: Node): void {
  */
 export function diagramSkeleton(label: string): HTMLElement {
   const wrap = document.createElement("div");
-  wrap.className = "ab-diagram-preview is-loading";
+  wrap.className = "nt-diagram-preview is-loading";
   wrap.contentEditable = "false";
   wrap.appendChild(head(label));
 
-  const surface = div("ab-diagram-preview-surface ab-skeleton");
+  const surface = div("nt-diagram-preview-surface nt-skeleton");
   surface.style.height = `${CANVAS_MIN_H}px`;
   for (let i = 0; i < 3; i++) {
-    if (i) surface.appendChild(div("ab-skeleton-link"));
-    const box = div("ab-skeleton-shape");
+    if (i) surface.appendChild(div("nt-skeleton-link"));
+    const box = div("nt-skeleton-shape");
     // Staggered so it reads as something being drawn in order, rather than a
     // panel of lights blinking together.
     box.style.animationDelay = `${i * 0.16}s`;
@@ -302,12 +302,12 @@ export function diagramSkeleton(label: string): HTMLElement {
 /** The diagram, drawn by the canvas's own renderer. */
 function diagramPreview(source: string, label: string) {
   const wrap = document.createElement("div");
-  wrap.className = "ab-diagram-preview";
+  wrap.className = "nt-diagram-preview";
   wrap.contentEditable = "false";
   wrap.appendChild(head(label));
 
   const scene = sceneFrom(source);
-  const surface = div("ab-diagram-preview-surface");
+  const surface = div("nt-diagram-preview-surface");
   // The height the block itself will take, by the block's own rule, so
   // accepting does not move the page.
   surface.style.height = `${sceneBlockHeight(scene)}px`;
@@ -321,12 +321,12 @@ function diagramPreview(source: string, label: string) {
 
 function mathPreview(lines: string[], label: string) {
   const wrap = document.createElement("div");
-  wrap.className = "ab-math-preview";
+  wrap.className = "nt-math-preview";
   wrap.contentEditable = "false";
   wrap.appendChild(head(label));
   for (const latex of lines) {
     const row = document.createElement("div");
-    row.className = "ab-math-preview-row";
+    row.className = "nt-math-preview-row";
     row.innerHTML = katex.renderToString(latex, { throwOnError: false });
     wrap.appendChild(row);
   }
@@ -335,12 +335,12 @@ function mathPreview(lines: string[], label: string) {
 
 function tablePreview(preview: { header: boolean; rows: string[][] }, label: string) {
   const wrap = document.createElement("div");
-  wrap.className = "ab-table-preview";
+  wrap.className = "nt-table-preview";
   wrap.contentEditable = "false";
   wrap.appendChild(head(label));
 
   const table = document.createElement("table");
-  table.className = "ab-table-preview-grid";
+  table.className = "nt-table-preview-grid";
   const tbody = document.createElement("tbody");
   preview.rows.forEach((cells, r) => {
     const tr = document.createElement("tr");
@@ -360,10 +360,10 @@ function tablePreview(preview: { header: boolean; rows: string[][] }, label: str
 
 function codePreview(preview: { language: string; code: string }, label: string) {
   const wrap = document.createElement("div");
-  wrap.className = "ab-code-preview";
+  wrap.className = "nt-code-preview";
   wrap.contentEditable = "false";
   const body = document.createElement("pre");
-  body.className = "ab-code-preview-body";
+  body.className = "nt-code-preview-body";
   body.textContent = preview.code;
   wrap.appendChild(head(label));
   wrap.appendChild(body);

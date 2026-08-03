@@ -2,12 +2,12 @@
    aligned with the page title. BlockNote reserves a 54px inline gutter for its
    side menu; we zero it and let the drag-handle / + button live in the page's
    own left padding instead, so body text lines up flush with the title. */
-.ab-editor {
+.nt-editor {
   background: transparent;
   --bn-colors-editor-background: transparent;
 }
 
-.ab-editor .bn-editor {
+.nt-editor .bn-editor {
   padding-inline: 0;
   background: transparent;
   font-family: inherit;
@@ -18,22 +18,22 @@
 
 /* More space between blocks than BlockNote ships with — this is most of what
    makes the document feel airy, more than the type size does. */
-.ab-editor .bn-block-outer {
+.nt-editor .bn-block-outer {
   margin-block: 3px;
 }
 
 /* ---- Custom code block (CodeMirror) ---------------------------------- */
 /* Neutralize BlockNote's built-in codeBlock styling (it targets the shared
    `codeBlock` type name): kill its dark background, radius and padding so our
-   own `.ab-code` fully controls the look. */
-.ab-editor [data-content-type="codeBlock"] {
+   own `.nt-code` fully controls the look. */
+.nt-editor [data-content-type="codeBlock"] {
   background: transparent;
   border-radius: 0;
   padding: 0;
   color: inherit;
 }
 
-.ab-code {
+.nt-code {
   width: 100%;
   margin: 4px 0;
   /* No overflow clipping so the language dropdown can expand past the bottom
@@ -45,7 +45,7 @@
   border-radius: 0;
 }
 
-.ab-code-topbar {
+.nt-code-topbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -57,11 +57,11 @@
   color: var(--code-fg-muted);
 }
 
-.ab-code-lang {
+.nt-code-lang {
   position: relative;
 }
 
-.ab-code-lang-btn {
+.nt-code-lang-btn {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -72,17 +72,17 @@
   color: var(--code-fg-muted);
   font-family: var(--font-mono), ui-monospace, monospace;
 }
-.ab-code-lang-btn {
+.nt-code-lang-btn {
   transition:
     background var(--dur-fast) var(--ease),
     color var(--dur-fast) var(--ease);
 }
-.ab-code-lang-btn:hover {
+.nt-code-lang-btn:hover {
   background: var(--hover-on-dark);
   color: var(--code-fg);
 }
 
-.ab-code-lang-menu {
+.nt-code-lang-menu {
   position: absolute;
   top: calc(100% + 4px);
   left: 0;
@@ -96,7 +96,7 @@
   border-radius: 6px;
   box-shadow: 0 8px 24px rgb(0 0 0 / 0.35);
 }
-.ab-code-lang-menu button {
+.nt-code-lang-menu button {
   display: flex;
   align-items: center;
   width: 100%;
@@ -107,14 +107,14 @@
   font-size: 12px;
   color: var(--code-fg);
 }
-.ab-code-lang-menu button:hover {
+.nt-code-lang-menu button:hover {
   background: var(--hover-on-dark);
 }
-.ab-code-lang-menu button.is-active {
+.nt-code-lang-menu button.is-active {
   color: var(--accent-on-dark);
 }
 
-.ab-code-delete {
+.nt-code-delete {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -126,15 +126,15 @@
     background var(--dur-fast) var(--ease),
     color var(--dur-fast) var(--ease);
 }
-.ab-code-delete:hover {
+.nt-code-delete:hover {
   background: var(--active-on-dark);
   color: var(--danger-on-dark);
 }
 
-.ab-cm .cm-editor {
+.nt-cm .cm-editor {
   background: transparent;
 }
-.ab-cm .cm-scroller {
+.nt-cm .cm-scroller {
   overflow-x: auto;
 }
 
@@ -142,8 +142,8 @@
    For variable names and short identifiers inside a sentence. Sized in em so
    it tracks the surrounding text, and nudged down slightly because mono
    digits and lowercase run visually larger than the body sans at equal px. */
-.ab-editor .bn-inline-content code,
-.ab-editor code {
+.nt-editor .bn-inline-content code,
+.nt-editor code {
   padding: 0.12em 0.34em;
   border-radius: var(--radius-sm);
   background: var(--sunken);
@@ -166,8 +166,8 @@
    The offset and thinner rule keep it from reading as a strikethrough on
    descenders, which is the failure mode of a text-decoration underline at
    body size. */
-.ab-editor .bn-inline-content a,
-.ab-editor a {
+.nt-editor .bn-inline-content a,
+.nt-editor a {
   color: var(--foreground);
   text-decoration: underline;
   text-decoration-color: color-mix(in oklch, var(--foreground) 35%, transparent);
@@ -178,43 +178,43 @@
   /* A pasted url is one long word, and one long word widens the measure. */
   overflow-wrap: anywhere;
 }
-.ab-editor .bn-inline-content a:hover,
-.ab-editor a:hover {
+.nt-editor .bn-inline-content a:hover,
+.nt-editor a:hover {
   text-decoration-color: var(--foreground);
 }
 /* The facsimile of a deleted block renders its links as anchors with no href,
    so they take the wash and the strike with everything else rather than
    standing out as the one live-looking thing in it. */
-.ab-diff-gone a {
+.nt-diff-gone a {
   color: inherit;
   text-decoration-color: currentColor;
   cursor: default;
 }
 
 /* ---- Inline math (KaTeX render + MathLive edit) ---------------------- */
-.ab-math-inline {
+.nt-math-inline {
   cursor: pointer;
   padding: 0 3px;
   border-radius: 4px;
   transition: background 0.12s ease;
 }
-.ab-math-inline:hover {
+.nt-math-inline:hover {
   background: var(--hover);
 }
-.ab-math-inline.is-editing {
+.nt-math-inline.is-editing {
   display: inline-block;
   background: var(--selected);
 }
-.ab-math-placeholder {
+.nt-math-placeholder {
   color: var(--muted);
   font-style: italic;
   font-size: 0.9em;
 }
 
-.ab-mathfield-host {
+.nt-mathfield-host {
   display: inline-block;
 }
-.ab-mathfield-host math-field {
+.nt-mathfield-host math-field {
   display: inline-block;
   min-width: 3ch;
   border: none;
@@ -229,13 +229,13 @@
   --smart-fence-color: var(--muted);
 }
 /* Declutter the inline field — hide MathLive's menu + virtual-keyboard toggles. */
-.ab-mathfield-host math-field::part(menu-toggle),
-.ab-mathfield-host math-field::part(virtual-keyboard-toggle) {
+.nt-mathfield-host math-field::part(menu-toggle),
+.nt-mathfield-host math-field::part(virtual-keyboard-toggle) {
   display: none;
 }
 
 /* ---- Reactive math block ------------------------------------------------ */
-.ab-mathblock {
+.nt-mathblock {
   transition: border-color var(--dur) var(--ease);
   margin: 6px 0;
   padding: 8px 12px;
@@ -246,36 +246,36 @@
 }
 /* BlockNote draws a blue node-selection ring on a selected block's children;
    suppress it globally (blocks carry their own neutral selected state). */
-.ab-editor .bn-block-content.ProseMirror-selectednode > *,
-.ab-editor .ProseMirror-selectednode > .bn-block-content > * {
+.nt-editor .bn-block-content.ProseMirror-selectednode > *,
+.nt-editor .ProseMirror-selectednode > .bn-block-content > * {
   outline: none;
 }
-.ab-mathblock:focus-within {
+.nt-mathblock:focus-within {
   box-shadow: inset 0 0 0 1px var(--border-strong);
 }
-.ab-mathblock-row {
+.nt-mathblock-row {
   display: flex;
   align-items: baseline;
   gap: 16px;
   min-height: 1.9em;
   padding: 1px 0;
 }
-.ab-mathblock-input {
+.nt-mathblock-input {
   flex: 1 1 auto;
   min-width: 0;
 }
-.ab-mathblock-input .ab-mathfield-host,
-.ab-mathblock-input math-field {
+.nt-mathblock-input .nt-mathfield-host,
+.nt-mathblock-input math-field {
   display: block;
   width: 100%;
   min-width: 0;
 }
-.ab-mathblock-value {
+.nt-mathblock-value {
   flex: 0 0 auto;
   color: var(--muted);
   white-space: nowrap;
 }
-.ab-mathblock-error {
+.nt-mathblock-error {
   flex: 0 0 auto;
   color: var(--danger);
   font-size: 0.82em;
@@ -284,7 +284,7 @@
 }
 
 /* ---- Ghost text (AI tab completion) --------------------------------- */
-.ab-ghost {
+.nt-ghost {
   color: var(--ghost);
   pointer-events: none;
   user-select: none;
@@ -293,17 +293,17 @@
 /* Whole blocks a completion would add. They wear the editor's own block classes
    so its stylesheet lays them out; all that is left to say is that they are not
    real yet. */
-.ab-editor .ab-ghost-blocks {
+.nt-editor .nt-ghost-blocks {
   color: var(--ghost);
   pointer-events: none;
   user-select: none;
 }
-.ab-editor .ab-ghost-blocks .bn-inline-content code {
+.nt-editor .nt-ghost-blocks .bn-inline-content code {
   color: inherit;
 }
 
 /* ---- Action hint chip (AI structured suggestions) ------------------- */
-.ab-action-chip {
+.nt-action-chip {
   display: inline-flex;
   align-items: center;
   margin-left: 0.4em;
@@ -321,7 +321,7 @@
 }
 
 /* ---- Faded code-block preview (AI insertCode suggestion) ------------ */
-.ab-code-preview {
+.nt-code-preview {
   margin: 0.4rem 0;
   border: 1px dashed var(--code-border);
   border-radius: 4px;
@@ -331,14 +331,14 @@
   user-select: none;
   pointer-events: none;
 }
-.ab-code-preview-head {
+.nt-code-preview-head {
   padding: 0.2rem 0.6rem;
   border-bottom: 1px dashed var(--code-border);
   color: var(--code-fg-muted);
   font-size: 0.72rem;
   font-weight: 500;
 }
-.ab-code-preview-body {
+.nt-code-preview-body {
   margin: 0;
   padding: 0.5rem 0.7rem;
   color: var(--code-fg);
@@ -349,13 +349,13 @@
 }
 
 /* Chip shown before Tier 2 content has arrived — Tab stays inert until then. */
-.ab-action-chip.is-pending {
+.nt-action-chip.is-pending {
   opacity: 0.55;
   font-style: italic;
 }
 
 /* ---- Faded diagram preview (AI insertDiagram suggestion) ------------- */
-.ab-diagram-preview {
+.nt-diagram-preview {
   margin: 0.4rem 0;
   border: 1px dashed var(--border-strong);
   border-radius: var(--radius);
@@ -365,40 +365,40 @@
   user-select: none;
   pointer-events: none;
 }
-.ab-diagram-preview .ab-code-preview-head {
+.nt-diagram-preview .nt-code-preview-head {
   color: var(--muted);
   border-bottom-color: var(--border);
 }
-/* Hosts the real canvas renderer: `.ab-canvas-viewport` is absolute and fills
+/* Hosts the real canvas renderer: `.nt-canvas-viewport` is absolute and fills
    its nearest positioned ancestor, which is this. The height is set inline,
    from the same rule the block itself sizes by. */
-.ab-diagram-preview-surface {
+.nt-diagram-preview-surface {
   position: relative;
   width: 100%;
 }
 
 /* Waiting for the diagram. Stands in the place the diagram will occupy, so the
    wait happens where the answer appears. */
-.ab-diagram-preview-surface.ab-skeleton {
+.nt-diagram-preview-surface.nt-skeleton {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
 }
-.ab-skeleton-shape {
+.nt-skeleton-shape {
   width: 132px;
   height: 34px;
   border-radius: 8px;
   background: var(--faint);
-  animation: ab-skeleton-pulse 1.5s ease-in-out infinite;
+  animation: nt-skeleton-pulse 1.5s ease-in-out infinite;
 }
-.ab-skeleton-link {
+.nt-skeleton-link {
   width: 1.5px;
   height: 20px;
   background: var(--faint);
   opacity: 0.5;
 }
-@keyframes ab-skeleton-pulse {
+@keyframes nt-skeleton-pulse {
   0%,
   100% {
     opacity: 0.3;
@@ -409,14 +409,14 @@
 }
 /* A pulse is decoration; nobody should have to sit through it. */
 @media (prefers-reduced-motion: reduce) {
-  .ab-skeleton-shape {
+  .nt-skeleton-shape {
     animation: none;
     opacity: 0.45;
   }
 }
 
 /* Ghost completion inside a code block. */
-.ab-cm-ghost {
+.nt-cm-ghost {
   color: var(--ghost-on-code);
   white-space: pre;
   pointer-events: none;
@@ -424,7 +424,7 @@
 }
 
 /* Completion showing inside a math block: the rest of the line, and new lines. */
-.ab-mathblock-ghost {
+.nt-mathblock-ghost {
   color: var(--ghost);
   opacity: 0.8;
   pointer-events: none;
@@ -432,7 +432,7 @@
 }
 
 /* ---- Faded math-block preview (AI suggestion) ----------------------- */
-.ab-math-preview {
+.nt-math-preview {
   margin: 0.4rem 0;
   padding-bottom: 0.35rem;
   border: 1px dashed var(--border-strong);
@@ -442,17 +442,17 @@
   user-select: none;
   pointer-events: none;
 }
-.ab-math-preview .ab-code-preview-head {
+.nt-math-preview .nt-code-preview-head {
   border-bottom-color: var(--border);
   color: var(--muted);
 }
-.ab-math-preview-row {
+.nt-math-preview-row {
   padding: 0.3rem 0.75rem 0;
   color: var(--ghost);
 }
 
 /* ---- Faded table preview (AI table suggestion) ----------------------- */
-.ab-table-preview {
+.nt-table-preview {
   margin: 0.4rem 0;
   border: 1px dashed var(--border-strong);
   border-radius: var(--radius-sm);
@@ -462,18 +462,18 @@
   user-select: none;
   pointer-events: none;
 }
-.ab-table-preview .ab-code-preview-head {
+.nt-table-preview .nt-code-preview-head {
   border-bottom-color: var(--border);
   color: var(--muted);
 }
-.ab-table-preview-grid {
+.nt-table-preview-grid {
   width: 100%;
   border-collapse: collapse;
   color: var(--ghost);
   font-size: 0.9em;
 }
-.ab-table-preview-grid th,
-.ab-table-preview-grid td {
+.nt-table-preview-grid th,
+.nt-table-preview-grid td {
   padding: 0.28rem 0.6rem;
   border: 1px dashed var(--border);
   text-align: left;
@@ -481,14 +481,14 @@
      to read this as a grid without pretending to final column widths. */
   vertical-align: top;
 }
-.ab-table-preview-grid th {
+.nt-table-preview-grid th {
   background: var(--sunken);
   font-weight: 600;
 }
 
 /* Inline marks inside a suggestion render for real, so the preview matches what
    accepting produces. They inherit the ghost colour; only the shape differs. */
-.ab-ghost code {
+.nt-ghost code {
   padding: 0.1em 0.3em;
   border-radius: var(--radius-sm);
   background: var(--sunken);
@@ -497,10 +497,10 @@
   font-size: 0.88em;
   color: inherit;
 }
-.ab-ghost strong {
+.nt-ghost strong {
   font-weight: 600;
 }
-.ab-ghost .katex {
+.nt-ghost .katex {
   color: inherit;
 }
 
@@ -510,11 +510,11 @@
    the page look like a form. Both are painted with `box-shadow` and a
    background so they cost no layout — a review must not move the text it is
    asking about. */
-.ab-editor .ab-diff {
+.nt-editor .nt-diff {
   position: relative;
   border-radius: var(--radius-sm);
 }
-.ab-editor .ab-diff::before {
+.nt-editor .nt-diff::before {
   content: "";
   position: absolute;
   top: 0;
@@ -524,34 +524,34 @@
   border-radius: 1px;
   background: var(--border-strong);
 }
-.ab-editor .ab-diff-add,
-.ab-editor .ab-diff-whole,
-.ab-editor .ab-diff-move {
+.nt-editor .nt-diff-add,
+.nt-editor .nt-diff-whole,
+.nt-editor .nt-diff-move {
   background: var(--diff-add-bg);
   box-shadow: 0 0 0 3px var(--diff-add-bg);
 }
-.ab-editor .ab-diff-add::before,
-.ab-editor .ab-diff-whole::before,
-.ab-editor .ab-diff-move::before,
-.ab-editor .ab-diff-edit::before {
+.nt-editor .nt-diff-add::before,
+.nt-editor .nt-diff-whole::before,
+.nt-editor .nt-diff-move::before,
+.nt-editor .nt-diff-edit::before {
   background: var(--diff-add-line);
 }
 /* Once the user has rewritten it, the block is theirs. The rule stays so the
    change is still findable; the colour goes, because there is no longer a
    decision attached to it. */
-.ab-editor .ab-diff-kept::before {
+.nt-editor .nt-diff-kept::before {
   background: var(--border-strong);
 }
 
 /* Words this change added. Ink stays --foreground: a green word is a word you
    read as a colour first, and the wash already says what it needs to. */
-.ab-editor .ab-diff-ins {
+.nt-editor .nt-diff-ins {
   background: var(--diff-add-bg);
   box-shadow: 0 0 0 1px var(--diff-add-bg);
   border-radius: 2px;
 }
 /* Words it removed, put back where they stood, struck. */
-.ab-editor .ab-diff-del {
+.nt-editor .nt-diff-del {
   color: var(--diff-del);
   background: var(--diff-del-bg);
   border-radius: 2px;
@@ -561,11 +561,11 @@
 }
 
 /* ---- Review: blocks the change deleted -------------------------------- */
-.ab-diff-removed {
+.nt-diff-removed {
   margin-block: 4px;
   user-select: none;
 }
-.ab-diff-gone {
+.nt-diff-gone {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
@@ -575,45 +575,45 @@
   background: var(--diff-del-bg);
   color: var(--diff-del);
 }
-.ab-diff-removed > .ab-diff-gone + .ab-diff-gone {
+.nt-diff-removed > .nt-diff-gone + .nt-diff-gone {
   border-top: 1px solid color-mix(in oklch, var(--diff-del-line) 30%, transparent);
 }
 /* A deleted block goes with its subtree, so the facsimile shows the subtree —
    at the indent it had, inside the wash that already says it is gone. */
-.ab-diff-gone-children {
+.nt-diff-gone-children {
   flex-basis: 100%;
   padding-left: 16px;
 }
-.ab-diff-gone-children > .ab-diff-gone {
+.nt-diff-gone-children > .nt-diff-gone {
   padding-inline: 0;
   border-left: none;
   background: none;
 }
-.ab-diff-gone-mark {
+.nt-diff-gone-mark {
   flex: none;
   font-size: 0.85em;
   opacity: 0.7;
 }
-.ab-diff-gone-line {
+.nt-diff-gone-line {
   text-decoration-color: color-mix(in oklch, var(--diff-del) 55%, transparent);
 }
-.ab-diff-gone-line[data-level="1"] {
+.nt-diff-gone-line[data-level="1"] {
   font-size: 1.4em;
   font-weight: 600;
 }
-.ab-diff-gone-line[data-level="2"] {
+.nt-diff-gone-line[data-level="2"] {
   font-size: 1.2em;
   font-weight: 600;
 }
-.ab-diff-gone-line[data-level="3"] {
+.nt-diff-gone-line[data-level="3"] {
   font-weight: 600;
 }
 /* A deleted code block or diagram keeps its own chrome — it is still that
    block — and the wrapper is what says it is gone. */
-.ab-diff-gone > .ab-code-preview,
-.ab-diff-gone > .ab-math-preview,
-.ab-diff-gone > .ab-table-preview,
-.ab-diff-gone > .ab-diagram-preview {
+.nt-diff-gone > .nt-code-preview,
+.nt-diff-gone > .nt-math-preview,
+.nt-diff-gone > .nt-table-preview,
+.nt-diff-gone > .nt-diagram-preview {
   flex: 1;
   margin-block: 4px;
   opacity: 0.55;
@@ -621,11 +621,11 @@
 /* ---- Review: the per-hunk answer -------------------------------------- */
 /* Zero height, so the buttons hang in the right-hand gutter without the text
    column knowing they are there. */
-.ab-diff-actions {
+.nt-diff-actions {
   position: relative;
   height: 0;
 }
-.ab-diff-actions-inner {
+.nt-diff-actions-inner {
   position: absolute;
   top: 1px;
   left: 100%;
@@ -635,11 +635,11 @@
   opacity: 0.5;
   transition: opacity var(--dur-fast) var(--ease);
 }
-.ab-diff-actions-inner:hover,
-.ab-diff-actions-inner:focus-within {
+.nt-diff-actions-inner:hover,
+.nt-diff-actions-inner:focus-within {
   opacity: 1;
 }
-.ab-diff-btn {
+.nt-diff-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -653,15 +653,15 @@
     color var(--dur-fast) var(--ease),
     border-color var(--dur-fast) var(--ease);
 }
-.ab-diff-btn svg {
+.nt-diff-btn svg {
   width: 13px;
   height: 13px;
 }
-.ab-diff-btn.is-keep:hover {
+.nt-diff-btn.is-keep:hover {
   color: var(--diff-add);
   border-color: var(--diff-add-line);
 }
-.ab-diff-btn.is-discard:hover {
+.nt-diff-btn.is-discard:hover {
   color: var(--diff-del);
   border-color: var(--diff-del-line);
 }
@@ -669,6 +669,6 @@
 /* BlockNote draws a vertical guide beside every nested block. On a checklist
    that is one rule per level of indent, which reads as table chrome rather than
    an outline — the indent already says everything the line was saying. */
-.ab-editor .bn-block-group .bn-block-group > .bn-block-outer::before {
+.nt-editor .bn-block-group .bn-block-group > .bn-block-outer::before {
   display: none;
 }

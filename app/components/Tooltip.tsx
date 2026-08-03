@@ -105,7 +105,7 @@ export function Tooltip({
             borderRadius: "var(--radius)",
             background: "var(--foreground)",
             color: "var(--background)",
-            animation: "ab-menu-in var(--dur-fast) var(--ease)",
+            animation: "nt-menu-in var(--dur-fast) var(--ease)",
           }}
         >
           {label}

@@ -672,8 +672,8 @@ const FRAME_EPSILON = 0.01;
  * The selected rect that already encloses every other selected node — a
  * background the user drew around the shapes rather than a member of the group.
  * {@link groupNodes} consumes it: the group takes its box, its appearance and
- * its attributes, and the rect itself does not become a child. `<ab-group>`
- * carries the same CSS an `<ab-rect>` does, so nothing is lost.
+ * its attributes, and the rect itself does not become a child. `<nt-group>`
+ * carries the same CSS an `<nt-rect>` does, so nothing is lost.
  *
  * `null` — plain grouping — unless the case is unmistakable, because magic that
  * fires when it was not wanted costs more than magic that never fires:

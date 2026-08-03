@@ -36,14 +36,14 @@ export function SelectField({
       label={spoken ?? "Options"}
       side="bottom"
       trigger={(p) => (
-        <button {...p} className="ab-ctl-select" aria-label={spoken}>
+        <button {...p} className="nt-ctl-select" aria-label={spoken}>
           {label !== undefined && (
-            <span className="ab-ctl-mark" aria-hidden>
+            <span className="nt-ctl-mark" aria-hidden>
               {label}
             </span>
           )}
-          <span className="ab-ctl-select-value">{current?.label ?? value}</span>
-          <ChevronsUpDown width={12} height={12} className="ab-ctl-select-caret" />
+          <span className="nt-ctl-select-value">{current?.label ?? value}</span>
+          <ChevronsUpDown width={12} height={12} className="nt-ctl-select-caret" />
         </button>
       )}
     >
@@ -56,7 +56,7 @@ export function SelectField({
               close();
             }}
           >
-            <span className="ab-ctl-check">
+            <span className="nt-ctl-check">
               {o.value === value && <Check width={12} height={12} />}
             </span>
             {o.label}

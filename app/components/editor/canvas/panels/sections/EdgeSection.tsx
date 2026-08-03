@@ -101,23 +101,23 @@ export function EdgeSection({
               exclude={one.from}
               onPick={(to) => reconnect(one.id, undefined, to)}
             />
-            <div className="ab-ctl-row">
+            <div className="nt-ctl-row">
               <button
-                className="ab-ctl-textbtn"
+                className="nt-ctl-textbtn"
                 onClick={() => reconnect(one.id, one.to, one.from)}
               >
                 Swap ends
               </button>
-              <span className="ab-ctl-grow" />
+              <span className="nt-ctl-grow" />
               <IconButton label="Remove connector" onClick={() => remove([one.id])}>
                 <X width={13} height={13} />
               </IconButton>
             </div>
           </>
         ) : (
-          <div className="ab-ctl-row">
-            <span className="ab-ctl-empty">{edges.length} selected</span>
-            <span className="ab-ctl-grow" />
+          <div className="nt-ctl-row">
+            <span className="nt-ctl-empty">{edges.length} selected</span>
+            <span className="nt-ctl-grow" />
             <IconButton label="Remove connectors" onClick={() => remove(ids)}>
               <X width={13} height={13} />
             </IconButton>
@@ -133,19 +133,19 @@ export function EdgeSection({
             onChange={(label) => setLabel(one.id, label)}
           />
         ) : (
-          <span className="ab-ctl-empty">Select one connector to label it</span>
+          <span className="nt-ctl-empty">Select one connector to label it</span>
         )}
       </PanelSection>
 
       <PanelSection title="Line">
-        <div className="ab-ctl-row">
+        <div className="nt-ctl-row">
           <ColorField
             value={read("stroke") || DEFAULT_STROKE}
             mixed={differs("stroke")}
             onChange={(stroke) => setStyle(ids, { stroke })}
           />
         </div>
-        <div className="ab-ctl-grid">
+        <div className="nt-ctl-grid">
           <NumberField
             label={<DashGlyph kind="solid" />}
             name="Line weight"
@@ -156,7 +156,7 @@ export function EdgeSection({
             step={0.5}
             onChange={(n) => setStyle(ids, { "stroke-width": `${n}px` })}
           />
-          <span className="ab-ctl-wide-end">
+          <span className="nt-ctl-wide-end">
             <IconToggle
               value={
                 differs("stroke-dasharray") ? "" : dashOf(read("stroke-dasharray"))
@@ -208,7 +208,7 @@ function EndRow({
   walkInto(scene.nodes, 0);
 
   return (
-    <div className="ab-ctl-row">
+    <div className="nt-ctl-row">
       <SelectField
         label={mark}
         name={`Connector ${mark.toLowerCase()}`}
@@ -241,7 +241,7 @@ function LabelField({
       ref={value === "" ? undefined : select}
       type="text"
       spellCheck={false}
-      className="ab-ctl-text"
+      className="nt-ctl-text"
       aria-label="Connector label"
       placeholder="None"
       defaultValue={value}

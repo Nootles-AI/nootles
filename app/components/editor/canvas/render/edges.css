@@ -5,7 +5,7 @@
    Neutral, like the rest of the canvas: a connector is drawn in the shape line
    ramp, and selection is a weight and a colour step rather than a ring. */
 
-.ab-edges {
+.nt-edges {
   position: absolute;
   inset: 0;
   /* Scene coordinates run past the box; the lines must not be clipped by it. */
@@ -14,7 +14,7 @@
   pointer-events: none;
 }
 
-.ab-edge-line {
+.nt-edge-line {
   fill: none;
   stroke: var(--edge-line);
   stroke-width: 1.5;
@@ -27,7 +27,7 @@
 
 /* Fat, invisible, and the only thing in the layer that takes a pointer. A
    1.5px line is not a target; 12px of scene space either side of it is. */
-.ab-edge-hit {
+.nt-edge-hit {
   fill: none;
   stroke: transparent;
   stroke-width: 12;
@@ -37,7 +37,7 @@
   cursor: pointer;
 }
 
-.ab-edge.is-hover .ab-edge-line {
+.nt-edge.is-hover .nt-edge-line {
   stroke: var(--shape-line-hover);
   stroke-width: 2;
 }
@@ -45,8 +45,8 @@
 /* The one place the canvas accent appears on a connector, and for the same
    reason the layers panel uses it: this is the answer to a selection, not a
    property of the thing. */
-.ab-edge.is-selected .ab-edge-line {
-  stroke: var(--ab-select);
+.nt-edge.is-selected .nt-edge-line {
+  stroke: var(--nt-select);
   stroke-width: 2;
 }
 
@@ -54,7 +54,7 @@
    HTML rather than SVG text, so a connector's label is set by the same
    typography as a shape's. Centred on the midpoint of the line and shrink-
    wrapped, with the canvas showing through behind it. */
-.ab-edge-label {
+.nt-edge-label {
   position: absolute;
   transform: translate(-50%, -50%);
   padding: 1px 5px;
@@ -67,6 +67,6 @@
   pointer-events: none;
   user-select: none;
 }
-.ab-edge-label.is-selected {
-  box-shadow: 0 0 0 1px var(--ab-select);
+.nt-edge-label.is-selected {
+  box-shadow: 0 0 0 1px var(--nt-select);
 }

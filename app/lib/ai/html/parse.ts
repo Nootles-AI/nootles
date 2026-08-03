@@ -9,7 +9,7 @@ import {
 } from "./grammar";
 
 /**
- * Parses the auto-board document language back into normalized nodes.
+ * Parses the Nootles document language back into normalized nodes.
  *
  * The interesting part is how code survives. HTML only starts markup when `<`
  * is followed by a letter, `/`, `!` or `?` — so `i < 10` is already safe — but
@@ -153,7 +153,7 @@ function runsOf(node: Node, marks: Mark[] = []): Run[] {
     if (child.nodeType !== 1) return;
     const el = child as Element;
     const tag = el.tagName.toLowerCase();
-    if (canonicalTag(tag) === "ab-math") {
+    if (canonicalTag(tag) === "nt-math") {
       out.push({ type: "math", latex: textOf(el) });
       return;
     }
@@ -230,7 +230,7 @@ function elementToNode(el: Element, raw: string[]): DocNode | null {
   // An unmapped block, echoed back by the model. It is shown one so it can see
   // the block is there; parsing it back would let it author a block the
   // vocabulary cannot name, so it stops here.
-  if (tag === "ab-block") return null;
+  if (tag === "nt-block") return null;
 
   if (tag === "details") {
     const summary = el.querySelector(":scope > summary");
@@ -249,12 +249,12 @@ function elementToNode(el: Element, raw: string[]): DocNode | null {
     };
   }
 
-  if (tag === "img" || tag === "video" || tag === "audio" || tag === "ab-file") {
-    const type = tag === "ab-file" ? "file" : (tag === "img" ? "image" : tag);
+  if (tag === "img" || tag === "video" || tag === "audio" || tag === "nt-file") {
+    const type = tag === "nt-file" ? "file" : (tag === "img" ? "image" : tag);
     // No source stated is not an empty source: a model re-captioning an image
     // has no reason to repeat the URL it was shown, and reading the omission as
     // "" would blank the picture. Undefined means the block keeps its source.
-    const url = el.getAttribute(tag === "ab-file" ? "href" : "src") || undefined;
+    const url = el.getAttribute(tag === "nt-file" ? "href" : "src") || undefined;
     // Without a source there is no media — a bare <img> would otherwise become
     // an empty block sitting in the document. One carrying an id is a different
     // thing: media exists in the document from the moment it is inserted until
@@ -265,7 +265,7 @@ function elementToNode(el: Element, raw: string[]): DocNode | null {
     const caption =
       el.getAttribute("alt") ??
       el.getAttribute("title") ??
-      (tag === "ab-file" ? textOf(el).trim() : "");
+      (tag === "nt-file" ? textOf(el).trim() : "");
     return {
       type: type as "image" | "video" | "audio" | "file",
       id,
@@ -326,7 +326,7 @@ function elementToNode(el: Element, raw: string[]): DocNode | null {
     if (!rows.length) return null;
     return { type: "table", ...(id ? { id } : {}), header, rows };
   }
-  if (tag === "ab-code-block" || tag === "pre") {
+  if (tag === "nt-code-block" || tag === "pre") {
     const inner = tag === "pre" ? el.querySelector("code") ?? el : el;
     return {
       type: "codeBlock",
@@ -336,8 +336,8 @@ function elementToNode(el: Element, raw: string[]): DocNode | null {
     };
   }
 
-  if (tag === "ab-math-block") {
-    const rows = Array.from(el.querySelectorAll("ab-math-line, math-line")).map((l) =>
+  if (tag === "nt-math-block") {
+    const rows = Array.from(el.querySelectorAll("nt-math-line, math-line")).map((l) =>
       rawOf(l, raw).trim(),
     );
     return { type: "mathBlock", id, rows: rows.length ? rows : [""] };
@@ -346,7 +346,7 @@ function elementToNode(el: Element, raw: string[]): DocNode | null {
   // Taken whole. The canvas grammar has its own parser, which the block and the
   // compiler both go through, so re-reading the shapes here would be a second
   // opinion about a document that already has one.
-  if (tag === "ab-diagram") return { type: "canvas", id, html: el.outerHTML };
+  if (tag === "nt-diagram") return { type: "canvas", id, html: el.outerHTML };
 
   return null;
 }

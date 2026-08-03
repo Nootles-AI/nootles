@@ -281,14 +281,14 @@ export function NumberField({
 
   const field = (
     <div
-      className={`ab-num${preview !== null ? " is-scrubbing" : ""}`}
+      className={`nt-num${preview !== null ? " is-scrubbing" : ""}`}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={() => end(true)}
       onPointerCancel={() => end(false)}
     >
       {label !== undefined && (
-        <span className="ab-ctl-mark" aria-hidden>
+        <span className="nt-ctl-mark" aria-hidden>
           {label}
         </span>
       )}
@@ -297,7 +297,7 @@ export function NumberField({
         type="text"
         inputMode="decimal"
         spellCheck={false}
-        className="ab-num-input"
+        className="nt-num-input"
         aria-label={name}
         value={shown}
         placeholder={mixed ? "Mixed" : undefined}
@@ -305,14 +305,14 @@ export function NumberField({
         onBlur={commitText}
         onKeyDown={onKeyDown}
       />
-      {suffix !== undefined && <span className="ab-num-unit">{suffix}</span>}
+      {suffix !== undefined && <span className="nt-num-unit">{suffix}</span>}
     </div>
   );
 
   // The mark inside the field is shorthand; the tooltip is where it is spelled
   // out. Skipped when there is no mark to explain.
   return name !== undefined && label !== undefined ? (
-    <Tooltip label={name} className="ab-ctl-anchor">
+    <Tooltip label={name} className="nt-ctl-anchor">
       {field}
     </Tooltip>
   ) : (

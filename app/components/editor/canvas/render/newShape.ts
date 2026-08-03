@@ -13,7 +13,7 @@ import type { NodeId, Rect, SceneNode, StyleMap, StylePatch } from "../scene/typ
 /**
  * The kinds a pointer tool draws. Paths come from the pen, groups from ⌘G.
  *
- * `diamond` is a tool rather than a kind: it draws an `<ab-polygon sides="4">`,
+ * `diamond` is a tool rather than a kind: it draws an `<nt-polygon sides="4">`,
  * so the side count stays editable and a diamond can become a pentagon without
  * the shape being rebuilt.
  */

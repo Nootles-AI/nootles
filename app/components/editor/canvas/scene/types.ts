@@ -12,14 +12,14 @@
  * A canvas block stores canvas HTML, not JSON:
  *
  * ```html
- * <ab-diagram id="c1" w="960" h="540" style="background:#fff">
- *   <ab-rect id="s1" x="40" y="24" w="160" h="72" rot="15"
- *            style="background:#6366f1; border-radius:12px">Ingest</ab-rect>
- *   <ab-group id="g1" x="0" y="200" w="400" h="160"
+ * <nt-diagram id="c1" w="960" h="540" style="background:#fff">
+ *   <nt-rect id="s1" x="40" y="24" w="160" h="72" rot="15"
+ *            style="background:#6366f1; border-radius:12px">Ingest</nt-rect>
+ *   <nt-group id="g1" x="0" y="200" w="400" h="160"
  *             style="display:flex; gap:16px; padding:12px">
- *     <ab-rect id="s5" w="100" h="60" style="background:#eee">A</ab-rect>
- *   </ab-group>
- * </ab-diagram>
+ *     <nt-rect id="s5" w="100" h="60" style="background:#eee">A</nt-rect>
+ *   </nt-group>
+ * </nt-diagram>
  * ```
  *
  * A `Scene` is exactly that document, parsed. The round trip is a hard
@@ -52,11 +52,11 @@
  *
  * A connector joins any two nodes — shapes, groups, anything the layers panel
  * lists — so it belongs to neither of them and cannot live in the tree. It is a
- * flat list on the scene instead, and `<ab-edge>` is written as a sibling of
+ * flat list on the scene instead, and `<nt-edge>` is written as a sibling of
  * the shapes:
  *
  * ```html
- * <ab-edge id="e1" from="s1" to="s5" style="stroke:#111">deploys</ab-edge>
+ * <nt-edge id="e1" from="s1" to="s5" style="stroke:#111">deploys</nt-edge>
  * ```
  *
  * An edge stores only *which* nodes it joins. Which side it leaves and enters
@@ -194,17 +194,17 @@ export const SCENE_NODE_KINDS = [
 ] as const satisfies readonly SceneNodeKind[];
 
 /** Root element tag of a canvas document. */
-export const SCENE_TAG = "ab-diagram";
+export const SCENE_TAG = "nt-diagram";
 
 /** Kind → element tag. The parser and serializer must share this map. */
 export const TAG_BY_KIND: Record<SceneNodeKind, string> = {
-  rect: "ab-rect",
-  ellipse: "ab-ellipse",
-  polygon: "ab-polygon",
-  text: "ab-text",
-  image: "ab-image",
-  path: "ab-path",
-  group: "ab-group",
+  rect: "nt-rect",
+  ellipse: "nt-ellipse",
+  polygon: "nt-polygon",
+  text: "nt-text",
+  image: "nt-image",
+  path: "nt-path",
+  group: "nt-group",
 };
 
 /** Element tag → kind. `null` for anything outside the grammar. */
@@ -431,13 +431,13 @@ export interface SceneEdge {
 }
 
 /** The connector element. */
-export const EDGE_TAG = "ab-edge";
+export const EDGE_TAG = "nt-edge";
 
 /** Tags accepted as a connector, canonical first. */
 export const EDGE_TAGS: readonly string[] = [
   EDGE_TAG,
-  "ab-connector",
-  "ab-link",
+  "nt-connector",
+  "nt-link",
   "edge",
   "connector",
 ];
@@ -465,7 +465,7 @@ export interface Scene {
   w: number;
   /** Height of the canvas surface in scene px. */
   h: number;
-  /** Parsed `style` of `<ab-diagram>` — the surface's own background etc. */
+  /** Parsed `style` of `<nt-diagram>` — the surface's own background etc. */
   style: StyleMap;
   nodes: SceneNode[];
   /**
@@ -475,7 +475,7 @@ export interface Scene {
    */
   edges: SceneEdge[];
   /**
-   * `id` of `<ab-diagram>`. Optional because a document may omit it; preserved
+   * `id` of `<nt-diagram>`. Optional because a document may omit it; preserved
    * so the round trip does not invent one.
    */
   id?: string;
@@ -710,7 +710,7 @@ export type DistributeAxis = "horizontal" | "vertical";
 // Helpers — pure, allocation-light, and the only sanctioned implementations
 // ---------------------------------------------------------------------------
 
-/** Narrows to the group kind — ask this when you mean the `<ab-group>` tag. */
+/** Narrows to the group kind — ask this when you mean the `<nt-group>` tag. */
 export function isGroup(node: SceneNode): node is GroupNode {
   return node.kind === "group";
 }

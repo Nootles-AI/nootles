@@ -52,8 +52,8 @@ export type ReviewSpec = {
   answer: (hunkId: string, answer: "accepted" | "rejected") => void;
 } | null;
 
-const META = "ab-review";
-export const reviewKey = new PluginKey<State>("ab-review");
+const META = "nt-review";
+export const reviewKey = new PluginKey<State>("nt-review");
 
 type State = { spec: ReviewSpec; decorations: DecorationSet };
 
@@ -187,7 +187,7 @@ export function reviewDecorations(doc: Node, spec: NonNullable<ReviewSpec>): Dec
         decos.push(
           Decoration.widget(pos, () => removedWidget(run), {
             side: anchor?.placement === "before" ? -1 : 1,
-            key: `ab-review-gone-${runId}`,
+            key: `nt-review-gone-${runId}`,
             ...INERT,
             // A removed diagram is drawn by the canvas renderer, so this run
             // may own a React root — the only one of these widgets that can.
@@ -202,7 +202,7 @@ export function reviewDecorations(doc: Node, spec: NonNullable<ReviewSpec>): Dec
       decos.push(
         Decoration.widget(controls, () => actionsWidget(hunk, spec), {
           side: -2,
-          key: `ab-review-act-${hunk.id}-${hunk.kept ? "kept" : "open"}`,
+          key: `nt-review-act-${hunk.id}-${hunk.kept ? "kept" : "open"}`,
           ...INERT,
         }),
       );
@@ -225,7 +225,7 @@ function blockMark(
   const content = seat.node.firstChild!;
   const from = seat.pos + 1;
   return Decoration.node(from, from + content.nodeSize, {
-    class: `ab-diff ab-diff-${tone}`,
+    class: `nt-diff nt-diff-${tone}`,
   });
 }
 
@@ -313,7 +313,7 @@ function inlineDiff(seat: Seated, before: AnyBlock): Decoration[] {
       const from = live.posAt[part.at];
       const to = live.posAt[part.end];
       if (from === undefined || to === undefined || to <= from) continue;
-      decos.push(Decoration.inline(from, to, { class: "ab-diff-ins" }));
+      decos.push(Decoration.inline(from, to, { class: "nt-diff-ins" }));
       continue;
     }
     const pos = live.posAt[part.at];
@@ -322,7 +322,7 @@ function inlineDiff(seat: Seated, before: AnyBlock): Decoration[] {
     decos.push(
       Decoration.widget(pos, () => struck(text), {
         side: -1,
-        key: `ab-diff-del-${pos}-${text}`,
+        key: `nt-diff-del-${pos}-${text}`,
         ...INERT,
       }),
     );
@@ -332,7 +332,7 @@ function inlineDiff(seat: Seated, before: AnyBlock): Decoration[] {
 
 function struck(text: string): HTMLElement {
   const el = document.createElement("del");
-  el.className = "ab-diff-del";
+  el.className = "nt-diff-del";
   el.textContent = text;
   return el;
 }
@@ -355,7 +355,7 @@ const GONE_PREFIX: Record<string, string> = {
  */
 function goneBlock(block: AnyBlock): HTMLElement {
   const wrap = document.createElement("div");
-  wrap.className = "ab-diff-gone";
+  wrap.className = "nt-diff-gone";
   wrap.dataset.type = block.type;
 
   const preview = previewOf(block);
@@ -367,12 +367,12 @@ function goneBlock(block: AnyBlock): HTMLElement {
   const prefix = GONE_PREFIX[block.type];
   if (prefix) {
     const mark = document.createElement("span");
-    mark.className = "ab-diff-gone-mark";
+    mark.className = "nt-diff-gone-mark";
     mark.textContent = prefix;
     wrap.appendChild(mark);
   }
   const line = document.createElement("del");
-  line.className = "ab-diff-gone-line";
+  line.className = "nt-diff-gone-line";
   if (block.type === "heading") {
     line.dataset.level = String(block.props?.level ?? 1);
   }
@@ -383,7 +383,7 @@ function goneBlock(block: AnyBlock): HTMLElement {
 
   if (block.children?.length) {
     const nested = document.createElement("div");
-    nested.className = "ab-diff-gone-children";
+    nested.className = "nt-diff-gone-children";
     for (const child of block.children) nested.appendChild(goneBlock(child));
     wrap.appendChild(nested);
   }
@@ -400,7 +400,7 @@ function goneBlock(block: AnyBlock): HTMLElement {
  */
 function removedWidget(run: AnyBlock[]): HTMLElement {
   const wrap = document.createElement("div");
-  wrap.className = "ab-diff-removed";
+  wrap.className = "nt-diff-removed";
   wrap.contentEditable = "false";
   for (const block of run) wrap.appendChild(goneBlock(block));
   return wrap;
@@ -433,11 +433,11 @@ function icon(path: string): SVGElement {
  */
 function actionsWidget(hunk: ReviewHunk, spec: NonNullable<ReviewSpec>): HTMLElement {
   const wrap = document.createElement("div");
-  wrap.className = "ab-diff-actions";
+  wrap.className = "nt-diff-actions";
   wrap.contentEditable = "false";
 
   const inner = document.createElement("div");
-  inner.className = "ab-diff-actions-inner";
+  inner.className = "nt-diff-actions-inner";
 
   const button = (
     answer: "accepted" | "rejected",
@@ -447,7 +447,7 @@ function actionsWidget(hunk: ReviewHunk, spec: NonNullable<ReviewSpec>): HTMLEle
   ) => {
     const el = document.createElement("button");
     el.type = "button";
-    el.className = `ab-diff-btn is-${answer === "accepted" ? "keep" : "discard"}`;
+    el.className = `nt-diff-btn is-${answer === "accepted" ? "keep" : "discard"}`;
     el.title = tip;
     el.setAttribute("aria-label", label);
     el.appendChild(icon(path));

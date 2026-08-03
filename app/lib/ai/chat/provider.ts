@@ -21,7 +21,7 @@ export function searchModel() {
   return openrouter().chat(AI.chat.search.model);
 }
 
-/** The model that expands `<ab-build-diagram>` into canvas HTML. */
+/** The model that expands `<nt-build-diagram>` into canvas HTML. */
 export function diagramModel() {
   return openrouter().chat(AI.diagram.model);
 }

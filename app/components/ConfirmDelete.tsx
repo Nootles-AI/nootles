@@ -27,13 +27,13 @@ export function ConfirmDelete({
         Its diagrams and history go too. This cannot be undone.
       </p>
       <div className="mt-4 flex justify-end gap-1">
-        <button onClick={onCancel} className="ab-row px-2.5">
+        <button onClick={onCancel} className="nt-row px-2.5">
           Cancel
         </button>
         <button
           onClick={onConfirm}
           autoFocus={focusConfirm}
-          className="ab-row px-2.5 font-medium text-danger"
+          className="nt-row px-2.5 font-medium text-danger"
         >
           Delete
         </button>
@@ -67,7 +67,7 @@ export function ConfirmDeleteDialog({
         role="dialog"
         aria-modal="true"
         aria-label={`Delete ${title}`}
-        className="ab-menu fixed left-1/2 top-1/3 w-[19rem] -translate-x-1/2 p-4"
+        className="nt-menu fixed left-1/2 top-1/3 w-[19rem] -translate-x-1/2 p-4"
         style={{ zIndex: "var(--z-modal)" }}
       >
         <ConfirmDelete

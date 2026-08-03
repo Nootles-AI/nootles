@@ -78,7 +78,7 @@ export function MathField({
       const field = new Cls();
       fieldRef.current = field;
       field.value = lastEmitted.current;
-      field.className = "ab-mathfield";
+      field.className = "nt-mathfield";
       field.addEventListener("input", () => {
         lastEmitted.current = field.value;
         onChangeRef.current(field.value);
@@ -127,5 +127,5 @@ export function MathField({
     field.value = value;
   }, [value]);
 
-  return <span ref={host} className="ab-mathfield-host" />;
+  return <span ref={host} className="nt-mathfield-host" />;
 }

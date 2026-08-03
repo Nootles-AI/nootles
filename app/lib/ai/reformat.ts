@@ -52,11 +52,11 @@ table, a list — usually arrives as several paragraphs in a row. Folding them
 back into a single block is the most valuable thing you do here.
 
 The document is HTML with a few custom elements:
-  <ab-code-block lang="python">code</ab-code-block>
-  <ab-math-block><ab-math-line>a = 1</ab-math-line></ab-math-block>
-  <ab-diagram w="600" h="200"><ab-rect id="s1" x="40" y="40" w="180" h="56">Step</ab-rect>
-    <ab-rect id="s2" x="40" y="120" w="180" h="56">Next</ab-rect><ab-edge from="s1" to="s2"></ab-edge></ab-diagram>
-  <ab-math>x^2</ab-math>            inline maths
+  <nt-code-block lang="python">code</nt-code-block>
+  <nt-math-block><nt-math-line>a = 1</nt-math-line></nt-math-block>
+  <nt-diagram w="600" h="200"><nt-rect id="s1" x="40" y="40" w="180" h="56">Step</nt-rect>
+    <nt-rect id="s2" x="40" y="120" w="180" h="56">Next</nt-rect><nt-edge from="s1" to="s2"></nt-edge></nt-diagram>
+  <nt-math>x^2</nt-math>            inline maths
   <code>maxRetries</code>           inline code
   <table><tr><th>A</th></tr><tr><td>b</td></tr></table>
   <ul><li><input type="checkbox">todo</li></ul>   checklist
@@ -67,10 +67,10 @@ Code blocks must name their language:
 Pick the one the code is actually written in; use plaintext if it is not one of these.
 
 A block is only a block if the whole thing is that thing:
-- A SENTENCE containing maths gets <ab-math> inline. Only bare equations —
-  nothing but the maths, typically one per line — become an <ab-math-block>.
+- A SENTENCE containing maths gets <nt-math> inline. Only bare equations —
+  nothing but the maths, typically one per line — become an <nt-math-block>.
 - A SENTENCE mentioning an identifier gets <code> inline. Only actual source
-  lines become an <ab-code-block>.
+  lines become an <nt-code-block>.
 Prose that merely talks about maths or code is still prose.
 
 Rules:
@@ -98,7 +98,7 @@ const SHOTS: Array<{ in: string; out: string }> = [
   },
   {
     in: `<p id="e">def greet(name):</p>\n<p id="f">    print(f"hi {name}")</p>\n<p id="g">greet("Sam")</p>`,
-    out: `[{"label":"Code block","html":"<ab-code-block id=\\"e\\" lang=\\"python\\">def greet(name):\\n    print(f\\"hi {name}\\")\\ngreet(\\"Sam\\")</ab-code-block>"}]`,
+    out: `[{"label":"Code block","html":"<nt-code-block id=\\"e\\" lang=\\"python\\">def greet(name):\\n    print(f\\"hi {name}\\")\\ngreet(\\"Sam\\")</nt-code-block>"}]`,
   },
   {
     in: `<p id="h">Region North revenue 4.2m</p>\n<p id="i">Region South revenue 3.1m</p>`,
@@ -106,11 +106,11 @@ const SHOTS: Array<{ in: string; out: string }> = [
   },
   {
     in: `<p id="j">The discriminant is b^2 - 4ac, so a positive value means two real roots</p>`,
-    out: `[{"label":"Inline maths","html":"<p id=\\"j\\">The discriminant is <ab-math>b^2 - 4ac</ab-math>, so a positive value means two real roots</p>"}]`,
+    out: `[{"label":"Inline maths","html":"<p id=\\"j\\">The discriminant is <nt-math>b^2 - 4ac</nt-math>, so a positive value means two real roots</p>"}]`,
   },
   {
     in: `<p id="k">a = 1</p>\n<p id="l">b = -3</p>\n<p id="m">d = b^2 - 4ac</p>`,
-    out: `[{"label":"Math block","html":"<ab-math-block id=\\"k\\"><ab-math-line>a = 1</ab-math-line><ab-math-line>b = -3</ab-math-line><ab-math-line>d = b^2 - 4ac</ab-math-line></ab-math-block>"}]`,
+    out: `[{"label":"Math block","html":"<nt-math-block id=\\"k\\"><nt-math-line>a = 1</nt-math-line><nt-math-line>b = -3</nt-math-line><nt-math-line>d = b^2 - 4ac</nt-math-line></nt-math-block>"}]`,
   },
   {
     in: `<p id="c">Set the maxRetries option before calling connect()</p>`,

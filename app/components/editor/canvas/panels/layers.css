@@ -3,7 +3,7 @@
    built from the same tokens, so it reads as the same application. Neutral
    only: selection is a grey wash, never a ring. */
 
-.ab-lyr {
+.nt-lyr {
   display: flex;
   height: 100%;
   min-height: 0;
@@ -12,7 +12,7 @@
   user-select: none;
 }
 
-.ab-lyr-list {
+.nt-lyr-list {
   position: relative;
   flex: 1 1 auto;
   min-height: 0;
@@ -22,13 +22,13 @@
   padding: 0 var(--inset) var(--inset);
 }
 
-.ab-lyr-empty {
+.nt-lyr-empty {
   padding: 4px var(--inset);
   font-size: var(--text-ui);
   color: var(--muted);
 }
 
-.ab-lyr-row {
+.nt-lyr-row {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -41,29 +41,29 @@
   cursor: default;
   transition: background var(--dur-fast) var(--ease);
 }
-.ab-lyr-row:hover {
+.nt-lyr-row:hover {
   background: var(--hover);
   color: var(--foreground);
 }
-.ab-lyr-row.is-selected {
+.nt-lyr-row.is-selected {
   background: var(--selected);
   color: var(--foreground);
 }
 /* Hidden and locked layers stay listed and stay legible — they recede. */
-.ab-lyr-row.is-dim {
+.nt-lyr-row.is-dim {
   color: var(--muted);
 }
-.ab-lyr-row.is-moving {
+.nt-lyr-row.is-moving {
   opacity: 0.4;
 }
 /* The other half of the drop indicator — same signal, so the same blue. */
-.ab-lyr-row.is-into {
-  box-shadow: inset 0 0 0 1px var(--ab-select);
+.nt-lyr-row.is-into {
+  box-shadow: inset 0 0 0 1px var(--nt-select);
 }
 
 /* The twisty column is reserved on every row so names line up whether or not
    a row can be expanded. */
-.ab-lyr-twist {
+.nt-lyr-twist {
   display: inline-flex;
   width: 12px;
   height: 12px;
@@ -72,22 +72,22 @@
   justify-content: center;
   color: var(--faint);
 }
-.ab-lyr-twist:hover {
+.nt-lyr-twist:hover {
   color: var(--foreground);
 }
-.ab-lyr-chevron {
+.nt-lyr-chevron {
   transition: transform var(--dur-fast) var(--ease);
 }
-.ab-lyr-chevron.is-open {
+.nt-lyr-chevron.is-open {
   transform: rotate(90deg);
 }
 
-.ab-lyr-icon {
+.nt-lyr-icon {
   flex: none;
   color: var(--muted);
 }
 
-.ab-lyr-name {
+.nt-lyr-name {
   flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
@@ -95,7 +95,7 @@
   text-overflow: ellipsis;
 }
 
-.ab-lyr-edit {
+.nt-lyr-edit {
   flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
@@ -105,7 +105,7 @@
 
 /* Revealed on hover, but latched on once the layer is actually hidden or
    locked: the state has to be visible without pointing at it. */
-.ab-lyr-tog {
+.nt-lyr-tog {
   display: inline-flex;
   width: 20px;
   height: 20px;
@@ -117,12 +117,12 @@
   opacity: 0;
   transition: opacity var(--dur-fast) var(--ease);
 }
-.ab-lyr-row:hover .ab-lyr-tog,
-.ab-lyr-tog.is-on,
-.ab-lyr-tog:focus-visible {
+.nt-lyr-row:hover .nt-lyr-tog,
+.nt-lyr-tog.is-on,
+.nt-lyr-tog:focus-visible {
   opacity: 1;
 }
-.ab-lyr-tog:hover {
+.nt-lyr-tog:hover {
   background: var(--hover);
   color: var(--foreground);
 }
@@ -133,14 +133,14 @@
 
    The rule is drawn as a 1px box rather than a border, so the dot's containing
    block is the line itself and `top: 50%` lands on its centre. */
-.ab-lyr-line {
+.nt-lyr-line {
   position: absolute;
   right: var(--inset);
   height: 1px;
-  background: var(--ab-select);
+  background: var(--nt-select);
   pointer-events: none;
 }
-.ab-lyr-line::before {
+.nt-lyr-line::before {
   content: "";
   position: absolute;
   top: 50%;
@@ -148,7 +148,7 @@
   width: 5px;
   height: 5px;
   border-radius: 50%;
-  background: var(--ab-select);
+  background: var(--nt-select);
   transform: translateY(-50%);
 }
 
@@ -156,7 +156,7 @@
    Its own list under the tree. Flat by nature: an edge joins two nodes and is
    a child of neither, so there is no depth to indent and nothing to drag it
    into. It borrows the tree's row, minus the twisty and the drag. */
-.ab-lyr-edges {
+.nt-lyr-edges {
   flex: none;
   /* Half the tree's share at most: the shapes are the document, and a long
      connector list must not push them off the panel. */

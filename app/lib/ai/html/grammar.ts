@@ -1,5 +1,5 @@
 /**
- * The auto-board document language.
+ * The Nootles document language.
  *
  * A small HTML dialect that the model reads and writes. The bet: models are
  * saturated with HTML and treat *tag names* as structural, so a grammar built
@@ -10,7 +10,7 @@
  *  1. A standard element with the right semantics is used as-is (`<p>`, `<ul>`,
  *     `<code>` for INLINE code, `<blockquote>`…).
  *  2. A variant of a standard element is that element plus a `data-` attribute.
- *  3. Only genuinely novel constructs get an `ab-` custom element. (Hyphenated
+ *  3. Only genuinely novel constructs get an `nt-` custom element. (Hyphenated
  *     custom elements are valid HTML — the Custom Elements spec requires the
  *     hyphen — so every parser handles them.)
  *
@@ -20,30 +20,30 @@
 
 /** Elements whose content is code/LaTeX and must never be read as markup. */
 export const RAW_TEXT_TAGS = [
-  "ab-code-block",
+  "nt-code-block",
   "code-block",
   "codeblock",
-  "ab-math-line",
+  "nt-math-line",
   "math-line",
 ] as const;
 
 /**
  * We emit one canonical name per construct but accept the plausible variants a
  * model reaches for. Strict in what we write, liberal in what we read: a model
- * writing `<code-block>` instead of `<ab-code-block>` is a naming preference,
+ * writing `<code-block>` instead of `<nt-code-block>` is a naming preference,
  * not an error, and silently dropping it would look like the feature failing.
  */
 export const TAG_ALIASES: Record<string, string> = {
-  "code-block": "ab-code-block",
-  codeblock: "ab-code-block",
-  "math-block": "ab-math-block",
-  mathblock: "ab-math-block",
-  "math-line": "ab-math-line",
-  diagram: "ab-diagram",
-  flowchart: "ab-diagram",
-  math: "ab-math",
-  file: "ab-file",
-  attachment: "ab-file",
+  "code-block": "nt-code-block",
+  codeblock: "nt-code-block",
+  "math-block": "nt-math-block",
+  mathblock: "nt-math-block",
+  "math-line": "nt-math-line",
+  diagram: "nt-diagram",
+  flowchart: "nt-diagram",
+  math: "nt-math",
+  file: "nt-file",
+  attachment: "nt-file",
 };
 
 /** Canonical tag name for an element, resolving accepted aliases. */
@@ -113,7 +113,7 @@ export type DocNode =
       name?: string;
     }
   /**
-   * A diagram, carried as the `<ab-diagram>` markup itself.
+   * A diagram, carried as the `<nt-diagram>` markup itself.
    *
    * Every other block is normalized into fields because the compiler diffs it
    * field by field. A canvas is not: the block already STORES this grammar, so
@@ -159,7 +159,7 @@ export const MARK_TAGS: Record<Mark, string> = {
  */
 export const INLINE_TAGS = new Set([
   "strong", "b", "em", "i", "u", "s", "code", "a", "span", "sup", "sub",
-  "ab-math", "br",
+  "nt-math", "br",
 ]);
 
 export const TAG_TO_MARK: Record<string, Mark> = {

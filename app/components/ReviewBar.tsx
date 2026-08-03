@@ -39,34 +39,34 @@ export function ReviewBar() {
   const writing = open.some((turn) => session.isWriting(turn.chatPromptId));
 
   return (
-    <div className="ab-review-bar" style={{ zIndex: "var(--z-sticky)" }} role="status">
-      <span className="ab-review-count">
+    <div className="nt-review-bar" style={{ zIndex: "var(--z-sticky)" }} role="status">
+      <span className="nt-review-count">
         {hunks.length} change{hunks.length === 1 ? "" : "s"}
         {pages > 1 ? ` · ${pages} pages` : ""}
         {open.length > 1 ? ` · ${open.length} messages` : ""}
       </span>
-      <span className="ab-review-sep" aria-hidden />
+      <span className="nt-review-sep" aria-hidden />
       {/* A hunk the agent is still growing can be regrouped, and regrouped it
           has a different id — so it cannot honestly be answered yet. The bar
           says why instead of offering buttons that would quietly do nothing. */}
       {writing ? (
-        <span className="ab-review-count">still writing…</span>
+        <span className="nt-review-count">still writing…</span>
       ) : (
         <>
           <button
-            className="ab-review-action"
+            className="nt-review-action"
             onClick={() => session.answer(session.acceptAll())}
           >
             Keep all
           </button>
           <button
-            className="ab-review-action"
+            className="nt-review-action"
             onClick={() => session.answer(session.rejectAll())}
           >
             Discard all
           </button>
           <button
-            className="ab-review-action is-quiet"
+            className="nt-review-action is-quiet"
             onClick={() => session.answer(session.revertTurn(oldest.chatPromptId))}
             title="Put the page back exactly as it was, including anything you have typed since"
           >
@@ -74,7 +74,7 @@ export function ReviewBar() {
           </button>
         </>
       )}
-      {failure && <span className="ab-review-failure">{failure}</span>}
+      {failure && <span className="nt-review-failure">{failure}</span>}
     </div>
   );
 }

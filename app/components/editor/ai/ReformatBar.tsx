@@ -117,37 +117,37 @@ export function ReformatBar({
     <>
       <div
         ref={ref}
-        className="ab-reformat"
+        className="nt-reformat"
         // Hidden until measured, so it never flashes at the top-left corner.
         style={{ visibility: "hidden", zIndex: "var(--z-dropdown)" }}
         role="status"
         aria-label={`Reformat suggestion: ${candidates[index].label}`}
       >
-        <button className="ab-reformat-apply" onClick={onAccept}>
-          <Sparkle className="ab-reformat-mark" aria-hidden />
+        <button className="nt-reformat-apply" onClick={onAccept}>
+          <Sparkle className="nt-reformat-mark" aria-hidden />
           {candidates[index].label}
-          <span className="ab-reformat-key">⇥</span>
+          <span className="nt-reformat-key">⇥</span>
         </button>
       </div>
 
       {many && (
         <div
-          className="ab-reformat-switcher"
+          className="nt-reformat-switcher"
           style={{ zIndex: "var(--z-dropdown)" }}
         >
           <button
-            className="ab-reformat-step"
+            className="nt-reformat-step"
             onClick={() => onCycle(-1)}
             aria-label="Previous suggestion"
             title="Previous (⌥←)"
           >
             <ChevronLeft width={12} height={12} />
           </button>
-          <span className="ab-reformat-count">
+          <span className="nt-reformat-count">
             {index + 1}/{candidates.length}
           </span>
           <button
-            className="ab-reformat-step"
+            className="nt-reformat-step"
             onClick={() => onCycle(1)}
             aria-label="Next suggestion"
             title="Next (⌥→)"

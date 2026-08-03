@@ -26,7 +26,7 @@ import "./edges.css";
  */
 
 /** Marker ids are document-global, so they carry the block's own id. */
-const ARROW = "ab-edge-arrow";
+const ARROW = "nt-edge-arrow";
 
 export interface EdgeLayerProps {
   scene: Scene;
@@ -58,7 +58,7 @@ export const EdgeLayer = memo(function EdgeLayer({
 
   return (
     <>
-      <svg className="ab-edges" aria-hidden>
+      <svg className="nt-edges" aria-hidden>
         <defs>
           <marker
             id={ARROW}
@@ -80,9 +80,9 @@ export const EdgeLayer = memo(function EdgeLayer({
             (selected.has(edge.id) ? " is-selected" : "") +
             (hoverId === edge.id ? " is-hover" : "");
           return (
-            <g key={edge.id} className={`ab-edge${state}`}>
+            <g key={edge.id} className={`nt-edge${state}`}>
               <path
-                className="ab-edge-line"
+                className="nt-edge-line"
                 data-edge={edge.id}
                 d={d}
                 style={toCss(edge.style)}
@@ -91,7 +91,7 @@ export const EdgeLayer = memo(function EdgeLayer({
               {/* The target. Wide, transparent, and on top of its own line, so
                   a 1px connector is as clickable as a shape. */}
               <path
-                className="ab-edge-hit"
+                className="nt-edge-hit"
                 data-edge={edge.id}
                 d={d}
                 onPointerDown={onPick && ((e) => onPick(edge.id, e))}
@@ -113,7 +113,7 @@ export const EdgeLayer = memo(function EdgeLayer({
           <div
             key={edge.id}
             data-edge-label={edge.id}
-            className={`ab-edge-label${selected.has(edge.id) ? " is-selected" : ""}`}
+            className={`nt-edge-label${selected.has(edge.id) ? " is-selected" : ""}`}
             style={{ left: at.x, top: at.y }}
           >
             {edge.label}

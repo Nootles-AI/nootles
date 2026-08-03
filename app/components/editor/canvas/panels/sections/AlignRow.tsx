@@ -91,8 +91,8 @@ export function AlignRow({ selection, patch }: SectionProps) {
   const canDistribute = selection.length > 2;
 
   return (
-    <div className="ab-align-strip" role="group" aria-label="Align and distribute">
-      <div className="ab-align-group">
+    <div className="nt-align-strip" role="group" aria-label="Align and distribute">
+      <div className="nt-align-group">
         {ALIGN.map((a) => (
           <Tooltip
             key={a.value}
@@ -100,7 +100,7 @@ export function AlignRow({ selection, patch }: SectionProps) {
             hint={shortcutHint(a.id)}
           >
             <button
-              className="ab-icon-btn is-sm"
+              className="nt-icon-btn is-sm"
               disabled={!canAlign}
               aria-label={SHORTCUTS_BY_ID[a.id].label}
               onClick={() => move(alignNodes(selection, a.value))}
@@ -110,11 +110,11 @@ export function AlignRow({ selection, patch }: SectionProps) {
           </Tooltip>
         ))}
       </div>
-      <div className="ab-align-group">
+      <div className="nt-align-group">
         {DISTRIBUTE.map((d) => (
           <Tooltip key={d.value} label={d.label}>
             <button
-              className="ab-icon-btn is-sm"
+              className="nt-icon-btn is-sm"
               disabled={!canDistribute}
               aria-label={d.label}
               onClick={() => move(distributeNodes(selection, d.value))}

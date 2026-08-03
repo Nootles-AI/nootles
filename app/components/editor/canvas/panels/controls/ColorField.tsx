@@ -60,7 +60,7 @@ export function ColorField({
   const api = useColorVariables();
   const vars = api?.variables ?? NO_VARS;
   const bound = refName(value);
-  // The panel lives outside `<ab-diagram>`, so a reference has to be resolved
+  // The panel lives outside `<nt-diagram>`, so a reference has to be resolved
   // by hand before anything can paint it.
   const paint = resolveVars(value, vars);
   const rgba = parseColor(paint);
@@ -119,17 +119,17 @@ export function ColorField({
       trigger={(p) => (
         <button
           {...p}
-          className="ab-ctl-swatch"
+          className="nt-ctl-swatch"
           aria-label={label}
           onClick={() => click(p.onClick)}
         >
           {label !== undefined && (
-            <span className="ab-ctl-mark" aria-hidden>
+            <span className="nt-ctl-mark" aria-hidden>
               {label}
             </span>
           )}
           <Swatch color={mixed ? undefined : paint} />
-          <span className="ab-ctl-swatch-text">
+          <span className="nt-ctl-swatch-text">
             {mixed ? "Mixed" : bound ? varLabel(bound) : displayColor(value)}
           </span>
         </button>
@@ -169,7 +169,7 @@ function HexInput({
       ref={selectAll}
       type="text"
       spellCheck={false}
-      className="ab-ctl-text min-w-0 flex-auto"
+      className="nt-ctl-text min-w-0 flex-auto"
       aria-label="Hex colour"
       defaultValue={seed}
       onBlur={(e) => onDone(dropped.current ? null : e.target.value)}
@@ -188,9 +188,9 @@ function HexInput({
 /** Checkerboard behind, colour on top, so alpha reads as alpha. */
 export function Swatch({ color }: { color?: string }) {
   return (
-    <span className="ab-ctl-chip">
+    <span className="nt-ctl-chip">
       {color !== undefined && (
-        <span className="ab-ctl-chip-fill" style={{ background: color }} />
+        <span className="nt-ctl-chip-fill" style={{ background: color }} />
       )}
     </span>
   );
@@ -223,8 +223,8 @@ function Body({
   return (
     <>
       {bound !== null && (
-        <div className="ab-ctl-row">
-          <span className="ab-ctl-note min-w-0 flex-1 truncate">
+        <div className="nt-ctl-row">
+          <span className="nt-ctl-note min-w-0 flex-1 truncate">
             {target
               ? `Editing ${varLabel(bound)}`
               : `${varLabel(bound)} — undefined`}
@@ -285,9 +285,9 @@ function Variables({
   return (
     <div className="border-border flex flex-col gap-1 border-t pt-2">
       <div className="flex items-center justify-between">
-        <span className="ab-ctl-sublabel">Variables</span>
+        <span className="nt-ctl-sublabel">Variables</span>
         <button
-          className="ab-icon-btn is-sm"
+          className="nt-icon-btn is-sm"
           aria-label="Create variable from this colour"
           title="Create variable from this colour"
           onClick={() => setNaming(varLabel(nextVariableName(vars)))}
@@ -301,7 +301,7 @@ function Variables({
           ref={selectAll}
           type="text"
           spellCheck={false}
-          className="ab-ctl-text"
+          className="nt-ctl-text"
           aria-label="Variable name"
           defaultValue={naming}
           onBlur={(e) => create(e.target.value)}
@@ -316,24 +316,24 @@ function Variables({
       )}
 
       {vars.length === 0 ? (
-        <span className="ab-ctl-note">No variables yet</span>
+        <span className="nt-ctl-note">No variables yet</span>
       ) : (
         <div className="flex max-h-[124px] flex-col gap-0.5 overflow-y-auto">
           {vars.map((v) => (
-            <div key={v.name} className="ab-ctl-row gap-0.5">
+            <div key={v.name} className="nt-ctl-row gap-0.5">
               <button
-                className="ab-ctl-swatch"
+                className="nt-ctl-swatch"
                 aria-pressed={v.name === bound}
                 onClick={() => onPick(varRef(v.name))}
               >
                 <Swatch color={resolveVars(v.value, vars)} />
-                <span className="ab-ctl-swatch-text">{varLabel(v.name)}</span>
-                <span className="ab-ctl-check">
+                <span className="nt-ctl-swatch-text">{varLabel(v.name)}</span>
+                <span className="nt-ctl-check">
                   {v.name === bound && <Check width={12} height={12} />}
                 </span>
               </button>
               <button
-                className="ab-icon-btn is-sm"
+                className="nt-icon-btn is-sm"
                 aria-label={`Delete ${varLabel(v.name)}`}
                 title="Delete variable"
                 onClick={() => remove(v)}
@@ -350,7 +350,7 @@ function Variables({
 
 function TextButton({ label, onClick }: { label: string; onClick: () => void }) {
   return (
-    <button onClick={onClick} className="ab-ctl-textbtn">
+    <button onClick={onClick} className="nt-ctl-textbtn">
       {label}
     </button>
   );
@@ -412,7 +412,7 @@ function Picker({
   return (
     <>
       <div
-        className="ab-ctl-sv"
+        className="nt-ctl-sv"
         style={{ backgroundColor: `hsl(${hue} 100% 50%)` }}
         onPointerDown={(e) =>
           track(e, (x, y) => set(withHsv(hue, x, 1 - y)), commit, {
@@ -421,13 +421,13 @@ function Picker({
         }
       >
         <span
-          className="ab-ctl-knob"
+          className="nt-ctl-knob"
           style={{ left: `${hsv.s * 100}%`, top: `${(1 - hsv.v) * 100}%` }}
         />
       </div>
 
       <div
-        className="ab-ctl-slider is-hue"
+        className="nt-ctl-slider is-hue"
         onPointerDown={(e) =>
           track(
             e,
@@ -440,17 +440,17 @@ function Picker({
           )
         }
       >
-        <span className="ab-ctl-knob" style={{ left: `${(hue / 360) * 100}%` }} />
+        <span className="nt-ctl-knob" style={{ left: `${(hue / 360) * 100}%` }} />
       </div>
 
       <div
-        className="ab-ctl-slider is-alpha"
+        className="nt-ctl-slider is-alpha"
         onPointerDown={(e) =>
           track(e, (x) => set({ ...rgba, a: x }), commit, { batch: true })
         }
       >
         <span
-          className="ab-ctl-alpha-fill"
+          className="nt-ctl-alpha-fill"
           style={{
             background: `linear-gradient(90deg, ${formatColor({
               ...rgba,
@@ -458,7 +458,7 @@ function Picker({
             })}, ${formatColor({ ...rgba, a: 1 })})`,
           }}
         />
-        <span className="ab-ctl-knob" style={{ left: `${rgba.a * 100}%` }} />
+        <span className="nt-ctl-knob" style={{ left: `${rgba.a * 100}%` }} />
       </div>
 
       {/* Hex here, opacity on the slider above: the two halves a designer
@@ -466,7 +466,7 @@ function Picker({
       <input
         type="text"
         spellCheck={false}
-        className="ab-ctl-text"
+        className="nt-ctl-text"
         aria-label="Hex colour"
         value={text ?? toHex(rgba)}
         onChange={(e) => setText(e.target.value)}

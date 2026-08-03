@@ -15,7 +15,7 @@ import { compileDocHtml } from "@/app/lib/ai/html/compile";
 /**
  * Dev-only harness for the AI substrate, with no model involved.
  *
- * The document is shown in the auto-board HTML language — the one surface the
+ * The document is shown in the Nootles HTML language — the one surface the
  * AI reads and writes — and the pane is editable, so an edit runs exactly the
  * path a completion takes: parse → compile → validate → apply.
  *

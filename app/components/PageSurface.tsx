@@ -33,11 +33,11 @@ export function PageSurface({ pageId }: { pageId: Id<"pages"> }) {
           className="w-full px-6 py-12 sm:px-14 sm:py-20"
           style={{ maxWidth: "calc(var(--measure) + 7rem)" }}
         >
-          <div className="ab-skeleton h-8 w-1/2" />
+          <div className="nt-skeleton h-8 w-1/2" />
           <div className="mt-8 space-y-3">
-            <div className="ab-skeleton h-4 w-full" />
-            <div className="ab-skeleton h-4 w-11/12" />
-            <div className="ab-skeleton h-4 w-2/3" />
+            <div className="nt-skeleton h-4 w-full" />
+            <div className="nt-skeleton h-4 w-11/12" />
+            <div className="nt-skeleton h-4 w-2/3" />
           </div>
         </div>
       </main>
@@ -83,7 +83,7 @@ export function PageSurface({ pageId }: { pageId: Id<"pages"> }) {
           }}
           placeholder="Untitled"
           label="Page title"
-          className="ab-bare-focus w-full text-[length:var(--text-title)] font-semibold tracking-[-0.02em] text-balance outline-none"
+          className="nt-bare-focus w-full text-[length:var(--text-title)] font-semibold tracking-[-0.02em] text-balance outline-none"
         />
         <div className="mt-8">
           <Editor

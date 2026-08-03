@@ -85,7 +85,7 @@ export function Popover({
             ref={panelRef}
             role="dialog"
             aria-label={label}
-            className="ab-menu ab-ctl-pop fixed"
+            className="nt-menu nt-ctl-pop fixed"
             style={{ top: pos.top, left: pos.left, width }}
             onKeyDown={(e) => {
               if (e.key !== "Escape") return;

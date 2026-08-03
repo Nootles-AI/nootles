@@ -42,7 +42,7 @@ export default function SignInPage() {
     <main className="flex flex-1 items-center justify-center px-6 pb-24">
       <div className="w-full max-w-[20rem]">
         <h1 className="text-[length:var(--text-title)] font-semibold tracking-[-0.02em]">
-          auto-board
+          Nootles
         </h1>
         <p className="mt-1 text-[13px] text-muted">
           An AI-native planning surface — notes, canvas, and an ambient copilot.
@@ -51,7 +51,7 @@ export default function SignInPage() {
         <button
           onClick={start}
           disabled={!isLoaded || going}
-          className="ab-row mt-8 h-9 w-full justify-center gap-2 border bg-sunken font-medium disabled:opacity-60"
+          className="nt-row mt-8 h-9 w-full justify-center gap-2 border bg-sunken font-medium disabled:opacity-60"
           style={{ borderColor: "var(--border)" }}
         >
           <GoogleMark width={16} height={16} />

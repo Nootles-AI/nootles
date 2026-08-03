@@ -341,8 +341,8 @@ export function LayersPanel({
   };
 
   return (
-    <div className="ab-lyr" aria-label="Layers" onKeyDown={onKeyDown}>
-      <div className="ab-section-label">
+    <div className="nt-lyr" aria-label="Layers" onKeyDown={onKeyDown}>
+      <div className="nt-section-label">
         <span>Layers</span>
       </div>
 
@@ -351,13 +351,13 @@ export function LayersPanel({
         role="tree"
         aria-label="Layers"
         aria-multiselectable
-        className="ab-lyr-list"
+        className="nt-lyr-list"
         onPointerDown={(e) => {
           if (e.target === e.currentTarget) selection.clear();
         }}
       >
         {rows.length === 0 && (
-          <div className="ab-lyr-empty">Nothing on the canvas yet.</div>
+          <div className="nt-lyr-empty">Nothing on the canvas yet.</div>
         )}
 
         {rows.map((row) => {
@@ -373,7 +373,7 @@ export function LayersPanel({
               aria-level={depth + 1}
               aria-selected={selected}
               aria-expanded={isContainer(node) ? expanded.has(node.id) : undefined}
-              className={`ab-lyr-row${selected ? " is-selected" : ""}${
+              className={`nt-lyr-row${selected ? " is-selected" : ""}${
                 node.hidden || node.locked ? " is-dim" : ""
               }${moving?.has(node.id) ? " is-moving" : ""}${
                 drop?.intoId === node.id ? " is-into" : ""
@@ -400,7 +400,7 @@ export function LayersPanel({
             >
               {isContainer(node) ? (
                 <button
-                  className="ab-lyr-twist"
+                  className="nt-lyr-twist"
                   aria-label={expanded.has(node.id) ? "Collapse" : "Expand"}
                   onPointerDown={(e) => e.stopPropagation()}
                   onClick={() => toggleExpanded(node.id)}
@@ -408,16 +408,16 @@ export function LayersPanel({
                   <ChevronRight
                     width={12}
                     height={12}
-                    className={`ab-lyr-chevron${
+                    className={`nt-lyr-chevron${
                       expanded.has(node.id) ? " is-open" : ""
                     }`}
                   />
                 </button>
               ) : (
-                <span className="ab-lyr-twist" />
+                <span className="nt-lyr-twist" />
               )}
 
-              <Glyph className="ab-lyr-icon" d={glyphFor(node)} />
+              <Glyph className="nt-lyr-icon" d={glyphFor(node)} />
 
               {editing ? (
                 <Editable
@@ -436,10 +436,10 @@ export function LayersPanel({
                     }
                     if (e.key === "Escape") setRenaming(null);
                   }}
-                  className="ab-lyr-edit ab-bare-focus"
+                  className="nt-lyr-edit nt-bare-focus"
                 />
               ) : (
-                <span className="ab-lyr-name">{displayName(node)}</span>
+                <span className="nt-lyr-name">{displayName(node)}</span>
               )}
 
               <Toggle
@@ -472,7 +472,7 @@ export function LayersPanel({
 
         {drop && !drop.intoId && (
           <div
-            className="ab-lyr-line"
+            className="nt-lyr-line"
             style={{ top: drop.top, left: 8 + drop.depth * INDENT }}
           />
         )}
@@ -483,11 +483,11 @@ export function LayersPanel({
           no parent and nothing to drag it into. */}
       {scene.edges.length > 0 && (
         <>
-          <div className="ab-section-label">
+          <div className="nt-section-label">
             <span>Connectors</span>
           </div>
           <div
-            className="ab-lyr-edges"
+            className="nt-lyr-edges"
             role="listbox"
             aria-label="Connectors"
             aria-multiselectable
@@ -500,7 +500,7 @@ export function LayersPanel({
                   role="option"
                   tabIndex={0}
                   aria-selected={selected}
-                  className={`ab-lyr-row${selected ? " is-selected" : ""}`}
+                  className={`nt-lyr-row${selected ? " is-selected" : ""}`}
                   onPointerDown={(e) => {
                     if (e.button !== 0) return;
                     if (e.metaKey || e.ctrlKey || e.shiftKey) {
@@ -515,9 +515,9 @@ export function LayersPanel({
                     selection.selectEdges([edge.id]);
                   }}
                 >
-                  <span className="ab-lyr-twist" />
-                  <Glyph className="ab-lyr-icon" d={CONNECTOR_GLYPH} />
-                  <span className="ab-lyr-name">{edgeName(scene, edge)}</span>
+                  <span className="nt-lyr-twist" />
+                  <Glyph className="nt-lyr-icon" d={CONNECTOR_GLYPH} />
+                  <span className="nt-lyr-name">{edgeName(scene, edge)}</span>
                   <Toggle
                     on={false}
                     label="Delete connector"
@@ -552,7 +552,7 @@ function Toggle({
 }) {
   return (
     <button
-      className={`ab-lyr-tog${on ? " is-on" : ""}`}
+      className={`nt-lyr-tog${on ? " is-on" : ""}`}
       aria-label={label}
       aria-pressed={on}
       onPointerDown={(e) => e.stopPropagation()}

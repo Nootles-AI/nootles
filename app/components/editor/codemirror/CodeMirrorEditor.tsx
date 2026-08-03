@@ -99,8 +99,8 @@ export function CodeMirrorEditor({
     });
   }, [initialValue]);
 
-  // Completion inside the block. The document is serialized into the auto-board
-  // HTML language with the caret placed inside this <ab-code-block>, so the model
+  // Completion inside the block. The document is serialized into the Nootles
+  // HTML language with the caret placed inside this <nt-code-block>, so the model
   // sees the whole page — the prose introducing the code, the diagram beside it —
   // and the closing tag sits in the suffix, so it returns bare code.
   const ctxRef = useRef(getFimContext);
@@ -203,5 +203,5 @@ export function CodeMirrorEditor({
     };
   }, [language]);
 
-  return <div ref={host} className="ab-cm" />;
+  return <div ref={host} className="nt-cm" />;
 }

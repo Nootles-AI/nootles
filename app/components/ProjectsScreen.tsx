@@ -58,7 +58,7 @@ export function ProjectsScreen() {
                 setEditingId(id);
               })
             }
-            className="ab-row gap-1.5 bg-sunken px-3 font-medium"
+            className="nt-row gap-1.5 bg-sunken px-3 font-medium"
           >
             <Plus width={14} height={14} />
             New project
@@ -77,11 +77,11 @@ export function ProjectsScreen() {
           {[0, 1, 2].map((i) => (
             <li key={i} className="flex items-center gap-3 py-0.5">
               <span
-                className="ab-skeleton h-4 flex-1"
+                className="nt-skeleton h-4 flex-1"
                 style={{ maxWidth: `${[62, 44, 53][i]}%`, animationDelay: `${i * 120}ms` }}
               />
-              <span className="ab-skeleton hidden h-3 w-20 sm:block" />
-              <span className="ab-skeleton h-3 w-20" />
+              <span className="nt-skeleton hidden h-3 w-20 sm:block" />
+              <span className="nt-skeleton h-3 w-20" />
               <span className="w-8" />
             </li>
           ))}
@@ -118,7 +118,7 @@ export function ProjectsScreen() {
                       setEditingId(null);
                     }
                   }}
-                  className="ab-row-edit ab-bare-focus is-selected flex-1 font-medium"
+                  className="nt-row-edit nt-bare-focus is-selected flex-1 font-medium"
                 />
               ) : (
                 <>
@@ -129,16 +129,16 @@ export function ProjectsScreen() {
                       setEditingId(p._id);
                     }}
                     title="Double-click to rename"
-                    className="ab-row flex-1 font-medium"
+                    className="nt-row flex-1 font-medium"
                   >
-                    <span className="ab-row-label">
+                    <span className="nt-row-label">
                       {p.title || "Untitled project"}
                     </span>
                   </button>
-                  <span className="ab-meta hidden w-20 shrink-0 text-right sm:block">
+                  <span className="nt-meta hidden w-20 shrink-0 text-right sm:block">
                     {p.pageCount} {p.pageCount === 1 ? "page" : "pages"}
                   </span>
-                  <span className="ab-meta w-20 shrink-0 text-right">
+                  <span className="nt-meta w-20 shrink-0 text-right">
                     {when(p.updatedAt)}
                   </span>
                 </>
@@ -148,7 +148,7 @@ export function ProjectsScreen() {
                 <span className="flex shrink-0 items-center gap-1">
                   <button
                     onClick={() => setConfirmingId(null)}
-                    className="ab-row px-2.5"
+                    className="nt-row px-2.5"
                   >
                     Cancel
                   </button>
@@ -157,7 +157,7 @@ export function ProjectsScreen() {
                       removeProject({ projectId: p._id });
                       setConfirmingId(null);
                     }}
-                    className="ab-row px-2.5 font-medium text-danger"
+                    className="nt-row px-2.5 font-medium text-danger"
                   >
                     Delete {p.pageCount} {p.pageCount === 1 ? "page" : "pages"}
                   </button>
@@ -171,7 +171,7 @@ export function ProjectsScreen() {
                     <button
                       {...t}
                       aria-label={`Actions for ${p.title || "Untitled project"}`}
-                      className="ab-icon-btn opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 aria-expanded:opacity-100"
+                      className="nt-icon-btn opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 aria-expanded:opacity-100"
                     >
                       <MoreHorizontal />
                     </button>
@@ -189,7 +189,7 @@ export function ProjectsScreen() {
                       >
                         Rename
                       </MenuItem>
-                      <div className="ab-menu-sep" />
+                      <div className="nt-menu-sep" />
                       <MenuItem
                         danger
                         onClick={() => {

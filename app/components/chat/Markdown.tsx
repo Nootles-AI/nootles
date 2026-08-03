@@ -43,7 +43,7 @@ function blocksOf(source: string): ReactNode[] {
     // Joined with a space, because a single newline is a soft wrap in markdown
     // and the model hard-wraps its prose.
     out.push(
-      <p key={key++} className="ab-turn-text">
+      <p key={key++} className="nt-turn-text">
         {inlineOf(paragraph.join(" "))}
       </p>,
     );
@@ -55,11 +55,11 @@ function blocksOf(source: string): ReactNode[] {
     const items = list.items.map((item, i) => <li key={i}>{inlineOf(item)}</li>);
     out.push(
       list.ordered ? (
-        <ol key={key++} className="ab-md-list" start={list.start}>
+        <ol key={key++} className="nt-md-list" start={list.start}>
           {items}
         </ol>
       ) : (
-        <ul key={key++} className="ab-md-list">
+        <ul key={key++} className="nt-md-list">
           {items}
         </ul>
       ),
@@ -84,7 +84,7 @@ function blocksOf(source: string): ReactNode[] {
       out.push(
         <p
           key={key++}
-          className="ab-md-heading"
+          className="nt-md-heading"
           // Levels past three are the same size: this is a chat panel, not an
           // outline, and six sizes of heading in it would be five too many.
           data-level={Math.min(heading[1].length, 3)}
@@ -98,7 +98,7 @@ function blocksOf(source: string): ReactNode[] {
     // Before the bullet rule, or `---` reads as an empty list item.
     if (RULE.test(line)) {
       close();
-      out.push(<hr key={key++} className="ab-md-rule" />);
+      out.push(<hr key={key++} className="nt-md-rule" />);
       continue;
     }
 

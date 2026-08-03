@@ -165,7 +165,7 @@ export function StrokeSection({ selection, patch }: SectionProps) {
   if (!base)
     return (
       <PanelSection title="Stroke" onAdd={() => apply({})}>
-        <span className="ab-ctl-empty">No stroke</span>
+        <span className="nt-ctl-empty">No stroke</span>
       </PanelSection>
     );
 
@@ -174,7 +174,7 @@ export function StrokeSection({ selection, patch }: SectionProps) {
 
   return (
     <PanelSection title="Stroke">
-      <div className="ab-ctl-row">
+      <div className="nt-ctl-row">
         <ColorField
           value={base.color}
           mixed={differs((s) => s.color)}
@@ -188,7 +188,7 @@ export function StrokeSection({ selection, patch }: SectionProps) {
         </IconButton>
       </div>
 
-      <div className="ab-ctl-grid">
+      <div className="nt-ctl-grid">
         <NumberField
           label={<StrokeWeight />}
           name="Stroke weight"
@@ -199,7 +199,7 @@ export function StrokeSection({ selection, patch }: SectionProps) {
           step={0.5}
           onChange={(width) => apply({ width })}
         />
-        <span className="ab-ctl-wide-end">
+        <span className="nt-ctl-wide-end">
           <IconToggle
             value={differs((s) => s.dash) ? "" : base.dash}
             options={DASHES}
@@ -209,7 +209,7 @@ export function StrokeSection({ selection, patch }: SectionProps) {
       </div>
 
       {!selection.every((node) => node.kind === "path") && (
-        <div className="ab-ctl-row">
+        <div className="nt-ctl-row">
           <SelectField
             label="Align"
             name="Stroke alignment"

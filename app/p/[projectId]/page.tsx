@@ -7,7 +7,7 @@ import { ReviewProvider } from "@/app/components/ReviewContext";
 import { EditorRegistryProvider } from "@/app/components/editor/EditorRegistry";
 
 export const metadata: Metadata = {
-  title: "auto-board",
+  title: "Nootles",
 };
 
 /**

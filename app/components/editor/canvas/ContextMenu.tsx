@@ -225,10 +225,10 @@ export function ContextMenu({
 
   return (
     <>
-      {/* Marked `ab-ctx` so the canvas does not read dismissing this as a
+      {/* Marked `nt-ctx` so the canvas does not read dismissing this as a
           press outside itself. */}
       <div
-        className="ab-ctx fixed inset-0"
+        className="nt-ctx fixed inset-0"
         style={{ zIndex: MENU_Z }}
         onPointerDown={onClose}
         onContextMenu={(e) => {
@@ -241,26 +241,26 @@ export function ContextMenu({
         role="menu"
         aria-label="Canvas actions"
         tabIndex={-1}
-        className="ab-ctx ab-menu fixed"
+        className="nt-ctx nt-menu fixed"
         style={{ top: at.y, left: at.x, zIndex: MENU_Z }}
         onKeyDown={onKeyDown}
       >
         {actions.map((group, i) => (
           <Fragment key={i}>
-            {i > 0 && <div className="ab-menu-sep" />}
+            {i > 0 && <div className="nt-menu-sep" />}
             {group.map((action) => (
               <button
                 key={action.label}
                 role="menuitem"
                 disabled={action.disabled}
-                className={`ab-menu-item${action.danger ? " is-danger" : ""}`}
+                className={`nt-menu-item${action.danger ? " is-danger" : ""}`}
                 onClick={() => {
                   action.run();
                   onClose();
                 }}
               >
                 {action.label}
-                <span className="ab-ctx-key">
+                <span className="nt-ctx-key">
                   {shortcutHint(action.shortcut)}
                 </span>
               </button>

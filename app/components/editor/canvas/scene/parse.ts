@@ -18,7 +18,7 @@ import {
  *
  * Strict in what {@link serializeScene} writes, liberal in what this reads: the
  * grammar is authored by hand and by a model, so a `<rectangle>` where the
- * canonical tag is `<ab-rect>`, a `style` broken across lines, `x="40px"`, or a
+ * canonical tag is `<nt-rect>`, a `style` broken across lines, `x="40px"`, or a
  * wrapper `<div>` around the shapes are all naming preferences rather than
  * errors. Everything that is *not* understood — attributes outside
  * `RESERVED_ATTRS`, CSS properties nothing reads — is carried through verbatim
@@ -35,11 +35,11 @@ export type ParseHtml = (html: string) => Document;
 const defaultParseHtml: ParseHtml = (html) =>
   new DOMParser().parseFromString(html, "text/html");
 
-/** Tags accepted as the surface element. `ab-diagram` is the one we write. */
+/** Tags accepted as the surface element. `nt-diagram` is the one we write. */
 const ROOT_TAGS = new Set([
-  "ab-diagram",
-  "ab-canvas",
-  "ab-scene",
+  "nt-diagram",
+  "nt-canvas",
+  "nt-scene",
   "diagram",
   "canvas",
   "scene",
@@ -50,24 +50,24 @@ const ROOT_TAGS = new Set([
 const KIND_ALIASES: Record<string, SceneNodeKind> = {
   rect: "rect",
   rectangle: "rect",
-  "ab-rectangle": "rect",
+  "nt-rectangle": "rect",
   box: "rect",
-  "ab-box": "rect",
+  "nt-box": "rect",
   ellipse: "ellipse",
   circle: "ellipse",
-  "ab-circle": "ellipse",
+  "nt-circle": "ellipse",
   oval: "ellipse",
   polygon: "polygon",
   ngon: "polygon",
-  "ab-ngon": "polygon",
+  "nt-ngon": "polygon",
   text: "text",
-  "ab-label": "text",
+  "nt-label": "text",
   image: "image",
   img: "image",
-  "ab-img": "image",
+  "nt-img": "image",
   path: "path",
   group: "group",
-  "ab-frame": "group",
+  "nt-frame": "group",
   frame: "group",
 };
 

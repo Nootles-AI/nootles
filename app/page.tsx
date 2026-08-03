@@ -3,7 +3,7 @@ import { Authed } from "./components/Authed";
 import { ProjectsScreen } from "./components/ProjectsScreen";
 
 export const metadata: Metadata = {
-  title: "auto-board",
+  title: "Nootles",
 };
 
 /** The root is the project manager, the way a docs app opens on your files. */

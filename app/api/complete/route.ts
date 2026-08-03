@@ -4,7 +4,7 @@ import { sessionToken } from "@/app/lib/session";
 
 /**
  * Inline completion. The caller sends the document split at the caret in the
- * auto-board HTML language, and Codestral fills the middle.
+ * Nootles HTML language, and Codestral fills the middle.
  *
  * Because the language is markup, "should this become a code block?" is not a
  * decision anyone has to make — a code block is simply what comes next in the

@@ -36,7 +36,7 @@ export function MentionMenu({
   }, [active]);
 
   return (
-    <div id={id} role="listbox" aria-label="Mention" className="ab-menu ab-mention-menu">
+    <div id={id} role="listbox" aria-label="Mention" className="nt-menu nt-mention-menu">
       {items.map((item, i) => (
         <button
           key={item.key}
@@ -44,7 +44,7 @@ export function MentionMenu({
           ref={i === active ? activeRef : undefined}
           role="option"
           aria-selected={i === active}
-          className={`ab-menu-item ab-mention-item${i === active ? " is-active" : ""}`}
+          className={`nt-menu-item nt-mention-item${i === active ? " is-active" : ""}`}
           // The textarea keeps the focus and therefore the caret: a menu that
           // took it would have to put the caret back where it found it.
           onMouseDown={(e) => {
@@ -53,8 +53,8 @@ export function MentionMenu({
           }}
           onMouseEnter={() => onHover(i)}
         >
-          <span className="ab-mention-label">{item.label}</span>
-          {item.hint && <span className="ab-mention-hint">{item.hint}</span>}
+          <span className="nt-mention-label">{item.label}</span>
+          {item.hint && <span className="nt-mention-hint">{item.hint}</span>}
         </button>
       ))}
     </div>

@@ -1,6 +1,6 @@
 @import "tailwindcss";
 
-/* auto-board is light-mode only for v0.
+/* Nootles is light-mode only for v0.
 
    Geometry note: panel chrome uses a single 8px outer inset. Row buttons add
    8px of their own padding and icon buttons are 32px boxes around a 16px glyph
@@ -187,8 +187,8 @@ body {
 /* Inline renames and the page title are exempt: a text field already shows
    where focus is with its caret, and a ring around a name you are editing in
    place reads like a form field appeared. The caret is the indicator. */
-.ab-bare-focus:focus-visible,
-.ab-bare-focus:focus {
+.nt-bare-focus:focus-visible,
+.nt-bare-focus:focus {
   outline: none;
 }
 }
@@ -202,7 +202,7 @@ body {
    The sidebar and chat panel are the same object with different contents, so
    they share these. Alignment lives here, once. */
 
-.ab-panel {
+.nt-panel {
   display: flex;
   height: 100%;
   flex-shrink: 0;
@@ -219,37 +219,37 @@ body {
 
    The class is baked into each panel rather than passed in: every one of these
    only ever occupies one side, drawer included. */
-@keyframes ab-rail-in-l {
+@keyframes nt-rail-in-l {
   from {
     opacity: 0;
     transform: translateX(-24px);
   }
 }
-@keyframes ab-rail-in-r {
+@keyframes nt-rail-in-r {
   from {
     opacity: 0;
     transform: translateX(24px);
   }
 }
-@keyframes ab-fade-in {
+@keyframes nt-fade-in {
   from {
     opacity: 0;
   }
 }
-.ab-rail-l {
-  animation: ab-rail-in-l var(--dur) var(--ease);
+.nt-rail-l {
+  animation: nt-rail-in-l var(--dur) var(--ease);
 }
-.ab-rail-r {
-  animation: ab-rail-in-r var(--dur) var(--ease);
+.nt-rail-r {
+  animation: nt-rail-in-r var(--dur) var(--ease);
 }
 @media (prefers-reduced-motion: reduce) {
-  .ab-rail-l,
-  .ab-rail-r {
-    animation: ab-fade-in var(--dur-fast) var(--ease);
+  .nt-rail-l,
+  .nt-rail-r {
+    animation: nt-fade-in var(--dur-fast) var(--ease);
   }
 }
 
-.ab-panel-head {
+.nt-panel-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -257,7 +257,7 @@ body {
   padding: var(--inset);
 }
 
-.ab-panel-title {
+.nt-panel-title {
   /* 8px panel inset + 8px here = the same 16px as every row below it. */
   padding-inline: var(--inset);
   font-size: var(--text-ui);
@@ -270,7 +270,7 @@ body {
 
 /* 32px box around a 16px glyph: the glyph edge lands at 16px, flush with row
    text, and the target clears the 24px minimum with room to spare. */
-.ab-icon-btn {
+.nt-icon-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -283,21 +283,21 @@ body {
     background var(--dur-fast) var(--ease),
     color var(--dur-fast) var(--ease);
 }
-.ab-icon-btn:hover {
+.nt-icon-btn:hover {
   background: var(--hover);
   color: var(--foreground);
 }
-.ab-icon-btn:active {
+.nt-icon-btn:active {
   background: var(--active);
 }
 /* A latched icon button, the same grey wash the toolbar and the row selection
    use. Sites used to say this with an inline `text-[var(--foreground)]`, which
    changed the ink and left the box looking untouched. */
-.ab-icon-btn[aria-pressed="true"] {
+.nt-icon-btn[aria-pressed="true"] {
   background: var(--selected);
   color: var(--foreground);
 }
-.ab-icon-btn:disabled {
+.nt-icon-btn:disabled {
   opacity: 0.4;
   pointer-events: none;
 }
@@ -305,13 +305,13 @@ body {
    fields they sit beside. One modifier, because five call sites used to bolt
    `size-6` onto the 32px box and one section ended up with a 32px eye next to
    a 24px close in the same row. */
-.ab-icon-btn.is-sm {
+.nt-icon-btn.is-sm {
   width: var(--control-sm);
   height: var(--control-sm);
   border-radius: var(--radius-sm);
 }
 
-.ab-row {
+.nt-row {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -325,14 +325,14 @@ body {
     background var(--dur-fast) var(--ease),
     color var(--dur-fast) var(--ease);
 }
-.ab-row:hover {
+.nt-row:hover {
   background: var(--hover);
   color: var(--foreground);
 }
-.ab-row:active {
+.nt-row:active {
   background: var(--active);
 }
-.ab-row.is-selected {
+.nt-row.is-selected {
   background: var(--selected);
   color: var(--foreground);
   font-weight: 500;
@@ -341,7 +341,7 @@ body {
    a flex container though: a contentEditable flex parent puts the caret against
    the top of the line box rather than with the text. Block layout with the row
    height as the line height centres both the text and the caret. */
-.ab-row-edit {
+.nt-row-edit {
   display: block;
   height: var(--control);
   line-height: var(--control);
@@ -353,7 +353,7 @@ body {
   white-space: nowrap;
 }
 
-.ab-row-label {
+.nt-row-label {
   flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
@@ -365,7 +365,7 @@ body {
    tokens the change itself is drawn in, so the badge and the page agree. Mono
    and tabular, like every other count in the app, so the digits do not shuffle
    as they climb. */
-.ab-row-diff {
+.nt-row-diff {
   flex: none;
   display: flex;
   gap: 5px;
@@ -374,16 +374,16 @@ body {
   letter-spacing: var(--tracking-meta);
   font-variant-numeric: tabular-nums;
 }
-.ab-row-diff-add {
+.nt-row-diff-add {
   color: var(--diff-add);
 }
-.ab-row-diff-del {
+.nt-row-diff-del {
   color: var(--diff-del);
 }
 
 /* Metadata is where the mono shows: section labels, counts, timestamps. It
    is the one place the type system has a second voice. */
-.ab-section-label {
+.nt-section-label {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -397,7 +397,7 @@ body {
   color: var(--muted);
 }
 
-.ab-meta {
+.nt-meta {
   font-family: var(--font-mono), ui-monospace, monospace;
   font-size: var(--text-meta-lg);
   letter-spacing: 0.01em;
@@ -408,7 +408,7 @@ body {
 /* ---- Menus --------------------------------------------------------------
    Rendered with position:fixed via a portal-free anchor so they can never be
    clipped by a panel's overflow. */
-.ab-menu {
+.nt-menu {
   z-index: var(--z-dropdown);
   min-width: 200px;
   padding: 4px;
@@ -419,15 +419,15 @@ body {
     0 1px 2px oklch(0.25 0.005 90 / 0.05),
     0 4px 12px oklch(0.25 0.005 90 / 0.07),
     0 16px 40px oklch(0.25 0.005 90 / 0.1);
-  animation: ab-menu-in var(--dur) var(--ease);
+  animation: nt-menu-in var(--dur) var(--ease);
 }
-@keyframes ab-menu-in {
+@keyframes nt-menu-in {
   from {
     opacity: 0;
     transform: translateY(4px) scale(0.98);
   }
 }
-.ab-menu-item {
+.nt-menu-item {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -440,21 +440,21 @@ body {
   color: var(--foreground);
   transition: background var(--dur-fast) var(--ease);
 }
-.ab-menu-item:hover,
-.ab-menu-item:focus-visible {
+.nt-menu-item:hover,
+.nt-menu-item:focus-visible {
   background: var(--hover);
 }
-.ab-menu-item.is-danger:hover {
+.nt-menu-item.is-danger:hover {
   color: var(--danger);
 }
-.ab-menu-sep {
+.nt-menu-sep {
   height: 1px;
   margin: 4px 0;
   background: var(--border);
 }
 /* A line of menu that is information rather than a target — the account a menu
    belongs to. Item metrics, muted ink, no hover. */
-.ab-menu-caption {
+.nt-menu-caption {
   display: flex;
   align-items: center;
   height: var(--control);
@@ -465,7 +465,7 @@ body {
 
 /* The account monogram. A filled well rather than a ring: it reads as a token
    at 20px, where a 1px outline would just look like a rounding error. */
-.ab-monogram {
+.nt-monogram {
   display: grid;
   place-items: center;
   width: 20px;
@@ -478,20 +478,20 @@ body {
   line-height: 1;
   color: var(--muted);
 }
-.ab-icon-btn:hover .ab-monogram {
+.nt-icon-btn:hover .nt-monogram {
   color: var(--foreground);
 }
 
 /* ---- Loading -----------------------------------------------------------
    Placeholders match the shape of what replaces them, so content swaps in
    without reflow. The sweep is the only thing that moves. */
-.ab-skeleton {
+.nt-skeleton {
   position: relative;
   overflow: hidden;
   border-radius: var(--radius);
   background: var(--surface);
 }
-.ab-skeleton::after {
+.nt-skeleton::after {
   content: "";
   position: absolute;
   inset: 0;
@@ -502,9 +502,9 @@ body {
     oklch(1 0 90 / 0.8) 50%,
     transparent 100%
   );
-  animation: ab-sweep 1.7s var(--ease) infinite;
+  animation: nt-sweep 1.7s var(--ease) infinite;
 }
-@keyframes ab-sweep {
+@keyframes nt-sweep {
   to {
     transform: translateX(100%);
   }
@@ -522,7 +522,7 @@ body {
    Text behind it is always fully legible — the effect marks the edge, it never
    dims what you are being asked to read. Deliberately NOT gradient-masked
    text: you have to be able to read a suggestion before accepting it. */
-.ab-stream-head::after {
+.nt-stream-head::after {
   content: "";
   display: inline-block;
   width: 2px;
@@ -537,21 +537,21 @@ body {
     0 0 22px color-mix(in oklch, var(--accent-soft) 55%, transparent);
 }
 /* Only while tokens are still arriving. */
-.ab-stream-head.is-live::after {
-  animation: ab-pulse 1.15s var(--ease) infinite;
+.nt-stream-head.is-live::after {
+  animation: nt-pulse 1.15s var(--ease) infinite;
 }
-@keyframes ab-pulse {
+@keyframes nt-pulse {
   50% {
     opacity: 0.4;
   }
 }
 
 /* A block still being generated carries the same accent, as a quiet edge. */
-.ab-generating {
+.nt-generating {
   box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--accent-soft) 40%, transparent);
-  animation: ab-breathe 2s var(--ease) infinite;
+  animation: nt-breathe 2s var(--ease) infinite;
 }
-@keyframes ab-breathe {
+@keyframes nt-breathe {
   50% {
     box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--accent-soft) 14%, transparent);
   }
@@ -561,15 +561,15 @@ body {
 @media (prefers-reduced-motion: reduce) {
   /* A 0.01ms sweep would still flash. These just stop — the thinking dot stays
      visible and steady, which with the word beside it still says "working". */
-  .ab-skeleton::after,
-  .ab-stream-head::after,
-  .ab-thinking-dot {
+  .nt-skeleton::after,
+  .nt-stream-head::after,
+  .nt-thinking-dot {
     animation: none !important;
   }
-  .ab-skeleton::after {
+  .nt-skeleton::after {
     display: none;
   }
-  .ab-generating {
+  .nt-generating {
     animation: none !important;
   }
 
@@ -587,14 +587,14 @@ body {
 /* ---- Page mode toggle ---------------------------------------------------
    Metadata, so it speaks in the mono voice with the section labels and page
    counts rather than competing with the document. */
-.ab-mode {
+.nt-mode {
   display: inline-flex;
   gap: 1px;
   padding: 2px;
   border-radius: var(--radius);
   background: var(--sunken);
 }
-.ab-mode-btn {
+.nt-mode-btn {
   padding: 3px 9px;
   border-radius: var(--radius-sm);
   font-family: var(--font-mono), ui-monospace, monospace;
@@ -605,10 +605,10 @@ body {
     background var(--dur-fast) var(--ease),
     color var(--dur-fast) var(--ease);
 }
-.ab-mode-btn:hover {
+.nt-mode-btn:hover {
   color: var(--foreground);
 }
-.ab-mode-btn.is-on {
+.nt-mode-btn.is-on {
   background: var(--background);
   color: var(--foreground);
   box-shadow: 0 1px 2px oklch(0.25 0.005 90 / 0.06);
@@ -620,10 +620,10 @@ body {
    Opens downward: these sit at the very top of the page, where an upward
    tooltip would be clipped by the viewport. Keyboard focus shows it too, so
    it is not mouse-only. */
-.ab-tip {
+.nt-tip {
   position: relative;
 }
-.ab-tip::after {
+.nt-tip::after {
   content: attr(data-tip);
   position: absolute;
   top: calc(100% + 8px);
@@ -652,13 +652,13 @@ body {
 }
 /* Bottom-of-panel controls flip it, where a downward tooltip would fall
    outside the panel. */
-.ab-tip.is-up::after {
+.nt-tip.is-up::after {
   top: auto;
   bottom: calc(100% + 8px);
   transform: translateY(2px);
 }
-.ab-tip:hover::after,
-.ab-tip:focus-visible::after {
+.nt-tip:hover::after,
+.nt-tip:focus-visible::after {
   opacity: 1;
   transform: translateY(0);
 }
@@ -683,7 +683,7 @@ body {
    side: only the user's turns get a container, and the assistant answers in
    the document's own voice. That alternation is legible without avatars,
    bubbles or rules. */
-.ab-transcript {
+.nt-transcript {
   flex: 1;
   overflow-y: auto;
   padding: 4px 12px 12px;
@@ -691,14 +691,14 @@ body {
   flex-direction: column;
   gap: 14px;
 }
-.ab-turn-text {
+.nt-turn-text {
   margin: 0;
   font-size: var(--text-ui);
   line-height: 1.65;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-.ab-turn-text + .ab-turn-text {
+.nt-turn-text + .nt-turn-text {
   margin-top: 0.6em;
 }
 
@@ -706,7 +706,7 @@ body {
    The panel is a column of a few hundred pixels, so this is emphasis rather
    than hierarchy: a heading is heavier and a touch larger, and that is all.
    Six sizes would turn a two-paragraph answer into a document. */
-.ab-md-heading {
+.nt-md-heading {
   margin: 0;
   font-size: var(--text-ui);
   font-weight: 600;
@@ -714,47 +714,47 @@ body {
   color: var(--foreground);
   overflow-wrap: anywhere;
 }
-.ab-md-heading[data-level="1"] {
+.nt-md-heading[data-level="1"] {
   font-size: calc(var(--text-ui) + 2px);
 }
-.ab-md-heading[data-level="2"] {
+.nt-md-heading[data-level="2"] {
   font-size: calc(var(--text-ui) + 1px);
 }
 /* A heading earns its space above, and gives it back to whatever it introduces. */
-* + .ab-md-heading {
+* + .nt-md-heading {
   margin-top: 0.9em;
 }
-.ab-md-heading + * {
+.nt-md-heading + * {
   margin-top: 0.3em;
 }
 
-.ab-md-list {
+.nt-md-list {
   margin: 0;
   padding-left: 1.35em;
   font-size: var(--text-ui);
   line-height: 1.65;
   overflow-wrap: anywhere;
 }
-ul.ab-md-list {
+ul.nt-md-list {
   list-style: disc;
 }
-ol.ab-md-list {
+ol.nt-md-list {
   list-style: decimal;
 }
-.ab-md-list li::marker {
+.nt-md-list li::marker {
   color: var(--muted);
 }
-.ab-md-list li + li {
+.nt-md-list li + li {
   margin-top: 0.25em;
 }
-* + .ab-md-list {
+* + .nt-md-list {
   margin-top: 0.5em;
 }
-.ab-md-list + * {
+.nt-md-list + * {
   margin-top: 0.6em;
 }
 
-.ab-md-rule {
+.nt-md-rule {
   margin: 0.85em 0;
   border: 0;
   border-top: 1px solid var(--border);
@@ -762,7 +762,7 @@ ol.ab-md-list {
 
 /* Code in a reply is the same chip it is in the document, so a variable name
    reads the same wherever it is mentioned. */
-.ab-turn.is-assistant code {
+.nt-turn.is-assistant code {
   padding: 0.12em 0.34em;
   border-radius: var(--radius-sm);
   background: var(--sunken);
@@ -771,11 +771,11 @@ ol.ab-md-list {
   font-size: 0.88em;
   overflow-wrap: anywhere;
 }
-.ab-turn.is-assistant strong {
+.nt-turn.is-assistant strong {
   font-weight: 600;
 }
 /* Underlined rather than coloured, the same as a link in the document. */
-.ab-turn.is-assistant a {
+.nt-turn.is-assistant a {
   color: var(--foreground);
   text-decoration: underline;
   text-decoration-color: color-mix(in oklch, var(--foreground) 35%, transparent);
@@ -784,35 +784,35 @@ ol.ab-md-list {
   overflow-wrap: anywhere;
   transition: text-decoration-color var(--dur-fast) var(--ease);
 }
-.ab-turn.is-assistant a:hover {
+.nt-turn.is-assistant a:hover {
   text-decoration-color: var(--foreground);
 }
-.ab-turn.is-user {
+.nt-turn.is-user {
   padding: 7px 10px;
   border-radius: var(--radius);
   background: var(--sunken);
 }
-.ab-turn.is-assistant {
+.nt-turn.is-assistant {
   color: var(--foreground);
 }
-.ab-turn-pending,
-.ab-turn-error {
+.nt-turn-pending,
+.nt-turn-error {
   font-size: var(--text-ui);
   color: var(--muted);
 }
-.ab-turn-error {
+.nt-turn-error {
   color: var(--danger);
 }
 /* Waiting on the agent. Accent and a pulse, which is what the inline suggestion
    already uses to say "still generating" — one vocabulary for AI at work. The
    label itself holds still: the movement is the dot's job, and a word that
    breathes is a word you read twice. */
-.ab-turn-pending {
+.nt-turn-pending {
   display: flex;
   align-items: center;
   gap: 7px;
 }
-.ab-thinking-dot {
+.nt-thinking-dot {
   flex: none;
   width: 6px;
   height: 6px;
@@ -821,38 +821,38 @@ ol.ab-md-list {
   box-shadow:
     0 0 4px var(--accent-soft),
     0 0 10px color-mix(in oklch, var(--accent-soft) 60%, transparent);
-  animation: ab-pulse 1.15s var(--ease) infinite;
+  animation: nt-pulse 1.15s var(--ease) infinite;
 }
 /* What the agent did on the way to answering. The mono voice files it with the
    section labels and page counts — a record of work, not part of the reply. */
-.ab-turn-step {
+.nt-turn-step {
   margin: 0;
   font-family: var(--font-mono), ui-monospace, monospace;
   font-size: var(--text-meta-lg);
   color: var(--muted);
   overflow-wrap: anywhere;
 }
-.ab-turn-step + .ab-turn-text,
-.ab-turn-text + .ab-turn-step {
+.nt-turn-step + .nt-turn-text,
+.nt-turn-text + .nt-turn-step {
   margin-top: 0.6em;
 }
-.ab-turn-step.is-failed {
+.nt-turn-step.is-failed {
   color: var(--danger);
 }
 /* The step still going. Baseline-aligned rather than centred: the dot belongs
    with the first line of the label, not halfway down a wrapped one. */
-.ab-turn-step.is-running {
+.nt-turn-step.is-running {
   display: flex;
   align-items: baseline;
   gap: 7px;
 }
-.ab-turn-step.is-running .ab-thinking-dot {
+.nt-turn-step.is-running .nt-thinking-dot {
   position: relative;
   top: -1px;
 }
 /* The one thing in the transcript that acts on the project when clicked, so it
    is given the delete dialog's surface rather than the conversation's. */
-.ab-turn-confirm {
+.nt-turn-confirm {
   padding: 11px 12px 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
@@ -862,7 +862,7 @@ ol.ab-md-list {
 /* Something that came with the question — a file attached to it, a page it
    pointed at. It is a label on the message, not part of what was said, so it
    takes the metadata voice and never the accent. */
-.ab-chip {
+.nt-chip {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -878,22 +878,22 @@ ol.ab-md-list {
     border-color var(--dur-fast) var(--ease),
     color var(--dur-fast) var(--ease);
 }
-a.ab-chip:hover {
+a.nt-chip:hover {
   border-color: var(--border-strong);
   color: var(--foreground);
 }
-.ab-chip-label {
+.nt-chip-label {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.ab-chip-remove {
+.nt-chip-remove {
   display: inline-flex;
   margin-right: -2px;
   color: var(--faint);
   transition: color var(--dur-fast) var(--ease);
 }
-.ab-chip-remove:hover {
+.nt-chip-remove:hover {
   color: var(--foreground);
 }
 
@@ -902,7 +902,7 @@ a.ab-chip:hover {
    left and right margin so the three read as one column. Neutral, like the bar
    under the document: the colour on this screen belongs to the change itself,
    and this is a control for a set of them. */
-.ab-chat-review {
+.nt-chat-review {
   flex: none;
   margin: 0 8px 6px;
   padding: 5px 5px 5px 10px;
@@ -910,12 +910,12 @@ a.ab-chip:hover {
   border-radius: var(--radius);
   background: var(--elevated);
 }
-.ab-chat-review-row {
+.nt-chat-review-row {
   display: flex;
   align-items: center;
   gap: 8px;
 }
-.ab-chat-review-count {
+.nt-chat-review-count {
   flex: 1 1 auto;
   min-width: 0;
   font-family: var(--font-mono), ui-monospace, monospace;
@@ -924,12 +924,12 @@ a.ab-chip:hover {
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
-.ab-chat-review-actions {
+.nt-chat-review-actions {
   flex: none;
   display: flex;
   gap: 2px;
 }
-.ab-chat-review-btn {
+.nt-chat-review-btn {
   height: 24px;
   padding: 0 9px;
   border-radius: var(--radius-sm);
@@ -940,21 +940,21 @@ a.ab-chip:hover {
     background var(--dur-fast) var(--ease),
     color var(--dur-fast) var(--ease);
 }
-.ab-chat-review-btn:hover {
+.nt-chat-review-btn:hover {
   background: var(--hover);
   color: var(--foreground);
 }
 /* Keeping is the ordinary answer, so it is the one that reads as the default. */
-.ab-chat-review-btn.is-keep {
+.nt-chat-review-btn.is-keep {
   color: var(--foreground);
 }
-.ab-chat-review-failure {
+.nt-chat-review-failure {
   margin-top: 4px;
   font-size: var(--text-meta-lg);
   color: var(--danger);
 }
 
-.ab-composer {
+.nt-composer {
   position: relative;
   margin: 0 8px 8px;
   border: 1px solid var(--border);
@@ -964,27 +964,27 @@ a.ab-chip:hover {
     border-color var(--dur-fast) var(--ease),
     background var(--dur-fast) var(--ease);
 }
-.ab-composer:focus-within {
+.nt-composer:focus-within {
   border-color: var(--border-strong);
 }
 /* A drop target says so by looking like a well, which is what it is about to
    become. No dashed outline: the box is already outlined. */
-.ab-composer.is-dropping {
+.nt-composer.is-dropping {
   border-color: var(--border-strong);
   background: var(--sunken);
 }
-.ab-composer-files {
+.nt-composer-files {
   display: flex;
   flex-wrap: wrap;
   padding: 8px 9px 0;
 }
-.ab-composer-note {
+.nt-composer-note {
   margin: 0;
   padding: 8px 11px 0;
   font-size: var(--text-meta-lg);
   color: var(--danger);
 }
-.ab-composer-attach {
+.nt-composer-attach {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -996,11 +996,11 @@ a.ab-chip:hover {
     background var(--dur-fast) var(--ease),
     color var(--dur-fast) var(--ease);
 }
-.ab-composer-attach:hover:not(:disabled) {
+.nt-composer-attach:hover:not(:disabled) {
   background: var(--hover);
   color: var(--foreground);
 }
-.ab-composer-attach:disabled {
+.nt-composer-attach:disabled {
   opacity: 0.45;
   cursor: not-allowed;
 }
@@ -1008,7 +1008,7 @@ a.ab-chip:hover {
 /* Spans the box and opens above it: a textarea will not say where its caret is
    without a mirrored copy of itself, and a menu that covered the conversation
    to sit beside one character would be the worse trade. */
-.ab-mention-menu {
+.nt-mention-menu {
   position: absolute;
   bottom: calc(100% + 6px);
   left: -1px;
@@ -1016,19 +1016,19 @@ a.ab-chip:hover {
   max-height: 232px;
   overflow-y: auto;
 }
-.ab-mention-item {
+.nt-mention-item {
   justify-content: space-between;
   gap: 12px;
 }
-.ab-mention-item.is-active {
+.nt-mention-item.is-active {
   background: var(--hover);
 }
-.ab-mention-label {
+.nt-mention-label {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.ab-mention-hint {
+.nt-mention-hint {
   flex: none;
   max-width: 45%;
   overflow: hidden;
@@ -1038,7 +1038,7 @@ a.ab-chip:hover {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.ab-composer-input {
+.nt-composer-input {
   display: block;
   width: 100%;
   resize: none;
@@ -1048,19 +1048,19 @@ a.ab-chip:hover {
   line-height: 1.55;
   color: var(--foreground);
 }
-.ab-composer-input::placeholder {
+.nt-composer-input::placeholder {
   color: var(--muted);
 }
-.ab-composer-input:focus {
+.nt-composer-input:focus {
   outline: none;
 }
-.ab-composer-actions {
+.nt-composer-actions {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 0 5px 5px;
 }
-.ab-composer-send {
+.nt-composer-send {
   height: 24px;
   padding: 0 9px;
   border-radius: var(--radius-sm);
@@ -1071,18 +1071,18 @@ a.ab-chip:hover {
     background var(--dur-fast) var(--ease),
     color var(--dur-fast) var(--ease);
 }
-.ab-composer-send:hover:not(:disabled) {
+.nt-composer-send:hover:not(:disabled) {
   background: var(--hover);
   color: var(--foreground);
 }
-.ab-composer-send:disabled {
+.nt-composer-send:disabled {
   opacity: 0.45;
   cursor: not-allowed;
 }
 
 /* Metadata voice, and quiet until wanted: a rewind sits under every question
    but is almost never the thing you came to do. */
-.ab-rewind {
+.nt-rewind {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -1094,31 +1094,31 @@ a.ab-chip:hover {
   color: var(--faint);
   transition: color var(--dur-fast) var(--ease);
 }
-.ab-turn:hover .ab-rewind,
-.ab-rewind:focus-visible,
-.ab-rewind[aria-expanded="true"] {
+.nt-turn:hover .nt-rewind,
+.nt-rewind:focus-visible,
+.nt-rewind[aria-expanded="true"] {
   color: var(--muted);
 }
-.ab-rewind:hover {
+.nt-rewind:hover {
   color: var(--foreground);
 }
 
 /* On its way out, not gone: what a rewind would drop stays legible, because
    what is about to be lost is exactly what the decision is about. */
-.ab-turn.is-dropping {
+.nt-turn.is-dropping {
   opacity: 0.4;
   transition: opacity var(--dur) var(--ease);
 }
-.ab-turn.is-dropping .ab-rewind {
+.nt-turn.is-dropping .nt-rewind {
   display: none;
 }
 
-.ab-rewind-draft {
+.nt-rewind-draft {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
-.ab-rewind-input {
+.nt-rewind-input {
   width: 100%;
   resize: none;
   overflow: hidden;
@@ -1128,12 +1128,12 @@ a.ab-chip:hover {
   font: inherit;
   outline: none;
 }
-.ab-rewind-actions {
+.nt-rewind-actions {
   display: flex;
   align-items: center;
   justify-content: space-between;
 }
-.ab-rewind-action {
+.nt-rewind-action {
   height: 22px;
   padding-inline: 8px;
   border-radius: var(--radius-sm);
@@ -1143,15 +1143,15 @@ a.ab-chip:hover {
     background var(--dur-fast) var(--ease),
     color var(--dur-fast) var(--ease);
 }
-.ab-rewind-action:hover {
+.nt-rewind-action:hover {
   background: var(--hover);
   color: var(--foreground);
 }
-.ab-rewind-action.is-primary {
+.nt-rewind-action.is-primary {
   background: var(--foreground);
   color: var(--elevated);
 }
-.ab-rewind-action.is-primary:hover {
+.nt-rewind-action.is-primary:hover {
   background: var(--foreground);
   opacity: 0.85;
   color: var(--elevated);
@@ -1160,41 +1160,41 @@ a.ab-chip:hover {
 /* A menu item that carries its consequence under its name. The hint is the
    part people actually read here, because the three choices differ only in
    what they leave behind. */
-.ab-menu-stack {
+.nt-menu-stack {
   display: flex;
   min-width: 0;
   flex-direction: column;
   gap: 1px;
 }
-.ab-menu-hint {
+.nt-menu-hint {
   font-size: var(--text-meta);
   color: var(--muted);
 }
-.ab-menu-item:hover .ab-menu-hint {
+.nt-menu-item:hover .nt-menu-hint {
   color: var(--foreground);
 }
 
-.ab-thread-row {
+.nt-thread-row {
   display: flex;
   align-items: center;
 }
 /* Revealed on hover: a delete control beside every row reads as a list of
    things to delete rather than a list of chats. */
-.ab-thread-delete {
+.nt-thread-delete {
   opacity: 0;
   transition: opacity var(--dur-fast) var(--ease);
 }
-.ab-thread-row:hover .ab-thread-delete,
-.ab-thread-delete:focus-visible {
+.nt-thread-row:hover .nt-thread-delete,
+.nt-thread-delete:focus-visible {
   opacity: 1;
 }
-.ab-thread-check {
+.nt-thread-check {
   display: inline-flex;
   width: 13px;
   flex: none;
   color: var(--muted);
 }
-.ab-thread-age {
+.nt-thread-age {
   margin-left: auto;
   padding-left: 8px;
   font-family: var(--font-mono), ui-monospace, monospace;
@@ -1212,7 +1212,7 @@ a.ab-chip:hover {
 
    The accent stops here. The counter below is navigation chrome, not the
    model, and stays neutral so the amber keeps meaning one thing. */
-.ab-reformat {
+.nt-reformat {
   position: fixed;
   display: flex;
   align-items: center;
@@ -1224,12 +1224,12 @@ a.ab-chip:hover {
   box-shadow:
     0 1px 2px oklch(0.25 0.005 90 / 0.05),
     0 6px 20px color-mix(in oklch, var(--accent) 12%, oklch(0.25 0.005 90 / 0.1));
-  animation: ab-menu-in var(--dur) var(--ease);
+  animation: nt-menu-in var(--dur) var(--ease);
 }
 /* The counter is a control for the SET of suggestions, not part of any one of
    them, so it sits at the foot of the window instead of crowding the chip
    pressed up against your text. */
-.ab-reformat-switcher {
+.nt-reformat-switcher {
   position: fixed;
   bottom: 20px;
   left: 50%;
@@ -1244,9 +1244,9 @@ a.ab-chip:hover {
   box-shadow:
     0 1px 2px oklch(0.25 0.005 90 / 0.05),
     0 6px 20px oklch(0.25 0.005 90 / 0.1);
-  animation: ab-menu-in var(--dur) var(--ease);
+  animation: nt-menu-in var(--dur) var(--ease);
 }
-.ab-reformat-step {
+.nt-reformat-step {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1257,18 +1257,18 @@ a.ab-chip:hover {
   color: var(--muted);
   transition: background var(--dur-fast) var(--ease);
 }
-.ab-reformat-step:hover {
+.nt-reformat-step:hover {
   background: var(--hover);
   color: var(--foreground);
 }
-.ab-reformat-count {
+.nt-reformat-count {
   padding: 0 5px;
   font-family: var(--font-mono), ui-monospace, monospace;
   font-size: var(--text-meta);
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
-.ab-reformat-apply {
+.nt-reformat-apply {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -1280,17 +1280,17 @@ a.ab-chip:hover {
   white-space: nowrap;
   transition: background var(--dur-fast) var(--ease);
 }
-.ab-reformat-apply:hover {
+.nt-reformat-apply:hover {
   background: color-mix(in oklch, var(--accent) 9%, transparent);
 }
 /* Sized off the label rather than the icon grid: it is punctuation to the
    word beside it, not a control of its own. */
-.ab-reformat-mark {
+.nt-reformat-mark {
   flex: none;
   width: 11px;
   height: 11px;
 }
-.ab-reformat-key {
+.nt-reformat-key {
   font-family: var(--font-mono), ui-monospace, monospace;
   font-size: var(--text-meta);
   color: color-mix(in oklch, var(--accent) 60%, var(--muted));
@@ -1300,7 +1300,7 @@ a.ab-chip:hover {
    The turn-level answer, at the foot of the window. Neutral on purpose: the
    green and red on this screen belong to the change itself, and a bar wearing
    them would compete with the thing it is asking about. */
-.ab-review-bar {
+.nt-review-bar {
   position: fixed;
   bottom: 20px;
   left: 50%;
@@ -1316,16 +1316,16 @@ a.ab-chip:hover {
   box-shadow:
     0 1px 2px oklch(0.25 0.005 90 / 0.05),
     0 6px 20px oklch(0.25 0.005 90 / 0.1);
-  animation: ab-menu-in var(--dur) var(--ease);
+  animation: nt-menu-in var(--dur) var(--ease);
 }
 /* Both bars live at the foot of the window and both can be up at once. The
    review is the standing question, so it keeps the spot and the transient one
    steps above it. Matched from the body because the two are no longer siblings:
    the review bar belongs to the project, the switcher to the page. */
-body:has(.ab-review-bar) .ab-reformat-switcher {
+body:has(.nt-review-bar) .nt-reformat-switcher {
   bottom: 66px;
 }
-.ab-review-count {
+.nt-review-count {
   font-family: var(--font-mono), ui-monospace, monospace;
   font-size: var(--text-meta);
   letter-spacing: var(--tracking-meta);
@@ -1333,13 +1333,13 @@ body:has(.ab-review-bar) .ab-reformat-switcher {
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
-.ab-review-sep {
+.nt-review-sep {
   width: 1px;
   height: 14px;
   margin-inline: 6px;
   background: var(--border);
 }
-.ab-review-action {
+.nt-review-action {
   height: 24px;
   padding: 0 9px;
   border-radius: 999px;
@@ -1350,19 +1350,19 @@ body:has(.ab-review-bar) .ab-reformat-switcher {
     background var(--dur-fast) var(--ease),
     color var(--dur-fast) var(--ease);
 }
-.ab-review-action:hover {
+.nt-review-action:hover {
   background: var(--hover);
 }
 /* Revert throws away work the user may have done since. It stays reachable and
    stops asking for attention. */
-.ab-review-action.is-quiet {
+.nt-review-action.is-quiet {
   color: var(--muted);
 }
-.ab-review-action.is-quiet:hover {
+.nt-review-action.is-quiet:hover {
   color: var(--danger);
   background: color-mix(in oklch, var(--danger) 8%, transparent);
 }
-.ab-review-failure {
+.nt-review-failure {
   padding-inline: 8px;
   font-size: var(--text-meta-lg);
   color: var(--danger);

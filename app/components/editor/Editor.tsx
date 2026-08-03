@@ -164,7 +164,7 @@ export function Editor({
       <BlockNoteView
         editor={editor}
         theme="light"
-        className="ab-editor"
+        className="nt-editor"
         sideMenu={false}
         slashMenu={false}
         formattingToolbar={false}

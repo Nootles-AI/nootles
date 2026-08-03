@@ -124,16 +124,16 @@ export function ChatPanel({
   };
 
   return (
-    <aside style={{ width }} className="ab-panel relative ab-rail-r" aria-label="Chat">
-      <div className="ab-panel-head">
+    <aside style={{ width }} className="nt-panel relative nt-rail-r" aria-label="Chat">
+      <div className="nt-panel-head">
         <button
-          className="ab-row min-w-0 flex-1"
+          className="nt-row min-w-0 flex-1"
           onClick={() => setPicking((v) => !v)}
           aria-haspopup="menu"
           aria-expanded={picking}
           title="Switch chat"
         >
-          <span className="ab-row-label">{active?.title || "New chat"}</span>
+          <span className="nt-row-label">{active?.title || "New chat"}</span>
           <ChevronsUpDown width={13} height={13} className="shrink-0 text-muted" />
         </button>
         <button
@@ -144,7 +144,7 @@ export function ChatPanel({
           }}
           aria-label="New chat"
           title="New chat"
-          className="ab-icon-btn"
+          className="nt-icon-btn"
         >
           <Plus />
         </button>
@@ -152,7 +152,7 @@ export function ChatPanel({
           onClick={onCollapse}
           aria-label="Collapse chat"
           title="Collapse chat"
-          className="ab-icon-btn"
+          className="nt-icon-btn"
         >
           <PanelRight />
         </button>

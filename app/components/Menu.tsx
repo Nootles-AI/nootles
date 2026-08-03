@@ -148,7 +148,7 @@ export function Menu({
             aria-label={label}
             tabIndex={-1}
             onKeyDown={onKeyDown}
-            className="ab-menu fixed"
+            className="nt-menu fixed"
             style={{ top: pos.top, left: pos.left, minWidth: pos.width }}
           >
             {children(close)}
@@ -172,7 +172,7 @@ export function MenuItem({
     <button
       role="menuitem"
       onClick={onClick}
-      className={`ab-menu-item${danger ? " is-danger" : ""}`}
+      className={`nt-menu-item${danger ? " is-danger" : ""}`}
     >
       {children}
     </button>

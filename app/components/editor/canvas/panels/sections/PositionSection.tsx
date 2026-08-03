@@ -145,8 +145,8 @@ export function PositionSection({ selection, patch, setStyle }: SectionProps) {
 
   return (
     <PanelSection title="Transform">
-      <div className="ab-ctl-group">
-        <div className="ab-ctl-grid">
+      <div className="nt-ctl-group">
+        <div className="nt-ctl-grid">
           <NumberField
             label="X"
             name="X position"
@@ -163,7 +163,7 @@ export function PositionSection({ selection, patch, setStyle }: SectionProps) {
           />
         </div>
 
-        <div className="ab-ctl-grid">
+        <div className="nt-ctl-grid">
           <NumberField
             label="W"
             name="Width"
@@ -182,10 +182,10 @@ export function PositionSection({ selection, patch, setStyle }: SectionProps) {
           />
           <Tooltip
             label={linked ? "Unlock aspect ratio" : "Lock aspect ratio"}
-            className="ab-ctl-slot"
+            className="nt-ctl-slot"
           >
             <button
-              className="ab-icon-btn is-sm"
+              className="nt-icon-btn is-sm"
               aria-pressed={linked}
               aria-label="Lock aspect ratio"
               onClick={() => setLinked((v) => !v)}
@@ -196,8 +196,8 @@ export function PositionSection({ selection, patch, setStyle }: SectionProps) {
         </div>
       </div>
 
-      <div className="ab-ctl-group">
-        <div className="ab-ctl-grid">
+      <div className="nt-ctl-group">
+        <div className="nt-ctl-grid">
           <NumberField
             label={<Rotation />}
             name="Rotation"
@@ -223,9 +223,9 @@ export function PositionSection({ selection, patch, setStyle }: SectionProps) {
                 }
               />
               {perCorner && (
-                <Tooltip label="Set each corner separately" className="ab-ctl-slot">
+                <Tooltip label="Set each corner separately" className="nt-ctl-slot">
                   <button
-                    className="ab-icon-btn is-sm"
+                    className="nt-icon-btn is-sm"
                     aria-pressed={expanded}
                     aria-label="Set each corner separately"
                     onClick={() => setExpanded((v) => !v)}
@@ -242,7 +242,7 @@ export function PositionSection({ selection, patch, setStyle }: SectionProps) {
             gutter, and four auto-placed fields would drop one into it. */}
         {independent &&
           [CORNER_ORDER.slice(0, 2), CORNER_ORDER.slice(2)].map((pair) => (
-            <div className="ab-ctl-grid" key={pair.join()}>
+            <div className="nt-ctl-grid" key={pair.join()}>
               {pair.map((i) => (
                 <NumberField
                   key={CORNER_NAMES[i]}

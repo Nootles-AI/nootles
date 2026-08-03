@@ -13,7 +13,7 @@ import {
  * inline code, which BlockNote does not bind itself.
  */
 export const completionExtension = createExtension({
-  key: "ab-tab-completion",
+  key: "nt-tab-completion",
   prosemirrorPlugins: [ghostTextPlugin()],
   keyboardShortcuts: {
     Tab: ({ editor }) => acceptSuggestion(editor.prosemirrorView),

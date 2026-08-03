@@ -89,7 +89,7 @@ import "../canvas.css";
 const CANVAS_GUTTER = 32;
 
 /** The screen's canvas chrome. A press in it is not a press outside the canvas. */
-const CANVAS_CHROME = ".ab-lyr, .ab-style-panel, .ab-toolbar, .ab-ctx";
+const CANVAS_CHROME = ".nt-lyr, .nt-style-panel, .nt-toolbar, .nt-ctx";
 
 /** Scene px below which a drag was a click, and the shape takes its own size. */
 const DRAWN_MIN = 2;
@@ -255,7 +255,7 @@ function Refit({
   return (
     <button
       type="button"
-      className="ab-canvas-refit"
+      className="nt-canvas-refit"
       // The canvas keeps its focus, and with it the keymap and the clipboard.
       onPointerDown={(event) => event.preventDefault()}
       onClick={onFrame}
@@ -890,13 +890,13 @@ export function CanvasSurface({ source, onChange, onApi }: CanvasSurfaceProps) {
   return (
     <div
       ref={wrap}
-      className="ab-canvas"
+      className="nt-canvas"
       contentEditable={false}
       style={width === null ? { height } : { height, width }}
     >
       <div
         ref={containerRef}
-        className="ab-canvas-viewport"
+        className="nt-canvas-viewport"
         style={surface}
         data-tool={tool}
         tabIndex={0}
@@ -907,7 +907,7 @@ export function CanvasSurface({ source, onChange, onApi }: CanvasSurfaceProps) {
         onDoubleClick={onDoubleClick}
         onContextMenu={onContextMenu}
       >
-        <div ref={sceneRef} className="ab-canvas-scene">
+        <div ref={sceneRef} className="nt-canvas-scene">
           {/* Under the shapes: a connector reads as running behind the things
               it joins, and its arrowhead lands on the box edge either way. */}
           <EdgeLayer
@@ -964,12 +964,12 @@ export function CanvasSurface({ source, onChange, onApi }: CanvasSurfaceProps) {
         )}
 
         {scene.nodes.length === 0 && (
-          <p className="ab-canvas-hint">Pick a shape from the toolbar</p>
+          <p className="nt-canvas-hint">Pick a shape from the toolbar</p>
         )}
       </div>
 
       <div
-        className="ab-canvas-grip"
+        className="nt-canvas-grip"
         role="separator"
         aria-label="Resize canvas height"
         title="Drag to resize · double-click to fit"
@@ -977,7 +977,7 @@ export function CanvasSurface({ source, onChange, onApi }: CanvasSurfaceProps) {
         onDoubleClick={() => fit(HEIGHT_ATTR)}
       />
       <div
-        className="ab-canvas-grip-x"
+        className="nt-canvas-grip-x"
         role="separator"
         aria-label="Resize canvas width"
         title="Drag to resize · double-click to fit the column"

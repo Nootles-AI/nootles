@@ -33,15 +33,15 @@ function LanguageDropdown({
 }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className="ab-code-lang">
-      <button className="ab-code-lang-btn" onClick={() => setOpen((v) => !v)}>
+    <div className="nt-code-lang">
+      <button className="nt-code-lang-btn" onClick={() => setOpen((v) => !v)}>
         {languageLabel(value)}
         <CaretDown />
       </button>
       {open && (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="ab-code-lang-menu">
+          <div className="nt-code-lang-menu">
             {LANGUAGES.map((l) => (
               <button
                 key={l.id}
@@ -112,11 +112,11 @@ function CodeBlockView({
   };
 
   return (
-    <div className="ab-code" contentEditable={false}>
-      <div className="ab-code-topbar">
+    <div className="nt-code" contentEditable={false}>
+      <div className="nt-code-topbar">
         <LanguageDropdown value={language} onChange={onChangeLanguage} />
         <button
-          className="ab-code-delete"
+          className="nt-code-delete"
           onClick={onDelete}
           aria-label="Delete code block"
           title="Delete"

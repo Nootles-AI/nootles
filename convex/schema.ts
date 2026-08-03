@@ -2,7 +2,7 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
 /**
- * auto-board data model — bounded, non-recursive hierarchy:
+ * Nootles data model — bounded, non-recursive hierarchy:
  *   Project → Page → Block[text|canvas] → (canvas) Shape → {text, image}
  *
  * Text/block *content* is synced separately via @convex-dev/prosemirror-sync

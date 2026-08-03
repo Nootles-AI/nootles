@@ -86,11 +86,11 @@ export function ChatTranscript({
   const from = rewinding ? messages.findIndex((m) => m.id === rewinding) : -1;
 
   return (
-    <div ref={scrollerRef} className="ab-transcript">
+    <div ref={scrollerRef} className="nt-transcript">
       {messages.map((message, index) => (
         <div
           key={message.id}
-          className={`ab-turn is-${message.role}${
+          className={`nt-turn is-${message.role}${
             from >= 0 && index > from ? " is-dropping" : ""
           }`}
         >
@@ -110,7 +110,7 @@ export function ChatTranscript({
               return message.role === "assistant" ? (
                 <Markdown key={i} text={part.text} />
               ) : (
-                <p key={i} className="ab-turn-text">
+                <p key={i} className="nt-turn-text">
                   {part.text}
                 </p>
               );
@@ -120,7 +120,7 @@ export function ChatTranscript({
             if (part.type === "data-mention") {
               const { data } = part;
               return (
-                <span key={i} className="ab-chip">
+                <span key={i} className="nt-chip">
                   @{data.kind === "page" ? data.title.trim() || "Untitled" : data.filename}
                 </span>
               );
@@ -148,11 +148,11 @@ export function ChatTranscript({
               return (
                 <p
                   key={i}
-                  className={`ab-turn-step${failed ? " is-failed" : ""}${
+                  className={`nt-turn-step${failed ? " is-failed" : ""}${
                     running ? " is-running" : ""
                   }`}
                 >
-                  {running && <span className="ab-thinking-dot" aria-hidden />}
+                  {running && <span className="nt-thinking-dot" aria-hidden />}
                   {stepLine(part)}
                 </p>
               );
@@ -181,13 +181,13 @@ export function ChatTranscript({
         // going on when there is one.
         busy &&
         !messages[messages.length - 1]?.parts.some(isRunning) && (
-          <div className="ab-turn-pending" role="status">
-            <span className="ab-thinking-dot" aria-hidden />
+          <div className="nt-turn-pending" role="status">
+            <span className="nt-thinking-dot" aria-hidden />
             Thinking…
           </div>
         )
       )}
-      {error && <div className="ab-turn-error">{error.message}</div>}
+      {error && <div className="nt-turn-error">{error.message}</div>}
       <div ref={endRef} />
     </div>
   );
@@ -230,10 +230,10 @@ function RewindDraft({
   }, [text]);
 
   return (
-    <div className="ab-rewind-draft">
+    <div className="nt-rewind-draft">
       <textarea
         ref={ref}
-        className="ab-rewind-input"
+        className="nt-rewind-input"
         value={text}
         rows={1}
         aria-label="Edit this message and rewind to it"
@@ -245,13 +245,13 @@ function RewindDraft({
           }
         }}
       />
-      <div className="ab-rewind-actions">
-        <button className="ab-rewind-action" onClick={onCancel}>
+      <div className="nt-rewind-actions">
+        <button className="nt-rewind-action" onClick={onCancel}>
           Cancel
         </button>
         {/* One button, and it says what it will do. Emptying the box is how you
             say "put it back and ask nothing" — the rewind still happens. */}
-        <button className="ab-rewind-action is-primary" onClick={() => onCommit(text)}>
+        <button className="nt-rewind-action is-primary" onClick={() => onCommit(text)}>
           {text.trim() ? "Send" : "Rewind"}
         </button>
       </div>
@@ -281,7 +281,7 @@ function Rewind({
   if (!pageCount) {
     return (
       <button
-        className="ab-rewind"
+        className="nt-rewind"
         onClick={() => onRewind("conversation")}
         title="Take this message back — it changed no notes"
       >
@@ -302,7 +302,7 @@ function Rewind({
       side="bottom"
       label="Rewind to before this message"
       trigger={(props) => (
-        <button {...props} className="ab-rewind">
+        <button {...props} className="nt-rewind">
           <ArrowLeft width={11} height={11} />
           Rewind
         </button>
@@ -317,9 +317,9 @@ function Rewind({
               onRewind(option.scope);
             }}
           >
-            <span className="ab-menu-stack">
+            <span className="nt-menu-stack">
               <span>{option.label}</span>
-              <span className="ab-menu-hint">{option.hint}</span>
+              <span className="nt-menu-hint">{option.hint}</span>
             </span>
           </MenuItem>
         ))
@@ -361,15 +361,15 @@ function FileChip({ filename, href }: { filename: string; href?: string }) {
   const inside = (
     <>
       <Paperclip width={11} height={11} className="shrink-0 text-muted" />
-      <span className="ab-chip-label">{filename}</span>
+      <span className="nt-chip-label">{filename}</span>
     </>
   );
   return href ? (
-    <a className="ab-chip" href={href} target="_blank" rel="noreferrer" title={filename}>
+    <a className="nt-chip" href={href} target="_blank" rel="noreferrer" title={filename}>
       {inside}
     </a>
   ) : (
-    <span className="ab-chip" title={filename}>
+    <span className="nt-chip" title={filename}>
       {inside}
     </span>
   );
@@ -403,7 +403,7 @@ function DeleteApproval({
     // it claims none of the modality — focus trap, backdrop — that it does not
     // have. Nothing is focused for you; the destructive button is not one to
     // land on while reading.
-    <div role="alert" className="ab-turn-confirm">
+    <div role="alert" className="nt-turn-confirm">
       <ConfirmDelete
         // Named where we can name it. A page the project does not have is worth
         // saying plainly, since approving it is then certainly a mistake.

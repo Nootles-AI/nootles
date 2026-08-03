@@ -259,7 +259,7 @@ function Button({
     <Tooltip label={label} hint={hint}>
       <button
         type="button"
-        className="ab-toolbar-btn"
+        className="nt-toolbar-btn"
         aria-label={label}
         aria-pressed={pressed}
         disabled={disabled}
@@ -310,8 +310,8 @@ export function Toolbar({ store, viewport, tool, onTool }: ToolbarProps) {
   };
 
   return (
-    <div ref={dock} className="ab-toolbar-dock">
-      <div className="ab-toolbar" role="toolbar" aria-label="Canvas">
+    <div ref={dock} className="nt-toolbar-dock">
+      <div className="nt-toolbar" role="toolbar" aria-label="Canvas">
         {TOOLS.map(({ tool: id, id: shortcut, icon }) => (
           <Button
             key={id}
@@ -324,7 +324,7 @@ export function Toolbar({ store, viewport, tool, onTool }: ToolbarProps) {
           </Button>
         ))}
 
-        <span className="ab-toolbar-sep" aria-hidden />
+        <span className="nt-toolbar-sep" aria-hidden />
 
         <Button
           label="Undo"
@@ -343,7 +343,7 @@ export function Toolbar({ store, viewport, tool, onTool }: ToolbarProps) {
           {REDO}
         </Button>
 
-        <span className="ab-toolbar-sep" aria-hidden />
+        <span className="nt-toolbar-sep" aria-hidden />
 
         <Menu
           label="Zoom"
@@ -354,7 +354,7 @@ export function Toolbar({ store, viewport, tool, onTool }: ToolbarProps) {
               <button
                 type="button"
                 {...props}
-                className="ab-toolbar-zoom"
+                className="nt-toolbar-zoom"
                 onPointerDown={(e) => e.preventDefault()}
               >
                 {Math.round(zoom * 100)}%
@@ -387,7 +387,7 @@ export function Toolbar({ store, viewport, tool, onTool }: ToolbarProps) {
           }}
         </Menu>
 
-        <span className="ab-toolbar-sep" aria-hidden />
+        <span className="nt-toolbar-sep" aria-hidden />
 
         <Menu
           label="Canvas settings"
@@ -398,7 +398,7 @@ export function Toolbar({ store, viewport, tool, onTool }: ToolbarProps) {
               <button
                 type="button"
                 {...props}
-                className="ab-toolbar-btn"
+                className="nt-toolbar-btn"
                 aria-label="Settings"
                 onPointerDown={(e) => e.preventDefault()}
               >

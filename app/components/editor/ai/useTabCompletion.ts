@@ -44,22 +44,22 @@ type Editor = BlockNoteEditor<any, any, any>;
  * to standard `<pre><code>`; with one it adopts ours exactly. With no example
  * of the INLINE marks it does something worse than omit them — it reaches for a
  * block to do an inline job, emitting
- * `<ab-code-block lang="python">open_connection</ab-code-block>` for a single
+ * `<nt-code-block lang="python">open_connection</nt-code-block>` for a single
  * identifier mid-sentence. With one example it writes `<code>` there instead,
  * and will use several in a sentence where that reads better.
  */
-const PREAMBLE = `<!-- auto-board document. Blocks: <p>, <h2>, <ul><li>, <ol><li>, <blockquote>, <hr>,
+const PREAMBLE = `<!-- Nootles document. Blocks: <p>, <h2>, <ul><li>, <ol><li>, <blockquote>, <hr>,
 <table><tr><th>Region</th></tr><tr><td>North</td></tr></table>,
 <details><summary>Toggle</summary><p>inside</p></details>,
-<ab-code-block lang="python">code</ab-code-block>,
-<ab-math-block><ab-math-line>a = 1</ab-math-line></ab-math-block>,
-Inline: <code>maxRetries</code>, <strong>bold</strong>, <em>italic</em>, <ab-math>x^2</ab-math>
+<nt-code-block lang="python">code</nt-code-block>,
+<nt-math-block><nt-math-line>a = 1</nt-math-line></nt-math-block>,
+Inline: <code>maxRetries</code>, <strong>bold</strong>, <em>italic</em>, <nt-math>x^2</nt-math>
 Anything drawn — diagram, mockup, chart, wireframe — is one element saying what it
 is for, with how it should look carried into the brief:
 <p>The deploy pipeline works like this:</p>
-<ab-build-diagram>a flowchart of the deploy pipeline</ab-build-diagram>
+<nt-build-diagram>a flowchart of the deploy pipeline</nt-build-diagram>
 <p>This is a mockup of an iPhone todo app. It's modern, sleek, in dark mode:</p>
-<ab-build-diagram>a mockup of a modern, sleek iPhone todo app, in dark mode</ab-build-diagram> -->
+<nt-build-diagram>a mockup of a modern, sleek iPhone todo app, in dark mode</nt-build-diagram> -->
 `;
 
 /**
@@ -77,7 +77,7 @@ is for, with how it should look carried into the brief:
  * lands where the element stood — so nothing outside the model classifies
  * anything, and the rest of this lane cannot tell the difference.
  */
-const BUILD_TAG = "ab-build-diagram";
+const BUILD_TAG = "nt-build-diagram";
 
 /**
  * The brief so far, where the element began, and whether it has closed. Null
@@ -98,9 +98,9 @@ function diagramBrief(
   };
 }
 
-/** The `<ab-diagram>` element out of a finished reply, or "". Models fence. */
+/** The `<nt-diagram>` element out of a finished reply, or "". Models fence. */
 function diagramElement(text: string): string {
-  return /<ab-diagram[\s\S]*<\/ab-diagram>/i.exec(text)?.[0] ?? "";
+  return /<nt-diagram[\s\S]*<\/nt-diagram>/i.exec(text)?.[0] ?? "";
 }
 
 /**
@@ -123,7 +123,7 @@ function canvasIdOf(batch: Batch, result: ApplyResult): string | null {
 /**
  * Math is not markup.
  *
- * `<ab-math>i < n</ab-math>` carries a `<` that is a comparison, and a scanner
+ * `<nt-math>i < n</nt-math>` carries a `<` that is a comparison, and a scanner
  * looking for tags reads `< n` as one opening. Since `n` is not an inline mark
  * the whole completion was then judged structural and thrown away — so a
  * suggestion ending in an inequality appeared and vanished, while one ending in
@@ -135,7 +135,7 @@ function canvasIdOf(batch: Batch, result: ApplyResult): string | null {
  */
 function maskMath(text: string): string {
   return text.replace(
-    /(<ab-math>)([\s\S]*?)(<\/ab-math>|$)/gi,
+    /(<nt-math>)([\s\S]*?)(<\/nt-math>|$)/gi,
     (_, open: string, body: string, close: string) =>
       open + body.replace(/</g, " ") + close,
   );
@@ -303,9 +303,9 @@ function tablePreview(
  */
 function previewSignature(acc: string): string {
   const shapes = (
-    acc.match(/<\/ab-(?:rect|ellipse|polygon|text|image|path|group)>/gi) ?? []
+    acc.match(/<\/nt-(?:rect|ellipse|polygon|text|image|path|group)>/gi) ?? []
   ).length;
-  const edges = (acc.match(/<\/ab-edge\s*>/gi) ?? []).length;
+  const edges = (acc.match(/<\/nt-edge\s*>/gi) ?? []).length;
   return `${proseTail(acc)}:${shapes}:${edges}:${acc.length >> 5}`;
 }
 
@@ -403,7 +403,7 @@ function blocksFromMarkup(nodes: DocNode[]): GhostBlock[] {
 /**
  * The single inline-suggestion lane.
  *
- * The document is serialized into the auto-board HTML language and split at the
+ * The document is serialized into the Nootles HTML language and split at the
  * caret; the model completes the middle. Nothing classifies intent — if the
  * natural continuation is a code block, the model writes one, because that's
  * what comes next in the grammar. The SHAPE of the completion decides how it's
@@ -535,7 +535,7 @@ export function useTabCompletion(
     /**
      * Stage two: a brief becomes shapes.
      *
-     * Returns the `<ab-diagram>` element, `""` when there was nothing worth
+     * Returns the `<nt-diagram>` element, `""` when there was nothing worth
      * drawing (the builder is allowed to decline — the brief came from a model
      * that only saw one paragraph), and `null` when there is nothing left for
      * the caller to do: the turn was superseded, or the user accepted the
@@ -832,7 +832,7 @@ export function useTabCompletion(
             }
           } catch (error) {
             if (process.env.NODE_ENV !== "production") {
-              console.warn("[auto-board] completion: chunk not drawn\n  ", error);
+              console.warn("[Nootles] completion: chunk not drawn\n  ", error);
             }
             continue;
           }
@@ -842,7 +842,7 @@ export function useTabCompletion(
         // — a keystroke superseded us — and says nothing.
         if (controller.signal.aborted || mySeq !== seq) return;
         if (process.env.NODE_ENV !== "production") {
-          console.warn("[auto-board] completion: stream failed\n  ", error);
+          console.warn("[Nootles] completion: stream failed\n  ", error);
         }
         return;
       }
@@ -981,7 +981,7 @@ export function useTabCompletion(
         // clear still happens; it just says so first.
         if (process.env.NODE_ENV !== "production") {
           console.warn(
-            "[auto-board] completion: dropped while previewing\n  ",
+            "[Nootles] completion: dropped while previewing\n  ",
             error,
             "\n  completion was:",
             acc,

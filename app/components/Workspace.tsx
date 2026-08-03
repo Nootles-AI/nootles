@@ -32,7 +32,7 @@ const COMPACT = "(max-width: 1023px)";
 /* Everything that belongs to the canvas being edited. A press anywhere else is
    what "deselect" means — and the panels have to be in here, because a field in
    one takes focus off the canvas without meaning to leave it. */
-const CANVAS_SHELL = ".ab-canvas, .ab-lyr, .ab-style-panel, .ab-toolbar";
+const CANVAS_SHELL = ".nt-canvas, .nt-lyr, .nt-style-panel, .nt-toolbar";
 
 /* Room left above a diagram too tall to centre. */
 const REVEAL_TOP = 24;
@@ -79,20 +79,20 @@ export function Workspace({ projectId }: { projectId: Id<"projects"> }) {
   /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     const s = (k: string) => localStorage.getItem(k);
-    const lw = Number(s("ab:leftWidth"));
-    const rw = Number(s("ab:rightWidth"));
+    const lw = Number(s("nt:leftWidth"));
+    const rw = Number(s("nt:rightWidth"));
     if (lw) setLeftWidth(clamp(lw, LEFT.min, LEFT.max));
     if (rw) setRightWidth(clamp(rw, RIGHT.min, RIGHT.max));
-    if (s("ab:leftOpen") === "0") setLeftOpen(false);
-    if (s("ab:rightOpen") === "0") setRightOpen(false);
+    if (s("nt:leftOpen") === "0") setLeftOpen(false);
+    if (s("nt:rightOpen") === "0") setRightOpen(false);
   }, []);
   /* eslint-enable react-hooks/set-state-in-effect */
 
   useEffect(() => {
-    localStorage.setItem("ab:leftWidth", String(leftWidth));
-    localStorage.setItem("ab:rightWidth", String(rightWidth));
-    localStorage.setItem("ab:leftOpen", leftOpen ? "1" : "0");
-    localStorage.setItem("ab:rightOpen", rightOpen ? "1" : "0");
+    localStorage.setItem("nt:leftWidth", String(leftWidth));
+    localStorage.setItem("nt:rightWidth", String(rightWidth));
+    localStorage.setItem("nt:leftOpen", leftOpen ? "1" : "0");
+    localStorage.setItem("nt:rightOpen", rightOpen ? "1" : "0");
   }, [leftWidth, rightWidth, leftOpen, rightOpen]);
 
   const editing = canvas !== null;
@@ -246,7 +246,7 @@ export function Workspace({ projectId }: { projectId: Id<"projects"> }) {
         {canvasPanels ? (
           <>
             <aside
-              className="ab-panel ab-rail-l"
+              className="nt-panel nt-rail-l"
               style={{ width: leftWidth }}
               aria-label="Layers"
             >
@@ -372,7 +372,7 @@ function EdgeRail({
         aria-label={label}
         aria-expanded={expanded}
         title={label}
-        className="ab-icon-btn"
+        className="nt-icon-btn"
       >
         {side === "left" ? <PanelLeft /> : <PanelRight />}
       </button>

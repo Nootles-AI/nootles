@@ -2,7 +2,7 @@
  * Single tuning surface for the AI layer.
  *
  * There is one inline-suggestion lane: the document is serialized into the
- * auto-board HTML language, split at the caret, and a fill-in-the-middle model
+ * Nootles HTML language, split at the caret, and a fill-in-the-middle model
  * completes the middle. Nothing classifies intent — a code block is what comes
  * next in the grammar, not a decision some rule makes — so there is no gate,
  * router, or heuristic left to configure.
@@ -144,7 +144,7 @@ export const AI = {
   /**
    * The diagram builder — the second stage of the completion lane.
    *
-   * The FIM model writes `<ab-build-diagram>` where a diagram belongs and says
+   * The FIM model writes `<nt-build-diagram>` where a diagram belongs and says
    * in a phrase what it is for; this model turns that phrase into canvas HTML.
    * Split because the two jobs want opposite things: the ambient lane is asked
    * on every keystroke and must stay cheap, while the canvas grammar is seven

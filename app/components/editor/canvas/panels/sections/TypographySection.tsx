@@ -136,8 +136,8 @@ export function TypographySection({ selection, patch, setStyle }: SectionProps) 
 
   return (
     <PanelSection title="Text">
-      <div className="ab-ctl-group">
-        <div className="ab-ctl-row">
+      <div className="nt-ctl-group">
+        <div className="nt-ctl-row">
           <Choice
             label="Font"
             state={read(nodes, "font-family")}
@@ -145,7 +145,7 @@ export function TypographySection({ selection, patch, setStyle }: SectionProps) 
             onChange={(value) => setStyle({ "font-family": value || undefined })}
           />
         </div>
-        <div className="ab-ctl-row">
+        <div className="nt-ctl-row">
           <Choice
             label="Weight"
             state={read(nodes, "font-weight")}
@@ -154,7 +154,7 @@ export function TypographySection({ selection, patch, setStyle }: SectionProps) 
           />
         </div>
 
-        <div className="ab-ctl-grid">
+        <div className="nt-ctl-grid">
           <NumberField
             label={<FontSize />}
             name="Font size"
@@ -176,7 +176,7 @@ export function TypographySection({ selection, patch, setStyle }: SectionProps) 
             onChange={(n) => setStyle({ "line-height": `${n}${heightUnit}` })}
           />
         </div>
-        <div className="ab-ctl-grid">
+        <div className="nt-ctl-grid">
           <NumberField
             label={<LetterSpacing />}
             name="Letter spacing"
@@ -193,15 +193,15 @@ export function TypographySection({ selection, patch, setStyle }: SectionProps) 
 
       {/* One row each. Both toggles used to share a line beside a 54px label
           column, which put 173px of fixed-width buttons into a 161px box. */}
-      <div className="ab-ctl-group">
-        <div className="ab-ctl-row">
+      <div className="nt-ctl-group">
+        <div className="nt-ctl-row">
           <IconToggle
             value={align.mixed ? "" : align.value || "left"}
             options={H_ALIGN}
             onChange={(value) => setStyle({ "text-align": value })}
           />
         </div>
-        <div className="ab-ctl-row">
+        <div className="nt-ctl-row">
           <IconToggle
             value={vAlignValue}
             options={V_ALIGN}
@@ -228,8 +228,8 @@ export function TypographySection({ selection, patch, setStyle }: SectionProps) 
         </div>
       </div>
 
-      <div className="ab-ctl-group">
-        <div className="ab-ctl-row">
+      <div className="nt-ctl-group">
+        <div className="nt-ctl-row">
           <ColorField
             label="Colour"
             value={colour.value}
@@ -237,7 +237,7 @@ export function TypographySection({ selection, patch, setStyle }: SectionProps) 
             onChange={(value) => setStyle({ color: value || undefined })}
           />
         </div>
-        <div className="ab-ctl-row">
+        <div className="nt-ctl-row">
           <Choice
             label="Case"
             state={read(nodes, "text-transform")}
@@ -245,7 +245,7 @@ export function TypographySection({ selection, patch, setStyle }: SectionProps) 
             onChange={(value) => setStyle({ "text-transform": value || undefined })}
           />
         </div>
-        <div className="ab-ctl-row">
+        <div className="nt-ctl-row">
           <Choice
             label="Line"
             state={read(nodes, "text-decoration")}

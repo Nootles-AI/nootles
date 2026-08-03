@@ -53,9 +53,9 @@ export function GradientField({
       width={240}
       label="Gradient"
       trigger={(p) => (
-        <button {...p} className="ab-ctl-swatch">
+        <button {...p} className="nt-ctl-swatch">
           <Swatch color={resolveVars(value, vars)} />
-          <span className="ab-ctl-swatch-text">
+          <span className="nt-ctl-swatch-text">
             {gradient.kind === "linear" ? "Linear" : "Radial"}
           </span>
         </button>
@@ -137,7 +137,7 @@ function Editor({
   return (
     <>
       <div
-        className="ab-ctl-bar"
+        className="nt-ctl-bar"
         style={{ backgroundImage: `linear-gradient(90deg, ${stopList(g, vars)})` }}
         onPointerDown={onBarDown}
       >
@@ -147,20 +147,20 @@ function Editor({
             data-stop={i}
             aria-label={`Stop ${i + 1}`}
             aria-pressed={i === sel}
-            className={`ab-ctl-stop${i === sel ? " is-on" : ""}`}
+            className={`nt-ctl-stop${i === sel ? " is-on" : ""}`}
             style={{ left: `${s.pos * 100}%`, background: resolveVars(s.color, vars) }}
           />
         ))}
       </div>
 
-      <div className="ab-ctl-row">
+      <div className="nt-ctl-row">
         <SelectField
           value={g.kind}
           options={KINDS}
           onChange={(kind) => emit({ ...g, kind: kind as Gradient["kind"] })}
         />
         {g.kind === "linear" && (
-          <span className="ab-ctl-narrow">
+          <span className="nt-ctl-narrow">
             <NumberField
               value={g.angle}
               unit="°"
@@ -170,7 +170,7 @@ function Editor({
         )}
       </div>
 
-      <div className="ab-ctl-row">
+      <div className="nt-ctl-row">
         <ColorField
           value={stop.color}
           onChange={(color) =>
@@ -180,7 +180,7 @@ function Editor({
             })
           }
         />
-        <span className="ab-ctl-narrow">
+        <span className="nt-ctl-narrow">
           <NumberField
             value={Math.round(stop.pos * 100)}
             unit="%"
@@ -190,7 +190,7 @@ function Editor({
           />
         </span>
         <button
-          className="ab-icon-btn is-sm"
+          className="nt-icon-btn is-sm"
           aria-label="Remove stop"
           title="Remove stop"
           disabled={g.stops.length <= 2}

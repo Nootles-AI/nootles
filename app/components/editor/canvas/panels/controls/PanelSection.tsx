@@ -33,18 +33,18 @@ export function PanelSection({
   const add = addLabel ?? `Add ${title.toLowerCase()}`;
 
   return (
-    <section className="ab-ctl-section">
-      <div className="ab-ctl-head">
+    <section className="nt-ctl-section">
+      <div className="nt-ctl-head">
         <button
           onClick={() => setOpen((v) => !v)}
           aria-expanded={open}
-          className="ab-ctl-title"
+          className="nt-ctl-title"
         >
           {title}
         </button>
         {onAdd && (
           <Tooltip label={add}>
-            <button onClick={onAdd} aria-label={add} className="ab-icon-btn is-sm">
+            <button onClick={onAdd} aria-label={add} className="nt-icon-btn is-sm">
               <Plus width={14} height={14} />
             </button>
           </Tooltip>
@@ -53,16 +53,16 @@ export function PanelSection({
           onClick={() => setOpen((v) => !v)}
           aria-expanded={open}
           aria-label={open ? `Collapse ${title}` : `Expand ${title}`}
-          className="ab-icon-btn is-sm"
+          className="nt-icon-btn is-sm"
         >
           <ChevronRight
             width={12}
             height={12}
-            className={`ab-ctl-chevron${open ? " is-open" : ""}`}
+            className={`nt-ctl-chevron${open ? " is-open" : ""}`}
           />
         </button>
       </div>
-      {open && <div className="ab-ctl-section-body">{children}</div>}
+      {open && <div className="nt-ctl-section-body">{children}</div>}
     </section>
   );
 }
@@ -87,10 +87,10 @@ export function CheckRow({
       role="checkbox"
       aria-checked={mixed ? "mixed" : on}
       onClick={() => onChange(!on)}
-      className="ab-ctl-check-row"
+      className="nt-ctl-check-row"
     >
-      <span aria-hidden className={`ab-ctl-box${on && !mixed ? " is-on" : ""}`}>
-        {mixed ? <span className="ab-ctl-box-mixed" /> : on ? <Tick /> : null}
+      <span aria-hidden className={`nt-ctl-box${on && !mixed ? " is-on" : ""}`}>
+        {mixed ? <span className="nt-ctl-box-mixed" /> : on ? <Tick /> : null}
       </span>
       {label}
     </button>

@@ -31,17 +31,17 @@ export function AccountMenu() {
       side="bottom"
       align="end"
       trigger={(t) => (
-        <button {...t} aria-label={`Account — ${label}`} className="ab-icon-btn">
-          <span className="ab-monogram">{initial(user.fullName, email)}</span>
+        <button {...t} aria-label={`Account — ${label}`} className="nt-icon-btn">
+          <span className="nt-monogram">{initial(user.fullName, email)}</span>
         </button>
       )}
     >
       {(close) => (
         <>
-          <div className="ab-menu-caption">
-            <span className="ab-row-label">{label}</span>
+          <div className="nt-menu-caption">
+            <span className="nt-row-label">{label}</span>
           </div>
-          <div className="ab-menu-sep" />
+          <div className="nt-menu-sep" />
           <MenuItem
             onClick={() => {
               close();

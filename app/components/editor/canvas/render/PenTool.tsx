@@ -751,7 +751,7 @@ export function PenTool({
         inset: 0,
         width: "100%",
         height: "100%",
-        cursor: "var(--ab-pen-cursor, crosshair)",
+        cursor: "var(--nt-pen-cursor, crosshair)",
         touchAction: "none",
       }}
       onPointerDown={onPointerDown}

@@ -14,7 +14,7 @@
  *    top-left. A path's `d` and a group's children live here.
  *  - **parent** — the space a node's `x`/`y` are expressed in: its group's
  *    local space, or the scene for a top-level node.
- *  - **scene** — the canvas document's space, i.e. `<ab-diagram>`'s box.
+ *  - **scene** — the canvas document's space, i.e. `<nt-diagram>`'s box.
  *
  * A node's transform is *rigid*: rotate by `rot` about the box centre, then
  * translate. There is no scaling, so a box always maps to a congruent rotated
@@ -439,7 +439,7 @@ const PAINT_PROPS = ["background", "background-color", "background-image"];
 
 /**
  * A regular N-gon's vertices, normalised to 0…1 on each axis so that it fills
- * its box. The single definition of an `<ab-polygon>`'s form: `render/svgShape`
+ * its box. The single definition of an `<nt-polygon>`'s form: `render/svgShape`
  * paints from it and {@link hitsShape} tests against it, so what you see and
  * what you can grab cannot drift apart.
  *

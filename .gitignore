@@ -29,7 +29,7 @@
 # scratch harnesses. Kept out of the tree because eslint reads everything it
 # finds, and a throwaway script failing the repo's own lint is a false alarm
 # nobody can act on.
-/.abcheck/
+/.ntcheck/
 
 # debug
 npm-debug.log*

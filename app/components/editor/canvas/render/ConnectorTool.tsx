@@ -270,17 +270,17 @@ export function ConnectorTool({
 
   return (
     <div
-      className="ab-connector"
+      className="nt-connector"
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={cancel}
       onPointerLeave={() => setHover(null)}
     >
-      <svg className="ab-connector-svg" aria-hidden>
+      <svg className="nt-connector-svg" aria-hidden>
         {preview && (
           <path
-            className="ab-connector-preview"
+            className="nt-connector-preview"
             // Rounded like the finished connector, and at the same radius: the
             // preview is a promise about what you are about to get.
             d={pointsToPath(preview)}
@@ -302,7 +302,7 @@ export function ConnectorTool({
                 return (
                   <circle
                     key={side}
-                    className={`ab-connector-plug${live ? " is-live" : ""}`}
+                    className={`nt-connector-plug${live ? " is-live" : ""}`}
                     cx={v.x}
                     cy={v.y}
                     r={PLUG / 2}
@@ -322,7 +322,7 @@ function TargetRing({ box, toView }: { box: Rect; toView: (p: Point) => Point })
   const b = toView({ x: box.x + box.w, y: box.y + box.h });
   return (
     <rect
-      className="ab-connector-target"
+      className="nt-connector-target"
       x={a.x}
       y={a.y}
       width={b.x - a.x}

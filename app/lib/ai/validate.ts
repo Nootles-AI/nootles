@@ -31,7 +31,7 @@ export type ResolveResult =
  */
 export function warnRejected(where: string, result: ResolveResult): void {
   if (result.ok || process.env.NODE_ENV === "production") return;
-  console.warn(`[auto-board] ${where}: batch rejected\n  ${result.errors.join("\n  ")}`);
+  console.warn(`[Nootles] ${where}: batch rejected\n  ${result.errors.join("\n  ")}`);
 }
 
 /**

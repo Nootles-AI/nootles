@@ -30,7 +30,7 @@ export function Segmented<T extends string>({
   const id = useId();
 
   return (
-    <div className="ab-mode" role="group" aria-label={label}>
+    <div className="nt-mode" role="group" aria-label={label}>
       {segments.map((s) => (
         <button
           key={s.id}
@@ -38,7 +38,7 @@ export function Segmented<T extends string>({
           aria-pressed={value === s.id}
           aria-describedby={`${id}-${s.id}`}
           data-tip={s.hint}
-          className={`ab-mode-btn ab-tip${tipUp ? " is-up" : ""}${
+          className={`nt-mode-btn nt-tip${tipUp ? " is-up" : ""}${
             value === s.id ? " is-on" : ""
           }`}
         >

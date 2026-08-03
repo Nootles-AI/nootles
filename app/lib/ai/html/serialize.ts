@@ -4,7 +4,7 @@ import type { AnyBlock } from "../projection";
 import { MARK_TAGS, type Mark, type Run } from "./grammar";
 
 /**
- * Renders the document into the auto-board HTML grammar — the text the model
+ * Renders the document into the Nootles HTML grammar — the text the model
  * reads and completes.
  *
  * Code and LaTeX are emitted RAW, not entity-escaped: the parser treats those
@@ -70,7 +70,7 @@ export function runsToHtml(content: unknown): string {
       }
       if (item.type === "math") {
         const latex = (item.props as { latex?: string } | undefined)?.latex ?? "";
-        return `<ab-math>${latex}</ab-math>`;
+        return `<nt-math>${latex}</nt-math>`;
       }
       if (item.type === "link") {
         const href = String(item.href ?? "");
@@ -85,7 +85,7 @@ export function runsToHtml(content: unknown): string {
 export function runsToHtmlFromRuns(runs: Run[]): string {
   return runs
     .map((r) => {
-      if (r.type === "math") return `<ab-math>${r.latex}</ab-math>`;
+      if (r.type === "math") return `<nt-math>${r.latex}</nt-math>`;
       if (r.type === "link") {
         return `<a${attr("href", r.href)}>${runsToHtmlFromRuns(r.content)}</a>`;
       }
@@ -125,10 +125,10 @@ function blockToHtml(block: AnyBlock): string {
     case "file":
       // The one construct here with no standard element: `<a download>` is a
       // link inside prose, not a block sitting in the document.
-      return `<ab-file${id}${attr("href", String(block.props.url ?? ""))}${attr(
+      return `<nt-file${id}${attr("href", String(block.props.url ?? ""))}${attr(
         "name",
         String(block.props.name ?? ""),
-      )}>${esc(String(block.props.caption ?? ""))}</ab-file>`;
+      )}>${esc(String(block.props.caption ?? ""))}</nt-file>`;
     case "table": {
       // Standard elements with the right meaning, so nothing to teach: a header
       // row is <th>, everything else <td>. BlockNote marks headers with a
@@ -157,15 +157,15 @@ function blockToHtml(block: AnyBlock): string {
     case "codeBlock": {
       const lang = String(block.props.language ?? "plaintext");
       // Raw, unescaped — the parser reads this element as raw text.
-      return `<ab-code-block${id}${attr("lang", lang)}>${String(
+      return `<nt-code-block${id}${attr("lang", lang)}>${String(
         block.props.code ?? "",
-      )}</ab-code-block>`;
+      )}</nt-code-block>`;
     }
     case "mathBlock": {
       const source = String(block.props.source ?? "");
       const rows = source.length ? source.split("\n") : [""];
-      const lines = rows.map((r) => `\n  <ab-math-line>${r}</ab-math-line>`).join("");
-      return `<ab-math-block${id}>${lines}\n</ab-math-block>`;
+      const lines = rows.map((r) => `\n  <nt-math-line>${r}</nt-math-line>`).join("");
+      return `<nt-math-block${id}>${lines}\n</nt-math-block>`;
     }
     case "canvas":
       // The block stores this grammar, so there is nothing to translate — only
@@ -184,7 +184,7 @@ function blockToHtml(block: AnyBlock): string {
       // and the model duly filled it, which the validator then rejected — and
       // it rejected the whole batch, so good edits beside it died too. This
       // keeps the block's position visible while denying authorship of it.
-      return `<ab-block${id}${attr("type", block.type)}></ab-block>`;
+      return `<nt-block${id}${attr("type", block.type)}></nt-block>`;
   }
 }
 

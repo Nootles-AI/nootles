@@ -18,19 +18,19 @@ type MathGhost = { rowId: number; tail: string; rows: string[] };
 
 /**
  * Reads a completion back out of the grammar. The model finishes the open
- * `<ab-math-line>` and may open more, so the text before the first closing tag
+ * `<nt-math-line>` and may open more, so the text before the first closing tag
  * completes the current row and each closed line after it is a new row.
  *
  * A line whose closing tag hasn't streamed in yet is dropped — half an equation
  * is worse than none.
  */
 function parseMathCompletion(acc: string): Omit<MathGhost, "rowId"> | null {
-  const end = acc.indexOf("</ab-math-block");
-  const parts = (end === -1 ? acc : acc.slice(0, end)).split("</ab-math-line>");
+  const end = acc.indexOf("</nt-math-block");
+  const parts = (end === -1 ? acc : acc.slice(0, end)).split("</nt-math-line>");
   const tail = parts[0].trim();
   const rows = parts
     .slice(1, -1)
-    .map((s) => (s.match(/<ab-math-line[^>]*>([\s\S]*)/)?.[1] ?? "").trim())
+    .map((s) => (s.match(/<nt-math-line[^>]*>([\s\S]*)/)?.[1] ?? "").trim())
     .filter(Boolean);
   if (!tail && !rows.length) return null;
   return { tail, rows };
@@ -41,11 +41,11 @@ function GhostLatex({ latex }: { latex: string }) {
   try {
     html = katex.renderToString(latex, { throwOnError: false });
   } catch {
-    return <span className="ab-mathblock-ghost">{latex}</span>;
+    return <span className="nt-mathblock-ghost">{latex}</span>;
   }
   return (
     <span
-      className="ab-mathblock-ghost"
+      className="nt-mathblock-ghost"
       dangerouslySetInnerHTML={{ __html: html }}
     />
   );
@@ -59,7 +59,7 @@ function sourceToRows(source: string): Row[] {
 function ResultView({ result }: { result?: LineResult }) {
   if (!result || result.empty) return null;
   if (result.error) {
-    return <span className="ab-mathblock-error">{result.error}</span>;
+    return <span className="nt-mathblock-error">{result.error}</span>;
   }
   if (result.valueLatex == null) return null;
   const html = katex.renderToString(`=\\; ${result.valueLatex}`, {
@@ -67,7 +67,7 @@ function ResultView({ result }: { result?: LineResult }) {
   });
   return (
     <span
-      className="ab-mathblock-value"
+      className="nt-mathblock-value"
       dangerouslySetInnerHTML={{ __html: html }}
     />
   );
@@ -155,7 +155,7 @@ function MathBlockView({
 
   // Completion inside the block. The caret is inside a MathLive field rather
   // than the document, so we place it in the serialized HTML by offset — the
-  // model still reads the whole page and answers in <ab-math-line>s.
+  // model still reads the whole page and answers in <nt-math-line>s.
   const ctxRef = useRef(getFimContext);
   const ghostRef = useRef<MathGhost | null>(null);
   const completeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -279,11 +279,11 @@ function MathBlockView({
   };
 
   return (
-    <div className="ab-mathblock" contentEditable={false}>
+    <div className="nt-mathblock" contentEditable={false}>
       {rows.map((row, i) => (
         <Fragment key={row.id}>
-          <div className="ab-mathblock-row">
-            <div className="ab-mathblock-input">
+          <div className="nt-mathblock-row">
+            <div className="nt-mathblock-input">
               <MathField
                 value={row.latex}
                 autoFocus={row.id === focusId}
@@ -301,8 +301,8 @@ function MathBlockView({
           </div>
           {ghost?.rowId === row.id
             ? ghost.rows.map((latex, j) => (
-                <div className="ab-mathblock-row" key={`ghost-${j}`}>
-                  <div className="ab-mathblock-input">
+                <div className="nt-mathblock-row" key={`ghost-${j}`}>
+                  <div className="nt-mathblock-input">
                     <GhostLatex latex={latex} />
                   </div>
                 </div>

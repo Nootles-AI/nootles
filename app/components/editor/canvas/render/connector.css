@@ -2,14 +2,14 @@
    Covers the viewport and draws in viewport px, so a plug is the same size on
    screen however far out you are zoomed. Nothing here is in scene units. */
 
-.ab-connector {
+.nt-connector {
   position: absolute;
   inset: 0;
   cursor: crosshair;
   touch-action: none;
 }
 
-.ab-connector-svg {
+.nt-connector-svg {
   position: absolute;
   inset: 0;
   overflow: visible;
@@ -19,25 +19,25 @@
 /* The plugs. Hollow so the shape's own edge reads through them, and drawn in
    the selection accent because they are an answer to the tool being on, not a
    property of the shape. */
-.ab-connector-plug {
+.nt-connector-plug {
   fill: var(--background);
-  stroke: var(--ab-select);
+  stroke: var(--nt-select);
   stroke-width: 1.5;
 }
-.ab-connector-plug.is-live {
-  fill: var(--ab-select);
+.nt-connector-plug.is-live {
+  fill: var(--nt-select);
 }
 
 /* The box a release would land on. */
-.ab-connector-target {
+.nt-connector-target {
   fill: none;
-  stroke: var(--ab-select);
+  stroke: var(--nt-select);
   stroke-width: 1.5;
 }
 
-.ab-connector-preview {
+.nt-connector-preview {
   fill: none;
-  stroke: var(--ab-select);
+  stroke: var(--nt-select);
   stroke-width: 1.5;
   stroke-linecap: round;
   stroke-linejoin: round;

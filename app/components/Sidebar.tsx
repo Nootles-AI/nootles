@@ -72,20 +72,20 @@ export function Sidebar({
   };
 
   return (
-    <aside style={{ width }} className="ab-panel ab-rail-l" aria-label="Pages">
+    <aside style={{ width }} className="nt-panel nt-rail-l" aria-label="Pages">
       {/* Back to the project list, the way a docs app returns to your files —
           there is no project switcher here because the route is the project. */}
-      <div className="ab-panel-head">
-        <Link href="/" className="ab-row min-w-0 flex-1 text-muted" title="All projects">
+      <div className="nt-panel-head">
+        <Link href="/" className="nt-row min-w-0 flex-1 text-muted" title="All projects">
           <ArrowLeft width={14} height={14} className="shrink-0" />
-          <span className="ab-row-label">Projects</span>
+          <span className="nt-row-label">Projects</span>
         </Link>
         <AccountMenu />
         <button
           onClick={onCollapse}
           aria-label="Collapse sidebar"
           title="Collapse sidebar"
-          className="ab-icon-btn"
+          className="nt-icon-btn"
         >
           <PanelLeft />
         </button>
@@ -100,7 +100,7 @@ export function Sidebar({
             onInput={setDraft}
             onBlur={commit}
             onKeyDown={keys}
-            className="ab-row-edit ab-bare-focus w-full font-semibold"
+            className="nt-row-edit nt-bare-focus w-full font-semibold"
           />
         ) : (
           <button
@@ -108,9 +108,9 @@ export function Sidebar({
               startRename("project", project?.title ?? "")
             }
             title="Double-click to rename"
-            className="ab-row w-full font-semibold"
+            className="nt-row w-full font-semibold"
           >
-            <span className="ab-row-label">
+            <span className="nt-row-label">
               {project?.title || "Untitled project"}
             </span>
           </button>
@@ -118,13 +118,13 @@ export function Sidebar({
       </div>
 
       <nav className="flex-1 overflow-y-auto px-2 pb-2">
-        <div className="ab-section-label">
+        <div className="nt-section-label">
           <span>Pages</span>
           <button
             onClick={() => createPage({ projectId }).then(onSelectPage)}
             aria-label="New page"
             title="New page"
-            className="ab-icon-btn"
+            className="nt-icon-btn"
           >
             <Plus />
           </button>
@@ -146,7 +146,7 @@ export function Sidebar({
                   onInput={setDraft}
                   onBlur={commit}
                   onKeyDown={keys}
-                  className="ab-row-edit ab-bare-focus is-selected w-full"
+                  className="nt-row-edit nt-bare-focus is-selected w-full"
                 />
               ) : (
                 <button
@@ -158,11 +158,11 @@ export function Sidebar({
                   }}
                   title="Double-click to rename · right-click for more"
                   aria-current={selectedPageId === pg._id ? "page" : undefined}
-                  className={`ab-row w-full${
+                  className={`nt-row w-full${
                     selectedPageId === pg._id ? " is-selected" : ""
                   }`}
                 >
-                  <span className="ab-row-label">{pg.title || "Untitled"}</span>
+                  <span className="nt-row-label">{pg.title || "Untitled"}</span>
                   <ChangeCount change={changes.get(pg._id)} />
                 </button>
               )}
@@ -215,11 +215,11 @@ function ChangeCount({ change }: { change: PageChange | undefined }) {
   if (!change?.added && !change?.removed) return null;
   return (
     <span
-      className="ab-row-diff"
+      className="nt-row-diff"
       title={`${change.added} added, ${change.removed} removed, awaiting review`}
     >
-      {change.added > 0 && <span className="ab-row-diff-add">+{change.added}</span>}
-      {change.removed > 0 && <span className="ab-row-diff-del">−{change.removed}</span>}
+      {change.added > 0 && <span className="nt-row-diff-add">+{change.added}</span>}
+      {change.removed > 0 && <span className="nt-row-diff-del">−{change.removed}</span>}
     </span>
   );
 }
@@ -252,17 +252,17 @@ function PageContextMenu({
       <div
         role="menu"
         aria-label="Page actions"
-        className="ab-menu fixed"
+        className="nt-menu fixed"
         style={{ top: y, left: x, minWidth: 168 }}
         onKeyDown={(e) => e.key === "Escape" && onClose()}
       >
-        <button role="menuitem" className="ab-menu-item" onClick={onRename}>
+        <button role="menuitem" className="nt-menu-item" onClick={onRename}>
           Rename
         </button>
-        <div className="ab-menu-sep" />
+        <div className="nt-menu-sep" />
         <button
           role="menuitem"
-          className="ab-menu-item is-danger"
+          className="nt-menu-item is-danger"
           onClick={onDelete}
         >
           Delete page

@@ -107,7 +107,7 @@ const NO_GUIDES: readonly SnapGuide[] = [];
  */
 const NO_RADIUS = (
   ["path", "ellipse", "polygon"] as const satisfies readonly SceneNodeKind[]
-).map((kind) => `ab-node-${kind}`);
+).map((kind) => `nt-node-${kind}`);
 
 /** The outward direction of a handle, clockwise from +x, in a y-down space. */
 function outward(handle: Handle): number {
@@ -392,18 +392,18 @@ export function Overlay({
     };
 
   return (
-    <svg ref={root} className="ab-ov">
-      <g className="ab-ov-members">
+    <svg ref={root} className="nt-ov">
+      <g className="nt-ov-members">
         {members.map((m, i) => (
           <rect key={i} {...outlineOf(m)} />
         ))}
       </g>
-      {hover && <rect className="ab-ov-hover" {...outlineOf(hover)} />}
-      <path ref={guides} className="ab-ov-guides" d="" />
-      <rect ref={band} className="ab-ov-band" style={{ display: "none" }} />
+      {hover && <rect className="nt-ov-hover" {...outlineOf(hover)} />}
+      <path ref={guides} className="nt-ov-guides" d="" />
+      <rect ref={band} className="nt-ov-band" style={{ display: "none" }} />
       <g ref={frame} style={{ display: "none" }}>
-        <rect ref={outline} className="ab-ov-outline" />
-        <g ref={zones} className="ab-ov-zones">
+        <rect ref={outline} className="nt-ov-outline" />
+        <g ref={zones} className="nt-ov-zones">
           {CORNERS.map((corner) => (
             <rect
               key={corner}
@@ -412,7 +412,7 @@ export function Overlay({
             />
           ))}
         </g>
-        <g ref={edges} className="ab-ov-edges">
+        <g ref={edges} className="nt-ov-edges">
           {EDGES.map((handle) => (
             <rect
               key={handle}
@@ -421,7 +421,7 @@ export function Overlay({
             />
           ))}
         </g>
-        <g ref={corners} className="ab-ov-corners">
+        <g ref={corners} className="nt-ov-corners">
           {CORNERS.map((handle) => (
             <rect
               key={handle}
@@ -430,19 +430,19 @@ export function Overlay({
             />
           ))}
         </g>
-        <g ref={grips} className="ab-ov-grips">
+        <g ref={grips} className="nt-ov-grips">
           {CORNERS.map((corner) => (
             <circle key={corner} />
           ))}
         </g>
-        <g ref={radii} className="ab-ov-radii" style={{ display: "none" }}>
+        <g ref={radii} className="nt-ov-radii" style={{ display: "none" }}>
           {CORNERS.map((corner) => (
             <circle key={corner} />
           ))}
         </g>
         <g
           ref={radiusZones}
-          className="ab-ov-radius-zones"
+          className="nt-ov-radius-zones"
           style={{ display: "none" }}
         >
           {CORNERS.map((corner) => (
@@ -456,7 +456,7 @@ export function Overlay({
           ))}
         </g>
       </g>
-      <g ref={chip} className="ab-ov-chip" style={{ display: "none" }}>
+      <g ref={chip} className="nt-ov-chip" style={{ display: "none" }}>
         <rect ref={chipBox} y="0" height="18" rx="3" />
         <text ref={chipText} y="12.5" textAnchor="middle" />
       </g>

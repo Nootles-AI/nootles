@@ -16,7 +16,7 @@ export const TOOLS = {
   },
   read_page: {
     description:
-      "Read a page. Returns the page as auto-board HTML, one element per block, " +
+      "Read a page. Returns the page as Nootles HTML, one element per block, " +
       "each carrying that block's id. For the page that is open, prefer " +
       "read_open_page — that one is the live document.",
     inputSchema: z.object({
@@ -34,12 +34,12 @@ export const TOOLS = {
   read_open_page: {
     description:
       "Read the page that is open, as it stands right now — including anything " +
-      "typed or changed since it was last saved. Returns auto-board HTML.",
+      "typed or changed since it was last saved. Returns Nootles HTML.",
     inputSchema: z.object({}),
   },
   edit_page: {
     description:
-      "Change what a page says. Send auto-board HTML for the blocks you are " +
+      "Change what a page says. Send Nootles HTML for the blocks you are " +
       "writing: an element WITH an id rewrites that block, an element WITHOUT " +
       "one is a new block, and the ids around it are what decide where it goes. " +
       "Blocks you leave out are left alone, so send the part you are changing " +

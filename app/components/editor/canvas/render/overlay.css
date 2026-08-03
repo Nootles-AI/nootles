@@ -2,10 +2,10 @@
    One SVG layer above the shapes, inside the viewport transform. Coordinates
    are scene px; `--k` is one screen px expressed in them, so every hairline
    and handle below stays the same size at any zoom. Neutral greys, with one
-   exception: `--ab-select` is the canvas's only accent colour, and it belongs
+   exception: `--nt-select` is the canvas's only accent colour, and it belongs
    to selection UI alone. */
 
-.ab-ov {
+.nt-ov {
   position: absolute;
   inset: 0;
   overflow: visible;
@@ -16,74 +16,74 @@
   --ov-chip: oklch(0.28 0.005 90);
 }
 
-.ab-ov-outline,
-.ab-ov-members > rect,
-.ab-ov-hover,
-.ab-ov-guides,
-.ab-ov-band {
+.nt-ov-outline,
+.nt-ov-members > rect,
+.nt-ov-hover,
+.nt-ov-guides,
+.nt-ov-band {
   fill: none;
   stroke-width: var(--k, 1);
 }
 
-.ab-ov-outline {
-  stroke: var(--ab-select);
+.nt-ov-outline {
+  stroke: var(--nt-select);
 }
 
-.ab-ov-members > rect {
-  stroke: var(--ab-select);
+.nt-ov-members > rect {
+  stroke: var(--nt-select);
   opacity: 0.5;
 }
 
-.ab-ov-hover {
+.nt-ov-hover {
   stroke: var(--ov-line);
   opacity: 0.55;
 }
 
 /* A live gesture owns the frame; the passive hints would only lag behind it. */
-.ab-ov.is-live .ab-ov-members,
-.ab-ov.is-live .ab-ov-hover {
+.nt-ov.is-live .nt-ov-members,
+.nt-ov.is-live .nt-ov-hover {
   display: none;
 }
 
-.ab-ov-guides {
+.nt-ov-guides {
   stroke: var(--ov-guide);
   stroke-linecap: butt;
   shape-rendering: crispEdges;
 }
 
-.ab-ov-band {
+.nt-ov-band {
   fill: oklch(0.25 0.005 90 / 0.05);
   stroke: var(--ov-line);
   shape-rendering: crispEdges;
 }
 
 /* Corner handles only — an edge is resized by grabbing the outline itself. */
-.ab-ov-grips > circle,
-.ab-ov-radii > circle {
+.nt-ov-grips > circle,
+.nt-ov-radii > circle {
   fill: #fff;
-  stroke: var(--ab-select);
+  stroke: var(--nt-select);
   stroke-width: var(--k, 1);
 }
 
 /* Hit targets: bigger than they look, and the only thing here that takes a
    pointer. `all` rather than the default, since they are painted transparent. */
-.ab-ov-edges > rect,
-.ab-ov-corners > rect,
-.ab-ov-zones > rect,
-.ab-ov-radius-zones > circle {
+.nt-ov-edges > rect,
+.nt-ov-corners > rect,
+.nt-ov-zones > rect,
+.nt-ov-radius-zones > circle {
   fill: transparent;
   pointer-events: all;
 }
 
-.ab-ov-radius-zones > circle {
+.nt-ov-radius-zones > circle {
   cursor: crosshair;
 }
 
-.ab-ov-chip > rect {
+.nt-ov-chip > rect {
   fill: var(--ov-chip);
 }
 
-.ab-ov-chip > text {
+.nt-ov-chip > text {
   fill: oklch(1 0 90);
   font-family: var(--font-mono), ui-monospace, monospace;
   font-size: 11px;

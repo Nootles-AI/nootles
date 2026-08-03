@@ -63,7 +63,7 @@ export function ScenePreview({ scene }: { scene: Scene }) {
    * The block opens at the identity transform and lets you pan and zoom from
    * there; a preview has no pointer, so a diagram laid out past the document
    * column would simply be cut off with no way to see the rest. The transform
-   * goes on `.ab-canvas-scene`, which is the element the canvas itself pans and
+   * goes on `.nt-canvas-scene`, which is the element the canvas itself pans and
    * zooms — so this is the same mechanism, set once, not a second layout.
    */
   useLayoutEffect(() => {
@@ -99,8 +99,8 @@ export function ScenePreview({ scene }: { scene: Scene }) {
     // The surface's own background and the transformed layer under it, the way
     // `CanvasSurface` nests them — the shapes are absolutely positioned inside
     // the scene layer and read their coordinates from it.
-    <div ref={viewport} className="ab-canvas-viewport" style={toCss(scene.style)}>
-      <div ref={layer} className="ab-canvas-scene">
+    <div ref={viewport} className="nt-canvas-viewport" style={toCss(scene.style)}>
+      <div ref={layer} className="nt-canvas-scene">
         <EdgeLayer scene={scene} selected={NO_EDGES} hoverId={null} />
         {scene.nodes.map((node) => (
           <ShapeView key={node.id} node={node} />

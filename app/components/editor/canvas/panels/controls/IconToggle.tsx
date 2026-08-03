@@ -12,7 +12,7 @@ export type ToggleOption<T extends string> = {
 };
 
 /**
- * Wears the shell's `.ab-mode` segmented control — same well, same lift on the
+ * Wears the shell's `.nt-mode` segmented control — same well, same lift on the
  * selected one — sized for a glyph instead of a word. When nothing matches,
  * nothing is pressed, which is the honest reading of a mixed selection.
  *
@@ -33,16 +33,16 @@ export function IconToggle<T extends string>({
   options: readonly ToggleOption<T>[];
 }) {
   return (
-    <div className="ab-mode is-fill">
+    <div className="nt-mode is-fill">
       {/* The anchor is a flex box, not `display: contents` — the tooltip
           measures its anchor, and a box-less one reports a zero rect. */}
       {options.map((o) => (
-        <Tooltip key={o.value} label={o.label} className="ab-ctl-anchor">
+        <Tooltip key={o.value} label={o.label} className="nt-ctl-anchor">
           <button
             onClick={() => onChange(o.value)}
             aria-pressed={value === o.value}
             aria-label={o.label}
-            className={`ab-mode-btn is-icon${value === o.value ? " is-on" : ""}`}
+            className={`nt-mode-btn is-icon${value === o.value ? " is-on" : ""}`}
           >
             {o.icon}
           </button>

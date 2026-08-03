@@ -37,8 +37,8 @@ class GhostWidget extends WidgetType {
     const el = document.createElement(this.block ? "div" : "span");
     // Head only on the trailing widget, so there is exactly one caret marker.
     el.className =
-      "ab-cm-ghost" +
-      (this.head ? " ab-stream-head" : "") +
+      "nt-cm-ghost" +
+      (this.head ? " nt-stream-head" : "") +
       (this.head && this.streaming ? " is-live" : "");
     // Set here rather than in the stylesheet: CodeMirror injects its own rules
     // for content children, which win over ours and collapse the indentation.

@@ -80,7 +80,7 @@ export function ShapeSection({ selection, setShape }: SectionProps) {
   return (
     <PanelSection title="Shape">
       {sides && (
-        <div className="ab-ctl-grid">
+        <div className="nt-ctl-grid">
           <NumberField
             label={<Sides />}
             name="Number of sides"
@@ -95,7 +95,7 @@ export function ShapeSection({ selection, setShape }: SectionProps) {
 
       {arc && (
         <>
-          <div className="ab-ctl-grid">
+          <div className="nt-ctl-grid">
             <NumberField
               label={<ArcStart />}
               name="Arc start angle"
@@ -115,7 +115,7 @@ export function ShapeSection({ selection, setShape }: SectionProps) {
               onChange={(n) => setArc("sweep", n)}
             />
           </div>
-          <div className="ab-ctl-grid">
+          <div className="nt-ctl-grid">
             <NumberField
               label={<ArcRatio />}
               name="Inner radius"

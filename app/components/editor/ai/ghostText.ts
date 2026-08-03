@@ -97,8 +97,8 @@ export type Suggestion =
     }
   | null;
 
-const META = "ab-suggestion";
-export const ghostTextKey = new PluginKey<Suggestion>("ab-suggestion");
+const META = "nt-suggestion";
+export const ghostTextKey = new PluginKey<Suggestion>("nt-suggestion");
 
 // Tab pressed while content was still generating. Rather than do nothing (which
 // reads as broken) we remember the intent and apply the moment the batch lands.
@@ -138,13 +138,13 @@ function metaDispatch(view: EditorView, value: Suggestion) {
 function ghostWidget(source: string, live = false, head = true) {
   return () => {
     const span = document.createElement("span");
-    span.className = "ab-ghost";
+    span.className = "nt-ghost";
     renderInline(source, span);
     // The cursor marks the end of a suggestion, so it only belongs where there
     // is one. Whitespace-only and markup-only completions render no glyphs, and
     // the bar was left sitting in an empty block on its own.
     if (head && span.textContent?.trim()) {
-      span.classList.add("ab-stream-head");
+      span.classList.add("nt-stream-head");
       if (live) span.classList.add("is-live");
     }
     return span;
@@ -170,7 +170,7 @@ function headOf(p: Preview): string {
 function chipWidget(label: string, pending: boolean) {
   return () => {
     const span = document.createElement("span");
-    span.className = pending ? "ab-action-chip is-pending" : "ab-action-chip";
+    span.className = pending ? "nt-action-chip is-pending" : "nt-action-chip";
     span.textContent = pending ? `${label}…` : `⇥ ${label}`;
     return span;
   };
@@ -203,7 +203,7 @@ export function ghostTextPlugin(): Plugin<Suggestion> {
             Decoration.widget(s.pos, ghostWidget(s.markup ?? s.text, s.streaming), {
               side: 1,
               ignoreSelection: true,
-              key: `ab-ghost-${s.pos}-${s.markup ?? s.text}-${s.streaming ? "s" : ""}`,
+              key: `nt-ghost-${s.pos}-${s.markup ?? s.text}-${s.streaming ? "s" : ""}`,
             }),
           ]);
         }
@@ -222,7 +222,7 @@ export function ghostTextPlugin(): Plugin<Suggestion> {
             Decoration.widget(s.pos, ghostWidget(s.tail, !s.batch, head), {
               side: 1,
               ignoreSelection: true,
-              key: `ab-tail-${s.pos}-${s.tail}-${s.batch ? "r" : "s"}-${head ? "h" : ""}`,
+              key: `nt-tail-${s.pos}-${s.tail}-${s.batch ? "r" : "s"}-${head ? "h" : ""}`,
             }),
           );
         }
@@ -248,7 +248,7 @@ export function ghostTextPlugin(): Plugin<Suggestion> {
           decos.push(
             Decoration.widget(after, () => previewElement(p, label), {
               side: 1,
-              key: `ab-preview-${after}-${previewKey(p)}`,
+              key: `nt-preview-${after}-${previewKey(p)}`,
               // A diagram preview mounts the canvas renderer; this is the only
               // notice we get that the widget has gone.
               destroy: disposePreview,
@@ -263,7 +263,7 @@ export function ghostTextPlugin(): Plugin<Suggestion> {
               side: 1,
               // Stable, so the pulse is not restarted by every keystroke's
               // worth of suggestion state.
-              key: `ab-preview-loading-${after}`,
+              key: `nt-preview-loading-${after}`,
             }),
           );
         } else if (s.blocks?.length) {
@@ -272,7 +272,7 @@ export function ghostTextPlugin(): Plugin<Suggestion> {
           decos.push(
             Decoration.widget(after, () => ghostBlocksElement(blocks, live), {
               side: 1,
-              key: `ab-ghost-blocks-${after}-${live ? "s" : "r"}-${ghostBlocksKey(blocks)}`,
+              key: `nt-ghost-blocks-${after}-${live ? "s" : "r"}-${ghostBlocksKey(blocks)}`,
             }),
           );
         } else if (!s.tail && s.label) {
@@ -285,7 +285,7 @@ export function ghostTextPlugin(): Plugin<Suggestion> {
             Decoration.widget(s.pos, chipWidget(s.label, pending), {
               side: 1,
               ignoreSelection: true,
-              key: `ab-chip-${s.pos}-${s.label}-${pending ? "p" : "r"}`,
+              key: `nt-chip-${s.pos}-${s.label}-${pending ? "p" : "r"}`,
             }),
           );
         }

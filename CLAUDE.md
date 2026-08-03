@@ -1,8 +1,8 @@
 @AGENTS.md
 
-# auto-board — rules for agents
+# Nootles — rules for agents
 
-auto-board is an AI-native planning tool that fuses a Notion-style structured document
+Nootles is an AI-native planning tool that fuses a Notion-style structured document
 with a Figma-style canvas. The long-term bet: an ambient LLM reads and edits every part of
 the surface through the **same operations a human uses**. Build accordingly — even
 pre-AI work must be AI-ready.
@@ -81,7 +81,7 @@ so they don't collide (that's why the canvas layout helper is `autoLayout.ts`).
 ## Persistence pattern (v0)
 
 - Canvas and math state persist as text inside a ProseMirror node attribute (debounced):
-  the canvas as `<ab-diagram>` HTML, math as LaTeX source. Fine for v0. For large diagrams
+  the canvas as `<nt-diagram>` HTML, math as LaTeX source. Fine for v0. For large diagrams
   or multiplayer, migrate shapes/edges to the dedicated Convex `shapes`/`edges` tables
   (already in the schema) — flag before doing so.
 - The canvas HTML round-trip is exact: `serialize(parse(html)) === html`. Keep it that way —
