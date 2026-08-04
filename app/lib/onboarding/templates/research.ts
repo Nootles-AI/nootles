@@ -1,11 +1,11 @@
 import type { Template } from "../types";
-import { CELL, HEAD } from "../diagramStyle";
+import { CELL, GRID_LINE, HEAD } from "../diagramStyle";
 
 const cell = (id: string, text: string, style = CELL) =>
   `<nt-rect id="${id}" w="172" h="44" style="${style}">${text}</nt-rect>`;
 
 const DESIGN = `<nt-diagram w="600" h="261">
-  <nt-group id="g1" x="40" y="40" w="520" h="181" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; padding: 1px; background: #d8d8d4">
+  <nt-group id="g1" x="40" y="40" w="520" h="181" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; padding: 1px; background: ${GRID_LINE}">
     ${cell("h1", "Method", HEAD)}
     ${cell("h2", "Who", HEAD)}
     ${cell("h3", "What it answers", HEAD)}

@@ -1,11 +1,11 @@
 import type { Template } from "../types";
-import { BOX } from "../diagramStyle";
+import { ACCENT, BOX } from "../diagramStyle";
 
 const STEPS = `<nt-diagram w="600" h="408">
   <nt-rect id="p1" x="160" y="40" w="280" h="52" style="${BOX}">Form A − λI</nt-rect>
   <nt-rect id="p2" x="160" y="132" w="280" h="52" style="${BOX}">Set det(A − λI) = 0</nt-rect>
   <nt-rect id="p3" x="160" y="224" w="280" h="52" style="${BOX}">Solve for λ</nt-rect>
-  <nt-rect id="p4" x="160" y="316" w="280" h="52" style="${BOX}">Back-substitute for v</nt-rect>
+  <nt-rect id="p4" x="160" y="316" w="280" h="52" style="${ACCENT}">Back-substitute for v</nt-rect>
   <nt-edge id="e1" from="p1" to="p2"></nt-edge>
   <nt-edge id="e2" from="p2" to="p3">characteristic polynomial</nt-edge>
   <nt-edge id="e3" from="p3" to="p4">one λ at a time</nt-edge>

@@ -1,12 +1,12 @@
 import type { Template } from "../types";
-import { BOX, PLAIN } from "../diagramStyle";
+import { ACCENT, BOX, PLAIN } from "../diagramStyle";
 import { cell } from "../cell";
 
 const FLOW = `<nt-diagram w="600" h="568">
   <nt-rect id="s1" x="200" y="40" w="200" h="52" style="${BOX}">Cart</nt-rect>
   <nt-rect id="s2" x="180" y="132" w="240" h="52" style="${BOX}">Checkout — email only</nt-rect>
   <nt-polygon id="s3" x="180" y="224" w="240" h="112" sides="4" style="${PLAIN}">Account exists?</nt-polygon>
-  <nt-rect id="s4" x="40" y="384" w="200" h="52" style="${BOX}">Pay as guest</nt-rect>
+  <nt-rect id="s4" x="40" y="384" w="200" h="52" style="${ACCENT}">Pay as guest</nt-rect>
   <nt-rect id="s5" x="360" y="384" w="200" h="52" style="${BOX}">Offer sign in</nt-rect>
   <nt-rect id="s6" x="200" y="476" w="200" h="52" style="${BOX}">Confirmation</nt-rect>
   <nt-edge id="e1" from="s1" to="s2"></nt-edge>
