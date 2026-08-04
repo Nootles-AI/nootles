@@ -1,8 +1,6 @@
 import { mutation, query } from "./_generated/server";
-import { components } from "./_generated/api";
 import { v } from "convex/values";
 import { ownerId as currentOwner, readOwned, requireOwned, requireOwner } from "./auth";
-import { previewFromSnapshot } from "./preview";
 
 export const list = query({
   args: {},
@@ -48,18 +46,21 @@ export const create = mutation({
 });
 
 /**
- * Everything the projects screen draws: the count, when the project was last
- * touched, and a miniature of its first page for the grid's thumbnails.
+ * Everything the projects screen draws, except the thumbnail.
  *
- * The thumbnail costs one snapshot read per project, which is the expensive
- * part of this query — a snapshot is the whole document. It is bounded to the
- * FIRST page for that reason, and {@link previewFromSnapshot} throws all but a
- * dozen lines away before any of it crosses the wire. If a library ever grows
- * past a screenful of projects this is the thing to change: stamp a short
- * excerpt onto the page row as it saves and read that instead. Premature now,
- * and the note is here so the tradeoff is visible when it stops being.
+ * The thumbnail is deliberately NOT built here. It needs the document, and the
+ * document is not something this side can assemble: `getSnapshot` returns a
+ * snapshot written on a debounce that is dropped whenever the server runs
+ * ahead, so a page can sit indefinitely with edits that exist only as steps
+ * (`chat/clientTools.ts` measured a live page at snapshot 743, document 752).
+ * Replaying those steps needs `Step.fromJSON` against the BlockNote schema,
+ * which is a browser bundle. Reading the snapshot alone is what made every
+ * preview come back empty.
+ *
+ * So this hands out the first page's `docId` and the client reads the document
+ * the same way the AI layer does.
  */
-export const listWithPreviews = query({
+export const listForScreen = query({
   args: {},
   handler: async (ctx) => {
     const owner = await currentOwner(ctx);
@@ -78,18 +79,10 @@ export const listWithPreviews = query({
           .withIndex("by_project", (q) => q.eq("projectId", p._id))
           .collect();
 
-        const first = pages[0];
-        const snapshot = first
-          ? await ctx.runQuery(components.prosemirrorSync.lib.getSnapshot, {
-              id: first.docId,
-            })
-          : null;
-
         return {
           ...p,
           pageCount: pages.length,
-          firstPageTitle: first?.title ?? "",
-          preview: previewFromSnapshot(snapshot?.content ?? null),
+          firstPageDocId: pages[0]?.docId ?? null,
           updatedAt: pages.reduce(
             (m, pg) => Math.max(m, pg.updatedAt ?? pg.createdAt),
             p.createdAt,

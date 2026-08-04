@@ -15,7 +15,7 @@ import { PagePreview } from "./PagePreview";
 
 type View = "grid" | "list";
 type Project = NonNullable<
-  ReturnType<typeof useQuery<typeof api.projects.listWithPreviews>>
+  ReturnType<typeof useQuery<typeof api.projects.listForScreen>>
 >[number];
 
 /** "2d ago" / "Jul 12" — coarse enough that it never needs to re-render. */
@@ -34,7 +34,7 @@ const pages = (n: number) => `${n} ${n === 1 ? "page" : "pages"}`;
 
 export function ProjectsScreen() {
   const router = useRouter();
-  const projects = useQuery(api.projects.listWithPreviews);
+  const projects = useQuery(api.projects.listForScreen);
   const createProject = useMutation(api.projects.create);
   const renameProject = useMutation(api.projects.rename);
   const removeProject = useMutation(api.projects.remove);
@@ -407,7 +407,7 @@ function Card({
       {/* The thumbnail is the target; the footer is chrome. Nesting the menu
           inside this button would be a button inside a button. */}
       <button onClick={onOpen} aria-label={`Open ${name}`} className="nt-card-open">
-        <PagePreview lines={project.preview} />
+        <PagePreview docId={project.firstPageDocId} />
       </button>
 
       <div className="nt-card-foot">
