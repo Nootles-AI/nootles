@@ -25,6 +25,47 @@ export default defineSchema({
     createdAt: v.number(),
   }).index("by_owner", ["ownerId"]),
 
+  /**
+   * Per-account settings. Exists at all because first run needs somewhere to
+   * record that it happened — a row here is what stops the welcome flow being
+   * shown twice, so its absence is the "new account" signal.
+   *
+   * The survey answers are kept because they are not single-use: `role` and
+   * `useCase` seed the project's Context Sheet, and `defaultMode` is the mode
+   * new pages are created in. Nothing collected here is decoration.
+   */
+  profiles: defineTable({
+    ownerId: v.string(),
+    /** Free text: the survey offers choices but accepts anything. */
+    role: v.optional(v.string()),
+    useCase: v.optional(v.string()),
+    defaultMode: v.optional(v.union(v.literal("create"), v.literal("complete"))),
+    /**
+     * The guided build, while one is in flight. Held server-side rather than in
+     * localStorage so a tour survives changing device mid-way — the project it
+     * refers to is on the server either way, and a half-taught user arriving on
+     * a laptop to a tour that has forgotten itself is the worse failure.
+     */
+    tour: v.optional(
+      v.object({
+        projectId: v.id("projects"),
+        template: v.string(),
+        /** Index into the beat sheet; past the end once the gated beats are done. */
+        beat: v.number(),
+        /** Checklist ids answered during the free tail. */
+        done: v.array(v.string()),
+      }),
+    ),
+    status: v.union(
+      v.literal("surveying"),
+      v.literal("touring"),
+      v.literal("done"),
+      v.literal("skipped"),
+    ),
+    createdAt: v.number(),
+    completedAt: v.optional(v.number()),
+  }).index("by_owner", ["ownerId"]),
+
   pages: defineTable({
     ownerId: v.string(),
     projectId: v.id("projects"),

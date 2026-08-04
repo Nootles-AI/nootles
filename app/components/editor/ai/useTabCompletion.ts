@@ -20,6 +20,7 @@ import { parseDocHtml } from "@/app/lib/ai/html/parse";
 import { asListItems } from "@/app/lib/ai/html/listify";
 import type { DocNode } from "@/app/lib/ai/html/grammar";
 import { compileDocHtml } from "@/app/lib/ai/html/compile";
+import { scriptedResponse } from "@/app/lib/ai/scriptedSource";
 import { INLINE_TAGS, grounding, type Run } from "@/app/lib/ai/html/grammar";
 import type { Batch } from "@/convex/ai/operations";
 import {
@@ -591,12 +592,14 @@ export function useTabCompletion(
       };
 
       try {
-        const res = await fetch("/api/diagram", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ brief, page, title }),
-          signal: controller.signal,
-        });
+        const res =
+          scriptedResponse({ lane: "diagram", brief }) ??
+          (await fetch("/api/diagram", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ brief, page, title }),
+            signal: controller.signal,
+          }));
         if (!res.ok || !res.body) return "";
         const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
         for (;;) {
@@ -730,17 +733,23 @@ export function useTabCompletion(
       let lastSig = "";
       let headLitAt = 0;
       try {
-        const res = await fetch("/api/complete", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
+        const res =
+          scriptedResponse({
+            lane: "complete",
             before: ctx.prefix,
             after: ctx.suffix,
-            seed: PREAMBLE,
-            mode: "html",
-          }),
-          signal: controller.signal,
-        });
+          }) ??
+          (await fetch("/api/complete", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              before: ctx.prefix,
+              after: ctx.suffix,
+              seed: PREAMBLE,
+              mode: "html",
+            }),
+            signal: controller.signal,
+          }));
         if (!res.ok || !res.body) return;
         const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
         for (;;) {

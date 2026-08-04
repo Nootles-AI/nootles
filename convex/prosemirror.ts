@@ -55,3 +55,19 @@ export const { getSnapshot, submitSnapshot, latestVersion, getSteps, submitSteps
     checkWrite: checkDoc,
     onSnapshot: touchPage,
   });
+
+/**
+ * Gives a page a document that already has content in it.
+ *
+ * Every other page starts empty and is filled by the editor, so this is the one
+ * path that writes a document nobody has opened yet — a template. `content` is
+ * ProseMirror JSON built on the client, because assembling it means holding the
+ * BlockNote schema and that is a browser bundle (see `app/lib/ai/snapshot.ts`,
+ * which bridges the same gap in the other direction).
+ *
+ * Callers must already have authorized the page: this is a plain helper rather
+ * than a mutation precisely so it cannot be reached from outside one.
+ */
+export async function seedDoc(ctx: MutationCtx, docId: string, content: object) {
+  await prosemirrorSync.create(ctx, docId, content);
+}

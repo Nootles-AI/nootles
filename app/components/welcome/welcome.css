@@ -1,0 +1,458 @@
+/* First run.
+
+   The one screen in the app that is allowed to be composed rather than merely
+   arranged. Everything else here is a task surface where motion is state
+   feedback; this is somebody's first thirty seconds, and the page assembling
+   itself on the right is the argument the questions on the left are making.
+
+   Still no accent. Amber means the model is working, and nothing on this screen
+   is the model working — so the whole surface is paper, ink and one shadow. */
+
+.nt-wc {
+  display: grid;
+  grid-template-columns: minmax(420px, 1fr) auto;
+  height: 100vh;
+  overflow: hidden;
+  background: var(--background);
+}
+
+/* ---- The questions ---------------------------------------------------- */
+
+.nt-wc-ask {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 20px 48px 24px;
+}
+
+.nt-wc-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+/* The one place the product says its own name. Mono, like every other label
+   that is metadata rather than content. */
+.nt-wc-mark {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--text-meta);
+  font-weight: 500;
+  letter-spacing: var(--tracking-meta);
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.nt-wc-out {
+  height: var(--control-sm);
+  padding-inline: 9px;
+  margin-right: -9px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-meta-lg);
+  color: var(--faint);
+  transition:
+    background var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
+}
+.nt-wc-out:hover {
+  background: var(--hover);
+  color: var(--foreground);
+}
+
+/* Centred in what is left after the header and the footer, so the question sits
+   at the optical middle rather than being pushed around by how many options it
+   happens to have. */
+.nt-wc-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  justify-content: center;
+  padding-block: 24px;
+  animation: nt-wc-step var(--dur-slow) var(--ease);
+}
+
+@keyframes nt-wc-step {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+.nt-wc-q {
+  max-width: 540px;
+}
+
+.nt-wc-title {
+  margin: 0;
+  font-size: 27px;
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.02em;
+  color: var(--foreground);
+  text-wrap: balance;
+}
+
+.nt-wc-note {
+  margin: 8px 0 0;
+  max-width: 46ch;
+  font-size: var(--text-body);
+  line-height: 1.55;
+  color: var(--muted);
+  text-wrap: pretty;
+}
+
+/* ---- Choices ----------------------------------------------------------- */
+
+.nt-wc-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 28px;
+}
+
+/* Not a card in the decorative sense — a target with two lines in it. Border
+   only at rest, because six resting shadows is a texture rather than a
+   hierarchy, and the page beside it is the only thing that should look lifted. */
+.nt-wc-card {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 12px 13px 13px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--background);
+  text-align: left;
+  transition:
+    background var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease),
+    transform var(--dur-fast) var(--ease);
+}
+.nt-wc-card:hover {
+  border-color: var(--border-strong);
+  background: var(--surface);
+}
+.nt-wc-card:active {
+  transform: translateY(1px);
+}
+.nt-wc-card.is-on {
+  border-color: var(--border-strong);
+  background: var(--selected);
+}
+
+.nt-wc-card-label {
+  font-size: var(--text-ui);
+  font-weight: 500;
+  color: var(--foreground);
+}
+
+.nt-wc-card-blurb {
+  font-size: var(--text-meta-lg);
+  line-height: 1.45;
+  color: var(--muted);
+  text-wrap: pretty;
+}
+
+.nt-wc-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 28px;
+}
+
+.nt-wc-chip {
+  height: 32px;
+  padding-inline: 13px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--background);
+  font-size: var(--text-ui);
+  color: var(--foreground);
+  transition:
+    background var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease);
+}
+.nt-wc-chip:hover {
+  border-color: var(--border-strong);
+  background: var(--surface);
+}
+
+.nt-wc-own {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.nt-wc-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 34px;
+  padding-inline: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--background);
+  font-size: var(--text-ui);
+  color: var(--foreground);
+  transition: border-color var(--dur-fast) var(--ease);
+}
+.nt-wc-input::placeholder {
+  color: var(--muted);
+}
+.nt-wc-input:focus {
+  outline: none;
+  border-color: var(--border-strong);
+}
+
+/* The one filled control on the screen. Ink on paper rather than a colour,
+   because the palette has exactly one colour and this is not what it is for. */
+.nt-wc-go {
+  height: 34px;
+  padding-inline: 15px;
+  border-radius: var(--radius);
+  background: var(--foreground);
+  font-size: var(--text-ui);
+  font-weight: 500;
+  color: var(--background);
+  transition: opacity var(--dur-fast) var(--ease);
+}
+.nt-wc-go:hover:not(:disabled) {
+  opacity: 0.85;
+}
+.nt-wc-go:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.nt-wc-modes {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 28px;
+  max-width: 460px;
+}
+
+.nt-wc-mode {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 13px 15px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--background);
+  text-align: left;
+  transition:
+    background var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease);
+}
+.nt-wc-mode:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  background: var(--surface);
+}
+.nt-wc-mode:disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.nt-wc-mode-label {
+  font-size: var(--text-ui);
+  font-weight: 500;
+  color: var(--foreground);
+}
+
+.nt-wc-mode-note {
+  font-size: var(--text-meta-lg);
+  line-height: 1.5;
+  color: var(--muted);
+  text-wrap: pretty;
+}
+
+.nt-wc-busy,
+.nt-wc-failure {
+  margin: 14px 0 0;
+  font-size: var(--text-meta-lg);
+  color: var(--muted);
+}
+.nt-wc-failure {
+  color: var(--danger);
+}
+
+/* ---- Footer ------------------------------------------------------------ */
+
+.nt-wc-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  height: var(--control);
+}
+
+.nt-wc-dots {
+  display: flex;
+  gap: 5px;
+}
+
+/* Three questions, three marks. The one you are on is wider rather than
+   brighter — a filled dot among outlines reads as "selected", and this is a
+   position, not a choice. */
+.nt-wc-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--border-strong);
+  transition:
+    width var(--dur) var(--ease),
+    background var(--dur) var(--ease);
+}
+.nt-wc-dot.is-past {
+  background: var(--faint);
+}
+.nt-wc-dot.is-on {
+  width: 18px;
+  background: var(--muted);
+}
+
+.nt-wc-back {
+  height: var(--control-sm);
+  padding-inline: 9px;
+  margin-right: -9px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-meta-lg);
+  color: var(--muted);
+  transition:
+    background var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
+}
+.nt-wc-back:hover {
+  background: var(--hover);
+  color: var(--foreground);
+}
+
+/* ---- The desk ----------------------------------------------------------
+   A page lying on a surface. Shown at 78% rather than full size on purpose:
+   the miniature's one-line-per-paragraph treatment reads correctly as a
+   picture of a document, and at 1:1 it would read as text that had been cut
+   off. Big enough that the headings are legible and the shape of the thing is
+   unmistakable, small enough that it is still a picture. */
+
+.nt-wc-desk {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 596px;
+  padding: 32px;
+  background: var(--sunken);
+  border-left: 1px solid var(--border);
+}
+
+.nt-wc-paper {
+  position: relative;
+  width: 468px; /* 600 × 0.78 */
+  height: min(74vh, 700px);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--background);
+  box-shadow:
+    0 1px 2px oklch(0.25 0.005 90 / 0.04),
+    0 8px 24px oklch(0.25 0.005 90 / 0.06),
+    0 24px 64px oklch(0.25 0.005 90 / 0.08);
+}
+.nt-wc-paper.is-blank {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* The page does not end at the crop, so it fades rather than being cut mid-line. */
+.nt-wc-paper::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  height: 22%;
+  background: linear-gradient(to bottom, transparent, var(--background) 86%);
+  pointer-events: none;
+}
+
+.nt-wc-page {
+  position: absolute;
+  inset: 0 auto auto 0;
+  transform: scale(0.78);
+  transform-origin: top left;
+  padding: 36px 42px 0;
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
+  color: var(--foreground);
+}
+.nt-wc-page > * {
+  margin-block: 6px;
+}
+.nt-wc-page > :first-child {
+  margin-top: 0;
+}
+
+/* The assembly. Each block arrives a beat after the one above it, which is the
+   document being written rather than a picture being revealed — the difference
+   is the whole point of doing it at all.
+
+   Written out rather than generated: fourteen lines of CSS, no wrapper element
+   around every block, and the margins above stay the page's own. */
+.nt-wc-page > * {
+  animation: nt-wc-line var(--dur-slow) var(--ease) backwards;
+}
+@keyframes nt-wc-line {
+  from {
+    opacity: 0;
+    transform: translateY(7px);
+  }
+}
+.nt-wc-page > :nth-child(1) { animation-delay: 40ms; }
+.nt-wc-page > :nth-child(2) { animation-delay: 76ms; }
+.nt-wc-page > :nth-child(3) { animation-delay: 112ms; }
+.nt-wc-page > :nth-child(4) { animation-delay: 148ms; }
+.nt-wc-page > :nth-child(5) { animation-delay: 184ms; }
+.nt-wc-page > :nth-child(6) { animation-delay: 220ms; }
+.nt-wc-page > :nth-child(7) { animation-delay: 256ms; }
+.nt-wc-page > :nth-child(8) { animation-delay: 292ms; }
+.nt-wc-page > :nth-child(9) { animation-delay: 328ms; }
+.nt-wc-page > :nth-child(10) { animation-delay: 364ms; }
+.nt-wc-page > :nth-child(11) { animation-delay: 400ms; }
+.nt-wc-page > :nth-child(12) { animation-delay: 436ms; }
+.nt-wc-page > :nth-child(13) { animation-delay: 472ms; }
+.nt-wc-page > :nth-child(14) { animation-delay: 508ms; }
+
+/* ---- Narrow ------------------------------------------------------------
+   The desk is the first thing to go: it is the argument, not the flow, and a
+   page shrunk into a phone-width column stops being legible as a page. */
+@media (max-width: 1079px) {
+  .nt-wc {
+    grid-template-columns: 1fr;
+  }
+  .nt-wc-desk {
+    display: none;
+  }
+  .nt-wc-ask {
+    padding-inline: 28px;
+  }
+}
+
+@media (max-width: 559px) {
+  .nt-wc-grid {
+    grid-template-columns: 1fr;
+  }
+  .nt-wc-title {
+    font-size: 23px;
+  }
+  .nt-wc-ask {
+    padding-inline: 20px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* The stagger is the one thing that must not simply run faster: fourteen
+     blocks arriving at once from 7px below is a flinch. They just appear. */
+  .nt-wc-page > *,
+  .nt-wc-body {
+    animation: none;
+  }
+}

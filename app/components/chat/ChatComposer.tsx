@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { useConvex, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -23,6 +23,7 @@ import {
   type MentionPick,
 } from "@/app/lib/ai/chat/mentions";
 import type { ChatDraft } from "@/app/lib/ai/chat/useProjectChat";
+import { clearPrefill, onPrefill } from "@/app/lib/ai/chat/prefill";
 
 /**
  * The ask box.
@@ -110,6 +111,27 @@ export function ChatComposer({
       restore.current = null;
     }
   }, [text]);
+
+  /**
+   * A question the first-run guide has written into the box.
+   *
+   * An external event pushing a value in, not state derived from a prop — the
+   * user edits it from here, and every keystroke after this belongs to them.
+   * Taken once: coming back to the panel later should find the box empty, not
+   * the guide's question again.
+   */
+  useEffect(
+    () =>
+      onPrefill((incoming) => {
+        setText(incoming);
+        setCaret(incoming.length);
+        // Land the caret at the end, so the next keystroke continues the
+        // question rather than replacing it.
+        restore.current = incoming.length;
+        clearPrefill();
+      }),
+    [],
+  );
 
   const write = (el: HTMLTextAreaElement) => {
     setText(el.value);

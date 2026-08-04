@@ -18,6 +18,8 @@ import { PageSurface } from "./PageSurface";
 import { ChatPanel } from "./ChatPanel";
 import { ReviewBar } from "./ReviewBar";
 import { ResizeHandle } from "./ResizeHandle";
+import { PanelsProvider } from "./PanelsContext";
+import { Tour } from "./tour/Tour";
 import { PanelLeft, PanelRight } from "./Icons";
 
 const LEFT = { def: 256, min: 200, max: 480 };
@@ -64,6 +66,17 @@ export function Workspace({ projectId }: { projectId: Id<"projects"> }) {
   const shell = useMemo(() => ({ active: canvas, set: setCanvas }), [canvas]);
 
   const compact = useMediaQuery(COMPACT);
+
+  // Only what something outside needs: the first-run guide brings the chat rail
+  // out before pointing at it. Rebuilt when `compact` flips because the same
+  // verb means a drawer on a narrow screen and a rail on a wide one.
+  const panels = useMemo(
+    () => ({
+      openChat: () => (compact ? setDrawer("right") : setRightOpen(true)),
+      openSidebar: () => (compact ? setDrawer("left") : setLeftOpen(true)),
+    }),
+    [compact],
+  );
   // Narrow: panels are overlays, and overlays start closed.
   const showLeft = leftOpen && !compact;
   const showRight = rightOpen && !compact;
@@ -242,6 +255,7 @@ export function Workspace({ projectId }: { projectId: Id<"projects"> }) {
 
   return (
     <CanvasShellContext value={shell}>
+     <PanelsProvider value={panels}>
       <div className="flex h-screen w-full overflow-hidden">
         {canvasPanels ? (
           <>
@@ -333,7 +347,12 @@ export function Workspace({ projectId }: { projectId: Id<"projects"> }) {
             </div>
           </>
         )}
+
+        {/* Last, and above everything: the guide draws over the workspace it is
+            teaching. Renders nothing at all unless a tour is running. */}
+        <Tour projectId={projectId} pageId={effectivePageId} />
       </div>
+     </PanelsProvider>
     </CanvasShellContext>
   );
 }

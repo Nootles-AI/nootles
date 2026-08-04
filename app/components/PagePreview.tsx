@@ -128,6 +128,25 @@ export function PagePreview({ docId }: { docId: string | null }) {
   );
 }
 
+/**
+ * The same picture, from blocks already in hand.
+ *
+ * First run draws a template this way before the project it describes exists,
+ * so there is no document to read yet — only the blocks that are about to
+ * become one. Sharing the renderer is the point: what the welcome screen shows
+ * you and what the projects screen shows you afterwards are the same drawing
+ * of the same page, which is what makes the promise land.
+ */
+export function PreviewBlocks({ blocks }: { blocks: readonly AnyBlock[] }) {
+  return (
+    <>
+      {blocks.map((block) => (
+        <Block key={block.id} block={block} />
+      ))}
+    </>
+  );
+}
+
 function Block({ block }: { block: AnyBlock }) {
   const props = block.props ?? {};
 
