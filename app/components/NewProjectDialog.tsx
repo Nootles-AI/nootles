@@ -9,10 +9,10 @@ export type NewProject = { title: string; description: string; context: string }
  *
  * None of this is filing: everything typed here becomes the project's Context
  * Sheet, which is what primes every request the agent makes inside it. So the
- * three fields are asked in the order they are worth — the name, the sentence,
+ * three fields are asked in the order they are worth — the title, the sentence,
  * then the room to say the things that have nowhere else to go.
  *
- * Only the name is required. A project with a name and nothing else is a
+ * Only the title is required. A project with a title and nothing else is a
  * perfectly good project, and asking for more before letting someone start
  * would be a form standing between them and a blank page.
  */
@@ -90,7 +90,7 @@ export function NewProjectDialog({
 
         <div className="mt-5">
           <label className="nt-field-label" htmlFor="np-title">
-            Name
+            Title
           </label>
           <input
             id="np-title"
@@ -98,7 +98,7 @@ export function NewProjectDialog({
             autoComplete="off"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            placeholder="Rate limiting at the edge"
+            placeholder="Project title"
             className="nt-input"
           />
         </div>
