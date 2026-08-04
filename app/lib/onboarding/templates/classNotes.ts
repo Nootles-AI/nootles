@@ -54,7 +54,7 @@ export const classNotes: Template = {
             },
           ],
         },
-        { type: "heading", props: { level: 2 }, content: "The picture" },
+        { id: "nt-tour-slash", type: "paragraph", content: "" },
         {
           type: "paragraph",
           content:

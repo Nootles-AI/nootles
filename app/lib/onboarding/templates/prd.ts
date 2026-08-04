@@ -51,7 +51,7 @@ export const prd: Template = {
           content:
             "Let a first-time buyer pay without making an account, and ask for the account afterwards — if at all.",
         },
-        { type: "heading", props: { level: 2 }, content: "The problem" },
+        { id: "nt-tour-slash", type: "paragraph", content: "" },
         {
           type: "paragraph",
           content:

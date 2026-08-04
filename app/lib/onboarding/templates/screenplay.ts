@@ -59,7 +59,7 @@ export const screenplay: Template = {
           content:
             "A woman checks into a desert motel she has no memory of booking, and finds a room already made up for her.",
         },
-        { type: "heading", props: { level: 2 }, content: "Opening" },
+        { id: "nt-tour-slash", type: "paragraph", content: "" },
         {
           type: "paragraph",
           content:

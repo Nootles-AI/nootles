@@ -55,7 +55,7 @@ export const techDesign: Template = {
           content:
             "Move request limits out of each service and onto the edge, so the answer to “how many requests is too many” is written in one place.",
         },
-        { type: "heading", props: { level: 2 }, content: "Where we are" },
+        { id: "nt-tour-slash", type: "paragraph", content: "" },
         {
           type: "paragraph",
           content:

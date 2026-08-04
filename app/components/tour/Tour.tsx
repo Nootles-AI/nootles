@@ -26,8 +26,25 @@ import { Spotlight } from "./Spotlight";
 import { useRect, useTarget } from "./useRect";
 import "./tour.css";
 
-/** The three gated beats. Past the last one the guide stops being in the way. */
-const GATED = 3;
+/**
+ * The gated beats, in the order they are taught.
+ *
+ * The slash menu comes first because it is the answer to "how do I do anything
+ * here" — every block in the product starts there, and teaching it last as a
+ * checklist item made it look like a footnote to features it is the doorway
+ * to. The canvas comes last and gets two beats, because it is the thing this
+ * product has that the others do not: drawing it is one lesson, and finding out
+ * it is a real editor rather than a picture is a different one.
+ */
+const SLASH = 0;
+const WRITE = 1;
+const CHAT = 2;
+const DRAW = 3;
+const CANVAS = 4;
+const GATED = 5;
+
+/** The block the templates leave empty for the slash beat to fill. */
+const SLASH_BLOCK = "nt-tour-slash";
 
 /**
  * The first-run guide.
@@ -116,7 +133,7 @@ function Running({
     [setBeat],
   );
 
-  /* ---- Beats 0 and 1: the guide draws them itself ---------------------- */
+  /* ---- Slash, write and draw: the guide runs them itself ---------------- */
 
   // No model is called during first run. The lane stays off for the whole
   // tour — including the free tail, where a real completion arriving over a
@@ -135,17 +152,27 @@ function Running({
    * knows or cares that no model was involved.
    */
   useEffect(() => {
-    if (!editor || beat > 1) return;
+    if (!editor) return;
+    if (beat !== SLASH && beat !== WRITE && beat !== DRAW) return;
     const view = editor.prosemirrorView;
     if (!view) return;
 
-    const draw = beat === 1;
-    const target = draw ? script.draw.blockId : script.write.blockId;
+    const draw = beat === DRAW;
+    const target =
+      beat === SLASH
+        ? SLASH_BLOCK
+        : draw
+          ? script.draw.blockId
+          : script.write.blockId;
     const block = editor.document.find((b) => b.id === target);
     if (!block) return;
 
     editor.focus();
     editor.setTextCursorPosition(block, "end");
+
+    // The slash beat has nothing to draw: the menu is the product's, and the
+    // whole point is that they open it themselves.
+    if (beat === SLASH) return;
 
     /**
      * Keep the drawing on screen while it is being drawn.
@@ -213,27 +240,63 @@ function Running({
     };
   }, [editor, beat, script]);
 
-  // Advance on the real outcome, not on the keypress: what ends a beat is the
-  // suggestion having landed in the document.
+  /**
+   * Advance on the real outcome, never on the keypress.
+   *
+   * What ends a beat is the document having changed in the way the beat was
+   * about — a heading that exists, a sentence that got finished, a diagram
+   * that landed. Watching for the key instead would let a step be "completed"
+   * by someone who pressed it with nothing selected.
+   */
   useEffect(() => {
-    if (!editor || beat > 1) return;
-    const landed = () =>
-      beat === 0
-        ? // Compared loosely on whitespace: what the applier writes into the
-          // block is the completion re-serialized, not the string we scripted,
-          // and a line break landing differently is not a different sentence.
-          flat(textOf(editor.document.find((b) => b.id === script.write.blockId))).includes(
-            flat(script.write.ghost),
-          )
-        : editor.document.some(
-            (b) => b.type === "canvas" && Boolean((b.props as { data?: string })?.data),
-          );
+    if (!editor) return;
+    if (beat !== SLASH && beat !== WRITE && beat !== DRAW) return;
+
+    const headings = () =>
+      editor.document.filter((b) => b.type === "heading").length;
+    const before = headings();
+
+    const landed = () => {
+      if (beat === SLASH) return headings() > before;
+      if (beat === WRITE) {
+        // Compared loosely on whitespace: a line break landing differently is
+        // not a different sentence.
+        return flat(
+          textOf(editor.document.find((b) => b.id === script.write.blockId)),
+        ).includes(flat(script.write.ghost));
+      }
+      return editor.document.some(
+        (b) => b.type === "canvas" && Boolean((b.props as { data?: string })?.data),
+      );
+    };
+
     if (landed()) {
       advance(beat + 1);
       return;
     }
     return editor.onChange(() => landed() && advance(beat + 1), false);
   }, [editor, beat, script, advance]);
+
+  /**
+   * The canvas beat ends when a shape moves.
+   *
+   * Identity, not equality: every op returns the same objects for the parts it
+   * did not touch, so a new scene object IS an edit. The grace window covers
+   * the reflow that entering a canvas can cause on its own, which would
+   * otherwise tick the beat before the user had touched anything.
+   */
+  const active = shell.active;
+  useEffect(() => {
+    if (beat !== CANVAS || !active) return;
+    const store = active.api.store;
+    const entered = store.getScene();
+    const opened = performance.now();
+    return store.subscribe(() => {
+      if (performance.now() - opened > 500 && store.getScene() !== entered) {
+        advance(GATED);
+      }
+    });
+  }, [beat, active, advance]);
 
   /* ---- Beat 2: the agent, and answering for it ------------------------- */
 
@@ -284,18 +347,19 @@ function Running({
 
   /* ---- The free tail --------------------------------------------------- */
 
+  const pages = useQuery(api.pages.listByProject, { projectId });
+
   const items = useMemo(
     (): ChecklistItem[] => [
-      {
-        id: "enter",
-        label: "Click into the diagram",
-        hint: "Both side panels turn over to it.",
-      },
-      { id: "move", label: "Move a shape", hint: "Connectors redraw themselves." },
       {
         id: "block",
         label: `Press / for a ${script.suggest.label.toLowerCase()}`,
         hint: script.suggest.hint,
+      },
+      {
+        id: "page",
+        label: "Start another page",
+        hint: "Chats and context are the project's, not the page's.",
       },
     ],
     [script],
@@ -304,22 +368,6 @@ function Running({
   const tick = (id: string) => {
     if (!ticked.has(id)) void check({ id }).catch(() => {});
   };
-
-  const active = shell.active;
-  useEffect(() => {
-    if (beat < GATED || !active) return;
-    tick("enter");
-    // Identity, not equality: every op returns the same objects for the parts
-    // it did not touch, so a new scene object IS an edit. The grace window is
-    // for the reflow that entering a canvas can itself cause.
-    const store = active.api.store;
-    const entered = store.getScene();
-    const opened = Date.now();
-    return store.subscribe(() => {
-      if (Date.now() - opened > 400 && store.getScene() !== entered) tick("move");
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [beat, active, ticked]);
 
   useEffect(() => {
     if (beat < GATED || !editor) return;
@@ -334,20 +382,31 @@ function Running({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [beat, editor, script, ticked]);
 
+  const pageCount = pages?.length ?? 0;
+  const seededPages = template.pages.length;
+  useEffect(() => {
+    if (beat >= GATED && pageCount > seededPages) tick("page");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [beat, pageCount, seededPages, ticked]);
+
   /* ---- What is on screen ----------------------------------------------- */
 
   const selector =
-    beat === 0
-      ? `[data-id="${script.write.blockId}"]`
-      : beat === 1
-        ? `[data-id="${script.draw.blockId}"]`
-        : beat === 2
+    beat === SLASH
+      ? `[data-id="${SLASH_BLOCK}"]`
+      : beat === WRITE
+        ? `[data-id="${script.write.blockId}"]`
+        : beat === CHAT
           ? CHAT_TARGET[phase]
-          : null;
+          : beat === DRAW
+            ? `[data-id="${script.draw.blockId}"]`
+            : beat === CANVAS
+              ? ".nt-canvas"
+              : null;
   // While a diagram is being drawn, the drawing IS the subject — lighting the
   // line above it would leave the spotlight pointing at the caret while the
   // thing worth looking at grows underneath, unlit and off the bottom.
-  const drawing = useTarget(beat === 1 ? ".nt-diagram-preview" : null);
+  const drawing = useTarget(beat === DRAW ? ".nt-diagram-preview" : null);
   const anchor = useTarget(selector);
   const rect = useRect(drawing ?? anchor, 8);
 
@@ -361,7 +420,7 @@ function Running({
     );
   }
 
-  const copy = beat === 2 ? CHAT[phase] : BEATS[beat];
+  const copy = beat === CHAT ? CHAT_COPY[phase] : BEATS[beat];
 
   return (
     <>
@@ -389,16 +448,31 @@ type Copy = { title: string; action: string; hint?: string };
  * needs on their first morning is what the control is FOR, which is why each of
  * these leads with what just happened and only then says which key.
  */
+/**
+ * Indexed by beat. The chat beat is absent because it says four different
+ * things depending on where it has got to; see {@link CHAT_COPY}.
+ */
 const BEATS: Copy[] = [
+  {
+    title: "This section needs a heading — and every block in Nootles starts the same way.",
+    action: "Type / here, then h2.",
+  },
   {
     title: "It read the page and wrote the rest of the line.",
     action: "Keep it with",
     hint: "⇥",
   },
+  // CHAT — filled from CHAT[phase].
+  { title: "", action: "" },
   {
     title: "This line wanted a picture, so it is drawing one.",
     action: "Place it with",
     hint: "⇥",
+  },
+  {
+    title:
+      "That is not an image of a diagram. Both rails have just turned over to it — layers on the left, the shape's own properties on the right.",
+    action: "Drag a box. The connectors redraw themselves.",
   },
 ];
 
@@ -414,7 +488,7 @@ const CHAT_TARGET: Record<ChatPhase, string> = {
   review: ".nt-review-bar",
 };
 
-const CHAT: Record<ChatPhase, Copy> = {
+const CHAT_COPY: Record<ChatPhase, Copy> = {
   newChat: {
     title: "There is already a conversation here — chats belong to the project and outlive the page.",
     action: "Start a fresh one.",

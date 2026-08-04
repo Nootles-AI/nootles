@@ -59,7 +59,7 @@ order by 1, 2;`,
           content:
             "Something happens at the end of the first week that we cannot see from the dashboard. This is a plan to find out what.",
         },
-        { type: "heading", props: { level: 2 }, content: "What we know" },
+        { id: "nt-tour-slash", type: "paragraph", content: "" },
         {
           type: "paragraph",
           content:

@@ -43,7 +43,7 @@ export const woodworking: Template = {
           content:
             "18 wide, 14 deep, 24 tall. Walnut throughout, mortise and tenon at the aprons, oil and wax.",
         },
-        { type: "heading", props: { level: 2 }, content: "Stock" },
+        { id: "nt-tour-slash", type: "paragraph", content: "" },
         {
           type: "paragraph",
           content:
