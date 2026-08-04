@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, KeyboardEvent, useEffect, useState } from "react";
+import { AnimationEvent, FormEvent, KeyboardEvent, useEffect, useState } from "react";
 
 export type NewProject = { title: string; description: string; context: string };
 
@@ -30,15 +30,27 @@ export function NewProjectDialog({
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
 
+  /**
+   * Leaving is animated too, so it has to outlive the decision to leave: the
+   * panel plays its way back off the edge and tells the caller to unmount it
+   * when it lands. Sliding in and then vanishing on the spot is the version
+   * that feels broken.
+   */
+  const [closing, setClosing] = useState(false);
+  const close = () => setClosing(true);
+  const gone = (e: AnimationEvent<HTMLElement>) => {
+    if (closing && e.target === e.currentTarget) onCancel();
+  };
+
   useEffect(() => {
     const onKey = (e: globalThis.KeyboardEvent) => {
       if (e.key !== "Escape") return;
       e.preventDefault();
-      onCancel();
+      setClosing(true);
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [onCancel]);
+  }, []);
 
   const named = title.trim();
 
@@ -70,78 +82,81 @@ export function NewProjectDialog({
     <>
       <button
         aria-label="Cancel"
-        onClick={onCancel}
-        className="fixed inset-0 bg-foreground/15"
+        onClick={close}
+        className={`nt-scrim${closing ? " is-closing" : ""}`}
         style={{ zIndex: "var(--z-overlay)" }}
       />
       <form
         onSubmit={submit}
+        onAnimationEnd={gone}
         role="dialog"
         aria-modal="true"
         aria-label="New project"
-        className="nt-menu fixed left-1/2 top-[14vh] w-[26rem] max-w-[calc(100vw-2rem)] -translate-x-1/2 p-5"
+        className={`nt-sheet${closing ? " is-closing" : ""}`}
         style={{ zIndex: "var(--z-modal)" }}
       >
-        <p className="text-sm font-medium">New project</p>
-        <p className="mt-1.5 text-[13px] text-muted">
-          Whatever you say here is what the assistant knows about the project. You
-          can change it later.
-        </p>
-
-        <div className="mt-5">
-          <label className="nt-field-label" htmlFor="np-title">
-            Title
-          </label>
-          <input
-            id="np-title"
-            autoFocus
-            autoComplete="off"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="Project title"
-            className="nt-input"
-          />
-        </div>
-
-        <div className="mt-4">
-          <label className="nt-field-label" htmlFor="np-description">
-            Description
-            <span className="nt-field-note">Optional</span>
-          </label>
-          <input
-            id="np-description"
-            autoComplete="off"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="One line on what it is"
-            className="nt-input"
-          />
-        </div>
-
-        <div className="mt-4">
-          <label className="nt-field-label" htmlFor="np-context">
-            Context
-            <span className="nt-field-note">Optional</span>
-          </label>
-          <textarea
-            id="np-context"
-            rows={4}
-            value={context}
-            onChange={(e) => setContext(e.target.value)}
-            onKeyDown={sendOnModEnter}
-            placeholder="Who it is for, what has been decided, anything the assistant should take as given"
-            className="nt-input"
-          />
-        </div>
-
-        {failure && (
-          <p role="alert" className="mt-3 text-[13px] text-danger">
-            {failure}
+        <div className="nt-sheet-head">
+          <p className="text-sm font-medium">New project</p>
+          <p className="mt-1.5 text-[13px] text-muted">
+            Whatever you say here is what the assistant knows about the project.
+            You can change it later.
           </p>
-        )}
+        </div>
 
-        <div className="mt-5 flex justify-end gap-1">
-          <button type="button" onClick={onCancel} className="nt-row px-2.5">
+        <div className="nt-sheet-body">
+          <div>
+            <label className="nt-field-label" htmlFor="np-title">
+              Title
+            </label>
+            <input
+              id="np-title"
+              autoFocus
+              autoComplete="off"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="Project title"
+              className="nt-input"
+            />
+          </div>
+
+          <div className="mt-4">
+            <label className="nt-field-label" htmlFor="np-description">
+              Description
+              <span className="nt-field-note">Optional</span>
+            </label>
+            <input
+              id="np-description"
+              autoComplete="off"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="One line on what it is"
+              className="nt-input"
+            />
+          </div>
+
+          <div className="nt-field-fill mt-4">
+            <label className="nt-field-label" htmlFor="np-context">
+              Context
+              <span className="nt-field-note">Optional</span>
+            </label>
+            <textarea
+              id="np-context"
+              value={context}
+              onChange={(e) => setContext(e.target.value)}
+              onKeyDown={sendOnModEnter}
+              placeholder="Who it is for, what has been decided, anything the assistant should take as given"
+              className="nt-input"
+            />
+          </div>
+        </div>
+
+        <div className="nt-sheet-foot">
+          {failure && (
+            <p role="alert" className="min-w-0 flex-1 text-[13px] text-danger">
+              {failure}
+            </p>
+          )}
+          <button type="button" onClick={close} className="nt-row px-2.5">
             Cancel
           </button>
           <button

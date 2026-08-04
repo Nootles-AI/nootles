@@ -518,6 +518,20 @@ textarea.nt-input {
   resize: none;
 }
 
+/* A field that takes the room left over. The freeform one earns it — it is the
+   only field asking for paragraphs rather than a line, and a tall box is how a
+   form says "as much as you like" without spending a sentence saying it. */
+.nt-field-fill {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+.nt-field-fill textarea.nt-input {
+  flex: 1 1 auto;
+  min-height: 5.5rem;
+}
+
 /* The one filled control in a dialog — ink on paper rather than a colour,
    because the palette has exactly one colour and this is not what it is for.
    Declared after `.nt-row` so it keeps its fill on hover. */
@@ -531,6 +545,95 @@ textarea.nt-input {
   background: var(--foreground);
   color: var(--background);
   opacity: 0.85;
+}
+
+/* ---- Sheet --------------------------------------------------------------
+   A panel that comes in from the right edge and stays there, rather than one
+   that appears in the middle of the screen.
+
+   Which side it enters from is the same idea as the rails above: movement that
+   says where a thing lives. A centred box has to arrive by fading, because it
+   comes from nowhere — this one comes from off the right edge, so the entrance
+   is a fact about the layout rather than an effect laid over it.
+
+   It travels its own full width on `--ease`, which is heavily weighted to the
+   end: it covers most of the distance early and settles the last few pixels
+   slowly, which is the part that reads as weight rather than as a slide. Longer
+   than a menu, because it is further to come; the way out is `--dur`, since
+   leaving should never make anyone wait. Reduced motion is handled by the
+   global rule at the end of this file. */
+.nt-scrim {
+  position: fixed;
+  inset: 0;
+  background: oklch(0.25 0.005 90 / 0.08);
+  /* The page stays legible behind it but stops being readable — which is the
+     point: it is still there, and it is not what you are doing. */
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  animation: nt-fade-in var(--dur) var(--ease);
+}
+.nt-scrim.is-closing {
+  animation: nt-fade-out var(--dur) var(--ease) forwards;
+}
+
+.nt-sheet {
+  position: fixed;
+  top: var(--inset);
+  right: var(--inset);
+  bottom: var(--inset);
+  display: flex;
+  flex-direction: column;
+  width: 26rem;
+  max-width: calc(100vw - var(--inset) * 2);
+  background: var(--elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow:
+    0 1px 2px oklch(0.25 0.005 90 / 0.04),
+    0 8px 24px oklch(0.25 0.005 90 / 0.07),
+    0 24px 64px oklch(0.25 0.005 90 / 0.11);
+  animation: nt-sheet-in var(--dur-slow) var(--ease);
+}
+.nt-sheet.is-closing {
+  animation: nt-sheet-out var(--dur) var(--ease) forwards;
+}
+/* Past its own right margin as well as its width, so no corner of it is left
+   showing at the start. */
+@keyframes nt-sheet-in {
+  from {
+    transform: translateX(calc(100% + var(--inset)));
+  }
+}
+@keyframes nt-sheet-out {
+  to {
+    transform: translateX(calc(100% + var(--inset)));
+  }
+}
+@keyframes nt-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+
+.nt-sheet-head {
+  padding: 18px 18px 0;
+}
+/* The fields, and the one part that scrolls if a window is short enough to make
+   it. */
+.nt-sheet-body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 18px;
+}
+.nt-sheet-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  padding: 0 18px 18px;
 }
 
 /* The account monogram. A filled well rather than a ring: it reads as a token
