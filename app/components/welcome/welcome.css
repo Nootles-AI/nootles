@@ -177,19 +177,25 @@
   background: var(--surface);
 }
 
+/* The same 7px the chips are spaced by: this row is the last option in that
+   set, not a form sitting underneath it. */
 .nt-wc-own {
   display: flex;
-  gap: 8px;
+  gap: 7px;
   margin-top: 14px;
 }
 
+/* Shaped like the chips, because it IS one — the last answer in the row, the
+   one nobody could write a button for. A rounded rectangle would file it with
+   form fields instead, and quietly say a typed answer is a different kind of
+   thing from an offered one. It is not. */
 .nt-wc-input {
   flex: 1 1 auto;
   min-width: 0;
-  height: 34px;
-  padding-inline: 12px;
+  height: 32px;
+  padding-inline: 14px;
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border-radius: 999px;
   background: var(--background);
   font-size: var(--text-ui);
   color: var(--foreground);
@@ -206,9 +212,9 @@
 /* The one filled control on the screen. Ink on paper rather than a colour,
    because the palette has exactly one colour and this is not what it is for. */
 .nt-wc-go {
-  height: 34px;
-  padding-inline: 15px;
-  border-radius: var(--radius);
+  height: 32px;
+  padding-inline: 16px;
+  border-radius: 999px;
   background: var(--foreground);
   font-size: var(--text-ui);
   font-weight: 500;
