@@ -9,6 +9,7 @@ import type { Batch } from "@/convex/ai/operations";
 import { sceneSummary } from "./ScenePreview";
 import {
   diagramSkeleton,
+  keyChip,
   disposePreview,
   ghostBlocksElement,
   ghostBlocksKey,
@@ -171,7 +172,11 @@ function chipWidget(label: string, pending: boolean) {
   return () => {
     const span = document.createElement("span");
     span.className = pending ? "nt-action-chip is-pending" : "nt-action-chip";
-    span.textContent = pending ? `${label}…` : `⇥ ${label}`;
+    // The same key element the preview heads wear, so "press Tab" looks like
+    // one thing everywhere it is said. Nothing to press yet while it is
+    // pending, so there is no key on it — only the wait.
+    if (!pending) span.appendChild(keyChip("Tab"));
+    span.appendChild(document.createTextNode(pending ? `${label}…` : label));
     return span;
   };
 }
@@ -241,12 +246,13 @@ export function ghostTextPlugin(): Plugin<Suggestion> {
         if (s.preview) {
           const p = s.preview;
           // Still arriving: Tab queues rather than applies, so the head must not
-          // yet promise an insert it cannot perform.
-          const label = s.batch
-            ? `⇥ Tab to insert · ${headOf(p)}`
-            : `Drawing… · ${headOf(p)}`;
+          // yet promise an insert it cannot perform. It says what the model is
+          // doing instead, in the accent that means the model is doing it.
+          const head = s.batch
+            ? { key: "Tab", label: `to insert · ${headOf(p)}` }
+            : { label: `Drawing… · ${headOf(p)}`, live: true };
           decos.push(
-            Decoration.widget(after, () => previewElement(p, label), {
+            Decoration.widget(after, () => previewElement(p, head), {
               side: 1,
               key: `nt-preview-${after}-${previewKey(p)}`,
               // A diagram preview mounts the canvas renderer; this is the only

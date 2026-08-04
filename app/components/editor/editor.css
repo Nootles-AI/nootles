@@ -302,15 +302,42 @@
   color: inherit;
 }
 
-/* ---- Action hint chip (AI structured suggestions) ------------------- */
+/* ---- The key you would press ----------------------------------------
+   Accent, because pressing it takes something the model is offering — the same
+   colour and the same mono voice the reformat chip already uses for the same
+   event. It is drawn as a key rather than written as `⇥ Tab to insert` inside a
+   sentence: a control and a description are two different things, and one of
+   them is pressable.
+
+   The accent stops at the key. Whatever is beside it describes what would land,
+   which is chrome. */
+.nt-key {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in oklch, var(--accent) 10%, transparent);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--text-meta);
+  letter-spacing: var(--tracking-meta);
+  line-height: 1.5;
+  color: var(--accent);
+}
+/* The code preview is the one dark surface a key lands on, and the accent is
+   solved for paper — 2.3:1 there. This is the tone that clears AA on it. */
+.nt-code-preview .nt-key {
+  background: color-mix(in oklch, var(--accent-on-dark) 14%, transparent);
+  color: var(--accent-on-dark);
+}
+
+/* ---- Action hint chip (AI structured suggestions) -------------------
+   No pill of its own any more: it is a key and the word for what the key would
+   do, and wrapping that in a bordered capsule made two containers for one
+   thing. */
 .nt-action-chip {
   display: inline-flex;
   align-items: center;
+  gap: 0.4em;
   margin-left: 0.4em;
-  padding: 0.05em 0.5em;
-  border: 1px solid var(--border);
-  border-radius: 9999px;
-  background: var(--surface);
   color: var(--muted);
   font-size: 0.8em;
   font-weight: 500;
@@ -331,12 +358,28 @@
   user-select: none;
   pointer-events: none;
 }
+/* What the preview is, and what would take it. Metadata, so it speaks in the
+   mono voice the section labels and counts use rather than competing with the
+   block it is heading. */
 .nt-code-preview-head {
-  padding: 0.2rem 0.6rem;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0.3rem 0.6rem;
   border-bottom: 1px dashed var(--code-border);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--text-meta-lg);
   color: var(--code-fg-muted);
-  font-size: 0.72rem;
-  font-weight: 500;
+}
+/* The model is still making it. Accent and a pulse, which is what the streaming
+   head and the thinking dot already use to say the same thing — one vocabulary
+   for the model at work. */
+.nt-code-preview-head.is-live {
+  color: var(--accent);
+  animation: nt-pulse 1.15s var(--ease) infinite;
+}
+.nt-code-preview .nt-code-preview-head.is-live {
+  color: var(--accent-on-dark);
 }
 .nt-code-preview-body {
   margin: 0;
@@ -369,6 +412,22 @@
   color: var(--muted);
   border-bottom-color: var(--border);
 }
+
+/* ---- Waiting on the model -------------------------------------------
+   The box the drawing is coming into, while it is still being drawn.
+
+   Solid rather than dashed, and at full strength: dashed-and-faded is how this
+   file draws a thing that is only a proposal, and nothing is being proposed yet
+   — the model is working. `nt-generating` supplies the breathing accent edge,
+   so the border here gets out of its way rather than drawing a second one. */
+.nt-diagram-preview.is-loading {
+  border-color: transparent;
+  background: var(--background);
+  opacity: 1;
+}
+.nt-diagram-preview.is-loading .nt-code-preview-head {
+  border-bottom-color: transparent;
+}
 /* Hosts the real canvas renderer: `.nt-canvas-viewport` is absolute and fills
    its nearest positioned ancestor, which is this. The height is set inline,
    from the same rule the block itself sizes by. */
@@ -378,8 +437,14 @@
 }
 
 /* Waiting for the diagram. Stands in the place the diagram will occupy, so the
-   wait happens where the answer appears. */
-.nt-diagram-preview-surface.nt-skeleton {
+   wait happens where the answer appears.
+
+   The bars hold still. The box already breathes and the head line already
+   pulses, and both of those say the one thing worth saying — the model is
+   working. A sweep and a per-bar pulse on top of them put four different
+   rhythms in one small box, which reads as a panel of warning lights rather
+   than as something being drawn. */
+.nt-diagram-preview-surface.is-waiting {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -390,29 +455,13 @@
   height: 34px;
   border-radius: 8px;
   background: var(--faint);
-  animation: nt-skeleton-pulse 1.5s ease-in-out infinite;
+  opacity: 0.42;
 }
 .nt-skeleton-link {
   width: 1.5px;
   height: 20px;
   background: var(--faint);
   opacity: 0.5;
-}
-@keyframes nt-skeleton-pulse {
-  0%,
-  100% {
-    opacity: 0.3;
-  }
-  50% {
-    opacity: 0.65;
-  }
-}
-/* A pulse is decoration; nobody should have to sit through it. */
-@media (prefers-reduced-motion: reduce) {
-  .nt-skeleton-shape {
-    animation: none;
-    opacity: 0.45;
-  }
 }
 
 /* Ghost completion inside a code block. */

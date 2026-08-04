@@ -360,7 +360,7 @@ function goneBlock(block: AnyBlock): HTMLElement {
 
   const preview = previewOf(block);
   if (preview) {
-    wrap.appendChild(previewElement(preview, "removed"));
+    wrap.appendChild(previewElement(preview, { label: "removed" }));
     return wrap;
   }
 

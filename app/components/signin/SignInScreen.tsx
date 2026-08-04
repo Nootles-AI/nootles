@@ -33,9 +33,6 @@ const Recording = dynamic(
  */
 export type Variant = "wordmark" | "stacked" | "centred" | "bleed";
 
-const CAPTION =
-  "A line finished, a diagram drawn from a sentence, then dragged into shape.";
-
 export function SignInScreen({ variant }: { variant: Variant }) {
   return (
     <main className={`nt-si is-${variant}`}>
@@ -69,11 +66,11 @@ export function SignInScreen({ variant }: { variant: Variant }) {
       </section>
 
       <aside className="nt-si-desk">
+        {/* No caption. A still picture needs one because it cannot say what it
+            is a picture of; a recording says it by happening. */}
         <div className="nt-sheet">
           <Recording />
         </div>
-        {/* The recording cannot say what it is a recording of, so one line does. */}
-        <p className="nt-sheet-caption">{CAPTION}</p>
       </aside>
     </main>
   );

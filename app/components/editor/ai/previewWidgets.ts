@@ -229,10 +229,36 @@ export function ghostBlocksKey(blocks: GhostBlock[]): string {
     .join("|");
 }
 
-function head(label: string) {
+/**
+ * What a preview claims about itself: the key that would take it, and what it
+ * is. Two fields rather than one sentence, because they are two different
+ * things — one is a control and the other is a description, and glueing them
+ * into `⇥ Tab to insert · 4 shapes` made the control impossible to draw as one.
+ *
+ * `live` means the model is still working on it, which is the one state that
+ * has no key to offer yet.
+ */
+export type PreviewHead = { key?: string; label: string; live?: boolean };
+
+/**
+ * The key you would press, as a key rather than as a glyph in a sentence.
+ *
+ * Accent, because this is the model offering something — the same colour and
+ * the same mono voice the reformat chip already uses for the same event. The
+ * accent stops at the key: the description beside it is chrome.
+ */
+export function keyChip(key: string): HTMLElement {
+  const el = document.createElement("span");
+  el.className = "nt-key";
+  el.textContent = key;
+  return el;
+}
+
+function headEl({ key, label, live }: PreviewHead) {
   const el = document.createElement("div");
-  el.className = "nt-code-preview-head";
-  el.textContent = label;
+  el.className = live ? "nt-code-preview-head is-live" : "nt-code-preview-head";
+  if (key) el.appendChild(keyChip(key));
+  el.appendChild(document.createTextNode(label));
   return el;
 }
 
@@ -278,33 +304,34 @@ export function disposePreview(node: Node): void {
  * head line is the only part that changes. Deliberately not a rendering of
  * anything: the shapes here stand for a diagram, they do not claim to be the
  * one arriving, which is why they are three plain bars and not four.
+ *
+ * `nt-generating` is the app's mark for a block the model is still making — a
+ * breathing accent edge, defined once in `globals.css`. It is what makes the
+ * wait read as the model working rather than as a slow page: a dashed grey box
+ * says "empty", and this box is not empty, it is busy.
  */
 export function diagramSkeleton(label: string): HTMLElement {
   const wrap = document.createElement("div");
-  wrap.className = "nt-diagram-preview is-loading";
+  wrap.className = "nt-diagram-preview is-loading nt-generating";
   wrap.contentEditable = "false";
-  wrap.appendChild(head(label));
+  wrap.appendChild(headEl({ label, live: true }));
 
-  const surface = div("nt-diagram-preview-surface nt-skeleton");
+  const surface = div("nt-diagram-preview-surface is-waiting");
   surface.style.height = `${CANVAS_MIN_H}px`;
   for (let i = 0; i < 3; i++) {
     if (i) surface.appendChild(div("nt-skeleton-link"));
-    const box = div("nt-skeleton-shape");
-    // Staggered so it reads as something being drawn in order, rather than a
-    // panel of lights blinking together.
-    box.style.animationDelay = `${i * 0.16}s`;
-    surface.appendChild(box);
+    surface.appendChild(div("nt-skeleton-shape"));
   }
   wrap.appendChild(surface);
   return wrap;
 }
 
 /** The diagram, drawn by the canvas's own renderer. */
-function diagramPreview(source: string, label: string) {
+function diagramPreview(source: string, head: PreviewHead) {
   const wrap = document.createElement("div");
   wrap.className = "nt-diagram-preview";
   wrap.contentEditable = "false";
-  wrap.appendChild(head(label));
+  wrap.appendChild(headEl(head));
 
   const scene = sceneFrom(source);
   const surface = div("nt-diagram-preview-surface");
@@ -319,11 +346,11 @@ function diagramPreview(source: string, label: string) {
   return wrap;
 }
 
-function mathPreview(lines: string[], label: string) {
+function mathPreview(lines: string[], head: PreviewHead) {
   const wrap = document.createElement("div");
   wrap.className = "nt-math-preview";
   wrap.contentEditable = "false";
-  wrap.appendChild(head(label));
+  wrap.appendChild(headEl(head));
   for (const latex of lines) {
     const row = document.createElement("div");
     row.className = "nt-math-preview-row";
@@ -333,11 +360,11 @@ function mathPreview(lines: string[], label: string) {
   return wrap;
 }
 
-function tablePreview(preview: { header: boolean; rows: string[][] }, label: string) {
+function tablePreview(preview: { header: boolean; rows: string[][] }, head: PreviewHead) {
   const wrap = document.createElement("div");
   wrap.className = "nt-table-preview";
   wrap.contentEditable = "false";
-  wrap.appendChild(head(label));
+  wrap.appendChild(headEl(head));
 
   const table = document.createElement("table");
   table.className = "nt-table-preview-grid";
@@ -358,29 +385,29 @@ function tablePreview(preview: { header: boolean; rows: string[][] }, label: str
   return wrap;
 }
 
-function codePreview(preview: { language: string; code: string }, label: string) {
+function codePreview(preview: { language: string; code: string }, head: PreviewHead) {
   const wrap = document.createElement("div");
   wrap.className = "nt-code-preview";
   wrap.contentEditable = "false";
   const body = document.createElement("pre");
   body.className = "nt-code-preview-body";
   body.textContent = preview.code;
-  wrap.appendChild(head(label));
+  wrap.appendChild(headEl(head));
   wrap.appendChild(body);
   return wrap;
 }
 
 /** The faded block itself, headed by whatever the caller is claiming about it. */
-export function previewElement(preview: Preview, label: string): HTMLElement {
+export function previewElement(preview: Preview, head: PreviewHead): HTMLElement {
   switch (preview.kind) {
     case "code":
-      return codePreview(preview, label);
+      return codePreview(preview, head);
     case "math":
-      return mathPreview(preview.lines, label);
+      return mathPreview(preview.lines, head);
     case "table":
-      return tablePreview(preview, label);
+      return tablePreview(preview, head);
     case "diagram":
-      return diagramPreview(preview.source, label);
+      return diagramPreview(preview.source, head);
   }
 }
 
