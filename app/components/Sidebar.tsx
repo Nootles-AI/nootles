@@ -100,7 +100,7 @@ export function Sidebar({
             onInput={setDraft}
             onBlur={commit}
             onKeyDown={keys}
-            className="nt-row-edit nt-bare-focus w-full font-semibold"
+            className="nt-row-edit w-full font-semibold"
           />
         ) : (
           <button
@@ -146,7 +146,7 @@ export function Sidebar({
                   onInput={setDraft}
                   onBlur={commit}
                   onKeyDown={keys}
-                  className="nt-row-edit nt-bare-focus is-selected w-full"
+                  className="nt-row-edit is-selected w-full"
                 />
               ) : (
                 <button

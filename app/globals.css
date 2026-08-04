@@ -166,29 +166,29 @@ body {
 }
 
 /* ---- Focus -------------------------------------------------------------
-   One ring for the whole app. Several fields set `outline: none` for their
-   resting state; this puts a visible ring back for keyboard users, which is
-   the part that was missing entirely. */
-:where(
-  a,
-  button,
-  input,
-  textarea,
-  [role="button"],
-  [role="menuitem"],
-  [contenteditable],
-  [tabindex]
-):focus-visible {
+   One ring for the whole app, and it lands on the things you ACT on — links,
+   buttons, menu items. Never on a text field.
+
+   A field already says where focus is twice over: the caret sits blinking in
+   it, and every field in the app darkens its own hairline when focused. A ring
+   would be a third answer to a question already answered — and it is the amber,
+   which is spoken for. That colour means the AI is doing something; spending it
+   on "you clicked a text box" makes it mean nothing.
+
+   The panel fields reached this conclusion first and stated it locally; this is
+   the same rule, kept once. */
+:where(a, button, [role="button"], [role="menuitem"], [tabindex]):focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
   border-radius: var(--radius-sm);
 }
 
-/* Inline renames and the page title are exempt: a text field already shows
-   where focus is with its caret, and a ring around a name you are editing in
-   place reads like a form field appeared. The caret is the indicator. */
-.nt-bare-focus:focus-visible,
-.nt-bare-focus:focus {
+/* And no ring from the browser either. Left alone, a focused input or
+   contentEditable takes the UA's own outline — which is a colour we did not
+   choose, on the one surface that is meant to be paper. Zero specificity, so a
+   field that wants to say something on focus still can. */
+:where(input, textarea, [contenteditable]):focus,
+:where(input, textarea, [contenteditable]):focus-visible {
   outline: none;
 }
 }
@@ -472,8 +472,8 @@ body {
 /* ---- Fields -------------------------------------------------------------
    A field is its label and its control, and the label says up front whether the
    control is needed — a form that only mentions it when you submit made you
-   guess. No focus rule: the app's one ring already lands on an input, and a
-   second indicator here would be two answers to the same question. */
+   guess. Focus darkens the hairline to `--muted`, which is a step you cannot
+   miss and costs no colour; the app's ring stays off text fields. */
 .nt-field-label {
   display: flex;
   align-items: baseline;
@@ -505,6 +505,9 @@ body {
 }
 .nt-input:hover {
   border-color: var(--border-strong);
+}
+.nt-input:focus {
+  border-color: var(--muted);
 }
 .nt-input::placeholder {
   color: var(--muted);
@@ -1127,9 +1130,6 @@ a.nt-chip:hover {
 }
 .nt-composer-input::placeholder {
   color: var(--muted);
-}
-.nt-composer-input:focus {
-  outline: none;
 }
 .nt-composer-actions {
   display: flex;

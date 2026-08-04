@@ -277,13 +277,12 @@
 .nt-wc-input::placeholder {
   color: var(--muted);
 }
-/* Keeps the app's one focus ring. This file is unlayered, so an `outline: none`
-   here beats the base-layer rule outright — and the border it left in its place
-   moves 0.93 to 0.875, which is a 1.06:1 step and no indicator at all. Tabbing
-   the row of chips would lose the ring at the one control asking the user to
-   write something in their own words. */
+/* Straight to `--muted`, skipping the hover step. This is the one control in
+   the row asking the user to write something in their own words, and tabbing
+   along the chips has to arrive somewhere visible — 0.93 to 0.875 is a 1.06:1
+   move and no indicator at all, where 0.93 to 0.535 cannot be missed. */
 .nt-wc-input:focus {
-  border-color: var(--border-strong);
+  border-color: var(--muted);
 }
 
 /* The one filled control on the screen. Ink on paper rather than a colour,

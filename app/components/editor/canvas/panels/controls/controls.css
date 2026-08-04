@@ -218,29 +218,15 @@
 .nt-num.is-scrubbing::after {
   box-shadow: inset 0 0 0 1px var(--border-strong);
 }
+/* Focus lifts the field to white behind a `--muted` hairline, which clears on
+   its own the 3:1 a non-text indicator needs. The compartment beside it stays
+   put, so the field never changes shape as you tab through the column. */
 .nt-num:focus-within {
   background: var(--background);
   cursor: default;
 }
 .nt-num:focus-within::after {
   box-shadow: inset 0 0 0 1px var(--muted);
-}
-
-/* No accent ring on a panel field.
-   The app's ring is a 2px amber outline standing 1px off the box — right for a
-   button in a page, far too loud around a 24px field in a column of them, and
-   it is the one warm thing in an otherwise neutral panel. The focused state is
-   carried instead by the field lifting to white behind a `--muted` hairline,
-   which clears the 3:1 a non-text indicator needs on its own; the compartment
-   beside it stays put, so the field never changes shape.
-
-   Stated here rather than by dropping `input` from the global selector: that
-   rule is what puts a visible ring on text fields everywhere ELSE in the app,
-   and it was added to fix a real 1.25:1 focus indicator. This file is
-   unlayered and globals.css is in `@layer base`, so this wins. */
-.nt-num:has(.nt-num-input:focus-visible),
-.nt-ctl-text:focus-visible {
-  outline: none;
 }
 
 /* The name, in its own compartment — Figma's move, and it earns its keep here

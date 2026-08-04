@@ -423,7 +423,7 @@ function Card({
               onDraft={onDraft}
               onCommit={onCommit}
               onCancel={onCancel}
-              className="nt-bare-focus nt-card-name block w-full"
+              className="nt-card-name block w-full"
             />
           ) : (
             <p className="nt-card-name">{name}</p>
@@ -476,7 +476,7 @@ function Row({
           onDraft={onDraft}
           onCommit={onCommit}
           onCancel={onCancel}
-          className="nt-row-edit nt-bare-focus is-selected min-w-0 flex-1 font-medium"
+          className="nt-row-edit is-selected min-w-0 flex-1 font-medium"
         />
       ) : (
         <button onClick={onOpen} className="nt-row min-w-0 flex-1 font-medium">

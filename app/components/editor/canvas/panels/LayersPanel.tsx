@@ -436,7 +436,7 @@ export function LayersPanel({
                     }
                     if (e.key === "Escape") setRenaming(null);
                   }}
-                  className="nt-lyr-edit nt-bare-focus"
+                  className="nt-lyr-edit"
                 />
               ) : (
                 <span className="nt-lyr-name">{displayName(node)}</span>
