@@ -12,11 +12,12 @@ import { useCanvasShell } from "@/app/components/editor/canvas/shell";
 import { useOpenReviews } from "@/app/components/ReviewContext";
 import { usePanels } from "@/app/components/PanelsContext";
 import { prefillComposer } from "@/app/lib/ai/chat/prefill";
+import { lineish, reveal, suspendCompletions } from "@/app/lib/ai/tourDrive";
 import {
-  pacedMarkup,
-  pacedStream,
-  setCompletionSource,
-} from "@/app/lib/ai/scriptedSource";
+  clearSuggestion,
+  setAction,
+  setGhost,
+} from "@/app/components/editor/ai/ghostText";
 import { templateById } from "@/app/lib/onboarding/templates";
 import type { Template } from "@/app/lib/onboarding/types";
 import { CoachCard } from "./CoachCard";
@@ -115,40 +116,67 @@ function Running({
     [setBeat],
   );
 
-  /* ---- Beats 0 and 1: the scripted lanes ------------------------------- */
+  /* ---- Beats 0 and 1: the guide draws them itself ---------------------- */
 
+  // No model is called during first run. The lane stays off for the whole
+  // tour — including the free tail, where a real completion arriving over a
+  // checklist would be its own kind of confusing.
   useEffect(() => {
-    if (beat > 1) {
-      setCompletionSource(null);
-      return;
-    }
-    const seed = seedText(template, beat === 0 ? script.write.blockId : script.draw.blockId);
-    setCompletionSource((req) => {
-      if (req.lane === "diagram") {
-        return beat === 1 ? pacedMarkup(script.draw.html) : null;
-      }
-      // Only while the line is still the one we wrote. Someone who has taken
-      // the sentence somewhere of their own gets the real model, which is the
-      // honest answer — a canned ending to a sentence they changed would be
-      // the one moment in this flow that reads as a puppet show.
-      if (!stillSeeded(req.before, seed)) return null;
-      return beat === 0
-        ? pacedStream(script.write.ghost)
-        : pacedStream(`<nt-build-diagram>${script.draw.brief}</nt-build-diagram>`);
-    });
-    return () => setCompletionSource(null);
-  }, [beat, script, template]);
+    suspendCompletions(true);
+    return () => suspendCompletions(false);
+  }, []);
 
-  // Put the caret where the suggestion belongs. Moving it is itself what asks
-  // for a completion — `useTabCompletion` schedules on selection as well as on
-  // change — so this is the whole of "start the beat".
+  /**
+   * Put the caret where the suggestion belongs, then write the suggestion.
+   *
+   * Straight into the same plugin the completion lane writes into, so `Tab` is
+   * handled by `acceptSuggestion` exactly as it always is — ghost text inserts
+   * itself, and an action with no batch calls `onAccept`. Nothing downstream
+   * knows or cares that no model was involved.
+   */
   useEffect(() => {
     if (!editor || beat > 1) return;
-    const id = beat === 0 ? script.write.blockId : script.draw.blockId;
-    const block = editor.document.find((b) => b.id === id);
+    const view = editor.prosemirrorView;
+    if (!view) return;
+
+    const draw = beat === 1;
+    const target = draw ? script.draw.blockId : script.write.blockId;
+    const block = editor.document.find((b) => b.id === target);
     if (!block) return;
+
     editor.focus();
     editor.setTextCursorPosition(block, "end");
+
+    const stop = draw
+      ? reveal(
+          script.draw.html,
+          (sofar, done) =>
+            setAction(view, {
+              label: "Add diagram",
+              batch: null,
+              preview: { kind: "diagram", source: sofar },
+              // Placed by us, because we are the ones who drew it. A real block
+              // in the real document — the point of the tour is that the user
+              // keeps what it makes.
+              onAccept: done
+                ? () =>
+                    editor.insertBlocks(
+                      [{ type: "canvas", props: { data: script.draw.html } }],
+                      target,
+                      "after",
+                    )
+                : undefined,
+            }),
+          { stepMs: 70, chunk: lineish },
+        )
+      : reveal(script.write.ghost, (sofar, done) =>
+          setGhost(view, sofar, !done),
+        );
+
+    return () => {
+      stop();
+      clearSuggestion(view);
+    };
   }, [editor, beat, script]);
 
   // Advance on the real outcome, not on the keypress: what ends a beat is the
@@ -381,27 +409,3 @@ function textOf(block: { content?: unknown } | undefined): string {
     .join("");
 }
 
-/** What the template put in that block, before anybody touched it. */
-function seedText(template: Template, blockId: string): string {
-  for (const page of template.pages) {
-    for (const block of page.blocks) {
-      if (block.id === blockId && typeof block.content === "string") {
-        return block.content;
-      }
-    }
-  }
-  return "";
-}
-
-/**
- * Whether the caret still sits at the end of the sentence we seeded.
- *
- * The prefix arrives as the document's own markup with id markers in it, so
- * both are stripped before the comparison — what is being asked is about the
- * words, and only the last of them.
- */
-function stillSeeded(before: string, seed: string): boolean {
-  if (!seed) return false;
-  const text = flat(before.replace(/<[^>]*>/g, "").replace(/⟦[^⟧]*⟧/g, ""));
-  return text.endsWith(flat(seed));
-}

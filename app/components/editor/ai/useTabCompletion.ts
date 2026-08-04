@@ -20,7 +20,7 @@ import { parseDocHtml } from "@/app/lib/ai/html/parse";
 import { asListItems } from "@/app/lib/ai/html/listify";
 import type { DocNode } from "@/app/lib/ai/html/grammar";
 import { compileDocHtml } from "@/app/lib/ai/html/compile";
-import { scriptedActive, scriptedResponse } from "@/app/lib/ai/scriptedSource";
+import { completionsSuspended } from "@/app/lib/ai/tourDrive";
 import { INLINE_TAGS, grounding, type Run } from "@/app/lib/ai/html/grammar";
 import type { Batch } from "@/convex/ai/operations";
 import {
@@ -592,14 +592,12 @@ export function useTabCompletion(
       };
 
       try {
-        const res =
-          scriptedResponse({ lane: "diagram", brief }) ??
-          (await fetch("/api/diagram", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ brief, page, title }),
-            signal: controller.signal,
-          }));
+        const res = await fetch("/api/diagram", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ brief, page, title }),
+          signal: controller.signal,
+        });
         if (!res.ok || !res.body) return "";
         const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
         for (;;) {
@@ -733,23 +731,17 @@ export function useTabCompletion(
       let lastSig = "";
       let headLitAt = 0;
       try {
-        const res =
-          scriptedResponse({
-            lane: "complete",
+        const res = await fetch("/api/complete", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
             before: ctx.prefix,
             after: ctx.suffix,
-          }) ??
-          (await fetch("/api/complete", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({
-              before: ctx.prefix,
-              after: ctx.suffix,
-              seed: PREAMBLE,
-              mode: "html",
-            }),
-            signal: controller.signal,
-          }));
+            seed: PREAMBLE,
+            mode: "html",
+          }),
+          signal: controller.signal,
+        });
         if (!res.ok || !res.body) return;
         const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
         for (;;) {
@@ -1031,6 +1023,9 @@ export function useTabCompletion(
 
     const schedule = () => {
       if (isSuggestionDispatch()) return; // our own suggestion transaction
+      // First run paints its own suggestions and calls no model; the lane must
+      // not answer over the top of it, nor clear what the guide has drawn.
+      if (completionsSuspended()) return;
       const state = view()?.state;
       if (state) {
         const sel = { from: state.selection.from, to: state.selection.to };
@@ -1039,21 +1034,9 @@ export function useTabCompletion(
           seenSel !== null &&
           sel.from === seenSel.from &&
           sel.to === seenSel.to;
-        const wasDoc = seenDoc;
         seenDoc = state.doc;
         seenSel = sel;
         if (same) return; // a suggestion being drawn, not an edit
-        // While the first-run guide is driving, say what re-armed the lane.
-        // Cancelling a stream mid-flight is correct behaviour and invisible by
-        // design; it is only a bug when nobody typed, and this is the line that
-        // tells those two apart.
-        if (scriptedActive()) {
-          console.debug("[nt-tour] cancel", {
-            doc: state.doc !== wasDoc,
-            from: sel.from,
-            was: seenSel === null ? null : sel.from,
-          });
-        }
       }
       if (timer) clearTimeout(timer);
       abort?.abort();
