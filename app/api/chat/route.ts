@@ -8,15 +8,22 @@ import {
   type LanguageModelUsage,
   type SystemModelMessage,
 } from "ai";
+import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { AI } from "@/app/lib/ai/aiConfig";
 import { downloadAttachments } from "@/app/lib/ai/chat/download";
 import { convertDataPart } from "@/app/lib/ai/chat/parts";
 import { chatModel } from "@/app/lib/ai/chat/provider";
-import { OUT_OF_STEPS, SYSTEM, openPageNote } from "@/app/lib/ai/chat/prompt";
+import {
+  OUT_OF_STEPS,
+  SYSTEM,
+  openPageNote,
+  projectNote,
+} from "@/app/lib/ai/chat/prompt";
 import { chatTools } from "@/app/lib/ai/chat/serverTools";
 import { cached, markCachePoints, shortenStaleReads } from "@/app/lib/ai/chat/transcript";
 import type { AbMessage } from "@/app/lib/ai/chat/types";
+import { asUser } from "@/app/lib/convexServer";
 import { sessionToken } from "@/app/lib/session";
 
 /**
@@ -78,21 +85,33 @@ export async function POST(req: Request) {
   const budget = AI.chat.maxSteps - stepsTaken(messages);
   const spent = budget <= 0 && !answeringApproval(messages);
 
+  const convex = asUser(token);
+  // What the user said this project is. Read per request rather than per turn
+  // because the sheet is a living thing, and it is one round trip: without it
+  // the agent writes into every project as if it were the same project.
+  const about = projectNote(
+    await convex.query(api.ai.context.forPrompt, { projectId }).catch(() => null),
+  );
+
+  // Separate instructions, not one concatenated string. The breakpoint goes on
+  // the last thing that holds for the whole conversation — the standing prompt
+  // and the project's context — so it stands for those and for the tool schemas
+  // above them, while the note that moves with the open page sits below it and
+  // takes nothing with it when it changes.
+  const instructions: SystemModelMessage[] = [{ role: "system", content: SYSTEM }];
+  if (about) instructions.push({ role: "system", content: about });
+  instructions[instructions.length - 1].providerOptions = cached();
+
   const note = openPageNote(pageId);
+  if (note) instructions.push({ role: "system", content: note });
+
   const result = streamText({
     model: chatModel(),
-    // Two instructions, not one concatenated string: the breakpoint goes after
-    // the standing prompt so the tool schemas and the prompt itself stay cached
-    // across a turn, while the note that moves with the open page sits after it
-    // and takes nothing with it when it changes.
-    instructions: [
-      { role: "system", content: SYSTEM, providerOptions: cached() },
-      ...(note ? [{ role: "system", content: note } satisfies SystemModelMessage] : []),
-    ],
+    instructions,
     messages: markCachePoints(
       spent ? [...history, { role: "user", content: OUT_OF_STEPS }] : history,
     ),
-    tools: chatTools(projectId, token),
+    tools: chatTools(projectId, convex),
     // The tools that could change something are not merely discouraged, they are
     // absent from the request.
     activeTools: spent ? [] : undefined,

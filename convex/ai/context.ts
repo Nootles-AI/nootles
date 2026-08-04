@@ -21,6 +21,27 @@ export const list = query({
   },
 });
 
+/**
+ * The project as the agent should be told about it, in one round trip: the chat
+ * route reads this before every turn, so a query per row would be latency on the
+ * path to the first token.
+ */
+export const forPrompt = query({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, args) => {
+    const project = await readOwned(ctx, "projects", args.projectId);
+    if (!project) return null;
+    const entries = await ctx.db
+      .query("contextSheet")
+      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+      .collect();
+    return {
+      title: project.title,
+      entries: entries.map((e) => ({ question: e.question, answer: e.answer })),
+    };
+  },
+});
+
 export const add = mutation({
   args: {
     projectId: v.id("projects"),

@@ -11,6 +11,7 @@ import { ConfirmDeleteDialog } from "./ConfirmDelete";
 import { ContextMenu } from "./ContextMenu";
 import { Editable } from "./Editable";
 import { Menu, MenuItem } from "./Menu";
+import { NewProjectDialog, type NewProject } from "./NewProjectDialog";
 import { PagePreview } from "./PagePreview";
 
 type View = "grid" | "list";
@@ -46,7 +47,7 @@ export function ProjectsScreen() {
     null,
   );
   const [draft, setDraft] = useState("");
-  const [creating, setCreating] = useState(false);
+  const [naming, setNaming] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
 
   // Restore the persisted view on the client. The default renders first so SSR
@@ -84,17 +85,18 @@ export function ProjectsScreen() {
     );
   };
 
-  const create = () => {
-    if (creating) return; // Two clicks used to mean two projects.
-    setCreating(true);
-    setFailure(null);
-    createProject({ title: "Untitled project" })
-      .then((id) => {
-        setDraft("Untitled project");
-        setEditingId(id);
-      })
-      .catch(() => setFailure("Couldn’t create that project."))
-      .finally(() => setCreating(false));
+  /**
+   * A project is made from what the dialog collected and then opened, rather
+   * than appearing on this screen as another card to find and click. It already
+   * has a name, and its first page is the only place there is to go.
+   */
+  const create = async (project: NewProject) => {
+    const id = await createProject({
+      title: project.title,
+      ...(project.description ? { description: project.description } : {}),
+      ...(project.context ? { context: project.context } : {}),
+    });
+    router.push(`/p/${id}`);
   };
 
   const confirmRemove = () => {
@@ -137,9 +139,8 @@ export function ProjectsScreen() {
           </div>
 
           <button
-            onClick={create}
-            disabled={creating}
-            className="nt-row gap-1.5 bg-sunken px-3 font-medium disabled:opacity-60"
+            onClick={() => setNaming(true)}
+            className="nt-row gap-1.5 bg-sunken px-3 font-medium"
           >
             <Plus width={14} height={14} />
             New project
@@ -160,7 +161,7 @@ export function ProjectsScreen() {
         {projects === undefined ? (
           <Skeletons view={view} />
         ) : projects.length === 0 ? (
-          <Empty onCreate={create} disabled={creating} />
+          <Empty onCreate={() => setNaming(true)} />
         ) : view === "grid" ? (
           <ul className="nt-grid">
             {projects.map((p) => (
@@ -235,6 +236,10 @@ export function ProjectsScreen() {
             onDelete={() => setConfirming(ctx.project)}
           />
         </ContextMenu>
+      )}
+
+      {naming && (
+        <NewProjectDialog onCancel={() => setNaming(false)} onCreate={create} />
       )}
 
       {confirming && (
@@ -541,7 +546,7 @@ function Skeletons({ view }: { view: View }) {
 }
 
 /** Teaches what a project is, and offers the one action worth taking. */
-function Empty({ onCreate, disabled }: { onCreate: () => void; disabled: boolean }) {
+function Empty({ onCreate }: { onCreate: () => void }) {
   return (
     <div className="rounded-lg bg-surface px-6 py-16 text-center">
       <p className="text-sm font-medium">No projects yet</p>
@@ -551,8 +556,7 @@ function Empty({ onCreate, disabled }: { onCreate: () => void; disabled: boolean
       </p>
       <button
         onClick={onCreate}
-        disabled={disabled}
-        className="nt-row mx-auto mt-5 gap-1.5 bg-background px-3 font-medium disabled:opacity-60"
+        className="nt-row mx-auto mt-5 gap-1.5 bg-background px-3 font-medium"
       >
         <Plus width={14} height={14} />
         New project

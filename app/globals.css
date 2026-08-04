@@ -469,6 +469,67 @@ body {
   color: var(--muted);
 }
 
+/* ---- Fields -------------------------------------------------------------
+   A field is its label and its control, and the label says up front whether the
+   control is needed — a form that only mentions it when you submit made you
+   guess. No focus rule: the app's one ring already lands on an input, and a
+   second indicator here would be two answers to the same question. */
+.nt-field-label {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  margin-bottom: 6px;
+  font-size: var(--text-ui);
+  font-weight: 500;
+  color: var(--foreground);
+}
+/* Metadata about the field, in the voice the app gives metadata everywhere. */
+.nt-field-note {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--text-meta);
+  letter-spacing: var(--tracking-meta);
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.nt-input {
+  display: block;
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--background);
+  font-size: var(--text-ui);
+  line-height: 1.5;
+  color: var(--foreground);
+  transition: border-color var(--dur-fast) var(--ease);
+}
+.nt-input:hover {
+  border-color: var(--border-strong);
+}
+.nt-input::placeholder {
+  color: var(--muted);
+}
+/* Grows by hand, not by drag: a resize grip inside a fixed dialog can only
+   push the buttons off the bottom of it. */
+textarea.nt-input {
+  resize: none;
+}
+
+/* The one filled control in a dialog — ink on paper rather than a colour,
+   because the palette has exactly one colour and this is not what it is for.
+   Declared after `.nt-row` so it keeps its fill on hover. */
+.nt-solid {
+  background: var(--foreground);
+  color: var(--background);
+  transition: opacity var(--dur-fast) var(--ease);
+}
+.nt-solid:hover,
+.nt-solid:active {
+  background: var(--foreground);
+  color: var(--background);
+  opacity: 0.85;
+}
+
 /* The account monogram. A filled well rather than a ring: it reads as a token
    at 20px, where a 1px outline would just look like a rounding error. */
 .nt-monogram {

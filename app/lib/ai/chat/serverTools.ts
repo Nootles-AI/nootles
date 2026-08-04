@@ -1,5 +1,5 @@
 import { generateText, tool } from "ai";
-import { ConvexHttpClient } from "convex/browser";
+import type { ConvexHttpClient } from "convex/browser";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { AI } from "../aiConfig";
@@ -14,13 +14,8 @@ import { noSuchPage, TOOLS } from "./tools";
  * only place the document exists as blocks. That asymmetry is the whole design:
  * everything that touches the document runs on one side, everything that only
  * needs the database or the network runs on the other.
- *
- * `token` is the caller's Clerk session token. Convex scopes every row by owner,
- * so a client without it reads an empty project — these tools act as the user,
- * not as the server.
  */
-export function chatTools(projectId: Id<"projects">, token: string) {
-  const convex = client(token);
+export function chatTools(projectId: Id<"projects">, convex: ConvexHttpClient) {
   return {
     list_pages: tool({
       ...TOOLS.list_pages,
@@ -132,11 +127,3 @@ async function ownedPage(
 const SEARCH_SYSTEM = `Answer the question from current web results. Be specific:
 name sources, give figures and dates rather than "recently". If the results do not
 answer it, say so instead of guessing.`;
-
-function client(token: string) {
-  const url = process.env.NEXT_PUBLIC_CONVEX_URL;
-  if (!url) throw new Error("NEXT_PUBLIC_CONVEX_URL is not set");
-  const convex = new ConvexHttpClient(url);
-  convex.setAuth(token);
-  return convex;
-}

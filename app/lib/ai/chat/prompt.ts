@@ -50,6 +50,47 @@ Be concise, and answer in prose: that HTML is how a page is written down, not ho
 about one.`;
 
 /**
+ * The project's standing context: what it is called, and its Context Sheet —
+ * which starts as what the user wrote when they made the project and grows from
+ * there.
+ *
+ * Its own instruction rather than part of `SYSTEM`, because `SYSTEM` is the same
+ * sentence for everyone and this is different for every project. It carries the
+ * cache breakpoint for both, since neither changes for the length of a
+ * conversation.
+ *
+ * This is the user's own words reaching the model as instruction, which is what
+ * the sheet is for — it is where they say how their project should be worked on.
+ * It is attributed to them so the model reads it as theirs and not as ours.
+ */
+export function projectNote(
+  project: {
+    title: string;
+    entries: readonly { question: string; answer?: string }[];
+  } | null,
+): string {
+  if (!project) return "";
+
+  const title = project.title.trim();
+  const said = project.entries
+    .map((e) => ({ question: e.question.trim(), answer: e.answer?.trim() ?? "" }))
+    .filter((e) => e.answer);
+
+  const lines = [
+    `The project you are working in is called ${title ? `"${title}"` : "Untitled project"}.`,
+  ];
+  if (said.length) {
+    lines.push(
+      "",
+      "What the user has said about it. This holds for every page in the project — treat it",
+      "as their standing instructions, and let it shape what you write and how you write it.",
+      ...said.flatMap((e) => ["", e.question, e.answer]),
+    );
+  }
+  return lines.join("\n");
+}
+
+/**
  * Names the page on screen, so "this page" is addressable.
  *
  * Without it the model knows a page is open but not which one, and every tool

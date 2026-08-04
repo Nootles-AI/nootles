@@ -21,7 +21,12 @@ export const get = query({
 });
 
 export const create = mutation({
-  args: { title: v.string(), description: v.optional(v.string()) },
+  args: {
+    title: v.string(),
+    description: v.optional(v.string()),
+    /** Freeform: whatever the user wants the agent to know going in. */
+    context: v.optional(v.string()),
+  },
   handler: async (ctx, args) => {
     const ownerId = await requireOwner(ctx);
     const now = Date.now();
@@ -31,6 +36,28 @@ export const create = mutation({
       description: args.description,
       createdAt: now,
     });
+
+    // What the user said when they made the project IS the project's context —
+    // the sheet is what primes every LLM request, so anything that stopped at
+    // the project row would never reach a model. Phrased as the Q&A the sheet
+    // holds, the same way first run phrases the survey's answers.
+    const asked: [string, string | undefined][] = [
+      ["What is this project?", args.description],
+      ["What should be known before working on it?", args.context],
+    ];
+    for (const [question, said] of asked) {
+      const answer = said?.trim();
+      if (!answer) continue;
+      await ctx.db.insert("contextSheet", {
+        ownerId,
+        projectId,
+        question,
+        answer,
+        source: "human",
+        createdAt: now,
+      });
+    }
+
     // Seed one page so a new project is immediately usable. Empty title so the
     // doc shows its placeholder; the sidebar renders an "Untitled" fallback.
     await ctx.db.insert("pages", {
