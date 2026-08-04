@@ -20,6 +20,8 @@ const MAX_BLOCKS = 18;
 
 /** Loaded only for a page that has a diagram on it. */
 const ThumbDiagram = dynamic(() => import("./ThumbDiagram"), { ssr: false });
+/** Likewise KaTeX and its stylesheet — most pages have no maths. */
+const ThumbMath = dynamic(() => import("./ThumbMath"), { ssr: false });
 
 /**
  * A project's first page, drawn at document size and shrunk to fit the card.
@@ -137,17 +139,30 @@ export function PagePreview({ docId }: { docId: string | null }) {
  * you and what the projects screen shows you afterwards are the same drawing
  * of the same page, which is what makes the promise land.
  */
-export function PreviewBlocks({ blocks }: { blocks: readonly AnyBlock[] }) {
+export function PreviewBlocks({
+  blocks,
+  diagramHeight,
+}: {
+  blocks: readonly AnyBlock[];
+  /** Give a diagram its own height rather than the thumbnail's fixed one. */
+  diagramHeight?: number;
+}) {
   return (
     <>
       {blocks.map((block) => (
-        <Block key={block.id} block={block} />
+        <Block key={block.id} block={block} diagramHeight={diagramHeight} />
       ))}
     </>
   );
 }
 
-function Block({ block }: { block: AnyBlock }) {
+function Block({
+  block,
+  diagramHeight,
+}: {
+  block: AnyBlock;
+  diagramHeight?: number;
+}) {
   const props = block.props ?? {};
 
   switch (block.type) {
@@ -189,16 +204,22 @@ function Block({ block }: { block: AnyBlock }) {
       return <pre className="nt-thumb-code">{String(props.code ?? "")}</pre>;
 
     case "mathBlock":
+      // One row per line, the way the block itself lays them out.
       return (
-        <pre className="nt-thumb-math">
+        <span className="nt-thumb-math">
           {String(props.source ?? "")
             .split("\n")
-            .join("\n")}
-        </pre>
+            .filter((line) => line.trim())
+            .map((line, i) => (
+              <ThumbMath key={i} latex={line} display />
+            ))}
+        </span>
       );
 
     case "canvas":
-      return <ThumbDiagram data={String(props.data ?? "")} />;
+      return (
+        <ThumbDiagram data={String(props.data ?? "")} height={diagramHeight} />
+      );
 
     case "table":
       return <Table content={block.content} />;
@@ -267,11 +288,7 @@ function Inline({ content }: { content: unknown }) {
           );
         }
         if (item.type === "math") {
-          return (
-            <span key={i} className="nt-thumb-inline-math">
-              {String(item.props?.latex ?? "")}
-            </span>
-          );
+          return <ThumbMath key={i} latex={String(item.props?.latex ?? "")} />;
         }
         if (typeof item.text !== "string") return null;
         const s = item.styles ?? {};

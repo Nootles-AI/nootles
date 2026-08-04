@@ -1558,8 +1558,7 @@ body:has(.nt-review-bar) .nt-reformat-switcher {
   text-decoration: underline;
   text-decoration-color: var(--faint);
 }
-.nt-thumb-inline-code,
-.nt-thumb-inline-math {
+.nt-thumb-inline-code {
   font-family: var(--font-mono), ui-monospace, monospace;
   font-size: 0.88em;
 }
@@ -1577,13 +1576,23 @@ body:has(.nt-review-bar) .nt-reformat-switcher {
   overflow: hidden;
   max-height: 132px;
 }
+/* Set maths, not its source. A row per line, the way the block stacks them —
+   `\frac{a+d}{2}` reads as a formula once it is set and as a syntax error
+   until it is, which is not a smaller version of the same thing. */
 .nt-thumb-math {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
   padding: 6px 0;
-  font-family: var(--font-mono), ui-monospace, monospace;
-  font-size: 0.9em;
-  white-space: pre;
-  text-align: center;
   color: var(--foreground);
+}
+.nt-thumb-katex.is-block {
+  display: block;
+}
+/* KaTeX's display wrapper carries margins of its own; the row spacing above
+   is the one that should decide. */
+.nt-thumb-katex .katex-display {
+  margin: 0;
 }
 
 /* A diagram is drawn by the canvas itself; this is only the room it gets. The
