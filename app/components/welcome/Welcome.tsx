@@ -14,8 +14,20 @@ type Mode = "create" | "complete";
 
 /** What the document is written at; the preview lays out here and is scaled. */
 const DOC_WIDTH = 600;
-/** Past this the page is below the crop, and the stagger has no delay left. */
-const MAX_BLOCKS = 14;
+
+/**
+ * Asked before the templates, so they can be generic without being vague. A
+ * role means the same thing whether you are writing a spec or planning a table,
+ * and asking it after the template would only let it be narrower, not truer.
+ */
+const ROLES = [
+  "Engineer",
+  "Product or program",
+  "Design",
+  "Research or analysis",
+  "Student or teacher",
+  "Writing something",
+];
 
 /**
  * First run.
@@ -23,11 +35,12 @@ const MAX_BLOCKS = 14;
  * Three questions, and the reward for answering them is a project that is
  * already about something. That is the whole reason this is allowed to exist
  * before the product: a survey that only collected answers would be a toll
- * gate, but every answer here does work — one picks the document, one primes
- * the model, and one sets a page setting the user would otherwise meet cold.
+ * gate, but every answer here does work — one primes the model, one sets a
+ * page setting the user would otherwise meet cold, and one picks the document.
  *
- * The page on the right is the argument. It assembles as the questions are
- * answered, so what is being asked for is never abstract.
+ * The page on the right is the argument, and it is making it from the first
+ * question rather than waiting to be asked: prose, a diagram, and maths or
+ * code, on one page, before anybody has had to explain what any of that means.
  */
 export function Welcome() {
   const router = useRouter();
@@ -35,8 +48,9 @@ export function Welcome() {
   const skip = useMutation(api.profiles.skip);
 
   const [step, setStep] = useState(0);
-  const [template, setTemplate] = useState<Template | null>(null);
   const [role, setRole] = useState("");
+  const [mode, setMode] = useState<Mode>("create");
+  const [hovered, setHovered] = useState<Template | null>(null);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
 
@@ -45,8 +59,8 @@ export function Welcome() {
     router.push("/");
   };
 
-  const open = async (mode: Mode) => {
-    if (!template || busy) return;
+  const open = async (template: Template) => {
+    if (busy) return;
     setBusy(true);
     setFailure(null);
     try {
@@ -65,6 +79,7 @@ export function Welcome() {
           doc: docFromBlocks(page.blocks),
         })),
         context: sheet(template, role),
+        priorChat: template.script.priorChat,
       });
       router.push(`/p/${projectId}`);
     } catch (error) {
@@ -73,6 +88,10 @@ export function Welcome() {
       setBusy(false);
     }
   };
+
+  // Never empty: the desk is the argument, so it shows one before it has been
+  // told which one to show.
+  const shown = hovered ?? TEMPLATES[0];
 
   return (
     <main className="nt-wc">
@@ -87,41 +106,17 @@ export function Welcome() {
         <div className="nt-wc-body" key={step}>
           {step === 0 && (
             <Question
-              title="What are you planning?"
-              note="Pick whichever is closest. Nothing here is permanent."
-            >
-              <div className="nt-wc-grid">
-                {TEMPLATES.map((option) => (
-                  <button
-                    key={option.id}
-                    className={`nt-wc-card${template?.id === option.id ? " is-on" : ""}`}
-                    onClick={() => {
-                      setTemplate(option);
-                      setRole("");
-                      setStep(1);
-                    }}
-                  >
-                    <span className="nt-wc-card-label">{option.label}</span>
-                    <span className="nt-wc-card-blurb">{option.blurb}</span>
-                  </button>
-                ))}
-              </div>
-            </Question>
-          )}
-
-          {step === 1 && template && (
-            <Question
-              title="And what do you do?"
-              note="This goes into the project's context, so the model has something better than a guess to work from."
+              title="What do you do?"
+              note="It goes into the project's context, so the model has something better than a guess to work from."
             >
               <div className="nt-wc-chips">
-                {template.roles.map((option) => (
+                {ROLES.map((option) => (
                   <button
                     key={option}
                     className="nt-wc-chip"
                     onClick={() => {
                       setRole(option);
-                      setStep(2);
+                      setStep(1);
                     }}
                   >
                     {option}
@@ -132,7 +127,7 @@ export function Welcome() {
                 className="nt-wc-own"
                 onSubmit={(e) => {
                   e.preventDefault();
-                  if (role.trim()) setStep(2);
+                  if (role.trim()) setStep(1);
                 }}
               >
                 <input
@@ -140,7 +135,7 @@ export function Welcome() {
                   value={role}
                   onChange={(e) => setRole(e.target.value)}
                   placeholder="Or say it in your own words"
-                  aria-label="Your role, in your own words"
+                  aria-label="What you do, in your own words"
                 />
                 <button className="nt-wc-go" disabled={!role.trim()}>
                   Continue
@@ -149,7 +144,7 @@ export function Welcome() {
             </Question>
           )}
 
-          {step === 2 && (
+          {step === 1 && (
             <Question
               title="How much should Nootles write?"
               note="It is a setting on every page, so this only picks where you start."
@@ -157,8 +152,10 @@ export function Welcome() {
               <div className="nt-wc-modes">
                 <button
                   className="nt-wc-mode"
-                  disabled={busy}
-                  onClick={() => void open("create")}
+                  onClick={() => {
+                    setMode("create");
+                    setStep(2);
+                  }}
                 >
                   <span className="nt-wc-mode-label">Write with me</span>
                   <span className="nt-wc-mode-note">
@@ -168,8 +165,10 @@ export function Welcome() {
                 </button>
                 <button
                   className="nt-wc-mode"
-                  disabled={busy}
-                  onClick={() => void open("complete")}
+                  onClick={() => {
+                    setMode("complete");
+                    setStep(2);
+                  }}
                 >
                   <span className="nt-wc-mode-label">Only finish what I start</span>
                   <span className="nt-wc-mode-note">
@@ -177,6 +176,29 @@ export function Welcome() {
                     Better for notes on something.
                   </span>
                 </button>
+              </div>
+            </Question>
+          )}
+
+          {step === 2 && (
+            <Question
+              title="What's a good example of something you'd use Nootles for?"
+              note="Hover to see it. Pick one and we will set it up for real — nothing here is permanent."
+            >
+              <div className="nt-wc-grid">
+                {TEMPLATES.map((option) => (
+                  <button
+                    key={option.id}
+                    className={`nt-wc-card${shown.id === option.id ? " is-on" : ""}`}
+                    disabled={busy}
+                    onPointerEnter={() => setHovered(option)}
+                    onFocus={() => setHovered(option)}
+                    onClick={() => void open(option)}
+                  >
+                    <span className="nt-wc-card-label">{option.label}</span>
+                    <span className="nt-wc-card-blurb">{option.blurb}</span>
+                  </button>
+                ))}
               </div>
               {busy && <p className="nt-wc-busy">Building your project…</p>}
               {failure && (
@@ -205,8 +227,14 @@ export function Welcome() {
         </footer>
       </section>
 
-      <aside className="nt-wc-desk" aria-hidden>
-        <Paper template={template} />
+      <aside className="nt-wc-desk">
+        <div className="nt-wc-paper" aria-hidden>
+          <div className="nt-wc-page" key={shown.id} style={{ width: DOC_WIDTH }}>
+            <PreviewBlocks blocks={example(shown)} />
+          </div>
+        </div>
+        {/* The picture cannot say what it is a picture OF. */}
+        <p className="nt-wc-caption">{shown.showcase.caption}</p>
       </aside>
     </main>
   );
@@ -231,40 +259,50 @@ function Question({
 }
 
 /**
- * The page, at the size it will really be, shrunk onto the desk.
+ * A short, finished version of the template's page.
  *
- * Keyed on the template so choosing a different one replays the assembly —
- * that motion is the answer to "what am I actually getting", and a cross-fade
- * between two static pictures would not be one.
+ * Not the document that gets seeded, and deliberately so: the seed is a
+ * starting point with the diagram still to come, while this has to answer
+ * "what is a Nootles page" in one glance. So it takes the real opening, jumps
+ * to the line that wants a picture, draws the picture, and ends on the code,
+ * maths or table that kind of document reaches for.
+ *
+ * Built from the template rather than authored twice, so the promise made here
+ * cannot drift away from the project that arrives.
  */
-function Paper({ template }: { template: Template | null }) {
-  if (!template) {
-    return (
-      <div className="nt-wc-paper is-blank">
-        <span className="nt-thumb-blank" />
-      </div>
-    );
-  }
-  const blocks = preview(template.pages[0].blocks).slice(0, MAX_BLOCKS);
-  return (
-    <div className="nt-wc-paper">
-      <div className="nt-wc-page" key={template.id} style={{ width: DOC_WIDTH }}>
-        <PreviewBlocks blocks={blocks} />
-      </div>
-    </div>
-  );
+function example(template: Template): AnyBlock[] {
+  const blocks = template.pages[0].blocks;
+  const at = blocks.findIndex((b) => b.id === template.script.draw.blockId);
+  const opening = [blocks[0], blocks[1], ...(at > 0 ? [blocks[at - 1], blocks[at]] : [])];
+  const { heading, block } = template.showcase;
+
+  return [
+    ...opening.map(toAny),
+    { id: "ex-diagram", type: "canvas", props: { data: template.script.draw.html } },
+    {
+      id: "ex-heading",
+      type: "heading",
+      props: { level: 2 },
+      content: [{ type: "text", text: heading, styles: {} }],
+    },
+    {
+      id: "ex-showcase",
+      type: block.type,
+      props: block.props ?? {},
+      content: block.content,
+    },
+  ];
 }
 
 /**
- * Template blocks in the shape the page renderer reads.
+ * A template block in the shape the page renderer reads.
  *
  * Seeds are written with plain strings for their text, because that is how a
- * template is legible to whoever edits it; the renderer wants the inline array
- * a real document holds. One conversion, here, rather than a second spelling
- * of every template.
+ * template stays legible to whoever edits it; the renderer wants the inline
+ * array a real document holds.
  */
-function preview(blocks: readonly SeedBlock[]): AnyBlock[] {
-  return blocks.map((block, i) => ({
+function toAny(block: SeedBlock, i: number): AnyBlock {
+  return {
     id: block.id ?? `seed-${i}`,
     type: String(block.type ?? "paragraph"),
     props: (block.props ?? {}) as Record<string, unknown>,
@@ -272,7 +310,7 @@ function preview(blocks: readonly SeedBlock[]): AnyBlock[] {
       typeof block.content === "string"
         ? [{ type: "text", text: block.content, styles: {} }]
         : block.content,
-  }));
+  };
 }
 
 /** The survey's answers, phrased as the Q&A the Context Sheet holds. */

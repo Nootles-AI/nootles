@@ -55,6 +55,7 @@ export function Tour({
       done={tour.done}
       template={template}
       pageId={pageId}
+      projectId={projectId}
     />
   );
 }
@@ -64,11 +65,13 @@ function Running({
   done,
   template,
   pageId,
+  projectId,
 }: {
   beat: number;
   done: string[];
   template: Template;
   pageId: Id<"pages">;
+  projectId: Id<"projects">;
 }) {
   const registry = useEditorRegistry();
   const panels = usePanels();
@@ -172,11 +175,38 @@ function Running({
 
   /* ---- Beat 2: the agent, and answering for it ------------------------- */
 
+  /**
+   * Where the last beat has got to.
+   *
+   * Read off the app rather than tracked, so it survives a reload and cannot
+   * disagree with what is on screen. The one that looks like a hack — asking
+   * the DOM whether the thinking indicator is up — is the honest signal here:
+   * `busy` lives inside the chat panel's own hook, and lifting it out would
+   * mean threading state through two components that have no use for it just
+   * so the guide can read one boolean.
+   */
+  const threads = useQuery(api.chat.threads.list, { projectId });
+  const working = useTarget(".nt-turn-pending, .nt-turn-step.is-running") !== null;
+  const phase: ChatPhase = openReviews.length
+    ? "review"
+    : working
+      ? "watching"
+      : (threads?.length ?? 1) > 1
+        ? "ask"
+        : "newChat";
+
   useEffect(() => {
     if (beat !== 2) return;
     panels?.openChat();
+  }, [beat, panels]);
+
+  // Written only once they have somewhere of their own to put it. Prefilling on
+  // arrival would drop the question into the seeded conversation, which is the
+  // one thing this beat is trying to teach them not to do.
+  useEffect(() => {
+    if (beat !== 2 || phase !== "ask") return;
     prefillComposer(script.ask);
-  }, [beat, panels, script]);
+  }, [beat, phase, script]);
 
   // The beat ends when the review does — the last thing this teaches is that
   // the change was never applied behind their back.
@@ -250,7 +280,7 @@ function Running({
       : beat === 1
         ? `[data-id="${script.draw.blockId}"]`
         : beat === 2
-          ? ".nt-composer"
+          ? CHAT_TARGET[phase]
           : null;
   const target = useTarget(selector);
   const rect = useRect(target, 8);
@@ -265,8 +295,7 @@ function Running({
     );
   }
 
-  const reviewing = beat === 2 && openReviews.length > 0;
-  const copy = reviewing ? REVIEWING : BEATS[beat];
+  const copy = beat === 2 ? CHAT[phase] : BEATS[beat];
 
   return (
     <>
@@ -305,15 +334,37 @@ const BEATS: Copy[] = [
     action: "Place it with",
     hint: "⇥",
   },
-  {
+];
+
+/** The last beat is four moments, not one. */
+type ChatPhase = "newChat" | "ask" | "watching" | "review";
+
+const CHAT_TARGET: Record<ChatPhase, string> = {
+  newChat: '[aria-label="New chat"]',
+  ask: ".nt-composer",
+  // The whole rail: what is worth looking at while it works is not the box you
+  // typed into, it is the running account of what it is doing above it.
+  watching: 'aside[aria-label="Chat"]',
+  review: ".nt-review-bar",
+};
+
+const CHAT: Record<ChatPhase, Copy> = {
+  newChat: {
+    title: "There is already a conversation here — chats belong to the project and outlive the page.",
+    action: "Start a fresh one.",
+  },
+  ask: {
     title: "The agent works inside the document, not beside it.",
     action: "Send the question.",
   },
-];
-
-const REVIEWING: Copy = {
-  title: "Nothing it wrote is yours until you say so.",
-  action: "Keep the change, or throw it away.",
+  watching: {
+    title: "Everything it does shows up here — the pages it opens, the searches it runs, the edits it makes.",
+    action: "Nothing is hidden, and nothing has been decided yet.",
+  },
+  review: {
+    title: "Nothing it wrote is yours until you say so.",
+    action: "Keep the change, or throw it away.",
+  },
 };
 
 /** One line, one space between words — the form both sides of a comparison take. */

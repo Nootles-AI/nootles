@@ -27,13 +27,24 @@ export const techDesign: Template = {
   blurb: "Context, a proposed shape, and the failure modes you can name now.",
   projectTitle: "Rate limiting",
   description: "Moving request limits out of each service and onto the edge.",
-  roles: [
-    "Software engineer",
-    "Staff / principal engineer",
-    "Engineering manager",
-    "Architect",
-    "SRE",
-  ],
+  showcase: {
+    heading: "The check itself",
+    caption: "Prose, a diagram you can drag, and real code. One page.",
+    block: {
+      type: "codeBlock",
+      props: {
+        language: "typescript",
+        code: `export function allow(key: string, now: number) {
+  const b = bucket(key);
+  b.tokens = Math.min(BURST, b.tokens + (now - b.at) * RATE);
+  b.at = now;
+  if (b.tokens < 1) return false;
+  b.tokens -= 1;
+  return true;
+}`,
+      },
+    },
+  },
   pages: [
     {
       title: "Rate limiting",
@@ -96,6 +107,12 @@ export const techDesign: Template = {
       brief:
         "the request path from clients through the edge gateway and rate limiter to the services, with Redis holding the counters",
       html: ARCH,
+    },
+    priorChat: {
+      title: "Where the counters live",
+      asked: "Redis or Postgres for the counters?",
+      answered:
+        "Redis. The counter is written and read on every single request, and at that rate the durability Postgres buys you is not worth the latency it costs. Losing a window of counts on a restart means a brief over-admission, which is the cheap failure to have.",
     },
     ask: "Read this page, then write the token bucket check as a short TypeScript function in a code block.",
     suggest: {

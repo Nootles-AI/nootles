@@ -76,6 +76,20 @@ function position(rect: Rect | null): { style: React.CSSProperties } {
       style: { left: "50%", bottom: 96, transform: "translateX(-50%)", width: WIDTH },
     };
   }
+  // A target as tall as the window — the chat rail — has no above and no below.
+  // Beside it, level with the middle, is the only placement that reads as
+  // pointing AT the thing rather than sitting on top of it.
+  if (rect.height > window.innerHeight * 0.6) {
+    const beside = rect.x - WIDTH - GAP;
+    return {
+      style: {
+        left: beside > EDGE ? beside : rect.x + rect.width + GAP,
+        top: "50%",
+        transform: "translateY(-50%)",
+        width: WIDTH,
+      },
+    };
+  }
   const below = rect.y + rect.height + GAP;
   const room = window.innerHeight - below;
   // 150 is the card at its tallest — two lines of title, one of action, a foot.

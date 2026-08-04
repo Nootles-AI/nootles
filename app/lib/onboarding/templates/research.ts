@@ -28,13 +28,23 @@ export const research: Template = {
   projectTitle: "Why users churn at day eight",
   description:
     "Retention is flat for a week and then falls off. Finding out what happens on day eight.",
-  roles: [
-    "Researcher",
-    "Product manager",
-    "Data analyst",
-    "Designer",
-    "Founder",
-  ],
+  showcase: {
+    heading: "Pulling the cohorts",
+    caption: "Prose, a diagram you can drag, and the query itself. One page.",
+    block: {
+      type: "codeBlock",
+      props: {
+        language: "sql",
+        code: `select date_trunc('week', signed_up_at) as cohort,
+       extract(day from last_seen_at - signed_up_at) as lived,
+       count(*)
+from users
+where signed_up_at > '2026-03-01'
+group by 1, 2
+order by 1, 2;`,
+      },
+    },
+  },
   pages: [
     {
       title: "Why users churn at day eight",
@@ -103,6 +113,12 @@ export const research: Template = {
       brief:
         "a table of the three research methods, who each one covers and what question it answers",
       html: DESIGN,
+    },
+    priorChat: {
+      title: "Sample size",
+      asked: "Is eight interviews enough to conclude anything?",
+      answered:
+        "Enough to find the mechanism, not enough to size it. Eight will tell you what happens on day eight; the cohort SQL is what tells you how often. They answer different questions — the trouble starts when you read them as answering the same one twice.",
     },
     ask: "Read this plan, then write the interview guide — eight questions, ordered so the hardest one is not first.",
     suggest: {

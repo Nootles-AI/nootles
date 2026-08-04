@@ -1,5 +1,6 @@
 import type { Template } from "../types";
 import { BOX, CAPTION, COLUMN } from "../diagramStyle";
+import { cell } from "../cell";
 
 const card = (id: string, text: string) =>
   `<nt-rect id="${id}" w="142" h="48" style="${BOX}">${text}</nt-rect>`;
@@ -31,13 +32,23 @@ export const screenplay: Template = {
   blurb: "A logline, a beat sheet, and somewhere to see the shape of it.",
   projectTitle: "Salt Flats",
   description: "A woman checks into a motel she has no memory of booking.",
-  roles: [
-    "Writer",
-    "Director",
-    "Producer",
-    "Script editor",
-    "Writing for myself",
-  ],
+  showcase: {
+    heading: "Scenes",
+    caption: "Prose, a board you can drag, and a table. One page.",
+    block: {
+      type: "table",
+      content: {
+        type: "tableContent",
+        headerRows: 1,
+        rows: [
+          { cells: [cell("#"), cell("Where"), cell("Who"), cell("Pages")] },
+          { cells: [cell("1"), cell("The flats"), cell("Mara"), cell("2")] },
+          { cells: [cell("2"), cell("Motel office"), cell("Mara, Dell"), cell("3")] },
+          { cells: [cell("3"), cell("Room 11"), cell("Mara"), cell("1")] },
+        ],
+      },
+    },
+  },
   pages: [
     {
       title: "Salt Flats",
@@ -96,6 +107,12 @@ export const screenplay: Template = {
       blockId: "nt-tour-draw",
       brief: "the three-act beat board for Salt Flats, one column per act",
       html: BEATS,
+    },
+    priorChat: {
+      title: "The other guest",
+      asked: "Does it hurt the ending if the other guest turns out to be real?",
+      answered:
+        "It changes what the film is about rather than hurting it. Real, and this is a story about someone she has to get past. Not real, and it is a story about what she is carrying. Both work — but the ending has to be written for one of them rather than hedged between the two.",
     },
     ask: "Read the beat sheet, then suggest three ways act two could complicate what Mara wants.",
     suggest: {

@@ -28,6 +28,19 @@ export const createSeededProject = mutation({
     pages: v.array(v.object({ title: v.string(), doc: v.any() })),
     /** Survey answers, already phrased as the Q&A the sheet holds. */
     context: v.array(v.object({ question: v.string(), answer: v.string() })),
+    /**
+     * One finished conversation, so the chat panel is not empty on arrival.
+     *
+     * The guide asks the user to start a NEW chat, and "new" needs something to
+     * be new next to — a panel holding one blank thread teaches nothing about
+     * threads, while a panel holding a finished exchange says they are kept and
+     * that they belong to the project without spending a sentence on it.
+     */
+    priorChat: v.object({
+      title: v.string(),
+      asked: v.string(),
+      answered: v.string(),
+    }),
   },
   handler: async (ctx, args) => {
     const ownerId = await requireOwner(ctx);
@@ -64,6 +77,32 @@ export const createSeededProject = mutation({
         // The user answered these, even though a form asked rather than a model.
         source: "human",
         createdAt: now,
+      });
+    }
+
+    const threadId = await ctx.db.insert("chatThreads", {
+      ownerId,
+      projectId,
+      title: args.priorChat.title,
+      createdAt: now,
+      updatedAt: now,
+    });
+    // `parts` is stored exactly as the AI SDK's UIMessage carries it, so a
+    // seeded exchange re-renders through the same path a streamed one does and
+    // `convertToModelMessages` can hand it back to the model unchanged.
+    const said = [
+      { role: "user" as const, text: args.priorChat.asked },
+      { role: "assistant" as const, text: args.priorChat.answered },
+    ];
+    for (const [seq, turn] of said.entries()) {
+      await ctx.db.insert("chatMessages", {
+        ownerId,
+        threadId,
+        uiId: `seed-${projectId}-${seq}`,
+        role: turn.role,
+        seq,
+        parts: [{ type: "text", text: turn.text }],
+        createdAt: now + seq,
       });
     }
 

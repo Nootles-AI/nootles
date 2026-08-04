@@ -1,5 +1,6 @@
 import type { Template } from "../types";
 import { BOX, PLAIN } from "../diagramStyle";
+import { cell } from "../cell";
 
 const FLOW = `<nt-diagram w="600" h="568">
   <nt-rect id="s1" x="200" y="40" w="200" h="52" style="${BOX}">Cart</nt-rect>
@@ -23,13 +24,23 @@ export const prd: Template = {
   projectTitle: "Guest checkout",
   description:
     "Letting first-time buyers pay without making an account, and what that changes.",
-  roles: [
-    "Product manager",
-    "Founder",
-    "Engineer",
-    "Designer",
-    "Program manager",
-  ],
+  showcase: {
+    heading: "How we will know",
+    caption: "Prose, a diagram you can drag, and a table. One page.",
+    block: {
+      type: "table",
+      content: {
+        type: "tableContent",
+        headerRows: 1,
+        rows: [
+          { cells: [cell("Measure"), cell("Today"), cell("Target")] },
+          { cells: [cell("Checkout completion"), cell("61%"), cell("74%")] },
+          { cells: [cell("Drop-off at account"), cell("23%"), cell("under 5%")] },
+          { cells: [cell("Support tickets"), cell("40 / wk"), cell("no rise")] },
+        ],
+      },
+    },
+  },
   pages: [
     {
       title: "Guest checkout",
@@ -92,6 +103,13 @@ export const prd: Template = {
       brief:
         "the guest checkout flow from cart to confirmation, with the branch where the email already has an account",
       html: FLOW,
+    },
+    priorChat: {
+      title: "Scope",
+      asked:
+        "Should a guest be able to claim their order into an account later, or is that a separate project?",
+      answered:
+        "Later, and separate. Claiming needs an identity merge and an email verification path, and folding those in would roughly double this one. Worth a line under Open questions so it is not quietly forgotten.",
     },
     ask: "Read this page and add a Risks section with the three things most likely to go wrong.",
     suggest: {

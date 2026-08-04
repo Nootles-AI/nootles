@@ -17,13 +17,22 @@ export const classNotes: Template = {
   blurb: "A lecture, a paper, a chapter — with the maths that goes with it.",
   projectTitle: "Linear algebra — eigenvalues",
   description: "Week six: eigenvalues, eigenvectors, and what they mean.",
-  roles: [
-    "Student",
-    "Teacher",
-    "Researcher",
-    "Studying on my own",
-    "Tutoring someone",
-  ],
+  showcase: {
+    heading: "A 2×2, worked",
+    caption: "Prose, a diagram you can drag, and maths that computes. One page.",
+    block: {
+      type: "mathBlock",
+      // Each line is its own row; a name defined on one is in scope on the next.
+      props: {
+        source: [
+          "a = 4",
+          "d = 3",
+          "\\lambda_1 = \\frac{(a+d) + \\sqrt{(a-d)^2 + 8}}{2}",
+          "\\lambda_2 = \\frac{(a+d) - \\sqrt{(a-d)^2 + 8}}{2}",
+        ].join("\n"),
+      },
+    },
+  },
   pages: [
     {
       title: "Eigenvalues",
@@ -95,6 +104,12 @@ export const classNotes: Template = {
       brief:
         "the four steps for finding eigenvalues, from forming A minus lambda I through to back-substituting for the eigenvector",
       html: STEPS,
+    },
+    priorChat: {
+      title: "Why the determinant",
+      asked: "Why does setting the determinant to zero find the eigenvalues?",
+      answered:
+        "Because Av = λv rearranges to (A − λI)v = 0, and you want a solution where v is not the zero vector. A matrix only sends a non-zero vector to zero when it is singular — and singular is exactly what a zero determinant means.",
     },
     ask: "Read these notes, then work through a 2×2 example step by step on the worked examples page.",
     suggest: {

@@ -17,13 +17,22 @@ export const woodworking: Template = {
   blurb: "A cut list, the joinery, and a drawing to argue with.",
   projectTitle: "Walnut side table",
   description: "18 by 14 by 24, walnut, mortise and tenon, oil finish.",
-  roles: [
-    "Hobbyist",
-    "Furniture maker",
-    "Designer",
-    "Teaching myself",
-    "Building it with someone",
-  ],
+  showcase: {
+    heading: "Board feet",
+    caption: "Prose, a drawing you can drag, and maths that computes. One page.",
+    block: {
+      type: "mathBlock",
+      // Name a number once and the rows below it stay right when it changes.
+      props: {
+        source: [
+          "top = \\frac{18 \\times 14}{144}",
+          "aprons = \\frac{4 \\times 14 \\times 3.5}{144}",
+          "waste = 1.15",
+          "total = (top + aprons) \\times waste",
+        ].join("\n"),
+      },
+    },
+  },
   pages: [
     {
       title: "Walnut side table",
@@ -79,6 +88,12 @@ export const woodworking: Template = {
       brief:
         "a front elevation of the side table showing the top, aprons, tapered legs and the stretcher",
       html: ELEVATION,
+    },
+    priorChat: {
+      title: "Wood movement",
+      asked: "Do I need to worry about the top moving if it is only 18 inches wide?",
+      answered:
+        "Yes — roughly an eighth of an inch across the grain between summer and winter for walnut at that width. Not enough to see, plenty to split a top that is screwed down hard. Buttons or elongated screw holes and it moves without telling you about it.",
     },
     ask: "Read this page and work out how much 4/4 walnut I need in board feet, allowing 15% for waste.",
     suggest: {
