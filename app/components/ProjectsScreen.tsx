@@ -7,6 +7,7 @@ import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import { GridView, ListView, MoreHorizontal, Plus } from "./Icons";
 import { AccountMenu } from "./AccountMenu";
+import { Brandmark } from "./Brand";
 import { ConfirmDeleteDialog } from "./ConfirmDelete";
 import { ContextMenu } from "./ContextMenu";
 import { Editable } from "./Editable";
@@ -113,10 +114,23 @@ export function ProjectsScreen() {
       className="mx-auto w-full px-6 py-12 sm:px-8 sm:py-16"
       style={{ maxWidth: "76rem" }}
     >
+      {/* The mark sits with the title rather than in a bar of its own: this is
+          the app's front door, and it is the one screen in the product with a
+          corner free to say whose software this is. Inside a project the
+          sidebar already spends that corner on the way back out. */}
       <header className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-[length:var(--text-title)] font-semibold tracking-[-0.02em]">
-          Projects
-        </h1>
+        <div className="flex items-center gap-3">
+          <Brandmark
+            role="img"
+            aria-label="Nootles"
+            width={20}
+            height={24}
+            className="text-brand"
+          />
+          <h1 className="text-[length:var(--text-title)] font-semibold tracking-[-0.02em]">
+            Projects
+          </h1>
+        </div>
 
         <div className="flex items-center gap-2">
           <div className="nt-mode" role="group" aria-label="View">

@@ -13,8 +13,10 @@
      not as a tint. A tinted ramp was tried and pulled the whole surface toward
      a colour it did not need.
 
-     Colour appears in exactly one place — the accent, for AI activity. That is
-     the only thing on screen that should look alive.
+     Colour appears in exactly two places, and only one of them means anything —
+     the accent, for AI activity, which is the only thing on screen that should
+     look alive. The other is the brand, which appears where the product says
+     its own name and nowhere else.
 
      Every text value was solved for the lightest tone that still clears WCAG AA
      on the darkest surface it can land on; the measured ratio is noted. */
@@ -34,7 +36,22 @@
   --muted: oklch(0.535 0.004 90);         /* 4.54:1 on sunken          */
   --faint: oklch(0.72 0.004 90);          /* decorative only, no text  */
 
-  /* Accent — the only colour on the whole surface, and it is reserved for AI
+  /* Brand — identity only, and identity is a short list: the logo, the sign-in
+     page, the favicon. It never states a product meaning. Nothing is selected,
+     active, valid or working because it is green, and no control borrows it —
+     the moment it marks a state it stops being a signature and becomes another
+     thing to decode.
+
+     Measured 3.99:1 on paper, which is under the 4.5:1 text needs and over the
+     3:1 a mark needs. That is the boundary of what it may be used for: shapes,
+     not sentences. Text that has to be green wants a darker tone solved the way
+     the ink above was, and so far nothing has needed one.
+
+     Chroma 0.049 — a tenth of the way to the accent, and eight times the
+     surfaces. It reads as a colour without ever competing with the one below. */
+  --brand: oklch(0.592 0.049 136);      /* #718568, 3.99:1 on background */
+
+  /* Accent — the only colour that carries a MEANING, and the meaning is AI
      activity: the streaming head, the reformat chip, and the focus ring. Never
      decoration, never a selection ring on a block or shape.
 
@@ -138,6 +155,7 @@
   --color-border-strong: var(--border-strong);
   --color-muted: var(--muted);
   --color-faint: var(--faint);
+  --color-brand: var(--brand);
   --color-accent: var(--accent);
   --color-accent-soft: var(--accent-soft);
   --color-ghost: var(--ghost);
@@ -523,7 +541,6 @@ textarea.nt-input {
    form says "as much as you like" without spending a sentence saying it. */
 .nt-field-fill {
   display: flex;
-  flex: 1 1 auto;
   flex-direction: column;
   min-height: 0;
 }
@@ -547,44 +564,46 @@ textarea.nt-input {
   opacity: 0.85;
 }
 
-/* ---- Sheet --------------------------------------------------------------
-   A panel that comes in from the right edge and stays there, rather than one
-   that appears in the middle of the screen.
+/* ---- Dialog -------------------------------------------------------------
+   A centred box, landscape rather than portrait: the fields sit in two columns
+   so it stays a panel you take in at a glance instead of a column you work
+   down. A tall dialog on a wide screen is mostly a reading exercise.
 
-   Which side it enters from is the same idea as the rails above: movement that
-   says where a thing lives. A centred box has to arrive by fading, because it
-   comes from nowhere — this one comes from off the right edge, so the entrance
-   is a fact about the layout rather than an effect laid over it.
-
-   It travels its own full width on `--ease`, which is heavily weighted to the
-   end: it covers most of the distance early and settles the last few pixels
-   slowly, which is the part that reads as weight rather than as a slide. Longer
-   than a menu, because it is further to come; the way out is `--dur`, since
-   leaving should never make anyone wait. Reduced motion is handled by the
-   global rule at the end of this file. */
+   It arrives on `--ease`, which is heavily weighted to the end — it covers the
+   distance early and settles the last fraction slowly, and the settle is what
+   reads as weight rather than as a pop. The way out is `--dur`, because leaving
+   should never make anyone wait. Reduced motion is handled by the global rule
+   at the end of this file. */
 .nt-scrim {
   position: fixed;
   inset: 0;
-  background: oklch(0.25 0.005 90 / 0.08);
-  /* The page stays legible behind it but stops being readable — which is the
-     point: it is still there, and it is not what you are doing. */
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
+  background: oklch(0.25 0.005 90 / 0.1);
+  /* The page stays there behind it and stops being readable, which is the whole
+     message: still present, not what you are doing.
+
+     Unprefixed and unprefixed only. Lightning CSS adds the `-webkit-` form
+     itself from the browser targets, and treats the two as the same property —
+     so writing both by hand made it keep whichever came last and drop the
+     other, which is how this shipped once with no blur at all. */
+  backdrop-filter: blur(10px);
   animation: nt-fade-in var(--dur) var(--ease);
 }
 .nt-scrim.is-closing {
   animation: nt-fade-out var(--dur) var(--ease) forwards;
 }
 
-.nt-sheet {
+.nt-dialog {
   position: fixed;
-  top: var(--inset);
-  right: var(--inset);
-  bottom: var(--inset);
+  /* Centred by its own margins rather than by a translate, which leaves
+     `transform` free for the entrance to spend. */
+  inset: 0;
+  margin: auto;
   display: flex;
   flex-direction: column;
-  width: 26rem;
-  max-width: calc(100vw - var(--inset) * 2);
+  width: 46rem;
+  max-width: calc(100vw - 2rem);
+  height: fit-content;
+  max-height: calc(100dvh - 2rem);
   background: var(--elevated);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
@@ -592,21 +611,23 @@ textarea.nt-input {
     0 1px 2px oklch(0.25 0.005 90 / 0.04),
     0 8px 24px oklch(0.25 0.005 90 / 0.07),
     0 24px 64px oklch(0.25 0.005 90 / 0.11);
-  animation: nt-sheet-in var(--dur-slow) var(--ease);
+  animation: nt-dialog-in var(--dur-slow) var(--ease);
 }
-.nt-sheet.is-closing {
-  animation: nt-sheet-out var(--dur) var(--ease) forwards;
+.nt-dialog.is-closing {
+  animation: nt-dialog-out var(--dur) var(--ease) forwards;
 }
-/* Past its own right margin as well as its width, so no corner of it is left
-   showing at the start. */
-@keyframes nt-sheet-in {
+/* Rising the last few pixels into place, barely under size. Small numbers on
+   purpose: at this width anything more is a box being thrown at the screen. */
+@keyframes nt-dialog-in {
   from {
-    transform: translateX(calc(100% + var(--inset)));
+    opacity: 0;
+    transform: translateY(10px) scale(0.985);
   }
 }
-@keyframes nt-sheet-out {
+@keyframes nt-dialog-out {
   to {
-    transform: translateX(calc(100% + var(--inset)));
+    opacity: 0;
+    transform: translateY(6px) scale(0.99);
   }
 }
 @keyframes nt-fade-out {
@@ -615,25 +636,55 @@ textarea.nt-input {
   }
 }
 
-.nt-sheet-head {
+.nt-dialog-head {
   padding: 18px 18px 0;
 }
-/* The fields, and the one part that scrolls if a window is short enough to make
-   it. */
-.nt-sheet-body {
-  display: flex;
-  flex: 1 1 auto;
-  flex-direction: column;
+/* Two columns: the short fields stack in the first, the freeform one takes the
+   second whole and is stretched to the height they set between them. The one
+   part that scrolls, on a window too short to hold it. */
+.nt-dialog-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 18px;
   min-height: 0;
   overflow-y: auto;
   padding: 18px;
 }
-.nt-sheet-foot {
+.nt-dialog-foot {
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: 4px;
   padding: 0 18px 18px;
+}
+/* Once the dialog is capped by the window rather than by its own width, two
+   columns are two narrow columns. It stacks instead. */
+@media (max-width: 48rem) {
+  .nt-dialog-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ---- Sign-in ------------------------------------------------------------
+   The one tinted surface in the app, and the only place the brand is allowed to
+   touch anything other than the mark itself.
+
+   A halo behind the logo rather than a flat wash: a solid tint restates the
+   colour everywhere and ends up reading as the wrong white — that ramp was
+   tried across the product and pulled every surface toward a colour it did not
+   need. Falling off to nothing before the edges means the page is still paper,
+   with light on it where the name is.
+
+   Wide and soft on purpose. At 60rem across there is no edge to see, so it
+   reads as the page being lit rather than as a shape drawn on it. */
+.nt-signin {
+  background:
+    radial-gradient(
+      60rem 38rem at 50% 34%,
+      oklch(0.955 0.024 136),
+      transparent 68%
+    ),
+    var(--background);
 }
 
 /* The account monogram. A filled well rather than a ring: it reads as a token

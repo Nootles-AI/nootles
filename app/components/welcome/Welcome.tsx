@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import { Wordmark } from "@/app/components/Brand";
 import { PreviewBlocks } from "@/app/components/PagePreview";
 import { TEMPLATES, templateById } from "@/app/lib/onboarding/templates";
 import type {
@@ -161,7 +162,7 @@ export function Welcome() {
     <main className={`nt-wc${busy ? " is-committing" : ""}`}>
       <section className="nt-wc-ask">
         <header className="nt-wc-head">
-          <span className="nt-wc-mark">Nootles</span>
+          <Wordmark role="img" aria-label="Nootles" className="nt-wc-mark" />
           <button className="nt-wc-out" onClick={() => void leave()}>
             I&rsquo;ll look around on my own
           </button>

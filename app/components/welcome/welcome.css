@@ -71,13 +71,14 @@
 
 /* The one place the product says its own name. Mono, like every other label
    that is metadata rather than content. */
+/* Held to the optical size of the mono label it replaced. This is a header on a
+   screen that is about the person filling it in — the brand says who is asking
+   and then gets out of the way, which is why it is 18px and not a splash. */
 .nt-wc-mark {
-  font-family: var(--font-mono), ui-monospace, monospace;
-  font-size: var(--text-meta);
-  font-weight: 500;
-  letter-spacing: var(--tracking-meta);
-  text-transform: uppercase;
-  color: var(--muted);
+  flex: none;
+  width: auto;
+  height: 18px;
+  color: var(--brand);
 }
 
 /* Quiet, but not the decorative token: this is the way out, and the way out is

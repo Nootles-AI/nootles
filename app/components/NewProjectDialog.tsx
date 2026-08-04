@@ -32,9 +32,9 @@ export function NewProjectDialog({
 
   /**
    * Leaving is animated too, so it has to outlive the decision to leave: the
-   * panel plays its way back off the edge and tells the caller to unmount it
-   * when it lands. Sliding in and then vanishing on the spot is the version
-   * that feels broken.
+   * dialog plays itself out and tells the caller to unmount it once it has,
+   * rather than the moment you click. Arriving gently and then vanishing on the
+   * spot is the version that feels broken.
    */
   const [closing, setClosing] = useState(false);
   const close = () => setClosing(true);
@@ -92,10 +92,10 @@ export function NewProjectDialog({
         role="dialog"
         aria-modal="true"
         aria-label="New project"
-        className={`nt-sheet${closing ? " is-closing" : ""}`}
+        className={`nt-dialog${closing ? " is-closing" : ""}`}
         style={{ zIndex: "var(--z-modal)" }}
       >
-        <div className="nt-sheet-head">
+        <div className="nt-dialog-head">
           <p className="text-sm font-medium">New project</p>
           <p className="mt-1.5 text-[13px] text-muted">
             Whatever you say here is what the assistant knows about the project.
@@ -103,7 +103,7 @@ export function NewProjectDialog({
           </p>
         </div>
 
-        <div className="nt-sheet-body">
+        <div className="nt-dialog-body">
           <div>
             <label className="nt-field-label" htmlFor="np-title">
               Title
@@ -117,10 +117,8 @@ export function NewProjectDialog({
               placeholder="Project title"
               className="nt-input"
             />
-          </div>
 
-          <div className="mt-4">
-            <label className="nt-field-label" htmlFor="np-description">
+            <label className="nt-field-label mt-4" htmlFor="np-description">
               Description
               <span className="nt-field-note">Optional</span>
             </label>
@@ -134,7 +132,7 @@ export function NewProjectDialog({
             />
           </div>
 
-          <div className="nt-field-fill mt-4">
+          <div className="nt-field-fill">
             <label className="nt-field-label" htmlFor="np-context">
               Context
               <span className="nt-field-note">Optional</span>
@@ -150,7 +148,7 @@ export function NewProjectDialog({
           </div>
         </div>
 
-        <div className="nt-sheet-foot">
+        <div className="nt-dialog-foot">
           {failure && (
             <p role="alert" className="min-w-0 flex-1 text-[13px] text-danger">
               {failure}

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useAuth, useClerk } from "@clerk/nextjs";
+import { LogoStacked } from "../components/Brand";
 import { GoogleMark } from "../components/GoogleMark";
 
 /**
@@ -15,8 +16,16 @@ import { GoogleMark } from "../components/GoogleMark";
  * spelled out in the callback; this pairs with `AuthenticateWithRedirectCallback`,
  * which already knows how to turn a first-time Google user into an account.
  *
- * Three groups separated by space alone — who this is, the way in, and the
- * footnote. Nothing here is doing hierarchy with colour or a rule.
+ * The one screen that is allowed to be the brand rather than the product. It is
+ * all a signed-out person ever sees, there is no document on it to compete with,
+ * and it is the only page whose job is to say whose software this is — so the
+ * logo is the page and the paper is tinted a step toward it. Both stop at the
+ * door: past this, surfaces are neutral and the only colour means AI.
+ *
+ * Centred, unlike the rest of the app, because there is nothing else here to
+ * align to. Still three groups separated by space alone — who this is, the way
+ * in, and the footnote — and the button stays neutral, because a green button
+ * beside Google's mark reads as a second brand asking for the same click.
  */
 export default function SignInPage() {
   const { isLoaded } = useAuth();
@@ -42,14 +51,20 @@ export default function SignInPage() {
   };
 
   return (
-    // Sits a little above true centre: a block of text centred by measurement
-    // reads as low, and this one has all its weight at the top.
-    <main className="flex flex-1 items-center justify-center px-6 pb-[10vh]">
-      <div className="w-full max-w-[19rem]">
-        <h1 className="text-[length:var(--text-title)] font-semibold tracking-[-0.02em]">
-          Nootles
+    // Sits a little above true centre: a block centred by measurement reads as
+    // low, and this one has all its weight at the top.
+    <main className="nt-signin flex flex-1 items-center justify-center px-6 pb-[10vh]">
+      <div className="w-full max-w-[19rem] text-center">
+        {/* The name, drawn rather than set — so `h1` carries it for anything
+            reading the page, and the mark carries it for anyone looking. */}
+        <h1>
+          <LogoStacked
+            role="img"
+            aria-label="Nootles"
+            className="mx-auto text-brand"
+          />
         </h1>
-        <p className="mt-2 text-[13px] leading-relaxed text-muted">
+        <p className="mt-6 text-[13px] leading-relaxed text-muted">
           Notes, diagrams and maths on one page, with an AI that works in it
           alongside you.
         </p>
@@ -58,8 +73,8 @@ export default function SignInPage() {
           onClick={start}
           disabled={!isLoaded || going}
           aria-busy={going}
-          className="nt-row mt-9 h-9 w-full justify-center gap-2 border bg-sunken font-medium"
-          style={{ borderColor: "var(--border)" }}
+          className="nt-row mt-9 h-9 w-full justify-center gap-2 border bg-background font-medium"
+          style={{ borderColor: "var(--border-strong)" }}
         >
           <GoogleMark width={16} height={16} />
           {going ? "Taking you to Google…" : "Continue with Google"}
