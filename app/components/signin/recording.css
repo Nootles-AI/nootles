@@ -1,0 +1,241 @@
+/* The recording.
+
+   A page writing itself, at document size and shrunk by the same transform the
+   sheet uses everywhere else — so the type, the diagram and the pointer are all
+   in one coordinate system and the pointer can be driven to a shape in document
+   pixels.
+
+   The accent appears here and only here on this screen, and it means what it
+   means everywhere else: the model is doing something. The suggestion head, the
+   Tab hint and the edge round the block being drawn are the same three marks
+   the editor itself uses. Nothing else on the door is allowed a colour. */
+
+/* Arrives on its own fade because it is loaded on demand — the sheet is paper
+   for a beat before the page lands in it, and a cut would read as a flash. */
+.nt-rec {
+  position: absolute;
+  inset: 0;
+  opacity: 1;
+  transition: opacity var(--dur-slow) var(--ease);
+  animation: nt-fade-in var(--dur-slow) var(--ease);
+}
+/* The take is over. It goes rather than cuts, so the loop reads as the same
+   page being written again and not as a screen being redrawn. */
+.nt-rec.is-out {
+  opacity: 0;
+}
+
+.nt-rec-page {
+  position: absolute;
+  inset: 0 auto auto 0;
+  width: 600px;
+  transform: scale(var(--page-scale, 0.78));
+  transform-origin: top left;
+  padding: 36px 42px 0;
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
+  color: var(--foreground);
+}
+.nt-rec-page > * {
+  margin-block: 6px;
+}
+.nt-rec-page > :first-child {
+  margin-top: 0;
+}
+/* A heading earns its space above and gives it back to what it introduces —
+   the same rule the document itself keeps. */
+.nt-rec-page > .nt-thumb-h[data-level="2"] {
+  margin-top: 18px;
+}
+
+/* Wraps, unlike the miniature's paragraphs. These are lines meant to be read
+   rather than recognised — the whole point of the first beat is watching where
+   one of them stops. */
+.nt-rec-line {
+  margin: 0;
+  white-space: normal;
+  text-wrap: pretty;
+}
+
+/* A block that arrives mid-take, rather than one that was always there. */
+.nt-rec-in {
+  animation: nt-rec-in var(--dur-slow) var(--ease) backwards;
+}
+@keyframes nt-rec-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+/* ---- The offer ---------------------------------------------------------
+   Legible enough to read before you would accept it, tinted enough to read as
+   not-yet-real — and then the same words in ink, which is the accept. The
+   transition is on both states, so the colour is what changes rather than the
+   text being swapped for different text. */
+.nt-rec-ghost,
+.nt-rec-kept {
+  transition: color var(--dur) var(--ease);
+}
+.nt-rec-ghost {
+  color: var(--ghost);
+}
+.nt-rec-kept {
+  color: var(--foreground);
+}
+
+/* Zero-width, and there only to be measured: the pointer is driven to wherever
+   the line happens to end, which depends on where the text wraps. */
+.nt-rec-anchor {
+  position: relative;
+  display: inline-block;
+}
+
+/* What you would press. Accent, because this is the model offering something —
+   the same colour and the same mono voice the reformat chip uses. */
+.nt-rec-key {
+  margin-left: 9px;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in oklch, var(--accent) 10%, transparent);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--text-meta);
+  letter-spacing: var(--tracking-meta);
+  color: var(--accent);
+  animation: nt-rec-key-in var(--dur) var(--ease) backwards;
+  transition:
+    transform var(--dur-fast) var(--ease),
+    background var(--dur-fast) var(--ease);
+}
+@keyframes nt-rec-key-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+}
+.nt-rec-key.is-press {
+  transform: scale(0.92);
+  background: color-mix(in oklch, var(--accent) 22%, transparent);
+}
+
+/* ---- The drawing -------------------------------------------------------
+   The slot holds its height from the moment the block exists, so the shapes
+   arriving inside it move nothing above them. */
+/* The page makes room for the drawing rather than the drawing appearing on top
+   of it: the block opens from nothing to its own height and everything below is
+   pushed down, which is what inserting a block does. One element, one bounded
+   reflow of six lines of text — the case where animating height is the honest
+   answer rather than a lazy one. */
+.nt-rec-slot {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--radius);
+  animation: nt-rec-open 340ms var(--ease) backwards;
+}
+@keyframes nt-rec-open {
+  from {
+    height: 0;
+    opacity: 0;
+  }
+}
+
+/* What the model is doing, in the voice the app gives every other piece of
+   metadata — and in the one colour that means it is the model doing it. */
+.nt-rec-drawing {
+  position: absolute;
+  top: 10px;
+  left: 12px;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--text-meta);
+  letter-spacing: var(--tracking-meta);
+  text-transform: uppercase;
+  color: var(--accent);
+  animation: nt-pulse 1.15s var(--ease) infinite;
+}
+
+/* Each shape as it lands. Short, and no movement: they are being placed, not
+   flown in, and four boxes sliding from four directions is a title sequence. */
+.nt-rec-slot .nt-node {
+  animation: nt-rec-shape 220ms var(--ease) backwards;
+}
+@keyframes nt-rec-shape {
+  from {
+    opacity: 0;
+  }
+}
+
+/* Held, not just hovered. The shadow is the only thing that says a shape has
+   left the surface, and it is the shadow the menus use rather than a new one. */
+.nt-rec-slot.is-drag [data-id="d4"] {
+  box-shadow:
+    0 1px 2px oklch(0.25 0.005 90 / 0.06),
+    0 6px 18px oklch(0.25 0.005 90 / 0.14);
+}
+
+/* ---- The pointer -------------------------------------------------------
+   Fast and decisive between beats, because it is standing in for somebody who
+   already knows what they are doing. Everything it does is one transform on
+   one element. */
+.nt-rec-pointer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: var(--z-base);
+  display: block;
+  pointer-events: none;
+  filter: drop-shadow(0 1px 2px oklch(0.25 0.005 90 / 0.28));
+  transition: transform 260ms var(--ease);
+  animation: nt-fade-in var(--dur) var(--ease);
+}
+/* The transition is what makes a move between beats read as a dart rather than
+   a jump — and exactly what must not be running during the drag, where the
+   position is set every frame and a 260ms ease would leave the pointer
+   trailing the shape it is supposed to be holding. */
+.nt-rec-pointer.is-down {
+  transition: none;
+}
+.nt-rec-pointer svg {
+  display: block;
+  transform-origin: 10% 10%;
+  transition: transform var(--dur-fast) var(--ease);
+}
+.nt-rec-pointer.is-down svg {
+  transform: scale(0.84);
+}
+
+/* The press itself, which the arrow alone cannot show: a ring that opens once
+   from under the tip and is gone. */
+.nt-rec-pointer.is-down::after {
+  content: "";
+  position: absolute;
+  top: -9px;
+  left: -9px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1.5px solid color-mix(in oklch, var(--foreground) 45%, transparent);
+  animation: nt-rec-press 420ms var(--ease) forwards;
+}
+@keyframes nt-rec-press {
+  from {
+    opacity: 0.9;
+    transform: scale(0.35);
+  }
+  to {
+    opacity: 0;
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Nothing here runs at all — the component renders the last frame instead,
+     which is a finished page with a finished drawing on it. */
+  .nt-rec-in,
+  .nt-rec-slot,
+  .nt-rec-slot .nt-node,
+  .nt-rec-key,
+  .nt-rec-drawing,
+  .nt-rec-pointer {
+    animation: none !important;
+  }
+}

@@ -168,6 +168,14 @@
    picture and they are seen one after the other. */
 .nt-si-desk {
   --page-scale: 0.78;
+  /* Portrait, and by a clear margin — a sheet as tall as it is wide reads as a
+     card with a document printed on it rather than as a page. 840 document
+     pixels against the column's 600 puts it near 1:1.4, and scaling it with the
+     page keeps that shape when the scale opens up on a large screen.
+
+     The recording is written to fill it: the page runs past the crop once the
+     drawing lands, and the bottom fade covers the last of it either way. */
+  --page-h: min(78vh, calc(840px * var(--page-scale)));
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -186,6 +194,71 @@
   .nt-si-desk {
     --page-scale: 0.84;
   }
+}
+
+/* ---- The mark ----------------------------------------------------------
+   The stacked mark, for the variants where the logo leads the column rather
+   than labelling it. Sized so the name inside it sets at roughly the heading's
+   own size: any larger and the page has two headlines, one of which is a
+   picture. */
+.nt-si-logo {
+  flex: none;
+  /* The column stretches its children by default, and an `auto`-width SVG
+     stretched to 540px is a very large logo indeed. */
+  align-self: flex-start;
+  width: auto;
+  height: 62px;
+  margin-bottom: 28px;
+  color: var(--brand);
+}
+
+/* Centred, as the page was before there was anything beside it to align to.
+   The button loses its `flex-start` with everything else. */
+.nt-si.is-centred .nt-si-say {
+  align-items: center;
+  text-align: center;
+}
+.nt-si.is-centred .nt-si-note,
+.nt-si.is-centred .nt-si-status {
+  margin-inline: auto;
+}
+.nt-si.is-centred .nt-si-go,
+.nt-si.is-centred .nt-si-logo {
+  align-self: center;
+}
+
+/* ---- Bleed -------------------------------------------------------------
+   The page at full size, running off the right edge instead of lying on a
+   desk. No second surface and no rule between the two halves: the crop is what
+   says there is more of it, and a document shown at 1:1 is the strongest claim
+   this screen can make about what it is.
+
+   The halo has to give way — a tinted left half against an untinted right one
+   reads as two pages, where the desk variants have a border to explain it. */
+.nt-si.is-bleed .nt-si-door {
+  background: var(--background);
+}
+.nt-si.is-bleed .nt-si-desk {
+  --page-scale: 1;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 16px;
+  /* Deliberately narrower than the 600px sheet at scale 1, at every width the
+     split survives — the crop is the whole idea, and a column wide enough to
+     hold the page would just be the desk without its surface. */
+  width: clamp(400px, 40vw, 548px);
+  padding: 0 0 0 8px;
+  overflow: hidden;
+  background: var(--background);
+  border-left: 0;
+}
+.nt-si.is-bleed .nt-sheet {
+  flex: none;
+  border-radius: var(--radius-lg) 0 0 var(--radius-lg);
+}
+.nt-si.is-bleed .nt-sheet-caption {
+  text-align: left;
+  max-width: 46ch;
 }
 
 /* ---- Narrow ------------------------------------------------------------

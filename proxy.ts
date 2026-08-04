@@ -8,7 +8,14 @@ import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
  * API routes are in scope deliberately: they spend the model key, so they are
  * protected here as well as re-checking identity themselves.
  */
-const isPublic = createRouteMatcher(["/sign-in(.*)", "/sso-callback(.*)"]);
+const isPublic = createRouteMatcher([
+  "/sign-in(.*)",
+  "/sso-callback(.*)",
+  // The door's candidate compositions, so they can be looked at the way a
+  // visitor would see them rather than from behind a session. Throwaway, and
+  // they go when one of them wins.
+  "/signin-mock-(.*)",
+]);
 
 export default clerkMiddleware(async (auth, request) => {
   if (!isPublic(request)) await auth.protect();
