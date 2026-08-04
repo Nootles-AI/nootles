@@ -471,3 +471,120 @@
     animation: none;
   }
 }
+
+/* ---- The mode demo ------------------------------------------------------
+   The two answers to "how much should Nootles write?" performed on the page.
+   Both finish the clause; only one goes on to draw something. */
+
+/* Wraps, unlike the miniature's paragraphs — this is the one line on the sheet
+   that is meant to be read rather than recognised, because the whole point is
+   watching where it stops. */
+.nt-wc-demo-line {
+  margin-block: 6px;
+  white-space: normal;
+  overflow: visible;
+}
+
+/* Legible enough to read before you would accept it, tinted enough to read as
+   not-yet-real. The same token the editor's own suggestions use. */
+.nt-wc-ghost {
+  color: var(--ghost);
+}
+
+.nt-wc-demo-drawn {
+  animation: nt-wc-drawn var(--dur-slow) var(--ease) backwards;
+}
+@keyframes nt-wc-drawn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nt-wc-demo-drawn {
+    animation: none;
+  }
+}
+
+/* ---- The context sheet --------------------------------------------------
+   What the first answer becomes. Deliberately NOT a page: it is a panel, in
+   the chrome's own surface and the chrome's own mono label, because it is a
+   different kind of object from the document and showing it as one is the
+   whole reason it is here. */
+
+.nt-wc-context {
+  width: 468px;
+  padding: 18px 20px 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--background);
+  box-shadow:
+    0 1px 2px oklch(0.25 0.005 90 / 0.04),
+    0 8px 24px oklch(0.25 0.005 90 / 0.06);
+  animation: nt-wc-step var(--dur-slow) var(--ease);
+}
+
+.nt-wc-context-label {
+  display: block;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--text-meta);
+  font-weight: 500;
+  letter-spacing: var(--tracking-meta);
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.nt-wc-context-rows {
+  margin: 14px 0 0;
+}
+
+.nt-wc-context-row + .nt-wc-context-row {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.nt-wc-context-row dt {
+  font-size: var(--text-meta-lg);
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.nt-wc-context-row dd {
+  margin: 3px 0 0;
+  font-size: var(--text-ui);
+  line-height: 1.5;
+  color: var(--foreground);
+  text-wrap: pretty;
+}
+/* Nothing said yet, so the row reads as waiting rather than as answered. */
+.nt-wc-context-row dd.is-waiting {
+  color: var(--faint);
+}
+
+/* A text caret, not the AI one: this row is filled in by the person, and the
+   amber head in this app means the model is working. */
+.nt-wc-caret {
+  display: inline-block;
+  width: 1px;
+  height: 1.05em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background: var(--foreground);
+  animation: nt-wc-blink 1.1s steps(1) infinite;
+}
+@keyframes nt-wc-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nt-wc-caret {
+    animation: none;
+  }
+  .nt-wc-context {
+    animation: none;
+  }
+}

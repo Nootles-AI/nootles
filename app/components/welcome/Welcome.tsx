@@ -1,12 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { PreviewBlocks } from "@/app/components/PagePreview";
-import { TEMPLATES } from "@/app/lib/onboarding/templates";
-import type { SeedBlock, Template } from "@/app/lib/onboarding/types";
+import { TEMPLATES, templateById } from "@/app/lib/onboarding/templates";
+import type {
+  SeedBlock,
+  Template,
+  TemplateId,
+} from "@/app/lib/onboarding/types";
 import type { AnyBlock } from "@/app/lib/ai/projection";
 import "./welcome.css";
 
@@ -16,18 +20,29 @@ type Mode = "create" | "complete";
 const DOC_WIDTH = 600;
 
 /**
- * Asked before the templates, so they can be generic without being vague. A
- * role means the same thing whether you are writing a spec or planning a table,
- * and asking it after the template would only let it be narrower, not truer.
+ * Each role paired with the document that role actually produces.
+ *
+ * Asked before the templates, so the roles can be generic without being vague:
+ * a role means the same thing whether you are writing a spec or planning a
+ * table. The pairing is what makes the question visibly do something — answer
+ * it and the page on the desk becomes the kind of page you would be writing.
+ * Picking the template later is still the real choice; this only stops the
+ * first answer disappearing into a form.
  */
-const ROLES = [
-  "Engineer",
-  "Product or program",
-  "Design",
-  "Research or analysis",
-  "Student or teacher",
-  "Writing something",
+const ROLES: ReadonlyArray<{ label: string; template: TemplateId }> = [
+  { label: "Engineer", template: "techDesign" },
+  { label: "Product or program", template: "prd" },
+  { label: "Design", template: "prd" },
+  { label: "Research or analysis", template: "research" },
+  { label: "Student or teacher", template: "classNotes" },
+  { label: "Writing something", template: "screenplay" },
 ];
+
+function templateForRole(role: string | null): Template | null {
+  if (!role) return null;
+  const found = ROLES.find((r) => r.label === role);
+  return found ? (templateById(found.template) ?? null) : null;
+}
 
 /**
  * First run.
@@ -51,6 +66,8 @@ export function Welcome() {
   const [role, setRole] = useState("");
   const [mode, setMode] = useState<Mode>("create");
   const [hovered, setHovered] = useState<Template | null>(null);
+  const [hoverRole, setHoverRole] = useState<string | null>(null);
+  const [hoverMode, setHoverMode] = useState<Mode | null>(null);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
 
@@ -89,9 +106,21 @@ export function Welcome() {
     }
   };
 
-  // Never empty: the desk is the argument, so it shows one before it has been
-  // told which one to show.
-  const shown = hovered ?? TEMPLATES[0];
+  /**
+   * What is on the desk, and what it is doing.
+   *
+   * Every step answers with the page: the role question turns it into the kind
+   * of document that role writes, the mode question performs the difference
+   * between the two answers on it, and the template question swaps it outright.
+   * A sheet that sat still through the first two would be telling the user
+   * their first two answers went nowhere.
+   */
+  const shown =
+    step === 2
+      ? (hovered ?? templateForRole(role) ?? TEMPLATES[0])
+      : (templateForRole(hoverRole ?? role) ?? TEMPLATES[0]);
+  // Held until the pointer picks one, so the demo does not run unasked.
+  const demo = step === 1 ? hoverMode : null;
 
   return (
     <main className="nt-wc">
@@ -112,14 +141,17 @@ export function Welcome() {
               <div className="nt-wc-chips">
                 {ROLES.map((option) => (
                   <button
-                    key={option}
-                    className="nt-wc-chip"
+                    key={option.label}
+                    className={`nt-wc-chip${role === option.label ? " is-on" : ""}`}
+                    onPointerEnter={() => setHoverRole(option.label)}
+                    onFocus={() => setHoverRole(option.label)}
+                    onPointerLeave={() => setHoverRole(null)}
                     onClick={() => {
-                      setRole(option);
+                      setRole(option.label);
                       setStep(1);
                     }}
                   >
-                    {option}
+                    {option.label}
                   </button>
                 ))}
               </div>
@@ -133,7 +165,16 @@ export function Welcome() {
                 <input
                   className="nt-wc-input"
                   value={role}
-                  onChange={(e) => setRole(e.target.value)}
+                  // Typing wins over a hover. A pointer left resting on a chip
+                  // otherwise keeps answering the context sheet on the user's
+                  // behalf while they are busy writing a different answer into
+                  // it — which is the one moment this panel must not get wrong,
+                  // since its whole job is to show that what you say is kept.
+                  onChange={(e) => {
+                    setHoverRole(null);
+                    setRole(e.target.value);
+                  }}
+                  onFocus={() => setHoverRole(null)}
                   placeholder="Or say it in your own words"
                   aria-label="What you do, in your own words"
                 />
@@ -152,6 +193,8 @@ export function Welcome() {
               <div className="nt-wc-modes">
                 <button
                   className="nt-wc-mode"
+                  onPointerEnter={() => setHoverMode("create")}
+                  onFocus={() => setHoverMode("create")}
                   onClick={() => {
                     setMode("create");
                     setStep(2);
@@ -165,6 +208,8 @@ export function Welcome() {
                 </button>
                 <button
                   className="nt-wc-mode"
+                  onPointerEnter={() => setHoverMode("complete")}
+                  onFocus={() => setHoverMode("complete")}
                   onClick={() => {
                     setMode("complete");
                     setStep(2);
@@ -228,19 +273,176 @@ export function Welcome() {
       </section>
 
       <aside className="nt-wc-desk">
-        <div className="nt-wc-paper" aria-hidden>
-          <div className="nt-wc-page" key={shown.id} style={{ width: DOC_WIDTH }}>
-            <PreviewBlocks
-              blocks={example(shown)}
-              diagramHeight={declaredHeight(shown.script.draw.html)}
-            />
+        {/* One artifact per question, and a different one each time. The role
+            question is answered by the context sheet because that is literally
+            where the answer goes; the mode question is answered by watching the
+            two modes behave; the template question is answered by the page. A
+            single picture doing all three would be three questions with one
+            answer. */}
+        {step === 0 ? (
+          <ContextCard role={hoverRole ?? role} template={shown} />
+        ) : (
+          <div className="nt-wc-paper" aria-hidden>
+            <div
+              className="nt-wc-page"
+              key={`${shown.id}:${demo ?? "doc"}`}
+              style={{ width: DOC_WIDTH }}
+            >
+              {demo ? (
+                <>
+                  <PreviewBlocks blocks={opening(shown)} />
+                  <ModeDemo key={demo} mode={demo} template={shown} />
+                </>
+              ) : (
+                <PreviewBlocks
+                  blocks={example(shown)}
+                  diagramHeight={declaredHeight(shown.script.draw.html)}
+                />
+              )}
+            </div>
           </div>
-        </div>
+        )}
         {/* The picture cannot say what it is a picture OF. */}
-        <p className="nt-wc-caption">{shown.showcase.caption}</p>
+        <p className="nt-wc-caption">
+          {step === 0
+            ? "Every question the model is asked starts with this."
+            : demo
+              ? DEMO_CAPTION[demo]
+              : shown.showcase.caption}
+        </p>
       </aside>
     </main>
   );
+}
+
+/**
+ * The project's context sheet, filling in as the question is answered.
+ *
+ * This is where the role answer literally goes, so it is the honest thing to
+ * show — and it is a different object from a document page, which matters:
+ * three questions answered by three views of the same page would read as one
+ * question asked three times.
+ *
+ * Live while typing, not on submit. The point being made is that what you say
+ * here is kept and used, and a field that only fills in after you commit makes
+ * that point a beat too late to land.
+ */
+function ContextCard({ role, template }: { role: string; template: Template }) {
+  const said = role.trim();
+  return (
+    <div className="nt-wc-context">
+      <span className="nt-wc-context-label">Project context</span>
+      <dl className="nt-wc-context-rows">
+        <div className="nt-wc-context-row">
+          <dt>What is this project?</dt>
+          <dd>{template.description}</dd>
+        </div>
+        <div className="nt-wc-context-row">
+          <dt>Who is writing it, and what do they do?</dt>
+          <dd className={said ? "" : "is-waiting"}>
+            {said || "…"}
+            <span className="nt-wc-caret" />
+          </dd>
+        </div>
+      </dl>
+    </div>
+  );
+}
+
+const DEMO_CAPTION: Record<Mode, string> = {
+  create: "It writes what is not there yet, and shows you before anything lands.",
+  complete: "It finishes the line you are on, and then it stops.",
+};
+
+/**
+ * The two answers, performed on the page rather than described beside it.
+ *
+ * The difference between the modes is genuinely hard to say in a sentence —
+ * both of them "complete text" — and it is obvious in one second of watching:
+ * one finishes your clause and stops, the other keeps going and proposes a
+ * whole block. So the page finishes the clause either way, and only one of
+ * them goes on to draw something.
+ *
+ * Remounted per mode by its key, so the typing starts from nothing each time
+ * rather than needing to reset itself on the way in.
+ */
+function ModeDemo({ mode, template }: { mode: Mode; template: Template }) {
+  const lead = seedOf(template, template.script.write.blockId);
+  const ghost = template.script.write.ghost;
+  const [typed, setTyped] = useState("");
+  const [drawn, setDrawn] = useState(false);
+  const settled = typed.length >= ghost.length;
+
+  useEffect(() => {
+    let at = 0;
+    let timer: ReturnType<typeof setTimeout>;
+    const step = () => {
+      // A word and the space before it, which is roughly what a token is.
+      at = Math.min(at + (ghost.slice(at).match(/^\s*\S+/)?.[0].length ?? 1), ghost.length);
+      setTyped(ghost.slice(0, at));
+      if (at < ghost.length) timer = setTimeout(step, 30 + Math.random() * 46);
+      else if (mode === "create") timer = setTimeout(() => setDrawn(true), 360);
+    };
+    timer = setTimeout(step, 420);
+    return () => clearTimeout(timer);
+  }, [ghost, mode]);
+
+  return (
+    <>
+      <p className="nt-wc-demo-line">
+        {lead}
+        <span className="nt-wc-ghost">{typed}</span>
+        {/* The app's own "still generating" mark: pulsing while tokens arrive,
+            steady once it is showing where the caret would land. */}
+        <span className={`nt-stream-head${settled ? "" : " is-live"}`} />
+      </p>
+      {drawn && (
+        <div className="nt-wc-demo-drawn">
+          <p className="nt-wc-demo-line">
+            {seedOf(template, template.script.draw.blockId)}
+          </p>
+          <PreviewBlocks
+            blocks={[
+              {
+                id: "demo-diagram",
+                type: "canvas",
+                props: { data: template.script.draw.html },
+              },
+            ]}
+            // Its own height, capped: the demo has room for a diagram but not
+            // for a full-page one, and fitted much below this the labels stop
+            // being words — which turns "it drew something" into "something
+            // grey appeared".
+            diagramHeight={Math.min(declaredHeight(template.script.draw.html) ?? 340, 340)}
+          />
+        </div>
+      )}
+    </>
+  );
+}
+
+/** What a template wrote into one of its blocks, before anybody touched it. */
+function seedOf(template: Template, blockId: string): string {
+  for (const page of template.pages) {
+    for (const block of page.blocks) {
+      if (block.id === blockId && typeof block.content === "string") {
+        return block.content;
+      }
+    }
+  }
+  return "";
+}
+
+/** The page down to the line the demo is about to finish. */
+function opening(template: Template): AnyBlock[] {
+  const blocks = template.pages[0].blocks;
+  const at = blocks.findIndex((b) => b.id === template.script.write.blockId);
+  return blocks
+    .slice(0, at === -1 ? 2 : at)
+    // The block the slash beat fills in is empty by design; an empty paragraph
+    // in a picture of a page is just a gap nobody can read as anything.
+    .filter((b) => b.id !== "nt-tour-slash")
+    .map(toAny);
 }
 
 function Question({
