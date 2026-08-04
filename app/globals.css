@@ -1605,7 +1605,14 @@ body:has(.nt-review-bar) .nt-reformat-switcher {
 .nt-thumb-slot {
   height: 260px;
 }
+/* Positioned so it CONTAINS the canvas viewport, which is absolute.
+   Without this the viewport's `width/height: 100%` resolves against whatever
+   positioned ancestor it finds — the scaled page, in the welcome preview — so
+   it measured 600x806 instead of 516x448, fitted the scene to that, and drew
+   the diagram over the blocks below it. The measurement was right; it was
+   measuring the wrong box. */
 .nt-thumb-diagram {
+  position: relative;
   height: 100%;
 }
 .nt-thumb-diagram .nt-canvas-viewport {
