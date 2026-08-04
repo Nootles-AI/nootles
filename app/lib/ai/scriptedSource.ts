@@ -25,6 +25,10 @@ let source: CompletionSource | null = null;
 
 export function setCompletionSource(fn: CompletionSource | null) {
   source = fn;
+  // Logged at `log` rather than `debug` on purpose: DevTools files `debug`
+  // under Verbose and hides it by default, which turns "the guide never ran"
+  // and "the guide ran fine" into the same empty console.
+  console.log("[nt-tour]", fn ? "guide is driving" : "guide stood down");
 }
 
 /** Whether the guide is currently driving — used to scope its own tracing. */
@@ -59,7 +63,7 @@ function trace(what: string, answered: boolean, req: ScriptRequest, error?: unkn
     req.lane === "diagram"
       ? { brief: req.brief }
       : { tail: req.before.slice(-90) };
-  console.debug("[nt-tour]", what, answered ? "scripted" : "passed through", detail, error ?? "");
+  console.log("[nt-tour]", what, answered ? "scripted" : "passed through", detail, error ?? "");
 }
 
 /**

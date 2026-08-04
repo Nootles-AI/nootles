@@ -217,8 +217,22 @@ function Block({
       );
 
     case "canvas":
+      /**
+       * The slot holds the space; the renderer fills it when it arrives.
+       *
+       * `ThumbDiagram` is loaded on demand, so for the first beat this block is
+       * absent from the DOM entirely — which moves everything under it when it
+       * lands, and shifts the `nth-child` the stagger reads its delay from, so
+       * the blocks below animate on the wrong beat and then jump. An element
+       * that is there from the first paint with the right height fixes both.
+       */
       return (
-        <ThumbDiagram data={String(props.data ?? "")} height={diagramHeight} />
+        <div
+          className="nt-thumb-slot"
+          style={diagramHeight ? { height: diagramHeight } : undefined}
+        >
+          <ThumbDiagram data={String(props.data ?? "")} />
+        </div>
       );
 
     case "table":

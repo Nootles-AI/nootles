@@ -13,25 +13,14 @@ import { ScenePreview, sceneFrom } from "./editor/ai/ScenePreview";
  * document pixels because the scaling happens above it. So the diagram is laid
  * out exactly as the block lays it out, then shrunk with everything else.
  */
-export default function ThumbDiagram({
-  data,
-  height,
-}: {
-  data: string;
-  height?: number;
-}) {
+export default function ThumbDiagram({ data }: { data: string }) {
   const scene = sceneFrom(data);
   if (!scene.nodes.length) return null;
-  /**
-   * An explicit height is the diagram's OWN, and it is set inline for a reason:
-   * `ScenePreview` fits to whatever it measures, so a box that arrives at one
-   * size and settles at another makes the drawing jump — and a box shorter than
-   * the drawing lets it spill over whatever is under it. A stylesheet cannot
-   * carry a per-diagram number, and one that loads a beat late is exactly the
-   * race that produces both.
-   */
+  // Fills the slot rather than sizing itself. The slot exists before this
+  // module does — see the canvas case in `PagePreview` — and it is the one
+  // that knows how tall this diagram wants to be.
   return (
-    <div className="nt-thumb-diagram" style={height ? { height } : undefined}>
+    <div className="nt-thumb-diagram">
       <ScenePreview scene={scene} />
     </div>
   );

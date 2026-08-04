@@ -1596,9 +1596,17 @@ body:has(.nt-review-bar) .nt-reformat-switcher {
 }
 
 /* A diagram is drawn by the canvas itself; this is only the room it gets. The
-   height is in document pixels, like everything else at this level. */
-.nt-thumb-diagram {
+   height is in document pixels, like everything else at this level.
+
+   The room is held by the SLOT, which is in the markup from the first paint —
+   the renderer under it is loaded on demand and would otherwise arrive late,
+   moving the page and shifting the stagger's nth-child under everything below
+   it. A caller that knows the diagram's own height overrides this inline. */
+.nt-thumb-slot {
   height: 260px;
+}
+.nt-thumb-diagram {
+  height: 100%;
 }
 .nt-thumb-diagram .nt-canvas-viewport {
   width: 100%;

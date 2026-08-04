@@ -374,7 +374,7 @@
    number for each one and because a stylesheet that lands a beat late makes
    the drawing resize after the page has settled. Nothing to do here but stop
    anything escaping the box while that number arrives. */
-.nt-wc-page .nt-thumb-diagram {
+.nt-wc-page .nt-thumb-slot {
   overflow: hidden;
 }
 
