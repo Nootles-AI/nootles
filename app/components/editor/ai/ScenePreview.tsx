@@ -71,17 +71,9 @@ export function ScenePreview({ scene }: { scene: Scene }) {
     const el = layer.current;
     if (!box || !el) return;
 
-    // Scoped to the welcome preview, which is the one place a refit is visible
-    // as the drawing moving after the page has settled. Everywhere else this
-    // runs behind a suggestion nobody has accepted yet.
-    const watched = box.closest(".nt-wc-page") !== null;
-
     const fit = () => {
       const content = unionBounds(scene.nodes);
       const { clientWidth: w, clientHeight: h } = box;
-      if (watched) {
-        console.log("[nt-fit]", { box: [w, h], content: [content.w, content.h] });
-      }
       if (!w || !h || content.w <= 0 || content.h <= 0) return;
       // Only ever shrinks: a four-shape diagram blown up to fill the box would
       // preview at a size it is never going to be.
@@ -92,7 +84,12 @@ export function ScenePreview({ scene }: { scene: Scene }) {
       );
       const x = (w - content.w * scale) / 2 - content.x * scale;
       const y = (h - content.h * scale) / 2 - content.y * scale;
-      if (watched) console.log("[nt-fit] →", { scale, x, y });
+      // Both numbers above are measured from the top left, so the scale has to
+      // be taken from there too. The default origin is the box's centre, which
+      // silently adds `(1 - scale) × half the box` to every coordinate — enough
+      // to push the right-hand column of a fitted diagram past the crop and
+      // shave the border off it.
+      el.style.transformOrigin = "0 0";
       el.style.transform = `translate(${x}px, ${y}px) scale(${scale})`;
     };
 

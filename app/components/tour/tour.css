@@ -109,11 +109,15 @@
   flex: 1 1 auto;
 }
 
+/* The foot is quiet by size and weight, not by fading out of legibility. It
+   holds the counter and both ways out, and `--faint` is 2.5:1 on the card —
+   readable as a smudge, not as a word. The step above it is still the loud
+   thing: 13px at 500 in full ink against 11-12px in `--muted`. */
 .nt-tour-step {
   font-family: var(--font-mono), ui-monospace, monospace;
   font-size: var(--text-meta);
   letter-spacing: var(--tracking-meta);
-  color: var(--faint);
+  color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
 
@@ -122,7 +126,7 @@
   padding-inline: 7px;
   border-radius: var(--radius-sm);
   font-size: var(--text-meta-lg);
-  color: var(--faint);
+  color: var(--muted);
   transition:
     background var(--dur-fast) var(--ease),
     color var(--dur-fast) var(--ease);
@@ -140,7 +144,7 @@
   margin-right: -7px;
   border-radius: var(--radius-sm);
   font-size: var(--text-meta-lg);
-  color: var(--faint);
+  color: var(--muted);
   transition:
     background var(--dur-fast) var(--ease),
     color var(--dur-fast) var(--ease);
@@ -160,8 +164,8 @@
   left: 50%;
   transform: translateX(-50%);
   z-index: var(--z-sticky);
-  width: min(340px, calc(100vw - 32px));
-  padding: 7px 8px 8px;
+  width: min(364px, calc(100vw - 32px));
+  padding: 11px 10px 10px;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   background: var(--elevated);
@@ -176,19 +180,43 @@ body:has(.nt-reformat-switcher) .nt-tour-list {
   bottom: 66px;
 }
 
-.nt-tour-list-head {
+/* The sentence this whole thing exists to arrive at. Given the weight of a
+   heading rather than a panel label, because it is the one line first run says
+   about itself. */
+.nt-tour-list-title {
+  margin: 2px 0 0;
+  padding-left: 4px;
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--foreground);
+}
+
+.nt-tour-list-note {
+  margin: 4px 0 0;
+  padding-left: 4px;
+  font-size: var(--text-meta-lg);
+  line-height: 1.5;
+  color: var(--muted);
+  text-wrap: pretty;
+}
+
+/* A rule, because what follows is a different kind of thing: the ending is
+   above it, and the leftovers are below. */
+.nt-tour-list-rest {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding-left: 4px;
+  margin-top: 11px;
+  padding: 9px 4px 0;
+  border-top: 1px solid var(--border);
 }
 
-.nt-tour-list-title {
+.nt-tour-list-rest-label {
   flex: 1 1 auto;
   min-width: 0;
-  font-size: var(--text-ui);
-  font-weight: 500;
-  color: var(--foreground);
+  font-size: var(--text-meta-lg);
+  color: var(--muted);
 }
 
 .nt-tour-list-count {
@@ -197,6 +225,25 @@ body:has(.nt-reformat-switcher) .nt-tour-list {
   letter-spacing: var(--tracking-meta);
   color: var(--muted);
   font-variant-numeric: tabular-nums;
+}
+
+/* The way out, and the only filled control in the guide. Ink on paper, like
+   every other commit in the app — the palette has one colour and this is not
+   what it is for. */
+.nt-tour-done {
+  display: block;
+  width: 100%;
+  height: var(--control);
+  margin-top: 9px;
+  border-radius: var(--radius);
+  background: var(--foreground);
+  font-size: var(--text-ui);
+  font-weight: 500;
+  color: var(--background);
+  transition: opacity var(--dur-fast) var(--ease);
+}
+.nt-tour-done:hover {
+  opacity: 0.85;
 }
 
 .nt-tour-list-items {
@@ -255,7 +302,7 @@ body:has(.nt-reformat-switcher) .nt-tour-list {
 
 .nt-tour-item-hint {
   font-size: var(--text-meta-lg);
-  color: var(--faint);
+  color: var(--muted);
 }
 .nt-tour-item.is-done .nt-tour-item-hint {
   opacity: 0;

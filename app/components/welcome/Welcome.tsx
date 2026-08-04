@@ -12,12 +12,16 @@ import type {
   TemplateId,
 } from "@/app/lib/onboarding/types";
 import type { AnyBlock } from "@/app/lib/ai/projection";
+import { TemplateMark } from "./TemplateMark";
 import "./welcome.css";
 
 type Mode = "create" | "complete";
 
 /** What the document is written at; the preview lays out here and is scaled. */
 const DOC_WIDTH = 600;
+
+/** Whether the seed module's download has already been started. See `warm`. */
+let warmed = false;
 
 /**
  * Each role paired with the document that role actually produces.
@@ -68,7 +72,8 @@ export function Welcome() {
   const [hovered, setHovered] = useState<Template | null>(null);
   const [hoverRole, setHoverRole] = useState<string | null>(null);
   const [hoverMode, setHoverMode] = useState<Mode | null>(null);
-  const [busy, setBusy] = useState(false);
+  /** The template being built, which is also what "busy" means here. */
+  const [busy, setBusy] = useState<Template | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
 
   const leave = async () => {
@@ -76,9 +81,27 @@ export function Welcome() {
     router.push("/");
   };
 
+  /**
+   * Start pulling the editor down while they are still reading.
+   *
+   * `seed` drags BlockNote in behind it, which is the heaviest chunk in the
+   * app, and nothing else on this route wants it. Left until the click, the
+   * download lands inside the one wait the user actually feels; started when
+   * the template question appears, it is usually finished before they have
+   * decided. Latched at module scope so it happens once per page load.
+   */
+  const warm = () => {
+    if (warmed) return;
+    warmed = true;
+    void import("@/app/lib/onboarding/seed").catch(() => {
+      // Only a head start. The click imports it again and reports for real.
+      warmed = false;
+    });
+  };
+
   const open = async (template: Template) => {
     if (busy) return;
-    setBusy(true);
+    setBusy(template);
     setFailure(null);
     try {
       // BlockNote is the heaviest thing in the app and this route has no other
@@ -100,9 +123,14 @@ export function Welcome() {
       });
       router.push(`/p/${projectId}`);
     } catch (error) {
-      // The answers are all still here, so this is something to try again.
-      setFailure((error as Error).message);
-      setBusy(false);
+      // The answers are all still here, so this is something to try again — and
+      // that is what to say. What the server threw is a request id and a stack
+      // frame, which is the wrong thing to hand somebody who has just answered
+      // three questions and committed to one of six cards; it goes to the
+      // console, where the person who can act on it will look.
+      console.error("[nootles] first run could not build the project", error);
+      setFailure("That did not go through. Your answers are still here — pick it again.");
+      setBusy(null);
     }
   };
 
@@ -116,14 +144,21 @@ export function Welcome() {
    * their first two answers went nowhere.
    */
   const shown =
-    step === 2
+    // Once one is being built the sheet holds still on it, whatever the pointer
+    // is doing. This is the page that is about to arrive for real.
+    busy ??
+    (step === 2
       ? (hovered ?? templateForRole(role) ?? TEMPLATES[0])
-      : (templateForRole(hoverRole ?? role) ?? TEMPLATES[0]);
+      : (templateForRole(hoverRole ?? role) ?? TEMPLATES[0]));
   // Held until the pointer picks one, so the demo does not run unasked.
   const demo = step === 1 ? hoverMode : null;
 
   return (
-    <main className="nt-wc">
+    // Committing: the questions have done their job and the eye is already on
+    // the page, so the form recedes and the sheet is the last thing standing.
+    // What replaces this screen is that document, and the handover reads better
+    // if the picture of it is what the user is still looking at when it does.
+    <main className={`nt-wc${busy ? " is-committing" : ""}`}>
       <section className="nt-wc-ask">
         <header className="nt-wc-head">
           <span className="nt-wc-mark">Nootles</span>
@@ -198,6 +233,7 @@ export function Welcome() {
                   onClick={() => {
                     setMode("create");
                     setStep(2);
+                    warm();
                   }}
                 >
                   <span className="nt-wc-mode-label">Write with me</span>
@@ -213,6 +249,7 @@ export function Welcome() {
                   onClick={() => {
                     setMode("complete");
                     setStep(2);
+                    warm();
                   }}
                 >
                   <span className="nt-wc-mode-label">Only finish what I start</span>
@@ -235,22 +272,30 @@ export function Welcome() {
                   <button
                     key={option.id}
                     className={`nt-wc-card${shown.id === option.id ? " is-on" : ""}`}
-                    disabled={busy}
+                    disabled={busy !== null}
                     onPointerEnter={() => setHovered(option)}
                     onFocus={() => setHovered(option)}
                     onClick={() => void open(option)}
                   >
-                    <span className="nt-wc-card-label">{option.label}</span>
-                    <span className="nt-wc-card-blurb">{option.blurb}</span>
+                    <TemplateMark id={option.id} />
+                    <span className="nt-wc-card-text">
+                      <span className="nt-wc-card-label">{option.label}</span>
+                      <span className="nt-wc-card-blurb">{option.blurb}</span>
+                    </span>
                   </button>
                 ))}
               </div>
-              {busy && <p className="nt-wc-busy">Building your project…</p>}
-              {failure && (
-                <p className="nt-wc-failure" role="alert">
-                  {failure}
-                </p>
-              )}
+              {/* One row, always present. The column above it is centred, so a
+                  line that mounts on click lifts the question by half a line at
+                  the exact moment the user is looking to see whether anything
+                  happened. */}
+              <p
+                className={`nt-wc-status${failure ? " is-failure" : ""}`}
+                role="status"
+                aria-live="polite"
+              >
+                {failure ?? (busy ? "Building your project…" : "")}
+              </p>
             </Question>
           )}
         </div>
@@ -302,13 +347,17 @@ export function Welcome() {
             </div>
           </div>
         )}
-        {/* The picture cannot say what it is a picture OF. */}
+        {/* The picture cannot say what it is a picture OF — and once the choice
+            is made it stops being a picture of anything and starts being a
+            report on what is happening, which is where the eye already is. */}
         <p className="nt-wc-caption">
-          {step === 0
-            ? "Every question the model is asked starts with this."
-            : demo
-              ? DEMO_CAPTION[demo]
-              : shown.showcase.caption}
+          {busy
+            ? `Setting up ${busy.projectTitle}…`
+            : step === 0
+              ? "Every question the model is asked starts with this."
+              : demo
+                ? DEMO_CAPTION[demo]
+                : shown.showcase.caption}
         </p>
       </aside>
     </main>
@@ -370,8 +419,19 @@ function ModeDemo({ mode, template }: { mode: Mode; template: Template }) {
   const lead = seedOf(template, template.script.write.blockId);
   const ghost = template.script.write.ghost;
   const [typed, setTyped] = useState("");
-  const [drawn, setDrawn] = useState(false);
   const settled = typed.length >= ghost.length;
+
+  /**
+   * The drawing follows the sentence, and follows it immediately.
+   *
+   * In sequence because that is the order it happens in — the model finishes
+   * the line, then keeps going and proposes a block — and the whole point of
+   * this mode is that it does not stop at the clause. But with no pause held
+   * between them: the beat that used to sit there turned one continuous answer
+   * into two events, and on a question answered by hovering the viewer has
+   * usually moved on before the second one arrives.
+   */
+  const drawn = mode === "create" && settled;
 
   useEffect(() => {
     let at = 0;
@@ -381,24 +441,31 @@ function ModeDemo({ mode, template }: { mode: Mode; template: Template }) {
       at = Math.min(at + (ghost.slice(at).match(/^\s*\S+/)?.[0].length ?? 1), ghost.length);
       setTyped(ghost.slice(0, at));
       if (at < ghost.length) timer = setTimeout(step, 30 + Math.random() * 46);
-      else if (mode === "create") timer = setTimeout(() => setDrawn(true), 360);
     };
     timer = setTimeout(step, 420);
     return () => clearTimeout(timer);
-  }, [ghost, mode]);
+  }, [ghost]);
+
+  /* The app's own "still generating" mark: pulsing while tokens arrive, steady
+     once it is showing where the caret would land. */
+  const head = <span className={`nt-stream-head${settled ? "" : " is-live"}`} />;
 
   return (
     <>
       <p className="nt-wc-demo-line">
         {lead}
         <span className="nt-wc-ghost">{typed}</span>
-        {/* The app's own "still generating" mark: pulsing while tokens arrive,
-            steady once it is showing where the caret would land. */}
-        <span className={`nt-stream-head${settled ? "" : " is-live"}`} />
+        {/* Only when the line is the whole of what it wrote. In the other mode
+            the caret belongs after the drawing, which is further down. */}
+        {!drawn && head}
       </p>
       {drawn && (
         <div className="nt-wc-demo-drawn">
-          <p className="nt-wc-demo-line">
+          {/* Ghosted like the clause above it, because it is the same kind of
+              thing: proposed, not placed. The line and the picture under it are
+              one suggestion, and colouring the words as settled text while the
+              drawing is still an offer would split them. */}
+          <p className="nt-wc-demo-line nt-wc-ghost">
             {seedOf(template, template.script.draw.blockId)}
           </p>
           <PreviewBlocks
@@ -415,6 +482,10 @@ function ModeDemo({ mode, template }: { mode: Mode; template: Template }) {
             // grey appeared".
             diagramHeight={Math.min(declaredHeight(template.script.draw.html) ?? 340, 340)}
           />
+          {/* Where the next keystroke would land. In this mode the last thing
+              the model wrote is a picture, so the caret is under it — which is
+              the whole difference from the other answer, said without a word. */}
+          <p className="nt-wc-demo-caret">{head}</p>
         </div>
       )}
     </>
@@ -433,16 +504,38 @@ function seedOf(template: Template, blockId: string): string {
   return "";
 }
 
+/**
+ * The page's own name, as the heading a picture of that page has to open with.
+ *
+ * Drawn rather than seeded. A real page wears its title in the chrome above the
+ * document, so a template that also seeded one as a block would hand every new
+ * project its title twice; the miniature here has no chrome to wear it in, and
+ * a page picture with no title on it does not read as a page.
+ */
+function titleBlock(template: Template): AnyBlock {
+  return {
+    id: "ex-title",
+    type: "heading",
+    props: { level: 1 },
+    content: [{ type: "text", text: template.pages[0].title, styles: {} }],
+  };
+}
+
+/** The block the slash beat fills in is empty by design; an empty paragraph in
+    a picture of a page is just a gap nobody can read as anything. */
+const isGap = (block: SeedBlock) => block.id === "nt-tour-slash";
+
 /** The page down to the line the demo is about to finish. */
 function opening(template: Template): AnyBlock[] {
   const blocks = template.pages[0].blocks;
   const at = blocks.findIndex((b) => b.id === template.script.write.blockId);
-  return blocks
-    .slice(0, at === -1 ? 2 : at)
-    // The block the slash beat fills in is empty by design; an empty paragraph
-    // in a picture of a page is just a gap nobody can read as anything.
-    .filter((b) => b.id !== "nt-tour-slash")
-    .map(toAny);
+  return [
+    titleBlock(template),
+    ...blocks
+      .slice(0, at === -1 ? 2 : at)
+      .filter((b) => !isGap(b))
+      .map(toAny),
+  ];
 }
 
 function Question({
@@ -478,10 +571,12 @@ function Question({
 function example(template: Template): AnyBlock[] {
   const blocks = template.pages[0].blocks;
   const at = blocks.findIndex((b) => b.id === template.script.draw.blockId);
-  const opening = [blocks[0], blocks[1], ...(at > 0 ? [blocks[at - 1], blocks[at]] : [])];
+  const lead = blocks.filter((b) => !isGap(b))[0];
+  const opening = [lead, ...(at > 0 ? [blocks[at - 1], blocks[at]] : [])];
   const { heading, block } = template.showcase;
 
   return [
+    titleBlock(template),
     ...opening.map(toAny),
     { id: "ex-diagram", type: "canvas", props: { data: template.script.draw.html } },
     {

@@ -49,7 +49,6 @@ export const techDesign: Template = {
     {
       title: "Rate limiting",
       blocks: [
-        { type: "heading", props: { level: 1 }, content: "Rate limiting" },
         {
           type: "paragraph",
           content:
@@ -87,7 +86,6 @@ export const techDesign: Template = {
     {
       title: "Failure modes",
       blocks: [
-        { type: "heading", props: { level: 1 }, content: "Failure modes" },
         {
           type: "paragraph",
           content:

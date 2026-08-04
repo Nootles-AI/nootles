@@ -18,10 +18,17 @@
 
 /* ---- The questions ---------------------------------------------------- */
 
+/* Centred in whatever it is given rather than pinned to the left edge. The
+   questions are only ever 540px wide, so on a wide screen a flush-left column
+   puts the whole conversation in one corner and leaves a third of the page as
+   a gap between the question and the thing answering it. */
 .nt-wc-ask {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  width: 100%;
+  max-width: 636px;
+  margin-inline: auto;
   padding: 20px 48px 24px;
 }
 
@@ -30,6 +37,36 @@
   align-items: center;
   justify-content: space-between;
   gap: 16px;
+}
+
+/* ---- Committing --------------------------------------------------------
+   The choice is made and the route is about to change. The questions have
+   nothing left to ask, so they step back and leave the sheet holding the
+   screen — the document that replaces it is the one already lying there, and
+   the two read as one movement rather than a form being swapped for a page.
+
+   The status line is exempt: it is the thing that says what is happening, and
+   it is also the live region, so it stays at full strength. */
+.nt-wc.is-committing .nt-wc-head,
+.nt-wc.is-committing .nt-wc-title,
+.nt-wc.is-committing .nt-wc-note,
+.nt-wc.is-committing .nt-wc-grid,
+.nt-wc.is-committing .nt-wc-foot {
+  opacity: 0.32;
+  transition: opacity var(--dur-slow) var(--ease);
+}
+
+/* The sheet comes forward as the rest goes back. A shade, not a leap: it is
+   settling into place, not being presented. */
+.nt-wc.is-committing .nt-wc-paper {
+  transform: scale(1.012);
+  transition: transform 640ms var(--ease);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nt-wc.is-committing .nt-wc-paper {
+    transform: none;
+  }
 }
 
 /* The one place the product says its own name. Mono, like every other label
@@ -43,13 +80,16 @@
   color: var(--muted);
 }
 
+/* Quiet, but not the decorative token: this is the way out, and the way out is
+   the one thing on the screen a person who does not want to be here is looking
+   for. `--faint` is 2.5:1 on paper, which is a shape rather than a word. */
 .nt-wc-out {
   height: var(--control-sm);
   padding-inline: 9px;
   margin-right: -9px;
   border-radius: var(--radius-sm);
   font-size: var(--text-meta-lg);
-  color: var(--faint);
+  color: var(--muted);
   transition:
     background var(--dur-fast) var(--ease),
     color var(--dur-fast) var(--ease);
@@ -116,8 +156,8 @@
    hierarchy, and the page beside it is the only thing that should look lifted. */
 .nt-wc-card {
   display: flex;
-  flex-direction: column;
-  gap: 3px;
+  align-items: flex-start;
+  gap: 9px;
   padding: 12px 13px 13px;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
@@ -128,16 +168,49 @@
     border-color var(--dur-fast) var(--ease),
     transform var(--dur-fast) var(--ease);
 }
-.nt-wc-card:hover {
+.nt-wc-card:hover:not(:disabled) {
   border-color: var(--border-strong);
   background: var(--surface);
 }
-.nt-wc-card:active {
+.nt-wc-card:active:not(:disabled) {
   transform: translateY(1px);
 }
 .nt-wc-card.is-on {
   border-color: var(--border-strong);
   background: var(--selected);
+}
+/* Once one is picked the choice is over: the others stop lighting up and stop
+   offering themselves, while the picked one keeps its full strength — dimming
+   that one too would fade the confirmation at the moment it is doing its job. */
+.nt-wc-card:disabled {
+  pointer-events: none;
+}
+.nt-wc-card:disabled:not(.is-on) {
+  opacity: 0.45;
+}
+
+/* The mark gets its own column so the two lines stay on one left edge. Set on
+   the label rather than the blurb, because the label is what it names. */
+.nt-wc-card-text {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+/* Quieter than the words beside it. The label already says what the document
+   is, so this only has to make the six tellable apart at a glance — and it
+   picks up when the card does, which is the one moment somebody is looking at
+   a single card rather than at the set. */
+.nt-wc-mark-icon {
+  flex: none;
+  margin-top: 2px;
+  color: var(--faint);
+  transition: color var(--dur-fast) var(--ease);
+}
+.nt-wc-card:hover:not(:disabled) .nt-wc-mark-icon,
+.nt-wc-card.is-on .nt-wc-mark-icon {
+  color: var(--muted);
 }
 
 .nt-wc-card-label {
@@ -204,8 +277,12 @@
 .nt-wc-input::placeholder {
   color: var(--muted);
 }
+/* Keeps the app's one focus ring. This file is unlayered, so an `outline: none`
+   here beats the base-layer rule outright — and the border it left in its place
+   moves 0.93 to 0.875, which is a 1.06:1 step and no indicator at all. Tabbing
+   the row of chips would lose the ring at the one control asking the user to
+   write something in their own words. */
 .nt-wc-input:focus {
-  outline: none;
   border-color: var(--border-strong);
 }
 
@@ -250,13 +327,9 @@
     background var(--dur-fast) var(--ease),
     border-color var(--dur-fast) var(--ease);
 }
-.nt-wc-mode:hover:not(:disabled) {
+.nt-wc-mode:hover {
   border-color: var(--border-strong);
   background: var(--surface);
-}
-.nt-wc-mode:disabled {
-  opacity: 0.5;
-  pointer-events: none;
 }
 
 .nt-wc-mode-label {
@@ -272,13 +345,15 @@
   text-wrap: pretty;
 }
 
-.nt-wc-busy,
-.nt-wc-failure {
+/* One region, and its room is reserved whether or not it has anything to say. */
+.nt-wc-status {
+  min-height: 1.4em;
   margin: 14px 0 0;
   font-size: var(--text-meta-lg);
+  line-height: 1.4;
   color: var(--muted);
 }
-.nt-wc-failure {
+.nt-wc-status.is-failure {
   color: var(--danger);
 }
 
@@ -340,22 +415,38 @@
    off. Big enough that the headings are legible and the shape of the thing is
    unmistakable, small enough that it is still a picture. */
 
+/* Everything on this side is drawn from two numbers: the width the document is
+   written at (`DOC_WIDTH`, 600) and the fraction it is shown at. The sheet, the
+   context panel and the caption all measure the same because they all measure
+   from `--page-w` — and the scale opens up on a large screen, where 468px of
+   page in a 700px panel is a stamp rather than a document. */
 .nt-wc-desk {
+  --page-scale: 0.78;
+  --page-w: calc(600px * var(--page-scale));
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 14px;
-  width: 596px;
+  width: clamp(596px, 44vw, 748px);
   padding: 32px;
   background: var(--sunken);
   border-left: 1px solid var(--border);
 }
 
+/* Bigger, but not so much bigger that the sheet holds less of the page: every
+   point of scale is a point of the document pushed under the crop, and the
+   diagram is the thing that must arrive whole. */
+@media (min-width: 1440px) {
+  .nt-wc-desk {
+    --page-scale: 0.84;
+  }
+}
+
 /* The picture cannot say what it is a picture of, so one line does. */
 .nt-wc-caption {
   margin: 0;
-  max-width: 468px;
+  max-width: var(--page-w);
   font-size: var(--text-meta-lg);
   line-height: 1.5;
   color: var(--muted);
@@ -364,8 +455,11 @@
 
 .nt-wc-paper {
   position: relative;
-  width: 468px; /* 600 × 0.78 */
-  height: min(70vh, 660px);
+  width: var(--page-w);
+  /* Tall enough to hold the diagram whole. The desk has the room — the sheet
+     was leaving ~180px of it empty and cropping mid-drawing instead, which
+     reads as a broken picture rather than a page that carries on. */
+  height: min(78vh, 700px);
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
@@ -398,7 +492,7 @@
 .nt-wc-page {
   position: absolute;
   inset: 0 auto auto 0;
-  transform: scale(0.78);
+  transform: scale(var(--page-scale));
   transform-origin: top left;
   padding: 36px 42px 0;
   font-size: var(--text-body);
@@ -500,6 +594,12 @@
 .nt-wc-demo-drawn {
   animation: nt-wc-drawn var(--dur-slow) var(--ease) backwards;
 }
+
+/* Holds the line box the caret sits in, and nothing else. */
+.nt-wc-demo-caret {
+  margin: 6px 0 0;
+  line-height: var(--leading-body);
+}
 @keyframes nt-wc-drawn {
   from {
     opacity: 0;
@@ -520,7 +620,7 @@
    whole reason it is here. */
 
 .nt-wc-context {
-  width: 468px;
+  width: var(--page-w);
   padding: 18px 20px 20px;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
@@ -563,6 +663,16 @@
   line-height: 1.5;
   color: var(--foreground);
   text-wrap: pretty;
+}
+
+/* Two lines held open whether or not the answer needs them.
+   The descriptions run from 54 to 87 characters, so moving between two chips
+   swaps a one-line answer for a two-line one — and because the panel is centred
+   in the desk, that resizes the card and lifts everything under it on a hover
+   the user did not commit to. The row is a fixed slot; only its contents
+   change. */
+.nt-wc-context-row:first-child dd {
+  min-height: 3em;
 }
 /* Nothing said yet, so the row reads as waiting rather than as answered. */
 .nt-wc-context-row dd.is-waiting {

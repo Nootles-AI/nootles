@@ -53,7 +53,6 @@ export const screenplay: Template = {
     {
       title: "Salt Flats",
       blocks: [
-        { type: "heading", props: { level: 1 }, content: "Salt Flats" },
         {
           type: "paragraph",
           content:
@@ -90,7 +89,6 @@ export const screenplay: Template = {
     {
       title: "Characters",
       blocks: [
-        { type: "heading", props: { level: 1 }, content: "Characters" },
         {
           type: "paragraph",
           content: "Who they are when nobody is watching them.",

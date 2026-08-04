@@ -37,7 +37,6 @@ export const classNotes: Template = {
     {
       title: "Eigenvalues",
       blocks: [
-        { type: "heading", props: { level: 1 }, content: "Eigenvalues" },
         {
           type: "paragraph",
           content: [
@@ -86,7 +85,6 @@ export const classNotes: Template = {
     {
       title: "Worked examples",
       blocks: [
-        { type: "heading", props: { level: 1 }, content: "Worked examples" },
         {
           type: "paragraph",
           content: "One 2×2 done slowly, then a 3×3 done properly.",

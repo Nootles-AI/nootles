@@ -45,7 +45,6 @@ export const prd: Template = {
     {
       title: "Guest checkout",
       blocks: [
-        { type: "heading", props: { level: 1 }, content: "Guest checkout" },
         {
           type: "paragraph",
           content:
@@ -83,7 +82,6 @@ export const prd: Template = {
     {
       title: "Success metrics",
       blocks: [
-        { type: "heading", props: { level: 1 }, content: "Success metrics" },
         {
           type: "paragraph",
           content:

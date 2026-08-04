@@ -95,7 +95,27 @@ function Running({
   const panels = usePanels();
   const shell = useCanvasShell();
   const openReviews = useOpenReviews();
-  const setBeat = useMutation(api.profiles.setBeat);
+  /**
+   * Moved locally first, then confirmed.
+   *
+   * The beat is read back off the profile, so without this every step waits a
+   * round trip before it acknowledges — and the frame it waits is the frame the
+   * user has just succeeded in. Landing the diagram would clear the preview the
+   * spotlight was holding, drop the scrim, and leave the card still asking for
+   * the thing that had already happened. The step it advances to is unchanged;
+   * only the lag before saying so is.
+   */
+  const setBeat = useMutation(api.profiles.setBeat).withOptimisticUpdate(
+    (store, args) => {
+      const profile = store.getQuery(api.profiles.get, {});
+      if (!profile?.tour) return;
+      store.setQuery(
+        api.profiles.get,
+        {},
+        { ...profile, tour: { ...profile.tour, beat: args.beat } },
+      );
+    },
+  );
   const check = useMutation(api.profiles.check);
   const skip = useMutation(api.profiles.skip);
   const finish = useMutation(api.profiles.finish);
@@ -135,13 +155,22 @@ function Running({
 
   /* ---- Slash, write and draw: the guide runs them itself ---------------- */
 
-  // No model is called during first run. The lane stays off for the whole
-  // tour — including the free tail, where a real completion arriving over a
-  // checklist would be its own kind of confusing.
+  // No model is called while the guide is driving: the scripted ghost text
+  // writes into the same plugin a real completion would, and two authors in
+  // one buffer is the one collision that would make the lesson unreadable.
+  //
+  // It stops at the tail, which is the point the user is working in their own
+  // document. Tying it to the component's lifetime instead left the lane dead
+  // until someone dismissed the checklist — and since that X is the only thing
+  // that ever calls `finish`, anyone who left it up lost inline completion for
+  // good, across reloads, having just been asked to choose how much of it they
+  // wanted.
+  const gated = beat < GATED;
   useEffect(() => {
+    if (!gated) return;
     suspendCompletions(true);
     return () => suspendCompletions(false);
-  }, []);
+  }, [gated]);
 
   /**
    * Put the caret where the suggestion belongs, then write the suggestion.
@@ -254,10 +283,17 @@ function Running({
 
     const headings = () =>
       editor.document.filter((b) => b.type === "heading").length;
-    const before = headings();
+    // Drawn ones only: a canvas block starts life with `data: ""`, so an empty
+    // one someone just inserted is not a diagram yet.
+    const drawings = () =>
+      editor.document.filter(
+        (b) => b.type === "canvas" && Boolean((b.props as { data?: string })?.data),
+      ).length;
+    const headingsBefore = headings();
+    const drawingsBefore = drawings();
 
     const landed = () => {
-      if (beat === SLASH) return headings() > before;
+      if (beat === SLASH) return headings() > headingsBefore;
       if (beat === WRITE) {
         // Compared loosely on whitespace: a line break landing differently is
         // not a different sentence.
@@ -265,9 +301,11 @@ function Running({
           textOf(editor.document.find((b) => b.id === script.write.blockId)),
         ).includes(flat(script.write.ghost));
       }
-      return editor.document.some(
-        (b) => b.type === "canvas" && Boolean((b.props as { data?: string })?.data),
-      );
+      // How many there were when the beat began, for the same reason the tail
+      // counts rather than asks: the slash menu has just been taught, and
+      // somebody who goes and draws their own diagram with it would otherwise
+      // arrive at this beat to find it already over.
+      return drawings() > drawingsBefore;
     };
 
     if (landed()) {
@@ -276,6 +314,22 @@ function Running({
     }
     return editor.onChange(() => landed() && advance(beat + 1), false);
   }, [editor, beat, script, advance]);
+
+  /**
+   * Nothing was drawn, so there is nothing to say this about.
+   *
+   * This beat is about the diagram the last one placed — that both rails have
+   * turned over to it, that it can be dragged. Stepped past that one, the
+   * sentence describes a screen that is not there and waits on a shape that
+   * does not exist, so the only way out would be to skip a second time.
+   */
+  useEffect(() => {
+    if (beat !== CANVAS || !editor) return;
+    const drawn = editor.document.some(
+      (b) => b.type === "canvas" && Boolean((b.props as { data?: string })?.data),
+    );
+    if (!drawn) advance(beat + 1);
+  }, [beat, editor, advance]);
 
   /**
    * The canvas beat ends when a shape moves.
@@ -293,7 +347,7 @@ function Running({
     const opened = performance.now();
     return store.subscribe(() => {
       if (performance.now() - opened > 500 && store.getScene() !== entered) {
-        advance(GATED);
+        advance(beat + 1);
       }
     });
   }, [beat, active, advance]);
@@ -321,15 +375,23 @@ function Running({
         : "newChat";
 
   useEffect(() => {
-    if (beat !== 2) return;
+    if (beat !== CHAT) return;
     panels?.openChat();
   }, [beat, panels]);
 
   // Written only once they have somewhere of their own to put it. Prefilling on
   // arrival would drop the question into the seeded conversation, which is the
   // one thing this beat is trying to teach them not to do.
+  //
+  // Latched, like `advance` is, because `phase` is derived and comes back: the
+  // moment the review is answered it falls from "review" to "ask" while the
+  // beat is still catching up, and an unlatched effect takes that as its cue to
+  // type the question they have just had answered back over whatever they had
+  // started writing.
+  const prefilled = useRef(false);
   useEffect(() => {
-    if (beat !== 2 || phase !== "ask") return;
+    if (beat !== CHAT || phase !== "ask" || prefilled.current) return;
+    prefilled.current = true;
     prefillComposer(script.ask);
   }, [beat, phase, script]);
 
@@ -337,12 +399,12 @@ function Running({
   // the change was never applied behind their back.
   const answered = useRef(false);
   useEffect(() => {
-    if (beat !== 2) return;
+    if (beat !== CHAT) return;
     if (openReviews.length) {
       answered.current = true;
       return;
     }
-    if (answered.current) advance(GATED);
+    if (answered.current) advance(beat + 1);
   }, [beat, openReviews.length, advance]);
 
   /* ---- The free tail --------------------------------------------------- */
@@ -389,6 +451,34 @@ function Running({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [beat, pageCount, seededPages, ticked]);
 
+  /**
+   * Take the guide's own scaffolding back out on the way out.
+   *
+   * The slash beat needs somewhere to point, so the templates seed an empty
+   * paragraph for it. Taught, it becomes the heading the user makes; skipped,
+   * it is a blank block sitting in the middle of the first document they own,
+   * and they have no way of knowing it was ever for anything.
+   *
+   * Only ever removes a paragraph that is still empty, so a heading made in it
+   * — the thing the beat was asking for — is never what gets deleted.
+   */
+  const tidy = () => {
+    const block = editor?.document.find((b) => b.id === SLASH_BLOCK);
+    if (!editor || !block) return;
+    if (block.type !== "paragraph" || textOf(block).trim()) return;
+    editor.removeBlocks([block]);
+  };
+
+  const leave = () => {
+    tidy();
+    void skip().catch(() => {});
+  };
+
+  const close = () => {
+    tidy();
+    void finish().catch(() => {});
+  };
+
   /* ---- What is on screen ----------------------------------------------- */
 
   const selector =
@@ -415,7 +505,12 @@ function Running({
       <Checklist
         items={items}
         done={ticked}
-        onDismiss={() => void finish().catch(() => {})}
+        drew={Boolean(
+          editor?.document.some(
+            (b) => b.type === "canvas" && Boolean((b.props as { data?: string })?.data),
+          ),
+        )}
+        onDismiss={close}
       />
     );
   }
@@ -433,7 +528,7 @@ function Running({
         action={copy.action}
         hint={copy.hint}
         onNext={() => advance(beat + 1)}
-        onSkip={() => void skip().catch(() => {})}
+        onSkip={leave}
       />
     </>
   );
@@ -470,9 +565,13 @@ const BEATS: Copy[] = [
     hint: "⇥",
   },
   {
+    // The rails turn over when the canvas is entered, not when it lands — and
+    // this beat cannot end until it is entered either, since what it waits for
+    // is a shape moving. So the sentence asks for the click rather than
+    // describing a screen the reader is not looking at yet.
     title:
-      "That is not an image of a diagram. Both rails have just turned over to it — layers on the left, the shape's own properties on the right.",
-    action: "Drag a box. The connectors redraw themselves.",
+      "That is not an image of a diagram. Click into it and both rails turn over to it — layers on the left, the shape's own properties on the right.",
+    action: "Then drag a box. The connectors redraw themselves.",
   },
 ];
 

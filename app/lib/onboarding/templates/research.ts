@@ -50,11 +50,6 @@ order by 1, 2;`,
       title: "Why users churn at day eight",
       blocks: [
         {
-          type: "heading",
-          props: { level: 1 },
-          content: "Why users churn at day eight",
-        },
-        {
           type: "paragraph",
           content:
             "Something happens at the end of the first week that we cannot see from the dashboard. This is a plan to find out what.",
@@ -94,7 +89,6 @@ order by 1, 2;`,
     {
       title: "Interview guide",
       blocks: [
-        { type: "heading", props: { level: 1 }, content: "Interview guide" },
         {
           type: "paragraph",
           content:

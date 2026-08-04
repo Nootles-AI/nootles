@@ -37,7 +37,6 @@ export const woodworking: Template = {
     {
       title: "Walnut side table",
       blocks: [
-        { type: "heading", props: { level: 1 }, content: "Walnut side table" },
         {
           type: "paragraph",
           content:
@@ -70,7 +69,6 @@ export const woodworking: Template = {
     {
       title: "Cut list",
       blocks: [
-        { type: "heading", props: { level: 1 }, content: "Cut list" },
         {
           type: "paragraph",
           content: "Finished dimensions. Add an inch to every length for now.",
