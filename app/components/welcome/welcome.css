@@ -58,13 +58,13 @@
 
 /* The sheet comes forward as the rest goes back. A shade, not a leap: it is
    settling into place, not being presented. */
-.nt-wc.is-committing .nt-wc-paper {
+.nt-wc.is-committing .nt-sheet {
   transform: scale(1.012);
   transition: transform 640ms var(--ease);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .nt-wc.is-committing .nt-wc-paper {
+  .nt-wc.is-committing .nt-sheet {
     transform: none;
   }
 }
@@ -409,13 +409,10 @@
 }
 
 /* ---- The desk ----------------------------------------------------------
-   A page lying on a surface. Shown at 78% rather than full size on purpose:
-   the miniature's one-line-per-paragraph treatment reads correctly as a
-   picture of a document, and at 1:1 it would read as text that had been cut
-   off. Big enough that the headings are legible and the shape of the thing is
-   unmistakable, small enough that it is still a picture. */
+   The sheet itself is `.nt-sheet` in `globals.css` — the door shows the same
+   picture, and a person signing in sees the two back to back.
 
-/* Everything on this side is drawn from two numbers: the width the document is
+   Everything on this side is drawn from two numbers: the width the document is
    written at (`DOC_WIDTH`, 600) and the fraction it is shown at. The sheet, the
    context panel and the caption all measure the same because they all measure
    from `--page-w` — and the scale opens up on a large screen, where 468px of
@@ -442,99 +439,6 @@
     --page-scale: 0.84;
   }
 }
-
-/* The picture cannot say what it is a picture of, so one line does. */
-.nt-wc-caption {
-  margin: 0;
-  max-width: var(--page-w);
-  font-size: var(--text-meta-lg);
-  line-height: 1.5;
-  color: var(--muted);
-  text-align: center;
-}
-
-.nt-wc-paper {
-  position: relative;
-  width: var(--page-w);
-  /* Tall enough to hold the diagram whole. The desk has the room — the sheet
-     was leaving ~180px of it empty and cropping mid-drawing instead, which
-     reads as a broken picture rather than a page that carries on. */
-  height: min(78vh, 700px);
-  overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--background);
-  box-shadow:
-    0 1px 2px oklch(0.25 0.005 90 / 0.04),
-    0 8px 24px oklch(0.25 0.005 90 / 0.06),
-    0 24px 64px oklch(0.25 0.005 90 / 0.08);
-}
-/* The diagram's height is set inline, per diagram, from the size it declares
-   for itself — see `declaredHeight`. It has to be, because it is a different
-   number for each one and because a stylesheet that lands a beat late makes
-   the drawing resize after the page has settled. Nothing to do here but stop
-   anything escaping the box while that number arrives. */
-.nt-wc-page .nt-thumb-slot {
-  overflow: hidden;
-}
-
-/* The page does not end at the crop, so it fades rather than being cut mid-line. */
-.nt-wc-paper::after {
-  content: "";
-  position: absolute;
-  inset-inline: 0;
-  bottom: 0;
-  height: 22%;
-  background: linear-gradient(to bottom, transparent, var(--background) 86%);
-  pointer-events: none;
-}
-
-.nt-wc-page {
-  position: absolute;
-  inset: 0 auto auto 0;
-  transform: scale(var(--page-scale));
-  transform-origin: top left;
-  padding: 36px 42px 0;
-  font-size: var(--text-body);
-  line-height: var(--leading-body);
-  color: var(--foreground);
-}
-.nt-wc-page > * {
-  margin-block: 6px;
-}
-.nt-wc-page > :first-child {
-  margin-top: 0;
-}
-
-/* The assembly. Each block arrives a beat after the one above it, which is the
-   document being written rather than a picture being revealed — the difference
-   is the whole point of doing it at all.
-
-   Written out rather than generated: fourteen lines of CSS, no wrapper element
-   around every block, and the margins above stay the page's own. */
-.nt-wc-page > * {
-  animation: nt-wc-line var(--dur-slow) var(--ease) backwards;
-}
-@keyframes nt-wc-line {
-  from {
-    opacity: 0;
-    transform: translateY(7px);
-  }
-}
-.nt-wc-page > :nth-child(1) { animation-delay: 40ms; }
-.nt-wc-page > :nth-child(2) { animation-delay: 76ms; }
-.nt-wc-page > :nth-child(3) { animation-delay: 112ms; }
-.nt-wc-page > :nth-child(4) { animation-delay: 148ms; }
-.nt-wc-page > :nth-child(5) { animation-delay: 184ms; }
-.nt-wc-page > :nth-child(6) { animation-delay: 220ms; }
-.nt-wc-page > :nth-child(7) { animation-delay: 256ms; }
-.nt-wc-page > :nth-child(8) { animation-delay: 292ms; }
-.nt-wc-page > :nth-child(9) { animation-delay: 328ms; }
-.nt-wc-page > :nth-child(10) { animation-delay: 364ms; }
-.nt-wc-page > :nth-child(11) { animation-delay: 400ms; }
-.nt-wc-page > :nth-child(12) { animation-delay: 436ms; }
-.nt-wc-page > :nth-child(13) { animation-delay: 472ms; }
-.nt-wc-page > :nth-child(14) { animation-delay: 508ms; }
 
 /* ---- Narrow ------------------------------------------------------------
    The desk is the first thing to go: it is the argument, not the flow, and a
@@ -564,9 +468,6 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  /* The stagger is the one thing that must not simply run faster: fourteen
-     blocks arriving at once from 7px below is a flinch. They just appear. */
-  .nt-wc-page > *,
   .nt-wc-body {
     animation: none;
   }

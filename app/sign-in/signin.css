@@ -1,0 +1,214 @@
+/* The door.
+
+   The only screen a signed-out person ever sees, and until now the only thing
+   on it was the product's name. A name is not an argument. So the screen is
+   composed the same way first run is — something said on the left, a page
+   answering it on the right — and the two are seen back to back, which is why
+   the sheet is `.nt-sheet` in `globals.css` rather than a second copy of it.
+
+   The page on the right is a real document, built from the same template that
+   seeds a real project, so the thing being promised at the door is the thing
+   that arrives after it.
+
+   Still no accent. Amber means the model is working, and nothing here is the
+   model working. */
+
+.nt-si {
+  display: grid;
+  grid-template-columns: minmax(420px, 1fr) auto;
+  height: 100vh;
+  overflow: hidden;
+  background: var(--background);
+}
+
+/* ---- The door ----------------------------------------------------------
+   The one tinted surface in the app, and the only place the brand is allowed to
+   touch anything other than the mark itself.
+
+   A halo rather than a flat wash: a solid tint restates the colour everywhere
+   and ends up reading as the wrong white — that ramp was tried across the
+   product and pulled every surface toward a colour it did not need. Falling off
+   to nothing well before the desk's edge means this is still paper, with light
+   on it where the name is.
+
+   Wide and soft on purpose. At 44rem across there is no edge to see, so it
+   reads as the page being lit rather than as a shape drawn on it. */
+.nt-si-door {
+  display: flex;
+  min-width: 0;
+  background:
+    radial-gradient(
+      44rem 34rem at 46% 46%,
+      oklch(0.962 0.022 136),
+      transparent 70%
+    ),
+    var(--background);
+}
+
+/* The light is the column's, but the words are not: they sit in the same 540px
+   the questions on the next screen do, centred in whatever the column happens
+   to be. A flush-left block on a wide screen puts the whole of what there is to
+   read in one corner, with a third of the page as a gap before the page that
+   answers it. Header and body share this edge — the mark has to be over the
+   first letter of the heading, not over the column. */
+.nt-si-col {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  flex-direction: column;
+  width: 100%;
+  max-width: 636px;
+  margin-inline: auto;
+  padding: 20px 48px 24px;
+}
+
+.nt-si-head {
+  display: flex;
+  align-items: center;
+}
+
+/* The product saying its own name, at the size it says it at on the screen
+   after this one. The headline below is what makes the argument; the mark only
+   has to say whose argument it is. */
+.nt-si-mark {
+  flex: none;
+  width: auto;
+  height: 18px;
+  color: var(--brand);
+}
+
+/* Sits at the optical middle of what is left under the mark. */
+.nt-si-say {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  justify-content: center;
+  padding-block: 24px;
+  animation: nt-fade-in var(--dur-slow) var(--ease);
+}
+
+.nt-si-title {
+  margin: 0;
+  font-size: 34px;
+  font-weight: 600;
+  line-height: 1.15;
+  letter-spacing: -0.025em;
+  color: var(--foreground);
+  text-wrap: balance;
+}
+
+.nt-si-note {
+  margin: 12px 0 0;
+  max-width: 44ch;
+  font-size: var(--text-body);
+  line-height: 1.55;
+  color: var(--muted);
+  text-wrap: pretty;
+}
+
+/* ---- The way in --------------------------------------------------------
+   Shaped like the controls on the screen after it, and sized off its label
+   rather than the column: a button stretched across a 44ch paragraph is a
+   banner, and there is only one thing to press here anyway.
+
+   Neutral, and deliberately. A brand-coloured button beside Google's mark reads
+   as a second brand asking for the same click — and this palette's one colour
+   is spent on the name above, which is the whole of what it is for. */
+.nt-si-go {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 9px;
+  height: 40px;
+  margin-top: 32px;
+  padding-inline: 20px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--background);
+  font-size: var(--text-ui);
+  font-weight: 500;
+  color: var(--foreground);
+  transition:
+    background var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease);
+}
+.nt-si-go:hover:not(:disabled) {
+  background: var(--surface);
+  border-color: var(--muted);
+}
+.nt-si-go:active:not(:disabled) {
+  background: var(--sunken);
+}
+/* Loaded but on its way to Google, or Clerk not up yet. Either way the press
+   has landed and there is nothing more to do here. */
+.nt-si-go:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+/* One region, always occupied: the footnote it holds at rest is replaced by the
+   failure rather than pushed aside by it, so nothing under it moves at the
+   exact moment the user is looking to see whether anything happened. */
+.nt-si-status {
+  min-height: 1.5em;
+  margin: 14px 0 0;
+  max-width: 44ch;
+  font-size: var(--text-meta-lg);
+  line-height: 1.5;
+  color: var(--muted);
+}
+.nt-si-status.is-failure {
+  color: var(--danger);
+}
+
+/* ---- The desk ----------------------------------------------------------
+   The same surface, scale and measure as first run's, because it is the same
+   picture and they are seen one after the other. */
+.nt-si-desk {
+  --page-scale: 0.78;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  width: clamp(596px, 44vw, 748px);
+  padding: 32px;
+  background: var(--sunken);
+  border-left: 1px solid var(--border);
+}
+
+/* Bigger, but not so much bigger that the sheet holds less of the page: every
+   point of scale is a point of the document pushed under the crop, and the
+   diagram is the thing that must arrive whole. */
+@media (min-width: 1440px) {
+  .nt-si-desk {
+    --page-scale: 0.84;
+  }
+}
+
+/* ---- Narrow ------------------------------------------------------------
+   The desk is the first thing to go: it is the argument, not the way in, and a
+   page shrunk into a phone-width column stops being legible as a page. What is
+   left is the door on its own, which is what this screen used to be. */
+@media (max-width: 1079px) {
+  .nt-si {
+    grid-template-columns: 1fr;
+  }
+  .nt-si-desk {
+    display: none;
+  }
+  .nt-si-col {
+    padding-inline: 28px;
+  }
+}
+
+@media (max-width: 559px) {
+  .nt-si-title {
+    font-size: 27px;
+  }
+  .nt-si-col {
+    padding-inline: 20px;
+  }
+}

@@ -665,26 +665,111 @@ textarea.nt-input {
   }
 }
 
-/* ---- Sign-in ------------------------------------------------------------
-   The one tinted surface in the app, and the only place the brand is allowed to
-   touch anything other than the mark itself.
+/* ---- The sheet ----------------------------------------------------------
+   A page lying on a surface: laid out at the width the document is written at
+   and shrunk by a transform, so proportions, line breaks and diagram geometry
+   are the page's own rather than a narrow reflow of it.
 
-   A halo behind the logo rather than a flat wash: a solid tint restates the
-   colour everywhere and ends up reading as the wrong white — that ramp was
-   tried across the product and pulled every surface toward a colour it did not
-   need. Falling off to nothing before the edges means the page is still paper,
-   with light on it where the name is.
+   Two screens show one — the door and first run — and a signed-out person sees
+   them back to back, so the picture is defined once here and the two cannot
+   drift apart. The container sets `--page-scale` and everything else derives
+   from it; 0.78 is the fraction at which the miniature's one-line-per-paragraph
+   treatment still reads as a picture of a document rather than as text that has
+   been cut off.
 
-   Wide and soft on purpose. At 60rem across there is no edge to see, so it
-   reads as the page being lit rather than as a shape drawn on it. */
-.nt-signin {
-  background:
-    radial-gradient(
-      60rem 38rem at 50% 34%,
-      oklch(0.955 0.024 136),
-      transparent 68%
-    ),
-    var(--background);
+   Everything inside is `aria-hidden` at the call site: it is a picture, and
+   nothing in it is text meant to be read at this size. */
+.nt-sheet {
+  position: relative;
+  width: calc(600px * var(--page-scale, 0.78));
+  /* Tall enough to hold a diagram whole. Cropping mid-drawing reads as a broken
+     picture rather than as a page that carries on. */
+  height: var(--page-h, min(78vh, 700px));
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--background);
+  box-shadow:
+    0 1px 2px oklch(0.25 0.005 90 / 0.04),
+    0 8px 24px oklch(0.25 0.005 90 / 0.06),
+    0 24px 64px oklch(0.25 0.005 90 / 0.08);
+}
+
+/* The page does not end at the crop, so it fades rather than being cut mid-line. */
+.nt-sheet::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  height: 22%;
+  background: linear-gradient(to bottom, transparent, var(--background) 86%);
+  pointer-events: none;
+}
+
+.nt-sheet-page {
+  position: absolute;
+  inset: 0 auto auto 0;
+  width: 600px;
+  transform: scale(var(--page-scale, 0.78));
+  transform-origin: top left;
+  padding: 36px 42px 0;
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
+  color: var(--foreground);
+}
+.nt-sheet-page > :first-child {
+  margin-top: 0;
+}
+/* The diagram's height is set inline, per diagram, from the size it declares
+   for itself. It has to be, because it is a different number for each one and
+   because a stylesheet that lands a beat late makes the drawing resize after
+   the page has settled. Nothing to do here but stop anything escaping the box
+   while that number arrives. */
+.nt-sheet-page .nt-thumb-slot {
+  overflow: hidden;
+}
+
+/* The assembly. Each block arrives a beat after the one above it, which is the
+   document being written rather than a picture being revealed — the difference
+   is the whole point of doing it at all.
+
+   Written out rather than generated: fourteen lines of CSS, no wrapper element
+   around every block, and the margins stay the page's own. */
+.nt-sheet-page > * {
+  margin-block: 6px;
+  animation: nt-sheet-line var(--dur-slow) var(--ease) backwards;
+}
+@keyframes nt-sheet-line {
+  from {
+    opacity: 0;
+    transform: translateY(7px);
+  }
+}
+.nt-sheet-page > :nth-child(1) { animation-delay: 40ms; }
+.nt-sheet-page > :nth-child(2) { animation-delay: 76ms; }
+.nt-sheet-page > :nth-child(3) { animation-delay: 112ms; }
+.nt-sheet-page > :nth-child(4) { animation-delay: 148ms; }
+.nt-sheet-page > :nth-child(5) { animation-delay: 184ms; }
+.nt-sheet-page > :nth-child(6) { animation-delay: 220ms; }
+.nt-sheet-page > :nth-child(7) { animation-delay: 256ms; }
+.nt-sheet-page > :nth-child(8) { animation-delay: 292ms; }
+.nt-sheet-page > :nth-child(9) { animation-delay: 328ms; }
+.nt-sheet-page > :nth-child(10) { animation-delay: 364ms; }
+.nt-sheet-page > :nth-child(11) { animation-delay: 400ms; }
+.nt-sheet-page > :nth-child(12) { animation-delay: 436ms; }
+.nt-sheet-page > :nth-child(13) { animation-delay: 472ms; }
+.nt-sheet-page > :nth-child(14) { animation-delay: 508ms; }
+
+/* One line under it, because a picture cannot say what it is a picture of.
+   Measured off the same two numbers the sheet is, so the line wraps to the
+   width of the page it describes. */
+.nt-sheet-caption {
+  margin: 0;
+  max-width: calc(600px * var(--page-scale, 0.78));
+  font-size: var(--text-meta-lg);
+  line-height: 1.5;
+  color: var(--muted);
+  text-align: center;
 }
 
 /* The account monogram. A filled well rather than a ring: it reads as a token
@@ -794,6 +879,11 @@ textarea.nt-input {
     display: none;
   }
   .nt-generating {
+    animation: none !important;
+  }
+  /* The stagger is the one thing that must not simply run faster: fourteen
+     blocks arriving at once from 7px below is a flinch. They just appear. */
+  .nt-sheet-page > * {
     animation: none !important;
   }
 

@@ -7,19 +7,16 @@ import { api } from "@/convex/_generated/api";
 import { Wordmark } from "@/app/components/Brand";
 import { PreviewBlocks } from "@/app/components/PagePreview";
 import { TEMPLATES, templateById } from "@/app/lib/onboarding/templates";
-import type {
-  SeedBlock,
-  Template,
-  TemplateId,
-} from "@/app/lib/onboarding/types";
-import type { AnyBlock } from "@/app/lib/ai/projection";
+import {
+  declaredHeight,
+  examplePage,
+  openingOf,
+} from "@/app/lib/onboarding/preview";
+import type { Template, TemplateId } from "@/app/lib/onboarding/types";
 import { TemplateMark } from "./TemplateMark";
 import "./welcome.css";
 
 type Mode = "create" | "complete";
-
-/** What the document is written at; the preview lays out here and is scaled. */
-const DOC_WIDTH = 600;
 
 /** Whether the seed module's download has already been started. See `warm`. */
 let warmed = false;
@@ -328,20 +325,19 @@ export function Welcome() {
         {step === 0 ? (
           <ContextCard role={hoverRole ?? role} template={shown} />
         ) : (
-          <div className="nt-wc-paper" aria-hidden>
+          <div className="nt-sheet" aria-hidden>
             <div
-              className="nt-wc-page"
+              className="nt-sheet-page"
               key={`${shown.id}:${demo ?? "doc"}`}
-              style={{ width: DOC_WIDTH }}
             >
               {demo ? (
                 <>
-                  <PreviewBlocks blocks={opening(shown)} />
+                  <PreviewBlocks blocks={openingOf(shown)} />
                   <ModeDemo key={demo} mode={demo} template={shown} />
                 </>
               ) : (
                 <PreviewBlocks
-                  blocks={example(shown)}
+                  blocks={examplePage(shown)}
                   diagramHeight={declaredHeight(shown.script.draw.html)}
                 />
               )}
@@ -351,7 +347,7 @@ export function Welcome() {
         {/* The picture cannot say what it is a picture OF — and once the choice
             is made it stops being a picture of anything and starts being a
             report on what is happening, which is where the eye already is. */}
-        <p className="nt-wc-caption">
+        <p className="nt-sheet-caption">
           {busy
             ? `Setting up ${busy.projectTitle}…`
             : step === 0
@@ -505,40 +501,6 @@ function seedOf(template: Template, blockId: string): string {
   return "";
 }
 
-/**
- * The page's own name, as the heading a picture of that page has to open with.
- *
- * Drawn rather than seeded. A real page wears its title in the chrome above the
- * document, so a template that also seeded one as a block would hand every new
- * project its title twice; the miniature here has no chrome to wear it in, and
- * a page picture with no title on it does not read as a page.
- */
-function titleBlock(template: Template): AnyBlock {
-  return {
-    id: "ex-title",
-    type: "heading",
-    props: { level: 1 },
-    content: [{ type: "text", text: template.pages[0].title, styles: {} }],
-  };
-}
-
-/** The block the slash beat fills in is empty by design; an empty paragraph in
-    a picture of a page is just a gap nobody can read as anything. */
-const isGap = (block: SeedBlock) => block.id === "nt-tour-slash";
-
-/** The page down to the line the demo is about to finish. */
-function opening(template: Template): AnyBlock[] {
-  const blocks = template.pages[0].blocks;
-  const at = blocks.findIndex((b) => b.id === template.script.write.blockId);
-  return [
-    titleBlock(template),
-    ...blocks
-      .slice(0, at === -1 ? 2 : at)
-      .filter((b) => !isGap(b))
-      .map(toAny),
-  ];
-}
-
 function Question({
   title,
   note,
@@ -555,77 +517,6 @@ function Question({
       {children}
     </div>
   );
-}
-
-/**
- * A short, finished version of the template's page.
- *
- * Not the document that gets seeded, and deliberately so: the seed is a
- * starting point with the diagram still to come, while this has to answer
- * "what is a Nootles page" in one glance. So it takes the real opening, jumps
- * to the line that wants a picture, draws the picture, and ends on the code,
- * maths or table that kind of document reaches for.
- *
- * Built from the template rather than authored twice, so the promise made here
- * cannot drift away from the project that arrives.
- */
-function example(template: Template): AnyBlock[] {
-  const blocks = template.pages[0].blocks;
-  const at = blocks.findIndex((b) => b.id === template.script.draw.blockId);
-  const lead = blocks.filter((b) => !isGap(b))[0];
-  const opening = [lead, ...(at > 0 ? [blocks[at - 1], blocks[at]] : [])];
-  const { heading, block } = template.showcase;
-
-  return [
-    titleBlock(template),
-    ...opening.map(toAny),
-    { id: "ex-diagram", type: "canvas", props: { data: template.script.draw.html } },
-    {
-      id: "ex-heading",
-      type: "heading",
-      props: { level: 2 },
-      content: [{ type: "text", text: heading, styles: {} }],
-    },
-    {
-      id: "ex-showcase",
-      type: block.type,
-      props: block.props ?? {},
-      content: block.content,
-    },
-  ];
-}
-
-/**
- * The height the diagram declares for itself, so its box is the size of the
- * drawing rather than a number chosen for a thumbnail.
- *
- * `ScenePreview` fits its content to whatever box it is given: too short and
- * the drawing shrinks away from its own labels, too late and it resizes after
- * the page has settled. Handing it the authored height makes the fit an
- * identity and both problems stop existing.
- */
-function declaredHeight(html: string): number | undefined {
-  const found = /<nt-diagram[^>]*\bh="(\d+(?:\.\d+)?)"/i.exec(html);
-  return found ? Number(found[1]) : undefined;
-}
-
-/**
- * A template block in the shape the page renderer reads.
- *
- * Seeds are written with plain strings for their text, because that is how a
- * template stays legible to whoever edits it; the renderer wants the inline
- * array a real document holds.
- */
-function toAny(block: SeedBlock, i: number): AnyBlock {
-  return {
-    id: block.id ?? `seed-${i}`,
-    type: String(block.type ?? "paragraph"),
-    props: (block.props ?? {}) as Record<string, unknown>,
-    content:
-      typeof block.content === "string"
-        ? [{ type: "text", text: block.content, styles: {} }]
-        : block.content,
-  };
 }
 
 /** The survey's answers, phrased as the Q&A the Context Sheet holds. */
