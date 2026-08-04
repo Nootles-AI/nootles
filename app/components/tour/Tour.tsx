@@ -147,10 +147,42 @@ function Running({
     editor.focus();
     editor.setTextCursorPosition(block, "end");
 
+    /**
+     * Keep the drawing on screen while it is being drawn.
+     *
+     * The preview is a widget UNDER the caret, and it grows a line at a time —
+     * so on a short viewport it walks off the bottom of the window while the
+     * user is watching it, which reads exactly like the suggestion being
+     * withdrawn. It was never withdrawn; it left.
+     *
+     * Centred on first sight and then left alone unless it drifts out, with a
+     * floor between scrolls: a diagram taller than the window is never fully in
+     * view, and re-centring it on every line would be a scroll that never
+     * settles.
+     */
+    let lastScroll = 0;
+    const follow = () => {
+      requestAnimationFrame(() => {
+        const el = document.querySelector(".nt-diagram-preview");
+        if (!el) return;
+        const box = el.getBoundingClientRect();
+        const settled = box.top >= 0 && box.bottom <= window.innerHeight;
+        const now = performance.now();
+        if (lastScroll && (settled || now - lastScroll < 450)) return;
+        lastScroll = now;
+        el.scrollIntoView({
+          block: "center",
+          behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+            ? "auto"
+            : "smooth",
+        });
+      });
+    };
+
     const stop = draw
       ? reveal(
           script.draw.html,
-          (sofar, done) =>
+          (sofar, done) => {
             setAction(view, {
               label: "Add diagram",
               batch: null,
@@ -166,7 +198,9 @@ function Running({
                       "after",
                     )
                 : undefined,
-            }),
+            });
+            follow();
+          },
           { stepMs: 70, chunk: lineish },
         )
       : reveal(script.write.ghost, (sofar, done) =>
@@ -310,8 +344,12 @@ function Running({
         : beat === 2
           ? CHAT_TARGET[phase]
           : null;
-  const target = useTarget(selector);
-  const rect = useRect(target, 8);
+  // While a diagram is being drawn, the drawing IS the subject — lighting the
+  // line above it would leave the spotlight pointing at the caret while the
+  // thing worth looking at grows underneath, unlit and off the bottom.
+  const drawing = useTarget(beat === 1 ? ".nt-diagram-preview" : null);
+  const anchor = useTarget(selector);
+  const rect = useRect(drawing ?? anchor, 8);
 
   if (beat >= GATED) {
     return (
