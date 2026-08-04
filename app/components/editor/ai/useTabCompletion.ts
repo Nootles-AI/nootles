@@ -20,7 +20,7 @@ import { parseDocHtml } from "@/app/lib/ai/html/parse";
 import { asListItems } from "@/app/lib/ai/html/listify";
 import type { DocNode } from "@/app/lib/ai/html/grammar";
 import { compileDocHtml } from "@/app/lib/ai/html/compile";
-import { scriptedResponse } from "@/app/lib/ai/scriptedSource";
+import { scriptedActive, scriptedResponse } from "@/app/lib/ai/scriptedSource";
 import { INLINE_TAGS, grounding, type Run } from "@/app/lib/ai/html/grammar";
 import type { Batch } from "@/convex/ai/operations";
 import {
@@ -1039,9 +1039,21 @@ export function useTabCompletion(
           seenSel !== null &&
           sel.from === seenSel.from &&
           sel.to === seenSel.to;
+        const wasDoc = seenDoc;
         seenDoc = state.doc;
         seenSel = sel;
         if (same) return; // a suggestion being drawn, not an edit
+        // While the first-run guide is driving, say what re-armed the lane.
+        // Cancelling a stream mid-flight is correct behaviour and invisible by
+        // design; it is only a bug when nobody typed, and this is the line that
+        // tells those two apart.
+        if (scriptedActive()) {
+          console.debug("[nt-tour] cancel", {
+            doc: state.doc !== wasDoc,
+            from: sel.from,
+            was: seenSel === null ? null : sel.from,
+          });
+        }
       }
       if (timer) clearTimeout(timer);
       abort?.abort();

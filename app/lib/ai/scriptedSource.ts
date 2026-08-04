@@ -27,14 +27,39 @@ export function setCompletionSource(fn: CompletionSource | null) {
   source = fn;
 }
 
+/** Whether the guide is currently driving — used to scope its own tracing. */
+export function scriptedActive(): boolean {
+  return source !== null;
+}
+
 export function scriptedResponse(req: ScriptRequest): Response | null {
   if (!source) return null;
   try {
-    return source(req);
-  } catch {
+    const res = source(req);
+    trace(req.lane === "diagram" ? "diagram" : "complete", res !== null, req);
+    return res;
+  } catch (error) {
     // A broken script must never take the real completion lane down with it.
+    trace("threw", false, req, error);
     return null;
   }
+}
+
+/**
+ * Says what the guide was asked for and whether it answered.
+ *
+ * Only ever reached while a tour is running, so this is not logging on a hot
+ * path — and the two lanes hand off to each other through the completion
+ * grammar, which means "the diagram never came" and "the diagram was asked for
+ * and then dropped" look identical from the outside. They are not the same
+ * bug, and this is the line that tells them apart.
+ */
+function trace(what: string, answered: boolean, req: ScriptRequest, error?: unknown) {
+  const detail =
+    req.lane === "diagram"
+      ? { brief: req.brief }
+      : { tail: req.before.slice(-90) };
+  console.debug("[nt-tour]", what, answered ? "scripted" : "passed through", detail, error ?? "");
 }
 
 /**
