@@ -13,8 +13,11 @@
   inset: 0;
   z-index: var(--z-overlay);
   background: color-mix(in oklch, var(--foreground) 26%, transparent);
+  /* Unprefixed only — the same lesson `.nt-scrim` already carries: Lightning
+     CSS owns the `-webkit-` form, treats the two as one property, and keeps
+     whichever came last. Writing both by hand is how this shipped with no
+     blur at all. */
   backdrop-filter: blur(9px);
-  -webkit-backdrop-filter: blur(9px);
   animation: nt-letter-fade var(--dur-slow) var(--ease);
 }
 

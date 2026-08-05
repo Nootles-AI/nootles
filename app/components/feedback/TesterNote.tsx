@@ -173,7 +173,7 @@ function Letter({ onClose }: { onClose: () => void }) {
           ) : (
             <p className="text-sm text-foreground">— Ali</p>
           )}
-          <button onClick={onClose} autoFocus className="nt-row px-2.5 font-medium">
+          <button onClick={onClose} className="nt-row px-2.5 font-medium">
             Will do
           </button>
         </div>
