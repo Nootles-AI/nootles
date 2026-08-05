@@ -6,13 +6,16 @@ import type { Id } from "@/convex/_generated/dataModel";
 type OpenPage = {
   /** The page last chosen — by the sidebar, or by the agent's `open_page`. */
   selected: Id<"pages"> | null;
+  /** Deliberate navigation — the sidebar, the agent. Dismisses any trail. */
+  open: (pageId: Id<"pages">) => void;
   /**
-   * `from` is the page the caller is leaving, for the trail. Only needed while
-   * `selected` is still null — the implicit first page of a fresh load — since
-   * after any explicit choice the provider knows where you are on its own.
+   * A chip followed somewhere — the one way of leaving a page that needs a way
+   * home, so it is the one that writes the trail. `from` is the page being
+   * left, needed while `selected` is still null (the implicit first page of a
+   * fresh load); after any explicit choice the provider knows on its own.
    */
-  open: (pageId: Id<"pages">, from?: Id<"pages"> | null) => void;
-  /** Return to the page the last `open` left. */
+  follow: (pageId: Id<"pages">, from?: Id<"pages"> | null) => void;
+  /** Return to the page the last `follow` left. */
   back: () => void;
   canGoBack: boolean;
 };
@@ -34,7 +37,14 @@ export function OpenPageProvider({ children }: { children: ReactNode }) {
   const [trail, setTrail] = useState<Id<"pages">[]>([]);
 
   const value = useMemo<OpenPage>(() => {
-    const open = (pageId: Id<"pages">, from: Id<"pages"> | null = null) => {
+    // Choosing a page outright ends the excursion the trail was recording:
+    // "back" after a sidebar click would mean somewhere you have already
+    // deliberately left, and the button would simply never go away.
+    const open = (pageId: Id<"pages">) => {
+      setTrail([]);
+      setSelected(pageId);
+    };
+    const follow = (pageId: Id<"pages">, from: Id<"pages"> | null = null) => {
       const origin = selected ?? from;
       if (origin && origin !== pageId) setTrail((t) => [...t, origin]);
       setSelected(pageId);
@@ -45,7 +55,7 @@ export function OpenPageProvider({ children }: { children: ReactNode }) {
       setTrail(trail.slice(0, -1));
       setSelected(prev);
     };
-    return { selected, open, back, canGoBack: trail.length > 0 };
+    return { selected, open, follow, back, canGoBack: trail.length > 0 };
   }, [selected, trail]);
 
   return <OpenPageContext value={value}>{children}</OpenPageContext>;

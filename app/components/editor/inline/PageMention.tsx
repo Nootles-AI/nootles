@@ -31,7 +31,7 @@ function PageMentionView({
   const live = pages?.find((p) => p._id === pageId);
   const label = pageTitle(live?.title ?? title);
   const open = openPage
-    ? () => openPage.open(pageId as Id<"pages">, here)
+    ? () => openPage.follow(pageId as Id<"pages">, here)
     : undefined;
 
   return (

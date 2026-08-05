@@ -91,7 +91,7 @@ function PageChip({
   const [menu, setMenu] = useState<{ left: number; bottom: number } | null>(null);
 
   const go = openPage
-    ? () => openPage.open(pageId as Id<"pages">, here)
+    ? () => openPage.follow(pageId as Id<"pages">, here)
     : undefined;
 
   return (

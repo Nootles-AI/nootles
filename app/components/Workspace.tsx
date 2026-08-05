@@ -244,9 +244,7 @@ export function Workspace({ projectId }: { projectId: Id<"projects"> }) {
       projectId={projectId}
       selectedPageId={effectivePageId}
       onSelectPage={(id) => {
-        // `effectivePageId` is where the user actually is — `selected` may
-        // still be null on a fresh load — so the back trail starts from it.
-        open(id, effectivePageId);
+        open(id);
         setDrawer(null);
       }}
       onCollapse={() => (compact ? setDrawer(null) : setLeftOpen(false))}
