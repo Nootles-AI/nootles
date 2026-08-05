@@ -2,7 +2,7 @@
 
 import { createReactInlineContentSpec } from "@blocknote/react";
 import type { Id } from "@/convex/_generated/dataModel";
-import { useOpenPageOptional } from "../../OpenPageContext";
+import { useCurrentPage, useOpenPageOptional } from "../../OpenPageContext";
 import { usePages } from "../../PagesContext";
 
 /**
@@ -26,10 +26,11 @@ function PageMentionView({
 }) {
   const pages = usePages();
   const openPage = useOpenPageOptional();
+  const here = useCurrentPage();
   const live = pages?.find((p) => p._id === pageId);
   const label = pageTitle(live?.title ?? title);
   const open = openPage
-    ? () => openPage.open(pageId as Id<"pages">)
+    ? () => openPage.open(pageId as Id<"pages">, here)
     : undefined;
 
   return (

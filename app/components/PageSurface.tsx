@@ -7,12 +7,15 @@ import { Id } from "@/convex/_generated/dataModel";
 import { Editable } from "./Editable";
 import { Editor } from "./editor/Editor";
 import { ModeToggle } from "./ModeToggle";
+import { CurrentPageProvider, useOpenPage } from "./OpenPageContext";
+import { ArrowLeft } from "./Icons";
 import type { PageMode } from "./editor/ai/useTabCompletion";
 
 export function PageSurface({ pageId }: { pageId: Id<"pages"> }) {
   const page = useQuery(api.pages.get, { pageId });
   const rename = useMutation(api.pages.rename);
   const setMode = useMutation(api.pages.setMode);
+  const { back, canGoBack } = useOpenPage();
 
   // Persist title edits on a debounce. The Editable owns the text; we only read
   // it on input and write through.
@@ -57,6 +60,7 @@ export function PageSurface({ pageId }: { pageId: Id<"pages"> }) {
   };
 
   return (
+    <CurrentPageProvider pageId={pageId}>
     <main className="flex flex-1 flex-col overflow-auto">
       {/* Anchored left, not centred. Centring measured the column against the
           space the panels left over, so collapsing chat slid every line of text
@@ -66,7 +70,19 @@ export function PageSurface({ pageId }: { pageId: Id<"pages"> }) {
         className="w-full px-6 py-12 sm:px-14 sm:py-20"
         style={{ maxWidth: "calc(var(--measure) + 7rem)" }}
       >
-        <div className="mb-6 flex justify-start">
+        <div className="mb-6 flex items-center justify-start gap-2">
+          {/* Following a chip somewhere needs a way home. Present only once
+              there is a "back" to mean — a standing button would be chrome. */}
+          {canGoBack && (
+            <button
+              onClick={back}
+              aria-label="Back to previous page"
+              title="Back to previous page"
+              className="nt-icon-btn"
+            >
+              <ArrowLeft />
+            </button>
+          )}
           <ModeToggle
             mode={(page.mode ?? "create") as PageMode}
             onChange={(mode) => setMode({ pageId, mode })}
@@ -95,5 +111,6 @@ export function PageSurface({ pageId }: { pageId: Id<"pages"> }) {
         </div>
       </div>
     </main>
+    </CurrentPageProvider>
   );
 }

@@ -30,7 +30,7 @@ import {
 } from "@/app/lib/ai/chat/mentions";
 import { track } from "@/app/lib/telemetry";
 import { MentionMenu } from "../../../MentionMenu";
-import { useOpenPageOptional } from "../../../OpenPageContext";
+import { useCurrentPage, useOpenPageOptional } from "../../../OpenPageContext";
 import { usePages } from "../../../PagesContext";
 import { labelRuns, refToLabel, textToLabel } from "../scene/label";
 
@@ -54,6 +54,7 @@ export function LabelContent({ label }: { label: string }) {
 function PageChip({ pageId, title }: { pageId: string; title: string }) {
   const pages = usePages();
   const openPage = useOpenPageOptional();
+  const here = useCurrentPage();
   const live = pages?.find((p) => p._id === pageId);
 
   return (
@@ -67,7 +68,7 @@ function PageChip({ pageId, title }: { pageId: string; title: string }) {
         openPage
           ? (e) => {
               e.stopPropagation();
-              openPage.open(pageId as Id<"pages">);
+              openPage.open(pageId as Id<"pages">, here);
             }
           : undefined
       }
@@ -288,6 +289,10 @@ export function LabelEdit({
           <div
             className="nt-mention-anchor"
             style={{ left: menu.left, top: menu.bottom + 6 }}
+            // A press here is part of the label edit, not a canvas press. No
+            // preventDefault: cancelling pointerdown would also cancel the
+            // mousedown the menu picks rows with.
+            onPointerDown={stop}
           >
             <MentionMenu
               id={menuId}

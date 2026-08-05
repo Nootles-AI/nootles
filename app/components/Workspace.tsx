@@ -38,8 +38,10 @@ const COMPACT = "(max-width: 1023px)";
 
 /* Everything that belongs to the canvas being edited. A press anywhere else is
    what "deselect" means — and the panels have to be in here, because a field in
-   one takes focus off the canvas without meaning to leave it. */
-const CANVAS_SHELL = ".nt-canvas, .nt-lyr, .nt-style-panel, .nt-toolbar";
+   one takes focus off the canvas without meaning to leave it. The mention menu
+   is portalled to the body but belongs to a label edit inside the canvas. */
+const CANVAS_SHELL =
+  ".nt-canvas, .nt-lyr, .nt-style-panel, .nt-toolbar, .nt-mention-anchor";
 
 /* Room left above a diagram too tall to centre. */
 const REVEAL_TOP = 24;
@@ -242,7 +244,9 @@ export function Workspace({ projectId }: { projectId: Id<"projects"> }) {
       projectId={projectId}
       selectedPageId={effectivePageId}
       onSelectPage={(id) => {
-        open(id);
+        // `effectivePageId` is where the user actually is — `selected` may
+        // still be null on a fresh load — so the back trail starts from it.
+        open(id, effectivePageId);
         setDrawer(null);
       }}
       onCollapse={() => (compact ? setDrawer(null) : setLeftOpen(false))}
