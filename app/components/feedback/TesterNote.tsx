@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useHints } from "../hints/useHints";
 import { Info } from "../Icons";
@@ -10,10 +11,14 @@ import "./letter.css";
  * A letter from the founder, shown once — in the first project that is the
  * user's own rather than the seeded tutorial.
  *
- * A sheet of paper over a blurred room, with a drawn arrow to the one thing
- * it asks for: the report button, lifted out of the blur and ringed so there
- * is no doubt which button is meant. It never comes back: dismissal is
- * recorded in the same seen-set the first-touch hints use.
+ * A sheet of paper over a blurred room, with a drawn arrow running from the
+ * sheet's edge to the one thing it asks for: the report button, lifted out of
+ * the blur and ringed so there is no doubt which button is meant. It never
+ * comes back: dismissal is recorded in the same seen-set the hints use.
+ *
+ * Portalled to the body: the workspace tree carries transforms, and a fixed
+ * scrim inside one is contained by it — which quietly turns its backdrop
+ * blur into a no-op.
  */
 export function TesterNote({ projectId }: { projectId: Id<"projects"> }) {
   const { profile, die } = useHints();
@@ -25,12 +30,18 @@ export function TesterNote({ projectId }: { projectId: Id<"projects"> }) {
   const unread = own && !(profile.hints ?? []).includes("tester-note");
 
   if (!unread) return null;
-  return <Letter onClose={() => die("tester-note")} />;
+  return createPortal(<Letter onClose={() => die("tester-note")} />, document.body);
 }
+
+/** Where the report button lives (`.nt-feedback`): left 20, bottom 20, 32px. */
+const FAB = { cx: 36, bottom: 20, size: 32 };
 
 function Letter({ onClose }: { onClose: () => void }) {
   // The letter ends in handwriting; until the file loads, it ends in type.
   const [signed, setSigned] = useState(true);
+  const sheetRef = useRef<HTMLDivElement>(null);
+  const pathRef = useRef<SVGPathElement>(null);
+  const [path, setPath] = useState("");
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -53,29 +64,88 @@ function Letter({ onClose }: { onClose: () => void }) {
     };
   }, [onClose]);
 
+  /**
+   * The arrow, measured rather than guessed: from just under the sheet's
+   * lower-left corner, down the room, into the button. Rebuilt on resize so
+   * it never points at where the letter used to be.
+   */
+  const draw = useCallback(() => {
+    const sheet = sheetRef.current;
+    if (!sheet) return;
+    const r = sheet.getBoundingClientRect();
+    const sx = r.left + 34;
+    const sy = r.bottom + 6;
+    // The tip stops just short of the ring, approaching from above-right.
+    const ex = FAB.cx + 18;
+    const ey = window.innerHeight - FAB.bottom - FAB.size - 16;
+    const dx = sx - ex;
+    const dy = ey - sy;
+    // One long stroke with a lazy S in it — a pen's line, not a plotter's.
+    const c1 = { x: sx + dx * 0.06, y: sy + dy * 0.62 };
+    const c2 = { x: ex + Math.min(120, dx * 0.5), y: ey - Math.max(60, dy * 0.18) };
+    // The head follows the stroke's landing direction.
+    const a = Math.atan2(ey - c2.y, ex - c2.x);
+    const head = (spread: number) => ({
+      x: ex - 16 * Math.cos(a + spread),
+      y: ey - 16 * Math.sin(a + spread),
+    });
+    const h1 = head(0.5);
+    const h2 = head(-0.5);
+    setPath(
+      `M ${sx} ${sy} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${ex} ${ey} ` +
+        `M ${h1.x} ${h1.y} L ${ex} ${ey} L ${h2.x} ${h2.y}`,
+    );
+  }, []);
+
+  useLayoutEffect(() => {
+    draw();
+    window.addEventListener("resize", draw);
+    return () => window.removeEventListener("resize", draw);
+  }, [draw]);
+
+  // Drawn in like a stroke landing: dash the path to its own length, then let
+  // the transition carry it to zero. Skipped under reduced motion.
+  useLayoutEffect(() => {
+    const el = pathRef.current;
+    if (!el || !path) return;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    // A resize rebuilds the path; the old dash pattern on a new length would
+    // punch gaps in the stroke, so once drawn the dash comes off entirely.
+    if (el.dataset.drawn) {
+      el.style.strokeDasharray = "";
+      el.style.strokeDashoffset = "";
+      return;
+    }
+    el.dataset.drawn = "1";
+    const length = el.getTotalLength();
+    el.style.strokeDasharray = `${length}`;
+    el.style.strokeDashoffset = `${length}`;
+    requestAnimationFrame(() => {
+      el.style.transition = "stroke-dashoffset 0.8s var(--ease) 0.3s";
+      el.style.strokeDashoffset = "0";
+    });
+  }, [path]);
+
   return (
     <>
-      <button
-        aria-label="Close"
-        onClick={onClose}
-        className="nt-letter-scrim"
-      />
+      <button aria-label="Close" onClick={onClose} className="nt-letter-scrim" />
       <div
+        ref={sheetRef}
         role="dialog"
         aria-modal="true"
         aria-label="A personal thank you"
         className="nt-letter"
       >
-        <p className="text-[15px] font-semibold tracking-[-0.01em]">
+        <p className="text-[17px] font-semibold tracking-[-0.01em]">
           A personal thank you
         </p>
-        <div className="mt-3 space-y-3 text-[13px] leading-relaxed text-muted">
+        <div className="mt-3.5 space-y-3.5 text-sm leading-relaxed text-muted">
           <p>Thank you for being one of Nootles&rsquo; first test users.</p>
           <p>
             If anything breaks — or you find yourself wishing for something that
             isn&rsquo;t there — press the{" "}
-            <span className="mx-0.5 inline-flex h-[18px] w-[18px] translate-y-[3px] items-center justify-center rounded-full border border-border text-foreground">
-              <Info width={11} height={11} />
+            <span className="mx-0.5 inline-flex h-[19px] w-[19px] translate-y-[3px] items-center justify-center rounded-full border border-border text-foreground">
+              <Info width={12} height={12} />
             </span>{" "}
             button in the bottom-left corner. It takes bug reports and feature
             requests alike.
@@ -90,18 +160,18 @@ function Letter({ onClose }: { onClose: () => void }) {
           </p>
         </div>
 
-        <div className="mt-4 flex items-end justify-between gap-3">
+        <div className="mt-5 flex items-end justify-between gap-3">
           {signed ? (
             /* eslint-disable-next-line @next/next/no-img-element -- a small
                static asset with no layout shift to optimize away */
             <img
               src="/signature.png"
               alt="Ali"
-              className="h-11 w-auto"
+              className="h-12 w-auto"
               onError={() => setSigned(false)}
             />
           ) : (
-            <p className="text-[13px] text-foreground">— Ali</p>
+            <p className="text-sm text-foreground">— Ali</p>
           )}
           <button onClick={onClose} autoFocus className="nt-row px-2.5 font-medium">
             Will do
@@ -109,22 +179,15 @@ function Letter({ onClose }: { onClose: () => void }) {
         </div>
       </div>
 
-      {/* Drawn from the letter's side of the room down to the button. One
-          wobbling stroke and an open head — a pen's arrow, not a plotter's. */}
-      <svg
-        className="nt-letter-arrow"
-        width="150"
-        height="190"
-        viewBox="0 0 150 190"
-        fill="none"
-        aria-hidden
-      >
+      <svg className="nt-letter-arrow" aria-hidden>
         <path
-          d="M138 14c-4 34-10 66-30 96-15 23-38 42-72 54m0 0c9-1 20-1 30 2m-30-2c7-6 14-14 18-24"
+          ref={pathRef}
+          d={path}
           stroke="currentColor"
           strokeWidth="2.25"
           strokeLinecap="round"
           strokeLinejoin="round"
+          fill="none"
         />
       </svg>
     </>
