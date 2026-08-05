@@ -1,3 +1,4 @@
+import { labelText } from "@/app/components/editor/canvas/scene/label";
 import { migrateLegacyCanvas } from "@/app/components/editor/canvas/scene/migrate";
 import { isGroup, type SceneNode } from "@/app/components/editor/canvas/scene/types";
 
@@ -164,7 +165,7 @@ function projectCanvas(
     for (const node of nodes) {
       index.shapes.set(node.id, { canvasBlockId: block.id });
       if (emit) {
-        const label = node.label.replace(/\n/g, " ");
+        const label = labelText(node.label).replace(/\n/g, " ");
         const box = `@(${Math.round(node.x)},${Math.round(node.y)}) ${Math.round(node.w)}x${Math.round(node.h)}`;
         lines.push(`${"  ".repeat(depth)}${tag(node.id)} ${node.kind} "${label}" ${box}`);
       }

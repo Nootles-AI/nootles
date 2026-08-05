@@ -32,7 +32,7 @@ import { track } from "@/app/lib/telemetry";
 import { MentionMenu } from "../../../MentionMenu";
 import { useCurrentPage, useOpenPageOptional } from "../../../OpenPageContext";
 import { usePages } from "../../../PagesContext";
-import { labelRuns, refToLabel, textToLabel } from "../scene/label";
+import { labelOfElement, labelRuns } from "../scene/label";
 
 const chipText = (title: string) => `@${title.trim() || "Untitled"}`;
 
@@ -41,10 +41,12 @@ export function LabelContent({ label }: { label: string }) {
   return (
     <>
       {runs.map((run, i) =>
-        run.kind === "text" ? (
-          <Fragment key={i}>{run.text}</Fragment>
-        ) : (
+        run.kind === "ref" ? (
           <PageChip key={i} pageId={run.pageId} title={run.title} />
+        ) : run.bold ? (
+          <b key={i}>{run.text}</b>
+        ) : (
+          <Fragment key={i}>{run.text}</Fragment>
         ),
       )}
     </>
@@ -98,22 +100,11 @@ function chipEl(pageId: string, title: string): HTMLSpanElement {
   return chip;
 }
 
-/** The edited DOM, read back as a canonical label. */
-function labelOfDom(el: HTMLElement): string {
-  let out = "";
-  el.childNodes.forEach((node) => {
-    if (node.nodeType === 3) {
-      out += textToLabel(node.textContent ?? "");
-      return;
-    }
-    if (node.nodeType !== 1) return;
-    const child = node as HTMLElement;
-    out +=
-      child.dataset.page !== undefined
-        ? refToLabel(child.dataset.page, child.dataset.title ?? "")
-        : textToLabel(child.textContent ?? "");
-  });
-  return out.trim();
+/** A bold run's element, for seeding the editable. */
+function boldEl(text: string): HTMLElement {
+  const b = document.createElement("b");
+  b.textContent = text;
+  return b;
 }
 
 export function LabelEdit({
@@ -154,9 +145,11 @@ export function LabelEdit({
     if (!el) return;
     el.replaceChildren(
       ...labelRuns(label).map((run) =>
-        run.kind === "text"
-          ? document.createTextNode(run.text)
-          : chipEl(run.pageId, run.title),
+        run.kind === "ref"
+          ? chipEl(run.pageId, run.title)
+          : run.bold
+            ? boldEl(run.text)
+            : document.createTextNode(run.text),
       ),
     );
     el.focus();
@@ -268,7 +261,9 @@ export function LabelEdit({
     return () => el.removeEventListener("keydown", onKey);
   }, [menu, items, activeIndex, take]);
 
-  const commit = () => onEnd(ref.current ? labelOfDom(ref.current) : "");
+  // Through the same walker the grammar parser uses, so a ⌘B and a Shift+Enter
+  // survive the commit exactly as they will survive the round trip.
+  const commit = () => onEnd(ref.current ? labelOfElement(ref.current) : "");
 
   return (
     <>

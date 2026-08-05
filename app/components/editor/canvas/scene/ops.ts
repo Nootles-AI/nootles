@@ -45,6 +45,7 @@ import {
 } from "./align";
 import { hugSize, hugsOf } from "./autoLayout";
 import { nodeBounds, normalizeAngle, rotateAround, unionBounds } from "./geometry";
+import { labelText } from "./label";
 import { scalePath } from "./path";
 import {
   edgesTouching,
@@ -691,7 +692,7 @@ function frameOf(
   let found: SceneNode | null = null;
   for (const node of members) {
     if (node.kind !== "rect" || node.rot !== 0 || node.hidden) continue;
-    if (node.label.trim() !== "") continue;
+    if (labelText(node.label).trim() !== "") continue;
     const outer = bounds.get(node.id)!;
     const encloses = members.every(
       (other) => other === node || contains(outer, bounds.get(other.id)!),

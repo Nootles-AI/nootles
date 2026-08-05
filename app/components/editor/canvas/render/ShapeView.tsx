@@ -184,6 +184,7 @@ function boxStyle(
   return {
     ...toCss(node.style, shape ? shape.drop : undefined),
     ...(shape?.clip ? { clipPath: shape.clip } : null),
+    ...labelInset(node),
     position: flow ? "relative" : "absolute",
     transform: flow
       ? `rotate(${node.rot}deg)`
@@ -194,6 +195,22 @@ function boxStyle(
     ...(node.hidden ? { visibility: "hidden" as const } : null),
     ...(node.locked ? { pointerEvents: "none" as const } : null),
   };
+}
+
+/**
+ * A diamond's edges cross the box's corners, so text laid out to the box runs
+ * off the shape and into the clip. The inscribed rectangle of a rhombus whose
+ * vertices sit at the box's edge midpoints is exactly the central half of each
+ * axis, so a quarter-inset per side keeps every line of the label on the
+ * shape. Only when the author has not said otherwise: an explicit padding in
+ * the node's style wins.
+ */
+function labelInset(node: SceneNode): CSSProperties | null {
+  if (node.kind !== "polygon" || Math.round(node.sides) !== 4) return null;
+  for (const prop in node.style) {
+    if (prop.startsWith("padding")) return null;
+  }
+  return { padding: `${node.h / 4}px ${node.w / 4}px` };
 }
 
 /**
