@@ -39,7 +39,11 @@ const chipText = (title: string) => `@${title.trim() || "Untitled"}`;
 export function LabelContent({ label }: { label: string }) {
   const runs = useMemo(() => labelRuns(label), [label]);
   return (
-    <>
+    // One wrapper span, not a fragment: the shape is a flex container, and a
+    // fragment would hand it every run — each chip and each <b> — as its own
+    // flex item, laid out side by side. One span is one item, exactly as the
+    // plain text node was, and the runs flow as inline content inside it.
+    <span>
       {runs.map((run, i) =>
         run.kind === "ref" ? (
           <PageChip key={i} pageId={run.pageId} title={run.title} />
@@ -49,7 +53,7 @@ export function LabelContent({ label }: { label: string }) {
           <Fragment key={i}>{run.text}</Fragment>
         ),
       )}
-    </>
+    </span>
   );
 }
 
