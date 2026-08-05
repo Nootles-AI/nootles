@@ -70,9 +70,18 @@ export type Run =
   | { type: "math"; latex: string }
   | { type: "link"; href: string; content: TextRun[] }
   /**
-   * `<nt-ref page="…">Title</nt-ref>` — a mention of another page. Like a
-   * link it carries a destination, so it is a run and not a mark; the text is
-   * the title as it read when written, a fallback the UI overrides live.
+   * `<nt-ref page="…">Title</nt-ref>` — a reference chip. Like a link it
+   * carries a destination, so it is a run and not a mark; the text is the
+   * title as it read when written, a fallback the UI overrides live.
+   *
+   * `nt-ref` is THE reference element, not the page-reference element: the
+   * attribute names the referent's kind, and `page` is simply the only kind
+   * that exists today. A future referent — a ticket once the Linear
+   * integration lands, an attached file — is a new attribute and a new run
+   * variant on this same element, never a new element. The chip UI already
+   * renders per-kind glyphs on that assumption, and the parser already
+   * degrades an `nt-ref` with no attribute it knows to plain words, which is
+   * exactly how an old client should read a kind from the future.
    */
   | { type: "pageRef"; pageId: string; title: string };
 

@@ -1258,6 +1258,17 @@ a.nt-chip:hover {
   background: var(--hover);
   text-decoration-color: var(--muted);
 }
+/* The referent's kind, said once in a glyph — a page today, a ticket or a file
+   when integrations bring them. Em-sized so it rides any label's type scale,
+   and inline-block so the chip's underline passes beneath it, not through. */
+.nt-ref-icon {
+  display: inline-block;
+  width: 0.8em;
+  height: 0.8em;
+  margin-right: 0.25em;
+  vertical-align: -0.06em;
+  color: var(--muted);
+}
 
 /* ---- The thread's own answer ------------------------------------------
    Sits in the gap between the transcript and the box, taking the composer's

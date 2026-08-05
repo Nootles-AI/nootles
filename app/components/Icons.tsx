@@ -132,6 +132,27 @@ export function LinkIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+/** A page's outline, shared with the label editor, which builds chips as DOM. */
+export const FILE_DOC_PATHS = [
+  "M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z",
+  "M14 2v4a2 2 0 0 0 2 2h4",
+] as const;
+
+/**
+ * What a reference chip points at today: a page. Each referent kind carries its
+ * own glyph, so a chip can say what it is before you follow it — a ticket, a
+ * file, whatever the integrations bring — without the text having to.
+ */
+export function FileDoc(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      {FILE_DOC_PATHS.map((d) => (
+        <path key={d} d={d} />
+      ))}
+    </svg>
+  );
+}
+
 export function Code(props: SVGProps<SVGSVGElement>) {
   return (
     <svg {...base} {...props}>

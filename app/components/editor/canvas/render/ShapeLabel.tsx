@@ -29,12 +29,13 @@ import {
   type MentionTrigger,
 } from "@/app/lib/ai/chat/mentions";
 import { track } from "@/app/lib/telemetry";
+import { FILE_DOC_PATHS, FileDoc } from "../../../Icons";
 import { MentionMenu } from "../../../MentionMenu";
 import { useCurrentPage, useOpenPageOptional } from "../../../OpenPageContext";
 import { usePages } from "../../../PagesContext";
 import { labelOfElement, labelRuns } from "../scene/label";
 
-const chipText = (title: string) => `@${title.trim() || "Untitled"}`;
+const chipTitle = (title: string) => title.trim() || "Untitled";
 
 export function LabelContent({
   label,
@@ -114,7 +115,8 @@ function PageChip({
           : undefined
       }
     >
-      {chipText(live?.title ?? title)}
+      <FileDoc className="nt-ref-icon" aria-hidden />
+      {chipTitle(live?.title ?? title)}
       {menu && go && onEdit && (
         <ChipMenu
           at={menu}
@@ -209,13 +211,33 @@ type Spot = { node: Text; trigger: MentionTrigger; caret: number };
 
 const stop = (event: SyntheticEvent) => event.stopPropagation();
 
+/**
+ * The chip as the label editor builds it — the same glyph-then-title the
+ * rendered chip shows, but as plain DOM: the browser owns the editable span,
+ * so React must not have opinions about its children. The commit reads the
+ * `data-` attributes, never this markup.
+ */
 function chipEl(pageId: string, title: string): HTMLSpanElement {
   const chip = document.createElement("span");
   chip.className = "nt-ref";
   chip.contentEditable = "false";
   chip.dataset.page = pageId;
   chip.dataset.title = title;
-  chip.textContent = chipText(title);
+  const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  icon.setAttribute("class", "nt-ref-icon");
+  icon.setAttribute("viewBox", "0 0 24 24");
+  icon.setAttribute("fill", "none");
+  icon.setAttribute("stroke", "currentColor");
+  icon.setAttribute("stroke-width", "2");
+  icon.setAttribute("stroke-linecap", "round");
+  icon.setAttribute("stroke-linejoin", "round");
+  icon.setAttribute("aria-hidden", "true");
+  for (const d of FILE_DOC_PATHS) {
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("d", d);
+    icon.append(path);
+  }
+  chip.append(icon, document.createTextNode(chipTitle(title)));
   return chip;
 }
 

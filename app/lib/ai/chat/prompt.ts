@@ -44,9 +44,12 @@ are what place it:
   <nt-diagram w="600" h="200"><nt-rect id="s1" x="40" y="40" w="180" h="56">Step</nt-rect>
     <nt-rect id="s2" x="40" y="120" w="180" h="56">Next</nt-rect><nt-edge from="s1" to="s2"></nt-edge></nt-diagram>
 Inline: <code>maxRetries</code>, <strong>bold</strong>, <em>italic</em>, <nt-math>x^2</nt-math>,
-  <a href="https://example.com">a link</a>, <nt-ref page="pageId">Page title</nt-ref> — a chip
-  linking to another page in the project, valid in prose and inside a shape's label; use a real
-  page id — and keep the ones already in a block you rewrite
+  <a href="https://example.com">a link</a> — and keep the ones already in a block you rewrite.
+References: <nt-ref page="pageId">Page title</nt-ref> renders as a chip — a small page glyph and
+  the page's live title — and clicking it opens that page. Whenever your text names another page
+  of this project, write it as an nt-ref rather than plain words: the chip stays correct when the
+  page is renamed, where plain words go stale. Valid in prose and inside a diagram shape's label.
+  Use a real page id; the element's text is only the fallback title.
 
 Be concise, and answer in prose: that HTML is how a page is written down, not how you talk
 about one.`;
