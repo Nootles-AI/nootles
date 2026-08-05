@@ -21,6 +21,7 @@ import { ResizeHandle } from "./ResizeHandle";
 import { PanelsProvider } from "./PanelsContext";
 import { Hints } from "./hints/Hints";
 import { Feedback } from "./feedback/Feedback";
+import { TesterNote } from "./feedback/TesterNote";
 import { PmfSurvey } from "./feedback/PmfSurvey";
 import { DismissSampler } from "./feedback/DismissSampler";
 import { PanelLeft, PanelRight } from "./Icons";
@@ -352,6 +353,7 @@ export function Workspace({ projectId }: { projectId: Id<"projects"> }) {
         )}
 
         <Feedback projectId={projectId} pageId={effectivePageId} />
+        <TesterNote projectId={projectId} />
         <PmfSurvey />
         <DismissSampler />
 
