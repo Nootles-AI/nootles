@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { OpenPageProvider } from "@/app/components/OpenPageContext";
 import { SharedProject } from "@/app/components/share/SharedProject";
 
 export const metadata: Metadata = {
@@ -14,5 +15,11 @@ export default async function SharePage({
   params: Promise<{ token: string }>;
 }) {
   const { token } = await params;
-  return <SharedProject token={token} />;
+  // The same selection the workspace uses, so mention chips open pages here
+  // through the very context they already ask for.
+  return (
+    <OpenPageProvider>
+      <SharedProject token={token} />
+    </OpenPageProvider>
+  );
 }
