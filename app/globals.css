@@ -2021,10 +2021,11 @@ body:has(.nt-review-bar) .nt-reformat-switcher {
    width and radius transition here, height follows the measured form. */
 .nt-feedback {
   position: fixed;
-  right: 20px;
+  left: 20px;
   bottom: 20px;
   z-index: var(--z-overlay);
   width: 32px;
+  height: 32px;
   border-radius: 999px;
   overflow: hidden;
   background: var(--elevated);
@@ -2043,7 +2044,7 @@ body:has(.nt-review-bar) .nt-reformat-switcher {
 }
 .nt-feedback-fab {
   position: absolute;
-  right: 0;
+  left: 0;
   bottom: 0;
   display: flex;
   align-items: center;
@@ -2066,7 +2067,7 @@ body:has(.nt-review-bar) .nt-reformat-switcher {
    morph reveals the form rather than reflowing it. */
 .nt-feedback-body {
   position: absolute;
-  right: 0;
+  left: 0;
   bottom: 0;
   width: min(320px, calc(100vw - 40px));
   opacity: 0;
@@ -2074,7 +2075,7 @@ body:has(.nt-review-bar) .nt-reformat-switcher {
 }
 .nt-feedback.is-open .nt-feedback-body {
   opacity: 1;
-  transition-delay: 90ms;
+  transition-delay: 110ms;
 }
 .nt-feedback-tabs {
   display: flex;
@@ -2104,8 +2105,8 @@ body:has(.nt-review-bar) .nt-reformat-switcher {
 .nt-feedback-form {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 10px;
+  gap: 10px;
+  padding: 12px;
 }
 @media (prefers-reduced-motion: reduce) {
   .nt-feedback,

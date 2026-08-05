@@ -38,30 +38,35 @@ export function FeedbackPanel({
   const submit = useMutation(api.feedback.submit);
   const textRef = useRef<HTMLTextAreaElement>(null);
 
-  // The screenshot is taken as the form opens — the state being reported is
-  // the one on screen right now. The widget excludes itself via the filter.
+  // The screenshot is of the state being reported — the screen as it was
+  // when the form opened. Rasterizing the whole document is heavy, so it
+  // waits for the morph to land; nothing changes underneath in that time
+  // (the widget excludes itself via the filter). Focus waits with it.
   useEffect(() => {
     let alive = true;
     let url: string | null = null;
-    void (async () => {
-      try {
-        const { toBlob } = await import("html-to-image");
-        const blob = await toBlob(document.body, {
-          pixelRatio: 1,
-          filter: (node) =>
-            !(node instanceof HTMLElement && node.dataset.ntFeedback !== undefined),
-        });
-        if (blob && alive) {
-          url = URL.createObjectURL(blob);
-          setShot({ blob, url });
+    const t = setTimeout(() => {
+      textRef.current?.focus({ preventScroll: true });
+      void (async () => {
+        try {
+          const { toBlob } = await import("html-to-image");
+          const blob = await toBlob(document.body, {
+            pixelRatio: 1,
+            filter: (node) =>
+              !(node instanceof HTMLElement && node.dataset.ntFeedback !== undefined),
+          });
+          if (blob && alive) {
+            url = URL.createObjectURL(blob);
+            setShot({ blob, url });
+          }
+        } catch {
+          // No screenshot is fine; the report still carries its other context.
         }
-      } catch {
-        // No screenshot is fine; the report still carries its other context.
-      }
-    })();
-    textRef.current?.focus();
+      })();
+    }, 420);
     return () => {
       alive = false;
+      clearTimeout(t);
       if (url) URL.revokeObjectURL(url);
     };
   }, []);

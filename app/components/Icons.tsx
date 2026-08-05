@@ -150,8 +150,9 @@ export function X(props: SVGProps<SVGSVGElement>) {
 export function Info(props: SVGProps<SVGSVGElement>) {
   return (
     <svg {...base} {...props}>
-      <path d="M12 7.5h.01" />
-      <path d="M12 11v5.5" />
+      <circle cx="12" cy="12" r="10" />
+      <path d="M12 8h.01" />
+      <path d="M12 12v4" />
     </svg>
   );
 }

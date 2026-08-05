@@ -1,22 +1,21 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import dynamic from "next/dynamic";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Id } from "@/convex/_generated/dataModel";
+import { FeedbackPanel } from "./FeedbackPanel";
 import { Info } from "../Icons";
 
-const FeedbackPanel = dynamic(
-  () => import("./FeedbackPanel").then((m) => m.FeedbackPanel),
-  { ssr: false },
-);
-
-const CLOSED = 32;
-
 /**
- * The standing invitation, bottom-right. One fixed container that IS both
+ * The standing invitation, bottom-left. One fixed container that IS both
  * states: a 32px circle when closed, the report form when open — width,
  * height and radius transition between them, so the circle morphs into the
  * form rather than being replaced by it.
+ *
+ * The morph is kept smooth by doing nothing else during it: the form mounts
+ * before the transition starts (statically imported — its one heavy
+ * dependency, html-to-image, is lazy inside the panel), the height is set
+ * imperatively in a layout effect so the first open frame already carries
+ * the target size, and the screenshot + focus wait until the box has landed.
  */
 export function Feedback({
   projectId,
@@ -31,7 +30,6 @@ export function Feedback({
   const [rendered, setRendered] = useState(false);
   // Bumped per open, so every open starts a fresh form (and screenshot).
   const [session, setSession] = useState(0);
-  const [height, setHeight] = useState(CLOSED);
   const boxRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
 
@@ -43,17 +41,24 @@ export function Feedback({
 
   const close = () => {
     setOpen(false);
-    setHeight(CLOSED);
+    // Back to the stylesheet's 32px; the removal is what animates the shrink.
+    if (boxRef.current) boxRef.current.style.height = "";
   };
 
-  // The container follows the form's measured height — the observer fires on
-  // observe, when the dynamic chunk lands, and when the sent state swaps in.
-  useEffect(() => {
+  // Height is driven imperatively, before paint, so the first open frame
+  // already carries the target size — width and height travel together
+  // instead of the box widening and then lurching taller.
+  useLayoutEffect(() => {
     if (!open) return;
-    const el = bodyRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver(() => setHeight(el.offsetHeight));
-    ro.observe(el);
+    const box = boxRef.current;
+    const body = bodyRef.current;
+    if (!box || !body) return;
+    const fit = () => {
+      box.style.height = `${body.offsetHeight}px`;
+    };
+    fit();
+    const ro = new ResizeObserver(fit);
+    ro.observe(body);
     return () => ro.disconnect();
   }, [open, session]);
 
@@ -85,7 +90,6 @@ export function Feedback({
     <div
       ref={boxRef}
       className={`nt-feedback${open ? " is-open" : ""}`}
-      style={{ height }}
       data-nt-feedback
     >
       <button
