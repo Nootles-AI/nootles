@@ -39,11 +39,10 @@ async function ensure(ctx: MutationCtx) {
 }
 
 /**
- * Leaving first run, from the welcome screen or from the middle of a tour.
+ * Leaving first run from the welcome screen.
  *
- * Terminal on purpose: someone who dismissed the guide once should not meet it
- * again on their next visit. The tour is left on the row rather than cleared,
- * so a "resume the guide" affordance stays possible without a migration.
+ * Terminal on purpose: someone who declined the guided start once should not
+ * meet it again on their next visit.
  */
 export const skip = mutation({
   args: {},
@@ -53,32 +52,18 @@ export const skip = mutation({
   },
 });
 
-/** Advancing a gated beat. */
-export const setBeat = mutation({
-  args: { beat: v.number() },
-  handler: async (ctx, args) => {
-    const row = await ensure(ctx);
-    if (!row.tour) return;
-    await ctx.db.patch(row._id, { tour: { ...row.tour, beat: args.beat } });
-  },
-});
-
-/** Ticking one item off the free-tail checklist. */
-export const check = mutation({
+/**
+ * A first-touch hint's lesson was demonstrated, so the hint is over.
+ *
+ * Append-only and idempotent: a hint that died stays dead, and the optimistic
+ * update on the client may race a second call in before the first lands.
+ */
+export const seen = mutation({
   args: { id: v.string() },
   handler: async (ctx, args) => {
     const row = await ensure(ctx);
-    if (!row.tour || row.tour.done.includes(args.id)) return;
-    await ctx.db.patch(row._id, {
-      tour: { ...row.tour, done: [...row.tour.done, args.id] },
-    });
-  },
-});
-
-export const finish = mutation({
-  args: {},
-  handler: async (ctx) => {
-    const row = await ensure(ctx);
-    await ctx.db.patch(row._id, { status: "done", completedAt: Date.now() });
+    const hints = row.hints ?? [];
+    if (hints.includes(args.id)) return;
+    await ctx.db.patch(row._id, { hints: [...hints, args.id] });
   },
 });

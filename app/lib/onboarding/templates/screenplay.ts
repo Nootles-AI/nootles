@@ -58,23 +58,23 @@ export const screenplay: Template = {
           content:
             "A woman checks into a desert motel she has no memory of booking, and finds a room already made up for her.",
         },
-        { id: "nt-tour-slash", type: "paragraph", content: "" },
+        { id: "nt-hint-slash", type: "paragraph", content: "" },
         {
           type: "paragraph",
           content:
             "Cold open on the flats at four in the afternoon — white ground, white sky, no horizon between them. A car has stopped where the road stops.",
         },
         {
-          id: "nt-tour-write",
+          id: "nt-hint-write",
           type: "paragraph",
           content: "MARA arrives at the motel with no luggage and",
         },
         { type: "heading", props: { level: 2 }, content: "Structure" },
         {
-          id: "nt-tour-draw",
           type: "paragraph",
           content: "The shape of it, act by act:",
         },
+        { id: "nt-hint-canvas", type: "canvas", props: { data: BEATS } },
         { type: "heading", props: { level: 2 }, content: "Questions" },
         {
           type: "bulletListItem",
@@ -84,6 +84,16 @@ export const screenplay: Template = {
           type: "bulletListItem",
           content: "Is the other guest real? Does it matter either way?",
         },
+        {
+          type: "paragraph",
+          content: "Who these people are lives on the Characters page, in the sidebar.",
+        },
+        {
+          type: "paragraph",
+          content:
+            "If act two needs complicating, ask the agent — open the chat and the question is already drafted.",
+        },
+        { type: "paragraph", content: "That's everything — this page is yours." },
       ],
     },
     {
@@ -93,18 +103,18 @@ export const screenplay: Template = {
           type: "paragraph",
           content: "Who they are when nobody is watching them.",
         },
+        {
+          type: "paragraph",
+          content:
+            "Press / and pick Table for the scene list — one row per scene, once the beats settle.",
+        },
       ],
     },
   ],
   script: {
     write: {
-      blockId: "nt-tour-write",
+      blockId: "nt-hint-write",
       ghost: " a room key she does not remember being given.",
-    },
-    draw: {
-      blockId: "nt-tour-draw",
-      brief: "the three-act beat board for Salt Flats, one column per act",
-      html: BEATS,
     },
     priorChat: {
       title: "The other guest",
@@ -113,10 +123,5 @@ export const screenplay: Template = {
         "It changes what the film is about rather than hurting it. Real, and this is a story about someone she has to get past. Not real, and it is a story about what she is carrying. Both work — but the ending has to be written for one of them rather than hedged between the two.",
     },
     ask: "Read the beat sheet, then suggest three ways act two could complicate what Mara wants.",
-    suggest: {
-      type: "table",
-      label: "Table",
-      hint: "One row per scene, once the beats settle.",
-    },
   },
 };

@@ -53,24 +53,24 @@ export const classNotes: Template = {
             },
           ],
         },
-        { id: "nt-tour-slash", type: "paragraph", content: "" },
+        { id: "nt-hint-slash", type: "paragraph", content: "" },
         {
           type: "paragraph",
           content:
             "Most vectors get turned when you apply a matrix to them. A few do not: they come out pointing exactly where they went in, only longer or shorter, or flipped end for end. Those are the eigenvectors, and the amount they were scaled by is the eigenvalue.",
         },
         {
-          id: "nt-tour-write",
+          id: "nt-hint-write",
           type: "paragraph",
           content:
             "So the eigenvectors are the directions the matrix leaves alone, and",
         },
         { type: "heading", props: { level: 2 }, content: "Finding them" },
         {
-          id: "nt-tour-draw",
           type: "paragraph",
           content: "The procedure, in order:",
         },
+        { id: "nt-hint-canvas", type: "canvas", props: { data: STEPS } },
         { type: "heading", props: { level: 2 }, content: "To check" },
         {
           type: "bulletListItem",
@@ -80,6 +80,16 @@ export const classNotes: Template = {
           type: "bulletListItem",
           content: "What does a repeated eigenvalue mean geometrically?",
         },
+        {
+          type: "paragraph",
+          content: "The worked examples have a page of their own, in the sidebar.",
+        },
+        {
+          type: "paragraph",
+          content:
+            "For a 2×2 done step by step, ask the agent — open the chat and the question is already drafted.",
+        },
+        { type: "paragraph", content: "That's everything — this page is yours." },
       ],
     },
     {
@@ -89,19 +99,18 @@ export const classNotes: Template = {
           type: "paragraph",
           content: "One 2×2 done slowly, then a 3×3 done properly.",
         },
+        {
+          type: "paragraph",
+          content:
+            "Press / and pick Math — define a variable on one line and reuse it on the next.",
+        },
       ],
     },
   ],
   script: {
     write: {
-      blockId: "nt-tour-write",
+      blockId: "nt-hint-write",
       ghost: " the eigenvalues are how much it stretches each of them.",
-    },
-    draw: {
-      blockId: "nt-tour-draw",
-      brief:
-        "the four steps for finding eigenvalues, from forming A minus lambda I through to back-substituting for the eigenvector",
-      html: STEPS,
     },
     priorChat: {
       title: "Why the determinant",
@@ -110,10 +119,5 @@ export const classNotes: Template = {
         "Because Av = λv rearranges to (A − λI)v = 0, and you want a solution where v is not the zero vector. A matrix only sends a non-zero vector to zero when it is singular — and singular is exactly what a zero determinant means.",
     },
     ask: "Read these notes, then work through a 2×2 example step by step on the worked examples page.",
-    suggest: {
-      type: "mathBlock",
-      label: "Math block",
-      hint: "Define a variable on one line and reuse it on the next.",
-    },
   },
 };

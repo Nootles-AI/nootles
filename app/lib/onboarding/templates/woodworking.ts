@@ -42,28 +42,38 @@ export const woodworking: Template = {
           content:
             "18 wide, 14 deep, 24 tall. Walnut throughout, mortise and tenon at the aprons, oil and wax.",
         },
-        { id: "nt-tour-slash", type: "paragraph", content: "" },
+        { id: "nt-hint-slash", type: "paragraph", content: "" },
         {
           type: "paragraph",
           content:
             "One 8-foot board of 4/4 walnut for the top and aprons, and a length of 8/4 for the legs. Mill everything oversize and let it sit a week before final dimensioning — the shop swings fifteen degrees between morning and afternoon.",
         },
         {
-          id: "nt-tour-write",
+          id: "nt-hint-write",
           type: "paragraph",
           content: "Legs are 1¾ square, tapered from",
         },
         { type: "heading", props: { level: 2 }, content: "How it goes together" },
         {
-          id: "nt-tour-draw",
           type: "paragraph",
           content: "Front elevation:",
         },
+        { id: "nt-hint-canvas", type: "canvas", props: { data: ELEVATION } },
         { type: "heading", props: { level: 2 }, content: "Order of work" },
         { type: "bulletListItem", content: "Mill the legs, cut the mortises." },
         { type: "bulletListItem", content: "Aprons to length, tenons to fit." },
         { type: "bulletListItem", content: "Dry fit the whole thing before glue." },
         { type: "bulletListItem", content: "Top last, so it can be flattened once." },
+        {
+          type: "paragraph",
+          content: "The cut list has a page of its own, in the sidebar.",
+        },
+        {
+          type: "paragraph",
+          content:
+            "The board-feet arithmetic is a job for the agent — open the chat and the question is already drafted.",
+        },
+        { type: "paragraph", content: "That's everything — this page is yours." },
       ],
     },
     {
@@ -73,19 +83,18 @@ export const woodworking: Template = {
           type: "paragraph",
           content: "Finished dimensions. Add an inch to every length for now.",
         },
+        {
+          type: "paragraph",
+          content:
+            "Press / and pick Math for the board feet — name a variable once and reuse it down the page.",
+        },
       ],
     },
   ],
   script: {
     write: {
-      blockId: "nt-tour-write",
+      blockId: "nt-hint-write",
       ghost: " 12 inches down to 1¼ at the floor, on the two inside faces only.",
-    },
-    draw: {
-      blockId: "nt-tour-draw",
-      brief:
-        "a front elevation of the side table showing the top, aprons, tapered legs and the stretcher",
-      html: ELEVATION,
     },
     priorChat: {
       title: "Wood movement",
@@ -94,10 +103,5 @@ export const woodworking: Template = {
         "Yes — roughly an eighth of an inch across the grain between summer and winter for walnut at that width. Not enough to see, plenty to split a top that is screwed down hard. Buttons or elongated screw holes and it moves without telling you about it.",
     },
     ask: "Read this page and work out how much 4/4 walnut I need in board feet, allowing 15% for waste.",
-    suggest: {
-      type: "mathBlock",
-      label: "Math block",
-      hint: "Name a variable once and reuse it down the page.",
-    },
   },
 };

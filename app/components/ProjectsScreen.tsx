@@ -15,7 +15,7 @@ import { Editable } from "./Editable";
 import { Menu, MenuItem } from "./Menu";
 import { NewProjectDialog, type NewProject } from "./NewProjectDialog";
 import { PagePreview } from "./PagePreview";
-import { GATED } from "./tour/beats";
+import { useHints } from "./hints/useHints";
 
 type View = "grid" | "list";
 type Project = NonNullable<
@@ -43,21 +43,12 @@ export function ProjectsScreen() {
   const renameProject = useMutation(api.projects.rename);
   const removeProject = useMutation(api.projects.remove);
 
-  /**
-   * Tick the tour checklist's "visit Projects" item by having been here.
-   *
-   * Only once the checklist is up — the guide's gated beats all happen inside
-   * the project, and an item ticked before it could be read teaches nothing.
-   */
-  const profile = useQuery(api.profiles.get, {});
-  const checkTourItem = useMutation(api.profiles.check);
-  const visitUnticked =
-    profile?.status === "touring" &&
-    (profile.tour?.beat ?? 0) >= GATED &&
-    !profile.tour?.done.includes("projects");
+  // Being here IS the structure lesson the sidebar hint teaches, so arriving
+  // retires it.
+  const hints = useHints();
   useEffect(() => {
-    if (visitUnticked) void checkTourItem({ id: "projects" }).catch(() => {});
-  }, [visitUnticked, checkTourItem]);
+    if (hints.alive("sidebar")) hints.die("sidebar");
+  }, [hints]);
 
   const [view, setView] = useState<View>("grid");
   const [editingId, setEditingId] = useState<Id<"projects"> | null>(null);

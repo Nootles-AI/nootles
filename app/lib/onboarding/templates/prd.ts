@@ -50,23 +50,23 @@ export const prd: Template = {
           content:
             "Let a first-time buyer pay without making an account, and ask for the account afterwards — if at all.",
         },
-        { id: "nt-tour-slash", type: "paragraph", content: "" },
+        { id: "nt-hint-slash", type: "paragraph", content: "" },
         {
           type: "paragraph",
           content:
             "Checkout is four steps and the second one is a wall. We ask for an email, a password, and a confirmation before we have asked for a card, which means we are asking someone to commit to us before they have bought anything.",
         },
         {
-          id: "nt-tour-write",
+          id: "nt-hint-write",
           type: "paragraph",
           content: "The drop-off is concentrated at the account step —",
         },
         { type: "heading", props: { level: 2 }, content: "How it would work" },
         {
-          id: "nt-tour-draw",
           type: "paragraph",
           content: "The flow we are proposing:",
         },
+        { id: "nt-hint-canvas", type: "canvas", props: { data: FLOW } },
         { type: "heading", props: { level: 2 }, content: "Open questions" },
         {
           type: "bulletListItem",
@@ -77,6 +77,17 @@ export const prd: Template = {
           content: "Do guest orders show up in support tooling the same way?",
         },
         { type: "bulletListItem", content: "How long do we keep a guest order?" },
+        {
+          type: "paragraph",
+          content:
+            "What we will watch after launch is on the Success metrics page, in the sidebar.",
+        },
+        {
+          type: "paragraph",
+          content:
+            "If you want a Risks section here, ask the agent — open the chat and the question is already drafted.",
+        },
+        { type: "paragraph", content: "That's everything — this page is yours." },
       ],
     },
     {
@@ -87,20 +98,19 @@ export const prd: Template = {
           content:
             "What we will look at four weeks after this ships, and what would make us roll it back.",
         },
+        {
+          type: "paragraph",
+          content:
+            "Press / and pick Table — one row per measure, with today's number and the target.",
+        },
       ],
     },
   ],
   script: {
     write: {
-      blockId: "nt-tour-write",
+      blockId: "nt-hint-write",
       ghost:
         " 62% of first-time buyers who reach it never come back to finish the order.",
-    },
-    draw: {
-      blockId: "nt-tour-draw",
-      brief:
-        "the guest checkout flow from cart to confirmation, with the branch where the email already has an account",
-      html: FLOW,
     },
     priorChat: {
       title: "Scope",
@@ -110,10 +120,5 @@ export const prd: Template = {
         "Later, and separate. Claiming needs an identity merge and an email verification path, and folding those in would roughly double this one. Worth a line under Open questions so it is not quietly forgotten.",
     },
     ask: "Read this page and add a Risks section with the three things most likely to go wrong.",
-    suggest: {
-      type: "table",
-      label: "Table",
-      hint: "Good for the metrics you are going to track.",
-    },
   },
 };

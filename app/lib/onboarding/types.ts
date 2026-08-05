@@ -4,10 +4,10 @@ import type { EditorSchema } from "@/app/components/editor/schema";
 /**
  * What first run is made of.
  *
- * A template is data, not code: the document it seeds, and the script the guide
- * plays over it. Keeping the two in one file is deliberate — the scripted
- * completion has to finish the exact sentence the seed left hanging, and that
- * agreement is impossible to hold if they live apart.
+ * A template is data, not code: the document it seeds, and the script the
+ * first-touch hints play over it. Keeping the two in one file is deliberate —
+ * the scripted completion has to finish the exact sentence the seed left
+ * hanging, and that agreement is impossible to hold if they live apart.
  */
 
 export type SeedBlock = PartialBlock<
@@ -27,34 +27,25 @@ export type TemplateId =
 export type TemplatePage = { title: string; blocks: SeedBlock[] };
 
 /**
- * The three gated beats plus the free tail's opening suggestion.
+ * What the first-touch hints play over the seeded document.
  *
- * `blockId` on the first two names a block seeded into the document, so the
- * guide can find where to put the caret without guessing at positions. Those
- * ids are written into the seed and are the join between the two halves.
+ * `write.blockId` names a block seeded into the document, so the scripted
+ * finish can find the sentence it ends without guessing at positions. That id
+ * is written into the seed and is the join between the two halves.
  */
-export type TourScript = {
-  /** Beat 1 — the sentence the seed leaves unfinished, and how it ends. */
+export type HintScript = {
+  /** The sentence the seed leaves unfinished, and how it ends. */
   write: { blockId: string; ghost: string };
-  /**
-   * Beat 2 — the line that invites a diagram, the brief stage one "writes",
-   * and the canvas HTML stage two "returns".
-   */
-  draw: { blockId: string; brief: string; html: string };
   /**
    * A conversation already in the project when the user arrives.
    *
-   * There so that "start a new chat" has something to be new NEXT TO. A panel
-   * with one empty thread in it teaches nothing about threads; a panel with a
-   * finished conversation in it says, without a sentence being spent on it,
-   * that these are kept, that they belong to the project, and that you are
-   * about to start another one.
+   * There so the chat panel is not empty on first open: a finished exchange
+   * says conversations are kept and that they belong to the project, without
+   * a sentence being spent on it.
    */
   priorChat: { title: string; asked: string; answered: string };
-  /** Beat 3 — what we put in the composer for the user to send. */
+  /** What we draft in the composer for the user to send. */
   ask: string;
-  /** The free tail's first suggestion: which block this document wants next. */
-  suggest: { type: string; label: string; hint: string };
 };
 
 /**
@@ -80,7 +71,7 @@ export type Template = {
   projectTitle: string;
   description: string;
   pages: TemplatePage[];
-  script: TourScript;
+  script: HintScript;
   /**
    * The one more thing this kind of document reaches for, shown in the welcome
    * preview under a heading of its own.

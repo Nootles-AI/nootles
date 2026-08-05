@@ -85,6 +85,11 @@
   color: var(--muted);
   pointer-events: none;
 }
+/* The first-touch variant sits low so it never covers the drawing it is about. */
+.nt-canvas-hint.is-low {
+  place-items: end center;
+  padding-bottom: 16px;
+}
 
 /* The way back, bottom-right, only while the diagram is off screen. Clear of
    both grips, so the corner they share stays draggable. */

@@ -54,23 +54,23 @@ export const techDesign: Template = {
           content:
             "Move request limits out of each service and onto the edge, so the answer to “how many requests is too many” is written in one place.",
         },
-        { id: "nt-tour-slash", type: "paragraph", content: "" },
+        { id: "nt-hint-slash", type: "paragraph", content: "" },
         {
           type: "paragraph",
           content:
             "Three services do their own counting. Two of them count in process memory, which means the limit is really the limit times the number of replicas, and nobody can say what that number is at any given moment.",
         },
         {
-          id: "nt-tour-write",
+          id: "nt-hint-write",
           type: "paragraph",
           content: "The failure this produces is not obvious —",
         },
         { type: "heading", props: { level: 2 }, content: "Proposed shape" },
         {
-          id: "nt-tour-draw",
           type: "paragraph",
           content: "The topology we would move to:",
         },
+        { id: "nt-hint-canvas", type: "canvas", props: { data: ARCH } },
         { type: "heading", props: { level: 2 }, content: "Rollout" },
         {
           type: "bulletListItem",
@@ -81,6 +81,17 @@ export const techDesign: Template = {
           content: "Enforce for partner traffic only, which is the noisiest.",
         },
         { type: "bulletListItem", content: "Enforce everywhere, per-route." },
+        {
+          type: "paragraph",
+          content:
+            "What breaks when the limiter itself goes down is on the Failure modes page, in the sidebar.",
+        },
+        {
+          type: "paragraph",
+          content:
+            "The check itself is worth writing down — ask the agent: open the chat and the question is already drafted.",
+        },
+        { type: "paragraph", content: "That's everything — this page is yours." },
       ],
     },
     {
@@ -91,20 +102,19 @@ export const techDesign: Template = {
           content:
             "What breaks when the limiter itself is the thing that is down.",
         },
+        {
+          type: "paragraph",
+          content:
+            "Press / and pick Code for the degraded-mode fallback — thirteen languages, with real highlighting.",
+        },
       ],
     },
   ],
   script: {
     write: {
-      blockId: "nt-tour-write",
+      blockId: "nt-hint-write",
       ghost:
         " a burst that clears the gateway can still flatten the service behind it.",
-    },
-    draw: {
-      blockId: "nt-tour-draw",
-      brief:
-        "the request path from clients through the edge gateway and rate limiter to the services, with Redis holding the counters",
-      html: ARCH,
     },
     priorChat: {
       title: "Where the counters live",
@@ -113,10 +123,5 @@ export const techDesign: Template = {
         "Redis. The counter is written and read on every single request, and at that rate the durability Postgres buys you is not worth the latency it costs. Losing a window of counts on a restart means a brief over-admission, which is the cheap failure to have.",
     },
     ask: "Read this page, then write the token bucket check as a short TypeScript function in a code block.",
-    suggest: {
-      type: "codeBlock",
-      label: "Code block",
-      hint: "Thirteen languages, with real syntax highlighting.",
-    },
   },
 };

@@ -114,7 +114,8 @@ export const createSeededProject = mutation({
       role: args.role,
       useCase: args.useCase,
       defaultMode: args.defaultMode,
-      tour: { projectId, template: args.template, beat: 0, done: [] },
+      seed: { projectId, template: args.template },
+      hints: [],
       status: "touring" as const,
     };
     if (existing) await ctx.db.patch(existing._id, profile);

@@ -54,23 +54,23 @@ order by 1, 2;`,
           content:
             "Something happens at the end of the first week that we cannot see from the dashboard. This is a plan to find out what.",
         },
-        { id: "nt-tour-slash", type: "paragraph", content: "" },
+        { id: "nt-hint-slash", type: "paragraph", content: "" },
         {
           type: "paragraph",
           content:
             "Day-one through day-seven retention is unremarkable and stable. It has not moved meaningfully in two quarters, through three releases and a pricing change.",
         },
         {
-          id: "nt-tour-write",
+          id: "nt-hint-write",
           type: "paragraph",
           content: "Then the curve does something it has no business doing —",
         },
         { type: "heading", props: { level: 2 }, content: "How we will find out" },
         {
-          id: "nt-tour-draw",
           type: "paragraph",
           content: "The study design:",
         },
+        { id: "nt-hint-canvas", type: "canvas", props: { data: DESIGN } },
         {
           type: "heading",
           props: { level: 2 },
@@ -84,6 +84,16 @@ order by 1, 2;`,
           type: "bulletListItem",
           content: "If it is only one platform, it is a bug, not behaviour.",
         },
+        {
+          type: "paragraph",
+          content: "The interview guide has a page of its own, in the sidebar.",
+        },
+        {
+          type: "paragraph",
+          content:
+            "It also needs writing — ask the agent: open the chat and the question is already drafted.",
+        },
+        { type: "paragraph", content: "That's everything — this page is yours." },
       ],
     },
     {
@@ -94,19 +104,18 @@ order by 1, 2;`,
           content:
             "Forty minutes. Open wide, narrow late, and never ask them to explain their own behaviour.",
         },
+        {
+          type: "paragraph",
+          content:
+            "Press / and pick Table for tracking who you have spoken to.",
+        },
       ],
     },
   ],
   script: {
     write: {
-      blockId: "nt-tour-write",
+      blockId: "nt-hint-write",
       ghost: " it falls off a cliff on day eight, in every cohort since March.",
-    },
-    draw: {
-      blockId: "nt-tour-draw",
-      brief:
-        "a table of the three research methods, who each one covers and what question it answers",
-      html: DESIGN,
     },
     priorChat: {
       title: "Sample size",
@@ -115,10 +124,5 @@ order by 1, 2;`,
         "Enough to find the mechanism, not enough to size it. Eight will tell you what happens on day eight; the cohort SQL is what tells you how often. They answer different questions — the trouble starts when you read them as answering the same one twice.",
     },
     ask: "Read this plan, then write the interview guide — eight questions, ordered so the hardest one is not first.",
-    suggest: {
-      type: "table",
-      label: "Table",
-      hint: "For tracking who you have spoken to.",
-    },
   },
 };

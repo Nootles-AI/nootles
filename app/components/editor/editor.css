@@ -283,6 +283,24 @@
   white-space: nowrap;
 }
 
+/* ---- First-touch hints ----------------------------------------------
+   The page's own placeholder voice — `--muted`, like the composer's and the
+   empty canvas's — not `--ghost`, which would read as content offered for Tab.
+   The key chip inside one is the same `.nt-key` every other "press Tab" wears. */
+.nt-editor .nt-hint {
+  color: var(--muted);
+  pointer-events: none;
+  user-select: none;
+}
+.nt-editor .nt-hint .nt-key {
+  margin-left: 7px;
+}
+/* While a hint occupies an empty block, BlockNote's own focused-block
+   placeholder would say a second thing in the same breath. */
+.nt-editor .bn-inline-content:has(.nt-hint)::before {
+  content: none;
+}
+
 /* ---- Ghost text (AI tab completion) --------------------------------- */
 .nt-ghost {
   color: var(--ghost);

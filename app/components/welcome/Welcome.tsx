@@ -12,6 +12,8 @@ import {
   declaredHeight,
   examplePage,
   openingOf,
+  seedDiagramHtml,
+  seedDiagramInvite,
 } from "@/app/lib/onboarding/preview";
 import type { Template, TemplateId } from "@/app/lib/onboarding/types";
 import { TemplateMark } from "./TemplateMark";
@@ -349,7 +351,7 @@ export function Welcome() {
               ) : (
                 <PreviewBlocks
                   blocks={examplePage(shown)}
-                  diagramHeight={declaredHeight(shown.script.draw.html)}
+                  diagramHeight={declaredHeight(seedDiagramHtml(shown))}
                 />
               )}
             </div>
@@ -426,6 +428,7 @@ const DEMO_CAPTION: Record<Mode, string> = {
 function ModeDemo({ mode, template }: { mode: Mode; template: Template }) {
   const lead = seedOf(template, template.script.write.blockId);
   const ghost = template.script.write.ghost;
+  const diagram = seedDiagramHtml(template);
   const [typed, setTyped] = useState("");
   const settled = typed.length >= ghost.length;
 
@@ -474,21 +477,21 @@ function ModeDemo({ mode, template }: { mode: Mode; template: Template }) {
               one suggestion, and colouring the words as settled text while the
               drawing is still an offer would split them. */}
           <p className="nt-wc-demo-line nt-wc-ghost">
-            {seedOf(template, template.script.draw.blockId)}
+            {seedDiagramInvite(template)}
           </p>
           <PreviewBlocks
             blocks={[
               {
                 id: "demo-diagram",
                 type: "canvas",
-                props: { data: template.script.draw.html },
+                props: { data: diagram },
               },
             ]}
             // Its own height, capped: the demo has room for a diagram but not
             // for a full-page one, and fitted much below this the labels stop
             // being words — which turns "it drew something" into "something
             // grey appeared".
-            diagramHeight={Math.min(declaredHeight(template.script.draw.html) ?? 340, 340)}
+            diagramHeight={Math.min(declaredHeight(diagram) ?? 340, 340)}
           />
           {/* Where the next keystroke would land. In this mode the last thing
               the model wrote is a picture, so the caret is under it — which is

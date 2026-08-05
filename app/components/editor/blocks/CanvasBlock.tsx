@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createReactBlockSpec } from "@blocknote/react";
 import { flattenBlocks, type AnyBlock } from "@/app/lib/ai/projection";
+import { useHints } from "@/app/components/hints/useHints";
 import { CanvasAiContext } from "../canvas/canvasAi";
 import { CanvasSurface, type CanvasApi } from "../canvas/render/CanvasSurface";
 import { useCanvasShell } from "../canvas/shell";
@@ -25,6 +26,29 @@ function CanvasBlockView({
   const shell = useCanvasShell();
   const mine = shell.active?.blockId === blockId;
   const api = useRef<CanvasApi | null>(null);
+  const [liveApi, setLiveApi] = useState<CanvasApi | null>(null);
+
+  /**
+   * The first-touch lesson: this is an editor, not a picture. Shown only over
+   * a diagram with something on it — an empty canvas already explains itself —
+   * and retired the first time a shape actually moves.
+   */
+  const hints = useHints();
+  const hinted = hints.alive("canvas") && Boolean(source.trim());
+  useEffect(() => {
+    if (!hinted || !mine || !liveApi) return;
+    const store = liveApi.store;
+    const entered = store.getScene();
+    const opened = performance.now();
+    // Identity, not equality: ops return the same objects for parts they did
+    // not touch, so a new scene object IS an edit. The grace window covers the
+    // reflow entering a canvas can cause on its own.
+    return store.subscribe(() => {
+      if (performance.now() - opened > 500 && store.getScene() !== entered) {
+        hints.die("canvas");
+      }
+    });
+  }, [hinted, mine, liveApi, hints]);
 
   // Keep the context value referentially stable. The block spec passes a fresh
   // closure on every render, and a changing context value would re-render every
@@ -48,7 +72,7 @@ function CanvasBlockView({
     // so this wrapper is a flex item and would otherwise shrink to nothing —
     // the canvas sizes itself against it, and everything inside the canvas is
     // absolutely positioned, so there is no content to hold it open.
-    <div className="w-full" onPointerDownCapture={claim} onFocus={claim}>
+    <div className="relative w-full" onPointerDownCapture={claim} onFocus={claim}>
       <CanvasAiContext value={ai}>
         <CanvasSurface
           source={source}
@@ -57,10 +81,16 @@ function CanvasBlockView({
           // way it speaks for this block only while this block holds the shell.
           onApi={(next) => {
             api.current = next;
+            setLiveApi(next);
             if (mine) shell.set(next ? { blockId, api: next } : null);
           }}
         />
       </CanvasAiContext>
+      {hinted && (
+        <p className="nt-canvas-hint is-low" aria-hidden>
+          A real canvas, not a picture — click in and drag a shape
+        </p>
+      )}
     </div>
   );
 }

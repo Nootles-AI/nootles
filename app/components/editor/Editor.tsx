@@ -21,6 +21,7 @@ import { PageTitleProvider } from "./PageTitleContext";
 import { InlineCodeButton } from "./InlineCodeButton";
 import { SubstrateHarness } from "./ai/SubstrateHarness";
 import { completionExtension } from "./ai/completionExtension";
+import { hintExtension } from "./ai/hintText";
 import { reviewExtension } from "./ai/reviewExtension";
 import { ReviewOverlay } from "./ai/ReviewOverlay";
 import { track } from "@/app/lib/telemetry";
@@ -141,7 +142,10 @@ export function Editor({
   mode?: PageMode;
 }) {
   const sync = useBlockNoteSync<EditorInstance>(api.prosemirror, docId, {
-    editorOptions: { schema, extensions: [completionExtension, reviewExtension] },
+    editorOptions: {
+      schema,
+      extensions: [completionExtension, reviewExtension, hintExtension],
+    },
   });
 
   useRegisterEditor(pageId, sync.editor, docId);

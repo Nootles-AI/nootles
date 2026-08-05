@@ -57,9 +57,3 @@ function wordish(rest: string): number {
   const found = /^\s*\S+/.exec(rest);
   return found ? found[0].length : 1;
 }
-
-/** Markup arrives a line at a time, so a diagram looks drawn rather than typed. */
-export function lineish(rest: string): number {
-  const at = rest.indexOf("\n");
-  return at === -1 ? rest.length : at + 1;
-}

@@ -19,7 +19,7 @@ import { ChatPanel } from "./ChatPanel";
 import { ReviewBar } from "./ReviewBar";
 import { ResizeHandle } from "./ResizeHandle";
 import { PanelsProvider } from "./PanelsContext";
-import { Tour } from "./tour/Tour";
+import { Hints } from "./hints/Hints";
 import { Feedback } from "./feedback/Feedback";
 import { PmfSurvey } from "./feedback/PmfSurvey";
 import { DismissSampler } from "./feedback/DismissSampler";
@@ -355,9 +355,9 @@ export function Workspace({ projectId }: { projectId: Id<"projects"> }) {
         <PmfSurvey />
         <DismissSampler />
 
-        {/* Last, and above everything: the guide draws over the workspace it is
-            teaching. Renders nothing at all unless a tour is running. */}
-        <Tour projectId={projectId} pageId={effectivePageId} />
+        {/* Renders nothing itself — it feeds the surfaces their first-touch
+            hints while the seeded project still has lessons left. */}
+        <Hints projectId={projectId} pageId={effectivePageId} />
       </div>
      </PanelsProvider>
     </CanvasShellContext>

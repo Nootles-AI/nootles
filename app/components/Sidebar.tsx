@@ -11,6 +11,7 @@ import { AccountMenu } from "./AccountMenu";
 import { ConfirmDeleteDialog } from "./ConfirmDelete";
 import { Editable } from "./Editable";
 import { usePageChanges, type PageChange } from "./ReviewContext";
+import { useHints } from "./hints/useHints";
 
 type Props = {
   width: number;
@@ -30,6 +31,7 @@ export function Sidebar({
   const project = useQuery(api.projects.get, { projectId });
   const pages = useQuery(api.pages.listByProject, { projectId });
   const changes = usePageChanges();
+  const hints = useHints();
   const createPage = useMutation(api.pages.create);
   const renamePage = useMutation(api.pages.rename);
   const removePage = useMutation(api.pages.remove);
@@ -156,8 +158,11 @@ export function Sidebar({
                 />
               ) : (
                 <button
-                  data-page-id={pg._id}
-                  onClick={() => onSelectPage(pg._id)}
+                  onClick={() => {
+                    // Switching pages is the structure lesson being learned.
+                    if (pg._id !== selectedPageId) hints.die("sidebar");
+                    onSelectPage(pg._id);
+                  }}
                   onDoubleClick={() => startRename(pg._id, pg.title)}
                   onContextMenu={(e) => {
                     e.preventDefault();
@@ -176,6 +181,14 @@ export function Sidebar({
             </li>
           ))}
         </ul>
+
+        {/* The structure, said once in the sidebar's own voice: gone forever
+            the first time they switch pages or visit the Projects screen. */}
+        {hints.alive("sidebar") && (
+          <p className="px-2 py-1.5 text-[13px] leading-snug text-muted">
+            The pages of this project. Projects, above, is home.
+          </p>
+        )}
       </nav>
 
       {ctx && (

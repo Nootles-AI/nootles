@@ -40,22 +40,28 @@ export default defineSchema({
     role: v.optional(v.string()),
     useCase: v.optional(v.string()),
     defaultMode: v.optional(v.union(v.literal("create"), v.literal("complete"))),
-    /**
-     * The guided build, while one is in flight. Held server-side rather than in
-     * localStorage so a tour survives changing device mid-way — the project it
-     * refers to is on the server either way, and a half-taught user arriving on
-     * a laptop to a tour that has forgotten itself is the worse failure.
-     */
+    /** The old gated tour's state. Unwritten now; kept so legacy rows validate. */
     tour: v.optional(
       v.object({
         projectId: v.id("projects"),
         template: v.string(),
-        /** Index into the beat sheet; past the end once the gated beats are done. */
         beat: v.number(),
-        /** Checklist ids answered during the free tail. */
         done: v.array(v.string()),
       }),
     ),
+    /**
+     * What first run seeded, so the hints can find their script — the template
+     * names the hanging sentence to finish and the question to draft in chat.
+     */
+    seed: v.optional(
+      v.object({ projectId: v.id("projects"), template: v.string() }),
+    ),
+    /**
+     * First-touch hints already acted on, by id. Held server-side rather than
+     * in localStorage so a hint that died stays dead across devices — each one
+     * is shown until its lesson is demonstrably learned, and never again.
+     */
+    hints: v.optional(v.array(v.string())),
     status: v.union(
       v.literal("surveying"),
       v.literal("touring"),
