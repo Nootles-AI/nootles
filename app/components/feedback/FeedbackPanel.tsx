@@ -58,10 +58,17 @@ export function FeedbackPanel({
 }) {
   const [kind, setKind] = useState<"issue" | "wish">("issue");
   const [text, setText] = useState("");
-  const [category, setCategory] = useState<FeedbackCategory>("general");
+  // "" is the unselected placeholder; sending requires a real value.
+  const [category, setCategory] = useState<FeedbackCategory | "">("");
+  const [classifying, setClassifying] = useState(false);
+  const [picked, setPicked] = useState(false);
+  const [nudge, setNudge] = useState(false);
+  const [ghost, setGhost] = useState<string | null>(null);
   // Once the reporter picks, the classifier stops second-guessing them.
   const pickedRef = useRef(false);
   const classifySeq = useRef(0);
+  const ghostSeq = useRef(0);
+  const mirrorRef = useRef<HTMLDivElement>(null);
   const [shot, setShot] = useState<{ blob: Blob; url: string } | null>(null);
   const [state, setState] = useState<"editing" | "sending" | "sent" | "failed">(
     "editing",
@@ -78,6 +85,7 @@ export function FeedbackPanel({
     const mySeq = ++classifySeq.current;
     const t = setTimeout(() => {
       void (async () => {
+        setClassifying(true);
         try {
           const consoleTail = dump()
             .console.slice(-10)
@@ -101,11 +109,47 @@ export function FeedbackPanel({
           }
         } catch {
           // A missing guess is fine; the select still works by hand.
+        } finally {
+          if (mySeq === classifySeq.current) setClassifying(false);
         }
       })();
     }, 800);
     return () => clearTimeout(t);
   }, [text]);
+
+  useEffect(() => {
+    if (!nudge) return;
+    const t = setTimeout(() => setNudge(false), 2500);
+    return () => clearTimeout(t);
+  }, [nudge]);
+
+  // Ghost completion for the draft itself, from the same context the report
+  // carries. Tab accepts; typing or Escape discards; empty answers are fine.
+  useEffect(() => {
+    if (text.trim().length < 8) return;
+    const mySeq = ++ghostSeq.current;
+    const t = setTimeout(() => {
+      void (async () => {
+        try {
+          const consoleTail = dump()
+            .console.slice(-10)
+            .map((e) => `[${e.level}] ${e.message}`)
+            .join("\n");
+          const res = await fetch("/api/feedback-complete", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ text, kind, ops: opKinds(), consoleTail }),
+          });
+          if (!res.ok) return;
+          const { completion } = (await res.json()) as { completion: string };
+          if (mySeq === ghostSeq.current && completion) setGhost(completion);
+        } catch {
+          // No ghost is the ordinary case, not a failure.
+        }
+      })();
+    }, 700);
+    return () => clearTimeout(t);
+  }, [text, kind]);
 
   // The screenshot is of the state being reported — the screen as it was
   // when the form opened, scroll positions included (see capture.ts).
@@ -138,6 +182,10 @@ export function FeedbackPanel({
 
   const send = async () => {
     if (!text.trim() || state === "sending" || state === "sent") return;
+    if (!category) {
+      setNudge(true);
+      return;
+    }
     setState("sending");
     try {
       let screenshotStorageId: Id<"_storage"> | undefined;
@@ -167,7 +215,7 @@ export function FeedbackPanel({
       await submit({
         kind,
         text,
-        category,
+        category: category as FeedbackCategory,
         ...(screenshotStorageId ? { screenshotStorageId } : {}),
         consoleLog: context.console
           .map((e) => `[${e.level}] ${e.message}`)
@@ -220,34 +268,80 @@ export function FeedbackPanel({
         ))}
       </div>
       <div className="nt-feedback-form">
-        <textarea
-          ref={textRef}
-          className="nt-feedback-text"
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          placeholder={
-            kind === "issue"
-              ? "What happened? Where were you?"
-              : "What would make this better?"
-          }
-          rows={4}
-        />
+        <div className="nt-feedback-input">
+          <div ref={mirrorRef} className="nt-feedback-mirror" aria-hidden>
+            <span>{text}</span>
+            {ghost && <span className="nt-feedback-ghost">{ghost}</span>}
+          </div>
+          <textarea
+            ref={textRef}
+            className="nt-feedback-text"
+            value={text}
+            onChange={(e) => {
+              setGhost(null);
+              setText(e.target.value);
+            }}
+            onScroll={(e) => {
+              if (mirrorRef.current) {
+                mirrorRef.current.scrollTop = e.currentTarget.scrollTop;
+              }
+            }}
+            onKeyDown={(e) => {
+              if (!ghost) return;
+              if (e.key === "Tab") {
+                e.preventDefault();
+                setText(text + ghost);
+                setGhost(null);
+              } else if (e.key === "Escape") {
+                // Dismisses the ghost only — the panel's own document-level
+                // Escape listener runs after React's dispatch on the same
+                // node, so it has to be silenced here or the box closes too.
+                e.nativeEvent.stopImmediatePropagation();
+                setGhost(null);
+              }
+            }}
+            placeholder={
+              kind === "issue"
+                ? "What happened? Where were you?"
+                : "What would make this better?"
+            }
+            rows={4}
+          />
+        </div>
         <label className="nt-feedback-where">
           <span className="nt-feedback-where-label">About</span>
-          <select
-            className="nt-feedback-select"
-            value={category}
-            onChange={(e) => {
-              pickedRef.current = true;
-              setCategory(e.target.value as FeedbackCategory);
-            }}
-          >
-            {FEEDBACK_CATEGORIES.map((c) => (
-              <option key={c} value={c}>
-                {CATEGORY_LABELS[c]}
+          <span className="nt-feedback-selectwrap">
+            <select
+              className="nt-feedback-select"
+              value={category}
+              onPointerDown={() => {
+                // Opening the menu is already an override: the dots yield.
+                pickedRef.current = true;
+                setPicked(true);
+              }}
+              onChange={(e) => {
+                pickedRef.current = true;
+                setPicked(true);
+                setCategory(e.target.value as FeedbackCategory | "");
+              }}
+            >
+              <option value="" disabled>
+                Select category…
               </option>
-            ))}
-          </select>
+              {FEEDBACK_CATEGORIES.map((c) => (
+                <option key={c} value={c}>
+                  {CATEGORY_LABELS[c]}
+                </option>
+              ))}
+            </select>
+            {classifying && !picked && (
+              <span className="nt-feedback-dots" aria-label="Suggesting a category">
+                <span />
+                <span />
+                <span />
+              </span>
+            )}
+          </span>
         </label>
         <div className="nt-feedback-foot">
           {shot ? (
@@ -268,11 +362,14 @@ export function FeedbackPanel({
           <button
             className="nt-feedback-send"
             disabled={!text.trim() || state === "sending"}
+            aria-disabled={!category || !text.trim()}
+            data-gated={!category || undefined}
             onClick={() => void send()}
           >
             {state === "sending" ? "Sending…" : "Send"}
           </button>
         </div>
+        {nudge && <p className="nt-feedback-error">Pick a category first.</p>}
         {state === "failed" && (
           <p className="nt-feedback-error">
             That didn&rsquo;t send — it&rsquo;s still here, try again.
