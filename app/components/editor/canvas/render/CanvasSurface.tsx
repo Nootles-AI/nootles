@@ -45,6 +45,7 @@ import {
   descends,
   useSelection,
   useSelectionStore,
+  type ClickMods,
   type SelectionStore,
 } from "../engine/useSelection";
 import { useViewport, type ViewportController } from "../engine/useViewport";
@@ -306,9 +307,21 @@ export interface CanvasSurfaceProps {
    * toolbar and the panels against it.
    */
   onApi?: (api: CanvasApi | null) => void;
+  /**
+   * View-only: the share route. Navigation stays whole — wheel, pinch and
+   * drag all pan or zoom, and the hand tool is the only tool — while every
+   * path that could touch the scene (selection, keymap, label edit, grips,
+   * context menu) is off.
+   */
+  readOnly?: boolean;
 }
 
-export function CanvasSurface({ source, onChange, onApi }: CanvasSurfaceProps) {
+export function CanvasSurface({
+  source,
+  onChange,
+  onApi,
+  readOnly = false,
+}: CanvasSurfaceProps) {
   const store = useScene({ source, onChange });
   const scene = useSceneSnapshot(store);
   const viewport = useViewport();
@@ -345,10 +358,12 @@ export function CanvasSurface({ source, onChange, onApi }: CanvasSurfaceProps) {
   );
   /** True while one of this component's own drags owns the pointer. */
   const busy = useRef(false);
+  /** Whether the press being handled ever became a drag — see `clickOnRelease`. */
+  const moveDidDrag = useRef(false);
   /** The node whose double-click asked to edit its label, this event. */
   const asked = useRef<NodeId | null>(null);
 
-  const [tool, setTool] = useState<CanvasTool>("move");
+  const [tool, setTool] = useState<CanvasTool>(readOnly ? "hand" : "move");
   const [editing, setEditing] = useState<NodeId | null>(null);
   /**
    * Vector edit mode: the path whose points are open, if any.
@@ -471,7 +486,8 @@ export function CanvasSurface({ source, onChange, onApi }: CanvasSurfaceProps) {
     // so nothing re-renders and the paths written above would stay stale. One
     // frame later the DOM has settled either way.
     onActiveChange: (active) => {
-      if (!active) requestAnimationFrame(reflowLive);
+      if (active) moveDidDrag.current = true;
+      else requestAnimationFrame(reflowLive);
     },
   });
 
@@ -498,6 +514,7 @@ export function CanvasSurface({ source, onChange, onApi }: CanvasSurfaceProps) {
     viewport,
     tool: toolControl,
     pathEdit: pathControl,
+    enabled: !readOnly,
   });
 
   const { open: openMenu, menu } = useContextMenu(store, selection);
@@ -679,6 +696,23 @@ export function CanvasSurface({ source, onChange, onApi }: CanvasSurfaceProps) {
     setTool("move");
   };
 
+  /**
+   * Apply a click's selection change at pointerup, unless the press became a
+   * drag in the meantime. `moveDidDrag` rather than `gesture.isActive()`,
+   * because the gesture's own pointerup listener runs first and has already
+   * torn the session down by the time this one fires.
+   */
+  const clickOnRelease = (point: Point, mods: ClickMods) => {
+    moveDidDrag.current = false;
+    const settle = () => {
+      window.removeEventListener("pointerup", settle);
+      window.removeEventListener("pointercancel", settle);
+      if (!moveDidDrag.current) selection.click(point, mods);
+    };
+    window.addEventListener("pointerup", settle);
+    window.addEventListener("pointercancel", settle);
+  };
+
   const onPointerDown = (event: ReactPointerEvent) => {
     if (event.button !== 0 || viewport.panState() !== "idle") return;
     // Every branch below either captures the pointer or suppresses the default
@@ -715,14 +749,34 @@ export function CanvasSurface({ source, onChange, onApi }: CanvasSurfaceProps) {
       return;
     }
 
-    const hit = selection.click(point, {
-      shift: event.shiftKey,
-      deep: event.altKey,
-    });
-    if (hit === null) {
+    const mods: ClickMods = { shift: event.shiftKey, deep: event.altKey };
+    const hit = selection.probe(point, mods);
+    const bounds = sel.selectionBounds;
+    const onSelection =
+      hit !== null
+        ? selection.isSelected(hit)
+        : sel.ids.length > 1 &&
+          point.x >= bounds.x &&
+          point.x <= bounds.x + bounds.w &&
+          point.y >= bounds.y &&
+          point.y <= bounds.y + bounds.h;
+
+    // Figma's rule: a press anywhere on the selection — a selected shape, or
+    // the empty span of a multi-selection's box — drags all of it. What the
+    // click *means* for the selection (collapse to the hit, shift-toggle it
+    // out, deselect) waits for release, and only happens if no drag started.
+    if (onSelection) {
+      busy.current = false;
+      clickOnRelease(point, mods);
+      gesture.startMove(event);
+      return;
+    }
+
+    const clicked = selection.click(point, mods);
+    if (clicked === null) {
       event.preventDefault();
       startMarquee(point, event.shiftKey);
-    } else if (selection.isSelected(hit)) {
+    } else if (selection.isSelected(clicked)) {
       busy.current = false;
       gesture.startMove(event);
     } else {
@@ -904,8 +958,8 @@ export function CanvasSurface({ source, onChange, onApi }: CanvasSurfaceProps) {
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerLeave={() => selection.hover(null)}
-        onDoubleClick={onDoubleClick}
-        onContextMenu={onContextMenu}
+        onDoubleClick={readOnly ? undefined : onDoubleClick}
+        onContextMenu={readOnly ? undefined : onContextMenu}
       >
         <div ref={sceneRef} className="nt-canvas-scene">
           {/* Under the shapes: a connector reads as running behind the things
@@ -914,8 +968,10 @@ export function CanvasSurface({ source, onChange, onApi }: CanvasSurfaceProps) {
             scene={scene}
             selected={sel.edgeSelected}
             hoverId={hoverEdge}
-            onPick={onEdgePick}
-            onHover={setHoverEdge}
+            // Unattached rather than ignored, so a press on a connector falls
+            // through to the surface and pans like everywhere else.
+            onPick={readOnly ? undefined : onEdgePick}
+            onHover={readOnly ? undefined : setHoverEdge}
           />
           {scene.nodes.map((node) => (
             <ShapeView
@@ -939,16 +995,12 @@ export function CanvasSurface({ source, onChange, onApi }: CanvasSurfaceProps) {
           />
         </div>
 
+        {/* The tool stays up after a connector lands — a diagram's edges come
+            in runs, and re-picking the tool for each one would make the run
+            the expensive part. The new edge is selected as it lands, and
+            Escape is the way back to the move tool. */}
         {tool === "connector" && (
-          <ConnectorTool
-            store={store}
-            viewport={viewport}
-            selection={selection}
-            // Figma drops back to the move tool once a connector lands, so a
-            // second drag does not silently start another one; a drag that came
-            // to nothing leaves the tool up, because you meant to draw.
-            onFinish={(created) => created && changeTool("move")}
-          />
+          <ConnectorTool store={store} viewport={viewport} selection={selection} />
         )}
 
         {(tool === "pen" || editPath) && (
@@ -963,27 +1015,31 @@ export function CanvasSurface({ source, onChange, onApi }: CanvasSurfaceProps) {
           />
         )}
 
-        {scene.nodes.length === 0 && (
+        {scene.nodes.length === 0 && !readOnly && (
           <p className="nt-canvas-hint">Pick a shape from the toolbar</p>
         )}
       </div>
 
-      <div
-        className="nt-canvas-grip"
-        role="separator"
-        aria-label="Resize canvas height"
-        title="Drag to resize · double-click to fit"
-        onPointerDown={onGripDown}
-        onDoubleClick={() => fit(HEIGHT_ATTR)}
-      />
-      <div
-        className="nt-canvas-grip-x"
-        role="separator"
-        aria-label="Resize canvas width"
-        title="Drag to resize · double-click to fit the column"
-        onPointerDown={onSideGripDown}
-        onDoubleClick={() => fit(WIDTH_ATTR)}
-      />
+      {!readOnly && (
+        <>
+          <div
+            className="nt-canvas-grip"
+            role="separator"
+            aria-label="Resize canvas height"
+            title="Drag to resize · double-click to fit"
+            onPointerDown={onGripDown}
+            onDoubleClick={() => fit(HEIGHT_ATTR)}
+          />
+          <div
+            className="nt-canvas-grip-x"
+            role="separator"
+            aria-label="Resize canvas width"
+            title="Drag to resize · double-click to fit the column"
+            onPointerDown={onSideGripDown}
+            onDoubleClick={() => fit(WIDTH_ATTR)}
+          />
+        </>
+      )}
 
       <Refit viewport={viewport} bounds={contentBounds} onFrame={frameContent} />
 

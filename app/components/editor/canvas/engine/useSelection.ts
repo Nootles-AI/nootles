@@ -156,6 +156,13 @@ export interface SelectionStore {
    * starting a drag or a marquee.
    */
   click(point: Point, mods?: ClickMods): NodeId | null;
+  /**
+   * What {@link click} would select, without selecting it. Lets a pointerdown
+   * tell "drag the selection" from "change the selection" before committing
+   * either — a press on an already-selected node must not collapse the
+   * selection it is about to move.
+   */
+  probe(point: Point, mods?: ClickMods): NodeId | null;
   /** Double-click: enter the group under the point and select the child. */
   enter(point: Point): void;
   /** Escape: step out one level and select the group left behind, else clear. */
@@ -386,6 +393,14 @@ export function createSelectionStore(initialScene: SceneLike): SelectionStore {
       ? snapshot.ids.filter((other) => other !== id)
       : orderIds(scene, [...snapshot.ids, id]);
 
+  const probe: SelectionStore["probe"] = (point, mods = {}) => {
+    const chain = hitTestPath(scene, point);
+    if (chain.length === 0) return null;
+    if (mods.deep) return chain[chain.length - 1].id;
+    const entered = idsOf(resolveLevel(scene, snapshot.enteredPath).path);
+    return chain[agreeDepth(entered, chain)]?.id ?? null;
+  };
+
   const click: SelectionStore["click"] = (point, mods = {}) => {
     const chain = hitTestPath(scene, point);
 
@@ -487,6 +502,8 @@ export function createSelectionStore(initialScene: SceneLike): SelectionStore {
     },
 
     click,
+
+    probe,
 
     enter(point) {
       const chain = hitTestPath(scene, point);

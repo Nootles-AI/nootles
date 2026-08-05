@@ -72,8 +72,6 @@ export interface ConnectorToolProps {
   store: SceneStore;
   viewport: ViewportController;
   selection: SelectionStore;
-  /** Called with the new edge's id, or `null` if the drag came to nothing. */
-  onFinish: (created: boolean) => void;
 }
 
 /** The nodes a connector may start from or land on at this level. */
@@ -83,12 +81,7 @@ function candidates(scene: Scene, enteredId: NodeId | null): SceneNode[] {
   return list.filter((node) => !node.hidden && !node.locked);
 }
 
-export function ConnectorTool({
-  store,
-  viewport,
-  selection,
-  onFinish,
-}: ConnectorToolProps) {
+export function ConnectorTool({ store, viewport, selection }: ConnectorToolProps) {
   const scene = useSceneSnapshot(store);
   // Subscribed so the plugs follow a pan or a zoom; the values are read below.
   const view = useViewportValue(viewport);
@@ -220,10 +213,7 @@ export function ConnectorTool({
     const current = dragRef.current;
     dragRef.current = null;
     setDrag(null);
-    if (!current?.over) {
-      onFinish(false);
-      return;
-    }
+    if (!current?.over) return;
     const id = mintEdgeId(scene);
     store.dispatch({
       type: "addEdge",
@@ -243,7 +233,6 @@ export function ConnectorTool({
     if (store.getScene().edges.some((edge) => edge.id === id)) {
       selection.selectEdges([id]);
     }
-    onFinish(true);
   };
 
   /** The live line: the cursor stands in as a 2px box, so the preview and the
