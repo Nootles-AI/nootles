@@ -89,7 +89,7 @@ export function SharedProject({ token }: { token: string }) {
             <li key={pg.docId}>
               <button
                 onClick={() => {
-                  open(pg._id, current?._id);
+                  open(pg._id);
                   setDrawer(false);
                 }}
                 aria-current={current?._id === pg._id ? "page" : undefined}
