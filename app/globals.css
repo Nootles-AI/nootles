@@ -2355,3 +2355,79 @@ body:has(.nt-review-bar) .nt-sampler {
   outline: none;
   border-color: var(--border-strong);
 }
+
+/* Ghost completion in the report box: a mirror renders the typed text
+   invisibly so the ghost lands exactly where the caret is; the textarea
+   above stays transparent-backed so the mirror shows through. */
+.nt-feedback-input {
+  position: relative;
+}
+.nt-feedback-mirror {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  padding: 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  font-size: var(--text-ui);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: transparent;
+  background: var(--surface);
+  pointer-events: none;
+}
+.nt-feedback-ghost {
+  color: var(--ghost);
+}
+.nt-feedback-input .nt-feedback-text {
+  position: relative;
+  background: transparent;
+}
+
+.nt-feedback-selectwrap {
+  position: relative;
+  display: flex;
+  flex: 1;
+}
+.nt-feedback-dots {
+  position: absolute;
+  right: 28px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  gap: 3px;
+  pointer-events: none;
+}
+.nt-feedback-dots span {
+  width: 4px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--muted);
+  animation: nt-dots 1s var(--ease) infinite;
+}
+.nt-feedback-dots span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.nt-feedback-dots span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+@keyframes nt-dots {
+  0%,
+  60%,
+  100% {
+    opacity: 0.25;
+  }
+  30% {
+    opacity: 1;
+  }
+}
+.nt-feedback-send[data-gated] {
+  color: var(--faint);
+  border-color: var(--border);
+}
+@media (prefers-reduced-motion: reduce) {
+  .nt-feedback-dots span {
+    animation: none;
+  }
+}
