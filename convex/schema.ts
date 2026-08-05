@@ -22,8 +22,16 @@ export default defineSchema({
     title: v.string(),
     // Optional short description that seeds the Context Sheet.
     description: v.optional(v.string()),
+    /**
+     * Read-only sharing. Present = shared: the token is an unguessable
+     * capability (a server-minted UUID) that names this project in a public
+     * `/share/<token>` URL. Unset to revoke — the old link dies with it.
+     */
+    shareToken: v.optional(v.string()),
     createdAt: v.number(),
-  }).index("by_owner", ["ownerId"]),
+  })
+    .index("by_owner", ["ownerId"])
+    .index("by_share_token", ["shareToken"]),
 
   /**
    * Per-account settings. Exists at all because first run needs somewhere to
@@ -294,6 +302,15 @@ export default defineSchema({
       v.literal("in_progress"),
       v.literal("done"),
       v.literal("declined"),
+    ),
+    /** Triage weight, Linear's ladder. Absent = no priority. */
+    priority: v.optional(
+      v.union(
+        v.literal("urgent"),
+        v.literal("high"),
+        v.literal("medium"),
+        v.literal("low"),
+      ),
     ),
     createdAt: v.number(),
   })

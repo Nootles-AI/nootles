@@ -155,6 +155,39 @@ export const feedbackSetStatus = mutation({
   },
 });
 
+/** Absent priority clears it — "no priority" is the absence, not a value. */
+export const feedbackSetPriority = mutation({
+  args: {
+    token: v.string(),
+    id: v.id("feedback"),
+    priority: v.optional(
+      v.union(
+        v.literal("urgent"),
+        v.literal("high"),
+        v.literal("medium"),
+        v.literal("low"),
+      ),
+    ),
+  },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx, args.token);
+    await ctx.db.patch(args.id, { priority: args.priority });
+  },
+});
+
+/** A bug report that was really a wish, or the reverse, moves between tabs. */
+export const feedbackSetKind = mutation({
+  args: {
+    token: v.string(),
+    id: v.id("feedback"),
+    kind: v.union(v.literal("issue"), v.literal("wish")),
+  },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx, args.token);
+    await ctx.db.patch(args.id, { kind: args.kind });
+  },
+});
+
 // ---- Suggestions ----------------------------------------------------------
 
 const CAP = 5000;

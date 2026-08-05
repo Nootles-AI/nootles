@@ -26,6 +26,7 @@ import type * as pages from "../pages.js";
 import type * as profiles from "../profiles.js";
 import type * as projects from "../projects.js";
 import type * as prosemirror from "../prosemirror.js";
+import type * as share from "../share.js";
 import type * as surveys from "../surveys.js";
 
 import type {
@@ -53,6 +54,7 @@ declare const fullApi: ApiFromModules<{
   profiles: typeof profiles;
   projects: typeof projects;
   prosemirror: typeof prosemirror;
+  share: typeof share;
   surveys: typeof surveys;
 }>;
 
