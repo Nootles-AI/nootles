@@ -20,7 +20,7 @@ import { ReviewBar } from "./ReviewBar";
 import { ResizeHandle } from "./ResizeHandle";
 import { PanelsProvider } from "./PanelsContext";
 import { Tour } from "./tour/Tour";
-import { FeedbackButton } from "./feedback/FeedbackButton";
+import { Feedback } from "./feedback/Feedback";
 import { PmfSurvey } from "./feedback/PmfSurvey";
 import { DismissSampler } from "./feedback/DismissSampler";
 import { PanelLeft, PanelRight } from "./Icons";
@@ -351,7 +351,7 @@ export function Workspace({ projectId }: { projectId: Id<"projects"> }) {
           </>
         )}
 
-        <FeedbackButton projectId={projectId} pageId={effectivePageId} />
+        <Feedback projectId={projectId} pageId={effectivePageId} />
         <PmfSurvey />
         <DismissSampler />
 

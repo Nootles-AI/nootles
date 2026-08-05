@@ -7,24 +7,15 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { dump } from "@/app/lib/debugRing";
 import { track } from "@/app/lib/telemetry";
-import { Segmented } from "../Segmented";
-import { X } from "../Icons";
+import { Bug, Sparkles, X } from "../Icons";
 
-const KINDS = [
-  {
-    id: "issue" as const,
-    label: "Something's off",
-    hint: "A bug, a glitch, something confusing",
-  },
-  {
-    id: "wish" as const,
-    label: "I wish…",
-    hint: "A feature or change you'd want",
-  },
+const TABS = [
+  { id: "issue" as const, label: "Bug report", Icon: Bug },
+  { id: "wish" as const, label: "Feature request", Icon: Sparkles },
 ];
 
 /**
- * The report panel. One text field; everything else — screenshot, console
+ * The report form. One text field; everything else — screenshot, console
  * tail, recent ops, replay link — is gathered quietly and shown where it can
  * be removed, so what is sent is always visible.
  */
@@ -47,8 +38,8 @@ export function FeedbackPanel({
   const submit = useMutation(api.feedback.submit);
   const textRef = useRef<HTMLTextAreaElement>(null);
 
-  // The screenshot is taken as the panel opens — the state being reported is
-  // the one on screen right now. The panel excludes itself via the filter.
+  // The screenshot is taken as the form opens — the state being reported is
+  // the one on screen right now. The widget excludes itself via the filter.
   useEffect(() => {
     let alive = true;
     let url: string | null = null;
@@ -130,75 +121,76 @@ export function FeedbackPanel({
     }
   };
 
+  if (state === "sent") {
+    return (
+      <div className="nt-feedback-sent">
+        <p>Got it — Ali will see this.</p>
+        <p className="nt-feedback-sent-note">
+          {kind === "wish" ? "Noted as a request." : "You'll hear back."}
+        </p>
+      </div>
+    );
+  }
+
   return (
-    <div
-      className="nt-feedback-panel"
-      data-nt-feedback
-      role="dialog"
-      aria-label="Send feedback"
-      onKeyDown={(e) => {
-        if (e.key === "Escape") onClose();
-      }}
-    >
-      {state === "sent" ? (
-        <div className="nt-feedback-sent">
-          <p>Got it — Ali will see this.</p>
-          <p className="nt-feedback-sent-note">
-            {kind === "wish" ? "Noted as a wish." : "You'll hear back."}
-          </p>
-        </div>
-      ) : (
-        <>
-          <Segmented
-            label="Feedback type"
-            segments={KINDS}
-            value={kind}
-            onChange={setKind}
-            tipUp
-          />
-          <textarea
-            ref={textRef}
-            className="nt-feedback-text"
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            placeholder={
-              kind === "issue"
-                ? "What happened? Where were you?"
-                : "What would make this better?"
-            }
-            rows={4}
-          />
-          <div className="nt-feedback-foot">
-            {shot ? (
-              <span className="nt-feedback-shot">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={shot.url} alt="Screenshot to attach" />
-                <button
-                  className="nt-feedback-shot-x"
-                  aria-label="Remove screenshot"
-                  onClick={() => setShot(null)}
-                >
-                  <X width={12} height={12} />
-                </button>
-              </span>
-            ) : (
-              <span className="nt-feedback-noshot">No screenshot attached</span>
-            )}
-            <button
-              className="nt-feedback-send"
-              disabled={!text.trim() || state === "sending"}
-              onClick={() => void send()}
-            >
-              {state === "sending" ? "Sending…" : "Send"}
-            </button>
-          </div>
-          {state === "failed" && (
-            <p className="nt-feedback-error">
-              That didn&rsquo;t send — it&rsquo;s still here, try again.
-            </p>
+    <div role="dialog" aria-label="Send feedback">
+      <div className="nt-feedback-tabs" role="tablist" aria-label="Feedback type">
+        {TABS.map(({ id, label, Icon }) => (
+          <button
+            key={id}
+            role="tab"
+            aria-selected={kind === id}
+            className={`nt-feedback-tab${kind === id ? " is-on" : ""}`}
+            onClick={() => setKind(id)}
+          >
+            <Icon width={14} height={14} />
+            {label}
+          </button>
+        ))}
+      </div>
+      <div className="nt-feedback-form">
+        <textarea
+          ref={textRef}
+          className="nt-feedback-text"
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder={
+            kind === "issue"
+              ? "What happened? Where were you?"
+              : "What would make this better?"
+          }
+          rows={4}
+        />
+        <div className="nt-feedback-foot">
+          {shot ? (
+            <span className="nt-feedback-shot">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={shot.url} alt="Screenshot to attach" />
+              <button
+                className="nt-feedback-shot-x"
+                aria-label="Remove screenshot"
+                onClick={() => setShot(null)}
+              >
+                <X width={12} height={12} />
+              </button>
+            </span>
+          ) : (
+            <span className="nt-feedback-noshot">No screenshot attached</span>
           )}
-        </>
-      )}
+          <button
+            className="nt-feedback-send"
+            disabled={!text.trim() || state === "sending"}
+            onClick={() => void send()}
+          >
+            {state === "sending" ? "Sending…" : "Send"}
+          </button>
+        </div>
+        {state === "failed" && (
+          <p className="nt-feedback-error">
+            That didn&rsquo;t send — it&rsquo;s still here, try again.
+          </p>
+        )}
+      </div>
     </div>
   );
 }

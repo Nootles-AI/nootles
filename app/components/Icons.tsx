@@ -147,10 +147,30 @@ export function X(props: SVGProps<SVGSVGElement>) {
   );
 }
 
-export function SpeechBubble(props: SVGProps<SVGSVGElement>) {
+export function Info(props: SVGProps<SVGSVGElement>) {
   return (
     <svg {...base} {...props}>
-      <path d="M21 11.5a8.38 8.38 0 0 1-8.5 8.3 8.7 8.7 0 0 1-3.4-.7L3 21l1.9-5.1a8.1 8.1 0 0 1-.9-3.9A8.38 8.38 0 0 1 12.5 3.2a8.38 8.38 0 0 1 8.5 8.3Z" />
+      <path d="M12 7.5h.01" />
+      <path d="M12 11v5.5" />
+    </svg>
+  );
+}
+
+export function Bug(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <path d="m8 2 1.88 1.88M14.12 3.88 16 2M9 7.13v-1a3 3 0 1 1 6 0v1" />
+      <path d="M18 11a4 4 0 0 0-4-4h-4a4 4 0 0 0-4 4v3a6 6 0 0 0 12 0Z" />
+      <path d="M12 20v-9M6.53 9C4.6 8.8 3 7.1 3 5M6 13H2M3 21c0-2.1 1.7-3.9 3.8-4M20.97 5c0 2.1-1.6 3.8-3.5 4M22 13h-4M17.2 17c2.1.1 3.8 1.9 3.8 4" />
+    </svg>
+  );
+}
+
+export function Sparkles(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M11.02 3.55c.3-1.16 1.66-1.16 1.96 0l1.06 4.1a2 2 0 0 0 1.44 1.43l4.1 1.06c1.15.3 1.15 1.66 0 1.96l-4.1 1.06a2 2 0 0 0-1.44 1.44l-1.06 4.1c-.3 1.15-1.66 1.15-1.96 0l-1.06-4.1a2 2 0 0 0-1.44-1.44l-4.1-1.06c-1.15-.3-1.15-1.66 0-1.96l4.1-1.06a2 2 0 0 0 1.44-1.44Z" />
+      <path d="M19 3v3M20.5 4.5h-3M5 17v2M6 18H4" />
     </svg>
   );
 }
