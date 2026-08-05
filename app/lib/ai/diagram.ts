@@ -135,6 +135,9 @@ Every shape needs a unique id.
 LABELS BELONG TO THE SHAPE
 A shape's label is its OWN text content, plain, no tags inside it:
   <nt-rect id="s1" x="40" y="40" w="200" h="56" style="...">Order received</nt-rect>
+The one element a label may carry is a page reference — a chip linking to another page in
+the project: <nt-rect id="s1" ...>See <nt-ref page="pageId">Page title</nt-ref></nt-rect>.
+Use a real page id; anything else inside a label is flattened to its text.
 Never draw an empty shape and lay an <nt-text> over it to label it. That is two objects
 pretending to be one: dragging the shape leaves the label behind, the label gets its own
 row in the layers panel, and an edge to the shape ignores it. Centre a label inside its own

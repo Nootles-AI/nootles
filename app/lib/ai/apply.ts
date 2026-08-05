@@ -49,6 +49,7 @@ type BNText = { type: "text"; text: string; styles: Partial<Record<Mark, boolean
 type BNInline =
   | BNText
   | { type: "math"; props: { latex: string } }
+  | { type: "pageMention"; props: { pageId: string; title: string } }
   | { type: "link"; href: string; content: BNText[] };
 
 const DEFAULT_SIZE: Record<ShapeKind, { width: number; height: number }> = {
@@ -69,6 +70,12 @@ const styled = (r: { text: string; marks?: Mark[] }): BNText => ({
 function compileInline(runs: InlineRun[]): BNInline[] {
   return runs.map((r) => {
     if (r.type === "math") return { type: "math" as const, props: { latex: r.latex } };
+    if (r.type === "pageRef") {
+      return {
+        type: "pageMention" as const,
+        props: { pageId: r.pageId, title: r.title },
+      };
+    }
     if (r.type === "link") {
       return { type: "link" as const, href: r.href, content: r.content.map(styled) };
     }

@@ -1,3 +1,5 @@
+import { labelText } from "./label";
+
 /**
  * The scene model — the canvas editor's single contract.
  *
@@ -805,7 +807,7 @@ const POLYGON_NAMES: Record<number, string> = {
  */
 export function displayName(node: SceneNode): string {
   if (node.name !== undefined && node.name !== "") return node.name;
-  const label = node.label.trim();
+  const label = labelText(node.label).trim();
   if (label) return label;
   if (node.kind === "polygon") {
     return POLYGON_NAMES[Math.round(node.sides)] ?? "Polygon";

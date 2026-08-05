@@ -44,6 +44,9 @@ export const TAG_ALIASES: Record<string, string> = {
   math: "nt-math",
   file: "nt-file",
   attachment: "nt-file",
+  ref: "nt-ref",
+  "page-ref": "nt-ref",
+  mention: "nt-ref",
 };
 
 /** Canonical tag name for an element, resolving accepted aliases. */
@@ -65,7 +68,13 @@ export type TextRun = { type: "text"; text: string; marks?: Mark[] };
 export type Run =
   | TextRun
   | { type: "math"; latex: string }
-  | { type: "link"; href: string; content: TextRun[] };
+  | { type: "link"; href: string; content: TextRun[] }
+  /**
+   * `<nt-ref page="…">Title</nt-ref>` — a mention of another page. Like a
+   * link it carries a destination, so it is a run and not a mark; the text is
+   * the title as it read when written, a fallback the UI overrides live.
+   */
+  | { type: "pageRef"; pageId: string; title: string };
 
 export type DocNode =
   | {
@@ -159,7 +168,7 @@ export const MARK_TAGS: Record<Mark, string> = {
  */
 export const INLINE_TAGS = new Set([
   "strong", "b", "em", "i", "u", "s", "code", "a", "span", "sup", "sub",
-  "nt-math", "br",
+  "nt-math", "nt-ref", "br",
 ]);
 
 export const TAG_TO_MARK: Record<string, Mark> = {

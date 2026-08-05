@@ -72,6 +72,10 @@ export function runsToHtml(content: unknown): string {
         const latex = (item.props as { latex?: string } | undefined)?.latex ?? "";
         return `<nt-math>${latex}</nt-math>`;
       }
+      if (item.type === "pageMention") {
+        const props = item.props as { pageId?: string; title?: string } | undefined;
+        return `<nt-ref${attr("page", props?.pageId)}>${esc(props?.title ?? "")}</nt-ref>`;
+      }
       if (item.type === "link") {
         const href = String(item.href ?? "");
         return `<a${attr("href", href)}>${runsToHtml(item.content)}</a>`;
@@ -86,6 +90,9 @@ export function runsToHtmlFromRuns(runs: Run[]): string {
   return runs
     .map((r) => {
       if (r.type === "math") return `<nt-math>${r.latex}</nt-math>`;
+      if (r.type === "pageRef") {
+        return `<nt-ref${attr("page", r.pageId)}>${esc(r.title)}</nt-ref>`;
+      }
       if (r.type === "link") {
         return `<a${attr("href", r.href)}>${runsToHtmlFromRuns(r.content)}</a>`;
       }

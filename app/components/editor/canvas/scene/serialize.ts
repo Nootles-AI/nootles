@@ -131,7 +131,10 @@ function nodeHtml(node: SceneNode, depth: number, computed: boolean): string {
       .join("\n");
     return `${open}\n${inner}\n${pad}</${tag}>`;
   }
-  return `${open}${hasText(node) ? escText(node.label) : ""}</${tag}>`;
+  // The label is already canonical inline markup — escaped text with any
+  // `<nt-ref>` elements intact (see scene/label.ts) — so it is written raw;
+  // escaping it again would turn every `&amp;` into `&amp;amp;`.
+  return `${open}${hasText(node) ? node.label : ""}</${tag}>`;
 }
 
 /**

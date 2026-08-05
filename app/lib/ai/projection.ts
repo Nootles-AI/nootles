@@ -40,6 +40,9 @@ function runsText(content: unknown): string {
       if (i.type === 'math') {
         return String((i.props as { latex?: string } | undefined)?.latex ?? '');
       }
+      if (i.type === 'pageMention') {
+        return String((i.props as { title?: string } | undefined)?.title ?? '');
+      }
       if (i.type === 'link') return runsText(i.content);
       return '';
     })
@@ -108,6 +111,10 @@ function inlineToText(content: unknown): string {
       if (item.type === "math") {
         const latex = (item as { props?: { latex?: string } }).props?.latex ?? "";
         return `$${latex}$`;
+      }
+      if (item.type === "pageMention") {
+        const title = (item as { props?: { title?: string } }).props?.title ?? "";
+        return `@${title}`;
       }
       return "";
     })

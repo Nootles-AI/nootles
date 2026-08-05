@@ -32,3 +32,8 @@ export function useOpenPage(): OpenPage {
   if (!value) throw new Error("Missing <OpenPageProvider>");
   return value;
 }
+
+/** For surfaces that may render outside the workspace (the share route). */
+export function useOpenPageOptional(): OpenPage | null {
+  return useContext(OpenPageContext);
+}

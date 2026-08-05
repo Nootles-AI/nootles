@@ -19,6 +19,7 @@ import { ChatPanel } from "./ChatPanel";
 import { ReviewBar } from "./ReviewBar";
 import { ResizeHandle } from "./ResizeHandle";
 import { PanelsProvider } from "./PanelsContext";
+import { PagesProvider } from "./PagesContext";
 import { Hints } from "./hints/Hints";
 import { Feedback } from "./feedback/Feedback";
 import { TesterNote } from "./feedback/TesterNote";
@@ -259,6 +260,7 @@ export function Workspace({ projectId }: { projectId: Id<"projects"> }) {
 
   return (
     <CanvasShellContext value={shell}>
+     <PagesProvider pages={sortedPages ?? null}>
      <PanelsProvider value={panels}>
       <div className="flex h-screen w-full overflow-hidden">
         {canvasPanels ? (
@@ -362,6 +364,7 @@ export function Workspace({ projectId }: { projectId: Id<"projects"> }) {
         <Hints projectId={projectId} pageId={effectivePageId} />
       </div>
      </PanelsProvider>
+     </PagesProvider>
     </CanvasShellContext>
   );
 }

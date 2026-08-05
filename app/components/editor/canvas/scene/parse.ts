@@ -1,4 +1,5 @@
 import { safeHref } from "@/app/lib/ai/html/parse";
+import { labelOfElement } from "./label";
 import {
   FULL_ARC,
   isEdgeAttr,
@@ -268,6 +269,9 @@ function idFor(el: Element, mint: Mint, prefix = "n"): string {
  * inline with no surrounding whitespace, so trimming absorbs the indentation of
  * hand-written html while a deliberate line break inside a two-line label
  * survives the round trip.
+ *
+ * Edges only. A shape's label goes through {@link labelOfElement}, which keeps
+ * `<nt-ref>` page references as elements.
  */
 function labelOf(el: Element): string {
   return (el.textContent ?? "").trim();
@@ -318,20 +322,20 @@ function elementToNode(
   const base = baseOf(el, kind, mint);
   switch (kind) {
     case "rect":
-      return { ...base, kind: "rect", label: labelOf(el) };
+      return { ...base, kind: "rect", label: labelOfElement(el) };
     case "ellipse":
-      return { ...base, kind: "ellipse", label: labelOf(el), ...arcAttrs(el) };
+      return { ...base, kind: "ellipse", label: labelOfElement(el), ...arcAttrs(el) };
     case "polygon":
       return {
         ...base,
         kind: "polygon",
-        label: labelOf(el),
+        label: labelOfElement(el),
         // Capped as well as floored: past a hundred sides it is a circle drawn
         // the expensive way, and nothing downstream should have to guard it.
         sides: clamp(Math.round(num(el, ["sides"], 3)), 3, 100),
       };
     case "text":
-      return { ...base, kind: "text", label: labelOf(el) };
+      return { ...base, kind: "text", label: labelOfElement(el) };
     case "image":
       return { ...base, kind: "image", src: imageSrc(el.getAttribute("src")) };
     case "path":

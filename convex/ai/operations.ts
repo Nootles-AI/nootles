@@ -88,6 +88,13 @@ export const inlineRun = z.discriminatedUnion("type", [
     href: z.string(),
     content: z.array(textRun),
   }),
+  // A mention of another page — the editor's "@Page" chip. The title is the
+  // fallback text; the chip renders the live title where one is available.
+  z.object({
+    type: z.literal("pageRef"),
+    pageId: z.string(),
+    title: z.string(),
+  }),
 ]);
 export type InlineRun = z.infer<typeof inlineRun>;
 

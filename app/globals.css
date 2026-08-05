@@ -1221,6 +1221,24 @@ a.nt-chip:hover {
   color: var(--foreground);
 }
 
+/* A page mentioned in running text — the document's and the canvas's "@Page".
+   Quieter than the composer chip: it sits inside a sentence, so it keeps the
+   text's own size and takes only a whisper of surface to say it is a thing. */
+.nt-ref {
+  display: inline;
+  padding: 0 3px;
+  border-radius: var(--radius-sm);
+  background: var(--elevated);
+  box-shadow: inset 0 0 0 1px var(--border);
+  color: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: box-shadow var(--dur-fast) var(--ease);
+}
+.nt-ref:hover {
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+
 /* ---- The thread's own answer ------------------------------------------
    Sits in the gap between the transcript and the box, taking the composer's
    left and right margin so the three read as one column. Neutral, like the bar
@@ -1339,6 +1357,17 @@ a.nt-chip:hover {
   right: -1px;
   max-height: 232px;
   overflow-y: auto;
+}
+/* The canvas's label editor CAN say where its caret is, so there the menu sits
+   at it, carried by a fixed-position anchor portalled to the body — inside the
+   canvas it would inherit the surface's zoom transform. */
+.nt-mention-anchor {
+  position: fixed;
+  z-index: var(--z-modal);
+  width: 260px;
+}
+.nt-mention-menu.nt-mention-caret {
+  position: static;
 }
 .nt-mention-item {
   justify-content: space-between;

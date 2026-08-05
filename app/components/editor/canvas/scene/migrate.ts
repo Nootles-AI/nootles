@@ -26,6 +26,7 @@
  * still there to read.
  */
 
+import { textToLabel } from "./label";
 import { mintIds } from "./ops";
 import { parseScene, type ParseHtml } from "./parse";
 import type { Scene, SceneEdge, SceneNode, StyleMap } from "./types";
@@ -209,7 +210,8 @@ function toSceneNode(raw: Record<string, unknown>): SceneNode {
     w,
     h,
     rot: 0,
-    label: typeof data.label === "string" ? data.label : "",
+    // Legacy labels are plain words; the label field holds canonical markup.
+    label: textToLabel(typeof data.label === "string" ? data.label : ""),
     locked: false,
     hidden: false,
     attrs: {},

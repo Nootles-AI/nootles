@@ -14,16 +14,11 @@
  * shape.
  */
 
-import {
-  memo,
-  useEffect,
-  useRef,
-  type CSSProperties,
-  type KeyboardEvent,
-  type SyntheticEvent,
-} from "react";
+import { memo, type CSSProperties, type SyntheticEvent } from "react";
 
 import { layoutOf } from "../scene/autoLayout";
+import { labelText } from "../scene/label";
+import { LabelContent, LabelEdit } from "./ShapeLabel";
 import {
   hasText,
   isGroup,
@@ -62,8 +57,6 @@ export interface ShapeViewProps {
   flow?: Flow;
 }
 
-const stop = (event: SyntheticEvent) => event.stopPropagation();
-
 /**
  * A press inside the shape but beside its label. The canvas focuses itself on
  * every press it sees, which would blur the label and end the edit, so the
@@ -82,33 +75,6 @@ export const ShapeView = memo(function ShapeView({
   flow,
 }: ShapeViewProps) {
   const editing = editingId === node.id && hasText(node) && !node.locked;
-  const label = useRef<HTMLSpanElement>(null);
-
-  // React renders the editable element with no children and never touches its
-  // content again: the text goes in from here and the browser owns it from
-  // there until the edit commits. Reconciling React's idea of the label against
-  // the nodes the browser made while typing is what duplicated the text and
-  // detached a node out from under `removeChild`.
-  useEffect(() => {
-    const el = label.current;
-    if (!editing || !el) return;
-    el.textContent = node.label;
-    el.focus();
-    const range = document.createRange();
-    range.selectNodeContents(el);
-    const selection = window.getSelection();
-    selection?.removeAllRanges();
-    selection?.addRange(range);
-
-    // Natively, not through React. ProseMirror listens on its own element,
-    // which sits between this one and the React root — so a synthetic
-    // stopPropagation runs too late and the editor has already acted. ⌘A was
-    // reaching it as "select the whole document", and the Backspace after it
-    // deleted the diagram.
-    const swallow = (event: Event) => event.stopPropagation();
-    el.addEventListener("keydown", swallow);
-    return () => el.removeEventListener("keydown", swallow);
-  }, [editing, node.label]);
 
   // A hidden node inside an auto-layout group keeps its slot — `resolveLayout`
   // counts it — so there it is painted invisible instead of dropped, and its
@@ -153,7 +119,7 @@ export const ShapeView = memo(function ShapeView({
         className={className}
         style={style}
         src={node.src}
-        alt={node.label}
+        alt={labelText(node.label)}
         draggable={false}
       />
     );
@@ -161,8 +127,6 @@ export const ShapeView = memo(function ShapeView({
 
   const layout = isGroup(node) ? layoutOf(node) : null;
   const childFlow = layout ? flowFor(layout) : undefined;
-
-  const commit = () => onEditEnd?.(node.id, label.current?.textContent ?? "");
 
   return (
     <div
@@ -176,22 +140,12 @@ export const ShapeView = memo(function ShapeView({
     >
       {shape?.child}
       {editing ? (
-        <span
-          ref={label}
-          className="nt-edit"
-          contentEditable
-          // While a label is open the canvas keymap already stands down (it
-          // tests `isContentEditable`); this is for the ProseMirror editor
-          // around it, whose handlers are ancestors of ours.
-          onKeyDown={keyDown}
-          onKeyUp={stop}
-          onBeforeInput={stop}
-          onPointerDown={stop}
-          onDoubleClick={stop}
-          onBlur={commit}
+        <LabelEdit
+          label={node.label}
+          onEnd={(label) => onEditEnd?.(node.id, label)}
         />
       ) : hasText(node) ? (
-        node.label
+        <LabelContent label={node.label} />
       ) : null}
       {isGroup(node)
         ? node.children.map((child) => (
@@ -208,15 +162,6 @@ export const ShapeView = memo(function ShapeView({
     </div>
   );
 });
-
-function keyDown(event: KeyboardEvent<HTMLSpanElement>) {
-  event.stopPropagation();
-  if (event.key === "Escape" || (event.key === "Enter" && !event.shiftKey)) {
-    event.preventDefault();
-    // Blur commits, so both endings go through one path.
-    event.currentTarget.blur();
-  }
-}
 
 /**
  * The box, as CSS.

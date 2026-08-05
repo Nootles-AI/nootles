@@ -7,6 +7,7 @@ import { codeBlockSpec } from "./blocks/CodeBlock";
 import { mathBlockSpec } from "./blocks/MathBlock";
 import { canvasBlockSpec } from "./blocks/CanvasBlock";
 import { mathInlineSpec } from "./inline/MathInline";
+import { pageMentionSpec } from "./inline/PageMention";
 import type { BlockType } from "@/convex/ai/operations";
 
 // Swap BlockNote's built-in code block for our CodeMirror-backed `code` block.
@@ -22,6 +23,7 @@ export const schema = BlockNoteSchema.create({
   inlineContentSpecs: {
     ...defaultInlineContentSpecs,
     math: mathInlineSpec,
+    pageMention: pageMentionSpec,
   },
 });
 

@@ -157,6 +157,14 @@ function runsOf(node: Node, marks: Mark[] = []): Run[] {
       out.push({ type: "math", latex: textOf(el) });
       return;
     }
+    if (canonicalTag(tag) === "nt-ref") {
+      const pageId = (el.getAttribute("page") ?? "").trim();
+      // A ref that names no page has no destination to carry — its text is
+      // still words the block said, exactly like a link we cannot make.
+      if (pageId) out.push({ type: "pageRef", pageId, title: textOf(el) });
+      else out.push(...runsOf(el, marks));
+      return;
+    }
     if (tag === "input") return; // checkbox marker, handled by the list item
     // A nested list is structure, not text — it becomes children, so it must not
     // bleed into the parent item's content.

@@ -15,6 +15,8 @@ import { useBlockNoteSync } from "@convex-dev/prosemirror-sync/blocknote";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import { schema } from "./schema";
+import { usePages, type PageRef } from "../PagesContext";
+import { pageTitle } from "./inline/PageMention";
 import { useRegisterEditor } from "./EditorRegistry";
 import { BlockSideMenu } from "./BlockSideMenu";
 import { PageTitleProvider } from "./PageTitleContext";
@@ -121,6 +123,25 @@ function customSlashItems(editor: EditorInstance): DefaultReactSuggestionItem[] 
   ];
 }
 
+// The "@" menu: every page in the project, as a chip to be inserted.
+function mentionItems(
+  editor: EditorInstance,
+  pages: PageRef[],
+): DefaultReactSuggestionItem[] {
+  return pages.map((page) => ({
+    title: pageTitle(page.title),
+    subtext: "Page",
+    group: "Link to page",
+    onItemClick: () => {
+      editor.insertInlineContent([
+        { type: "pageMention", props: { pageId: page._id, title: page.title } },
+        " ",
+      ]);
+      track("mention_inserted", { surface: "editor" });
+    },
+  }));
+}
+
 /**
  * The block editor for a single page, bound to its prosemirror-sync document.
  * Steps + snapshots are persisted by the Convex prosemirror-sync component, so
@@ -141,6 +162,7 @@ export function Editor({
   /** How eager ambient suggestions should be on this page. */
   mode?: PageMode;
 }) {
+  const pages = usePages();
   const sync = useBlockNoteSync<EditorInstance>(api.prosemirror, docId, {
     editorOptions: {
       schema,
@@ -186,6 +208,12 @@ export function Editor({
               [...getDefaultReactSlashMenuItems(editor), ...customSlashItems(editor)],
               query,
             )
+          }
+        />
+        <SuggestionMenuController
+          triggerCharacter="@"
+          getItems={async (query) =>
+            filterItems(mentionItems(editor, pages ?? []), query)
           }
         />
       </BlockNoteView>

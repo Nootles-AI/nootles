@@ -42,6 +42,9 @@ const textToInline = (r: TextRun): Extract<InlineRun, { type: "text" }> => ({
 function runsToInline(runs: Run[]): InlineRun[] {
   return runs.map((r) => {
     if (r.type === "math") return { type: "math", latex: r.latex };
+    if (r.type === "pageRef") {
+      return { type: "pageRef", pageId: r.pageId, title: r.title };
+    }
     if (r.type === "link") {
       return { type: "link", href: r.href, content: r.content.map(textToInline) };
     }
