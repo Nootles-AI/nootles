@@ -1,0 +1,280 @@
+import type { Auth } from "convex/server";
+import { paginationOptsValidator } from "convex/server";
+import { v } from "convex/values";
+import { mutation, query } from "./_generated/server";
+
+/**
+ * The operator's window: cross-tenant reads for the founder dashboard
+ * (nootles-ops). Everything here is gated to the one Clerk subject named in
+ * the deployment's ADMIN_SUBJECT env var — same auth path as any user, plus
+ * an identity check. No admin key, no separate credential to leak.
+ */
+
+async function requireAdmin(ctx: { auth: Auth }) {
+  const subject = (await ctx.auth.getUserIdentity())?.subject;
+  const admin = process.env.ADMIN_SUBJECT;
+  if (!admin || !subject || subject !== admin) throw new Error("Not authorized");
+}
+
+/** Never throws — the dashboard uses it to render "not you" politely. */
+export const me = query({
+  args: {},
+  handler: async (ctx) => {
+    const subject = (await ctx.auth.getUserIdentity())?.subject ?? null;
+    const admin = process.env.ADMIN_SUBJECT;
+    return { isAdmin: !!subject && !!admin && subject === admin };
+  },
+});
+
+// ---- Feedback -------------------------------------------------------------
+
+const feedbackStatus = v.union(v.literal("new"), v.literal("seen"), v.literal("done"));
+
+export const feedbackList = query({
+  args: {
+    paginationOpts: paginationOptsValidator,
+    kind: v.optional(v.union(v.literal("issue"), v.literal("wish"))),
+    status: v.optional(feedbackStatus),
+  },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx);
+    const base = args.status
+      ? ctx.db
+          .query("feedback")
+          .withIndex("by_status", (q) => q.eq("status", args.status!))
+      : ctx.db.query("feedback");
+    const result = await base
+      .order("desc")
+      .filter((q) => (args.kind ? q.eq(q.field("kind"), args.kind) : true))
+      .paginate(args.paginationOpts);
+    return {
+      ...result,
+      page: await Promise.all(
+        result.page.map(async (row) => ({
+          ...row,
+          screenshotUrl: row.screenshotStorageId
+            ? await ctx.storage.getUrl(row.screenshotStorageId)
+            : null,
+        })),
+      ),
+    };
+  },
+});
+
+export const feedbackGet = query({
+  args: { id: v.id("feedback") },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx);
+    const row = await ctx.db.get(args.id);
+    if (!row) return null;
+    return {
+      ...row,
+      screenshotUrl: row.screenshotStorageId
+        ? await ctx.storage.getUrl(row.screenshotStorageId)
+        : null,
+    };
+  },
+});
+
+export const feedbackSetStatus = mutation({
+  args: { id: v.id("feedback"), status: feedbackStatus },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx);
+    await ctx.db.patch(args.id, { status: args.status });
+  },
+});
+
+// ---- Suggestions ----------------------------------------------------------
+
+const CAP = 5000;
+
+export const suggestionStats = query({
+  args: { sinceMs: v.number() },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx);
+    const rows = await ctx.db
+      .query("suggestionLog")
+      .withIndex("by_creation_time", (q) => q.gte("_creationTime", args.sinceMs))
+      .take(CAP);
+    type Bucket = {
+      kind: string;
+      shown: number;
+      accepted: number;
+      dismissed: number;
+      superseded: number;
+      failed: number;
+      gated: number;
+      undone: number;
+      latencyTotal: number;
+      decisionTotal: number;
+      decisionCount: number;
+      survivalTotal: number;
+      survivalCount: number;
+    };
+    const buckets = new Map<string, Bucket>();
+    for (const row of rows) {
+      let b = buckets.get(row.kind);
+      if (!b) {
+        b = {
+          kind: row.kind,
+          shown: 0,
+          accepted: 0,
+          dismissed: 0,
+          superseded: 0,
+          failed: 0,
+          gated: 0,
+          undone: 0,
+          latencyTotal: 0,
+          decisionTotal: 0,
+          decisionCount: 0,
+          survivalTotal: 0,
+          survivalCount: 0,
+        };
+        buckets.set(row.kind, b);
+      }
+      if (row.shown) b.shown += 1;
+      b[row.outcome] += 1;
+      b.latencyTotal += row.latencyMs;
+      if (row.decisionMs !== undefined) {
+        b.decisionTotal += row.decisionMs;
+        b.decisionCount += 1;
+      }
+      if (row.survivalScore !== undefined) {
+        b.survivalTotal += row.survivalScore;
+        b.survivalCount += 1;
+      }
+      if (row.undoneWithinMs !== undefined) b.undone += 1;
+    }
+    return {
+      sampled: rows.length,
+      capped: rows.length === CAP,
+      kinds: [...buckets.values()].sort((a, b) => b.shown - a.shown),
+    };
+  },
+});
+
+export const suggestionRecent = query({
+  args: { limit: v.optional(v.number()), kind: v.optional(v.string()) },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx);
+    return await ctx.db
+      .query("suggestionLog")
+      .order("desc")
+      .filter((q) => (args.kind ? q.eq(q.field("kind"), args.kind) : true))
+      .take(Math.min(args.limit ?? 50, 200));
+  },
+});
+
+// ---- AI calls -------------------------------------------------------------
+
+export const aiCallStats = query({
+  args: { sinceMs: v.number() },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx);
+    const rows = await ctx.db
+      .query("aiCalls")
+      .withIndex("by_creation_time", (q) => q.gte("_creationTime", args.sinceMs))
+      .take(CAP);
+    type Bucket = {
+      feature: string;
+      calls: number;
+      errors: number;
+      aborted: number;
+      promptTokens: number;
+      completionTokens: number;
+      costUsd: number;
+      latencies: number[];
+    };
+    const buckets = new Map<string, Bucket>();
+    const byDay = new Map<string, number>();
+    const byOwner = new Map<string, number>();
+    for (const row of rows) {
+      let b = buckets.get(row.feature);
+      if (!b) {
+        b = {
+          feature: row.feature,
+          calls: 0,
+          errors: 0,
+          aborted: 0,
+          promptTokens: 0,
+          completionTokens: 0,
+          costUsd: 0,
+          latencies: [],
+        };
+        buckets.set(row.feature, b);
+      }
+      b.calls += 1;
+      if (row.status === "error" || row.status === "timeout") b.errors += 1;
+      if (row.status === "aborted") b.aborted += 1;
+      b.promptTokens += row.promptTokens ?? 0;
+      b.completionTokens += row.completionTokens ?? 0;
+      b.costUsd += row.costUsd ?? 0;
+      b.latencies.push(row.latencyMs);
+      const day = new Date(row.createdAt).toISOString().slice(0, 10);
+      byDay.set(day, (byDay.get(day) ?? 0) + (row.costUsd ?? 0));
+      byOwner.set(row.ownerId, (byOwner.get(row.ownerId) ?? 0) + (row.costUsd ?? 0));
+    }
+    const pct = (sorted: number[], p: number) =>
+      sorted.length ? sorted[Math.floor((sorted.length - 1) * p)] : 0;
+    return {
+      sampled: rows.length,
+      capped: rows.length === CAP,
+      features: [...buckets.values()]
+        .map(({ latencies, ...b }) => {
+          const sorted = [...latencies].sort((x, y) => x - y);
+          return { ...b, p50: pct(sorted, 0.5), p95: pct(sorted, 0.95) };
+        })
+        .sort((a, b) => b.costUsd - a.costUsd),
+      costByDay: [...byDay.entries()]
+        .map(([day, costUsd]) => ({ day, costUsd }))
+        .sort((a, b) => a.day.localeCompare(b.day)),
+      spenders: [...byOwner.entries()]
+        .map(([ownerId, costUsd]) => ({ ownerId, costUsd }))
+        .sort((a, b) => b.costUsd - a.costUsd)
+        .slice(0, 20),
+    };
+  },
+});
+
+export const aiCallRecent = query({
+  args: { limit: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx);
+    return await ctx.db
+      .query("aiCalls")
+      .order("desc")
+      .take(Math.min(args.limit ?? 50, 200));
+  },
+});
+
+// ---- Chat + surveys ---------------------------------------------------------
+
+export const chatStats = query({
+  args: { sinceMs: v.number() },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx);
+    const turns = await ctx.db
+      .query("chatTurns")
+      .withIndex("by_creation_time", (q) => q.gte("_creationTime", args.sinceMs))
+      .take(CAP);
+    const byStatus = new Map<string, number>();
+    let rewound = 0;
+    for (const t of turns) {
+      byStatus.set(t.status, (byStatus.get(t.status) ?? 0) + 1);
+      if (t.rewoundAt !== undefined) rewound += 1;
+    }
+    return {
+      turns: turns.length,
+      rewound,
+      byStatus: [...byStatus.entries()].map(([status, count]) => ({ status, count })),
+    };
+  },
+});
+
+export const surveyList = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireAdmin(ctx);
+    return await ctx.db.query("surveyResponses").order("desc").take(200);
+  },
+});
