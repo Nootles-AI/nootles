@@ -4,14 +4,16 @@ import { useEffect, useState } from "react";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useHints } from "../hints/useHints";
 import { Info } from "../Icons";
+import "./letter.css";
 
 /**
- * A note from the founder, shown once — in the first project that is the
+ * A letter from the founder, shown once — in the first project that is the
  * user's own rather than the seeded tutorial.
  *
- * A modal, deliberately: this is a letter, not a lesson, and the one thing it
- * asks — use the report button — is worth a moment of full attention. It
- * never comes back: dismissal is recorded in the same seen-set the hints use.
+ * A sheet of paper over a blurred room, with a drawn arrow to the one thing
+ * it asks for: the report button, lifted out of the blur and ringed so there
+ * is no doubt which button is meant. It never comes back: dismissal is
+ * recorded in the same seen-set the first-touch hints use.
  */
 export function TesterNote({ projectId }: { projectId: Id<"projects"> }) {
   const { profile, die } = useHints();
@@ -23,11 +25,11 @@ export function TesterNote({ projectId }: { projectId: Id<"projects"> }) {
   const unread = own && !(profile.hints ?? []).includes("tester-note");
 
   if (!unread) return null;
-  return <Note onClose={() => die("tester-note")} />;
+  return <Letter onClose={() => die("tester-note")} />;
 }
 
-function Note({ onClose }: { onClose: () => void }) {
-  // The letter ends in handwriting; until the file is there, it ends in type.
+function Letter({ onClose }: { onClose: () => void }) {
+  // The letter ends in handwriting; until the file loads, it ends in type.
   const [signed, setSigned] = useState(true);
 
   useEffect(() => {
@@ -37,8 +39,18 @@ function Note({ onClose }: { onClose: () => void }) {
         onClose();
       }
     };
+    // Following the arrow is the best possible way to close the letter — a
+    // press on the ringed button counts as "will do", and the report form it
+    // morphs into deserves the screen to itself.
+    const onDown = (e: PointerEvent) => {
+      if ((e.target as Element).closest("[data-nt-feedback]")) onClose();
+    };
     document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
+    document.addEventListener("pointerdown", onDown, true);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("pointerdown", onDown, true);
+    };
   }, [onClose]);
 
   return (
@@ -46,20 +58,19 @@ function Note({ onClose }: { onClose: () => void }) {
       <button
         aria-label="Close"
         onClick={onClose}
-        className="fixed inset-0 bg-foreground/15"
-        style={{ zIndex: "var(--z-overlay)" }}
+        className="nt-letter-scrim"
       />
       <div
         role="dialog"
         aria-modal="true"
-        aria-label="A note from Ali"
-        className="nt-menu fixed left-1/2 top-1/4 w-[24rem] max-w-[calc(100vw-2rem)] -translate-x-1/2 p-5"
-        style={{ zIndex: "var(--z-modal)" }}
+        aria-label="A personal thank you"
+        className="nt-letter"
       >
-        <p className="text-sm font-medium">
-          Thank you for being one of Nootles&rsquo; first test users.
+        <p className="text-[15px] font-semibold tracking-[-0.01em]">
+          A personal thank you
         </p>
         <div className="mt-3 space-y-3 text-[13px] leading-relaxed text-muted">
+          <p>Thank you for being one of Nootles&rsquo; first test users.</p>
           <p>
             If anything breaks — or you find yourself wishing for something that
             isn&rsquo;t there — press the{" "}
@@ -97,6 +108,25 @@ function Note({ onClose }: { onClose: () => void }) {
           </button>
         </div>
       </div>
+
+      {/* Drawn from the letter's side of the room down to the button. One
+          wobbling stroke and an open head — a pen's arrow, not a plotter's. */}
+      <svg
+        className="nt-letter-arrow"
+        width="150"
+        height="190"
+        viewBox="0 0 150 190"
+        fill="none"
+        aria-hidden
+      >
+        <path
+          d="M138 14c-4 34-10 66-30 96-15 23-38 42-72 54m0 0c9-1 20-1 30 2m-30-2c7-6 14-14 18-24"
+          stroke="currentColor"
+          strokeWidth="2.25"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
     </>
   );
 }
