@@ -39,9 +39,9 @@ export function FeedbackPanel({
   const textRef = useRef<HTMLTextAreaElement>(null);
 
   // The screenshot is of the state being reported — the screen as it was
-  // when the form opened. Rasterizing the whole document is heavy, so it
-  // waits for the morph to land; nothing changes underneath in that time
-  // (the widget excludes itself via the filter). Focus waits with it.
+  // when the form opened, scroll positions included (see capture.ts).
+  // Rasterizing the whole document is heavy, so it waits for the morph to
+  // land; nothing changes underneath in that time. Focus waits with it.
   useEffect(() => {
     let alive = true;
     let url: string | null = null;
@@ -49,12 +49,8 @@ export function FeedbackPanel({
       textRef.current?.focus({ preventScroll: true });
       void (async () => {
         try {
-          const { toBlob } = await import("html-to-image");
-          const blob = await toBlob(document.body, {
-            pixelRatio: 1,
-            filter: (node) =>
-              !(node instanceof HTMLElement && node.dataset.ntFeedback !== undefined),
-          });
+          const { captureViewport } = await import("./capture");
+          const blob = await captureViewport();
           if (blob && alive) {
             url = URL.createObjectURL(blob);
             setShot({ blob, url });
