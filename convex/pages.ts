@@ -63,6 +63,35 @@ function orderAfter(siblings: Doc<"pages">[], after: Id<"pages">): number | null
     : anchor.order + 1;
 }
 
+/**
+ * Moves a page within its project's sidebar order: after the named sibling, or
+ * to the front when none is named. Fractional orders (see {@link orderAfter})
+ * mean only the moved page is written. A stale anchor — deleted, or from
+ * another project — leaves the order as it was rather than guessing.
+ */
+export const move = mutation({
+  args: {
+    pageId: v.id("pages"),
+    after: v.optional(v.id("pages")),
+  },
+  handler: async (ctx, args) => {
+    const page = await requireOwned(ctx, "pages", args.pageId);
+    if (args.after === args.pageId) return;
+    const siblings = (
+      await ctx.db
+        .query("pages")
+        .withIndex("by_project", (q) => q.eq("projectId", page.projectId))
+        .collect()
+    ).filter((p) => p._id !== args.pageId);
+    if (siblings.length === 0) return;
+    const order = args.after
+      ? orderAfter(siblings, args.after)
+      : Math.min(...siblings.map((p) => p.order)) - 1;
+    if (order === null) return;
+    await ctx.db.patch(args.pageId, { order });
+  },
+});
+
 export const setMode = mutation({
   args: {
     pageId: v.id("pages"),

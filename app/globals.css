@@ -384,6 +384,21 @@ body {
   white-space: nowrap;
   text-overflow: ellipsis;
 }
+/* A row being carried to a new place: still readable, clearly lifted. */
+.nt-row.is-dragging {
+  opacity: 0.45;
+}
+/* Where it will land — a hairline in the gap, not a highlight on a row. */
+.nt-drop-line {
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  margin-top: -1px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--border-strong);
+  pointer-events: none;
+}
 /* Unanswered agent changes on a page. The two colours on this row are the diff's
    own — the one place the palette is allowed an opinion — and they are the same
    tokens the change itself is drawn in, so the badge and the page agree. Mono

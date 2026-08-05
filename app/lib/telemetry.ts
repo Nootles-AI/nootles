@@ -14,6 +14,7 @@ type EventMap = {
   onboarding_completed: { role?: string; useCase?: string; mode?: string };
   project_created: Record<string, never>;
   page_created: { mode?: string };
+  page_moved: Record<string, never>;
   block_created: { type: string };
   mention_inserted: { surface: "editor" | "canvas" };
   canvas_shape_added: { kind: string };

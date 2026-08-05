@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
@@ -13,6 +13,7 @@ import { ConfirmDeleteDialog } from "./ConfirmDelete";
 import { Editable } from "./Editable";
 import { usePageChanges, type PageChange } from "./ReviewContext";
 import { useHints } from "./hints/useHints";
+import { usePageDrag } from "./pageDrag";
 
 type Props = {
   width: number;
@@ -36,6 +37,7 @@ export function Sidebar({
   const createPage = useMutation(api.pages.create);
   const renamePage = useMutation(api.pages.rename);
   const removePage = useMutation(api.pages.remove);
+  const movePage = useMutation(api.pages.move);
   const renameProject = useMutation(api.projects.rename);
 
   const [editing, setEditing] = useState<Id<"pages"> | "project" | null>(null);
@@ -47,6 +49,16 @@ export function Sidebar({
   );
 
   const sortedPages = pages?.slice().sort((a, b) => a.order - b.order);
+
+  const listRef = useRef<HTMLUListElement>(null);
+  const drag = usePageDrag(
+    listRef,
+    sortedPages?.map((p) => p._id) ?? [],
+    (pageId, after) => {
+      void movePage({ pageId, after: after ?? undefined });
+      track("page_moved", {});
+    },
+  );
 
   const commit = () => {
     const title = draft.trim();
@@ -140,14 +152,14 @@ export function Sidebar({
           </button>
         </div>
 
-        <ul className="space-y-px">
+        <ul ref={listRef} className="relative space-y-px">
           {sortedPages?.length === 0 && (
             <li className="px-2 py-1 text-[13px] text-muted">
               No pages yet — press + to add one.
             </li>
           )}
           {sortedPages?.map((pg) => (
-            <li key={pg._id}>
+            <li key={pg._id} data-page={pg._id}>
               {editing === pg._id ? (
                 <Editable
                   autoFocus
@@ -165,6 +177,8 @@ export function Sidebar({
                     if (pg._id !== selectedPageId) hints.die("sidebar");
                     onSelectPage(pg._id);
                   }}
+                  onClickCapture={drag.clickGuard}
+                  onPointerDown={(e) => drag.press(pg._id, e)}
                   onDoubleClick={() => startRename(pg._id, pg.title)}
                   onContextMenu={(e) => {
                     e.preventDefault();
@@ -174,7 +188,7 @@ export function Sidebar({
                   aria-current={selectedPageId === pg._id ? "page" : undefined}
                   className={`nt-row w-full${
                     selectedPageId === pg._id ? " is-selected" : ""
-                  }`}
+                  }${drag.dragId === pg._id ? " is-dragging" : ""}`}
                 >
                   <span className="nt-row-label">{pg.title || "Untitled"}</span>
                   <ChangeCount change={changes.get(pg._id)} />
@@ -182,6 +196,10 @@ export function Sidebar({
               )}
             </li>
           ))}
+          {/* Last child, so the space-y margins of the real rows stay put. */}
+          {drag.top !== null && (
+            <li aria-hidden className="nt-drop-line" style={{ top: drag.top }} />
+          )}
         </ul>
 
         {/* The structure, said once in the sidebar's own voice: gone forever
