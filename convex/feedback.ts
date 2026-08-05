@@ -1,4 +1,5 @@
 import { mutation, query } from "./_generated/server";
+import { feedbackCategory } from "./schema";
 import { v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
 import { ownerId as currentOwner, requireOwned, requireOwner } from "./auth";
@@ -35,6 +36,7 @@ export const submit = mutation({
       ua: v.string(),
       viewport: v.string(),
     }),
+    category: v.optional(feedbackCategory),
   },
   handler: async (ctx, args) => {
     const ownerId = await requireOwner(ctx);

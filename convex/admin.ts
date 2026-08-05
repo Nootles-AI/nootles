@@ -1,6 +1,7 @@
 import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
 import { mutation, query, type QueryCtx } from "./_generated/server";
+import { feedbackCategory } from "./schema";
 
 /**
  * The operator's window: cross-tenant reads for the founder dashboard
@@ -172,6 +173,19 @@ export const feedbackSetPriority = mutation({
   handler: async (ctx, args) => {
     await requireAdmin(ctx, args.token);
     await ctx.db.patch(args.id, { priority: args.priority });
+  },
+});
+
+/** Re-file a report under the surface it is actually about. */
+export const feedbackSetCategory = mutation({
+  args: {
+    token: v.string(),
+    id: v.id("feedback"),
+    category: v.optional(feedbackCategory),
+  },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx, args.token);
+    await ctx.db.patch(args.id, { category: args.category });
   },
 });
 

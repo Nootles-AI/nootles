@@ -16,6 +16,24 @@ import { v } from "convex/values";
 // A 2D point / size used across shapes.
 const vec2 = v.object({ x: v.number(), y: v.number() });
 
+/**
+ * Which surface a feedback report is about. One value per product surface,
+ * "general" for everything else. Shared by the submit path, the classifier,
+ * and the ops dashboard's admin functions.
+ */
+export const feedbackCategory = v.union(
+  v.literal("canvas"),
+  v.literal("code"),
+  v.literal("math"),
+  v.literal("tables"),
+  v.literal("autocomplete"),
+  v.literal("chat"),
+  v.literal("editor"),
+  v.literal("sharing"),
+  v.literal("account"),
+  v.literal("general"),
+);
+
 export default defineSchema({
   projects: defineTable({
     ownerId: v.string(),
@@ -257,6 +275,7 @@ export default defineSchema({
       v.literal("reformat"),
       v.literal("diagram"),
       v.literal("chat"),
+      v.literal("categorize"),
     ),
     model: v.string(),
     promptTokens: v.optional(v.number()),
@@ -312,6 +331,8 @@ export default defineSchema({
         v.literal("low"),
       ),
     ),
+    /** Which surface it's about — AI-suggested on the form, always editable. */
+    category: v.optional(feedbackCategory),
     createdAt: v.number(),
   })
     .index("by_status", ["status", "createdAt"])
