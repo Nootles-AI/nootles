@@ -209,11 +209,17 @@ export function ghostBlocksElement(blocks: GhostBlock[], live = false): HTMLElem
   // The preview cursor, at the end of the last block drawn. A suggestion makes
   // one promise — this is what you get, and this is where you will be — so it
   // gets one cursor, and `caretTarget` lands the real one in the same place.
+  // The cursor is the head span's `::after`, so the line's content moves into
+  // one and the Tab key — once the stream settles — sits after it.
   const lines = wrap.querySelectorAll("p.bn-inline-content");
   const end = lines[lines.length - 1];
   if (end) {
-    end.classList.add("nt-stream-head");
-    if (live) end.classList.add("is-live");
+    const head = document.createElement("span");
+    while (end.firstChild) head.appendChild(end.firstChild);
+    head.classList.add("nt-stream-head");
+    if (live) head.classList.add("is-live");
+    end.appendChild(head);
+    if (!live) end.appendChild(keyChip("Tab"));
   }
   return wrap;
 }

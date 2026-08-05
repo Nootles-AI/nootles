@@ -35,15 +35,26 @@ class GhostWidget extends WidgetType {
   }
   toDOM() {
     const el = document.createElement(this.block ? "div" : "span");
-    // Head only on the trailing widget, so there is exactly one caret marker.
-    el.className =
-      "nt-cm-ghost" +
-      (this.head ? " nt-stream-head" : "") +
-      (this.head && this.streaming ? " is-live" : "");
+    el.className = "nt-cm-ghost";
     // Set here rather than in the stylesheet: CodeMirror injects its own rules
     // for content children, which win over ours and collapse the indentation.
     el.style.whiteSpace = "pre";
-    el.textContent = this.text;
+    // Head only on the trailing widget, so there is exactly one caret marker.
+    // It sits on an inner span — the cursor is its `::after` — so the Tab key
+    // can land to the cursor's right once the stream settles.
+    const text = document.createElement("span");
+    text.textContent = this.text;
+    el.appendChild(text);
+    if (this.head) {
+      text.classList.add("nt-stream-head");
+      if (this.streaming) text.classList.add("is-live");
+      else {
+        const key = document.createElement("span");
+        key.className = "nt-key";
+        key.textContent = "Tab";
+        el.appendChild(key);
+      }
+    }
     return el;
   }
   ignoreEvent() {

@@ -346,6 +346,18 @@
   background: color-mix(in oklch, var(--accent-on-dark) 14%, transparent);
   color: var(--accent-on-dark);
 }
+/* The key beside a settled stream head: the cursor says where Tab would land,
+   the key says which key. */
+.nt-ghost .nt-key,
+.nt-ghost-blocks .nt-key,
+.nt-cm-ghost .nt-key {
+  margin-left: 7px;
+}
+/* Inside a code block the ghost sits on the same dark surface. */
+.nt-cm-ghost .nt-key {
+  background: color-mix(in oklch, var(--accent-on-dark) 14%, transparent);
+  color: var(--accent-on-dark);
+}
 
 /* ---- Action hint chip (AI structured suggestions) -------------------
    No pill of its own any more: it is a key and the word for what the key would

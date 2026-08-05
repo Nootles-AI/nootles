@@ -267,22 +267,79 @@ function collectIds(block: AnyBlock, out: Set<string>) {
  */
 const CARET = "\u0001CARET\u0001";
 
+/** The run list with a marker run spliced in at the character offset. */
+function spliceCaret(
+  content: Array<Record<string, unknown>>,
+  offset: number,
+): Array<Record<string, unknown>> {
+  const out: Array<Record<string, unknown>> = [];
+  let acc = 0;
+  let placed = false;
+  for (const item of content) {
+    const text = item.type === "text" ? String(item.text ?? "") : "";
+    if (!placed && item.type === "text" && offset <= acc + text.length) {
+      const cut = Math.max(0, offset - acc);
+      out.push({ ...item, text: text.slice(0, cut) });
+      out.push({ type: "text", text: CARET, styles: {} });
+      out.push({ ...item, text: text.slice(cut) });
+      placed = true;
+    } else {
+      out.push(item);
+    }
+    acc += text.length;
+  }
+  if (!placed) out.push({ type: "text", text: CARET, styles: {} });
+  return out;
+}
+
+/** Where the caret sits inside a table block: which cell, by position. */
+export type TableCellRef = { row: number; col: number };
+
 /** Copy of the block tree with a marker run spliced in at the caret. */
 function withCaret(
   blocks: AnyBlock[],
   cursorBlockId: string,
   offset: number,
+  cell?: TableCellRef,
 ): AnyBlock[] {
   return blocks.map((b) => {
     if (b.id !== cursorBlockId) {
       return b.children?.length
-        ? { ...b, children: withCaret(b.children, cursorBlockId, offset) }
+        ? { ...b, children: withCaret(b.children, cursorBlockId, offset, cell) }
         : b;
     }
     // Code and math keep their text in props rather than inline content, and
     // they're void nodes in ProseMirror — the caret is inside CodeMirror or
     // MathLive, not the document. Splitting the prop puts the marker in the
     // right place anyway, so completing inside them is the same FIM call.
+    // A table keeps its text in `content.rows` rather than inline content, so
+    // the marker goes into the cell the caret is in — `offset` is within that
+    // cell. Without this the marker never serialized and the split came back
+    // null, which is why completions were silent inside tables.
+    if (b.type === "table") {
+      if (!cell) return b;
+      const content = b.content as
+        | { rows?: Array<{ cells?: unknown[] }> }
+        | undefined;
+      const rows = (content?.rows ?? []).map((row, r) => {
+        if (r !== cell.row) return row;
+        const cells = (row.cells ?? []).map((c, i) => {
+          if (i !== cell.col) return c;
+          // A cell is a bare run list in what the applier writes, or a
+          // `tableCell` wrapper in what BlockNote stores.
+          const runs = Array.isArray(c)
+            ? c
+            : ((c as { content?: unknown[] })?.content ?? []);
+          const spliced = spliceCaret(
+            runs as Array<Record<string, unknown>>,
+            offset,
+          );
+          return Array.isArray(c) ? spliced : { ...(c as object), content: spliced };
+        });
+        return { ...row, cells };
+      });
+      return { ...b, content: { ...content, rows } } as AnyBlock;
+    }
     if (b.type === "codeBlock" || b.type === "mathBlock") {
       const key = b.type === "codeBlock" ? "code" : "source";
       const text = String(b.props?.[key] ?? "");
@@ -295,24 +352,7 @@ function withCaret(
     const content = Array.isArray(b.content)
       ? (b.content as Array<Record<string, unknown>>)
       : [];
-    const out: Array<Record<string, unknown>> = [];
-    let acc = 0;
-    let placed = false;
-    for (const item of content) {
-      const text = item.type === "text" ? String(item.text ?? "") : "";
-      if (!placed && item.type === "text" && offset <= acc + text.length) {
-        const cut = Math.max(0, offset - acc);
-        out.push({ ...item, text: text.slice(0, cut) });
-        out.push({ type: "text", text: CARET, styles: {} });
-        out.push({ ...item, text: text.slice(cut) });
-        placed = true;
-      } else {
-        out.push(item);
-      }
-      acc += text.length;
-    }
-    if (!placed) out.push({ type: "text", text: CARET, styles: {} });
-    return { ...b, content: out };
+    return { ...b, content: spliceCaret(content, offset) };
   });
 }
 
@@ -330,8 +370,9 @@ export function toDocHtmlSplit(
   cursorBlockId: string,
   offset: number,
   opts: SerializeOptions = {},
+  cell?: TableCellRef,
 ): { prefix: string; suffix: string } | null {
-  const html = toDocHtml(withCaret(blocks, cursorBlockId, offset), {
+  const html = toDocHtml(withCaret(blocks, cursorBlockId, offset, cell), {
     ...opts,
     cursorBlockId,
   });

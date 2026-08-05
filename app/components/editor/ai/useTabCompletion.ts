@@ -560,10 +560,20 @@ export function useTabCompletion(
       const walk = (node: unknown): void => {
         if (!node || typeof node !== "object") return;
         if (Array.isArray(node)) return node.forEach(walk);
-        const n = node as { text?: unknown; content?: unknown; children?: unknown };
+        const n = node as {
+          text?: unknown;
+          content?: unknown;
+          children?: unknown;
+          rows?: unknown;
+          cells?: unknown;
+        };
         if (typeof n.text === "string") parts.push(n.text);
         walk(n.content);
         walk(n.children);
+        // Table text lives in rows→cells, and missing it read every accept
+        // inside a table as undone within seconds.
+        walk(n.rows);
+        walk(n.cells);
       };
       walk(block);
       return parts.join(" ");
@@ -674,6 +684,17 @@ export function useTabCompletion(
       const state = editor.prosemirrorState;
       const sel = state.selection;
       if (!sel.empty || !sel.$from.parent.isTextblock) return null;
+      // A caret in a table cell. BlockNote's cursor block is the table itself —
+      // cells are not blocks — so which cell has to be read off the ProseMirror
+      // ancestry: the row's index in the table, the cell's index in the row.
+      const $from = sel.$from;
+      let cell: { row: number; col: number } | undefined;
+      for (let d = $from.depth; d > 0; d--) {
+        if ($from.node(d).type.name === "tableRow") {
+          cell = { row: $from.index(d - 1), col: $from.index(d) };
+          break;
+        }
+      }
       let cursorBlockId: string;
       try {
         cursorBlockId = editor.getTextCursorPosition().block.id as string;
@@ -681,9 +702,13 @@ export function useTabCompletion(
         return null;
       }
       const blocks = editor.document as unknown as AnyBlock[];
-      const split = toDocHtmlSplit(blocks, cursorBlockId, sel.$from.parentOffset, {
-        title,
-      });
+      const split = toDocHtmlSplit(
+        blocks,
+        cursorBlockId,
+        sel.$from.parentOffset,
+        { title },
+        cell,
+      );
       if (!split) return null;
       // Enough written to complete from. "complete" wants more before it
       // speaks at all.
@@ -698,6 +723,7 @@ export function useTabCompletion(
         blocks,
         visible,
         midWord: /\w$/.test(bare),
+        cell,
       };
     };
 
@@ -956,7 +982,9 @@ export function useTabCompletion(
             // by a math block flash up and disappear. Keep the prose, drop the
             // block; only a completion that is nothing but a block has nothing
             // left to offer. Same rule the diagram branch below already follows.
-            if (!limits.allowBlocks && isStructural(acc)) {
+            // A table cell holds inline content only, so inside one every block
+            // the model opens is cut the same way.
+            if ((!limits.allowBlocks || ctx.cell) && isStructural(acc)) {
               const tail = proseTail(acc);
               if (!tail.trim()) return clear();
               acc = tail;
@@ -1038,6 +1066,14 @@ export function useTabCompletion(
       // below — so the chip sat on "Drawing…" for ever, offering something it
       // could no longer produce. Whoever superseded us is drawing their own.
       if (mySeq !== seq) return clear();
+
+      // The in-loop cut again, for a block that closed within its first chunk —
+      // `firstBlock` breaks the loop before the cell check ever runs then.
+      if (ctx.cell && isStructural(acc)) {
+        const tail = proseTail(acc);
+        if (!tail.trim()) return clear();
+        acc = tail;
+      }
 
       // The macro expands: the shapes land exactly where the element stood, so
       // every line below this one treats the completion as though the model had

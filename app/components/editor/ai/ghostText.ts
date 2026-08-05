@@ -159,19 +159,25 @@ function metaDispatch(view: EditorView, value: Suggestion) {
 /**
  * `live` = tokens are still arriving, so the cursor pulses. `head` = this is the
  * end of the suggestion; false when whole blocks follow below and the cursor
- * belongs at the end of those instead.
+ * belongs at the end of those instead. `tab` = once settled, the Tab key shows
+ * beside the cursor; false when something else (a preview head) already says it.
  */
-function ghostWidget(source: string, live = false, head = true) {
+function ghostWidget(source: string, live = false, head = true, tab = head) {
   return () => {
     const span = document.createElement("span");
     span.className = "nt-ghost";
-    renderInline(source, span);
+    // The cursor is the text span's `::after`, so the key can only sit to its
+    // right from outside that span.
+    const text = document.createElement("span");
+    renderInline(source, text);
+    span.appendChild(text);
     // The cursor marks the end of a suggestion, so it only belongs where there
     // is one. Whitespace-only and markup-only completions render no glyphs, and
     // the bar was left sitting in an empty block on its own.
-    if (head && span.textContent?.trim()) {
-      span.classList.add("nt-stream-head");
-      if (live) span.classList.add("is-live");
+    if (head && text.textContent?.trim()) {
+      text.classList.add("nt-stream-head");
+      if (live) text.classList.add("is-live");
+      else if (tab) span.appendChild(keyChip("Tab"));
     }
     return span;
   };
@@ -248,11 +254,13 @@ export function ghostTextPlugin(): Plugin<Suggestion> {
           // carries it when nothing is drawn below it.
           const head = !s.blocks?.length;
           decos.push(
-            // The tail is the live edge while a block is still generating.
-            Decoration.widget(s.pos, ghostWidget(s.tail, !s.batch, head), {
+            // The tail is the live edge while a block is still generating. A
+            // preview below carries its own "Tab to insert" head, so the tail
+            // does not say Tab a second time.
+            Decoration.widget(s.pos, ghostWidget(s.tail, !s.batch, head, head && !s.preview), {
               side: 1,
               ignoreSelection: true,
-              key: `nt-tail-${s.pos}-${s.tail}-${s.batch ? "r" : "s"}-${head ? "h" : ""}`,
+              key: `nt-tail-${s.pos}-${s.tail}-${s.batch ? "r" : "s"}-${head ? "h" : ""}-${s.preview ? "p" : ""}`,
             }),
           );
         }
