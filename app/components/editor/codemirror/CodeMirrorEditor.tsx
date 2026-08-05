@@ -23,6 +23,7 @@ export function CodeMirrorEditor({
   onChange,
   onBlur,
   getFimContext,
+  readOnly = false,
 }: {
   initialValue: string;
   language: string;
@@ -30,6 +31,8 @@ export function CodeMirrorEditor({
   onBlur?: () => void;
   /** Document HTML split at the caret inside this block, for completion. */
   getFimContext?: (offset: number) => { prefix: string; suffix: string } | null;
+  /** Fixed for the life of the editor — the share viewer never becomes an author. */
+  readOnly?: boolean;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -54,6 +57,10 @@ export function CodeMirrorEditor({
       state: EditorState.create({
         doc: initialValue,
         extensions: [
+          // Selection and copy still work; the document just cannot change.
+          ...(readOnly
+            ? [EditorState.readOnly.of(true), EditorView.editable.of(false)]
+            : []),
           history(),
           keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
           langCompartment.current.of([]),

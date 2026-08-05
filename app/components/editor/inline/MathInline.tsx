@@ -5,6 +5,7 @@ import katex from "katex";
 import "katex/dist/katex.min.css";
 import { createReactInlineContentSpec } from "@blocknote/react";
 import { MathField } from "../math/MathField";
+import { useReadOnly } from "../readOnly";
 
 function renderKatex(latex: string): string {
   try {
@@ -21,9 +22,23 @@ function MathInlineView({
   latex: string;
   onChange: (latex: string) => void;
 }) {
+  const readOnly = useReadOnly();
   // Open the editor immediately for a freshly-inserted (empty) equation, so
   // `/math-equation` drops you straight into editing.
   const [editing, setEditing] = useState(latex.trim() === "");
+
+  if (readOnly) {
+    // A viewer gets the rendered equation and nothing to press; an empty one
+    // is an authoring artefact and renders as nothing at all.
+    if (latex.trim() === "") return null;
+    return (
+      <span
+        className="nt-math-inline"
+        contentEditable={false}
+        dangerouslySetInnerHTML={{ __html: renderKatex(latex) }}
+      />
+    );
+  }
 
   if (editing) {
     return (

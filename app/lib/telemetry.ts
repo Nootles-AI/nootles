@@ -15,6 +15,7 @@ type EventMap = {
   project_created: Record<string, never>;
   page_created: { mode?: string };
   block_created: { type: string };
+  mention_inserted: { surface: "editor" | "canvas" };
   canvas_shape_added: { kind: string };
   canvas_edge_connected: Record<string, never>;
   math_evaluated: Record<string, never>;
@@ -26,6 +27,7 @@ type EventMap = {
   chat_turn_completed: { pages: number; status: string };
   chat_turn_rewound: Record<string, never>;
   feedback_submitted: { kind: "issue" | "wish" };
+  share_toggled: { on: boolean };
   survey_answered: { survey: string; answered: boolean };
 };
 

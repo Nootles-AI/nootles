@@ -6,6 +6,7 @@ import "katex/dist/katex.min.css";
 import { createReactBlockSpec } from "@blocknote/react";
 import type { ComputeEngine } from "@cortex-js/compute-engine";
 import { MathField } from "../math/MathField";
+import { useReadOnly } from "../readOnly";
 import { evaluateLines, type LineResult } from "../math/engine";
 import { toDocHtmlSplit } from "@/app/lib/ai/html/serialize";
 import { track } from "@/app/lib/telemetry";
@@ -320,6 +321,61 @@ function MathBlockView({
   );
 }
 
+/**
+ * The share viewer's math block: the same rows and the same evaluated results,
+ * drawn with KaTeX instead of mounting a MathLive field per line. The compute
+ * engine still loads (lazily) because the results are content, not chrome.
+ */
+function MathBlockStatic({ source }: { source: string }) {
+  const rows = sourceToRows(source);
+  const [results, setResults] = useState<LineResult[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void import("@cortex-js/compute-engine").then(({ ComputeEngine }) => {
+      if (cancelled) return;
+      try {
+        setResults(
+          evaluateLines(ComputeEngine, source.split("\n")),
+        );
+      } catch {
+        setResults([]);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [source]);
+
+  return (
+    <div className="nt-mathblock" contentEditable={false}>
+      {rows.map((row, i) => (
+        <div className="nt-mathblock-row" key={row.id}>
+          <div className="nt-mathblock-input">
+            {row.latex.trim() && (
+              <span
+                dangerouslySetInnerHTML={{
+                  __html: katex.renderToString(row.latex, {
+                    throwOnError: false,
+                  }),
+                }}
+              />
+            )}
+          </div>
+          <ResultView result={results[i]} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Hooks live in the branches, so the choice has to sit one component above. */
+function MathBlockRoot(props: Parameters<typeof MathBlockView>[0]) {
+  const readOnly = useReadOnly();
+  if (readOnly) return <MathBlockStatic source={props.source} />;
+  return <MathBlockView {...props} />;
+}
+
 export const mathBlockSpec = createReactBlockSpec(
   {
     type: "mathBlock",
@@ -328,7 +384,7 @@ export const mathBlockSpec = createReactBlockSpec(
   },
   {
     render: ({ block, editor }) => (
-      <MathBlockView
+      <MathBlockRoot
         source={block.props.source}
         onChange={(source) =>
           editor.updateBlock(block.id, { props: { source } })

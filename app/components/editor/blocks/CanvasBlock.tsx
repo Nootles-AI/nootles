@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createReactBlockSpec } from "@blocknote/react";
 import { flattenBlocks, type AnyBlock } from "@/app/lib/ai/projection";
 import { useHints } from "@/app/components/hints/useHints";
+import { useReadOnly } from "../readOnly";
 import { CanvasAiContext } from "../canvas/canvasAi";
 import { CanvasSurface, type CanvasApi } from "../canvas/render/CanvasSurface";
 import { useCanvasShell } from "../canvas/shell";
@@ -24,6 +25,7 @@ function CanvasBlockView({
   getDocContext: () => string;
 }) {
   const shell = useCanvasShell();
+  const readOnly = useReadOnly();
   const mine = shell.active?.blockId === blockId;
   const api = useRef<CanvasApi | null>(null);
   const [liveApi, setLiveApi] = useState<CanvasApi | null>(null);
@@ -66,6 +68,18 @@ function CanvasBlockView({
   const claim = () => {
     if (!mine && api.current) shell.set({ blockId, api: api.current });
   };
+
+  if (readOnly) {
+    // The real renderer, made a picture: `inert` swallows every pointer and
+    // focus path in one stroke, so nothing can drag, pan or open a label.
+    return (
+      <div className="relative w-full" inert>
+        <CanvasAiContext value={ai}>
+          <CanvasSurface source={source} onChange={() => {}} onApi={() => {}} />
+        </CanvasAiContext>
+      </div>
+    );
+  }
 
   return (
     // `w-full` is load-bearing: BlockNote lays a block's content out with flex,

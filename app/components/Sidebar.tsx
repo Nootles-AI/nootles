@@ -8,6 +8,7 @@ import { Id } from "@/convex/_generated/dataModel";
 import { track } from "@/app/lib/telemetry";
 import { ArrowLeft, PanelLeft, Plus } from "./Icons";
 import { AccountMenu } from "./AccountMenu";
+import { ShareMenu } from "./ShareMenu";
 import { ConfirmDeleteDialog } from "./ConfirmDelete";
 import { Editable } from "./Editable";
 import { usePageChanges, type PageChange } from "./ReviewContext";
@@ -83,6 +84,7 @@ export function Sidebar({
           <ArrowLeft width={14} height={14} className="shrink-0" />
           <span className="nt-row-label">Projects</span>
         </Link>
+        <ShareMenu projectId={projectId} />
         <AccountMenu />
         <button
           onClick={onCollapse}

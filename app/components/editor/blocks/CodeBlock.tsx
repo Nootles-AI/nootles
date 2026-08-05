@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createReactBlockSpec } from "@blocknote/react";
 import { CodeMirrorEditor } from "../codemirror/CodeMirrorEditor";
+import { useReadOnly } from "../readOnly";
 import { toDocHtmlSplit } from "@/app/lib/ai/html/serialize";
 import { track } from "@/app/lib/telemetry";
 import { usePageTitle } from "../PageTitleContext";
@@ -84,6 +85,7 @@ function CodeBlockView({
 }: CodeBlockViewProps) {
   // A page-level fact, reached from deep in the editor tree.
   const title = usePageTitle();
+  const readOnly = useReadOnly();
 
   // Debounce persistence: CodeMirror holds the live text; we only write it into
   // the block prop after a pause (and flush on blur/unmount), so typing stays
@@ -115,24 +117,33 @@ function CodeBlockView({
   return (
     <div className="nt-code" contentEditable={false}>
       <div className="nt-code-topbar">
-        <LanguageDropdown value={language} onChange={onChangeLanguage} />
-        <button
-          className="nt-code-delete"
-          onClick={onDelete}
-          aria-label="Delete code block"
-          title="Delete"
-        >
-          <Cross />
-        </button>
+        {readOnly ? (
+          <span className="nt-code-lang-label">{languageLabel(language)}</span>
+        ) : (
+          <>
+            <LanguageDropdown value={language} onChange={onChangeLanguage} />
+            <button
+              className="nt-code-delete"
+              onClick={onDelete}
+              aria-label="Delete code block"
+              title="Delete"
+            >
+              <Cross />
+            </button>
+          </>
+        )}
       </div>
       <CodeMirrorEditor
         initialValue={code}
         language={language}
         onChange={handleChange}
         onBlur={() => flushRef.current()}
+        readOnly={readOnly}
         // The page title is a page-level fact and this block sits deep in the
         // editor tree, so it comes from context and is handed back up.
-        getFimContext={(offset) => getFimContext?.(offset, title) ?? null}
+        getFimContext={
+          readOnly ? undefined : (offset) => getFimContext?.(offset, title) ?? null
+        }
       />
     </div>
   );

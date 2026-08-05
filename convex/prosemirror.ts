@@ -15,21 +15,40 @@ import { ownerId } from "./auth";
 const prosemirrorSync = new ProsemirrorSync(components.prosemirrorSync);
 
 /**
- * The page a sync document belongs to, or a refusal. Takes a query context so
- * one function serves both reads and writes.
+ * The page a sync document belongs to, or null.
  *
  * Requiring the page row is safe in both directions: `pages.create` mints the
  * `docId` server-side, so the row always exists before the editor is handed one.
  * A doc with no page is either another tenant's or one orphaned by `pages.remove`
  * — neither is readable.
  */
-async function checkDoc(ctx: QueryCtx, id: string) {
-  const owner = await ownerId(ctx);
-  if (!owner) throw new Error("Not signed in");
-  const page = await ctx.db
+async function pageForDoc(ctx: QueryCtx, id: string) {
+  return await ctx.db
     .query("pages")
     .withIndex("by_doc", (q) => q.eq("docId", id))
     .unique();
+}
+
+/**
+ * Reads are open to the owner and to holders of a share link. There is no token
+ * to inspect here — the sync API's args are just the docId — so the capability
+ * IS the docId: a server-minted UUID that `share.view` discloses only for a
+ * project whose sharing is on. Revoking the token closes this door too.
+ */
+async function checkRead(ctx: QueryCtx, id: string) {
+  const page = await pageForDoc(ctx, id);
+  if (!page) throw new Error("Not found");
+  const owner = await ownerId(ctx);
+  if (owner === page.ownerId) return;
+  const project = await ctx.db.get(page.projectId);
+  if (!project?.shareToken) throw new Error("Not found");
+}
+
+/** Writes stay the owner's alone — a share link is read-only by construction. */
+async function checkWrite(ctx: QueryCtx, id: string) {
+  const owner = await ownerId(ctx);
+  if (!owner) throw new Error("Not signed in");
+  const page = await pageForDoc(ctx, id);
   if (!page || page.ownerId !== owner) throw new Error("Not found");
 }
 
@@ -51,8 +70,8 @@ async function touchPage(ctx: MutationCtx, id: string) {
 
 export const { getSnapshot, submitSnapshot, latestVersion, getSteps, submitSteps } =
   prosemirrorSync.syncApi<DataModel>({
-    checkRead: checkDoc,
-    checkWrite: checkDoc,
+    checkRead,
+    checkWrite,
     onSnapshot: touchPage,
   });
 
