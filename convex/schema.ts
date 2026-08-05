@@ -334,6 +334,11 @@ export default defineSchema({
     ),
     /** Which surface it's about — AI-suggested on the form, always editable. */
     category: v.optional(feedbackCategory),
+    /**
+     * The reporter's email, read off the verified Clerk identity at submit —
+     * never from the client — so a ticket can be answered, not just read.
+     */
+    email: v.optional(v.string()),
     createdAt: v.number(),
   })
     .index("by_status", ["status", "createdAt"])

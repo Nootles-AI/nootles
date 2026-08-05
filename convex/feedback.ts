@@ -40,11 +40,15 @@ export const submit = mutation({
   },
   handler: async (ctx, args) => {
     const ownerId = await requireOwner(ctx);
+    // Off the verified identity, not an argument: a reporter cannot claim to
+    // be someone else, and a reply address is the point of keeping it.
+    const email = (await ctx.auth.getUserIdentity())?.email;
     if (args.pageId) await requireOwned(ctx, "pages", args.pageId);
     if (args.projectId) await requireOwned(ctx, "projects", args.projectId);
     return await ctx.db.insert("feedback", {
       ownerId,
       ...args,
+      ...(email ? { email } : {}),
       text: args.text.slice(0, TEXT_CAP),
       consoleLog: args.consoleLog?.slice(-CONSOLE_CAP),
       status: "new",
