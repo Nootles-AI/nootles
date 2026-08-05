@@ -6,7 +6,9 @@ import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useMediaQuery } from "@/app/lib/useMediaQuery";
 import { Wordmark } from "../Brand";
-import { PanelLeft } from "../Icons";
+import { ArrowLeft, PanelLeft } from "../Icons";
+import { CurrentPageProvider, useOpenPage } from "../OpenPageContext";
+import { PagesProvider } from "../PagesContext";
 import { ReadOnlyContext } from "../editor/readOnly";
 import { SharedEditor } from "./SharedEditor";
 
@@ -15,12 +17,14 @@ const COMPACT = "(max-width: 1023px)";
 
 /**
  * The read-only face of one project, reached by share token. It borrows the
- * workspace's own vocabulary — the same rail, rows and page column — minus
- * everything that authors: no chat, no review, no plus buttons, no rename.
+ * workspace's own vocabulary — the same rail, rows, page column and page
+ * selection — minus everything that authors: no chat, no review, no plus
+ * buttons, no rename. Mention chips work because the same contexts they read
+ * in the workspace (the page list, the open-page selection) are provided here.
  */
 export function SharedProject({ token }: { token: string }) {
   const shared = useQuery(api.share.view, { token });
-  const [selected, setSelected] = useState<string | null>(null);
+  const { selected, open, back, canGoBack } = useOpenPage();
   const compact = useMediaQuery(COMPACT);
   const [drawer, setDrawer] = useState(false);
 
@@ -66,7 +70,9 @@ export function SharedProject({ token }: { token: string }) {
   }
 
   const pages = shared.pages;
-  const current = pages.find((p) => p.docId === selected) ?? pages[0] ?? null;
+  // Resolved the way the workspace resolves it: a stale or foreign id falls
+  // back to the first page rather than blanking the surface.
+  const current = pages.find((p) => p._id === selected) ?? pages[0] ?? null;
 
   const rail = (
     <aside
@@ -83,12 +89,12 @@ export function SharedProject({ token }: { token: string }) {
             <li key={pg.docId}>
               <button
                 onClick={() => {
-                  setSelected(pg.docId);
+                  open(pg._id, current?._id);
                   setDrawer(false);
                 }}
-                aria-current={current?.docId === pg.docId ? "page" : undefined}
+                aria-current={current?._id === pg._id ? "page" : undefined}
                 className={`nt-row w-full${
-                  current?.docId === pg.docId ? " is-selected" : ""
+                  current?._id === pg._id ? " is-selected" : ""
                 }`}
               >
                 <span className="nt-row-label">{pg.title || "Untitled"}</span>
@@ -101,6 +107,7 @@ export function SharedProject({ token }: { token: string }) {
   );
 
   return (
+    <PagesProvider pages={pages}>
     <div className="flex h-screen w-full flex-col overflow-hidden">
       <header
         className="relative flex h-12 shrink-0 items-center gap-2 px-4"
@@ -137,12 +144,28 @@ export function SharedProject({ token }: { token: string }) {
               className="w-full px-6 py-12 sm:px-14 sm:py-20"
               style={{ maxWidth: "calc(var(--measure) + 7rem)" }}
             >
+              {/* Following a chip somewhere needs a way home — same rule as
+                  the workspace: present only once there is a back to mean. */}
+              {canGoBack && (
+                <div className="mb-6 flex justify-start">
+                  <button
+                    onClick={back}
+                    aria-label="Back to previous page"
+                    title="Back to previous page"
+                    className="nt-icon-btn"
+                  >
+                    <ArrowLeft />
+                  </button>
+                </div>
+              )}
               <h1 className="w-full text-[length:var(--text-title)] font-semibold tracking-[-0.02em] text-balance">
                 {current.title || "Untitled"}
               </h1>
               <div className="mt-8">
                 <ReadOnlyContext value={true}>
-                  <SharedEditor key={current.docId} docId={current.docId} />
+                  <CurrentPageProvider pageId={current._id}>
+                    <SharedEditor key={current.docId} docId={current.docId} />
+                  </CurrentPageProvider>
                 </ReadOnlyContext>
               </div>
             </div>
@@ -171,5 +194,6 @@ export function SharedProject({ token }: { token: string }) {
         </>
       )}
     </div>
+    </PagesProvider>
   );
 }

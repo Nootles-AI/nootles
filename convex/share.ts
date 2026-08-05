@@ -44,7 +44,9 @@ export const view = query({
       .collect();
     return {
       title: project.title,
-      pages: pages.map((p) => ({ title: p.title, docId: p.docId })),
+      // `_id` rides along for the mention chips: a chip names a page by id,
+      // and the share surface has to answer which of its pages that is.
+      pages: pages.map((p) => ({ _id: p._id, title: p.title, docId: p.docId })),
     };
   },
 });
