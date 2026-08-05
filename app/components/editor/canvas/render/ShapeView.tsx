@@ -53,6 +53,12 @@ export interface ShapeViewProps {
   onEditStart?: (id: NodeId) => void;
   /** Blur or Escape. The caller dispatches `setLabel` and clears `editingId`. */
   onEditEnd?: (id: NodeId, label: string) => void;
+  /**
+   * Open this label for editing now — the solo chip's "Edit text". Not
+   * advisory: the surface selects the node and sets `editingId` outright.
+   * Absent on a read-only surface, where a solo chip just navigates.
+   */
+  onEditOpen?: (id: NodeId) => void;
   /** Set by the enclosing group on its children; the surface omits it. */
   flow?: Flow;
 }
@@ -72,6 +78,7 @@ export const ShapeView = memo(function ShapeView({
   editingId = null,
   onEditStart,
   onEditEnd,
+  onEditOpen,
   flow,
 }: ShapeViewProps) {
   const editing = editingId === node.id && hasText(node) && !node.locked;
@@ -148,7 +155,7 @@ export const ShapeView = memo(function ShapeView({
         <LabelContent
           label={node.label}
           onEdit={
-            !node.locked && onEditStart ? () => onEditStart(node.id) : undefined
+            !node.locked && onEditOpen ? () => onEditOpen(node.id) : undefined
           }
         />
       ) : null}
@@ -161,6 +168,7 @@ export const ShapeView = memo(function ShapeView({
               editingId={editingId}
               onEditStart={onEditStart}
               onEditEnd={onEditEnd}
+              onEditOpen={onEditOpen}
             />
           ))
         : null}

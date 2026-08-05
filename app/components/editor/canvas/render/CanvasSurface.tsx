@@ -846,6 +846,21 @@ export function CanvasSurface({
     asked.current = id;
   }, []);
 
+  /**
+   * Open a label for editing outright — the solo chip's "Edit text". Unlike
+   * `onEditStart`, which only annotates the double-click the surface is about
+   * to process, there is no second half coming: this is the whole request, so
+   * it does what the just-created-shape flow does.
+   */
+  const onEditOpen = useCallback(
+    (id: NodeId) => {
+      selection.select([id]);
+      setEditing(id);
+      setTool("move");
+    },
+    [selection],
+  );
+
   /** Escape, Enter, or a press on empty canvas: out of the points, onto the path. */
   const onPenFinish = useCallback(
     (id: NodeId | null) => {
@@ -982,6 +997,9 @@ export function CanvasSurface({
               editingId={editing}
               onEditStart={onEditStart}
               onEditEnd={onEditEnd}
+              // Withheld read-only: with no edit to offer, a solo chip's click
+              // goes straight to the page, the one thing a viewer can do.
+              onEditOpen={readOnly ? undefined : onEditOpen}
             />
           ))}
           <Overlay
