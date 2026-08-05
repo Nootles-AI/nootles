@@ -286,7 +286,15 @@ export default defineSchema({
       ua: v.string(),
       viewport: v.string(),
     }),
-    status: v.union(v.literal("new"), v.literal("seen"), v.literal("done")),
+    /** new → seen (auto, on first open) → in_progress → done; declined ends
+     *  a wish that won't be built. */
+    status: v.union(
+      v.literal("new"),
+      v.literal("seen"),
+      v.literal("in_progress"),
+      v.literal("done"),
+      v.literal("declined"),
+    ),
     createdAt: v.number(),
   })
     .index("by_status", ["status", "createdAt"])

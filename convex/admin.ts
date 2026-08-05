@@ -79,7 +79,13 @@ export const validate = query({
 
 // ---- Feedback -------------------------------------------------------------
 
-const feedbackStatus = v.union(v.literal("new"), v.literal("seen"), v.literal("done"));
+const feedbackStatus = v.union(
+  v.literal("new"),
+  v.literal("seen"),
+  v.literal("in_progress"),
+  v.literal("done"),
+  v.literal("declined"),
+);
 
 export const feedbackList = query({
   args: {
