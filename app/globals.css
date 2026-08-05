@@ -2026,7 +2026,10 @@ body:has(.nt-review-bar) .nt-reformat-switcher {
   z-index: var(--z-overlay);
   width: 32px;
   height: 32px;
-  border-radius: 999px;
+  /* Half the closed size — already a circle, but a numeric start point the
+     morph can interpolate cleanly; 999px stays clamped while the box grows
+     and then visibly snaps tight late in the transition. */
+  border-radius: 16px;
   overflow: hidden;
   background: var(--elevated);
   border: 1px solid var(--border);
@@ -2049,8 +2052,10 @@ body:has(.nt-review-bar) .nt-reformat-switcher {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  /* The container's content box: 32px minus its 1px borders. At 32px the
+     fab overflowed the clip by 2px and the mark sat off-centre. */
+  width: 30px;
+  height: 30px;
   color: var(--muted);
   transition:
     color var(--dur-fast) var(--ease),
@@ -2134,6 +2139,9 @@ body:has(.nt-review-bar) .nt-reformat-switcher {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  /* The screenshot thumbnail's height, reserved from the start — the box
+     must not hop when the capture lands and replaces the placeholder text. */
+  min-height: 36px;
 }
 .nt-feedback-shot {
   position: relative;
