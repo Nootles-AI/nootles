@@ -15,7 +15,6 @@ import { Editable } from "./Editable";
 import { Menu, MenuItem } from "./Menu";
 import { NewProjectDialog, type NewProject } from "./NewProjectDialog";
 import { PagePreview } from "./PagePreview";
-import { useHints } from "./hints/useHints";
 
 type View = "grid" | "list";
 type Project = NonNullable<
@@ -42,13 +41,6 @@ export function ProjectsScreen() {
   const createProject = useMutation(api.projects.create);
   const renameProject = useMutation(api.projects.rename);
   const removeProject = useMutation(api.projects.remove);
-
-  // Being here IS the structure lesson the sidebar hint teaches, so arriving
-  // retires it.
-  const hints = useHints();
-  useEffect(() => {
-    if (hints.alive("sidebar")) hints.die("sidebar");
-  }, [hints]);
 
   const [view, setView] = useState<View>("grid");
   const [editingId, setEditingId] = useState<Id<"projects"> | null>(null);

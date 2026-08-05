@@ -25,7 +25,6 @@ export const techDesign: Template = {
   id: "techDesign",
   label: "Technical design",
   blurb: "Context, a proposed shape, and the failure modes you can name now.",
-  projectTitle: "Rate limiting",
   description: "Moving request limits out of each service and onto the edge.",
   showcase: {
     heading: "The check itself",

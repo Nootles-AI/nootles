@@ -108,8 +108,10 @@ export function Welcome() {
       // BlockNote is the heaviest thing in the app and this route has no other
       // use for it — the preview draws from plain block data.
       const { docFromBlocks } = await import("@/app/lib/onboarding/seed");
-      const projectId = await create({
-        title: template.projectTitle,
+      await create({
+        // One fixed name, because the next screen is the project list and this
+        // card has to be findable there as what it is.
+        title: "Tutorial example",
         description: template.description,
         template: template.id,
         role: role.trim() || undefined,
@@ -127,7 +129,10 @@ export function Welcome() {
         useCase: template.label,
         mode,
       });
-      router.push(`/p/${projectId}`);
+      // To the project list, not into the project: the first thing to learn
+      // is that projects live somewhere, and finding the tutorial card there
+      // is that lesson happening.
+      router.push("/");
     } catch (error) {
       // The answers are all still here, so this is something to try again — and
       // that is what to say. What the server threw is a request id and a stack
@@ -362,7 +367,7 @@ export function Welcome() {
             report on what is happening, which is where the eye already is. */}
         <p className="nt-sheet-caption">
           {busy
-            ? `Setting up ${busy.projectTitle}…`
+            ? "Setting up Tutorial example…"
             : step === 0
               ? "Every question the model is asked starts with this."
               : demo

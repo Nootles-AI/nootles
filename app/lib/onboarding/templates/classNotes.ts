@@ -15,7 +15,6 @@ export const classNotes: Template = {
   id: "classNotes",
   label: "Notes on something",
   blurb: "A lecture, a paper, a chapter — with the maths that goes with it.",
-  projectTitle: "Linear algebra — eigenvalues",
   description: "Week six: eigenvalues, eigenvectors, and what they mean.",
   showcase: {
     heading: "A 2×2, worked",

@@ -21,7 +21,6 @@ export const prd: Template = {
   id: "prd",
   label: "Product requirements",
   blurb: "A problem, a proposal, and the open questions between them.",
-  projectTitle: "Guest checkout",
   description:
     "Letting first-time buyers pay without making an account, and what that changes.",
   showcase: {

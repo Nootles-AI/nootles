@@ -67,8 +67,6 @@ export type Template = {
   /** Survey card. */
   label: string;
   blurb: string;
-  /** What the project and its first page are called. */
-  projectTitle: string;
   description: string;
   pages: TemplatePage[];
   script: HintScript;

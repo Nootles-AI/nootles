@@ -30,7 +30,6 @@ export const screenplay: Template = {
   id: "screenplay",
   label: "Film or story",
   blurb: "A logline, a beat sheet, and somewhere to see the shape of it.",
-  projectTitle: "Salt Flats",
   description: "A woman checks into a motel she has no memory of booking.",
   showcase: {
     heading: "Scenes",

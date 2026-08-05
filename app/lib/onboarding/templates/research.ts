@@ -25,7 +25,6 @@ export const research: Template = {
   id: "research",
   label: "A question to investigate",
   blurb: "What you know, how you will find out, and what would change your mind.",
-  projectTitle: "Why users churn at day eight",
   description:
     "Retention is flat for a week and then falls off. Finding out what happens on day eight.",
   showcase: {

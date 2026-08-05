@@ -15,7 +15,6 @@ export const woodworking: Template = {
   id: "woodworking",
   label: "Something you are building",
   blurb: "A cut list, the joinery, and a drawing to argue with.",
-  projectTitle: "Walnut side table",
   description: "18 by 14 by 24, walnut, mortise and tenon, oil finish.",
   showcase: {
     heading: "Board feet",

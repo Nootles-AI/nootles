@@ -183,7 +183,7 @@ export function Sidebar({
         </ul>
 
         {/* The structure, said once in the sidebar's own voice: gone forever
-            the first time they switch pages or visit the Projects screen. */}
+            the first time they switch pages. */}
         {hints.alive("sidebar") && (
           <p className="px-2 py-1.5 text-[13px] leading-snug text-muted">
             The pages of this project. Projects, above, is home.
