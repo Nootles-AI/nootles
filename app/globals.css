@@ -2329,3 +2329,29 @@ body:has(.nt-review-bar) .nt-reformat-switcher {
 body:has(.nt-review-bar) .nt-sampler {
   bottom: 66px;
 }
+
+.nt-feedback-where {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.nt-feedback-where-label {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--text-meta);
+  letter-spacing: var(--tracking-meta);
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.nt-feedback-select {
+  flex: 1;
+  padding: 5px 8px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  font-size: var(--text-ui);
+  color: var(--foreground);
+}
+.nt-feedback-select:focus {
+  outline: none;
+  border-color: var(--border-strong);
+}

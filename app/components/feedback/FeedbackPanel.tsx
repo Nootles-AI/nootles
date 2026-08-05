@@ -6,6 +6,10 @@ import posthog from "posthog-js";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { dump } from "@/app/lib/debugRing";
+import {
+  FEEDBACK_CATEGORIES,
+  type FeedbackCategory,
+} from "@/app/lib/ai/categorize";
 import { track } from "@/app/lib/telemetry";
 import { Bug, Sparkles, X } from "../Icons";
 
@@ -13,6 +17,30 @@ const TABS = [
   { id: "issue" as const, label: "Bug report", Icon: Bug },
   { id: "wish" as const, label: "Feature request", Icon: Sparkles },
 ];
+
+const CATEGORY_LABELS: Record<FeedbackCategory, string> = {
+  canvas: "Canvas & diagrams",
+  code: "Code",
+  math: "Math",
+  tables: "Tables",
+  autocomplete: "Autocomplete",
+  chat: "Chat agent",
+  editor: "Text editing",
+  sharing: "Sharing",
+  account: "Account & sign-in",
+  general: "General / other",
+};
+
+/** Recent op kinds, deduped — the classifier's view of what was being done. */
+function opKinds(): string {
+  return [
+    ...new Set(
+      dump()
+        .ops.map((o) => (o as { kind?: string }).kind)
+        .filter((k): k is string => !!k),
+    ),
+  ].join(", ");
+}
 
 /**
  * The report form. One text field; everything else — screenshot, console
@@ -30,6 +58,10 @@ export function FeedbackPanel({
 }) {
   const [kind, setKind] = useState<"issue" | "wish">("issue");
   const [text, setText] = useState("");
+  const [category, setCategory] = useState<FeedbackCategory>("general");
+  // Once the reporter picks, the classifier stops second-guessing them.
+  const pickedRef = useRef(false);
+  const classifySeq = useRef(0);
   const [shot, setShot] = useState<{ blob: Blob; url: string } | null>(null);
   const [state, setState] = useState<"editing" | "sending" | "sent" | "failed">(
     "editing",
@@ -37,6 +69,43 @@ export function FeedbackPanel({
   const generateUploadUrl = useMutation(api.feedback.generateUploadUrl);
   const submit = useMutation(api.feedback.submit);
   const textRef = useRef<HTMLTextAreaElement>(null);
+
+  // The classifier reads what the report already carries — the words as they
+  // are typed, the recent op kinds, the console tail — and pre-fills the
+  // select. A suggestion only: it never overrides a hand-picked value.
+  useEffect(() => {
+    if (pickedRef.current || text.trim().length < 12) return;
+    const mySeq = ++classifySeq.current;
+    const t = setTimeout(() => {
+      void (async () => {
+        try {
+          const consoleTail = dump()
+            .console.slice(-10)
+            .map((e) => `[${e.level}] ${e.message}`)
+            .join("\n");
+          const res = await fetch("/api/categorize", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ text, ops: opKinds(), consoleTail }),
+          });
+          if (!res.ok) return;
+          const { category: guess } = (await res.json()) as {
+            category: FeedbackCategory;
+          };
+          if (
+            mySeq === classifySeq.current &&
+            !pickedRef.current &&
+            FEEDBACK_CATEGORIES.includes(guess)
+          ) {
+            setCategory(guess);
+          }
+        } catch {
+          // A missing guess is fine; the select still works by hand.
+        }
+      })();
+    }, 800);
+    return () => clearTimeout(t);
+  }, [text]);
 
   // The screenshot is of the state being reported — the screen as it was
   // when the form opened, scroll positions included (see capture.ts).
@@ -98,6 +167,7 @@ export function FeedbackPanel({
       await submit({
         kind,
         text,
+        category,
         ...(screenshotStorageId ? { screenshotStorageId } : {}),
         consoleLog: context.console
           .map((e) => `[${e.level}] ${e.message}`)
@@ -162,6 +232,23 @@ export function FeedbackPanel({
           }
           rows={4}
         />
+        <label className="nt-feedback-where">
+          <span className="nt-feedback-where-label">About</span>
+          <select
+            className="nt-feedback-select"
+            value={category}
+            onChange={(e) => {
+              pickedRef.current = true;
+              setCategory(e.target.value as FeedbackCategory);
+            }}
+          >
+            {FEEDBACK_CATEGORIES.map((c) => (
+              <option key={c} value={c}>
+                {CATEGORY_LABELS[c]}
+              </option>
+            ))}
+          </select>
+        </label>
         <div className="nt-feedback-foot">
           {shot ? (
             <span className="nt-feedback-shot">

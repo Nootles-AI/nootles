@@ -35,7 +35,7 @@ export function costUsd(model: string, u: CallUsage): number | undefined {
 export function recordAiCall(
   convex: ConvexHttpClient,
   call: {
-    feature: "fim" | "reformat" | "diagram" | "chat";
+    feature: "fim" | "reformat" | "diagram" | "chat" | "categorize";
     model: string;
     latencyMs: number;
     ttfbMs?: number;
