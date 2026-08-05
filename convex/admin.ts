@@ -119,6 +119,19 @@ export const feedbackList = query({
   },
 });
 
+/** Unread count for the nav badge. Bounded — past 99 it reads "99+" anyway. */
+export const feedbackNewCount = query({
+  args: { token: v.string() },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx, args.token);
+    const rows = await ctx.db
+      .query("feedback")
+      .withIndex("by_status", (q) => q.eq("status", "new"))
+      .take(100);
+    return rows.length;
+  },
+});
+
 export const feedbackGet = query({
   args: { token: v.string(), id: v.id("feedback") },
   handler: async (ctx, args) => {
