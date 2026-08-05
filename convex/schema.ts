@@ -287,6 +287,17 @@ export default defineSchema({
     .index("by_owner", ["ownerId", "createdAt"]),
 
   /**
+   * Sessions for the operator dashboard (nootles-ops). Its login is a single
+   * username/password held in deployment env vars — Clerk's multi-domain
+   * tier isn't available, and one operator does not need an identity system.
+   */
+  adminSessions: defineTable({
+    token: v.string(),
+    createdAt: v.number(),
+    expiresAt: v.number(),
+  }).index("by_token", ["token"]),
+
+  /**
    * Micro-survey answers (PMF question, dismiss-reason sampler). Append-only;
    * "has any row" is what stops a survey being shown twice.
    */

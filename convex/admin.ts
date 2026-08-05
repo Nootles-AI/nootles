@@ -1,28 +1,79 @@
-import type { Auth } from "convex/server";
 import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import { mutation, query, type QueryCtx } from "./_generated/server";
 
 /**
  * The operator's window: cross-tenant reads for the founder dashboard
- * (nootles-ops). Everything here is gated to the one Clerk subject named in
- * the deployment's ADMIN_SUBJECT env var — same auth path as any user, plus
- * an identity check. No admin key, no separate credential to leak.
+ * (nootles-ops). Auth is deliberately small: one username/password pair in
+ * deployment env vars (ADMIN_USER / ADMIN_PASSWORD), exchanged by `login`
+ * for a 30-day session token, which every function here requires. Sessions
+ * are rows, so revoking is deleting them; the password never leaves the
+ * login call. Brute force is answered by the password's entropy — set a
+ * long random one, not a memorable one.
  */
 
-async function requireAdmin(ctx: { auth: Auth }) {
-  const subject = (await ctx.auth.getUserIdentity())?.subject;
-  const admin = process.env.ADMIN_SUBJECT;
-  if (!admin || !subject || subject !== admin) throw new Error("Not authorized");
+const SESSION_MS = 30 * 24 * 60 * 60 * 1000;
+
+/** Equal, in time independent of where they differ. */
+function sameSecret(a: string, b: string): boolean {
+  let diff = a.length ^ b.length;
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    diff |= (a.charCodeAt(i) || 0) ^ (b.charCodeAt(i) || 0);
+  }
+  return diff === 0;
 }
 
-/** Never throws — the dashboard uses it to render "not you" politely. */
-export const me = query({
-  args: {},
-  handler: async (ctx) => {
-    const subject = (await ctx.auth.getUserIdentity())?.subject ?? null;
-    const admin = process.env.ADMIN_SUBJECT;
-    return { isAdmin: !!subject && !!admin && subject === admin };
+async function requireAdmin(ctx: QueryCtx, token: string) {
+  const session = await ctx.db
+    .query("adminSessions")
+    .withIndex("by_token", (q) => q.eq("token", token))
+    .unique();
+  if (!session || session.expiresAt < Date.now()) throw new Error("Not authorized");
+}
+
+export const login = mutation({
+  args: { username: v.string(), password: v.string() },
+  handler: async (ctx, args) => {
+    const user = process.env.ADMIN_USER;
+    const pass = process.env.ADMIN_PASSWORD;
+    if (
+      !user ||
+      !pass ||
+      !sameSecret(args.username, user) ||
+      !sameSecret(args.password, pass)
+    ) {
+      throw new Error("Wrong username or password");
+    }
+    const token = `${crypto.randomUUID()}${crypto.randomUUID()}`;
+    await ctx.db.insert("adminSessions", {
+      token,
+      createdAt: Date.now(),
+      expiresAt: Date.now() + SESSION_MS,
+    });
+    return token;
+  },
+});
+
+export const logout = mutation({
+  args: { token: v.string() },
+  handler: async (ctx, args) => {
+    const session = await ctx.db
+      .query("adminSessions")
+      .withIndex("by_token", (q) => q.eq("token", args.token))
+      .unique();
+    if (session) await ctx.db.delete(session._id);
+  },
+});
+
+/** Never throws — the dashboard uses it to decide login form vs. content. */
+export const validate = query({
+  args: { token: v.string() },
+  handler: async (ctx, args) => {
+    const session = await ctx.db
+      .query("adminSessions")
+      .withIndex("by_token", (q) => q.eq("token", args.token))
+      .unique();
+    return !!session && session.expiresAt >= Date.now();
   },
 });
 
@@ -32,12 +83,13 @@ const feedbackStatus = v.union(v.literal("new"), v.literal("seen"), v.literal("d
 
 export const feedbackList = query({
   args: {
+    token: v.string(),
     paginationOpts: paginationOptsValidator,
     kind: v.optional(v.union(v.literal("issue"), v.literal("wish"))),
     status: v.optional(feedbackStatus),
   },
   handler: async (ctx, args) => {
-    await requireAdmin(ctx);
+    await requireAdmin(ctx, args.token);
     const base = args.status
       ? ctx.db
           .query("feedback")
@@ -62,9 +114,9 @@ export const feedbackList = query({
 });
 
 export const feedbackGet = query({
-  args: { id: v.id("feedback") },
+  args: { token: v.string(), id: v.id("feedback") },
   handler: async (ctx, args) => {
-    await requireAdmin(ctx);
+    await requireAdmin(ctx, args.token);
     const row = await ctx.db.get(args.id);
     if (!row) return null;
     return {
@@ -77,9 +129,9 @@ export const feedbackGet = query({
 });
 
 export const feedbackSetStatus = mutation({
-  args: { id: v.id("feedback"), status: feedbackStatus },
+  args: { token: v.string(), id: v.id("feedback"), status: feedbackStatus },
   handler: async (ctx, args) => {
-    await requireAdmin(ctx);
+    await requireAdmin(ctx, args.token);
     await ctx.db.patch(args.id, { status: args.status });
   },
 });
@@ -89,9 +141,9 @@ export const feedbackSetStatus = mutation({
 const CAP = 5000;
 
 export const suggestionStats = query({
-  args: { sinceMs: v.number() },
+  args: { token: v.string(), sinceMs: v.number() },
   handler: async (ctx, args) => {
-    await requireAdmin(ctx);
+    await requireAdmin(ctx, args.token);
     const rows = await ctx.db
       .query("suggestionLog")
       .withIndex("by_creation_time", (q) => q.gte("_creationTime", args.sinceMs))
@@ -154,9 +206,13 @@ export const suggestionStats = query({
 });
 
 export const suggestionRecent = query({
-  args: { limit: v.optional(v.number()), kind: v.optional(v.string()) },
+  args: {
+    token: v.string(),
+    limit: v.optional(v.number()),
+    kind: v.optional(v.string()),
+  },
   handler: async (ctx, args) => {
-    await requireAdmin(ctx);
+    await requireAdmin(ctx, args.token);
     return await ctx.db
       .query("suggestionLog")
       .order("desc")
@@ -168,9 +224,9 @@ export const suggestionRecent = query({
 // ---- AI calls -------------------------------------------------------------
 
 export const aiCallStats = query({
-  args: { sinceMs: v.number() },
+  args: { token: v.string(), sinceMs: v.number() },
   handler: async (ctx, args) => {
-    await requireAdmin(ctx);
+    await requireAdmin(ctx, args.token);
     const rows = await ctx.db
       .query("aiCalls")
       .withIndex("by_creation_time", (q) => q.gte("_creationTime", args.sinceMs))
@@ -237,9 +293,9 @@ export const aiCallStats = query({
 });
 
 export const aiCallRecent = query({
-  args: { limit: v.optional(v.number()) },
+  args: { token: v.string(), limit: v.optional(v.number()) },
   handler: async (ctx, args) => {
-    await requireAdmin(ctx);
+    await requireAdmin(ctx, args.token);
     return await ctx.db
       .query("aiCalls")
       .order("desc")
@@ -250,9 +306,9 @@ export const aiCallRecent = query({
 // ---- Chat + surveys ---------------------------------------------------------
 
 export const chatStats = query({
-  args: { sinceMs: v.number() },
+  args: { token: v.string(), sinceMs: v.number() },
   handler: async (ctx, args) => {
-    await requireAdmin(ctx);
+    await requireAdmin(ctx, args.token);
     const turns = await ctx.db
       .query("chatTurns")
       .withIndex("by_creation_time", (q) => q.gte("_creationTime", args.sinceMs))
@@ -272,9 +328,9 @@ export const chatStats = query({
 });
 
 export const surveyList = query({
-  args: {},
-  handler: async (ctx) => {
-    await requireAdmin(ctx);
+  args: { token: v.string() },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx, args.token);
     return await ctx.db.query("surveyResponses").order("desc").take(200);
   },
 });
