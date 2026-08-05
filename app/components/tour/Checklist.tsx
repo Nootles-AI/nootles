@@ -5,11 +5,11 @@ import { Check } from "../Icons";
 export type ChecklistItem = { id: string; label: string; hint: string };
 
 /**
- * The end of the guide, and the two things it did not get to.
+ * The end of the guide, and the things it did not get to.
  *
  * This is the only place first run says that it is over, so it says it: the
  * beats have all been taught, and what the user is looking at is not a demo
- * they are about to lose. Everything above the rule is that sentence; the two
+ * they are about to lose. Everything above the rule is that sentence; the
  * items below it are what is left, and they tick themselves off if the user
  * goes and finds them.
  *
@@ -51,7 +51,7 @@ export function Checklist({
 
       <div className="nt-tour-list-rest">
         <span className="nt-tour-list-rest-label">
-          {complete ? "That is the whole of it." : "Two more worth knowing"}
+          {complete ? "That is the whole of it." : "Worth knowing"}
         </span>
         <span className="nt-tour-list-count">
           {done.size} of {items.length}

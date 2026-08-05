@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -26,22 +33,7 @@ import { Spotlight } from "./Spotlight";
 import { useRect, useTarget } from "./useRect";
 import "./tour.css";
 
-/**
- * The gated beats, in the order they are taught.
- *
- * The slash menu comes first because it is the answer to "how do I do anything
- * here" — every block in the product starts there, and teaching it last as a
- * checklist item made it look like a footnote to features it is the doorway
- * to. The canvas comes last and gets two beats, because it is the thing this
- * product has that the others do not: drawing it is one lesson, and finding out
- * it is a real editor rather than a picture is a different one.
- */
-const SLASH = 0;
-const WRITE = 1;
-const CHAT = 2;
-const DRAW = 3;
-const CANVAS = 4;
-const GATED = 5;
+import { ORIENT, SLASH, WRITE, CHAT, CANVAS, GATED } from "./beats";
 
 /** The block the templates leave empty for the slash beat to fill. */
 const SLASH_BLOCK = "nt-tour-slash";
@@ -153,6 +145,43 @@ function Running({
     [setBeat],
   );
 
+  /* ---- Beat 0: the project, its pages, the way home --------------------- */
+
+  const pages = useQuery(api.pages.listByProject, { projectId });
+  const ordered = useMemo(
+    () => pages?.slice().sort((a, b) => a.order - b.order),
+    [pages],
+  );
+  // The tour's scripted blocks live in the template's first page; the second
+  // exists so "a project holds pages" is something to see rather than believe.
+  const first = ordered?.[0];
+  const second = ordered?.[1];
+
+  /**
+   * Whether the user has been to the second page yet.
+   *
+   * State rather than a ref because the coach card reads it: the render in
+   * which they arrive on the second page is the render its copy has to turn
+   * over from "open it" to "head back". Latched during render — the sanctioned
+   * pattern for state that follows a prop — because this is history, not a
+   * derivation: nothing on screen says where they have already been.
+   */
+  const [went, setWent] = useState(false);
+  if (beat === ORIENT && second && pageId === second._id && !went) setWent(true);
+
+  useEffect(() => {
+    if (beat !== ORIENT || !ordered) return;
+    // A project someone has trimmed to one page has no round trip to make.
+    if (ordered.length < 2) {
+      advance(SLASH);
+      return;
+    }
+    if (went && pageId === ordered[0]._id) advance(SLASH);
+  }, [beat, ordered, went, pageId, advance]);
+
+  /** The editor beats all happen on the first page; elsewhere, point home. */
+  const offPage = Boolean(first && pageId !== first._id);
+
   /* ---- Slash, write and draw: the guide runs them itself ---------------- */
 
   // No model is called while the guide is driving: the scripted ghost text
@@ -173,6 +202,29 @@ function Running({
   }, [gated]);
 
   /**
+   * Whether a drawn diagram exists on the open page.
+   *
+   * This is what splits the canvas beat into its two halves — no diagram means
+   * one is being drawn and Tab places it; a diagram means the lesson is that
+   * it can be entered and dragged. Read through a subscription because the
+   * document is not React state: the render after the diagram lands is the
+   * render the card has to turn over on.
+   */
+  const subscribeDoc = useCallback(
+    (onDocChange: () => void) => {
+      if (!editor) return () => {};
+      const off = editor.onChange(onDocChange, false);
+      return () => off?.();
+    },
+    [editor],
+  );
+  const drew = useSyncExternalStore(
+    subscribeDoc,
+    () => (editor ? drawnIn(editor) : false),
+    () => false,
+  );
+
+  /**
    * Put the caret where the suggestion belongs, then write the suggestion.
    *
    * Straight into the same plugin the completion lane writes into, so `Tab` is
@@ -182,11 +234,11 @@ function Running({
    */
   useEffect(() => {
     if (!editor) return;
-    if (beat !== SLASH && beat !== WRITE && beat !== DRAW) return;
+    const draw = beat === CANVAS && !drew;
+    if (beat !== SLASH && beat !== WRITE && !draw) return;
     const view = editor.prosemirrorView;
     if (!view) return;
 
-    const draw = beat === DRAW;
     const target =
       beat === SLASH
         ? SLASH_BLOCK
@@ -267,45 +319,32 @@ function Running({
       stop();
       clearSuggestion(view);
     };
-  }, [editor, beat, script]);
+  }, [editor, beat, drew, script]);
 
   /**
    * Advance on the real outcome, never on the keypress.
    *
    * What ends a beat is the document having changed in the way the beat was
-   * about — a heading that exists, a sentence that got finished, a diagram
-   * that landed. Watching for the key instead would let a step be "completed"
-   * by someone who pressed it with nothing selected.
+   * about — a heading that exists, a sentence that got finished. Watching for
+   * the key instead would let a step be "completed" by someone who pressed it
+   * with nothing selected. The canvas beat is absent here on purpose: its two
+   * halves turn over on `drew`, and it ends when a shape moves.
    */
   useEffect(() => {
     if (!editor) return;
-    if (beat !== SLASH && beat !== WRITE && beat !== DRAW) return;
+    if (beat !== SLASH && beat !== WRITE) return;
 
     const headings = () =>
       editor.document.filter((b) => b.type === "heading").length;
-    // Drawn ones only: a canvas block starts life with `data: ""`, so an empty
-    // one someone just inserted is not a diagram yet.
-    const drawings = () =>
-      editor.document.filter(
-        (b) => b.type === "canvas" && Boolean((b.props as { data?: string })?.data),
-      ).length;
     const headingsBefore = headings();
-    const drawingsBefore = drawings();
 
     const landed = () => {
       if (beat === SLASH) return headings() > headingsBefore;
-      if (beat === WRITE) {
-        // Compared loosely on whitespace: a line break landing differently is
-        // not a different sentence.
-        return flat(
-          textOf(editor.document.find((b) => b.id === script.write.blockId)),
-        ).includes(flat(script.write.ghost));
-      }
-      // How many there were when the beat began, for the same reason the tail
-      // counts rather than asks: the slash menu has just been taught, and
-      // somebody who goes and draws their own diagram with it would otherwise
-      // arrive at this beat to find it already over.
-      return drawings() > drawingsBefore;
+      // Compared loosely on whitespace: a line break landing differently is
+      // not a different sentence.
+      return flat(
+        textOf(editor.document.find((b) => b.id === script.write.blockId)),
+      ).includes(flat(script.write.ghost));
     };
 
     if (landed()) {
@@ -314,22 +353,6 @@ function Running({
     }
     return editor.onChange(() => landed() && advance(beat + 1), false);
   }, [editor, beat, script, advance]);
-
-  /**
-   * Nothing was drawn, so there is nothing to say this about.
-   *
-   * This beat is about the diagram the last one placed — that both rails have
-   * turned over to it, that it can be dragged. Stepped past that one, the
-   * sentence describes a screen that is not there and waits on a shape that
-   * does not exist, so the only way out would be to skip a second time.
-   */
-  useEffect(() => {
-    if (beat !== CANVAS || !editor) return;
-    const drawn = editor.document.some(
-      (b) => b.type === "canvas" && Boolean((b.props as { data?: string })?.data),
-    );
-    if (!drawn) advance(beat + 1);
-  }, [beat, editor, advance]);
 
   /**
    * The canvas beat ends when a shape moves.
@@ -341,7 +364,7 @@ function Running({
    */
   const active = shell.active;
   useEffect(() => {
-    if (beat !== CANVAS || !active) return;
+    if (beat !== CANVAS || !drew || !active) return;
     const store = active.api.store;
     const entered = store.getScene();
     const opened = performance.now();
@@ -350,12 +373,12 @@ function Running({
         advance(beat + 1);
       }
     });
-  }, [beat, active, advance]);
+  }, [beat, drew, active, advance]);
 
-  /* ---- Beat 2: the agent, and answering for it ------------------------- */
+  /* ---- Beat 3: the agent, and answering for it ------------------------- */
 
   /**
-   * Where the last beat has got to.
+   * Where the chat beat has got to.
    *
    * Read off the app rather than tracked, so it survives a reload and cannot
    * disagree with what is on screen. The one that looks like a hack — asking
@@ -409,8 +432,6 @@ function Running({
 
   /* ---- The free tail --------------------------------------------------- */
 
-  const pages = useQuery(api.pages.listByProject, { projectId });
-
   const items = useMemo(
     (): ChecklistItem[] => [
       {
@@ -421,7 +442,12 @@ function Running({
       {
         id: "page",
         label: "Start another page",
-        hint: "Chats and context are the project's, not the page's.",
+        hint: "The + beside Pages in the sidebar.",
+      },
+      {
+        id: "projects",
+        label: "Visit the Projects screen",
+        hint: "The Projects link, top left, lists every project you have.",
       },
     ],
     [script],
@@ -481,41 +507,66 @@ function Running({
 
   /* ---- What is on screen ----------------------------------------------- */
 
+  const row = (page: { _id: Id<"pages"> } | undefined) =>
+    page ? `[data-page-id="${page._id}"]` : null;
+
   const selector =
-    beat === SLASH
-      ? `[data-id="${SLASH_BLOCK}"]`
-      : beat === WRITE
-        ? `[data-id="${script.write.blockId}"]`
-        : beat === CHAT
-          ? CHAT_TARGET[phase]
-          : beat === DRAW
-            ? `[data-id="${script.draw.blockId}"]`
-            : beat === CANVAS
-              ? ".nt-canvas"
-              : null;
+    beat === ORIENT
+      ? went
+        ? row(first)
+        : row(second)
+      : beat === CHAT
+        ? CHAT_TARGET[phase]
+        : offPage
+          ? row(first)
+          : beat === SLASH
+            ? `[data-id="${SLASH_BLOCK}"]`
+            : beat === WRITE
+              ? `[data-id="${script.write.blockId}"]`
+              : beat === CANVAS
+                ? drew
+                  ? ".nt-canvas"
+                  : `[data-id="${script.draw.blockId}"]`
+                : null;
   // While a diagram is being drawn, the drawing IS the subject — lighting the
   // line above it would leave the spotlight pointing at the caret while the
   // thing worth looking at grows underneath, unlit and off the bottom.
-  const drawing = useTarget(beat === DRAW ? ".nt-diagram-preview" : null);
+  const drawing = useTarget(
+    beat === CANVAS && !drew && !offPage ? ".nt-diagram-preview" : null,
+  );
   const anchor = useTarget(selector);
   const rect = useRect(drawing ?? anchor, 8);
 
   if (beat >= GATED) {
-    return (
-      <Checklist
-        items={items}
-        done={ticked}
-        drew={Boolean(
-          editor?.document.some(
-            (b) => b.type === "canvas" && Boolean((b.props as { data?: string })?.data),
-          ),
-        )}
-        onDismiss={close}
-      />
-    );
+    return <Checklist items={items} done={ticked} drew={drew} onDismiss={close} />;
   }
 
-  const copy = beat === CHAT ? CHAT_COPY[phase] : BEATS[beat];
+  const copy: Copy =
+    beat === ORIENT
+      ? went
+        ? {
+            title: "Same project, different page — each page is its own document.",
+            action: `Head back to “${first?.title || "Untitled"}” for the rest of the guide.`,
+          }
+        : {
+            title:
+              "This is a project. The sidebar lists its pages, and Projects — top left — leads back to all of your projects.",
+            action: `Open “${second?.title || "Untitled"}”.`,
+          }
+      : beat === CHAT
+        ? CHAT_COPY[phase]
+        : offPage
+          ? {
+              title: `The next step is on “${first?.title || "Untitled"}”.`,
+              action: "Open it in the sidebar.",
+            }
+          : beat === CANVAS
+            ? drew
+              ? DRAG_COPY
+              : DRAW_COPY
+            : beat === SLASH
+              ? SLASH_COPY
+              : WRITE_COPY;
 
   return (
     <>
@@ -537,45 +588,41 @@ function Running({
 type Copy = { title: string; action: string; hint?: string };
 
 /**
- * One idea per beat, and the idea is never the feature.
+ * One idea per beat, said plainly.
  *
- * "Press Tab to accept an inline completion" describes a control. What a person
- * needs on their first morning is what the control is FOR, which is why each of
- * these leads with what just happened and only then says which key.
+ * Each card leads with what the user is looking at and only then says what to
+ * do about it. The orientation and off-page cards are built inline because
+ * they name real page titles; these four never change.
  */
-/**
- * Indexed by beat. The chat beat is absent because it says four different
- * things depending on where it has got to; see {@link CHAT_COPY}.
- */
-const BEATS: Copy[] = [
-  {
-    title: "This section needs a heading — and every block in Nootles starts the same way.",
-    action: "Type / here, then h2.",
-  },
-  {
-    title: "It read the page and wrote the rest of the line.",
-    action: "Keep it with",
-    hint: "⇥",
-  },
-  // CHAT — filled from CHAT[phase].
-  { title: "", action: "" },
-  {
-    title: "This line wanted a picture, so it is drawing one.",
-    action: "Place it with",
-    hint: "⇥",
-  },
-  {
-    // The rails turn over when the canvas is entered, not when it lands — and
-    // this beat cannot end until it is entered either, since what it waits for
-    // is a shape moving. So the sentence asks for the click rather than
-    // describing a screen the reader is not looking at yet.
-    title:
-      "That is not an image of a diagram. Click into it and both rails turn over to it — layers on the left, the shape's own properties on the right.",
-    action: "Then drag a box. The connectors redraw themselves.",
-  },
-];
+const SLASH_COPY: Copy = {
+  title:
+    "Every block starts from the slash menu — headings, tables, code, diagrams.",
+  action: "Type / here, then h2 to add a heading.",
+};
 
-/** The last beat is four moments, not one. */
+const WRITE_COPY: Copy = {
+  title: "The editor read the page and wrote an ending for this line.",
+  action: "Keep it with",
+  hint: "⇥",
+};
+
+const DRAW_COPY: Copy = {
+  title: "This line asked for a diagram, so the editor is drawing one.",
+  action: "Place it with",
+  hint: "⇥",
+};
+
+const DRAG_COPY: Copy = {
+  // The rails turn over when the canvas is entered, not when it lands — and
+  // this half cannot end until it is entered either, since what it waits for
+  // is a shape moving. So the sentence asks for the click rather than
+  // describing a screen the reader is not looking at yet.
+  title:
+    "That is a real canvas, not an image. Click into it — layers open on the left, the shape's properties on the right.",
+  action: "Drag a box and the connectors follow.",
+};
+
+/** The chat beat is four moments, not one. */
 type ChatPhase = "newChat" | "ask" | "watching" | "review";
 
 const CHAT_TARGET: Record<ChatPhase, string> = {
@@ -589,22 +636,30 @@ const CHAT_TARGET: Record<ChatPhase, string> = {
 
 const CHAT_COPY: Record<ChatPhase, Copy> = {
   newChat: {
-    title: "There is already a conversation here — chats belong to the project and outlive the page.",
+    title:
+      "There is already a conversation here — chats belong to the project, so they stay when you switch pages.",
     action: "Start a fresh one.",
   },
   ask: {
-    title: "The agent works inside the document, not beside it.",
+    title: "The agent edits the document itself, not just the chat.",
     action: "Send the question.",
   },
   watching: {
-    title: "Everything it does shows up here — the pages it opens, the searches it runs, the edits it makes.",
-    action: "Nothing is hidden, and nothing has been decided yet.",
+    title:
+      "Everything it does shows up here — the pages it opens, the searches it runs, the edits it makes.",
+    action: "Nothing is applied until you approve it.",
   },
   review: {
-    title: "Nothing it wrote is yours until you say so.",
+    title: "The agent's change is waiting on you — nothing is applied yet.",
     action: "Keep the change, or throw it away.",
   },
 };
+
+/** Whether a drawn diagram exists — a canvas block starts life with `data: ""`. */
+const drawnIn = (editor: LiveEditor): boolean =>
+  editor.document.some(
+    (b) => b.type === "canvas" && Boolean((b.props as { data?: string })?.data),
+  );
 
 /** One line, one space between words — the form both sides of a comparison take. */
 const flat = (text: string): string => text.replace(/\s+/g, " ").trim();
@@ -619,4 +674,3 @@ function textOf(block: { content?: unknown } | undefined): string {
     )
     .join("");
 }
-

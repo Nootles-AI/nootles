@@ -156,6 +156,7 @@ export function Sidebar({
                 />
               ) : (
                 <button
+                  data-page-id={pg._id}
                   onClick={() => onSelectPage(pg._id)}
                   onDoubleClick={() => startRename(pg._id, pg.title)}
                   onContextMenu={(e) => {
