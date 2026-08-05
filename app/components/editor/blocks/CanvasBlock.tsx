@@ -70,12 +70,12 @@ function CanvasBlockView({
   };
 
   if (readOnly) {
-    // The real renderer, made a picture: `inert` swallows every pointer and
-    // focus path in one stroke, so nothing can drag, pan or open a label.
+    // The surface's own view-only mode: pan and zoom stay whole, every path
+    // that could touch the scene is off, and the shell is never claimed.
     return (
-      <div className="relative w-full" inert>
+      <div className="relative w-full">
         <CanvasAiContext value={ai}>
-          <CanvasSurface source={source} onChange={() => {}} onApi={() => {}} />
+          <CanvasSurface source={source} onChange={() => {}} readOnly />
         </CanvasAiContext>
       </div>
     );
