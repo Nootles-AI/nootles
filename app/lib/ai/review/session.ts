@@ -8,6 +8,7 @@ import type { LiveEditor } from "@/app/components/editor/EditorRegistry";
 import { applyBatch, type OpTrace } from "../apply";
 import type { AnyBlock } from "../projection";
 import { AI } from "../aiConfig";
+import { track } from "@/app/lib/telemetry";
 import { asReview } from "./attribution";
 import { computeHunks, type Hunk } from "./hunks";
 import { canonicalise, produces, target } from "./ops";
@@ -208,7 +209,9 @@ export class ReviewSession {
     return this.enqueue(async () => {
       const turn = this.find(chatPromptId);
       if (!turn || turn.status !== "streaming") return;
-      await this.commit({ ...turn, status: statusOf({ ...turn, status: "pending" }) });
+      const settled = statusOf({ ...turn, status: "pending" });
+      track("chat_turn_completed", { pages: turn.pages.length, status: settled });
+      await this.commit({ ...turn, status: settled });
     });
   }
 
@@ -360,6 +363,11 @@ export class ReviewSession {
   }
 
   private async runSettleRestore(chatPromptId: string) {
+    // Telemetry: a confirmed rewind is the loudest whole-turn "no" there is.
+    track("chat_turn_rewound", {});
+    void this.deps.convex
+      .mutation(api.chat.turns.markRewound, { chatPromptId })
+      .catch(() => {});
     // The turn is answered by being undone, and a turn still awaiting review
     // must leave the unreviewed set or its diff outlives the change.
     const live = this.find(chatPromptId);

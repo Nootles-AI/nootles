@@ -23,6 +23,7 @@ import { SubstrateHarness } from "./ai/SubstrateHarness";
 import { completionExtension } from "./ai/completionExtension";
 import { reviewExtension } from "./ai/reviewExtension";
 import { ReviewOverlay } from "./ai/ReviewOverlay";
+import { track } from "@/app/lib/telemetry";
 import { useTabCompletion, type PageMode } from "./ai/useTabCompletion";
 import { useReformat } from "./ai/useReformat";
 import { ReformatBar } from "./ai/ReformatBar";
@@ -84,6 +85,7 @@ function customSlashItems(editor: EditorInstance): DefaultReactSuggestionItem[] 
       onItemClick: () => {
         const block = editor.getTextCursorPosition().block;
         editor.updateBlock(block, { type: "canvas", props: { data: "" } });
+        track("block_created", { type: "canvas" });
       },
     },
     {
@@ -101,6 +103,7 @@ function customSlashItems(editor: EditorInstance): DefaultReactSuggestionItem[] 
       group: "Math",
       onItemClick: () => {
         editor.insertInlineContent([{ type: "math", props: { latex: "" } }, " "]);
+        track("block_created", { type: "inline-math" });
       },
     },
     {
@@ -111,6 +114,7 @@ function customSlashItems(editor: EditorInstance): DefaultReactSuggestionItem[] 
       onItemClick: () => {
         const block = editor.getTextCursorPosition().block;
         editor.updateBlock(block, { type: "mathBlock", props: { source: "" } });
+        track("block_created", { type: "math" });
       },
     },
   ];
@@ -142,7 +146,7 @@ export function Editor({
 
   useRegisterEditor(pageId, sync.editor, docId);
   useTabCompletion(sync.editor, pageId, title, mode);
-  const reformat = useReformat(sync.editor);
+  const reformat = useReformat(sync.editor, pageId);
 
   // First open of a page has no document yet — create an empty one seamlessly.
   // Guarded per-docId so StrictMode's double-invoke can't create twice.

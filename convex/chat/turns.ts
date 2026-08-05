@@ -70,6 +70,21 @@ export const save = mutation({
   },
 });
 
+/** Stamps that the user restored the pre-turn checkpoint — a whole-turn no. */
+export const markRewound = mutation({
+  args: { chatPromptId: v.string() },
+  handler: async (ctx, args) => {
+    const owner = await currentOwner(ctx);
+    if (!owner) throw new Error("Not signed in");
+    const row = await ctx.db
+      .query("chatTurns")
+      .withIndex("by_prompt", (q) => q.eq("chatPromptId", args.chatPromptId))
+      .unique();
+    if (!row || row.ownerId !== owner) throw new Error("Not found");
+    await ctx.db.patch(row._id, { rewoundAt: Date.now() });
+  },
+});
+
 /** One turn, whatever became of it — the row a rewind is planned from. */
 export const byPrompt = query({
   args: { chatPromptId: v.string() },

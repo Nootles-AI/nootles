@@ -23,6 +23,7 @@ import {
 import { chatTools } from "@/app/lib/ai/chat/serverTools";
 import { cached, markCachePoints, shortenStaleReads } from "@/app/lib/ai/chat/transcript";
 import type { AbMessage } from "@/app/lib/ai/chat/types";
+import { recordAiCall } from "@/app/lib/ai/recordCall";
 import { asUser } from "@/app/lib/convexServer";
 import { sessionToken } from "@/app/lib/session";
 
@@ -38,6 +39,7 @@ import { sessionToken } from "@/app/lib/session";
 export const maxDuration = 60;
 
 export async function POST(req: Request) {
+  const startedAt = Date.now();
   const token = await sessionToken();
   if (!token) return new Response("Unauthorized", { status: 401 });
 
@@ -118,7 +120,20 @@ export async function POST(req: Request) {
     stopWhen: stepCountIs(Math.max(1, budget)),
     experimental_download: downloadAttachments,
     abortSignal: req.signal,
-    onEnd: report,
+    onEnd: ({ totalUsage }) => {
+      report({ totalUsage });
+      const details = totalUsage.inputTokenDetails;
+      recordAiCall(convex, {
+        feature: "chat",
+        model: AI.chat.model,
+        promptTokens: totalUsage.inputTokens,
+        completionTokens: totalUsage.outputTokens,
+        cacheReadTokens: details.cacheReadTokens,
+        cacheWriteTokens: details.cacheWriteTokens,
+        latencyMs: Date.now() - startedAt,
+        status: req.signal.aborted ? "aborted" : "ok",
+      });
+    },
   });
 
   return createUIMessageStreamResponse({

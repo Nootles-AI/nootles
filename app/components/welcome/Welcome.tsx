@@ -6,6 +6,7 @@ import { useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Wordmark } from "@/app/components/Brand";
 import { PreviewBlocks } from "@/app/components/PagePreview";
+import { track } from "@/app/lib/telemetry";
 import { TEMPLATES, templateById } from "@/app/lib/onboarding/templates";
 import {
   declaredHeight,
@@ -118,6 +119,11 @@ export function Welcome() {
         })),
         context: sheet(template, role),
         priorChat: template.script.priorChat,
+      });
+      track("onboarding_completed", {
+        ...(role.trim() ? { role: role.trim() } : {}),
+        useCase: template.label,
+        mode,
       });
       router.push(`/p/${projectId}`);
     } catch (error) {
@@ -313,6 +319,11 @@ export function Welcome() {
             </button>
           )}
         </footer>
+
+        <p className="nt-wc-beta">
+          Nootles is in beta — we record sessions and errors so we can fix what
+          breaks.
+        </p>
       </section>
 
       <aside className="nt-wc-desk">

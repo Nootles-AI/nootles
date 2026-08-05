@@ -115,6 +115,31 @@ export function setActionApplyHandler(fn: ActionApply | null) {
   if (!fn) armedAccept = false;
 }
 
+/**
+ * How the controller learns a plain-prose ghost was accepted. The insertion
+ * below is an ordinary doc change, indistinguishable from typing — without this
+ * the controller's schedule() read every ghost accept as a dismissal.
+ * Called synchronously BEFORE the insert dispatches, so the controller settles
+ * its state first.
+ */
+type GhostAccept = (text: string) => void;
+let ghostAcceptHandler: GhostAccept | null = null;
+export function setGhostAcceptHandler(fn: GhostAccept | null) {
+  ghostAcceptHandler = fn;
+}
+
+/** How the controller learns a suggestion was explicitly dismissed (Escape). */
+let dismissHandler: (() => void) | null = null;
+export function setDismissHandler(fn: (() => void) | null) {
+  dismissHandler = fn;
+}
+
+/** Explicit dismissal — Escape — as opposed to typing straight through. */
+export function dismissSuggestion(view: EditorView) {
+  dismissHandler?.();
+  clearSuggestion(view);
+}
+
 // Showing/clearing a suggestion is a meta-only transaction (no doc/selection
 // change). This flag lets the two suggestion controllers ignore those so they
 // don't mistake a suggestion appearing for a user edit and clear each other.
@@ -373,6 +398,7 @@ export function acceptSuggestion(view: EditorView): boolean {
   if (!s) return false;
   if (s.kind === "ghost") {
     if (!s.text) return false;
+    ghostAcceptHandler?.(s.text);
     const tr = view.state.tr.insertText(s.text, s.pos);
     tr.setSelection(TextSelection.create(tr.doc, s.pos + s.text.length));
     tr.setMeta(META, null);

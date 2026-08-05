@@ -2,7 +2,7 @@ import { createExtension } from "@blocknote/core";
 import {
   ghostTextPlugin,
   acceptSuggestion,
-  clearSuggestion,
+  dismissSuggestion,
   currentSuggestion,
 } from "./ghostText";
 
@@ -26,7 +26,7 @@ export const completionExtension = createExtension({
     Escape: ({ editor }) => {
       const view = editor.prosemirrorView;
       if (!currentSuggestion(view.state)) return false;
-      clearSuggestion(view);
+      dismissSuggestion(view);
       return true;
     },
   },

@@ -1,5 +1,7 @@
 import { AI } from "@/app/lib/ai/aiConfig";
 import { streamFim } from "@/app/lib/ai/fim";
+import { recordAiCall } from "@/app/lib/ai/recordCall";
+import { asUser } from "@/app/lib/convexServer";
 import { sessionToken } from "@/app/lib/session";
 
 /**
@@ -13,7 +15,8 @@ import { sessionToken } from "@/app/lib/session";
  * next, exactly as it behaves in code.
  */
 export async function POST(req: Request) {
-  if (!(await sessionToken())) return new Response("Unauthorized", { status: 401 });
+  const token = await sessionToken();
+  if (!token) return new Response("Unauthorized", { status: 401 });
 
   let body: unknown;
   try {
@@ -42,5 +45,15 @@ export async function POST(req: Request) {
     // trimmed, and a seed that travelled inside it would be trimmed first.
     ...(typeof seed === "string" ? { seed } : {}),
     signal: req.signal,
+    onDone: (r) =>
+      recordAiCall(asUser(token), {
+        feature: "fim",
+        model: AI.fim.model,
+        ...r.usage,
+        latencyMs: r.latencyMs,
+        ttfbMs: r.ttfbMs,
+        status: r.status,
+        errorCode: r.errorCode,
+      }),
   });
 }

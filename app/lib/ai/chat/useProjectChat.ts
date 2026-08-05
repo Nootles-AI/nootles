@@ -10,6 +10,7 @@ import {
 import { useConvex, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { track } from "@/app/lib/telemetry";
 import { useOpenPage } from "@/app/components/OpenPageContext";
 import { useReview } from "@/app/components/ReviewContext";
 import { useEditorRegistry } from "@/app/components/editor/EditorRegistry";
@@ -270,6 +271,7 @@ export function useProjectChat({
 
       turn.current = { chatPromptId, started: false };
       void latest.current.review.beginTurn({ threadId: id, projectId: pid, chatPromptId });
+      track("chat_prompt_sent", { attachments: attachments.length });
       await chat.sendMessage(message);
     },
     [chat, makeContext],

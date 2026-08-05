@@ -15,6 +15,7 @@ import type {
   Position,
 } from "@/convex/ai/operations";
 import type { AnyBlock } from "./projection";
+import { pushOp } from "@/app/lib/debugRing";
 
 /**
  * The applier: turns a validated op batch into the EXACT same BlockNote editor
@@ -170,6 +171,7 @@ export function caretTarget(result: ApplyResult): string | undefined {
 }
 
 export function applyBatch(editor: Editor, batch: Batch): ApplyResult {
+  for (const op of batch.ops) pushOp(op);
   const blockIds = new Map<string, string>();
   const shapeIds = new Map<string, string>();
   const edgeIds = new Map<string, string>();

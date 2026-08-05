@@ -1,4 +1,7 @@
+import { AI } from "@/app/lib/ai/aiConfig";
 import { reformatCandidates } from "@/app/lib/ai/reformat";
+import { recordAiCall } from "@/app/lib/ai/recordCall";
+import { asUser } from "@/app/lib/convexServer";
 import { sessionToken } from "@/app/lib/session";
 
 /**
@@ -8,7 +11,8 @@ import { sessionToken } from "@/app/lib/session";
  * compiler treat the result as a replacement rather than an insertion.
  */
 export async function POST(req: Request) {
-  if (!(await sessionToken())) return new Response("Unauthorized", { status: 401 });
+  const token = await sessionToken();
+  if (!token) return new Response("Unauthorized", { status: 401 });
 
   let body: unknown;
   try {
@@ -22,11 +26,27 @@ export async function POST(req: Request) {
     return new Response("`block` must be a non-empty string", { status: 400 });
   }
 
+  const started = Date.now();
   try {
-    const candidates = await reformatCandidates(block, req.signal);
+    const { candidates, usage } = await reformatCandidates(block, req.signal);
+    recordAiCall(asUser(token), {
+      feature: "reformat",
+      model: AI.reformat.model,
+      ...usage,
+      latencyMs: Date.now() - started,
+      status: "ok",
+    });
     return Response.json({ candidates });
   } catch (e) {
-    if ((e as Error).name === "AbortError") return new Response(null, { status: 204 });
+    const aborted = (e as Error).name === "AbortError";
+    recordAiCall(asUser(token), {
+      feature: "reformat",
+      model: AI.reformat.model,
+      latencyMs: Date.now() - started,
+      status: aborted ? "aborted" : "error",
+      ...(aborted ? {} : { errorCode: "fetch-failed" }),
+    });
+    if (aborted) return new Response(null, { status: 204 });
     return new Response("Upstream request failed", { status: 502 });
   }
 }

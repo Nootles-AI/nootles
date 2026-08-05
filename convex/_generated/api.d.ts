@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as ai_calls from "../ai/calls.js";
 import type * as ai_checkpoints from "../ai/checkpoints.js";
 import type * as ai_context from "../ai/context.js";
 import type * as ai_opLog from "../ai/opLog.js";
@@ -18,11 +19,13 @@ import type * as chat_attachments from "../chat/attachments.js";
 import type * as chat_messages from "../chat/messages.js";
 import type * as chat_threads from "../chat/threads.js";
 import type * as chat_turns from "../chat/turns.js";
+import type * as feedback from "../feedback.js";
 import type * as onboarding from "../onboarding.js";
 import type * as pages from "../pages.js";
 import type * as profiles from "../profiles.js";
 import type * as projects from "../projects.js";
 import type * as prosemirror from "../prosemirror.js";
+import type * as surveys from "../surveys.js";
 
 import type {
   ApiFromModules,
@@ -31,6 +34,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  "ai/calls": typeof ai_calls;
   "ai/checkpoints": typeof ai_checkpoints;
   "ai/context": typeof ai_context;
   "ai/opLog": typeof ai_opLog;
@@ -41,11 +45,13 @@ declare const fullApi: ApiFromModules<{
   "chat/messages": typeof chat_messages;
   "chat/threads": typeof chat_threads;
   "chat/turns": typeof chat_turns;
+  feedback: typeof feedback;
   onboarding: typeof onboarding;
   pages: typeof pages;
   profiles: typeof profiles;
   projects: typeof projects;
   prosemirror: typeof prosemirror;
+  surveys: typeof surveys;
 }>;
 
 /**

@@ -7,6 +7,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
+import { track } from "@/app/lib/telemetry";
 import { migrateLegacyCanvas } from "../scene/migrate";
 import { applyOps } from "../scene/ops";
 import { serializeScene } from "../scene/serialize";
@@ -181,6 +182,15 @@ export class SceneStore {
     if (this.depth === 0) this.record(before, this.captureSelection());
     this.future = [];
     this.setScene(next, true);
+    for (const o of ops) {
+      if (o.type === "insert") {
+        for (const node of o.nodes) {
+          track("canvas_shape_added", { kind: node.kind });
+        }
+      } else if (o.type === "addEdge") {
+        track("canvas_edge_connected", {});
+      }
+    }
   };
 
   /** Open a gesture: everything until the matching `commit` is one entry. */

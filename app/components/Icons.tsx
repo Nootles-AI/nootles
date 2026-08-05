@@ -147,6 +147,14 @@ export function X(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+export function SpeechBubble(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M21 11.5a8.38 8.38 0 0 1-8.5 8.3 8.7 8.7 0 0 1-3.4-.7L3 21l1.9-5.1a8.1 8.1 0 0 1-.9-3.9A8.38 8.38 0 0 1 12.5 3.2a8.38 8.38 0 0 1 8.5 8.3Z" />
+    </svg>
+  );
+}
+
 /** The nib's outline, its breather hole and its slit, as one even-odd path.
  *  Shared with the canvas cursor, which must be the same object at 24px. */
 export const NIB_PATH =

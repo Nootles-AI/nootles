@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { createReactBlockSpec } from "@blocknote/react";
 import { CodeMirrorEditor } from "../codemirror/CodeMirrorEditor";
 import { toDocHtmlSplit } from "@/app/lib/ai/html/serialize";
+import { track } from "@/app/lib/telemetry";
 import { usePageTitle } from "../PageTitleContext";
 import type { AnyBlock } from "@/app/lib/ai/projection";
 import { LANGUAGES, languageLabel } from "../codemirror/languages";
@@ -154,9 +155,10 @@ export const codeBlockSpec = createReactBlockSpec(
         onChangeCode={(value) =>
           editor.updateBlock(block.id, { props: { code: value } })
         }
-        onChangeLanguage={(id) =>
-          editor.updateBlock(block.id, { props: { language: id } })
-        }
+        onChangeLanguage={(id) => {
+          editor.updateBlock(block.id, { props: { language: id } });
+          track("code_language_set", { lang: id });
+        }}
         onDelete={() => editor.removeBlocks([block.id])}
         // The caret lives in CodeMirror, not ProseMirror, so we place it in the
         // serialized document ourselves — the model still sees the whole page.

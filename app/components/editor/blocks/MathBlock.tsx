@@ -8,6 +8,7 @@ import type { ComputeEngine } from "@cortex-js/compute-engine";
 import { MathField } from "../math/MathField";
 import { evaluateLines, type LineResult } from "../math/engine";
 import { toDocHtmlSplit } from "@/app/lib/ai/html/serialize";
+import { track } from "@/app/lib/telemetry";
 import { usePageTitle } from "../PageTitleContext";
 import type { AnyBlock } from "@/app/lib/ai/projection";
 
@@ -96,6 +97,7 @@ function MathBlockView({
   );
 
   const nextId = useRef(rows.length + 1);
+  const evalTracked = useRef(false);
   const ceClass = useRef<typeof ComputeEngine | null>(null);
   const recomputeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -107,6 +109,10 @@ function MathBlockView({
     if (!ceClass.current) return;
     try {
       setResults(evaluateLines(ceClass.current, rs.map((r) => r.latex)));
+      if (!evalTracked.current && rs.some((r) => r.latex.trim())) {
+        evalTracked.current = true;
+        track("math_evaluated", {});
+      }
     } catch {
       setResults([]);
     }

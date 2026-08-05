@@ -2013,3 +2013,209 @@ body:has(.nt-review-bar) .nt-reformat-switcher {
   width: var(--control);
 }
 }
+
+/* ---- Feedback ------------------------------------------------------------
+   The standing invitation (bottom-right), its panel, and the two micro-
+   surveys. Same restraint as the review bar: elevated, bordered, neutral. */
+.nt-feedback-btn {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: var(--z-sticky);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--control);
+  height: var(--control);
+  border-radius: 999px;
+  background: var(--elevated);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  box-shadow:
+    0 1px 2px oklch(0.25 0.005 90 / 0.05),
+    0 6px 20px oklch(0.25 0.005 90 / 0.1);
+  transition: color var(--dur-fast) var(--ease);
+}
+.nt-feedback-btn:hover {
+  color: var(--foreground);
+}
+.nt-feedback-panel {
+  position: fixed;
+  right: 20px;
+  bottom: 60px;
+  z-index: var(--z-overlay);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(320px, calc(100vw - 40px));
+  padding: 10px;
+  border-radius: var(--radius-lg);
+  background: var(--elevated);
+  border: 1px solid var(--border);
+  box-shadow:
+    0 1px 2px oklch(0.25 0.005 90 / 0.05),
+    0 6px 20px oklch(0.25 0.005 90 / 0.1);
+  animation: nt-menu-in var(--dur) var(--ease);
+}
+.nt-feedback-text {
+  width: 100%;
+  resize: none;
+  padding: 8px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  font-size: var(--text-ui);
+  line-height: 1.5;
+}
+.nt-feedback-text:focus {
+  outline: none;
+  border-color: var(--border-strong);
+}
+.nt-feedback-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.nt-feedback-shot {
+  position: relative;
+  display: inline-flex;
+}
+.nt-feedback-shot img {
+  height: 36px;
+  width: auto;
+  max-width: 120px;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+}
+.nt-feedback-shot-x {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: var(--elevated);
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+.nt-feedback-noshot {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--text-meta);
+  letter-spacing: var(--tracking-meta);
+  color: var(--faint);
+}
+.nt-feedback-send {
+  padding: 5px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  font-size: var(--text-ui);
+  font-weight: 500;
+  transition: background var(--dur-fast) var(--ease);
+}
+.nt-feedback-send:hover:not(:disabled) {
+  background: var(--sunken);
+}
+.nt-feedback-send:disabled {
+  color: var(--faint);
+  border-color: var(--border);
+}
+.nt-feedback-sent {
+  padding: 14px 6px;
+  text-align: center;
+  font-size: var(--text-ui);
+}
+.nt-feedback-sent-note {
+  margin-top: 2px;
+  color: var(--muted);
+}
+.nt-feedback-error {
+  font-size: var(--text-meta-lg);
+  color: var(--muted);
+}
+
+.nt-pmf {
+  position: fixed;
+  right: 20px;
+  bottom: 64px;
+  z-index: var(--z-sticky);
+  width: min(300px, calc(100vw - 40px));
+  padding: 12px;
+  border-radius: var(--radius-lg);
+  background: var(--elevated);
+  border: 1px solid var(--border);
+  box-shadow:
+    0 1px 2px oklch(0.25 0.005 90 / 0.05),
+    0 6px 20px oklch(0.25 0.005 90 / 0.1);
+  animation: nt-menu-in var(--dur) var(--ease);
+  font-size: var(--text-ui);
+}
+.nt-pmf-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.nt-pmf-head p {
+  flex: 1;
+  font-weight: 500;
+}
+.nt-pmf-x {
+  flex: none;
+  color: var(--muted);
+}
+.nt-pmf-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+.nt-pmf-chip,
+.nt-sampler-chip {
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-size: var(--text-meta-lg);
+  color: var(--muted);
+  transition:
+    color var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease);
+}
+.nt-pmf-chip:hover,
+.nt-sampler-chip:hover {
+  color: var(--foreground);
+  border-color: var(--border-strong);
+}
+
+.nt-sampler {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: var(--z-sticky);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 6px 5px 12px;
+  border-radius: 999px;
+  background: var(--elevated);
+  border: 1px solid var(--border);
+  box-shadow:
+    0 1px 2px oklch(0.25 0.005 90 / 0.05),
+    0 6px 20px oklch(0.25 0.005 90 / 0.1);
+  animation: nt-menu-in var(--dur) var(--ease);
+}
+.nt-sampler-q {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--text-meta);
+  letter-spacing: var(--tracking-meta);
+  color: var(--muted);
+  white-space: nowrap;
+}
+/* Same seat as the review bar; step aside when it is up. */
+body:has(.nt-review-bar) .nt-sampler {
+  bottom: 66px;
+}

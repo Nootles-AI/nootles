@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
+import { track } from "@/app/lib/telemetry";
 import { GridView, ListView, MoreHorizontal, Plus } from "./Icons";
 import { AccountMenu } from "./AccountMenu";
 import { Brandmark } from "./Brand";
@@ -97,6 +98,7 @@ export function ProjectsScreen() {
       ...(project.description ? { description: project.description } : {}),
       ...(project.context ? { context: project.context } : {}),
     });
+    track("project_created", {});
     router.push(`/p/${id}`);
   };
 

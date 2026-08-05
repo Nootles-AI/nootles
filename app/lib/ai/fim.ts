@@ -27,6 +27,16 @@ export type FimOpts = {
    * two would compete, and the page would lose ground every time the seed grew.
    */
   seed?: string;
+  /** Called once when the stream settles, with whatever the ledger can use. */
+  onDone?: (result: FimDone) => void;
+};
+
+export type FimDone = {
+  usage?: { promptTokens?: number; completionTokens?: number };
+  status: "ok" | "error" | "aborted";
+  errorCode?: string;
+  ttfbMs?: number;
+  latencyMs: number;
 };
 
 async function fimFetch(
@@ -65,14 +75,27 @@ export async function streamFim(
   after: string,
   opts: FimOpts = {},
 ): Promise<Response> {
+  const started = performance.now();
+  let settled = false;
+  const settle = (r: Omit<FimDone, "latencyMs">) => {
+    if (settled) return;
+    settled = true;
+    opts.onDone?.({ ...r, latencyMs: Math.round(performance.now() - started) });
+  };
+
   let upstream: Response;
   try {
     upstream = await fimFetch(before, after, opts, true);
   } catch (e) {
-    if ((e as Error).name === "AbortError") return new Response(null, { status: 204 });
+    if ((e as Error).name === "AbortError") {
+      settle({ status: "aborted" });
+      return new Response(null, { status: 204 });
+    }
+    settle({ status: "error", errorCode: "fetch-failed" });
     return new Response("Upstream request failed", { status: 502 });
   }
   if (!upstream.ok || !upstream.body) {
+    settle({ status: "error", errorCode: `upstream-${upstream.status}` });
     return new Response(`Upstream error ${upstream.status}`, { status: 502 });
   }
 
@@ -82,6 +105,9 @@ export async function streamFim(
       const reader = upstream.body!.getReader();
       const decoder = new TextDecoder();
       let buf = "";
+      // Mistral reports usage on the final frame; hold whatever arrives.
+      let usage: FimDone["usage"];
+      let ttfbMs: number | undefined;
       try {
         for (;;) {
           const { done, value } = await reader.read();
@@ -94,6 +120,7 @@ export async function streamFim(
             if (!trimmed.startsWith("data:")) continue;
             const data = trimmed.slice(5).trim();
             if (data === "[DONE]") {
+              settle({ status: "ok", usage, ttfbMs });
               controller.close();
               return;
             }
@@ -101,16 +128,33 @@ export async function streamFim(
               const json = JSON.parse(data);
               const choice = json.choices?.[0];
               const delta: string = choice?.delta?.content ?? choice?.text ?? "";
-              if (delta) controller.enqueue(encoder.encode(delta));
+              if (json.usage) {
+                usage = {
+                  promptTokens: json.usage.prompt_tokens,
+                  completionTokens: json.usage.completion_tokens,
+                };
+              }
+              if (delta) {
+                if (ttfbMs === undefined) {
+                  ttfbMs = Math.round(performance.now() - started);
+                }
+                controller.enqueue(encoder.encode(delta));
+              }
             } catch {
               // Ignore a malformed/partial frame; the next read reassembles it.
             }
           }
         }
+        settle({ status: "ok", usage, ttfbMs });
         controller.close();
       } catch (e) {
-        if ((e as Error).name === "AbortError") controller.close();
-        else controller.error(e);
+        if ((e as Error).name === "AbortError") {
+          settle({ status: "aborted", usage, ttfbMs });
+          controller.close();
+        } else {
+          settle({ status: "error", errorCode: "stream-failed", usage, ttfbMs });
+          controller.error(e);
+        }
       }
     },
   });

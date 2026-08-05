@@ -2,7 +2,10 @@
 
 import { useEffect, useRef } from "react";
 import type { BlockNoteEditor } from "@blocknote/core";
+import * as Sentry from "@sentry/nextjs";
 import { useMutation } from "convex/react";
+import { track } from "@/app/lib/telemetry";
+import { noteDismissal } from "@/app/components/feedback/sampler";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import { AI } from "@/app/lib/ai/aiConfig";
@@ -29,6 +32,8 @@ import {
   clearSuggestion,
   isSuggestionDispatch,
   setActionApplyHandler,
+  setGhostAcceptHandler,
+  setDismissHandler,
   type Preview,
 } from "./ghostText";
 import { canvasPreview, type GhostBlock } from "./previewWidgets";
@@ -413,6 +418,25 @@ function blocksFromMarkup(nodes: DocNode[]): GhostBlock[] {
  */
 export type PageMode = "create" | "complete";
 
+/** Everything the telemetry row needs about the suggestion on screen. */
+type ShownState = {
+  kind: string;
+  latencyMs: number;
+  shownAt: number;
+  text: string;
+  contextBefore: string;
+  docLength: number;
+};
+
+type DismissReason =
+  | "typed-through"
+  | "cursor-moved"
+  | "superseded"
+  | "escape"
+  | "timeout";
+
+const squash = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
+
 /**
  * Cut a completion to its first clause. Complete offers a few words you were
  * obviously about to type, never a paragraph you did not ask for.
@@ -431,11 +455,14 @@ export function useTabCompletion(
 ) {
   const appendBatch = useMutation(api.ai.opLog.appendBatch);
   const logSuggestion = useMutation(api.ai.suggestions.log);
+  const amendSuggestion = useMutation(api.ai.suggestions.amend);
   const appendRef = useRef(appendBatch);
   const logRef = useRef(logSuggestion);
+  const amendRef = useRef(amendSuggestion);
   useEffect(() => {
     appendRef.current = appendBatch;
     logRef.current = logSuggestion;
+    amendRef.current = amendSuggestion;
   });
 
   useEffect(() => {
@@ -451,12 +478,118 @@ export function useTabCompletion(
      */
     let liveAbort: AbortController | null = null;
     let seq = 0;
-    let shown: { kind: string; latencyMs: number } | null = null;
+    let shown: ShownState | null = null;
 
     const view = () => editor.prosemirrorView;
     // Convex mutations trigger React state; dispatching one from inside the
     // editor's update cycle re-enters rendering. Always defer writes out of it.
     const defer = (fn: () => void) => setTimeout(fn, 0);
+
+    /** The full telemetry row for a settled suggestion. Resolves to its id. */
+    const logOutcome = (
+      s: ShownState,
+      outcome: "accepted" | "dismissed" | "superseded",
+      extra?: {
+        dismissReason?: DismissReason;
+        blockIds?: string[];
+        acceptedText?: string;
+      },
+    ) => {
+      const decisionMs = Math.round(performance.now() - s.shownAt);
+      if (outcome === "accepted") {
+        track("suggestion_accepted", {
+          kind: s.kind,
+          latencyMs: s.latencyMs,
+          decisionMs,
+        });
+      } else {
+        track("suggestion_dismissed", {
+          kind: s.kind,
+          reason: extra?.dismissReason ?? outcome,
+        });
+        if (outcome === "dismissed") noteDismissal();
+      }
+      if (!pageId) return Promise.resolve(null);
+      return logRef.current({
+        pageId,
+        kind: s.kind,
+        gateOk: true,
+        shown: true,
+        outcome,
+        latencyMs: s.latencyMs,
+        suggestionText: s.text,
+        contextBefore: s.contextBefore,
+        model: s.kind === "Add diagram" ? AI.diagram.model : AI.fim.model,
+        pageMode: mode,
+        docLength: s.docLength,
+        decisionMs,
+        ...extra,
+      });
+    };
+
+    /**
+     * The strongest negative signal there is: an accept undone within 30s.
+     * Watched client-side because undo never reaches the op log — it is a
+     * plain editor history step.
+     */
+    let undoWatch: {
+      id: Id<"suggestionLog">;
+      blockIds: string[];
+      /** For prose accepts, where the block outlives the undo: the text must. */
+      snippet: string | null;
+      at: number;
+    } | null = null;
+
+    const watchUndo = (
+      id: Id<"suggestionLog">,
+      blockIds: string[],
+      snippet: string | null,
+    ) => {
+      undoWatch = { id, blockIds, snippet, at: Date.now() };
+    };
+
+    const blockTextOf = (id: string): string | null => {
+      let block: unknown;
+      try {
+        block = editor.getBlock(id);
+      } catch {
+        return null;
+      }
+      if (!block) return null;
+      const parts: string[] = [];
+      const walk = (node: unknown): void => {
+        if (!node || typeof node !== "object") return;
+        if (Array.isArray(node)) return node.forEach(walk);
+        const n = node as { text?: unknown; content?: unknown; children?: unknown };
+        if (typeof n.text === "string") parts.push(n.text);
+        walk(n.content);
+        walk(n.children);
+      };
+      walk(block);
+      return parts.join(" ");
+    };
+
+    const checkUndo = () => {
+      const w = undoWatch;
+      if (!w) return;
+      if (Date.now() - w.at > 30_000) {
+        undoWatch = null;
+        return;
+      }
+      const texts = w.blockIds.map(blockTextOf);
+      const allGone = texts.every((t) => t === null);
+      const snippetLost =
+        w.snippet !== null &&
+        !texts.some((t) => t !== null && squash(t).includes(w.snippet as string));
+      if (!allGone && !snippetLost) return;
+      const { id, at } = w;
+      undoWatch = null;
+      defer(() => {
+        void amendRef
+          .current({ id, undoneWithinMs: Date.now() - at })
+          .catch(() => {});
+      });
+    };
 
     /** Applies a batch, lands the caret after it, and records both. */
     const applyNow = (batch: Batch) => {
@@ -471,14 +604,13 @@ export function useTabCompletion(
             .current({ pageId, source: "ai", ops: batch.ops })
             .catch(() => {});
           if (s) {
-            void logRef
-              .current({
-                pageId,
-                kind: s.kind,
-                gateOk: true,
-                shown: true,
-                outcome: "accepted",
-                latencyMs: s.latencyMs,
+            const blockIds = Object.values(result.blocks);
+            void logOutcome(s, "accepted", {
+              acceptedText: s.text,
+              ...(blockIds.length ? { blockIds } : {}),
+            })
+              .then((id) => {
+                if (id && blockIds.length) watchUndo(id, blockIds, null);
               })
               .catch(() => {});
           }
@@ -487,6 +619,42 @@ export function useTabCompletion(
       return result;
     };
     setActionApplyHandler(applyNow);
+
+    // A plain-prose ghost accept inserts text directly — a doc change this
+    // hook cannot tell from typing. The handler runs synchronously before the
+    // insert, so the accept is logged as one (it used to read as a dismissal).
+    setGhostAcceptHandler((text) => {
+      const s = shown;
+      shown = null;
+      if (!s) return;
+      let blockId: string | null = null;
+      try {
+        blockId = editor.getTextCursorPosition().block.id as string;
+      } catch {}
+      const snippet = squash(text).slice(0, 40) || null;
+      defer(() => {
+        void logOutcome(s, "accepted", {
+          acceptedText: text,
+          ...(blockId ? { blockIds: [blockId] } : {}),
+        })
+          .then((id) => {
+            if (id && blockId) watchUndo(id, [blockId], snippet);
+          })
+          .catch(() => {});
+      });
+    });
+
+    // Escape, as opposed to typing through or moving away.
+    setDismissHandler(() => {
+      const s = shown;
+      shown = null;
+      if (!s) return;
+      defer(() => {
+        void logOutcome(s, "dismissed", { dismissReason: "escape" }).catch(
+          () => {},
+        );
+      });
+    });
 
     /**
      * Writes into a diagram block that has already been accepted, while the
@@ -667,6 +835,20 @@ export function useTabCompletion(
       abort = controller;
       const started = performance.now();
 
+      /** What the telemetry row will say about the suggestion now on screen. */
+      const shownState = (kind: string): ShownState => {
+        const latencyMs = elapsed(started);
+        track("suggestion_shown", { kind, latencyMs });
+        return {
+          kind,
+          latencyMs,
+          shownAt: performance.now(),
+          text: acc,
+          contextBefore: ctx.visible.slice(-500),
+          docLength: ctx.visible.length,
+        };
+      };
+
       const limits = AI.modes[mode];
       // How many blocks stand before the caret. Whatever the parse returns past
       // this is what the completion added, read in its place in the document —
@@ -842,6 +1024,7 @@ export function useTabCompletion(
         // Only the read itself gets here now. An abort is the ordinary way out
         // — a keystroke superseded us — and says nothing.
         if (controller.signal.aborted || mySeq !== seq) return;
+        Sentry.captureException(error, { tags: { feature: "tab-completion" } });
         if (process.env.NODE_ENV !== "production") {
           console.warn("[Nootles] completion: stream failed\n  ", error);
         }
@@ -885,7 +1068,7 @@ export function useTabCompletion(
         const place = (drawn: string): string | null => {
           const batch = compileWith(acc.slice(0, asked.at) + drawn);
           if (!batch) return null;
-          shown = { kind: "Add diagram", latencyMs: elapsed(started) };
+          shown = shownState("Add diagram");
           return canvasIdOf(batch, applyNow(batch));
         };
         const html = await buildDiagram(brief, page, tail, mySeq, place);
@@ -931,7 +1114,7 @@ export function useTabCompletion(
           };
           if (lit >= AI.timing.minStreamHeadMs) settle();
           else setTimeout(settle, AI.timing.minStreamHeadMs - lit);
-          shown = { kind: "prose", latencyMs: elapsed(started) };
+          shown = shownState("prose");
         }
         return;
       }
@@ -947,7 +1130,7 @@ export function useTabCompletion(
         if (!isStructural(acc)) {
           // Inline marks only. Still prose to the reader: ghost text, no chip and
           // no preview — but Tab applies the compiled batch, so the marks land.
-          shown = { kind: "prose+marks", latencyMs: elapsed(started) };
+          shown = shownState("prose+marks");
           // Raw markup: the tail renders it, and Tab applies the batch.
           setAction(view(), { batch: resolved.batch, tail: acc });
           return;
@@ -956,7 +1139,7 @@ export function useTabCompletion(
         // positions are the ones the applier will use.
         const described = describe(resolved.batch);
         if (described?.preview) {
-          shown = { kind: described.label, latencyMs: elapsed(started) };
+          shown = shownState(described.label);
           setAction(view(), {
             label: described.label,
             batch: resolved.batch,
@@ -972,7 +1155,7 @@ export function useTabCompletion(
         // unannounced is what the rule exists to prevent.
         const blocks = preview(acc);
         if (!blocks.length) return clear();
-        shown = { kind: "text", latencyMs: elapsed(started) };
+        shown = shownState("text");
         setAction(view(), { batch: resolved.batch, tail: proseTail(acc), blocks });
       } catch (error) {
         // Never silently. A throw anywhere in here — the compiler, `describe`,
@@ -1027,6 +1210,7 @@ export function useTabCompletion(
       // not answer over the top of it, nor clear what the guide has drawn.
       if (completionsSuspended()) return;
       const state = view()?.state;
+      let docChanged = true;
       if (state) {
         const sel = { from: state.selection.from, to: state.selection.to };
         const same =
@@ -1034,26 +1218,22 @@ export function useTabCompletion(
           seenSel !== null &&
           sel.from === seenSel.from &&
           sel.to === seenSel.to;
+        docChanged = state.doc !== seenDoc;
         seenDoc = state.doc;
         seenSel = sel;
         if (same) return; // a suggestion being drawn, not an edit
       }
+      checkUndo();
       if (timer) clearTimeout(timer);
       abort?.abort();
       seq++;
-      if (shown && pageId) {
+      if (shown) {
         const s = shown;
+        const reason: DismissReason = docChanged ? "typed-through" : "cursor-moved";
         defer(() => {
-          void logRef
-            .current({
-              pageId,
-              kind: s.kind,
-              gateOk: true,
-              shown: true,
-              outcome: "dismissed",
-              latencyMs: s.latencyMs,
-            })
-            .catch(() => {});
+          void logOutcome(s, "dismissed", { dismissReason: reason }).catch(
+            () => {},
+          );
         });
       }
       shown = null;
@@ -1077,7 +1257,14 @@ export function useTabCompletion(
       // The one thing that stops a diagram the user already accepted: there is
       // no editor left to write the rest of it into.
       liveAbort?.abort();
+      if (shown) {
+        const s = shown;
+        shown = null;
+        void logOutcome(s, "superseded").catch(() => {});
+      }
       setActionApplyHandler(null);
+      setGhostAcceptHandler(null);
+      setDismissHandler(null);
     };
   }, [editor, pageId, title, mode]);
 }

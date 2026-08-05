@@ -226,6 +226,19 @@ export const AI = {
   },
 
   /**
+   * USD per 1M tokens, for the `aiCalls` cost ledger. Provider list prices —
+   * re-check when a model line above changes, they drift.
+   */
+  prices: {
+    "codestral-2508": { in: 0.3, out: 0.9 },
+    "google/gemini-2.5-flash": { in: 0.3, out: 2.5 },
+    "anthropic/claude-sonnet-4.6": { in: 3, out: 15, cacheRead: 0.3, cacheWrite: 3.75 },
+  } as Record<
+    string,
+    { in: number; out: number; cacheRead?: number; cacheWrite?: number }
+  >,
+
+  /**
    * Languages the code block can actually highlight. Kept here (rather than
    * imported from codemirror/languages.ts) so pure modules stay free of
    * client-only imports. Anything outside this set falls back to plaintext.

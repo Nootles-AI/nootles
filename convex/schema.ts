@@ -195,8 +195,108 @@ export default defineSchema({
       v.literal("failed"),
     ),
     latencyMs: v.number(),
+    // ---- Suggestion payload + context (all optional: rows predate them) ----
+    /** What was generated, capped — the part a prompt iteration needs to read. */
+    suggestionText: v.optional(v.string()),
+    /** Visible text just before the caret at generation time. */
+    contextBefore: v.optional(v.string()),
+    model: v.optional(v.string()),
+    pageMode: v.optional(v.union(v.literal("create"), v.literal("complete"))),
+    docLength: v.optional(v.number()),
+    // ---- Decision ----
+    /** Time from shown to accept/dismiss — instant-dismiss vs read-then-reject. */
+    decisionMs: v.optional(v.number()),
+    dismissReason: v.optional(
+      v.union(
+        v.literal("typed-through"),
+        v.literal("cursor-moved"),
+        v.literal("superseded"),
+        v.literal("escape"),
+        v.literal("timeout"),
+      ),
+    ),
+    // ---- Accept ----
+    blockIds: v.optional(v.array(v.string())),
+    acceptedText: v.optional(v.string()),
+    /** Reformat: how many candidates were offered, and which one won. */
+    candidateCount: v.optional(v.number()),
+    chosenIndex: v.optional(v.number()),
+    // ---- Post-accept fate (written later by scoreSurvival / amend) ----
+    /** 0..1 — how much of the accepted text is still there at T+10min. */
+    survivalScore: v.optional(v.number()),
+    survivalCheckedAt: v.optional(v.number()),
+    /** Set when the accept was undone within the 30s client watch. */
+    undoneWithinMs: v.optional(v.number()),
     createdAt: v.number(),
-  }).index("by_page", ["pageId", "createdAt"]),
+  })
+    .index("by_page", ["pageId", "createdAt"])
+    .index("by_owner", ["ownerId", "createdAt"]),
+
+  /**
+   * One row per LLM request, whatever the feature — the cost and reliability
+   * ledger. Written fire-and-forget from the API routes after each stream ends.
+   */
+  aiCalls: defineTable({
+    ownerId: v.string(),
+    feature: v.union(
+      v.literal("fim"),
+      v.literal("reformat"),
+      v.literal("diagram"),
+      v.literal("chat"),
+    ),
+    model: v.string(),
+    promptTokens: v.optional(v.number()),
+    completionTokens: v.optional(v.number()),
+    cacheReadTokens: v.optional(v.number()),
+    cacheWriteTokens: v.optional(v.number()),
+    latencyMs: v.number(),
+    ttfbMs: v.optional(v.number()),
+    status: v.union(
+      v.literal("ok"),
+      v.literal("error"),
+      v.literal("aborted"),
+      v.literal("timeout"),
+    ),
+    errorCode: v.optional(v.string()),
+    costUsd: v.optional(v.number()),
+    createdAt: v.number(),
+  })
+    .index("by_owner", ["ownerId", "createdAt"])
+    .index("by_feature", ["feature", "createdAt"]),
+
+  /** In-app "report issue / suggest feature" submissions, with their context. */
+  feedback: defineTable({
+    ownerId: v.string(),
+    kind: v.union(v.literal("issue"), v.literal("wish")),
+    text: v.string(),
+    screenshotStorageId: v.optional(v.id("_storage")),
+    consoleLog: v.optional(v.string()),
+    recentOps: v.optional(v.any()),
+    pageId: v.optional(v.id("pages")),
+    projectId: v.optional(v.id("projects")),
+    replayUrl: v.optional(v.string()),
+    env: v.object({
+      sha: v.optional(v.string()),
+      ua: v.string(),
+      viewport: v.string(),
+    }),
+    status: v.union(v.literal("new"), v.literal("seen"), v.literal("done")),
+    createdAt: v.number(),
+  })
+    .index("by_status", ["status", "createdAt"])
+    .index("by_owner", ["ownerId", "createdAt"]),
+
+  /**
+   * Micro-survey answers (PMF question, dismiss-reason sampler). Append-only;
+   * "has any row" is what stops a survey being shown twice.
+   */
+  surveyResponses: defineTable({
+    ownerId: v.string(),
+    survey: v.union(v.literal("pmf"), v.literal("dismiss_reason")),
+    answer: v.optional(v.string()),
+    dismissed: v.boolean(),
+    createdAt: v.number(),
+  }).index("by_owner_survey", ["ownerId", "survey"]),
 
   /** Per-project evolving Q&A that primes every LLM request. */
   contextSheet: defineTable({
@@ -287,6 +387,8 @@ export default defineSchema({
       v.literal("rejected"),
       v.literal("failed"),
     ),
+    /** Set when the user restored the pre-turn checkpoint — a whole-turn no. */
+    rewoundAt: v.optional(v.number()),
     createdAt: v.number(),
   })
     .index("by_thread", ["threadId", "createdAt"])

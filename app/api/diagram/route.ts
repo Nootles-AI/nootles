@@ -1,4 +1,7 @@
+import { AI } from "@/app/lib/ai/aiConfig";
 import { streamDiagram } from "@/app/lib/ai/diagram";
+import { recordAiCall } from "@/app/lib/ai/recordCall";
+import { asUser } from "@/app/lib/convexServer";
 import { sessionToken } from "@/app/lib/session";
 
 /**
@@ -12,7 +15,8 @@ import { sessionToken } from "@/app/lib/session";
 export const maxDuration = 60;
 
 export async function POST(req: Request) {
-  if (!(await sessionToken())) return new Response("Unauthorized", { status: 401 });
+  const token = await sessionToken();
+  if (!token) return new Response("Unauthorized", { status: 401 });
 
   let body: unknown;
   try {
@@ -36,6 +40,17 @@ export async function POST(req: Request) {
       typeof page === "string" ? page : "",
       typeof title === "string" ? title : "",
       req.signal,
+      ({ usage, latencyMs }) =>
+        recordAiCall(asUser(token), {
+          feature: "diagram",
+          model: AI.diagram.model,
+          promptTokens: usage.inputTokens,
+          completionTokens: usage.outputTokens,
+          cacheReadTokens: usage.inputTokenDetails.cacheReadTokens,
+          cacheWriteTokens: usage.inputTokenDetails.cacheWriteTokens,
+          latencyMs,
+          status: req.signal.aborted ? "aborted" : "ok",
+        }),
     );
   } catch (e) {
     if ((e as Error).name === "AbortError") return new Response(null, { status: 204 });

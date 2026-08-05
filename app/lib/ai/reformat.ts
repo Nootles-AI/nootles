@@ -122,10 +122,15 @@ const SHOTS: Array<{ in: string; out: string }> = [
   },
 ];
 
+export type ReformatResult = {
+  candidates: ReformatCandidate[];
+  usage?: { promptTokens?: number; completionTokens?: number };
+};
+
 export async function reformatCandidates(
   block: string,
   signal?: AbortSignal,
-): Promise<ReformatCandidate[]> {
+): Promise<ReformatResult> {
   const key = process.env.OPENROUTER_API_KEY;
   if (!key) throw new Error("OPENROUTER_API_KEY is not set");
 
@@ -147,26 +152,35 @@ export async function reformatCandidates(
     }),
     signal,
   });
-  if (!res.ok) return [];
+  if (!res.ok) return { candidates: [] };
 
   const json = await res.json();
+  const usage = json?.usage
+    ? {
+        promptTokens: json.usage.prompt_tokens as number | undefined,
+        completionTokens: json.usage.completion_tokens as number | undefined,
+      }
+    : undefined;
   const text = String(json?.choices?.[0]?.message?.content ?? "")
     .trim()
     // Models fence JSON out of habit however firmly you ask them not to.
     .replace(/^```(?:json)?\s*/, "")
     .replace(/\s*```$/, "");
-  if (!text) return [];
+  if (!text) return { candidates: [], usage };
 
   try {
     const parsed = JSON.parse(text);
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .filter(
-        (c): c is ReformatCandidate =>
-          !!c && typeof c.label === "string" && typeof c.html === "string",
-      )
-      .slice(0, AI.reformat.maxCandidates);
+    if (!Array.isArray(parsed)) return { candidates: [], usage };
+    return {
+      candidates: parsed
+        .filter(
+          (c): c is ReformatCandidate =>
+            !!c && typeof c.label === "string" && typeof c.html === "string",
+        )
+        .slice(0, AI.reformat.maxCandidates),
+      usage,
+    };
   } catch {
-    return [];
+    return { candidates: [], usage };
   }
 }

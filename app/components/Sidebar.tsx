@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
+import { track } from "@/app/lib/telemetry";
 import { ArrowLeft, PanelLeft, Plus } from "./Icons";
 import { AccountMenu } from "./AccountMenu";
 import { ConfirmDeleteDialog } from "./ConfirmDelete";
@@ -121,7 +122,12 @@ export function Sidebar({
         <div className="nt-section-label">
           <span>Pages</span>
           <button
-            onClick={() => createPage({ projectId }).then(onSelectPage)}
+            onClick={() =>
+              createPage({ projectId }).then((id) => {
+                track("page_created", {});
+                onSelectPage(id);
+              })
+            }
             aria-label="New page"
             title="New page"
             className="nt-icon-btn"

@@ -605,3 +605,9 @@
     animation: none;
   }
 }
+
+.nt-wc-beta {
+  margin: 12px 0 0;
+  font-size: var(--text-meta-lg);
+  color: var(--faint);
+}

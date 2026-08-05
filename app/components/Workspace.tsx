@@ -20,6 +20,9 @@ import { ReviewBar } from "./ReviewBar";
 import { ResizeHandle } from "./ResizeHandle";
 import { PanelsProvider } from "./PanelsContext";
 import { Tour } from "./tour/Tour";
+import { FeedbackButton } from "./feedback/FeedbackButton";
+import { PmfSurvey } from "./feedback/PmfSurvey";
+import { DismissSampler } from "./feedback/DismissSampler";
 import { PanelLeft, PanelRight } from "./Icons";
 
 const LEFT = { def: 256, min: 200, max: 480 };
@@ -347,6 +350,10 @@ export function Workspace({ projectId }: { projectId: Id<"projects"> }) {
             </div>
           </>
         )}
+
+        <FeedbackButton projectId={projectId} pageId={effectivePageId} />
+        <PmfSurvey />
+        <DismissSampler />
 
         {/* Last, and above everything: the guide draws over the workspace it is
             teaching. Renders nothing at all unless a tour is running. */}

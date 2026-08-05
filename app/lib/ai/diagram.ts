@@ -1,4 +1,4 @@
-import { streamText } from "ai";
+import { streamText, type LanguageModelUsage } from "ai";
 import { AI } from "./aiConfig";
 import { diagramModel } from "./chat/provider";
 
@@ -203,7 +203,9 @@ export function streamDiagram(
   page: string,
   title: string,
   signal?: AbortSignal,
+  onUsage?: (result: { usage: LanguageModelUsage; latencyMs: number }) => void,
 ): Response {
+  const started = Date.now();
   const result = streamText({
     model: diagramModel(),
     system: SYSTEM,
@@ -219,6 +221,8 @@ export function streamDiagram(
     ],
     maxOutputTokens: AI.diagram.maxTokens,
     abortSignal: signal,
+    onEnd: ({ totalUsage }) =>
+      onUsage?.({ usage: totalUsage, latencyMs: Date.now() - started }),
   });
   return result.toTextStreamResponse();
 }

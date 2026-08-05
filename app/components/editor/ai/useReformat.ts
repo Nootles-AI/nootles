@@ -1,8 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { BlockNoteEditor } from "@blocknote/core";
+import * as Sentry from "@sentry/nextjs";
+import { useMutation } from "convex/react";
+import { api } from "@/convex/_generated/api";
+import { Id } from "@/convex/_generated/dataModel";
 import { AI } from "@/app/lib/ai/aiConfig";
+import { track } from "@/app/lib/telemetry";
 import { carriedOver, type ReformatCandidate } from "@/app/lib/ai/reformat";
 import { blockText, project, type AnyBlock } from "@/app/lib/ai/projection";
 import { resolveBatch, warnRejected } from "@/app/lib/ai/validate";
@@ -33,10 +38,78 @@ const defer = (fn: () => void) => setTimeout(fn, 0);
  * matters — an ambient *continuation* was invasive because it guessed at content
  * you had not written yet, whereas this only ever rearranges content you did.
  */
-export function useReformat(editor: Editor | null | undefined) {
+export function useReformat(
+  editor: Editor | null | undefined,
+  pageId?: Id<"pages"> | null,
+) {
   const [state, setState] = useState<ReformatState | null>(null);
 
-  const dismiss = useCallback(() => setState(null), []);
+  const logSuggestion = useMutation(api.ai.suggestions.log);
+  const logRef = useRef(logSuggestion);
+  useEffect(() => {
+    logRef.current = logSuggestion;
+  });
+
+  /** What the telemetry row will say about the bar now showing, if any. */
+  const shownRef = useRef<{
+    shownAt: number;
+    latencyMs: number;
+    candidateCount: number;
+    contextBefore: string;
+  } | null>(null);
+
+  const logOutcome = useCallback(
+    (
+      outcome: "accepted" | "dismissed" | "superseded" | "failed",
+      extra?: {
+        dismissReason?: "escape";
+        blockIds?: string[];
+        acceptedText?: string;
+        suggestionText?: string;
+        chosenIndex?: number;
+      },
+    ) => {
+      const s = shownRef.current;
+      shownRef.current = null;
+      if (!s) return;
+      if (outcome === "accepted") {
+        track("suggestion_accepted", {
+          kind: "reformat",
+          latencyMs: s.latencyMs,
+          decisionMs: Math.round(performance.now() - s.shownAt),
+        });
+      } else {
+        track("suggestion_dismissed", {
+          kind: "reformat",
+          reason: extra?.dismissReason ?? outcome,
+        });
+      }
+      if (!pageId) return;
+      defer(() => {
+        void logRef
+          .current({
+            pageId,
+            kind: "reformat",
+            gateOk: true,
+            shown: true,
+            outcome,
+            latencyMs: s.latencyMs,
+            contextBefore: s.contextBefore,
+            model: AI.reformat.model,
+            candidateCount: s.candidateCount,
+            decisionMs: Math.round(performance.now() - s.shownAt),
+            ...extra,
+          })
+          .catch(() => {});
+      });
+    },
+    [pageId],
+  );
+
+  const dismiss = useCallback(() => {
+    logOutcome("dismissed", { dismissReason: "escape" });
+    setState(null);
+  }, [logOutcome]);
 
   const cycle = useCallback((delta: number) => {
     setState((s) =>
@@ -70,7 +143,7 @@ export function useReformat(editor: Editor | null | undefined) {
         return carriedOver(blockText(block), produced) >= AI.reformat.consumedRatio;
       });
 
-      if (!consumable.length) return;
+      if (!consumable.length) return logOutcome("failed");
 
       // The model is told to carry the run's first id onto its output, but a
       // candidate covering only part of the run then lands on a block it never
@@ -83,15 +156,26 @@ export function useReformat(editor: Editor | null | undefined) {
         anchorBlockId: consumable[0],
         replacing: consumable,
       });
-      if (!batch.ops.length) return;
+      if (!batch.ops.length) return logOutcome("failed");
       const { index } = project(blocks);
       const resolved = resolveBatch(batch, index);
-      if (!resolved.ok) return warnRejected("reformat", resolved);
-      applyBatch(editor, resolved.batch);
-    } catch {
+      if (!resolved.ok) {
+        logOutcome("failed");
+        return warnRejected("reformat", resolved);
+      }
+      const result = applyBatch(editor, resolved.batch);
+      logOutcome("accepted", {
+        suggestionText: candidate.html,
+        acceptedText: candidate.html,
+        chosenIndex: state.index,
+        blockIds: [...new Set([consumable[0], ...Object.values(result.blocks)])],
+      });
+    } catch (error) {
       // A malformed rewrite is dropped rather than half-applied.
+      Sentry.captureException(error, { tags: { feature: "reformat" } });
+      logOutcome("failed");
     }
-  }, [editor, state]);
+  }, [editor, state, logOutcome]);
 
   useEffect(() => {
     if (!editor) return;
@@ -103,6 +187,7 @@ export function useReformat(editor: Editor | null | undefined) {
     const request = async (ids: string[], html: string, mySeq: number) => {
       const controller = new AbortController();
       abort = controller;
+      const started = performance.now();
       try {
         const res = await fetch("/api/reformat", {
           method: "POST",
@@ -115,6 +200,18 @@ export function useReformat(editor: Editor | null | undefined) {
           candidates: ReformatCandidate[];
         };
         if (mySeq !== seq || !candidates?.length) return;
+        const latencyMs = Math.round(performance.now() - started);
+        track("suggestion_shown", { kind: "reformat", latencyMs });
+        shownRef.current = {
+          shownAt: performance.now(),
+          latencyMs,
+          candidateCount: candidates.length,
+          contextBefore: html
+            .replace(/<[^>]*>/g, " ")
+            .replace(/\s+/g, " ")
+            .trim()
+            .slice(-500),
+        };
         setState({ blockId: ids[0], blockIds: ids, candidates, index: 0 });
       } catch {
         // superseded or offline
@@ -179,6 +276,7 @@ export function useReformat(editor: Editor | null | undefined) {
       lastKey = key;
 
       seq++;
+      logOutcome("superseded");
       setState(null);
       if (timer) clearTimeout(timer);
       abort?.abort();
@@ -202,8 +300,9 @@ export function useReformat(editor: Editor | null | undefined) {
       if (timer) clearTimeout(timer);
       abort?.abort();
       seq++;
+      logOutcome("superseded");
     };
-  }, [editor]);
+  }, [editor, logOutcome]);
 
   // Whether an inline completion is showing is settled when a key is pressed,
   // not here. Reading it during render both hid the bar for most of a typing
