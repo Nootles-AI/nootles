@@ -36,8 +36,20 @@ import { labelOfElement, labelRuns } from "../scene/label";
 
 const chipText = (title: string) => `@${title.trim() || "Untitled"}`;
 
-export function LabelContent({ label }: { label: string }) {
+export function LabelContent({
+  label,
+  onEdit,
+}: {
+  label: string;
+  /** Open this label for editing — the shape's own double-click, offered. */
+  onEdit?: () => void;
+}) {
   const runs = useMemo(() => labelRuns(label), [label]);
+  // A label that IS a chip leaves no words beside it to click for editing, so
+  // there the chip offers the choice instead of navigating outright.
+  const solo =
+    runs.filter((run) => run.kind === "ref").length === 1 &&
+    runs.every((run) => run.kind === "ref" || run.text.trim() === "");
   return (
     // One wrapper span, not a fragment: the shape is a flex container, and a
     // fragment would hand it every run — each chip and each <b> — as its own
@@ -46,7 +58,12 @@ export function LabelContent({ label }: { label: string }) {
     <span>
       {runs.map((run, i) =>
         run.kind === "ref" ? (
-          <PageChip key={i} pageId={run.pageId} title={run.title} />
+          <PageChip
+            key={i}
+            pageId={run.pageId}
+            title={run.title}
+            onEdit={solo ? onEdit : undefined}
+          />
         ) : run.bold ? (
           <b key={i}>{run.text}</b>
         ) : (
@@ -57,11 +74,24 @@ export function LabelContent({ label }: { label: string }) {
   );
 }
 
-function PageChip({ pageId, title }: { pageId: string; title: string }) {
+function PageChip({
+  pageId,
+  title,
+  onEdit,
+}: {
+  pageId: string;
+  title: string;
+  onEdit?: () => void;
+}) {
   const pages = usePages();
   const openPage = useOpenPageOptional();
   const here = useCurrentPage();
   const live = pages?.find((p) => p._id === pageId);
+  const [menu, setMenu] = useState<{ left: number; bottom: number } | null>(null);
+
+  const go = openPage
+    ? () => openPage.open(pageId as Id<"pages">, here)
+    : undefined;
 
   return (
     <span
@@ -71,16 +101,101 @@ function PageChip({ pageId, title }: { pageId: string; title: string }) {
       // label for editing works from the chip too.
       onPointerDown={(e) => e.stopPropagation()}
       onClick={
-        openPage
+        go
           ? (e) => {
               e.stopPropagation();
-              openPage.open(pageId as Id<"pages">, here);
+              if (!onEdit) {
+                go();
+                return;
+              }
+              const rect = e.currentTarget.getBoundingClientRect();
+              setMenu({ left: rect.left, bottom: rect.bottom });
             }
           : undefined
       }
     >
       {chipText(live?.title ?? title)}
+      {menu && go && onEdit && (
+        <ChipMenu
+          at={menu}
+          onGo={go}
+          onEdit={onEdit}
+          onClose={() => setMenu(null)}
+        />
+      )}
     </span>
+  );
+}
+
+/**
+ * The choice a solo chip offers: follow it, or edit the words it lives in.
+ * Portalled beside the chip; the `.nt-mention-anchor` wrapper is what the
+ * canvas's outside-press listeners already treat as canvas chrome.
+ */
+function ChipMenu({
+  at,
+  onGo,
+  onEdit,
+  onClose,
+}: {
+  at: { left: number; bottom: number };
+  onGo: () => void;
+  onEdit: () => void;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    // Capture-phase and non-swallowing: an outside press closes the menu and
+    // still does whatever it was for.
+    const onDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (target instanceof Element && target.closest(".nt-chip-menu")) return;
+      onClose();
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("pointerdown", onDown, true);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("pointerdown", onDown, true);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [onClose]);
+
+  return createPortal(
+    <div
+      className="nt-mention-anchor"
+      style={{ left: at.left, top: at.bottom + 6, width: 180 }}
+      onPointerDown={stop}
+      // A portal's events still bubble through the React tree — without this,
+      // a pick would reach the chip's own onClick and reopen the menu.
+      onClick={stop}
+      onDoubleClick={stop}
+    >
+      <div role="menu" aria-label="Page reference" className="nt-menu nt-chip-menu">
+        <button
+          role="menuitem"
+          className="nt-menu-item"
+          onClick={() => {
+            onClose();
+            onGo();
+          }}
+        >
+          Go to page
+        </button>
+        <button
+          role="menuitem"
+          className="nt-menu-item"
+          onClick={() => {
+            onClose();
+            onEdit();
+          }}
+        >
+          Edit text
+        </button>
+      </div>
+    </div>,
+    document.body,
   );
 }
 

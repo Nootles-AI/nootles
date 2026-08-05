@@ -145,7 +145,12 @@ export const ShapeView = memo(function ShapeView({
           onEnd={(label) => onEditEnd?.(node.id, label)}
         />
       ) : hasText(node) ? (
-        <LabelContent label={node.label} />
+        <LabelContent
+          label={node.label}
+          onEdit={
+            !node.locked && onEditStart ? () => onEditStart(node.id) : undefined
+          }
+        />
       ) : null}
       {isGroup(node)
         ? node.children.map((child) => (
