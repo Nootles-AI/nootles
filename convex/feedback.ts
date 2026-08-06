@@ -3,6 +3,7 @@ import { feedbackCategory } from "./schema";
 import { v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
 import { ownerId as currentOwner, requireOwned, requireOwner } from "./auth";
+import { next as nextCounter, TICKET } from "./counters";
 
 /**
  * In-app "report issue / suggest feature" submissions. The operator inbox is
@@ -46,6 +47,7 @@ export const submit = mutation({
     if (args.pageId) await requireOwned(ctx, "pages", args.pageId);
     if (args.projectId) await requireOwned(ctx, "projects", args.projectId);
     return await ctx.db.insert("feedback", {
+      number: await nextCounter(ctx, TICKET),
       ownerId,
       ...args,
       ...(email ? { email } : {}),

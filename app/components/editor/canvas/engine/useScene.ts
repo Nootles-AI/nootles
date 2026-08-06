@@ -7,6 +7,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
+import { isApplyingAi, pushHumanOp } from "@/app/lib/debugRing";
 import { track } from "@/app/lib/telemetry";
 import { migrateLegacyCanvas } from "../scene/migrate";
 import { applyOps } from "../scene/ops";
@@ -101,6 +102,8 @@ export class SceneStore {
   /** Nesting depth of `begin`/`commit`; > 0 means a gesture is in progress. */
   private depth = 0;
   private gestureBefore: Scene | null = null;
+  /** Ops applied since `begin`, flushed to the debug ring as one entry. */
+  private gestureOps: SceneOp[] = [];
   private gestureSelection: RestoreSelection | null = null;
 
   private selection: SelectionHistory | null = null;
@@ -180,6 +183,7 @@ export class SceneStore {
     const next = applyOps(before, ops);
     if (next === before) return;
     if (this.depth === 0) this.record(before, this.captureSelection());
+    this.recordOps(ops);
     this.future = [];
     this.setScene(next, true);
     for (const o of ops) {
@@ -202,6 +206,24 @@ export class SceneStore {
     this.depth += 1;
   };
 
+  /**
+   * Log ops for a bug report, at the granularity of one thing the user did.
+   *
+   * Inside a gesture they are buffered and flushed at `commit`, the same way
+   * history brackets an interaction — a slider dragged across a range is one
+   * entry, not eighty. Ops the AI applied are already logged by `applyBatch`,
+   * so they are skipped here rather than counted twice. (A scene arriving from
+   * another tab needs no guard: `adopt` writes through `setScene`, never here.)
+   */
+  private recordOps(ops: readonly SceneOp[]): void {
+    if (isApplyingAi()) return;
+    if (this.depth > 0) {
+      this.gestureOps.push(...ops);
+      return;
+    }
+    for (const op of ops) pushHumanOp(op);
+  }
+
   commit = (): void => {
     if (this.depth === 0) return;
     this.depth -= 1;
@@ -212,6 +234,16 @@ export class SceneStore {
     this.gestureBefore = null;
     this.gestureSelection = null;
     if (before && before !== this.scene) this.record(before, selection);
+
+    if (this.gestureOps.length) {
+      // The gesture's ops describe one action; the first is what names it.
+      pushHumanOp(
+        this.gestureOps.length === 1
+          ? this.gestureOps[0]
+          : { gesture: this.gestureOps[0].type, ops: this.gestureOps.length },
+      );
+      this.gestureOps = [];
+    }
 
     const source = this.pendingSource;
     if (source !== null) {

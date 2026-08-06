@@ -15,7 +15,7 @@ import type {
   Position,
 } from "@/convex/ai/operations";
 import type { AnyBlock } from "./projection";
-import { pushOp } from "@/app/lib/debugRing";
+import { duringAiApply, pushAiOp, type OpFeature } from "@/app/lib/debugRing";
 
 /**
  * The applier: turns a validated op batch into the EXACT same BlockNote editor
@@ -177,8 +177,24 @@ export function caretTarget(result: ApplyResult): string | undefined {
   return lastProduced(result, holdsWords) ?? lastProduced(result, holdsText);
 }
 
-export function applyBatch(editor: Editor, batch: Batch): ApplyResult {
-  for (const op of batch.ops) pushOp(op);
+/**
+ * Apply a batch, recording it as the AI's work.
+ *
+ * The inner call runs inside {@link duringAiApply} so the editor's transaction
+ * listener — which logs what a person types — recognises these edits as already
+ * accounted for and stays quiet. `feature` is the `aiCalls` name of whatever
+ * asked, so a report's op timeline can be lined up against the cost ledger.
+ */
+export function applyBatch(
+  editor: Editor,
+  batch: Batch,
+  feature?: OpFeature,
+): ApplyResult {
+  for (const op of batch.ops) pushAiOp(op, feature);
+  return duringAiApply(() => applyBatchInner(editor, batch));
+}
+
+function applyBatchInner(editor: Editor, batch: Batch): ApplyResult {
   const blockIds = new Map<string, string>();
   const shapeIds = new Map<string, string>();
   const edgeIds = new Map<string, string>();

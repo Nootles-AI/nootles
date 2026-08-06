@@ -606,7 +606,7 @@ export class ReviewSession {
     const result = asReview(() =>
       editor.transact((tr) => {
         tr.setMeta("addToHistory", false);
-        return applyBatch(editor, batch);
+        return applyBatch(editor, batch, "chat");
       }),
     );
 
