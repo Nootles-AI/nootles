@@ -62,6 +62,11 @@ export default defineSchema({
    */
   profiles: defineTable({
     ownerId: v.string(),
+    /**
+     * Stamped from the verified Clerk identity once per session — never from
+     * the client — so the operator dashboard can put a name to an id.
+     */
+    email: v.optional(v.string()),
     /** Free text: the survey offers choices but accepts anything. */
     role: v.optional(v.string()),
     useCase: v.optional(v.string()),

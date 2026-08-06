@@ -425,6 +425,167 @@ export const userStats = query({
   },
 });
 
+/**
+ * Every account, with enough context to recognize a friend: email (stamped
+ * from the identity), survey answers, whether the founder letter was seen,
+ * and when they last generated any AI traffic.
+ */
+export const userList = query({
+  args: { token: v.string() },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx, args.token);
+    const profiles = await ctx.db.query("profiles").take(1000);
+    return await Promise.all(
+      profiles
+        .sort((a, b) => b.createdAt - a.createdAt)
+        .map(async (p) => {
+          const lastCall = await ctx.db
+            .query("aiCalls")
+            .withIndex("by_owner", (q) => q.eq("ownerId", p.ownerId))
+            .order("desc")
+            .first();
+          return {
+            ownerId: p.ownerId,
+            email: p.email ?? null,
+            role: p.role ?? null,
+            useCase: p.useCase ?? null,
+            status: p.status,
+            createdAt: p.createdAt,
+            letterSeen: (p.hints ?? []).includes("tester-note"),
+            lastActiveAt: lastCall?.createdAt ?? null,
+          };
+        }),
+    );
+  },
+});
+
+/**
+ * One user, watched closely: milestones (letter, tutorial), what the AI saw
+ * them accept, what their usage costs, what they made and reported.
+ */
+export const userDetail = query({
+  args: { token: v.string(), ownerId: v.string() },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx, args.token);
+    const profile = await ctx.db
+      .query("profiles")
+      .withIndex("by_owner", (q) => q.eq("ownerId", args.ownerId))
+      .unique();
+    if (!profile) return null;
+
+    const projects = await ctx.db
+      .query("projects")
+      .withIndex("by_owner", (q) => q.eq("ownerId", args.ownerId))
+      .take(200);
+    let pageCount = 0;
+    let tutorial: { edited: boolean; aiRows: number } | null = null;
+    for (const project of projects) {
+      const pages = await ctx.db
+        .query("pages")
+        .withIndex("by_project", (q) => q.eq("projectId", project._id))
+        .take(200);
+      pageCount += pages.length;
+      if (profile.seed?.projectId === project._id) {
+        let edited = false;
+        let aiRows = 0;
+        for (const page of pages) {
+          if (page.updatedAt !== undefined && page.updatedAt > page.createdAt + 60_000) {
+            edited = true;
+          }
+          const rows = await ctx.db
+            .query("suggestionLog")
+            .withIndex("by_page", (q) => q.eq("pageId", page._id))
+            .take(200);
+          aiRows += rows.length;
+        }
+        tutorial = { edited, aiRows };
+      }
+    }
+
+    const suggestions = await ctx.db
+      .query("suggestionLog")
+      .withIndex("by_owner", (q) => q.eq("ownerId", args.ownerId))
+      .order("desc")
+      .take(2000);
+    const kinds = new Map<string, { shown: number; accepted: number }>();
+    let firstAcceptedAt: number | null = null;
+    for (const s of suggestions) {
+      let k = kinds.get(s.kind);
+      if (!k) {
+        k = { shown: 0, accepted: 0 };
+        kinds.set(s.kind, k);
+      }
+      if (s.shown) k.shown += 1;
+      if (s.outcome === "accepted") {
+        k.accepted += 1;
+        if (firstAcceptedAt === null || s.createdAt < firstAcceptedAt) {
+          firstAcceptedAt = s.createdAt;
+        }
+      }
+    }
+
+    const calls = await ctx.db
+      .query("aiCalls")
+      .withIndex("by_owner", (q) => q.eq("ownerId", args.ownerId))
+      .order("desc")
+      .take(2000);
+    const features = new Map<string, { calls: number; costUsd: number }>();
+    for (const c of calls) {
+      let f = features.get(c.feature);
+      if (!f) {
+        f = { calls: 0, costUsd: 0 };
+        features.set(c.feature, f);
+      }
+      f.calls += 1;
+      f.costUsd += c.costUsd ?? 0;
+    }
+
+    const reports = await ctx.db
+      .query("feedback")
+      .withIndex("by_owner", (q) => q.eq("ownerId", args.ownerId))
+      .order("desc")
+      .take(100);
+
+    return {
+      profile: {
+        ownerId: profile.ownerId,
+        email: profile.email ?? null,
+        role: profile.role ?? null,
+        useCase: profile.useCase ?? null,
+        status: profile.status,
+        createdAt: profile.createdAt,
+        hints: profile.hints ?? [],
+        letterSeen: (profile.hints ?? []).includes("tester-note"),
+        hasSeed: !!profile.seed,
+      },
+      tutorial,
+      projects: projects.map((p) => ({
+        id: p._id,
+        title: p.title,
+        createdAt: p.createdAt,
+        shared: !!p.shareToken,
+      })),
+      pageCount,
+      suggestionKinds: [...kinds.entries()]
+        .map(([kind, k]) => ({ kind, ...k }))
+        .sort((a, b) => b.shown - a.shown),
+      suggestionsSampled: suggestions.length,
+      firstAcceptedAt,
+      features: [...features.entries()]
+        .map(([feature, f]) => ({ feature, ...f }))
+        .sort((a, b) => b.calls - a.calls),
+      lastActiveAt: calls[0]?.createdAt ?? null,
+      reports: reports.map((r) => ({
+        id: r._id,
+        kind: r.kind,
+        text: r.text.slice(0, 120),
+        status: r.status,
+        createdAt: r.createdAt,
+      })),
+    };
+  },
+});
+
 // ---- Chat + surveys ---------------------------------------------------------
 
 export const chatStats = query({

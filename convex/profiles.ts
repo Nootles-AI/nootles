@@ -23,6 +23,20 @@ export const get = query({
 });
 
 /**
+ * Keeps the profile's email current from the verified identity. Patch-only:
+ * a missing row is first run's signal, and this must never fake one.
+ */
+export const stampEmail = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const row = await mine(ctx);
+    if (!row) return;
+    const email = (await ctx.auth.getUserIdentity())?.email;
+    if (email && row.email !== email) await ctx.db.patch(row._id, { email });
+  },
+});
+
+/**
  * Writes the row if it is missing so every later call can assume one. Returns
  * it, because callers that just created it need the id.
  */
