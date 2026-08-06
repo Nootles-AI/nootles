@@ -369,6 +369,62 @@ export const aiCallRecent = query({
   },
 });
 
+// ---- Users ------------------------------------------------------------------
+
+/**
+ * Who is here, who just arrived, who actually used the thing. "Active" is
+ * derived from AI traffic (aiCalls + suggestionLog owners in range) — typing
+ * fires the completion lane, so any real editing session leaves tracks there.
+ */
+export const userStats = query({
+  args: { token: v.string(), sinceMs: v.number() },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx, args.token);
+
+    const profiles = await ctx.db.query("profiles").take(CAP);
+    const newUsers = profiles.filter((p) => p.createdAt >= args.sinceMs).length;
+    const roles = new Map<string, number>();
+    for (const p of profiles) {
+      const role = p.role?.trim() || "(not answered)";
+      roles.set(role, (roles.get(role) ?? 0) + 1);
+    }
+
+    const active = new Set<string>();
+    const calls = await ctx.db
+      .query("aiCalls")
+      .withIndex("by_creation_time", (q) => q.gte("_creationTime", args.sinceMs))
+      .take(CAP);
+    for (const c of calls) active.add(c.ownerId);
+    const suggestions = await ctx.db
+      .query("suggestionLog")
+      .withIndex("by_creation_time", (q) => q.gte("_creationTime", args.sinceMs))
+      .take(CAP);
+    for (const s of suggestions) active.add(s.ownerId);
+
+    const pages = await ctx.db
+      .query("pages")
+      .withIndex("by_creation_time", (q) => q.gte("_creationTime", args.sinceMs))
+      .take(CAP);
+    const reports = await ctx.db
+      .query("feedback")
+      .withIndex("by_creation_time", (q) => q.gte("_creationTime", args.sinceMs))
+      .take(CAP);
+
+    return {
+      totalUsers: profiles.length,
+      totalCapped: profiles.length === CAP,
+      newUsers,
+      activeUsers: active.size,
+      pagesCreated: pages.length,
+      reports: reports.length,
+      roles: [...roles.entries()]
+        .map(([role, count]) => ({ role, count }))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 12),
+    };
+  },
+});
+
 // ---- Chat + surveys ---------------------------------------------------------
 
 export const chatStats = query({
