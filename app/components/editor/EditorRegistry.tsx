@@ -11,10 +11,12 @@ import {
 } from "react";
 import type { BlockNoteEditor } from "@blocknote/core";
 import { getVersion } from "prosemirror-collab";
+import type { Transaction } from "prosemirror-state";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { AI } from "@/app/lib/ai/aiConfig";
+import { isApplyingAi, pushHumanOp } from "@/app/lib/debugRing";
 
 // The same loosely-typed handle the applier takes; see app/lib/ai/apply.ts.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -162,4 +164,64 @@ export function useRegisterEditor(
     registry.register(pageId, editor, loaded);
     return () => registry.unregister(pageId, editor);
   }, [registry, pageId, editor, loaded]);
+
+  useTypingLog(editor, pageId);
+}
+
+/** Consecutive edits to one block inside this window are one entry. */
+const TYPING_COALESCE_MS = 1500;
+
+/**
+ * Records what a person types into the debug ring, so a bug report carries the
+ * edits that led to it rather than only the AI's.
+ *
+ * Coalesced hard: a transaction fires per keystroke, and thirty entries of
+ * "typed a character" would push out everything worth reading — and writing per
+ * keystroke would break the O(1) typing budget the editor is held to. One entry
+ * per block per pause is the useful granularity.
+ *
+ * Three things are deliberately not logged: transactions that changed nothing
+ * (selection moves), the AI's own edits (already recorded by `applyBatch`, and
+ * flagged for the duration by `isApplyingAi`), and steps arriving from another
+ * tab, which prosemirror-collab appends rather than authoring locally.
+ */
+function useTypingLog(editor: LiveEditor | null, pageId: Id<"pages"> | undefined) {
+  useEffect(() => {
+    const tiptap = editor?._tiptapEditor;
+    if (!tiptap || !pageId) return;
+
+    let lastBlockId: string | null = null;
+    let lastAt = 0;
+
+    const onTransaction = ({ transaction }: { transaction: Transaction }) => {
+      if (!transaction.docChanged || isApplyingAi()) return;
+      // Remote steps are applied, not authored — collab marks them for rebasing.
+      if (transaction.getMeta("rebased") || transaction.getMeta("collab$")) return;
+
+      const blockId = blockIdAt(editor);
+      const now = Date.now();
+      if (blockId === lastBlockId && now - lastAt < TYPING_COALESCE_MS) {
+        lastAt = now;
+        return;
+      }
+      lastBlockId = blockId;
+      lastAt = now;
+      pushHumanOp({ kind: "edit", blockId, pageId });
+    };
+
+    tiptap.on("transaction", onTransaction);
+    return () => {
+      tiptap.off("transaction", onTransaction);
+    };
+  }, [editor, pageId]);
+}
+
+/** The block the caret is in, as far as BlockNote will say. */
+function blockIdAt(editor: LiveEditor | null): string | null {
+  try {
+    return editor?.getTextCursorPosition?.()?.block?.id ?? null;
+  } catch {
+    // No cursor (the edit came from somewhere without one) is not an error.
+    return null;
+  }
 }
