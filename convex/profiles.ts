@@ -31,8 +31,15 @@ export const stampEmail = mutation({
   handler: async (ctx) => {
     const row = await mine(ctx);
     if (!row) return;
-    const email = (await ctx.auth.getUserIdentity())?.email;
-    if (email && row.email !== email) await ctx.db.patch(row._id, { email });
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return;
+    const patch: { email?: string; name?: string; imageUrl?: string } = {};
+    if (identity.email && row.email !== identity.email) patch.email = identity.email;
+    if (identity.name && row.name !== identity.name) patch.name = identity.name;
+    if (identity.pictureUrl && row.imageUrl !== identity.pictureUrl) {
+      patch.imageUrl = identity.pictureUrl;
+    }
+    if (Object.keys(patch).length) await ctx.db.patch(row._id, patch);
   },
 });
 

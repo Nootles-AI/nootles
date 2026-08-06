@@ -447,6 +447,8 @@ export const userList = query({
           return {
             ownerId: p.ownerId,
             email: p.email ?? null,
+            name: p.name ?? null,
+            imageUrl: p.imageUrl ?? null,
             role: p.role ?? null,
             useCase: p.useCase ?? null,
             status: p.status,
@@ -550,6 +552,8 @@ export const userDetail = query({
       profile: {
         ownerId: profile.ownerId,
         email: profile.email ?? null,
+        name: profile.name ?? null,
+        imageUrl: profile.imageUrl ?? null,
         role: profile.role ?? null,
         useCase: profile.useCase ?? null,
         status: profile.status,
