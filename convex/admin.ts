@@ -1,7 +1,9 @@
 import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
+import type { Doc } from "./_generated/dataModel";
 import { mutation, query, type QueryCtx } from "./_generated/server";
-import { feedbackCategory } from "./schema";
+import { feedbackCategory, feedbackStatus } from "./schema";
+import { setDuplicate, setStatus } from "./tickets";
 
 /**
  * The operator's window: cross-tenant reads for the founder dashboard
@@ -80,13 +82,37 @@ export const validate = query({
 
 // ---- Feedback -------------------------------------------------------------
 
-const feedbackStatus = v.union(
-  v.literal("new"),
-  v.literal("seen"),
-  v.literal("in_progress"),
-  v.literal("done"),
-  v.literal("declined"),
-);
+/** The dashboard needs a URL where the row keeps a storage id. */
+async function withScreenshot(ctx: QueryCtx, row: Doc<"feedback">) {
+  return {
+    ...row,
+    screenshotUrl: row.screenshotStorageId
+      ? await ctx.storage.getUrl(row.screenshotStorageId)
+      : null,
+  };
+}
+
+/**
+ * A ticket as the detail page needs it: its screenshot, the pull requests that
+ * name it, and — when it repeats another — the name to send the reader to.
+ */
+async function withDetail(ctx: QueryCtx, row: Doc<"feedback">) {
+  const prs = await ctx.db
+    .query("ticketPrs")
+    .withIndex("by_ticket", (q) => q.eq("ticketId", row._id))
+    .take(20);
+  const parent = row.duplicateOf ? await ctx.db.get(row.duplicateOf) : null;
+  const duplicates = await ctx.db
+    .query("feedback")
+    .withIndex("by_duplicateOf", (q) => q.eq("duplicateOf", row._id))
+    .take(50);
+  return {
+    ...(await withScreenshot(ctx, row)),
+    prs: prs.sort((a, b) => b.firstSeenAt - a.firstSeenAt),
+    duplicateOfNumber: parent?.number ?? null,
+    duplicateNumbers: duplicates.map((d) => d.number).sort((a, b) => a - b),
+  };
+}
 
 export const feedbackList = query({
   args: {
@@ -94,6 +120,9 @@ export const feedbackList = query({
     paginationOpts: paginationOptsValidator,
     kind: v.optional(v.union(v.literal("issue"), v.literal("wish"))),
     status: v.optional(feedbackStatus),
+    /** Duplicates are hidden by default — triaging the same report twice is
+     *  the thing linking them was meant to stop. */
+    includeDuplicates: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     await requireAdmin(ctx, args.token);
@@ -105,17 +134,15 @@ export const feedbackList = query({
     const result = await base
       .order("desc")
       .filter((q) => (args.kind ? q.eq(q.field("kind"), args.kind) : true))
+      .filter((q) =>
+        args.includeDuplicates
+          ? true
+          : q.eq(q.field("duplicateOf"), undefined),
+      )
       .paginate(args.paginationOpts);
     return {
       ...result,
-      page: await Promise.all(
-        result.page.map(async (row) => ({
-          ...row,
-          screenshotUrl: row.screenshotStorageId
-            ? await ctx.storage.getUrl(row.screenshotStorageId)
-            : null,
-        })),
-      ),
+      page: await Promise.all(result.page.map((row) => withScreenshot(ctx, row))),
     };
   },
 });
@@ -138,13 +165,23 @@ export const feedbackGet = query({
   handler: async (ctx, args) => {
     await requireAdmin(ctx, args.token);
     const row = await ctx.db.get(args.id);
-    if (!row) return null;
-    return {
-      ...row,
-      screenshotUrl: row.screenshotStorageId
-        ? await ctx.storage.getUrl(row.screenshotStorageId)
-        : null,
-    };
+    return row ? await withDetail(ctx, row) : null;
+  },
+});
+
+/**
+ * The same ticket by its `NT-{number}` name — what the dashboard's own URLs and
+ * the PR poller both resolve, since neither has a Convex id to hand.
+ */
+export const feedbackByNumber = query({
+  args: { token: v.string(), number: v.number() },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx, args.token);
+    const row = await ctx.db
+      .query("feedback")
+      .withIndex("by_number", (q) => q.eq("number", args.number))
+      .unique();
+    return row ? await withDetail(ctx, row) : null;
   },
 });
 
@@ -152,7 +189,40 @@ export const feedbackSetStatus = mutation({
   args: { token: v.string(), id: v.id("feedback"), status: feedbackStatus },
   handler: async (ctx, args) => {
     await requireAdmin(ctx, args.token);
-    await ctx.db.patch(args.id, { status: args.status });
+    // Through the shared helper, so marking one report done answers everyone
+    // who filed the same one.
+    await setStatus(ctx, args.id, args.status);
+  },
+});
+
+/**
+ * Mark a ticket as repeating another, or clear it with a null target. The
+ * chain-collapsing and self-reference rules live in `tickets.ts`.
+ */
+export const feedbackSetDuplicate = mutation({
+  args: {
+    token: v.string(),
+    id: v.id("feedback"),
+    duplicateOf: v.union(v.id("feedback"), v.null()),
+  },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx, args.token);
+    await setDuplicate(ctx, args.id, args.duplicateOf, "human");
+  },
+});
+
+/**
+ * Keep a ticket away from the agent, or let it back in.
+ *
+ * The flag is only half of it — `triageQueue` and `implementQueue` filter on it
+ * so a skipped ticket is never handed out in the first place. That is what
+ * makes this a boundary rather than an instruction the agent could drift past.
+ */
+export const feedbackSetAgentSkip = mutation({
+  args: { token: v.string(), id: v.id("feedback"), skip: v.boolean() },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx, args.token);
+    await ctx.db.patch(args.id, { agentSkip: args.skip || undefined });
   },
 });
 
@@ -581,6 +651,7 @@ export const userDetail = query({
       lastActiveAt: calls[0]?.createdAt ?? null,
       reports: reports.map((r) => ({
         id: r._id,
+        number: r.number,
         kind: r.kind,
         text: r.text.slice(0, 120),
         status: r.status,
@@ -619,5 +690,271 @@ export const surveyList = query({
   handler: async (ctx, args) => {
     await requireAdmin(ctx, args.token);
     return await ctx.db.query("surveyResponses").order("desc").take(200);
+  },
+});
+
+// ---- The agent's queues ----------------------------------------------------
+
+/**
+ * Everything the nightly agent may do is decided here, in what these queries
+ * return — not in the instructions it is given.
+ *
+ * The agent holds the same admin token the dashboard does, so a rule kept in a
+ * prompt is a rule it could drift past. A rule kept in a `WHERE` clause is one
+ * it never sees the rows for. That is the whole design: `agentSkip`, the
+ * cooling window, duplicates and the kill switch are all filters here.
+ */
+
+/** Defaults for a deployment where nobody has written the config row yet. */
+const DEFAULT_CONFIG = {
+  agentEnabled: false,
+  implementEnabled: false,
+  maxPerRun: 5,
+  coolingHours: 12,
+  scoreThreshold: 70,
+};
+
+async function config(ctx: QueryCtx) {
+  const row = await ctx.db.query("opsConfig").unique();
+  return row ?? DEFAULT_CONFIG;
+}
+
+/** How many tickets a queue will scan. Bounded, per the query guidelines. */
+const QUEUE_SCAN = 500;
+
+export const opsConfigGet = query({
+  args: { token: v.string() },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx, args.token);
+    const row = await ctx.db.query("opsConfig").unique();
+    return { ...(row ?? DEFAULT_CONFIG), configured: row !== null };
+  },
+});
+
+export const opsConfigSet = mutation({
+  args: {
+    token: v.string(),
+    agentEnabled: v.boolean(),
+    implementEnabled: v.boolean(),
+    maxPerRun: v.number(),
+    coolingHours: v.number(),
+    scoreThreshold: v.number(),
+  },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx, args.token);
+    const { token: _token, ...values } = args;
+    const row = await ctx.db.query("opsConfig").unique();
+    if (row) await ctx.db.patch(row._id, values);
+    else await ctx.db.insert("opsConfig", values);
+  },
+});
+
+/**
+ * Tickets worth reading tonight.
+ *
+ * `now` is an argument rather than `Date.now()`: a query must not read the wall
+ * clock — it would not re-run as time passed, and the cached result would go
+ * quietly stale. The caller supplies its own clock, the same way `aiCallStats`
+ * takes `sinceMs`.
+ */
+export const triageQueue = query({
+  args: { token: v.string(), now: v.number() },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx, args.token);
+    const cfg = await config(ctx);
+    if (!cfg.agentEnabled) return { enabled: false, tickets: [] };
+
+    const cutoff = args.now - cfg.coolingHours * 60 * 60 * 1000;
+    const rows = await ctx.db
+      .query("feedback")
+      .order("desc")
+      .filter((q) =>
+        q.and(
+          // Never handed out: the operator said hands off.
+          q.eq(q.field("agentSkip"), undefined),
+          // A duplicate is answered by the ticket it points at.
+          q.eq(q.field("duplicateOf"), undefined),
+          // Scored already; re-reading it would only re-score it.
+          q.eq(q.field("triagedAt"), undefined),
+          // Young enough that nobody has had a chance to look yet.
+          q.lte(q.field("createdAt"), cutoff),
+        ),
+      )
+      .take(QUEUE_SCAN);
+
+    return {
+      enabled: true,
+      tickets: await Promise.all(
+        rows.slice(0, cfg.maxPerRun).map((row) => withDetail(ctx, row)),
+      ),
+    };
+  },
+});
+
+/**
+ * Tickets concrete enough to attempt, and not attempted before. Everything
+ * `triageQueue` excludes is excluded here too.
+ */
+export const implementQueue = query({
+  args: { token: v.string(), now: v.number() },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx, args.token);
+    const cfg = await config(ctx);
+    if (!cfg.agentEnabled || !cfg.implementEnabled) {
+      return { enabled: false, tickets: [] };
+    }
+
+    const rows = await ctx.db
+      .query("feedback")
+      .order("desc")
+      .filter((q) =>
+        q.and(
+          q.eq(q.field("agentSkip"), undefined),
+          q.eq(q.field("duplicateOf"), undefined),
+          // Tried once already — success or failure, it is not tonight's work.
+          q.eq(q.field("agentAttemptedAt"), undefined),
+          q.gte(q.field("triageScore"), cfg.scoreThreshold),
+          q.neq(q.field("status"), "done"),
+          q.neq(q.field("status"), "declined"),
+          q.neq(q.field("status"), "pr_filed"),
+        ),
+      )
+      .take(QUEUE_SCAN);
+
+    const ranked = rows.sort(
+      (a, b) => (b.triageScore ?? 0) - (a.triageScore ?? 0),
+    );
+    return {
+      enabled: true,
+      tickets: await Promise.all(
+        ranked.slice(0, cfg.maxPerRun).map((row) => withDetail(ctx, row)),
+      ),
+    };
+  },
+});
+
+/** What the agent concluded about a ticket. */
+export const feedbackSetTriage = mutation({
+  args: {
+    token: v.string(),
+    id: v.id("feedback"),
+    score: v.number(),
+    notes: v.string(),
+    rubricVersion: v.string(),
+    runId: v.optional(v.id("agentRuns")),
+    now: v.number(),
+  },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx, args.token);
+    await ctx.db.patch(args.id, {
+      triageScore: args.score,
+      triageNotes: args.notes,
+      rubricVersion: args.rubricVersion,
+      triagedAt: args.now,
+      ...(args.runId ? { triageRunId: args.runId } : {}),
+    });
+  },
+});
+
+/** That the agent tried — which is what stops it trying again tomorrow. */
+export const feedbackRecordAgentAttempt = mutation({
+  args: {
+    token: v.string(),
+    id: v.id("feedback"),
+    outcome: v.union(
+      v.literal("filed"),
+      v.literal("failed"),
+      v.literal("declined"),
+    ),
+    runId: v.optional(v.id("agentRuns")),
+    now: v.number(),
+  },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx, args.token);
+    await ctx.db.patch(args.id, {
+      agentAttemptedAt: args.now,
+      agentOutcome: args.outcome,
+      ...(args.runId ? { agentRunId: args.runId } : {}),
+    });
+  },
+});
+
+/** The agent's own duplicate call, kept distinguishable from the operator's. */
+export const feedbackSetDuplicateByAgent = mutation({
+  args: {
+    token: v.string(),
+    id: v.id("feedback"),
+    duplicateOf: v.id("feedback"),
+  },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx, args.token);
+    await setDuplicate(ctx, args.id, args.duplicateOf, "agent");
+  },
+});
+
+// ---- The run ledger --------------------------------------------------------
+
+export const runStart = mutation({
+  args: {
+    token: v.string(),
+    kind: v.union(v.literal("triage"), v.literal("implement")),
+    now: v.number(),
+  },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx, args.token);
+    return await ctx.db.insert("agentRuns", {
+      kind: args.kind,
+      startedAt: args.now,
+      status: "running",
+      ticketsRead: 0,
+      duplicatesLinked: 0,
+      scored: 0,
+      prsFiled: 0,
+      errors: [],
+    });
+  },
+});
+
+/** Errors are capped: a run that fails a hundred ways says so in ten. */
+const MAX_ERRORS = 10;
+
+export const runFinish = mutation({
+  args: {
+    token: v.string(),
+    id: v.id("agentRuns"),
+    status: v.union(v.literal("ok"), v.literal("failed")),
+    ticketsRead: v.number(),
+    duplicatesLinked: v.number(),
+    scored: v.number(),
+    prsFiled: v.number(),
+    errors: v.array(v.string()),
+    notes: v.optional(v.string()),
+    now: v.number(),
+  },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx, args.token);
+    await ctx.db.patch(args.id, {
+      status: args.status,
+      finishedAt: args.now,
+      ticketsRead: args.ticketsRead,
+      duplicatesLinked: args.duplicatesLinked,
+      scored: args.scored,
+      prsFiled: args.prsFiled,
+      errors: args.errors.slice(0, MAX_ERRORS).map((e) => e.slice(0, 500)),
+      ...(args.notes ? { notes: args.notes.slice(0, 2000) } : {}),
+    });
+  },
+});
+
+/** The morning's read: what ran, what it touched, and what broke. */
+export const runList = query({
+  args: { token: v.string(), limit: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx, args.token);
+    return await ctx.db
+      .query("agentRuns")
+      .withIndex("by_startedAt")
+      .order("desc")
+      .take(Math.min(args.limit ?? 20, 100));
   },
 });
