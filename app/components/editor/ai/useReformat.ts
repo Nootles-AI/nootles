@@ -163,7 +163,7 @@ export function useReformat(
         logOutcome("failed");
         return warnRejected("reformat", resolved);
       }
-      const result = applyBatch(editor, resolved.batch);
+      const result = applyBatch(editor, resolved.batch, "reformat");
       logOutcome("accepted", {
         suggestionText: candidate.html,
         acceptedText: candidate.html,

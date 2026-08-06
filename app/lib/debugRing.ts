@@ -9,12 +9,36 @@ import * as Sentry from "@sentry/nextjs";
 
 type ConsoleEntry = { level: "log" | "warn" | "error"; message: string; at: number };
 
+/** Which feature produced an AI op — the `aiCalls` vocabulary, so a ticket can
+ *  be lined up against the cost ledger. */
+export type OpFeature = "fim" | "reformat" | "diagram" | "chat";
+
+export type OpEntry = {
+  source: "human" | "ai";
+  feature?: OpFeature;
+  op: unknown;
+  at: number;
+};
+
 const CONSOLE_MAX = 100;
-const OPS_MAX = 30;
 const MESSAGE_CAP = 500;
 
+/**
+ * Human and AI ops are kept in separate rings, and merged only when dumped.
+ *
+ * One shared ring would be the obvious thing and the wrong one: a person types
+ * far more ops than the AI does, so a burst of editing would evict exactly the
+ * AI ops that explain the bug being reported. Separate capacities mean neither
+ * can crowd the other out, and merging by timestamp at the end keeps the
+ * interleaving — "the AI wrote this, then I typed over it" — which is usually
+ * the whole story.
+ */
+const AI_MAX = 30;
+const HUMAN_MAX = 50;
+
 const consoleRing: ConsoleEntry[] = [];
-const opsRing: unknown[] = [];
+const aiRing: OpEntry[] = [];
+const humanRing: OpEntry[] = [];
 
 function asMessage(args: unknown[]): string {
   return args
@@ -47,14 +71,16 @@ export function installConsoleTap() {
   }
 }
 
-/** Every applied op batch passes through here — text, canvas, human or AI. */
-export function pushOp(op: unknown) {
-  opsRing.push(op);
-  if (opsRing.length > OPS_MAX) opsRing.shift();
+function push(ring: OpEntry[], max: number, entry: OpEntry) {
+  ring.push(entry);
+  if (ring.length > max) ring.shift();
   try {
     Sentry.addBreadcrumb({
-      category: "ops",
-      message: typeof op === "object" && op !== null ? JSON.stringify(op).slice(0, 300) : String(op),
+      category: entry.source === "ai" ? "ops.ai" : "ops.human",
+      message:
+        typeof entry.op === "object" && entry.op !== null
+          ? JSON.stringify(entry.op).slice(0, 300)
+          : String(entry.op),
       level: "info",
     });
   } catch {
@@ -62,6 +88,50 @@ export function pushOp(op: unknown) {
   }
 }
 
-export function dump(): { console: ConsoleEntry[]; ops: unknown[] } {
-  return { console: [...consoleRing], ops: [...opsRing] };
+/** Every op the AI applies, from whichever feature asked for it. */
+export function pushAiOp(op: unknown, feature?: OpFeature) {
+  push(aiRing, AI_MAX, {
+    source: "ai",
+    ...(feature ? { feature } : {}),
+    op,
+    at: Date.now(),
+  });
+}
+
+/**
+ * Every op a person applies. Callers are expected to have coalesced already —
+ * one entry per undoable action, not one per keystroke.
+ */
+export function pushHumanOp(op: unknown) {
+  push(humanRing, HUMAN_MAX, { source: "human", op, at: Date.now() });
+}
+
+/**
+ * True while an AI batch is being applied, so the editor's own transaction
+ * listener doesn't log the AI's work a second time as the user's.
+ *
+ * A flag rather than transaction metadata because `applyBatch` is synchronous:
+ * nothing else can run between setting and clearing it.
+ */
+let applyingAi = false;
+
+export function duringAiApply<T>(run: () => T): T {
+  const was = applyingAi;
+  applyingAi = true;
+  try {
+    return run();
+  } finally {
+    applyingAi = was;
+  }
+}
+
+export function isApplyingAi(): boolean {
+  return applyingAi;
+}
+
+export function dump(): { console: ConsoleEntry[]; ops: OpEntry[] } {
+  return {
+    console: [...consoleRing],
+    ops: [...aiRing, ...humanRing].sort((a, b) => a.at - b.at),
+  };
 }

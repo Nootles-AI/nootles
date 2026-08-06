@@ -34,6 +34,23 @@ export const feedbackCategory = v.union(
   v.literal("general"),
 );
 
+/**
+ * Where a ticket stands: new → seen (auto, on first open) → in_progress →
+ * pr_filed → done; declined ends a wish that won't be built.
+ *
+ * `pr_filed` is set by the PR poller whenever a pull request names the ticket,
+ * whoever wrote it — provenance lives on the `ticketPrs` row, not here, so this
+ * ladder stays about the ticket rather than about who did the work.
+ */
+export const feedbackStatus = v.union(
+  v.literal("new"),
+  v.literal("seen"),
+  v.literal("in_progress"),
+  v.literal("pr_filed"),
+  v.literal("done"),
+  v.literal("declined"),
+);
+
 export default defineSchema({
   projects: defineTable({
     ownerId: v.string(),
@@ -307,6 +324,13 @@ export default defineSchema({
 
   /** In-app "report issue / suggest feature" submissions, with their context. */
   feedback: defineTable({
+    /**
+     * The ticket's human name, `NT-{number}` — short enough to type into a PR
+     * title, which is the whole point: that title is how a PR finds its way
+     * back to the ticket it fixes. Allocated from the `counters` row at submit,
+     * and backfilled onto the rows that predate it (`migrations.numberTickets`).
+     */
+    number: v.number(),
     ownerId: v.string(),
     kind: v.union(v.literal("issue"), v.literal("wish")),
     text: v.string(),
@@ -321,15 +345,7 @@ export default defineSchema({
       ua: v.string(),
       viewport: v.string(),
     }),
-    /** new → seen (auto, on first open) → in_progress → done; declined ends
-     *  a wish that won't be built. */
-    status: v.union(
-      v.literal("new"),
-      v.literal("seen"),
-      v.literal("in_progress"),
-      v.literal("done"),
-      v.literal("declined"),
-    ),
+    status: feedbackStatus,
     /** Triage weight, Linear's ladder. Absent = no priority. */
     priority: v.optional(
       v.union(
@@ -346,10 +362,133 @@ export default defineSchema({
      * never from the client — so a ticket can be answered, not just read.
      */
     email: v.optional(v.string()),
+
+    // ---- Triage ------------------------------------------------------------
+
+    /**
+     * The ticket this one repeats, always a ticket that is not itself a
+     * duplicate — `feedbackSetDuplicate` collapses chains at write time, so the
+     * pointer is one hop by construction.
+     *
+     * A link, never a merge: both reporters keep their row and their claim to
+     * having reported it.
+     */
+    duplicateOf: v.optional(v.id("feedback")),
+    duplicateSetBy: v.optional(
+      v.union(v.literal("agent"), v.literal("human")),
+    ),
+
+    /**
+     * Set by the operator to keep a ticket away from the agent entirely. The
+     * queue queries filter on it, so a skipped ticket is never handed out —
+     * this is a boundary, not a request the agent is trusted to honour.
+     */
+    agentSkip: v.optional(v.boolean()),
+
+    /** 0–100: how *concrete* the report is, not how easy it'd be to build. */
+    triageScore: v.optional(v.number()),
+    triageNotes: v.optional(v.string()),
+    triagedAt: v.optional(v.number()),
+    triageRunId: v.optional(v.id("agentRuns")),
+    /** Which rubric produced the score, so old scores stay comparable. */
+    rubricVersion: v.optional(v.string()),
+
+    /**
+     * What happened the last time the agent tried to implement this. Without
+     * it a ticket that fails is retried every night, forever.
+     */
+    agentAttemptedAt: v.optional(v.number()),
+    agentOutcome: v.optional(
+      v.union(v.literal("filed"), v.literal("failed"), v.literal("declined")),
+    ),
+    agentRunId: v.optional(v.id("agentRuns")),
+
     createdAt: v.number(),
   })
     .index("by_status", ["status", "createdAt"])
-    .index("by_owner", ["ownerId", "createdAt"]),
+    .index("by_owner", ["ownerId", "createdAt"])
+    .index("by_number", ["number"])
+    .index("by_duplicateOf", ["duplicateOf"]),
+
+  /**
+   * Pull requests that name a ticket, found by the poller in `prs.ts`.
+   *
+   * Its own table rather than an array on the ticket: a document's array is
+   * rewritten whole on every update and grows unbounded, where an upsert keyed
+   * by `by_repo_and_prNumber` touches one row — which matters when the poller
+   * re-sees every open PR every fifteen minutes.
+   */
+  ticketPrs: defineTable({
+    ticketId: v.id("feedback"),
+    repo: v.string(),
+    prNumber: v.number(),
+    title: v.string(),
+    url: v.string(),
+    state: v.union(
+      v.literal("open"),
+      v.literal("closed"),
+      v.literal("merged"),
+    ),
+    mergedAt: v.optional(v.number()),
+    /** Whether the agent opened it. Provenance is per-PR: a ticket can carry
+     *  one of each. */
+    agentFiled: v.boolean(),
+    firstSeenAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_ticket", ["ticketId"])
+    .index("by_repo_and_prNumber", ["repo", "prNumber"]),
+
+  /**
+   * One row per agent run — what it read, what it changed, and what broke.
+   * The dashboard's Agent page is this table: without it a run that dies
+   * halfway looks exactly like a quiet night.
+   */
+  agentRuns: defineTable({
+    kind: v.union(v.literal("triage"), v.literal("implement")),
+    startedAt: v.number(),
+    finishedAt: v.optional(v.number()),
+    status: v.union(
+      v.literal("running"),
+      v.literal("ok"),
+      v.literal("failed"),
+    ),
+    ticketsRead: v.number(),
+    duplicatesLinked: v.number(),
+    scored: v.number(),
+    prsFiled: v.number(),
+    /** Capped by the writer; a run that fails a hundred ways says so in ten. */
+    errors: v.array(v.string()),
+    notes: v.optional(v.string()),
+  }).index("by_startedAt", ["startedAt"]),
+
+  /**
+   * The agent's knobs, as one row. They live in the database — visible and
+   * changeable from the dashboard — rather than inside a prompt, because the
+   * queue queries read them and the queue is where the rules are enforced.
+   */
+  opsConfig: defineTable({
+    /** Master switch. Off means the queues return nothing at all. */
+    agentEnabled: v.boolean(),
+    /** Off means triage-only: score and dedupe, write no code. */
+    implementEnabled: v.boolean(),
+    maxPerRun: v.number(),
+    /** How long a ticket is left alone, so the operator gets first look. */
+    coolingHours: v.number(),
+    /** Minimum `triageScore` before a ticket is worth implementing. */
+    scoreThreshold: v.number(),
+  }),
+
+  /**
+   * Monotonic counters, one row per name. Convex has no sequence type and no
+   * count operator, so a number that must never repeat is read, incremented and
+   * written inside the same mutation — a transaction, so concurrent submits
+   * retry rather than collide.
+   */
+  counters: defineTable({
+    name: v.string(),
+    value: v.number(),
+  }).index("by_name", ["name"]),
 
   /**
    * Sessions for the operator dashboard (nootles-ops). Its login is a single

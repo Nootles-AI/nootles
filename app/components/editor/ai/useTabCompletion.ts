@@ -605,7 +605,7 @@ export function useTabCompletion(
     const applyNow = (batch: Batch) => {
       const s = shown;
       shown = null;
-      const result = applyBatch(editor, batch);
+      const result = applyBatch(editor, batch, "fim");
       const target = caretTarget(result);
       if (target) editor.setTextCursorPosition(target, "end");
       if (pageId) {
@@ -675,9 +675,11 @@ export function useTabCompletion(
      * one waiting to approve it.
      */
     const writeDiagram = (blockId: string, data: string) => {
-      applyBatch(editor, {
-        ops: [{ kind: "updateBlockProps", blockId, props: { data } }],
-      });
+      applyBatch(
+        editor,
+        { ops: [{ kind: "updateBlockProps", blockId, props: { data } }] },
+        "diagram",
+      );
     };
 
     const context = () => {

@@ -20,14 +20,19 @@ import type * as chat_attachments from "../chat/attachments.js";
 import type * as chat_messages from "../chat/messages.js";
 import type * as chat_threads from "../chat/threads.js";
 import type * as chat_turns from "../chat/turns.js";
+import type * as counters from "../counters.js";
+import type * as crons from "../crons.js";
 import type * as feedback from "../feedback.js";
+import type * as migrations from "../migrations.js";
 import type * as onboarding from "../onboarding.js";
 import type * as pages from "../pages.js";
 import type * as profiles from "../profiles.js";
 import type * as projects from "../projects.js";
 import type * as prosemirror from "../prosemirror.js";
+import type * as prs from "../prs.js";
 import type * as share from "../share.js";
 import type * as surveys from "../surveys.js";
+import type * as tickets from "../tickets.js";
 
 import type {
   ApiFromModules,
@@ -48,14 +53,19 @@ declare const fullApi: ApiFromModules<{
   "chat/messages": typeof chat_messages;
   "chat/threads": typeof chat_threads;
   "chat/turns": typeof chat_turns;
+  counters: typeof counters;
+  crons: typeof crons;
   feedback: typeof feedback;
+  migrations: typeof migrations;
   onboarding: typeof onboarding;
   pages: typeof pages;
   profiles: typeof profiles;
   projects: typeof projects;
   prosemirror: typeof prosemirror;
+  prs: typeof prs;
   share: typeof share;
   surveys: typeof surveys;
+  tickets: typeof tickets;
 }>;
 
 /**

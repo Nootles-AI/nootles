@@ -1,0 +1,23 @@
+name: check
+
+# The project's stated quality gates, enforced. There is no test suite, so this
+# is the whole automated bar — which is also why an agent-filed PR must clear it
+# before anyone reads it.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # convex/_generated is committed, so typechecking needs no deployment.
+      - run: npx tsc --noEmit
+      - run: npm run lint
