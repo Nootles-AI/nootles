@@ -168,8 +168,10 @@ export function FeedbackPanel({
             url = URL.createObjectURL(blob);
             setShot({ blob, url });
           }
-        } catch {
-          // No screenshot is fine; the report still carries its other context.
+        } catch (error) {
+          // No screenshot is fine — but the ticket should say why: this lands
+          // in the console ring, which submits with the report.
+          console.warn("[Nootles] screenshot capture failed", error);
         }
       })();
     }, 420);

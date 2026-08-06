@@ -14,7 +14,11 @@ const posthogKey = process.env.NEXT_PUBLIC_POSTHOG_KEY;
 if (posthogKey) {
   try {
     posthog.init(posthogKey, {
-      api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST ?? "https://us.i.posthog.com",
+      // First-party path, rewritten to PostHog by next.config — ad-blockers
+      // block the vendor domain, not ours. ui_host keeps dashboard links
+      // (like the replay URL on feedback tickets) pointing at the real app.
+      api_host: "/ingest",
+      ui_host: "https://us.posthog.com",
       defaults: "2025-05-24",
       capture_exceptions: false, // Sentry owns errors
       // Beta decision (disclosed at signup): unmasked replays, 100% sampling.

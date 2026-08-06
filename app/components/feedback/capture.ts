@@ -41,6 +41,11 @@ export async function captureViewport(): Promise<Blob | null> {
   try {
     return await toBlob(clone, {
       pixelRatio: 1,
+      // One unfetchable image (a storage URL mid-expiry, a blocked avatar)
+      // must not sink the whole capture: gray where it stood, keep the rest.
+      imagePlaceholder:
+        "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mM8fubkfwAImQOUCqbiZgAAAABJRU5ErkJggg==",
+      preferredFontFormat: "woff2",
       filter: (node) =>
         !(node instanceof HTMLElement && node.dataset.ntFeedback !== undefined),
     });
