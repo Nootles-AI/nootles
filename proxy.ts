@@ -9,6 +9,8 @@ import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
  * protected here as well as re-checking identity themselves.
  */
 const isPublic = createRouteMatcher([
+  // PostHog's proxied ingestion — beacons carry no Clerk session.
+  "/ingest(.*)",
   "/sign-in(.*)",
   "/sso-callback(.*)",
   // The door's candidate compositions, so they can be looked at the way a
