@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useUser } from "@clerk/nextjs";
-import { useQuery } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import posthog from "posthog-js";
 import * as Sentry from "@sentry/nextjs";
 import { api } from "@/convex/_generated/api";
@@ -14,6 +14,16 @@ import { api } from "@/convex/_generated/api";
 export function TelemetryProvider({ children }: { children: React.ReactNode }) {
   const { user } = useUser();
   const profile = useQuery(api.profiles.get, user ? {} : "skip");
+  const stampEmail = useMutation(api.profiles.stampEmail);
+  const stamped = useRef(false);
+
+  // Once the profile row exists, keep its email current — the ops dashboard
+  // reads it. Once per session; the mutation no-ops when nothing changed.
+  useEffect(() => {
+    if (stamped.current || !user || !profile) return;
+    stamped.current = true;
+    void stampEmail({}).catch(() => {});
+  }, [user, profile, stampEmail]);
 
   useEffect(() => {
     if (!user) return;
