@@ -15,31 +15,76 @@
  *   node scripts/triage.mjs apply <file>   # ← [{number, score, notes, duplicateOf?}]
  *   node scripts/triage.mjs finish [file]  # ← {status?, errors?, notes?}
  *
- * Needs CONVEX_URL, ADMIN_USER and ADMIN_PASSWORD. Locally:
- *
- *   export CONVEX_URL=$(grep NEXT_PUBLIC_CONVEX_URL .env.prod | cut -d= -f2)
- *   export ADMIN_USER=$(npx convex env get ADMIN_USER --prod)
- *   export ADMIN_PASSWORD=$(npx convex env get ADMIN_PASSWORD --prod)
+ * Credentials resolve in three steps, so a local run needs no setup at all and
+ * a scheduled one needs no Convex CLI: the environment first, then .env.prod
+ * for the deployment URL, then `npx convex env get` for the admin pair. Set
+ * CONVEX_URL, ADMIN_USER and ADMIN_PASSWORD to skip the fallbacks.
  */
 
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 const WORK = path.resolve(".triage");
 const STATE = path.join(WORK, "state.json");
 const SHOTS = path.join(WORK, "shots");
 
-const url = process.env.CONVEX_URL;
-const user = process.env.ADMIN_USER;
-const password = process.env.ADMIN_PASSWORD;
+/** A key out of .env.prod, which holds the deployment this dashboard reads. */
+function fromEnvFile(key) {
+  try {
+    const line = readFileSync(".env.prod", "utf8")
+      .split("\n")
+      .find((l) => l.startsWith(`${key}=`));
+    return line?.slice(key.length + 1).trim() || null;
+  } catch {
+    return null;
+  }
+}
 
-function need(name, value) {
-  if (!value) {
-    console.error(`triage: ${name} is not set — see the header of this file.`);
+/**
+ * A deployment env var, via the Convex CLI. Only reachable where someone has
+ * logged that CLI in — which is to say locally, never in a scheduled run.
+ */
+function fromConvexEnv(name) {
+  try {
+    return (
+      execFileSync("npx", ["convex", "env", "get", name, "--prod"], {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      })
+        .trim()
+        .split("\n")
+        .pop() || null
+    );
+  } catch {
+    return null;
+  }
+}
+
+let cached = null;
+function credentials() {
+  if (cached) return cached;
+  const url =
+    process.env.CONVEX_URL || fromEnvFile("NEXT_PUBLIC_CONVEX_URL");
+  const user = process.env.ADMIN_USER || fromConvexEnv("ADMIN_USER");
+  const password =
+    process.env.ADMIN_PASSWORD || fromConvexEnv("ADMIN_PASSWORD");
+
+  const missing = [
+    !url && "CONVEX_URL",
+    !user && "ADMIN_USER",
+    !password && "ADMIN_PASSWORD",
+  ].filter(Boolean);
+  if (missing.length) {
+    console.error(
+      `triage: could not resolve ${missing.join(", ")}. Set them in the ` +
+        `environment, or run from the nootles repo with the Convex CLI logged in.`,
+    );
     process.exit(2);
   }
-  return value;
+  cached = { url, user, password };
+  return cached;
 }
 
 /**
@@ -48,7 +93,7 @@ function need(name, value) {
  * drive them — no SDK, no deploy key.
  */
 async function call(kind, name, args) {
-  const res = await fetch(`${need("CONVEX_URL", url)}/api/${kind}`, {
+  const res = await fetch(`${credentials().url}/api/${kind}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ path: name, args, format: "json" }),
@@ -88,9 +133,10 @@ async function fetchShot(number, shotUrl) {
 }
 
 async function start() {
+  const { user, password } = credentials();
   const token = await mutation("admin:login", {
-    username: need("ADMIN_USER", user),
-    password: need("ADMIN_PASSWORD", password),
+    username: user,
+    password,
   });
 
   const now = Date.now();
@@ -230,7 +276,13 @@ async function finish(file) {
 const [command, arg] = process.argv.slice(2);
 try {
   if (command === "start") await start();
-  else if (command === "apply") await apply(need("a results file", arg));
+  else if (command === "apply") {
+    if (!arg) {
+      console.error("triage: apply needs a results file");
+      process.exit(2);
+    }
+    await apply(arg);
+  }
   else if (command === "finish") await finish(arg);
   else {
     console.error("usage: triage.mjs start | apply <file> | finish [file]");
