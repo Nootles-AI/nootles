@@ -49,3 +49,6 @@ next-env.d.ts
 
 # clerk configuration (can include secrets)
 /.clerk/
+
+# Working directory for the triage routine (session token, screenshots).
+.triage/

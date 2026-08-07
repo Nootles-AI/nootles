@@ -851,6 +851,36 @@ export const implementQueue = query({
   },
 });
 
+/**
+ * Every ticket in one cheap line each — what the agent reads to decide whether
+ * the ticket in front of it is one it has already seen.
+ *
+ * Deliberately lean: no screenshot URLs (one storage call apiece), no console
+ * logs, text clipped. Duplicate detection needs to recognise a report, not
+ * re-read it.
+ */
+export const ticketDigest = query({
+  args: { token: v.string(), limit: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx, args.token);
+    const rows = await ctx.db
+      .query("feedback")
+      .order("desc")
+      .take(Math.min(args.limit ?? 500, 1000));
+    return rows.map((r) => ({
+      number: r.number,
+      kind: r.kind,
+      category: r.category ?? "general",
+      status: r.status,
+      text: r.text.slice(0, 240),
+      /** Already points at another ticket; `setDuplicate` would redirect a
+       *  link here to its root anyway, but there is no reason to aim at one. */
+      isDuplicate: r.duplicateOf !== undefined,
+      createdAt: r.createdAt,
+    }));
+  },
+});
+
 /** What the agent concluded about a ticket. */
 export const feedbackSetTriage = mutation({
   args: {
@@ -870,6 +900,27 @@ export const feedbackSetTriage = mutation({
       rubricVersion: args.rubricVersion,
       triagedAt: args.now,
       ...(args.runId ? { triageRunId: args.runId } : {}),
+    });
+  },
+});
+
+/**
+ * Forget what the agent concluded, putting the ticket back in the queue.
+ *
+ * `triagedAt` is what keeps a ticket from being re-read every night, so
+ * clearing it is the only way to ask for a second opinion — after the rubric
+ * changes, or when a score is plainly wrong.
+ */
+export const feedbackClearTriage = mutation({
+  args: { token: v.string(), id: v.id("feedback") },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx, args.token);
+    await ctx.db.patch(args.id, {
+      triageScore: undefined,
+      triageNotes: undefined,
+      triagedAt: undefined,
+      triageRunId: undefined,
+      rubricVersion: undefined,
     });
   },
 });
