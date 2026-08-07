@@ -33,15 +33,32 @@ const TITLE = /^NT-(\d+)(?:_|$)/i;
 /** Enough to cover every PR either repo will have for a long time. */
 const PER_PAGE = 100;
 
+type PrState = "draft" | "open" | "closed" | "merged";
+
 type Seen = {
   repo: string;
   prNumber: number;
   ticketNumber: number;
   title: string;
   url: string;
-  state: "open" | "closed" | "merged";
+  state: PrState;
   mergedAt?: number;
 };
+
+/**
+ * GitHub's three fields flattened into one state. `merged_at` is the only
+ * reliable tell for a merge — a merged PR reports `state: "closed"` like any
+ * other — and `draft` is a flag on an otherwise open one.
+ */
+function stateOf(pull: {
+  state: string;
+  draft?: boolean;
+  merged_at: string | null;
+}): PrState {
+  if (pull.merged_at) return "merged";
+  if (pull.state !== "open") return "closed";
+  return pull.draft ? "draft" : "open";
+}
 
 export const poll = internalAction({
   args: {},
@@ -75,6 +92,7 @@ export const poll = internalAction({
         title: string;
         html_url: string;
         state: string;
+        draft?: boolean;
         merged_at: string | null;
       }[];
       for (const pull of pulls) {
@@ -86,12 +104,7 @@ export const poll = internalAction({
           ticketNumber: Number(match[1]),
           title: pull.title,
           url: pull.html_url,
-          // GitHub reports a merged PR as "closed"; `merged_at` is the tell.
-          state: pull.merged_at
-            ? "merged"
-            : pull.state === "open"
-              ? "open"
-              : "closed",
+          state: stateOf(pull),
           ...(pull.merged_at
             ? { mergedAt: Date.parse(pull.merged_at) }
             : {}),
@@ -115,6 +128,7 @@ export const commit = internalMutation({
         title: v.string(),
         url: v.string(),
         state: v.union(
+          v.literal("draft"),
           v.literal("open"),
           v.literal("closed"),
           v.literal("merged"),
@@ -190,14 +204,19 @@ export const commit = internalMutation({
 async function advance(
   ctx: MutationCtx,
   ticket: Doc<"feedback">,
-  state: "open" | "closed" | "merged",
+  state: PrState,
 ) {
   if (state === "merged") {
     if (ticket.status !== "done") await setStatus(ctx, ticket._id, "done");
     return;
   }
-  const settled = ticket.status === "done" || ticket.status === "declined";
-  if (state === "open" && !settled && ticket.status !== "pr_filed") {
-    await setStatus(ctx, ticket._id, "pr_filed");
-  }
+  // Settled by hand, or already past this PR — leave it alone.
+  if (ticket.status === "done" || ticket.status === "declined") return;
+
+  // A draft is work begun, not work offered: it says in progress, not filed.
+  const want = state === "draft" ? "in_progress" : state === "open" ? "pr_filed" : null;
+  if (want === null || ticket.status === want) return;
+  // Don't walk a ticket backwards when a PR is reopened as a draft.
+  if (want === "in_progress" && ticket.status === "pr_filed") return;
+  await setStatus(ctx, ticket._id, want);
 }

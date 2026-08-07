@@ -92,6 +92,9 @@ async function withScreenshot(ctx: QueryCtx, row: Doc<"feedback">) {
   };
 }
 
+/** How many linked PRs the inbox will group at once. Far past any real count. */
+const PR_SCAN = 1000;
+
 /**
  * A ticket as the detail page needs it: its screenshot, the pull requests that
  * name it, and — when it repeats another — the name to send the reader to.
@@ -140,9 +143,24 @@ export const feedbackList = query({
           : q.eq(q.field("duplicateOf"), undefined),
       )
       .paginate(args.paginationOpts);
+    // One scan of a small table, grouped in memory — a `by_ticket` lookup per
+    // row would be 200 index reads to render one screen.
+    const linked = await ctx.db.query("ticketPrs").take(PR_SCAN);
+    const byTicket = new Map<string, string[]>();
+    for (const pr of linked) {
+      const states = byTicket.get(pr.ticketId) ?? [];
+      states.push(pr.state);
+      byTicket.set(pr.ticketId, states);
+    }
+
     return {
       ...result,
-      page: await Promise.all(result.page.map((row) => withScreenshot(ctx, row))),
+      page: await Promise.all(
+        result.page.map(async (row) => ({
+          ...(await withScreenshot(ctx, row)),
+          prStates: byTicket.get(row._id) ?? [],
+        })),
+      ),
     };
   },
 });
