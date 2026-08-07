@@ -424,7 +424,10 @@ export default defineSchema({
     prNumber: v.number(),
     title: v.string(),
     url: v.string(),
+    /** GitHub reports draft separately from open, and merged as a closed PR
+     *  carrying `merged_at`; this flattens all four into one state. */
     state: v.union(
+      v.literal("draft"),
       v.literal("open"),
       v.literal("closed"),
       v.literal("merged"),
