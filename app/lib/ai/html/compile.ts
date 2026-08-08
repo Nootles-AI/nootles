@@ -1,3 +1,4 @@
+import { adoptScene } from "@/app/components/editor/canvas/scene/adopt";
 import { parseScene } from "@/app/components/editor/canvas/scene/parse";
 import { serializeScene } from "@/app/components/editor/canvas/scene/serialize";
 import type {
@@ -63,9 +64,15 @@ const MEDIA = new Set(["image", "video", "audio", "file"]);
  * own parser — so a comparison is between two diagrams rather than between two
  * ways of writing one, and so a model's markup lands normalized. The root id is
  * dropped: it is the block's, and the block already knows its own name.
+ *
+ * `adoptScene` runs here because this is the seam every AI-authored diagram
+ * crosses, from both lanes: the chat's `edit_page` and the completion lane's
+ * `compileWith` are the only two callers of `compileDocHtml`. It is also why
+ * the diff below is honest — both sides are adopted, so a path the model wrote
+ * with a loose box does not read as a change to a path already stored tight.
  */
 function canvasData(html: string): string {
-  return serializeScene({ ...parseScene(html), id: undefined });
+  return serializeScene({ ...adoptScene(parseScene(html)), id: undefined });
 }
 
 function propsOf(node: DocNode): Record<string, string | number | boolean> | undefined {

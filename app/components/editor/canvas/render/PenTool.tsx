@@ -41,13 +41,16 @@ import {
   hitTestPath,
   insertAnchor,
   parsePath,
-  pathBounds,
+  parseSubpaths,
   removeAnchor,
   serializePath,
+  serializeSubpaths,
   setAnchorKind,
   setHandle,
+  subpathsBounds,
   type Anchor,
 } from "../scene/path";
+import { DRAWN_INK, DRAWN_STROKE_WIDTH } from "./svgShape";
 import type { NodeId, PathNode, Point } from "../scene/types";
 
 /** Screen px. Constant at every zoom, because the overlay draws in viewport px. */
@@ -62,7 +65,9 @@ const CLOSE_RING = 6.5;
 const CLOSE_GLYPH = 4;
 const GLYPH_OFFSET = 11;
 
-const INK = "#1a1a1a";
+/** One ink for the tool's chrome, the line it draws, and the renderer's
+ *  fallback for a path nobody painted — so all three are the same black. */
+const INK = DRAWN_INK;
 const MUTED = "#9a9a9a";
 
 const ZERO: Point = { x: 0, y: 0 };
@@ -368,11 +373,28 @@ export function PenTool({
     const local = anchorsRef.current.map((a) =>
       mapAnchor(a, (p) => toLocal(p, frame)),
     );
-    const box = pathBounds({ anchors: local, closed: closedRef.current });
-    const shifted = local.map((a) => ({
+    /**
+     * The strokes this tool is not editing.
+     *
+     * A drawn shape is often several subpaths — a stick figure is a head and
+     * five lines — and the pen loads only the first, because an editable path is
+     * one anchor list. Serializing just that list would delete the rest of the
+     * drawing the moment a point was nudged, so they are carried through
+     * untouched.
+     *
+     * Re-read from the node here rather than held from mount: they are already
+     * in the node's local space, and reading them now means the space they are
+     * in is the same one `local` was just mapped into, whatever happened to the
+     * node's frame while the points were open.
+     */
+    const rest = parseSubpaths(node.d).slice(1);
+    const edited = { anchors: local, closed: closedRef.current };
+    const box = subpathsBounds([edited, ...rest]) ?? { x: 0, y: 0, w: 0, h: 0 };
+    const move = (a: Anchor): Anchor => ({
       ...a,
       point: { x: a.point.x - box.x, y: a.point.y - box.y },
-    }));
+    });
+    const shifted = local.map(move);
     // The box has moved within the node's own space; re-place it so the drawing
     // stays where it is — which under rotation is not a plain subtraction.
     const centre = toWorld(
@@ -382,7 +404,10 @@ export function PenTool({
     store.dispatch({
       type: "setPath",
       id,
-      d: serializePath(shifted, closedRef.current),
+      d: serializeSubpaths([
+        { anchors: shifted, closed: closedRef.current },
+        ...rest.map((p) => ({ ...p, anchors: p.anchors.map(move) })),
+      ]),
       frame: {
         x: centre.x - box.w / 2,
         y: centre.y - box.h / 2,
@@ -404,7 +429,11 @@ export function PenTool({
         w: 0,
         h: 0,
         rot: 0,
-        style: { fill: "none", stroke: INK, "stroke-width": "2" },
+        style: {
+          fill: "none",
+          stroke: INK,
+          "stroke-width": DRAWN_STROKE_WIDTH,
+        },
         label: "",
         locked: false,
         hidden: false,

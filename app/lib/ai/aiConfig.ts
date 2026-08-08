@@ -159,11 +159,14 @@ export const AI = {
   diagram: {
     model: "google/gemini-2.5-flash",
     /**
-     * A UI mockup is the long case — a window, a toolbar, a sidebar and a few
-     * rows of controls runs past a thousand tokens, and truncation loses the
-     * closing tags, which reads as "half the mockup is missing".
+     * A drawing is the long case, and by a wide margin. A mockup is a few dozen
+     * short elements; a storyboard is one `<nt-path>` per stroke, and a `d` with
+     * a dozen curves in it is 200 tokens on its own. Truncation loses the
+     * closing tags, which reads as "half the drawing is missing" — and the
+     * shapes that did arrive are kept, so the cost of being wrong here is a
+     * diagram that looks finished and is not.
      */
-    maxTokens: 2600,
+    maxTokens: 7000,
     /**
      * How much of the page the builder is shown, taken from just before the
      * caret. It needs the wording to label shapes with what the page actually

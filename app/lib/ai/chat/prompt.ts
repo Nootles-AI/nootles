@@ -43,6 +43,14 @@ are what place it:
   <nt-math-block><nt-math-line>a = 1</nt-math-line></nt-math-block>
   <nt-diagram w="600" h="200"><nt-rect id="s1" x="40" y="40" w="180" h="56">Step</nt-rect>
     <nt-rect id="s2" x="40" y="120" w="180" h="56">Next</nt-rect><nt-edge from="s1" to="s2"></nt-edge></nt-diagram>
+Inside a diagram, <nt-path> is the pen: d is ordinary SVG path data in the shape's own
+  coordinates near 0 0, with where it sits on x and y, and its paint in style as fill and
+  stroke — never background. w and h are measured from the path, so approximate ones are fine.
+  <nt-path id="p1" x="120" y="70" w="80" h="30" d="M 0 30 C 20 -10 60 -10 80 30 Z" style="fill: #dfe7d8"></nt-path>
+  Use it for what a rect, ellipse or polygon cannot be — a curve, a silhouette, a figure, an
+  icon, anything asked for as a drawing. One path per thing you can name, so each keeps its own
+  fill and its own row in the layers panel. Reach for the native shapes first: they carry labels
+  and take connectors, and a path imitating a box is worse in every way.
 Inline: <code>maxRetries</code>, <strong>bold</strong>, <em>italic</em>, <nt-math>x^2</nt-math>,
   <a href="https://example.com">a link</a> — and keep the ones already in a block you rewrite.
 References: <nt-ref page="pageId">Page title</nt-ref> renders as a chip — a small page glyph and

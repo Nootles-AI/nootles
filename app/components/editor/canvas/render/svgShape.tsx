@@ -57,6 +57,85 @@ const dropStroke = (prop: string) =>
   BOX_PAINT.test(prop) && !prop.startsWith("background");
 
 /**
+ * Paint the BOX would draw and a path has no use for.
+ *
+ * Deliberately not {@link BOX_PAINT}: that one also names `fill` and `stroke`,
+ * because on a polygon those are re-emitted as attributes on the `<path>` it
+ * builds. A path node has no such element to re-emit onto — it IS the path, and
+ * its `style` lands on the element directly — so dropping them there deletes
+ * the author's own paint and leaves SVG's default black fill behind.
+ */
+const BOX_ONLY_PAINT = /^(background|border|outline)(-|$)/;
+const dropBoxPaint = (prop: string) => BOX_ONLY_PAINT.test(prop);
+
+/**
+ * What an unpainted path wears: the same ink and weight the pen draws with, so
+ * a stroke a model forgot to specify and a stroke drawn by hand are one line.
+ */
+export const DRAWN_INK = "#1a1a1a";
+export const DRAWN_STROKE_WIDTH = "2";
+
+/**
+ * A path node's paint, and the box declarations it takes over.
+ *
+ * A path IS its geometry — there is no box behind it to fill — so `background`
+ * and `border` cannot mean what they mean on a rect. The pen tool writes SVG
+ * paint (`fill`, `stroke`, `stroke-width`) and this maps the box spellings onto
+ * it, so a model reaching for the property every other kind uses gets the shape
+ * painted rather than a coloured rectangle sitting behind its own drawing.
+ *
+ * Returned as style rather than as attributes on the `<path>` so the cascade
+ * still decides: these land on the `<svg>`, where SVG paint properties inherit
+ * down, and `fill-rule` or a `stroke-linejoin` the author wrote by hand is
+ * carried by the same route without this file having to name it.
+ */
+export function pathPaint(style: StyleMap): {
+  paint: CSSProperties;
+  drop: (prop: string) => boolean;
+} {
+  const { fill, attrs } = paintOf(style);
+  // Everything the author spelled in SVG — `fill`, `stroke`, `stroke-width`,
+  // `fill-rule`, anything else — reaches the element through `toCss`, which
+  // `dropBoxPaint` leaves alone. This function only fills in what is MISSING,
+  // so an authored declaration always wins and nothing here can overwrite it.
+  const saidFill = style.fill !== undefined;
+  const saidStroke = style.stroke !== undefined;
+  const paint: CSSProperties = {};
+
+  // `background` means the shape's fill and `border` its stroke — the one
+  // translation, so a model reaching for the property every other kind uses
+  // paints the drawing instead of a rectangle behind it.
+  if (!saidFill && fill !== null) paint.fill = fill;
+  if (!saidStroke && attrs.stroke) {
+    paint.stroke = attrs.stroke;
+    if (style["stroke-width"] === undefined && attrs.strokeWidth) {
+      paint.strokeWidth = attrs.strokeWidth;
+    }
+    if (style["stroke-dasharray"] === undefined && attrs.strokeDasharray) {
+      paint.strokeDasharray = attrs.strokeDasharray;
+    }
+  }
+
+  // What the element will actually be filled with, counting the translation.
+  const fillNow = saidFill ? style.fill.trim() : paint.fill;
+  const strokeNow = saidStroke || paint.stroke !== undefined;
+
+  // Nothing named a fill. SVG's default is opaque black, which turns an open
+  // line — the commonest thing anyone draws — into a filled silhouette of
+  // itself; every stroked path would arrive as a black blob. A shape meant to
+  // be black says so.
+  if (fillNow === undefined) paint.fill = "none";
+
+  // No fill and no stroke draws nothing at all, which is never what was meant —
+  // whether the author said `fill: none` and stopped, or said nothing whatever.
+  if (!strokeNow && (fillNow === undefined || fillNow === "none")) {
+    paint.stroke = DRAWN_INK;
+    if (style["stroke-width"] === undefined) paint.strokeWidth = DRAWN_STROKE_WIDTH;
+  }
+  return { paint, drop: dropBoxPaint };
+}
+
+/**
  * The SVG a kind needs, or `null` for the kinds the browser can draw from the
  * box — which is every other kind, and a plain ellipse, whose `border-radius`
  * is the whole of it.

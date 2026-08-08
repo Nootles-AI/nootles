@@ -12,6 +12,7 @@ import { AI } from "@/app/lib/ai/aiConfig";
 import { project, type AnyBlock } from "@/app/lib/ai/projection";
 import { resolveBatch, warnRejected } from "@/app/lib/ai/validate";
 import { applyBatch, caretTarget, type ApplyResult } from "@/app/lib/ai/apply";
+import { adoptScene } from "@/app/components/editor/canvas/scene/adopt";
 import { migrateLegacyCanvas } from "@/app/components/editor/canvas/scene/migrate";
 import { serializeScene } from "@/app/components/editor/canvas/scene/serialize";
 import {
@@ -60,12 +61,14 @@ const PREAMBLE = `<!-- Nootles document. Blocks: <p>, <h2>, <ul><li>, <ol><li>, 
 <nt-code-block lang="python">code</nt-code-block>,
 <nt-math-block><nt-math-line>a = 1</nt-math-line></nt-math-block>,
 Inline: <code>maxRetries</code>, <strong>bold</strong>, <em>italic</em>, <nt-math>x^2</nt-math>
-Anything drawn — diagram, mockup, chart, wireframe — is one element saying what it
-is for, with how it should look carried into the brief:
+Anything drawn — diagram, mockup, chart, wireframe, storyboard, illustration — is one
+element saying what it is for, with how it should look carried into the brief:
 <p>The deploy pipeline works like this:</p>
 <nt-build-diagram>a flowchart of the deploy pipeline</nt-build-diagram>
 <p>This is a mockup of an iPhone todo app. It's modern, sleek, in dark mode:</p>
-<nt-build-diagram>a mockup of a modern, sleek iPhone todo app, in dark mode</nt-build-diagram> -->
+<nt-build-diagram>a mockup of a modern, sleek iPhone todo app, in dark mode</nt-build-diagram>
+<p>Here's how the opening scene plays out:</p>
+<nt-build-diagram>a storyboard of the opening scene, four frames, drawn</nt-build-diagram> -->
 `;
 
 /**
@@ -761,9 +764,12 @@ export function useTabCompletion(
       // Whole shapes only: the tail of the stream is usually a tag cut
       // mid-attribute, and the scene parser drops it. Re-serialized so what is
       // placed is closed and canonical — spliced in unclosed, the rest of the
-      // document would parse as being inside the diagram.
+      // document would parse as being inside the diagram. Adopted for the same
+      // reason `canvasData` adopts: a path arrives with the box the model
+      // guessed, and the preview has to be drawn against the box the document
+      // will end up with, or accepting the diagram would move it.
       const soFar = (): string => {
-        const scene = migrateLegacyCanvas(out);
+        const scene = adoptScene(migrateLegacyCanvas(out));
         return scene.nodes.length ? serializeScene(scene) : "";
       };
 
@@ -814,11 +820,12 @@ export function useTabCompletion(
             continue;
           }
           // Drawn as the shapes arrive, so a two-second call reads as a diagram
-          // building itself. Half-arrived markup is malformed by definition —
-          // the last tag is usually cut mid-attribute — and the canvas parser
-          // ignores what has not closed, so what is drawn is always whole
-          // shapes. Tab does not queue: `onAccept` places what is there.
-          const preview = canvasPreview(out);
+          // building itself. From `soFar()` rather than from the raw stream, so
+          // the preview is the exact string `accept` would place: half-arrived
+          // markup is dropped and every path is already tightened onto its box,
+          // and a Tab pressed mid-stream lands what was on screen rather than
+          // something a rounding away from it.
+          const preview = canvasPreview(soFar());
           if (preview) {
             setAction(view(), {
               label: "Add diagram",
