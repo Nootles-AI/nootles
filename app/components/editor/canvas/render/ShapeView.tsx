@@ -27,7 +27,7 @@ import {
   type SceneNode,
   type StyleMap,
 } from "../scene/types";
-import { shapeOf, type Shape } from "./svgShape";
+import { pathPaint, shapeOf, type Shape } from "./svgShape";
 import "./shape.css";
 
 /**
@@ -93,6 +93,7 @@ export const ShapeView = memo(function ShapeView({
   const className = `nt-node nt-node-${node.kind}${editing ? " is-editing" : ""}`;
 
   if (node.kind === "path") {
+    const { paint, drop } = pathPaint(node.style);
     return (
       <svg
         data-id={node.id}
@@ -102,7 +103,7 @@ export const ShapeView = memo(function ShapeView({
         // curve loses its outer half and a mitred corner far more than that.
         // A zero-length axis is a straight line, and a zero-sized view box is
         // not rendered at all, so it takes a 1 to exist.
-        style={{ ...style, overflow: "visible" }}
+        style={{ ...boxStyle(node, flow, null, drop), ...paint, overflow: "visible" }}
         viewBox={`0 0 ${node.w || 1} ${node.h || 1}`}
         preserveAspectRatio="none"
       >
@@ -201,9 +202,11 @@ function boxStyle(
   node: SceneNode,
   flow: Flow | undefined,
   shape: Shape | null,
+  /** For the kinds that are their own geometry and have no `Shape` to ask. */
+  drop?: (prop: string) => boolean,
 ): CSSProperties {
   return {
-    ...toCss(node.style, shape ? shape.drop : undefined),
+    ...toCss(node.style, drop ?? (shape ? shape.drop : undefined)),
     ...(shape?.clip ? { clipPath: shape.clip } : null),
     ...labelInset(node),
     position: flow ? "relative" : "absolute",
