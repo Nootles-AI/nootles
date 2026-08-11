@@ -188,6 +188,14 @@ export const ShapeView = memo(function ShapeView({
  * so leaving `background` and `border` on the element would paint a rectangle
  * around the triangle. The one exception is a fill only CSS can draw, which
  * stays on the box and is clipped to the shape instead.
+ *
+ * The translation is 2D on purpose. `translate3d` asks for a composited layer,
+ * and a shape that owns one is rastered once and magnified from then on — it
+ * goes soft as soon as the viewport zooms past the scale it was drawn at, and
+ * only sharpens again when something happens to repaint it. A gesture still
+ * writes the 3D form while it is dragging the element (`engine/gestures`), so
+ * the promotion lasts exactly as long as the movement does — the same bargain
+ * `engine/useViewport` makes for the scene layer.
  */
 function boxStyle(
   node: SceneNode,
@@ -201,7 +209,7 @@ function boxStyle(
     position: flow ? "relative" : "absolute",
     transform: flow
       ? `rotate(${node.rot}deg)`
-      : `translate3d(${node.x}px, ${node.y}px, 0) rotate(${node.rot}deg)`,
+      : `translate(${node.x}px, ${node.y}px) rotate(${node.rot}deg)`,
     width: flow === "stretch-x" ? "auto" : `${node.w}px`,
     height: flow === "stretch-y" ? "auto" : `${node.h}px`,
     ...(flow ? { flex: "none" } : null),
