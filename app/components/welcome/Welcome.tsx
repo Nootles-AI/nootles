@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import { ABOUT } from "@/convex/ai/questions";
 import { Wordmark } from "@/app/components/Brand";
 import { PreviewBlocks } from "@/app/components/PagePreview";
 import { track } from "@/app/lib/telemetry";
@@ -540,9 +541,7 @@ function Question({
 
 /** The survey's answers, phrased as the Q&A the Context Sheet holds. */
 function sheet(template: Template, role: string) {
-  const entries = [
-    { question: "What is this project?", answer: template.description },
-  ];
+  const entries = [{ question: ABOUT, answer: template.description }];
   const said = role.trim();
   if (said) {
     entries.push({

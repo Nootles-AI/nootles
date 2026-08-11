@@ -8,6 +8,18 @@ import { z } from "zod";
  * rest, so this module has to stay loadable by both — nothing server-only,
  * nothing that reaches for the DOM.
  */
+/** Said once, because all three repo tools ask for the same two things. */
+const repoArg = z
+  .string()
+  .describe(
+    'A repository as "owner/name", exactly as the project\'s linked ' +
+      "repositories are named. Only those can be read.",
+  );
+const refArg = z
+  .string()
+  .optional()
+  .describe("A branch, tag or commit sha. The repository's default branch if left out.");
+
 export const TOOLS = {
   list_pages: {
     description:
@@ -67,6 +79,52 @@ export const TOOLS = {
     inputSchema: z.object({
       query: z.string().describe("A full question, not keywords."),
       maxResults: z.number().int().min(1).max(10).optional(),
+    }),
+  },
+  list_repo_files: {
+    description:
+      "List what is in one of the project's linked GitHub repositories, at a " +
+      "path. Leave the path out for the top level. Returns each entry's full " +
+      "path and whether it is a file or a directory — one level at a time, so " +
+      "walk down to what you want.",
+    inputSchema: z.object({
+      repo: repoArg,
+      path: z
+        .string()
+        .optional()
+        .describe("A directory inside the repo, e.g. \"src/lib\". The top level if left out."),
+      ref: refArg,
+    }),
+  },
+  read_repo_file: {
+    description:
+      "Read a file from one of the project's linked GitHub repositories. " +
+      "Returns its text; a very large file comes back truncated and says so, " +
+      "and a binary one is refused rather than returned as noise.",
+    inputSchema: z.object({
+      repo: repoArg,
+      path: z
+        .string()
+        .describe("The file's path from the repo root, e.g. \"src/index.ts\"."),
+      ref: refArg,
+    }),
+  },
+  search_repo_code: {
+    description:
+      "Search the code in this project's linked repositories for a symbol or " +
+      "phrase — the fastest way to find where something lives. Returns file " +
+      "paths and the lines that matched, not whole files, so read the ones that " +
+      "look right. Searches the default branch only.",
+    inputSchema: z.object({
+      query: z
+        .string()
+        .describe(
+          "What to look for. GitHub code search: a symbol or a quoted phrase " +
+            'works, and qualifiers like path:, language: and extension: are allowed.',
+        ),
+      repo: repoArg
+        .optional()
+        .describe("Confine the search to one repository. All of them if left out."),
     }),
   },
   create_page: {

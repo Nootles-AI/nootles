@@ -680,6 +680,89 @@ textarea.nt-input {
   }
 }
 
+/* ---- Project context ----------------------------------------------------
+   The Context Sheet and the repositories linked to a project — what the
+   assistant is told before it is asked anything. Shown in the new-project
+   dialog and again from the sidebar, in the same shapes both times. */
+
+/* A sentence of guidance under a control. Quiet by construction: it explains
+   the field, so it must never compete with it. */
+.nt-note {
+  font-size: var(--text-ui);
+  line-height: 1.5;
+  color: var(--muted);
+}
+.nt-mono-inline {
+  padding: 1px 4px;
+  border-radius: var(--radius-sm);
+  background: var(--hover);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--text-meta-lg);
+}
+
+/* A linked repository. Two lines, because the name is the identity and the
+   second line is the only place the read's outcome can be reported. */
+.nt-repo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px var(--inset);
+  border-radius: var(--radius);
+}
+.nt-repo:hover {
+  background: var(--hover);
+}
+.nt-repo-body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.nt-repo-name,
+.nt-repo-note {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.nt-repo-name {
+  font-size: var(--text-ui);
+}
+.nt-repo-note {
+  font-size: var(--text-meta-lg);
+  color: var(--muted);
+}
+.nt-repo-note.is-problem {
+  color: var(--danger);
+}
+
+/* The add-a-repository panel: a field, a list, and a line saying whose GitHub
+   this is. Bordered rather than floating — it opens in place, under the list it
+   is about to add to, and a popover there would cover it. */
+.nt-picker {
+  margin-top: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--background);
+}
+.nt-picker-list {
+  max-height: 12rem;
+  overflow-y: auto;
+  padding: 0 6px 6px;
+}
+.nt-picker-empty {
+  padding: 4px var(--inset) 6px;
+  font-size: var(--text-ui);
+  color: var(--muted);
+}
+.nt-picker-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px var(--inset);
+  border-top: 1px solid var(--border);
+  font-size: var(--text-meta-lg);
+  color: var(--muted);
+}
+
 /* ---- The sheet ----------------------------------------------------------
    A page lying on a surface: laid out at the width the document is written at
    and shrunk by a transform, so proportions, line breaks and diagram geometry

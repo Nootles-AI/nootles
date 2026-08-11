@@ -31,13 +31,27 @@ export const forPrompt = query({
   handler: async (ctx, args) => {
     const project = await readOwned(ctx, "projects", args.projectId);
     if (!project) return null;
-    const entries = await ctx.db
-      .query("contextSheet")
-      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
-      .collect();
+    const [entries, repos] = await Promise.all([
+      ctx.db
+        .query("contextSheet")
+        .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+        .collect(),
+      ctx.db
+        .query("projectRepos")
+        .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+        .collect(),
+    ]);
     return {
       title: project.title,
       entries: entries.map((e) => ({ question: e.question, answer: e.answer })),
+      // A repo whose summary has not landed yet is still worth naming: the tools
+      // work the moment it is linked, and the summary only decides how much the
+      // agent knows before it uses them.
+      repos: repos.map((r) => ({
+        fullName: r.fullName,
+        defaultBranch: r.defaultBranch,
+        summary: r.summary,
+      })),
     };
   },
 });

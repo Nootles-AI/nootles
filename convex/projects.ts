@@ -1,6 +1,9 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { ownerId as currentOwner, readOwned, requireOwned, requireOwner } from "./auth";
+import { ABOUT, BACKGROUND } from "./ai/questions";
+import { add as addRepos } from "./github/repos";
+import { repoRef } from "./schema";
 
 export const list = query({
   args: {},
@@ -26,6 +29,8 @@ export const create = mutation({
     description: v.optional(v.string()),
     /** Freeform: whatever the user wants the agent to know going in. */
     context: v.optional(v.string()),
+    /** Repositories chosen in the dialog, before there was a project to hang them on. */
+    repos: v.optional(v.array(repoRef)),
   },
   handler: async (ctx, args) => {
     const ownerId = await requireOwner(ctx);
@@ -42,8 +47,8 @@ export const create = mutation({
     // the project row would never reach a model. Phrased as the Q&A the sheet
     // holds, the same way first run phrases the survey's answers.
     const asked: [string, string | undefined][] = [
-      ["What is this project?", args.description],
-      ["What should be known before working on it?", args.context],
+      [ABOUT, args.description],
+      [BACKGROUND, args.context],
     ];
     for (const [question, said] of asked) {
       const answer = said?.trim();
@@ -56,6 +61,13 @@ export const create = mutation({
         source: "human",
         createdAt: now,
       });
+    }
+
+    // Repositories are context too, just the kind that is read rather than
+    // written: each one is linked here and summarised by a scheduled action, so
+    // the project opens with the fetch already under way.
+    if (args.repos?.length) {
+      await addRepos(ctx, ownerId, projectId, args.repos);
     }
 
     // Seed one page so a new project is immediately usable. Empty title so the
@@ -176,11 +188,13 @@ export const remove = mutation({
       await ctx.db.delete(page._id);
     }
 
-    const sheet = await ctx.db
-      .query("contextSheet")
-      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
-      .collect();
-    await Promise.all(sheet.map((r) => ctx.db.delete(r._id)));
+    for (const table of ["contextSheet", "projectRepos"] as const) {
+      const rows = await ctx.db
+        .query(table)
+        .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+        .collect();
+      await Promise.all(rows.map((r) => ctx.db.delete(r._id)));
+    }
 
     // The conversations about a project go with it. Turns in particular outlive
     // the pages they edited — they are what a reload reads to find changes still
