@@ -89,12 +89,22 @@ export const AI = {
    * over the whole project rather than completing one caret position, so it
    * wants reasoning and long-context reliability over latency.
    *
-   * Verified live against OpenRouter's model list; `claude-sonnet-5` and
-   * `claude-opus-5` are also available on the same key if this proves too weak
-   * at long multi-step edits — switching is this one line.
+   * Terra at medium effort, measured against Sonnet 4.6 on OpenRouter's own
+   * prices: the same intelligence (46 against 47 on Artificial Analysis) for a
+   * third of the cost ($1/$6 against $3/$15), and it keeps the long-context
+   * recall this loop lives on — 89.6% MRCR at 256-512K, two points off the
+   * flagship.
+   *
+   * The effort dial is the whole choice. Max scores eight points higher than
+   * Sonnet but spends ~170s before the first token, which no chat surface can
+   * wear; medium buys the saving instead of the headroom. Luna is cheaper again
+   * and collapses to 41.3% on that same recall benchmark — the one thing a loop
+   * that reads pages cannot give up.
    */
   chat: {
-    model: "anthropic/claude-sonnet-4.6",
+    model: "openai/gpt-5.6-terra",
+    /** The dial above, traded against time-to-first-token. */
+    effort: "medium",
     /**
      * Ceiling on tool round-trips in one turn. Editing several pages costs a
      * step each for open/read/edit, so this is roughly "touch six pages", with
@@ -232,6 +242,9 @@ export const AI = {
   prices: {
     "codestral-2508": { in: 0.3, out: 0.9 },
     "google/gemini-2.5-flash": { in: 0.3, out: 2.5 },
+    "openai/gpt-5.6-terra": { in: 1, out: 6, cacheRead: 0.1, cacheWrite: 1.25 },
+    // Kept after the switch away: the ledger prices each row by the model that
+    // served it, so removing this would silently un-cost every earlier chat.
     "anthropic/claude-sonnet-4.6": { in: 3, out: 15, cacheRead: 0.3, cacheWrite: 3.75 },
   } as Record<
     string,

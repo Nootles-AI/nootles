@@ -78,6 +78,12 @@ export function shortenStaleReads(messages: ModelMessage[]): ModelMessage[] {
 /**
  * Where the provider may cache what it has already read.
  *
+ * Only Anthropic and Qwen read these. The model this loop runs on caches on its
+ * own, and OpenRouter passes the annotation through to a provider that ignores
+ * it — verified, not assumed — so the marks are inert rather than wrong, and
+ * they are kept because they are what makes an Anthropic model cheap again the
+ * moment `AI.chat.model` names one.
+ *
  * Anthropic caches by prefix, so a breakpoint stands for everything before it as
  * well, and two are enough to cover how this loop actually grows:
  *
