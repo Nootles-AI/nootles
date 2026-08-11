@@ -91,9 +91,10 @@ export async function POST(req: Request) {
   // What the user said this project is. Read per request rather than per turn
   // because the sheet is a living thing, and it is one round trip: without it
   // the agent writes into every project as if it were the same project.
-  const about = projectNote(
-    await convex.query(api.ai.context.forPrompt, { projectId }).catch(() => null),
-  );
+  const project = await convex
+    .query(api.ai.context.forPrompt, { projectId })
+    .catch(() => null);
+  const about = projectNote(project);
 
   // Separate instructions, not one concatenated string. The breakpoint goes on
   // the last thing that holds for the whole conversation — the standing prompt
@@ -113,7 +114,7 @@ export async function POST(req: Request) {
     messages: markCachePoints(
       spent ? [...history, { role: "user", content: OUT_OF_STEPS }] : history,
     ),
-    tools: chatTools(projectId, convex),
+    tools: chatTools(projectId, convex, !!project?.repos.length),
     // The tools that could change something are not merely discouraged, they are
     // absent from the request.
     activeTools: spent ? [] : undefined,

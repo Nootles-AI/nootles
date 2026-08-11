@@ -72,6 +72,7 @@ export function projectNote(
   project: {
     title: string;
     entries: readonly { question: string; answer?: string }[];
+    repos?: readonly { fullName: string; defaultBranch: string; summary?: string }[];
   } | null,
 ): string {
   if (!project) return "";
@@ -90,6 +91,27 @@ export function projectNote(
       "What the user has said about it. This holds for every page in the project — treat it",
       "as their standing instructions, and let it shape what you write and how you write it.",
       ...said.flatMap((e) => ["", e.question, e.answer]),
+    );
+  }
+
+  // Named here rather than in SYSTEM because most projects have none, and the
+  // three repo tools are worth describing only where there is something to point
+  // them at. The summaries are a reason to open a repository, never a substitute
+  // for opening it — which is the one thing this has to say plainly, since a
+  // model handed a README will happily answer from it alone.
+  const repos = project.repos ?? [];
+  if (repos.length) {
+    lines.push(
+      "",
+      "GitHub repositories linked to this project. Read them with list_repo_files,",
+      "read_repo_file and search_repo_code rather than answering from what is written",
+      "below — this is the front page of each one, not its contents, and it may be out",
+      "of date. Refer to a repository by its full name, exactly as written here.",
+      ...repos.flatMap((r) => [
+        "",
+        `${r.fullName} (default branch ${r.defaultBranch})`,
+        r.summary?.trim() || "Not yet summarised — use the tools to see what is in it.",
+      ]),
     );
   }
   return lines.join("\n");

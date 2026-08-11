@@ -1,8 +1,15 @@
 "use client";
 
 import { AnimationEvent, FormEvent, KeyboardEvent, useEffect, useState } from "react";
+import type { Listed } from "@/convex/github/repos";
+import { GitHubRepos } from "./context/GitHubRepos";
 
-export type NewProject = { title: string; description: string; context: string };
+export type NewProject = {
+  title: string;
+  description: string;
+  context: string;
+  repos: Listed[];
+};
 
 /**
  * What a project is, asked before it exists.
@@ -27,6 +34,10 @@ export function NewProjectDialog({
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [context, setContext] = useState("");
+  // Held here rather than written, because there is no project to write them to
+  // yet: `projects.create` takes them and links them in the same transaction it
+  // makes the project in.
+  const [repos, setRepos] = useState<Listed[]>([]);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
 
@@ -65,6 +76,7 @@ export function NewProjectDialog({
       title: named,
       description: description.trim(),
       context: context.trim(),
+      repos,
     }).catch(() => {
       setFailure("Couldn’t create that project.");
       setBusy(false);
@@ -130,6 +142,21 @@ export function NewProjectDialog({
               placeholder="One line on what it is"
               className="nt-input"
             />
+
+            <div className="mt-4">
+              <GitHubRepos
+                repos={repos.map((repo) => ({
+                  key: repo.fullName,
+                  fullName: repo.fullName,
+                  description: repo.description,
+                  private: repo.private,
+                }))}
+                onAdd={(repo) => setRepos((chosen) => [...chosen, repo])}
+                onRemove={(key) =>
+                  setRepos((chosen) => chosen.filter((r) => r.fullName !== key))
+                }
+              />
+            </div>
           </div>
 
           <div className="nt-field-fill">

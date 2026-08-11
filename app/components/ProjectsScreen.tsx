@@ -97,6 +97,16 @@ export function ProjectsScreen() {
       title: project.title,
       ...(project.description ? { description: project.description } : {}),
       ...(project.context ? { context: project.context } : {}),
+      ...(project.repos.length
+        ? {
+            repos: project.repos.map((repo) => ({
+              fullName: repo.fullName,
+              defaultBranch: repo.defaultBranch,
+              ...(repo.description ? { description: repo.description } : {}),
+              private: repo.private,
+            })),
+          }
+        : {}),
     });
     track("project_created", {});
     router.push(`/p/${id}`);

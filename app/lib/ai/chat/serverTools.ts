@@ -3,6 +3,7 @@ import type { ConvexHttpClient } from "convex/browser";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { AI } from "../aiConfig";
+import { reason } from "@/app/lib/github";
 import { searchModel } from "./provider";
 import { noSuchPage, TOOLS } from "./tools";
 
@@ -15,8 +16,19 @@ import { noSuchPage, TOOLS } from "./tools";
  * everything that touches the document runs on one side, everything that only
  * needs the database or the network runs on the other.
  */
-export function chatTools(projectId: Id<"projects">, convex: ConvexHttpClient) {
+export function chatTools(
+  projectId: Id<"projects">,
+  convex: ConvexHttpClient,
+  /** Whether this project has any linked repositories. */
+  repos: boolean,
+) {
   return {
+    // Offered only where there is something to point them at. A project with no
+    // repository would otherwise carry three tool schemas the model cannot use
+    // and, given the chance, will try — the prompt says nothing about them
+    // either, so their absence is complete rather than merely discouraged.
+    ...(repos ? repoTools(projectId, convex) : {}),
+
     list_pages: tool({
       ...TOOLS.list_pages,
       execute: async () => {
@@ -98,6 +110,55 @@ export function chatTools(projectId: Id<"projects">, convex: ConvexHttpClient) {
       },
     }),
   };
+}
+
+/**
+ * Reading the project's GitHub repositories.
+ *
+ * Every one is a call into Convex rather than into GitHub: the token lives on
+ * that side and is opened only inside the action, and the action checks the
+ * repository is linked to THIS project before it fetches. A model naming a
+ * repository is not a model with permission to read it.
+ *
+ * The failures are worth as much as the results here — "authorise this token
+ * for your organisation" is something the agent can tell the user to go and do,
+ * where a bare 403 is something it can only apologise for.
+ */
+function repoTools(projectId: Id<"projects">, convex: ConvexHttpClient) {
+  return {
+    list_repo_files: tool({
+      ...TOOLS.list_repo_files,
+      execute: async ({ repo, path, ref }) =>
+        await reading(() =>
+          convex.action(api.github.read.tree, { projectId, repo, path, ref }),
+        ),
+    }),
+
+    read_repo_file: tool({
+      ...TOOLS.read_repo_file,
+      execute: async ({ repo, path, ref }) =>
+        await reading(() =>
+          convex.action(api.github.read.file, { projectId, repo, path, ref }),
+        ),
+    }),
+
+    search_repo_code: tool({
+      ...TOOLS.search_repo_code,
+      execute: async ({ query, repo }) =>
+        await reading(() =>
+          convex.action(api.github.read.search, { projectId, query, repo }),
+        ),
+    }),
+  };
+}
+
+/** The sentence, not the request id — see `reason`. */
+async function reading<T>(call: () => Promise<T>): Promise<T> {
+  try {
+    return await call();
+  } catch (error) {
+    throw new Error(reason(error));
+  }
 }
 
 /**

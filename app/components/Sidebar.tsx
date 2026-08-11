@@ -10,6 +10,7 @@ import { ArrowLeft, PanelLeft, Plus } from "./Icons";
 import { AccountMenu } from "./AccountMenu";
 import { ShareMenu } from "./ShareMenu";
 import { ConfirmDeleteDialog } from "./ConfirmDelete";
+import { ContextDialog } from "./context/ContextDialog";
 import { Editable } from "./Editable";
 import { usePageChanges, type PageChange } from "./ReviewContext";
 import { useHints } from "./hints/useHints";
@@ -32,6 +33,7 @@ export function Sidebar({
 }: Props) {
   const project = useQuery(api.projects.get, { projectId });
   const pages = useQuery(api.pages.listByProject, { projectId });
+  const repos = useQuery(api.github.repos.listForProject, { projectId });
   const changes = usePageChanges();
   const hints = useHints();
   const createPage = useMutation(api.pages.create);
@@ -42,6 +44,7 @@ export function Sidebar({
 
   const [editing, setEditing] = useState<Id<"pages"> | "project" | null>(null);
   const [confirming, setConfirming] = useState<Id<"pages"> | null>(null);
+  const [showingContext, setShowingContext] = useState(false);
   const [draft, setDraft] = useState("");
   /** Where a right-click opened the page menu, in viewport coordinates. */
   const [ctx, setCtx] = useState<{ id: Id<"pages">; x: number; y: number } | null>(
@@ -135,7 +138,18 @@ export function Sidebar({
       </div>
 
       <nav className="flex-1 overflow-y-auto px-2 pb-2">
-        <div className="nt-section-label">
+        {/* Above the pages because it is above them: what holds for the whole
+            project, and the one place a repository can be attached to it. */}
+        <button
+          onClick={() => setShowingContext(true)}
+          title="What the assistant knows about this project"
+          className="nt-row w-full"
+        >
+          <span className="nt-row-label">Context</span>
+          {!!repos?.length && <span className="nt-field-note">{repos.length}</span>}
+        </button>
+
+        <div className="nt-section-label mt-1">
           <span>Pages</span>
           <button
             onClick={() =>
@@ -225,6 +239,13 @@ export function Sidebar({
             setConfirming(ctx.id);
             setCtx(null);
           }}
+        />
+      )}
+
+      {showingContext && (
+        <ContextDialog
+          projectId={projectId}
+          onClose={() => setShowingContext(false)}
         />
       )}
 

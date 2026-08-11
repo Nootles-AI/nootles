@@ -51,6 +51,18 @@ export const feedbackStatus = v.union(
   v.literal("declined"),
 );
 
+/**
+ * A repository as the picker hands it over — the same shape whether it is being
+ * linked to a project that exists or carried alongside one being created.
+ */
+export const repoRef = v.object({
+  /** "owner/name", the way GitHub writes it and the way the agent names it. */
+  fullName: v.string(),
+  defaultBranch: v.string(),
+  description: v.optional(v.string()),
+  private: v.boolean(),
+});
+
 export default defineSchema({
   projects: defineTable({
     ownerId: v.string(),
@@ -526,6 +538,71 @@ export default defineSchema({
     source: v.union(v.literal("human"), v.literal("ai")),
     createdAt: v.number(),
   }).index("by_project", ["projectId"]),
+
+  // ---- GitHub -------------------------------------------------------------
+
+  /**
+   * One personal access token per account — the whole of the GitHub setup.
+   *
+   * A token rather than an App because a token is the only thing that works in
+   * somebody else's organisation without an owner installing anything: a classic
+   * one authorised for SSO, or a fine-grained one where the org allows them.
+   *
+   * The token is stored SEALED (`github/seal.ts`) and never leaves the server:
+   * every field a client can read is here beside it, and the token itself is
+   * only ever opened inside an action that is about to call GitHub.
+   */
+  githubAccounts: defineTable({
+    ownerId: v.string(),
+    /** AES-GCM ciphertext. Opening it needs the deployment's GITHUB_TOKEN_KEY. */
+    sealed: v.string(),
+    /** The GitHub login the token authenticates as, read from /user at connect. */
+    login: v.string(),
+    /** Last four characters, so a stored token is recognisable but not readable. */
+    hint: v.string(),
+    kind: v.union(v.literal("classic"), v.literal("fine-grained")),
+    /**
+     * Classic tokens report their scopes in a response header; fine-grained ones
+     * report nothing, which is why this is optional rather than empty.
+     */
+    scopes: v.optional(v.array(v.string())),
+    /** Organisations the token can actually see — the SSO check, made concrete. */
+    orgs: v.optional(v.array(v.string())),
+    connectedAt: v.number(),
+    /**
+     * Stamped when GitHub last answered 401. A dead token is kept rather than
+     * deleted so the UI can say "reconnect" instead of silently forgetting.
+     */
+    invalidAt: v.optional(v.number()),
+  }).index("by_owner", ["ownerId"]),
+
+  /**
+   * A repository linked to a project. Part of the Context Sheet in spirit: the
+   * summary below is read into every prompt, and the agent reads the rest of the
+   * repo through tools that check this table for permission first.
+   */
+  projectRepos: defineTable({
+    ownerId: v.string(),
+    projectId: v.id("projects"),
+    fullName: v.string(),
+    defaultBranch: v.string(),
+    description: v.optional(v.string()),
+    private: v.boolean(),
+    /**
+     * The standing note: what the repo is, its top level, and the head of its
+     * README. Capped and refreshed on demand — enough for the agent to know the
+     * repo is worth opening, never a substitute for opening it.
+     */
+    summary: v.optional(v.string()),
+    syncedAt: v.optional(v.number()),
+    /** Why the last refresh failed, shown on the row rather than swallowed. */
+    syncError: v.optional(v.string()),
+    addedAt: v.number(),
+  })
+    .index("by_project", ["projectId"])
+    // The permission check every repo tool makes, and the guard against linking
+    // the same repo twice.
+    .index("by_project_and_fullName", ["projectId", "fullName"]),
 
   // ---- Chat ---------------------------------------------------------------
 
