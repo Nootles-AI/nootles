@@ -13,7 +13,12 @@ export function chatModel() {
   // Usage accounting on, because the cached share of the prompt is the only way
   // to tell a cache breakpoint that is working from one that is being ignored,
   // and OpenRouter leaves those counts out unless asked.
-  return openrouter().chat(AI.chat.model, { usage: { include: true } });
+  return openrouter().chat(AI.chat.model, {
+    usage: { include: true },
+    // Never left to the provider's default: unset, this model reasons at full
+    // effort and spends minutes before the first token. See `AI.chat.effort`.
+    reasoning: { effort: AI.chat.effort },
+  });
 }
 
 /** The model behind `search_web`, which reads result pages rather than reasons. */
