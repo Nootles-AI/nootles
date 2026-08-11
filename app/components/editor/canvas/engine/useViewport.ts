@@ -29,6 +29,15 @@
  * `cursor` — and three of the scene layer's — `transform`, `transform-origin`
  * and `will-change`. Don't set those from the host.
  *
+ * ## Why the layer is only promoted while it moves
+ *
+ * A composited layer is rastered once at one scale and then *magnified* by the
+ * compositor. That is exactly what makes a pan cost a matrix multiply instead
+ * of a repaint — and exactly what makes a zoom soft, because every glyph,
+ * hairline and curve stays the bitmap it was drawn at until something happens
+ * to invalidate it. So the promotion is a property of the *gesture*, not of the
+ * layer: see {@link SETTLE_MS}.
+ *
  * ## Coordinate spaces
  *
  * `scene` px are the document's own units; `viewport` px are offsets from the
@@ -79,6 +88,15 @@ const ZOOM_SENSITIVITY = 0.005;
  * three octaves without making the pinch feel damped.
  */
 const MAX_WHEEL_ZOOM_STEP = 60;
+
+/**
+ * How still the viewport has to be before the scene layer is handed back to the
+ * renderer to be drawn at the scale it actually came to rest at. Comfortably
+ * longer than the gap between two frames of one gesture — a pinch that pauses
+ * for this long is a pinch that has stopped — and short enough that letting go
+ * and looking is enough to see the sharp version.
+ */
+const SETTLE_MS = 140;
 
 /**
  * `"ready"` means space is held and a press will pan — the gesture layer must
@@ -210,6 +228,10 @@ function createViewport(options: UseViewportOptions): ViewportEngine {
   let spaceDown = false;
   let pan: { pointerId: number; x: number; y: number } | null = null;
 
+  /** Whether the scene layer currently carries the compositing hint. */
+  let promoted = false;
+  let settle = 0;
+
   // -------------------------------------------------------------------------
   // Writing the viewport
   // -------------------------------------------------------------------------
@@ -217,12 +239,40 @@ function createViewport(options: UseViewportOptions): ViewportEngine {
   function paint(): void {
     const el = sceneRef.current;
     if (el) {
-      el.style.transform = `translate3d(${vp.x}px, ${vp.y}px, 0) scale(${vp.zoom})`;
+      // Deliberately 2D. `translate3d` is the old way of asking for a layer,
+      // and asking for one permanently is the bug this file used to have; the
+      // composited path a gesture wants is `promote`'s job, and only for as
+      // long as the gesture lasts.
+      el.style.transform = `translate(${vp.x}px, ${vp.y}px) scale(${vp.zoom})`;
     }
+  }
+
+  /**
+   * Raise or drop the compositing hint. Raised, a pan and a pinch cost nothing
+   * and the picture is an upscaled bitmap; dropped, the layer is re-rendered
+   * from the DOM at the current zoom, which is the only way text, strokes and
+   * SVG come out sharp at anything but 100%.
+   */
+  function promote(on: boolean): void {
+    if (promoted === on) return;
+    promoted = on;
+    // "" and not "auto": handing the property back is what releases the layer.
+    if (sceneRef.current) sceneRef.current.style.willChange = on ? "transform" : "";
+  }
+
+  /** Called once per painted frame — the viewport is moving, and then it isn't. */
+  function keepPromoted(): void {
+    promote(true);
+    if (settle !== 0) clearTimeout(settle);
+    settle = window.setTimeout(() => {
+      settle = 0;
+      promote(false);
+    }, SETTLE_MS);
   }
 
   function flush(): void {
     frame = 0;
+    keepPromoted();
     paint();
     for (const fn of subscribers) fn();
   }
@@ -479,7 +529,8 @@ function createViewport(options: UseViewportOptions): ViewportEngine {
       // Owned here rather than in CSS so the transform can never be composed
       // against an origin the maths did not assume.
       scene.style.transformOrigin = "0 0";
-      scene.style.willChange = "transform";
+      // No `will-change` here: a canvas that is merely sitting on the page is
+      // not moving, and a layer nobody is moving is only ever a stale bitmap.
       paint();
     }
 
@@ -506,6 +557,10 @@ function createViewport(options: UseViewportOptions): ViewportEngine {
       if (frame !== 0) {
         cancelAnimationFrame(frame);
         frame = 0;
+      }
+      if (settle !== 0) {
+        clearTimeout(settle);
+        settle = 0;
       }
     };
   }
