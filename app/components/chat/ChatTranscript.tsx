@@ -61,12 +61,19 @@ export function ChatTranscript({
   // Follow the stream, but only when already at the bottom: yanking someone
   // back down while they are reading an earlier answer is worse than not
   // following at all.
+  //
+  // A message you just sent is the exception, and the distance check was
+  // swallowing it — ask a question while scrolled up and you were left looking
+  // at old answers with no sign yours had gone anywhere. Sending is a
+  // deliberate act, so it always wins; the distance rule is for tokens that
+  // arrive on their own.
   useEffect(() => {
     const scroller = scrollerRef.current;
     if (!scroller) return;
+    const mine = messages[messages.length - 1]?.role === "user";
     const distance =
       scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
-    if (distance < 120) endRef.current?.scrollIntoView({ block: "end" });
+    if (mine || distance < 120) endRef.current?.scrollIntoView({ block: "end" });
   }, [messages]);
 
   if (!messages.length) {
