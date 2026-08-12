@@ -375,6 +375,14 @@ export default defineSchema({
      */
     email: v.optional(v.string()),
 
+    /**
+     * When the reporter was told this was fixed. Absent means they have not
+     * been — including for everything closed before this existed, which is
+     * deliberate: the backlog of fixes announces itself the next time each
+     * reporter opens the app, and there is nothing to backfill.
+     */
+    notifiedAt: v.optional(v.number()),
+
     // ---- Triage ------------------------------------------------------------
 
     /**

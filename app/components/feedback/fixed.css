@@ -1,0 +1,243 @@
+/* The fixed-report announcement: toast, mark, and the sheet behind it.
+   Colour comes from the diff palette's "added" green, which already means
+   "this was put right" everywhere else in the product. */
+
+.nt-fixed {
+  position: fixed;
+  left: 20px;
+  /* Clear of the report button it is answering, in the corner it left from. */
+  bottom: 64px;
+  z-index: var(--z-toast);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(420px, calc(100vw - 40px));
+  padding: 8px 8px 8px 12px;
+  border-radius: 12px;
+  background: var(--elevated);
+  border: 1px solid var(--border);
+  box-shadow:
+    0 1px 2px oklch(0.25 0.005 90 / 0.05),
+    0 8px 26px oklch(0.25 0.005 90 / 0.12);
+  font-size: var(--text-ui);
+  animation: nt-fixed-in 420ms var(--ease) both;
+}
+
+@keyframes nt-fixed-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.nt-fixed-said {
+  min-width: 0;
+}
+
+.nt-fixed-go {
+  flex-shrink: 0;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  font-size: var(--text-ui);
+  white-space: nowrap;
+}
+.nt-fixed-go:hover {
+  background: var(--sunken);
+}
+
+.nt-fixed-x {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  color: var(--muted);
+}
+.nt-fixed-x:hover {
+  background: var(--sunken);
+  color: var(--foreground);
+}
+
+/* ---- The mark ---- */
+
+.nt-mended {
+  flex-shrink: 0;
+  display: inline-flex;
+  color: var(--diff-add-line);
+}
+
+.nt-mended-ring {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  opacity: 0.35;
+  transform-origin: 50% 50%;
+  animation: nt-mended-ring 460ms var(--ease) both;
+}
+
+@keyframes nt-mended-ring {
+  from {
+    transform: scale(0.6);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 0.35;
+  }
+}
+
+/* Drawn rather than faded: the stroke travels the way a tick is written. */
+.nt-mended-check {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.1;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 18;
+  stroke-dashoffset: 18;
+  animation: nt-mended-draw 380ms var(--ease) 160ms both;
+}
+
+@keyframes nt-mended-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* One moment, not an indicator. Anyone who would rather it did not move gets
+   the end state immediately. */
+@media (prefers-reduced-motion: reduce) {
+  .nt-fixed,
+  .nt-mended-ring,
+  .nt-mended-check {
+    animation-duration: 1ms;
+    animation-delay: 0ms;
+  }
+}
+
+/* ---- The sheet ---- */
+
+.nt-fixed-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-toast);
+  background: oklch(0.25 0.005 90 / 0.28);
+  animation: nt-fixed-fade 180ms var(--ease) both;
+  cursor: default;
+}
+
+@keyframes nt-fixed-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.nt-fixed-sheet {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: calc(var(--z-toast) + 1);
+  width: min(460px, calc(100vw - 40px));
+  max-height: min(70vh, 620px);
+  overflow: auto;
+  padding: 18px;
+  border-radius: var(--radius-lg, 12px);
+  background: var(--elevated);
+  border: 1px solid var(--border);
+  box-shadow:
+    0 1px 2px oklch(0.25 0.005 90 / 0.06),
+    0 20px 60px oklch(0.25 0.005 90 / 0.18);
+  animation: nt-fixed-rise 240ms var(--ease) both;
+}
+
+@keyframes nt-fixed-rise {
+  from {
+    opacity: 0;
+    transform: translate(-50%, calc(-50% + 10px)) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%);
+  }
+}
+
+.nt-fixed-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.nt-fixed-title {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.nt-fixed-sub {
+  margin-top: 2px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.nt-fixed-list {
+  margin-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.nt-fixed-item {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 10px 2px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.nt-fixed-tick {
+  flex-shrink: 0;
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  color: var(--diff-add-line);
+  background: color-mix(in oklch, var(--diff-add-line) 12%, transparent);
+}
+
+.nt-fixed-text {
+  flex: 1;
+  min-width: 0;
+  /* The report as it was written — struck through would read as discarded, and
+     these are the opposite of that. */
+  overflow-wrap: anywhere;
+}
+
+.nt-fixed-kind {
+  flex-shrink: 0;
+  align-self: center;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.nt-fixed-foot {
+  margin-top: 14px;
+  font-size: 12px;
+  color: var(--faint);
+}

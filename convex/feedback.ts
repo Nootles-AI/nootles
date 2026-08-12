@@ -59,6 +59,66 @@ export const submit = mutation({
   },
 });
 
+/** How many fixes are announced at once. Past this it is a changelog. */
+const ANNOUNCE_MAX = 12;
+
+/**
+ * The caller's own reports that have been fixed and not yet announced.
+ *
+ * This is the other half of the promise the founder's note makes — "you'll be
+ * notified when yours has been fixed". Owner-scoped like everything else here:
+ * you are only ever told about your own.
+ */
+export const resolvedForMe = query({
+  args: {},
+  handler: async (ctx) => {
+    const owner = await currentOwner(ctx);
+    if (!owner) return [];
+    const rows = await ctx.db
+      .query("feedback")
+      .withIndex("by_owner", (q) => q.eq("ownerId", owner))
+      .order("desc")
+      .filter((q) =>
+        q.and(
+          q.eq(q.field("status"), "done"),
+          q.eq(q.field("notifiedAt"), undefined),
+        ),
+      )
+      .take(ANNOUNCE_MAX);
+    return rows.map((row) => ({
+      id: row._id,
+      number: row.number,
+      kind: row.kind,
+      text: row.text,
+      category: row.category ?? "general",
+      createdAt: row.createdAt,
+    }));
+  },
+});
+
+/**
+ * Remember that the reporter has been told, so it is said once.
+ *
+ * Called when the toast is acknowledged rather than when it is rendered: a
+ * toast that flashed past during a page change was never read, and spending
+ * the announcement on it would lose the news silently.
+ */
+export const markNotified = mutation({
+  args: { ids: v.array(v.id("feedback")) },
+  handler: async (ctx, args) => {
+    const owner = await requireOwner(ctx);
+    const now = Date.now();
+    for (const id of args.ids.slice(0, ANNOUNCE_MAX)) {
+      const row = await ctx.db.get(id);
+      // Yours, actually fixed, and not already announced. A stale id is
+      // routine — the ticket may have moved on since the toast was drawn.
+      if (!row || row.ownerId !== owner) continue;
+      if (row.status !== "done" || row.notifiedAt !== undefined) continue;
+      await ctx.db.patch(id, { notifiedAt: now });
+    }
+  },
+});
+
 /** The caller's own submissions, newest first — the "you'll hear back" list. */
 export const listMine = query({
   args: { paginationOpts: paginationOptsValidator },

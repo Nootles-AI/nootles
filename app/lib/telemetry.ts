@@ -28,6 +28,9 @@ type EventMap = {
   chat_turn_completed: { pages: number; status: string };
   chat_turn_rewound: Record<string, never>;
   feedback_submitted: { kind: "issue" | "wish" };
+  /** Whether being told a report was fixed is worth reading, or just closed. */
+  fix_toast_opened: { count: number };
+  fix_toast_dismissed: { count: number };
   share_toggled: { on: boolean };
   survey_answered: { survey: string; answered: boolean };
 };

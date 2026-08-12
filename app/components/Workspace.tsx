@@ -22,6 +22,7 @@ import { PanelsProvider } from "./PanelsContext";
 import { PagesProvider } from "./PagesContext";
 import { Hints } from "./hints/Hints";
 import { Feedback } from "./feedback/Feedback";
+import { FixedToast } from "./feedback/FixedToast";
 import { TesterNote } from "./feedback/TesterNote";
 import { PmfSurvey } from "./feedback/PmfSurvey";
 import { DismissSampler } from "./feedback/DismissSampler";
@@ -357,6 +358,8 @@ export function Workspace({ projectId }: { projectId: Id<"projects"> }) {
         )}
 
         <Feedback projectId={projectId} pageId={effectivePageId} />
+        {/* The answer to what that button sent, in the corner it left from. */}
+        <FixedToast />
         <TesterNote projectId={projectId} />
         <PmfSurvey />
         <DismissSampler />
