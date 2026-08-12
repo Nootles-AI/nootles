@@ -802,6 +802,8 @@ export const triageQueue = query({
 
     return {
       enabled: true,
+      /** Eligible but not handed out this time — what a drain has left to do. */
+      remaining: Math.max(0, rows.length - cfg.maxPerRun),
       tickets: await Promise.all(
         rows.slice(0, cfg.maxPerRun).map((row) => withDetail(ctx, row)),
       ),

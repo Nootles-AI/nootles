@@ -11,7 +11,11 @@ Your job is **not** to fix anything. It is to decide, for each ticket, how
 concrete it is and whether it repeats one already filed. You write nothing but
 a score, a note, and possibly a duplicate link.
 
-## 1. Take the work
+**Triage the whole queue, not one batch of it.** The work arrives in batches
+because reading a ticket properly is expensive, but a run is not done until
+nothing eligible is left. Steps 1–5 are a loop.
+
+## 1. Take a batch
 
 ```
 node scripts/triage.mjs start
@@ -20,10 +24,16 @@ node scripts/triage.mjs start
 If it prints `"enabled": false`, the agent is switched off in the dashboard.
 **Stop there** — say so and do nothing else. Do not attempt to enable it.
 
-Otherwise you get `tickets` (what to triage) and `digest` (every other ticket,
-one line each, to recognise repeats against). The queue already excludes
-anything omitted from agent review, already triaged, still inside its cooling
-window, or already a duplicate. Do not go looking for work outside it.
+If it prints an empty `tickets` array, the queue is drained. Go to step 6.
+
+Otherwise you get `tickets` (this batch), `remaining` (how many eligible
+tickets are still waiting after it), and `digest` (every other ticket, one
+line each, to recognise repeats against). The queue already excludes anything
+omitted from agent review, already triaged, still inside its cooling window, or
+already a duplicate. Do not go looking for work outside it.
+
+Say which batch you are on and what `remaining` says, so the run's progress is
+visible rather than inferred.
 
 ## 2. Read the rubric
 
@@ -79,15 +89,32 @@ Write a JSON array to `.triage/results.json`:
 ]
 ```
 
-Then:
+Then apply that batch:
 
 ```
 node scripts/triage.mjs apply .triage/results.json
+```
+
+It reports per-ticket errors without stopping. Note any that come back — they
+go into step 6 — and carry on rather than abandoning the run.
+
+**Then go back to step 1** for the next batch. Keep going until `start` hands
+back an empty `tickets` array. Do not stop early because the queue looks long;
+do not stop because the tickets are starting to look similar. The run ends when
+the queue is empty.
+
+Two exceptions, and only these: stop if `start` reports the agent switched off,
+or if the same batch comes back twice in a row (which means `apply` is not
+writing, and continuing would loop forever). In both cases go to step 6 and say
+what happened.
+
+## 6. Close the run
+
+```
 node scripts/triage.mjs finish
 ```
 
-`apply` reports per-ticket errors without stopping. If any come back, pass them
-on rather than hiding them:
+If anything failed along the way, pass it on rather than hiding it:
 
 ```
 node scripts/triage.mjs finish .triage/run.json   # {"status":"failed","errors":[...]}
@@ -95,12 +122,17 @@ node scripts/triage.mjs finish .triage/run.json   # {"status":"failed","errors":
 
 **Always run `finish`**, including when something went wrong — it closes the run
 in the ledger and revokes the session. A run left open reads as still running on
-the dashboard's Agent page.
+the dashboard's Agent page. One run covers every batch, so `finish` is called
+once at the very end, never between batches.
 
 ## Rules
 
-- **Score every ticket you were given.** If one is unreadable, score it low and
-  say why. Silently dropping it looks identical to a crash.
+- **Score every ticket you were given, and take every batch there is.** If one
+  is unreadable, score it low and say why. Silently dropping a ticket — or
+  stopping while the queue still has tickets in it — looks identical to a crash.
+- **Read each ticket as carefully as the first.** A long queue is a reason to
+  keep going, never a reason to start skimming. A score arrived at without
+  reading the evidence is worse than no score, because it looks like one.
 - **Never change a status, priority, or category.** Triage writes scores, notes
   and duplicate links. Nothing else.
 - **Never enable the agent, raise a threshold, or edit the rubric.** Those are

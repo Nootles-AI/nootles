@@ -132,26 +132,57 @@ async function fetchShot(number, shotUrl) {
   }
 }
 
+/**
+ * The next batch of work.
+ *
+ * Called repeatedly to drain the queue, so it reuses an open run rather than
+ * starting a new one each time: a drain is one night's work and belongs in the
+ * ledger as one row, however many batches it took. A run is only opened when
+ * there is something to put in it.
+ */
 async function start() {
-  const { user, password } = credentials();
-  const token = await mutation("admin:login", {
-    username: user,
-    password,
-  });
+  const open = existsSync(STATE)
+    ? JSON.parse(await readFile(STATE, "utf8"))
+    : null;
+
+  let token = open?.token;
+  if (!token) {
+    const { user, password } = credentials();
+    token = await mutation("admin:login", { username: user, password });
+  }
 
   const now = Date.now();
   const queue = await query("admin:triageQueue", { token, now });
 
   if (!queue.enabled) {
     // Not an error. The switch is off, so there is nothing to do tonight.
-    await mutation("admin:logout", { token });
+    if (!open) await mutation("admin:logout", { token });
     console.log(JSON.stringify({ enabled: false, tickets: [] }, null, 2));
     return;
   }
 
-  const runId = await mutation("admin:runStart", { token, kind: "triage", now });
+  if (queue.tickets.length === 0) {
+    // Drained, or nothing was eligible to begin with. Only the second case has
+    // no run to close, so only that one releases the session here.
+    if (!open) await mutation("admin:logout", { token });
+    console.log(
+      JSON.stringify(
+        { enabled: true, remaining: 0, tickets: [], digest: [] },
+        null,
+        2,
+      ),
+    );
+    return;
+  }
+
+  const runId =
+    open?.runId ??
+    (await mutation("admin:runStart", { token, kind: "triage", now }));
   await mkdir(SHOTS, { recursive: true });
-  await writeFile(STATE, JSON.stringify({ token, runId, startedAt: now }));
+  await writeFile(
+    STATE,
+    JSON.stringify({ ...(open ?? {}), token, runId, startedAt: open?.startedAt ?? now }),
+  );
 
   const digest = await query("admin:ticketDigest", { token, limit: 500 });
 
@@ -177,6 +208,7 @@ async function start() {
         enabled: true,
         runId,
         rubric: "docs/triage-rubric.md",
+        remaining: queue.remaining,
         tickets,
         // Every other ticket, one line each, to recognise repeats against.
         digest: digest.filter((d) => !tickets.some((t) => t.number === d.number)),
@@ -188,7 +220,8 @@ async function start() {
 }
 
 async function apply(file) {
-  const { token, runId } = await readState();
+  const prior = await readState();
+  const { token, runId } = prior;
   const results = JSON.parse(await readFile(file, "utf8"));
   if (!Array.isArray(results)) throw new Error("apply: expected a JSON array");
 
@@ -236,14 +269,16 @@ async function apply(file) {
     }
   }
 
+  // Accumulated, not replaced: a drain applies several batches against one run,
+  // and the ledger should show the night's work rather than its last slice.
   await writeFile(
     STATE,
     JSON.stringify({
-      ...(await readState()),
-      scored,
-      duplicatesLinked,
-      errors,
-      ticketsRead: results.length,
+      ...prior,
+      scored: (prior.scored ?? 0) + scored,
+      duplicatesLinked: (prior.duplicatesLinked ?? 0) + duplicatesLinked,
+      ticketsRead: (prior.ticketsRead ?? 0) + results.length,
+      errors: [...(prior.errors ?? []), ...errors],
     }),
   );
   console.log(JSON.stringify({ scored, duplicatesLinked, errors }, null, 2));
