@@ -21,7 +21,8 @@ export function Feedback({
   projectId,
   pageId,
 }: {
-  projectId: Id<"projects">;
+  /** Absent on the projects screen, which has no project open. */
+  projectId?: Id<"projects">;
   pageId?: Id<"pages"> | null;
 }) {
   const [open, setOpen] = useState(false);

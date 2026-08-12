@@ -59,15 +59,25 @@ export const submit = mutation({
   },
 });
 
-/** How many fixes are announced at once. Past this it is a changelog. */
-const ANNOUNCE_MAX = 12;
+/** How far the "what your reports changed" list goes back. */
+const HISTORY_MAX = 50;
+
+/** How many ids one acknowledgement may carry. */
+const ANNOUNCE_MAX = 50;
 
 /**
- * The caller's own reports that have been fixed and not yet announced.
+ * Every one of the caller's own reports that has been fixed, newest first.
  *
  * This is the other half of the promise the founder's note makes — "you'll be
  * notified when yours has been fixed". Owner-scoped like everything else here:
  * you are only ever told about your own.
+ *
+ * Returns the announced ones too, carrying `notifiedAt` so the caller can tell
+ * them apart. Filtering them out here was the obvious shape and the wrong one:
+ * the list is reactive, so acknowledging the toast emptied the very query the
+ * open dialog was reading from, and the dialog vanished as it was being read.
+ * It is also what makes the list worth keeping — a standing record of what your
+ * reports actually changed, rather than a notice that evaporates.
  */
 export const resolvedForMe = query({
   args: {},
@@ -78,13 +88,8 @@ export const resolvedForMe = query({
       .query("feedback")
       .withIndex("by_owner", (q) => q.eq("ownerId", owner))
       .order("desc")
-      .filter((q) =>
-        q.and(
-          q.eq(q.field("status"), "done"),
-          q.eq(q.field("notifiedAt"), undefined),
-        ),
-      )
-      .take(ANNOUNCE_MAX);
+      .filter((q) => q.eq(q.field("status"), "done"))
+      .take(HISTORY_MAX);
     return rows.map((row) => ({
       id: row._id,
       number: row.number,
@@ -92,6 +97,7 @@ export const resolvedForMe = query({
       text: row.text,
       category: row.category ?? "general",
       createdAt: row.createdAt,
+      notifiedAt: row.notifiedAt ?? null,
     }));
   },
 });

@@ -241,3 +241,54 @@
   font-size: 12px;
   color: var(--faint);
 }
+
+.nt-fixed-empty {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* Not yet announced, in a list that also holds what has been. */
+.nt-fixed-new {
+  flex-shrink: 0;
+  align-self: center;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--diff-add-line);
+  background: color-mix(in oklch, var(--diff-add-line) 12%, transparent);
+  white-space: nowrap;
+}
+
+/* The standing way back into the list, inside the report panel. */
+.nt-feedback-fixed {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  font-size: var(--text-ui);
+  text-align: left;
+}
+.nt-feedback-fixed:hover {
+  background: var(--sunken);
+}
+/* The mark has had its moment by the time it appears here. */
+.nt-feedback-fixed .nt-mended-ring,
+.nt-feedback-fixed .nt-mended-check {
+  animation: none;
+  stroke-dashoffset: 0;
+  opacity: 1;
+}
+.nt-feedback-fixed .nt-mended-ring {
+  opacity: 0.35;
+}
+.nt-feedback-fixed .nt-fixed-new {
+  margin-left: auto;
+}

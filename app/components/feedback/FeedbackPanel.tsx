@@ -12,6 +12,12 @@ import {
 } from "@/app/lib/ai/categorize";
 import { track } from "@/app/lib/telemetry";
 import { Bug, Sparkles, X } from "../Icons";
+import {
+  FixedSheet,
+  Mended,
+  useResolved,
+  type FixedReport,
+} from "./FixedToast";
 
 const TABS = [
   { id: "issue" as const, label: "Bug report", Icon: Bug },
@@ -52,11 +58,15 @@ export function FeedbackPanel({
   pageId,
   onClose,
 }: {
-  projectId: Id<"projects">;
+  /** Absent on the projects screen; the report is filed without one. */
+  projectId?: Id<"projects">;
   pageId: Id<"pages"> | null;
   onClose: () => void;
 }) {
   const [kind, setKind] = useState<"issue" | "wish">("issue");
+  // Snapshotted on open, so acknowledging cannot rewrite what is on screen.
+  const [seeFixed, setSeeFixed] = useState<FixedReport[] | null>(null);
+  const resolved = useResolved();
   const [text, setText] = useState("");
   // "" is the unselected placeholder; sending requires a real value.
   const [category, setCategory] = useState<FeedbackCategory | "">("");
@@ -224,7 +234,7 @@ export function FeedbackPanel({
           .join("\n"),
         recentOps: context.ops,
         ...(pageId ? { pageId } : {}),
-        projectId,
+        ...(projectId ? { projectId } : {}),
         ...(replayUrl ? { replayUrl } : {}),
         env: {
           ...(process.env.NEXT_PUBLIC_COMMIT_SHA
@@ -377,7 +387,28 @@ export function FeedbackPanel({
             That didn&rsquo;t send — it&rsquo;s still here, try again.
           </p>
         )}
+        {/* What reporting has already got you. The toast says it once and goes;
+            this is where it keeps saying it. */}
+        {resolved.all.length > 0 && (
+          <button className="nt-feedback-fixed" onClick={() => setSeeFixed(resolved.all)}>
+            <Mended />
+            View {resolved.all.length} fixed{" "}
+            {resolved.all.length === 1 ? "issue" : "issues"}
+            {resolved.fresh.length > 0 && (
+              <span className="nt-fixed-new">{resolved.fresh.length} new</span>
+            )}
+          </button>
+        )}
       </div>
+      {seeFixed && (
+        <FixedSheet
+          items={seeFixed}
+          onClose={() => {
+            resolved.acknowledge();
+            setSeeFixed(null);
+          }}
+        />
+      )}
     </div>
   );
 }

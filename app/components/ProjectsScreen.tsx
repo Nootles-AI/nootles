@@ -12,6 +12,8 @@ import { Brandmark } from "./Brand";
 import { ConfirmDeleteDialog } from "./ConfirmDelete";
 import { ContextMenu } from "./ContextMenu";
 import { Editable } from "./Editable";
+import { Feedback } from "./feedback/Feedback";
+import { FixedToast } from "./feedback/FixedToast";
 import { Menu, MenuItem } from "./Menu";
 import { NewProjectDialog, type NewProject } from "./NewProjectDialog";
 import { PagePreview } from "./PagePreview";
@@ -278,6 +280,13 @@ export function ProjectsScreen() {
           onConfirm={confirmRemove}
         />
       )}
+
+      {/* The front door is where someone lands, so it is where news of a fix
+          should reach them — and something worth reporting is as likely to be
+          here as inside a project. Filed without a project, which `submit`
+          already allows. */}
+      <Feedback />
+      <FixedToast />
     </main>
   );
 }
