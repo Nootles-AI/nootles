@@ -52,3 +52,6 @@ next-env.d.ts
 
 # Working directory for the triage routine (session token, screenshots).
 .triage/
+
+# Working directory for the implement routine.
+.implement/

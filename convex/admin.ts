@@ -927,6 +927,50 @@ export const feedbackClearTriage = mutation({
   },
 });
 
+/**
+ * A pull request the agent opened, registered the moment it exists.
+ *
+ * The poller would find it within fifteen minutes anyway, but would record it
+ * as a person's — provenance is not recoverable from the GitHub API. Claiming
+ * it here is what makes `agentFiled` mean anything; the poller's upsert leaves
+ * that field alone precisely so this claim survives it.
+ */
+export const feedbackAttachAgentPr = mutation({
+  args: {
+    token: v.string(),
+    id: v.id("feedback"),
+    repo: v.string(),
+    prNumber: v.number(),
+    title: v.string(),
+    url: v.string(),
+    now: v.number(),
+  },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx, args.token);
+    const existing = await ctx.db
+      .query("ticketPrs")
+      .withIndex("by_repo_and_prNumber", (q) =>
+        q.eq("repo", args.repo).eq("prNumber", args.prNumber),
+      )
+      .unique();
+    if (existing) {
+      await ctx.db.patch(existing._id, { agentFiled: true, updatedAt: args.now });
+      return;
+    }
+    await ctx.db.insert("ticketPrs", {
+      ticketId: args.id,
+      repo: args.repo,
+      prNumber: args.prNumber,
+      title: args.title,
+      url: args.url,
+      state: "open",
+      agentFiled: true,
+      firstSeenAt: args.now,
+      updatedAt: args.now,
+    });
+  },
+});
+
 /** That the agent tried — which is what stops it trying again tomorrow. */
 export const feedbackRecordAgentAttempt = mutation({
   args: {
@@ -946,6 +990,26 @@ export const feedbackRecordAgentAttempt = mutation({
       agentAttemptedAt: args.now,
       agentOutcome: args.outcome,
       ...(args.runId ? { agentRunId: args.runId } : {}),
+    });
+  },
+});
+
+/**
+ * Let the agent try a ticket again.
+ *
+ * `agentAttemptedAt` is what stops a failure being retried nightly forever, so
+ * clearing it is the only way back into the implement queue — after the cause
+ * of the failure is fixed, or when the refusal was the routine's fault rather
+ * than the ticket's. The mirror of {@link feedbackClearTriage}.
+ */
+export const feedbackClearAgentAttempt = mutation({
+  args: { token: v.string(), id: v.id("feedback") },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx, args.token);
+    await ctx.db.patch(args.id, {
+      agentAttemptedAt: undefined,
+      agentOutcome: undefined,
+      agentRunId: undefined,
     });
   },
 });
