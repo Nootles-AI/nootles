@@ -191,7 +191,7 @@ export function mintId(scene: SceneLike): NodeId {
 /** Connector ids, counted separately so a document reads e1/e2 alongside
  *  n1/n2 — but minted against every id in the scene, because both are `id`
  *  attributes of one HTML document and may not collide. */
-function mintEdgeIds(scene: SceneLike, count: number): EdgeId[] {
+export function mintEdgeIds(scene: SceneLike, count: number): EdgeId[] {
   return mintInto(collectIds(scene), count, EDGE_PREFIX, MINTED_EDGE_ID);
 }
 

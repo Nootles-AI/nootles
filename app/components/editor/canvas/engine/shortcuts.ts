@@ -57,7 +57,7 @@ import {
   unionBounds,
 } from "../scene/geometry";
 import { HUG } from "../scene/autoLayout";
-import { mintIds } from "../scene/ops";
+import { mintEdgeIds, mintIds } from "../scene/ops";
 import { parseScene } from "../scene/parse";
 import { serializeScene } from "../scene/serialize";
 import {
@@ -74,6 +74,7 @@ import {
   type Point,
   type Rect,
   type Scene,
+  type SceneEdge,
   type SceneNode,
   type SceneOp,
   type StylePatch,
@@ -556,11 +557,24 @@ function countNodes(nodes: readonly SceneNode[]): number {
   return n;
 }
 
-/** A deep copy with every id replaced, so it can be inserted alongside the original. */
-function reid(node: SceneNode, next: () => NodeId): SceneNode {
+/**
+ * A deep copy with every id replaced, so it can be inserted alongside the
+ * original. `map` records old → new for callers that have to follow the copy —
+ * connectors name their endpoints by id, and are meaningless without it.
+ */
+function reid(
+  node: SceneNode,
+  next: () => NodeId,
+  map?: Map<NodeId, NodeId>,
+): SceneNode {
   const id = next();
+  map?.set(node.id, id);
   return isContainer(node)
-    ? { ...node, id, children: node.children.map((child) => reid(child, next)) }
+    ? {
+        ...node,
+        id,
+        children: node.children.map((child) => reid(child, next, map)),
+      }
     : { ...node, id };
 }
 
@@ -570,12 +584,13 @@ function copiesInto(
   nodes: readonly SceneNode[],
   dx: number,
   dy: number,
+  map?: Map<NodeId, NodeId>,
 ): SceneNode[] {
   const ids = mintIds(scene, countNodes(nodes));
   let i = 0;
   const next = () => ids[i++];
   return nodes.map((node) => {
-    const copy = reid(node, next);
+    const copy = reid(node, next, map);
     return { ...copy, x: copy.x + dx, y: copy.y + dy };
   });
 }
@@ -654,16 +669,24 @@ function clipboardHtml(scene: Scene, ids: readonly NodeId[]): string | null {
       rot: absoluteRotation(scene, node.id),
     };
   });
+  // Connectors whose BOTH ends are inside the copy. An edge with one end left
+  // behind has nothing to attach to over there, and carrying it would produce a
+  // connector pointing at a node that does not exist. Descendants count: a group
+  // travels with its children, so the edges between them travel too.
+  const carried = new Set<NodeId>();
+  walk(flattened, (node) => {
+    carried.add(node.id);
+  });
+  const edges = scene.edges.filter(
+    (edge) => carried.has(edge.from) && carried.has(edge.to),
+  );
+
   return serializeScene({
     w: scene.w,
     h: scene.h,
     style: {},
     nodes: flattened,
-    // Deliberately none. Paste re-mints every id it lands, so a connector
-    // carried across would name two nodes that do not exist there; copying the
-    // edges between a copied pair needs that id remap threaded through it, and
-    // that is its own change.
-    edges: [],
+    edges,
     attrs: {},
   });
 }
@@ -759,12 +782,6 @@ export function useCanvasShortcuts({
     const dispatch = (ops: SceneOp | SceneOp[]) =>
       latest.current.scene.dispatch(ops);
 
-    const insert = (nodes: SceneNode[], parentId: NodeId | null) => {
-      if (nodes.length === 0) return;
-      dispatch({ type: "insert", nodes, parentId });
-      latest.current.selection.select(nodes.map((node) => node.id));
-    };
-
     /** Paste canvas HTML at `offset` from where it was copied. */
     const paste = (html: string, inPlace: boolean): void => {
       const fragment = parseScene(html);
@@ -792,7 +809,33 @@ export function useCanvasShortcuts({
           dy += DUPLICATE_OFFSET;
         }
       }
-      insert(copiesInto(current, fragment.nodes, dx, dy), parentId);
+      // Every node lands under a fresh id, so the connectors that came with it
+      // have to be rewritten onto those before they mean anything.
+      const remap = new Map<NodeId, NodeId>();
+      const copies = copiesInto(current, fragment.nodes, dx, dy, remap);
+      const wanted = fragment.edges.filter(
+        (edge) => remap.has(edge.from) && remap.has(edge.to),
+      );
+      const edgeIds = mintEdgeIds(current, wanted.length);
+      const edges: SceneEdge[] = wanted.map((edge, i) => ({
+        ...edge,
+        id: edgeIds[i],
+        from: remap.get(edge.from)!,
+        to: remap.get(edge.to)!,
+      }));
+
+      if (copies.length === 0) return;
+      // One dispatch, so the paste is one entry in history rather than a
+      // separate undo for the shapes and the lines between them.
+      dispatch(
+        edges.length
+          ? [
+              { type: "insert", nodes: copies, parentId },
+              { type: "addEdge", edges },
+            ]
+          : { type: "insert", nodes: copies, parentId },
+      );
+      latest.current.selection.select(copies.map((node) => node.id));
     };
 
     const zoomTo = (bounds: Rect) => {
