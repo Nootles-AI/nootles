@@ -54,6 +54,17 @@ const H_ALIGN: ToggleOption<string>[] = [
   { value: "justify", label: "Justify", d: "M3 5.5h10M3 10.5h10" },
 ].map(({ value, label, d }) => ({ value, label, icon: <TextAlign d={d} /> }));
 
+/**
+ * Where each text alignment puts the label's own box. `justify` has no box
+ * placement of its own — it is about the lines within one — so it is absent and
+ * leaves whatever placement was already there.
+ */
+const JUSTIFY: Record<string, string | undefined> = {
+  left: "flex-start",
+  center: "center",
+  right: "flex-end",
+};
+
 const V_ALIGN: ToggleOption<string>[] = [
   { value: "flex-start", label: "Align top", d: "M3 3h10M3 6.5h6" },
   { value: "center", label: "Align middle", d: "M3 6h10M3 9.5h6" },
@@ -198,7 +209,29 @@ export function TypographySection({ selection, patch, setStyle }: SectionProps) 
           <IconToggle
             value={align.mixed ? "" : align.value || "left"}
             options={H_ALIGN}
-            onChange={(value) => setStyle({ "text-align": value })}
+            // `text-align` alone moves the text inside its box, and a shape's
+            // label is a flex item sized to its own content — so with a single
+            // word the box is exactly as wide as the word and there is nothing
+            // to move it within. `justify-content` is what places the box, so
+            // both are written: the box goes where you asked, and `text-align`
+            // still governs the lines once the text wraps.
+            //
+            // Through `patch` rather than `setStyle` for the same reason the
+            // vertical control below is: `justify-content` written to a group
+            // caught in the same selection would be read as auto-layout.
+            onChange={(value) =>
+              patch((node) =>
+                hasText(node)
+                  ? {
+                      style: {
+                        ...node.style,
+                        "text-align": value,
+                        ...(JUSTIFY[value] ? { "justify-content": JUSTIFY[value] } : {}),
+                      },
+                    }
+                  : {},
+              )
+            }
           />
         </div>
         <div className="nt-ctl-row">
