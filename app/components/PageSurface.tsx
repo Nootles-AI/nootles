@@ -6,6 +6,7 @@ import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import { Editable } from "./Editable";
 import { Editor } from "./editor/Editor";
+import { useEditorRegistry } from "./editor/EditorRegistry";
 import { ModeToggle } from "./ModeToggle";
 import { CurrentPageProvider, useOpenPage } from "./OpenPageContext";
 import { ArrowLeft } from "./Icons";
@@ -16,6 +17,7 @@ export function PageSurface({ pageId }: { pageId: Id<"pages"> }) {
   const rename = useMutation(api.pages.rename);
   const setMode = useMutation(api.pages.setMode);
   const { back, canGoBack } = useOpenPage();
+  const registry = useEditorRegistry();
 
   // Persist title edits on a debounce. The Editable owns the text; we only read
   // it on input and write through.
@@ -92,10 +94,23 @@ export function PageSurface({ pageId }: { pageId: Id<"pages"> }) {
           value={page.title}
           onInput={persistTitle}
           onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              e.currentTarget.blur();
-            }
+            if (e.key !== "Enter") return;
+            e.preventDefault();
+            // Enter leaves the title for the document, the way it does in every
+            // editor this one resembles. Blurring instead left the caret
+            // nowhere at all, so the next thing typed went to the page rather
+            // than into the page.
+            const title = e.currentTarget;
+            registry
+              .editorFor(pageId)
+              .then((editor) => {
+                const first = editor.document[0];
+                if (first) editor.setTextCursorPosition(first, "start");
+                editor.focus();
+              })
+              // A document that never finished loading has nowhere to put the
+              // caret; letting go of the title is better than trapping it.
+              .catch(() => title.blur());
           }}
           placeholder="Untitled"
           label="Page title"
