@@ -33,10 +33,16 @@ Before writing code, find the actual cause in the codebase. Then ask, honestly:
 
 - **Do I know what the correct behaviour is?** If fixing this means *deciding*
   what it should do, that is a design call and not yours. Decline.
-- **Is the fix inside the allowlist?** Anything under
-  `app/components/editor/canvas/`, `convex/schema.ts`, `convex/auth.ts`,
-  `convex/admin.ts`, `app/lib/ai/apply.ts` or the review pipeline is off limits.
-  Decline rather than working around the boundary.
+- **Is the fix inside the allowlist?** `convex/schema.ts`, `convex/auth.ts`,
+  `convex/admin.ts`, `app/lib/ai/apply.ts` and the review pipeline are off
+  limits. Decline rather than working around the boundary.
+- **The canvas is allowed, and held higher.** It is the most important surface
+  in the product, so the bar is the change being good — not the area being
+  avoided. Read more of the surrounding file there than you would elsewhere.
+  If the change touches `scene/serialize.ts`, `scene/parse.ts` or the shape of
+  `SceneNode`, the PR body **must** explain how `serialize(parse(html)) === html`
+  still holds; nothing tests it, and the script will refuse the PR if the body
+  is silent about it.
 - **Can a reader confirm this is right from the diff alone?** With no tests,
   that is the real bar. If the change is subtle, wide, or needs the reviewer to
   trust you about runtime behaviour, decline.

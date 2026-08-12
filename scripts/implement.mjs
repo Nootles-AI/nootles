@@ -38,9 +38,14 @@ const REPO = "ahosseini06/nootles";
 /**
  * Paths the agent may not touch, mirroring docs/agent-allowlist.md — which is
  * the prose; this is the enforcement. Keep them in step.
+ *
+ * Note what is NOT here: the canvas. Fencing it off was the first draft of this
+ * list and it was a mistake — most of the backlog lives there, so the routine
+ * spent its budget declining work it could never do. What remains is the code
+ * that decides what the agent may do, and the code whose failures a reviewer
+ * cannot see in a diff.
  */
 const DENY = [
-  /^app\/components\/editor\/canvas\//,
   /^convex\/schema\.ts$/,
   /^convex\/migrations\.ts$/,
   /^convex\/auth\.ts$/,
@@ -48,12 +53,22 @@ const DENY = [
   /^app\/lib\/ai\/apply\.ts$/,
   /^app\/lib\/ai\/review\//,
   /^\.github\//,
+  /^\.claude\//,
   /^scripts\//,
+  /^docs\/(agent-allowlist|triage-rubric)\.md$/,
   /^instrumentation.*\.ts$/,
   /^proxy\.ts$/,
   /^package(-lock)?\.json$/,
-  /^\.claude\//,
-  /^docs\/agent-allowlist\.md$/,
+];
+
+/**
+ * Canvas files with an invariant nothing checks: `serialize(parse(html))` must
+ * equal `html`, because that round-trip is how the AI layer edits diagrams.
+ * Allowed, but a change here has to argue for itself in the PR body.
+ */
+const ROUND_TRIP = [
+  /^app\/components\/editor\/canvas\/scene\/(serialize|parse)\.ts$/,
+  /^app\/components\/editor\/canvas\/scene\/types\.ts$/,
 ];
 
 /** A change touching more files than this is not a ticket fix. */
@@ -185,6 +200,14 @@ function checkPaths(files) {
     return `changes ${files.length} files, over the ${MAX_FILES} a ticket fix should need`;
   }
   return null;
+}
+
+/**
+ * The round-trip files, if this change touches any. Not a refusal — the caller
+ * requires the PR body to have addressed them, since no test will.
+ */
+function roundTripFiles(files) {
+  return files.filter((f) => ROUND_TRIP.some((re) => re.test(f)));
 }
 
 function checkGates() {
@@ -328,7 +351,18 @@ async function file(number, slug, bodyFile) {
     process.exit(2);
   }
 
-  const refusal = checkPaths(changedFiles()) ?? checkGates();
+  const files = changedFiles();
+  const touched = roundTripFiles(files);
+  const unaddressed =
+    touched.length > 0 &&
+    !/round.?trip/i.test(readFileSync(bodyFile, "utf8"));
+
+  const refusal =
+    checkPaths(files) ??
+    (unaddressed
+      ? `changes the canvas round-trip (${touched.join(", ")}) without the PR body saying how serialize(parse(html)) === html still holds`
+      : null) ??
+    checkGates();
   if (refusal) {
     await mutation("admin:feedbackRecordAgentAttempt", {
       token: state.token,
