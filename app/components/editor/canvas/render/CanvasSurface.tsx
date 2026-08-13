@@ -379,6 +379,13 @@ export function CanvasSurface({
   const [openPath, setOpenPath] = useState<NodeId | null>(null);
   const editPath = openPath && findNode(scene, openPath) ? openPath : null;
 
+  /**
+   * The two tools that work on what is already there. They part company at the
+   * handles and nowhere else, so selecting, hovering, dragging and the frame
+   * itself read the same under both.
+   */
+  const picking = tool === "move" || tool === "scale";
+
   const latest = useRef({ tool, onChange, onApi });
   // Latest-callback refs: written in an effect, never during render.
   useEffect(() => {
@@ -746,7 +753,7 @@ export function CanvasSurface({
     // this handler still sees them, on the way up. Vector edit mode puts that
     // same overlay up while the tool underneath is still `move`, so it has to
     // stand down for that too.
-    if (tool !== "move" || editPath) {
+    if (!picking || editPath) {
       busy.current = false;
       return;
     }
@@ -789,7 +796,7 @@ export function CanvasSurface({
   };
 
   const onPointerMove = (event: ReactPointerEvent) => {
-    if (busy.current || tool !== "move" || editPath || gesture.isActive()) return;
+    if (busy.current || !picking || editPath || gesture.isActive()) return;
     selection.hover(scenePoint(event), { deep: event.altKey });
   };
 
@@ -801,7 +808,7 @@ export function CanvasSurface({
    * nothing at all; shapes come from the toolbar.
    */
   const onDoubleClick = (event: ReactMouseEvent) => {
-    if (tool !== "move" || editPath) return;
+    if (!picking || editPath) return;
     const wanted = asked.current;
     asked.current = null;
     const point = scenePoint(event);
@@ -922,7 +929,7 @@ export function CanvasSurface({
   // A box, its handles and a hover ring around a path whose points are open
   // would be three things to grab that all mean "the whole shape". Figma drops
   // them for the same reason: in vector edit mode the anchors are the chrome.
-  const framed = tool === "move" && !editPath;
+  const framed = picking && !editPath;
 
   const members = useMemo(
     () =>
@@ -1009,7 +1016,7 @@ export function CanvasSurface({
             members={members}
             ids={sel.ids}
             hover={hover}
-            onResizeStart={gesture.startResize}
+            onResizeStart={tool === "scale" ? gesture.startScale : gesture.startResize}
             onRotateStart={gesture.startRotate}
             onRadiusStart={gesture.startRadius}
           />

@@ -61,6 +61,18 @@ const TOOLS: readonly { tool: CanvasTool; id: ShortcutId; icon: ReactNode }[] = 
     ),
   },
   {
+    tool: "scale",
+    id: "tool.scale",
+    // The move tool's arrow with a corner pulling away from it: the gesture the
+    // tool is, rather than a pair of arrows that would read as a resize.
+    icon: (
+      <svg {...svg}>
+        <path d="M4 3.2 14.5 10l-4.5 1-2.1 4.6z" />
+        <path d="M14 20h6v-6M20 20l-5.5-5.5" />
+      </svg>
+    ),
+  },
+  {
     tool: "hand",
     id: "tool.hand",
     icon: (

@@ -49,6 +49,7 @@ import {
   absoluteRect,
   absoluteRotation,
   angleOf,
+  HANDLE_EDGES,
   normalizeAngle,
   resizeRect,
   rotateAround,
@@ -117,7 +118,7 @@ export interface OverlayHandle {
   radius(corners: readonly number[]): void;
 }
 
-export type GestureMode = "move" | "resize" | "rotate" | "reorder";
+export type GestureMode = "move" | "resize" | "scale" | "rotate" | "reorder";
 
 export interface TransformGestureOptions {
   store: TransformStore;
@@ -153,6 +154,8 @@ export interface TransformGestureApi {
   startMove(event: PointerLike): void;
   /** Pointerdown on one of the overlay's eight resize handles. */
   startResize(event: PointerLike, handle: Handle): void;
+  /** The same eight handles under the scale tool: one factor for everything. */
+  startScale(event: PointerLike, handle: Handle): void;
   /** Pointerdown in one of the four rotation zones outside the corners. */
   startRotate(event: PointerLike): void;
   /** Pointerdown on one of the four corner-radius handles. */
@@ -299,6 +302,9 @@ interface Session {
   startAngle: number;
   /** Accumulated rotation, unwrapped so a full turn keeps counting. */
   turn: number;
+  /** Scale only: this frame's factor, and the scene point it is taken about. */
+  k: number;
+  anchor: Point;
   targets: SnapTarget[];
   targetsX: SnapTarget[];
   targetsY: SnapTarget[];
@@ -421,6 +427,7 @@ export function useTransformGesture(
     () => ({
       startMove: (event) => start(event, "move", null),
       startResize: (event, handle) => start(event, "resize", handle),
+      startScale: (event, handle) => start(event, "scale", handle),
       startRotate: (event) => {
         if (!isDoubleClick(pressRef.current, "rotate", event)) {
           start(event, "rotate", null);
@@ -768,6 +775,8 @@ function createSession(
       origin,
     ),
     turn: 0,
+    k: 1,
+    anchor: ORIGIN,
     targets,
     targetsX: targets.filter((t) => t.axis === "x"),
     targetsY: targets.filter((t) => t.axis === "y"),
@@ -904,16 +913,23 @@ function runFrame(session: Session, o: TransformGestureOptions) {
     return;
   }
 
+  const min = o.minSize ?? 1;
   const guides =
     session.mode === "move"
       ? applyMove(session, point, viewport.zoom)
       : session.mode === "resize"
-        ? applyResize(session, point, viewport.zoom, o.minSize ?? 1)
-        : applyRotate(session, point);
+        ? applyResize(session, point, viewport.zoom, min)
+        : session.mode === "scale"
+          ? applyScale(session, point, min)
+          : applyRotate(session, point);
 
-  if (session.flow) relayout(session);
+  // A scale previews as a transform, which no layout can see — so an
+  // auto-layout parent has nothing to reflow from until the gesture lands, and
+  // asking it where things would go would only move the overlay off the pixels.
+  if (session.flow && session.mode !== "scale") relayout(session);
   syncGhosts(session);
-  writeFrames(session, session.mode === "resize");
+  if (session.mode === "scale") writeScale(session);
+  else writeFrames(session, session.mode === "resize");
   writeOverlay(session, o, guides);
   // After the writes: whatever reads the shapes' live boxes must read them as
   // they are this frame, not as they were last one.
@@ -1031,6 +1047,62 @@ function applyResize(
     );
   }
   return guides;
+}
+
+/**
+ * One factor for the whole selection, taken from the dragged handle's distance
+ * to the pinned point over what that distance was.
+ *
+ * Every handle scales, edges included: the tool's promise is that nothing
+ * distorts, and it is the only reading a style has an answer for — a stroke has
+ * one width whichever handle asked. So an edge handle reads the drag along its
+ * own axis and ignores the rest, which falls out of the projection for free.
+ * Alt pins the centre instead of the far side, as it does in a resize.
+ */
+function applyScale(
+  session: Session,
+  point: Point,
+  minSize: number,
+): readonly SnapGuide[] {
+  const handle = session.handle;
+  if (!handle) return NO_GUIDES;
+
+  const b = session.bounds;
+  const { hx, hy } = HANDLE_EDGES[handle];
+  const centre = session.mods.alt;
+  const ax = centre ? 0.5 : hx > 0 ? 0 : hx < 0 ? 1 : 0.5;
+  const ay = centre ? 0.5 : hy > 0 ? 0 : hy < 0 ? 1 : 0.5;
+  const anchor = { x: b.x + ax * b.w, y: b.y + ay * b.h };
+  // The arm from the pinned point out to the handle, which the drag lengthens.
+  const arm = {
+    x: b.x + ((hx + 1) / 2) * b.w - anchor.x,
+    y: b.y + ((hy + 1) / 2) * b.h - anchor.y,
+  };
+  const span = arm.x * arm.x + arm.y * arm.y;
+  const dx = point.x - session.origin.x;
+  const dy = point.y - session.origin.y;
+
+  // Never through the anchor and out the other side: a mirrored scale would
+  // need a negative stroke width to mean anything.
+  const floor = minSize / Math.max(b.w, b.h, minSize);
+  const k = span === 0 ? 1 : Math.max(floor, 1 + (dx * arm.x + dy * arm.y) / span);
+  session.k = k;
+  session.anchor = anchor;
+
+  for (let i = 0; i < session.starts.length; i++) {
+    const start = session.starts[i];
+    const w = start.scene.w * k;
+    const h = start.scene.h * k;
+    const cx = anchor.x + (start.scene.x + start.scene.w / 2 - anchor.x) * k;
+    const cy = anchor.y + (start.scene.y + start.scene.h / 2 - anchor.y) * k;
+    setFromScene(
+      session.frames[i],
+      start,
+      { x: cx - w / 2, y: cy - h / 2, w, h },
+      start.sceneRot,
+    );
+  }
+  return NO_GUIDES;
 }
 
 /**
@@ -1284,6 +1356,29 @@ function writeFrames(session: Session, sized: boolean) {
   }
 }
 
+/**
+ * A scale draws itself as a CSS transform rather than as a new width and
+ * height: one write per node, and the browser scales the stroke, the corner and
+ * the text along with the box — which is exactly what the committed scene will
+ * say, and what no amount of setting `width` could preview.
+ */
+function writeScale(session: Session) {
+  for (let i = 0; i < session.starts.length; i++) {
+    const start = session.starts[i];
+    const el = start.el;
+    if (!el) continue;
+    const frame = session.frames[i];
+    // The element keeps its own size, and `scale` works about its centre — so
+    // it is translated to where its *unscaled* box has to sit for the scaled
+    // one to land on the frame.
+    const x = frame.x + frame.w / 2 - start.local.w / 2;
+    const y = frame.y + frame.h / 2 - start.local.h / 2;
+    el.style.transform = start.flow
+      ? `rotate(${frame.rot}deg) scale(${session.k})`
+      : `translate3d(${x}px, ${y}px, 0) rotate(${frame.rot}deg) scale(${session.k})`;
+  }
+}
+
 function writeOverlay(
   session: Session,
   o: TransformGestureOptions,
@@ -1450,6 +1545,13 @@ function transformOps(session: Session): SceneOp[] {
 
   if (session.mode === "resize") {
     return [{ type: "resize", frames: framesOf(session) }];
+  }
+
+  // The one gesture that lands as what it *is* rather than as the boxes it
+  // worked out: the op carries the factor down through the children and the
+  // styles the frames say nothing about.
+  if (session.mode === "scale") {
+    return [{ type: "scale", ids, k: session.k, anchor: session.anchor }];
   }
 
   // Rotation is absolute per node, so nodes that started at different angles
