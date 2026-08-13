@@ -4,6 +4,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { AI } from "../aiConfig";
 import { reason } from "@/app/lib/github";
+import { recordAiCall } from "../recordCall";
 import { searchModel } from "./provider";
 import { noSuchPage, TOOLS } from "./tools";
 
@@ -48,25 +49,53 @@ export function chatTools(
     search_web: tool({
       ...TOOLS.search_web,
       execute: async ({ query, maxResults }, { abortSignal }) => {
-        const { text, sources } = await generateText({
-          model: searchModel(),
-          system: SEARCH_SYSTEM,
-          prompt: query,
-          providerOptions: {
-            openrouter: {
-              plugins: [
-                { id: "web", max_results: maxResults ?? AI.chat.search.maxResults },
-              ],
+        // Recorded under its own feature rather than folded into `chat`. This is
+        // a second model on a second bill inside one turn, and the route's own
+        // row only ever counts the agent's tokens — so before this, a search was
+        // spend the ledger could not see at all.
+        const startedAt = Date.now();
+        try {
+          const { text, sources, usage } = await generateText({
+            model: searchModel(),
+            system: SEARCH_SYSTEM,
+            prompt: query,
+            providerOptions: {
+              openrouter: {
+                plugins: [
+                  { id: "web", max_results: maxResults ?? AI.chat.search.maxResults },
+                ],
+              },
             },
-          },
-          abortSignal,
-        });
-        return {
-          answer: text,
-          sources: sources
-            .filter((s) => s.sourceType === "url")
-            .map((s) => ({ title: s.title, url: s.url })),
-        };
+            abortSignal,
+          });
+          recordAiCall(convex, {
+            feature: "search",
+            model: AI.chat.search.model,
+            promptTokens: usage.inputTokens,
+            completionTokens: usage.outputTokens,
+            cacheReadTokens: usage.inputTokenDetails.cacheReadTokens,
+            cacheWriteTokens: usage.inputTokenDetails.cacheWriteTokens,
+            latencyMs: Date.now() - startedAt,
+            status: "ok",
+          });
+          return {
+            answer: text,
+            sources: sources
+              .filter((s) => s.sourceType === "url")
+              .map((s) => ({ title: s.title, url: s.url })),
+          };
+        } catch (error) {
+          // A search that fails still spent the round trip, and a lane that only
+          // records its successes reads as reliable however often it breaks.
+          recordAiCall(convex, {
+            feature: "search",
+            model: AI.chat.search.model,
+            latencyMs: Date.now() - startedAt,
+            status: abortSignal?.aborted ? "aborted" : "error",
+            errorCode: error instanceof Error ? error.name : "Unknown",
+          });
+          throw error;
+        }
       },
     }),
 

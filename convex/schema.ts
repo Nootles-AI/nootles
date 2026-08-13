@@ -311,6 +311,8 @@ export default defineSchema({
       v.literal("reformat"),
       v.literal("diagram"),
       v.literal("chat"),
+      /** `search_web`, which is its own model inside a chat turn — see below. */
+      v.literal("search"),
       v.literal("categorize"),
       v.literal("feedback"),
     ),

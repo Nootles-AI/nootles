@@ -16,6 +16,7 @@ export const record = mutation({
       v.literal("reformat"),
       v.literal("diagram"),
       v.literal("chat"),
+      v.literal("search"),
       v.literal("categorize"),
       v.literal("feedback"),
     ),
