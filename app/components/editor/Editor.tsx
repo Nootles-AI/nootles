@@ -11,6 +11,7 @@ import {
   SuggestionMenuController,
   type DefaultReactSuggestionItem,
 } from "@blocknote/react";
+import { autoPlacement, offset, shift, size } from "@floating-ui/react";
 import { useBlockNoteSync } from "@convex-dev/prosemirror-sync/blocknote";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
@@ -62,7 +63,43 @@ function Toolbar() {
   );
 }
 
+/**
+ * A label and about four rows — less room than this below the caret and the
+ * menu is better off above it.
+ */
+const ROOM_FOR_MENU = 200;
 
+/**
+ * BlockNote's own placement for the `/` and `@` menus, with one change.
+ *
+ * Its chain caps the menu at whatever room `size` found on the side
+ * `autoPlacement` picked — and the next pass measures that capped box, so a
+ * menu crushed into the sliver under the last line of a page reads as one that
+ * fits there and never flips above. Holding the cap to `ROOM_FOR_MENU` breaks
+ * the circle: a sliver stops counting as somewhere the menu fits, and the side
+ * with room wins.
+ *
+ * Passing `middleware` replaces theirs rather than extending it, so the rest of
+ * the chain is restated here as they have it.
+ */
+const menuPlacement = {
+  useFloatingOptions: {
+    middleware: [
+      offset(10),
+      autoPlacement({
+        allowedPlacements: ["bottom-start", "top-start"],
+        padding: 10,
+      }),
+      shift(),
+      size({
+        apply({ elements, availableHeight }) {
+          elements.floating.style.maxHeight = `${Math.max(ROOM_FOR_MENU, availableHeight)}px`;
+        },
+        padding: 10,
+      }),
+    ],
+  },
+};
 
 function filterItems(
   items: DefaultReactSuggestionItem[],
@@ -203,6 +240,7 @@ export function Editor({
         <FormattingToolbarController formattingToolbar={Toolbar} />
         <SuggestionMenuController
           triggerCharacter="/"
+          floatingUIOptions={menuPlacement}
           getItems={async (query) =>
             filterItems(
               [...getDefaultReactSlashMenuItems(editor), ...customSlashItems(editor)],
@@ -212,6 +250,7 @@ export function Editor({
         />
         <SuggestionMenuController
           triggerCharacter="@"
+          floatingUIOptions={menuPlacement}
           getItems={async (query) =>
             filterItems(mentionItems(editor, pages ?? []), query)
           }
