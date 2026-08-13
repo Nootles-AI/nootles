@@ -741,7 +741,7 @@ export const HANDLES = [
 ] as const satisfies readonly Handle[];
 
 /** Which edges a handle drives: -1 = left/top, +1 = right/bottom, 0 = neither. */
-const HANDLE_EDGES: Record<Handle, { hx: number; hy: number }> = {
+export const HANDLE_EDGES: Record<Handle, { hx: number; hy: number }> = {
   nw: { hx: -1, hy: -1 },
   n: { hx: 0, hy: -1 },
   ne: { hx: 1, hy: -1 },

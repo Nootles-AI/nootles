@@ -93,9 +93,13 @@ import type { ViewportController } from "./useViewport";
  * except `"diamond"`, which is the four-sided case of `"polygon"` and is a tool
  * of its own only because reaching for a diamond is not the same gesture as
  * reaching for a triangle and then counting up to four.
+ *
+ * `"scale"` is `"move"` with the handles rebound — same selecting, same
+ * dragging, but a handle multiplies the selection instead of restating its box.
  */
 export type CanvasTool =
   | "move"
+  | "scale"
   | "hand"
   | "rect"
   | "ellipse"
@@ -146,6 +150,7 @@ export const SHORTCUT_GROUPS = [
 
 export type ShortcutId =
   | "tool.move"
+  | "tool.scale"
   | "tool.rect"
   | "tool.ellipse"
   | "tool.polygon"
@@ -204,6 +209,7 @@ export interface Shortcut {
 
 export const SHORTCUTS: readonly Shortcut[] = [
   { id: "tool.move", label: "Move", group: "Tools", keys: ["v"] },
+  { id: "tool.scale", label: "Scale", group: "Tools", keys: ["k"] },
   { id: "tool.rect", label: "Rectangle", group: "Tools", keys: ["r"] },
   { id: "tool.ellipse", label: "Ellipse", group: "Tools", keys: ["o"] },
   { id: "tool.polygon", label: "Polygon", group: "Tools", keys: ["g"] },
@@ -898,6 +904,7 @@ export function useCanvasShortcuts({
 
     const commands: Record<ShortcutId, (e: KeyboardEvent) => boolean> = {
       "tool.move": () => setTool("move"),
+      "tool.scale": () => setTool("scale"),
       "tool.rect": () => setTool("rect"),
       "tool.ellipse": () => setTool("ellipse"),
       "tool.polygon": () => setTool("polygon"),

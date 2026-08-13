@@ -1,6 +1,6 @@
 "use client";
 
-import { hasText, type SceneNode } from "../../scene/types";
+import { DEFAULT_FONT_SIZE, hasText, type SceneNode } from "../../scene/types";
 import { ColorField } from "../controls/ColorField";
 import { FontSize, LetterSpacing, LineHeight, TextAlign } from "../controls/glyphs";
 import { IconToggle, type ToggleOption } from "../controls/IconToggle";
@@ -169,7 +169,7 @@ export function TypographySection({ selection, patch, setStyle }: SectionProps) 
           <NumberField
             label={<FontSize />}
             name="Font size"
-            value={num(size, 16)}
+            value={num(size, DEFAULT_FONT_SIZE)}
             mixed={size.mixed}
             unit="px"
             min={1}

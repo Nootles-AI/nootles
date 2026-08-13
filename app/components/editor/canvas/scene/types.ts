@@ -594,6 +594,13 @@ export type SceneOp =
    */
   | { type: "resize"; frames: NodeFrame[] }
   /**
+   * Multiply by `k` about `anchor`, a point in **scene** space. Where a resize
+   * changes a box, this reaches all the way down: a group's children, a
+   * vector's path data and the lengths in every style below the selection take
+   * the same factor, so what comes out is the same drawing at another size.
+   */
+  | { type: "scale"; ids: NodeId[]; k: number; anchor: Point }
+  /**
    * Absolute degrees, applied to each id. Rotating a multi-selection about a
    * shared centre also moves the nodes — emit `rotate` and `move` together.
    */
@@ -725,6 +732,14 @@ export function isGroup(node: SceneNode): node is GroupNode {
 export function isContainer(node: SceneNode): node is GroupNode {
   return node.kind === "group";
 }
+
+/**
+ * The size a label is drawn at when its node names none — the document's own,
+ * inherited through the canvas. Stated once because two places need the same
+ * answer: the style panel, which shows it in an empty font-size field, and a
+ * scale, which has to write it down to take the text with it.
+ */
+export const DEFAULT_FONT_SIZE = 16;
 
 /** Narrows to kinds whose `label` is rendered and serialized. */
 export function hasText(node: SceneNode): node is TextBearingNode {

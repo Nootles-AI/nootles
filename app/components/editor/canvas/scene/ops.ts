@@ -44,9 +44,18 @@ import {
   distributeNodes as distributeMoves,
 } from "./align";
 import { hugSize, hugsOf } from "./autoLayout";
-import { nodeBounds, normalizeAngle, rotateAround, unionBounds } from "./geometry";
+import {
+  absoluteRect,
+  absoluteRotation,
+  nodeBounds,
+  normalizeAngle,
+  rotateAround,
+  toLocal,
+  unionBounds,
+} from "./geometry";
 import { labelText } from "./label";
 import { scalePath } from "./path";
+import { scaledStyle } from "./scale";
 import {
   edgesTouching,
   findNode,
@@ -88,6 +97,8 @@ export function applyOp(scene: Scene, op: SceneOp): Scene {
       return moveNodes(scene, op.ids, op.dx, op.dy);
     case "resize":
       return resizeNodes(scene, op.frames);
+    case "scale":
+      return scaleNodes(scene, op.ids, op.k, op.anchor);
     case "rotate":
       return rotateNodes(scene, op.ids, op.rot);
     case "setStyle":
@@ -296,6 +307,63 @@ export function resizeNodes(scene: Scene, frames: readonly NodeFrame[]): Scene {
 
 /** How far one axis stretched. An axis with no extent has nothing to stretch. */
 const ratio = (to: number, from: number) => (from > 0 && to > 0 ? to / from : 1);
+
+/**
+ * Uniform scale about a point in scene space — the scale tool's landing, and
+ * the verb an AI reaches for to make a diagram bigger.
+ *
+ * Everything under the named nodes comes along: children, path data and the
+ * lengths in every style (see {@link scaledStyle}). Only the anchor is
+ * subtle — a node's `x`/`y` are its parent's, so the pinned point is converted
+ * into each parent's space on the way in. A uniform scale commutes with a
+ * rotation, which is why pinning that one point is all a rotated ancestor
+ * needs.
+ */
+export function scaleNodes(
+  scene: Scene,
+  ids: readonly NodeId[],
+  k: number,
+  anchor: Point,
+): Scene {
+  if (!ids.length || k === 1) return scene;
+  const targets = topMost(scene, ids);
+  return withNodes(
+    scene,
+    mapTree(scene.nodes, targets, (node) => {
+      const parent = findParent(scene, node.id);
+      const pin = parent
+        ? toLocal(anchor, {
+            ...absoluteRect(scene, parent.id),
+            rot: absoluteRotation(scene, parent.id),
+          })
+        : anchor;
+      return patch(scaled(node, k), {
+        x: pin.x + (node.x - pin.x) * k,
+        y: pin.y + (node.y - pin.y) * k,
+      });
+    }),
+  );
+}
+
+/** A node `k` times bigger where it stands — everything but its own `x`/`y`,
+ *  which is the anchor's business. */
+function scaled(node: SceneNode, k: number): SceneNode {
+  const next = patch(node, {
+    w: node.w * k,
+    h: node.h * k,
+    style: scaledStyle(node, k),
+  });
+  if (next.kind === "path") return { ...next, d: scalePath(next.d, k, k) };
+  if (!isGroup(next)) return next;
+  return {
+    ...next,
+    // A child is placed against its parent's box, which just scaled about its
+    // own origin — so the rest of the subtree is one multiplication.
+    children: next.children.map((child) =>
+      patch(scaled(child, k), { x: child.x * k, y: child.y * k }),
+    ),
+  };
+}
 
 /** Sizing an axis by hand makes it fixed, as in Figma — otherwise
  *  {@link reflowHugs} would put the hugged size straight back. */
