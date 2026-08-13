@@ -25,6 +25,7 @@ import { SubstrateHarness } from "./ai/SubstrateHarness";
 import { completionExtension } from "./ai/completionExtension";
 import { hintExtension } from "./ai/hintText";
 import { reviewExtension } from "./ai/reviewExtension";
+import { listBackspaceExtension } from "./listBackspace";
 import { ReviewOverlay } from "./ai/ReviewOverlay";
 import { track } from "@/app/lib/telemetry";
 import { useTabCompletion, type PageMode } from "./ai/useTabCompletion";
@@ -166,7 +167,12 @@ export function Editor({
   const sync = useBlockNoteSync<EditorInstance>(api.prosemirror, docId, {
     editorOptions: {
       schema,
-      extensions: [completionExtension, reviewExtension, hintExtension],
+      extensions: [
+        completionExtension,
+        listBackspaceExtension,
+        reviewExtension,
+        hintExtension,
+      ],
     },
   });
 
