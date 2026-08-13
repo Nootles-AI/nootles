@@ -22,6 +22,15 @@
  *   node scripts/implement.mjs decline <number> <reason>
  *   node scripts/implement.mjs fail <number> <reason>
  *   node scripts/implement.mjs finish [file]
+ *
+ * The last two commands serve the attended routine (`.claude/skills/ticket`),
+ * where a person picked the ticket and is reading the diff as it is written.
+ * They are outside the ledger entirely — no run, no session, no recorded
+ * attempt — because a session someone sat through is not the machine's night
+ * work, and the Agent page should not say it was.
+ *
+ *   node scripts/implement.mjs show <number>
+ *   node scripts/implement.mjs check [number] [body-file]
  */
 
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
@@ -476,6 +485,143 @@ async function finish(file) {
   );
 }
 
+// ---- The attended commands -------------------------------------------------
+
+/**
+ * One named ticket, with everything known about it.
+ *
+ * The queue's gates — the score threshold, the cooling window, `agentSkip`, a
+ * previous attempt — are not applied here. They keep an unattended routine off
+ * work it cannot judge, and someone asking for this ticket by name has already
+ * made that judgement. They are reported instead, since why the nightly
+ * routine passed a ticket over is worth knowing before you take it.
+ */
+async function show(number) {
+  const n = Number(number);
+  const { user, password } = credentials();
+  const token = await mutation("admin:login", { username: user, password });
+  try {
+    const t = await query("admin:feedbackByNumber", { token, number: n });
+    if (!t) {
+      console.error(`implement: NT-${n} does not exist.`);
+      process.exit(2);
+    }
+
+    let screenshot = null;
+    if (t.screenshotUrl) {
+      try {
+        const res = await fetch(t.screenshotUrl);
+        if (res.ok) {
+          await mkdir(SHOTS, { recursive: true });
+          screenshot = path.join(SHOTS, `NT-${n}.png`);
+          await writeFile(screenshot, Buffer.from(await res.arrayBuffer()));
+        }
+      } catch {
+        screenshot = null;
+      }
+    }
+
+    console.log(
+      JSON.stringify(
+        {
+          number: n,
+          name: canonicalName(n, ""),
+          status: t.status,
+          kind: t.kind,
+          category: t.category ?? "general",
+          priority: t.priority ?? null,
+          text: t.text,
+          reporter: t.email ?? t.ownerId,
+          filedAt: new Date(t.createdAt).toISOString(),
+          triageScore: t.triageScore ?? null,
+          triageNotes: t.triageNotes ?? null,
+          agentSkip: t.agentSkip ?? false,
+          agentOutcome: t.agentOutcome ?? null,
+          duplicateOf: t.duplicateOfNumber
+            ? canonicalName(t.duplicateOfNumber, "")
+            : null,
+          duplicates: t.duplicateNumbers.map((d) => canonicalName(d, "")),
+          prs: t.prs.map((p) => ({
+            title: p.title,
+            url: p.url,
+            state: p.state,
+            agentFiled: p.agentFiled,
+          })),
+          consoleLog: t.consoleLog ?? null,
+          recentOps: t.recentOps ?? null,
+          env: t.env,
+          screenshot,
+        },
+        null,
+        2,
+      ),
+    );
+  } finally {
+    await mutation("admin:logout", { token });
+  }
+}
+
+/**
+ * Everything `file` would refuse over, said out loud instead.
+ *
+ * The attended routine opens its own pull request, because the person driving
+ * it is the review the deny list stands in for at night. What is mechanical
+ * stays mechanical though: `tsc` and `eslint` are the floor either way, and the
+ * rest — a denied path, a diff too wide to be one ticket, an unargued canvas
+ * round-trip — is better heard here than from a reviewer.
+ */
+function check(number, bodyFile) {
+  const files = changedFiles();
+  const blocking = [];
+  const advisory = [];
+
+  if (files.length === 0) {
+    // Both this and the pull request read committed history, so uncommitted
+    // work looks identical to no work. Say which one it is.
+    const dirty = sh("git", ["status", "--porcelain"]).trim();
+    blocking.push(
+      dirty
+        ? "nothing is committed on this branch — the pull request would be empty"
+        : "the branch changes nothing",
+    );
+  }
+  const gates = checkGates();
+  if (gates) blocking.push(gates);
+
+  const denied = files.filter((f) => DENY.some((re) => re.test(f)));
+  if (denied.length) {
+    advisory.push(
+      `touches what the nightly routine may not: ${denied.join(", ")} — docs/agent-allowlist.md says why, and the pull request body should answer it`,
+    );
+  }
+  if (files.length > MAX_FILES) {
+    advisory.push(
+      `changes ${files.length} files, over the ${MAX_FILES} a ticket fix should need`,
+    );
+  }
+
+  const touched = roundTripFiles(files);
+  const body =
+    bodyFile && existsSync(bodyFile) ? readFileSync(bodyFile, "utf8") : "";
+  if (touched.length && !/round.?trip/i.test(body)) {
+    advisory.push(
+      `changes the canvas round-trip (${touched.join(", ")}) without the body saying how serialize(parse(html)) === html still holds`,
+    );
+  }
+
+  if (number) {
+    const branch = sh("git", ["rev-parse", "--abbrev-ref", "HEAD"]).trim();
+    if (!new RegExp(`^NT-${Number(number)}(?:_|$)`, "i").test(branch)) {
+      advisory.push(
+        `on branch "${branch}", which does not begin "NT-${Number(number)}_" — the poller links pull requests by that title, so this one would never find its ticket`,
+      );
+    }
+  }
+
+  console.log(JSON.stringify({ files, blocking, advisory }, null, 2));
+  if (blocking.length) process.exit(1);
+}
+
 const [command, ...rest] = process.argv.slice(2);
 try {
   if (command === "start") await start();
@@ -484,9 +630,11 @@ try {
   else if (command === "decline") await record(rest[0], "declined", rest[1]);
   else if (command === "fail") await record(rest[0], "failed", rest[1]);
   else if (command === "finish") await finish(rest[0]);
+  else if (command === "show") await show(rest[0]);
+  else if (command === "check") check(rest[0], rest[1]);
   else {
     console.error(
-      "usage: implement.mjs start | name <n> <slug> | file <n> <slug> <body> | decline <n> <why> | fail <n> <why> | finish [file]",
+      "usage: implement.mjs start | name <n> <slug> | file <n> <slug> <body> | decline <n> <why> | fail <n> <why> | finish [file] | show <n> | check [n] [body]",
     );
     process.exit(2);
   }
