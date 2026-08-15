@@ -129,6 +129,17 @@ function customSlashItems(editor: EditorInstance): DefaultReactSuggestionItem[] 
       },
     },
     {
+      title: "Album",
+      subtext: "Photos and videos, in a waterfall",
+      aliases: ["album", "photos", "gallery", "waterfall", "masonry", "images", "video", "media"],
+      group: "Media",
+      onItemClick: () => {
+        const block = editor.getTextCursorPosition().block;
+        editor.updateBlock(block, { type: "album", props: { data: "" } });
+        track("block_created", { type: "album" });
+      },
+    },
+    {
       title: "Inline code",
       subtext: "Format text as code, for variable names",
       aliases: ["code", "inline code", "mono", "variable", "`"],

@@ -1,3 +1,5 @@
+import { parseAlbum } from "@/app/components/editor/album/parse";
+import { serializeAlbum } from "@/app/components/editor/album/serialize";
 import { adoptScene } from "@/app/components/editor/canvas/scene/adopt";
 import { parseScene } from "@/app/components/editor/canvas/scene/parse";
 import { serializeScene } from "@/app/components/editor/canvas/scene/serialize";
@@ -75,6 +77,11 @@ function canvasData(html: string): string {
   return serializeScene({ ...adoptScene(parseScene(html)), id: undefined });
 }
 
+/** An album as the block stores it, for the same reason and by the same route. */
+function albumData(html: string): string {
+  return serializeAlbum({ ...parseAlbum(html), id: undefined });
+}
+
 function propsOf(node: DocNode): Record<string, string | number | boolean> | undefined {
   if (node.type === "heading") return { level: node.level ?? 2 };
   if (node.type === "checkListItem") return { checked: node.checked ?? false };
@@ -84,6 +91,7 @@ function propsOf(node: DocNode): Record<string, string | number | boolean> | und
   if (node.type === "codeBlock") return { language: node.language, code: node.code };
   if (node.type === "mathBlock") return { source: node.rows.join("\n") };
   if (node.type === "canvas") return { data: canvasData(node.html) };
+  if (node.type === "album") return { data: albumData(node.html) };
   if (MEDIA.has(node.type) && "url" in node) {
     return {
       ...(node.url !== undefined ? { url: node.url } : {}),
@@ -169,6 +177,16 @@ function updateOps(next: DocNode, current: DocNode): Operation[] {
     // shape there is nothing for that granularity to buy.
     const data = canvasData(next.html);
     if (data !== canvasData(current.html)) {
+      ops.push({ kind: "updateBlockProps", blockId: id, props: { data } });
+    }
+    return ops;
+  }
+
+  if (next.type === "album" && current.type === "album") {
+    // Whole-album, for the same reason a diagram is whole-diagram: review
+    // answers a hunk at a time, and one picture is not a hunk.
+    const data = albumData(next.html);
+    if (data !== albumData(current.html)) {
       ops.push({ kind: "updateBlockProps", blockId: id, props: { data } });
     }
     return ops;

@@ -356,6 +356,11 @@ function elementToNode(el: Element, raw: string[]): DocNode | null {
   // opinion about a document that already has one.
   if (tag === "nt-diagram") return { type: "canvas", id, html: el.outerHTML };
 
+  // The same bargain for an album. It is deliberately not a TRANSPARENT
+  // container: an `<img>` inside one is an item of the album, and walking into
+  // it would turn a five-picture album into five image blocks.
+  if (tag === "nt-album") return { type: "album", id, html: el.outerHTML };
+
   return null;
 }
 

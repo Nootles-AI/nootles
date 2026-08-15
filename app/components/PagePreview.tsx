@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import { parseAlbum } from "@/app/components/editor/album/parse";
 import type { AnyBlock } from "@/app/lib/ai/projection";
 
 /**
@@ -234,6 +235,27 @@ function Block({
           <ThumbDiagram data={String(props.data ?? "")} />
         </div>
       );
+
+    case "album": {
+      // The first few, in a row. Not the waterfall in miniature: at this size
+      // the packing is invisible and what identifies the block is that the page
+      // has pictures on it. A video shows its poster, or the well behind it.
+      const items = parseAlbum(String(props.data ?? "")).items.slice(0, 3);
+      if (!items.length) return <span className="nt-thumb-media" />;
+      return (
+        <span className="nt-thumb-album">
+          {items.map((item, i) => {
+            const src = item.kind === "video" ? item.poster : item.src;
+            return src ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img key={i} src={src} alt="" style={{ aspectRatio: `${item.w} / ${item.h}` }} />
+            ) : (
+              <span key={i} />
+            );
+          })}
+        </span>
+      );
+    }
 
     case "table":
       return <Table content={block.content} />;
