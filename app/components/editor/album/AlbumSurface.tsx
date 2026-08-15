@@ -25,7 +25,7 @@ import {
   type Album,
   type AlbumItem,
 } from "./types";
-import { columnsFor, layout, type Box } from "./waterfall";
+import { columnsFor, dropIndex, layout, type Box } from "./waterfall";
 import "./album.css";
 
 /**
@@ -46,6 +46,7 @@ import "./album.css";
 
 /** Pointer past this and a press on a tile was a drag, not a click. */
 const DRAG_SLOP = 4;
+
 
 /** A pointer drag, with its listeners removed however it ends. */
 function drag(onMove: (event: PointerEvent) => void, onEnd: () => void): void {
@@ -79,12 +80,6 @@ function watchPlayback(entries: IntersectionObserverEntry[]): void {
     if (entry.isIntersecting) void video.play().catch(() => {});
     else video.pause();
   }
-}
-
-function move<T>(list: T[], from: number, to: number): T[] {
-  const next = list.slice();
-  next.splice(to, 0, ...next.splice(from, 1));
-  return next;
 }
 
 /** One column wide is the default, and a default is written by omission. */
@@ -121,9 +116,12 @@ export function AlbumSurface({
     latest.current = onChange;
   });
 
+  /** Writes the album back, and hands back the source it just became. */
   const commit = useCallback((next: Album) => {
     view.current = next;
-    latest.current(serializeAlbum(next));
+    const text = serializeAlbum(next);
+    latest.current(text);
+    return text;
   }, []);
 
   // Measured, not derived: the column count follows the room the block was
@@ -159,18 +157,26 @@ export function AlbumSurface({
   const [refused, setRefused] = useState<string | null>(null);
   const [over, setOver] = useState(false);
   const [open, setOpen] = useState<number | null>(null);
-  /** The order being dragged into. Null except during a reorder. */
-  const [order, setOrder] = useState<AlbumItem[] | null>(null);
+  /**
+   * What a gesture is showing, and the source it is showing it INSTEAD of.
+   *
+   * Both of these outlive the gesture on purpose. A commit does not reach this
+   * component as a prop until the editor has been round a render, so dropping
+   * the preview the instant the pointer came up put one frame of the old order
+   * on screen before the new one arrived — the flash. Keyed to a source, the
+   * preview simply stops applying once the document says the same thing, and
+   * nothing has to decide when that was.
+   */
+  const [order, setOrder] = useState<{ from: string; items: AlbumItem[] } | null>(null);
+  const [sizing, setSizing] = useState<{ from: string; item: AlbumItem; span: number } | null>(null);
   /** The tile being carried, and where it was when it was picked up. */
   const [held, setHeld] = useState<{ item: AlbumItem; x: number; y: number } | null>(null);
-  /** The picture being made wider, and how wide it is at this instant. */
-  const [sizing, setSizing] = useState<{ item: AlbumItem; span: number } | null>(null);
 
   const items = useMemo(() => {
-    const base = order ?? album.items;
-    if (!sizing) return base;
+    const base = order?.from === source ? order.items : album.items;
+    if (sizing?.from !== source) return base;
     return base.map((item) => (item === sizing.item ? { ...item, span: sizing.span } : item));
-  }, [order, album.items, sizing]);
+  }, [order, sizing, source, album.items]);
 
   // Outlines are laid out with the pictures, not after them: a file's shape is
   // known before its bytes are, so the tile it will occupy is already in place
@@ -226,30 +232,30 @@ export function AlbumSurface({
     });
   };
 
-  /** Which tile the pointer is over, in the order currently on screen. */
-  const tileUnder = (event: PointerEvent): number | null => {
-    const el = document
-      .elementFromPoint(event.clientX, event.clientY)
-      ?.closest<HTMLElement>("[data-idx]");
-    if (!el || !wrap.current?.contains(el)) return null;
-    const index = Number(el.dataset.idx);
-    return Number.isInteger(index) ? index : null;
-  };
-
   /**
    * One gesture, two meanings: a press that goes nowhere opens the picture, and
-   * a press that travels carries it. The tile follows the pointer while the
-   * others move aside, so the album always shows what letting go would do.
+   * a press that travels carries it.
+   *
+   * What is on screen during the carry is the list that would be written if the
+   * pointer came up now — built here, shown by the waterfall, and committed
+   * unchanged on release. There is no separate idea of "where the drop line is"
+   * that could disagree with the result.
    */
   const grab = (event: ReactPointerEvent, index: number) => {
     if (event.button !== 0) return;
     const el = event.currentTarget as HTMLElement;
+    const stage = el.parentElement;
     const startX = event.clientX;
     const startY = event.clientY;
     const from = boxes[index];
+    const carried = items[index];
+
     let dragging = false;
-    let list = items.slice();
-    let at = index;
+    /** The album without the carried picture, and where those tiles sit. */
+    let rest: AlbumItem[] = [];
+    let restBoxes: readonly Box[] = [];
+    let insertion = index;
+    let preview = items;
 
     drag(
       (moved) => {
@@ -260,7 +266,10 @@ export function AlbumSurface({
           // loses only the half of the gesture that would rewrite the document.
           if (readOnly || Math.abs(dx) + Math.abs(dy) < DRAG_SLOP) return;
           dragging = true;
-          setHeld({ item: list[at], x: from.x, y: from.y });
+          rest = items.filter((item) => item !== carried);
+          // Frozen for the whole drag. See `dropIndex`.
+          restBoxes = layout(rest, room, columns).boxes;
+          setHeld({ item: carried, x: from.x, y: from.y });
         }
         // Straight to the element. React owns where the tile was picked up
         // from; this pair is the distance it has been carried since, and the
@@ -269,30 +278,42 @@ export function AlbumSurface({
         el.style.setProperty("--dx", `${dx}px`);
         el.style.setProperty("--dy", `${dy}px`);
 
-        const to = tileUnder(moved);
-        if (to === null || to === at) return;
-        list = move(list, at, to);
-        at = to;
-        setOrder(list);
+        const rect = stage?.getBoundingClientRect();
+        if (!rect) return;
+        const next = dropIndex(
+          { x: moved.clientX - rect.left, y: moved.clientY - rect.top },
+          restBoxes,
+          columns,
+          insertion,
+        );
+        // The only thing that re-renders the album during a drag, and it can
+        // only happen when the answer actually changes.
+        if (next === insertion) return;
+        insertion = next;
+        preview = [...rest.slice(0, insertion), carried, ...rest.slice(insertion)];
+        setOrder({ from: source, items: preview });
       },
       () => {
         el.style.removeProperty("--dx");
         el.style.removeProperty("--dy");
-        if (!dragging) setOpen(at);
-        else {
-          // A photo can land from an upload while a drag is in flight, and the
-          // list being carried has never heard of it. Anything that arrived
-          // meanwhile is kept, on the end where it was appended; a list that no
-          // longer describes this album at all — an undo, an AI edit — drops
-          // the reorder rather than writing the album back as it used to be.
-          const settled = view.current.items;
-          const arrived = settled.filter((item) => !list.includes(item));
-          if (list.every((item) => settled.includes(item))) {
-            commit({ ...view.current, items: [...list, ...arrived] });
-          }
-        }
-        setOrder(null);
         setHeld(null);
+        if (!dragging) {
+          setOpen(index);
+          return;
+        }
+        // A photo can land from an upload while a drag is in flight, and the
+        // list being carried has never heard of it. Anything that arrived
+        // meanwhile is kept, on the end where it was appended; a list that no
+        // longer describes this album at all — an undo, an AI edit — drops the
+        // reorder rather than writing the album back as it used to be.
+        const settled = view.current.items;
+        const arrived = settled.filter((item) => !preview.includes(item));
+        if (!preview.every((item) => settled.includes(item))) {
+          setOrder(null);
+          return;
+        }
+        const landed = [...preview, ...arrived];
+        setOrder({ from: commit({ ...view.current, items: landed }), items: landed });
       },
     );
   };
@@ -323,18 +344,24 @@ export function AlbumSurface({
         );
         if (next === span) return;
         span = next;
-        setSizing({ item, span });
+        setSizing({ from: source, item, span });
       },
       () => {
-        if (span !== (item.span ?? 1)) {
-          commit({
-            ...view.current,
-            items: view.current.items.map((it) =>
-              it === item ? withSpan(it, span) : it,
-            ),
-          });
+        if (span === (item.span ?? 1)) {
+          setSizing(null);
+          return;
         }
-        setSizing(null);
+        const widened = view.current.items.map((it) =>
+          it === item ? withSpan(it, span) : it,
+        );
+        // Kept, keyed to what the document now says, for the same reason the
+        // reorder keeps its preview: dropping it here would show the old width
+        // for the one frame before the new source arrives.
+        setSizing({
+          from: commit({ ...view.current, items: widened }),
+          item,
+          span,
+        });
       },
     );
   };
@@ -545,7 +572,6 @@ function Tile({
   return (
     <div
       className={`nt-album-tile${held ? " is-held" : ""}`}
-      data-idx={index}
       style={place(box)}
       onPointerDown={(event) => onGrab(event, index)}
     >
