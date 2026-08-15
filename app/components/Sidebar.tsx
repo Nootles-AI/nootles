@@ -180,7 +180,10 @@ export function Sidebar({
           </button>
         </div>
 
-        <ul ref={listRef} className="relative space-y-px">
+        <ul
+          ref={listRef}
+          className={`nt-pages relative space-y-px${otherPageId ? " is-split" : ""}`}
+        >
           {sortedPages?.length === 0 && (
             <li className="px-2 py-1 text-[13px] text-muted">
               No pages yet — press + to add one.
