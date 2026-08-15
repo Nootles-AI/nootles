@@ -160,23 +160,32 @@ export function AlbumSurface({
   /**
    * What a gesture is showing, and the source it is showing it INSTEAD of.
    *
-   * Both of these outlive the gesture on purpose. A commit does not reach this
-   * component as a prop until the editor has been round a render, so dropping
-   * the preview the instant the pointer came up put one frame of the old order
-   * on screen before the new one arrived — the flash. Keyed to a source, the
-   * preview simply stops applying once the document says the same thing, and
-   * nothing has to decide when that was.
+   * Two rules, and both are load-bearing.
+   *
+   * A preview OUTLIVES its gesture. A commit does not reach this component as a
+   * prop until the editor has been round a render, so dropping the preview the
+   * instant the pointer came up put one frame of the old arrangement on screen
+   * before the new one arrived. Keyed to a source, a preview simply stops
+   * applying once the document says the same thing, and nothing has to decide
+   * when that was.
+   *
+   * And a picture is named by its POSITION, never by its object. Committing
+   * re-serializes the album and the prop comes back to be parsed again, so
+   * every object here is replaced on every commit — an `item === item` test
+   * holds for the first gesture and silently fails for every one after it,
+   * which is a change that quietly does nothing rather than a change that
+   * breaks. Indices survive the round trip; identities do not.
    */
-  const [order, setOrder] = useState<{ from: string; items: AlbumItem[] } | null>(null);
-  const [sizing, setSizing] = useState<{ from: string; item: AlbumItem; span: number } | null>(null);
-  /** The tile being carried, and where it was when it was picked up. */
-  const [held, setHeld] = useState<{ item: AlbumItem; x: number; y: number } | null>(null);
+  const [preview, setPreview] = useState<{ from: string; items: AlbumItem[] } | null>(null);
+  const [sizing, setSizing] = useState<{ from: string; at: number; span: number } | null>(null);
+  /** The tile in the hand: where it is in the list, and where it was picked up. */
+  const [carry, setCarry] = useState<{ at: number; x: number; y: number } | null>(null);
 
   const items = useMemo(() => {
-    const base = order?.from === source ? order.items : album.items;
+    const base = preview?.from === source ? preview.items : album.items;
     if (sizing?.from !== source) return base;
-    return base.map((item) => (item === sizing.item ? { ...item, span: sizing.span } : item));
-  }, [order, sizing, source, album.items]);
+    return base.map((item, i) => (i === sizing.at ? { ...item, span: sizing.span } : item));
+  }, [preview, sizing, source, album.items]);
 
   // Outlines are laid out with the pictures, not after them: a file's shape is
   // known before its bytes are, so the tile it will occupy is already in place
@@ -248,14 +257,15 @@ export function AlbumSurface({
     const startX = event.clientX;
     const startY = event.clientY;
     const from = boxes[index];
-    const carried = items[index];
+    /** What was on screen when the picture was picked up. */
+    const started = items;
+    const carried = started[index];
+    const rest = started.filter((_, i) => i !== index);
 
     let dragging = false;
-    /** The album without the carried picture, and where those tiles sit. */
-    let rest: AlbumItem[] = [];
     let restBoxes: readonly Box[] = [];
     let insertion = index;
-    let preview = items;
+    let shown = started;
 
     drag(
       (moved) => {
@@ -266,10 +276,9 @@ export function AlbumSurface({
           // loses only the half of the gesture that would rewrite the document.
           if (readOnly || Math.abs(dx) + Math.abs(dy) < DRAG_SLOP) return;
           dragging = true;
-          rest = items.filter((item) => item !== carried);
           // Frozen for the whole drag. See `dropIndex`.
           restBoxes = layout(rest, room, columns).boxes;
-          setHeld({ item: carried, x: from.x, y: from.y });
+          setCarry({ at: index, x: from.x, y: from.y });
         }
         // Straight to the element. React owns where the tile was picked up
         // from; this pair is the distance it has been carried since, and the
@@ -290,30 +299,38 @@ export function AlbumSurface({
         // only happen when the answer actually changes.
         if (next === insertion) return;
         insertion = next;
-        preview = [...rest.slice(0, insertion), carried, ...rest.slice(insertion)];
-        setOrder({ from: source, items: preview });
+        shown = [...rest.slice(0, insertion), carried, ...rest.slice(insertion)];
+        setPreview({ from: source, items: shown });
+        setCarry({ at: insertion, x: from.x, y: from.y });
       },
       () => {
         el.style.removeProperty("--dx");
         el.style.removeProperty("--dy");
-        setHeld(null);
+        setCarry(null);
         if (!dragging) {
           setOpen(index);
           return;
         }
         // A photo can land from an upload while a drag is in flight, and the
-        // list being carried has never heard of it. Anything that arrived
-        // meanwhile is kept, on the end where it was appended; a list that no
-        // longer describes this album at all — an undo, an AI edit — drops the
-        // reorder rather than writing the album back as it used to be.
-        const settled = view.current.items;
-        const arrived = settled.filter((item) => !preview.includes(item));
-        if (!preview.every((item) => settled.includes(item))) {
-          setOrder(null);
+        // list being carried has never heard of it. Uploads only ever append,
+        // so whatever sits past the end of the list this drag started from is
+        // exactly what arrived, and it keeps its place at the back. An album
+        // that got SHORTER underneath — an undo, an AI edit — is no longer the
+        // album this reorder describes, so the reorder is dropped rather than
+        // used to write a deleted picture back.
+        // Put back where it came from. Nothing to write, and writing it anyway
+        // would put an undo step in the way of whatever came before.
+        if (shown.every((item, i) => item === started[i])) {
+          setPreview(null);
           return;
         }
-        const landed = [...preview, ...arrived];
-        setOrder({ from: commit({ ...view.current, items: landed }), items: landed });
+        const settled = view.current.items;
+        if (settled.length < started.length) {
+          setPreview(null);
+          return;
+        }
+        const landed = [...shown, ...settled.slice(started.length)];
+        setPreview({ from: commit({ ...view.current, items: landed }), items: landed });
       },
     );
   };
@@ -330,9 +347,9 @@ export function AlbumSurface({
     if (readOnly || event.button !== 0) return;
     event.preventDefault();
     event.stopPropagation();
-    const item = items[index];
+    const was = items[index].span ?? 1;
     const startX = event.clientX;
-    const startSpan = Math.min(columns, item.span ?? 1);
+    const startSpan = Math.min(columns, was);
     const step = (room - GAP * (columns - 1)) / columns + GAP;
     let span = startSpan;
 
@@ -344,22 +361,22 @@ export function AlbumSurface({
         );
         if (next === span) return;
         span = next;
-        setSizing({ from: source, item, span });
+        setSizing({ from: source, at: index, span });
       },
       () => {
-        if (span === (item.span ?? 1)) {
+        if (span === was || index >= view.current.items.length) {
           setSizing(null);
           return;
         }
-        const widened = view.current.items.map((it) =>
-          it === item ? withSpan(it, span) : it,
+        const widened = view.current.items.map((item, i) =>
+          i === index ? withSpan(item, span) : item,
         );
         // Kept, keyed to what the document now says, for the same reason the
         // reorder keeps its preview: dropping it here would show the old width
         // for the one frame before the new source arrives.
         setSizing({
           from: commit({ ...view.current, items: widened }),
-          item,
+          at: index,
           span,
         });
       },
@@ -405,7 +422,7 @@ export function AlbumSurface({
       ref={wrap}
       className={`nt-album${over ? " is-over" : ""}${empty ? " is-empty" : ""}${
         readOnly ? " is-view" : ""
-      }${held ? " is-carrying" : ""}${stillness ? " is-still" : ""}`}
+      }${carry ? " is-carrying" : ""}${stillness ? " is-still" : ""}`}
       contentEditable={false}
       style={album.w ? { width: album.w } : undefined}
       onDragOver={(event) => {
@@ -450,11 +467,11 @@ export function AlbumSurface({
               // Frozen where it was picked up: the tile is being carried by the
               // pointer now, and its place in the list is no longer where it is.
               box={
-                held?.item === item
-                  ? { ...boxes[index], x: held.x, y: held.y }
+                carry?.at === index
+                  ? { ...boxes[index], x: carry.x, y: carry.y }
                   : boxes[index]
               }
-              held={held?.item === item}
+              held={carry?.at === index}
               columns={columns}
               autoplay={!stillness}
               observer={observer}
