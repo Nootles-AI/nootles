@@ -10,6 +10,7 @@ import {
   type CSSProperties,
   type PointerEvent as ReactPointerEvent,
 } from "react";
+import { createPortal } from "react-dom";
 import {
   DndContext,
   DragOverlay,
@@ -204,6 +205,12 @@ export function AlbumSurface({
   const [over, setOver] = useState(false);
   const [open, setOpen] = useState<number | null>(null);
   const [dragged, setDragged] = useState<string | null>(null);
+  /**
+   * When the last drag ended. A drag that finishes over the tile it started on
+   * still produces a click, and opening the picture every time somebody nudged
+   * one would be its own bug.
+   */
+  const dropped = useRef(0);
 
   /**
    * What a gesture is showing, and the source it is showing it INSTEAD of.
@@ -273,6 +280,11 @@ export function AlbumSurface({
 
   const onDragStart = ({ active }: DragStartEvent) => setDragged(String(active.id));
 
+  const openPicture = (index: number) => {
+    if (performance.now() - dropped.current < 250) return;
+    setOpen(index);
+  };
+
   /**
    * dnd-kit says when the answer changed; this only has to write it down. The
    * list built here is what is on screen AND what gets committed, so there is
@@ -289,6 +301,7 @@ export function AlbumSurface({
 
   const onDragEnd = ({ over: target }: DragEndEvent) => {
     setDragged(null);
+    dropped.current = performance.now();
     if (!target) {
       setPreview(null);
       return;
@@ -450,6 +463,7 @@ export function AlbumSurface({
           onDragEnd={onDragEnd}
           onDragCancel={() => {
             setDragged(null);
+            dropped.current = performance.now();
             setPreview(null);
           }}
         >
@@ -466,7 +480,7 @@ export function AlbumSurface({
                   autoplay={!stillness}
                   observer={observer}
                   readOnly={readOnly}
-                  onOpen={setOpen}
+                  onOpen={openPicture}
                   onStretch={stretch}
                   onRemove={remove}
                 />
@@ -484,17 +498,28 @@ export function AlbumSurface({
 
           {/* The copy under the cursor. dnd-kit places it and animates it back
               into the waterfall on release; the tile it came from stays where
-              it would land, faded, which is the whole preview. */}
-          <DragOverlay>
-            {carried >= 0 && boxes[carried] ? (
-              <div
-                className="nt-album-carried"
-                style={{ width: boxes[carried].w, height: boxes[carried].h }}
-              >
-                <Picture item={items[carried]} />
-              </div>
-            ) : null}
-          </DragOverlay>
+              it would land, faded, which is the whole preview.
+
+              Portalled to the body, and that is not tidiness. The overlay is
+              positioned `fixed` at the tile's VIEWPORT coordinates, and any
+              ancestor with a transform, a filter or containment re-bases those
+              coordinates onto itself — so left where it was written, the
+              picture is picked up a whole block away from the pointer. At the
+              top of the document there is nothing left to re-base it. */}
+          {typeof document !== "undefined" &&
+            createPortal(
+              <DragOverlay>
+                {carried >= 0 && boxes[carried] ? (
+                  <div
+                    className="nt-album-carried"
+                    style={{ width: boxes[carried].w, height: boxes[carried].h }}
+                  >
+                    <Picture item={items[carried]} />
+                  </div>
+                ) : null}
+              </DragOverlay>,
+              document.body,
+            )}
         </DndContext>
       )}
 
