@@ -7,6 +7,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { useConvex } from "convex/react";
@@ -16,37 +17,38 @@ import { useReadOnly } from "../readOnly";
 import { Lightbox } from "./Lightbox";
 import { parseAlbum } from "./parse";
 import { serializeAlbum } from "./serialize";
-import { ALBUM_ACCEPT, ingest, type Progress } from "./upload";
+import { ALBUM_ACCEPT, ingest, type Pending } from "./upload";
 import {
   ALBUM_GUTTER,
   ALBUM_MIN_W,
+  GAP,
   type Album,
   type AlbumItem,
 } from "./types";
-import { columnsFor, packColumns } from "./waterfall";
+import { columnsFor, layout, type Box } from "./waterfall";
 import "./album.css";
 
 /**
  * The album block, assembled.
  *
  * The block's own source is the one thing that lives here: an album is a list
- * and a width, and every gesture — dropping files, removing one, dragging one
- * past another, widening the block — ends in one re-serialized album written
- * back onto the block. There are no ops and no store, because there is nothing
- * a diagram's scene has that a list of pictures needs.
+ * and a width, and every gesture — dropping files, removing a picture, dragging
+ * one past another, making one wider, widening the block — ends in one
+ * re-serialized album written back onto the block.
  *
- * The waterfall itself is in `waterfall.ts`, and it is pure: aspect ratios in,
- * column assignments out. Nothing here measures a picture.
+ * Every tile is absolutely positioned from a box the packer computed, which is
+ * what makes the two things that move move WELL: a reorder or a change of
+ * column count is a change of coordinates, so the tiles transition to their new
+ * places instead of being re-laid-out underneath the eye. The tile being
+ * dragged is the exception — it follows the pointer, written straight to the
+ * DOM through a pair of custom properties so that carrying it costs no renders.
  */
 
 /** Pointer past this and a press on a tile was a drag, not a click. */
 const DRAG_SLOP = 4;
 
 /** A pointer drag, with its listeners removed however it ends. */
-function drag(
-  onMove: (event: PointerEvent) => void,
-  onEnd: () => void,
-): void {
+function drag(onMove: (event: PointerEvent) => void, onEnd: () => void): void {
   const up = () => {
     window.removeEventListener("pointermove", onMove);
     window.removeEventListener("pointerup", up);
@@ -85,6 +87,12 @@ function move<T>(list: T[], from: number, to: number): T[] {
   return next;
 }
 
+/** One column wide is the default, and a default is written by omission. */
+function withSpan(item: AlbumItem, span: number): AlbumItem {
+  const { span: _wasSpan, ...rest } = item;
+  return span > 1 ? { ...rest, span } : rest;
+}
+
 export function AlbumSurface({
   source,
   onChange,
@@ -119,8 +127,9 @@ export function AlbumSurface({
   }, []);
 
   // Measured, not derived: the column count follows the room the block was
-  // given, and only the element knows what that is. Laid out before paint so
-  // the first frame is already the right number of columns.
+  // given, and only the element knows what that is. Read before paint, so the
+  // first frame is already the right arrangement rather than an animation into
+  // it from a one-column guess.
   const [width, setWidth] = useState(0);
   useLayoutEffect(() => {
     const el = wrap.current;
@@ -146,24 +155,39 @@ export function AlbumSurface({
     [],
   );
 
-  const [progress, setProgress] = useState<Progress | null>(null);
+  const [pending, setPending] = useState<Pending[]>([]);
   const [refused, setRefused] = useState<string | null>(null);
   const [over, setOver] = useState(false);
   const [open, setOpen] = useState<number | null>(null);
   /** The order being dragged into. Null except during a reorder. */
   const [order, setOrder] = useState<AlbumItem[] | null>(null);
-  const [held, setHeld] = useState<AlbumItem | null>(null);
+  /** The tile being carried, and where it was when it was picked up. */
+  const [held, setHeld] = useState<{ item: AlbumItem; x: number; y: number } | null>(null);
+  /** The picture being made wider, and how wide it is at this instant. */
+  const [sizing, setSizing] = useState<{ item: AlbumItem; span: number } | null>(null);
 
-  const items = order ?? album.items;
-  const columns = columnsFor(width || ALBUM_MIN_W, items.length);
-  const packed = useMemo(() => packColumns(items, columns), [items, columns]);
+  const items = useMemo(() => {
+    const base = order ?? album.items;
+    if (!sizing) return base;
+    return base.map((item) => (item === sizing.item ? { ...item, span: sizing.span } : item));
+  }, [order, album.items, sizing]);
+
+  // Outlines are laid out with the pictures, not after them: a file's shape is
+  // known before its bytes are, so the tile it will occupy is already in place
+  // and the arriving picture displaces nothing.
+  const tiled = useMemo(() => [...items, ...pending], [items, pending]);
+  const room = width || ALBUM_MIN_W;
+  const columns = columnsFor(room, tiled);
+  const { boxes, height } = useMemo(
+    () => layout(tiled, room, columns),
+    [tiled, room, columns],
+  );
 
   /**
    * A tile's key is its source, not its position — a reorder moves the same
    * pictures rather than replacing them, and keying by position would remount
    * every tile the dragged one passes, restarting each video as it went. The
-   * suffix is for the one case a source can repeat: markup that names the same
-   * picture twice.
+   * suffix is for the one case a source can repeat: markup naming it twice.
    */
   const keys = useMemo(() => {
     const seen = new Map<string, number>();
@@ -179,9 +203,16 @@ export function AlbumSurface({
       if (readOnly || !files.length) return;
       setRefused(null);
       await ingest(convex, files, {
-        onItem: (item) =>
-          commit({ ...view.current, items: [...view.current.items, item] }),
-        onProgress: setProgress,
+        onPending: (item) => setPending((list) => [...list, item]),
+        onAdvance: (id, progress, note) =>
+          setPending((list) =>
+            list.map((item) => (item.id === id ? { ...item, progress, note } : item)),
+          ),
+        onItem: (id, item) => {
+          commit({ ...view.current, items: [...view.current.items, item] });
+          setPending((list) => list.filter((waiting) => waiting.id !== id));
+        },
+        onDrop: (id) => setPending((list) => list.filter((waiting) => waiting.id !== id)),
         onError: setRefused,
       });
     },
@@ -207,38 +238,46 @@ export function AlbumSurface({
 
   /**
    * One gesture, two meanings: a press that goes nowhere opens the picture, and
-   * a press that travels carries it. The list reorders live under the pointer
-   * rather than showing a drop line — with every tile's shape already known,
-   * the waterfall can repack on every move, so the album simply shows what
-   * letting go would do.
+   * a press that travels carries it. The tile follows the pointer while the
+   * others move aside, so the album always shows what letting go would do.
    */
   const grab = (event: ReactPointerEvent, index: number) => {
     if (event.button !== 0) return;
+    const el = event.currentTarget as HTMLElement;
     const startX = event.clientX;
     const startY = event.clientY;
+    const from = boxes[index];
     let dragging = false;
     let list = items.slice();
     let at = index;
 
     drag(
-      (move_) => {
-        // Read-only keeps the press — a viewer still opens pictures — and loses
-        // only the half of the gesture that would rewrite the document.
-        if (readOnly) return;
+      (moved) => {
+        const dx = moved.clientX - startX;
+        const dy = moved.clientY - startY;
         if (!dragging) {
-          const far =
-            Math.abs(move_.clientX - startX) + Math.abs(move_.clientY - startY);
-          if (far < DRAG_SLOP) return;
+          // Read-only keeps the press — a viewer still opens pictures — and
+          // loses only the half of the gesture that would rewrite the document.
+          if (readOnly || Math.abs(dx) + Math.abs(dy) < DRAG_SLOP) return;
           dragging = true;
-          setHeld(list[at]);
+          setHeld({ item: list[at], x: from.x, y: from.y });
         }
-        const to = tileUnder(move_);
+        // Straight to the element. React owns where the tile was picked up
+        // from; this pair is the distance it has been carried since, and the
+        // two are composed in the stylesheet — so carrying a picture across the
+        // album costs no renders at all.
+        el.style.setProperty("--dx", `${dx}px`);
+        el.style.setProperty("--dy", `${dy}px`);
+
+        const to = tileUnder(moved);
         if (to === null || to === at) return;
         list = move(list, at, to);
         at = to;
         setOrder(list);
       },
       () => {
+        el.style.removeProperty("--dx");
+        el.style.removeProperty("--dy");
         if (!dragging) setOpen(at);
         else {
           // A photo can land from an upload while a drag is in flight, and the
@@ -259,6 +298,48 @@ export function AlbumSurface({
   };
 
   /**
+   * Making one picture bigger, in columns rather than pixels.
+   *
+   * A photo's size is its aspect ratio; the only thing there is to decide is how
+   * much of the row it takes. Snapping to whole columns is what keeps the
+   * waterfall a waterfall — and because the snap is discrete, the pictures it
+   * displaces glide rather than tracking the pointer.
+   */
+  const stretch = (event: ReactPointerEvent, index: number) => {
+    if (readOnly || event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const item = items[index];
+    const startX = event.clientX;
+    const startSpan = Math.min(columns, item.span ?? 1);
+    const step = (room - GAP * (columns - 1)) / columns + GAP;
+    let span = startSpan;
+
+    drag(
+      (moved) => {
+        const next = Math.min(
+          columns,
+          Math.max(1, startSpan + Math.round((moved.clientX - startX) / step)),
+        );
+        if (next === span) return;
+        span = next;
+        setSizing({ item, span });
+      },
+      () => {
+        if (span !== (item.span ?? 1)) {
+          commit({
+            ...view.current,
+            items: view.current.items.map((it) =>
+              it === item ? withSpan(it, span) : it,
+            ),
+          });
+        }
+        setSizing(null);
+      },
+    );
+  };
+
+  /**
    * The right grip. The left edge stays pinned to the text column, exactly as
    * the canvas's does, so widening an album grows it into the right margin and
    * the prose above and below keeps its own left edge.
@@ -272,11 +353,12 @@ export function AlbumSurface({
     const limit = maxWidth(el);
     let next = startW;
     drag(
-      (move_) => {
-        const grown = startW + (move_.clientX - startX);
+      (moved) => {
+        const grown = startW + (moved.clientX - startX);
         next = Math.round(Math.min(limit, Math.max(ALBUM_MIN_W, grown)));
         // Written straight to the element; React learns the number once, from
-        // the source this commits.
+        // the source this commits. The ResizeObserver picks the change up and
+        // re-packs, so the pictures rearrange as the edge moves.
         el.style.width = `${next}px`;
       },
       () => commit({ ...view.current, w: next }),
@@ -289,12 +371,14 @@ export function AlbumSurface({
     commit(rest);
   };
 
-  const empty = items.length === 0 && !progress;
+  const empty = items.length === 0 && pending.length === 0;
 
   return (
     <div
       ref={wrap}
-      className={`nt-album${over ? " is-over" : ""}${empty ? " is-empty" : ""}`}
+      className={`nt-album${over ? " is-over" : ""}${empty ? " is-empty" : ""}${
+        readOnly ? " is-view" : ""
+      }${held ? " is-carrying" : ""}${stillness ? " is-still" : ""}`}
       contentEditable={false}
       style={album.w ? { width: album.w } : undefined}
       onDragOver={(event) => {
@@ -330,31 +414,41 @@ export function AlbumSurface({
       )}
 
       {!empty && (
-        <div className="nt-album-columns">
-          {packed.map((column, c) => (
-            <div className="nt-album-column" key={c}>
-              {column.map((index) => {
-                const item = items[index];
-                return (
-                  <Tile
-                    key={keys[index]}
-                    item={item}
-                    index={index}
-                    held={item === held}
-                    autoplay={!stillness}
-                    observer={observer}
-                    readOnly={readOnly}
-                    onGrab={grab}
-                    onRemove={remove}
-                  />
-                );
-              })}
-            </div>
+        <div className="nt-album-stage" style={{ height }}>
+          {items.map((item, index) => (
+            <Tile
+              key={keys[index]}
+              item={item}
+              index={index}
+              // Frozen where it was picked up: the tile is being carried by the
+              // pointer now, and its place in the list is no longer where it is.
+              box={
+                held?.item === item
+                  ? { ...boxes[index], x: held.x, y: held.y }
+                  : boxes[index]
+              }
+              held={held?.item === item}
+              columns={columns}
+              autoplay={!stillness}
+              observer={observer}
+              readOnly={readOnly}
+              onGrab={grab}
+              onStretch={stretch}
+              onRemove={remove}
+            />
+          ))}
+
+          {pending.map((waiting, index) => (
+            <Outline
+              key={waiting.id}
+              pending={waiting}
+              box={boxes[items.length + index]}
+            />
           ))}
         </div>
       )}
 
-      {(progress || refused || (!empty && !readOnly)) && (
+      {(pending.length > 0 || refused || (!empty && !readOnly)) && (
         <div className="nt-album-foot">
           {!empty && !readOnly && (
             <button
@@ -365,12 +459,12 @@ export function AlbumSurface({
               Add photos or videos
             </button>
           )}
-          {progress && (
+          {pending.length > 0 && (
             <p className="nt-album-note">
-              {progress.note || `${progress.done} of ${progress.total}`}
+              {pending.length} still to come
             </p>
           )}
-          {refused && !progress && <p className="nt-album-note">{refused}</p>}
+          {refused && !pending.length && <p className="nt-album-note">{refused}</p>}
         </div>
       )}
 
@@ -413,32 +507,46 @@ export function AlbumSurface({
   );
 }
 
+/** A tile's box, as the stylesheet reads it. */
+function place(box: Box): CSSProperties {
+  return {
+    "--x": `${box.x}px`,
+    "--y": `${box.y}px`,
+    width: box.w,
+    height: box.h,
+  } as CSSProperties;
+}
+
 function Tile({
   item,
   index,
+  box,
   held,
+  columns,
   autoplay,
   observer,
   readOnly,
   onGrab,
+  onStretch,
   onRemove,
 }: {
   item: AlbumItem;
   index: number;
+  box: Box;
   held: boolean;
+  columns: number;
   autoplay: boolean;
   observer: () => IntersectionObserver;
   readOnly: boolean;
   onGrab: (event: ReactPointerEvent, index: number) => void;
+  onStretch: (event: ReactPointerEvent, index: number) => void;
   onRemove: (index: number) => void;
 }) {
   return (
     <div
       className={`nt-album-tile${held ? " is-held" : ""}`}
       data-idx={index}
-      // The ratio, not the height: the browser reserves the exact room the
-      // picture will need, so nothing moves when it finally arrives.
-      style={{ aspectRatio: `${item.w} / ${item.h}` }}
+      style={place(box)}
       onPointerDown={(event) => onGrab(event, index)}
     >
       {item.kind === "video" ? (
@@ -474,17 +582,52 @@ function Tile({
       )}
 
       {!readOnly && (
-        <button
-          type="button"
-          className="nt-album-remove"
-          aria-label="Remove"
-          // Not the tile's gesture: a press here must not start a drag.
-          onPointerDown={(event) => event.stopPropagation()}
-          onClick={() => onRemove(index)}
-        >
-          <X />
-        </button>
+        <>
+          <button
+            type="button"
+            className="nt-album-remove"
+            aria-label="Remove"
+            // Not the tile's gesture: a press here must not start a drag.
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={() => onRemove(index)}
+          >
+            <X />
+          </button>
+          {/* Only worth offering where there is another column to grow into. */}
+          {columns > 1 && (
+            <div
+              className="nt-album-stretch"
+              role="separator"
+              aria-label="Resize picture"
+              title="Drag to make this picture wider"
+              onPointerDown={(event) => onStretch(event, index)}
+            />
+          )}
+        </>
       )}
+    </div>
+  );
+}
+
+/**
+ * A file with its place already taken and nothing in it yet.
+ *
+ * Drawn at the exact shape the picture will be, because the shape is read off
+ * the file before any of the work starts — so this is the outline of THAT
+ * photo, not a generic box, and the picture that replaces it moves nothing.
+ */
+function Outline({ pending, box }: { pending: Pending; box: Box }) {
+  return (
+    <div className="nt-album-outline" style={place(box)}>
+      <div className="nt-album-bar">
+        <div
+          className="nt-album-bar-fill"
+          style={{ transform: `scaleX(${Math.max(0.02, pending.progress)})` }}
+        />
+      </div>
+      <p className="nt-album-outline-note">
+        {pending.note || (pending.kind === "video" ? "Reading" : "Preparing")}
+      </p>
     </div>
   );
 }

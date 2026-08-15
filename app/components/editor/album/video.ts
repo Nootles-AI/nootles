@@ -81,6 +81,39 @@ function extensionOf(file: File): string {
 }
 
 /**
+ * A video's shape, read before any of the work.
+ *
+ * Metadata only — no seek, no frame drawn — because this runs to put an outline
+ * in the waterfall while the file is still being compressed, and it must cost
+ * nothing. A video the browser cannot decode answers with the shape a phone
+ * films in, which is a better guess than a square.
+ */
+export function measureVideo(file: File): Promise<{ w: number; h: number }> {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const video = document.createElement("video");
+    let settled = false;
+
+    const done = (w: number, h: number) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      URL.revokeObjectURL(url);
+      resolve({ w, h });
+    };
+    const timer = setTimeout(() => done(16, 9), DECODE_TIMEOUT);
+
+    video.preload = "metadata";
+    video.muted = true;
+    video.addEventListener("error", () => done(16, 9));
+    video.addEventListener("loadedmetadata", () => {
+      done(video.videoWidth || 16, video.videoHeight || 9);
+    });
+    video.src = url;
+  });
+}
+
+/**
  * The first frame, and the true size of what will be stored.
  *
  * Read off the *output* rather than the input, so the numbers describe the file

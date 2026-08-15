@@ -1,4 +1,4 @@
-import { DEFAULT_H, DEFAULT_W, type Album, type AlbumItem } from "./types";
+import { DEFAULT_H, DEFAULT_W, MAX_COLS, type Album, type AlbumItem } from "./types";
 
 /**
  * Album HTML → {@link Album}.
@@ -62,11 +62,15 @@ export function parseAlbum(
     if (!src) continue;
     const kind = KINDS[el.tagName.toLowerCase()];
     const poster = el.getAttribute("poster")?.trim();
+    const span = num(el.getAttribute("span"));
     album.items.push({
       kind,
       src,
       w: num(el.getAttribute("w") ?? el.getAttribute("width")) ?? DEFAULT_W,
       h: num(el.getAttribute("h") ?? el.getAttribute("height")) ?? DEFAULT_H,
+      // One column is the default, so it is written by omission — and a span
+      // past the columns there are is the layout's problem, not the file's.
+      ...(span && span > 1 ? { span: Math.min(MAX_COLS, span) } : {}),
       ...(kind === "video" && poster ? { poster } : {}),
     });
   }
