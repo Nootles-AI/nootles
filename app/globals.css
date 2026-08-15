@@ -388,6 +388,11 @@ body {
 .nt-row.is-dragging {
   opacity: 0.45;
 }
+/* Open in the other pane. The same well as the current row, without the weight
+   that says this is the one the chat and the agent are pointed at. */
+.nt-row.is-open {
+  background: var(--selected);
+}
 /* Where it will land — a hairline in the gap, not a highlight on a row. */
 .nt-drop-line {
   position: absolute;
@@ -399,6 +404,21 @@ body {
   background: var(--border-strong);
   pointer-events: none;
 }
+/* A page carried out of the list and held over the right of the document: the
+   room it would take, drawn as the well it is about to become, with the edge
+   the resize handle will stand on. Set on the column by the drag itself (see
+   pageDrag.ts), so hovering a drop target never renders a document. */
+.nt-drop-aside::after {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  right: 0;
+  width: 50%;
+  border-left: 1px solid var(--border-strong);
+  background: var(--hover);
+  pointer-events: none;
+}
+
 /* Unanswered agent changes on a page. The two colours on this row are the diff's
    own — the one place the palette is allowed an opinion — and they are the same
    tokens the change itself is drawn in, so the badge and the page agree. Mono

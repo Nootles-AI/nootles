@@ -24,7 +24,8 @@ const COMPACT = "(max-width: 1023px)";
  */
 export function SharedProject({ token }: { token: string }) {
   const shared = useQuery(api.share.view, { token });
-  const { selected, open, back, canGoBack } = useOpenPage();
+  // One column here, so the workspace's second pane never comes into it.
+  const { main, open, back } = useOpenPage();
   const compact = useMediaQuery(COMPACT);
   const [drawer, setDrawer] = useState(false);
 
@@ -72,7 +73,7 @@ export function SharedProject({ token }: { token: string }) {
   const pages = shared.pages;
   // Resolved the way the workspace resolves it: a stale or foreign id falls
   // back to the first page rather than blanking the surface.
-  const current = pages.find((p) => p._id === selected) ?? pages[0] ?? null;
+  const current = pages.find((p) => p._id === main.page) ?? pages[0] ?? null;
 
   const rail = (
     <aside
@@ -146,10 +147,10 @@ export function SharedProject({ token }: { token: string }) {
             >
               {/* Following a chip somewhere needs a way home — same rule as
                   the workspace: present only once there is a back to mean. */}
-              {canGoBack && (
+              {main.canGoBack && (
                 <div className="mb-6 flex justify-start">
                   <button
-                    onClick={back}
+                    onClick={() => back("main")}
                     aria-label="Back to previous page"
                     title="Back to previous page"
                     className="nt-icon-btn"
