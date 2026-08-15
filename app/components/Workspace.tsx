@@ -30,6 +30,10 @@ import { PanelLeft, PanelRight } from "./Icons";
 
 const LEFT = { def: 256, min: 200, max: 480 };
 const RIGHT = { def: 320, min: 260, max: 560 };
+/* A split is held as a share of the column rather than a width in it, so the
+   two panes keep their proportions as the rails open, close and resize under
+   them — and neither can be squeezed out of existence. */
+const SPLIT = { def: 0.5, min: 0.25, max: 0.75 };
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
 
 /* Below this the three fixed panels leave no usable column for the document
@@ -62,10 +66,14 @@ function scrollParent(el: HTMLElement): HTMLElement | null {
 }
 
 export function Workspace({ projectId }: { projectId: Id<"projects"> }) {
-  const { selected, open } = useOpenPage();
+  const { main, aside, focus, open, openAside } = useOpenPage();
 
   const [leftWidth, setLeftWidth] = useState(LEFT.def);
   const [rightWidth, setRightWidth] = useState(RIGHT.def);
+  const [asideShare, setAsideShare] = useState(SPLIT.def);
+  /* The document column: both panes, and the half of it a page can be dropped
+     into to open beside the one already there. */
+  const columnRef = useRef<HTMLDivElement>(null);
   const [leftOpen, setLeftOpen] = useState(true);
   const [rightOpen, setRightOpen] = useState(true);
   const [drawer, setDrawer] = useState<"left" | "right" | null>(null);
@@ -225,25 +233,43 @@ export function Workspace({ projectId }: { projectId: Id<"projects"> }) {
       setRightWidth(clamp(window.innerWidth - clientX, RIGHT.min, RIGHT.max)),
     [],
   );
+  // Measured against the column rather than the window: what is left of it
+  // after the rails is all the two panes have to share.
+  const onResizeAside = useCallback((clientX: number) => {
+    const box = columnRef.current?.getBoundingClientRect();
+    if (!box) return;
+    setAsideShare(clamp((box.right - clientX) / box.width, SPLIT.min, SPLIT.max));
+  }, []);
 
-  // The project comes from the route now. Only the page is a selection, and it
-  // is derived rather than synced via effects: `selected` is the explicit
-  // override — whoever made it, the sidebar or the agent — and when unset or
-  // stale we fall back to the first page.
+  // The project comes from the route now. Only the pages are a selection, and
+  // they are derived rather than synced via effects: each pane holds the
+  // explicit override — whoever made it, the sidebar or the agent — and when
+  // unset or stale the main column falls back to the first page.
   const pages = useQuery(api.pages.listByProject, { projectId });
   const sortedPages = pages
     ? [...pages].sort((a, b) => a.order - b.order)
     : undefined;
+  const known = (id: Id<"pages"> | null | undefined) =>
+    id && sortedPages?.some((p) => p._id === id) ? id : null;
+  const mainPageId = known(main.page) ?? sortedPages?.[0]?._id ?? null;
+  // The second pane shows exactly what it was asked to, deleted page and all:
+  // it says so in its own words and the close button is right there, which is
+  // better than a column that vanishes out from under you. It stays until it
+  // is closed — a pane that is open is a pane you can see, and that is what
+  // makes "the focused one" an answer the sidebar and the agent can trust.
+  const asidePageId = aside?.page ?? null;
+  // Only the chat is spared a page that is gone; it would have nothing to read.
   const effectivePageId =
-    selected && sortedPages?.some((p) => p._id === selected)
-      ? selected
-      : (sortedPages?.[0]?._id ?? null);
+    (focus === "aside" ? known(asidePageId) : null) ?? mainPageId;
 
   const sidebar = (
     <Sidebar
       width={compact ? 288 : leftWidth}
       projectId={projectId}
       selectedPageId={effectivePageId}
+      otherPageId={focus === "aside" ? mainPageId : asidePageId}
+      splitZone={columnRef}
+      onOpenAside={openAside}
       onSelectPage={(id) => {
         open(id);
         setDrawer(null);
@@ -294,11 +320,22 @@ export function Workspace({ projectId }: { projectId: Id<"projects"> }) {
           />
         )}
 
-        <div className="flex min-w-0 flex-1">
-          {effectivePageId ? (
-            <PageSurface pageId={effectivePageId} />
+        <div ref={columnRef} className="relative flex min-w-0 flex-1">
+          {mainPageId ? (
+            <PageSurface pageId={mainPageId} pane="main" />
           ) : (
             <EmptyWorkspace />
+          )}
+          {asidePageId && (
+            <>
+              <ResizeHandle onResize={onResizeAside} ariaLabel="Resize split" />
+              <div
+                className="flex min-w-0 shrink-0"
+                style={{ width: `${asideShare * 100}%` }}
+              >
+                <PageSurface pageId={asidePageId} pane="aside" />
+              </div>
+            </>
           )}
         </div>
 

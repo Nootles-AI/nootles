@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useRef, useState, type RefObject } from "react";
 import Link from "next/link";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
@@ -19,8 +19,14 @@ import { usePageDrag } from "./pageDrag";
 type Props = {
   width: number;
   projectId: Id<"projects">;
+  /** The focused pane's page — the one the chat and the agent are pointed at. */
   selectedPageId: Id<"pages"> | null;
+  /** The other pane's page while the surface is split, so both rows read open. */
+  otherPageId: Id<"pages"> | null;
   onSelectPage: (id: Id<"pages">) => void;
+  /** Where a row dragged out of the list lands, and the page it opens beside. */
+  splitZone: RefObject<HTMLElement | null>;
+  onOpenAside: (id: Id<"pages">) => void;
   onCollapse: () => void;
 };
 
@@ -28,7 +34,10 @@ export function Sidebar({
   width,
   projectId,
   selectedPageId,
+  otherPageId,
   onSelectPage,
+  splitZone,
+  onOpenAside,
   onCollapse,
 }: Props) {
   const project = useQuery(api.projects.get, { projectId });
@@ -60,6 +69,11 @@ export function Sidebar({
     (pageId, after) => {
       void movePage({ pageId, after: after ?? undefined });
       track("page_moved", {});
+    },
+    {
+      zone: splitZone,
+      isOpen: (id) => id === selectedPageId || id === otherPageId,
+      onDrop: onOpenAside,
     },
   );
 
@@ -201,7 +215,11 @@ export function Sidebar({
                   title="Double-click to rename · right-click for more"
                   aria-current={selectedPageId === pg._id ? "page" : undefined}
                   className={`nt-row w-full${
-                    selectedPageId === pg._id ? " is-selected" : ""
+                    selectedPageId === pg._id
+                      ? " is-selected"
+                      : otherPageId === pg._id
+                        ? " is-open"
+                        : ""
                   }${drag.dragId === pg._id ? " is-dragging" : ""}`}
                 >
                   <span className="nt-row-label">{pg.title || "Untitled"}</span>

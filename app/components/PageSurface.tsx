@@ -8,16 +8,24 @@ import { Editable } from "./Editable";
 import { Editor } from "./editor/Editor";
 import { useEditorRegistry } from "./editor/EditorRegistry";
 import { ModeToggle } from "./ModeToggle";
-import { CurrentPageProvider, useOpenPage } from "./OpenPageContext";
-import { ArrowLeft } from "./Icons";
+import { CurrentPageProvider, useOpenPage, type Pane } from "./OpenPageContext";
+import { ArrowLeft, X } from "./Icons";
 import type { PageMode } from "./editor/ai/useTabCompletion";
 
-export function PageSurface({ pageId }: { pageId: Id<"pages"> }) {
+export function PageSurface({
+  pageId,
+  pane,
+}: {
+  pageId: Id<"pages">;
+  /** Which column this is; the second one can be closed, and both take focus. */
+  pane: Pane;
+}) {
   const page = useQuery(api.pages.get, { pageId });
   const rename = useMutation(api.pages.rename);
   const setMode = useMutation(api.pages.setMode);
-  const { back, canGoBack } = useOpenPage();
+  const { main, aside, back, closeAside, focusPane } = useOpenPage();
   const registry = useEditorRegistry();
+  const canGoBack = (pane === "aside" ? aside : main)?.canGoBack ?? false;
 
   // Persist title edits on a debounce. The Editable owns the text; we only read
   // it on input and write through.
@@ -63,7 +71,15 @@ export function PageSurface({ pageId }: { pageId: Id<"pages"> }) {
 
   return (
     <CurrentPageProvider pageId={pageId}>
-    <main className="flex flex-1 flex-col overflow-auto">
+    {/* Focus on the way down, before any click inside lands: what the chat and
+        the agent act on is the pane you last put a pointer or a caret in, and
+        every verb that navigates — a followed chip, the back arrow — reads the
+        same answer. */}
+    <main
+      className="flex flex-1 flex-col overflow-auto"
+      onPointerDownCapture={() => focusPane(pane)}
+      onFocusCapture={() => focusPane(pane)}
+    >
       {/* Anchored left, not centred. Centring measured the column against the
           space the panels left over, so collapsing chat slid every line of text
           sideways. A document surface should hold still, like a code editor.
@@ -77,7 +93,7 @@ export function PageSurface({ pageId }: { pageId: Id<"pages"> }) {
               there is a "back" to mean — a standing button would be chrome. */}
           {canGoBack && (
             <button
-              onClick={back}
+              onClick={() => back(pane)}
               aria-label="Back to previous page"
               title="Back to previous page"
               className="nt-icon-btn"
@@ -89,6 +105,16 @@ export function PageSurface({ pageId }: { pageId: Id<"pages"> }) {
             mode={(page.mode ?? "create") as PageMode}
             onChange={(mode) => setMode({ pageId, mode })}
           />
+          {pane === "aside" && (
+            <button
+              onClick={closeAside}
+              aria-label="Close split"
+              title="Close split"
+              className="nt-icon-btn ml-auto"
+            >
+              <X />
+            </button>
+          )}
         </div>
         <Editable
           value={page.title}
