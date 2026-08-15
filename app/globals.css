@@ -388,10 +388,17 @@ body {
 .nt-row.is-dragging {
   opacity: 0.45;
 }
-/* Open in the other pane. The same well as the current row, without the weight
-   that says this is the one the chat and the agent are pointed at. */
+/* Open in the other pane: the same well as the current row, so both read as
+   open. Which of them is being typed in is the next line's job. */
 .nt-row.is-open {
   background: var(--selected);
+}
+/* Split, the list has two rows lit at once, and the weight alone was too quiet
+   to say which one the chat, the agent and the next thing you type are pointed
+   at. The bar is the hairline the drop line and the pane divider are already
+   drawn in, and it is only ever here while there are two panes to tell apart. */
+.nt-pages.is-split .nt-row.is-selected {
+  box-shadow: inset 2px 0 0 var(--border-strong);
 }
 /* Where it will land — a hairline in the gap, not a highlight on a row. */
 .nt-drop-line {
