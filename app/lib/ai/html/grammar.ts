@@ -41,6 +41,8 @@ export const TAG_ALIASES: Record<string, string> = {
   "math-line": "nt-math-line",
   diagram: "nt-diagram",
   flowchart: "nt-diagram",
+  album: "nt-album",
+  gallery: "nt-album",
   math: "nt-math",
   file: "nt-file",
   attachment: "nt-file",
@@ -139,7 +141,14 @@ export type DocNode =
    * and re-modelling it here could only lose something. See
    * `app/components/editor/canvas/scene/` for the parser both halves share.
    */
-  | { type: "canvas"; id?: string; html: string };
+  | { type: "canvas"; id?: string; html: string }
+  /**
+   * An album, carried as the `<nt-album>` markup itself — and for the same
+   * reason a diagram is: the block already stores this grammar, so the pictures,
+   * their order and their shapes have exactly one representation. See
+   * `app/components/editor/album/` for the parser both halves share.
+   */
+  | { type: "album"; id?: string; html: string };
 
 /**
  * Content words shared between two texts, as a share of the completion's own.

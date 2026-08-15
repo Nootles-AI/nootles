@@ -52,6 +52,10 @@ are what place it:
   <nt-code-block lang="python">code</nt-code-block>
   <nt-math-block><nt-math-line>a = 1</nt-math-line></nt-math-block>
   <nt-diagram w="600" h="200">…shapes…</nt-diagram> — a canvas. See THE CANVAS below.
+  <nt-album><img src="…" w="1600" h="1200"><video src="…" w="1280" h="720"></nt-album> — photos
+    and videos in a waterfall. You can reorder or remove pictures, and every item needs its
+    intrinsic w/h so the layout settles before anything loads. Uploading is the user's; you
+    cannot invent a src.
 Inline: <code>maxRetries</code>, <strong>bold</strong>, <em>italic</em>, <nt-math>x^2</nt-math>,
   <a href="https://example.com">a link</a> — and keep the ones already in a block you rewrite.
 References: <nt-ref page="pageId">Page title</nt-ref> renders as a chip — a small page glyph and

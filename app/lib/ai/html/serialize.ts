@@ -1,3 +1,5 @@
+import { parseAlbum } from "@/app/components/editor/album/parse";
+import { serializeAlbum } from "@/app/components/editor/album/serialize";
 import { migrateLegacyCanvas } from "@/app/components/editor/canvas/scene/migrate";
 import { serializeScene } from "@/app/components/editor/canvas/scene/serialize";
 import type { AnyBlock } from "../projection";
@@ -181,6 +183,13 @@ function blockToHtml(block: AnyBlock): string {
       // canvas stored HTML come through the migrator on the way past.
       return serializeScene({
         ...migrateLegacyCanvas(String(block.props.data ?? "")),
+        id: block.id,
+      });
+    case "album":
+      // As with the diagram above: the block stores this grammar, so only its
+      // id has to be put on the way past.
+      return serializeAlbum({
+        ...parseAlbum(String(block.props.data ?? "")),
         id: block.id,
       });
     case "paragraph":

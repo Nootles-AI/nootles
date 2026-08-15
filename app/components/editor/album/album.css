@@ -1,0 +1,243 @@
+/* ===== Album =============================================================
+   A waterfall of photos and videos inside a document column.
+
+   Columns are flex children of equal width, and every tile states its aspect
+   ratio — so the browser does the arithmetic, the layout is settled before any
+   picture loads, and nothing shifts when one arrives. Which column a tile sits
+   in is the only thing JavaScript decides (`waterfall.ts`). */
+
+.nt-album {
+  position: relative;
+  width: 100%;
+  margin: 4px 0;
+}
+
+.nt-album-columns {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.nt-album-column {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  min-width: 0;
+  gap: 8px;
+}
+
+.nt-album-tile {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--radius);
+  /* Under the picture until it decodes, so a tile is a held space rather than
+     a hole in the page. */
+  background: var(--sunken);
+  cursor: zoom-in;
+  /* The reorder is a pointer drag; without this the touch scrolls the page. */
+  touch-action: none;
+}
+
+.nt-album-tile img,
+.nt-album-tile video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+/* The one being carried. Faded rather than lifted: the tiles it is moving
+   through are already showing where it would land, so a second copy of it
+   under the cursor would be one animation too many. Untouchable, so the
+   waterfall underneath can answer which tile the pointer is really over. */
+.nt-album-tile.is-held {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+.nt-album-remove {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--background) 88%, transparent);
+  color: var(--muted);
+  opacity: 0;
+  transition:
+    opacity var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
+}
+.nt-album-remove svg {
+  width: 13px;
+  height: 13px;
+}
+.nt-album-tile:hover .nt-album-remove {
+  opacity: 1;
+}
+.nt-album-remove:hover {
+  color: var(--foreground);
+}
+
+/* ---- Empty, and taking files ------------------------------------------ */
+
+.nt-album-drop {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 128px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius);
+  color: var(--muted);
+  transition: border-color var(--dur-fast) var(--ease);
+}
+.nt-album-drop:hover:not(:disabled) {
+  border-color: var(--muted);
+}
+.nt-album-drop .is-low {
+  color: var(--faint);
+  font-size: var(--text-meta-lg);
+}
+
+/* Dragging files over an album that already has some. A dashed outline around
+   the block, in the same ink as the empty state — no accent, nothing lights up. */
+.nt-album.is-over:not(.is-empty)::after {
+  content: "";
+  position: absolute;
+  inset: -5px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-lg);
+  pointer-events: none;
+}
+.nt-album.is-over .nt-album-drop {
+  border-color: var(--muted);
+}
+
+.nt-album-picker {
+  display: none;
+}
+
+.nt-album-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 18px;
+  margin-top: 7px;
+  font-size: var(--text-meta-lg);
+  color: var(--muted);
+}
+.nt-album-add {
+  color: var(--muted);
+  transition: color var(--dur-fast) var(--ease);
+  /* Held back until the album is hovered: the pictures are the block, and a
+     standing instruction under them is noise once it has been read. */
+  opacity: 0;
+}
+.nt-album:hover .nt-album-add,
+.nt-album-add:focus-visible {
+  opacity: 1;
+}
+.nt-album-add:hover {
+  color: var(--foreground);
+}
+.nt-album-note {
+  color: var(--muted);
+}
+
+/* ---- Width grip -------------------------------------------------------
+   The canvas's, one block over: right edge only, drag to widen into the right
+   margin, double-click to go back to the column. The left edge stays pinned
+   where the prose starts, so widening never shifts the text around it. */
+
+.nt-album-grip {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 8px;
+  cursor: ew-resize;
+}
+.nt-album-grip::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: 3px;
+  width: 3px;
+  height: 32px;
+  margin-top: -16px;
+  border-radius: 999px;
+  background: var(--faint);
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease);
+}
+.nt-album:hover .nt-album-grip::after {
+  opacity: 0.7;
+}
+
+/* ---- One picture, full size ------------------------------------------- */
+
+.nt-album-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  display: grid;
+  place-items: center;
+  padding: 48px;
+  background: oklch(0.18 0.004 90 / 0.82);
+  animation: nt-fade-in var(--dur) var(--ease);
+}
+.nt-album-lightbox:focus {
+  outline: none;
+}
+
+.nt-album-full {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: var(--radius-sm);
+}
+
+.nt-album-close,
+.nt-album-page {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  color: oklch(1 0 90 / 0.72);
+  transition:
+    background var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
+}
+.nt-album-close:hover,
+.nt-album-page:hover {
+  background: oklch(1 0 90 / 0.12);
+  color: oklch(1 0 90);
+}
+.nt-album-close {
+  top: 12px;
+  right: 12px;
+}
+.nt-album-page.is-prev {
+  left: 12px;
+}
+.nt-album-page.is-next {
+  right: 12px;
+}
+.nt-album-count {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: var(--text-meta-lg);
+  color: oklch(1 0 90 / 0.6);
+}

@@ -6,6 +6,7 @@ import {
 import { codeBlockSpec } from "./blocks/CodeBlock";
 import { mathBlockSpec } from "./blocks/MathBlock";
 import { canvasBlockSpec } from "./blocks/CanvasBlock";
+import { albumBlockSpec } from "./blocks/AlbumBlock";
 import { mathInlineSpec } from "./inline/MathInline";
 import { pageMentionSpec } from "./inline/PageMention";
 import type { BlockType } from "@/convex/ai/operations";
@@ -19,6 +20,7 @@ export const schema = BlockNoteSchema.create({
     codeBlock: codeBlockSpec,
     mathBlock: mathBlockSpec,
     canvas: canvasBlockSpec,
+    album: albumBlockSpec,
   },
   inlineContentSpecs: {
     ...defaultInlineContentSpecs,

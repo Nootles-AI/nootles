@@ -2103,6 +2103,21 @@ body:has(.nt-review-bar) .nt-reformat-switcher {
   border-radius: 4px;
   background: var(--sunken);
 }
+/* An album, at card size: the first few pictures in a row, each keeping its
+   own shape. The waterfall itself is invisible this small. */
+.nt-thumb-album {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+}
+.nt-thumb-album > * {
+  flex: 1 1 0;
+  min-width: 0;
+  max-height: 140px;
+  border-radius: 4px;
+  object-fit: cover;
+  background: var(--sunken);
+}
 /* Every line stays one line: a paragraph that wrapped five times would push
    the shape of the page off the bottom of the card. */
 .nt-thumb-h,

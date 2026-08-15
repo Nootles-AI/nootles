@@ -1,3 +1,4 @@
+import { parseAlbum } from "@/app/components/editor/album/parse";
 import { labelText } from "@/app/components/editor/canvas/scene/label";
 import { migrateLegacyCanvas } from "@/app/components/editor/canvas/scene/migrate";
 import { isGroup, type SceneNode } from "@/app/components/editor/canvas/scene/types";
@@ -240,6 +241,20 @@ function projectBlock(
     case "canvas":
       projectCanvas(block, index, lines, doEmit);
       break;
+    case "album": {
+      // Counted rather than listed. A picture's line would be its storage URL,
+      // which tells the model nothing it can act on and costs it a line each;
+      // what it needs to know is that this block is pictures, and how many.
+      const { items } = parseAlbum(String(block.props.data ?? ""));
+      const photos = items.filter((i) => i.kind === "image").length;
+      const videos = items.length - photos;
+      const parts = [
+        ...(photos ? [`${photos} photo${photos === 1 ? "" : "s"}`] : []),
+        ...(videos ? [`${videos} video${videos === 1 ? "" : "s"}`] : []),
+      ];
+      push(`${id} album (${parts.join(", ") || "empty"})`);
+      break;
+    }
     default:
       // paragraph and any other text block.
       push(`${id} ${inlineToText(block.content)}`);

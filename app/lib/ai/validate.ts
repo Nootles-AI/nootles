@@ -43,6 +43,7 @@ const CONTENTLESS = new Set([
   "codeBlock",
   "mathBlock",
   "canvas",
+  "album",
   "divider",
   "image",
   "video",

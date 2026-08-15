@@ -28,6 +28,7 @@
     "@codemirror/view": "^6.43.6",
     "@convex-dev/prosemirror-sync": "^0.2.5",
     "@cortex-js/compute-engine": "^0.93.0",
+    "@ffmpeg/ffmpeg": "^0.12.15",
     "@lezer/highlight": "^1.2.3",
     "@openrouter/ai-sdk-provider": "^3.0.0",
     "@sentry/nextjs": "^10.69.0",

@@ -16,6 +16,7 @@ import type * as ai_opLog from "../ai/opLog.js";
 import type * as ai_operations from "../ai/operations.js";
 import type * as ai_questions from "../ai/questions.js";
 import type * as ai_suggestions from "../ai/suggestions.js";
+import type * as albums from "../albums.js";
 import type * as auth from "../auth.js";
 import type * as chat_attachments from "../chat/attachments.js";
 import type * as chat_messages from "../chat/messages.js";
@@ -55,6 +56,7 @@ declare const fullApi: ApiFromModules<{
   "ai/operations": typeof ai_operations;
   "ai/questions": typeof ai_questions;
   "ai/suggestions": typeof ai_suggestions;
+  albums: typeof albums;
   auth: typeof auth;
   "chat/attachments": typeof chat_attachments;
   "chat/messages": typeof chat_messages;
