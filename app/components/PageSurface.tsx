@@ -23,9 +23,11 @@ export function PageSurface({
   const page = useQuery(api.pages.get, { pageId });
   const rename = useMutation(api.pages.rename);
   const setMode = useMutation(api.pages.setMode);
-  const { main, aside, back, closeAside, focusPane } = useOpenPage();
+  const { main, aside, focus, back, closeAside, focusPane } = useOpenPage();
   const registry = useEditorRegistry();
   const canGoBack = (pane === "aside" ? aside : main)?.canGoBack ?? false;
+  /** Only ever true beside another pane: alone, a page is the one you are in. */
+  const idle = aside !== null && focus !== pane;
 
   // Persist title edits on a debounce. The Editable owns the text; we only read
   // it on input and write through.
@@ -76,7 +78,7 @@ export function PageSurface({
         every verb that navigates — a followed chip, the back arrow — reads the
         same answer. */}
     <main
-      className="flex flex-1 flex-col overflow-auto"
+      className={`nt-pane flex flex-1 flex-col overflow-auto${idle ? " is-idle" : ""}`}
       onPointerDownCapture={() => focusPane(pane)}
       onFocusCapture={() => focusPane(pane)}
     >
