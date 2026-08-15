@@ -10,6 +10,25 @@ import {
   type CSSProperties,
   type PointerEvent as ReactPointerEvent,
 } from "react";
+import {
+  DndContext,
+  DragOverlay,
+  KeyboardSensor,
+  MeasuringStrategy,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type DragOverEvent,
+  type DragStartEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  arrayMove,
+  sortableKeyboardCoordinates,
+  useSortable,
+} from "@dnd-kit/sortable";
 import { useConvex } from "convex/react";
 import { X } from "@/app/components/Icons";
 import { useMediaQuery } from "@/app/lib/useMediaQuery";
@@ -25,28 +44,38 @@ import {
   type Album,
   type AlbumItem,
 } from "./types";
-import { columnsFor, dropIndex, layout, type Box } from "./waterfall";
+import { columnsFor, layout, type Box } from "./waterfall";
 import "./album.css";
 
 /**
  * The album block, assembled.
  *
- * The block's own source is the one thing that lives here: an album is a list
- * and a width, and every gesture — dropping files, removing a picture, dragging
- * one past another, making one wider, widening the block — ends in one
- * re-serialized album written back onto the block.
+ * Two jobs, split along the line where each is done best.
  *
- * Every tile is absolutely positioned from a box the packer computed, which is
- * what makes the two things that move move WELL: a reorder or a change of
- * column count is a change of coordinates, so the tiles transition to their new
- * places instead of being re-laid-out underneath the eye. The tile being
- * dragged is the exception — it follows the pointer, written straight to the
- * DOM through a pair of custom properties so that carrying it costs no renders.
+ * WHERE the pictures go is `waterfall.ts` — shortest column first, from aspect
+ * ratios alone, so the arrangement is known before anything loads and a tile
+ * that moves moves between two coordinates we can transition between. No
+ * library does this from ratios: they measure rendered elements, which means
+ * laying out twice and the reflow that comes with it.
+ *
+ * CARRYING one is `@dnd-kit`. Everything that made the hand-written version bad
+ * lives there instead now: when a press becomes a drag, what is under the
+ * pointer, when that answer is allowed to change, and the copy that follows the
+ * cursor. The measuring strategy below is the important line — droppable rects
+ * are taken once, BEFORE the drag, so the tiles moving out of the way cannot
+ * change the answer about where the picture would land. That feedback loop is
+ * what made the first version stutter.
  */
 
 /** Pointer past this and a press on a tile was a drag, not a click. */
 const DRAG_SLOP = 4;
 
+/**
+ * dnd-kit moves sortable items by transforming them. Here it must not: the
+ * packer decides where every tile is, and the two would fight over the same
+ * property. What dnd-kit is here for is the gesture, not the geometry.
+ */
+const noTransform = () => null;
 
 /** A pointer drag, with its listeners removed however it ends. */
 function drag(onMove: (event: PointerEvent) => void, onEnd: () => void): void {
@@ -86,6 +115,23 @@ function watchPlayback(entries: IntersectionObserverEntry[]): void {
 function withSpan(item: AlbumItem, span: number): AlbumItem {
   const { span: _wasSpan, ...rest } = item;
   return span > 1 ? { ...rest, span } : rest;
+}
+
+/**
+ * A name per picture that survives the round trip through the document.
+ *
+ * The source, which is unique per upload; the suffix covers the one case it can
+ * repeat, which is markup naming the same picture twice. Object identity cannot
+ * do this job — every commit re-serializes the album and the prop comes back to
+ * be parsed again, so every object is replaced each time.
+ */
+function namesOf(items: readonly AlbumItem[]): string[] {
+  const seen = new Map<string, number>();
+  return items.map((item) => {
+    const n = seen.get(item.src) ?? 0;
+    seen.set(item.src, n + 1);
+    return n ? `${item.src}#${n}` : item.src;
+  });
 }
 
 export function AlbumSurface({
@@ -157,35 +203,28 @@ export function AlbumSurface({
   const [refused, setRefused] = useState<string | null>(null);
   const [over, setOver] = useState(false);
   const [open, setOpen] = useState<number | null>(null);
+  const [dragged, setDragged] = useState<string | null>(null);
+
   /**
    * What a gesture is showing, and the source it is showing it INSTEAD of.
    *
-   * Two rules, and both are load-bearing.
-   *
-   * A preview OUTLIVES its gesture. A commit does not reach this component as a
-   * prop until the editor has been round a render, so dropping the preview the
-   * instant the pointer came up put one frame of the old arrangement on screen
-   * before the new one arrived. Keyed to a source, a preview simply stops
-   * applying once the document says the same thing, and nothing has to decide
-   * when that was.
-   *
-   * And a picture is named by its POSITION, never by its object. Committing
-   * re-serializes the album and the prop comes back to be parsed again, so
-   * every object here is replaced on every commit — an `item === item` test
-   * holds for the first gesture and silently fails for every one after it,
-   * which is a change that quietly does nothing rather than a change that
-   * breaks. Indices survive the round trip; identities do not.
+   * A preview outlives its gesture on purpose. A commit does not reach this
+   * component as a prop until the editor has been round a render, so dropping
+   * the preview the instant the pointer came up put one frame of the old
+   * arrangement on screen before the new one arrived. Keyed to a source, a
+   * preview stops applying once the document says the same thing, and nothing
+   * has to decide when that was.
    */
   const [preview, setPreview] = useState<{ from: string; items: AlbumItem[] } | null>(null);
   const [sizing, setSizing] = useState<{ from: string; at: number; span: number } | null>(null);
-  /** The tile in the hand: where it is in the list, and where it was picked up. */
-  const [carry, setCarry] = useState<{ at: number; x: number; y: number } | null>(null);
 
   const items = useMemo(() => {
     const base = preview?.from === source ? preview.items : album.items;
     if (sizing?.from !== source) return base;
     return base.map((item, i) => (i === sizing.at ? { ...item, span: sizing.span } : item));
   }, [preview, sizing, source, album.items]);
+
+  const names = useMemo(() => namesOf(items), [items]);
 
   // Outlines are laid out with the pictures, not after them: a file's shape is
   // known before its bytes are, so the tile it will occupy is already in place
@@ -198,20 +237,11 @@ export function AlbumSurface({
     [tiled, room, columns],
   );
 
-  /**
-   * A tile's key is its source, not its position — a reorder moves the same
-   * pictures rather than replacing them, and keying by position would remount
-   * every tile the dragged one passes, restarting each video as it went. The
-   * suffix is for the one case a source can repeat: markup naming it twice.
-   */
-  const keys = useMemo(() => {
-    const seen = new Map<string, number>();
-    return items.map((item) => {
-      const n = seen.get(item.src) ?? 0;
-      seen.set(item.src, n + 1);
-      return n ? `${item.src}#${n}` : item.src;
-    });
-  }, [items]);
+  const sensors = useSensors(
+    // A press that does not travel is a click, and opens the picture.
+    useSensor(PointerSensor, { activationConstraint: { distance: DRAG_SLOP } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
 
   const add = useCallback(
     async (files: File[]) => {
@@ -241,98 +271,47 @@ export function AlbumSurface({
     });
   };
 
+  const onDragStart = ({ active }: DragStartEvent) => setDragged(String(active.id));
+
   /**
-   * One gesture, two meanings: a press that goes nowhere opens the picture, and
-   * a press that travels carries it.
-   *
-   * What is on screen during the carry is the list that would be written if the
-   * pointer came up now — built here, shown by the waterfall, and committed
-   * unchanged on release. There is no separate idea of "where the drop line is"
-   * that could disagree with the result.
+   * dnd-kit says when the answer changed; this only has to write it down. The
+   * list built here is what is on screen AND what gets committed, so there is
+   * no separate idea of "where the drop line is" that could disagree with the
+   * result.
    */
-  const grab = (event: ReactPointerEvent, index: number) => {
-    if (event.button !== 0) return;
-    const el = event.currentTarget as HTMLElement;
-    const stage = el.parentElement;
-    const startX = event.clientX;
-    const startY = event.clientY;
-    const from = boxes[index];
-    /** What was on screen when the picture was picked up. */
-    const started = items;
-    const carried = started[index];
-    const rest = started.filter((_, i) => i !== index);
+  const onDragOver = ({ active, over: target }: DragOverEvent) => {
+    if (!target || active.id === target.id) return;
+    const from = names.indexOf(String(active.id));
+    const to = names.indexOf(String(target.id));
+    if (from < 0 || to < 0) return;
+    setPreview({ from: source, items: arrayMove(items, from, to) });
+  };
 
-    let dragging = false;
-    let restBoxes: readonly Box[] = [];
-    let insertion = index;
-    let shown = started;
-
-    drag(
-      (moved) => {
-        const dx = moved.clientX - startX;
-        const dy = moved.clientY - startY;
-        if (!dragging) {
-          // Read-only keeps the press — a viewer still opens pictures — and
-          // loses only the half of the gesture that would rewrite the document.
-          if (readOnly || Math.abs(dx) + Math.abs(dy) < DRAG_SLOP) return;
-          dragging = true;
-          // Frozen for the whole drag. See `dropIndex`.
-          restBoxes = layout(rest, room, columns).boxes;
-          setCarry({ at: index, x: from.x, y: from.y });
-        }
-        // Straight to the element. React owns where the tile was picked up
-        // from; this pair is the distance it has been carried since, and the
-        // two are composed in the stylesheet — so carrying a picture across the
-        // album costs no renders at all.
-        el.style.setProperty("--dx", `${dx}px`);
-        el.style.setProperty("--dy", `${dy}px`);
-
-        const rect = stage?.getBoundingClientRect();
-        if (!rect) return;
-        const next = dropIndex(
-          { x: moved.clientX - rect.left, y: moved.clientY - rect.top },
-          restBoxes,
-          columns,
-          insertion,
-        );
-        // The only thing that re-renders the album during a drag, and it can
-        // only happen when the answer actually changes.
-        if (next === insertion) return;
-        insertion = next;
-        shown = [...rest.slice(0, insertion), carried, ...rest.slice(insertion)];
-        setPreview({ from: source, items: shown });
-        setCarry({ at: insertion, x: from.x, y: from.y });
-      },
-      () => {
-        el.style.removeProperty("--dx");
-        el.style.removeProperty("--dy");
-        setCarry(null);
-        if (!dragging) {
-          setOpen(index);
-          return;
-        }
-        // A photo can land from an upload while a drag is in flight, and the
-        // list being carried has never heard of it. Uploads only ever append,
-        // so whatever sits past the end of the list this drag started from is
-        // exactly what arrived, and it keeps its place at the back. An album
-        // that got SHORTER underneath — an undo, an AI edit — is no longer the
-        // album this reorder describes, so the reorder is dropped rather than
-        // used to write a deleted picture back.
-        // Put back where it came from. Nothing to write, and writing it anyway
-        // would put an undo step in the way of whatever came before.
-        if (shown.every((item, i) => item === started[i])) {
-          setPreview(null);
-          return;
-        }
-        const settled = view.current.items;
-        if (settled.length < started.length) {
-          setPreview(null);
-          return;
-        }
-        const landed = [...shown, ...settled.slice(started.length)];
-        setPreview({ from: commit({ ...view.current, items: landed }), items: landed });
-      },
-    );
+  const onDragEnd = ({ over: target }: DragEndEvent) => {
+    setDragged(null);
+    if (!target) {
+      setPreview(null);
+      return;
+    }
+    // A photo can land from an upload while a drag is in flight, and the list
+    // being carried has never heard of it. Uploads only ever append, so whatever
+    // sits past the end of this list is exactly what arrived, and it keeps its
+    // place at the back. An album that got SHORTER underneath — an undo, an AI
+    // edit — is no longer the album this reorder describes.
+    const settled = view.current.items;
+    if (settled.length < items.length) {
+      setPreview(null);
+      return;
+    }
+    const landed = [...items, ...settled.slice(items.length)];
+    const next = { ...view.current, items: landed };
+    // Put back where it came from: nothing to write, and writing it anyway
+    // would put an undo step in the way of whatever came before.
+    if (serializeAlbum(next) === source) {
+      setPreview(null);
+      return;
+    }
+    setPreview({ from: commit(next), items: landed });
   };
 
   /**
@@ -416,13 +395,14 @@ export function AlbumSurface({
   };
 
   const empty = items.length === 0 && pending.length === 0;
+  const carried = dragged ? names.indexOf(dragged) : -1;
 
   return (
     <div
       ref={wrap}
       className={`nt-album${over ? " is-over" : ""}${empty ? " is-empty" : ""}${
         readOnly ? " is-view" : ""
-      }${carry ? " is-carrying" : ""}${stillness ? " is-still" : ""}`}
+      }${dragged ? " is-carrying" : ""}${stillness ? " is-still" : ""}`}
       contentEditable={false}
       style={album.w ? { width: album.w } : undefined}
       onDragOver={(event) => {
@@ -458,38 +438,64 @@ export function AlbumSurface({
       )}
 
       {!empty && (
-        <div className="nt-album-stage" style={{ height }}>
-          {items.map((item, index) => (
-            <Tile
-              key={keys[index]}
-              item={item}
-              index={index}
-              // Frozen where it was picked up: the tile is being carried by the
-              // pointer now, and its place in the list is no longer where it is.
-              box={
-                carry?.at === index
-                  ? { ...boxes[index], x: carry.x, y: carry.y }
-                  : boxes[index]
-              }
-              held={carry?.at === index}
-              columns={columns}
-              autoplay={!stillness}
-              observer={observer}
-              readOnly={readOnly}
-              onGrab={grab}
-              onStretch={stretch}
-              onRemove={remove}
-            />
-          ))}
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          // The whole reason this is a library and not a hundred lines here:
+          // rects are taken once, before the drag, so the tiles moving out of
+          // the way cannot change the answer about where the picture lands.
+          measuring={{ droppable: { strategy: MeasuringStrategy.BeforeDragging } }}
+          onDragStart={onDragStart}
+          onDragOver={onDragOver}
+          onDragEnd={onDragEnd}
+          onDragCancel={() => {
+            setDragged(null);
+            setPreview(null);
+          }}
+        >
+          <SortableContext items={names} strategy={noTransform}>
+            <div className="nt-album-stage" style={{ height }}>
+              {items.map((item, index) => (
+                <Tile
+                  key={names[index]}
+                  id={names[index]}
+                  item={item}
+                  index={index}
+                  box={boxes[index]}
+                  columns={columns}
+                  autoplay={!stillness}
+                  observer={observer}
+                  readOnly={readOnly}
+                  onOpen={setOpen}
+                  onStretch={stretch}
+                  onRemove={remove}
+                />
+              ))}
 
-          {pending.map((waiting, index) => (
-            <Outline
-              key={waiting.id}
-              pending={waiting}
-              box={boxes[items.length + index]}
-            />
-          ))}
-        </div>
+              {pending.map((waiting, index) => (
+                <Outline
+                  key={waiting.id}
+                  pending={waiting}
+                  box={boxes[items.length + index]}
+                />
+              ))}
+            </div>
+          </SortableContext>
+
+          {/* The copy under the cursor. dnd-kit places it and animates it back
+              into the waterfall on release; the tile it came from stays where
+              it would land, faded, which is the whole preview. */}
+          <DragOverlay>
+            {carried >= 0 && boxes[carried] ? (
+              <div
+                className="nt-album-carried"
+                style={{ width: boxes[carried].w, height: boxes[carried].h }}
+              >
+                <Picture item={items[carried]} />
+              </div>
+            ) : null}
+          </DragOverlay>
+        </DndContext>
       )}
 
       {(pending.length > 0 || refused || (!empty && !readOnly)) && (
@@ -504,9 +510,7 @@ export function AlbumSurface({
             </button>
           )}
           {pending.length > 0 && (
-            <p className="nt-album-note">
-              {pending.length} still to come
-            </p>
+            <p className="nt-album-note">{pending.length} still to come</p>
           )}
           {refused && !pending.length && <p className="nt-album-note">{refused}</p>}
         </div>
@@ -561,68 +565,93 @@ function place(box: Box): CSSProperties {
   } as CSSProperties;
 }
 
+function Picture({
+  item,
+  autoplay,
+  observer,
+}: {
+  item: AlbumItem;
+  autoplay?: boolean;
+  observer?: () => IntersectionObserver;
+}) {
+  if (item.kind === "video") {
+    return (
+      <video
+        src={item.src}
+        poster={item.poster}
+        muted
+        loop
+        playsInline
+        // Muted autoplay is the only kind a browser allows unasked, and the
+        // only kind anyone wants from a grid of tiles.
+        controls={autoplay === false}
+        // Metadata only. A page of holiday videos that each fetched themselves
+        // whole on sight is the opposite of easy to load; the poster covers the
+        // moment between coming into view and playing.
+        preload="metadata"
+        ref={
+          autoplay && observer
+            ? (el) => {
+                if (!el) return;
+                const io = observer();
+                io.observe(el);
+                return () => io.unobserve(el);
+              }
+            : undefined
+        }
+      />
+    );
+  }
+  return (
+    /* eslint-disable-next-line @next/next/no-img-element -- already sized and
+       re-encoded on the way in, from a storage URL next/image has no loader
+       for; the tile reserves its room, so there is no shift to fix */
+    <img src={item.src} alt="" loading="lazy" decoding="async" draggable={false} />
+  );
+}
+
 function Tile({
+  id,
   item,
   index,
   box,
-  held,
   columns,
   autoplay,
   observer,
   readOnly,
-  onGrab,
+  onOpen,
   onStretch,
   onRemove,
 }: {
+  id: string;
   item: AlbumItem;
   index: number;
   box: Box;
-  held: boolean;
   columns: number;
   autoplay: boolean;
   observer: () => IntersectionObserver;
   readOnly: boolean;
-  onGrab: (event: ReactPointerEvent, index: number) => void;
+  onOpen: (index: number) => void;
   onStretch: (event: ReactPointerEvent, index: number) => void;
   onRemove: (index: number) => void;
 }) {
+  const { attributes, listeners, setNodeRef, isDragging } = useSortable({
+    id,
+    disabled: readOnly,
+  });
+
   return (
     <div
-      className={`nt-album-tile${held ? " is-held" : ""}`}
+      ref={setNodeRef}
+      className={`nt-album-tile${isDragging ? " is-lifted" : ""}`}
       style={place(box)}
-      onPointerDown={(event) => onGrab(event, index)}
+      {...attributes}
+      {...listeners}
+      // The sensor's distance constraint means a press that never travelled is
+      // still a click, and a click on a picture opens it.
+      onClick={() => onOpen(index)}
     >
-      {item.kind === "video" ? (
-        <video
-          src={item.src}
-          poster={item.poster}
-          muted
-          loop
-          playsInline
-          // Muted autoplay is the only kind a browser allows unasked, and the
-          // only kind anyone wants from a grid of tiles.
-          controls={!autoplay}
-          // Metadata only. A page of holiday videos that each fetched
-          // themselves whole on sight is the opposite of easy to load; the
-          // poster covers the moment between coming into view and playing.
-          preload="metadata"
-          ref={
-            autoplay
-              ? (el) => {
-                  if (!el) return;
-                  const io = observer();
-                  io.observe(el);
-                  return () => io.unobserve(el);
-                }
-              : undefined
-          }
-        />
-      ) : (
-        /* eslint-disable-next-line @next/next/no-img-element -- already sized
-           and re-encoded on the way in, from a storage URL next/image has no
-           loader for; the tile reserves its room, so there is no shift to fix */
-        <img src={item.src} alt="" loading="lazy" decoding="async" draggable={false} />
-      )}
+      <Picture item={item} autoplay={autoplay} observer={observer} />
 
       {!readOnly && (
         <>
@@ -630,9 +659,12 @@ function Tile({
             type="button"
             className="nt-album-remove"
             aria-label="Remove"
-            // Not the tile's gesture: a press here must not start a drag.
+            // Not the tile's gesture: neither a drag nor an open.
             onPointerDown={(event) => event.stopPropagation()}
-            onClick={() => onRemove(index)}
+            onClick={(event) => {
+              event.stopPropagation();
+              onRemove(index);
+            }}
           >
             <X />
           </button>
@@ -644,6 +676,7 @@ function Tile({
               aria-label="Resize picture"
               title="Drag to make this picture wider"
               onPointerDown={(event) => onStretch(event, index)}
+              onClick={(event) => event.stopPropagation()}
             />
           )}
         </>

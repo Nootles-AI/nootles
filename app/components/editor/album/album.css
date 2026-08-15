@@ -5,9 +5,10 @@
    which is what lets a reorder or a change of column count be a change of
    `--x`/`--y` that transitions, rather than a re-layout that teleports.
 
-   The tile being carried composes a second pair on top: React owns `--x`/`--y`
-   (where it was picked up from), the pointer writes `--dx`/`--dy` (how far it
-   has been carried), and neither ever has to know about the other. */
+   The picture being carried is not one of these. dnd-kit draws it in an overlay
+   of its own under the pointer, so nothing here has to know where the pointer
+   is — the tile it came from just sits in the waterfall, faded, showing where
+   letting go would put it. */
 
 .nt-album {
   position: relative;
@@ -24,8 +25,6 @@
 
 .nt-album-tile,
 .nt-album-outline {
-  --dx: 0px;
-  --dy: 0px;
   position: absolute;
   top: 0;
   left: 0;
@@ -34,11 +33,12 @@
   /* Under the picture until it decodes, so a tile is a held space rather than
      a hole in the page. */
   background: var(--sunken);
-  transform: translate(calc(var(--x) + var(--dx)), calc(var(--y) + var(--dy)));
+  transform: translate(var(--x), var(--y));
   transition:
     transform var(--dur) var(--ease),
     width var(--dur) var(--ease),
-    height var(--dur) var(--ease);
+    height var(--dur) var(--ease),
+    opacity var(--dur-fast) var(--ease);
 }
 
 .nt-album-tile {
@@ -61,20 +61,39 @@
   -webkit-user-drag: none;
 }
 
-/* The one being carried: lifted, and following the pointer exactly rather than
-   easing after it. Untouchable, so the waterfall underneath can answer which
-   tile the pointer is really over. */
-.nt-album-tile.is-held {
-  z-index: 2;
-  cursor: grabbing;
-  pointer-events: none;
-  transition: none;
-  box-shadow: 0 8px 24px oklch(0.2 0.01 90 / 0.18);
+/* The tile a picture was lifted out of. It stays in the waterfall, at the place
+   the picture would land, faded — which IS the preview: the gap that follows
+   your cursor is where letting go puts it. The picture itself is drawn by the
+   overlay below, under the pointer. */
+.nt-album-tile.is-lifted {
+  opacity: 0.26;
 }
-/* Held anywhere in the album: the cursor should not flicker back to `grab`
-   every time the pointer crosses a tile that is moving out of the way. */
+.nt-album-tile:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+/* Carrying: the cursor should not flicker back to `grab` every time the pointer
+   crosses a tile that is moving out of the way. */
 .nt-album.is-carrying .nt-album-tile {
   cursor: grabbing;
+}
+
+/* The copy under the pointer. dnd-kit positions it and animates it back into
+   the waterfall on release, so it has nothing to do but look picked up. */
+.nt-album-carried {
+  overflow: hidden;
+  border-radius: var(--radius);
+  background: var(--sunken);
+  box-shadow: 0 10px 30px oklch(0.2 0.01 90 / 0.22);
+  cursor: grabbing;
+  transform: scale(1.02);
+}
+.nt-album-carried img,
+.nt-album-carried video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 /* Somebody asked not to be moved at. Positions still change; they just arrive. */
