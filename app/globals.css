@@ -411,6 +411,20 @@ body {
   background: var(--border-strong);
   pointer-events: none;
 }
+/* ---- Panes --------------------------------------------------------------
+   Split in two, the pane you are not in settles to the tone of the rails, so
+   the document you are typing into is the only paper on screen. A wash and not
+   a ring: the accent means the AI is doing something, and a pane holding the
+   caret is not that. Alone, a pane is always paper — there is nothing for it
+   to be quieter than. */
+.nt-pane {
+  background: var(--background);
+  transition: background var(--dur) var(--ease);
+}
+.nt-pane.is-idle {
+  background: var(--surface);
+}
+
 /* A page carried out of the list and held over the right of the document: the
    room it would take, drawn as the well it is about to become, with the edge
    the resize handle will stand on. Set on the column by the drag itself (see
