@@ -348,9 +348,17 @@ export function CanvasSurface({
   /**
    * Picking a connector. Stops the event so the surface underneath does not
    * also read it as a click on empty canvas and clear what was just selected.
+   *
+   * Suppressing the default is what keeps the focus the line below takes: left
+   * to run, the press reaches ProseMirror as a mousedown, which takes a node
+   * selection on the block the canvas sits in and focuses the editor to show
+   * it. The connector stays selected and looks it, but the keymap is bound to
+   * the container and no longer hears anything — so ⌫ is the editor's, and it
+   * deletes the whole block.
    */
   const onEdgePick = useCallback(
     (id: EdgeId, event: React.PointerEvent) => {
+      event.preventDefault();
       event.stopPropagation();
       if (event.shiftKey) selection.toggleEdge(id);
       else selection.selectEdges([id]);
