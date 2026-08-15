@@ -16,6 +16,12 @@ export type AlbumItem = {
   /** Intrinsic pixel size of the stored file — the tile's aspect ratio. */
   w: number;
   h: number;
+  /**
+   * Columns the picture is drawn across. Absent means one, which is every
+   * picture until somebody widens it — a photo's own size is its aspect ratio,
+   * and this is the only thing about how big it is drawn that is a decision.
+   */
+  span?: number;
   /** A video's first frame, so its tile paints before the video decodes. */
   poster?: string;
 };
@@ -43,3 +49,5 @@ export const ALBUM_GUTTER = 32;
  */
 export const TARGET_COL_W = 200;
 export const MAX_COLS = 6;
+/** Between tiles, in both directions. Read by the packer and by the CSS. */
+export const GAP = 8;

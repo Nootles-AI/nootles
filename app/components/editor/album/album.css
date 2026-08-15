@@ -1,10 +1,13 @@
 /* ===== Album =============================================================
    A waterfall of photos and videos inside a document column.
 
-   Columns are flex children of equal width, and every tile states its aspect
-   ratio — so the browser does the arithmetic, the layout is settled before any
-   picture loads, and nothing shifts when one arrives. Which column a tile sits
-   in is the only thing JavaScript decides (`waterfall.ts`). */
+   Every tile is placed at coordinates the packer computed (`waterfall.ts`),
+   which is what lets a reorder or a change of column count be a change of
+   `--x`/`--y` that transitions, rather than a re-layout that teleports.
+
+   The tile being carried composes a second pair on top: React owns `--x`/`--y`
+   (where it was picked up from), the pointer writes `--dx`/`--dy` (how far it
+   has been carried), and neither ever has to know about the other. */
 
 .nt-album {
   position: relative;
@@ -12,30 +15,40 @@
   margin: 4px 0;
 }
 
-.nt-album-columns {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-}
-
-.nt-album-column {
-  display: flex;
-  flex: 1 1 0;
-  flex-direction: column;
-  min-width: 0;
-  gap: 8px;
-}
-
-.nt-album-tile {
+.nt-album-stage {
   position: relative;
+  width: 100%;
+  /* The packer's answer, so the block is exactly as tall as its pictures. */
+  transition: height var(--dur) var(--ease);
+}
+
+.nt-album-tile,
+.nt-album-outline {
+  --dx: 0px;
+  --dy: 0px;
+  position: absolute;
+  top: 0;
+  left: 0;
   overflow: hidden;
   border-radius: var(--radius);
   /* Under the picture until it decodes, so a tile is a held space rather than
      a hole in the page. */
   background: var(--sunken);
-  cursor: zoom-in;
+  transform: translate(calc(var(--x) + var(--dx)), calc(var(--y) + var(--dy)));
+  transition:
+    transform var(--dur) var(--ease),
+    width var(--dur) var(--ease),
+    height var(--dur) var(--ease);
+}
+
+.nt-album-tile {
+  cursor: grab;
   /* The reorder is a pointer drag; without this the touch scrolls the page. */
   touch-action: none;
+}
+/* Nothing to rearrange in a viewer, so the press means only "look closer". */
+.nt-album.is-view .nt-album-tile {
+  cursor: zoom-in;
 }
 
 .nt-album-tile img,
@@ -48,14 +61,89 @@
   -webkit-user-drag: none;
 }
 
-/* The one being carried. Faded rather than lifted: the tiles it is moving
-   through are already showing where it would land, so a second copy of it
-   under the cursor would be one animation too many. Untouchable, so the
-   waterfall underneath can answer which tile the pointer is really over. */
+/* The one being carried: lifted, and following the pointer exactly rather than
+   easing after it. Untouchable, so the waterfall underneath can answer which
+   tile the pointer is really over. */
 .nt-album-tile.is-held {
-  opacity: 0.4;
+  z-index: 2;
+  cursor: grabbing;
   pointer-events: none;
+  transition: none;
+  box-shadow: 0 8px 24px oklch(0.2 0.01 90 / 0.18);
 }
+/* Held anywhere in the album: the cursor should not flicker back to `grab`
+   every time the pointer crosses a tile that is moving out of the way. */
+.nt-album.is-carrying .nt-album-tile {
+  cursor: grabbing;
+}
+
+/* Somebody asked not to be moved at. Positions still change; they just arrive. */
+.nt-album.is-still .nt-album-tile,
+.nt-album.is-still .nt-album-outline,
+.nt-album.is-still .nt-album-stage {
+  transition: none;
+}
+
+/* ---- A file with its place taken and nothing in it yet ------------------ */
+
+.nt-album-outline {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  /* Faint movement across the well, so a slow video reads as working rather
+     than as stuck. */
+  background:
+    linear-gradient(
+        100deg,
+        transparent 20%,
+        color-mix(in oklch, var(--background) 55%, transparent) 40%,
+        transparent 60%
+      )
+      no-repeat,
+    var(--sunken);
+  background-size: 260% 100%;
+  animation: nt-album-sheen 1.5s var(--ease) infinite;
+}
+@keyframes nt-album-sheen {
+  from {
+    background-position: 140% 0;
+  }
+  to {
+    background-position: -60% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nt-album-outline {
+    animation: none;
+  }
+}
+
+.nt-album-bar {
+  overflow: hidden;
+  height: 3px;
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--border-strong) 70%, transparent);
+}
+.nt-album-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--muted);
+  transform-origin: left center;
+  /* Scaled rather than sized: a width transition on a 3px bar judders. */
+  transition: transform var(--dur) linear;
+}
+.nt-album-outline-note {
+  overflow: hidden;
+  font-size: var(--text-meta);
+  color: var(--muted);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* ---- Per-tile chrome --------------------------------------------------- */
 
 .nt-album-remove {
   position: absolute;
@@ -84,6 +172,39 @@
   color: var(--foreground);
 }
 
+/* Bottom-right, where a picture is resized everywhere else. It changes the
+   columns the picture spans, so it snaps — the height follows the width,
+   because a photo's proportions are not up for negotiation. */
+.nt-album-stretch {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 22px;
+  height: 22px;
+  cursor: nwse-resize;
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease);
+}
+.nt-album-stretch::after {
+  content: "";
+  position: absolute;
+  right: 5px;
+  bottom: 5px;
+  width: 9px;
+  height: 9px;
+  border-right: 2px solid var(--background);
+  border-bottom: 2px solid var(--background);
+  border-bottom-right-radius: 3px;
+  filter: drop-shadow(0 0 1px oklch(0.2 0.01 90 / 0.5));
+}
+.nt-album-tile:hover .nt-album-stretch {
+  opacity: 0.9;
+}
+.nt-album.is-carrying .nt-album-stretch,
+.nt-album.is-carrying .nt-album-remove {
+  opacity: 0;
+}
+
 /* ---- Empty, and taking files ------------------------------------------ */
 
 .nt-album-drop {
@@ -99,7 +220,7 @@
   color: var(--muted);
   transition: border-color var(--dur-fast) var(--ease);
 }
-.nt-album-drop:hover:not(:disabled) {
+.nt-album-drop:hover {
   border-color: var(--muted);
 }
 .nt-album-drop .is-low {

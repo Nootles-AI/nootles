@@ -3,7 +3,7 @@
 import type { ConvexReactClient } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { MAX_VIDEO_BYTES, prepareVideo } from "./video";
+import { MAX_VIDEO_BYTES, measureVideo, prepareVideo } from "./video";
 import type { AlbumItem } from "./types";
 
 /**
@@ -11,13 +11,18 @@ import type { AlbumItem } from "./types";
  *
  * Everything is made smaller before it is uploaded, never after: a photo is
  * redrawn at screen size and re-encoded as WebP, a video goes through ffmpeg
- * (see `video.ts`). What reaches storage is what the page will load, so there is
- * no second, heavier copy of an album sitting behind the one being served.
+ * (see `video.ts`). What reaches storage is what the page will load, so there
+ * is no second, heavier copy of an album sitting behind the one being served.
+ *
+ * A file is MEASURED before it is processed, and its shape reported straight
+ * away. That is what lets the waterfall put a tile down for it immediately, at
+ * the exact size the picture will occupy — the album fills in place rather than
+ * growing a row of surprises at the end, and the arriving picture replaces its
+ * own outline without moving anything.
  *
  * A batch lands IN THE ORDER IT WAS CHOSEN even though the files finish out of
  * order — a small photo behind a long video would otherwise overtake it, and an
- * album that shuffles the pictures as it fills is unsettling to watch. Each
- * result waits for the ones before it, which costs nothing and looks deliberate.
+ * album that shuffles as it fills is unsettling to watch.
  */
 
 /** Long edge, in pixels: retina-sharp at any width the block can be dragged to. */
@@ -28,6 +33,12 @@ const IMAGE_QUALITY = 0.82;
 
 /** How many files are worked on at once. Encoding is CPU-bound, not network-bound. */
 const LANES = 3;
+
+/**
+ * How much of a video's wait is the transcode. The rest is the upload, so one
+ * bar can cover both phases without ever going backwards.
+ */
+const TRANSCODE_SHARE = 0.75;
 
 /**
  * What the picker offers and what the drop zone keeps. HEIC is the notable
@@ -44,19 +55,28 @@ const IMAGE_TYPES = [
 
 export const ALBUM_ACCEPT = [...IMAGE_TYPES, "video/*"].join(",");
 
-export type Progress = {
-  /** Files in this batch, and how many have landed. */
-  total: number;
-  done: number;
-  /** What is happening to the file being worked on, for the counter's second line. */
+/** A file with a place in the waterfall and nothing in it yet. */
+export type Pending = {
+  id: string;
+  kind: AlbumItem["kind"];
+  name: string;
+  /** Its true shape, read before any of the work — so the outline is honest. */
+  w: number;
+  h: number;
+  /** 0–1. Reaches 1 when the file is up, which may be before its turn to land. */
+  progress: number;
   note: string;
 };
 
 export type Handlers = {
-  /** One landed item, ready to append to the album. */
-  onItem: (item: AlbumItem) => void;
-  onProgress: (progress: Progress | null) => void;
-  /** A file that could not be taken, said in words the uploader can act on. */
+  /** A file has been measured: put an outline down for it. */
+  onPending: (pending: Pending) => void;
+  onAdvance: (id: string, progress: number, note: string) => void;
+  /** The picture is up. Its outline can go. */
+  onItem: (id: string, item: AlbumItem) => void;
+  /** It failed, and its outline should go with it. */
+  onDrop: (id: string) => void;
+  /** Said in words the uploader can act on. */
   onError: (message: string) => void;
 };
 
@@ -84,11 +104,12 @@ export function acceptable(files: File[]): { taken: File[]; refused: string[] } 
 }
 
 /**
- * Compresses and uploads a batch, reporting each item as it lands.
+ * Compresses and uploads a batch, reporting each file's shape as it is learned
+ * and each picture as it lands.
  *
  * Resolves when the batch is finished, whatever happened to it: a file that
- * fails is reported through `onError` and skipped, because one unreadable photo
- * must not cost the other nineteen.
+ * fails is reported and skipped, because one unreadable photo must not cost the
+ * other nineteen.
  */
 export async function ingest(
   convex: ConvexReactClient,
@@ -99,63 +120,72 @@ export async function ingest(
   for (const message of refused) handlers.onError(message);
   if (!taken.length) return;
 
+  const ids = taken.map(() => crypto.randomUUID());
   const results = new Array<AlbumItem | null | undefined>(taken.length);
   let flushed = 0;
-  let done = 0;
-  let note = "";
-
-  const report = () => {
-    handlers.onProgress({ total: taken.length, done, note });
-  };
 
   /** Hand over everything now complete from the front of the queue. */
   const flush = () => {
     while (flushed < results.length && results[flushed] !== undefined) {
-      const item = results[flushed++];
-      if (item) handlers.onItem(item);
+      const item = results[flushed];
+      if (item) handlers.onItem(ids[flushed], item);
+      else handlers.onDrop(ids[flushed]);
+      flushed++;
     }
   };
 
-  report();
   let next = 0;
   await Promise.all(
     Array.from({ length: Math.min(LANES, taken.length) }, async () => {
       while (next < taken.length) {
         const index = next++;
         const file = taken[index];
+        const id = ids[index];
         try {
-          results[index] = await prepare(convex, file, (progress) => {
-            note = progress;
-            report();
+          results[index] = await prepare(convex, file, {
+            measured: (w, h, kind) =>
+              handlers.onPending({
+                id,
+                kind,
+                name: file.name || "Untitled",
+                w,
+                h,
+                progress: 0,
+                note: "",
+              }),
+            advance: (progress, note) => handlers.onAdvance(id, progress, note),
           });
         } catch {
           results[index] = null;
           handlers.onError(`${file.name || "A file"} didn't upload. Try adding it again.`);
         }
-        done++;
-        note = "";
         flush();
-        report();
       }
     }),
   );
-
-  handlers.onProgress(null);
 }
+
+type Hooks = {
+  measured: (w: number, h: number, kind: AlbumItem["kind"]) => void;
+  advance: (progress: number, note: string) => void;
+};
 
 async function prepare(
   convex: ConvexReactClient,
   file: File,
-  onNote: (note: string) => void,
+  hooks: Hooks,
 ): Promise<AlbumItem> {
   if (file.type.startsWith("video/")) {
-    onNote(`Compressing ${file.name}`);
+    const shape = await measureVideo(file);
+    hooks.measured(shape.w, shape.h, "video");
+
     const video = await prepareVideo(file, (fraction) => {
-      onNote(`Compressing ${file.name} — ${Math.round(fraction * 100)}%`);
+      hooks.advance(fraction * TRANSCODE_SHARE, "Compressing");
     });
-    onNote(`Uploading ${file.name}`);
     const [src, poster] = await Promise.all([
-      put(convex, video.blob, video.type),
+      put(convex, video.blob, video.type, (fraction) => {
+        hooks.advance(TRANSCODE_SHARE + fraction * (1 - TRANSCODE_SHARE), "Uploading");
+      }),
       video.poster ? put(convex, video.poster, "image/webp") : null,
     ]);
     return {
@@ -167,27 +197,33 @@ async function prepare(
     };
   }
 
-  const image = await prepareImage(file);
-  onNote(`Uploading ${file.name}`);
-  return { kind: "image", src: await put(convex, image.blob, image.type), w: image.w, h: image.h };
+  const image = await prepareImage(file, hooks);
+  const src = await put(convex, image.blob, image.type, (fraction) => {
+    hooks.advance(fraction, "Uploading");
+  });
+  return { kind: "image", src, w: image.w, h: image.h };
 }
 
 async function prepareImage(
   file: File,
+  hooks: Hooks,
 ): Promise<{ blob: Blob; type: string; w: number; h: number }> {
   // `from-image` is load-bearing: a phone writes the rotation into EXIF rather
   // than into the pixels, and the default here ignores it — every portrait
   // photo would arrive on its side, and its w/h would describe the wrong shape.
   const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
   try {
+    const scale = Math.min(1, MAX_IMAGE_EDGE / Math.max(bitmap.width, bitmap.height));
+    const w = Math.max(1, Math.round(bitmap.width * scale));
+    const h = Math.max(1, Math.round(bitmap.height * scale));
+    // The shape is known now, and the shape is all the waterfall needs.
+    hooks.measured(w, h, "image");
+
     // An animated GIF has nothing to gain and a whole animation to lose.
     if (file.type === "image/gif") {
       return { blob: file, type: file.type, w: bitmap.width, h: bitmap.height };
     }
 
-    const scale = Math.min(1, MAX_IMAGE_EDGE / Math.max(bitmap.width, bitmap.height));
-    const w = Math.max(1, Math.round(bitmap.width * scale));
-    const h = Math.max(1, Math.round(bitmap.height * scale));
     const canvas = document.createElement("canvas");
     canvas.width = w;
     canvas.height = h;
@@ -207,24 +243,50 @@ async function prepareImage(
   }
 }
 
-/** Bytes → the permanent URL the album will hold. */
-async function put(
+/**
+ * Bytes → the permanent URL the album will hold.
+ *
+ * `XMLHttpRequest` rather than `fetch`, for the one thing it still does better:
+ * it reports how much of the body has gone. On a 60MB video that is the
+ * difference between a progress bar and a spinner.
+ */
+function put(
   convex: ConvexReactClient,
   blob: Blob,
   type: string,
+  onProgress?: (fraction: number) => void,
 ): Promise<string> {
-  const uploadUrl = await convex.mutation(api.albums.generateUploadUrl, {});
-  const response = await fetch(uploadUrl, {
-    method: "POST",
-    headers: { "Content-Type": type },
-    body: blob,
-  });
-  if (!response.ok) throw new Error("upload failed");
-
-  const { storageId } = (await response.json()) as { storageId: Id<"_storage"> };
-  const url = await convex.query(api.albums.url, { storageId });
-  if (!url) throw new Error("upload vanished");
-  return url;
+  return convex
+    .mutation(api.albums.generateUploadUrl, {})
+    .then(
+      (uploadUrl) =>
+        new Promise<Id<"_storage">>((resolve, reject) => {
+          const request = new XMLHttpRequest();
+          request.open("POST", uploadUrl);
+          request.setRequestHeader("Content-Type", type);
+          request.upload.onprogress = (event) => {
+            if (event.lengthComputable) onProgress?.(event.loaded / event.total);
+          };
+          request.onload = () => {
+            if (request.status < 200 || request.status >= 300) {
+              reject(new Error("upload failed"));
+              return;
+            }
+            try {
+              resolve((JSON.parse(request.responseText) as { storageId: Id<"_storage"> }).storageId);
+            } catch {
+              reject(new Error("upload returned nonsense"));
+            }
+          };
+          request.onerror = () => reject(new Error("upload failed"));
+          request.send(blob);
+        }),
+    )
+    .then(async (storageId) => {
+      const url = await convex.query(api.albums.url, { storageId });
+      if (!url) throw new Error("upload vanished");
+      return url;
+    });
 }
 
 function megabytes(bytes: number): string {
