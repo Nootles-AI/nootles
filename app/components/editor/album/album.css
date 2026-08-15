@@ -177,10 +177,15 @@
    because a photo's proportions are not up for negotiation. */
 .nt-album-stretch {
   position: absolute;
-  right: 0;
-  bottom: 0;
+  right: 6px;
+  bottom: 6px;
   width: 22px;
   height: 22px;
+  border-radius: 999px;
+  /* The remove chip's twin, because they are the same kind of thing: a small
+     affordance that has to read against a photograph of anything at all. A
+     bare corner glyph vanished into every light picture it sat on. */
+  background: color-mix(in oklch, var(--background) 88%, transparent);
   cursor: nwse-resize;
   opacity: 0;
   transition: opacity var(--dur-fast) var(--ease);
@@ -188,17 +193,19 @@
 .nt-album-stretch::after {
   content: "";
   position: absolute;
-  right: 5px;
-  bottom: 5px;
+  inset: 0;
   width: 9px;
   height: 9px;
-  border-right: 2px solid var(--background);
-  border-bottom: 2px solid var(--background);
-  border-bottom-right-radius: 3px;
-  filter: drop-shadow(0 0 1px oklch(0.2 0.01 90 / 0.5));
+  margin: auto;
+  border-right: 1.5px solid var(--muted);
+  border-bottom: 1.5px solid var(--muted);
+  border-bottom-right-radius: 2px;
 }
 .nt-album-tile:hover .nt-album-stretch {
-  opacity: 0.9;
+  opacity: 1;
+}
+.nt-album-stretch:hover::after {
+  border-color: var(--foreground);
 }
 .nt-album.is-carrying .nt-album-stretch,
 .nt-album.is-carrying .nt-album-remove {
