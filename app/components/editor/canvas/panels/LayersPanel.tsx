@@ -334,9 +334,18 @@ export function LayersPanel({
   // Bound to the panel, not to a row: the key has to work wherever focus landed
   // inside it. The canvas keymap only sees keys pressed on the canvas itself.
   const onKeyDown = (e: React.KeyboardEvent) => {
-    if (renaming || !isDeleteKey(e) || snapshot.ids.length === 0) return;
+    if (renaming || !isDeleteKey(e)) return;
+    // Connectors first, as `edit.delete` does: the two selections are mutually
+    // exclusive, so at most one of these is non-empty. The connector list is
+    // inside this panel, so the key has to mean there what it means on canvas.
+    const { ids, edgeIds } = snapshot;
+    if (ids.length === 0 && edgeIds.length === 0) return;
     e.preventDefault();
-    store.dispatch({ type: "remove", ids: [...snapshot.ids] });
+    store.dispatch(
+      edgeIds.length > 0
+        ? { type: "removeEdge", ids: [...edgeIds] }
+        : { type: "remove", ids: [...ids] },
+    );
     selection.clear();
   };
 
