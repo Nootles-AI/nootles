@@ -55,3 +55,6 @@ next-env.d.ts
 
 # Working directory for the implement routine.
 .implement/
+
+# impeccable design-hook cache
+.impeccable/hook.cache.json

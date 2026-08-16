@@ -1,0 +1,26 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          "app/components/editor/album/album.css"
+        ],
+        "createdAt": "2026-08-16T21:58:37.047Z",
+        "reason": "Claude: 20px side borders on .nt-album-trim-keep are the trim strip's drag handles (iOS Photos trim frame), functional not decorative"
+      },
+      {
+        "rule": "layout-transition",
+        "value": "*",
+        "files": [
+          "app/components/editor/album/album.css"
+        ],
+        "createdAt": "2026-08-16T21:58:37.079Z",
+        "reason": "Claude: stage height transition is the waterfall's documented re-pack glide over transform-placed tiles; .nt-album-full max-height is a one-shot edit-mode scene change where transform would break crop fraction math"
+      }
+    ]
+  }
+}
