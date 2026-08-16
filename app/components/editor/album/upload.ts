@@ -249,8 +249,10 @@ async function prepareImage(
  * `XMLHttpRequest` rather than `fetch`, for the one thing it still does better:
  * it reports how much of the body has gone. On a 60MB video that is the
  * difference between a progress bar and a spinner.
+ *
+ * Exported for the lightbox, whose crops and trims land through the same door.
  */
-function put(
+export function put(
   convex: ConvexReactClient,
   blob: Blob,
   type: string,
