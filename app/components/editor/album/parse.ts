@@ -53,6 +53,8 @@ export function parseAlbum(
   if (id) album.id = id;
   const w = num(root.getAttribute("w") ?? root.getAttribute("width"));
   if (w) album.w = w;
+  const cols = num(root.getAttribute("cols") ?? root.getAttribute("columns"));
+  if (cols) album.cols = Math.min(MAX_COLS, cols);
 
   // `querySelectorAll` rather than walking the children, so a picture a model
   // wrapped in a <figure> or a <div> is still the picture it meant.
@@ -63,6 +65,10 @@ export function parseAlbum(
     const kind = KINDS[el.tagName.toLowerCase()];
     const poster = el.getAttribute("poster")?.trim();
     const span = num(el.getAttribute("span"));
+    // What an edited picture was cut from. The source is the fact; sizes it
+    // arrives without are normalised the way an item's own are.
+    const of = el.getAttribute("of")?.trim();
+    const oposter = el.getAttribute("oposter")?.trim();
     album.items.push({
       kind,
       src,
@@ -72,6 +78,16 @@ export function parseAlbum(
       // past the columns there are is the layout's problem, not the file's.
       ...(span && span > 1 ? { span: Math.min(MAX_COLS, span) } : {}),
       ...(kind === "video" && poster ? { poster } : {}),
+      ...(of && of !== src
+        ? {
+            of: {
+              src: of,
+              w: num(el.getAttribute("ow")) ?? DEFAULT_W,
+              h: num(el.getAttribute("oh")) ?? DEFAULT_H,
+              ...(kind === "video" && oposter ? { poster: oposter } : {}),
+            },
+          }
+        : {}),
     });
   }
 

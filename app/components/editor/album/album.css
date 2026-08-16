@@ -1,14 +1,13 @@
 /* ===== Album =============================================================
    A waterfall of photos and videos inside a document column.
 
-   Every tile is placed at coordinates the packer computed (`waterfall.ts`),
-   which is what lets a reorder or a change of column count be a change of
-   `--x`/`--y` that transitions, rather than a re-layout that teleports.
-
-   The picture being carried is not one of these. dnd-kit draws it in an overlay
-   of its own under the pointer, so nothing here has to know where the pointer
-   is — the tile it came from just sits in the waterfall, faded, showing where
-   letting go would put it. */
+   Every tile sits at coordinates the packer computed (`waterfall.ts`),
+   composed with the distance it has been carried — `--dx`/`--dy`, zero for
+   every tile but the one in hand. A reorder or a change of column count is a
+   change of `--x`/`--y` that transitions; a carry is a change of `--dx`/`--dy`
+   that must not. The picture being carried is the real tile, on top and
+   untouchable; the sunken slot gliding beneath it is where letting go lands
+   it. */
 
 .nt-album {
   position: relative;
@@ -25,6 +24,8 @@
 
 .nt-album-tile,
 .nt-album-outline {
+  --dx: 0px;
+  --dy: 0px;
   position: absolute;
   top: 0;
   left: 0;
@@ -33,12 +34,11 @@
   /* Under the picture until it decodes, so a tile is a held space rather than
      a hole in the page. */
   background: var(--sunken);
-  transform: translate(var(--x), var(--y));
+  transform: translate(calc(var(--x) + var(--dx)), calc(var(--y) + var(--dy)));
   transition:
     transform var(--dur) var(--ease),
     width var(--dur) var(--ease),
-    height var(--dur) var(--ease),
-    opacity var(--dur-fast) var(--ease);
+    height var(--dur) var(--ease);
 }
 
 .nt-album-tile {
@@ -61,44 +61,69 @@
   -webkit-user-drag: none;
 }
 
-/* The tile a picture was lifted out of. It stays in the waterfall, at the place
-   the picture would land, faded — which IS the preview: the gap that follows
-   your cursor is where letting go puts it. The picture itself is drawn by the
-   overlay below, under the pointer. */
-.nt-album-tile.is-lifted {
-  opacity: 0.26;
+/* The one being carried: glued to the pointer, not easing after it, and
+   untouchable so it never occludes its own drop question. */
+.nt-album-tile.is-held {
+  z-index: 2;
+  pointer-events: none;
+  transition: none;
+  transform: translate(calc(var(--x) + var(--dx)), calc(var(--y) + var(--dy)))
+    scale(1.02);
+  box-shadow: 0 10px 30px oklch(0.2 0.01 90 / 0.22);
 }
+
+/* Let go: it glides into its slot above the others, shadow fading as it lands. */
+.nt-album-tile.is-homing {
+  z-index: 2;
+  box-shadow: 0 10px 30px oklch(0.2 0.01 90 / 0);
+  transition:
+    transform var(--dur) var(--ease),
+    width var(--dur) var(--ease),
+    height var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease);
+}
+
+/* Where letting go puts it: a pressed-in well that glides between slots. */
+.nt-album-slot {
+  position: absolute;
+  top: 0;
+  left: 0;
+  border-radius: var(--radius);
+  background: var(--sunken);
+  transform: translate(var(--x), var(--y));
+  transition:
+    transform var(--dur) var(--ease),
+    width var(--dur) var(--ease),
+    height var(--dur) var(--ease);
+}
+
+/* Read aloud, never seen: where a keyboard move put the picture. */
+.nt-album-said {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 .nt-album-tile:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
-/* Carrying: the cursor should not flicker back to `grab` every time the pointer
-   crosses a tile that is moving out of the way. */
+/* Carrying: the cursor should not flicker back to `grab` every time the
+   pointer crosses a tile, a gap, or the slot on its way somewhere. */
+.nt-album.is-carrying,
 .nt-album.is-carrying .nt-album-tile {
   cursor: grabbing;
 }
 
-/* The copy under the pointer. dnd-kit positions it and animates it back into
-   the waterfall on release, so it has nothing to do but look picked up. */
-.nt-album-carried {
-  overflow: hidden;
-  border-radius: var(--radius);
-  background: var(--sunken);
-  box-shadow: 0 10px 30px oklch(0.2 0.01 90 / 0.22);
-  cursor: grabbing;
-  transform: scale(1.02);
-}
-.nt-album-carried img,
-.nt-album-carried video {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-/* Somebody asked not to be moved at. Positions still change; they just arrive. */
+/* Somebody asked not to be moved at. Positions still change; they just arrive.
+   The carried tile is exempt by nature: tracking the hand is direct
+   manipulation, not animation. */
 .nt-album.is-still .nt-album-tile,
 .nt-album.is-still .nt-album-outline,
+.nt-album.is-still .nt-album-slot,
 .nt-album.is-still .nt-album-stage {
   transition: none;
 }
@@ -191,42 +216,41 @@
   color: var(--foreground);
 }
 
-/* Bottom-right, where a picture is resized everywhere else. It changes the
-   columns the picture spans, so it snaps — the height follows the width,
-   because a photo's proportions are not up for negotiation. */
-.nt-album-stretch {
+/* Bottom-right, where a picture is resized everywhere else — but stepped, not
+   dragged: a picture's width is a whole number of columns, so the affordance
+   is a chip a direction, inwards to narrow and outwards to widen. The remove
+   chip's twins, because they are the same kind of thing: a small affordance
+   that has to read against a photograph of anything at all. */
+.nt-album-size {
   position: absolute;
   right: 6px;
   bottom: 6px;
-  width: 22px;
-  height: 22px;
-  border-radius: 999px;
-  /* The remove chip's twin, because they are the same kind of thing: a small
-     affordance that has to read against a photograph of anything at all. A
-     bare corner glyph vanished into every light picture it sat on. */
-  background: color-mix(in oklch, var(--background) 88%, transparent);
-  cursor: nwse-resize;
+  display: flex;
+  gap: 4px;
   opacity: 0;
   transition: opacity var(--dur-fast) var(--ease);
 }
-.nt-album-stretch::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  width: 9px;
-  height: 9px;
-  margin: auto;
-  border-right: 1.5px solid var(--muted);
-  border-bottom: 1.5px solid var(--muted);
-  border-bottom-right-radius: 2px;
+.nt-album-size button {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--background) 88%, transparent);
+  color: var(--muted);
+  transition: color var(--dur-fast) var(--ease);
 }
-.nt-album-tile:hover .nt-album-stretch {
+.nt-album-size svg {
+  width: 13px;
+  height: 13px;
+}
+.nt-album-tile:hover .nt-album-size {
   opacity: 1;
 }
-.nt-album-stretch:hover::after {
-  border-color: var(--foreground);
+.nt-album-size button:hover {
+  color: var(--foreground);
 }
-.nt-album.is-carrying .nt-album-stretch,
+.nt-album.is-carrying .nt-album-size,
 .nt-album.is-carrying .nt-album-remove {
   opacity: 0;
 }
@@ -281,22 +305,141 @@
   font-size: var(--text-meta-lg);
   color: var(--muted);
 }
-.nt-album-add {
-  color: var(--muted);
-  transition: color var(--dur-fast) var(--ease);
-  /* Held back until the album is hovered: the pictures are the block, and a
-     standing instruction under them is noise once it has been read. */
-  opacity: 0;
-}
-.nt-album:hover .nt-album-add,
-.nt-album-add:focus-visible {
-  opacity: 1;
-}
-.nt-album-add:hover {
-  color: var(--foreground);
-}
 .nt-album-note {
   color: var(--muted);
+}
+
+/* ---- The bar, while the album is the thing being worked on --------------
+   The canvas toolbar's, one block over: a floating pill at the block's foot,
+   holding what is true of the whole album — how many columns (which is to say
+   how big the pictures are), a shuffle, and the way in for more files. */
+
+/* A dock with no height of its own: the bar adds nothing to the block and
+   moves nothing under it. In flow it sits at the album's foot; scrolled past,
+   `sticky` holds it just above the window's bottom edge — the canvas
+   toolbar's behaviour, had the canvas been able to grow this tall. */
+.nt-album-tools-dock {
+  position: sticky;
+  bottom: 12px;
+  z-index: 3;
+  height: 0;
+}
+
+.nt-album-tools {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  border-radius: 999px;
+  background: var(--elevated);
+  border: 1px solid var(--border);
+  box-shadow:
+    0 1px 2px oklch(0.25 0.005 90 / 0.05),
+    0 6px 20px oklch(0.25 0.005 90 / 0.1);
+  transform: translateX(-50%);
+  transition: opacity var(--dur-fast) var(--ease);
+  animation: nt-album-tools-in var(--dur) var(--ease);
+}
+@keyframes nt-album-tools-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(12px) scale(0.97);
+  }
+}
+.nt-album.is-still .nt-album-tools {
+  animation: nt-fade-in var(--dur-fast) var(--ease);
+}
+/* Mid-carry the block belongs to the pictures moving through it. */
+.nt-album.is-carrying .nt-album-tools {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.nt-album-tools-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  color: var(--muted);
+  transition:
+    background var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
+}
+.nt-album-tools-btn svg {
+  width: 14px;
+  height: 14px;
+}
+.nt-album-tools-btn:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--foreground);
+}
+.nt-album-tools-btn:disabled {
+  opacity: 0.32;
+  cursor: default;
+}
+
+.nt-album-tools-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--text-meta-lg);
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  transition:
+    background var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
+}
+.nt-album-tools-count svg {
+  width: 14px;
+  height: 14px;
+}
+.nt-album-tools-count:hover {
+  background: var(--hover);
+  color: var(--foreground);
+}
+/* Pinned: the count is a held choice, and it looks held until it is let go. */
+.nt-album-tools-count[aria-pressed="true"] {
+  background: var(--selected);
+  color: var(--foreground);
+}
+
+.nt-album-tools-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px 0 8px;
+  border-radius: 999px;
+  font-size: var(--text-meta-lg);
+  color: var(--muted);
+  white-space: nowrap;
+  transition:
+    background var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
+}
+.nt-album-tools-add svg {
+  width: 14px;
+  height: 14px;
+}
+.nt-album-tools-add:hover {
+  background: var(--hover);
+  color: var(--foreground);
+}
+
+.nt-album-tools-sep {
+  width: 1px;
+  height: 16px;
+  margin-inline: 4px;
+  background: var(--border);
 }
 
 /* ---- Width grip -------------------------------------------------------
@@ -329,7 +472,11 @@
   opacity: 0.7;
 }
 
-/* ---- One picture, full size ------------------------------------------- */
+/* ---- One picture, full size --------------------------------------------
+   The chrome is the Photos editor's, translated: a near-black room, white
+   iconography, the app's own amber where Photos would reach for yellow. At
+   rest the room is a scrim over the document; editing deepens it to nearly
+   solid, because a crop or a cut wants nothing else on screen. */
 
 .nt-album-lightbox {
   position: fixed;
@@ -338,18 +485,399 @@
   display: grid;
   place-items: center;
   padding: 48px;
-  background: oklch(0.18 0.004 90 / 0.82);
+  background: oklch(0.17 0.004 90 / 0.88);
   animation: nt-fade-in var(--dur) var(--ease);
+  transition: background var(--dur-slow) var(--ease);
+}
+.nt-album-lightbox.is-editing {
+  background: oklch(0.145 0.004 90 / 0.97);
 }
 .nt-album-lightbox:focus {
   outline: none;
 }
+/* The global ring is amber on white; this room is dark. */
+.nt-album-lightbox :focus-visible {
+  outline: 2px solid oklch(1 0 90 / 0.75);
+  outline-offset: 2px;
+}
+
+/* Shrink-wraps the picture exactly, so the crop overlay's percentages ARE
+   fractions of the picture. The picture takes its bounds from the window
+   rather than from this box — a box sized by its child cannot also size it —
+   with room kept at the bottom for the edit bar. Unclipped on purpose: the
+   crop grips straddle the picture's edge, and a clipped grip is half a grip
+   that can only be pressed from the inside. */
+.nt-album-editbox {
+  position: relative;
+  display: flex;
+}
 
 .nt-album-full {
-  max-width: 100%;
-  max-height: 100%;
+  max-width: calc(100vw - 96px);
+  max-height: calc(100vh - 170px);
   object-fit: contain;
   border-radius: var(--radius-sm);
+  transition: max-height var(--dur-slow) var(--ease);
+}
+/* Editing pulls the picture up to make room for its controls. */
+.nt-album-lightbox.is-editing .nt-album-full {
+  max-height: calc(100vh - 260px);
+}
+
+/* ---- The crop: a ruled window over a picture sunk into the room -------- */
+
+.nt-album-crop {
+  position: absolute;
+  border: 1px solid oklch(1 0 90 / 0.9);
+  /* Thirds, the way every crop since the view camera has been judged. */
+  background-image:
+    linear-gradient(oklch(1 0 90 / 0.28), oklch(1 0 90 / 0.28)),
+    linear-gradient(oklch(1 0 90 / 0.28), oklch(1 0 90 / 0.28)),
+    linear-gradient(oklch(1 0 90 / 0.28), oklch(1 0 90 / 0.28)),
+    linear-gradient(oklch(1 0 90 / 0.28), oklch(1 0 90 / 0.28));
+  background-size:
+    1px 100%,
+    1px 100%,
+    100% 1px,
+    100% 1px;
+  background-position:
+    33.33% 0,
+    66.67% 0,
+    0 33.33%,
+    0 66.67%;
+  background-repeat: no-repeat;
+  /* The dim is the window's shadow: one box, no four-panel arithmetic. */
+  box-shadow: 0 0 0 9999px oklch(0.08 0.004 90 / 0.62);
+  cursor: move;
+  touch-action: none;
+}
+
+/* Corner brackets and edge bars, straddling the frame; each glyph is drawn
+   by its grip's ::before, and the grip itself is the 24px hand-hold. */
+.nt-album-crop-grip {
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  touch-action: none;
+}
+.nt-album-crop-grip::before {
+  content: "";
+  position: absolute;
+  filter: drop-shadow(0 1px 3px oklch(0 0 0 / 0.4));
+}
+
+.nt-album-crop-grip.is-nw { top: -12px; left: -12px; cursor: nwse-resize; }
+.nt-album-crop-grip.is-ne { top: -12px; right: -12px; cursor: nesw-resize; }
+.nt-album-crop-grip.is-se { bottom: -12px; right: -12px; cursor: nwse-resize; }
+.nt-album-crop-grip.is-sw { bottom: -12px; left: -12px; cursor: nesw-resize; }
+.nt-album-crop-grip.is-nw::before,
+.nt-album-crop-grip.is-ne::before,
+.nt-album-crop-grip.is-se::before,
+.nt-album-crop-grip.is-sw::before {
+  width: 16px;
+  height: 16px;
+}
+.nt-album-crop-grip.is-nw::before {
+  top: 9px;
+  left: 9px;
+  border-top: 3px solid oklch(1 0 90);
+  border-left: 3px solid oklch(1 0 90);
+  border-top-left-radius: 3px;
+}
+.nt-album-crop-grip.is-ne::before {
+  top: 9px;
+  right: 9px;
+  border-top: 3px solid oklch(1 0 90);
+  border-right: 3px solid oklch(1 0 90);
+  border-top-right-radius: 3px;
+}
+.nt-album-crop-grip.is-se::before {
+  bottom: 9px;
+  right: 9px;
+  border-bottom: 3px solid oklch(1 0 90);
+  border-right: 3px solid oklch(1 0 90);
+  border-bottom-right-radius: 3px;
+}
+.nt-album-crop-grip.is-sw::before {
+  bottom: 9px;
+  left: 9px;
+  border-bottom: 3px solid oklch(1 0 90);
+  border-left: 3px solid oklch(1 0 90);
+  border-bottom-left-radius: 3px;
+}
+
+.nt-album-crop-grip.is-n { top: -12px; left: calc(50% - 12px); cursor: ns-resize; }
+.nt-album-crop-grip.is-s { bottom: -12px; left: calc(50% - 12px); cursor: ns-resize; }
+.nt-album-crop-grip.is-n::before,
+.nt-album-crop-grip.is-s::before {
+  left: 1px;
+  width: 22px;
+  height: 3px;
+  border-radius: 999px;
+  background: oklch(1 0 90);
+}
+.nt-album-crop-grip.is-n::before { top: 10px; }
+.nt-album-crop-grip.is-s::before { bottom: 10px; }
+
+.nt-album-crop-grip.is-e { top: calc(50% - 12px); right: -12px; cursor: ew-resize; }
+.nt-album-crop-grip.is-w { top: calc(50% - 12px); left: -12px; cursor: ew-resize; }
+.nt-album-crop-grip.is-e::before,
+.nt-album-crop-grip.is-w::before {
+  top: 1px;
+  width: 3px;
+  height: 22px;
+  border-radius: 999px;
+  background: oklch(1 0 90);
+}
+.nt-album-crop-grip.is-e::before { right: 10px; }
+.nt-album-crop-grip.is-w::before { left: 10px; }
+
+/* ---- The dock: what editing offers, and the wait for it ---------------- */
+
+.nt-album-dock {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  display: grid;
+  justify-items: center;
+  gap: 16px;
+  padding: 16px 24px 20px;
+}
+.nt-album-dock-note {
+  font-size: var(--text-meta-lg);
+  color: oklch(1 0 90 / 0.85);
+}
+
+/* At rest: each way in as an icon over its name, the Photos editor's row. */
+.nt-album-modes {
+  display: flex;
+  gap: 20px;
+}
+.nt-album-mode {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  align-items: center;
+  min-width: 52px;
+  font-size: var(--text-meta-lg);
+  color: oklch(1 0 90 / 0.78);
+  transition: color var(--dur-fast) var(--ease);
+}
+.nt-album-mode-chip {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  background: oklch(1 0 90 / 0.1);
+  backdrop-filter: blur(10px);
+  color: oklch(1 0 90 / 0.9);
+  transition:
+    background var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease),
+    transform var(--dur-fast) var(--ease);
+}
+.nt-album-mode-chip svg {
+  width: 16px;
+  height: 16px;
+}
+.nt-album-mode:hover {
+  color: oklch(1 0 90);
+}
+.nt-album-mode:hover .nt-album-mode-chip {
+  background: oklch(1 0 90 / 0.18);
+  color: oklch(1 0 90);
+}
+.nt-album-mode:active .nt-album-mode-chip {
+  transform: scale(0.94);
+}
+
+/* Mid-edit: Cancel and Done flanking the name of the work between them. */
+.nt-album-actions {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 20px;
+  align-items: center;
+}
+.nt-album-actions-what {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--text-meta);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: oklch(1 0 90 / 0.62);
+}
+.nt-album-action {
+  height: 34px;
+  padding: 0 18px;
+  border-radius: 999px;
+  font-size: 13px;
+  background: oklch(1 0 90 / 0.1);
+  backdrop-filter: blur(10px);
+  color: oklch(1 0 90 / 0.85);
+  justify-self: end;
+  transition:
+    background var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
+}
+.nt-album-action:hover {
+  background: oklch(1 0 90 / 0.16);
+  color: oklch(1 0 90);
+}
+/* Where Photos says it in yellow, this app says it in its own amber. */
+.nt-album-action.is-done {
+  justify-self: start;
+  font-weight: 500;
+}
+.nt-album-action.is-done:not(:disabled) {
+  background: var(--accent-on-dark);
+  color: oklch(0.18 0.02 75);
+}
+.nt-album-action.is-done:not(:disabled):hover {
+  background: oklch(0.68 0.125 75);
+  color: oklch(0.16 0.02 75);
+}
+.nt-album-action:disabled {
+  background: oklch(1 0 90 / 0.07);
+  color: oklch(1 0 90 / 0.35);
+  cursor: default;
+}
+
+.nt-album-busy {
+  display: flex;
+  gap: 9px;
+  align-items: center;
+  height: 34px;
+  padding: 0 16px;
+  border-radius: 999px;
+  background: oklch(1 0 90 / 0.08);
+  backdrop-filter: blur(10px);
+  font-size: var(--text-meta-lg);
+  font-variant-numeric: tabular-nums;
+  color: oklch(1 0 90 / 0.85);
+}
+.nt-album-busy-spin {
+  width: 14px;
+  height: 14px;
+  border: 2px solid oklch(1 0 90 / 0.25);
+  border-top-color: oklch(1 0 90 / 0.9);
+  border-radius: 50%;
+  animation: nt-album-spin 0.8s linear infinite;
+}
+@keyframes nt-album-spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+/* ---- The trim: the clip as its own frames, bracketed ------------------- */
+
+.nt-album-trim {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.nt-album-trim-play {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  background: oklch(1 0 90 / 0.1);
+  backdrop-filter: blur(10px);
+  color: oklch(1 0 90 / 0.9);
+  transition:
+    background var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
+}
+.nt-album-trim-play svg {
+  width: 15px;
+  height: 15px;
+}
+.nt-album-trim-play:hover {
+  background: oklch(1 0 90 / 0.18);
+  color: oklch(1 0 90);
+}
+.nt-album-trim-time {
+  min-width: 44px;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--text-meta);
+  font-variant-numeric: tabular-nums;
+  color: oklch(1 0 90 / 0.7);
+  text-align: center;
+}
+.nt-album-trim-track {
+  position: relative;
+  overflow: hidden;
+  width: min(520px, 46vw);
+  height: 56px;
+  border-radius: 9px;
+  /* A held space while the frames decode. */
+  background: oklch(1 0 90 / 0.08);
+  touch-action: none;
+  cursor: ew-resize;
+}
+.nt-album-trim-film {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  user-select: none;
+  animation: nt-fade-in var(--dur) var(--ease);
+}
+/* What the cut lets go of, sunk toward the room. */
+.nt-album-trim-shade {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: oklch(0.145 0.004 90 / 0.65);
+}
+.nt-album-trim-shade.is-before { left: 0; }
+.nt-album-trim-shade.is-after { right: 0; }
+.nt-album-trim-head {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  width: 3px;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  background: oklch(1 0 90);
+  box-shadow: 0 0 4px oklch(0 0 0 / 0.5);
+  pointer-events: none;
+}
+/* What is kept, framed — the frame's thick sides are the two handles. */
+.nt-album-trim-keep {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border: 2px solid oklch(1 0 90 / 0.92);
+  border-left-width: 20px;
+  border-right-width: 20px;
+  border-radius: 9px;
+  pointer-events: none;
+  transition: border-color var(--dur-fast) var(--ease);
+}
+.nt-album-trim.is-set .nt-album-trim-keep {
+  border-color: var(--accent-on-dark);
+}
+.nt-album-trim-grip {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  color: oklch(0.2 0.01 90);
+  cursor: ew-resize;
+  touch-action: none;
+}
+.nt-album-trim-grip.is-end {
+  transform: translateX(-100%);
+}
+.nt-album-trim-grip svg {
+  width: 12px;
+  height: 12px;
+  stroke-width: 3;
 }
 
 .nt-album-close,
@@ -382,9 +910,25 @@
 }
 .nt-album-count {
   position: absolute;
-  bottom: 16px;
+  top: 20px;
   left: 50%;
   transform: translateX(-50%);
+  font-family: var(--font-mono), ui-monospace, monospace;
   font-size: var(--text-meta-lg);
-  color: oklch(1 0 90 / 0.6);
+  font-variant-numeric: tabular-nums;
+  color: oklch(1 0 90 / 0.65);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nt-album-lightbox,
+  .nt-album-full {
+    transition: none;
+  }
+  .nt-album-trim-film {
+    animation: none;
+  }
+  /* Slower, not stopped: the wait still has to read as motion. */
+  .nt-album-busy-spin {
+    animation-duration: 2.4s;
+  }
 }

@@ -121,7 +121,9 @@ export function measureVideo(file: File): Promise<{ w: number; h: number }> {
  * codec that survived the pass-through rule — answers with no poster, and the
  * caller falls back to the shape a phone films in.
  */
-function probe(blob: Blob): Promise<Omit<PreparedVideo, "blob" | "type">> {
+export function probeVideo(
+  blob: Blob,
+): Promise<Omit<PreparedVideo, "blob" | "type">> {
   return new Promise((resolve) => {
     const url = URL.createObjectURL(blob);
     const video = document.createElement("video");
@@ -183,7 +185,74 @@ export async function prepareVideo(
     }
   }
 
-  return { blob, type, ...(await probe(blob)) };
+  return { blob, type, ...(await probeVideo(blob)) };
+}
+
+/** What the lightbox may do to a clip: keep a stretch of it, keep a region. */
+export type VideoEdit = {
+  /** Seconds. Absent ends mean the clip's own. */
+  start?: number;
+  end?: number;
+  /** Source pixels. The caller keeps these even — x264 will not take odd. */
+  crop?: { x: number; y: number; w: number; h: number };
+};
+
+/**
+ * Re-cuts a stored video: a trim, a crop, or both, re-encoded with the same
+ * settings the upload used — so an edited clip is exactly the kind of file an
+ * ingested one is, poster and true size included.
+ */
+export async function editVideo(
+  blob: Blob,
+  edit: VideoEdit,
+  onProgress: (fraction: number) => void,
+): Promise<PreparedVideo> {
+  const out = await exclusive(() => runEdit(blob, edit, onProgress));
+  return { blob: out, type: "video/mp4", ...(await probeVideo(out)) };
+}
+
+async function runEdit(
+  blob: Blob,
+  edit: VideoEdit,
+  onProgress: (fraction: number) => void,
+): Promise<Blob> {
+  const ffmpeg = await loadEngine();
+  const extension = blob.type.split("/")[1]?.replace(/[^a-z0-9]/g, "") || "mp4";
+  const input = `edit.${extension}`;
+  const output = "cut.mp4";
+
+  const report = ({ progress }: { progress: number }) => {
+    onProgress(Math.min(1, Math.max(0, progress)));
+  };
+  ffmpeg.on("progress", report);
+
+  try {
+    await ffmpeg.writeFile(input, new Uint8Array(await blob.arrayBuffer()));
+    const { start, end, crop } = edit;
+    await ffmpeg.exec([
+      // Before the input, so ffmpeg seeks rather than decodes its way there;
+      // re-encoding makes the cut frame-accurate all the same.
+      ...(start ? ["-ss", String(start)] : []),
+      "-i", input,
+      ...(end !== undefined ? ["-t", String(Math.max(0.1, end - (start ?? 0)))] : []),
+      ...(crop ? ["-vf", `crop=${crop.w}:${crop.h}:${crop.x}:${crop.y}`] : []),
+      "-c:v", "libx264",
+      "-preset", "veryfast",
+      "-crf", "28",
+      "-pix_fmt", "yuv420p",
+      "-c:a", "aac",
+      "-b:a", "128k",
+      "-movflags", "+faststart",
+      output,
+    ]);
+    const data = await ffmpeg.readFile(output);
+    if (typeof data === "string") throw new Error("ffmpeg returned text");
+    return new Blob([new Uint8Array(data)], { type: "video/mp4" });
+  } finally {
+    ffmpeg.off("progress", report);
+    await ffmpeg.deleteFile(input).catch(() => {});
+    await ffmpeg.deleteFile(output).catch(() => {});
+  }
 }
 
 function transcode(

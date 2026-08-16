@@ -25,9 +25,13 @@ export type Box = { x: number; y: number; w: number; h: number };
 /** What the packer needs of a picture: its shape, and how wide it was made. */
 export type Tiled = { w: number; h: number; span?: number };
 
-/** How many columns fit, from the block's own width. */
-export function columnsFor(width: number, items: readonly Tiled[]): number {
-  const fits = Math.max(1, Math.round(width / TARGET_COL_W));
+/** How many columns, from the block's width — or from the album's own say-so. */
+export function columnsFor(
+  width: number,
+  items: readonly Tiled[],
+  pinned?: number,
+): number {
+  const fits = pinned ?? Math.max(1, Math.round(width / TARGET_COL_W));
   // Never more columns than there is anything to put in them — four photos in
   // six columns reads as a row with two holes rather than as a waterfall. A
   // widened picture is its own claim on that room, so it counts too.
@@ -70,4 +74,66 @@ export function layout(
 
   // The tallest column, less the gap that was added under its last picture.
   return { boxes, height: Math.max(0, Math.max(0, ...feet) - GAP) };
+}
+
+/** How far past a tile's midline the pointer must go to change its answer. */
+const HYSTERESIS = 8;
+
+/**
+ * Where a carried picture would land, from the pointer alone.
+ *
+ * Measured against `boxes` — the layout that is ON SCREEN, carried picture
+ * included, sitting at `carried`. The pointer must be answered in the
+ * arrangement the user is looking at: judged against anything else — the
+ * pre-drag layout, the layout without the picture — the tiles it has already
+ * displaced put every later target somewhere other than where it appears, and
+ * a long drag stops landing where it points.
+ *
+ * These are the layout's SETTLED coordinates, never the animated document —
+ * measuring mid-glide is the feedback loop that made every earlier version of
+ * this drag chatter. What steadies the answer instead: the carried picture's
+ * own box is a fixed point (the pointer resting in the space it would take is
+ * the answer it already has), and the midline is sticky toward the answer
+ * standing, so a hand resting on one cannot flicker between two.
+ *
+ * Returns the carried picture's new index in that same list.
+ */
+export function dropIndex(
+  point: { x: number; y: number },
+  boxes: readonly Box[],
+  columns: number,
+  carried: number,
+): number {
+  let best = -1;
+  let nearest = Infinity;
+  for (let i = 0; i < boxes.length; i++) {
+    const box = boxes[i];
+    if (
+      point.x >= box.x &&
+      point.x <= box.x + box.w &&
+      point.y >= box.y &&
+      point.y <= box.y + box.h
+    ) {
+      best = i;
+      break;
+    }
+    const dx = point.x - (box.x + box.w / 2);
+    const dy = point.y - (box.y + box.h / 2);
+    const distance = dx * dx + dy * dy;
+    if (distance < nearest) {
+      nearest = distance;
+      best = i;
+    }
+  }
+  if (best < 0 || best === carried) return carried;
+
+  // Stacked in one column, the half that means "after" is the lower one; in
+  // more than one it is the right-hand one.
+  const box = boxes[best];
+  const along = columns === 1 ? point.y : point.x;
+  const middle = columns === 1 ? box.y + box.h / 2 : box.x + box.w / 2;
+  const bias = carried > best ? -HYSTERESIS : HYSTERESIS;
+  // The place among the others, then the carried picture's own vacancy closed.
+  const place = along > middle + bias ? best + 1 : best;
+  return place > carried ? place - 1 : place;
 }

@@ -24,6 +24,12 @@ export type AlbumItem = {
   span?: number;
   /** A video's first frame, so its tile paints before the video decodes. */
   poster?: string;
+  /**
+   * The picture this one was cut from, kept by the first crop or trim and
+   * carried unchanged through every later one — so reset means the true
+   * original, whole, with nothing to fetch or measure first.
+   */
+  of?: { src: string; w: number; h: number; poster?: string };
 };
 
 export type Album = {
@@ -32,6 +38,12 @@ export type Album = {
   id?: string;
   /** Set only by the width grip; absent means "track the text column". */
   w?: number;
+  /**
+   * Set only by the bar's column control; absent means "as many as the width
+   * comfortably holds". Pinned, it is the other way to say how big the
+   * pictures are: the same width across fewer columns is bigger pictures.
+   */
+  cols?: number;
 };
 
 /** A model may write `<img src>` with no size. A photo's usual shape stands in. */
