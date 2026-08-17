@@ -295,7 +295,16 @@
    top-right corner, and their selections outlined in their colour — the
    outline following their drag live, ahead of the committed write. Painted
    imperatively from collab/presence.ts; ghosts live inside the transformed
-   scene layer, so pan and zoom carry them for free. */
+   scene layer, so pan and zoom carry them for free.
+
+   Geometry is scene px; the chrome — outline weight, caret bar, name flag —
+   is screen px, counter-scaled through `--k` exactly as the selection
+   overlay's hairlines are, so a ghost reads the same at 25% and 400%.
+
+   The transforms transition: awareness arrives on a coarse cadence, and the
+   glide between samples is what makes a remote drag read as a hand moving
+   rather than a box ticking. Elements are keyed and reused in the painter,
+   which is what gives the transition something to run on. */
 .nt-canvas-leaves {
   position: absolute;
   top: 6px;
@@ -320,19 +329,54 @@
   max-width: 12rem;
   overflow: hidden;
   text-overflow: ellipsis;
+  /* Unfurls once, on arrival — the painter never re-inserts a live leaf. */
+  animation: nt-leaf-in var(--dur) var(--ease);
+}
+@keyframes nt-leaf-in {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
 }
 .nt-copresence {
   position: absolute;
-  left: 0;
-  top: 0;
+  inset: 0;
   pointer-events: none;
 }
 .nt-copresence-ghost {
   position: absolute;
-  outline: 1.5px solid var(--copresence);
-  outline-offset: 1px;
-  border-radius: 2px;
+  left: 0;
+  top: 0;
+  outline: calc(1.5px * var(--k, 1)) solid var(--copresence);
+  outline-offset: calc(1px * var(--k, 1));
+  border-radius: calc(2px * var(--k, 1));
   pointer-events: none;
+  animation: nt-fade-in var(--dur-fast) var(--ease);
+  /* A hair over the awareness transport's 200ms throttle, so each glide is
+     still running when the next sample lands and the motion stays unbroken. */
+  transition:
+    transform 240ms linear,
+    width 240ms linear,
+    height 240ms linear;
+}
+
+/* Their selected connectors: a soft halo along the line itself — recolouring
+   the stroke would misreport who drew it. Coordinates run past the box, like
+   the edge layer's own. */
+.nt-copresence-edges {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+.nt-copresence-edges path {
+  fill: none;
+  stroke: var(--copresence);
+  stroke-width: calc(5px * var(--k, 1));
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.3;
+  animation: nt-fade-in var(--dur-fast) var(--ease);
 }
 
 /* A collaborator's label selection — the main editor's cursor grammar, in
@@ -340,28 +384,54 @@
    the head flying their name. */
 .nt-copresence-hl {
   position: absolute;
+  left: 0;
+  top: 0;
   background: color-mix(in srgb, var(--copresence) 22%, transparent);
-  border-radius: 1px;
+  border-radius: calc(1px * var(--k, 1));
   pointer-events: none;
 }
 .nt-copresence-caret {
   position: absolute;
-  width: 2px;
-  margin-left: -1px;
+  left: 0;
+  top: 0;
+  width: calc(2px * var(--k, 1));
+  margin-left: calc(-1px * var(--k, 1));
   background: var(--copresence);
-  border-radius: 1px;
+  border-radius: calc(1px * var(--k, 1));
   pointer-events: none;
+  animation: nt-fade-in var(--dur-fast) var(--ease);
+  transition: transform 80ms var(--ease);
 }
 .nt-copresence-caret-name {
   position: absolute;
   bottom: 100%;
-  left: -1px;
-  padding: 1px 5px;
-  font-size: 10px;
+  left: calc(-1px * var(--k, 1));
+  padding: calc(1px * var(--k, 1)) calc(5px * var(--k, 1));
+  font-size: calc(10px * var(--k, 1));
   font-weight: 500;
   line-height: 1.4;
   color: var(--background);
   background: var(--copresence);
-  border-radius: 3px 3px 3px 0;
+  border-radius: calc(3px * var(--k, 1)) calc(3px * var(--k, 1))
+    calc(3px * var(--k, 1)) 0;
   white-space: nowrap;
+  /* Same truncation bargain as the leaf — a name is a hint, not a banner. */
+  max-width: calc(12rem * var(--k, 1));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: opacity var(--dur) var(--ease);
+}
+/* The flag folds when the hand goes still — the editor's activity-label
+   grammar; the bar stays, so the place is never lost, only the noise. */
+.nt-copresence-caret.is-idle .nt-copresence-caret-name {
+  opacity: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .nt-canvas-leaf {
+    animation: nt-fade-in var(--dur-fast) var(--ease);
+  }
+  .nt-copresence-ghost,
+  .nt-copresence-caret {
+    transition: none;
+  }
 }
