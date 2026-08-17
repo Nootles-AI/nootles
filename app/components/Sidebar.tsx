@@ -16,7 +16,7 @@ import {
   Plus,
 } from "./Icons";
 import { AccountMenu } from "./AccountMenu";
-import { ShareDialog } from "./ShareDialog";
+import { SharePopover } from "./SharePopover";
 import { ConfirmDeleteDialog } from "./ConfirmDelete";
 import { ContextDialog } from "./context/ContextDialog";
 import { ContextMenu } from "./ContextMenu";
@@ -457,7 +457,7 @@ export function Sidebar({
           <ArrowLeft width={14} height={14} className="shrink-0" />
           <span className="nt-row-label">Projects</span>
         </Link>
-        {owner && <ShareDialog projectId={projectId} />}
+        {owner && <SharePopover projectId={projectId} />}
         <AccountMenu />
         <button
           onClick={onCollapse}
