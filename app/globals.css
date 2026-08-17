@@ -2672,11 +2672,15 @@ body:has(.nt-review-bar) .nt-sampler {
 
 /* ---- Presence -----------------------------------------------------------
    Who else is here: overlapping portraits ringed in each person's presence
-   colour. Photos are the sanctioned exception to the no-remote-images rule
-   (see AccountMenu's docstring), decided with the sharing work. */
+   colour (--face-color, set per face). Photos are the sanctioned exception
+   to the no-remote-images rule (see AccountMenu's docstring), decided with
+   the sharing work. Pointer events come back on because the workspace corner
+   the pile floats in is pointer-events-none — without this, no tooltips. */
 .nt-facepile {
   display: flex;
   align-items: center;
+  pointer-events: auto;
+  user-select: none;
 }
 .nt-face {
   display: flex;
@@ -2685,11 +2689,18 @@ body:has(.nt-review-bar) .nt-sampler {
   width: 24px;
   height: 24px;
   border-radius: 50%;
-  border: 1.5px solid var(--border-strong);
+  border: 1.5px solid var(--face-color, var(--border));
   background: var(--sunken);
+  /* A page-coloured ring so overlapping portraits separate cleanly, and the
+     pile keeps its edge when floating over document text. */
+  box-shadow: 0 0 0 2px var(--background);
   overflow: hidden;
   font-size: var(--text-meta);
   font-weight: 500;
+  /* The person's colour, pulled toward ink for contrast at monogram size —
+     same move as the guest banner. */
+  color: color-mix(in oklab, var(--face-color, var(--muted)) 55%, var(--foreground));
+  animation: nt-face-in var(--dur) var(--ease);
 }
 .nt-face + .nt-face {
   margin-left: -6px;
@@ -2700,7 +2711,24 @@ body:has(.nt-review-bar) .nt-sampler {
   object-fit: cover;
 }
 .nt-face.is-count {
-  border-color: var(--border);
+  /* A pill, not a circle: "+12" must widen rather than burst the ring. */
+  width: auto;
+  min-width: 24px;
+  padding-inline: 5px;
+  border-radius: 999px;
   color: var(--muted);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+}
+@keyframes nt-face-in {
+  from {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nt-face {
+    animation: none;
+  }
 }
 }
