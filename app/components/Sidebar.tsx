@@ -4,7 +4,7 @@ import { useRef, useState, type ReactNode, type RefObject } from "react";
 import Link from "next/link";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import { Doc, Id } from "@/convex/_generated/dataModel";
+import { Id } from "@/convex/_generated/dataModel";
 import { track } from "@/app/lib/telemetry";
 import {
   ArrowLeft,
@@ -24,6 +24,7 @@ import { Editable } from "./Editable";
 import { usePageChanges, type PageChange } from "./ReviewContext";
 import { useHints } from "./hints/useHints";
 import { useTreeDrag, type TreeRow } from "./sidebarDrag";
+import { flattenTree, isInside as isInsideOf } from "./sidebarTree";
 
 /** Indent per tree level, mirroring the drop line's inline offset. */
 const INDENT = 12;
@@ -46,67 +47,6 @@ type Props = {
 type Target =
   | { kind: "page"; id: Id<"pages"> }
   | { kind: "folder"; id: Id<"folders"> };
-
-type Row =
-  | {
-      kind: "folder";
-      folder: Doc<"folders">;
-      parentId: Id<"folders"> | null;
-      depth: number;
-      expanded: boolean;
-    }
-  | {
-      kind: "page";
-      page: Doc<"pages">;
-      parentId: Id<"folders"> | null;
-      depth: number;
-    };
-
-/**
- * The visible tree in render order: each level's folders above its pages, both
- * by their own `order`, depth-first through expanded folders. A row whose
- * parent is gone — or caught in a cycle two concurrent moves could leave —
- * surfaces at the top level rather than vanishing.
- */
-function flattenTree(
-  folders: readonly Doc<"folders">[],
-  pages: readonly Doc<"pages">[],
-  collapsed: ReadonlySet<string>,
-): Row[] {
-  const known = new Set<string>(folders.map((f) => f._id));
-  const home = (id: Id<"folders"> | undefined): Id<"folders"> | null =>
-    id && known.has(id) ? id : null;
-  const byOrder = (a: { order: number }, b: { order: number }) =>
-    a.order - b.order;
-
-  const out: Row[] = [];
-  const seen = new Set<string>();
-  const walk = (parentId: Id<"folders"> | null, depth: number) => {
-    const level = folders
-      .filter((f) => home(f.parentId) === parentId && !seen.has(f._id))
-      .sort(byOrder);
-    for (const folder of level) {
-      seen.add(folder._id);
-      const expanded = !collapsed.has(folder._id);
-      out.push({ kind: "folder", folder, parentId, depth, expanded });
-      if (expanded) walk(folder._id, depth + 1);
-    }
-    for (const page of pages
-      .filter((p) => home(p.folderId) === parentId)
-      .sort(byOrder)) {
-      out.push({ kind: "page", page, parentId, depth });
-    }
-  };
-  walk(null, 0);
-  for (const folder of folders) {
-    if (seen.has(folder._id)) continue;
-    seen.add(folder._id);
-    const expanded = !collapsed.has(folder._id);
-    out.push({ kind: "folder", folder, parentId: null, depth: 0, expanded });
-    if (expanded) walk(folder._id, 1);
-  }
-  return out;
-}
 
 export function Sidebar({
   width,
@@ -228,22 +168,8 @@ export function Sidebar({
     return level.reduce((m, f) => (f.order > m.order ? f : m))._id;
   };
   /** True when `candidate` sits at or under `root` — the folder-cycle guard. */
-  const isInside = (
-    candidate: Id<"folders">,
-    root: Id<"folders">,
-  ): boolean => {
-    const byId = new Map((folders ?? []).map((f) => [f._id, f]));
-    const seen = new Set<string>();
-    for (
-      let node = byId.get(candidate);
-      node && !seen.has(node._id);
-      node = node.parentId ? byId.get(node.parentId) : undefined
-    ) {
-      if (node._id === root) return true;
-      seen.add(node._id);
-    }
-    return false;
-  };
+  const isInside = (candidate: Id<"folders">, root: Id<"folders">) =>
+    isInsideOf(folders ?? [], candidate, root);
 
   const listRef = useRef<HTMLUListElement>(null);
   const drag = useTreeDrag(
