@@ -1,7 +1,7 @@
 "use client";
 
 import type { EditorView } from "prosemirror-view";
-import * as Y from "yjs";
+import type { Transaction } from "yjs";
 import {
   armFlash,
   flashBlocksInView,
@@ -33,6 +33,30 @@ type FlashMarker = { ids: string[]; n: number; by: number };
 const FLASH_MAP = "nt:flash";
 
 /**
+ * A flash names blocks a person just accepted; past this it is a page-sized
+ * wash of gold that says nothing more, and the marker is a doc value that
+ * should stay a few bytes.
+ */
+const MAX_FLASH_IDS = 256;
+
+/**
+ * The marker is a doc value ANY peer can write, and this runs inside a Yjs
+ * observer — a throw here would disrupt applying the very update that
+ * carried it. So: never trust the shape, never throw, drop what isn't a
+ * plausible marker.
+ */
+function readMarker(raw: unknown): FlashMarker | null {
+  if (typeof raw !== "object" || raw === null) return null;
+  const { ids, n, by } = raw as Record<string, unknown>;
+  if (!Array.isArray(ids)) return null;
+  const safe = ids
+    .filter((id): id is string => typeof id === "string")
+    .slice(0, MAX_FLASH_IDS);
+  if (!safe.length) return null;
+  return { ids: safe, n: n as number, by: by as number };
+}
+
+/**
  * Announce blocks someone's AI just wrote. MUST be called in the same task
  * as the content mutation (before or after both work — the provider batches
  * a task's updates into one flush), never deferred behind an await.
@@ -43,7 +67,7 @@ export function broadcastFimFlash(docId: string, blockIds: string[]) {
   if (!provider) return;
   provider.doc.transact(() => {
     provider.doc.getMap<FlashMarker>(FLASH_MAP).set("last", {
-      ids: blockIds,
+      ids: blockIds.slice(0, MAX_FLASH_IDS),
       n: Date.now(),
       by: provider.doc.clientID,
     });
@@ -59,25 +83,29 @@ export function watchFimFlash(
   provider: YConvexProvider,
   getView: () => EditorView | null,
 ): () => void {
-  let lastSeen = 0;
+  // Seeded with whatever the doc already carries: markers persist in the
+  // CRDT, and an old one must not replay on the session's first remote edit.
+  // Newness is identity (n, by), not ordering — accepters' clocks can skew,
+  // and a marker stamped "earlier" than the last is still a fresh accept.
+  let seen = readMarker(provider.doc.getMap(FLASH_MAP).get("last"));
 
-  const onBefore = (transaction: Y.Transaction) => {
+  const onBefore = (transaction: Transaction) => {
     // Only what arrived from elsewhere: local writes are the accepter's own.
     if (transaction.origin !== provider) return;
-    const marker = provider.doc
-      .getMap<FlashMarker>(FLASH_MAP)
-      .get("last");
-    if (!marker || marker.by === provider.doc.clientID) return;
-    if (marker.n <= lastSeen) return;
-    lastSeen = marker.n;
+    const marker = readMarker(provider.doc.getMap(FLASH_MAP).get("last"));
+    if (!marker || (seen && marker.n === seen.n && marker.by === seen.by)) return;
+    seen = marker;
+    if (marker.by === provider.doc.clientID) return;
 
     const view = getView();
+    const wanted = new Set(marker.ids);
     const present = new Set<string>();
     if (view) {
       view.state.doc.descendants((node) => {
         const id = node.attrs.id as string | undefined;
-        if (id && marker.ids.includes(id)) present.add(id);
-        return true;
+        if (id && wanted.has(id)) present.add(id);
+        // Ids live on block-level nodes; don't walk the inline content.
+        return !node.isTextblock;
       });
     }
     const unseen = marker.ids.filter((id) => !present.has(id));
