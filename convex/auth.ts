@@ -105,14 +105,14 @@ export async function projectRole(
 }
 
 /** Tables that resolve their access through a project's role. */
-type Shared = "projects" | "pages";
+type Shared = "projects" | "pages" | "folders";
 
 async function projectOf<T extends Shared>(
   ctx: QueryCtx,
   doc: Doc<T>,
 ): Promise<Doc<"projects"> | null> {
   // TS cannot relate the generic Doc<T> to the closed union, hence the hop.
-  const row = doc as unknown as Doc<"projects"> | Doc<"pages">;
+  const row = doc as unknown as Doc<"projects"> | Doc<"pages"> | Doc<"folders">;
   return "projectId" in row ? await ctx.db.get(row.projectId) : row;
 }
 

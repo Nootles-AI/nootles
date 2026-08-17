@@ -162,6 +162,23 @@ export default defineSchema({
     completedAt: v.optional(v.number()),
   }).index("by_owner", ["ownerId"]),
 
+  /**
+   * Sidebar folders, VS Code style: a folder holds pages and other folders of
+   * the same project. Navigation structure only — a page's content never moves
+   * when its row does, so this table stays outside the content hierarchy the
+   * schema note above locks. Folders sort before pages at every level, each
+   * group ordered by its own fractional `order`.
+   */
+  folders: defineTable({
+    ownerId: v.string(),
+    projectId: v.id("projects"),
+    title: v.string(),
+    /** Containing folder; absent = the project's top level. */
+    parentId: v.optional(v.id("folders")),
+    order: v.number(),
+    createdAt: v.number(),
+  }).index("by_project", ["projectId", "order"]),
+
   pages: defineTable({
     ownerId: v.string(),
     projectId: v.id("projects"),
@@ -178,7 +195,9 @@ export default defineSchema({
      * Optional so existing pages read as "create" without a migration.
      */
     mode: v.optional(v.union(v.literal("create"), v.literal("complete"))),
-    // Manual ordering within the project sidebar.
+    /** Containing sidebar folder; absent = the project's top level. */
+    folderId: v.optional(v.id("folders")),
+    // Manual ordering among the sidebar siblings that share its folder.
     order: v.number(),
     // prosemirror-sync document id for this page's block flow.
     docId: v.string(),

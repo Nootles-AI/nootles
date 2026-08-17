@@ -15,6 +15,10 @@ type EventMap = {
   project_created: Record<string, never>;
   page_created: { mode?: string };
   page_moved: Record<string, never>;
+  folder_created: Record<string, never>;
+  folder_moved: Record<string, never>;
+  /** The sidebar clipboard being spent — the feature's whole funnel. */
+  sidebar_pasted: { kind: "page" | "folder"; op: "copy" | "cut" };
   block_created: { type: string };
   mention_inserted: { surface: "editor" | "canvas" };
   canvas_shape_added: { kind: string };
