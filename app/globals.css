@@ -363,6 +363,14 @@ body {
 .nt-row.is-selected {
   background: var(--selected);
   color: var(--foreground);
+}
+/* The document actually open, which is not the same question as what is
+   selected — you can sweep a selection across the list without leaving the page
+   you are typing in. Weight rather than another wash, so the two can be true of
+   one row at once and still be told apart. */
+.nt-row.is-current {
+  background: var(--selected);
+  color: var(--foreground);
   font-weight: 500;
 }
 /* An inline rename sits in the same box as the row it replaces. It cannot be
@@ -401,7 +409,7 @@ body {
    to say which one the chat, the agent and the next thing you type are pointed
    at. The bar is the hairline the drop line and the pane divider are already
    drawn in, and it is only ever here while there are two panes to tell apart. */
-.nt-pages.is-split .nt-row.is-selected {
+.nt-pages.is-split .nt-row.is-current {
   box-shadow: inset 2px 0 0 var(--border-strong);
 }
 /* Where it will land — a hairline in the gap, not a highlight on a row. */
@@ -447,6 +455,17 @@ body {
 /* Cut to the clipboard: still here, already leaving. */
 .nt-row.is-cut {
   opacity: 0.45;
+}
+
+/* The rubber band, drawn inside the list it is sweeping. A hairline box with
+   the faintest wash — it is a gesture in progress, not a surface. */
+.nt-marquee {
+  position: absolute;
+  z-index: 1;
+  border: 1px solid var(--border-strong);
+  border-radius: 2px;
+  background: var(--hover);
+  pointer-events: none;
 }
 /* Renaming in place, beside the row's own twist and glyph — so a folder still
    reads as a folder while it is being named. A flex ITEM rather than the flex

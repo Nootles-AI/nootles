@@ -5,8 +5,7 @@ import { readVisible, requireEditable } from "./auth";
 import {
   clonePage,
   endOrder,
-  frontOrder,
-  orderAfter,
+  placeBetween,
   removePageCascade,
 } from "./pages";
 
@@ -131,25 +130,56 @@ export const rename = mutation({
  */
 export const move = mutation({
   args: {
-    folderId: v.id("folders"),
+    /** One folder, or a whole selection, landing together and keeping its order. */
+    folderIds: v.array(v.id("folders")),
     parentId: v.optional(v.id("folders")),
     after: v.optional(v.id("folders")),
+    /** Land past every sibling rather than at the front, when `after` is unset. */
+    atEnd: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
-    const folder = await requireEditable(ctx, "folders", args.folderId);
-    if (args.after === args.folderId) return;
-    const all = await projectFolders(ctx, folder.projectId);
+    const moving = [];
+    for (const id of args.folderIds) {
+      moving.push(await requireEditable(ctx, "folders", id));
+    }
+    if (!moving.length) return;
+    const projectId = moving[0].projectId;
+    if (moving.some((f) => f.projectId !== projectId)) {
+      throw new Error("Not found");
+    }
+    const all = await projectFolders(ctx, projectId);
     if (args.parentId) {
-      await folderIn(ctx, folder.projectId, args.parentId);
-      if (insideItself(all, args.folderId, args.parentId)) {
-        throw new Error("Cannot move a folder into itself");
+      await folderIn(ctx, projectId, args.parentId);
+      // Every carried folder is checked: a group is only as legal as its worst
+      // member, and one of them swallowing the destination orphans the rest.
+      for (const folder of moving) {
+        if (insideItself(all, folder._id, args.parentId)) {
+          throw new Error("Cannot move a folder into itself");
+        }
       }
     }
-    const siblings = inLevel(all, args.parentId ?? null, args.folderId);
-    const order = args.after
-      ? (orderAfter(siblings, args.after) ?? endOrder(siblings))
-      : frontOrder(siblings);
-    await ctx.db.patch(args.folderId, { parentId: args.parentId, order });
+
+    const carried = new Set<string>(args.folderIds);
+    const rest = inLevel(all, args.parentId ?? null).filter(
+      (f) => !carried.has(f._id),
+    );
+    const anchor =
+      args.after && !carried.has(args.after)
+        ? args.after
+        : args.atEnd || args.after
+          ? "end"
+          : null;
+
+    const orders = placeBetween(rest, anchor, moving.length);
+    moving.sort(
+      (a, b) => args.folderIds.indexOf(a._id) - args.folderIds.indexOf(b._id),
+    );
+    for (const [i, folder] of moving.entries()) {
+      await ctx.db.patch(folder._id, {
+        parentId: args.parentId,
+        order: orders[i],
+      });
+    }
   },
 });
 
