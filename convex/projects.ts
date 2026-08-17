@@ -259,7 +259,7 @@ export const remove = mutation({
       await ctx.db.delete(page._id);
     }
 
-    for (const table of ["contextSheet", "projectRepos"] as const) {
+    for (const table of ["contextSheet", "projectRepos", "folders"] as const) {
       const rows = await ctx.db
         .query(table)
         .withIndex("by_project", (q) => q.eq("projectId", args.projectId))

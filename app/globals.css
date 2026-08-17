@@ -415,6 +415,39 @@ body {
   background: var(--border-strong);
   pointer-events: none;
 }
+
+/* ---- Sidebar tree --------------------------------------------------------
+   Folders in the pages list. The same row vocabulary, plus the three marks a
+   tree needs: a twisty column reserved on every row so labels align, a leading
+   glyph, and the second drop answer — a ring around the folder a drag or a
+   paste would land in, in the drop line's own hairline grey. Neutral, like
+   everything else here. */
+.nt-row-twist {
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  color: var(--faint);
+}
+.nt-row-chevron {
+  transition: transform var(--dur-fast) var(--ease);
+}
+.nt-row-chevron.is-open {
+  transform: rotate(90deg);
+}
+.nt-row-icon {
+  flex: none;
+  color: var(--muted);
+}
+.nt-row.is-into {
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+/* Cut to the clipboard: still here, already leaving. */
+.nt-row.is-cut {
+  opacity: 0.45;
+}
 /* ---- Panes --------------------------------------------------------------
    Split in two, the pane you are not in settles to the tone of the rails, so
    the document you are typing into is the only paper on screen. A wash and not

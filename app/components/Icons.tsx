@@ -153,6 +153,27 @@ export function FileDoc(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+/** The sidebar tree's container, shared by its rows and its "new" button. */
+const FOLDER_PATH =
+  "M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z";
+
+export function Folder(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <path d={FOLDER_PATH} />
+    </svg>
+  );
+}
+
+export function FolderPlus(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <path d={FOLDER_PATH} />
+      <path d="M12 10v6M9 13h6" />
+    </svg>
+  );
+}
+
 export function Code(props: SVGProps<SVGSVGElement>) {
   return (
     <svg {...base} {...props}>

@@ -26,6 +26,7 @@ import type * as counters from "../counters.js";
 import type * as crons from "../crons.js";
 import type * as devSeed from "../devSeed.js";
 import type * as feedback from "../feedback.js";
+import type * as folders from "../folders.js";
 import type * as github_account from "../github/account.js";
 import type * as github_read from "../github/read.js";
 import type * as github_repos from "../github/repos.js";
@@ -69,6 +70,7 @@ declare const fullApi: ApiFromModules<{
   crons: typeof crons;
   devSeed: typeof devSeed;
   feedback: typeof feedback;
+  folders: typeof folders;
   "github/account": typeof github_account;
   "github/read": typeof github_read;
   "github/repos": typeof github_repos;
