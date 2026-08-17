@@ -14,6 +14,11 @@ import type { Doc, Id } from "@/convex/_generated/dataModel";
  * being emitted.
  */
 
+/** A row's identity, the way selection, the clipboard and the menus hold it. */
+export type Target =
+  | { kind: "page"; id: Id<"pages"> }
+  | { kind: "folder"; id: Id<"folders"> };
+
 export type TreeRowData =
   | {
       kind: "folder";
@@ -133,4 +138,82 @@ export function isInside(
     seen.add(node._id);
   }
   return false;
+}
+
+/** What a row is, as selection and the clipboard hold it. */
+export function targetOf(row: TreeRowData): Target {
+  return row.kind === "folder"
+    ? { kind: "folder", id: row.folder._id }
+    : { kind: "page", id: row.page._id };
+}
+
+export const rowId = (row: TreeRowData): string =>
+  row.kind === "folder" ? row.folder._id : row.page._id;
+
+/**
+ * Every visible row between two, inclusive — what shift-click extends over.
+ *
+ * Over the rows ON SCREEN rather than the tree, because that is the range the
+ * user drew: a closed folder's contents are not in it, however far down the
+ * screen the range appears to reach.
+ */
+export function rangeBetween(
+  rows: readonly TreeRowData[],
+  from: string,
+  to: string,
+): Target[] {
+  const a = rows.findIndex((r) => rowId(r) === from);
+  const b = rows.findIndex((r) => rowId(r) === to);
+  if (a < 0 || b < 0) return [];
+  const [lo, hi] = a <= b ? [a, b] : [b, a];
+  return rows.slice(lo, hi + 1).map(targetOf);
+}
+
+/**
+ * The selection, restricted to what is on screen and put in the order the rows
+ * are drawn — so every action applies top-down, and a row that went away with
+ * its folder stops being acted on the moment it stops being visible.
+ */
+export function visibleSelection(
+  rows: readonly TreeRowData[],
+  selection: readonly Target[],
+): Target[] {
+  const chosen = new Set<string>(selection.map((t) => t.id));
+  return rows.filter((r) => chosen.has(rowId(r))).map(targetOf);
+}
+
+/**
+ * The selection with anything a selected folder already carries removed.
+ *
+ * Selecting a folder selects its contents implicitly — it moves, copies and
+ * deletes as one thing — so acting on both would move a page twice, or delete
+ * one whose folder took it a moment before. Only the topmost of each branch
+ * acts; the rest travel inside it.
+ *
+ * Ancestry is read off the rows because a visible row's ancestors are always
+ * visible too: the walk only descends through folders that are open.
+ */
+export function topmost(
+  rows: readonly TreeRowData[],
+  selection: readonly Target[],
+): Target[] {
+  const parentOf = new Map<string, string | null>(
+    rows.map((r) => [rowId(r), r.parentId as string | null]),
+  );
+  const chosen = new Set(
+    selection.filter((t) => t.kind === "folder").map((t) => t.id as string),
+  );
+  const heldByAnother = (id: string): boolean => {
+    const seen = new Set<string>();
+    for (
+      let parent = parentOf.get(id) ?? null;
+      parent && !seen.has(parent);
+      parent = parentOf.get(parent) ?? null
+    ) {
+      if (chosen.has(parent)) return true;
+      seen.add(parent);
+    }
+    return false;
+  };
+  return selection.filter((t) => !heldByAnother(t.id as string));
 }

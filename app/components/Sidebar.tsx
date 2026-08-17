@@ -24,7 +24,18 @@ import { Editable } from "./Editable";
 import { usePageChanges, type PageChange } from "./ReviewContext";
 import { useHints } from "./hints/useHints";
 import { useTreeDrag, type TreeRow } from "./sidebarDrag";
-import { flattenTree, isInside as isInsideOf } from "./sidebarTree";
+import { useMarquee } from "./sidebarMarquee";
+import {
+  flattenTree,
+  isInside as isInsideOf,
+  rangeBetween,
+  rowId,
+  targetOf,
+  topmost,
+  visibleSelection,
+  type Target,
+  type TreeRowData,
+} from "./sidebarTree";
 
 /** Indent per tree level, mirroring the drop line's inline offset. */
 const INDENT = 12;
@@ -42,11 +53,6 @@ type Props = {
   onOpenAside: (id: Id<"pages">) => void;
   onCollapse: () => void;
 };
-
-/** A row's identity, the way the clipboard, the menus and a rename hold it. */
-type Target =
-  | { kind: "page"; id: Id<"pages"> }
-  | { kind: "folder"; id: Id<"folders"> };
 
 export function Sidebar({
   width,
@@ -84,15 +90,18 @@ export function Sidebar({
   const [editing, setEditing] = useState<Target | { kind: "project" } | null>(
     null,
   );
-  const [confirming, setConfirming] = useState<Target | null>(null);
+  const [confirming, setConfirming] = useState<readonly Target[] | null>(null);
   const [showingContext, setShowingContext] = useState(false);
   const [draft, setDraft] = useState("");
-  /** The row the keyboard verbs act on — the last one clicked or right-clicked. */
-  const [selected, setSelected] = useState<Target | null>(null);
+  /** The rows the verbs act on. Finder's rules: click, ⌘-click, shift-range. */
+  const [selection, setSelection] = useState<readonly Target[]>([]);
+  /** Where a shift-range measures from — the last row picked outright. */
+  const [anchor, setAnchor] = useState<string | null>(null);
   /** What ⌘C/⌘X holds until ⌘V spends it; "cut" is spent, "copy" is not. */
-  const [clip, setClip] = useState<(Target & { op: "copy" | "cut" }) | null>(
-    null,
-  );
+  const [clip, setClip] = useState<{
+    items: readonly Target[];
+    op: "copy" | "cut";
+  } | null>(null);
   /** Where a right-click opened a menu, and on what, in viewport coordinates. */
   const [ctx, setCtx] = useState<{
     target: Target | { kind: "list" };
@@ -150,50 +159,95 @@ export function Sidebar({
       : { kind: "page", id: r.page._id, parentId: r.parentId, depth: r.depth },
   );
 
+  // Only what is on screen counts as selected: closing a folder takes its
+  // contents out of the selection rather than leaving them acted on unseen.
+  const picked = visibleSelection(rows, selection);
+  /** The rows a verb runs on — a chosen folder already carries its contents. */
+  const acting = topmost(rows, picked);
+  const pickedIds = new Set<string>(picked.map((t) => t.id));
+
+  /** Finder's three ways to pick: replace, toggle, or extend from the anchor. */
+  const pick = (row: TreeRowData, e: { metaKey: boolean; ctrlKey: boolean; shiftKey: boolean }) => {
+    const id = rowId(row);
+    if (e.shiftKey && anchor) {
+      setSelection(rangeBetween(rows, anchor, id));
+      return;
+    }
+    if (e.metaKey || e.ctrlKey) {
+      setSelection(
+        pickedIds.has(id)
+          ? picked.filter((t) => t.id !== id)
+          : [...picked, targetOf(row)],
+      );
+      setAnchor(id);
+      return;
+    }
+    setSelection([targetOf(row)]);
+    setAnchor(id);
+  };
+
+  const selectOnly = (target: Target) => {
+    setSelection([target]);
+    setAnchor(target.id);
+  };
+
   const knownFolders = new Set<string>((folders ?? []).map((f) => f._id));
   const home = (id: Id<"folders"> | undefined): Id<"folders"> | null =>
     id && knownFolders.has(id) ? id : null;
   const pageById = (id: Id<"pages">) => pages?.find((p) => p._id === id);
   const folderById = (id: Id<"folders">) => folders?.find((f) => f._id === id);
-  const lastPageIn = (parentId: Id<"folders"> | null): Id<"pages"> | null => {
-    const level = (pages ?? []).filter((p) => home(p.folderId) === parentId);
-    if (!level.length) return null;
-    return level.reduce((m, p) => (p.order > m.order ? p : m))._id;
-  };
-  const lastFolderIn = (
-    parentId: Id<"folders"> | null,
-  ): Id<"folders"> | null => {
-    const level = (folders ?? []).filter((f) => home(f.parentId) === parentId);
-    if (!level.length) return null;
-    return level.reduce((m, f) => (f.order > m.order ? f : m))._id;
-  };
   /** True when `candidate` sits at or under `root` — the folder-cycle guard. */
   const isInside = (candidate: Id<"folders">, root: Id<"folders">) =>
     isInsideOf(folders ?? [], candidate, root);
 
   const listRef = useRef<HTMLUListElement>(null);
+  const marquee = useMarquee(
+    listRef,
+    (ids, additive) => {
+      const swept = rows.filter((r) => ids.includes(rowId(r))).map(targetOf);
+      setSelection(
+        additive
+          ? [...picked, ...swept.filter((t) => !pickedIds.has(t.id))]
+          : swept,
+      );
+    },
+    () => {
+      setSelection([]);
+      setAnchor(null);
+    },
+  );
   const drag = useTreeDrag(
     listRef,
     dragRows,
     {
-      onMovePage: (id, parentId, after) => {
+      onMovePages: (ids, parentId, after) => {
         void movePage({
-          pageId: id,
+          pageIds: ids,
           folderId: parentId ?? undefined,
-          after: (after === "end" ? lastPageIn(parentId) : after) ?? undefined,
+          after: after === "end" ? undefined : (after ?? undefined),
+          atEnd: after === "end",
         });
         expand(parentId);
         track("page_moved", {});
       },
-      onMoveFolder: (id, parentId, after) => {
+      onMoveFolders: (ids, parentId, after) => {
         void moveFolder({
-          folderId: id,
+          folderIds: ids,
           parentId: parentId ?? undefined,
-          after: (after === "end" ? lastFolderIn(parentId) : after) ?? undefined,
+          after: after === "end" ? undefined : (after ?? undefined),
+          atEnd: after === "end",
         });
         expand(parentId);
         track("folder_moved", {});
       },
+      // Dragging a row that is in the selection takes the whole selection;
+      // dragging one outside it leaves the selection alone and carries just it.
+      carriedWith: (row) =>
+        pickedIds.has(row.id)
+          ? dragRows.filter((r) =>
+              acting.some((t) => t.id === r.id),
+            )
+          : [row],
       onExpand: expand,
       forbids: (folderId, parentId) => isInside(parentId, folderId),
     },
@@ -241,7 +295,7 @@ export function Sidebar({
     createPage({ projectId, folderId }).then((id) => {
       track("page_created", {});
       expand(folderId);
-      setSelected({ kind: "page", id });
+      selectOnly({ kind: "page", id });
       onSelectPage(id);
     });
   };
@@ -250,7 +304,7 @@ export function Sidebar({
     createFolder({ projectId, parentId }).then((id) => {
       track("folder_created", {});
       expand(parentId);
-      setSelected({ kind: "folder", id });
+      selectOnly({ kind: "folder", id });
       // Instant edit-on-insert, like every other thing this app creates.
       startRename({ kind: "folder", id }, "");
     });
@@ -262,38 +316,57 @@ export function Sidebar({
    */
   const pasteInto = (dest: Id<"folders"> | null) => {
     if (!clip) return;
-    if (clip.kind === "folder" && dest && isInside(dest, clip.id)) return;
+    // A folder cannot be pasted inside itself; the rest of the group still can.
+    const items = clip.items.filter(
+      (t) =>
+        !(t.kind === "folder" && dest && isInside(dest, t.id)) &&
+        (t.kind === "page" ? pageById(t.id) : folderById(t.id)),
+    );
+    if (!items.length) return;
+    const pageIds = items.filter((t) => t.kind === "page").map((t) => t.id);
+    const folderIds = items.filter((t) => t.kind === "folder").map((t) => t.id);
+
     if (clip.op === "cut") {
-      if (clip.kind === "page" && pageById(clip.id)) {
+      if (pageIds.length) {
         void movePage({
-          pageId: clip.id,
+          pageIds: pageIds as Id<"pages">[],
           folderId: dest ?? undefined,
-          after: lastPageIn(dest) ?? undefined,
+          atEnd: true,
         });
-      } else if (clip.kind === "folder" && folderById(clip.id)) {
+      }
+      if (folderIds.length) {
         void moveFolder({
-          folderId: clip.id,
+          folderIds: folderIds as Id<"folders">[],
           parentId: dest ?? undefined,
-          after: lastFolderIn(dest) ?? undefined,
+          atEnd: true,
         });
       }
       setClip(null);
     } else {
-      if (clip.kind === "page" && pageById(clip.id)) {
-        void duplicatePage({ pageId: clip.id, folderId: dest ?? undefined });
-      } else if (clip.kind === "folder" && folderById(clip.id)) {
-        void duplicateFolder({ folderId: clip.id, parentId: dest ?? undefined });
-      }
+      // Sequential, so the copies land in the order they were taken.
+      void (async () => {
+        for (const t of items) {
+          if (t.kind === "page") {
+            await duplicatePage({ pageId: t.id, folderId: dest ?? undefined });
+          } else {
+            await duplicateFolder({
+              folderId: t.id,
+              parentId: dest ?? undefined,
+            });
+          }
+        }
+      })();
     }
     expand(dest);
-    track("sidebar_pasted", { kind: clip.kind, op: clip.op });
+    track("sidebar_pasted", { kind: items[0].kind, op: clip.op });
   };
 
   /** The folder a paste lands in, read off the selection the way VS Code does. */
   const pasteDest = (): Id<"folders"> | null => {
-    if (!selected) return null;
-    if (selected.kind === "folder") return selected.id;
-    return home(pageById(selected.id)?.folderId);
+    const last = picked[picked.length - 1];
+    if (!last) return null;
+    if (last.kind === "folder") return last.id;
+    return home(pageById(last.id)?.folderId);
   };
 
   /**
@@ -311,16 +384,25 @@ export function Sidebar({
    */
   const navKeys = (e: React.KeyboardEvent) => {
     if (!canEdit || editing) return;
-    if (e.key === "Escape" && clip) {
-      setClip(null);
+    if (e.key === "Escape") {
+      // The pending cut first, then the selection: Escape undoes the most
+      // recent thing you did, not everything at once.
+      if (clip) setClip(null);
+      else setSelection([]);
       return;
     }
-    if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey) return;
+    if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
     const key = e.key.toLowerCase();
-    if (key === "c" || key === "x") {
-      if (!selected) return;
+    if (e.shiftKey) return;
+    if (key === "a") {
       e.preventDefault();
-      setClip({ ...selected, op: key === "c" ? "copy" : "cut" });
+      setSelection(rows.map(targetOf));
+      return;
+    }
+    if (key === "c" || key === "x") {
+      if (!acting.length) return;
+      e.preventDefault();
+      setClip({ items: acting, op: key === "c" ? "copy" : "cut" });
     } else if (key === "v") {
       if (!clip) return;
       e.preventDefault();
@@ -334,17 +416,37 @@ export function Sidebar({
   ) => {
     e.preventDefault();
     e.stopPropagation();
-    if (target.kind !== "list") setSelected(target);
+    // A right-click inside the selection keeps it — that is what the menu will
+    // act on. One outside it becomes the selection first, as Finder does.
+    if (target.kind !== "list" && !pickedIds.has(target.id)) selectOnly(target);
     setCtx({ target, x: e.clientX, y: e.clientY });
   };
 
-  const confirmingRow =
-    confirming?.kind === "page"
-      ? pageById(confirming.id)
-      : confirming
-        ? folderById(confirming.id)
+  /** What the menu and the confirm dialog are about: the selection, or one row. */
+  const subjects = (target: Target): readonly Target[] =>
+    pickedIds.has(target.id) && acting.length > 1 ? acting : [target];
+
+  /** What the open menu is about, once the list case is out of the way. */
+  const rowSubjects: readonly Target[] =
+    ctx && ctx.target.kind !== "list" ? subjects(ctx.target) : [];
+
+  /** A row's current name, for a rename field and for what a dialog is about. */
+  const nameOf = (t: Target): string =>
+    (t.kind === "page" ? pageById(t.id)?.title : folderById(t.id)?.title) ?? "";
+
+  /** Where a paste aimed at this row lands: the folder itself, or a page's. */
+  const destFor = (t: Target): Id<"folders"> | null =>
+    t.kind === "folder" ? t.id : home(pageById(t.id)?.folderId);
+
+  const confirmingTitle = confirming?.length
+    ? nameOf(confirming[0]) || "Untitled"
+    : "";
+  const confirmingWhat =
+    confirming && confirming.length > 1
+      ? `these ${confirming.length} items and everything inside them`
+      : confirming?.[0]?.kind === "folder"
+        ? `“${confirmingTitle}” and everything inside it`
         : undefined;
-  const confirmingTitle = confirmingRow?.title || "Untitled";
 
   return (
     <aside style={{ width }} className="nt-panel nt-rail-l" aria-label="Pages">
@@ -396,6 +498,14 @@ export function Sidebar({
       <nav
         className="flex-1 overflow-y-auto px-2 pb-2"
         onKeyDown={navKeys}
+        tabIndex={-1}
+        onPointerDown={(e) => {
+          // Only from genuinely empty space: a press on a row is that row's
+          // own gesture, and the scroller is what fills the area below them.
+          if (canEdit && (e.target === e.currentTarget || e.target === listRef.current)) {
+            marquee.start(e);
+          }
+        }}
         onContextMenu={
           canEdit ? (e) => openMenu(e, { kind: "list" }) : undefined
         }
@@ -440,6 +550,9 @@ export function Sidebar({
 
         <ul
           ref={listRef}
+          role="tree"
+          aria-label="Pages and folders"
+          aria-multiselectable
           className={`nt-pages relative space-y-px${otherPageId ? " is-split" : ""}`}
         >
           {rows.length === 0 && (
@@ -455,7 +568,9 @@ export function Sidebar({
                 : { kind: "page", id: row.page._id };
             const isEditing =
               editing?.kind === row.kind && editing.id === id;
-            const isCut = clip?.op === "cut" && clip.id === id;
+            const isCut =
+              clip?.op === "cut" && clip.items.some((t) => t.id === id);
+            const inSelection = pickedIds.has(id);
             const indent = {
               paddingLeft: `calc(var(--inset) + ${row.depth * INDENT}px)`,
             };
@@ -465,7 +580,7 @@ export function Sidebar({
               // including the moment it is created, which opens straight into
               // this field.
               return (
-                <li key={id} data-row={id}>
+                <li key={id} data-row={id} role="none">
                   <div className="nt-row is-selected" style={indent}>
                     <span className="nt-row-twist">
                       {row.kind === "folder" && (
@@ -498,11 +613,16 @@ export function Sidebar({
             }
             if (row.kind === "folder") {
               return (
-                <li key={id} data-row={id}>
+                <li key={id} data-row={id} role="none">
                   <button
-                    onClick={() => {
-                      setSelected(target);
-                      toggleFolder(row.folder._id);
+                    onClick={(e) => {
+                      pick(row, e);
+                      // Only a plain click opens or closes it: extending a
+                      // selection through a folder must not also reshape the
+                      // list the range was measured against.
+                      if (!e.shiftKey && !e.metaKey && !e.ctrlKey) {
+                        toggleFolder(row.folder._id);
+                      }
                     }}
                     onPointerDown={
                       canEdit ? (e) => drag.press(dragRows[i], e) : undefined
@@ -520,12 +640,15 @@ export function Sidebar({
                         ? "Double-click to rename · right-click for more"
                         : undefined
                     }
+                    role="treeitem"
+                    aria-level={row.depth + 1}
                     aria-expanded={row.expanded}
+                    aria-selected={inSelection}
                     className={`nt-row w-full${
-                      drag.dragId === id ? " is-dragging" : ""
-                    }${landing === id ? " is-into" : ""}${
-                      isCut ? " is-cut" : ""
-                    }`}
+                      inSelection ? " is-selected" : ""
+                    }${drag.dragIds.has(id) ? " is-dragging" : ""}${
+                      landing === id ? " is-into" : ""
+                    }${isCut ? " is-cut" : ""}`}
                     style={indent}
                   >
                     <span className="nt-row-twist">
@@ -544,12 +667,15 @@ export function Sidebar({
               );
             }
             return (
-              <li key={id} data-row={id}>
+              <li key={id} data-row={id} role="none">
                 <button
-                  onClick={() => {
+                  onClick={(e) => {
+                    pick(row, e);
+                    // Extending or toggling a selection is not a request to
+                    // open anything — only a plain click switches the document.
+                    if (e.shiftKey || e.metaKey || e.ctrlKey) return;
                     // Switching pages is the structure lesson being learned.
                     if (row.page._id !== selectedPageId) hints.die("sidebar");
-                    setSelected(target);
                     onSelectPage(row.page._id);
                   }}
                   onPointerDown={
@@ -564,16 +690,17 @@ export function Sidebar({
                       ? "Double-click to rename · right-click for more"
                       : undefined
                   }
+                  role="treeitem"
+                  aria-level={row.depth + 1}
                   aria-current={
                     selectedPageId === row.page._id ? "page" : undefined
                   }
+                  aria-selected={inSelection}
                   className={`nt-row w-full${
-                    selectedPageId === row.page._id
-                      ? " is-selected"
-                      : otherPageId === row.page._id
-                        ? " is-open"
-                        : ""
-                  }${drag.dragId === id ? " is-dragging" : ""}${
+                    inSelection ? " is-selected" : ""
+                  }${selectedPageId === row.page._id ? " is-current" : ""}${
+                    otherPageId === row.page._id ? " is-open" : ""
+                  }${drag.dragIds.has(id) ? " is-dragging" : ""}${
                     isCut ? " is-cut" : ""
                   }`}
                   style={indent}
@@ -588,6 +715,9 @@ export function Sidebar({
               </li>
             );
           })}
+          {marquee.band && (
+            <li aria-hidden className="nt-marquee" style={marquee.band} />
+          )}
           {/* Last child, so the space-y margins of the real rows stay put. */}
           {drag.line && (
             <li
@@ -642,33 +772,17 @@ export function Sidebar({
               )}
             </>
           )}
-          {ctx.target.kind === "folder" && (
-            <FolderMenu
-              id={ctx.target.id}
+          {ctx.target.kind !== "list" && (
+            <RowMenu
+              subjects={rowSubjects}
               hasClip={!!clip}
+              destFor={destFor}
               onNewPage={newPage}
               onNewFolder={newFolder}
-              onCut={(id) => setClip({ kind: "folder", id, op: "cut" })}
-              onCopy={(id) => setClip({ kind: "folder", id, op: "copy" })}
-              onPaste={(id) => pasteInto(id)}
-              onRename={(id) =>
-                startRename({ kind: "folder", id }, folderById(id)?.title ?? "")
-              }
-              onDelete={(id) => setConfirming({ kind: "folder", id })}
-              onClose={() => setCtx(null)}
-            />
-          )}
-          {ctx.target.kind === "page" && (
-            <PageMenu
-              id={ctx.target.id}
-              hasClip={!!clip}
-              onCut={(id) => setClip({ kind: "page", id, op: "cut" })}
-              onCopy={(id) => setClip({ kind: "page", id, op: "copy" })}
-              onPaste={(id) => pasteInto(home(pageById(id)?.folderId))}
-              onRename={(id) =>
-                startRename({ kind: "page", id }, pageById(id)?.title ?? "")
-              }
-              onDelete={(id) => setConfirming({ kind: "page", id })}
+              onClip={(op) => setClip({ items: rowSubjects, op })}
+              onPaste={pasteInto}
+              onRename={(t) => startRename(t, nameOf(t))}
+              onDelete={() => setConfirming(rowSubjects)}
               onClose={() => setCtx(null)}
             />
           )}
@@ -685,18 +799,14 @@ export function Sidebar({
       {confirming && (
         <ConfirmDeleteDialog
           title={confirmingTitle}
-          what={
-            confirming.kind === "folder"
-              ? `“${confirmingTitle}” and everything inside it`
-              : undefined
-          }
+          what={confirmingWhat}
           onCancel={() => setConfirming(null)}
           onConfirm={() => {
-            if (confirming.kind === "page") {
-              removePage({ pageId: confirming.id });
-            } else {
-              removeFolder({ folderId: confirming.id });
+            for (const t of confirming) {
+              if (t.kind === "page") removePage({ pageId: t.id });
+              else removeFolder({ folderId: t.id });
             }
+            setSelection([]);
             setConfirming(null);
           }}
         />
@@ -783,85 +893,72 @@ function Item({
   );
 }
 
-/** VS Code's explorer menu for a folder: create at the top, destroy at the bottom. */
-function FolderMenu({
-  id,
+/**
+ * The menu for what was right-clicked: one row, or the selection it belongs to.
+ *
+ * The verbs that name a single thing — rename, and creating inside a folder —
+ * only appear when there is a single thing. The rest read the group, and the
+ * delete item says how much it is about to take.
+ */
+function RowMenu({
+  subjects,
   hasClip,
+  destFor,
   onNewPage,
   onNewFolder,
-  onCut,
-  onCopy,
+  onClip,
   onPaste,
   onRename,
   onDelete,
   onClose,
 }: {
-  id: Id<"folders">;
+  subjects: readonly Target[];
   hasClip: boolean;
-  onNewPage: (id: Id<"folders">) => void;
-  onNewFolder: (id: Id<"folders">) => void;
-  onCut: (id: Id<"folders">) => void;
-  onCopy: (id: Id<"folders">) => void;
-  onPaste: (id: Id<"folders">) => void;
-  onRename: (id: Id<"folders">) => void;
-  onDelete: (id: Id<"folders">) => void;
+  destFor: (t: Target) => Id<"folders"> | null;
+  onNewPage: (parent: Id<"folders">) => void;
+  onNewFolder: (parent: Id<"folders">) => void;
+  onClip: (op: "copy" | "cut") => void;
+  onPaste: (dest: Id<"folders"> | null) => void;
+  onRename: (t: Target) => void;
+  onDelete: () => void;
   onClose: () => void;
 }) {
-  const act = (fn: (id: Id<"folders">) => void) => () => {
-    fn(id);
+  const only = subjects.length === 1 ? subjects[0] : null;
+  const intoFolder = only?.kind === "folder" ? only.id : null;
+  const act = (fn: () => void) => () => {
+    fn();
     onClose();
   };
-  return (
-    <>
-      <Item onClick={act(onNewPage)}>New page</Item>
-      <Item onClick={act(onNewFolder)}>New folder</Item>
-      <div className="nt-menu-sep" />
-      <Item onClick={act(onCut)}>Cut</Item>
-      <Item onClick={act(onCopy)}>Copy</Item>
-      {hasClip && <Item onClick={act(onPaste)}>Paste</Item>}
-      <div className="nt-menu-sep" />
-      <Item onClick={act(onRename)}>Rename</Item>
-      <div className="nt-menu-sep" />
-      <Item danger onClick={act(onDelete)}>
-        Delete folder
-      </Item>
-    </>
-  );
-}
+  const deleteLabel =
+    subjects.length > 1
+      ? `Delete ${subjects.length} items`
+      : only?.kind === "folder"
+        ? "Delete folder"
+        : "Delete page";
 
-function PageMenu({
-  id,
-  hasClip,
-  onCut,
-  onCopy,
-  onPaste,
-  onRename,
-  onDelete,
-  onClose,
-}: {
-  id: Id<"pages">;
-  hasClip: boolean;
-  onCut: (id: Id<"pages">) => void;
-  onCopy: (id: Id<"pages">) => void;
-  onPaste: (id: Id<"pages">) => void;
-  onRename: (id: Id<"pages">) => void;
-  onDelete: (id: Id<"pages">) => void;
-  onClose: () => void;
-}) {
-  const act = (fn: (id: Id<"pages">) => void) => () => {
-    fn(id);
-    onClose();
-  };
   return (
     <>
-      <Item onClick={act(onCut)}>Cut</Item>
-      <Item onClick={act(onCopy)}>Copy</Item>
-      {hasClip && <Item onClick={act(onPaste)}>Paste</Item>}
-      <div className="nt-menu-sep" />
-      <Item onClick={act(onRename)}>Rename</Item>
+      {intoFolder && (
+        <>
+          <Item onClick={act(() => onNewPage(intoFolder))}>New page</Item>
+          <Item onClick={act(() => onNewFolder(intoFolder))}>New folder</Item>
+          <div className="nt-menu-sep" />
+        </>
+      )}
+      <Item onClick={act(() => onClip("cut"))}>Cut</Item>
+      <Item onClick={act(() => onClip("copy"))}>Copy</Item>
+      {hasClip && only && (
+        <Item onClick={act(() => onPaste(destFor(only)))}>Paste</Item>
+      )}
+      {only && (
+        <>
+          <div className="nt-menu-sep" />
+          <Item onClick={act(() => onRename(only))}>Rename</Item>
+        </>
+      )}
       <div className="nt-menu-sep" />
       <Item danger onClick={act(onDelete)}>
-        Delete page
+        {deleteLabel}
       </Item>
     </>
   );

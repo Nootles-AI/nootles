@@ -77,13 +77,13 @@ describe("folders.move", () => {
     const b = await as(t).mutation(api.folders.create, { projectId });
     const c = await as(t).mutation(api.folders.create, { projectId });
 
-    await as(t).mutation(api.folders.move, { folderId: a, after: b });
+    await as(t).mutation(api.folders.move, { folderIds: [a], after: b });
     let rows = await as(t).query(api.folders.listByProject, { projectId });
     let byId = new Map(rows.map((f) => [f._id, f]));
     expect(byId.get(b)!.order).toBeLessThan(byId.get(a)!.order);
     expect(byId.get(a)!.order).toBeLessThan(byId.get(c)!.order);
 
-    await as(t).mutation(api.folders.move, { folderId: c, parentId: a });
+    await as(t).mutation(api.folders.move, { folderIds: [c], parentId: a });
     rows = await as(t).query(api.folders.listByProject, { projectId });
     byId = new Map(rows.map((f) => [f._id, f]));
     expect(byId.get(c)!.parentId).toBe(a);
@@ -98,10 +98,10 @@ describe("folders.move", () => {
       parentId: a,
     });
     await expect(
-      as(t).mutation(api.folders.move, { folderId: a, parentId: b }),
+      as(t).mutation(api.folders.move, { folderIds: [a], parentId: b }),
     ).rejects.toThrow("into itself");
     await expect(
-      as(t).mutation(api.folders.move, { folderId: a, parentId: a }),
+      as(t).mutation(api.folders.move, { folderIds: [a], parentId: a }),
     ).rejects.toThrow("into itself");
   });
 });
@@ -141,7 +141,7 @@ describe("pages.move", () => {
     const loose = await as(t).mutation(api.pages.create, { projectId });
 
     await as(t).mutation(api.pages.move, {
-      pageId: loose,
+      pageIds: [loose],
       folderId: folder,
       after: a,
     });
@@ -152,10 +152,87 @@ describe("pages.move", () => {
     expect(byId.get(loose)!.order).toBeLessThan(byId.get(b)!.order);
 
     // Back to the top level: the folder field clears rather than lingering.
-    await as(t).mutation(api.pages.move, { pageId: loose });
+    await as(t).mutation(api.pages.move, { pageIds: [loose] });
     pages = await as(t).query(api.pages.listByProject, { projectId });
     byId = new Map(pages.map((p) => [p._id, p]));
     expect(byId.get(loose)!.folderId).toBeUndefined();
+  });
+});
+
+describe("moving a group", () => {
+  test("pages land together, in the order they were handed over", async () => {
+    const t = harness();
+    const projectId = await world(t);
+    const folder = await as(t).mutation(api.folders.create, { projectId });
+    const a = await as(t).mutation(api.pages.create, { projectId, title: "a" });
+    const b = await as(t).mutation(api.pages.create, { projectId, title: "b" });
+    const c = await as(t).mutation(api.pages.create, { projectId, title: "c" });
+    const keep = await as(t).mutation(api.pages.create, {
+      projectId,
+      folderId: folder,
+      title: "keep",
+    });
+
+    await as(t).mutation(api.pages.move, {
+      pageIds: [c, a],
+      folderId: folder,
+      after: keep,
+    });
+
+    const pages = await as(t).query(api.pages.listByProject, { projectId });
+    const inFolder = pages
+      .filter((p) => p.folderId === folder)
+      .sort((x, y) => x.order - y.order)
+      .map((p) => p.title);
+    expect(inFolder).toEqual(["keep", "c", "a"]);
+    // The one left behind stays where it was.
+    expect(pages.find((p) => p._id === b)!.folderId).toBeUndefined();
+  });
+
+  test("an anchor inside the group sends it to the end instead", async () => {
+    const t = harness();
+    const projectId = await world(t);
+    const a = await as(t).mutation(api.pages.create, { projectId, title: "a" });
+    const b = await as(t).mutation(api.pages.create, { projectId, title: "b" });
+    const c = await as(t).mutation(api.pages.create, { projectId, title: "c" });
+
+    // Dropping a and b onto a, which is itself travelling.
+    await as(t).mutation(api.pages.move, { pageIds: [a, b], after: a });
+
+    const pages = await as(t).query(api.pages.listByProject, { projectId });
+    const order = pages.sort((x, y) => x.order - y.order).map((p) => p.title);
+    expect(order).toEqual(["c", "a", "b"]);
+    expect(pages.find((p) => p._id === c)).toBeTruthy();
+  });
+
+  test("a folder group refuses a destination inside any of its members", async () => {
+    const t = harness();
+    const projectId = await world(t);
+    const outer = await as(t).mutation(api.folders.create, { projectId });
+    const inner = await as(t).mutation(api.folders.create, {
+      projectId,
+      parentId: outer,
+    });
+    const other = await as(t).mutation(api.folders.create, { projectId });
+
+    await expect(
+      as(t).mutation(api.folders.move, {
+        folderIds: [other, outer],
+        parentId: inner,
+      }),
+    ).rejects.toThrow("into itself");
+    // Nothing moved: the whole group is refused, not the legal part of it.
+    const rows = await as(t).query(api.folders.listByProject, { projectId });
+    expect(rows.find((f) => f._id === other)!.parentId).toBeUndefined();
+  });
+
+  test("an empty group is a no-op", async () => {
+    const t = harness();
+    const projectId = await world(t);
+    const a = await as(t).mutation(api.pages.create, { projectId, title: "a" });
+    await as(t).mutation(api.pages.move, { pageIds: [] });
+    const pages = await as(t).query(api.pages.listByProject, { projectId });
+    expect(pages.map((p) => p._id)).toEqual([a]);
   });
 });
 

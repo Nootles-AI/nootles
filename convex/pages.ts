@@ -110,6 +110,36 @@ export function frontOrder(siblings: ReadonlyArray<{ order: number }>): number {
 }
 
 /**
+ * Orders for `count` rows landing together after `after` — the front of the
+ * level when it is null, the end when it is "end".
+ *
+ * The whole gap between the two rows they land between is divided evenly, so a
+ * group keeps its own order and none of the rows it lands among has to be
+ * rewritten. `rest` must already exclude the rows being placed: they are
+ * leaving their old slots, and counting them would place the group inside the
+ * space it is vacating.
+ */
+export function placeBetween(
+  rest: ReadonlyArray<{ _id: string; order: number }>,
+  after: string | null | "end",
+  count: number,
+): number[] {
+  const sorted = [...rest].sort((a, b) => a.order - b.order);
+  const at =
+    after === "end"
+      ? sorted.length
+      : after === null
+        ? 0
+        : sorted.findIndex((s) => s._id === after) + 1 || sorted.length;
+  const before = sorted[at - 1];
+  const behind = sorted[at];
+  const lo = before ? before.order : (behind ? behind.order - 1 : 0);
+  const hi = behind ? behind.order : lo + 1;
+  const step = (hi - lo) / (count + 1);
+  return Array.from({ length: count }, (_, i) => lo + step * (i + 1));
+}
+
+/**
  * Moves a page in the sidebar tree: into `folderId` (absent = top level), after
  * the named sibling there, or to the front when none is named. Fractional
  * orders (see {@link orderAfter}) mean only the moved page is written. A stale
@@ -118,24 +148,51 @@ export function frontOrder(siblings: ReadonlyArray<{ order: number }>): number {
  */
 export const move = mutation({
   args: {
-    pageId: v.id("pages"),
+    /** One row, or a whole selection, landing together and keeping its order. */
+    pageIds: v.array(v.id("pages")),
     folderId: v.optional(v.id("folders")),
     after: v.optional(v.id("pages")),
+    /** Land past every sibling rather than at the front, when `after` is unset. */
+    atEnd: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
-    const page = await requireEditable(ctx, "pages", args.pageId);
-    if (args.after === args.pageId) return;
-    if (args.folderId) await folderIn(ctx, page.projectId, args.folderId);
-    const siblings = await siblingsIn(
-      ctx,
-      page.projectId,
-      args.folderId ?? null,
-      args.pageId,
+    const moving = [];
+    for (const id of args.pageIds) {
+      moving.push(await requireEditable(ctx, "pages", id));
+    }
+    if (!moving.length) return;
+    const projectId = moving[0].projectId;
+    // One project per move: an anchor from another would place these pages
+    // among orders that mean nothing to them.
+    if (moving.some((p) => p.projectId !== projectId)) {
+      throw new Error("Not found");
+    }
+    if (args.folderId) await folderIn(ctx, projectId, args.folderId);
+
+    const carried = new Set<string>(args.pageIds);
+    const rest = (
+      await siblingsIn(ctx, projectId, args.folderId ?? null)
+    ).filter((p) => !carried.has(p._id));
+    // An anchor that is itself being carried cannot also be the thing to land
+    // after; the group goes where that anchor was heading instead.
+    const anchor =
+      args.after && !carried.has(args.after)
+        ? args.after
+        : args.atEnd || args.after
+          ? "end"
+          : null;
+
+    const orders = placeBetween(rest, anchor, moving.length);
+    // In the order they were handed over, which the sidebar sends top-down.
+    moving.sort(
+      (a, b) => args.pageIds.indexOf(a._id) - args.pageIds.indexOf(b._id),
     );
-    const order = args.after
-      ? (orderAfter(siblings, args.after) ?? endOrder(siblings))
-      : frontOrder(siblings);
-    await ctx.db.patch(args.pageId, { order, folderId: args.folderId });
+    for (const [i, page] of moving.entries()) {
+      await ctx.db.patch(page._id, {
+        order: orders[i],
+        folderId: args.folderId,
+      });
+    }
   },
 });
 

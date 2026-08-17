@@ -1,6 +1,12 @@
 import { describe, expect, test } from "vitest";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
-import { flattenTree, isInside } from "./sidebarTree";
+import {
+  flattenTree,
+  isInside,
+  rangeBetween,
+  topmost,
+  visibleSelection,
+} from "./sidebarTree";
 
 /**
  * The tree's invariants, which the sidebar cannot be trusted to show without
@@ -44,6 +50,13 @@ const shown = (rows: ReturnType<typeof flattenTree>) =>
   ]);
 
 const none: ReadonlySet<string> = new Set();
+
+/** Test ids are plain strings; the branding is the database's business. */
+const pageAt = (id: string) => ({ kind: "page" as const, id: id as Id<"pages"> });
+const folderAt = (id: string) => ({
+  kind: "folder" as const,
+  id: id as Id<"folders">,
+});
 
 describe("flattenTree", () => {
   test("nests folders and their pages depth-first", () => {
@@ -185,5 +198,101 @@ describe("isInside", () => {
     const looped = [folder("X", 0, "Y"), folder("Y", 0, "X")];
     expect(isInside(looped, id("X"), id("Y"))).toBe(true);
     expect(isInside(looped, id("X"), id("Z"))).toBe(false);
+  });
+});
+
+describe("rangeBetween", () => {
+  const rows = flattenTree(
+    [folder("A", 0), folder("B", 0, "A")],
+    [page("P", 0, "B"), page("x", 0), page("y", 1)],
+    none,
+  );
+  // A, B, P, x, y
+
+  test("covers every visible row between two, either way round", () => {
+    expect(rangeBetween(rows, "B", "x").map((t) => t.id)).toEqual([
+      "B",
+      "P",
+      "x",
+    ]);
+    expect(rangeBetween(rows, "x", "B").map((t) => t.id)).toEqual([
+      "B",
+      "P",
+      "x",
+    ]);
+  });
+
+  test("a range of one is that one", () => {
+    expect(rangeBetween(rows, "x", "x").map((t) => t.id)).toEqual(["x"]);
+  });
+
+  test("stops at what is on screen, not what is in the tree", () => {
+    const closed = flattenTree(
+      [folder("A", 0), folder("B", 0, "A")],
+      [page("P", 0, "B"), page("x", 0), page("y", 1)],
+      new Set(["A"]),
+    );
+    // P is inside the closed A, so a range across the list cannot include it.
+    expect(rangeBetween(closed, "A", "y").map((t) => t.id)).toEqual([
+      "A",
+      "x",
+      "y",
+    ]);
+  });
+
+  test("a row that is gone yields nothing rather than a wrong range", () => {
+    expect(rangeBetween(rows, "A", "vanished")).toEqual([]);
+  });
+});
+
+describe("visibleSelection", () => {
+  const folders = [folder("A", 0)];
+  const pages = [page("inside", 0, "A"), page("out", 1)];
+
+  test("puts the selection in the order the rows are drawn", () => {
+    const rows = flattenTree(folders, pages, none);
+    const picked = visibleSelection(rows, [
+      pageAt("out"),
+      folderAt("A"),
+    ]);
+    expect(picked.map((t) => t.id)).toEqual(["A", "out"]);
+  });
+
+  test("drops what closing a folder took off the screen", () => {
+    const rows = flattenTree(folders, pages, new Set(["A"]));
+    const picked = visibleSelection(rows, [
+      pageAt("inside"),
+      pageAt("out"),
+    ]);
+    expect(picked.map((t) => t.id)).toEqual(["out"]);
+  });
+});
+
+describe("topmost", () => {
+  const folders = [folder("A", 0), folder("B", 0, "A")];
+  const pages = [page("deep", 0, "B"), page("loose", 0)];
+  const rows = flattenTree(folders, pages, none);
+
+  test("a folder swallows its own descendants", () => {
+    const acting = topmost(rows, [
+      folderAt("A"),
+      folderAt("B"),
+      pageAt("deep"),
+      pageAt("loose"),
+    ]);
+    expect(acting.map((t) => t.id)).toEqual(["A", "loose"]);
+  });
+
+  test("an unselected folder in between does not shield anything", () => {
+    const acting = topmost(rows, [pageAt("deep")]);
+    expect(acting.map((t) => t.id)).toEqual(["deep"]);
+  });
+
+  test("siblings all act", () => {
+    const acting = topmost(rows, [
+      folderAt("B"),
+      pageAt("loose"),
+    ]);
+    expect(acting.map((t) => t.id)).toEqual(["B", "loose"]);
   });
 });

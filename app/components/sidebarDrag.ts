@@ -21,6 +21,8 @@ import type { Id } from "@/convex/_generated/dataModel";
  */
 
 const SLOP = 4;
+
+const EMPTY: ReadonlySet<string> = new Set();
 /** Linger this long over a closed folder and it opens under the drag. */
 const HOVER_OPEN_MS = 500;
 
@@ -66,16 +68,20 @@ type Drop =
 type Spot = { drop: Drop; line: Line | null; intoId: Id<"folders"> | null };
 
 type Handlers = {
-  onMovePage: (
-    id: Id<"pages">,
+  /** Every carried page, in row order, landing together. */
+  onMovePages: (
+    ids: Id<"pages">[],
     parentId: Id<"folders"> | null,
     after: DropAnchor<Id<"pages">>,
   ) => void;
-  onMoveFolder: (
-    id: Id<"folders">,
+  /** Every carried folder, in row order, landing together. */
+  onMoveFolders: (
+    ids: Id<"folders">[],
     parentId: Id<"folders"> | null,
     after: DropAnchor<Id<"folders">>,
   ) => void;
+  /** The rows travelling with this one — the selection, when it is in it. */
+  carriedWith: (row: TreeRow) => TreeRow[];
   /** A closed folder the drag has hovered long enough to want open. */
   onExpand: (id: Id<"folders">) => void;
   /** True when `parentId` is the folder itself or inside its subtree. */
@@ -97,8 +103,8 @@ export function useTreeDrag(
   handlers: Handlers,
   aside: Aside,
 ): {
-  /** The row being carried, while one is. */
-  dragId: string | null;
+  /** The rows being carried, while any are. */
+  dragIds: ReadonlySet<string>;
   /** Drop line within the list — px from its top, indent depth; null when none. */
   line: Line | null;
   /** Folder row the drop would go into, when it would; drawn as a highlight. */
@@ -111,7 +117,7 @@ export function useTreeDrag(
   press: (row: TreeRow, event: React.PointerEvent) => void;
 } {
   const [drag, setDrag] = useState<{
-    id: string;
+    ids: ReadonlySet<string>;
     line: Line | null;
     intoId: Id<"folders"> | null;
     toRoot: boolean;
@@ -176,13 +182,21 @@ export function useTreeDrag(
     return last ? { top: last.rect.bottom - listTop, depth: 0 } : null;
   };
 
-  /** Where a pointer height drops the carried row, from the live rows. */
-  const spotAt = (carried: TreeRow, clientY: number): Spot | null => {
+  /**
+   * Where a pointer height drops what is being carried, from the live rows.
+   *
+   * `blocked` is the whole group's veto rather than one row's: a destination
+   * inside ANY carried folder is out, whichever row the pointer is holding.
+   */
+  const spotAt = (
+    carried: TreeRow,
+    blocked: (parentId: Id<"folders"> | null) => boolean,
+    clientY: number,
+  ): Spot | null => {
     const list = listRef.current;
     const measured = measure();
     if (!list || measured.length === 0) return null;
     const listTop = list.getBoundingClientRect().top;
-    const { forbids } = handlersRef.current;
     const rows = measured.map((m) => m.row);
 
     // Past the last row: the top level's end.
@@ -216,6 +230,7 @@ export function useTreeDrag(
       // the first row is usually a folder, and a page carried up there could
       // only ever go back into it.
       if (i === 0 && frac < 0.25) {
+        if (blocked(null)) return null;
         return {
           drop: { kind: "page", parentId: null, after: null },
           line: levelSeam(measured, null, listTop),
@@ -223,12 +238,14 @@ export function useTreeDrag(
         };
       }
       if (row.kind === "folder") {
+        if (blocked(row.id)) return null;
         return {
           drop: { kind: "page", parentId: row.id, after: "end" },
           line: null,
           intoId: row.id,
         };
       }
+      if (blocked(row.parentId)) return null;
       const anchor =
         frac < 0.5 ? ((before(rows, i)?.id as Id<"pages">) ?? null) : row.id;
       return {
@@ -241,10 +258,7 @@ export function useTreeDrag(
       };
     }
 
-    // A folder never lands inside itself; a slot beside a row whose parent is
-    // in the carried subtree is inside it too.
-    const barred = (parentId: Id<"folders"> | null) =>
-      parentId !== null && forbids(carried.id, parentId);
+    const barred = blocked;
 
     if (row.kind === "page") {
       if (barred(row.parentId)) return null;
@@ -322,6 +336,16 @@ export function useTreeDrag(
 
   const press = (row: TreeRow, event: React.PointerEvent) => {
     if (event.button !== 0) return;
+    // Everything travelling with this row, settled at press time so the group
+    // cannot change under a drag that is already moving.
+    const carried = handlersRef.current.carriedWith(row);
+    const carriedIds = new Set<string>(carried.map((r) => r.id));
+    const carriedFolders = carried.filter((r) => r.kind === "folder");
+    const blocked = (parentId: Id<"folders"> | null) =>
+      parentId !== null &&
+      carriedFolders.some((f) =>
+        handlersRef.current.forbids(f.id as Id<"folders">, parentId),
+      );
     const startX = event.clientX;
     const startY = event.clientY;
     let started = false;
@@ -343,10 +367,11 @@ export function useTreeDrag(
         document.body.style.cursor = "grabbing";
         document.body.style.userSelect = "none";
       }
-      mark(asideAt(row, ev.clientX, ev.clientY));
+      // The split zone takes one page; a group has no second pane to go to.
+      mark(carried.length === 1 ? asideAt(row, ev.clientX, ev.clientY) : null);
       // Out over the surface the row is going somewhere else entirely, so the
       // list stops offering it a place in the order.
-      spot = marked ? null : spotAt(row, ev.clientY);
+      spot = marked ? null : spotAt(row, blocked, ev.clientY);
 
       // A closed folder held under the drag opens, so its inside is reachable
       // without letting go.
@@ -362,7 +387,7 @@ export function useTreeDrag(
       }
 
       setDrag({
-        id: row.id,
+        ids: carriedIds,
         line: spot?.line ?? null,
         intoId: spot?.intoId ?? null,
         // Only worth saying when it is a change: a row already at the top level
@@ -386,21 +411,38 @@ export function useTreeDrag(
 
     const drop = (ev: PointerEvent) => {
       const was = started;
-      const zone = was ? asideAt(row, ev.clientX, ev.clientY) : null;
+      const zone =
+        was && carried.length === 1
+          ? asideAt(row, ev.clientX, ev.clientY)
+          : null;
       done();
       if (!was) return;
       if (zone && row.kind === "page") {
         asideRef.current.onDrop(row.id);
         return;
       }
-      if (!spot || ownSlot(row, spot.drop)) return;
-      if (spot.drop.kind === "page" && row.kind === "page") {
-        handlersRef.current.onMovePage(row.id, spot.drop.parentId, spot.drop.after);
-      } else if (spot.drop.kind === "folder" && row.kind === "folder") {
-        handlersRef.current.onMoveFolder(
-          row.id,
-          spot.drop.parentId,
-          spot.drop.after,
+      // A lone row landing back where it already sits is not a move. A group
+      // is: its rows are being gathered together, which rearranges them even
+      // when the pointer has not left home.
+      if (!spot || (carried.length === 1 && ownSlot(row, spot.drop))) return;
+
+      const { parentId } = spot.drop;
+      const pages = carried.filter((r) => r.kind === "page").map((r) => r.id);
+      const folders = carriedFolders.map((r) => r.id) as Id<"folders">[];
+      // The anchor belongs to the kind the pointer was holding; the other kind
+      // has no place in that gap and joins the end of its own group.
+      if (pages.length) {
+        handlersRef.current.onMovePages(
+          pages as Id<"pages">[],
+          parentId,
+          spot.drop.kind === "page" ? spot.drop.after : "end",
+        );
+      }
+      if (folders.length) {
+        handlersRef.current.onMoveFolders(
+          folders,
+          parentId,
+          spot.drop.kind === "folder" ? spot.drop.after : "end",
         );
       }
     };
@@ -413,7 +455,7 @@ export function useTreeDrag(
   };
 
   return {
-    dragId: drag?.id ?? null,
+    dragIds: drag?.ids ?? EMPTY,
     line: drag?.line ?? null,
     intoId: drag?.intoId ?? null,
     toRoot: drag?.toRoot ?? false,
