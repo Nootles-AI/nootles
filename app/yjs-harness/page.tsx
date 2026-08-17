@@ -12,6 +12,8 @@ import * as Y from "yjs";
 import { schema } from "@/app/components/editor/schema";
 import { arrivalFlashExtension } from "@/app/components/editor/arrivalFlash";
 import { watchFimFlash } from "@/app/lib/sync/fimFlash";
+import { collabColor } from "@/app/lib/sync/colors";
+import { createRemoteCarets } from "@/app/lib/sync/remoteCarets";
 import { YConvexProvider } from "@/app/lib/sync/YConvexProvider";
 import "@/app/components/editor/editor.css";
 
@@ -44,8 +46,8 @@ function Harness() {
   }
   return (
     <div className="flex h-screen divide-x" style={{ borderColor: "var(--border)" }}>
-      <Client docId={docId} label="Client A" color="#7a8a5c" />
-      <Client docId={docId} label="Client B" color="#7d6f9e" />
+      <Client docId={docId} label="Client A" color={collabColor("harness:A")} />
+      <Client docId={docId} label="Client B" color={collabColor("harness:B")} />
     </div>
   );
 }
@@ -88,9 +90,12 @@ function Client({
     () => false,
   );
 
-  const editor = useMemo(() => {
+  // Prod parity: the same caret DOM and reveal lifecycle useYjsEditor gives
+  // the real editors.
+  const made = useMemo(() => {
     if (!provider || !synced) return null;
-    return BlockNoteEditor.create(
+    const carets = createRemoteCarets(provider.awareness);
+    const editor = BlockNoteEditor.create(
       withCollaboration({
         schema,
         extensions: [arrivalFlashExtension],
@@ -99,10 +104,15 @@ function Client({
           user: { name: label, color },
           provider: { awareness: provider.awareness },
           showCursorLabels: "always",
+          renderCursor: carets.render,
         },
       }),
     );
+    return { editor, carets };
   }, [provider, synced, label, color]);
+  const editor = made?.editor ?? null;
+
+  useEffect(() => made?.carets.attach(), [made]);
 
   // The same arrival-flash watcher the real editors run, so the harness can
   // exercise gold-on-first-frame without a model in the loop.

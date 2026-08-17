@@ -763,6 +763,117 @@
   display: none;
 }
 
+/* ---- Other people, in the text ---------------------------------------
+   A remote caret is a 2px bar in that person's colour flying their name as a
+   flag — the grammar the canvas already paints for its label carets
+   (`.nt-copresence-caret` in canvas.css), down to the `--copresence` custom
+   property, so one person looks like one person on both surfaces. Idle, the
+   flag furls to a nub on the pole's head, so a page full of people stays
+   quiet until somebody moves. The DOM comes from `remoteCarets.ts`. */
+.nt-editor .nt-remote-caret {
+  position: relative;
+}
+.nt-editor .nt-remote-caret-bar {
+  position: absolute;
+  top: 1px;
+  bottom: -2px;
+  left: -1px;
+  width: 2px;
+  border-radius: 1px;
+  /* Plain ink when a peer sends a colour the palette doesn't speak — better
+     an anonymous caret than an invisible one. */
+  background: var(--copresence, var(--foreground));
+}
+/* A 2px pole is nothing to aim at, and pointing at it is how you ask who that
+   is; the target is wider than the thing it points to. */
+.nt-editor .nt-remote-caret-bar::after {
+  content: "";
+  position: absolute;
+  inset: -2px -4px;
+}
+/* The flag says the name in its own voice wherever the caret stands — a
+   heading's size, a code run's monospace, an emphasised run's slant: none of
+   it may reach in. 10px on 1.4 plus 1px of padding is exactly 16px tall, so
+   the flag's one square corner lands on the pole's head. */
+.nt-editor .nt-remote-caret-name {
+  position: absolute;
+  top: -16px;
+  left: 0;
+  /* Held at 16px rather than left to the line box: an emoji or a CJK glyph
+     runs taller than Latin at the same size, and the flag's square corner has
+     to keep meeting the pole's head whatever the name is written in. */
+  box-sizing: border-box;
+  height: 16px;
+  /* The flag hangs out of a 2px bar, so it is bounded by the viewport rather
+     than by any measure — on a phone a long name at the end of a line would
+     otherwise push the page sideways. */
+  max-width: min(12rem, 45vw);
+  padding: 1px 5px;
+  overflow: hidden;
+  border-radius: 3px 3px 3px 0;
+  background: var(--copresence, var(--foreground));
+  color: var(--background);
+  font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 500;
+  line-height: 1.4;
+  letter-spacing: normal;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  /* A name in another script keeps its own direction and cannot reorder
+     anything around it. */
+  unicode-bidi: isolate;
+  pointer-events: none;
+  user-select: none;
+  /* Furled: the flag's bottom-left 4×6, sitting on the pole's head. Clipped
+     rather than clamped in width — which is what BlockNote's stock cursor
+     animates — because a clamp finishes the moment it clears the text, so a
+     short name would snap open in a fifth of the time a long one takes.
+     Clipping is one duration for every name, and never touches layout. */
+  clip-path: inset(10px calc(100% - 4px) 0 0);
+  transition: clip-path var(--dur) var(--ease);
+}
+/* Two people can stand on the same word. Whoever just moved is the one you
+   are asking about, so their flag reads over the other's. */
+.nt-editor .nt-remote-caret[data-active] .nt-remote-caret-name {
+  clip-path: inset(0 0 0 0);
+  z-index: 1;
+}
+/* Forced colours throw the palette away — the bar is forced to the paper
+   colour and disappears outright. Identity can no longer be carried by hue, so
+   it is carried by the name, and all this has to guarantee is that both the
+   bar and the name are still there to read. */
+@media (forced-colors: active) {
+  .nt-editor .nt-remote-caret-bar,
+  .nt-editor .nt-remote-caret-name {
+    background: CanvasText;
+    color: Canvas;
+  }
+}
+
+/* Their selection. y-prosemirror paints each person's colour inline at 44%
+   and BlockNote does not expose the builder, so the tint is set by how much
+   paper we lay back over it: a third, landing at 30%. Their words stay
+   legible, and the wash stays quieter than the selection in your own hand. */
+.nt-editor .ProseMirror-yjs-selection {
+  background-image: linear-gradient(
+    color-mix(in srgb, var(--background) 32%, transparent),
+    color-mix(in srgb, var(--background) 32%, transparent)
+  );
+  border-radius: 1px;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+/* Forced colours drop the inline tint entirely, which would leave their
+   selection invisible; the OS has a pair for exactly this. */
+@media (forced-colors: active) {
+  .nt-editor .ProseMirror-yjs-selection {
+    background: Mark;
+    color: MarkText;
+  }
+}
+
 /* A collaborator's accepted completion arriving: the text lands wearing the
    accent and settles into ink. Amber means AI activity — this is the one
    moment another person's AI is visible in your document, and it must not
