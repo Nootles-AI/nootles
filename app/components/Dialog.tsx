@@ -23,7 +23,6 @@ export function Dialog({
   label,
   scrimLabel = "Close",
   as = "div",
-  narrow,
   onSubmit,
   onClose,
   children,
@@ -33,8 +32,6 @@ export function Dialog({
   scrimLabel?: string;
   /** "form" when the dialog IS the form, so Enter submits from any field. */
   as?: "div" | "form";
-  /** One column of controls instead of the full two-column form width. */
-  narrow?: boolean;
   onSubmit?: (e: FormEvent) => void;
   /** Called after the exit animation; unmount here. */
   onClose: () => void;
@@ -71,7 +68,7 @@ export function Dialog({
         role="dialog"
         aria-modal="true"
         aria-label={label}
-        className={`nt-dialog${narrow ? " is-narrow" : ""}${closing ? " is-closing" : ""}`}
+        className={`nt-dialog${closing ? " is-closing" : ""}`}
         style={{ zIndex: "var(--z-modal)" }}
       >
         {typeof children === "function" ? children(close) : children}

@@ -314,8 +314,12 @@ body {
 }
 /* A latched icon button, the same grey wash the toolbar and the row selection
    use. Sites used to say this with an inline `text-[var(--foreground)]`, which
-   changed the ink and left the box looking untouched. */
-.nt-icon-btn[aria-pressed="true"] {
+   changed the ink and left the box looking untouched. A popup trigger counts
+   as latched while its popup is open — but only a popup trigger: expanded is
+   a persistent state on disclosure buttons (rail toggles, panel sections),
+   and those must not sit washed grey forever. */
+.nt-icon-btn[aria-pressed="true"],
+.nt-icon-btn[aria-haspopup][aria-expanded="true"] {
   background: var(--selected);
   color: var(--foreground);
 }
@@ -724,15 +728,6 @@ textarea.nt-input {
     grid-template-columns: minmax(0, 1fr);
   }
 }
-/* A dialog that is one column of controls rather than a form — the share
-   dialog. Wide enough that a share URL still reads as a URL. */
-.nt-dialog.is-narrow {
-  width: 26rem;
-}
-.nt-dialog.is-narrow .nt-dialog-body {
-  grid-template-columns: minmax(0, 1fr);
-}
-
 /* ---- Project context ----------------------------------------------------
    The Context Sheet and the repositories linked to a project — what the
    assistant is told before it is asked anything. Shown in the new-project
