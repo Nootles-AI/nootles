@@ -171,6 +171,26 @@
   color: var(--danger);
 }
 
+/* The agreement line, in the smallest honest voice on the page. Below the
+   status region so a failure message keeps its place beside the button. */
+.nt-si-legal {
+  margin: 6px 0 0;
+  max-width: 44ch;
+  font-size: var(--text-meta-lg);
+  line-height: 1.5;
+  color: var(--muted);
+  text-wrap: pretty;
+}
+.nt-si-legal a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  transition: color var(--dur-fast) var(--ease);
+}
+.nt-si-legal a:hover {
+  color: var(--foreground);
+}
+
 /* ---- The desk ----------------------------------------------------------
    The same surface, scale and measure as first run's, because it is the same
    picture and they are seen one after the other. */
@@ -227,7 +247,8 @@
   text-align: center;
 }
 .nt-si.is-centred .nt-si-note,
-.nt-si.is-centred .nt-si-status {
+.nt-si.is-centred .nt-si-status,
+.nt-si.is-centred .nt-si-legal {
   margin-inline: auto;
 }
 .nt-si.is-centred .nt-si-go,
