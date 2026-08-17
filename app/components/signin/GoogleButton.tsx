@@ -80,6 +80,34 @@ export function GoogleButton({
       <p aria-live="polite" className="nt-si-status">
         {failed ? "That didn’t go through. Try again." : ""}
       </p>
+
+      {/*
+        The press above forms an agreement, and it only binds if it says so
+        where the press happens — which is also why this lives with the button
+        rather than on the door: the sign-in-to-edit modal is a door too. The
+        second sentence is the disclosure instrumentation-client.ts has always
+        claimed was made at signup; as of this line, it is.
+      */}
+      <p className="nt-si-legal">
+        By continuing you agree to the{" "}
+        <a
+          href="https://www.nootles.com/terms"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Terms of Service
+        </a>{" "}
+        and acknowledge the{" "}
+        <a
+          href="https://www.nootles.com/privacy"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Privacy Policy
+        </a>
+        . Nootles is in beta: sessions are recorded, and your work with the AI
+        trains the models.
+      </p>
     </>
   );
 }
