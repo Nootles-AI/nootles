@@ -11,6 +11,7 @@ import {
 } from "@blocknote/core";
 import { withCollaboration } from "@blocknote/core/yjs";
 import { watchFimFlash } from "./fimFlash";
+import { createRemoteCarets } from "./remoteCarets";
 import {
   acquireProvider,
   releaseProvider,
@@ -68,32 +69,50 @@ export function useYjsEditor<E>({
     () => false,
   );
 
-  const editor = useMemo(() => {
+  const made = useMemo(() => {
     if (!provider || !synced) return null;
-    return BlockNoteEditor.create(
+    const carets = createRemoteCarets(provider.awareness);
+    const editor = BlockNoteEditor.create(
       withCollaboration({
         ...(editorOptions as AnyEditorOptions),
         collaboration: {
           fragment: provider.doc.getXmlFragment("prosemirror"),
-          // Extra fields ride along on the awareness user (the type allows
-          // any string field), which is how the facepile learns the photo.
-          user: {
-            name: user.name,
-            color: user.color,
-            ...(user.imageUrl ? { imageUrl: user.imageUrl } : {}),
-          },
+          // A seed only — the effect below is what keeps this current.
+          user: { name: user.name, color: user.color },
           provider: { awareness: provider.awareness },
-          showCursorLabels: "activity",
+          // "always" is what turns BlockNote's own label logic off; the caret
+          // layer owns arrival, activity and hover as one lifecycle.
+          showCursorLabels: "always",
+          renderCursor: carets.render,
         },
       }),
       // The schema in editorOptions decides the real editor type; `create`'s
       // signature can't see through the Partial, same hop useBlockNoteSync
       // makes with its own type parameter.
     ) as unknown as E;
+    return { editor, carets };
     // The options object is rebuilt by callers every render; the editor must
-    // not be. It rebuilds only when the document or the person changes.
+    // not be. It rebuilds only for a different document — who you are travels
+    // through awareness below, because rebuilding for a name arriving late
+    // would take the caret, the selection and the undo history with it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [provider, synced, user.name, user.color, user.imageUrl]);
+  }, [provider, synced]);
+  const editor = made?.editor ?? null;
+
+  useEffect(() => made?.carets.attach(), [made]);
+
+  // Identity reaches collaborators without a rebuild — Clerk hydrates a beat
+  // after the page mounts. Running from the moment the provider exists also
+  // puts the person on the presence channel before the initial sync lands.
+  useEffect(() => {
+    // Extra fields ride along on the awareness user (the type allows any
+    // string field), which is how the facepile learns the photo.
+    provider?.awareness.setLocalStateField("user", {
+      name: user.name,
+      color: user.color,
+      ...(user.imageUrl ? { imageUrl: user.imageUrl } : {}),
+    });
+  }, [provider, user.name, user.color, user.imageUrl]);
 
   // Parity with the old pipeline's warnOnUnsyncedClose: leaving with unsent
   // edits deserves the browser's are-you-sure.

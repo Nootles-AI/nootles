@@ -3,10 +3,11 @@
 import { BlockNoteView } from "@blocknote/mantine";
 import "@blocknote/mantine/style.css";
 import { useBlockNoteSync } from "@convex-dev/prosemirror-sync/blocknote";
+import { useMemo } from "react";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useYjsEditor } from "@/app/lib/sync/useYjsEditor";
-import { collabColor } from "@/app/lib/sync/colors";
+import { guestIdentity } from "@/app/lib/sync/colors";
 import { arrivalFlashExtension } from "../editor/arrivalFlash";
 import { schema } from "../editor/schema";
 import "../editor/editor.css";
@@ -41,9 +42,12 @@ export function SharedEditor({ docId }: { docId: string }) {
 }
 
 function SharedYjs({ docId }: { docId: string }) {
+  // Signed-in visitors never reach here — SharedProject claims the link and
+  // sends them to the project — so everyone on this path is a guest.
+  const guest = useMemo(() => guestIdentity(), []);
   const { editor } = useYjsEditor<EditorInstance>({
     docId,
-    user: { name: "Anonymous", color: collabColor(docId) },
+    user: guest,
     // Viewers see arrivals too — an approved AI edit flashes for everyone.
     editorOptions: { schema, extensions: [arrivalFlashExtension] },
   });
