@@ -1,9 +1,18 @@
 import { mutation, query } from "../_generated/server";
 import { v } from "convex/values";
-import { readOwned, requireOwned } from "../auth";
+import {
+  ownerId as currentOwner,
+  projectRole,
+  readOwned,
+  requireEditable,
+  requireOwned,
+  requireOwner,
+} from "../auth";
 
 /**
- * Chat threads, scoped to a project.
+ * Chat threads, scoped to a project but personal to their author: each
+ * person's AI is their own, so a shared project holds one set of threads per
+ * collaborator and nobody reads anyone else's.
  *
  * A thread is the unit the user switches between in the chat list, and it
  * outlives switching pages — the agent may open several pages inside one turn,
@@ -13,12 +22,16 @@ import { readOwned, requireOwned } from "../auth";
 export const list = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
-    if (!(await readOwned(ctx, "projects", args.projectId))) return [];
-    return await ctx.db
+    const me = await currentOwner(ctx);
+    if (!me) return [];
+    const role = await projectRole(ctx, args.projectId);
+    if (role !== "owner" && role !== "editor") return [];
+    const rows = await ctx.db
       .query("chatThreads")
       .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
       .order("desc")
       .collect();
+    return rows.filter((t) => t.ownerId === me);
   },
 });
 
@@ -30,7 +43,11 @@ export const get = query({
 export const create = mutation({
   args: { projectId: v.id("projects"), title: v.optional(v.string()) },
   handler: async (ctx, args) => {
-    const { ownerId } = await requireOwned(ctx, "projects", args.projectId);
+    await requireEditable(ctx, "projects", args.projectId);
+    // The thread belongs to its author, not the project's owner — unlike pages,
+    // a conversation is personal, and `readOwned` on it is what keeps an
+    // editor's chat invisible to everyone else.
+    const ownerId = await requireOwner(ctx);
     const now = Date.now();
     return await ctx.db.insert("chatThreads", {
       ownerId,

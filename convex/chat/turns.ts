@@ -1,6 +1,11 @@
 import { mutation, query } from "../_generated/server";
 import { v } from "convex/values";
-import { ownerId as currentOwner, readOwned, requireOwned } from "../auth";
+import {
+  ownerId as currentOwner,
+  projectRole,
+  readOwned,
+  requireOwned,
+} from "../auth";
 
 /**
  * One agent turn that touched the document, and where its review stands.
@@ -129,11 +134,17 @@ export const restorable = query({
  * Turns whose changes are on the page but unanswered. "streaming" is in there
  * because a reload is one of the ways a stream ends — the row never got the
  * chance to say so, and the edits are no less unreviewed for it.
+ *
+ * Only the caller's own turns: a review is between a person and their AI, so
+ * one collaborator's pending answer is never another's banner.
  */
 export const unreviewed = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
-    if (!(await readOwned(ctx, "projects", args.projectId))) return [];
+    const me = await currentOwner(ctx);
+    if (!me) return [];
+    const role = await projectRole(ctx, args.projectId);
+    if (role !== "owner" && role !== "editor") return [];
     const groups = await Promise.all(
       (["streaming", "pending"] as const).map((s) =>
         ctx.db
@@ -144,6 +155,9 @@ export const unreviewed = query({
           .collect(),
       ),
     );
-    return groups.flat().sort((a, b) => a.createdAt - b.createdAt);
+    return groups
+      .flat()
+      .filter((t) => t.ownerId === me)
+      .sort((a, b) => a.createdAt - b.createdAt);
   },
 });

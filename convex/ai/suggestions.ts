@@ -1,7 +1,13 @@
 import { internalMutation, mutation, query } from "../_generated/server";
 import { v } from "convex/values";
 import { components, internal } from "../_generated/api";
-import { ownerId as currentOwner, readOwned, requireOwned } from "../auth";
+import {
+  ownerId as currentOwner,
+  readVisible,
+  requireEditable,
+  requireOwned,
+  requireOwner,
+} from "../auth";
 
 /**
  * Telemetry for the ambient suggestion pipeline. Every proposal that reaches
@@ -53,7 +59,9 @@ export const log = mutation({
     chosenIndex: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const { ownerId } = await requireOwned(ctx, "pages", args.pageId);
+    await requireEditable(ctx, "pages", args.pageId);
+    // The row records whose completion this was, not whose page it landed on.
+    const ownerId = await requireOwner(ctx);
     const id = await ctx.db.insert("suggestionLog", {
       ownerId,
       ...args,
@@ -89,13 +97,15 @@ export const amend = mutation({
 export const recent = query({
   args: { pageId: v.id("pages"), limit: v.optional(v.number()) },
   handler: async (ctx, args) => {
-    if (!(await readOwned(ctx, "pages", args.pageId))) return [];
+    if (!(await readVisible(ctx, "pages", args.pageId))) return [];
+    const me = await currentOwner(ctx);
     const rows = await ctx.db
       .query("suggestionLog")
       .withIndex("by_page", (q) => q.eq("pageId", args.pageId))
       .order("desc")
       .take(args.limit ?? 100);
-    return rows;
+    // One person's completion telemetry never tunes another's.
+    return rows.filter((r) => r.ownerId === me);
   },
 });
 

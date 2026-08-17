@@ -56,7 +56,8 @@ export function LabelContent({
     // fragment would hand it every run — each chip and each <b> — as its own
     // flex item, laid out side by side. One span is one item, exactly as the
     // plain text node was, and the runs flow as inline content inside it.
-    <span>
+    // The class is the hook remote label carets resolve against (`presence`).
+    <span className="nt-label">
       {runs.map((run, i) =>
         run.kind === "ref" ? (
           <PageChip
@@ -251,9 +252,16 @@ function boldEl(text: string): HTMLElement {
 export function LabelEdit({
   label,
   onEnd,
+  onLive,
 }: {
   label: string;
   onEnd: (label: string) => void;
+  /**
+   * The label as it stands mid-edit, on a short debounce — how collaborators
+   * watch it being typed instead of having it appear whole on blur. The
+   * caller brackets these into one undo entry; blur still commits.
+   */
+  onLive?: (label: string) => void;
 }) {
   const ref = useRef<HTMLSpanElement>(null);
   const pages = usePages();
@@ -281,11 +289,16 @@ export function LabelEdit({
   // there until the edit commits. Reconciling React's idea of the label against
   // the nodes the browser made while typing is what duplicated the text and
   // detached a node out from under `removeChild`.
+  //
+  // Seeded from the label AS THE EDIT OPENED, exactly once: with live commits
+  // streaming out mid-edit, the prop comes straight back changed, and
+  // re-seeding on it would take the caret out from under the typing hand.
+  const opened = useRef(label);
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
     el.replaceChildren(
-      ...labelRuns(label).map((run) =>
+      ...labelRuns(opened.current).map((run) =>
         run.kind === "ref"
           ? chipEl(run.pageId, run.title)
           : run.bold
@@ -299,7 +312,7 @@ export function LabelEdit({
     const selection = window.getSelection();
     selection?.removeAllRanges();
     selection?.addRange(range);
-  }, [label]);
+  }, []);
 
   // The "@" being typed, read from wherever the caret is. `selectionchange`
   // covers typing, arrows and clicks alike, and a chip boundary splits the
@@ -396,15 +409,46 @@ export function LabelEdit({
         event.preventDefault();
         // Blur commits, so both endings go through one path.
         el.blur();
+        return;
+      }
+      // Select all means all of THIS label. Left to the browser, ⌘A in an
+      // inline editable reaches past it and selects the whole document.
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "a") {
+        event.preventDefault();
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        const selection = window.getSelection();
+        selection?.removeAllRanges();
+        selection?.addRange(range);
       }
     };
     el.addEventListener("keydown", onKey);
     return () => el.removeEventListener("keydown", onKey);
   }, [menu, items, activeIndex, take]);
 
+  // The mid-edit stream, debounced to word pace. Cancelled at commit: a timer
+  // firing after the blur would dispatch outside the caller's bracket.
+  const liveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (liveTimer.current) clearTimeout(liveTimer.current);
+    },
+    [],
+  );
+  const onInput = () => {
+    if (!onLive) return;
+    if (liveTimer.current) clearTimeout(liveTimer.current);
+    liveTimer.current = setTimeout(() => {
+      if (ref.current) onLive(labelOfElement(ref.current));
+    }, 250);
+  };
+
   // Through the same walker the grammar parser uses, so a ⌘B and a Shift+Enter
   // survive the commit exactly as they will survive the round trip.
-  const commit = () => onEnd(ref.current ? labelOfElement(ref.current) : "");
+  const commit = () => {
+    if (liveTimer.current) clearTimeout(liveTimer.current);
+    onEnd(ref.current ? labelOfElement(ref.current) : "");
+  };
 
   return (
     <>
@@ -415,6 +459,7 @@ export function LabelEdit({
         suppressContentEditableWarning
         onKeyUp={stop}
         onBeforeInput={stop}
+        onInput={onInput}
         onPointerDown={stop}
         onDoubleClick={stop}
         onBlur={commit}

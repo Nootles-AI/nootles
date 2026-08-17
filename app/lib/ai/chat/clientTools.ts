@@ -11,7 +11,7 @@ import { parseDocHtml } from "../html/parse";
 import { toDocHtml, toDocHtmlWithin } from "../html/serialize";
 import { project, type AnyBlock, type DocIndex } from "../projection";
 import type { ReviewSession } from "../review/session";
-import { blocksFromSnapshot } from "../snapshot";
+import { blocksFromSnapshot, blocksFromYUpdates } from "../snapshot";
 import { resolveBatch, warnRejected } from "../validate";
 import { noSuchPage, TOOLS } from "./tools";
 
@@ -218,24 +218,58 @@ async function readPage(ctx: ToolContext, pageId: Id<"pages">): Promise<string> 
   if (ctx.openPageId() === pageId) return await readOpenPage(ctx);
 
   const page = await fetchPage(ctx, pageId);
+  return pageHtml(await storedBlocks(ctx, page.docId), page.title);
+}
 
-  // Snapshot plus the steps taken since, because the snapshot alone is not the
-  // document — it is written on a debounce that is dropped whenever the server
-  // runs ahead, and nothing retries it, so a page can sit for good with edits
-  // that exist only as steps (measured on the live deployment: snapshot at
-  // version 743, document at 752).
-  const snapshot = await ctx.convex.query(api.prosemirror.getSnapshot, {
-    id: page.docId,
-  });
-  let blocks: AnyBlock[] = [];
-  if (snapshot.content) {
-    const since = await ctx.convex.query(api.prosemirror.getSteps, {
-      id: page.docId,
-      version: snapshot.version,
-    });
-    blocks = blocksFromSnapshot(snapshot.content, since.steps);
+/**
+ * A closed page's blocks from whichever pipeline holds it. On the legacy
+ * side that is snapshot plus the steps taken since, because the snapshot
+ * alone is not the document — it is written on a debounce that is dropped
+ * whenever the server runs ahead (measured on the live deployment: snapshot
+ * at version 743, document at 752). On the Yjs side it is snapshot chunks
+ * plus the update tail, where order and overlap cannot matter.
+ */
+async function storedBlocks(ctx: ToolContext, docId: string): Promise<AnyBlock[]> {
+  const state =
+    process.env.NEXT_PUBLIC_YJS === "1"
+      ? await ctx.convex.query(api.ydoc.state, { docId })
+      : "legacy";
+  if (state === "yjs") {
+    const meta = await ctx.convex.query(api.ydoc.meta, { docId });
+    if (!meta) return [];
+    const parts: ArrayBuffer[] = [];
+    for (let part = 0; part < meta.snapshotParts; part++) {
+      const chunk = await ctx.convex.query(api.ydoc.snapshot, {
+        docId,
+        gen: meta.snapshotSeq,
+        part,
+      });
+      if (chunk) parts.push(chunk);
+    }
+    let cursor = meta.snapshotSeq;
+    for (;;) {
+      const rows = await ctx.convex.query(api.ydoc.updatesSince, {
+        docId,
+        afterSeq: cursor,
+      });
+      if (!rows.length) break;
+      for (const row of rows) {
+        parts.push(row.update);
+        cursor = Math.max(cursor, row.seq);
+      }
+    }
+    return blocksFromYUpdates(parts);
   }
-  return pageHtml(blocks, page.title);
+
+  const snapshot = await ctx.convex.query(api.prosemirror.getSnapshot, {
+    id: docId,
+  });
+  if (!snapshot.content) return [];
+  const since = await ctx.convex.query(api.prosemirror.getSteps, {
+    id: docId,
+    version: snapshot.version,
+  });
+  return blocksFromSnapshot(snapshot.content, since.steps);
 }
 
 /**

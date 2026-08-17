@@ -3,10 +3,16 @@ import type { Doc, Id, TableNames } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 
 /**
- * Ownership is the only tenancy boundary in v0: every row carries the Clerk
- * subject that created it, and these four functions are the only way to reach
- * one. Going through them — rather than comparing `ownerId` by hand at each call
- * site — is what keeps the check from being forgotten.
+ * All tenancy lives here: every row carries the Clerk subject that created it,
+ * and these functions are the only way to reach one. Going through them —
+ * rather than comparing `ownerId` by hand at each call site — is what keeps
+ * the check from being forgotten.
+ *
+ * Two families. The `Owned` family answers "is this mine": personal rows
+ * (threads, checkpoints, profiles) never widen past their creator. The
+ * `visible`/`editable` family answers "what am I to this project": sharing
+ * grants a role per project (owner / editor / viewer), and anything reachable
+ * through a project resolves its access through that role.
  */
 
 /** Tables whose rows are owned. Derived, so a new table joins by having the field. */
@@ -57,4 +63,97 @@ export async function requireOwned<T extends Owned>(
   const doc = await readOwned(ctx, table, id);
   if (!doc) throw new Error("Not found");
   return doc;
+}
+
+export type ProjectRole = "owner" | "editor" | "viewer";
+
+/**
+ * What the caller is to a loaded project.
+ *
+ * A claim names the role of the link it came through, but permission is always
+ * re-derived against the tokens that are live NOW: killing the editor link
+ * demotes its claimants to viewers while any link is still on (the same move
+ * as Google downgrading a link from editor to viewer), and killing both links
+ * closes the project to everyone but the owner. A claim row alone admits
+ * nobody.
+ */
+export async function roleForProject(
+  ctx: QueryCtx,
+  project: Doc<"projects">,
+): Promise<ProjectRole | null> {
+  const me = await ownerId(ctx);
+  if (!me) return null;
+  if (project.ownerId === me) return "owner";
+  const claim = await ctx.db
+    .query("shareClaims")
+    .withIndex("by_project_and_grantee", (q) =>
+      q.eq("projectId", project._id).eq("granteeId", me),
+    )
+    .unique();
+  if (!claim) return null;
+  if (claim.role === "editor" && project.editShareToken) return "editor";
+  return project.shareToken || project.editShareToken ? "viewer" : null;
+}
+
+/** The caller's role in a project named by id, or null for missing/stranger. */
+export async function projectRole(
+  ctx: QueryCtx,
+  projectId: Id<"projects">,
+): Promise<ProjectRole | null> {
+  const project = await ctx.db.get(projectId);
+  return project ? await roleForProject(ctx, project) : null;
+}
+
+/** Tables that resolve their access through a project's role. */
+type Shared = "projects" | "pages";
+
+async function projectOf<T extends Shared>(
+  ctx: QueryCtx,
+  doc: Doc<T>,
+): Promise<Doc<"projects"> | null> {
+  // TS cannot relate the generic Doc<T> to the closed union, hence the hop.
+  const row = doc as unknown as Doc<"projects"> | Doc<"pages">;
+  return "projectId" in row ? await ctx.db.get(row.projectId) : row;
+}
+
+/**
+ * The row, if the caller holds any role on its project. The sibling of
+ * `readOwned` for surfaces a share recipient may see; missing and
+ * not-visible-to-you both answer null, so a stranger cannot probe which ids
+ * exist.
+ *
+ * `table` goes unused at runtime, same as in `readOwned`: it binds the type
+ * parameter so callers get back the table's own `Doc`.
+ */
+export async function readVisible<T extends Shared>(
+  ctx: QueryCtx,
+  table: T,
+  id: Id<T>,
+): Promise<Doc<T> | null> {
+  const doc = (await ctx.db.get(id)) as Doc<T> | null;
+  if (!doc) return null;
+  const project = await projectOf(ctx, doc);
+  if (!project) return null;
+  return (await roleForProject(ctx, project)) ? doc : null;
+}
+
+/**
+ * The row, provided the caller may WRITE under its project — owner or editor.
+ * Deliberately a separate gate from `requireOwned` rather than a loosening of
+ * it: read scope and write scope must never be one check that drifts.
+ */
+export async function requireEditable<T extends Shared>(
+  ctx: QueryCtx,
+  table: T,
+  id: Id<T>,
+): Promise<Doc<T>> {
+  const doc = (await ctx.db.get(id)) as Doc<T> | null;
+  if (doc) {
+    const project = await projectOf(ctx, doc);
+    if (project) {
+      const role = await roleForProject(ctx, project);
+      if (role === "owner" || role === "editor") return doc;
+    }
+  }
+  throw new Error("Not found");
 }

@@ -1,6 +1,13 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
-import { ownerId as currentOwner, readOwned, requireOwned, requireOwner } from "./auth";
+import {
+  ownerId as currentOwner,
+  projectRole,
+  readVisible,
+  requireOwned,
+  requireOwner,
+  roleForProject,
+} from "./auth";
 import { ABOUT, BACKGROUND } from "./ai/questions";
 import { add as addRepos } from "./github/repos";
 import { repoRef } from "./schema";
@@ -20,7 +27,71 @@ export const list = query({
 
 export const get = query({
   args: { projectId: v.id("projects") },
-  handler: async (ctx, args) => await readOwned(ctx, "projects", args.projectId),
+  handler: async (ctx, args) => await readVisible(ctx, "projects", args.projectId),
+});
+
+/**
+ * What the caller is to this project, so the workspace knows which chrome to
+ * draw — share controls and project settings are the owner's, editing is the
+ * owner's and editors', viewers read. Null means "not yours to see", which the
+ * client treats the same as a project that does not exist.
+ */
+export const myRole = query({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, args) => await projectRole(ctx, args.projectId),
+});
+
+/**
+ * Projects other people shared with the caller — the claims that still grant a
+ * role, joined to what the projects screen needs to draw a row. The owner's
+ * name rides along because "by whom" is the one fact that distinguishes this
+ * list from "mine".
+ */
+export const sharedWithMe = query({
+  args: {},
+  handler: async (ctx) => {
+    const me = await currentOwner(ctx);
+    if (!me) return [];
+    const claims = await ctx.db
+      .query("shareClaims")
+      .withIndex("by_grantee", (q) => q.eq("granteeId", me))
+      .collect();
+
+    const rows = await Promise.all(
+      claims.map(async (claim) => {
+        const project = await ctx.db.get(claim.projectId);
+        if (!project) return null;
+        const role = await roleForProject(ctx, project);
+        if (!role) return null;
+        const [pages, ownerProfile] = await Promise.all([
+          ctx.db
+            .query("pages")
+            .withIndex("by_project", (q) => q.eq("projectId", project._id))
+            .collect(),
+          ctx.db
+            .query("profiles")
+            .withIndex("by_owner", (q) => q.eq("ownerId", project.ownerId))
+            .unique(),
+        ]);
+        return {
+          _id: project._id,
+          title: project.title,
+          role,
+          ownerName: ownerProfile?.name ?? ownerProfile?.email ?? null,
+          pageCount: pages.length,
+          firstPageDocId: pages[0]?.docId ?? null,
+          updatedAt: pages.reduce(
+            (m, pg) => Math.max(m, pg.updatedAt ?? pg.createdAt),
+            project.createdAt,
+          ),
+        };
+      }),
+    );
+
+    return rows
+      .filter((r) => r !== null)
+      .sort((a, b) => b.updatedAt - a.updatedAt);
+  },
 });
 
 export const create = mutation({

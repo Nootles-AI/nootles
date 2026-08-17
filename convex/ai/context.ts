@@ -1,6 +1,6 @@
 import { mutation, query } from "../_generated/server";
 import { v } from "convex/values";
-import { readOwned, requireOwned } from "../auth";
+import { projectRole, readOwned, requireEditable, requireOwned } from "../auth";
 
 /**
  * The per-project Context Sheet — an evolving list of Q&A that primes every LLM
@@ -24,12 +24,15 @@ export const list = query({
 /**
  * The project as the agent should be told about it, in one round trip: the chat
  * route reads this before every turn, so a query per row would be latency on the
- * path to the first token.
+ * path to the first token. Editors' agents read it too — the sheet is what any
+ * agent on this project is primed with.
  */
 export const forPrompt = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
-    const project = await readOwned(ctx, "projects", args.projectId);
+    const role = await projectRole(ctx, args.projectId);
+    if (role !== "owner" && role !== "editor") return null;
+    const project = await ctx.db.get(args.projectId);
     if (!project) return null;
     const [entries, repos] = await Promise.all([
       ctx.db
@@ -64,7 +67,9 @@ export const add = mutation({
     source,
   },
   handler: async (ctx, args) => {
-    const { ownerId } = await requireOwned(ctx, "projects", args.projectId);
+    // Inherited ownership, like pages: the sheet is the project's, so entries
+    // an editor's agent adds still answer to the owner in the context dialog.
+    const { ownerId } = await requireEditable(ctx, "projects", args.projectId);
     return await ctx.db.insert("contextSheet", {
       ownerId,
       projectId: args.projectId,

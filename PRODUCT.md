@@ -30,8 +30,9 @@ human-only path the AI can't drive. The canvas round-trip is exact
 
 ## Operating Context
 
-- Single-user v0; owner scoping centralized in `convex/auth.ts` so real auth stays a
-  one-file swap. Clerk sign-in and share routes already exist in the app.
+- Real accounts (Clerk, Google OAuth) with authorization centralized in `convex/auth.ts`.
+  Projects are shareable by link with viewer/editor roles; recipients who sign in get the
+  project under "Shared with me".
 - The owner often has the same page open in multiple synced browser tabs; unexpected
   content changes may be their own edits.
 - Documents mix rich text blocks, code blocks (CodeMirror), math (MathLive/KaTeX), and
@@ -47,8 +48,12 @@ human-only path the AI can't drive. The canvas round-trip is exact
   debounce-persist.
 - Canvas and math persist as text in ProseMirror node attributes for v0; migration to
   dedicated Convex tables is flagged, not assumed.
-- Undecided: audience beyond the owner, and multiplayer. Record decisions when made rather
-  than designing for them speculatively.
+- Decided (2026-08): multiplayer is in. Google-Docs-level sharing — CRDT document sync with
+  live cursors and presence, viewer/editor links per project, per-shape canvas merging.
+  Each person's AI is that person: its edits attribute as their writes, and chat-AI edits
+  stay private to them until approved.
+- Undecided: audience beyond invited collaborators. Record decisions when made rather than
+  designing for them speculatively.
 
 ## Brand Commitments
 
@@ -74,6 +79,7 @@ work must not fabricate any.
    ships, but built on the AI abstractions from day one.
 3. **The canvas is the flagship.** Polish over shortcuts; hold it above everything else.
 4. **Quality for one user is the bar.** Daily-driver depth beats feature breadth; no
-   speculative multiplayer or market features.
+   speculative market features. Multiplayer is no longer speculative — it is scoped to
+   Google-Docs-level sharing and held to the same depth bar.
 5. **Domain-neutral by design.** Serve general-purpose thinking; don't specialize the
    surface toward one planning domain.

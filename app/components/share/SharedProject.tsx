@@ -1,33 +1,67 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { useQuery } from "convex/react";
+import { useRouter } from "next/navigation";
+import { useAuth } from "@clerk/nextjs";
+import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useMediaQuery } from "@/app/lib/useMediaQuery";
+import { track } from "@/app/lib/telemetry";
 import { Wordmark } from "../Brand";
 import { ArrowLeft, PanelLeft } from "../Icons";
 import { CurrentPageProvider, useOpenPage } from "../OpenPageContext";
 import { PagesProvider } from "../PagesContext";
 import { ReadOnlyContext } from "../editor/readOnly";
+import { Facepile } from "../presence/Facepile";
+import { GuestChatRail } from "./GuestChatRail";
 import { SharedEditor } from "./SharedEditor";
+import { SignInToEdit } from "./SignInToEdit";
 
-/* The same threshold as the workspace: below it the rail becomes a drawer. */
+/* The same threshold as the workspace: below it the rails become drawers. */
 const COMPACT = "(max-width: 1023px)";
 
 /**
- * The read-only face of one project, reached by share token. It borrows the
- * workspace's own vocabulary — the same rail, rows, page column and page
- * selection — minus everything that authors: no chat, no review, no plus
- * buttons, no rename. Mention chips work because the same contexts they read
- * in the workspace (the page list, the open-page selection) are provided here.
+ * One project reached by share link, before any sign-in.
+ *
+ * Two faces, decided by which link this is. A viewer link is the quiet
+ * read-only page it always was. An editor link dresses as the workspace —
+ * rail, document, chat — because that is what it becomes the moment the guest
+ * signs in; the banner says so, and any reach for the pen (a press into the
+ * document, the chat, a key) answers with the sign-in modal instead of
+ * silence.
+ *
+ * A visitor who is already signed in never sees any of it: the link claims
+ * the project for them and carries them to the real workspace.
  */
 export function SharedProject({ token }: { token: string }) {
   const shared = useQuery(api.share.view, { token });
+  const { isLoaded, isSignedIn } = useAuth();
+  const claim = useMutation(api.share.claim);
+  const router = useRouter();
   // One column here, so the workspace's second pane never comes into it.
   const { main, open, back } = useOpenPage();
   const compact = useMediaQuery(COMPACT);
   const [drawer, setDrawer] = useState(false);
+  const [asking, setAsking] = useState(false);
+
+  // Imperative hand-off, not derived state: the moment we know who this is,
+  // the share surface's job is to record the claim and get out of the way.
+  const claimed = useRef(false);
+  useEffect(() => {
+    if (!isLoaded || !isSignedIn || !shared || claimed.current) return;
+    claimed.current = true;
+    void claim({ token })
+      .then((projectId) => {
+        track("share_claimed", { role: shared.role });
+        router.replace(`/p/${projectId}`);
+      })
+      .catch(() => {
+        // The link died between loading and claiming; the surface will show
+        // the not-shared state on the next query result.
+        claimed.current = false;
+      });
+  }, [isLoaded, isSignedIn, shared, claim, token, router]);
 
   useEffect(() => {
     if (!drawer) return;
@@ -38,8 +72,9 @@ export function SharedProject({ token }: { token: string }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [drawer]);
 
-  if (shared === undefined) {
-    // Mirrors the page column so the eventual content lands in place.
+  // Loading, or signed in and about to leave for the workspace — either way,
+  // the skeleton mirrors the page column so the content lands in place.
+  if (shared === undefined || !isLoaded || isSignedIn) {
     return (
       <div className="flex h-screen w-full items-start" aria-busy="true">
         <div
@@ -70,10 +105,17 @@ export function SharedProject({ token }: { token: string }) {
     );
   }
 
+  const editable = shared.role === "editor";
   const pages = shared.pages;
   // Resolved the way the workspace resolves it: a stale or foreign id falls
   // back to the first page rather than blanking the surface.
   const current = pages.find((p) => p._id === main.page) ?? pages[0] ?? null;
+
+  /** A keystroke that means "I am writing", as opposed to navigating. */
+  const writingKey = (e: React.KeyboardEvent) => {
+    if (e.metaKey || e.ctrlKey || e.altKey) return false;
+    return e.key.length === 1 || ["Enter", "Backspace", "Delete"].includes(e.key);
+  };
 
   const rail = (
     <aside
@@ -131,10 +173,29 @@ export function SharedProject({ token }: { token: string }) {
         <span className="absolute left-1/2 top-1/2 max-w-[40%] -translate-x-1/2 -translate-y-1/2 truncate text-sm font-medium">
           {shared.title || "Untitled project"}
         </span>
-        <span className="ml-auto shrink-0 text-[13px] text-muted">
-          Read-only
-        </span>
+        <div className="ml-auto flex shrink-0 items-center gap-2">
+          <Facepile docId={current?.docId ?? null} />
+          {editable ? (
+            <button
+              onClick={() => setAsking(true)}
+              className="nt-row shrink-0 px-2.5 text-muted"
+            >
+              Sign in
+            </button>
+          ) : (
+            <span className="shrink-0 text-[13px] text-muted">Read-only</span>
+          )}
+        </div>
       </header>
+
+      {editable && (
+        <div className="nt-guest-banner" role="status">
+          <span>This is an editable file.</span>
+          <button onClick={() => setAsking(true)}>
+            Sign up or log in to edit
+          </button>
+        </div>
+      )}
 
       <div className="flex min-h-0 flex-1">
         {!compact && rail}
@@ -159,15 +220,28 @@ export function SharedProject({ token }: { token: string }) {
                   </button>
                 </div>
               )}
-              <h1 className="w-full text-[length:var(--text-title)] font-semibold tracking-[-0.02em] text-balance">
-                {current.title || "Untitled"}
-              </h1>
-              <div className="mt-8">
-                <ReadOnlyContext value={true}>
-                  <CurrentPageProvider pageId={current._id}>
-                    <SharedEditor key={current.docId} docId={current.docId} />
-                  </CurrentPageProvider>
-                </ReadOnlyContext>
+              <div
+                onPointerDownCapture={
+                  editable ? () => setAsking(true) : undefined
+                }
+                onKeyDownCapture={
+                  editable
+                    ? (e) => {
+                        if (writingKey(e)) setAsking(true);
+                      }
+                    : undefined
+                }
+              >
+                <h1 className="w-full text-[length:var(--text-title)] font-semibold tracking-[-0.02em] text-balance">
+                  {current.title || "Untitled"}
+                </h1>
+                <div className="mt-8">
+                  <ReadOnlyContext value={true}>
+                    <CurrentPageProvider pageId={current._id}>
+                      <SharedEditor key={current.docId} docId={current.docId} />
+                    </CurrentPageProvider>
+                  </ReadOnlyContext>
+                </div>
               </div>
             </div>
           ) : (
@@ -176,6 +250,10 @@ export function SharedProject({ token }: { token: string }) {
             </div>
           )}
         </main>
+
+        {editable && !compact && (
+          <GuestChatRail onIntercept={() => setAsking(true)} />
+        )}
       </div>
 
       {compact && drawer && (
@@ -194,6 +272,8 @@ export function SharedProject({ token }: { token: string }) {
           </div>
         </>
       )}
+
+      {asking && <SignInToEdit token={token} onClose={() => setAsking(false)} />}
     </div>
     </PagesProvider>
   );

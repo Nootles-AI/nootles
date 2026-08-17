@@ -114,6 +114,8 @@ export class SceneStore {
   private lastSource: string;
   /** An external source that arrived mid-gesture, adopted once it ends. */
   private pendingSource: string | null = null;
+  /** Whether the pending source came from {@link adoptRemote}. */
+  private pendingRemote = false;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private dirty = false;
 
@@ -130,6 +132,22 @@ export class SceneStore {
   setWriter = (write: (source: string) => void): void => {
     this.write = write;
   };
+
+  private live: ((scene: Scene) => void) | null = null;
+
+  /**
+   * A second, immediate output for collaboration: called synchronously with
+   * every committed scene — each dispatch, gesture end, undo — where the
+   * debounced writer waits for quiet that continuous editing never gives it.
+   * The CRDT binding ships per-shape diffs through here, so a collaborator
+   * sees each gesture land as it ends rather than when the editor pauses.
+   */
+  setLiveWriter = (live: ((scene: Scene) => void) | null): void => {
+    this.live = live;
+  };
+
+  /** Whether a gesture bracket is open — the presence sampler's cue. */
+  gesturing = (): boolean => this.depth > 0;
 
   /**
    * Hook the selection into history, so undo and redo rewind it alongside the
@@ -247,8 +265,11 @@ export class SceneStore {
 
     const source = this.pendingSource;
     if (source !== null) {
+      const remote = this.pendingRemote;
       this.pendingSource = null;
-      this.adopt(source);
+      this.pendingRemote = false;
+      if (remote) this.adoptRemote(source);
+      else this.adopt(source);
     }
   };
 
@@ -295,9 +316,33 @@ export class SceneStore {
     if (source === this.lastSource) return;
     if (this.depth > 0) {
       this.pendingSource = source;
+      this.pendingRemote = false;
       return;
     }
     this.adopt(source);
+  };
+
+  /**
+   * Reconcile a COLLABORATOR's merged edit, from the CRDT binding. Unlike
+   * {@link setSource} it is not undoable — undoing someone else's work is not
+   * an answer ⌘Z should ever give — and local history that predates it cannot
+   * honestly be restored either, because a snapshot restore would revert their
+   * merged changes along with ours. It resets instead: the cost of concurrent
+   * edits on one diagram is a fresh undo horizon, never a reverted teammate.
+   */
+  adoptRemote = (source: string): void => {
+    if (source === this.lastSource) return;
+    if (this.depth > 0) {
+      this.pendingSource = source;
+      this.pendingRemote = true;
+      return;
+    }
+    this.lastSource = source;
+    this.cancelPersist();
+    this.dirty = false;
+    this.past = [];
+    this.future = [];
+    this.setScene(migrateLegacyCanvas(source), false);
   };
 
   /** Write now, if there is anything unwritten. */
@@ -350,6 +395,7 @@ export class SceneStore {
       this.dirty = true;
       this.cancelPersist();
       this.timer = setTimeout(this.flush, PERSIST_MS);
+      this.live?.(scene);
     }
     this.notify();
   }

@@ -289,3 +289,79 @@
   background: var(--hover);
   color: var(--foreground);
 }
+
+/* ---- Co-presence ---------------------------------------------------------
+   Other people on this diagram, Figma-grammar: name leaves stacking from the
+   top-right corner, and their selections outlined in their colour — the
+   outline following their drag live, ahead of the committed write. Painted
+   imperatively from collab/presence.ts; ghosts live inside the transformed
+   scene layer, so pan and zoom carry them for free. */
+.nt-canvas-leaves {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px;
+  max-width: 60%;
+  pointer-events: none;
+  z-index: 4;
+}
+.nt-canvas-leaf {
+  padding: 2px 8px;
+  font-size: var(--text-meta);
+  font-weight: 500;
+  line-height: 1.5;
+  color: var(--background);
+  /* A leaf: a pill with one grounded corner, pointing back into the canvas. */
+  border-radius: 999px 3px 999px 999px;
+  white-space: nowrap;
+  max-width: 12rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.nt-copresence {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+}
+.nt-copresence-ghost {
+  position: absolute;
+  outline: 1.5px solid var(--copresence);
+  outline-offset: 1px;
+  border-radius: 2px;
+  pointer-events: none;
+}
+
+/* A collaborator's label selection — the main editor's cursor grammar, in
+   scene pixels: translucent boxes over their selected words, a caret bar at
+   the head flying their name. */
+.nt-copresence-hl {
+  position: absolute;
+  background: color-mix(in srgb, var(--copresence) 22%, transparent);
+  border-radius: 1px;
+  pointer-events: none;
+}
+.nt-copresence-caret {
+  position: absolute;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--copresence);
+  border-radius: 1px;
+  pointer-events: none;
+}
+.nt-copresence-caret-name {
+  position: absolute;
+  bottom: 100%;
+  left: -1px;
+  padding: 1px 5px;
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.4;
+  color: var(--background);
+  background: var(--copresence);
+  border-radius: 3px 3px 3px 0;
+  white-space: nowrap;
+}

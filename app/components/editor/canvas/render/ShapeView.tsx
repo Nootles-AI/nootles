@@ -53,6 +53,8 @@ export interface ShapeViewProps {
   onEditStart?: (id: NodeId) => void;
   /** Blur or Escape. The caller dispatches `setLabel` and clears `editingId`. */
   onEditEnd?: (id: NodeId, label: string) => void;
+  /** The label mid-edit, debounced — streamed so collaborators watch it typed. */
+  onEditLive?: (id: NodeId, label: string) => void;
   /**
    * Open this label for editing now — the solo chip's "Edit text". Not
    * advisory: the surface selects the node and sets `editingId` outright.
@@ -78,6 +80,7 @@ export const ShapeView = memo(function ShapeView({
   editingId = null,
   onEditStart,
   onEditEnd,
+  onEditLive,
   onEditOpen,
   flow,
 }: ShapeViewProps) {
@@ -151,6 +154,7 @@ export const ShapeView = memo(function ShapeView({
         <LabelEdit
           label={node.label}
           onEnd={(label) => onEditEnd?.(node.id, label)}
+          onLive={onEditLive && ((label) => onEditLive(node.id, label))}
         />
       ) : hasText(node) ? (
         <LabelContent
@@ -169,6 +173,7 @@ export const ShapeView = memo(function ShapeView({
               editingId={editingId}
               onEditStart={onEditStart}
               onEditEnd={onEditEnd}
+              onEditLive={onEditLive}
               onEditOpen={onEditOpen}
             />
           ))

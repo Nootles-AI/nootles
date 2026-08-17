@@ -13,8 +13,13 @@ import {
 } from "@blocknote/react";
 import { autoPlacement, offset, shift, size } from "@floating-ui/react";
 import { useBlockNoteSync } from "@convex-dev/prosemirror-sync/blocknote";
+import { useConvex, useQuery } from "convex/react";
+import { useUser } from "@clerk/nextjs";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
+import { useYjsEditor } from "@/app/lib/sync/useYjsEditor";
+import { initEmptyYDoc, migrateLegacyDoc } from "@/app/lib/sync/migrate";
+import { collabColor } from "@/app/lib/sync/colors";
 import { schema } from "./schema";
 import { usePages, type PageRef } from "../PagesContext";
 import { pageTitle } from "./inline/PageMention";
@@ -31,6 +36,8 @@ import { track } from "@/app/lib/telemetry";
 import { useTabCompletion, type PageMode } from "./ai/useTabCompletion";
 import { useReformat } from "./ai/useReformat";
 import { ReformatBar } from "./ai/ReformatBar";
+import { arrivalFlashExtension } from "./arrivalFlash";
+import { useReadOnly } from "./readOnly";
 import "./editor.css";
 
 type EditorInstance = typeof schema.BlockNoteEditor;
@@ -190,85 +197,190 @@ function mentionItems(
   }));
 }
 
-/**
- * The block editor for a single page, bound to its prosemirror-sync document.
- * Steps + snapshots are persisted by the Convex prosemirror-sync component, so
- * this stays a thin client: the hook owns the collaborative state, we own the
- * presentation and the (custom) schema. The slash menu's "Code Block" item
- * targets our `codeBlock` type, which is the CodeMirror-backed block.
- */
-export function Editor({
-  docId,
-  pageId,
-  title = "",
-  mode = "create",
-}: {
+type EditorProps = {
   docId: string;
   pageId?: Id<"pages">;
   /** Emitted as <title> in the model's view of the document. */
   title?: string;
   /** How eager ambient suggestions should be on this page. */
   mode?: PageMode;
-}) {
-  const pages = usePages();
-  const sync = useBlockNoteSync<EditorInstance>(api.prosemirror, docId, {
-    editorOptions: {
-      schema,
-      extensions: [completionExtension, reviewExtension, hintExtension],
+};
+
+/** The flag the Yjs cutover ships behind; off means the app you had. */
+const YJS_ON = process.env.NEXT_PUBLIC_YJS === "1";
+
+const EXTENSIONS = [
+  completionExtension,
+  reviewExtension,
+  hintExtension,
+  arrivalFlashExtension,
+];
+
+const placeholder = <div className="min-h-[40vh]" aria-hidden />;
+
+/**
+ * The block editor for a single page — a dispatcher over two sync pipelines.
+ *
+ * Every doc lives on exactly one: the reactive `state` query says which, and
+ * a doc still on the legacy pipeline is migrated on first open by anyone with
+ * the pen (viewers keep reading it live through the old path until then; the
+ * same reactivity flips them over the moment it moves). The editor itself,
+ * its chrome and its AI layer are identical either way — only how the
+ * document reaches it differs.
+ */
+export function Editor(props: EditorProps) {
+  const readOnly = useReadOnly();
+  const state = useQuery(
+    api.ydoc.state,
+    YJS_ON ? { docId: props.docId } : "skip",
+  );
+  if (!YJS_ON || (state === "legacy" && readOnly)) {
+    return <LegacyEditor {...props} />;
+  }
+  if (state === undefined) return placeholder;
+  if (state === "yjs") return <YjsEditor {...props} />;
+  if (readOnly) return placeholder;
+  return <BecomeYjs docId={props.docId} state={state} />;
+}
+
+/**
+ * Runs the one-way move (or, for a never-opened doc, the plain birth) and
+ * renders nothing: the `state` flip is what remounts the real editor, here
+ * and in every other tab with the page open.
+ */
+const migrating = new Set<string>();
+function BecomeYjs({ docId, state }: { docId: string; state: "legacy" | "empty" }) {
+  const convex = useConvex();
+  useEffect(() => {
+    if (migrating.has(docId)) return;
+    migrating.add(docId);
+    const run = state === "legacy" ? migrateLegacyDoc : initEmptyYDoc;
+    run(convex, docId).finally(() => migrating.delete(docId));
+  }, [convex, docId, state]);
+  return placeholder;
+}
+
+function YjsEditor({ docId, pageId, title = "", mode = "create" }: EditorProps) {
+  const { user } = useUser();
+  const { editor } = useYjsEditor<EditorInstance>({
+    docId,
+    user: {
+      name: user?.fullName ?? user?.primaryEmailAddress?.emailAddress ?? "Someone",
+      color: collabColor(user?.id ?? "anonymous"),
+      ...(user?.imageUrl ? { imageUrl: user.imageUrl } : {}),
     },
+    editorOptions: { schema, extensions: EXTENSIONS },
+  });
+  if (!editor) return placeholder;
+  return (
+    <EditorSurface
+      editor={editor}
+      docId={docId}
+      pipeline="yjs"
+      pageId={pageId}
+      title={title}
+      mode={mode}
+    />
+  );
+}
+
+function LegacyEditor({ docId, pageId, title = "", mode = "create" }: EditorProps) {
+  const readOnly = useReadOnly();
+  const sync = useBlockNoteSync<EditorInstance>(api.prosemirror, docId, {
+    editorOptions: { schema, extensions: EXTENSIONS },
   });
 
-  useRegisterEditor(pageId, sync.editor, docId);
-  useTabCompletion(sync.editor, pageId, title, mode);
-  const reformat = useReformat(sync.editor, pageId);
-
   // First open of a page has no document yet — create an empty one seamlessly.
-  // Guarded per-docId so StrictMode's double-invoke can't create twice.
+  // Guarded per-docId so StrictMode's double-invoke can't create twice. A
+  // viewer never creates one: they may only be here to read. (Under the flag,
+  // a brand-new doc is born on the Yjs side instead and never reaches here.)
   const createdFor = useRef<string | null>(null);
   useEffect(() => {
+    if (readOnly || YJS_ON) return;
     if (!sync.isLoading && !sync.editor && createdFor.current !== docId) {
       createdFor.current = docId;
       void sync.create({ type: "doc", content: [] });
     }
-  }, [sync, docId]);
+  }, [sync, docId, readOnly]);
 
-  if (!sync.editor) {
-    return <div className="min-h-[40vh]" aria-hidden />;
-  }
+  if (!sync.editor) return placeholder;
+  return (
+    <EditorSurface
+      editor={sync.editor}
+      docId={docId}
+      pipeline="legacy"
+      pageId={pageId}
+      title={title}
+      mode={mode}
+    />
+  );
+}
 
-  const editor = sync.editor;
+/** Everything above the transport: chrome, menus, and the AI layer. */
+function EditorSurface({
+  editor,
+  docId,
+  pipeline,
+  pageId,
+  title,
+  mode,
+}: {
+  editor: EditorInstance;
+  docId: string;
+  pipeline: "legacy" | "yjs";
+  pageId?: Id<"pages">;
+  title: string;
+  mode: PageMode;
+}) {
+  const pages = usePages();
+  // A viewer-role workspace: same document, none of the authoring. The context
+  // also reaches the custom blocks, which disable themselves through it.
+  const readOnly = useReadOnly();
+
+  useRegisterEditor(pageId, editor, docId, pipeline);
+  useTabCompletion(readOnly ? null : editor, pageId, title, mode, docId);
+  const reformat = useReformat(readOnly ? null : editor, pageId);
+
   return (
     <PageTitleProvider value={title}>
       <BlockNoteView
         editor={editor}
+        editable={!readOnly}
         theme="light"
         className="nt-editor"
         sideMenu={false}
         slashMenu={false}
         formattingToolbar={false}
       >
-        <BlockSideMenu />
-        <FormattingToolbarController formattingToolbar={Toolbar} />
-        <SuggestionMenuController
-          triggerCharacter="/"
-          floatingUIOptions={menuPlacement}
-          getItems={async (query) =>
-            filterItems(
-              [...getDefaultReactSlashMenuItems(editor), ...customSlashItems(editor)],
-              query,
-            )
-          }
-        />
-        <SuggestionMenuController
-          triggerCharacter="@"
-          floatingUIOptions={menuPlacement}
-          getItems={async (query) =>
-            filterItems(mentionItems(editor, pages ?? []), query)
-          }
-        />
+        {!readOnly && (
+          <>
+            <BlockSideMenu />
+            <FormattingToolbarController formattingToolbar={Toolbar} />
+            <SuggestionMenuController
+              triggerCharacter="/"
+              floatingUIOptions={menuPlacement}
+              getItems={async (query) =>
+                filterItems(
+                  [
+                    ...getDefaultReactSlashMenuItems(editor),
+                    ...customSlashItems(editor),
+                  ],
+                  query,
+                )
+              }
+            />
+            <SuggestionMenuController
+              triggerCharacter="@"
+              floatingUIOptions={menuPlacement}
+              getItems={async (query) =>
+                filterItems(mentionItems(editor, pages ?? []), query)
+              }
+            />
+          </>
+        )}
       </BlockNoteView>
-      {pageId && <ReviewOverlay editor={editor} pageId={pageId} />}
-      {reformat.state && (
+      {!readOnly && pageId && <ReviewOverlay editor={editor} pageId={pageId} />}
+      {!readOnly && reformat.state && (
         <ReformatBar
           editor={editor}
           state={reformat.state}
@@ -277,7 +389,7 @@ export function Editor({
           onCycle={reformat.cycle}
         />
       )}
-      {process.env.NODE_ENV !== "production" && pageId && (
+      {process.env.NODE_ENV !== "production" && !readOnly && pageId && (
         <SubstrateHarness editor={editor} pageId={pageId} />
       )}
     </PageTitleProvider>

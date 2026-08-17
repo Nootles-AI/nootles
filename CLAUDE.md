@@ -28,8 +28,10 @@ Project → Page (1:1 with a canvas surface) → Block[text | canvas] → Shape 
 - A Shape lives **only** inside a canvas block. It may hold rich text and images, but
   **never** a page or nested blocks. Depth stops at shape → {text, image}. Do not add
   recursion here without an explicit decision.
-- v0 is **single-user**: owner scoping goes through `convex/auth.ts` (`getOwnerId`). Swapping
-  in real auth must stay a one-file change — keep owner resolution centralized there.
+- Auth is real (Clerk, Google OAuth only) and authorization is centralized in
+  `convex/auth.ts` (`ownerId` / `requireOwner` / `readOwned` / `requireOwned`, keyed on the
+  Clerk `subject`). Sharing grants roles per project (owner / editor / viewer via share
+  links + claims); resolution stays in that one file — never check access anywhere else.
 
 ## Product priorities
 
@@ -45,7 +47,7 @@ Project → Page (1:1 with a canvas surface) → Block[text | canvas] → Shape 
 | Concern | Choice |
 |---|---|
 | App | Next.js 16 (App Router, heavily customized), React 19, Tailwind 4, light mode |
-| Backend / DB | Convex (currently a local dev deployment) |
+| Backend / DB | Convex (hosted cloud deployments: dev + prod; see `.env.local` / `.env.prod`) |
 | Editor | BlockNote (ProseMirror) + `@convex-dev/prosemirror-sync` |
 | Code blocks | CodeMirror 6 (grammars lazy-loaded per language) |
 | Math | MathLive (edit) + KaTeX (render) + `@cortex-js/compute-engine` (evaluate) |
@@ -78,14 +80,22 @@ so they don't collide (that's why the canvas layout helper is `autoLayout.ts`).
 - Keep typing O(1): hold heavy live state locally (CodeMirror text, canvas nodes/edges, math
   rows) and **debounce-persist** it into the store — don't write on every keystroke.
 
-## Persistence pattern (v0)
+## Persistence pattern
 
-- Canvas and math state persist as text inside a ProseMirror node attribute (debounced):
-  the canvas as `<nt-diagram>` HTML, math as LaTeX source. Fine for v0. For large diagrams
-  or multiplayer, migrate shapes/edges to the dedicated Convex `shapes`/`edges` tables
-  (already in the schema) — flag before doing so.
-- The canvas HTML round-trip is exact: `serialize(parse(html)) === html`. Keep it that way —
-  it is the contract the AI layer edits diagrams through.
+- Documents sync as Yjs CRDTs through Convex (`convex/ydoc.ts` update log + chunked
+  snapshots, `app/lib/sync/YConvexProvider.ts`). The legacy prosemirror-sync pipeline
+  remains only for docs not yet lazily migrated; its write path freezes per-doc on
+  migration.
+- A shared diagram's truth is per-shape CRDT maps in the page's Y.Doc
+  (`canvas/collab/` — `canvas:<blockId>` → meta/shapes/edges; fractional order keys,
+  one-value frames, prev-scene shadow diffs). The `<nt-diagram>` HTML on the block prop
+  stays alive as a MIRROR so every HTML reader — thumbnails, `read_page`, copy/paste,
+  AI whole-diagram writes — keeps working; external HTML writes diff INTO the maps, so
+  even the AI's whole-diagram edits merge per shape.
+- Math persists as LaTeX source in a node attribute (debounced), whole-value LWW.
+- The canvas HTML round-trip is exact: `serialize(parse(html)) === html`, and
+  `materialize(populate(parse(html)))` equals `parse(html)` — both are contracts the AI
+  layer edits diagrams through. Keep them that way.
 
 ## Working style
 

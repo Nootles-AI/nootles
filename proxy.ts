@@ -13,10 +13,9 @@ const isPublic = createRouteMatcher([
   "/ingest(.*)",
   "/sign-in(.*)",
   "/sso-callback(.*)",
-  // The door's candidate compositions, so they can be looked at the way a
-  // visitor would see them rather than from behind a session. Throwaway, and
-  // they go when one of them wins.
-  "/signin-mock-(.*)",
+  // Share links are capability URLs: the token in the path is the whole
+  // admission, and demanding a session first would defeat their point.
+  "/share/(.*)",
 ]);
 
 export default clerkMiddleware(async (auth, request) => {

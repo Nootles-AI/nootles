@@ -181,9 +181,22 @@ function reflowList(nodes: SceneNode[]): SceneNode[] {
 // ---------------------------------------------------------------------------
 
 const ID_PREFIX = "n";
-const MINTED_ID = /^n(\d+)$/;
+const MINTED_ID = /^n(\d+)/;
 const EDGE_PREFIX = "e";
-const MINTED_EDGE_ID = /^e(\d+)$/;
+const MINTED_EDGE_ID = /^e(\d+)/;
+
+/**
+ * A per-session suffix on minted ids, set by the collab binding when a
+ * diagram is shared: two people drawing at the same moment both count from
+ * the same adopted scene, so `n7` and `n7` would be one shape with two
+ * authors. Empty (the pretty ids every document already has) until sharing
+ * says otherwise; the numeric prefix still drives the counter either way.
+ */
+let mintTag = "";
+
+export function setMintTag(tag: string): void {
+  mintTag = tag;
+}
 
 /**
  * `count` ids that collide with nothing in the scene, deterministically: the
@@ -223,7 +236,7 @@ function mintInto(
   }
   const out: string[] = [];
   while (out.length < count) {
-    const id = `${prefix}${++counter}`;
+    const id = `${prefix}${++counter}${mintTag}`;
     if (taken.has(id)) continue;
     taken.add(id);
     out.push(id);

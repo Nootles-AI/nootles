@@ -2,10 +2,12 @@
 
 import dynamic from "next/dynamic";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { useQuery } from "convex/react";
+import { useConvex, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { parseAlbum } from "@/app/components/editor/album/parse";
 import type { AnyBlock } from "@/app/lib/ai/projection";
+
+const YJS_ON = process.env.NEXT_PUBLIC_YJS === "1";
 
 /**
  * The width the document is written at — `--measure`. The thumbnail lays out at
@@ -38,14 +40,22 @@ const ThumbMath = dynamic(() => import("./ThumbMath"), { ssr: false });
  * because nothing in it is text meant to be read at this size.
  */
 export function PagePreview({ docId }: { docId: string | null }) {
+  const convex = useConvex();
+  const state = useQuery(
+    api.ydoc.state,
+    YJS_ON && docId ? { docId } : "skip",
+  );
+  const yjs = YJS_ON && state === "yjs";
   const snapshot = useQuery(
     api.prosemirror.getSnapshot,
-    docId ? { id: docId } : "skip",
+    docId && !yjs && (!YJS_ON || state !== undefined) ? { id: docId } : "skip",
   );
   const since = useQuery(
     api.prosemirror.getSteps,
-    snapshot?.content ? { id: docId!, version: snapshot.version } : "skip",
+    !yjs && snapshot?.content ? { id: docId!, version: snapshot.version } : "skip",
   );
+  // The Yjs pipeline's version channel: a change in `seq` is what re-reads.
+  const meta = useQuery(api.ydoc.meta, yjs && docId ? { docId } : "skip");
 
   const [blocks, setBlocks] = useState<AnyBlock[] | null>(null);
 
@@ -57,6 +67,7 @@ export function PagePreview({ docId }: { docId: string | null }) {
    */
   /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
+    if (yjs) return;
     if (snapshot === undefined) return;
     if (!snapshot?.content) {
       setBlocks([]);
@@ -79,7 +90,47 @@ export function PagePreview({ docId }: { docId: string | null }) {
     return () => {
       cancelled = true;
     };
-  }, [snapshot, since]);
+  }, [yjs, snapshot, since]);
+
+  // The Yjs read: chunks and tail fetched by hand (the chunk count is data,
+  // so it cannot be a fixed set of hooks), re-run whenever `meta.seq` moves.
+  useEffect(() => {
+    if (!yjs || !docId || !meta) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const parts: ArrayBuffer[] = [];
+        for (let part = 0; part < meta.snapshotParts; part++) {
+          const chunk = await convex.query(api.ydoc.snapshot, {
+            docId,
+            gen: meta.snapshotSeq,
+            part,
+          });
+          if (chunk) parts.push(chunk);
+        }
+        let cursor = meta.snapshotSeq;
+        for (;;) {
+          const rows = await convex.query(api.ydoc.updatesSince, {
+            docId,
+            afterSeq: cursor,
+          });
+          if (!rows.length) break;
+          for (const row of rows) {
+            parts.push(row.update);
+            cursor = Math.max(cursor, row.seq);
+          }
+        }
+        const { blocksFromYUpdates } = await import("@/app/lib/ai/snapshot");
+        if (cancelled) return;
+        setBlocks(blocksFromYUpdates(parts));
+      } catch {
+        if (!cancelled) setBlocks([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [yjs, docId, meta, convex]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
   // The card is fluid, so the shrink factor is measured rather than assumed.

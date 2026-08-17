@@ -10,7 +10,10 @@ import { v } from "convex/values";
  * shapes (high-frequency, kept out of the PM doc), and the AI substrate tables
  * (operation log, checkpoints, context sheet).
  *
- * v0 tenancy is single-user: every top-level row carries `ownerId`.
+ * Tenancy: every top-level row carries `ownerId` — the Clerk subject that
+ * created it. Access beyond the owner is granted per project through share
+ * links and the claims they leave behind (`shareClaims`); resolution lives in
+ * `auth.ts`, never at call sites.
  */
 
 // A 2D point / size used across shapes.
@@ -70,15 +73,40 @@ export default defineSchema({
     // Optional short description that seeds the Context Sheet.
     description: v.optional(v.string()),
     /**
-     * Read-only sharing. Present = shared: the token is an unguessable
-     * capability (a server-minted UUID) that names this project in a public
-     * `/share/<token>` URL. Unset to revoke — the old link dies with it.
+     * Link sharing, one token per role. Present = that link is live: each token
+     * is an unguessable capability (a server-minted UUID) that names this
+     * project in a public `/share/<token>` URL — `shareToken` admits viewers,
+     * `editShareToken` admits editors. Unset to revoke; the old link dies with
+     * it, and so does the access of everyone who claimed through it.
      */
     shareToken: v.optional(v.string()),
+    editShareToken: v.optional(v.string()),
     createdAt: v.number(),
   })
     .index("by_owner", ["ownerId"])
-    .index("by_share_token", ["shareToken"]),
+    .index("by_share_token", ["shareToken"])
+    .index("by_edit_share_token", ["editShareToken"]),
+
+  /**
+   * What visiting a share link while signed in leaves behind: a bookmark plus
+   * an identity, NOT a standing grant. Live permission is derived in `auth.ts`
+   * from the claim's role and whether the project's corresponding token is
+   * still set — so revoking a link revokes everyone who came through it, and a
+   * claim row on its own admits nobody.
+   *
+   * `granteeId` is the recipient's Clerk subject, always derived server-side.
+   * Deliberately NOT named `ownerId`: that field name would enroll this table
+   * in the `Owned` union in `auth.ts`, and "rows I granted" is not a read
+   * anyone performs.
+   */
+  shareClaims: defineTable({
+    projectId: v.id("projects"),
+    granteeId: v.string(),
+    role: v.union(v.literal("viewer"), v.literal("editor")),
+    createdAt: v.number(),
+  })
+    .index("by_grantee", ["granteeId"])
+    .index("by_project_and_grantee", ["projectId", "granteeId"]),
 
   /**
    * Per-account settings. Exists at all because first run needs somewhere to
@@ -169,6 +197,88 @@ export default defineSchema({
   })
     .index("by_project", ["projectId", "order"])
     .index("by_doc", ["docId"]),
+
+  // ---- Document sync (Yjs) ------------------------------------------------
+  // One CRDT document per page, stored as an update log folded into chunked
+  // snapshots. App-level tables rather than a component because access rides
+  // the same checkRead/checkWrite the legacy pipeline uses, and components do
+  // no auth of their own.
+
+  /**
+   * One row per Yjs-native doc — its existence IS the migration flag: a docId
+   * with a row here syncs through Yjs, and the legacy prosemirror-sync write
+   * path refuses it. The row also serializes appends: every writer bumps
+   * `seq` here, so Convex's transaction conflicts are what make sequence
+   * numbers dense and unique. (Yjs itself never needs the order — updates are
+   * commutative — seq is purely a fetch cursor.)
+   */
+  ydocs: defineTable({
+    docId: v.string(),
+    /** Seq of the newest yUpdates row; 0 = none yet. */
+    seq: v.number(),
+    /** Updates with seq <= this are folded into the snapshot. */
+    snapshotSeq: v.number(),
+    /** Chunk count of the current snapshot; 0 = no snapshot yet. */
+    snapshotParts: v.number(),
+    /** The legacy pipeline's version at migration, for audit. */
+    migratedFromVersion: v.optional(v.number()),
+    updatedAt: v.number(),
+  }).index("by_doc", ["docId"]),
+
+  /**
+   * The update log: one merged Yjs update per client flush. Deleted as the
+   * compactor folds them into the snapshot.
+   */
+  yUpdates: defineTable({
+    docId: v.string(),
+    seq: v.number(),
+    update: v.bytes(),
+  }).index("by_doc_and_seq", ["docId", "seq"]),
+
+  /**
+   * The folded document, chunked under Convex's 1MiB value cap. `gen` is the
+   * `snapshotSeq` the snapshot corresponds to; superseded generations are
+   * deleted by the compactor that wrote their replacement.
+   */
+  ySnapshots: defineTable({
+    docId: v.string(),
+    gen: v.number(),
+    part: v.number(),
+    data: v.bytes(),
+  }).index("by_doc_and_gen_and_part", ["docId", "gen", "part"]),
+
+  /**
+   * Who is on a document right now — one row per open session, carrying the
+   * encoded y-protocols awareness state (cursor positions, selections) plus
+   * the little the facepile needs denormalized so it never decodes Yjs.
+   *
+   * High-churn by nature (rewritten on every cursor move), which is exactly
+   * why it is its own table rather than fields on `ydocs`. Hand-rolled rather
+   * than `@convex-dev/presence` because awareness is an arbitrary binary
+   * payload that component has no channel for. Rows go stale rather than
+   * being deleted on disconnect — the client filters against its own clock
+   * and a cron sweeps the leftovers, so no query ever reads the wall clock.
+   */
+  presence: defineTable({
+    docId: v.string(),
+    /** One per provider instance — two tabs are two presences. */
+    sessionId: v.string(),
+    /** The Y.Doc clientID this session's awareness states are keyed by. */
+    clientId: v.number(),
+    /** The signed-in subject, for self-filtering; absent for guests. */
+    userId: v.optional(v.string()),
+    user: v.object({
+      name: v.string(),
+      color: v.string(),
+      imageUrl: v.optional(v.string()),
+    }),
+    /** encodeAwarenessUpdate for this one client. */
+    state: v.bytes(),
+    updatedAt: v.number(),
+  })
+    .index("by_doc_and_session", ["docId", "sessionId"])
+    .index("by_doc", ["docId"])
+    .index("by_updated", ["updatedAt"]),
 
   /**
    * Canvas blocks. A page's text blocks live inside the prosemirror-sync doc;

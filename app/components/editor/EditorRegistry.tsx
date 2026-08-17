@@ -115,24 +115,34 @@ export function useEditorRegistry(): EditorRegistry {
  * Publishes this page's editor, and marks it loaded once its document has caught
  * up with the server.
  *
- * `localVersion >= serverVersion` is the whole guard. prosemirror-collab counts
- * the steps a document has applied, and prosemirror-sync starts that count at
- * the snapshot's version — so while the editor is still fetching the steps taken
- * since, it is measurably behind, by exactly the blocks that are missing.
+ * For the legacy pipeline, `localVersion >= serverVersion` is the whole guard:
+ * prosemirror-collab counts the steps a document has applied, and
+ * prosemirror-sync starts that count at the snapshot's version — so while the
+ * editor is still fetching the steps taken since, it is measurably behind, by
+ * exactly the blocks that are missing. A Yjs editor needs no guard at all: it
+ * is only constructed after the initial sync, so existing IS being caught up.
  */
 export function useRegisterEditor(
   pageId: Id<"pages"> | undefined,
   editor: LiveEditor | null,
   docId: string,
+  pipeline: "legacy" | "yjs" = "legacy",
 ) {
   const registry = useEditorRegistry();
   // The same subscription prosemirror-sync itself watches, so Convex serves both
   // from one.
-  const serverVersion = useQuery(api.prosemirror.latestVersion, { id: docId });
+  const serverVersion = useQuery(
+    api.prosemirror.latestVersion,
+    pipeline === "legacy" ? { id: docId } : "skip",
+  );
 
+  const legacy = pipeline === "legacy";
   const localVersion = useSyncExternalStore(
     useCallback(
       (onStoreChange: () => void) => {
+        // A Yjs editor has no collab plugin to count with — and no need: it
+        // was constructed after sync, so this store never gates it.
+        if (!legacy) return () => {};
         // Every transaction, not `editor.onChange`: confirming steps we sent
         // ourselves advances the collab version without touching the document,
         // and BlockNote only emits a change when the document changed — so the
@@ -148,16 +158,16 @@ export function useRegisterEditor(
           tiptap?.off("mount", onStoreChange);
         };
       },
-      [editor],
+      [editor, legacy],
     ),
-    () => collabVersion(editor),
+    () => (legacy ? collabVersion(editor) : -1),
     () => -1,
   );
 
   const loaded =
     editor !== null &&
-    serverVersion !== undefined &&
-    localVersion >= (serverVersion ?? 0);
+    (pipeline === "yjs" ||
+      (serverVersion !== undefined && localVersion >= (serverVersion ?? 0)));
 
   useEffect(() => {
     if (!pageId || !editor) return;
@@ -195,8 +205,15 @@ function useTypingLog(editor: LiveEditor | null, pageId: Id<"pages"> | undefined
 
     const onTransaction = ({ transaction }: { transaction: Transaction }) => {
       if (!transaction.docChanged || isApplyingAi()) return;
-      // Remote steps are applied, not authored — collab marks them for rebasing.
-      if (transaction.getMeta("rebased") || transaction.getMeta("collab$")) return;
+      // Remote steps are applied, not authored. The legacy pipeline marks them
+      // for rebasing; y-prosemirror stamps its own plugin key on everything it
+      // replays, remote edits and undo alike — the same test BlockNote uses.
+      if (
+        transaction.getMeta("rebased") ||
+        transaction.getMeta("collab$") ||
+        transaction.getMeta("y-sync$") !== undefined
+      )
+        return;
 
       const blockId = blockIdAt(editor);
       const now = Date.now();
