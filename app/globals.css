@@ -448,6 +448,34 @@ body {
 .nt-row.is-cut {
   opacity: 0.45;
 }
+/* Renaming in place, beside the row's own twist and glyph — so a folder still
+   reads as a folder while it is being named. A flex ITEM rather than the flex
+   container `.nt-row-edit` avoids: the caret only mislands when the
+   contentEditable is itself the flex box, which this one is not. */
+.nt-row-field {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  color: var(--foreground);
+}
+
+/* What a release will do, beside the pointer. The elevated surface and the
+   row/menu type size: it is chrome answering a gesture, not metadata. */
+.nt-drag-tip {
+  position: fixed;
+  z-index: var(--z-dropdown);
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--elevated);
+  box-shadow:
+    0 0 0 1px var(--border),
+    0 4px 12px rgb(0 0 0 / 0.08);
+  font-size: var(--text-ui);
+  color: var(--foreground);
+  white-space: nowrap;
+  pointer-events: none;
+}
 /* ---- Panes --------------------------------------------------------------
    Split in two, the pane you are not in settles to the tone of the rails, so
    the document you are typing into is the only paper on screen. A wash and not
