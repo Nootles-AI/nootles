@@ -19,7 +19,16 @@ import { GoogleMark } from "../GoogleMark";
  * which is also why there is no line under the button explaining that signing in
  * makes an account. Nobody was ever going to be surprised by that.
  */
-export function GoogleButton() {
+export function GoogleButton({
+  redirectTo = "/",
+  compact,
+}: {
+  /** Where the round trip lands — a share link passes itself, so the page
+      that asked for the sign-in is the page that finishes the job. */
+  redirectTo?: string;
+  /** The modal fit: full width, no door margins. */
+  compact?: boolean;
+} = {}) {
   const { isLoaded } = useAuth();
   const clerk = useClerk();
   const [failed, setFailed] = useState(false);
@@ -32,8 +41,15 @@ export function GoogleButton() {
     try {
       await clerk.client.signIn.authenticateWithRedirect({
         strategy: "oauth_google",
-        redirectUrl: "/sso-callback",
-        redirectUrlComplete: "/",
+        // The destination rides the callback URL too: `redirectUrlComplete`
+        // covers plain sign-in, but a first-time account goes through the
+        // sign-up transfer, and only the callback page's own props steer that
+        // leg (see sso-callback/page.tsx).
+        redirectUrl:
+          redirectTo === "/"
+            ? "/sso-callback"
+            : `/sso-callback?return=${encodeURIComponent(redirectTo)}`,
+        redirectUrlComplete: redirectTo,
       });
     } catch {
       // The redirect never happened, so this is still mounted to say so.
@@ -48,7 +64,7 @@ export function GoogleButton() {
         onClick={start}
         disabled={!isLoaded || going}
         aria-busy={going}
-        className="nt-si-go"
+        className={`nt-si-go${compact ? " is-compact" : ""}`}
       >
         <GoogleMark width={16} height={16} />
         {going ? "Taking you to Google…" : "Continue with Google"}

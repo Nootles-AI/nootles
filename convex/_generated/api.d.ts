@@ -24,6 +24,7 @@ import type * as chat_threads from "../chat/threads.js";
 import type * as chat_turns from "../chat/turns.js";
 import type * as counters from "../counters.js";
 import type * as crons from "../crons.js";
+import type * as devSeed from "../devSeed.js";
 import type * as feedback from "../feedback.js";
 import type * as github_account from "../github/account.js";
 import type * as github_read from "../github/read.js";
@@ -33,6 +34,7 @@ import type * as github_seal from "../github/seal.js";
 import type * as migrations from "../migrations.js";
 import type * as onboarding from "../onboarding.js";
 import type * as pages from "../pages.js";
+import type * as presence from "../presence.js";
 import type * as profiles from "../profiles.js";
 import type * as projects from "../projects.js";
 import type * as prosemirror from "../prosemirror.js";
@@ -40,6 +42,7 @@ import type * as prs from "../prs.js";
 import type * as share from "../share.js";
 import type * as surveys from "../surveys.js";
 import type * as tickets from "../tickets.js";
+import type * as ydoc from "../ydoc.js";
 
 import type {
   ApiFromModules,
@@ -64,6 +67,7 @@ declare const fullApi: ApiFromModules<{
   "chat/turns": typeof chat_turns;
   counters: typeof counters;
   crons: typeof crons;
+  devSeed: typeof devSeed;
   feedback: typeof feedback;
   "github/account": typeof github_account;
   "github/read": typeof github_read;
@@ -73,6 +77,7 @@ declare const fullApi: ApiFromModules<{
   migrations: typeof migrations;
   onboarding: typeof onboarding;
   pages: typeof pages;
+  presence: typeof presence;
   profiles: typeof profiles;
   projects: typeof projects;
   prosemirror: typeof prosemirror;
@@ -80,6 +85,7 @@ declare const fullApi: ApiFromModules<{
   share: typeof share;
   surveys: typeof surveys;
   tickets: typeof tickets;
+  ydoc: typeof ydoc;
 }>;
 
 /**

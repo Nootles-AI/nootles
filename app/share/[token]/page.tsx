@@ -8,7 +8,12 @@ export const metadata: Metadata = {
   robots: { index: false },
 };
 
-/** A project someone shared, read-only — the one route with no sign-in door. */
+/**
+ * A project someone shared — the one route with no sign-in door (`proxy.ts`
+ * lists it public). Which face it shows is the link's role: viewer links are
+ * read-only, editor links dress as the workspace and invite the sign-in that
+ * makes it one. A signed-in visitor is claimed and redirected instead.
+ */
 export default async function SharePage({
   params,
 }: {

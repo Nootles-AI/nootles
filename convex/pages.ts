@@ -1,12 +1,12 @@
 import { mutation, query, type MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import { readOwned, requireOwned } from "./auth";
+import { readVisible, requireEditable } from "./auth";
 
 export const listByProject = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
-    if (!(await readOwned(ctx, "projects", args.projectId))) return [];
+    if (!(await readVisible(ctx, "projects", args.projectId))) return [];
     return await ctx.db
       .query("pages")
       .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
@@ -16,7 +16,7 @@ export const listByProject = query({
 
 export const get = query({
   args: { pageId: v.id("pages") },
-  handler: async (ctx, args) => await readOwned(ctx, "pages", args.pageId),
+  handler: async (ctx, args) => await readVisible(ctx, "pages", args.pageId),
 });
 
 export const create = mutation({
@@ -28,8 +28,9 @@ export const create = mutation({
   },
   handler: async (ctx, args) => {
     // Owner inherited from the authorized parent rather than re-derived, so a
-    // page can never disagree with the project it hangs off.
-    const { ownerId } = await requireOwned(ctx, "projects", args.projectId);
+    // page can never disagree with the project it hangs off — a page an editor
+    // creates still belongs to the project's owner.
+    const { ownerId } = await requireEditable(ctx, "projects", args.projectId);
     const siblings = await ctx.db
       .query("pages")
       .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
@@ -75,7 +76,7 @@ export const move = mutation({
     after: v.optional(v.id("pages")),
   },
   handler: async (ctx, args) => {
-    const page = await requireOwned(ctx, "pages", args.pageId);
+    const page = await requireEditable(ctx, "pages", args.pageId);
     if (args.after === args.pageId) return;
     const siblings = (
       await ctx.db
@@ -98,7 +99,7 @@ export const setMode = mutation({
     mode: v.union(v.literal("create"), v.literal("complete")),
   },
   handler: async (ctx, args) => {
-    await requireOwned(ctx, "pages", args.pageId);
+    await requireEditable(ctx, "pages", args.pageId);
     await ctx.db.patch(args.pageId, { mode: args.mode });
   },
 });
@@ -106,7 +107,7 @@ export const setMode = mutation({
 export const rename = mutation({
   args: { pageId: v.id("pages"), title: v.string() },
   handler: async (ctx, args) => {
-    await requireOwned(ctx, "pages", args.pageId);
+    await requireEditable(ctx, "pages", args.pageId);
     await ctx.db.patch(args.pageId, { title: args.title, updatedAt: Date.now() });
   },
 });
@@ -122,7 +123,7 @@ export const rename = mutation({
 export const remove = mutation({
   args: { pageId: v.id("pages") },
   handler: async (ctx, args) => {
-    const page = await requireOwned(ctx, "pages", args.pageId);
+    const page = await requireEditable(ctx, "pages", args.pageId);
 
     const canvases = await ctx.db
       .query("canvases")

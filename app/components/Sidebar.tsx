@@ -8,7 +8,7 @@ import { Id } from "@/convex/_generated/dataModel";
 import { track } from "@/app/lib/telemetry";
 import { ArrowLeft, PanelLeft, Plus } from "./Icons";
 import { AccountMenu } from "./AccountMenu";
-import { ShareMenu } from "./ShareMenu";
+import { ShareDialog } from "./ShareDialog";
 import { ConfirmDeleteDialog } from "./ConfirmDelete";
 import { ContextDialog } from "./context/ContextDialog";
 import { Editable } from "./Editable";
@@ -43,6 +43,11 @@ export function Sidebar({
   const project = useQuery(api.projects.get, { projectId });
   const pages = useQuery(api.pages.listByProject, { projectId });
   const repos = useQuery(api.github.repos.listForProject, { projectId });
+  // What this sidebar may offer: editors get the page verbs, only the owner
+  // gets the project's own — sharing, renaming it, its context sheet.
+  const role = useQuery(api.projects.myRole, { projectId });
+  const owner = role === "owner";
+  const canEdit = owner || role === "editor";
   const changes = usePageChanges();
   const hints = useHints();
   const createPage = useMutation(api.pages.create);
@@ -113,7 +118,7 @@ export function Sidebar({
           <ArrowLeft width={14} height={14} className="shrink-0" />
           <span className="nt-row-label">Projects</span>
         </Link>
-        <ShareMenu projectId={projectId} />
+        {owner && <ShareDialog projectId={projectId} />}
         <AccountMenu />
         <button
           onClick={onCollapse}
@@ -138,10 +143,10 @@ export function Sidebar({
           />
         ) : (
           <button
-            onDoubleClick={() =>
-              startRename("project", project?.title ?? "")
+            onDoubleClick={
+              owner ? () => startRename("project", project?.title ?? "") : undefined
             }
-            title="Double-click to rename"
+            title={owner ? "Double-click to rename" : undefined}
             className="nt-row w-full font-semibold"
           >
             <span className="nt-row-label">
@@ -153,31 +158,36 @@ export function Sidebar({
 
       <nav className="flex-1 overflow-y-auto px-2 pb-2">
         {/* Above the pages because it is above them: what holds for the whole
-            project, and the one place a repository can be attached to it. */}
-        <button
-          onClick={() => setShowingContext(true)}
-          title="What the assistant knows about this project"
-          className="nt-row w-full"
-        >
-          <span className="nt-row-label">Context</span>
-          {!!repos?.length && <span className="nt-field-note">{repos.length}</span>}
-        </button>
+            project, and the one place a repository can be attached to it.
+            Owner-only — the sheet is the project's, and its dialog manages it. */}
+        {owner && (
+          <button
+            onClick={() => setShowingContext(true)}
+            title="What the assistant knows about this project"
+            className="nt-row w-full"
+          >
+            <span className="nt-row-label">Context</span>
+            {!!repos?.length && <span className="nt-field-note">{repos.length}</span>}
+          </button>
+        )}
 
         <div className="nt-section-label mt-1">
           <span>Pages</span>
-          <button
-            onClick={() =>
-              createPage({ projectId }).then((id) => {
-                track("page_created", {});
-                onSelectPage(id);
-              })
-            }
-            aria-label="New page"
-            title="New page"
-            className="nt-icon-btn"
-          >
-            <Plus />
-          </button>
+          {canEdit && (
+            <button
+              onClick={() =>
+                createPage({ projectId }).then((id) => {
+                  track("page_created", {});
+                  onSelectPage(id);
+                })
+              }
+              aria-label="New page"
+              title="New page"
+              className="nt-icon-btn"
+            >
+              <Plus />
+            </button>
+          )}
         </div>
 
         <ul
@@ -186,7 +196,7 @@ export function Sidebar({
         >
           {sortedPages?.length === 0 && (
             <li className="px-2 py-1 text-[13px] text-muted">
-              No pages yet — press + to add one.
+              {canEdit ? "No pages yet — press + to add one." : "No pages yet."}
             </li>
           )}
           {sortedPages?.map((pg) => (
@@ -209,13 +219,23 @@ export function Sidebar({
                     onSelectPage(pg._id);
                   }}
                   onClickCapture={drag.clickGuard}
-                  onPointerDown={(e) => drag.press(pg._id, e)}
-                  onDoubleClick={() => startRename(pg._id, pg.title)}
-                  onContextMenu={(e) => {
-                    e.preventDefault();
-                    setCtx({ id: pg._id, x: e.clientX, y: e.clientY });
-                  }}
-                  title="Double-click to rename · right-click for more"
+                  onPointerDown={canEdit ? (e) => drag.press(pg._id, e) : undefined}
+                  onDoubleClick={
+                    canEdit ? () => startRename(pg._id, pg.title) : undefined
+                  }
+                  onContextMenu={
+                    canEdit
+                      ? (e) => {
+                          e.preventDefault();
+                          setCtx({ id: pg._id, x: e.clientX, y: e.clientY });
+                        }
+                      : undefined
+                  }
+                  title={
+                    canEdit
+                      ? "Double-click to rename · right-click for more"
+                      : undefined
+                  }
                   aria-current={selectedPageId === pg._id ? "page" : undefined}
                   className={`nt-row w-full${
                     selectedPageId === pg._id

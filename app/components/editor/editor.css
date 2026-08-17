@@ -762,3 +762,67 @@
 .nt-editor .bn-block-group .bn-block-group > .bn-block-outer::before {
   display: none;
 }
+
+/* A collaborator's accepted completion arriving: the text lands wearing the
+   accent and settles into ink. Amber means AI activity — this is the one
+   moment another person's AI is visible in your document, and it must not
+   read as them typing impossibly fast. Held gold briefly, then the fade. */
+@keyframes nt-fim-arrive {
+  0%,
+  30% {
+    color: var(--accent);
+  }
+}
+.nt-editor .nt-fim-arrive,
+.nt-editor .nt-fim-arrive .bn-inline-content {
+  animation: nt-fim-arrive 1.6s var(--ease);
+}
+
+/* Tables arriving: the grid is the shape of the change, so its rules flash
+   alongside the ink. */
+@keyframes nt-fim-arrive-border {
+  0%,
+  30% {
+    border-color: var(--accent);
+  }
+}
+.nt-editor .nt-fim-arrive [data-content-type="table"] th,
+.nt-editor .nt-fim-arrive [data-content-type="table"] td {
+  animation: nt-fim-arrive-border 1.6s var(--ease);
+}
+
+/* A diagram arriving: the surface flashes its outline gold, and each shape
+   shows a gold stroke first — a veil in the page's own paper that the real
+   fills and strokes come up through, the way a drawing appears. */
+@keyframes nt-canvas-arrive {
+  0%,
+  30% {
+    outline-color: var(--accent);
+  }
+  100% {
+    outline-color: transparent;
+  }
+}
+.nt-editor .nt-fim-arrive-canvas .nt-canvas-viewport {
+  animation: nt-canvas-arrive 1.9s var(--ease);
+}
+@keyframes nt-shape-veil {
+  0%,
+  35% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+.nt-editor .nt-fim-arrive-canvas .nt-canvas-viewport [data-id]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--background);
+  outline: 1.5px solid var(--accent);
+  outline-offset: -1px;
+  pointer-events: none;
+  animation: nt-shape-veil 1.9s var(--ease) forwards;
+}

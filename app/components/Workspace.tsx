@@ -20,6 +20,8 @@ import { ReviewBar } from "./ReviewBar";
 import { ResizeHandle } from "./ResizeHandle";
 import { PanelsProvider } from "./PanelsContext";
 import { PagesProvider } from "./PagesContext";
+import { ReadOnlyContext } from "./editor/readOnly";
+import { Facepile } from "./presence/Facepile";
 import { Hints } from "./hints/Hints";
 import { Feedback } from "./feedback/Feedback";
 import { FixedToast } from "./feedback/FixedToast";
@@ -246,6 +248,11 @@ export function Workspace({ projectId }: { projectId: Id<"projects"> }) {
   // explicit override — whoever made it, the sidebar or the agent — and when
   // unset or stale the main column falls back to the first page.
   const pages = useQuery(api.pages.listByProject, { projectId });
+  // Which chrome this workspace wears: viewers read (no chat, no editing),
+  // editors write, only the owner shares and administers. The same surface
+  // serves all three — a shared project must not feel like a lesser app.
+  const role = useQuery(api.projects.myRole, { projectId });
+  const viewer = role === "viewer";
   const sortedPages = pages
     ? [...pages].sort((a, b) => a.order - b.order)
     : undefined;
@@ -289,6 +296,7 @@ export function Workspace({ projectId }: { projectId: Id<"projects"> }) {
 
   return (
     <CanvasShellContext value={shell}>
+     <ReadOnlyContext value={viewer}>
      <PagesProvider pages={sortedPages ?? null}>
      <PanelsProvider value={panels}>
       <div className="flex h-screen w-full overflow-hidden">
@@ -321,6 +329,19 @@ export function Workspace({ projectId }: { projectId: Id<"projects"> }) {
         )}
 
         <div ref={columnRef} className="relative flex min-w-0 flex-1">
+          {/* The workspace has no top bar, so presence floats where a top
+              bar's corner would be — over the focused document. */}
+          <div
+            className="pointer-events-none absolute right-3 top-3"
+            style={{ zIndex: "var(--z-sticky)" }}
+          >
+            <Facepile
+              docId={
+                sortedPages?.find((p) => p._id === effectivePageId)?.docId ??
+                null
+              }
+            />
+          </div>
           {mainPageId ? (
             <PageSurface pageId={mainPageId} pane="main" />
           ) : (
@@ -339,9 +360,11 @@ export function Workspace({ projectId }: { projectId: Id<"projects"> }) {
           )}
         </div>
 
+        {/* Viewers have no chat: their AI would need the pen. No rail, no
+            edge tab — absence, not a locked door. */}
         {canvasPanels ? (
           <CanvasStylePanel api={canvasPanels.api} />
-        ) : showRight ? (
+        ) : viewer ? null : showRight ? (
           <>
             <ResizeHandle onResize={onResizeRight} ariaLabel="Resize chat" />
             {chat}
@@ -407,6 +430,7 @@ export function Workspace({ projectId }: { projectId: Id<"projects"> }) {
       </div>
      </PanelsProvider>
      </PagesProvider>
+     </ReadOnlyContext>
     </CanvasShellContext>
   );
 }

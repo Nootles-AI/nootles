@@ -147,6 +147,14 @@
   opacity: 0.55;
   cursor: default;
 }
+/* The same button inside the sign-in-to-edit modal, where the door's own
+   margins and left alignment would fight a 19rem box. */
+.nt-si-go.is-compact {
+  margin-top: 0;
+  align-self: stretch;
+  width: 100%;
+  justify-content: center;
+}
 
 /* One region, always occupied: the footnote it holds at rest is replaced by the
    failure rather than pushed aside by it, so nothing under it moves at the

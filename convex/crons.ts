@@ -14,4 +14,16 @@ crons.interval(
   {},
 );
 
+/**
+ * Ghost presences — tabs that closed without a goodbye. Clients already
+ * ignore stale rows on their own clock; this just keeps the table from
+ * accumulating them.
+ */
+crons.interval(
+  "sweep stale presence",
+  { minutes: 1 },
+  internal.presence.sweep,
+  {},
+);
+
 export default crons;

@@ -849,9 +849,33 @@ export function CanvasSurface({
     openMenu(event);
   };
 
+  /**
+   * A label edit that streamed opens a gesture bracket on its first live
+   * commit and closes it at the blur — so however many word-pace dispatches
+   * went out (each one reaching collaborators as it lands), undo answers with
+   * ONE step, and a remote scene arriving mid-edit waits for the bracket the
+   * way it does for any gesture.
+   */
+  const liveLabel = useRef<NodeId | null>(null);
+
+  const onEditLive = useCallback(
+    (id: NodeId, label: string) => {
+      if (liveLabel.current !== id) {
+        liveLabel.current = id;
+        store.begin();
+      }
+      store.dispatch({ type: "setLabel", id, label });
+    },
+    [store],
+  );
+
   const onEditEnd = useCallback(
     (id: NodeId, label: string) => {
       store.dispatch({ type: "setLabel", id, label });
+      if (liveLabel.current === id) {
+        liveLabel.current = null;
+        store.commit();
+      }
       setEditing((current) => (current === id ? null : current));
     },
     [store],
@@ -1012,6 +1036,7 @@ export function CanvasSurface({
               editingId={editing}
               onEditStart={onEditStart}
               onEditEnd={onEditEnd}
+              onEditLive={readOnly ? undefined : onEditLive}
               // Withheld read-only: with no edit to offer, a solo chip's click
               // goes straight to the page, the one thing a viewer can do.
               onEditOpen={readOnly ? undefined : onEditOpen}

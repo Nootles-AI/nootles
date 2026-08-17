@@ -12,6 +12,7 @@ import { AI } from "@/app/lib/ai/aiConfig";
 import { project, type AnyBlock } from "@/app/lib/ai/projection";
 import { resolveBatch, warnRejected } from "@/app/lib/ai/validate";
 import { applyBatch, caretTarget, type ApplyResult } from "@/app/lib/ai/apply";
+import { broadcastFimFlash } from "@/app/lib/sync/fimFlash";
 import { adoptScene } from "@/app/components/editor/canvas/scene/adopt";
 import { migrateLegacyCanvas } from "@/app/components/editor/canvas/scene/migrate";
 import { serializeScene } from "@/app/components/editor/canvas/scene/serialize";
@@ -455,6 +456,8 @@ export function useTabCompletion(
   pageId?: Id<"pages"> | null,
   title = "",
   mode: PageMode = "create",
+  /** The sync doc, so an accept can announce itself to collaborators. */
+  docId?: string,
 ) {
   const appendBatch = useMutation(api.ai.opLog.appendBatch);
   const logSuggestion = useMutation(api.ai.suggestions.log);
@@ -611,6 +614,12 @@ export function useTabCompletion(
       const result = applyBatch(editor, batch, "fim");
       const target = caretTarget(result);
       if (target) editor.setTextCursorPosition(target, "end");
+      // In the same task as the apply, never deferred: the marker must ride
+      // the same sync flush as the content so it arrives gold-first.
+      if (s && docId) {
+        const blockIds = Object.values(result.blocks);
+        if (blockIds.length) broadcastFimFlash(docId, blockIds);
+      }
       if (pageId) {
         defer(() => {
           void appendRef
@@ -645,6 +654,9 @@ export function useTabCompletion(
         blockId = editor.getTextCursorPosition().block.id as string;
       } catch {}
       const snippet = squash(text).slice(0, 40) || null;
+      // Synchronous, pre-insert: the marker queues just ahead of the text in
+      // the same flush, which is what makes it gold on arrival.
+      if (docId && blockId) broadcastFimFlash(docId, [blockId]);
       defer(() => {
         void logOutcome(s, "accepted", {
           acceptedText: text,
@@ -1311,5 +1323,5 @@ export function useTabCompletion(
       setGhostAcceptHandler(null);
       setDismissHandler(null);
     };
-  }, [editor, pageId, title, mode]);
+  }, [editor, pageId, title, mode, docId]);
 }

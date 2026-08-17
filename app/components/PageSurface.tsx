@@ -10,6 +10,7 @@ import { useEditorRegistry } from "./editor/EditorRegistry";
 import { ModeToggle } from "./ModeToggle";
 import { CurrentPageProvider, useOpenPage, type Pane } from "./OpenPageContext";
 import { ArrowLeft, X } from "./Icons";
+import { useReadOnly } from "./editor/readOnly";
 import type { PageMode } from "./editor/ai/useTabCompletion";
 
 export function PageSurface({
@@ -23,6 +24,8 @@ export function PageSurface({
   const page = useQuery(api.pages.get, { pageId });
   const rename = useMutation(api.pages.rename);
   const setMode = useMutation(api.pages.setMode);
+  // Provided by the workspace for viewer-role visitors; the whole column obeys.
+  const readOnly = useReadOnly();
   const { main, aside, focus, back, closeAside, focusPane } = useOpenPage();
   const registry = useEditorRegistry();
   const canGoBack = (pane === "aside" ? aside : main)?.canGoBack ?? false;
@@ -103,10 +106,12 @@ export function PageSurface({
               <ArrowLeft />
             </button>
           )}
-          <ModeToggle
-            mode={(page.mode ?? "create") as PageMode}
-            onChange={(mode) => setMode({ pageId, mode })}
-          />
+          {!readOnly && (
+            <ModeToggle
+              mode={(page.mode ?? "create") as PageMode}
+              onChange={(mode) => setMode({ pageId, mode })}
+            />
+          )}
           {pane === "aside" && (
             <button
               onClick={closeAside}
@@ -118,6 +123,11 @@ export function PageSurface({
             </button>
           )}
         </div>
+        {readOnly ? (
+          <h1 className="w-full text-[length:var(--text-title)] font-semibold tracking-[-0.02em] text-balance">
+            {page.title || "Untitled"}
+          </h1>
+        ) : (
         <Editable
           value={page.title}
           onInput={persistTitle}
@@ -144,6 +154,7 @@ export function PageSurface({
           label="Page title"
           className="w-full text-[length:var(--text-title)] font-semibold tracking-[-0.02em] text-balance"
         />
+        )}
         <div className="mt-8">
           <Editor
             docId={page.docId}

@@ -9,11 +9,22 @@ import { applyBatch, type OpTrace } from "../apply";
 import type { AnyBlock } from "../projection";
 import { AI } from "../aiConfig";
 import { track } from "@/app/lib/telemetry";
+import { broadcastFimFlash } from "@/app/lib/sync/fimFlash";
 import { asReview } from "./attribution";
+import { ensureForked, isForked, mergeFork } from "./fork";
 import { computeHunks, type Hunk } from "./hunks";
 import { canonicalise, produces, target } from "./ops";
 import { planReplay } from "./replay";
 import { restoreDocument, undoHunks } from "./undo";
+
+/**
+ * On the Yjs pipeline an unanswered turn lives in a local fork (see fork.ts),
+ * which changes two lifecycle facts: settling a page must MERGE the fork so
+ * the kept edits finally reach the shared doc, and an editor that remounts
+ * mid-review must have the staged content put back, because a fork dies with
+ * its editor while the review row outlives both.
+ */
+const YJS_ON = process.env.NEXT_PUBLIC_YJS === "1";
 
 /**
  * The apply-with-review pipeline.
@@ -372,6 +383,13 @@ export class ReviewSession {
     // must leave the unreviewed set or its diff outlives the change.
     const live = this.find(chatPromptId);
     if (live) {
+      // A pending turn's edits only ever existed in forks; a confirmed rewind
+      // means the shared document should hear nothing at all — the forks are
+      // discarded whole, restore and staging alike.
+      for (const page of live.pages) {
+        const editor = await this.deps.editorFor(page.pageId).catch(() => null);
+        if (editor && isForked(editor)) mergeFork(editor, false);
+      }
       await this.commit({ ...live, status: "rejected" });
       return;
     }
@@ -591,6 +609,10 @@ export class ReviewSession {
     const missing = absentRefs(editor, batch);
     if (missing.length) throw new Error(gone(missing));
 
+    // The privacy envelope: from the first staged edit until the answer, the
+    // agent writes into a local fork nobody else receives. No-op on legacy.
+    ensureForked(editor);
+
     const offset = page.ops.length;
     // One transaction, and out of the history.
     //
@@ -759,16 +781,25 @@ export class ReviewSession {
       return;
     }
 
-    if (rejected.length) {
+    const settled = !page.hunks.some((h) => (page.status[h.id] ?? "pending") === "pending");
+
+    // Rejection always needs the live page to write the undo into; under Yjs
+    // so does settling, because settling is when the fork merges and the fork
+    // only exists on a mounted editor. If the fork died with its editor, the
+    // remount is followed by re-staging what was under review (see restage).
+    let editor: LiveEditor | null = null;
+    if (rejected.length || (settled && YJS_ON)) {
       this.deps.openPage(page.pageId);
-      const editor = await this.deps.editorFor(page.pageId).catch(() => null);
+      editor = await this.deps.editorFor(page.pageId).catch(() => null);
       if (!editor) {
         throw new Error("That page did not finish loading, so the change was left as it is.");
       }
-      undoHunks(editor, rejected, before);
+      await this.restage(turn, page, editor, before);
     }
 
-    const settled = !page.hunks.some((h) => (page.status[h.id] ?? "pending") === "pending");
+    if (rejected.length && editor) {
+      undoHunks(editor, rejected, before);
+    }
     // Logged on settle, not on apply: the op log is the record of what the page
     // says, and an edit that was undone never said anything. Once, however many
     // times the page is answered — a later settle would append the same ops again.
@@ -788,7 +819,98 @@ export class ReviewSession {
       }
     }
 
+    // The answer given, the kept edits finally reach the shared document — as
+    // one update, attributed to the person who just said yes. Collaborators'
+    // first sight of this AI's work is the approval itself, so it arrives
+    // wearing the accent — and the marker is written in the SAME task as the
+    // merge (docId fetched beforehand), so both travel in one flush and the
+    // text is gold from its first painted frame.
+    if (settled && editor) {
+      const kept = [
+        ...new Set(
+          page.hunks
+            .filter((h) => page.status[h.id] !== "rejected")
+            .flatMap((h) => [...h.added, ...h.changed]),
+        ),
+      ];
+      const row = kept.length
+        ? await this.deps.convex
+            .query(api.pages.get, { pageId: page.pageId })
+            .catch(() => null)
+        : null;
+      if (row) broadcastFimFlash(row.docId, kept);
+      mergeFork(editor, true);
+    }
+
     await this.commit(this.turnWith(turn, { ...page, before, logged: page.logged || log }));
+  }
+
+  /**
+   * Puts a page's staged-but-unanswered edits back after its fork was lost —
+   * a reload, or the page surface remounting. The turn row holds the
+   * canonical ops; `planReplay` repairs their anchors against whatever the
+   * live document has become, and the result goes into a fresh fork, exactly
+   * as private as the first staging was.
+   *
+   * Detection leans on added blocks: if any surviving hunk's insertion is
+   * already in the document, the fork (or the legacy pipeline's for-real
+   * apply) is still standing and there is nothing to do. A turn that only
+   * deleted or changed is not detectable this way and stays un-restaged — a
+   * rare shape, and re-running changes against text someone has since edited
+   * would be worse than asking again.
+   */
+  private async restage(
+    turn: TurnReview,
+    page: PageReview,
+    editor: LiveEditor,
+    before: AnyBlock[],
+  ) {
+    if (!YJS_ON) return;
+    const surviving = page.hunks.filter(
+      (h) => (page.status[h.id] ?? "pending") !== "rejected",
+    );
+    const expected = surviving.flatMap((h) => h.added);
+    if (!expected.length) return;
+    if (expected.some((id) => editor.getBlock(id))) return;
+
+    const keep = new Set(surviving.map((h) => h.id));
+    const ops = planReplay({ ops: page.ops, trace: page.trace, hunks: page.hunks, keep, before });
+    if (!ops.length) return;
+    ensureForked(editor);
+    asReview(() =>
+      editor.transact((tr) => {
+        tr.setMeta("addToHistory", false);
+        return applyBatch(
+          editor,
+          { pageId: page.pageId, chatPromptId: turn.chatPromptId, ops } as Batch,
+          "chat",
+        );
+      }),
+    );
+  }
+
+  /**
+   * The mount-side half of {@link restage}: called when a page's editor comes
+   * up, so a review that outlived its fork greets the user with its edits on
+   * the page rather than with hunks pointing at nothing.
+   */
+  restageOnOpen(pageId: Id<"pages">) {
+    return this.enqueue(async () => {
+      if (!YJS_ON) return;
+      for (const turn of this.turns) {
+        if (!this.isOpen(turn) || this.isWriting(turn.chatPromptId)) continue;
+        const page = turn.pages.find((p) => p.pageId === pageId);
+        if (!page) continue;
+        const before = page.before ?? (await this.checkpointDoc(page.checkpointId));
+        if (!before) continue;
+        const editor = await this.deps.editorFor(pageId).catch(() => null);
+        if (!editor) continue;
+        await this.restage(turn, page, editor, before).catch(() => {
+          // A page the replay no longer fits stays as it is; the hunks that
+          // point at nothing settle as superseded through the usual paths.
+        });
+      }
+    });
   }
 
   private turnWith(turn: TurnReview, page: PageReview): TurnReview {

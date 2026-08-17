@@ -12,7 +12,10 @@ function initial(name: string | null | undefined, email: string | undefined) {
  * The account control: initials, and a menu holding the address it belongs to.
  *
  * A monogram rather than the Google avatar — a photo is the loudest thing on a
- * surface this quiet, and it would be the only remote image in the app.
+ * surface this quiet. One exception stands since the sharing work (2026-08):
+ * OTHER people show as photos in the presence facepile, because a face answers
+ * "who is that caret" faster than an initial. You, to yourself, stay a
+ * monogram.
  */
 export function AccountMenu() {
   const { user, isLoaded } = useUser();

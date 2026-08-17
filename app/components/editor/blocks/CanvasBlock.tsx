@@ -1,26 +1,64 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createReactBlockSpec } from "@blocknote/react";
+import { ySyncPluginKey } from "y-prosemirror";
+import type * as Y from "yjs";
 import { flattenBlocks, type AnyBlock } from "@/app/lib/ai/projection";
 import { useHints } from "@/app/components/hints/useHints";
 import { useReadOnly } from "../readOnly";
 import { CanvasAiContext } from "../canvas/canvasAi";
+import { CanvasCollab } from "../canvas/collab/binding";
+import {
+  broadcastCanvasPresence,
+  paintCanvasPresence,
+} from "../canvas/collab/presence";
+import {
+  canvasMapName,
+  hasCanvasState,
+  materializeCanvas,
+} from "../canvas/collab/ymap";
+import { providerForDoc } from "@/app/lib/sync/YConvexProvider";
+import { serializeScene } from "../canvas/scene/serialize";
 import { CanvasSurface, type CanvasApi } from "../canvas/render/CanvasSurface";
 import { useCanvasShell } from "../canvas/shell";
 
 /** How many preceding blocks of page text to hand the canvas for context. */
 const CONTEXT_BLOCKS = 4;
 
+/** The one editor member this block needs beyond what the spec hands over. */
+type HostEditor = {
+  prosemirrorState: unknown;
+  getExtension: (key: string) => unknown;
+};
+
+/**
+ * The Y.Doc this editor is currently bound to — the fork's while a review is
+ * open, the shared one otherwise — or null on the legacy pipeline, where the
+ * block prop remains the whole story.
+ */
+function currentYDoc(editor: HostEditor): Y.Doc | null {
+  try {
+    const state = ySyncPluginKey.getState(
+      editor.prosemirrorState as Parameters<typeof ySyncPluginKey.getState>[0],
+    ) as { doc?: Y.Doc; type?: { doc?: Y.Doc | null } } | undefined;
+    return state?.doc ?? state?.type?.doc ?? null;
+  } catch {
+    return null;
+  }
+}
+
 function CanvasBlockView({
   blockId,
   source,
   onChange,
+  editor,
   getDocContext,
 }: {
   blockId: string;
   source: string;
   onChange: (source: string) => void;
+  editor: HostEditor;
   /** Surrounding page text, used to inform shape-label completion. */
   getDocContext: () => string;
 }) {
@@ -29,6 +67,93 @@ function CanvasBlockView({
   const mine = shell.active?.blockId === blockId;
   const api = useRef<CanvasApi | null>(null);
   const [liveApi, setLiveApi] = useState<CanvasApi | null>(null);
+
+  // ---- CRDT binding (Yjs pipeline only) ----------------------------------
+  // The maps are the truth and the block prop is a mirror; see
+  // canvas/collab/binding.ts for the whole story. Re-derives the doc when a
+  // review forks the editor, so an AI's canvas preview stays private too.
+  const collab = useMemo(() => new CanvasCollab(blockId), [blockId]);
+  const [forkNonce, setForkNonce] = useState(0);
+  useEffect(() => {
+    const fork = editor.getExtension("yForkDoc") as
+      | { store?: { subscribe: (cb: () => void) => () => void } }
+      | undefined;
+    if (!fork?.store?.subscribe) return;
+    return fork.store.subscribe(() => setForkNonce((n) => n + 1));
+  }, [editor]);
+  const yDoc = useMemo(
+    () => currentYDoc(editor),
+    // The nonce is the re-derive trigger: a fork swap replaces the plugins
+    // underneath the same editor object.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [editor, forkNonce],
+  );
+
+  // What the surface's store is born with: the maps when they hold the
+  // diagram, else the prop. Pure read; StrictMode may run it twice, harmlessly.
+  const [seed] = useState(() => {
+    if (yDoc) {
+      const root = yDoc.getMap<unknown>(canvasMapName(blockId));
+      if (hasCanvasState(root)) return serializeScene(materializeCanvas(root));
+    }
+    return source;
+  });
+
+  const sourceRef = useRef(source);
+  const onChangeRef = useRef(onChange);
+  useEffect(() => {
+    sourceRef.current = source;
+    onChangeRef.current = onChange;
+  });
+
+  useEffect(() => {
+    if (!yDoc) return;
+    collab.attach(yDoc, sourceRef.current);
+    return () => collab.detach();
+  }, [collab, yDoc]);
+
+  // A prop change nobody here mirrored: a collaborator's mirror (a no-op once
+  // their map writes arrived) or the AI writing a whole diagram.
+  useEffect(() => {
+    if (!yDoc || !collab.attached) return;
+    if (source !== collab.lastMirrored) collab.adoptExternal(source);
+  }, [collab, yDoc, source]);
+
+  /** Local flushes go to the maps AND to the prop — the mirror. */
+  const collabChange = useCallback(
+    (html: string) => {
+      collab.writeLocal(html);
+      onChangeRef.current(html);
+    },
+    [collab],
+  );
+
+  // Everyone paints co-presence (leaves, selections, live drags); a forked
+  // doc has no provider, so a review's private canvas shows nobody and tells
+  // nobody — exactly the fork's contract.
+  useEffect(() => {
+    if (!liveApi || !yDoc) return;
+    const provider = providerForDoc(yDoc);
+    if (!provider) return;
+    return paintCanvasPresence(
+      provider.awareness,
+      provider.doc.clientID,
+      blockId,
+      liveApi,
+    );
+  }, [liveApi, yDoc, blockId]);
+
+  // Only the person actually ON the diagram broadcasts — the leaf is
+  // attention, not an open tab.
+  useEffect(() => {
+    if (!mine || !liveApi || !yDoc) return;
+    const provider = providerForDoc(yDoc);
+    if (!provider) return;
+    return broadcastCanvasPresence(provider.awareness, blockId, liveApi);
+  }, [mine, liveApi, yDoc, blockId]);
+
+  const surfaceSource = yDoc ? seed : source;
+  const surfaceChange = yDoc ? collabChange : onChange;
 
   /**
    * The first-touch lesson: this is an editor, not a picture. Shown only over
@@ -71,11 +196,22 @@ function CanvasBlockView({
 
   if (readOnly) {
     // The surface's own view-only mode: pan and zoom stay whole, every path
-    // that could touch the scene is off, and the shell is never claimed.
+    // that could touch the scene is off, and the shell is never claimed. The
+    // api is still captured so remote edits keep flowing into the store.
     return (
       <div className="relative w-full">
         <CanvasAiContext value={ai}>
-          <CanvasSurface source={source} onChange={() => {}} readOnly />
+          <CanvasSurface
+            source={surfaceSource}
+            onChange={() => {}}
+            readOnly
+            // Captured so remote edits flow in and co-presence paints; a
+            // viewer never claims the shell, so they never broadcast.
+            onApi={(next) => {
+              setLiveApi(next);
+              collab.setStore(next?.store ?? null);
+            }}
+          />
         </CanvasAiContext>
       </div>
     );
@@ -89,13 +225,14 @@ function CanvasBlockView({
     <div className="relative w-full" onPointerDownCapture={claim} onFocus={claim}>
       <CanvasAiContext value={ai}>
         <CanvasSurface
-          source={source}
-          onChange={onChange}
+          source={surfaceSource}
+          onChange={surfaceChange}
           // Republished on every tool change, and withdrawn on unmount; either
           // way it speaks for this block only while this block holds the shell.
           onApi={(next) => {
             api.current = next;
             setLiveApi(next);
+            collab.setStore(next?.store ?? null);
             if (mine) shell.set(next ? { blockId, api: next } : null);
           }}
         />
@@ -121,6 +258,7 @@ export const canvasBlockSpec = createReactBlockSpec(
         blockId={block.id}
         source={block.props.data}
         onChange={(data) => editor.updateBlock(block.id, { props: { data } })}
+        editor={editor as unknown as HostEditor}
         // Text just above the diagram, so completing a shape label can draw on
         // what the page is actually about.
         getDocContext={() => {

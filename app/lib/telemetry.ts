@@ -31,7 +31,9 @@ type EventMap = {
   /** Whether being told a report was fixed is worth reading, or just closed. */
   fix_toast_opened: { count: number };
   fix_toast_dismissed: { count: number };
-  share_toggled: { on: boolean };
+  share_link_toggled: { role: "viewer" | "editor"; on: boolean };
+  share_link_copied: { role: "viewer" | "editor" };
+  share_claimed: { role: "viewer" | "editor" };
   survey_answered: { survey: string; answered: boolean };
 };
 

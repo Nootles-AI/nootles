@@ -2,7 +2,7 @@ import { components } from "./_generated/api";
 import { ProsemirrorSync } from "@convex-dev/prosemirror-sync";
 import type { DataModel } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { ownerId } from "./auth";
+import { roleForProject } from "./auth";
 
 /**
  * Collaborative sync for each page's block flow. The client (BlockNote) talks to
@@ -22,7 +22,7 @@ const prosemirrorSync = new ProsemirrorSync(components.prosemirrorSync);
  * A doc with no page is either another tenant's or one orphaned by `pages.remove`
  * — neither is readable.
  */
-async function pageForDoc(ctx: QueryCtx, id: string) {
+export async function pageForDoc(ctx: QueryCtx, id: string) {
   return await ctx.db
     .query("pages")
     .withIndex("by_doc", (q) => q.eq("docId", id))
@@ -30,26 +30,30 @@ async function pageForDoc(ctx: QueryCtx, id: string) {
 }
 
 /**
- * Reads are open to the owner and to holders of a share link. There is no token
- * to inspect here — the sync API's args are just the docId — so the capability
- * IS the docId: a server-minted UUID that `share.view` discloses only for a
- * project whose sharing is on. Revoking the token closes this door too.
+ * Reads are open to anyone with a role on the project and to anonymous holders
+ * of a live share link. There is no token to inspect here — the sync API's
+ * args are just the docId — so for the anonymous case the capability IS the
+ * docId: a server-minted UUID that `share.view` discloses only while a link is
+ * live. Revoking the last link closes this door too.
  */
-async function checkRead(ctx: QueryCtx, id: string) {
+export async function checkRead(ctx: QueryCtx, id: string) {
   const page = await pageForDoc(ctx, id);
   if (!page) throw new Error("Not found");
-  const owner = await ownerId(ctx);
-  if (owner === page.ownerId) return;
   const project = await ctx.db.get(page.projectId);
-  if (!project?.shareToken) throw new Error("Not found");
+  if (!project) throw new Error("Not found");
+  if (await roleForProject(ctx, project)) return;
+  if (project.shareToken || project.editShareToken) return;
+  throw new Error("Not found");
 }
 
-/** Writes stay the owner's alone — a share link is read-only by construction. */
-async function checkWrite(ctx: QueryCtx, id: string) {
-  const owner = await ownerId(ctx);
-  if (!owner) throw new Error("Not signed in");
+/** Writes need a writing role — the owner, or an editor-link claimant. */
+export async function checkWrite(ctx: QueryCtx, id: string) {
   const page = await pageForDoc(ctx, id);
-  if (!page || page.ownerId !== owner) throw new Error("Not found");
+  if (!page) throw new Error("Not found");
+  const project = await ctx.db.get(page.projectId);
+  if (!project) throw new Error("Not found");
+  const role = await roleForProject(ctx, project);
+  if (role !== "owner" && role !== "editor") throw new Error("Not found");
 }
 
 /**
@@ -68,10 +72,25 @@ async function touchPage(ctx: MutationCtx, id: string) {
   if (page) await ctx.db.patch(page._id, { updatedAt: Date.now() });
 }
 
+/**
+ * The legacy pipeline's write gate: the shared role check, plus the freeze —
+ * once a doc has moved to Yjs, a stale tab still running this pipeline must
+ * not write steps nobody will ever read. Reads stay open for the migration
+ * fetch itself and for viewers who haven't flipped over yet.
+ */
+async function checkLegacyWrite(ctx: QueryCtx, id: string) {
+  await checkWrite(ctx, id);
+  const migrated = await ctx.db
+    .query("ydocs")
+    .withIndex("by_doc", (q) => q.eq("docId", id))
+    .unique();
+  if (migrated) throw new Error("This page has moved to Yjs sync — reload.");
+}
+
 export const { getSnapshot, submitSnapshot, latestVersion, getSteps, submitSteps } =
   prosemirrorSync.syncApi<DataModel>({
     checkRead,
-    checkWrite,
+    checkWrite: checkLegacyWrite,
     onSnapshot: touchPage,
   });
 

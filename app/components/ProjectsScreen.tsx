@@ -22,6 +22,9 @@ type View = "grid" | "list";
 type Project = NonNullable<
   ReturnType<typeof useQuery<typeof api.projects.listForScreen>>
 >[number];
+type SharedProject = NonNullable<
+  ReturnType<typeof useQuery<typeof api.projects.sharedWithMe>>
+>[number];
 
 /** "2d ago" / "Jul 12" — coarse enough that it never needs to re-render. */
 function when(ms: number): string {
@@ -40,6 +43,7 @@ const pages = (n: number) => `${n} ${n === 1 ? "page" : "pages"}`;
 export function ProjectsScreen() {
   const router = useRouter();
   const projects = useQuery(api.projects.listForScreen);
+  const shared = useQuery(api.projects.sharedWithMe);
   const createProject = useMutation(api.projects.create);
   const renameProject = useMutation(api.projects.rename);
   const removeProject = useMutation(api.projects.remove);
@@ -249,6 +253,33 @@ export function ProjectsScreen() {
           </div>
         )}
       </div>
+
+      {/* What other people have opened to this account — always after "mine",
+          never mixed in: whose project it is is the fact that orders the page.
+          Absent entirely until the first claim, so the front door of a
+          one-person account never mentions a feature it isn't using. */}
+      {shared && shared.length > 0 && (
+        <div className="mt-12">
+          <h2 className="text-sm font-medium">Shared with me</h2>
+          {view === "grid" ? (
+            <ul className="nt-grid mt-4">
+              {shared.map((p) => (
+                <li key={p._id}>
+                  <SharedCard project={p} onOpen={() => open(p._id)} />
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <ul className="mt-4">
+              {shared.map((p) => (
+                <li key={p._id} className="nt-list-row group">
+                  <SharedRow project={p} onOpen={() => open(p._id)} />
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
 
       {ctx && (
         <ContextMenu
@@ -535,6 +566,66 @@ function Row({
           className="opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 aria-expanded:opacity-100"
         />
       </span>
+    </>
+  );
+}
+
+/** How a shared row says whose it is and what you are to it. */
+function sharedMeta(p: SharedProject): string {
+  const by = p.ownerName ? `by ${p.ownerName}` : "shared";
+  return `${by} · ${p.role === "editor" ? "can edit" : "view only"}`;
+}
+
+/**
+ * A project someone else shared: the same card, none of the owner's verbs — no
+ * rename, no delete, no ⋯ menu. Opening it is the whole affordance.
+ */
+function SharedCard({
+  project,
+  onOpen,
+}: {
+  project: SharedProject;
+  onOpen: () => void;
+}) {
+  const name = project.title || "Untitled project";
+  return (
+    <div className="nt-card group">
+      <button onClick={onOpen} aria-label={`Open ${name}`} className="nt-card-open">
+        <PagePreview docId={project.firstPageDocId} />
+      </button>
+      <div className="nt-card-foot">
+        <div className="min-w-0 flex-1">
+          <p className="nt-card-name">{name}</p>
+          <p className="nt-card-meta">
+            <span>{sharedMeta(project)}</span>
+            <span aria-hidden="true">·</span>
+            <span>{when(project.updatedAt)}</span>
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SharedRow({
+  project,
+  onOpen,
+}: {
+  project: SharedProject;
+  onOpen: () => void;
+}) {
+  const name = project.title || "Untitled project";
+  return (
+    <>
+      <button onClick={onOpen} className="nt-row min-w-0 flex-1 font-medium">
+        <span className="nt-row-label">{name}</span>
+        <span className="ml-2 shrink-0 text-[13px] font-normal text-muted">
+          {sharedMeta(project)}
+        </span>
+      </button>
+      <span className="nt-meta nt-col-pages">{project.pageCount}</span>
+      <span className="nt-meta nt-col-when">{when(project.updatedAt)}</span>
+      <span className="nt-col-actions" />
     </>
   );
 }

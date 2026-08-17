@@ -3,31 +3,60 @@
 import { BlockNoteView } from "@blocknote/mantine";
 import "@blocknote/mantine/style.css";
 import { useBlockNoteSync } from "@convex-dev/prosemirror-sync/blocknote";
+import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import { useYjsEditor } from "@/app/lib/sync/useYjsEditor";
+import { collabColor } from "@/app/lib/sync/colors";
+import { arrivalFlashExtension } from "../editor/arrivalFlash";
 import { schema } from "../editor/schema";
 import "../editor/editor.css";
 
 type EditorInstance = typeof schema.BlockNoteEditor;
 
+const YJS_ON = process.env.NEXT_PUBLIC_YJS === "1";
+
+const placeholder = <div className="min-h-[40vh]" aria-hidden />;
+
 /**
- * The real editor, reading a shared page. Same schema, same sync document, so a
- * viewer sees exactly what the author sees — including edits landing live. What
- * it does not mount is everything that authors: toolbars, menus, the AI layer.
- * The custom blocks turn themselves read-only via `ReadOnlyContext`, provided
- * by `SharedProject` above.
+ * The real editor, reading a shared page — on whichever pipeline the page
+ * lives, decided by the same reactive `state` the workspace watches, so a
+ * viewer flips over live the moment an editor migrates the doc. Same schema,
+ * same document, so a viewer sees exactly what the author sees — including
+ * edits landing live. What it does not mount is everything that authors:
+ * toolbars, menus, the AI layer. The custom blocks turn themselves read-only
+ * via `ReadOnlyContext`, provided by `SharedProject` above.
  */
 export function SharedEditor({ docId }: { docId: string }) {
+  const state = useQuery(api.ydoc.state, YJS_ON ? { docId } : "skip");
+  if (YJS_ON && state === undefined) return placeholder;
+  if (YJS_ON && state === "yjs") return <SharedYjs docId={docId} />;
+  // Legacy, or a page never opened (which a viewer must not create).
+  return <SharedLegacy docId={docId} />;
+}
+
+function SharedYjs({ docId }: { docId: string }) {
+  const { editor } = useYjsEditor<EditorInstance>({
+    docId,
+    user: { name: "Anonymous", color: collabColor(docId) },
+    // Viewers see arrivals too — an approved AI edit flashes for everyone.
+    editorOptions: { schema, extensions: [arrivalFlashExtension] },
+  });
+  if (!editor) return placeholder;
+  return <ReadOnlyView editor={editor} />;
+}
+
+function SharedLegacy({ docId }: { docId: string }) {
   const sync = useBlockNoteSync<EditorInstance>(api.prosemirror, docId, {
     editorOptions: { schema },
   });
+  if (!sync.editor) return placeholder;
+  return <ReadOnlyView editor={sync.editor} />;
+}
 
-  // A page whose document was never opened has nothing to show — unlike the
-  // authoring editor, a viewer must not create one.
-  if (!sync.editor) return <div className="min-h-[40vh]" aria-hidden />;
-
+function ReadOnlyView({ editor }: { editor: EditorInstance }) {
   return (
     <BlockNoteView
-      editor={sync.editor}
+      editor={editor}
       editable={false}
       theme="light"
       className="nt-editor"

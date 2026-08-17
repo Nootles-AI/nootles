@@ -30,6 +30,13 @@ export function ReviewOverlay({
   const session = useReview();
   const pending = useOpenReviews();
 
+  // A remounted editor may have outlived the fork its review was staged in
+  // (Yjs keeps unanswered agent edits local to the editor that staged them) —
+  // put the staged content back before the decorations try to point at it.
+  useEffect(() => {
+    void session.restageOnOpen(pageId);
+  }, [session, pageId, editor]);
+
   const answer = useCallback(
     (hunkId: string, verdict: "accepted" | "rejected") => {
       session.answer(
@@ -88,10 +95,11 @@ export function ReviewOverlay({
   // writes — caught by the depth in `attribution.ts`, which only works because
   // they run synchronously inside it. Steps arriving over the wire — the second
   // tab the user keeps open, or the catch-up after a reload, both of which
-  // replay the AGENT's edits into this callback; BlockNote's only remote test
-  // is a Yjs one and this stack is prosemirror-collab, whose `receiveTransaction`
-  // is identifiable by the `rebased` meta it sets. And Cmd-Z, which is the user
-  // taking something back rather than writing it.
+  // replay the AGENT's edits into this callback. On the legacy pipeline that
+  // is prosemirror-collab's `receiveTransaction`, identifiable by the
+  // `rebased` meta it sets; on Yjs it is y-prosemirror's replay, stamped with
+  // its `y-sync$` plugin key — BlockNote's own remote test. And Cmd-Z, which
+  // is the user taking something back rather than writing it.
   useEffect(() => {
     const tiptap = editor._tiptapEditor;
     const onUpdate = ({
@@ -101,7 +109,12 @@ export function ReviewOverlay({
       transaction: Transaction;
       appendedTransactions: Transaction[];
     }) => {
-      if (isReviewWriting() || transaction.getMeta("rebased") !== undefined) return;
+      if (
+        isReviewWriting() ||
+        transaction.getMeta("rebased") !== undefined ||
+        transaction.getMeta("y-sync$") !== undefined
+      )
+        return;
       const ids = getBlocksChangedByTransaction(transaction, appendedTransactions)
         .filter((change) => change.type !== "delete" && !HISTORY.has(change.source.type))
         .map((change) => change.block.id as string);

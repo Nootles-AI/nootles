@@ -1,7 +1,8 @@
 "use client";
 
-import { AnimationEvent, FormEvent, KeyboardEvent, useEffect, useState } from "react";
+import { FormEvent, KeyboardEvent, useState } from "react";
 import type { Listed } from "@/convex/github/repos";
+import { Dialog } from "./Dialog";
 import { GitHubRepos } from "./context/GitHubRepos";
 
 export type NewProject = {
@@ -41,28 +42,6 @@ export function NewProjectDialog({
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
 
-  /**
-   * Leaving is animated too, so it has to outlive the decision to leave: the
-   * dialog plays itself out and tells the caller to unmount it once it has,
-   * rather than the moment you click. Arriving gently and then vanishing on the
-   * spot is the version that feels broken.
-   */
-  const [closing, setClosing] = useState(false);
-  const close = () => setClosing(true);
-  const gone = (e: AnimationEvent<HTMLElement>) => {
-    if (closing && e.target === e.currentTarget) onCancel();
-  };
-
-  useEffect(() => {
-    const onKey = (e: globalThis.KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      e.preventDefault();
-      setClosing(true);
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, []);
-
   const named = title.trim();
 
   const submit = (e: FormEvent) => {
@@ -91,108 +70,107 @@ export function NewProjectDialog({
   };
 
   return (
-    <>
-      <button
-        aria-label="Cancel"
-        onClick={close}
-        className={`nt-scrim${closing ? " is-closing" : ""}`}
-        style={{ zIndex: "var(--z-overlay)" }}
-      />
-      <form
-        onSubmit={submit}
-        onAnimationEnd={gone}
-        role="dialog"
-        aria-modal="true"
-        aria-label="New project"
-        className={`nt-dialog${closing ? " is-closing" : ""}`}
-        style={{ zIndex: "var(--z-modal)" }}
-      >
-        <div className="nt-dialog-head">
-          <p className="text-sm font-medium">New project</p>
-          <p className="mt-1.5 text-[13px] text-muted">
-            Whatever you say here is what the assistant knows about the project.
-            You can change it later.
-          </p>
-        </div>
+    <Dialog
+      label="New project"
+      scrimLabel="Cancel"
+      as="form"
+      onSubmit={submit}
+      onClose={onCancel}
+    >
+      {(close) => (
+        <>
+          <div className="nt-dialog-head">
+            <p className="text-sm font-medium">New project</p>
+            <p className="mt-1.5 text-[13px] text-muted">
+              Whatever you say here is what the assistant knows about the
+              project. You can change it later.
+            </p>
+          </div>
 
-        <div className="nt-dialog-body">
-          <div>
-            <label className="nt-field-label" htmlFor="np-title">
-              Title
-            </label>
-            <input
-              id="np-title"
-              autoFocus
-              autoComplete="off"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="Project title"
-              className="nt-input"
-            />
+          <div className="nt-dialog-body">
+            <div>
+              <label className="nt-field-label" htmlFor="np-title">
+                Title
+              </label>
+              <input
+                id="np-title"
+                autoFocus
+                autoComplete="off"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="Project title"
+                className="nt-input"
+              />
 
-            <label className="nt-field-label mt-4" htmlFor="np-description">
-              Description
-              <span className="nt-field-note">Optional</span>
-            </label>
-            <input
-              id="np-description"
-              autoComplete="off"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="One line on what it is"
-              className="nt-input"
-            />
+              <label className="nt-field-label mt-4" htmlFor="np-description">
+                Description
+                <span className="nt-field-note">Optional</span>
+              </label>
+              <input
+                id="np-description"
+                autoComplete="off"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="One line on what it is"
+                className="nt-input"
+              />
 
-            <div className="mt-4">
-              <GitHubRepos
-                repos={repos.map((repo) => ({
-                  key: repo.fullName,
-                  fullName: repo.fullName,
-                  description: repo.description,
-                  private: repo.private,
-                }))}
-                onAdd={(repo) => setRepos((chosen) => [...chosen, repo])}
-                onRemove={(key) =>
-                  setRepos((chosen) => chosen.filter((r) => r.fullName !== key))
-                }
+              <div className="mt-4">
+                <GitHubRepos
+                  repos={repos.map((repo) => ({
+                    key: repo.fullName,
+                    fullName: repo.fullName,
+                    description: repo.description,
+                    private: repo.private,
+                  }))}
+                  onAdd={(repo) => setRepos((chosen) => [...chosen, repo])}
+                  onRemove={(key) =>
+                    setRepos((chosen) =>
+                      chosen.filter((r) => r.fullName !== key),
+                    )
+                  }
+                />
+              </div>
+            </div>
+
+            <div className="nt-field-fill">
+              <label className="nt-field-label" htmlFor="np-context">
+                Context
+                <span className="nt-field-note">Optional</span>
+              </label>
+              <textarea
+                id="np-context"
+                value={context}
+                onChange={(e) => setContext(e.target.value)}
+                onKeyDown={sendOnModEnter}
+                placeholder="Who it is for, what has been decided, anything the assistant should take as given"
+                className="nt-input"
               />
             </div>
           </div>
 
-          <div className="nt-field-fill">
-            <label className="nt-field-label" htmlFor="np-context">
-              Context
-              <span className="nt-field-note">Optional</span>
-            </label>
-            <textarea
-              id="np-context"
-              value={context}
-              onChange={(e) => setContext(e.target.value)}
-              onKeyDown={sendOnModEnter}
-              placeholder="Who it is for, what has been decided, anything the assistant should take as given"
-              className="nt-input"
-            />
+          <div className="nt-dialog-foot">
+            {failure && (
+              <p
+                role="alert"
+                className="min-w-0 flex-1 text-[13px] text-danger"
+              >
+                {failure}
+              </p>
+            )}
+            <button type="button" onClick={close} className="nt-row px-2.5">
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={!named || busy}
+              className="nt-row nt-solid px-3 font-medium"
+            >
+              {busy ? "Creating…" : "Create"}
+            </button>
           </div>
-        </div>
-
-        <div className="nt-dialog-foot">
-          {failure && (
-            <p role="alert" className="min-w-0 flex-1 text-[13px] text-danger">
-              {failure}
-            </p>
-          )}
-          <button type="button" onClick={close} className="nt-row px-2.5">
-            Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={!named || busy}
-            className="nt-row nt-solid px-3 font-medium"
-          >
-            {busy ? "Creating…" : "Create"}
-          </button>
-        </div>
-      </form>
-    </>
+        </>
+      )}
+    </Dialog>
   );
 }

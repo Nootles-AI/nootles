@@ -55,6 +55,10 @@
      activity: the streaming head, the reformat chip, and the focus ring. Never
      decoration, never a selection ring on a block or shape.
 
+     One sanctioned exception, decided 2026-08 with the sharing work: the guest
+     banner on an editable share link (`.nt-guest-banner`) wears the amber as a
+     standing invitation to sign in. Nothing else joins it.
+
      Amber, because a glow is warm light. The accent itself darkens to ochre to
      clear AA as text; the glow keeps the gold, and nothing reads it as text. */
   --accent: oklch(0.542 0.145 75);         /* 5.11:1 on background      */
@@ -719,6 +723,14 @@ textarea.nt-input {
   .nt-dialog-body {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+/* A dialog that is one column of controls rather than a form — the share
+   dialog. Wide enough that a share URL still reads as a URL. */
+.nt-dialog.is-narrow {
+  width: 26rem;
+}
+.nt-dialog.is-narrow .nt-dialog-body {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 /* ---- Project context ----------------------------------------------------
@@ -2632,4 +2644,63 @@ body:has(.nt-review-bar) .nt-sampler {
 }
 .nt-update-x:hover {
   color: var(--foreground);
+}
+
+/* ---- Guest surface -------------------------------------------------------
+   A project reached by share link, before any sign-in. The banner is the
+   sanctioned amber exception (see the token block at the top): a standing
+   invitation to sign in and edit, worn only by editor links. */
+@layer components {
+.nt-guest-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  flex-shrink: 0;
+  padding: 7px 16px;
+  font-size: var(--text-ui);
+  background: color-mix(in oklab, var(--accent) 7%, var(--background));
+  color: color-mix(in oklab, var(--accent) 82%, var(--foreground));
+  border-bottom: 1px solid color-mix(in oklab, var(--accent) 20%, var(--border));
+}
+.nt-guest-banner button {
+  flex-shrink: 0;
+  font-weight: 500;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* ---- Presence -----------------------------------------------------------
+   Who else is here: overlapping portraits ringed in each person's presence
+   colour. Photos are the sanctioned exception to the no-remote-images rule
+   (see AccountMenu's docstring), decided with the sharing work. */
+.nt-facepile {
+  display: flex;
+  align-items: center;
+}
+.nt-face {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border-strong);
+  background: var(--sunken);
+  overflow: hidden;
+  font-size: var(--text-meta);
+  font-weight: 500;
+}
+.nt-face + .nt-face {
+  margin-left: -6px;
+}
+.nt-face img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.nt-face.is-count {
+  border-color: var(--border);
+  color: var(--muted);
+}
 }

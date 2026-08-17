@@ -1,6 +1,6 @@
 import { mutation, query } from "../_generated/server";
 import { v } from "convex/values";
-import { readOwned, requireOwned } from "../auth";
+import { readVisible, requireEditable, requireOwner } from "../auth";
 import { parseBatch } from "./operations";
 
 /**
@@ -20,7 +20,10 @@ export const appendBatch = mutation({
     ops: v.array(v.any()),
   },
   handler: async (ctx, args) => {
-    const { ownerId } = await requireOwned(ctx, "pages", args.pageId);
+    await requireEditable(ctx, "pages", args.pageId);
+    // The log answers "who changed this", so a row carries its author — the
+    // editor who made the op — not the page's owner.
+    const ownerId = await requireOwner(ctx);
     const check = parseBatch({
       pageId: args.pageId,
       chatPromptId: args.chatPromptId,
@@ -51,7 +54,7 @@ export const appendBatch = mutation({
 export const feed = query({
   args: { pageId: v.id("pages"), limit: v.optional(v.number()) },
   handler: async (ctx, args) => {
-    if (!(await readOwned(ctx, "pages", args.pageId))) return [];
+    if (!(await readVisible(ctx, "pages", args.pageId))) return [];
     const rows = await ctx.db
       .query("opLog")
       .withIndex("by_page", (q) => q.eq("pageId", args.pageId))
