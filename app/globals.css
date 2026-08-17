@@ -2730,7 +2730,8 @@ body:has(.nt-review-bar) .nt-sampler {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 10px;
+  gap: 2px 10px;
+  flex-wrap: wrap;
   flex-shrink: 0;
   padding: 7px 16px;
   font-size: var(--text-ui);
@@ -2743,6 +2744,10 @@ body:has(.nt-review-bar) .nt-sampler {
   font-weight: 500;
   text-decoration: underline;
   text-underline-offset: 3px;
+  transition: color var(--dur-fast) var(--ease);
+}
+.nt-guest-banner button:hover {
+  color: var(--foreground);
 }
 
 /* ---- Presence -----------------------------------------------------------

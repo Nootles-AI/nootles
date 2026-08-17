@@ -1,6 +1,7 @@
 "use client";
 
 import { Paperclip } from "../Icons";
+import { writingKey } from "./intent";
 
 /**
  * The chat rail as a guest sees it: the same frame, the same composer, none of
@@ -9,6 +10,8 @@ import { Paperclip } from "../Icons";
  * answered by the sign-in modal rather than by a rail that simply isn't there.
  *
  * Every control routes to `onIntercept`; nothing here ever sends anything.
+ * Except the keyboard passing through: Tab is navigation, not writing, so the
+ * modal waits for a writing key or a paste rather than seizing focus itself.
  */
 export function GuestChatRail({ onIntercept }: { onIntercept: () => void }) {
   return (
@@ -18,9 +21,7 @@ export function GuestChatRail({ onIntercept }: { onIntercept: () => void }) {
       aria-label="Chat"
     >
       <div className="nt-panel-head">
-        <div className="nt-row min-w-0 flex-1">
-          <span className="nt-row-label text-muted">Chat</span>
-        </div>
+        <span className="nt-panel-title min-w-0 flex-1 text-muted">Chat</span>
       </div>
 
       <div className="flex flex-1 items-center justify-center px-6 text-center">
@@ -29,12 +30,17 @@ export function GuestChatRail({ onIntercept }: { onIntercept: () => void }) {
         </p>
       </div>
 
+      {/* Focus never lands in a box that can't take input; a mouse press
+          answers immediately, a finger on the completed tap — on touch the
+          same press may be the start of a scroll. The click capture also
+          answers for the attach button, however it was activated. */}
       <div
         className="nt-composer"
         onPointerDownCapture={(e) => {
           e.preventDefault();
-          onIntercept();
+          if (e.pointerType !== "touch") onIntercept();
         }}
+        onClickCapture={onIntercept}
       >
         <textarea
           rows={1}
@@ -43,7 +49,15 @@ export function GuestChatRail({ onIntercept }: { onIntercept: () => void }) {
           aria-label="Ask Nootles (sign in to chat)"
           placeholder="Ask, or describe a change…"
           className="nt-composer-input"
-          onFocus={onIntercept}
+          onKeyDown={(e) => {
+            if (!writingKey(e)) return;
+            e.preventDefault();
+            onIntercept();
+          }}
+          onPaste={(e) => {
+            e.preventDefault();
+            onIntercept();
+          }}
         />
         <div className="nt-composer-actions">
           <div className="flex items-center gap-1">

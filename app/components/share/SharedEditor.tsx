@@ -17,6 +17,11 @@ const YJS_ON = process.env.NEXT_PUBLIC_YJS === "1";
 
 const placeholder = <div className="min-h-[40vh]" aria-hidden />;
 
+// A page whose owner never opened it holds nothing — said plainly, in the
+// voice of "This project has no pages", rather than as an indistinguishable
+// forever-loading blank.
+const empty = <p className="text-sm text-muted">This page is empty.</p>;
+
 /**
  * The real editor, reading a shared page — on whichever pipeline the page
  * lives, decided by the same reactive `state` the workspace watches, so a
@@ -30,7 +35,8 @@ export function SharedEditor({ docId }: { docId: string }) {
   const state = useQuery(api.ydoc.state, YJS_ON ? { docId } : "skip");
   if (YJS_ON && state === undefined) return placeholder;
   if (YJS_ON && state === "yjs") return <SharedYjs docId={docId} />;
-  // Legacy, or a page never opened (which a viewer must not create).
+  // Never opened — a viewer must not create it, so there is nothing to mount.
+  if (YJS_ON && state === "empty") return empty;
   return <SharedLegacy docId={docId} />;
 }
 
@@ -49,7 +55,8 @@ function SharedLegacy({ docId }: { docId: string }) {
   const sync = useBlockNoteSync<EditorInstance>(api.prosemirror, docId, {
     editorOptions: { schema },
   });
-  if (!sync.editor) return placeholder;
+  if (sync.isLoading) return placeholder;
+  if (!sync.editor) return empty;
   return <ReadOnlyView editor={sync.editor} />;
 }
 

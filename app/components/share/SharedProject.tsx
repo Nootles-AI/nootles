@@ -17,6 +17,7 @@ import { Facepile } from "../presence/Facepile";
 import { GuestChatRail } from "./GuestChatRail";
 import { SharedEditor } from "./SharedEditor";
 import { SignInToEdit } from "./SignInToEdit";
+import { following, writingKey } from "./intent";
 
 /* The same threshold as the workspace: below it the rails become drawers. */
 const COMPACT = "(max-width: 1023px)";
@@ -44,6 +45,23 @@ export function SharedProject({ token }: { token: string }) {
   const compact = useMediaQuery(COMPACT);
   const [drawer, setDrawer] = useState(false);
   const [asking, setAsking] = useState(false);
+  const [claimFailed, setClaimFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  // What kind of press is in flight, so a touch can be told apart from a
+  // mouse at click time — a finger down is usually the start of a scroll,
+  // not a reach for the pen, so touch waits for the tap to complete.
+  const pressType = useRef("mouse");
+
+  // Clerk's script can be blocked outright (privacy extensions, corporate
+  // proxies). The document itself comes from Convex, so after a grace period
+  // stop holding the page hostage to the auth check and open as signed-out;
+  // if the script does land later, the signed-in hand-off still runs.
+  const [authLate, setAuthLate] = useState(false);
+  useEffect(() => {
+    if (isLoaded) return;
+    const grace = setTimeout(() => setAuthLate(true), 3000);
+    return () => clearTimeout(grace);
+  }, [isLoaded]);
 
   // Imperative hand-off, not derived state: the moment we know who this is,
   // the share surface's job is to record the claim and get out of the way.
@@ -57,11 +75,14 @@ export function SharedProject({ token }: { token: string }) {
         router.replace(`/p/${projectId}`);
       })
       .catch(() => {
-        // The link died between loading and claiming; the surface will show
-        // the not-shared state on the next query result.
+        // A link revoked mid-flight resolves itself: the query flips to null
+        // and the not-shared state renders. Anything else — a dropped
+        // connection, a server hiccup — re-runs nothing on its own, so it
+        // must become a real state rather than a skeleton that never ends.
         claimed.current = false;
+        setClaimFailed(true);
       });
-  }, [isLoaded, isSignedIn, shared, claim, token, router]);
+  }, [isLoaded, isSignedIn, shared, claim, token, router, attempt]);
 
   useEffect(() => {
     if (!drawer) return;
@@ -72,30 +93,14 @@ export function SharedProject({ token }: { token: string }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [drawer]);
 
-  // Loading, or signed in and about to leave for the workspace — either way,
-  // the skeleton mirrors the page column so the content lands in place.
-  if (shared === undefined || !isLoaded || isSignedIn) {
-    return (
-      <div className="flex h-screen w-full items-start" aria-busy="true">
-        <div
-          className="w-full px-6 py-12 sm:px-14 sm:py-20"
-          style={{ maxWidth: "calc(var(--measure) + 7rem)" }}
-        >
-          <div className="nt-skeleton h-8 w-1/2" />
-          <div className="mt-8 space-y-3">
-            <div className="nt-skeleton h-4 w-full" />
-            <div className="nt-skeleton h-4 w-11/12" />
-            <div className="nt-skeleton h-4 w-2/3" />
-          </div>
-        </div>
-      </div>
-    );
-  }
-
+  // A dead link needs no auth to say so — before the Clerk gate, so it still
+  // answers if the auth script is slow or blocked.
   if (shared === null) {
     return (
       <div className="flex h-screen flex-col items-center justify-center gap-2 px-6 text-center">
-        <Wordmark className="mb-4 text-muted" aria-label="Nootles" />
+        <Link href="/" aria-label="Nootles" className="mb-4">
+          <Wordmark className="text-muted" />
+        </Link>
         <p className="text-sm font-medium">This project isn&apos;t shared</p>
         <p className="max-w-xs text-sm text-muted">
           The link may have been turned off. Ask whoever sent it to share the
@@ -105,17 +110,77 @@ export function SharedProject({ token }: { token: string }) {
     );
   }
 
+  // Loading, or signed in and about to leave for the workspace — either way,
+  // the skeleton mirrors the shared chrome — header, rail, page column — so
+  // the content lands in place rather than jumping right by a rail's width.
+  const skeleton = (
+    <div
+      className="flex h-screen w-full flex-col overflow-hidden"
+      aria-busy="true"
+    >
+      <header
+        className="relative flex h-12 shrink-0 items-center gap-2 px-4"
+        style={{ borderBottom: "1px solid var(--border)" }}
+      >
+        {/* Holds the hamburger's place, so the wordmark doesn't slide. */}
+        {compact && <div className="w-8 shrink-0" aria-hidden />}
+        <Link href="/" aria-label="Nootles" className="shrink-0">
+          <Wordmark />
+        </Link>
+      </header>
+      <div className="flex min-h-0 flex-1">
+        {!compact && (
+          <div className="nt-panel" style={{ width: 256 }} aria-hidden />
+        )}
+        <main className="flex min-w-0 flex-1 flex-col overflow-auto">
+          <div
+            className="w-full px-6 py-12 sm:px-14 sm:py-20"
+            style={{ maxWidth: "calc(var(--measure) + 7rem)" }}
+          >
+            <div className="nt-skeleton h-8 w-1/2" />
+            <div className="mt-8 space-y-3">
+              <div className="nt-skeleton h-4 w-full" />
+              <div className="nt-skeleton h-4 w-11/12" />
+              <div className="nt-skeleton h-4 w-2/3" />
+            </div>
+          </div>
+        </main>
+      </div>
+    </div>
+  );
+
+  if (shared === undefined || (!isLoaded && !authLate)) return skeleton;
+
+  if (isSignedIn) {
+    if (!claimFailed) return skeleton;
+    return (
+      <div className="flex h-screen flex-col items-center justify-center gap-2 px-6 text-center">
+        <Link href="/" aria-label="Nootles" className="mb-4">
+          <Wordmark className="text-muted" />
+        </Link>
+        <p className="text-sm font-medium">Couldn&apos;t open this project</p>
+        <p className="max-w-xs text-sm text-muted">
+          Something went wrong on the way in — the connection may have
+          dropped.
+        </p>
+        <button
+          onClick={() => {
+            setClaimFailed(false);
+            setAttempt((n) => n + 1);
+          }}
+          className="nt-row nt-solid mt-2 px-3 font-medium"
+        >
+          Try again
+        </button>
+      </div>
+    );
+  }
+
   const editable = shared.role === "editor";
   const pages = shared.pages;
   // Resolved the way the workspace resolves it: a stale or foreign id falls
   // back to the first page rather than blanking the surface.
   const current = pages.find((p) => p._id === main.page) ?? pages[0] ?? null;
-
-  /** A keystroke that means "I am writing", as opposed to navigating. */
-  const writingKey = (e: React.KeyboardEvent) => {
-    if (e.metaKey || e.ctrlKey || e.altKey) return false;
-    return e.key.length === 1 || ["Enter", "Backspace", "Delete"].includes(e.key);
-  };
 
   const rail = (
     <aside
@@ -169,8 +234,17 @@ export function SharedProject({ token }: { token: string }) {
         <Link href="/" aria-label="Nootles" className="shrink-0">
           <Wordmark />
         </Link>
-        {/* Centred on the bar itself, not on what the wordmark leaves over. */}
-        <span className="absolute left-1/2 top-1/2 max-w-[40%] -translate-x-1/2 -translate-y-1/2 truncate text-sm font-medium">
+        {/* Centred on the bar itself, not on what the wordmark leaves over —
+            except on compact, where the centre would run under the facepile;
+            there it takes the room the wordmark leaves, truncating. */}
+        <span
+          className={
+            compact
+              ? "min-w-0 flex-1 truncate text-sm font-medium"
+              : "absolute left-1/2 top-1/2 max-w-[40%] -translate-x-1/2 -translate-y-1/2 truncate text-sm font-medium"
+          }
+          title={shared.title || "Untitled project"}
+        >
           {shared.title || "Untitled project"}
         </span>
         <div className="ml-auto flex shrink-0 items-center gap-2">
@@ -189,11 +263,9 @@ export function SharedProject({ token }: { token: string }) {
       </header>
 
       {editable && (
-        <div className="nt-guest-banner" role="status">
-          <span>This is an editable file.</span>
-          <button onClick={() => setAsking(true)}>
-            Sign up or log in to edit
-          </button>
+        <div className="nt-guest-banner">
+          <span>This project is editable.</span>
+          <button onClick={() => setAsking(true)}>Sign in to edit</button>
         </div>
       )}
 
@@ -220,19 +292,40 @@ export function SharedProject({ token }: { token: string }) {
                   </button>
                 </div>
               )}
+              {/* A mouse press answers on the way down; a finger waits for
+                  the tap, because on touch the same press is how the page is
+                  scrolled. */}
               <div
                 onPointerDownCapture={
-                  editable ? () => setAsking(true) : undefined
+                  editable
+                    ? (e) => {
+                        pressType.current = e.pointerType;
+                        if (e.pointerType !== "touch" && !following(e.target)) {
+                          setAsking(true);
+                        }
+                      }
+                    : undefined
+                }
+                onClickCapture={
+                  editable
+                    ? (e) => {
+                        if (pressType.current === "touch" && !following(e.target)) {
+                          setAsking(true);
+                        }
+                      }
+                    : undefined
                 }
                 onKeyDownCapture={
                   editable
                     ? (e) => {
-                        if (writingKey(e)) setAsking(true);
+                        if (writingKey(e) && !following(e.target)) {
+                          setAsking(true);
+                        }
                       }
                     : undefined
                 }
               >
-                <h1 className="w-full text-[length:var(--text-title)] font-semibold tracking-[-0.02em] text-balance">
+                <h1 className="w-full text-[length:var(--text-title)] font-semibold tracking-[-0.02em] text-balance break-words">
                   {current.title || "Untitled"}
                 </h1>
                 <div className="mt-8">
