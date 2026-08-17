@@ -103,6 +103,10 @@ export function useTreeDrag(
   line: Line | null;
   /** Folder row the drop would go into, when it would; drawn as a highlight. */
   intoId: Id<"folders"> | null;
+  /** True when releasing here would lift the row out of its folder. */
+  toRoot: boolean;
+  /** Live pointer position, for the label that says what a release will do. */
+  pointer: { x: number; y: number } | null;
   /** Call from the row's `onPointerDown`. */
   press: (row: TreeRow, event: React.PointerEvent) => void;
 } {
@@ -110,6 +114,8 @@ export function useTreeDrag(
     id: string;
     line: Line | null;
     intoId: Id<"folders"> | null;
+    toRoot: boolean;
+    pointer: { x: number; y: number };
   } | null>(null);
 
   const rowsRef = useRef(rows);
@@ -150,11 +156,12 @@ export function useTreeDrag(
   };
 
   /**
-   * The gap a folder appended to `parentId` would land in: its folders sort
-   * before its pages, so the line belongs at the first page — or failing one,
-   * after the level's last visible row.
+   * Where a level's folders end and its pages begin — the one gap that is both
+   * "after every folder here" and "before every page here". The line for a
+   * folder appended to `parentId`, and for a page sent to its front. Failing a
+   * page to sit above, it is after the level's last visible row.
    */
-  const folderEndLine = (
+  const levelSeam = (
     measured: { row: TreeRow; rect: DOMRect }[],
     parentId: Id<"folders"> | null,
     listTop: number,
@@ -190,7 +197,7 @@ export function useTreeDrag(
       }
       return {
         drop: { kind: "folder", parentId: null, after: "end" },
-        line: folderEndLine(measured, null, listTop),
+        line: levelSeam(measured, null, listTop),
         intoId: null,
       };
     }
@@ -204,6 +211,17 @@ export function useTreeDrag(
     );
 
     if (carried.kind === "page") {
+      // The very top of the list is the project's top level, the way the very
+      // bottom already is — both ends let a page out of a folder. Without this
+      // the first row is usually a folder, and a page carried up there could
+      // only ever go back into it.
+      if (i === 0 && frac < 0.25) {
+        return {
+          drop: { kind: "page", parentId: null, after: null },
+          line: levelSeam(measured, null, listTop),
+          intoId: null,
+        };
+      }
       if (row.kind === "folder") {
         return {
           drop: { kind: "page", parentId: row.id, after: "end" },
@@ -232,7 +250,7 @@ export function useTreeDrag(
       if (barred(row.parentId)) return null;
       return {
         drop: { kind: "folder", parentId: row.parentId, after: "end" },
-        line: row.parentId ? null : folderEndLine(measured, null, listTop),
+        line: row.parentId ? null : levelSeam(measured, null, listTop),
         intoId: row.parentId,
       };
     }
@@ -347,6 +365,10 @@ export function useTreeDrag(
         id: row.id,
         line: spot?.line ?? null,
         intoId: spot?.intoId ?? null,
+        // Only worth saying when it is a change: a row already at the top level
+        // is not being taken out of anything.
+        toRoot: !!spot && spot.drop.parentId === null && row.parentId !== null,
+        pointer: { x: ev.clientX, y: ev.clientY },
       });
     };
 
@@ -394,6 +416,8 @@ export function useTreeDrag(
     dragId: drag?.id ?? null,
     line: drag?.line ?? null,
     intoId: drag?.intoId ?? null,
+    toRoot: drag?.toRoot ?? false,
+    pointer: drag?.pointer ?? null,
     press,
   };
 }

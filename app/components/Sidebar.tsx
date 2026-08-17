@@ -534,9 +534,29 @@ export function Sidebar({
               paddingLeft: `calc(var(--inset) + ${row.depth * INDENT}px)`,
             };
             if (isEditing) {
+              // The row keeps its twist and its glyph while being named, so a
+              // folder still looks like a folder the whole time it is one —
+              // including the moment it is created, which opens straight into
+              // this field.
               return (
                 <li key={id} data-row={id}>
-                  <div style={{ paddingLeft: row.depth * INDENT }}>
+                  <div className="nt-row is-selected" style={indent}>
+                    <span className="nt-row-twist">
+                      {row.kind === "folder" && (
+                        <ChevronRight
+                          width={12}
+                          height={12}
+                          className={`nt-row-chevron${
+                            row.expanded ? " is-open" : ""
+                          }`}
+                        />
+                      )}
+                    </span>
+                    {row.kind === "folder" ? (
+                      <Folder width={14} height={14} className="nt-row-icon" />
+                    ) : (
+                      <FileDoc width={14} height={14} className="nt-row-icon" />
+                    )}
                     <Editable
                       autoFocus
                       value={draft}
@@ -544,7 +564,7 @@ export function Sidebar({
                       onInput={setDraft}
                       onBlur={commit}
                       onKeyDown={keys}
-                      className="nt-row-edit is-selected w-full"
+                      className="nt-row-field"
                     />
                   </div>
                 </li>
@@ -661,6 +681,12 @@ export function Sidebar({
         )}
       </nav>
 
+      <DropLabel
+        pointer={drag.pointer}
+        into={drag.intoId ? folderById(drag.intoId)?.title || "Untitled" : null}
+        toRoot={drag.toRoot}
+      />
+
       {ctx && (
         <ContextMenu
           x={ctx.x}
@@ -770,6 +796,44 @@ function ChangeCount({ change }: { change: PageChange | undefined }) {
       {change.added > 0 && <span className="nt-row-diff-add">+{change.added}</span>}
       {change.removed > 0 && <span className="nt-row-diff-del">−{change.removed}</span>}
     </span>
+  );
+}
+
+/**
+ * What releasing here will do, said in words beside the pointer.
+ *
+ * The ring alone answers "which folder", but not "in or beside" — and filing a
+ * page somewhere you cannot see the result of is exactly where a drag wants a
+ * sentence. Only the two answers that move a page between levels are worth one;
+ * a reorder within a level is already fully described by the line.
+ *
+ * Follows the pointer rather than anchoring to the row, because the pointer is
+ * where the eye is during a drag, and flips to the other side near the right
+ * edge so it is never clipped.
+ */
+function DropLabel({
+  pointer,
+  into,
+  toRoot,
+}: {
+  pointer: { x: number; y: number } | null;
+  into: string | null;
+  toRoot: boolean;
+}) {
+  if (!pointer || (!into && !toRoot)) return null;
+  const flip = pointer.x > window.innerWidth - 220;
+  return (
+    <div
+      aria-hidden
+      className="nt-drag-tip"
+      style={{
+        top: pointer.y + 18,
+        left: pointer.x + (flip ? -12 : 14),
+        transform: flip ? "translateX(-100%)" : undefined,
+      }}
+    >
+      {into ? `Into ${into}` : "Out to top level"}
+    </div>
   );
 }
 
