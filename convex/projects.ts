@@ -62,7 +62,10 @@ export const sharedWithMe = query({
         const project = await ctx.db.get(claim.projectId);
         if (!project) return null;
         const role = await roleForProject(ctx, project);
-        if (!role) return null;
+        // "owner" would mean a stray claim on the caller's own project —
+        // already listed under "mine", so here it would only duplicate it
+        // under a role label that lies.
+        if (!role || role === "owner") return null;
         const [pages, ownerProfile] = await Promise.all([
           ctx.db
             .query("pages")

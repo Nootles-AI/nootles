@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { memo, useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
@@ -70,7 +70,12 @@ export function ProjectsScreen() {
     localStorage.setItem("nt:projectsView", view);
   }, [view]);
 
-  const open = (id: Id<"projects">) => router.push(`/p/${id}`);
+  // Stable so the memoized shared rows sit out this screen's re-renders —
+  // every rename keystroke was re-rendering each shared card's PagePreview.
+  const open = useCallback(
+    (id: Id<"projects">) => router.push(`/p/${id}`),
+    [router],
+  );
 
   const startRename = (p: Project) => {
     setDraft(p.title);
@@ -259,26 +264,35 @@ export function ProjectsScreen() {
           Absent entirely until the first claim, so the front door of a
           one-person account never mentions a feature it isn't using. */}
       {shared && shared.length > 0 && (
-        <div className="mt-12">
-          <h2 className="text-sm font-medium">Shared with me</h2>
+        <section className="mt-12" aria-labelledby="shared-with-me">
+          {/* The same voice as PAGES and LAYERS — the mono label is how this
+              app says "a section of items", and it leaves the project names
+              as the only things at reading weight. Flush in grid view, where
+              its inset would misalign it with the card borders below. */}
+          <h2
+            id="shared-with-me"
+            className={`nt-section-label${view === "grid" ? " pl-0" : ""}`}
+          >
+            <span>Shared with me</span>
+          </h2>
           {view === "grid" ? (
-            <ul className="nt-grid mt-4">
+            <ul className="nt-grid mt-2">
               {shared.map((p) => (
                 <li key={p._id}>
-                  <SharedCard project={p} onOpen={() => open(p._id)} />
+                  <SharedCard project={p} onOpen={open} />
                 </li>
               ))}
             </ul>
           ) : (
-            <ul className="mt-4">
+            <ul className="mt-1">
               {shared.map((p) => (
-                <li key={p._id} className="nt-list-row group">
-                  <SharedRow project={p} onOpen={() => open(p._id)} />
+                <li key={p._id} className="nt-list-row">
+                  <SharedRow project={p} onOpen={open} />
                 </li>
               ))}
             </ul>
           )}
-        </div>
+        </section>
       )}
 
       {ctx && (
@@ -570,57 +584,87 @@ function Row({
   );
 }
 
-/** How a shared row says whose it is and what you are to it. */
-function sharedMeta(p: SharedProject): string {
-  const by = p.ownerName ? `by ${p.ownerName}` : "shared";
-  return `${by} · ${p.role === "editor" ? "can edit" : "view only"}`;
-}
+/** Your standing in someone else's project, in the words Docs taught. */
+const roleLabel = (p: SharedProject) =>
+  p.role === "editor" ? "can edit" : "view only";
 
 /**
  * A project someone else shared: the same card, none of the owner's verbs — no
  * rename, no delete, no ⋯ menu. Opening it is the whole affordance.
+ *
+ * The meta spends its one line on whose project it is and what you are to it —
+ * the date is dropped, because two facts fit an ordinary name and three
+ * truncate it. Only the unbounded name gives way; the role always survives.
+ * No name recorded means the by-clause is simply absent — under this section's
+ * heading, "shared" would say nothing.
+ *
+ * Memoized (row too): these carry live PagePreviews, and this screen re-renders
+ * on every rename keystroke. Holds because the query result is referentially
+ * stable between server updates and `open` is a stable callback.
  */
-function SharedCard({
+const SharedCard = memo(function SharedCard({
   project,
   onOpen,
 }: {
   project: SharedProject;
-  onOpen: () => void;
+  onOpen: (id: Id<"projects">) => void;
 }) {
   const name = project.title || "Untitled project";
   return (
-    <div className="nt-card group">
-      <button onClick={onOpen} aria-label={`Open ${name}`} className="nt-card-open">
+    <div className="nt-card">
+      <button
+        onClick={() => onOpen(project._id)}
+        aria-label={`Open ${name}`}
+        className="nt-card-open"
+      >
         <PagePreview docId={project.firstPageDocId} />
       </button>
       <div className="nt-card-foot">
         <div className="min-w-0 flex-1">
           <p className="nt-card-name">{name}</p>
           <p className="nt-card-meta">
-            <span>{sharedMeta(project)}</span>
-            <span aria-hidden="true">·</span>
-            <span>{when(project.updatedAt)}</span>
+            {project.ownerName && (
+              <>
+                <span className="truncate">by {project.ownerName}</span>
+                <span aria-hidden="true">·</span>
+              </>
+            )}
+            <span className="shrink-0">{roleLabel(project)}</span>
           </p>
         </div>
       </div>
     </div>
   );
-}
+});
 
-function SharedRow({
+const SharedRow = memo(function SharedRow({
   project,
   onOpen,
 }: {
   project: SharedProject;
-  onOpen: () => void;
+  onOpen: (id: Id<"projects">) => void;
 }) {
   const name = project.title || "Untitled project";
   return (
     <>
-      <button onClick={onOpen} className="nt-row min-w-0 flex-1 font-medium">
-        <span className="nt-row-label">{name}</span>
-        <span className="ml-2 shrink-0 text-[13px] font-normal text-muted">
-          {sharedMeta(project)}
+      {/* The label gives up its grow so the attribution reads as the name's
+          subtitle rather than a far-right column. Only the unbounded owner
+          name truncates — the role rides in its own span so "can edit" is
+          never what falls off the end. Below sm the fixed columns leave the
+          name no room to share, so the attribution stands down entirely. */}
+      <button
+        onClick={() => onOpen(project._id)}
+        className="nt-row min-w-0 flex-1 font-medium"
+      >
+        <span className="nt-row-label flex-initial">{name}</span>
+        <span className="hidden min-w-0 items-center gap-2 font-normal text-muted sm:flex">
+          {project.ownerName && (
+            <>
+              <span className="truncate">by {project.ownerName}</span>
+              <span aria-hidden="true">·</span>
+            </>
+          )}
+          <span className="shrink-0">{roleLabel(project)}</span>
         </span>
       </button>
       <span className="nt-meta nt-col-pages">{project.pageCount}</span>
@@ -628,7 +672,7 @@ function SharedRow({
       <span className="nt-col-actions" />
     </>
   );
-}
+});
 
 /**
  * Loading takes the shape of the view it is loading into, so content swaps in
