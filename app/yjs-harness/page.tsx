@@ -61,6 +61,8 @@ function Client({
 }) {
   const client = useConvex();
 
+  const [lastId, setLastId] = useState<string | null>(null);
+
   /* eslint-disable react-hooks/set-state-in-effect */
   const [provider, setProvider] = useState<YConvexProvider | null>(null);
   useEffect(() => {
@@ -114,6 +116,15 @@ function Client({
     });
   }, [provider, editor]);
 
+  const announce = (ids: string[]) => {
+    if (!provider) return;
+    provider.doc.transact(() => {
+      provider.doc
+        .getMap<{ ids: string[]; n: number; by: number }>("nt:flash")
+        .set("last", { ids, n: Date.now(), by: provider.doc.clientID });
+    });
+  };
+
   /**
    * A model-free stand-in for an AI accept: the flash marker and the new
    * block written in ONE task, exactly as the real accept paths do — which
@@ -122,17 +133,65 @@ function Client({
   const simulateAccept = () => {
     if (!provider || !editor) return;
     const id = crypto.randomUUID();
-    provider.doc.transact(() => {
-      provider.doc
-        .getMap<{ ids: string[]; n: number; by: number }>("nt:flash")
-        .set("last", { ids: [id], n: Date.now(), by: provider.doc.clientID });
-    });
+    announce([id]);
     const last = editor.document[editor.document.length - 1];
     editor.insertBlocks(
       [{ id, type: "paragraph", content: `SIMULATED-${id.slice(0, 8)}` }],
       last ?? editor.document[0],
       "after",
     );
+    setLastId(id);
+  };
+
+  /** The ghost-accept shape: more ink into a block the peer already shows. */
+  const simulateAgain = () => {
+    if (!provider || !editor || !lastId || !editor.getBlock(lastId)) return;
+    announce([lastId]);
+    editor.updateBlock(lastId, {
+      content: `SIMULATED-AGAIN-${Date.now() % 100000}`,
+    });
+  };
+
+  /** A whole diagram arriving — the outline flash and shape-veil treatment. */
+  const simulateCanvas = () => {
+    if (!provider || !editor) return;
+    const id = crypto.randomUUID();
+    announce([id]);
+    const last = editor.document[editor.document.length - 1];
+    editor.insertBlocks(
+      [{ id, type: "canvas" }],
+      last ?? editor.document[0],
+      "after",
+    );
+  };
+
+  /** A code block arriving — ink the cascade can't reach, so the frame flashes. */
+  const simulateCode = () => {
+    if (!provider || !editor) return;
+    const id = crypto.randomUUID();
+    announce([id]);
+    const last = editor.document[editor.document.length - 1];
+    editor.insertBlocks(
+      [{ id, type: "codeBlock", props: { code: `// SIMULATED-${id.slice(0, 8)}` } }],
+      last ?? editor.document[0],
+      "after",
+    );
+  };
+
+  /** The agent-approval shape: one marker naming a whole turn's blocks. */
+  const simulateBurst = () => {
+    if (!provider || !editor) return;
+    const blocks = Array.from({ length: 24 }, (_, i) => {
+      const id = crypto.randomUUID();
+      return {
+        id,
+        type: "paragraph" as const,
+        content: `SIMULATED-BURST-${i}-${id.slice(0, 8)}`,
+      };
+    });
+    announce(blocks.map((b) => b.id));
+    const last = editor.document[editor.document.length - 1];
+    editor.insertBlocks(blocks, last ?? editor.document[0], "after");
   };
 
   return (
@@ -150,6 +209,35 @@ function Client({
           onClick={simulateAccept}
         >
           Simulate AI accept
+        </button>
+        <button
+          className="nt-row px-2 text-muted disabled:opacity-40"
+          data-simulate-again
+          onClick={simulateAgain}
+          disabled={!lastId}
+        >
+          Same block again
+        </button>
+        <button
+          className="nt-row px-2 text-muted"
+          data-simulate-canvas
+          onClick={simulateCanvas}
+        >
+          Canvas accept
+        </button>
+        <button
+          className="nt-row px-2 text-muted"
+          data-simulate-code
+          onClick={simulateCode}
+        >
+          Code accept
+        </button>
+        <button
+          className="nt-row px-2 text-muted"
+          data-simulate-burst
+          onClick={simulateBurst}
+        >
+          Burst
         </button>
       </div>
       <div className="min-h-0 flex-1 overflow-auto p-6">

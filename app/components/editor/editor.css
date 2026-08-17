@@ -779,7 +779,7 @@
 }
 
 /* Tables arriving: the grid is the shape of the change, so its rules flash
-   alongside the ink. */
+   alongside the ink. A divider IS its rule, so it flashes the same way. */
 @keyframes nt-fim-arrive-border {
   0%,
   30% {
@@ -787,14 +787,16 @@
   }
 }
 .nt-editor .nt-fim-arrive [data-content-type="table"] th,
-.nt-editor .nt-fim-arrive [data-content-type="table"] td {
+.nt-editor .nt-fim-arrive [data-content-type="table"] td,
+.nt-editor .nt-fim-arrive [data-content-type="divider"] hr {
   animation: nt-fim-arrive-border 1.6s var(--ease);
 }
 
-/* A diagram arriving: the surface flashes its outline gold, and each shape
-   shows a gold stroke first — a veil in the page's own paper that the real
-   fills and strokes come up through, the way a drawing appears. */
-@keyframes nt-canvas-arrive {
+/* Blocks whose ink is out of the cascade's reach — CodeMirror's tokens,
+   MathLive's glyphs, pictures and file chips — flash their frame instead:
+   the same gold line a diagram arrives with. The rule supplies the outline
+   it colors, since none of these carry one at rest. */
+@keyframes nt-fim-arrive-frame {
   0%,
   30% {
     outline-color: var(--accent);
@@ -803,8 +805,41 @@
     outline-color: transparent;
   }
 }
+.nt-editor .nt-fim-arrive .nt-mathblock,
+.nt-editor .nt-fim-arrive .nt-album-tile,
+.nt-editor .nt-fim-arrive .bn-visual-media,
+.nt-editor .nt-fim-arrive .bn-file-block-content-wrapper {
+  outline: 1.5px solid transparent;
+  outline-offset: -1.5px;
+  animation: nt-fim-arrive-frame 1.6s var(--ease);
+}
+/* The code block alone can't wear the outline itself: BlockNote ships
+   `outline: none !important` for `[data-content-type=codeBlock] > div`
+   (its own code block's chrome), and our block keeps that type name. An
+   !important can't be out-cascaded — and matching it would pin
+   outline-color against the keyframes too — so the frame rides a pseudo
+   the vendor rule can't reach. */
+.nt-editor .nt-fim-arrive .nt-code {
+  position: relative;
+}
+.nt-editor .nt-fim-arrive .nt-code::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  outline: 1.5px solid transparent;
+  outline-offset: -1.5px;
+  animation: nt-fim-arrive-frame 1.6s var(--ease);
+}
+
+/* A diagram arriving: the surface flashes its outline gold, and each shape
+   shows a gold stroke first — a veil in the page's own paper that the real
+   fills and strokes come up through, the way a drawing appears. The viewport
+   rests at `outline: none`, so the line is declared here. */
 .nt-editor .nt-fim-arrive-canvas .nt-canvas-viewport {
-  animation: nt-canvas-arrive 1.9s var(--ease);
+  outline: 1.5px solid transparent;
+  outline-offset: -1.5px;
+  animation: nt-fim-arrive-frame 1.9s var(--ease);
 }
 @keyframes nt-shape-veil {
   0%,
@@ -824,5 +859,16 @@
   outline: 1.5px solid var(--accent);
   outline-offset: -1px;
   pointer-events: none;
-  animation: nt-shape-veil 1.9s var(--ease) forwards;
+  /* Rests invisible — only the keyframes raise it — so a stripped or
+     reduced animation can never leave a shape veiled. */
+  opacity: 0;
+  animation: nt-shape-veil 1.9s var(--ease);
+}
+/* The color flashes are already the calm substitute for motion; the veil is
+   a full-surface reveal, so it alone stands down. The outline still marks
+   the arrival. */
+@media (prefers-reduced-motion: reduce) {
+  .nt-editor .nt-fim-arrive-canvas .nt-canvas-viewport [data-id]::after {
+    animation: none;
+  }
 }
