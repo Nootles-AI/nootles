@@ -5,14 +5,16 @@ import { readVisible, requireEditable } from "./auth";
 import {
   clonePage,
   endOrder,
-  placeBetween,
+  folderIn,
+  levelOf,
   removePageCascade,
 } from "./pages";
 
 /**
  * Sidebar folders — the project's navigation tree. Pure structure: a folder
  * holds page rows and other folders, never content, so nothing here touches a
- * document. Access rides the same project role as pages (`auth.ts`).
+ * document. Access rides the same project role as pages (`auth.ts`). Moving a
+ * folder is `tree.move`'s job, the same verb that moves a page.
  */
 
 async function projectFolders(
@@ -34,46 +36,6 @@ async function projectPages(
     .withIndex("by_project", (q) => q.eq("projectId", projectId))
     .collect();
 }
-
-/**
- * Refuses a destination inside the moved folder itself. Walked over the
- * project's folders as loaded, with a visited guard so even a row cycle that
- * should never exist ends the walk instead of the function.
- */
-function insideItself(
-  all: Doc<"folders">[],
-  folderId: Id<"folders">,
-  destination: Id<"folders">,
-): boolean {
-  const byId = new Map(all.map((f) => [f._id, f]));
-  const seen = new Set<Id<"folders">>();
-  for (
-    let node = byId.get(destination);
-    node && !seen.has(node._id);
-    node = node.parentId ? byId.get(node.parentId) : undefined
-  ) {
-    if (node._id === folderId) return true;
-    seen.add(node._id);
-  }
-  return false;
-}
-
-/** The named folder, provided it hangs off the given project. */
-async function folderIn(
-  ctx: MutationCtx,
-  projectId: Id<"projects">,
-  folderId: Id<"folders">,
-): Promise<Doc<"folders">> {
-  const folder = await ctx.db.get(folderId);
-  if (!folder || folder.projectId !== projectId) throw new Error("Not found");
-  return folder;
-}
-
-const inLevel = (
-  rows: ReadonlyArray<Doc<"folders">>,
-  parentId: Id<"folders"> | null,
-  except?: Id<"folders">,
-) => rows.filter((f) => f._id !== except && (f.parentId ?? null) === parentId);
 
 export const listByProject = query({
   args: { projectId: v.id("projects") },
@@ -97,8 +59,9 @@ export const create = mutation({
     // Owner inherited from the authorized parent, as everywhere else.
     const { ownerId } = await requireEditable(ctx, "projects", args.projectId);
     if (args.parentId) await folderIn(ctx, args.projectId, args.parentId);
-    const siblings = inLevel(
+    const siblings = levelOf(
       await projectFolders(ctx, args.projectId),
+      await projectPages(ctx, args.projectId),
       args.parentId ?? null,
     );
     return await ctx.db.insert("folders", {
@@ -119,67 +82,6 @@ export const rename = mutation({
   handler: async (ctx, args) => {
     await requireEditable(ctx, "folders", args.folderId);
     await ctx.db.patch(args.folderId, { title: args.title });
-  },
-});
-
-/**
- * Moves a folder in the tree: under `parentId` (absent = top level), after the
- * named sibling there, or to the front when none is named. A destination
- * inside the folder's own subtree is refused — the move would orphan the whole
- * branch. Same anchor semantics as `pages.move`.
- */
-export const move = mutation({
-  args: {
-    /** One folder, or a whole selection, landing together and keeping its order. */
-    folderIds: v.array(v.id("folders")),
-    parentId: v.optional(v.id("folders")),
-    after: v.optional(v.id("folders")),
-    /** Land past every sibling rather than at the front, when `after` is unset. */
-    atEnd: v.optional(v.boolean()),
-  },
-  handler: async (ctx, args) => {
-    const moving = [];
-    for (const id of args.folderIds) {
-      moving.push(await requireEditable(ctx, "folders", id));
-    }
-    if (!moving.length) return;
-    const projectId = moving[0].projectId;
-    if (moving.some((f) => f.projectId !== projectId)) {
-      throw new Error("Not found");
-    }
-    const all = await projectFolders(ctx, projectId);
-    if (args.parentId) {
-      await folderIn(ctx, projectId, args.parentId);
-      // Every carried folder is checked: a group is only as legal as its worst
-      // member, and one of them swallowing the destination orphans the rest.
-      for (const folder of moving) {
-        if (insideItself(all, folder._id, args.parentId)) {
-          throw new Error("Cannot move a folder into itself");
-        }
-      }
-    }
-
-    const carried = new Set<string>(args.folderIds);
-    const rest = inLevel(all, args.parentId ?? null).filter(
-      (f) => !carried.has(f._id),
-    );
-    const anchor =
-      args.after && !carried.has(args.after)
-        ? args.after
-        : args.atEnd || args.after
-          ? "end"
-          : null;
-
-    const orders = placeBetween(rest, anchor, moving.length);
-    moving.sort(
-      (a, b) => args.folderIds.indexOf(a._id) - args.folderIds.indexOf(b._id),
-    );
-    for (const [i, folder] of moving.entries()) {
-      await ctx.db.patch(folder._id, {
-        parentId: args.parentId,
-        order: orders[i],
-      });
-    }
   },
 });
 
@@ -230,7 +132,7 @@ export const duplicate = mutation({
     if (args.parentId) await folderIn(ctx, folder.projectId, args.parentId);
     const all = await projectFolders(ctx, folder.projectId);
     const pages = await projectPages(ctx, folder.projectId);
-    const siblings = inLevel(all, args.parentId ?? null);
+    const siblings = levelOf(all, pages, args.parentId ?? null);
     const beside = (folder.parentId ?? null) === (args.parentId ?? null);
     return await cloneFolder(ctx, all, pages, folder, args.parentId, {
       title: beside ? `${folder.title || "Untitled"} copy` : folder.title,

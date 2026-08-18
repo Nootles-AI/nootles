@@ -104,17 +104,27 @@ describe("flattenTree", () => {
     ]);
   });
 
-  test("folders sort above pages at every level, each by its own order", () => {
+  test("folders and pages interleave on the level's one order line", () => {
     const rows = flattenTree(
       [folder("late", 9), folder("early", 1)],
-      [page("p2", 2), page("p1", 1)],
+      [page("p2", 2), page("p1", 0)],
       none,
     );
     expect(shown(rows)).toEqual([
-      ["early", 0],
-      ["late", 0],
       ["p1", 0],
+      ["early", 0],
       ["p2", 0],
+      ["late", 0],
+    ]);
+  });
+
+  test("an order tie resolves folders first, steadily", () => {
+    // Two clients appending at once can mint the same order; the tie must not
+    // flicker with array order.
+    const rows = flattenTree([folder("f", 1)], [page("p", 1)], none);
+    expect(shown(rows)).toEqual([
+      ["f", 0],
+      ["p", 0],
     ]);
   });
 

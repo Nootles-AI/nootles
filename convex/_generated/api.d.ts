@@ -43,6 +43,7 @@ import type * as prs from "../prs.js";
 import type * as share from "../share.js";
 import type * as surveys from "../surveys.js";
 import type * as tickets from "../tickets.js";
+import type * as tree from "../tree.js";
 import type * as ydoc from "../ydoc.js";
 
 import type {
@@ -87,6 +88,7 @@ declare const fullApi: ApiFromModules<{
   share: typeof share;
   surveys: typeof surveys;
   tickets: typeof tickets;
+  tree: typeof tree;
   ydoc: typeof ydoc;
 }>;
 
