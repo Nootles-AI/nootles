@@ -149,6 +149,29 @@
   overflow-x: auto;
 }
 
+/* ---- Table --------------------------------------------------------------
+   A table takes the document column, like the canvas, the album and the
+   storyboard: none of them carries a width of its own, so none leaves a margin
+   down its right-hand side. BlockNote's is content-sized (`width: auto`, and
+   `!important`, hence the answer in kind), which left three fresh columns
+   filling 361px of a 590px column and the rest empty page.
+
+   The 22px the wrapper reserves for the add-column widget has to come off with
+   it, because `width: 100%` resolves against that box and would land the table
+   short by exactly that much. The widget is floating-ui positioned against the
+   table's own rect, not laid out in the padding, so the reservation buys
+   nothing.
+
+   Fluid makes a dragged column a proportion rather than a pixel count: with
+   every column sized by hand the browser scales them up together to fill,
+   keeping the ratio the drag asked for. */
+.nt-editor [data-content-type="table"] .tableWrapper {
+  padding-right: 0;
+}
+.nt-editor [data-content-type="table"] table {
+  width: 100% !important;
+}
+
 /* ---- Inline code ------------------------------------------------------
    For variable names and short identifiers inside a sentence. Sized in em so
    it tracks the surrounding text, and nudged down slightly because mono
