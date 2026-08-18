@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { Found } from "@/app/api/media/search/route";
+import type { Found, Service } from "./types";
+
+export type { Service };
 
 /**
  * Searching a service, from the block's own row.
@@ -10,8 +12,6 @@ import type { Found } from "@/app/api/media/search/route";
  * word costs nothing and the list never flickers back through states the
  * typist has already left behind.
  */
-
-export type Service = "apple" | "spotify";
 
 export const SERVICES: Record<Service, { label: string; brand: string }> = {
   apple: { label: "Apple Music", brand: "#fa2d48" },

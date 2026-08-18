@@ -165,6 +165,29 @@ export const TOOLS = {
         ),
     }),
   },
+  find_songs: {
+    description:
+      "Look a song up on Spotify or Apple Music. Returns each track's exact " +
+      "page URL, title, artist and length. This is the ONLY source of a song's " +
+      "URL — you do not know track ids, and one you write from memory is a page " +
+      "that does not exist. Ask for one song per call, by name and artist.",
+    inputSchema: z.object({
+      query: z
+        .string()
+        .describe(
+          "The song, as you would say it out loud: \"After the Storm Kali Uchis\". " +
+            "A name and an artist find one track; a mood finds nothing, so decide " +
+            "what to play first and then look that up.",
+        ),
+      service: z
+        .enum(["spotify", "apple"])
+        .optional()
+        .describe(
+          "Only when the user asked for one by name. Left out, the best " +
+            "available shelf answers.",
+        ),
+    }),
+  },
   search_web: {
     description:
       "Search the web for something the project does not already say. Returns a " +

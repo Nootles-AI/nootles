@@ -10,6 +10,7 @@ import { DEFAULT_DRAW_CHOICE, type DrawChoice } from "../drawStyles";
 import { recordAiCall } from "../recordCall";
 import { generateVectorDrawing } from "../vectorDraw";
 import { reason } from "@/app/lib/github";
+import { findSongs } from "@/app/lib/songs";
 import { configured as placesConfigured, search as findPlaces } from "@/app/lib/places";
 import { searchModel } from "./provider";
 import { noSuchPage, TOOLS } from "./tools";
@@ -209,6 +210,22 @@ export function chatTools(
         const found = await findPlaces(query, near ?? null);
         if ("error" in found) throw new Error(found.error);
         return "places" in found ? found.places : [];
+      },
+    }),
+
+    // Straight into the engine, like find_places: this server holds no session
+    // of its own, and its own protected route would send it to the sign-in page.
+    find_songs: tool({
+      ...TOOLS.find_songs,
+      execute: async ({ query, service }) => {
+        const found = await findSongs(query, service);
+        if (!found.results.length) {
+          throw new Error(
+            `Nothing found for "${query}". Try the artist's name with the title, ` +
+              "or say plainly that you could not find it — do not write a URL yourself.",
+          );
+        }
+        return { service: found.service, tracks: found.results.slice(0, 5) };
       },
     }),
 
