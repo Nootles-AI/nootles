@@ -195,9 +195,10 @@ function CanvasBlockView({
   };
 
   if (readOnly) {
-    // The surface's own view-only mode: pan and zoom stay whole, every path
-    // that could touch the scene is off, and the shell is never claimed. The
-    // api is still captured so remote edits keep flowing into the store.
+    // The surface's own view-only mode: a click still picks out one shape, and
+    // everything that would move one — or move the view — is off, as is the
+    // shell, which is never claimed. The api is still captured so remote edits
+    // keep flowing into the store.
     return (
       <div className="relative w-full">
         <CanvasAiContext value={ai}>

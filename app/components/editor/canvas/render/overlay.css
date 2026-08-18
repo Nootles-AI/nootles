@@ -29,6 +29,15 @@
   stroke: var(--nt-select);
 }
 
+/* A reader's frame says "this one", not "you have this". The editing blue is a
+   promise of handles and a keymap, and read-only has neither — so the frame
+   drops to the same neutral line the hover ring already uses, which is also
+   the house rule for anything that is not AI activity. */
+.nt-ov.is-view .nt-ov-outline {
+  stroke: var(--ov-line);
+  opacity: 0.8;
+}
+
 .nt-ov-members > rect {
   stroke: var(--nt-select);
   opacity: 0.5;

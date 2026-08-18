@@ -339,10 +339,14 @@ export interface CanvasSurfaceProps {
    */
   onApi?: (api: CanvasApi | null) => void;
   /**
-   * View-only: the share route. Navigation stays whole — wheel, pinch and
-   * drag all pan or zoom, and the hand tool is the only tool — while every
-   * path that could touch the scene (selection, keymap, label edit, grips,
-   * context menu) is off.
+   * View-only: the share route, and a viewer's workspace.
+   *
+   * Reading a diagram means being able to point at a piece of it, so a click
+   * still selects — one shape, the one under the pointer, with no group
+   * standing in front of it and no marquee taking several. Everything that
+   * would MOVE something is gone: no drag, no handles to grab, no keymap, no
+   * label edit, no context menu — and the viewport itself is pinned, because a
+   * view that can be pushed off its own frame is a view you can lose.
    */
   readOnly?: boolean;
   /**
@@ -369,7 +373,9 @@ export function CanvasSurface({
 }: CanvasSurfaceProps) {
   const store = useScene({ source, onChange });
   const scene = useSceneSnapshot(store);
-  const viewport = useViewport(frame ? { locked: true } : undefined);
+  // Pinned for a shot, which has nowhere to pan to, and for a reader, who has
+  // nothing to reach that the first fit did not already bring into view.
+  const viewport = useViewport(frame || readOnly ? { locked: true } : undefined);
 
   // A shot is drawn at whatever scale its column asks for. Written through the
   // viewport rather than as a CSS transform on the wrapper so that every
@@ -424,15 +430,11 @@ export function CanvasSurface({
   /** The node whose double-click asked to edit its label, this event. */
   const asked = useRef<NodeId | null>(null);
 
-  // Read-only means the hand is the only tool there is — except inside a
-  // frame, where there is nowhere to pan to. `changeTool` refuses the hand for
-  // a framed surface, and this is the same refusal at the tool's birth: a shot
-  // that started on the hand would let a drag push the picture out of its own
-  // frame, since the pan runs through the controller rather than the listeners
-  // `locked` withholds.
-  const [tool, setTool] = useState<CanvasTool>(
-    readOnly && !frame ? "hand" : "move",
-  );
+  // One starting tool for everyone. A reader used to start on the hand, back
+  // when reading meant panning; now the view is pinned and the only thing left
+  // to do with a pointer is point, which is what `move` does once the paths
+  // that move things are closed off below.
+  const [tool, setTool] = useState<CanvasTool>("move");
   const [editing, setEditing] = useState<NodeId | null>(null);
   /**
    * Vector edit mode: the path whose points are open, if any.
@@ -839,6 +841,18 @@ export function CanvasSurface({
       return;
     }
 
+    // A reader points at one shape and that is all. `deep` always, so a group
+    // never answers for the thing under the pointer — there is no entering a
+    // group here, and no double-click to do it with, so an outermost-group
+    // rule would put whole clusters permanently out of reach. No shift, so no
+    // multi-selection; no drag; and an empty click clears rather than starting
+    // a marquee.
+    if (readOnly) {
+      selection.click(point, { deep: true });
+      busy.current = false;
+      return;
+    }
+
     const mods: ClickMods = { shift: event.shiftKey, deep: event.altKey };
     const hit = selection.probe(point, mods);
     const bounds = sel.selectionBounds;
@@ -878,7 +892,9 @@ export function CanvasSurface({
 
   const onPointerMove = (event: ReactPointerEvent) => {
     if (busy.current || !picking || editPath || gesture.isActive()) return;
-    selection.hover(scenePoint(event), { deep: event.altKey });
+    // Deep read-only for the same reason the click is: the ring has to promise
+    // what the click will actually take.
+    selection.hover(scenePoint(event), { deep: readOnly || event.altKey });
   };
 
   /**
@@ -1130,7 +1146,10 @@ export function CanvasSurface({
             hover={hover}
             onResizeStart={tool === "scale" ? gesture.startScale : gesture.startResize}
             onRotateStart={gesture.startRotate}
-            onRadiusStart={gesture.startRadius}
+            // Withheld read-only, which is also what stops the overlay reading
+            // a shape's corner radii off the DOM to place anchors nobody gets.
+            onRadiusStart={readOnly ? undefined : gesture.startRadius}
+            readOnly={readOnly}
           />
         </div>
 

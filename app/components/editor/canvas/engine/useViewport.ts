@@ -580,12 +580,16 @@ function createViewport(options: UseViewportOptions): ViewportEngine {
   }
 
   /**
-   * Locked means locked, not merely unlistened-to: the navigating verbs are
-   * refused here as well, so a caller that pans imperatively — the hand tool
-   * runs the pointer loop itself and calls {@link panBy} — cannot walk a shot
-   * out of its own frame. `set` stays open; it is how the frame's own scale is
-   * placed, and the one door left is easier to reason about than a rule about
-   * which callers are trusted.
+   * Locked means locked, not merely unlistened-to: the NAVIGATING verbs are
+   * refused here as well, so a caller that moves the view imperatively — the
+   * hand tool runs its own pointer loop and calls {@link panBy} — cannot walk
+   * the content out of its own frame.
+   *
+   * The line is who the move is for. `panBy`/`zoomTo`/`zoomBy`/`resetZoom` are
+   * a user going somewhere, and there is nowhere to go. `set` and
+   * {@link zoomToFit} are a caller PLACING the view — the frame's own scale,
+   * and the once-only fit that brings an oversized diagram into the column —
+   * and refusing those would not pin the view, it would strand it.
    */
   const still = () => {};
 
@@ -598,7 +602,7 @@ function createViewport(options: UseViewportOptions): ViewportEngine {
     panBy: options.locked ? still : panBy,
     zoomTo: options.locked ? still : zoomTo,
     zoomBy: options.locked ? still : zoomBy,
-    zoomToFit: options.locked ? still : zoomToFit,
+    zoomToFit,
     resetZoom: options.locked ? still : () => zoomTo(1),
     clientToScene: (point) =>
       viewportToScene(toViewportPoint(point.x, point.y), vp),
