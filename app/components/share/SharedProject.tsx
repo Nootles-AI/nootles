@@ -6,12 +6,14 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
 import { useMediaQuery } from "@/app/lib/useMediaQuery";
 import { track } from "@/app/lib/telemetry";
 import { Wordmark } from "../Brand";
-import { ArrowLeft, PanelLeft } from "../Icons";
+import { ArrowLeft, ChevronRight, FileDoc, Folder, PanelLeft } from "../Icons";
 import { CurrentPageProvider, useOpenPage } from "../OpenPageContext";
 import { PagesProvider } from "../PagesContext";
+import { flattenTree } from "../sidebarTree";
 import { ReadOnlyContext } from "../editor/readOnly";
 import { Facepile } from "../presence/Facepile";
 import { GuestChatRail } from "./GuestChatRail";
@@ -21,6 +23,9 @@ import { following, writingKey } from "./intent";
 
 /* The same threshold as the workspace: below it the rails become drawers. */
 const COMPACT = "(max-width: 1023px)";
+
+/* The sidebar's own step, so a shared tree indents exactly as its owner's does. */
+const INDENT = 12;
 
 /**
  * One project reached by share link, before any sign-in.
@@ -44,6 +49,9 @@ export function SharedProject({ token }: { token: string }) {
   const { main, open, back } = useOpenPage();
   const compact = useMediaQuery(COMPACT);
   const [drawer, setDrawer] = useState(false);
+  // Folders the guest has closed. Not remembered between visits: a link is
+  // read in one sitting, and it should always open showing the whole shape.
+  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
   const [asking, setAsking] = useState(false);
   const [claimFailed, setClaimFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
@@ -182,6 +190,17 @@ export function SharedProject({ token }: { token: string }) {
   // back to the first page rather than blanking the surface.
   const current = pages.find((p) => p._id === main.page) ?? pages[0] ?? null;
 
+  // The owner's shape, read-only: the same tree, the same order, the same
+  // rows — only the verbs that would change any of it are missing.
+  const rows = flattenTree(shared.folders, pages, collapsed);
+  const toggleFolder = (id: Id<"folders">) => {
+    setCollapsed((held) => {
+      const next = new Set(held);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
+  };
+
   const rail = (
     <aside
       className="nt-panel nt-rail-l"
@@ -192,23 +211,63 @@ export function SharedProject({ token }: { token: string }) {
         <div className="nt-section-label">
           <span>Pages</span>
         </div>
-        <ul className="space-y-px">
-          {pages.map((pg) => (
-            <li key={pg.docId}>
-              <button
-                onClick={() => {
-                  open(pg._id);
-                  setDrawer(false);
-                }}
-                aria-current={current?._id === pg._id ? "page" : undefined}
-                className={`nt-row w-full${
-                  current?._id === pg._id ? " is-selected" : ""
-                }`}
-              >
-                <span className="nt-row-label">{pg.title || "Untitled"}</span>
-              </button>
-            </li>
-          ))}
+        <ul role="tree" aria-label="Pages and folders" className="space-y-px">
+          {rows.map((row) => {
+            const indent = {
+              paddingLeft: `calc(var(--inset) + ${row.depth * INDENT}px)`,
+            };
+            if (row.kind === "folder") {
+              return (
+                <li key={row.folder._id} role="none">
+                  <button
+                    onClick={() => toggleFolder(row.folder._id)}
+                    role="treeitem"
+                    aria-level={row.depth + 1}
+                    aria-expanded={row.expanded}
+                    aria-selected={false}
+                    className="nt-row w-full"
+                    style={indent}
+                  >
+                    <span className="nt-row-twist">
+                      <ChevronRight
+                        width={12}
+                        height={12}
+                        className={`nt-row-chevron${
+                          row.expanded ? " is-open" : ""
+                        }`}
+                      />
+                    </span>
+                    <Folder width={14} height={14} className="nt-row-icon" />
+                    <span className="nt-row-label">
+                      {row.folder.title || "Untitled"}
+                    </span>
+                  </button>
+                </li>
+              );
+            }
+            const pg = row.page;
+            const here = current?._id === pg._id;
+            return (
+              <li key={pg._id} role="none">
+                <button
+                  onClick={() => {
+                    open(pg._id);
+                    setDrawer(false);
+                  }}
+                  role="treeitem"
+                  aria-level={row.depth + 1}
+                  aria-current={here ? "page" : undefined}
+                  aria-selected={here}
+                  className={`nt-row w-full${here ? " is-selected" : ""}`}
+                  style={indent}
+                >
+                  <span className="nt-row-twist" />
+                  <FileDoc width={14} height={14} className="nt-row-icon" />
+                  <span className="nt-row-label">{pg.title || "Untitled"}</span>
+                </button>
+              </li>
+            );
+          })}
         </ul>
       </nav>
     </aside>

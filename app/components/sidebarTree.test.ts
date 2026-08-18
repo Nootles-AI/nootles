@@ -50,6 +50,8 @@ const shown = (rows: ReturnType<typeof flattenTree>) =>
   ]);
 
 const none: ReadonlySet<string> = new Set();
+/** Typed, so a folders-only tree still says what a page row would hold. */
+const noPages: Doc<"pages">[] = [];
 
 /** Test ids are plain strings; the branding is the database's business. */
 const pageAt = (id: string) => ({ kind: "page" as const, id: id as Id<"pages"> });
@@ -141,7 +143,7 @@ describe("flattenTree", () => {
       new Set(["B"]),
       new Set(["A", "C"]),
     ]) {
-      const ids = flattenTree(folders, [], collapsed).map((r) =>
+      const ids = flattenTree(folders, noPages, collapsed).map((r) =>
         r.kind === "folder" ? r.folder._id : r.page._id,
       );
       expect(new Set(ids).size).toBe(ids.length);
