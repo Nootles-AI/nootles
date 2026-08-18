@@ -172,8 +172,8 @@ Storyboard, illustration, sketch, icon, logo, map, character, scene, cutaway,
   tree, a person. Draw it.`;
 
 export const SYSTEM = `You draw diagrams for Nootles, a Figma-like canvas. You are given a
-brief describing what to draw and the page it is being drawn on. You reply with ONE
-<nt-diagram> element and nothing else — no prose, no code fence.
+brief describing what to draw and the page it is being drawn on. You reply with a plan
+comment and then ONE <nt-diagram> element — nothing else, no other prose, no code fence.
 
 THE GRAMMAR
 
@@ -181,6 +181,18 @@ ${CANVAS_GRAMMAR}
 
 WHAT TO DRAW
 ${USE_CASES}
+
+PLAN, THEN DRAW
+Open every reply with the plan, as one HTML comment. Three lines:
+  scene:  every object the drawing needs, back to front — the background counts
+  parts:  each drawn object broken into its NAMED components (a fox is body, head, ears,
+          tail, legs; a lamp is base, stem, shade)
+  layout: where each object sits, as x y w h on this canvas, and the colour it takes
+The plan is where the composition is decided — coverage, overlap, what reads at a glance —
+and the drawing can only be as good as the plan it answers to. A component missing from
+parts: will be missing from the picture. Then draw exactly what the plan says: every
+component its own shape or path, its id naming what it is (fox-tail, lamp-shade), in the
+plan's stacking order.
 
 Take the labels from the page's own wording wherever it says something — a diagram of the
 page should use its words. Six to ten shapes is usually right for a diagram; past a dozen
@@ -196,11 +208,51 @@ something a diagram or a drawing would actually show, reply with nothing at all.
  * it is the one that is both, and the position nearest the real brief is the one
  * a model weighs most.
  */
+/**
+ * Each example's plan, prepended to its reply. The measured effect of forcing
+ * this expansion is the largest of any prompt-level technique in the SVG
+ * literature (ablating it cost ~40% on image fidelity — Chat2SVG's stage-one
+ * finding): objects that never make the parts line never make the picture, so
+ * the plan is where completeness and composition are actually decided. Shown
+ * in every example because the example is what the model copies — a contract
+ * stated only in prose gets a plan only sometimes.
+ */
+const PLANS = {
+  flowchart: `<!-- plan
+scene: four process steps, one decision, connectors
+parts: boxes and a diamond carry their own labels; no drawn objects
+layout: start 200 40 200x56; decision 180 156 240x128; yes-branch 40 344 200x56; no-branch 360 344 200x56; neutral fills -->`,
+  table: `<!-- plan
+scene: one grid of regions
+parts: header row (region, owner, revenue), two data rows
+layout: single grid group 40 40 520x136, three equal columns, white cells on a hairline grid -->`,
+  mockup: `<!-- plan
+scene: app window, title bar, sidebar nav, headline, stat cards, chart placeholder
+parts: title bar is three dots; sidebar is three nav rows; cards are three tiles
+layout: window 40 40 520x360 white; bar across the top 40h; sidebar 140w down the left; cards row 200 140 340x80; chart 200 240 340x140 -->`,
+  story: `<!-- plan
+scene: three frames with captions; per frame — 1: hill and sun; 2: road and car; 3: desk and figure
+parts: hill one curve; sun one ellipse; road a trapezoid; car body one silhouette; desk a slab; figure head-and-limbs in one stroke
+layout: frames 160x120 at x 40/220/400 y 40, captions under each; hill fills frame-1 base #dfe7d8; sun upper right #f0d9a8; car dark #2b2b28 on the road; figure dark stroke at the desk -->`,
+} as const;
+
 const SHOTS: Array<{ brief: string; html: string }> = [
-  { brief: "the order fulfilment process, with the out-of-stock branch", html: FLOWCHART },
-  { brief: "a table of regions with their owner and revenue", html: TABLE },
-  { brief: "a mockup of the analytics dashboard screen", html: MOCKUP },
-  { brief: "a storyboard of her morning commute, three frames", html: STORY },
+  {
+    brief: "the order fulfilment process, with the out-of-stock branch",
+    html: `${PLANS.flowchart}\n${FLOWCHART}`,
+  },
+  {
+    brief: "a table of regions with their owner and revenue",
+    html: `${PLANS.table}\n${TABLE}`,
+  },
+  {
+    brief: "a mockup of the analytics dashboard screen",
+    html: `${PLANS.mockup}\n${MOCKUP}`,
+  },
+  {
+    brief: "a storyboard of her morning commute, three frames",
+    html: `${PLANS.story}\n${STORY}`,
+  },
 ];
 
 /**
@@ -256,6 +308,18 @@ function userMessage(brief: string, page: string, title: string): string {
 export type DrawFrame = { w: number; h: number } | null;
 
 /**
+ * How much coordinate room a frame is drawn in, over the size it is stored at.
+ *
+ * Measured, on one brief at three settings: the same model drawing the same
+ * fox produced a flat orange blob at 320x180 and a fox with ears, muzzle, brush
+ * tail and white markings at 640x360 — with FEWER shapes. Detail is limited by
+ * how finely a coordinate can be said, not by how many shapes are spent, and a
+ * 320-wide frame leaves no room to say "muzzle". The scene is vector, so the
+ * board scales the result back down for nothing: this buys precision free.
+ */
+const DRAW_SCALE = 2;
+
+/**
  * What changes when the target is a frame, said AFTER the grammar so the more
  * specific instruction wins. The grammar's sizing rules assume a diagram born
  * into a document column with margins; a shot is a film frame, and a film
@@ -269,8 +333,13 @@ This drawing is one storyboard frame, exactly ${frame.w} wide and ${frame.h} tal
 <nt-diagram w="${frame.w}" h="${frame.h}"> exactly and IGNORE the column sizing above: no
 margin, no 40px inset. Fill the frame to its edges the way a film shot fills the screen —
 sky and ground bleed off all four sides, and the subject sits where the camera would put
-it. Give <nt-diagram> itself the scene's ground colour in style. It is shown small, so a
-few bold shapes beat many fine ones, and filled silhouettes beat outlines.`
+it. Give <nt-diagram> itself the scene's ground colour in style.
+Draw it as richly as the scene deserves. A subject reads by its PARTS — a fox is body,
+head, ears, muzzle, legs, tail and tail-tip, each its own shape — never as one blob, and a
+landscape reads by its layers: sky, far ridge, near ridge, ground, foreground framing.
+Plan the frame like a camera: open the plan's scene line with the shot itself — wide,
+close, low angle, over-the-shoulder — and let the layout line place the subject the way
+that shot would.`
     : "";
 
 /**
@@ -322,9 +391,13 @@ export async function generateDiagram(
   onUsage?: (result: { usage: LanguageModelUsage; latencyMs: number }) => void,
 ): Promise<string> {
   const started = Date.now();
+  // Asked for at scale; the board scales it back into the shot's own box.
+  const room: DrawFrame = frame
+    ? { w: frame.w * DRAW_SCALE, h: frame.h * DRAW_SCALE }
+    : null;
   const { text, totalUsage, finishReason } = await generateText({
     model: diagramModel(),
-    system: SYSTEM + frameNote(frame),
+    system: SYSTEM + frameNote(room),
     messages: [
       ...SHOTS.flatMap(
         (shot) =>
