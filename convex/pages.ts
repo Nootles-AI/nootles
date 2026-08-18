@@ -21,7 +21,7 @@ export const get = query({
 });
 
 /** The named folder, provided it hangs off the given project. */
-async function folderIn(
+export async function folderIn(
   ctx: MutationCtx,
   projectId: Id<"projects">,
   folderId: Id<"folders">,
@@ -31,20 +31,37 @@ async function folderIn(
   return folder;
 }
 
-/** The project's pages that live directly in `folderId` (null = top level). */
-async function siblingsIn(
+/**
+ * The rows that live directly at a level, both kinds together: folders and
+ * pages share one order line, so anything that places a row must count them
+ * all. Shape-only — enough for the order math, never for patching.
+ */
+export function levelOf(
+  folders: ReadonlyArray<Doc<"folders">>,
+  pages: ReadonlyArray<Doc<"pages">>,
+  parentId: Id<"folders"> | null,
+): { _id: string; order: number }[] {
+  return [
+    ...folders.filter((f) => (f.parentId ?? null) === parentId),
+    ...pages.filter((p) => (p.folderId ?? null) === parentId),
+  ];
+}
+
+/** {@link levelOf}, loading the project's rows itself. */
+async function levelRows(
   ctx: MutationCtx,
   projectId: Id<"projects">,
-  folderId: Id<"folders"> | null,
-  except?: Id<"pages">,
-): Promise<Doc<"pages">[]> {
+  parentId: Id<"folders"> | null,
+): Promise<{ _id: string; order: number }[]> {
+  const folders = await ctx.db
+    .query("folders")
+    .withIndex("by_project", (q) => q.eq("projectId", projectId))
+    .collect();
   const pages = await ctx.db
     .query("pages")
     .withIndex("by_project", (q) => q.eq("projectId", projectId))
     .collect();
-  return pages.filter(
-    (p) => p._id !== except && (p.folderId ?? null) === folderId,
-  );
+  return levelOf(folders, pages, parentId);
 }
 
 export const create = mutation({
@@ -66,7 +83,7 @@ export const create = mutation({
     // An unnamed folder falls back to the anchor's, so "after that page" lands
     // beside it rather than silently at the top level.
     const folderId = args.folderId ?? anchor?.folderId;
-    const siblings = await siblingsIn(ctx, args.projectId, folderId ?? null);
+    const siblings = await levelRows(ctx, args.projectId, folderId ?? null);
     const placed = args.after ? orderAfter(siblings, args.after) : null;
     return await ctx.db.insert("pages", {
       ownerId,
@@ -104,11 +121,6 @@ export function endOrder(siblings: ReadonlyArray<{ order: number }>): number {
   return siblings.reduce((m, s) => Math.max(m, s.order + 1), 0);
 }
 
-/** Before every sibling — where "no anchor" lands. */
-export function frontOrder(siblings: ReadonlyArray<{ order: number }>): number {
-  return siblings.length ? Math.min(...siblings.map((s) => s.order)) - 1 : 0;
-}
-
 /**
  * Orders for `count` rows landing together after `after` — the front of the
  * level when it is null, the end when it is "end".
@@ -140,63 +152,6 @@ export function placeBetween(
 }
 
 /**
- * Moves a page in the sidebar tree: into `folderId` (absent = top level), after
- * the named sibling there, or to the front when none is named. Fractional
- * orders (see {@link orderAfter}) mean only the moved page is written. A stale
- * anchor — deleted, or living elsewhere — appends rather than guessing, because
- * the folder half of the move must still land.
- */
-export const move = mutation({
-  args: {
-    /** One row, or a whole selection, landing together and keeping its order. */
-    pageIds: v.array(v.id("pages")),
-    folderId: v.optional(v.id("folders")),
-    after: v.optional(v.id("pages")),
-    /** Land past every sibling rather than at the front, when `after` is unset. */
-    atEnd: v.optional(v.boolean()),
-  },
-  handler: async (ctx, args) => {
-    const moving = [];
-    for (const id of args.pageIds) {
-      moving.push(await requireEditable(ctx, "pages", id));
-    }
-    if (!moving.length) return;
-    const projectId = moving[0].projectId;
-    // One project per move: an anchor from another would place these pages
-    // among orders that mean nothing to them.
-    if (moving.some((p) => p.projectId !== projectId)) {
-      throw new Error("Not found");
-    }
-    if (args.folderId) await folderIn(ctx, projectId, args.folderId);
-
-    const carried = new Set<string>(args.pageIds);
-    const rest = (
-      await siblingsIn(ctx, projectId, args.folderId ?? null)
-    ).filter((p) => !carried.has(p._id));
-    // An anchor that is itself being carried cannot also be the thing to land
-    // after; the group goes where that anchor was heading instead.
-    const anchor =
-      args.after && !carried.has(args.after)
-        ? args.after
-        : args.atEnd || args.after
-          ? "end"
-          : null;
-
-    const orders = placeBetween(rest, anchor, moving.length);
-    // In the order they were handed over, which the sidebar sends top-down.
-    moving.sort(
-      (a, b) => args.pageIds.indexOf(a._id) - args.pageIds.indexOf(b._id),
-    );
-    for (const [i, page] of moving.entries()) {
-      await ctx.db.patch(page._id, {
-        order: orders[i],
-        folderId: args.folderId,
-      });
-    }
-  },
-});
-
-/**
  * A full copy of a page — row, mode, and document — appended to `folderId`.
  * Only the copy pasted beside its source is renamed, because there "which one
  * is which" is a question; anywhere else the answer is the folder it landed in.
@@ -209,7 +164,7 @@ export const duplicate = mutation({
   handler: async (ctx, args) => {
     const page = await requireEditable(ctx, "pages", args.pageId);
     if (args.folderId) await folderIn(ctx, page.projectId, args.folderId);
-    const siblings = await siblingsIn(ctx, page.projectId, args.folderId ?? null);
+    const siblings = await levelRows(ctx, page.projectId, args.folderId ?? null);
     const beside = (page.folderId ?? null) === (args.folderId ?? null);
     return await clonePage(ctx, page, args.folderId, {
       title: beside ? `${page.title || "Untitled"} copy` : page.title,

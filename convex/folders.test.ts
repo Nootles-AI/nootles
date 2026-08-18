@@ -6,9 +6,9 @@ import schema from "./schema";
 import componentSchema from "../node_modules/@convex-dev/prosemirror-sync/src/component/schema";
 
 /**
- * The sidebar tree's mutations: folders, folder-aware page moves, and the
- * deep copies behind copy/paste. Structure and cascade properties — document
- * sync itself is ydoc.test.ts's subject.
+ * The sidebar tree's mutations: folders, the one move verb both kinds share,
+ * and the deep copies behind copy/paste. Structure and cascade properties —
+ * document sync itself is ydoc.test.ts's subject.
  */
 
 const modules = import.meta.glob("./**/*.ts");
@@ -54,6 +54,18 @@ describe("folders.create", () => {
     expect(byId.get(child)!.parentId).toBe(a);
   });
 
+  test("appends past the level's pages too — the order line is shared", async () => {
+    const t = harness();
+    const projectId = await world(t);
+    const p = await as(t).mutation(api.pages.create, { projectId });
+    const f = await as(t).mutation(api.folders.create, { projectId });
+    const pages = await as(t).query(api.pages.listByProject, { projectId });
+    const folders = await as(t).query(api.folders.listByProject, { projectId });
+    expect(pages.find((r) => r._id === p)!.order).toBeLessThan(
+      folders.find((r) => r._id === f)!.order,
+    );
+  });
+
   test("refuses a parent from another project", async () => {
     const t = harness();
     const projectId = await world(t);
@@ -69,7 +81,7 @@ describe("folders.create", () => {
   });
 });
 
-describe("folders.move", () => {
+describe("tree.move with folders", () => {
   test("reorders after a sibling and reparents", async () => {
     const t = harness();
     const projectId = await world(t);
@@ -77,13 +89,19 @@ describe("folders.move", () => {
     const b = await as(t).mutation(api.folders.create, { projectId });
     const c = await as(t).mutation(api.folders.create, { projectId });
 
-    await as(t).mutation(api.folders.move, { folderIds: [a], after: b });
+    await as(t).mutation(api.tree.move, {
+      items: [{ kind: "folder", id: a }],
+      after: b,
+    });
     let rows = await as(t).query(api.folders.listByProject, { projectId });
     let byId = new Map(rows.map((f) => [f._id, f]));
     expect(byId.get(b)!.order).toBeLessThan(byId.get(a)!.order);
     expect(byId.get(a)!.order).toBeLessThan(byId.get(c)!.order);
 
-    await as(t).mutation(api.folders.move, { folderIds: [c], parentId: a });
+    await as(t).mutation(api.tree.move, {
+      items: [{ kind: "folder", id: c }],
+      parentId: a,
+    });
     rows = await as(t).query(api.folders.listByProject, { projectId });
     byId = new Map(rows.map((f) => [f._id, f]));
     expect(byId.get(c)!.parentId).toBe(a);
@@ -98,10 +116,16 @@ describe("folders.move", () => {
       parentId: a,
     });
     await expect(
-      as(t).mutation(api.folders.move, { folderIds: [a], parentId: b }),
+      as(t).mutation(api.tree.move, {
+        items: [{ kind: "folder", id: a }],
+        parentId: b,
+      }),
     ).rejects.toThrow("into itself");
     await expect(
-      as(t).mutation(api.folders.move, { folderIds: [a], parentId: a }),
+      as(t).mutation(api.tree.move, {
+        items: [{ kind: "folder", id: a }],
+        parentId: a,
+      }),
     ).rejects.toThrow("into itself");
   });
 });
@@ -131,7 +155,7 @@ describe("folders.remove", () => {
   });
 });
 
-describe("pages.move", () => {
+describe("tree.move with pages", () => {
   test("crosses folders and lands after its anchor", async () => {
     const t = harness();
     const projectId = await world(t);
@@ -140,9 +164,9 @@ describe("pages.move", () => {
     const b = await as(t).mutation(api.pages.create, { projectId, folderId: folder });
     const loose = await as(t).mutation(api.pages.create, { projectId });
 
-    await as(t).mutation(api.pages.move, {
-      pageIds: [loose],
-      folderId: folder,
+    await as(t).mutation(api.tree.move, {
+      items: [{ kind: "page", id: loose }],
+      parentId: folder,
       after: a,
     });
     let pages = await as(t).query(api.pages.listByProject, { projectId });
@@ -152,10 +176,35 @@ describe("pages.move", () => {
     expect(byId.get(loose)!.order).toBeLessThan(byId.get(b)!.order);
 
     // Back to the top level: the folder field clears rather than lingering.
-    await as(t).mutation(api.pages.move, { pageIds: [loose] });
+    await as(t).mutation(api.tree.move, {
+      items: [{ kind: "page", id: loose }],
+    });
     pages = await as(t).query(api.pages.listByProject, { projectId });
     byId = new Map(pages.map((p) => [p._id, p]));
     expect(byId.get(loose)!.folderId).toBeUndefined();
+  });
+
+  test("a page can take a place before a folder — one order line per level", async () => {
+    const t = harness();
+    const projectId = await world(t);
+    const f = await as(t).mutation(api.folders.create, { projectId });
+    const g = await as(t).mutation(api.folders.create, { projectId });
+    const p = await as(t).mutation(api.pages.create, { projectId });
+
+    // p lands between the two folders, anchored on a folder row.
+    await as(t).mutation(api.tree.move, {
+      items: [{ kind: "page", id: p }],
+      after: f,
+    });
+
+    const folders = await as(t).query(api.folders.listByProject, { projectId });
+    const pages = await as(t).query(api.pages.listByProject, { projectId });
+    const orderOf = new Map<string, number>([
+      ...folders.map((r) => [r._id as string, r.order] as const),
+      ...pages.map((r) => [r._id as string, r.order] as const),
+    ]);
+    expect(orderOf.get(f)!).toBeLessThan(orderOf.get(p)!);
+    expect(orderOf.get(p)!).toBeLessThan(orderOf.get(g)!);
   });
 });
 
@@ -173,9 +222,12 @@ describe("moving a group", () => {
       title: "keep",
     });
 
-    await as(t).mutation(api.pages.move, {
-      pageIds: [c, a],
-      folderId: folder,
+    await as(t).mutation(api.tree.move, {
+      items: [
+        { kind: "page", id: c },
+        { kind: "page", id: a },
+      ],
+      parentId: folder,
       after: keep,
     });
 
@@ -197,7 +249,13 @@ describe("moving a group", () => {
     const c = await as(t).mutation(api.pages.create, { projectId, title: "c" });
 
     // Dropping a and b onto a, which is itself travelling.
-    await as(t).mutation(api.pages.move, { pageIds: [a, b], after: a });
+    await as(t).mutation(api.tree.move, {
+      items: [
+        { kind: "page", id: a },
+        { kind: "page", id: b },
+      ],
+      after: a,
+    });
 
     const pages = await as(t).query(api.pages.listByProject, { projectId });
     const order = pages.sort((x, y) => x.order - y.order).map((p) => p.title);
@@ -216,8 +274,11 @@ describe("moving a group", () => {
     const other = await as(t).mutation(api.folders.create, { projectId });
 
     await expect(
-      as(t).mutation(api.folders.move, {
-        folderIds: [other, outer],
+      as(t).mutation(api.tree.move, {
+        items: [
+          { kind: "folder", id: other },
+          { kind: "folder", id: outer },
+        ],
         parentId: inner,
       }),
     ).rejects.toThrow("into itself");
@@ -226,11 +287,44 @@ describe("moving a group", () => {
     expect(rows.find((f) => f._id === other)!.parentId).toBeUndefined();
   });
 
+  test("a mixed selection lands together, interleaved as handed over", async () => {
+    const t = harness();
+    const projectId = await world(t);
+    const dest = await as(t).mutation(api.folders.create, { projectId, title: "dest" });
+    const p = await as(t).mutation(api.pages.create, { projectId, title: "p" });
+    const f = await as(t).mutation(api.folders.create, { projectId, title: "f" });
+    const q = await as(t).mutation(api.pages.create, { projectId, title: "q" });
+
+    // Page above folder above page — the one gap takes all three, in order.
+    await as(t).mutation(api.tree.move, {
+      items: [
+        { kind: "page", id: p },
+        { kind: "folder", id: f },
+        { kind: "page", id: q },
+      ],
+      parentId: dest,
+    });
+
+    const folders = await as(t).query(api.folders.listByProject, { projectId });
+    const pages = await as(t).query(api.pages.listByProject, { projectId });
+    const inside = [
+      ...folders
+        .filter((r) => r.parentId === dest)
+        .map((r) => ({ title: r.title, order: r.order })),
+      ...pages
+        .filter((r) => r.folderId === dest)
+        .map((r) => ({ title: r.title, order: r.order })),
+    ]
+      .sort((x, y) => x.order - y.order)
+      .map((r) => r.title);
+    expect(inside).toEqual(["p", "f", "q"]);
+  });
+
   test("an empty group is a no-op", async () => {
     const t = harness();
     const projectId = await world(t);
     const a = await as(t).mutation(api.pages.create, { projectId, title: "a" });
-    await as(t).mutation(api.pages.move, { pageIds: [] });
+    await as(t).mutation(api.tree.move, { items: [] });
     const pages = await as(t).query(api.pages.listByProject, { projectId });
     expect(pages.map((p) => p._id)).toEqual([a]);
   });

@@ -163,11 +163,11 @@ export default defineSchema({
   }).index("by_owner", ["ownerId"]),
 
   /**
-   * Sidebar folders, VS Code style: a folder holds pages and other folders of
-   * the same project. Navigation structure only — a page's content never moves
-   * when its row does, so this table stays outside the content hierarchy the
-   * schema note above locks. Folders sort before pages at every level, each
-   * group ordered by its own fractional `order`.
+   * Sidebar folders: a folder holds pages and other folders of the same
+   * project. Navigation structure only — a page's content never moves when its
+   * row does, so this table stays outside the content hierarchy the schema
+   * note above locks. Each level's folders and pages share one fractional
+   * order line, so either kind can sit anywhere among the other.
    */
   folders: defineTable({
     ownerId: v.string(),
@@ -175,6 +175,7 @@ export default defineSchema({
     title: v.string(),
     /** Containing folder; absent = the project's top level. */
     parentId: v.optional(v.id("folders")),
+    /** Manual place among the level's rows, folders and pages alike. */
     order: v.number(),
     createdAt: v.number(),
   }).index("by_project", ["projectId", "order"]),
@@ -197,7 +198,8 @@ export default defineSchema({
     mode: v.optional(v.union(v.literal("create"), v.literal("complete"))),
     /** Containing sidebar folder; absent = the project's top level. */
     folderId: v.optional(v.id("folders")),
-    // Manual ordering among the sidebar siblings that share its folder.
+    // Manual place among the level's rows — one order line with its sibling
+    // folders, not a rank within pages alone.
     order: v.number(),
     // prosemirror-sync document id for this page's block flow.
     docId: v.string(),

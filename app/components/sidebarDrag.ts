@@ -12,12 +12,12 @@ import type { Id } from "@/convex/_generated/dataModel";
  * click (select), double-click (rename) and right-click (menu), and a drag only
  * begins once the pointer has actually travelled — so a press is still a press.
  *
- * The drop vocabulary is VS Code's. A page carried over a folder row goes into
- * that folder; carried between page rows it takes that gap. A folder carried
- * over another folder splits the row in three — top edge before it, middle into
- * it, bottom edge after it (or first inside, when it is open) — and carried
- * over a page it joins that page's folder. Folders sort before pages at every
- * level, so neither kind ever needs a slot inside the other's group.
+ * The drop vocabulary is kind-blind, because each level's folders and pages
+ * share one order line: any row carried over a page row takes the gap above or
+ * below it, and carried over a folder row it splits the row in three — top
+ * edge before it, middle into it, bottom edge after it (or first inside, when
+ * it is open). Only "into" needs the target to be a folder; every gap takes
+ * either kind.
  */
 
 const SLOP = 4;
@@ -53,32 +53,19 @@ export type DropAnchor<T> = T | null | "end";
 
 type Line = { top: number; depth: number };
 
-type Drop =
-  | {
-      kind: "page";
-      parentId: Id<"folders"> | null;
-      after: DropAnchor<Id<"pages">>;
-    }
-  | {
-      kind: "folder";
-      parentId: Id<"folders"> | null;
-      after: DropAnchor<Id<"folders">>;
-    };
+type Drop = {
+  parentId: Id<"folders"> | null;
+  after: DropAnchor<Id<"pages"> | Id<"folders">>;
+};
 
 type Spot = { drop: Drop; line: Line | null; intoId: Id<"folders"> | null };
 
 type Handlers = {
-  /** Every carried page, in row order, landing together. */
-  onMovePages: (
-    ids: Id<"pages">[],
+  /** Every carried row, in row order, landing together — either kind. */
+  onMove: (
+    rows: TreeRow[],
     parentId: Id<"folders"> | null,
-    after: DropAnchor<Id<"pages">>,
-  ) => void;
-  /** Every carried folder, in row order, landing together. */
-  onMoveFolders: (
-    ids: Id<"folders">[],
-    parentId: Id<"folders"> | null,
-    after: DropAnchor<Id<"folders">>,
+    after: DropAnchor<Id<"pages"> | Id<"folders">>,
   ) => void;
   /** The rows travelling with this one — the selection, when it is in it. */
   carriedWith: (row: TreeRow) => TreeRow[];
@@ -146,7 +133,7 @@ export function useTreeDrag(
     return out;
   };
 
-  /** The previous same-parent sibling of the same kind, in render order. */
+  /** The previous same-parent sibling, either kind, in render order. */
   const before = (
     rows: readonly TreeRow[],
     i: number,
@@ -154,42 +141,22 @@ export function useTreeDrag(
     const at = rows[i];
     for (let j = i - 1; j >= 0; j--) {
       const row = rows[j];
-      if (row.kind === at.kind && row.parentId === at.parentId) return row;
-      // Reached the containing folder: nothing of this kind stands before it.
+      if (row.parentId === at.parentId) return row;
+      // Reached the containing folder: nothing stands before it.
       if (row.id === at.parentId) return null;
     }
     return null;
   };
 
   /**
-   * Where a level's folders end and its pages begin — the one gap that is both
-   * "after every folder here" and "before every page here". The line for a
-   * folder appended to `parentId`, and for a page sent to its front. Failing a
-   * page to sit above, it is after the level's last visible row.
-   */
-  const levelSeam = (
-    measured: { row: TreeRow; rect: DOMRect }[],
-    parentId: Id<"folders"> | null,
-    listTop: number,
-  ): Line | null => {
-    const firstPage = measured.find(
-      (m) => m.row.kind === "page" && m.row.parentId === parentId,
-    );
-    if (firstPage) {
-      return { top: firstPage.rect.top - listTop, depth: firstPage.row.depth };
-    }
-    const last = measured[measured.length - 1];
-    return last ? { top: last.rect.bottom - listTop, depth: 0 } : null;
-  };
-
-  /**
    * Where a pointer height drops what is being carried, from the live rows.
+   * The carried kind never matters — one order line holds both — only the row
+   * under the pointer does.
    *
    * `blocked` is the whole group's veto rather than one row's: a destination
    * inside ANY carried folder is out, whichever row the pointer is holding.
    */
   const spotAt = (
-    carried: TreeRow,
     blocked: (parentId: Id<"folders"> | null) => boolean,
     clientY: number,
   ): Spot | null => {
@@ -202,16 +169,9 @@ export function useTreeDrag(
     // Past the last row: the top level's end.
     const last = measured[measured.length - 1];
     if (clientY >= last.rect.bottom) {
-      if (carried.kind === "page") {
-        return {
-          drop: { kind: "page", parentId: null, after: "end" },
-          line: { top: last.rect.bottom - listTop, depth: 0 },
-          intoId: null,
-        };
-      }
       return {
-        drop: { kind: "folder", parentId: null, after: "end" },
-        line: levelSeam(measured, null, listTop),
+        drop: { parentId: null, after: "end" },
+        line: { top: last.rect.bottom - listTop, depth: 0 },
         intoId: null,
       };
     }
@@ -224,32 +184,11 @@ export function useTreeDrag(
       Math.max(0, (clientY - rect.top) / Math.max(1, rect.height)),
     );
 
-    if (carried.kind === "page") {
-      // The very top of the list is the project's top level, the way the very
-      // bottom already is — both ends let a page out of a folder. Without this
-      // the first row is usually a folder, and a page carried up there could
-      // only ever go back into it.
-      if (i === 0 && frac < 0.25) {
-        if (blocked(null)) return null;
-        return {
-          drop: { kind: "page", parentId: null, after: null },
-          line: levelSeam(measured, null, listTop),
-          intoId: null,
-        };
-      }
-      if (row.kind === "folder") {
-        if (blocked(row.id)) return null;
-        return {
-          drop: { kind: "page", parentId: row.id, after: "end" },
-          line: null,
-          intoId: row.id,
-        };
-      }
+    if (row.kind === "page") {
       if (blocked(row.parentId)) return null;
-      const anchor =
-        frac < 0.5 ? ((before(rows, i)?.id as Id<"pages">) ?? null) : row.id;
+      const anchor = frac < 0.5 ? (before(rows, i)?.id ?? null) : row.id;
       return {
-        drop: { kind: "page", parentId: row.parentId, after: anchor },
+        drop: { parentId: row.parentId, after: anchor },
         line: {
           top: (frac < 0.5 ? rect.top : rect.bottom) - listTop,
           depth: row.depth,
@@ -258,48 +197,33 @@ export function useTreeDrag(
       };
     }
 
-    const barred = blocked;
-
-    if (row.kind === "page") {
-      if (barred(row.parentId)) return null;
-      return {
-        drop: { kind: "folder", parentId: row.parentId, after: "end" },
-        line: row.parentId ? null : levelSeam(measured, null, listTop),
-        intoId: row.parentId,
-      };
-    }
-
     if (frac < 0.25) {
-      if (barred(row.parentId)) return null;
+      if (blocked(row.parentId)) return null;
       return {
-        drop: {
-          kind: "folder",
-          parentId: row.parentId,
-          after: (before(rows, i)?.id as Id<"folders">) ?? null,
-        },
+        drop: { parentId: row.parentId, after: before(rows, i)?.id ?? null },
         line: { top: rect.top - listTop, depth: row.depth },
         intoId: null,
       };
     }
     if (frac < 0.75) {
-      if (barred(row.id)) return null;
+      if (blocked(row.id)) return null;
       return {
-        drop: { kind: "folder", parentId: row.id, after: "end" },
+        drop: { parentId: row.id, after: "end" },
         line: null,
         intoId: row.id,
       };
     }
     if (row.expanded) {
-      if (barred(row.id)) return null;
+      if (blocked(row.id)) return null;
       return {
-        drop: { kind: "folder", parentId: row.id, after: null },
+        drop: { parentId: row.id, after: null },
         line: { top: rect.bottom - listTop, depth: row.depth + 1 },
         intoId: null,
       };
     }
-    if (barred(row.parentId)) return null;
+    if (blocked(row.parentId)) return null;
     return {
-      drop: { kind: "folder", parentId: row.parentId, after: row.id },
+      drop: { parentId: row.parentId, after: row.id },
       line: { top: rect.bottom - listTop, depth: row.depth },
       intoId: null,
     };
@@ -312,9 +236,7 @@ export function useTreeDrag(
     const rows = rowsRef.current;
     const i = rows.findIndex((r) => r.id === carried.id);
     if (i < 0) return false;
-    const siblings = rows.filter(
-      (r) => r.kind === carried.kind && r.parentId === carried.parentId,
-    );
+    const siblings = rows.filter((r) => r.parentId === carried.parentId);
     if (drop.after === null) return siblings[0]?.id === carried.id;
     if (drop.after === "end") {
       return siblings[siblings.length - 1]?.id === carried.id;
@@ -371,7 +293,7 @@ export function useTreeDrag(
       mark(carried.length === 1 ? asideAt(row, ev.clientX, ev.clientY) : null);
       // Out over the surface the row is going somewhere else entirely, so the
       // list stops offering it a place in the order.
-      spot = marked ? null : spotAt(row, blocked, ev.clientY);
+      spot = marked ? null : spotAt(blocked, ev.clientY);
 
       // A closed folder held under the drag opens, so its inside is reachable
       // without letting go.
@@ -426,25 +348,7 @@ export function useTreeDrag(
       // when the pointer has not left home.
       if (!spot || (carried.length === 1 && ownSlot(row, spot.drop))) return;
 
-      const { parentId } = spot.drop;
-      const pages = carried.filter((r) => r.kind === "page").map((r) => r.id);
-      const folders = carriedFolders.map((r) => r.id) as Id<"folders">[];
-      // The anchor belongs to the kind the pointer was holding; the other kind
-      // has no place in that gap and joins the end of its own group.
-      if (pages.length) {
-        handlersRef.current.onMovePages(
-          pages as Id<"pages">[],
-          parentId,
-          spot.drop.kind === "page" ? spot.drop.after : "end",
-        );
-      }
-      if (folders.length) {
-        handlersRef.current.onMoveFolders(
-          folders,
-          parentId,
-          spot.drop.kind === "folder" ? spot.drop.after : "end",
-        );
-      }
+      handlersRef.current.onMove(carried, spot.drop.parentId, spot.drop.after);
     };
 
     const abort = () => done();

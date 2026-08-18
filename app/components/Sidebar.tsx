@@ -78,13 +78,12 @@ export function Sidebar({
   const createPage = useMutation(api.pages.create);
   const renamePage = useMutation(api.pages.rename);
   const removePage = useMutation(api.pages.remove);
-  const movePage = useMutation(api.pages.move);
   const duplicatePage = useMutation(api.pages.duplicate);
   const createFolder = useMutation(api.folders.create);
   const renameFolder = useMutation(api.folders.rename);
   const removeFolder = useMutation(api.folders.remove);
-  const moveFolder = useMutation(api.folders.move);
   const duplicateFolder = useMutation(api.folders.duplicate);
+  const moveRows = useMutation(api.tree.move);
   const renameProject = useMutation(api.projects.rename);
 
   const [editing, setEditing] = useState<Target | { kind: "project" } | null>(
@@ -220,25 +219,20 @@ export function Sidebar({
     listRef,
     dragRows,
     {
-      onMovePages: (ids, parentId, after) => {
-        void movePage({
-          pageIds: ids,
-          folderId: parentId ?? undefined,
-          after: after === "end" ? undefined : (after ?? undefined),
-          atEnd: after === "end",
-        });
-        expand(parentId);
-        track("page_moved", {});
-      },
-      onMoveFolders: (ids, parentId, after) => {
-        void moveFolder({
-          folderIds: ids,
+      onMove: (moved, parentId, after) => {
+        void moveRows({
+          items: moved.map((r) =>
+            r.kind === "page"
+              ? { kind: "page" as const, id: r.id }
+              : { kind: "folder" as const, id: r.id },
+          ),
           parentId: parentId ?? undefined,
           after: after === "end" ? undefined : (after ?? undefined),
           atEnd: after === "end",
         });
         expand(parentId);
-        track("folder_moved", {});
+        if (moved.some((r) => r.kind === "page")) track("page_moved", {});
+        if (moved.some((r) => r.kind === "folder")) track("folder_moved", {});
       },
       // Dragging a row that is in the selection takes the whole selection;
       // dragging one outside it leaves the selection alone and carries just it.
@@ -323,24 +317,13 @@ export function Sidebar({
         (t.kind === "page" ? pageById(t.id) : folderById(t.id)),
     );
     if (!items.length) return;
-    const pageIds = items.filter((t) => t.kind === "page").map((t) => t.id);
-    const folderIds = items.filter((t) => t.kind === "folder").map((t) => t.id);
 
     if (clip.op === "cut") {
-      if (pageIds.length) {
-        void movePage({
-          pageIds: pageIds as Id<"pages">[],
-          folderId: dest ?? undefined,
-          atEnd: true,
-        });
-      }
-      if (folderIds.length) {
-        void moveFolder({
-          folderIds: folderIds as Id<"folders">[],
-          parentId: dest ?? undefined,
-          atEnd: true,
-        });
-      }
+      void moveRows({
+        items: [...items],
+        parentId: dest ?? undefined,
+        atEnd: true,
+      });
       setClip(null);
     } else {
       // Sequential, so the copies land in the order they were taken.

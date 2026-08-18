@@ -1,3 +1,4 @@
+import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalMutation, internalQuery } from "./_generated/server";
 import { raiseTo, TICKET } from "./counters";
@@ -90,5 +91,77 @@ export const numberTickets = internalMutation({
       await ctx.scheduler.runAfter(0, internal.migrations.numberTickets, {});
     }
     return { numbered: rows.length, done };
+  },
+});
+
+/**
+ * Moves every sidebar level onto its unified order line: folders renumbered
+ * 0..k-1 by their old order, that level's pages k..n-1 after them — exactly
+ * the sequence the old "folders above pages" sort displayed, so nobody's tree
+ * visibly moves. Idempotent: a second run recomputes the same numbers and
+ * patches nothing.
+ *
+ * Run once when the interleaved-order code ships (either side of the deploy is
+ * fine — the old sort reads these numbers identically). Until it has run, a
+ * level whose folder and page orders overlap may briefly render interleaved.
+ */
+export const interleaveSidebarRows = internalMutation({
+  args: { cursor: v.optional(v.string()) },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ projects: number; patched: number; done: boolean }> => {
+    const batch = await ctx.db
+      .query("projects")
+      .paginate({ numItems: 25, cursor: args.cursor ?? null });
+
+    let patched = 0;
+    for (const project of batch.page) {
+      const folders = await ctx.db
+        .query("folders")
+        .withIndex("by_project", (q) => q.eq("projectId", project._id))
+        .collect();
+      const pages = await ctx.db
+        .query("pages")
+        .withIndex("by_project", (q) => q.eq("projectId", project._id))
+        .collect();
+
+      // Per level, in the by_project index's (order, creation) sequence the
+      // collects already carry. Levels keyed by the raw parent link: a broken
+      // link groups its orphans together, which preserves their relative order
+      // wherever the tree chooses to surface them.
+      const levels = new Set<string>([
+        ...folders.map((f) => String(f.parentId ?? "")),
+        ...pages.map((p) => String(p.folderId ?? "")),
+      ]);
+      for (const level of levels) {
+        let n = 0;
+        for (const f of folders.filter(
+          (f) => String(f.parentId ?? "") === level,
+        )) {
+          if (f.order !== n) {
+            await ctx.db.patch(f._id, { order: n });
+            patched++;
+          }
+          n++;
+        }
+        for (const p of pages.filter(
+          (p) => String(p.folderId ?? "") === level,
+        )) {
+          if (p.order !== n) {
+            await ctx.db.patch(p._id, { order: n });
+            patched++;
+          }
+          n++;
+        }
+      }
+    }
+
+    if (!batch.isDone) {
+      await ctx.scheduler.runAfter(0, internal.migrations.interleaveSidebarRows, {
+        cursor: batch.continueCursor,
+      });
+    }
+    return { projects: batch.page.length, patched, done: batch.isDone };
   },
 });

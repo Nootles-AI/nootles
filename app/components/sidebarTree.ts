@@ -34,7 +34,13 @@ export type TreeRowData =
       depth: number;
     };
 
-const byOrder = (a: { order: number }, b: { order: number }) => a.order - b.order;
+/** One level's row before sorting: either kind, on the level's one order line. */
+type LevelEntry =
+  | { kind: "folder"; folder: Doc<"folders"> }
+  | { kind: "page"; page: Doc<"pages"> };
+
+const orderOf = (e: LevelEntry): number =>
+  e.kind === "folder" ? e.folder.order : e.page.order;
 
 /**
  * Where each folder actually hangs, which is not always what its row says: a
@@ -71,8 +77,10 @@ function homes(
 }
 
 /**
- * The visible rows in render order: each level's folders above its pages, both
- * by their own `order`, depth-first through the folders that are open.
+ * The visible rows in render order: each level's folders and pages together on
+ * the level's one order line, depth-first through the folders that are open.
+ * The sort is stable over folders-then-pages, so an order tie — two clients
+ * appending at once — resolves folders first rather than flickering.
  *
  * `collapsed` holds folder ids the user has closed; anything absent is open,
  * so a folder that arrives while you are looking at it arrives open.
@@ -83,38 +91,39 @@ export function flattenTree(
   collapsed: ReadonlySet<string>,
 ): TreeRowData[] {
   const parentOf = homes(folders);
-
-  const subfolders = new Map<Id<"folders"> | null, Doc<"folders">[]>();
-  for (const folder of folders) {
-    const home = parentOf.get(folder._id) ?? null;
-    const level = subfolders.get(home);
-    if (level) level.push(folder);
-    else subfolders.set(home, [folder]);
-  }
-  for (const level of subfolders.values()) level.sort(byOrder);
-
   const known = new Set<string>(folders.map((f) => f._id));
-  const inLevel = new Map<Id<"folders"> | null, Doc<"pages">[]>();
+
+  const levels = new Map<Id<"folders"> | null, LevelEntry[]>();
+  const put = (home: Id<"folders"> | null, entry: LevelEntry) => {
+    const level = levels.get(home);
+    if (level) level.push(entry);
+    else levels.set(home, [entry]);
+  };
+  for (const folder of folders) {
+    put(parentOf.get(folder._id) ?? null, { kind: "folder", folder });
+  }
   for (const page of pages) {
     // A page whose folder is gone comes home to the top level, same as a
     // folder whose parent is gone.
-    const home =
-      page.folderId && known.has(page.folderId) ? page.folderId : null;
-    const level = inLevel.get(home);
-    if (level) level.push(page);
-    else inLevel.set(home, [page]);
+    put(page.folderId && known.has(page.folderId) ? page.folderId : null, {
+      kind: "page",
+      page,
+    });
   }
-  for (const level of inLevel.values()) level.sort(byOrder);
+  for (const level of levels.values()) {
+    level.sort((a, b) => orderOf(a) - orderOf(b));
+  }
 
   const out: TreeRowData[] = [];
   const walk = (parentId: Id<"folders"> | null, depth: number) => {
-    for (const folder of subfolders.get(parentId) ?? []) {
-      const expanded = !collapsed.has(folder._id);
-      out.push({ kind: "folder", folder, parentId, depth, expanded });
-      if (expanded) walk(folder._id, depth + 1);
-    }
-    for (const page of inLevel.get(parentId) ?? []) {
-      out.push({ kind: "page", page, parentId, depth });
+    for (const entry of levels.get(parentId) ?? []) {
+      if (entry.kind === "folder") {
+        const expanded = !collapsed.has(entry.folder._id);
+        out.push({ kind: "folder", folder: entry.folder, parentId, depth, expanded });
+        if (expanded) walk(entry.folder._id, depth + 1);
+      } else {
+        out.push({ kind: "page", page: entry.page, parentId, depth });
+      }
     }
   };
   walk(null, 0);
