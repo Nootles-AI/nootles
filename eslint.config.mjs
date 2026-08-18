@@ -14,6 +14,8 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
     // Convex codegen output.
     "convex/_generated/**",
+    // Other sessions' git worktrees checked out inside the repo.
+    ".claude/worktrees/**",
   ]),
   {
     rules: {

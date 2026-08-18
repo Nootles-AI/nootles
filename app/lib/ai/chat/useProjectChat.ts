@@ -14,9 +14,10 @@ import { track } from "@/app/lib/telemetry";
 import { useOpenPage } from "@/app/components/OpenPageContext";
 import { useReview } from "@/app/components/ReviewContext";
 import { useEditorRegistry } from "@/app/components/editor/EditorRegistry";
-import { BrowserChat, ChatStore, isAnswered } from "./BrowserChat";
+import { BrowserChat, ChatStore, isAnswered, type PendingApproval } from "./BrowserChat";
 import { withAttachmentUrls, type ReadyAttachment } from "./attachments";
 import { runClientTool, type ToolContext } from "./clientTools";
+import type { DrawChoice } from "../drawStyles";
 import { resolveMentions, type MentionPick } from "./mentions";
 import type { MentionData } from "./parts";
 import { isClientTool } from "./tools";
@@ -34,7 +35,7 @@ const EMPTY = {
   status: "ready" as const,
   error: undefined,
   busy: false,
-  approval: null,
+  approvals: [] as PendingApproval[],
 };
 
 /**
@@ -68,6 +69,11 @@ export function useProjectChat({
   const review = useReview();
 
   const [built, setBuilt] = useState<{ key: string; chat: BrowserChat } | null>(null);
+
+  // The style the user last confirmed for drawings, carried on every later
+  // request body. A ref rather than state: nothing renders from it — the
+  // picker keeps its own — and it is read inside the transport callback.
+  const drawStyle = useRef<DrawChoice | null>(null);
 
   // Read by callbacks that outlive the render that created them. Declared first
   // so it is up to date before the effect below builds anything from it.
@@ -169,6 +175,10 @@ export function useProjectChat({
             messages,
             projectId: latest.current.projectId,
             pageId: latest.current.pageId,
+            // The style the picker settled, if any turn here has drawn: the
+            // approved draw calls execute on the resume request, and this is
+            // how the route knows what the user chose.
+            ...(drawStyle.current ? { drawStyle: drawStyle.current } : {}),
           },
         }),
       }),
@@ -288,17 +298,48 @@ export function useProjectChat({
   /**
    * The user's answer to a call the agent may not make alone. Read from the
    * store rather than closed over, so the answer can only ever belong to the
-   * request currently on screen.
+   * request currently on screen. Draw calls are not answered here — they have
+   * their own question, with a style attached.
    */
   const answerApproval = useCallback(
     (approved: boolean) => {
-      const approval = chat?.store.getSnapshot().approval;
-      if (!chat || !approval) return;
-      void chat.addToolApprovalResponse({
-        id: approval.id,
-        approved,
-        ...(approved ? {} : { reason: DECLINED }),
-      });
+      if (!chat) return;
+      const pending = chat.store
+        .getSnapshot()
+        .approvals.filter((a) => a.toolName !== "draw");
+      for (const approval of pending) {
+        void chat.addToolApprovalResponse({
+          id: approval.id,
+          approved,
+          ...(approved ? {} : { reason: DECLINED }),
+        });
+      }
+    },
+    [chat],
+  );
+
+  /**
+   * The style the user settled for the drawings now waiting — one answer for
+   * the whole salvo, so a board is one style rather than nine. Null leaves
+   * them undrawn. The choice is remembered on the thread's request body,
+   * because the approved calls only execute on the resume request and that is
+   * where the route reads it from.
+   */
+  const answerDraws = useCallback(
+    (choice: DrawChoice | null) => {
+      if (!chat) return;
+      const pending = chat.store
+        .getSnapshot()
+        .approvals.filter((a) => a.toolName === "draw");
+      if (!pending.length) return;
+      if (choice) drawStyle.current = choice;
+      for (const approval of pending) {
+        void chat.addToolApprovalResponse(
+          choice
+            ? { id: approval.id, approved: true }
+            : { id: approval.id, approved: false, reason: UNDRAWN },
+        );
+      }
     },
     [chat],
   );
@@ -331,10 +372,11 @@ export function useProjectChat({
     messages: snapshot.messages,
     error: snapshot.error,
     busy: snapshot.busy,
-    approval: snapshot.approval,
+    approvals: snapshot.approvals,
     send,
     nameThreadFrom,
     answerApproval,
+    answerDraws,
     stop,
     rewind,
     ready: hydrated && !!chat,
@@ -388,6 +430,11 @@ function userParts(
 /** Reaches the model as the tool's result, so it is written to be acted on. */
 const DECLINED =
   "The user did not allow this. Tell them it was not done, and do not ask again unless they raise it.";
+
+/** A refused drawing is a decision, not a failure to route around. */
+const UNDRAWN =
+  "The user chose not to draw this. Carry on without the drawing, and do not " +
+  "call draw again for it unless they ask.";
 
 type ToolCall = Parameters<ChatOnToolCallCallback<AbMessage>>[0]["toolCall"];
 type ToolOutput = Parameters<BrowserChat["addToolOutput"]>[0];

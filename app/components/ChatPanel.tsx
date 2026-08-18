@@ -170,10 +170,11 @@ export function ChatPanel({
       <ChatTranscript
         messages={chat.messages}
         busy={chat.busy}
-        approval={chat.approval}
+        approvals={chat.approvals}
         projectId={projectId}
         threadId={threadId}
         onAnswerApproval={chat.answerApproval}
+        onAnswerDraws={chat.answerDraws}
         rewinding={rewind?.uiId ?? null}
         onRewind={(message, what) => void startRewind(message, what)}
         onRewindCancel={() => void cancelRewind()}

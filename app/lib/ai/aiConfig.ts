@@ -211,15 +211,17 @@ export const AI = {
      */
     contextChars: 2000,
     /**
-     * The vector specialist behind the chat's draw tool — the only production
-     * model that generates NATIVE SVG rather than a traced raster, so its
-     * drawings import as editable scene paths. Scenes and storyboard shots go
-     * here; structured diagrams stay on the LLM above, whose labels land as
-     * text where a vector model would paint them as outlines. Flat-priced per
-     * image, hence `perCall` in the ledger rather than token prices.
+     * The vector specialist behind the chat's draw tool — generates NATIVE
+     * SVG rather than a traced raster, so its drawings import as editable
+     * scene paths. V3 rather than V4 because V3 is the generation that takes
+     * a style preset and artistic-level dial (the user's picker), at half
+     * V4's price. Scenes and storyboard shots go here; structured diagrams
+     * stay on the LLM above, whose labels land as text where a vector model
+     * would paint them as outlines. Flat-priced per image, hence `perCall`
+     * in the ledger rather than token prices.
      */
     vector: {
-      model: "recraft/recraft-v4-vector",
+      model: "recraft/recraft-v3",
     },
   },
 
@@ -286,6 +288,8 @@ export const AI = {
     "google/gemini-3.7-flash": { in: 0.375, out: 1.875 },
     "openai/gpt-5.6-terra": { in: 1, out: 6, cacheRead: 0.1, cacheWrite: 1.25 },
     // Flat per image, not per token — `perCall` is the whole price.
+    "recraft/recraft-v3": { in: 0, out: 0, perCall: 0.04 },
+    // Kept after the switch to V3: rows served by V4 still price by V4.
     "recraft/recraft-v4-vector": { in: 0, out: 0, perCall: 0.08 },
     // Kept after the switch away: the ledger prices each row by the model that
     // served it, so removing this would silently un-cost every earlier chat.

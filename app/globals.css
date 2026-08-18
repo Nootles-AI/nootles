@@ -1409,6 +1409,203 @@ ol.nt-md-list {
   background: var(--elevated);
 }
 
+/* The style question a drawing asks before it is drawn. A specimen sheet:
+   every cell is the same scene drawn a different way, so choosing is reading
+   one difference rather than twenty-three pictures. Four columns is what the
+   panel's width affords while a swatch stays large enough to read. */
+.nt-draw-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 9px 6px;
+  /* Three and a half rows: enough to show the range and to make it obvious
+     the list continues, without the card swallowing the conversation. */
+  /* Twelve styles are three rows, and three rows fit: the whole set is on
+     screen at once, so there is nothing to scroll and nothing to fade. */
+  margin-top: 11px;
+}
+.nt-draw-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  text-align: center;
+}
+.nt-draw-swatch {
+  position: relative;
+  display: block;
+  aspect-ratio: 1;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  box-shadow: inset 0 0 0 1px var(--border);
+  transition:
+    box-shadow var(--dur-fast) var(--ease),
+    transform var(--dur-fast) var(--ease);
+}
+.nt-draw-swatch svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.nt-draw-cell:hover .nt-draw-swatch {
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+.nt-draw-cell:focus-visible {
+  outline: none;
+}
+.nt-draw-cell:focus-visible .nt-draw-swatch,
+.nt-draw-cell.is-selected .nt-draw-swatch {
+  box-shadow: inset 0 0 0 1.5px var(--foreground);
+}
+.nt-draw-cell:active .nt-draw-swatch {
+  transform: scale(0.97);
+}
+/* The tick sits on the picture rather than beside it: at this size the
+   swatch IS the control, and a mark on paper is how a chosen frame reads. */
+.nt-draw-tick {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 13px;
+  height: 13px;
+  border-radius: 999px;
+  background: var(--foreground);
+  color: var(--background);
+  /* Linocut and Sharp contrast are mostly black; without a ring of paper
+     around it the mark disappears into the picture it is marking. */
+  box-shadow: 0 0 0 1.5px var(--background);
+}
+/* Two lines, always: "Segmented Colors" does not fit a 60px cell on one, and
+   a truncated specimen name is worse than a wrapped one. The fixed box keeps
+   every row of swatches on the same baseline. */
+.nt-draw-name {
+  display: -webkit-box;
+  min-height: 27px;
+  overflow: hidden;
+  font-size: var(--text-meta);
+  line-height: 1.2;
+  color: var(--muted);
+  text-wrap: balance;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.nt-draw-cell.is-selected .nt-draw-name {
+  color: var(--foreground);
+}
+
+.nt-draw-level {
+  margin-top: 15px;
+}
+.nt-draw-level-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--text-meta-lg);
+  color: var(--muted);
+}
+.nt-draw-level-value {
+  color: var(--foreground);
+}
+/* The dial: a drawn track with a notch per stop, and a real range input on
+   top of it wearing nothing but its thumb — so the gesture, the arrow keys
+   and the accessible name all stay the browser's. */
+.nt-draw-slider {
+  --nt-thumb: 13px;
+  position: relative;
+  height: 20px;
+  margin-top: 7px;
+}
+.nt-draw-track,
+.nt-draw-notches {
+  position: absolute;
+  top: 50%;
+  right: calc(var(--nt-thumb) / 2);
+  left: calc(var(--nt-thumb) / 2);
+  transform: translateY(-50%);
+}
+.nt-draw-track {
+  height: 3px;
+  border-radius: 999px;
+  background: var(--border);
+}
+/* Scaled rather than resized: the dial is dragged, so the fill moves on every
+   frame of the gesture and has no business touching layout. */
+.nt-draw-fill {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--foreground);
+  transform: scaleX(var(--p));
+  transform-origin: left center;
+  transition: transform var(--dur-fast) var(--ease);
+}
+.nt-draw-notches {
+  display: flex;
+  height: 3px;
+  justify-content: space-between;
+}
+.nt-draw-notch {
+  width: 3px;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--border-strong);
+}
+.nt-draw-notch.is-past {
+  background: var(--background);
+}
+.nt-draw-slider input[type="range"] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  margin: 0;
+  background: transparent;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.nt-draw-slider input[type="range"]:focus {
+  outline: none;
+}
+.nt-draw-slider input[type="range"]::-webkit-slider-thumb {
+  width: var(--nt-thumb);
+  height: var(--nt-thumb);
+  border: 1px solid var(--foreground);
+  border-radius: 999px;
+  background: var(--background);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.18);
+  cursor: grab;
+  transition: transform var(--dur-fast) var(--ease);
+  -webkit-appearance: none;
+  appearance: none;
+}
+.nt-draw-slider input[type="range"]::-moz-range-thumb {
+  width: var(--nt-thumb);
+  height: var(--nt-thumb);
+  border: 1px solid var(--foreground);
+  border-radius: 999px;
+  background: var(--background);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.18);
+  cursor: grab;
+  transition: transform var(--dur-fast) var(--ease);
+}
+.nt-draw-slider input[type="range"]:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 3px var(--hover);
+}
+.nt-draw-slider input[type="range"]:focus-visible::-moz-range-thumb {
+  box-shadow: 0 0 0 3px var(--hover);
+}
+.nt-draw-slider input[type="range"]:active::-webkit-slider-thumb {
+  transform: scale(1.12);
+  cursor: grabbing;
+}
+.nt-draw-slider input[type="range"]:active::-moz-range-thumb {
+  transform: scale(1.12);
+  cursor: grabbing;
+}
+
 /* Something that came with the question — a file attached to it, a page it
    pointed at. It is a label on the message, not part of what was said, so it
    takes the metadata voice and never the accent. */

@@ -2,44 +2,85 @@ import { parseHTML } from "linkedom";
 import { serializeScene } from "@/app/components/editor/canvas/scene/serialize";
 import { AI } from "./aiConfig";
 import type { DrawFrame } from "./diagram";
+import { DEFAULT_DRAW_CHOICE, MONOCHROME_STYLES, type DrawChoice } from "./drawStyles";
 import { importSvgScene } from "./svgImport";
 
 /**
  * The vector specialist behind the draw tool.
  *
- * Recraft V4 Vector is the one production model that generates NATIVE SVG —
- * drawn geometry, not a traced raster — and its output converts cleanly into
- * scene paths, so a drawing it makes is as editable as one made with the pen.
- * It draws in a different class from an LLM writing path data, which is the
- * whole reason this module exists; the LLM lane stays behind it as the
- * fallback, and stays the entire lane for structured diagrams, whose labels
- * must land as text where Recraft would paint them as outlines.
+ * Recraft V3 generates NATIVE SVG — drawn geometry, not a traced raster — and
+ * its output converts cleanly into scene paths, so a drawing it makes is as
+ * editable as one made with the pen. V3 rather than V4 on purpose: V3 is the
+ * generation that takes a style preset and an artistic-level dial, which the
+ * user now sets before each batch of drawings, and it costs half as much per
+ * image. The LLM lane stays the entire lane for structured diagrams, whose
+ * labels must land as text where Recraft would paint them as outlines.
  *
  * Server-only: it spends the OpenRouter key. Everything provider-specific is
  * kept in this file, verified against the live endpoint rather than the docs —
- * the images API (not chat), base64 SVG in `data[0].b64_json`, and the size
- * table below, probed value by value because the docs' "multiples of 32" is
- * not what the endpoint accepts.
+ * the images API (not chat), base64 SVG in `data[0].b64_json`, the
+ * `provider.options.recraft` passthrough for style and controls, and the
+ * aspect-ratio enum the endpoint record declares.
  */
 
-/** Sizes the endpoint actually accepts, probed live. Aspect is the selector. */
-const SIZES: readonly { size: string; ar: number }[] = [
-  { size: "1344x768", ar: 1344 / 768 },
-  { size: "768x1344", ar: 768 / 1344 },
-  { size: "1024x1024", ar: 1 },
-  { size: "1152x896", ar: 1152 / 896 },
-  { size: "896x1152", ar: 896 / 1152 },
+/** The ratios the endpoint accepts, from its own endpoint record. */
+const RATIOS: readonly { value: string; ar: number }[] = [
+  { value: "1:1", ar: 1 },
+  { value: "4:3", ar: 4 / 3 },
+  { value: "3:4", ar: 3 / 4 },
+  { value: "16:9", ar: 16 / 9 },
+  { value: "9:16", ar: 9 / 16 },
 ];
 
-function sizeFor(frame: { w: number; h: number }): string {
+function ratioFor(frame: { w: number; h: number }): string {
   const want = Math.log(frame.w / frame.h);
-  let best = SIZES[0];
-  for (const c of SIZES) {
+  let best = RATIOS[0];
+  for (const c of RATIOS) {
     if (Math.abs(Math.log(c.ar) - want) < Math.abs(Math.log(best.ar) - want)) {
       best = c;
     }
   }
-  return best.size;
+  return best.value;
+}
+
+/**
+ * The request, as the endpoint takes it. Style and dial ride the provider
+ * passthrough; the brief gets the economy suffix only on the unstyled default,
+ * because a chosen preset IS the style ask — "no fine detail" pasted after
+ * "Engraving" would be the prompt fighting the preset.
+ */
+export function recraftRequest(
+  brief: string,
+  frame: { w: number; h: number },
+  choice: DrawChoice,
+): object {
+  const styled = choice.style !== DEFAULT_DRAW_CHOICE.style;
+  const ink = MONOCHROME_STYLES.has(choice.style);
+  return {
+    model: AI.diagram.vector.model,
+    prompt: styled
+      ? brief
+      : `${brief}. Bold simple flat vector, clean shapes, no fine detail or texture.`,
+    aspect_ratio: ratioFor(frame),
+    provider: {
+      options: {
+        recraft: {
+          style: choice.style,
+          controls: {
+            artistic_level: choice.artisticLevel,
+            // Stated, not implied: a brief's colour words otherwise tint a
+            // style whose whole character is one ink on bare paper.
+            ...(ink
+              ? {
+                  colors: [{ rgb: [0, 0, 0] }],
+                  background_color: { rgb: [255, 255, 255] },
+                }
+              : {}),
+          },
+        },
+      },
+    },
+  };
 }
 
 export type VectorDrawResult = {
@@ -65,6 +106,7 @@ const DEFAULT_FRAME = { w: 600, h: 450 };
 export async function generateVectorDrawing(
   brief: string,
   requested: DrawFrame,
+  choice: DrawChoice = DEFAULT_DRAW_CHOICE,
   signal?: AbortSignal,
 ): Promise<VectorDrawResult | null> {
   const frame = requested ?? DEFAULT_FRAME;
@@ -95,16 +137,7 @@ export async function generateVectorDrawing(
           Authorization: `Bearer ${apiKey}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          model: AI.diagram.vector.model,
-          // The suffix leans on the model for economy. Left to itself a crowd
-          // scene came back as thousands of paths — slow enough to generate
-          // that parallel draws outlived their step — and at shot scale that
-          // detail is invisible anyway. The importer enforces a hard budget;
-          // this asks for drawings that fit it by nature.
-          prompt: `${brief}. Bold simple flat vector, clean shapes, no fine detail or texture.`,
-          size: sizeFor(frame),
-        }),
+        body: JSON.stringify(recraftRequest(brief, frame, choice)),
         signal,
       });
       if (res.status === 429 || res.status >= 500) {
