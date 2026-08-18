@@ -9,7 +9,15 @@
  */
 
 /** The parts of a card that can be switched off. The name cannot; it is the card. */
-export const PARTS = ["map", "address", "rating", "photos", "note", "link"] as const;
+export const PARTS = [
+  "map",
+  "address",
+  "rating",
+  "photos",
+  "note",
+  "drive",
+  "link",
+] as const;
 export type Part = (typeof PARTS)[number];
 
 export type LocationImage = {
@@ -33,12 +41,6 @@ export type Location = {
   images: LocationImage[];
   /** Parts switched off, sorted. Silence means the whole card. */
   off: Part[];
-  /**
-   * Show how long it takes to drive here. Opt-in and off by default, because
-   * answering it means asking the reader's browser where they are — a prompt
-   * no one should get merely for opening a page with a café on it.
-   */
-  drive?: boolean;
 };
 
 /** How many of the pictures a search offers are shown without being asked. */
@@ -59,6 +61,15 @@ export function shown(location: Location): LocationImage[] {
 
 export function showing(location: Location, part: Part): boolean {
   return !location.off.includes(part);
+}
+
+/**
+ * Whose picture this is. Google's arrive through our own photo proxy and
+ * nothing else does, so the URL says it outright — no attribute to write, keep
+ * in step, or have a model forget.
+ */
+export function isGoogle(image: LocationImage): boolean {
+  return image.src.startsWith("/api/places/photo");
 }
 
 /**

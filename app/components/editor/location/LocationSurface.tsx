@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { LinkIcon, Search } from "../../Icons";
+import { Car, LinkIcon, Search } from "../../Icons";
 import { useReadOnly } from "../readOnly";
 import { embedUrl, isMapsUrl, isShortMapsUrl, linkUrl, parseMapsUrl } from "./maps";
 import { parseLocation } from "./parse";
@@ -100,7 +100,7 @@ export function LocationSurface({
     [blockId],
   );
 
-  const drive = useDriveTime(location, Boolean(location.drive) && has);
+  const drive = useDriveTime(location, showing(location, "drive") && has);
   const search = usePlaceSearch(draft, !has && !isMapsUrl(draft));
 
   async function commit(text: string) {
@@ -198,34 +198,10 @@ export function LocationSurface({
 
   return (
     <div
-      className={`nt-loc${mine ? " is-active" : ""}`}
+      className={`nt-loc${mine ? " is-active" : ""}${map ? "" : " is-mapless"}`}
       onPointerDownCapture={claim}
       onFocus={claim}
     >
-      {map && (
-        <div className="nt-loc-map-wrap">
-          <iframe
-            className="nt-loc-map"
-            src={map}
-            title={`Map of ${location.name}`}
-            loading="lazy"
-            referrerPolicy="no-referrer-when-downgrade"
-          />
-          {/* A frame swallows the press that would have chosen this card, so
-              an unchosen map is behind glass: the first click picks the card
-              up, and once it is the one being edited the map is live and can
-              be dragged. */}
-          {!mine && !readOnly && (
-            <button
-              type="button"
-              className="nt-loc-shield"
-              aria-label={`Select ${location.name}`}
-              onClick={claim}
-            />
-          )}
-        </div>
-      )}
-
       <div className="nt-loc-body">
         <div className="nt-loc-head">
           <span className="nt-loc-name">{location.name}</span>
@@ -272,9 +248,38 @@ export function LocationSurface({
               Google Maps
             </a>
           )}
-          {drive && <span className="nt-loc-drive">{drive} away</span>}
+          {drive && (
+            <span className="nt-loc-drive">
+              <Car width={13} height={13} />
+              {drive}
+            </span>
+          )}
         </div>
       </div>
+
+      {map && (
+        <div className="nt-loc-map-wrap">
+          <iframe
+            className="nt-loc-map"
+            src={map}
+            title={`Map of ${location.name}`}
+            loading="lazy"
+            referrerPolicy="no-referrer-when-downgrade"
+          />
+          {/* A frame swallows the press that would have chosen this card, so
+              an unchosen map is behind glass: the first click picks the card
+              up, and once it is the one being edited the map is live and can
+              be dragged. */}
+          {!mine && !readOnly && (
+            <button
+              type="button"
+              className="nt-loc-shield"
+              aria-label={`Select ${location.name}`}
+              onClick={claim}
+            />
+          )}
+        </div>
+      )}
     </div>
   );
 }

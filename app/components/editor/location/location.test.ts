@@ -10,7 +10,7 @@ const parse = (html: string) => parseLocation(html, dom);
 
 const CARD =
   '<nt-location name="Blue Bottle Coffee" address="1 Ferry Building, San Francisco, CA"' +
-  ' at="37.7955,-122.3937" place="ChIJexample" rating="4.4" votes="1284" off="rating" drive>\n' +
+  ' at="37.7955,-122.3937" place="ChIJexample" rating="4.4" votes="1284" off="rating drive">\n' +
   "  <note>Airy, fast wifi, good for mornings.</note>\n" +
   '  <img src="/api/places/photo?ref=places/a/photos/b">\n' +
   '  <img src="https://example.com/mine.jpg" off>\n' +
@@ -35,13 +35,16 @@ describe("the location format", () => {
       rating: 4.4,
       votes: 1284,
       note: "Airy, fast wifi, good for mornings.",
-      off: ["rating"],
-      drive: true,
+      off: ["rating", "drive"],
     });
     expect(place.images).toHaveLength(2);
     expect(shown(place)).toHaveLength(1);
     expect(showing(place, "rating")).toBe(false);
+    expect(showing(place, "drive")).toBe(false);
+    // Everything not named is showing — including the drive time, which is on
+    // unless somebody says otherwise.
     expect(showing(place, "map")).toBe(true);
+    expect(showing(emptyLocation("X"), "drive")).toBe(true);
   });
 
   it("accepts the tags and attributes a model might reach for instead", () => {
@@ -67,7 +70,6 @@ describe("the location format", () => {
     const plain = serializeLocation(emptyLocation("Corner shop"));
     expect(plain).toBe('<nt-location name="Corner shop"></nt-location>');
     expect(plain).not.toContain("off=");
-    expect(plain).not.toContain("drive");
   });
 
   it("escapes a name that would otherwise be markup", () => {
