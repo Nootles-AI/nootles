@@ -28,6 +28,7 @@ import { compileDocHtml } from "@/app/lib/ai/html/compile";
 import { completionsSuspended } from "@/app/lib/ai/tourDrive";
 import { INLINE_TAGS, grounding, type Run } from "@/app/lib/ai/html/grammar";
 import type { Batch } from "@/convex/ai/operations";
+import { useCompletionContext } from "./CompletionContext";
 import {
   setGhost,
   setAction,
@@ -462,13 +463,19 @@ export function useTabCompletion(
   const appendBatch = useMutation(api.ai.opLog.appendBatch);
   const logSuggestion = useMutation(api.ai.suggestions.log);
   const amendSuggestion = useMutation(api.ai.suggestions.amend);
+  // A ref like the mutations, and for the same reason: the next completion
+  // should carry the latest context without a changed sheet restarting the
+  // whole lane.
+  const contextSeed = useCompletionContext();
   const appendRef = useRef(appendBatch);
   const logRef = useRef(logSuggestion);
   const amendRef = useRef(amendSuggestion);
+  const seedRef = useRef(contextSeed);
   useEffect(() => {
     appendRef.current = appendBatch;
     logRef.current = logSuggestion;
     amendRef.current = amendSuggestion;
+    seedRef.current = contextSeed;
   });
 
   useEffect(() => {
@@ -966,7 +973,7 @@ export function useTabCompletion(
           body: JSON.stringify({
             before: ctx.prefix,
             after: ctx.suffix,
-            seed: PREAMBLE,
+            seed: PREAMBLE + seedRef.current,
             mode: "html",
           }),
           signal: controller.signal,

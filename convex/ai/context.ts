@@ -1,6 +1,7 @@
 import { mutation, query } from "../_generated/server";
 import { v } from "convex/values";
 import { projectRole, readOwned, requireEditable, requireOwned } from "../auth";
+import { FILE_HEAD } from "../files/shared";
 
 /**
  * The per-project Context Sheet — an evolving list of Q&A that primes every LLM
@@ -34,13 +35,17 @@ export const forPrompt = query({
     if (role !== "owner" && role !== "editor") return null;
     const project = await ctx.db.get(args.projectId);
     if (!project) return null;
-    const [entries, repos] = await Promise.all([
+    const [entries, repos, files] = await Promise.all([
       ctx.db
         .query("contextSheet")
         .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
         .collect(),
       ctx.db
         .query("projectRepos")
+        .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+        .collect(),
+      ctx.db
+        .query("projectFiles")
         .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
         .collect(),
     ]);
@@ -54,6 +59,12 @@ export const forPrompt = query({
         fullName: r.fullName,
         defaultBranch: r.defaultBranch,
         summary: r.summary,
+      })),
+      // Same shape as a repo's summary: the head of each file, enough to know
+      // it is worth opening with read_context_file and never a substitute.
+      files: files.map((f) => ({
+        filename: f.filename,
+        head: f.text?.slice(0, FILE_HEAD),
       })),
     };
   },

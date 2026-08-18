@@ -103,6 +103,7 @@ export function projectNote(
     title: string;
     entries: readonly { question: string; answer?: string }[];
     repos?: readonly { fullName: string; defaultBranch: string; summary?: string }[];
+    files?: readonly { filename: string; head?: string }[];
   } | null,
 ): string {
   if (!project) return "";
@@ -141,6 +142,24 @@ export function projectNote(
         "",
         `${r.fullName} (default branch ${r.defaultBranch})`,
         r.summary?.trim() || "Not yet summarised — use the tools to see what is in it.",
+      ]),
+    );
+  }
+
+  // The written cousin of the repo block, with the same one thing to say
+  // plainly: what follows is the head of each file, not the file, and a model
+  // handed a head will happily answer from it alone.
+  const files = project.files ?? [];
+  if (files.length) {
+    lines.push(
+      "",
+      "Files the user has added to this project's context. Read one in full with",
+      "read_context_file rather than answering from what is written below — this is",
+      "the head of each one, not its contents. Refer to a file by its exact name.",
+      ...files.flatMap((f) => [
+        "",
+        f.filename,
+        f.head?.trim() || "Not yet read — use read_context_file to see what is in it.",
       ]),
     );
   }

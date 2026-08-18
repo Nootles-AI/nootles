@@ -68,6 +68,7 @@ export function Sidebar({
   const pages = useQuery(api.pages.listByProject, { projectId });
   const folders = useQuery(api.folders.listByProject, { projectId });
   const repos = useQuery(api.github.repos.listForProject, { projectId });
+  const files = useQuery(api.files.context.listForProject, { projectId });
   // What this sidebar may offer: editors get the page verbs, only the owner
   // gets the project's own — sharing, renaming it, its context sheet.
   const role = useQuery(api.projects.myRole, { projectId });
@@ -494,8 +495,9 @@ export function Sidebar({
         }
       >
         {/* Above the pages because it is above them: what holds for the whole
-            project, and the one place a repository can be attached to it.
-            Owner-only — the sheet is the project's, and its dialog manages it. */}
+            project, and the one place a repository or file can be attached to
+            it. Owner-only — the sheet is the project's, and its dialog manages
+            it. */}
         {owner && (
           <button
             onClick={() => setShowingContext(true)}
@@ -503,7 +505,11 @@ export function Sidebar({
             className="nt-row w-full"
           >
             <span className="nt-row-label">Context</span>
-            {!!repos?.length && <span className="nt-field-note">{repos.length}</span>}
+            {!!((repos?.length ?? 0) + (files?.length ?? 0)) && (
+              <span className="nt-field-note">
+                {(repos?.length ?? 0) + (files?.length ?? 0)}
+              </span>
+            )}
           </button>
         )}
 
