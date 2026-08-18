@@ -28,4 +28,14 @@ describe("diagramElement salvage", () => {
   it("still refuses a reply with no diagram at all", () => {
     expect(diagramElement("I cannot draw that.")).toBe("");
   });
+
+  it("strips the plan comment the reply now opens with", () => {
+    const el = `<nt-diagram w="320" h="180">\n  <nt-rect id="a" x="0" y="0" w="10" h="10"></nt-rect>\n</nt-diagram>`;
+    const reply = `<!-- plan\nscene: a box\nparts: just the box\nlayout: 0 0 10x10 -->\n${el}`;
+    expect(diagramElement(reply)).toBe(el);
+  });
+
+  it("refuses a reply the cap cut inside the plan itself", () => {
+    expect(diagramElement("<!-- plan\nscene: a fox, a for")).toBe("");
+  });
 });

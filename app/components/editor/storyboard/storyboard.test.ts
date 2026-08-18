@@ -67,6 +67,26 @@ describe("storyboard format", () => {
     expect(board.shots[0].scene).toContain(`h="${shotHeight("2.39:1")}"`);
   });
 
+  it("scales a drawing made in another space into the shot's box", () => {
+    // The draw tool asks for double the frame on purpose, and a model told one
+    // size will hand back another; either way the picture must fill the shot.
+    const big = `<nt-storyboard ratio="16:9">
+  <nt-shot>
+    <nt-diagram w="640" h="360">
+      <nt-rect id="sky" x="0" y="0" w="640" h="360" style="background: #123"></nt-rect>
+      <nt-ellipse id="sun" x="480" y="40" w="80" h="80" style="background: #fc0"></nt-ellipse>
+    </nt-diagram>
+    <nt-note></nt-note>
+  </nt-shot>
+</nt-storyboard>`;
+    const shot = parse(big).shots[0].scene;
+    expect(shot).toContain(`w="${SHOT_W}"`);
+    // Halved into the canonical space, geometry and all — the sky still covers
+    // the frame and the sun still sits in its upper right.
+    expect(shot).toContain('id="sky" x="0" y="0" w="320" h="180"');
+    expect(shot).toContain('id="sun" x="240" y="20" w="40" h="40"');
+  });
+
   it("keeps a drawing's coordinates when the ratio changes", () => {
     // Re-crop, not squash: the frame changes and the drawing does not move.
     const board = parse(DRAWN);

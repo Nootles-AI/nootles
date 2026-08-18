@@ -1,3 +1,4 @@
+import { applyOps } from "../canvas/scene/ops";
 import { parseScene, type ParseHtml } from "../canvas/scene/parse";
 import { serializeScene } from "../canvas/scene/serialize";
 import {
@@ -51,8 +52,26 @@ function findRoot(el: Element): Element | null {
  */
 function sceneOf(el: Element | null, ratio: Ratio, parseHtml: ParseHtml): string {
   if (!el) return "";
-  const scene = parseScene(el.outerHTML, parseHtml);
-  if (!scene.nodes.length && !scene.edges.length) return "";
+  const parsed = parseScene(el.outerHTML, parseHtml);
+  if (!parsed.nodes.length && !parsed.edges.length) return "";
+  // Scaled into the shot's box, not relabelled to fit it. A drawing arrives in
+  // whatever space it was made in — the draw tool asks for double on purpose,
+  // and a model told 320 will still hand back 560 — so imposing w/h would leave
+  // the picture at a fraction of the frame with the rest empty. The scale op
+  // reaches path data and style lengths as well as boxes, which is exactly the
+  // difference between a scaled drawing and a broken one.
+  const k = parsed.w > 0 ? SHOT_W / parsed.w : 1;
+  const scene =
+    k === 1
+      ? parsed
+      : applyOps(parsed, [
+          {
+            type: "scale",
+            ids: parsed.nodes.map((node) => node.id),
+            k,
+            anchor: { x: 0, y: 0 },
+          },
+        ]);
   return serializeScene({
     ...scene,
     w: SHOT_W,
