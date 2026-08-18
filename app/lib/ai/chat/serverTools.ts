@@ -196,16 +196,11 @@ export function chatTools(
       ...TOOLS.search_web,
       execute: async ({ query, maxResults }, { abortSignal }) => {
         const { text, sources } = await generateText({
-          model: searchModel(),
+          // Carries the search itself — a request plugin through OpenRouter, a
+          // provider-executed tool when Google is called directly.
+          ...searchModel(maxResults ?? AI.chat.search.maxResults),
           system: SEARCH_SYSTEM,
           prompt: query,
-          providerOptions: {
-            openrouter: {
-              plugins: [
-                { id: "web", max_results: maxResults ?? AI.chat.search.maxResults },
-              ],
-            },
-          },
           abortSignal,
         });
         return {
