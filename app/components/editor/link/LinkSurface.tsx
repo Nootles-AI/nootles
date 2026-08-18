@@ -43,6 +43,9 @@ export function LinkSurface({
     if (!readOnly && link.href) shell.set({ blockId, link, set });
   };
 
+  // Don't show empty input state in read-only mode.
+  if (!link.href && readOnly) return null;
+
   return (
     <div className={`nt-link-card ${mine ? "is-active" : ""}`} onPointerDown={claim}>
       {!link.href ? (
