@@ -7,6 +7,7 @@ import { useReadOnly } from "../readOnly";
 import { LinkIcon, Search } from "../../Icons";
 import { classify } from "./link";
 import { useVerified } from "./verify";
+import { playableSrc, usePlayer } from "./playback";
 import {
   AppleMusicMark,
   SoundCloudMark,
@@ -71,6 +72,14 @@ export function MediaSurface({
   const convex = useConvex();
   const verdict = useVerified(url);
   const picker = useRef<HTMLInputElement>(null);
+  // Registered for the page's one-at-a-time rule. The kind is read from the
+  // url rather than passed down, so a block that changes what it holds
+  // re-registers as what it now is.
+  const kind = classify(url)?.kind ?? null;
+  const playerRef = usePlayer(
+    kind === "search" || kind === "link" ? null : kind,
+    url,
+  );
   const [draft, setDraft] = useState("");
   const [progress, setProgress] = useState<number | null>(null);
   const [error, setError] = useState("");
@@ -236,8 +245,9 @@ export function MediaSurface({
       case "vimeo":
         player = (
           <iframe
+            ref={playerRef}
             className="nt-media-embed is-video"
-            src={source.embedUrl}
+            src={playableSrc(source.kind, source.embedUrl)}
             title="Media player"
             allow={EMBED_ALLOW}
             allowFullScreen
@@ -251,9 +261,9 @@ export function MediaSurface({
           <div className="nt-media-file">
             {title && <div className="nt-media-title">{title}</div>}
             {media === "video" ? (
-              <video className="nt-media-video" controls src={source.url} />
+              <video ref={playerRef} className="nt-media-video" controls src={source.url} />
             ) : (
-              <audio className="nt-media-player" controls src={source.url} />
+              <audio ref={playerRef} className="nt-media-player" controls src={source.url} />
             )}
           </div>
         );
@@ -276,6 +286,7 @@ export function MediaSurface({
       default:
         player = (
           <iframe
+            ref={playerRef}
             className="nt-media-embed"
             src={source.embedUrl}
             height={source.height}

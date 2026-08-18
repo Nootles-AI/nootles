@@ -141,12 +141,14 @@ a.nt-media-card:hover {
   font-size: var(--text-meta-lg);
 }
 
-/* Swapping the song out: present only under the pointer, in the corner the
-   providers leave alone. */
+/* Swapping the song out: present only under the pointer. Top LEFT, because the
+   right is where the providers put their own chrome — Spotify's logo, YouTube's
+   share and watch-later — and a button that lands on top of those is a button
+   nobody can hit. */
 .nt-media-swap {
   position: absolute;
   top: 6px;
-  right: 6px;
+  left: 6px;
   padding: 3px 8px;
   border-radius: var(--radius-sm);
   background: var(--elevated);
