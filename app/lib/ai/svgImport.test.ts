@@ -99,4 +99,17 @@ describe("importSvgScene", () => {
     expect(run(`<div>not svg</div>`)).toBeNull();
     expect(run(`<svg viewBox="0 0 100 100"></svg>`)).toBeNull();
   });
+
+  it("rounds scaled coordinates to a decimal, not fifteen", () => {
+    // 2048-space into 320 = ×0.15625, which turns every coordinate into a
+    // float long enough that the imported scene weighed AS MUCH as its source
+    // — the difference between a nine-shot board fitting Convex's 1MiB value
+    // ceiling and not.
+    const out = run(
+      `<svg viewBox="0 0 2048 1152"><path d="M 218.467 307.914 L 1343.853 524.981 L 300 900 Z" fill="#123"/></svg>`,
+    );
+    const [p] = out!.scene.nodes;
+    const html = JSON.stringify(p);
+    expect(html).not.toMatch(/\d\.\d{3,}/);
+  });
 });

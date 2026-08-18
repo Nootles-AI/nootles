@@ -8,6 +8,7 @@ import {
 import type {
   PathNode,
   Scene,
+  SceneNode,
   StyleMap,
 } from "@/app/components/editor/canvas/scene/types";
 
@@ -277,7 +278,67 @@ export function importSvgScene(
   );
 
   return {
-    scene: { ...scaled, w: frame.w, h: frame.h },
+    scene: {
+      ...scaled,
+      w: frame.w,
+      h: frame.h,
+      nodes: budgeted(scaled.nodes.map(rounded)),
+    },
     dropped,
+  };
+}
+
+/**
+ * How much drawing a drawing may be.
+ *
+ * A crowd scene came back as ~2500 paths — 989KB imported, a whisker under
+ * Convex's 1MiB value ceiling, minutes to generate and heavy everywhere it
+ * travels. At shot scale most of that is texture: sub-pixel specks and grain
+ * nobody can see. Cull the invisible first, then the smallest until the scene
+ * fits the budget — z-order kept, so what remains is the same picture with
+ * less noise. ~250KB keeps a twelve-shot board clear of every 1MiB ceiling.
+ */
+const BYTE_BUDGET = 250_000;
+/** Below this many square px a shape is grain, not drawing. */
+const MIN_AREA = 0.5;
+
+function budgeted(nodes: SceneNode[]): SceneNode[] {
+  let kept = nodes.filter((node) => node.w * node.h >= MIN_AREA);
+  const weight = (list: SceneNode[]) =>
+    list.reduce((sum, n) => sum + (n.kind === "path" ? n.d.length : 60) + 60, 0);
+  if (weight(kept) <= BYTE_BUDGET) return kept;
+  const byArea = [...kept].sort((a, b) => a.w * a.h - b.w * b.h);
+  const cut = new Set<string>();
+  let over = weight(kept) - BYTE_BUDGET;
+  for (const node of byArea) {
+    if (over <= 0) break;
+    cut.add(node.id);
+    over -= (node.kind === "path" ? node.d.length : 60) + 60;
+  }
+  kept = kept.filter((node) => !cut.has(node.id));
+  return kept;
+}
+
+/**
+ * A 2048-space drawing scaled into a 320-wide shot turns every coordinate
+ * into a fifteen-digit float, and the serialized scene came out AS BIG AS THE
+ * SOURCE — which mattered the moment a nine-shot board met Convex's 1MiB
+ * value ceiling. A tenth of a pixel is beyond what any of these drawings
+ * resolve; one decimal keeps the geometry and returns the bytes.
+ */
+const round1 = (v: number) => Math.round(v * 10) / 10;
+
+function rounded(node: SceneNode): SceneNode {
+  const box = {
+    x: round1(node.x),
+    y: round1(node.y),
+    w: round1(node.w),
+    h: round1(node.h),
+  };
+  if (node.kind !== "path") return { ...node, ...box };
+  return {
+    ...node,
+    ...box,
+    d: node.d.replace(/-?\d+\.\d+(?:e-?\d+)?/gi, (n) => String(round1(Number(n)))),
   };
 }
