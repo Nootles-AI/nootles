@@ -8,15 +8,16 @@ import { mathBlockSpec } from "./blocks/MathBlock";
 import { canvasBlockSpec } from "./blocks/CanvasBlock";
 import { albumBlockSpec } from "./blocks/AlbumBlock";
 import { storyboardBlockSpec } from "./blocks/StoryboardBlock";
-import { audioBlockSpec } from "./blocks/AudioBlock";
+import { audioBlockSpec, videoBlockSpec } from "./blocks/MediaBlock";
 import { mathInlineSpec } from "./inline/MathInline";
 import { pageMentionSpec } from "./inline/PageMention";
 import type { BlockType } from "@/convex/ai/operations";
 
-// Swap BlockNote's built-in code and audio blocks for our own.
+// Swap BlockNote's built-in code, audio and video blocks for our own.
 const {
   codeBlock: _builtInCodeBlock,
   audio: _builtInAudio,
+  video: _builtInVideo,
   ...rest
 } = defaultBlockSpecs;
 
@@ -29,6 +30,7 @@ export const schema = BlockNoteSchema.create({
     album: albumBlockSpec,
     storyboard: storyboardBlockSpec,
     audio: audioBlockSpec,
+    video: videoBlockSpec,
   },
   inlineContentSpecs: {
     ...defaultInlineContentSpecs,
