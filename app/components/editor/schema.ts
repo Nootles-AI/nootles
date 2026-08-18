@@ -10,6 +10,7 @@ import { albumBlockSpec } from "./blocks/AlbumBlock";
 import { storyboardBlockSpec } from "./blocks/StoryboardBlock";
 import { audioBlockSpec, videoBlockSpec } from "./blocks/MediaBlock";
 import { locationBlockSpec } from "./blocks/LocationBlock";
+import { linkBlockSpec } from "./blocks/LinkBlock";
 import { mathInlineSpec } from "./inline/MathInline";
 import { pageMentionSpec } from "./inline/PageMention";
 import type { BlockType } from "@/convex/ai/operations";
@@ -33,6 +34,7 @@ export const schema = BlockNoteSchema.create({
     audio: audioBlockSpec,
     video: videoBlockSpec,
     location: locationBlockSpec,
+    linkCard: linkBlockSpec,
   },
   inlineContentSpecs: {
     ...defaultInlineContentSpecs,
