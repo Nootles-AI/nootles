@@ -21,6 +21,7 @@ import { useYjsEditor } from "@/app/lib/sync/useYjsEditor";
 import { initEmptyYDoc, migrateLegacyDoc } from "@/app/lib/sync/migrate";
 import { collabColor } from "@/app/lib/sync/colors";
 import { schema } from "./schema";
+import { armBlock, SERVICES } from "./media/search";
 import { usePages, type PageRef } from "../PagesContext";
 import { pageTitle } from "./inline/PageMention";
 import { useRegisterEditor } from "./EditorRegistry";
@@ -217,6 +218,26 @@ function customSlashItems(editor: EditorInstance): DefaultReactSuggestionItem[] 
         track("block_created", { type: "media" });
       },
     },
+    // The two services that can be searched from inside the block. Each is the
+    // Media block, opened already looking at that shelf.
+    ...(["spotify", "apple"] as const).map((service) => ({
+      title: SERVICES[service].label,
+      subtext: `Search ${SERVICES[service].label} and pick a song`,
+      aliases:
+        service === "spotify"
+          ? ["spotify", "song", "music", "search"]
+          : ["apple music", "applemusic", "apple", "itunes", "song", "music", "search"],
+      group: "Media",
+      onItemClick: () => {
+        const block = editor.getTextCursorPosition().block;
+        armBlock(block.id, service);
+        editor.updateBlock(block, {
+          type: "audio",
+          props: { url: "", name: "", caption: "" },
+        });
+        track("block_created", { type: `media-${service}` });
+      },
+    })),
     {
       title: "Album",
       subtext: "Photos and videos, in a waterfall",
