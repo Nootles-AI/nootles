@@ -63,6 +63,61 @@ function encodedInsert(text: string): ArrayBuffer {
   ) as ArrayBuffer;
 }
 
+/**
+ * A log like the one that took the storyboard page down: one oversized value
+ * rewritten `count` times, so the LOG is far heavier than any single read may
+ * be while the document it adds up to stays small. Returns the ending seq.
+ */
+async function fatLog(
+  t: TestConvex<typeof schema>,
+  docId: string,
+  count: number,
+): Promise<number> {
+  const as = t.withIdentity(OWNER);
+  const local = new Y.Doc();
+  const pending: Uint8Array[] = [];
+  local.on("update", (u: Uint8Array) => pending.push(u));
+  const text = local.getText("t");
+  let seq = 0;
+  for (let i = 0; i < count; i++) {
+    text.delete(0, text.length);
+    text.insert(0, `m${i} ` + "x".repeat(UPDATE_CHUNK_BYTES * 2));
+    const merged = Y.mergeUpdates(pending.splice(0));
+    seq = await as.mutation(api.ydoc.append, {
+      docId,
+      chunks: splitUpdate(merged),
+    });
+  }
+  local.destroy();
+  return seq;
+}
+
+/** The document as a reader rebuilds it: every snapshot chunk, in order. */
+async function rebuild(
+  as: ReturnType<TestConvex<typeof schema>["withIdentity"]>,
+  docId: string,
+): Promise<Y.Doc> {
+  const meta = await as.query(api.ydoc.meta, { docId });
+  const parts: ArrayBuffer[] = [];
+  for (let part = 0; part < meta!.snapshotParts; part++) {
+    const chunk = await as.query(api.ydoc.snapshot, {
+      docId,
+      gen: meta!.snapshotSeq,
+      part,
+    });
+    parts.push(chunk!);
+  }
+  const whole = new Uint8Array(parts.reduce((n, c) => n + c.byteLength, 0));
+  let at = 0;
+  for (const c of parts) {
+    whole.set(new Uint8Array(c), at);
+    at += c.byteLength;
+  }
+  const doc = new Y.Doc();
+  Y.applyUpdate(doc, whole);
+  return doc;
+}
+
 async function claim(
   t: TestConvex<typeof schema>,
   projectId: Id<"projects">,
@@ -171,6 +226,56 @@ describe("append", () => {
     expect(doc.getText("t").toString().length).toBe(UPDATE_CHUNK_BYTES * 2 + 1);
   });
 
+  test("a log too heavy for one read comes back in pages", async () => {
+    const t = harness();
+    const { docId } = await world(t);
+    const as = t.withIdentity(OWNER);
+    await as.mutation(api.ydoc.init, { docId, update: encodedInsert("seed ") });
+    const last = await fatLog(t, docId, 6);
+
+    // The first page stops short of the log — this is the shape that used to
+    // come back as one 16MiB read and killed the query, blanking the page.
+    const page = await as.query(api.ydoc.updatesSince, { docId, afterSeq: 0 });
+    expect(page.length).toBeLessThan(
+      await t.run(async (ctx) =>
+        (
+          await ctx.db
+            .query("yUpdates")
+            .withIndex("by_doc_and_seq", (q) => q.eq("docId", docId))
+            .collect()
+        ).length,
+      ),
+    );
+    // Whole updates only: the page never ends inside a chunk group.
+    const tail = page[page.length - 1];
+    expect(tail.parts === undefined || tail.part === tail.parts - 1).toBe(true);
+
+    // And the client's loop — pull, apply, advance — still arrives at the
+    // whole document, however many pages it takes.
+    const doc = new Y.Doc();
+    let cursor = 0;
+    let pages = 0;
+    while (cursor < last) {
+      const rows = await as.query(api.ydoc.updatesSince, {
+        docId,
+        afterSeq: cursor,
+      });
+      expect(rows.length).toBeGreaterThan(0);
+      pages++;
+      for (const row of joinUpdateRows(rows)) {
+        Y.applyUpdate(doc, row.update);
+        cursor = Math.max(cursor, row.seq);
+      }
+    }
+    expect(pages).toBeGreaterThan(1);
+    // The replay lands on the document the writer left: the seed it started
+    // from and the last rewrite, with the overwritten ones gone.
+    const text = doc.getText("t").toString();
+    expect(text).toContain("seed");
+    expect(text).toContain("m5 ");
+    expect(text).not.toContain("m0 ");
+  });
+
   test("appending to a doc that was never made Yjs-native fails", async () => {
     const t = harness();
     const { docId } = await world(t);
@@ -270,6 +375,43 @@ describe("compaction", () => {
     for (const expected of ["seed", "w0", "w4"]) {
       expect(words).toContain(expected);
     }
+  });
+
+  test("a log too heavy for one fold is folded in passes", async () => {
+    const t = harness();
+    const { docId } = await world(t);
+    const as = t.withIdentity(OWNER);
+    await as.mutation(api.ydoc.init, { docId, update: encodedInsert("seed ") });
+    const last = await fatLog(t, docId, 6);
+
+    // One pass cannot reach the target — but it leaves a real snapshot, and
+    // the passes it schedules carry the rest.
+    await t.mutation(internal.ydoc.compact, { docId, targetSeq: last });
+    const first = await as.query(api.ydoc.meta, { docId });
+    expect(first!.snapshotSeq).toBeGreaterThan(0);
+    expect(first!.snapshotSeq).toBeLessThan(last);
+
+    // It carries itself: the pass that came up short schedules the next one.
+    const queued = await t.run(async (ctx) =>
+      await ctx.db.system.query("_scheduled_functions").collect(),
+    );
+    expect(queued.some((f) => f.name.includes("compact"))).toBe(true);
+
+    for (let pass = 0; pass < 12; pass++) {
+      const meta = await as.query(api.ydoc.meta, { docId });
+      if (meta!.snapshotSeq === last) break;
+      await t.mutation(internal.ydoc.compact, { docId, targetSeq: last });
+    }
+    const meta = await as.query(api.ydoc.meta, { docId });
+    expect(meta).toMatchObject({ seq: last, snapshotSeq: last });
+    expect(
+      await as.query(api.ydoc.updatesSince, { docId, afterSeq: 0 }),
+    ).toEqual([]);
+
+    // And the document the folds left behind is the document that was written.
+    const text = (await rebuild(as, docId)).getText("t").toString();
+    expect(text).toContain("seed");
+    expect(text).toContain("m5 ");
   });
 
   test("a stale compact target is a no-op", async () => {
