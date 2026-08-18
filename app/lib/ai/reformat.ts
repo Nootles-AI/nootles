@@ -1,5 +1,5 @@
 import { AI } from "./aiConfig";
-import { chatTarget, reportUpstream } from "./providers";
+import { chatTarget, postChat, readUsage, reportUpstream } from "./providers";
 
 /**
  * Reformat candidates for one finished block.
@@ -126,20 +126,29 @@ const SHOTS: Array<{ in: string; out: string }> = [
 export type ReformatResult = {
   candidates: ReformatCandidate[];
   usage?: { promptTokens?: number; completionTokens?: number };
+  /**
+   * Why there are no candidates, when the reason was not "nothing fits".
+   *
+   * An empty result is the right answer to ordinary prose and the symptom of a
+   * dead lane, and for six weeks this code could not tell them apart: a retired
+   * model, a truncated reply and a considered refusal all arrived as `[]`, the
+   * route logged `ok`, and the ledger filled with cheap successful calls while
+   * the feature did nothing. The user still sees silence either way — an
+   * ambient suggestion may not interrupt anyone with an error — but the row now
+   * says which silence it was.
+   */
+  failure?: string;
 };
 
 export async function reformatCandidates(
   block: string,
   signal?: AbortSignal,
 ): Promise<ReformatResult> {
-  const { url, key, model } = chatTarget(AI.reformat.model);
+  const target = chatTarget(AI.reformat.model, AI.reformat.maxTokens);
 
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model,
-      max_tokens: AI.reformat.maxTokens,
+  const res = await postChat(
+    target,
+    {
       temperature: 0,
       messages: [
         { role: "system", content: SYSTEM },
@@ -149,31 +158,33 @@ export async function reformatCandidates(
         ]),
         { role: "user", content: block },
       ],
-    }),
+    },
     signal,
-  });
+  );
   if (!res.ok) {
     await reportUpstream("reformat", res);
-    return { candidates: [] };
+    return { candidates: [], failure: `upstream-${res.status}` };
   }
 
   const json = await res.json();
-  const usage = json?.usage
-    ? {
-        promptTokens: json.usage.prompt_tokens as number | undefined,
-        completionTokens: json.usage.completion_tokens as number | undefined,
-      }
-    : undefined;
+  const usage = readUsage(json?.usage);
+  // Truncation is not a refusal: what came back is the head of an answer, and
+  // parsing it would at best drop candidates and at worst apply half of one.
+  if (json?.choices?.[0]?.finish_reason === "length") {
+    return { candidates: [], usage, failure: "truncated" };
+  }
   const text = String(json?.choices?.[0]?.message?.content ?? "")
     .trim()
     // Models fence JSON out of habit however firmly you ask them not to.
     .replace(/^```(?:json)?\s*/, "")
     .replace(/\s*```$/, "");
-  if (!text) return { candidates: [], usage };
+  // The model is asked to decline with `[]`, so nothing at all is the wire
+  // failing quietly rather than the model having nothing to say.
+  if (!text) return { candidates: [], usage, failure: "empty" };
 
   try {
     const parsed = JSON.parse(text);
-    if (!Array.isArray(parsed)) return { candidates: [], usage };
+    if (!Array.isArray(parsed)) return { candidates: [], usage, failure: "not-an-array" };
     return {
       candidates: parsed
         .filter(
@@ -184,6 +195,6 @@ export async function reformatCandidates(
       usage,
     };
   } catch {
-    return { candidates: [], usage };
+    return { candidates: [], usage, failure: "unparsable" };
   }
 }

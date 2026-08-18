@@ -71,6 +71,14 @@ export const AI = {
    */
   reformat: {
     model: "google/gemini-3.7-flash",
+    /**
+     * How long the ANSWER may be — three candidates of rewritten HTML. What a
+     * thinking model needs on top of it is added at the wire, in `providers.ts`,
+     * because it is a fact about Gemini and not about this lane: 3.7 spends its
+     * reasoning inside the same ceiling, so for a while this number was really
+     * a thinking budget and every run longer than a few lines came back
+     * truncated, unparsable, and indistinguishable from "nothing fits".
+     */
     maxTokens: 900,
     /** More than three chips is a menu, not a suggestion. */
     maxCandidates: 3,

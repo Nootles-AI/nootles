@@ -1,5 +1,5 @@
 import { AI } from "./aiConfig";
-import { chatTarget, reportUpstream } from "./providers";
+import { chatTarget, postChat, readUsage, reportUpstream } from "./providers";
 
 /**
  * Guesses which surface a feedback report is about, from everything the
@@ -22,6 +22,9 @@ export const FEEDBACK_CATEGORIES = [
 ] as const;
 
 export type FeedbackCategory = (typeof FEEDBACK_CATEGORIES)[number];
+
+/** One word from the list, and the longest of them is three tokens. */
+const ANSWER_TOKENS = 8;
 
 const SYSTEM = `You classify a user's feedback report for Nootles, an AI-native
 planning tool. Reply with EXACTLY one word from this list and nothing else:
@@ -46,8 +49,10 @@ export async function categorizeFeedback(
 ): Promise<{
   category: FeedbackCategory;
   usage?: { promptTokens?: number; completionTokens?: number };
+  /** Why the guess is the fallback rather than the model's. See `ReformatResult`. */
+  failure?: string;
 }> {
-  const { url, key, model } = chatTarget(AI.reformat.model);
+  const target = chatTarget(AI.reformat.model, ANSWER_TOKENS);
 
   const context = [
     `Report: ${input.text.slice(0, 1500)}`,
@@ -57,38 +62,30 @@ export async function categorizeFeedback(
     .filter(Boolean)
     .join("\n\n");
 
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model,
-      max_tokens: 8,
+  const res = await postChat(
+    target,
+    {
       temperature: 0,
       messages: [
         { role: "system", content: SYSTEM },
         { role: "user", content: context },
       ],
-    }),
+    },
     signal,
-  });
+  );
   if (!res.ok) {
     await reportUpstream("categorize", res);
-    return { category: "general" };
+    return { category: "general", failure: `upstream-${res.status}` };
   }
 
   const json = await res.json();
-  const usage = json?.usage
-    ? {
-        promptTokens: json.usage.prompt_tokens as number | undefined,
-        completionTokens: json.usage.completion_tokens as number | undefined,
-      }
-    : undefined;
+  const usage = readUsage(json?.usage);
   const word = String(json?.choices?.[0]?.message?.content ?? "")
     .trim()
     .toLowerCase()
     .split(/\s/)[0];
-  const category = (FEEDBACK_CATEGORIES as readonly string[]).includes(word)
-    ? (word as FeedbackCategory)
-    : "general";
-  return { category, usage };
+  if (!(FEEDBACK_CATEGORIES as readonly string[]).includes(word)) {
+    return { category: "general", usage, failure: word ? "off-list" : "empty" };
+  }
+  return { category: word as FeedbackCategory, usage };
 }

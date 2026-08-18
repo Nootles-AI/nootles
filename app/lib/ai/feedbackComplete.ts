@@ -1,5 +1,5 @@
 import { AI } from "./aiConfig";
-import { chatTarget, reportUpstream } from "./providers";
+import { chatTarget, postChat, readUsage, reportUpstream } from "./providers";
 
 /**
  * Finishes the sentence a user is typing into the feedback form, informed by
@@ -19,6 +19,9 @@ with ONLY the continuation, starting exactly where their text ends (begin with a
 if one is needed). No quotes, no rephrasing of what they already wrote. If their text
 already reads complete, or you have nothing specific to add, reply with nothing.`;
 
+/** Twelve words, and room for the punctuation they arrive with. */
+const ANSWER_TOKENS = 40;
+
 export async function completeFeedback(
   input: {
     text: string;
@@ -30,8 +33,10 @@ export async function completeFeedback(
 ): Promise<{
   completion: string;
   usage?: { promptTokens?: number; completionTokens?: number };
+  /** Why there is no ghost text, when the model did not simply decline. */
+  failure?: string;
 }> {
-  const { url, key, model } = chatTarget(AI.reformat.model);
+  const target = chatTarget(AI.reformat.model, ANSWER_TOKENS);
 
   const context = [
     `Report type: ${input.kind === "issue" ? "bug report" : "feature request"}`,
@@ -42,32 +47,30 @@ export async function completeFeedback(
     .filter(Boolean)
     .join("\n\n");
 
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model,
-      max_tokens: 40,
+  const res = await postChat(
+    target,
+    {
       temperature: 0.3,
       messages: [
         { role: "system", content: SYSTEM },
         { role: "user", content: context },
       ],
-    }),
+    },
     signal,
-  });
+  );
   if (!res.ok) {
     await reportUpstream("feedback-complete", res);
-    return { completion: "" };
+    return { completion: "", failure: `upstream-${res.status}` };
   }
 
   const json = await res.json();
-  const usage = json?.usage
-    ? {
-        promptTokens: json.usage.prompt_tokens as number | undefined,
-        completionTokens: json.usage.completion_tokens as number | undefined,
-      }
-    : undefined;
+  const usage = readUsage(json?.usage);
+  // A twelve-word continuation that ran out of room is not a continuation. It
+  // was arriving as a fragment of the model's own reasoning — "Task",
+  // "Constraint checklist" — offered to the user as their next few words.
+  if (json?.choices?.[0]?.finish_reason === "length") {
+    return { completion: "", usage, failure: "truncated" };
+  }
   let completion = String(json?.choices?.[0]?.message?.content ?? "")
     .replace(/\s+/g, " ")
     .replace(/^["'`]+|["'`]+$/g, "")
