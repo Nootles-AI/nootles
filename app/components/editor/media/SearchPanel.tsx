@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { Found } from "@/app/api/media/search/route";
+import type { Found } from "./types";
 import { Pause, Play } from "../../Icons";
 import { classify } from "./link";
 import { usePlayer } from "./playback";
