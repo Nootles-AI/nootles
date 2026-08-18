@@ -46,7 +46,9 @@ the script the pictures answer to. Build a board in that order, as two edits:
     <nt-diagram> yet. The user reads the story while the drawing happens.
  2. Then one draw call per shot, all in one step, each brief built FROM that shot's note —
     the note's action is the subject; add composition, light and the board's shared style
-    words. Place the returned diagrams with a second edit_page, notes unchanged.
+    words. Place them with a second edit_page, notes unchanged, each shot carrying the ref
+    its own draw call returned:
+      <nt-shot><nt-diagram ref="d4a91c"></nt-diagram><nt-note>The note, as written</nt-note></nt-shot>
 Never draw a shot whose note you have not written: a picture that came first leaves the
 note describing the drawing instead of the story.
 

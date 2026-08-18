@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { generateText, tool } from "ai";
 import type { ConvexHttpClient } from "convex/browser";
 import { api } from "@/convex/_generated/api";
@@ -91,7 +92,14 @@ export function chatTools(
               "picture — a subject, an action, a composition — and try once more.",
           };
         }
-        return { html };
+        // The drawing goes back by NAME. `html` rides along for the browser,
+        // which is where it is needed, and `stripDrawings` takes it out of what
+        // the model reads — nine shots is fifteen thousand tokens of path data,
+        // and a model handed that back has to write every character of it out
+        // again to place it. Measured: it declined, and answered with a summary
+        // of an edit it never made.
+        const ref = `d${randomUUID().slice(0, 6)}`;
+        return { ref, shapes: (html.match(/<nt-[a-z]/g) ?? []).length - 1, html };
       },
     }),
 

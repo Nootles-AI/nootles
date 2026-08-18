@@ -21,7 +21,12 @@ import {
   projectNote,
 } from "@/app/lib/ai/chat/prompt";
 import { chatTools } from "@/app/lib/ai/chat/serverTools";
-import { cached, markCachePoints, shortenStaleReads } from "@/app/lib/ai/chat/transcript";
+import {
+  cached,
+  markCachePoints,
+  shortenStaleReads,
+  stripDrawings,
+} from "@/app/lib/ai/chat/transcript";
 import type { AbMessage } from "@/app/lib/ai/chat/types";
 import { recordAiCall } from "@/app/lib/ai/recordCall";
 import { asUser } from "@/app/lib/convexServer";
@@ -70,11 +75,13 @@ export async function POST(req: Request) {
   // something the model reads; without it they are UI and nothing more.
   // Named explicitly: inference reads `Omit<UI_MESSAGE, "id">` and falls back to
   // the base message, which has no data parts for `convertDataPart` to convert.
-  const history = shortenStaleReads(
-    await convertToModelMessages<AbMessage>(messages, {
-      ignoreIncompleteToolCalls: true,
-      convertDataPart,
-    }),
+  const history = stripDrawings(
+    shortenStaleReads(
+      await convertToModelMessages<AbMessage>(messages, {
+        ignoreIncompleteToolCalls: true,
+        convertDataPart,
+      }),
+    ),
   );
 
   // A turn that has spent its budget gets one last step with no tools, which is

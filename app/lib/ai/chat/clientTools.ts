@@ -31,7 +31,43 @@ export type ToolContext = {
   openPageId: () => Id<"pages"> | null;
   openPage: (pageId: Id<"pages">) => void;
   editorFor: (pageId: Id<"pages">) => Promise<LiveEditor>;
+  /**
+   * The drawings this turn's `draw` calls produced, by the name each returned.
+   *
+   * The tool runs on the server and this one runs here, so the tool result is
+   * the only thing that crosses — and the model never sees the markup inside
+   * it (see `stripDrawings`). It writes `<nt-diagram ref="…">` instead, and
+   * this is where the name is redeemed.
+   */
+  drawings: () => ReadonlyMap<string, string>;
 };
+
+/** `<nt-diagram ref="d3"></nt-diagram>` — a drawing placed by name. */
+const REF = /<nt-diagram\b[^>]*\bref="([^"]+)"[^>]*>\s*<\/nt-diagram\s*>/gi;
+
+/**
+ * Redeems every `ref` in the model's HTML for the drawing it names.
+ *
+ * A string pass rather than a DOM one on purpose: this runs BEFORE
+ * `parseDocHtml`, whose whole first act is to lift code and maths out of reach
+ * of the HTML parser, and a DOM round trip here would mangle exactly what that
+ * protects. A name with no drawing behind it is left standing — the compiler
+ * reads the empty element as an empty canvas, which is visibly wrong rather
+ * than silently wrong, and `notPlaced` tells the model which name failed.
+ */
+export function expandRefs(html: string, drawings: ReadonlyMap<string, string>): {
+  html: string;
+  missing: string[];
+} {
+  const missing: string[] = [];
+  const out = html.replace(REF, (whole, ref: string) => {
+    const drawing = drawings.get(ref);
+    if (drawing) return drawing;
+    missing.push(ref);
+    return whole;
+  });
+  return { html: out, missing };
+}
 
 /**
  * The browser's half of the tool set.
@@ -83,13 +119,23 @@ async function editPage(
   // The model's HTML may place icons; the registry must be able to answer
   // before anything parses it.
   await loadIconCatalog();
+  const placed = expandRefs(html, ctx.drawings());
+  if (placed.missing.length) {
+    return [
+      `That edit was not applied, and nothing on the page changed. There ${
+        placed.missing.length === 1 ? "is no drawing" : "are no drawings"
+      } named ${placed.missing.map((r) => `"${r}"`).join(", ")}.`,
+      "Use the ref each draw call returned, exactly as it came back — or call draw again.",
+    ].join("\n");
+  }
+  const source = placed.html;
   const page = await fetchPage(ctx, pageId);
   // The applier needs the live editor, and only the open page has one.
   ctx.openPage(pageId);
   const editor = await ctx.editorFor(pageId);
   const document = editor.document as unknown as AnyBlock[];
 
-  const next = parseDocHtml(html);
+  const next = parseDocHtml(source);
   const current = parseDocHtml(toDocHtml(document));
   // An id the page does not have has to be caught here, because the compiler
   // cannot: it is handed a FRAGMENT, so "not in the current document" reads to
