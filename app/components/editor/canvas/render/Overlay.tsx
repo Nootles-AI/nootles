@@ -66,6 +66,13 @@ export interface OverlayProps {
   onRotateStart(event: ReactPointerEvent): void;
   /** Omit to leave the radius handles off. */
   onRadiusStart?(event: ReactPointerEvent, corner: Handle): void;
+  /**
+   * Draw what is selected, and nothing to grab it by. A viewer may point at a
+   * shape — so the outline and the hover ring stay — but every handle is a
+   * verb they do not have, and a radius anchor on a shape nobody can round is
+   * just an invitation that goes nowhere.
+   */
+  readOnly?: boolean;
   ref?: Ref<OverlayApi>;
 }
 
@@ -191,6 +198,7 @@ export function Overlay({
   onResizeStart,
   onRotateStart,
   onRadiusStart,
+  readOnly = false,
   ref,
 }: OverlayProps) {
   const zoom = useSyncExternalStore(
@@ -274,6 +282,14 @@ export function Overlay({
       group.setAttribute("transform", rot ? `rotate(${rot} ${cx} ${cy})` : "");
       box(outline.current!, x, y, w, h);
 
+      // Read-only stops at the outline. The handle groups are hidden markup
+      // below, so nothing here is stale — there is simply nothing to place,
+      // and the readout only ever describes a gesture in progress.
+      if (readOnly) {
+        chip.current!.style.display = "none";
+        return;
+      }
+
       const t = TARGET * k;
       const z = ZONE * k;
       for (let i = 0; i < CORNERS.length; i++) {
@@ -318,7 +334,7 @@ export function Overlay({
         `translate(${b.x + b.w / 2} ${b.y + b.h + CHIP_GAP * k}) scale(${k})`,
       );
     },
-    [drawRadii],
+    [drawRadii, readOnly],
   );
 
   /** What the corner radii were last read for, so they are not read for nothing. */
@@ -382,6 +398,8 @@ export function Overlay({
   );
 
   const rot = selection?.rot ?? 0;
+  /** Every group that is a verb — present in the markup, absent to a reader. */
+  const grabbable = readOnly ? { display: "none" } : undefined;
   const start =
     (mode: "resize" | "rotate", handle: Handle) =>
     (event: ReactPointerEvent) => {
@@ -392,7 +410,7 @@ export function Overlay({
     };
 
   return (
-    <svg ref={root} className="nt-ov">
+    <svg ref={root} className={readOnly ? "nt-ov is-view" : "nt-ov"}>
       <g className="nt-ov-members">
         {members.map((m, i) => (
           <rect key={i} {...outlineOf(m)} />
@@ -401,36 +419,39 @@ export function Overlay({
       {hover && <rect className="nt-ov-hover" {...outlineOf(hover)} />}
       <path ref={guides} className="nt-ov-guides" d="" />
       <rect ref={band} className="nt-ov-band" style={{ display: "none" }} />
+      {/* Kept in the tree read-only rather than dropped: `draw` addresses every
+          ref below without guarding, and a hidden group is a cheaper promise to
+          keep than four more null checks on the path that runs every frame. */}
       <g ref={frame} style={{ display: "none" }}>
         <rect ref={outline} className="nt-ov-outline" />
-        <g ref={zones} className="nt-ov-zones">
+        <g ref={zones} className="nt-ov-zones" style={grabbable}>
           {CORNERS.map((corner) => (
             <rect
               key={corner}
               style={{ cursor: rotationCursor(outward(corner) + rot) }}
-              onPointerDown={start("rotate", corner)}
+              onPointerDown={readOnly ? undefined : start("rotate", corner)}
             />
           ))}
         </g>
-        <g ref={edges} className="nt-ov-edges">
+        <g ref={edges} className="nt-ov-edges" style={grabbable}>
           {EDGES.map((handle) => (
             <rect
               key={handle}
               style={{ cursor: resizeCursor(handle, rot) }}
-              onPointerDown={start("resize", handle)}
+              onPointerDown={readOnly ? undefined : start("resize", handle)}
             />
           ))}
         </g>
-        <g ref={corners} className="nt-ov-corners">
+        <g ref={corners} className="nt-ov-corners" style={grabbable}>
           {CORNERS.map((handle) => (
             <rect
               key={handle}
               style={{ cursor: resizeCursor(handle, rot) }}
-              onPointerDown={start("resize", handle)}
+              onPointerDown={readOnly ? undefined : start("resize", handle)}
             />
           ))}
         </g>
-        <g ref={grips} className="nt-ov-grips">
+        <g ref={grips} className="nt-ov-grips" style={grabbable}>
           {CORNERS.map((corner) => (
             <circle key={corner} />
           ))}
