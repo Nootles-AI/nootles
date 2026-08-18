@@ -33,6 +33,7 @@ function mediaBlockSpec(type: "audio" | "video") {
         // flex, so this wrapper would otherwise shrink to the player's width.
         <div className="relative w-full">
           <MediaSurface
+            blockId={block.id}
             url={block.props.url}
             title={block.props.caption || block.props.name}
             fallbackKind={type}
