@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import { generateText, tool } from "ai";
 import type { ConvexHttpClient } from "convex/browser";
 import { api } from "@/convex/_generated/api";
@@ -72,8 +72,27 @@ export function chatTools(
        * a tool loop's. Costed like every other diagram call, under the same
        * feature, because that is what it is.
        */
-      execute: async ({ brief, w, h, kind }, { abortSignal }) => {
+      execute: async ({ brief, w, h, kind }) => {
         const frame = w && h ? { w, h } : null;
+
+        // The ref is the brief's own fingerprint, which makes drawing
+        // IDEMPOTENT — and idempotence is the whole reliability story. A
+        // nine-shot salvo routinely loses its slowest calls when the model
+        // ends the step early (it likes an edit_page in with the draws, and
+        // ending the step ends the request): measured live, four of nine
+        // shots died in flight and their retries died the same way. So the
+        // work below deliberately ignores the request's abort signal — an
+        // orphaned draw finishes and stores anyway — and the retry, hashing
+        // the same brief, finds the finished drawing here for free instead
+        // of paying the artist twice.
+        const ref = `d${createHash("sha256")
+          .update(JSON.stringify([brief, frame?.w, frame?.h, kind ?? "scene"]))
+          .digest("hex")
+          .slice(0, 10)}`;
+        const cached = await convex.query(api.ai.drawings.get, { refs: [ref] });
+        if (cached[ref]) {
+          return { ref, shapes: (cached[ref].match(/<nt-[a-z]/g) ?? []).length - 1 };
+        }
 
         // Every scene goes to the vector specialist, framed or not — a bare
         // "draw a cat" is as much a picture as a storyboard shot, and an
@@ -83,7 +102,7 @@ export function chatTools(
         // agent asked for a drawing, not for a particular pen.
         let html = "";
         if (kind !== "diagram") {
-          const vector = await generateVectorDrawing(brief, frame, abortSignal);
+          const vector = await generateVectorDrawing(brief, frame);
           if (vector) {
             recordAiCall(convex, {
               feature: "diagram",
@@ -95,7 +114,7 @@ export function chatTools(
           }
         }
         if (!html) {
-          html = await generateDiagram(brief, frame, abortSignal, ({ usage, latencyMs }) =>
+          html = await generateDiagram(brief, frame, undefined, ({ usage, latencyMs }) =>
             recordAiCall(convex, {
               feature: "diagram",
               model: AI.diagram.model,
@@ -123,7 +142,6 @@ export function chatTools(
         // route's transcript stripping never runs), and into a persisted
         // transcript that Convex refused at 2.14MiB. A ref weighs nothing in
         // all three places, and `edit_page` redeems it from the table.
-        const ref = `d${randomUUID().slice(0, 6)}`;
         await convex.mutation(api.ai.drawings.put, { ref, data: html });
         return { ref, shapes: (html.match(/<nt-[a-z]/g) ?? []).length - 1 };
       },

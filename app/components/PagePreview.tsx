@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useConvex, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import { joinUpdateRows } from "@/convex/yshape";
 import { parseAlbum } from "@/app/components/editor/album/parse";
 import type { AnyBlock } from "@/app/lib/ai/projection";
 
@@ -99,14 +100,26 @@ export function PagePreview({ docId }: { docId: string | null }) {
     let cancelled = false;
     void (async () => {
       try {
-        const parts: ArrayBuffer[] = [];
+        // Snapshot chunks are byte slices of ONE update — gathered back into
+        // one buffer — and chunked update rows join the same way (yshape).
+        const chunks: ArrayBuffer[] = [];
         for (let part = 0; part < meta.snapshotParts; part++) {
           const chunk = await convex.query(api.ydoc.snapshot, {
             docId,
             gen: meta.snapshotSeq,
             part,
           });
-          if (chunk) parts.push(chunk);
+          if (chunk) chunks.push(chunk);
+        }
+        const parts: ArrayBuffer[] = [];
+        if (chunks.length) {
+          const whole = new Uint8Array(chunks.reduce((n, c) => n + c.byteLength, 0));
+          let at = 0;
+          for (const c of chunks) {
+            whole.set(new Uint8Array(c), at);
+            at += c.byteLength;
+          }
+          parts.push(whole.buffer);
         }
         let cursor = meta.snapshotSeq;
         for (;;) {
@@ -115,8 +128,15 @@ export function PagePreview({ docId }: { docId: string | null }) {
             afterSeq: cursor,
           });
           if (!rows.length) break;
-          for (const row of rows) {
-            parts.push(row.update);
+          const joined = joinUpdateRows(rows);
+          if (!joined.length) break;
+          for (const row of joined) {
+            parts.push(
+              row.update.buffer.slice(
+                row.update.byteOffset,
+                row.update.byteOffset + row.update.byteLength,
+              ) as ArrayBuffer,
+            );
             cursor = Math.max(cursor, row.seq);
           }
         }

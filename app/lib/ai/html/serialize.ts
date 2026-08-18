@@ -37,7 +37,82 @@ type SerializeOptions = {
    * block. Renaming the page stays a separate operation.
    */
   title?: string;
+  /**
+   * Collapse path-heavy drawings to an addressed stub —
+   * `<nt-diagram drawn="240 shapes" at="blockId:shot"></nt-diagram>` — for
+   * reads the model gets. A drawn shot is hundreds of kilobytes of path
+   * coordinates it must not spend context on and must never retype; the stub
+   * says a picture is here and names where it lives, and `edit_page` redeems
+   * the stub for the real shapes before compiling (see clientTools). Only
+   * drawings collapse: a hand-built diagram is mostly boxes and words, and
+   * those stay inline where the model can read and edit them.
+   */
+  collapseDrawn?: boolean;
+  /** Block ids exempt from the collapse — the model asked to see the shapes. */
+  expandDrawn?: ReadonlySet<string>;
 };
+
+/**
+ * A drawing, as opposed to a diagram: most of its bytes are path data. The
+ * cheapest honest test — imported vector art is thousands of `d=` coordinates,
+ * where even a sprawling flowchart is mostly words and geometry attributes.
+ */
+function isDrawn(sceneHtml: string): boolean {
+  if (sceneHtml.length < 4_000) return false;
+  let dBytes = 0;
+  for (const m of sceneHtml.matchAll(/ d="[^"]*"/g)) dBytes += m[0].length;
+  return dBytes > sceneHtml.length / 2;
+}
+
+function drawnStub(sceneHtml: string, blockId: string, at: string): string {
+  const shapes = (sceneHtml.match(/<nt-[a-z]/g) ?? []).length - 1;
+  return `<nt-diagram${attr("id", blockId)} drawn="${shapes} shapes"${attr("at", at)}></nt-diagram>`;
+}
+
+/** A stub coming back in the model's own HTML — the `at` names the picture. */
+const DRAWN_STUB = /<nt-diagram\b[^>]*\bat="([^"]+)"[^>]*>\s*<\/nt-diagram\s*>/gi;
+
+function findBlock(blocks: AnyBlock[], id: string): AnyBlock | null {
+  for (const b of blocks) {
+    if (b.id === id) return b;
+    const hit = b.children?.length ? findBlock(b.children, id) : null;
+    if (hit) return hit;
+  }
+  return null;
+}
+
+/**
+ * The collapse, run backwards: every stub in the model's HTML is redeemed for
+ * the picture it stands for, read from the live document the stub was minted
+ * against. A returned stub therefore compiles to "the picture, unchanged" —
+ * or "the picture, moved here" — without the shapes ever having crossed the
+ * model's context. An address that no longer resolves (the block or shot went
+ * away since the read) is reported, not guessed at.
+ */
+export function redeemDrawnStubs(
+  html: string,
+  blocks: AnyBlock[],
+): { html: string; missing: string[] } {
+  const missing: string[] = [];
+  const out = html.replace(DRAWN_STUB, (whole, at: string) => {
+    const colon = at.lastIndexOf(":");
+    const shot = colon >= 0 ? Number(at.slice(colon + 1)) : NaN;
+    const blockId = Number.isInteger(shot) ? at.slice(0, colon) : at;
+    const block = findBlock(blocks, blockId);
+    if (block?.type === "storyboard" && Number.isInteger(shot)) {
+      const scene = parseStoryboard(String(block.props.data ?? "")).shots[shot]?.scene;
+      if (scene) return scene;
+    } else if (block?.type === "canvas" && !Number.isInteger(shot)) {
+      return serializeScene({
+        ...migrateLegacyCanvas(String(block.props.data ?? "")),
+        id: block.id,
+      });
+    }
+    missing.push(at);
+    return whole;
+  });
+  return { html: out, missing };
+}
 
 const ESCAPE: Record<string, string> = {
   "&": "&amp;",
@@ -107,7 +182,7 @@ export function runsToHtmlFromRuns(runs: Run[]): string {
     .join("");
 }
 
-function blockToHtml(block: AnyBlock): string {
+function blockToHtml(block: AnyBlock, opts: SerializeOptions): string {
   const id = attr("id", block.id);
   const inner = runsToHtml(block.content);
 
@@ -178,15 +253,20 @@ function blockToHtml(block: AnyBlock): string {
       const lines = rows.map((r) => `\n  <nt-math-line>${r}</nt-math-line>`).join("");
       return `<nt-math-block${id}>${lines}\n</nt-math-block>`;
     }
-    case "canvas":
+    case "canvas": {
       // The block stores this grammar, so there is nothing to translate — only
       // the block's own id to put on it, which is how the compiler tells an
       // edit of this diagram from a new one. Documents written before the
       // canvas stored HTML come through the migrator on the way past.
-      return serializeScene({
+      const scene = serializeScene({
         ...migrateLegacyCanvas(String(block.props.data ?? "")),
         id: block.id,
       });
+      if (opts.collapseDrawn && !opts.expandDrawn?.has(block.id) && isDrawn(scene)) {
+        return drawnStub(scene, block.id, block.id);
+      }
+      return scene;
+    }
     case "album":
       // As with the diagram above: the block stores this grammar, so only its
       // id has to be put on the way past.
@@ -194,14 +274,21 @@ function blockToHtml(block: AnyBlock): string {
         ...parseAlbum(String(block.props.data ?? "")),
         id: block.id,
       });
-    case "storyboard":
+    case "storyboard": {
       // And again. The board's own id is the block's; the shots inside carry
       // none, because a shot is addressed by its position — it is shot three,
       // and it stays shot three however it is written down.
-      return serializeStoryboard({
-        ...parseStoryboard(String(block.props.data ?? "")),
-        id: block.id,
-      });
+      const board = parseStoryboard(String(block.props.data ?? ""));
+      const shots =
+        opts.collapseDrawn && !opts.expandDrawn?.has(block.id)
+          ? board.shots.map((shot, i) =>
+              shot.scene && isDrawn(shot.scene)
+                ? { ...shot, scene: drawnStub(shot.scene, "", `${block.id}:${i}`) }
+                : shot,
+            )
+          : board.shots;
+      return serializeStoryboard({ ...board, shots, id: block.id });
+    }
     case "paragraph":
       return `<p${id}>${inner}</p>`;
     default:
@@ -221,7 +308,7 @@ function listTagFor(type: string): "ul" | "ol" | null {
   return null;
 }
 
-function listItemHtml(block: AnyBlock): string {
+function listItemHtml(block: AnyBlock, opts: SerializeOptions): string {
   const id = attr("id", block.id);
   const box =
     block.type === "checkListItem"
@@ -230,7 +317,7 @@ function listItemHtml(block: AnyBlock): string {
   // Nested items live INSIDE the parent <li>, which is how HTML expresses an
   // indented outline — and how the model expects to read and write one.
   const nested = block.children?.length
-    ? blocksToHtml(block.children)
+    ? blocksToHtml(block.children, opts)
     : "";
   return `<li${id}>${box}${runsToHtml(block.content)}${nested}</li>`;
 }
@@ -242,19 +329,19 @@ function listItemHtml(block: AnyBlock): string {
  * paragraphs, leaving the model unable to tell what was inside the toggle from
  * what merely followed it.
  */
-function toggleHtml(block: AnyBlock): string {
+function toggleHtml(block: AnyBlock, opts: SerializeOptions): string {
   const id = attr("id", block.id);
-  const nested = block.children?.length ? `\n${blocksToHtml(block.children)}\n` : "";
+  const nested = block.children?.length ? `\n${blocksToHtml(block.children, opts)}\n` : "";
   return `<details${id}><summary>${runsToHtml(block.content)}</summary>${nested}</details>`;
 }
 
 /** Serializes a sibling list, grouping consecutive items into one <ul>/<ol>. */
-function blocksToHtml(blocks: AnyBlock[]): string {
+function blocksToHtml(blocks: AnyBlock[], opts: SerializeOptions): string {
   const out: string[] = [];
   let i = 0;
   while (i < blocks.length) {
     if (blocks[i].type === "toggleListItem") {
-      out.push(toggleHtml(blocks[i]));
+      out.push(toggleHtml(blocks[i], opts));
       i++;
       continue;
     }
@@ -265,17 +352,17 @@ function blocksToHtml(blocks: AnyBlock[]): string {
       const start = tag === "ol" && first > 1 ? attr("start", first) : "";
       const items: string[] = [];
       while (i < blocks.length && listTagFor(blocks[i].type) === tag) {
-        items.push(listItemHtml(blocks[i]));
+        items.push(listItemHtml(blocks[i], opts));
         i++;
       }
       out.push(`<${tag}${start}>${items.join("")}</${tag}>`);
       continue;
     }
-    out.push(blockToHtml(blocks[i]));
+    out.push(blockToHtml(blocks[i], opts));
     // Children of non-list blocks are un-nested, as BlockNote's own HTML
     // export does — HTML has no way to nest a paragraph under a paragraph.
     if (blocks[i].children?.length) {
-      out.push(blocksToHtml(blocks[i].children!));
+      out.push(blocksToHtml(blocks[i].children!, opts));
     }
     i++;
   }
@@ -426,7 +513,7 @@ export function toDocHtml(
     }
   }
 
-  const body = blocksToHtml(visible);
+  const body = blocksToHtml(visible, opts);
   const title = opts.title?.trim();
   return title ? `<title>${esc(title)}</title>\n${body}` : body;
 }

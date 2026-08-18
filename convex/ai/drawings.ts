@@ -14,12 +14,22 @@ export const put = mutation({
   args: { ref: v.string(), data: v.string() },
   handler: async (ctx, args) => {
     const ownerId = await requireOwner(ctx);
-    await ctx.db.insert("drawings", {
-      ownerId,
-      ref: args.ref,
-      data: args.data,
-      createdAt: Date.now(),
-    });
+    // Upsert: the ref is the brief's fingerprint, so a redraw of the same
+    // brief is the same row — the newest rendering wins, never a duplicate.
+    const existing = await ctx.db
+      .query("drawings")
+      .withIndex("by_owner_and_ref", (q) => q.eq("ownerId", ownerId).eq("ref", args.ref))
+      .unique();
+    if (existing) {
+      await ctx.db.patch(existing._id, { data: args.data, createdAt: Date.now() });
+    } else {
+      await ctx.db.insert("drawings", {
+        ownerId,
+        ref: args.ref,
+        data: args.data,
+        createdAt: Date.now(),
+      });
+    }
     return null;
   },
 });
@@ -32,9 +42,9 @@ export const get = query({
     for (const ref of args.refs.slice(0, 64)) {
       const row = await ctx.db
         .query("drawings")
-        .withIndex("by_ref", (q) => q.eq("ref", ref))
+        .withIndex("by_owner_and_ref", (q) => q.eq("ownerId", ownerId).eq("ref", ref))
         .unique();
-      if (row && row.ownerId === ownerId) out[ref] = row.data;
+      if (row) out[ref] = row.data;
     }
     return out;
   },

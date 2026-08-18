@@ -49,6 +49,7 @@ import type * as surveys from "../surveys.js";
 import type * as tickets from "../tickets.js";
 import type * as tree from "../tree.js";
 import type * as ydoc from "../ydoc.js";
+import type * as yshape from "../yshape.js";
 
 import type {
   ApiFromModules,
@@ -98,6 +99,7 @@ declare const fullApi: ApiFromModules<{
   tickets: typeof tickets;
   tree: typeof tree;
   ydoc: typeof ydoc;
+  yshape: typeof yshape;
 }>;
 
 /**

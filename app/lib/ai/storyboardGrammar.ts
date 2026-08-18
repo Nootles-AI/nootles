@@ -66,4 +66,12 @@ and never add one.
 TO EDIT a board, return the WHOLE <nt-storyboard> element with every shot in it, changing
 only what you mean to change. Shots have no ids: they are addressed by position, so a
 board that comes back with five shots where there were six has deleted the sixth. Adding,
-removing and reordering shots is done by writing the list you want.`;
+removing and reordering shots is done by writing the list you want.
+
+A shot already drawn reads back as a stub — <nt-diagram drawn="240 shapes"
+at="…"></nt-diagram> — because the picture itself is too big to be worth showing you.
+The stub IS that picture: return it exactly as it came, attributes and all, to keep the
+picture; move it to another shot to move the picture; leave it out to delete it; put a
+fresh draw ref in its place to redraw that shot. Never write shapes into a stub, and
+never invent one. To hand-edit a drawn picture's shapes, read the page again with
+expand: [the board's block id] and edit the shapes it shows you.`;

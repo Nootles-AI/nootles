@@ -225,7 +225,13 @@ async function copyDoc(ctx: MutationCtx, from: string, to: string) {
       .withIndex("by_doc_and_seq", (q) => q.eq("docId", from))
       .collect();
     for (const u of updates) {
-      await ctx.db.insert("yUpdates", { docId: to, seq: u.seq, update: u.update });
+      await ctx.db.insert("yUpdates", {
+        docId: to,
+        seq: u.seq,
+        update: u.update,
+        ...(u.part !== undefined ? { part: u.part } : {}),
+        ...(u.parts !== undefined ? { parts: u.parts } : {}),
+      });
     }
     const chunks = await ctx.db
       .query("ySnapshots")

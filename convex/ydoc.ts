@@ -4,6 +4,7 @@ import * as Y from "yjs";
 import { components, internal } from "./_generated/api";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { checkRead, checkWrite, pageForDoc } from "./prosemirror";
+import { joinUpdateRows } from "./yshape";
 
 /**
  * Yjs document sync: an update log folded into chunked snapshots, one doc per
@@ -102,7 +103,14 @@ export const snapshot = query({
  */
 export const updatesSince = query({
   args: { docId: v.string(), afterSeq: v.number() },
-  returns: v.array(v.object({ seq: v.number(), update: v.bytes() })),
+  returns: v.array(
+    v.object({
+      seq: v.number(),
+      update: v.bytes(),
+      part: v.optional(v.number()),
+      parts: v.optional(v.number()),
+    }),
+  ),
   handler: async (ctx, args) => {
     await checkRead(ctx, args.docId);
     const rows = await ctx.db
@@ -111,7 +119,24 @@ export const updatesSince = query({
         q.eq("docId", args.docId).gt("seq", args.afterSeq),
       )
       .take(500);
-    return rows.map((r) => ({ seq: r.seq, update: r.update }));
+    // A chunked update's rows share one seq; the page boundary must not fall
+    // inside the group, or the client sees a torn update it can only drop.
+    const last = rows[rows.length - 1];
+    if (last?.part !== undefined && last.parts !== undefined && last.part < last.parts - 1) {
+      const rest = await ctx.db
+        .query("yUpdates")
+        .withIndex("by_doc_and_seq", (q) =>
+          q.eq("docId", args.docId).eq("seq", last.seq),
+        )
+        .collect();
+      rows.push(...rest.filter((r) => (r.part ?? 0) > (last.part as number)));
+    }
+    return rows.map((r) => ({
+      seq: r.seq,
+      update: r.update,
+      ...(r.part !== undefined ? { part: r.part } : {}),
+      ...(r.parts !== undefined ? { parts: r.parts } : {}),
+    }));
   },
 });
 
@@ -121,18 +146,34 @@ export const updatesSince = query({
  * hear its update back.
  */
 export const append = mutation({
-  args: { docId: v.string(), update: v.bytes() },
+  args: {
+    docId: v.string(),
+    update: v.optional(v.bytes()),
+    /**
+     * The same update, pre-split by `yshape.splitUpdate` when it would not
+     * fit one row. All parts in ONE call, so the group is transactionally
+     * whole — a reader can never see half an update. Exactly one of
+     * `update`/`chunks` is given.
+     */
+    chunks: v.optional(v.array(v.bytes())),
+  },
   returns: v.number(),
   handler: async (ctx, args) => {
     await checkWrite(ctx, args.docId);
     const row = await ydocRow(ctx, args.docId);
     if (!row) throw new Error("Not a Yjs document");
+    const chunks =
+      args.chunks ?? (args.update !== undefined ? [args.update] : []);
+    if (!chunks.length) throw new Error("Nothing to append");
     const seq = row.seq + 1;
-    await ctx.db.insert("yUpdates", {
-      docId: args.docId,
-      seq,
-      update: args.update,
-    });
+    for (let part = 0; part < chunks.length; part++) {
+      await ctx.db.insert("yUpdates", {
+        docId: args.docId,
+        seq,
+        update: chunks[part],
+        ...(chunks.length > 1 ? { part, parts: chunks.length } : {}),
+      });
+    }
     const now = Date.now();
     await ctx.db.patch(row._id, { seq, updatedAt: now });
 
@@ -236,11 +277,22 @@ export const compact = internalMutation({
     const folded = updates.filter((u) => u.seq <= args.targetSeq);
 
     const doc = new Y.Doc({ gc: true });
-    for (const chunk of [...oldChunks].sort((a, b) => a.part - b.part)) {
-      Y.applyUpdate(doc, new Uint8Array(chunk.data));
+    // The old snapshot's chunks are byte slices of ONE encoded update —
+    // rejoined before applying, half of one is not a smaller snapshot.
+    const ordered = [...oldChunks].sort((a, b) => a.part - b.part);
+    if (ordered.length) {
+      const whole = new Uint8Array(ordered.reduce((n, c) => n + c.data.byteLength, 0));
+      let at = 0;
+      for (const chunk of ordered) {
+        whole.set(new Uint8Array(chunk.data), at);
+        at += chunk.data.byteLength;
+      }
+      Y.applyUpdate(doc, whole);
     }
-    for (const u of folded) {
-      Y.applyUpdate(doc, new Uint8Array(u.update));
+    // Joined before applying: a chunked update's rows are byte slices, not
+    // updates, and half of one is not a smaller edit — it is garbage.
+    for (const u of joinUpdateRows(folded)) {
+      Y.applyUpdate(doc, u.update);
     }
     const encoded = Y.encodeStateAsUpdate(doc);
     doc.destroy();

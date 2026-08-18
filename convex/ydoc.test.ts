@@ -5,6 +5,7 @@ import * as Y from "yjs";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
+import { joinUpdateRows, splitUpdate, UPDATE_CHUNK_BYTES } from "./yshape";
 import componentSchema from "../node_modules/@convex-dev/prosemirror-sync/src/component/schema";
 
 /**
@@ -124,6 +125,50 @@ describe("append", () => {
     expect(seqs).toEqual([2, 3, 4]);
     const tail = await as.query(api.ydoc.updatesSince, { docId, afterSeq: 2 });
     expect(tail.map((u) => u.seq)).toEqual([3, 4]);
+  });
+
+  test("a chunked append lands as one seq and reads back as one update", async () => {
+    const t = harness();
+    const { docId } = await world(t);
+    const as = t.withIdentity(OWNER);
+    await as.mutation(api.ydoc.init, { docId, update: encodedInsert("a") });
+
+    // One oversized update — a drawn storyboard's accept — split for travel.
+    const big = encodedInsert("x".repeat(UPDATE_CHUNK_BYTES * 2));
+    const chunks = splitUpdate(new Uint8Array(big));
+    expect(chunks.length).toBeGreaterThan(1);
+    const seq = await as.mutation(api.ydoc.append, { docId, chunks });
+    expect(seq).toBe(2);
+
+    const rows = await as.query(api.ydoc.updatesSince, { docId, afterSeq: 1 });
+    expect(rows.length).toBe(chunks.length);
+    expect(rows.every((r) => r.seq === 2)).toBe(true);
+    const joined = joinUpdateRows(rows);
+    expect(joined).toHaveLength(1);
+    expect(Buffer.from(joined[0].update)).toEqual(Buffer.from(new Uint8Array(big)));
+
+    // The compactor folds the group whole: the doc rebuilt from the snapshot
+    // holds the text the oversized update carried.
+    await t.mutation(internal.ydoc.compact, { docId, targetSeq: seq });
+    const meta = await as.query(api.ydoc.meta, { docId });
+    const parts: ArrayBuffer[] = [];
+    for (let part = 0; part < meta!.snapshotParts; part++) {
+      const chunk = await as.query(api.ydoc.snapshot, {
+        docId,
+        gen: meta!.snapshotSeq,
+        part,
+      });
+      parts.push(chunk!);
+    }
+    const whole = new Uint8Array(parts.reduce((n, c) => n + c.byteLength, 0));
+    let at = 0;
+    for (const c of parts) {
+      whole.set(new Uint8Array(c), at);
+      at += c.byteLength;
+    }
+    const doc = new Y.Doc();
+    Y.applyUpdate(doc, whole);
+    expect(doc.getText("t").toString().length).toBe(UPDATE_CHUNK_BYTES * 2 + 1);
   });
 
   test("appending to a doc that was never made Yjs-native fails", async () => {

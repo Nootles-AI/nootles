@@ -41,7 +41,7 @@ export const appendBatch = mutation({
       await ctx.db.insert("opLog", {
         ownerId,
         pageId: args.pageId,
-        op,
+        op: withinRowLimit(op),
         source: args.source,
         chatPromptId: args.chatPromptId,
         createdAt,
@@ -50,6 +50,38 @@ export const appendBatch = mutation({
     return check.data.ops.length;
   },
 });
+
+/**
+ * A row-sized retelling of an op too large to store whole.
+ *
+ * A drawn storyboard travels as ONE updateBlockProps whose data is the whole
+ * board — measured at 2.27MiB on a nine-shot Recraft board, past the 1MiB
+ * value ceiling, which failed the append and with it the user's ACCEPT. The
+ * log is history, not truth: the document holds the content, so an oversized
+ * payload is elided by name rather than sinking the settle that writes it.
+ * Validation above ran on the real op; only storage sees the stub.
+ */
+const ROW_LIMIT = 700_000;
+
+function withinRowLimit(op: Record<string, unknown>): Record<string, unknown> {
+  if (JSON.stringify(op).length <= ROW_LIMIT) return op;
+  const props = op.props as Record<string, unknown> | undefined;
+  return {
+    ...op,
+    ...(props
+      ? {
+          props: Object.fromEntries(
+            Object.entries(props).map(([name, value]) => [
+              name,
+              typeof value === "string" && value.length > 10_000
+                ? `<!-- ${value.length} chars elided from the log; the document holds the content -->`
+                : value,
+            ]),
+          ),
+        }
+      : {}),
+  };
+}
 
 export const feed = query({
   args: { pageId: v.id("pages"), limit: v.optional(v.number()) },
