@@ -6,6 +6,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { AI } from "../aiConfig";
 import { generateDiagram } from "../diagram";
 import { recordAiCall } from "../recordCall";
+import { generateVectorDrawing } from "../vectorDraw";
 import { reason } from "@/app/lib/github";
 import { searchModel } from "./provider";
 import { noSuchPage, TOOLS } from "./tools";
@@ -71,8 +72,31 @@ export function chatTools(
        * a tool loop's. Costed like every other diagram call, under the same
        * feature, because that is what it is.
        */
-      execute: async ({ brief, w, h }, { abortSignal }) => {
+      execute: async ({ brief, w, h, kind }, { abortSignal }) => {
         const frame = w && h ? { w, h } : null;
+
+        // A scene with a frame goes to the vector specialist; words-first work
+        // and unframed diagrams stay on the LLM lane, whose labels are text.
+        // A specialist miss falls through rather than failing the call — the
+        // agent asked for a drawing, not for a particular pen.
+        if (frame && kind !== "diagram") {
+          const vector = await generateVectorDrawing(brief, frame, abortSignal);
+          if (vector) {
+            recordAiCall(convex, {
+              feature: "diagram",
+              model: AI.diagram.vector.model,
+              latencyMs: vector.latencyMs,
+              status: "ok",
+            });
+            const ref = `d${randomUUID().slice(0, 6)}`;
+            return {
+              ref,
+              shapes: (vector.html.match(/<nt-[a-z]/g) ?? []).length - 1,
+              html: vector.html,
+            };
+          }
+        }
+
         const html = await generateDiagram(brief, frame, abortSignal, ({ usage, latencyMs }) =>
           recordAiCall(convex, {
             feature: "diagram",

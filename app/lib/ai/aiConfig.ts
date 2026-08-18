@@ -210,6 +210,17 @@ export const AI = {
      * calls things; it does not need the whole document.
      */
     contextChars: 2000,
+    /**
+     * The vector specialist behind the chat's draw tool — the only production
+     * model that generates NATIVE SVG rather than a traced raster, so its
+     * drawings import as editable scene paths. Scenes and storyboard shots go
+     * here; structured diagrams stay on the LLM above, whose labels land as
+     * text where a vector model would paint them as outlines. Flat-priced per
+     * image, hence `perCall` in the ledger rather than token prices.
+     */
+    vector: {
+      model: "recraft/recraft-v4-vector",
+    },
   },
 
   review: {
@@ -274,12 +285,21 @@ export const AI = {
     "google/gemini-2.5-flash": { in: 0.3, out: 2.5 },
     "google/gemini-3.7-flash": { in: 0.375, out: 1.875 },
     "openai/gpt-5.6-terra": { in: 1, out: 6, cacheRead: 0.1, cacheWrite: 1.25 },
+    // Flat per image, not per token — `perCall` is the whole price.
+    "recraft/recraft-v4-vector": { in: 0, out: 0, perCall: 0.08 },
     // Kept after the switch away: the ledger prices each row by the model that
     // served it, so removing this would silently un-cost every earlier chat.
     "anthropic/claude-sonnet-4.6": { in: 3, out: 15, cacheRead: 0.3, cacheWrite: 3.75 },
   } as Record<
     string,
-    { in: number; out: number; cacheRead?: number; cacheWrite?: number }
+    {
+      in: number;
+      out: number;
+      cacheRead?: number;
+      cacheWrite?: number;
+      /** USD per call, for models priced per image rather than per token. */
+      perCall?: number;
+    }
   >,
 
   /**

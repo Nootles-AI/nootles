@@ -16,9 +16,12 @@ export type CallUsage = {
 };
 
 export function costUsd(model: string, u: CallUsage): number | undefined {
+  const p = AI.prices[model];
+  // Per-image models charge the call, not the tokens — the usage block may be
+  // empty and the price still whole.
+  if (p?.perCall !== undefined) return p.perCall;
   if (u.promptTokens === undefined && u.completionTokens === undefined)
     return undefined;
-  const p = AI.prices[model];
   if (!p) return undefined;
   const read = u.cacheReadTokens ?? 0;
   const wrote = u.cacheWriteTokens ?? 0;

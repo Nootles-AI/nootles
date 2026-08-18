@@ -105,6 +105,16 @@ export const TOOLS = {
         .int()
         .optional()
         .describe("Frame height. A shot's is the board ratio's: see THE PICTURE."),
+      kind: z
+        .enum(["scene", "diagram"])
+        .optional()
+        .describe(
+          "scene (the default): a picture — a storyboard shot, a landscape, a " +
+            "figure, an illustration; drawn by a vector artist, so expect art, " +
+            "not labels. diagram: anything whose WORDS matter — a mockup with " +
+            "readable UI text, a labelled figure — where text must land as " +
+            "editable text.",
+        ),
     }),
   },
   search_web: {
