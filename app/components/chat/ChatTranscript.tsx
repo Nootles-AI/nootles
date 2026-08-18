@@ -108,7 +108,27 @@ export function ChatTranscript({
               onCommit={onRewindCommit}
             />
           ) : (
-          message.parts.map((part, i) => {
+          groupParts(message.parts).map((item) => {
+            const i = item.key;
+            if ("draws" in item) {
+              // A board's shots arrive as one salvo of parallel calls; nine
+              // near-identical lines read as a stutter, one count reads as
+              // work. A lone call keeps its quoted brief — detail is only
+              // noise in a crowd.
+              const running = item.draws.some(isRunning);
+              return (
+                <p
+                  key={i}
+                  className={`nt-turn-step${running ? " is-running" : ""}`}
+                >
+                  {running && <span className="nt-thinking-dot" aria-hidden />}
+                  {item.draws.length === 1
+                    ? stepLine(item.draws[0])
+                    : drawsLine(item.draws)}
+                </p>
+              );
+            }
+            const part = item.part;
             if (part.type === "text") {
               // Only what the agent wrote is read as markdown. A question is
               // shown as it was typed — someone who wrote an asterisk meant an
@@ -420,6 +440,71 @@ function DeleteApproval({
       />
     </div>
   );
+}
+
+type DrawPart = ToolUIPart | DynamicToolUIPart;
+type PartItem =
+  | { key: number; draws: DrawPart[] }
+  | { key: number; part: AbMessage["parts"][number] };
+
+/**
+ * The parts as render items, with runs of draw calls gathered into one.
+ *
+ * "Consecutive" reaches across step-start markers: a retry after a miss is a
+ * new step, and splitting the group there would bring the stutter back as two
+ * smaller stutters.
+ */
+function groupParts(parts: AbMessage["parts"]): PartItem[] {
+  const out: PartItem[] = [];
+  let i = 0;
+  while (i < parts.length) {
+    const part = parts[i];
+    if (isToolUIPart(part) && getToolName(part) === "draw") {
+      const draws: DrawPart[] = [part];
+      let j = i + 1;
+      while (j < parts.length) {
+        const next = parts[j];
+        if (next.type === "step-start") {
+          j++;
+          continue;
+        }
+        if (isToolUIPart(next) && getToolName(next) === "draw") {
+          draws.push(next);
+          j++;
+          continue;
+        }
+        break;
+      }
+      out.push({ key: i, draws });
+      i = j;
+    } else {
+      out.push({ key: i, part });
+      i++;
+    }
+  }
+  return out;
+}
+
+/** The salvo as one line: a count while it runs, a tally when it settles. */
+function drawsLine(draws: DrawPart[]): string {
+  const n = draws.length;
+  const drawn = draws.filter(
+    (p) =>
+      p.state === "output-available" &&
+      !(p.output as { error?: string } | undefined)?.error,
+  ).length;
+  const settled = draws.filter(
+    (p) => p.state === "output-available" || p.state === "output-error",
+  ).length;
+  const what = draws.every((p) => {
+    const input = p.input as { w?: number; h?: number } | undefined;
+    return input?.w && input?.h;
+  })
+    ? "shot"
+    : "drawing";
+  if (settled < n) return `Drawing ${n} ${what}s — ${drawn} done…`;
+  if (drawn === n) return `Drew ${n} ${what}s`;
+  return `Drew ${drawn} of ${n} ${what}s`;
 }
 
 /** Present tense while the tool runs; what it produced is read off the result. */
