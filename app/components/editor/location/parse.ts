@@ -90,6 +90,5 @@ export function parseLocation(
     ...(note ? { note } : {}),
     images,
     off: parts(root.getAttribute("off") ?? root.getAttribute("hide")),
-    ...(root.hasAttribute("drive") ? { drive: true } : {}),
   };
 }
