@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import * as Y from "yjs";
 import { components, internal } from "./_generated/api";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
+import type { Doc } from "./_generated/dataModel";
 import { checkRead, checkWrite, pageForDoc } from "./prosemirror";
 import { joinUpdateRows } from "./yshape";
 
@@ -27,8 +28,23 @@ import { joinUpdateRows } from "./yshape";
 const COMPACT_EVERY = 200;
 /** Snapshot chunk size, safely under Convex's 1MiB value cap. */
 const CHUNK_BYTES = 800 * 1024;
+/**
+ * What one read of the log may weigh. A function that reads past 16MiB is
+ * killed by the platform, and an update row now holds up to 800KiB of a
+ * chunked value — so a page of the log has to be measured in BYTES, not rows:
+ * twenty of them is a dead query, and counting rows cannot see that coming.
+ * Both readers below stop at a whole update, never inside a chunk group.
+ */
+const READ_BUDGET = 6 * 1024 * 1024;
+/** A backstop for logs of tiny updates, where bytes alone would never stop. */
+const MAX_ROWS = 500;
 /** How coarsely `append` stamps pages.updatedAt (the debounce lives here now). */
 const TOUCH_EVERY_MS = 30_000;
+
+/** True at the last row of an update — a whole one, or a chunk group's end. */
+function endsUpdate(row: Doc<"yUpdates">): boolean {
+  return row.parts === undefined || row.part === row.parts - 1;
+}
 
 async function ydocRow(ctx: { db: QueryCtx["db"] }, docId: string) {
   return await ctx.db
@@ -98,8 +114,9 @@ export const snapshot = query({
 });
 
 /**
- * The log after a cursor, oldest first, bounded — the caller loops until a
- * page comes back short. Reading past a fold is harmless (see module note).
+ * The log after a cursor, oldest first, bounded by weight — the caller loops
+ * until its cursor reaches `meta.seq`, so a page may be as short as one
+ * update. Reading past a fold is harmless (see module note).
  */
 export const updatesSince = query({
   args: { docId: v.string(), afterSeq: v.number() },
@@ -113,23 +130,20 @@ export const updatesSince = query({
   ),
   handler: async (ctx, args) => {
     await checkRead(ctx, args.docId);
-    const rows = await ctx.db
+    // Walked rather than taken, so the page can be closed on weight the
+    // moment it is heavy enough — and only ever at the end of a whole update,
+    // so a chunk group is never torn across the boundary.
+    const rows: Doc<"yUpdates">[] = [];
+    let bytes = 0;
+    for await (const row of ctx.db
       .query("yUpdates")
       .withIndex("by_doc_and_seq", (q) =>
         q.eq("docId", args.docId).gt("seq", args.afterSeq),
-      )
-      .take(500);
-    // A chunked update's rows share one seq; the page boundary must not fall
-    // inside the group, or the client sees a torn update it can only drop.
-    const last = rows[rows.length - 1];
-    if (last?.part !== undefined && last.parts !== undefined && last.part < last.parts - 1) {
-      const rest = await ctx.db
-        .query("yUpdates")
-        .withIndex("by_doc_and_seq", (q) =>
-          q.eq("docId", args.docId).eq("seq", last.seq),
-        )
-        .collect();
-      rows.push(...rest.filter((r) => (r.part ?? 0) > (last.part as number)));
+      )) {
+      rows.push(row);
+      bytes += row.update.byteLength;
+      if (!endsUpdate(row)) continue;
+      if (bytes >= READ_BUDGET || rows.length >= MAX_ROWS) break;
     }
     return rows.map((r) => ({
       seq: r.seq,
@@ -268,13 +282,49 @@ export const compact = internalMutation({
             )
             .collect()
         : [];
-    const updates = await ctx.db
+    // As much of the log as fits beside the old snapshot, no more: a doc whose
+    // updates outweigh one read is folded over several passes, each one a
+    // whole transaction that leaves a usable snapshot behind. Folding all of
+    // it at once is what a big storyboard's log cannot survive.
+    //
+    // The budget is checked BEFORE a group joins the fold, and everything read
+    // here is also deleted below — a delete reads the row it removes, so the
+    // true cost of a pass is twice this. `READ_BUDGET` is set so that doubling
+    // still clears the platform's ceiling with room over.
+    const oldBytes = oldChunks.reduce((n, c) => n + c.data.byteLength, 0);
+    const folded: Doc<"yUpdates">[] = [];
+    if (oldBytes >= READ_BUDGET) {
+      // The state alone outweighs a pass. Nothing safe to do — and nothing
+      // broken by leaving it: readers page through the log as they always do.
+      console.warn(
+        `ydoc: ${args.docId} holds a ${oldBytes}-byte snapshot; too heavy to fold`,
+      );
+      return null;
+    }
+    let bytes = oldBytes;
+    let group: Doc<"yUpdates">[] = [];
+    let groupBytes = 0;
+    for await (const update of ctx.db
       .query("yUpdates")
       .withIndex("by_doc_and_seq", (q) =>
         q.eq("docId", args.docId).gt("seq", row.snapshotSeq),
-      )
-      .collect();
-    const folded = updates.filter((u) => u.seq <= args.targetSeq);
+      )) {
+      if (update.seq > args.targetSeq) break;
+      group.push(update);
+      groupBytes += update.update.byteLength;
+      if (!endsUpdate(update)) continue;
+      if (bytes + groupBytes > READ_BUDGET) break;
+      folded.push(...group);
+      bytes += groupBytes;
+      group = [];
+      groupBytes = 0;
+    }
+    // Not one update fits beside the state: same answer as above, and the
+    // same reason it is safe.
+    if (!folded.length) return null;
+    // The fold reaches as far as it read, which may be short of the target —
+    // the rest is another pass's work, scheduled below.
+    const reached = folded[folded.length - 1].seq;
 
     const doc = new Y.Doc({ gc: true });
     // The old snapshot's chunks are byte slices of ONE encoded update —
@@ -302,7 +352,7 @@ export const compact = internalMutation({
       const slice = encoded.slice(part * CHUNK_BYTES, (part + 1) * CHUNK_BYTES);
       await ctx.db.insert("ySnapshots", {
         docId: args.docId,
-        gen: args.targetSeq,
+        gen: reached,
         part,
         data: slice.buffer.slice(
           slice.byteOffset,
@@ -313,9 +363,17 @@ export const compact = internalMutation({
     await Promise.all(oldChunks.map((c) => ctx.db.delete(c._id)));
     await Promise.all(folded.map((u) => ctx.db.delete(u._id)));
     await ctx.db.patch(row._id, {
-      snapshotSeq: args.targetSeq,
+      snapshotSeq: reached,
       snapshotParts: parts,
     });
+    // Still behind: carry on in a fresh transaction, from the snapshot this
+    // pass just wrote. A reader arriving between passes sees a whole doc.
+    if (reached < args.targetSeq) {
+      await ctx.scheduler.runAfter(0, internal.ydoc.compact, {
+        docId: args.docId,
+        targetSeq: args.targetSeq,
+      });
+    }
     return null;
   },
 });
