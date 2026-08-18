@@ -6,12 +6,12 @@ import { PARTS, type Location } from "./types";
  * The canonical form is what the parser normalises to, which is what makes
  * `serializeLocation(parseLocation(html)) === html` a fact rather than a hope:
  * canonical tags only, one child per line, two-space indent, and a fixed
- * attribute order — `id`, `name`, `address`, `at`, `place`, `rating`, `votes`,
- * `off`, `drive` on the root; `src` then `off` on a picture.
+ * attribute order — `id`, `name`, `address`, `at`, `place`, `rating`, `votes`
+ * and `off` on the root; `src` then `off` on a picture.
  *
- * Defaults are silence: a card nobody has edited writes no `off`, one that has
- * never been asked for a drive time writes no `drive`, and a place we were
- * never told the rating of writes neither `rating` nor `votes`.
+ * Defaults are silence: a card nobody has edited writes no `off`, and a place
+ * we were never told the rating of writes neither `rating` nor `votes`. Drive
+ * time is a part like any other now — shown unless it is in `off`.
  */
 
 const ESCAPE: Record<string, string> = {
@@ -48,7 +48,6 @@ export function serializeLocation(location: Location): string {
   // clicked, so two cards hiding the same things are the same text.
   const hidden = PARTS.filter((part) => location.off.includes(part));
   const off = hidden.length ? attr("off", hidden.join(" ")) : "";
-  const drive = location.drive ? " drive" : "";
 
   const children = [
     ...(location.note ? [`  <note>${esc(location.note)}</note>`] : []),
@@ -57,7 +56,7 @@ export function serializeLocation(location: Location): string {
     ),
   ].join("\n");
 
-  return `<nt-location${id}${attr("name", location.name)}${address}${at}${place}${rating}${votes}${off}${drive}>${
+  return `<nt-location${id}${attr("name", location.name)}${address}${at}${place}${rating}${votes}${off}>${
     children ? `\n${children}\n` : ""
   }</nt-location>`;
 }

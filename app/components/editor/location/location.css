@@ -4,8 +4,13 @@
    the only colour is whatever the map itself brings. The stars are the single
    exception, and they are a measurement rather than a decoration. */
 
+/* The card reads left to right: what the place IS, then where it is. The map
+   is the right edge itself — floor to ceiling, no margin — so the card has one
+   picture in it and one hard edge, rather than a photo pasted on paper. */
 .nt-loc {
   position: relative;
+  display: flex;
+  align-items: stretch;
   width: 100%;
   overflow: hidden;
   border: 1px solid var(--border);
@@ -15,6 +20,13 @@
 }
 .nt-loc.is-active {
   border-color: var(--border-strong);
+}
+/* Narrow columns and phones: the map goes back on top, where a 240px map beside
+   a 200px column would leave neither room to be read. */
+@media (max-width: 560px) {
+  .nt-loc {
+    flex-direction: column-reverse;
+  }
 }
 
 /* Empty: the same quiet row every other block opens with. */
@@ -111,9 +123,21 @@
   white-space: nowrap;
 }
 
-/* Filled. The map is the lid; everything said about the place sits under it. */
 .nt-loc-map-wrap {
   position: relative;
+  flex: none;
+  width: 38%;
+  min-width: 180px;
+  max-width: 280px;
+  border-left: 1px solid var(--border);
+}
+@media (max-width: 560px) {
+  .nt-loc-map-wrap {
+    width: auto;
+    max-width: none;
+    border-left: 0;
+    border-bottom: 1px solid var(--border);
+  }
 }
 /* Glass over an unchosen map: invisible, and gone the moment the card is the
    one being edited. */
@@ -126,16 +150,29 @@
 .nt-loc-map {
   display: block;
   width: 100%;
-  height: 190px;
+  height: 100%;
+  /* The floor: a card with only a name still shows a map worth looking at. */
+  min-height: 148px;
   border: 0;
   background: var(--sunken);
 }
+@media (max-width: 560px) {
+  .nt-loc-map {
+    height: 160px;
+  }
+}
 
 .nt-loc-body {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
+  gap: 7px;
+  padding: 14px 16px;
+}
+/* Nothing to sit beside: the text may use the whole card. */
+.nt-loc.is-mapless .nt-loc-body {
   gap: 6px;
-  padding: 12px 14px 13px;
 }
 
 .nt-loc-head {
@@ -147,6 +184,9 @@
 .nt-loc-name {
   font-weight: 500;
   color: var(--foreground);
+  /* A long name wraps rather than pushing the rating off the card. */
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .nt-loc-rating {
@@ -189,27 +229,31 @@
 .nt-loc-photos {
   display: flex;
   gap: 6px;
-  margin-top: 2px;
+  margin-top: 1px;
   overflow-x: auto;
   scrollbar-width: none;
+  /* The strip scrolls inside the card; the page never moves sideways. */
+  scroll-snap-type: x proximity;
 }
 .nt-loc-photos::-webkit-scrollbar {
   display: none;
 }
 .nt-loc-photo {
   flex: none;
-  width: 116px;
-  height: 78px;
+  width: 104px;
+  height: 72px;
   object-fit: cover;
   border-radius: var(--radius);
   background: var(--sunken);
+  scroll-snap-align: start;
 }
 
 .nt-loc-foot {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-top: 2px;
+  margin-top: auto;
+  padding-top: 4px;
   font-size: var(--text-meta-lg);
 }
 .nt-loc-link {
@@ -222,14 +266,17 @@
   color: var(--foreground);
 }
 .nt-loc-drive {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   color: var(--faint);
 }
 
-/* The panel's own two controls: a name to correct, and a picture to add. */
+/* The panel's own controls: words to correct, and pictures to choose between. */
 .nt-loc-field {
   width: 100%;
   min-height: var(--control-sm);
-  padding: 0 8px;
+  padding: 5px 8px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--background);
@@ -237,10 +284,79 @@
   font: inherit;
   font-size: var(--text-ui);
   color: var(--foreground);
+  transition: border-color var(--dur-fast) var(--ease);
+}
+.nt-loc-field::placeholder {
+  color: var(--faint);
+}
+.nt-loc-field:hover {
+  border-color: var(--border-strong);
 }
 .nt-loc-field:focus {
-  border-color: var(--border-strong);
+  border-color: var(--foreground);
+}
+.nt-loc-area {
+  resize: vertical;
+  min-height: 56px;
+  line-height: 1.45;
 }
 .nt-loc-picker {
   display: none;
+}
+
+/* Choosing pictures is looking at them, so the picture is the control. Chosen
+   ones stand at full strength with a tick; the rest are present but dimmed. */
+.nt-loc-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 5px;
+  padding: 2px var(--inset) 6px;
+}
+.nt-loc-thumb {
+  position: relative;
+  aspect-ratio: 1;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--sunken);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+.nt-loc-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0.42;
+  filter: saturate(0.5);
+  transition:
+    opacity var(--dur-fast) var(--ease),
+    filter var(--dur-fast) var(--ease);
+}
+.nt-loc-thumb:hover img {
+  opacity: 0.72;
+  filter: saturate(0.8);
+}
+.nt-loc-thumb.is-on img {
+  opacity: 1;
+  filter: none;
+}
+.nt-loc-tick {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: var(--foreground);
+  color: var(--background);
+  opacity: 0;
+  transform: scale(0.7);
+  transition:
+    opacity var(--dur-fast) var(--ease),
+    transform var(--dur-fast) var(--ease);
+}
+.nt-loc-thumb.is-on .nt-loc-tick {
+  opacity: 1;
+  transform: none;
 }

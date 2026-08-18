@@ -277,6 +277,16 @@ export function Scissors(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+export function Car(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M5 17h14M5 17a2 2 0 1 1-4 0 2 2 0 0 1 4 0Zm14 0a2 2 0 1 0 4 0 2 2 0 0 0-4 0Z" />
+      <path d="M3 17v-4.2a2 2 0 0 1 .2-.9l2.4-4.8A2 2 0 0 1 7.4 6h9.2a2 2 0 0 1 1.8 1.1l2.4 4.8a2 2 0 0 1 .2.9V17" />
+      <path d="M3.5 12h17" />
+    </svg>
+  );
+}
+
 export function Play(props: SVGProps<SVGSVGElement>) {
   return (
     <svg {...base} {...props}>
