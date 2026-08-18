@@ -19,6 +19,18 @@ export const AI = {
      * which reads as "the diagram lost its arrows".
      */
     htmlMaxTokens: 420,
+    /**
+     * How much of the project's standing context rides the completion seed —
+     * the sheet's answers and the head of each context file, so a completion
+     * can use the project's own names and facts. Part of the seed because the
+     * seed is the one thing exempt from `MAX_BEFORE`; capped because the seed
+     * prefixes EVERY completion, and this lane is priced per keystroke.
+     */
+    context: {
+      /** Per file, so one long file cannot spend the whole allowance. */
+      fileHeadChars: 600,
+      maxChars: 2400,
+    },
   },
 
   timing: {

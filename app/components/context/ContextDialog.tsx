@@ -9,6 +9,7 @@ import type { Listed } from "@/convex/github/repos";
 import { reason } from "@/app/lib/github";
 import { Dialog } from "../Dialog";
 import { X } from "../Icons";
+import { ContextFiles } from "./ContextFiles";
 import { GitHubRepos, type Chosen } from "./GitHubRepos";
 
 /**
@@ -174,6 +175,10 @@ export function ContextDialog({
                   <span className="nt-row-label">Re-read all repositories</span>
                 </button>
               )}
+
+              <div className="mt-4">
+                <ContextFiles projectId={projectId} />
+              </div>
             </div>
           </div>
 

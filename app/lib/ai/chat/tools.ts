@@ -127,6 +127,21 @@ export const TOOLS = {
         .describe("Confine the search to one repository. All of them if left out."),
     }),
   },
+  read_context_file: {
+    description:
+      "Read a file the user has added to this project's context — the whole " +
+      "extracted text, where the prompt carries only the head. A PDF or Word " +
+      "document comes back as plain text; a very large file comes back " +
+      "truncated and says so.",
+    inputSchema: z.object({
+      name: z
+        .string()
+        .describe(
+          "The file's exact name, as the project's context files are listed. " +
+            "Only those can be read.",
+        ),
+    }),
+  },
   create_page: {
     description:
       "Add a page to this project. It starts empty — this makes the page, it " +

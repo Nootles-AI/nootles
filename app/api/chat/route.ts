@@ -114,7 +114,10 @@ export async function POST(req: Request) {
     messages: markCachePoints(
       spent ? [...history, { role: "user", content: OUT_OF_STEPS }] : history,
     ),
-    tools: chatTools(projectId, convex, !!project?.repos.length),
+    tools: chatTools(projectId, convex, {
+      repos: !!project?.repos.length,
+      files: !!project?.files.length,
+    }),
     // The tools that could change something are not merely discouraged, they are
     // absent from the request.
     activeTools: spent ? [] : undefined,

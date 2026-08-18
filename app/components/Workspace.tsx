@@ -20,6 +20,7 @@ import { ReviewBar } from "./ReviewBar";
 import { ResizeHandle } from "./ResizeHandle";
 import { PanelsProvider } from "./PanelsContext";
 import { PagesProvider } from "./PagesContext";
+import { CompletionContextProvider } from "./editor/ai/CompletionContext";
 import { ReadOnlyContext } from "./editor/readOnly";
 import { Facepile } from "./presence/Facepile";
 import { Hints } from "./hints/Hints";
@@ -298,6 +299,7 @@ export function Workspace({ projectId }: { projectId: Id<"projects"> }) {
     <CanvasShellContext value={shell}>
      <ReadOnlyContext value={viewer}>
      <PagesProvider pages={sortedPages ?? null}>
+     <CompletionContextProvider projectId={projectId}>
      <PanelsProvider value={panels}>
       <div className="flex h-screen w-full overflow-hidden">
         {canvasPanels ? (
@@ -429,6 +431,7 @@ export function Workspace({ projectId }: { projectId: Id<"projects"> }) {
         <Hints projectId={projectId} pageId={effectivePageId} />
       </div>
      </PanelsProvider>
+     </CompletionContextProvider>
      </PagesProvider>
      </ReadOnlyContext>
     </CanvasShellContext>

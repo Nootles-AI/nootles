@@ -19,15 +19,29 @@ import { noSuchPage, TOOLS } from "./tools";
 export function chatTools(
   projectId: Id<"projects">,
   convex: ConvexHttpClient,
-  /** Whether this project has any linked repositories. */
-  repos: boolean,
+  /** Whether this project has any linked repositories / context files. */
+  has: { repos: boolean; files: boolean },
 ) {
   return {
     // Offered only where there is something to point them at. A project with no
     // repository would otherwise carry three tool schemas the model cannot use
     // and, given the chance, will try — the prompt says nothing about them
     // either, so their absence is complete rather than merely discouraged.
-    ...(repos ? repoTools(projectId, convex) : {}),
+    ...(has.repos ? repoTools(projectId, convex) : {}),
+    ...(has.files
+      ? {
+          read_context_file: tool({
+            ...TOOLS.read_context_file,
+            execute: async ({ name }) => {
+              try {
+                return await convex.query(api.files.context.read, { projectId, name });
+              } catch (error) {
+                throw new Error(reason(error, "The file could not be read."));
+              }
+            },
+          }),
+        }
+      : {}),
 
     list_pages: tool({
       ...TOOLS.list_pages,

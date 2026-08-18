@@ -741,6 +741,38 @@ export default defineSchema({
     // the same repo twice.
     .index("by_project_and_fullName", ["projectId", "fullName"]),
 
+  /**
+   * A file uploaded as project context — the other kind of read-not-written
+   * context beside a repository. The bytes live in storage; what the agent
+   * reads is the text extracted from them once, at upload, so a PDF costs its
+   * parse one time rather than on every prompt.
+   */
+  projectFiles: defineTable({
+    ownerId: v.string(),
+    projectId: v.id("projects"),
+    storageId: v.id("_storage"),
+    filename: v.string(),
+    mediaType: v.string(),
+    /** Bytes as uploaded, for the row's second line. */
+    size: v.number(),
+    /**
+     * The extracted text, capped. The head of it is read into every prompt the
+     * way a repo's summary is; the whole of it is what read_context_file
+     * returns. Absent while extraction is still running.
+     */
+    text: v.optional(v.string()),
+    /** Characters the extraction found before the cap, so a cut can say so. */
+    fullChars: v.optional(v.number()),
+    syncedAt: v.optional(v.number()),
+    /** Why extraction failed, shown on the row rather than swallowed. */
+    syncError: v.optional(v.string()),
+    addedAt: v.number(),
+  })
+    .index("by_project", ["projectId"])
+    // The permission check the file tool makes, and how re-uploading a file of
+    // the same name replaces it instead of doubling it.
+    .index("by_project_and_filename", ["projectId", "filename"]),
+
   // ---- Chat ---------------------------------------------------------------
 
   /**
