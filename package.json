@@ -51,6 +51,9 @@
   },
   "devDependencies": {
     "@edge-runtime/vm": "^5.0.0",
+    "@iconify-json/lucide": "^1.2.123",
+    "@iconify-json/material-symbols": "^1.2.89",
+    "@iconify-json/ph": "^1.2.2",
     "@tailwindcss/postcss": "^4",
     "@types/katex": "^0.16.8",
     "@types/node": "^20",

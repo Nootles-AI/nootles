@@ -39,6 +39,8 @@ every shot the same w and h as the board's ratio. A shot with nothing drawn yet 
 
 Draw for the size. A shot is shown a couple of hundred pixels wide, so it wants a few bold
 shapes and no fine detail — a figure, a horizon, a doorway. It is a shot, not a schematic.
+With the draw tool available, every shot's picture comes from it: one call per shot with
+w=320 and h as above, briefs sharing the board's style words, all shots in one step.
 
 THE NOTE is the action, in plain words on ruled lines. Text only: no tags, no marks, no
 page references. Line breaks are real newlines. Two or three short lines is what fits.

@@ -1,5 +1,7 @@
 import { safeHref } from "@/app/lib/ai/html/parse";
+import { iconFor } from "../icons/registry";
 import { labelOfElement } from "./label";
+import { scalePath } from "./path";
 import {
   FULL_ARC,
   isEdgeAttr,
@@ -345,6 +347,72 @@ function elementToNode(
   }
 }
 
+/** Tags accepted as an icon placement, canonical first. */
+const ICON_TAGS = new Set(["nt-icon", "icon", "nt-glyph"]);
+
+/**
+ * `<nt-icon name="cat">` — a curated glyph, resolved into an ORDINARY path.
+ *
+ * The element is model dialect, never document content: what lands is the
+ * icon's real geometry scaled into the box, painted by the authored style over
+ * the mode's defaults — as selectable, recolorable and pen-editable as
+ * anything drawn by hand, because it is the same kind of thing. The name rides
+ * along twice, both free under existing contracts: as the node's layers-panel
+ * `name`, and as a `data-icon` attribute the round trip carries verbatim.
+ *
+ * A name the catalog does not hold (or a catalog not yet loaded — the AI
+ * lanes await it before parsing, so only a human pasting dialect can get here
+ * early) becomes a visible crossed-box placeholder rather than a silent drop:
+ * a wrong guess should look wrong, not vanish.
+ */
+function iconToNode(el: Element, mint: Mint): SceneNode {
+  const base = baseOf(el, "path", mint);
+  const name = (el.getAttribute("name") ?? "").trim().toLowerCase();
+  const icon = iconFor(name);
+
+  // The grammar requires w/h, but a model that omitted them should get a
+  // legible icon rather than a zero box the adopt pass cannot rescue.
+  let { w, h } = base;
+  if (w <= 0 && h <= 0) {
+    w = 48;
+    h = icon ? (48 * icon.h) / icon.w : 48;
+  } else if (w <= 0) {
+    w = icon ? (h * icon.w) / icon.h : h;
+  } else if (h <= 0) {
+    h = icon ? (w * icon.h) / icon.w : w;
+  }
+
+  const d = icon
+    ? scalePath(icon.d, w / icon.w, h / icon.h)
+    : `M 0 0 H ${w} V ${h} H 0 Z M 0 0 L ${w} ${h} M ${w} 0 L 0 ${h}`;
+
+  // Defaults under the authored declarations, mode-appropriate: a silhouette
+  // paints its fill, a line icon its stroke. Anything the model wrote wins.
+  const style: StyleMap = { ...base.style };
+  const painted = "fill" in style || "background" in style || "stroke" in style;
+  if (!painted) {
+    if (!icon || icon.mode === "stroke") {
+      style.fill = "none";
+      style.stroke = "#2b2b28";
+      style["stroke-width"] = "2";
+    } else {
+      style.fill = "#2b2b28";
+    }
+  }
+
+  return {
+    ...base,
+    kind: "path",
+    w,
+    h,
+    d,
+    style,
+    // Its own display name, so the layers panel reads "cat", not "Shape".
+    ...(base.name === undefined && name ? { name } : {}),
+    attrs: { ...base.attrs, ...(name ? { "data-icon": name } : {}) },
+  };
+}
+
 /**
  * Element children as nodes, descending through anything that is not a shape.
  * A model that wraps its shapes in a `<div>` or a stray `<svg>` still meant the
@@ -354,6 +422,10 @@ function childNodes(parent: Element, mint: Mint): SceneNode[] {
   const out: SceneNode[] = [];
   for (const el of Array.from(parent.children)) {
     if (isEdgeTag(el.tagName)) continue;
+    if (ICON_TAGS.has(el.tagName.toLowerCase())) {
+      out.push(iconToNode(el, mint));
+      continue;
+    }
     const kind = kindOf(el.tagName);
     if (kind) out.push(elementToNode(el, kind, mint));
     else out.push(...childNodes(el, mint));

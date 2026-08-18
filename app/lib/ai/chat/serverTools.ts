@@ -3,6 +3,8 @@ import type { ConvexHttpClient } from "convex/browser";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { AI } from "../aiConfig";
+import { generateDiagram } from "../diagram";
+import { recordAiCall } from "../recordCall";
 import { reason } from "@/app/lib/github";
 import { searchModel } from "./provider";
 import { noSuchPage, TOOLS } from "./tools";
@@ -58,6 +60,40 @@ export function chatTools(
     open_page: tool(TOOLS.open_page),
     read_open_page: tool(TOOLS.read_open_page),
     edit_page: tool(TOOLS.edit_page),
+
+    draw: tool({
+      ...TOOLS.draw,
+      /**
+       * The drawing specialist, as a tool. The agent composes and places; the
+       * diagram model draws — the same division the completion lane has always
+       * had, so a picture gets a whole call's attention instead of a corner of
+       * a tool loop's. Costed like every other diagram call, under the same
+       * feature, because that is what it is.
+       */
+      execute: async ({ brief, w, h }, { abortSignal }) => {
+        const frame = w && h ? { w, h } : null;
+        const html = await generateDiagram(brief, frame, abortSignal, ({ usage, latencyMs }) =>
+          recordAiCall(convex, {
+            feature: "diagram",
+            model: AI.diagram.model,
+            promptTokens: usage.inputTokens,
+            completionTokens: usage.outputTokens,
+            cacheReadTokens: usage.inputTokenDetails?.cacheReadTokens,
+            cacheWriteTokens: usage.inputTokenDetails?.cacheWriteTokens,
+            latencyMs,
+            status: "ok",
+          }),
+        );
+        if (!html) {
+          return {
+            error:
+              "Nothing worth drawing came back. Rewrite the brief to describe a " +
+              "picture — a subject, an action, a composition — and try once more.",
+          };
+        }
+        return { html };
+      },
+    }),
 
     search_web: tool({
       ...TOOLS.search_web,

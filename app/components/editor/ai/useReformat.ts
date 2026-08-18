@@ -14,6 +14,7 @@ import { resolveBatch, warnRejected } from "@/app/lib/ai/validate";
 import { applyBatch } from "@/app/lib/ai/apply";
 import { toDocHtml } from "@/app/lib/ai/html/serialize";
 import { parseDocHtml } from "@/app/lib/ai/html/parse";
+import { loadIconCatalog } from "@/app/components/editor/canvas/icons/registry";
 import { compileDocHtml } from "@/app/lib/ai/html/compile";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -185,6 +186,9 @@ export function useReformat(
     let seq = 0;
 
     const request = async (ids: string[], html: string, mySeq: number) => {
+      // A candidate may place icons; warmed here so the (synchronous) accept
+      // parses against a loaded registry.
+      void loadIconCatalog();
       const controller = new AbortController();
       abort = controller;
       const started = performance.now();
