@@ -75,12 +75,13 @@ export const TOOLS = {
   draw: {
     description:
       "Draw one canvas — a scene, a storyboard shot, a mockup, an " +
-      "illustration — and return it as an <nt-diagram> element to place in " +
-      "your edit. A drawing specialist holds the pen, so anything DRAWN " +
-      "should come from here rather than from your own paths. Returns only " +
-      "the element; nothing touches the page until you place it with " +
-      "edit_page. You may call this several times in parallel — one call per " +
-      "storyboard shot.",
+      "illustration. A drawing specialist holds the pen, so anything DRAWN " +
+      "should come from here rather than from your own paths. Returns a REF " +
+      'naming the drawing, which you place by writing <nt-diagram ref="THAT ' +
+      'REF"></nt-diagram> in your edit_page HTML — never the drawing itself, ' +
+      "which you are not shown and do not need. Nothing touches the page " +
+      "until you place it. You may call this several times in parallel — one " +
+      "call per storyboard shot.",
     inputSchema: z.object({
       brief: z
         .string()

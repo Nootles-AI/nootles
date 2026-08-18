@@ -76,6 +76,41 @@ export function shortenStaleReads(messages: ModelMessage[]): ModelMessage[] {
 }
 
 /**
+ * Takes the drawings out of what the model reads.
+ *
+ * A `draw` result carries the finished markup so the BROWSER can place it —
+ * the tool runs on the server and `edit_page` runs on the client, and the
+ * result is the only thing that travels between them. The model needs none of
+ * it: it places a drawing by writing `<nt-diagram ref="…">`, which the browser
+ * expands. Left in, a nine-shot board came back as fifteen thousand tokens of
+ * path data the model would have had to re-emit in full to place — measured, it
+ * declined, and summarised an edit it had never made.
+ *
+ * Applied to every turn, not merely the stale ones: a drawing is never worth
+ * reading, even the one just made.
+ */
+export function stripDrawings(messages: ModelMessage[]): ModelMessage[] {
+  return messages.map((message) => {
+    if (message.role !== "tool") return message;
+    let stripped = false;
+    const content = message.content.map((part) => {
+      if (part.type !== "tool-result" || part.toolName !== "draw") return part;
+      const output = part.output;
+      if (output.type !== "json" || !isRecord(output.value)) return part;
+      if (!("html" in output.value)) return part;
+      stripped = true;
+      const { html: _html, ...rest } = output.value;
+      return { ...part, output: { ...output, value: rest } };
+    });
+    return stripped ? { ...message, content } : message;
+  });
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
  * Where the provider may cache what it has already read.
  *
  * Only Anthropic and Qwen read these. The model this loop runs on caches on its

@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import {
   DefaultChatTransport,
+  getToolName,
+  isToolUIPart,
   lastAssistantMessageIsCompleteWithApprovalResponses,
   lastAssistantMessageIsCompleteWithToolCalls,
   type ChatOnToolCallCallback,
@@ -116,13 +118,19 @@ export function useProjectChat({
   // later still — `open_page` leaves the new page behind in a React commit, so
   // a context that captured it would be one reading the old one.
   const makeContext = useCallback(
-    (): ToolContext => ({
+    (of?: BrowserChat): ToolContext => ({
       convex: latest.current.convex,
       projectId: latest.current.projectId,
       review: latest.current.review,
       openPageId: () => latest.current.pageId,
       openPage: latest.current.open,
       editorFor: (pageId) => latest.current.registry.editorFor(pageId),
+      // Read off the transcript rather than held in a store of its own: the
+      // drawings are already in the messages, and a map that shadowed them
+      // would be a second copy to keep in step — and to lose on a remount.
+      // Read when the tool runs, not when the context was made: the draw
+      // results this redeems arrived after it.
+      drawings: () => drawingsIn(of?.messages ?? []),
     }),
     [],
   );
@@ -186,7 +194,7 @@ export function useProjectChat({
         // they are not independent — the page `read_open_page` is meant to read
         // is the one the `open_page` before it opened. Rejections take the
         // failure branch too, so a tool that threw does not strand the rest.
-        const run = answer(next, makeContext(), toolCall, persist);
+        const run = answer(next, makeContext(next), toolCall, persist);
         queue = queue.then(run, run);
       },
       // A tool the browser answered, or a call the user allowed, is the middle
@@ -361,6 +369,27 @@ type StoredAttachment = {
  * file part pointing at storage, and the sidecar records which part that was,
  * because the URL in it is stale by the next read.
  */
+/**
+ * Every drawing this thread has made, by the name its `draw` call returned.
+ *
+ * The whole transcript rather than the turn in flight: a board drawn in one
+ * turn and placed in the next — or after a failed edit the model is retrying —
+ * must still find its pictures. They cost nothing to keep here; the model
+ * never sees them (see `stripDrawings`).
+ */
+function drawingsIn(messages: readonly AbMessage[]): ReadonlyMap<string, string> {
+  const out = new Map<string, string>();
+  for (const message of messages) {
+    for (const part of message.parts) {
+      if (!isToolUIPart(part) || getToolName(part) !== "draw") continue;
+      if (part.state !== "output-available") continue;
+      const output = part.output as { ref?: string; html?: string } | undefined;
+      if (output?.ref && output.html) out.set(output.ref, output.html);
+    }
+  }
+  return out;
+}
+
 function userParts(
   draft: ChatDraft,
   mentions: MentionData[],
