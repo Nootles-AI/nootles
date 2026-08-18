@@ -76,6 +76,12 @@ export type ProjectRole = "owner" | "editor" | "viewer";
  * as Google downgrading a link from editor to viewer), and killing both links
  * closes the project to everyone but the owner. A claim row alone admits
  * nobody.
+ *
+ * `grantedRole` is the one thing a link does not decide: the owner answering
+ * an access request hands the pen to one person, and no link turns on for it.
+ * It survives the editor link being revoked — it was never that link's doing —
+ * but not the project being unshared entirely, so revoking is still the one
+ * move that closes the door on everybody at once.
  */
 export async function roleForProject(
   ctx: QueryCtx,
@@ -91,8 +97,10 @@ export async function roleForProject(
     )
     .unique();
   if (!claim) return null;
+  if (!project.shareToken && !project.editShareToken) return null;
+  if (claim.grantedRole === "editor") return "editor";
   if (claim.role === "editor" && project.editShareToken) return "editor";
-  return project.shareToken || project.editShareToken ? "viewer" : null;
+  return "viewer";
 }
 
 /** The caller's role in a project named by id, or null for missing/stranger. */

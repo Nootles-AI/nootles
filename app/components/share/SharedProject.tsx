@@ -44,6 +44,7 @@ export function SharedProject({ token }: { token: string }) {
   const shared = useQuery(api.share.view, { token });
   const { isLoaded, isSignedIn } = useAuth();
   const claim = useMutation(api.share.claim);
+  const requestEdit = useMutation(api.share.requestEdit);
   const router = useRouter();
   // One column here, so the workspace's second pane never comes into it.
   const { main, open, back } = useOpenPage();
@@ -52,7 +53,9 @@ export function SharedProject({ token }: { token: string }) {
   // Folders the guest has closed. Not remembered between visits: a link is
   // read in one sitting, and it should always open showing the whole shape.
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
-  const [asking, setAsking] = useState(false);
+  // Which door is open, and on whose behalf: an editor link's guest signs in
+  // to write, a viewer link's guest signs in to ask.
+  const [asking, setAsking] = useState<"edit" | "request" | null>(null);
   const [claimFailed, setClaimFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
   // What kind of press is in flight, so a touch can be told apart from a
@@ -73,13 +76,27 @@ export function SharedProject({ token }: { token: string }) {
 
   // Imperative hand-off, not derived state: the moment we know who this is,
   // the share surface's job is to record the claim and get out of the way.
+  //
+  // `?request=1` is the one thing that survives the round trip to Google: a
+  // guest who asked for the pen before signing in gets the ask made for them
+  // the instant they have a name to make it under. Read off the URL rather
+  // than through `useSearchParams`, which would pull the whole page behind a
+  // Suspense boundary to answer a question asked once, inside an effect.
   const claimed = useRef(false);
   useEffect(() => {
     if (!isLoaded || !isSignedIn || !shared || claimed.current) return;
     claimed.current = true;
+    const wantsEdit =
+      new URLSearchParams(window.location.search).get("request") === "1";
     void claim({ token })
-      .then((projectId) => {
+      .then(async (projectId) => {
         track("share_claimed", { role: shared.role });
+        if (wantsEdit) {
+          // Its failure is not the sign-in's failure: they are in the project
+          // either way, and the button to ask again is waiting there.
+          await requestEdit({ projectId }).catch(() => {});
+          track("access_requested", { from: "share_link" });
+        }
         router.replace(`/p/${projectId}`);
       })
       .catch(() => {
@@ -90,7 +107,7 @@ export function SharedProject({ token }: { token: string }) {
         claimed.current = false;
         setClaimFailed(true);
       });
-  }, [isLoaded, isSignedIn, shared, claim, token, router, attempt]);
+  }, [isLoaded, isSignedIn, shared, claim, requestEdit, token, router, attempt]);
 
   useEffect(() => {
     if (!drawer) return;
@@ -310,13 +327,23 @@ export function SharedProject({ token }: { token: string }) {
           <Facepile docId={current?.docId ?? null} />
           {editable ? (
             <button
-              onClick={() => setAsking(true)}
+              onClick={() => setAsking("edit")}
               className="nt-row shrink-0 px-2.5 text-muted"
             >
               Sign in
             </button>
           ) : (
-            <span className="shrink-0 text-[13px] text-muted">Read-only</span>
+            <>
+              <span className="shrink-0 text-[13px] text-muted">Read-only</span>
+              {/* The way out of read-only that a link cannot give: ask the one
+                  person who can. It sits beside the word it answers. */}
+              <button
+                onClick={() => setAsking("request")}
+                className="nt-row shrink-0 px-2.5"
+              >
+                Request edit access
+              </button>
+            </>
           )}
         </div>
       </header>
@@ -324,7 +351,7 @@ export function SharedProject({ token }: { token: string }) {
       {editable && (
         <div className="nt-guest-banner">
           <span>This project is editable.</span>
-          <button onClick={() => setAsking(true)}>Sign in to edit</button>
+          <button onClick={() => setAsking("edit")}>Sign in to edit</button>
         </div>
       )}
 
@@ -360,7 +387,7 @@ export function SharedProject({ token }: { token: string }) {
                     ? (e) => {
                         pressType.current = e.pointerType;
                         if (e.pointerType !== "touch" && !following(e.target)) {
-                          setAsking(true);
+                          setAsking("edit");
                         }
                       }
                     : undefined
@@ -369,7 +396,7 @@ export function SharedProject({ token }: { token: string }) {
                   editable
                     ? (e) => {
                         if (pressType.current === "touch" && !following(e.target)) {
-                          setAsking(true);
+                          setAsking("edit");
                         }
                       }
                     : undefined
@@ -378,7 +405,7 @@ export function SharedProject({ token }: { token: string }) {
                   editable
                     ? (e) => {
                         if (writingKey(e) && !following(e.target)) {
-                          setAsking(true);
+                          setAsking("edit");
                         }
                       }
                     : undefined
@@ -404,7 +431,7 @@ export function SharedProject({ token }: { token: string }) {
         </main>
 
         {editable && !compact && (
-          <GuestChatRail onIntercept={() => setAsking(true)} />
+          <GuestChatRail onIntercept={() => setAsking("edit")} />
         )}
       </div>
 
@@ -425,7 +452,13 @@ export function SharedProject({ token }: { token: string }) {
         </>
       )}
 
-      {asking && <SignInToEdit token={token} onClose={() => setAsking(false)} />}
+      {asking && (
+        <SignInToEdit
+          token={token}
+          intent={asking}
+          onClose={() => setAsking(null)}
+        />
+      )}
     </div>
     </PagesProvider>
   );

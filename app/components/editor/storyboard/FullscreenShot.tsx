@@ -29,11 +29,17 @@ import { SHOT_W } from "./types";
  *
  * Portalled to the body, as the album's lightbox is: a fixed overlay inside
  * the editor's stacking contexts is an overlay that isn't.
+ *
+ * Read-only, it is the same lightbox with the pen taken away: the picture is
+ * the whole point of opening a shot, and looking at one closely is not an
+ * edit. What goes is the toolbar and the claim on the shell — there are no
+ * tools to speak for.
  */
 export function FullscreenShot({
   scene,
   frameH,
   board,
+  readOnly = false,
   onScene,
   onClaim,
   onClose,
@@ -41,6 +47,7 @@ export function FullscreenShot({
   scene: string;
   frameH: number;
   board: BoardApi;
+  readOnly?: boolean;
   onScene: (scene: string) => void;
   /** Hands the shell this view's claim; re-called as the api changes. */
   onClaim: (api: CanvasApi) => void;
@@ -65,8 +72,8 @@ export function FullscreenShot({
 
   const [api, setApi] = useState<CanvasApi | null>(null);
   useEffect(() => {
-    if (api) onClaim(api);
-  }, [api, onClaim]);
+    if (api && !readOnly) onClaim(api);
+  }, [api, readOnly, onClaim]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -99,12 +106,13 @@ export function FullscreenShot({
           <CanvasSurface
             source={scene}
             onChange={onScene}
+            readOnly={readOnly}
             frame={frame}
             onApi={setApi}
           />
         )}
       </div>
-      {api && (
+      {api && !readOnly && (
         <div className="nt-sb-bar-h">
           <StoryboardToolbar api={api} board={board} />
         </div>

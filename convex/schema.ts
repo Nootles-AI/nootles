@@ -103,10 +103,51 @@ export default defineSchema({
     projectId: v.id("projects"),
     granteeId: v.string(),
     role: v.union(v.literal("viewer"), v.literal("editor")),
+    /**
+     * The pen, handed to this person by name — what the owner granting an
+     * access request writes. Separate from `role` because that field records
+     * which LINK they came by and must keep meaning that: promoting one viewer
+     * must never be confused with turning the editor link on for everyone
+     * holding it. Still contingent on the project being shared at all, so
+     * revoking every link remains the owner's one way to close the door on
+     * everybody (`auth.ts`).
+     */
+    grantedRole: v.optional(v.literal("editor")),
     createdAt: v.number(),
   })
     .index("by_grantee", ["granteeId"])
     .index("by_project_and_grantee", ["projectId", "granteeId"]),
+
+  /**
+   * "May I edit this?", asked from a read-only project and answered by its
+   * owner. A row per person per project, reused rather than appended to: asking
+   * twice is the same question, and the owner should see one of it.
+   *
+   * `projectOwnerId` is denormalized so the owner's inbox is one index read
+   * wherever they happen to be standing, rather than a walk of their projects.
+   * Deliberately not named `ownerId`: that field name would enroll this table
+   * in the `Owned` union in `auth.ts`, and these rows are not the owner's to
+   * read as their own — they are correspondence between two people.
+   */
+  accessRequests: defineTable({
+    projectId: v.id("projects"),
+    /** The Clerk subject asking, always derived server-side. */
+    requesterId: v.string(),
+    projectOwnerId: v.string(),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("granted"),
+      v.literal("denied"),
+    ),
+    createdAt: v.number(),
+    decidedAt: v.optional(v.number()),
+    /** When the requester was told they were let in. Grants only — a decline
+     *  is never announced, it just leaves them able to ask again. */
+    seenAt: v.optional(v.number()),
+  })
+    .index("by_project_and_requester", ["projectId", "requesterId"])
+    .index("by_owner_and_status", ["projectOwnerId", "status"])
+    .index("by_requester_and_status", ["requesterId", "status"]),
 
   /**
    * Per-account settings. Exists at all because first run needs somewhere to

@@ -1,0 +1,165 @@
+/* Access requests: the owner's ask, and the requester's answer. Neutral
+   throughout — this is correspondence between two people, not a system alert.
+
+   Bottom-left, because that corner is already where unprompted news arrives
+   (the report toast) and the right-hand one belongs to the chat composer. It
+   clears the report button, and steps above the report toast when both are up —
+   the same body:has() move the review bar and the sampler already make. */
+
+.nt-asks {
+  position: fixed;
+  left: 20px;
+  bottom: 64px;
+  z-index: var(--z-toast);
+  display: flex;
+  /* Newest nearest the corner, so the stack grows upward away from the hand. */
+  flex-direction: column-reverse;
+  align-items: flex-start;
+  gap: 8px;
+  max-width: min(420px, calc(100vw - 40px));
+}
+
+body:has(.nt-fixed) .nt-asks {
+  bottom: 112px;
+}
+
+.nt-ask {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 8px 8px 12px;
+  border-radius: 12px;
+  background: var(--elevated);
+  border: 1px solid var(--border);
+  box-shadow:
+    0 1px 2px oklch(0.25 0.005 90 / 0.05),
+    0 8px 26px oklch(0.25 0.005 90 / 0.12);
+  font-size: var(--text-ui);
+  animation: nt-ask-in 420ms var(--ease) both;
+}
+
+@keyframes nt-ask-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* A request is two rows — who and what, then the answer — with the face
+   beside both. The one-line notices (the requester's own news) stay flex. */
+.nt-ask.is-decision {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  align-items: center;
+  gap: 4px 10px;
+  padding: 10px 12px;
+}
+
+.nt-ask-said {
+  min-width: 0;
+  text-wrap: pretty;
+}
+
+.nt-ask-answers {
+  grid-column: 2;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.nt-ask-face {
+  flex-shrink: 0;
+  /* Top-aligned with the first line of a message that wraps. */
+  align-self: start;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+}
+
+/* The pen is the whole subject of the message, so it carries the one mark. */
+.nt-ask-pen {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  color: var(--muted);
+  background: var(--sunken);
+}
+
+.nt-ask-yes,
+.nt-ask-no {
+  flex-shrink: 0;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: var(--text-ui);
+  white-space: nowrap;
+  transition: background var(--dur-fast) var(--ease);
+}
+
+.nt-ask-yes {
+  border: 1px solid var(--border-strong);
+  font-weight: 500;
+}
+.nt-ask-yes:hover {
+  background: var(--sunken);
+}
+
+/* The decline is a word, not a button: saying no should not look like the
+   easier of the two answers. */
+.nt-ask-no {
+  color: var(--muted);
+}
+.nt-ask-no:hover {
+  color: var(--foreground);
+}
+
+.nt-ask-x {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  color: var(--muted);
+}
+.nt-ask-x:hover {
+  background: var(--sunken);
+  color: var(--foreground);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nt-ask {
+    animation-duration: 1ms;
+  }
+}
+
+/* ---- Waiting, in the share popover ---------------------------------------
+   The durable home for the same question, beside the list of who already has
+   access. A request that was not answered in the corner is answered here. */
+
+.nt-ask-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 3px 0;
+}
+
+.nt-ask-row-name {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}

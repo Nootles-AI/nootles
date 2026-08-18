@@ -38,6 +38,8 @@ type EventMap = {
   share_link_toggled: { role: "viewer" | "editor"; on: boolean };
   share_link_copied: { role: "viewer" | "editor" };
   share_claimed: { role: "viewer" | "editor" };
+  access_requested: { from: "share_link" | "workspace" };
+  access_request_decided: { grant: boolean };
   survey_answered: { survey: string; answered: boolean };
 };
 

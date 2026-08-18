@@ -28,6 +28,7 @@ import { Facepile } from "./presence/Facepile";
 import { Hints } from "./hints/Hints";
 import { Feedback } from "./feedback/Feedback";
 import { FixedToast } from "./feedback/FixedToast";
+import { AccessRequests } from "./share/AccessRequests";
 import { TesterNote } from "./feedback/TesterNote";
 import { PmfSurvey } from "./feedback/PmfSurvey";
 import { DismissSampler } from "./feedback/DismissSampler";
@@ -451,6 +452,8 @@ export function Workspace({ projectId }: { projectId: Id<"projects"> }) {
         <Feedback projectId={projectId} pageId={effectivePageId} />
         {/* The answer to what that button sent, in the corner it left from. */}
         <FixedToast />
+        {/* Not this project's — the caller's, wherever they are standing. */}
+        <AccessRequests />
         <TesterNote projectId={projectId} />
         <PmfSurvey />
         <DismissSampler />
