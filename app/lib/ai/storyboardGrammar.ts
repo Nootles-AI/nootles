@@ -68,10 +68,25 @@ only what you mean to change. Shots have no ids: they are addressed by position,
 board that comes back with five shots where there were six has deleted the sixth. Adding,
 removing and reordering shots is done by writing the list you want.
 
-A shot already drawn reads back as a stub — <nt-diagram drawn="240 shapes"
-at="…"></nt-diagram> — because the picture itself is too big to be worth showing you.
-The stub IS that picture: return it exactly as it came, attributes and all, to keep the
-picture; move it to another shot to move the picture; leave it out to delete it; put a
-fresh draw ref in its place to redraw that shot. Never write shapes into a stub, and
-never invent one. To hand-edit a drawn picture's shapes, read the page again with
-expand: [the board's block id] and edit the shapes it shows you.`;
+A shot already drawn reads back as a stub — <nt-diagram drawn="Close on the thief —
+240 shapes" at="…"></nt-diagram> — because the picture itself is too big to be worth
+showing you. The drawn attribute names what the picture shows. The stub IS that
+picture: return it exactly as it came, attributes and all, to keep the picture; move it
+to another shot to move the picture; leave it out to delete it; put a fresh draw ref in
+its place to redraw that shot. Never write shapes into a stub, and never invent one. To
+hand-edit a drawn picture's shapes, read the page again with expand: [the board's block
+id] and edit the shapes it shows you.
+
+EVERY SHOT IS THE ARTIST'S — kind stays "scene" for all of them. A title card or an end
+card is drawn lettering, part of the picture; never send a shot down kind:"diagram",
+whose diagrams do not belong on a board.
+
+A DRAW THAT FAILS is retried, not replaced: call draw again with the SAME brief —
+finished work is kept, so a retry is free and answers instantly once the drawing lands.
+After a second miss, say which shots stayed written-only; never quietly leave a board
+part-drawn.
+
+FILLING OR REDRAWING shots on a board drawn earlier: build each brief FROM that shot's
+note, and reuse the exact style words the board's other briefs used — your earlier draw
+calls show them, and each stub's drawn attribute says what its picture shows. The fills
+must read as frames of the same film, drawn by the same hand.`;

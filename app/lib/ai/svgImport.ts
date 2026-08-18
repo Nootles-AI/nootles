@@ -299,7 +299,12 @@ export function importSvgScene(
           h: frame.h,
           rot: 0,
           style: {},
-          label,
+          // `name`, not `label`: a group's label is text content, which groups
+          // neither render nor serialize — a name there would evaporate on the
+          // first save. The name attribute is what the layers panel shows and
+          // what the read-side stub quotes back to the model.
+          label: "",
+          name: label,
           locked: false,
           hidden: false,
           attrs: {},

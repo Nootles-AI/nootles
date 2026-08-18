@@ -97,21 +97,31 @@ export function chatTools(
         // Every scene goes to the vector specialist, framed or not — a bare
         // "draw a cat" is as much a picture as a storyboard shot, and an
         // unframed one takes the specialist's document-sized default. Only
-        // words-first work stays on the LLM lane, whose labels are text. A
-        // specialist miss falls through rather than failing the call — the
-        // agent asked for a drawing, not for a particular pen.
+        // words-first work rides the LLM lane, whose labels are text. The
+        // lanes do NOT substitute for each other: a specialist miss used to
+        // fall through to the LLM, which filled boards with pictures not
+        // worth keeping — an honest miss the agent can retry (idempotently,
+        // for free) beats a bad drawing it will place.
         let html = "";
         if (kind !== "diagram") {
           const vector = await generateVectorDrawing(brief, frame);
-          if (vector) {
-            recordAiCall(convex, {
-              feature: "diagram",
-              model: AI.diagram.vector.model,
-              latencyMs: vector.latencyMs,
-              status: "ok",
-            });
-            html = vector.html;
+          if (!vector) {
+            return {
+              error:
+                "The artist did not answer for this brief. Call draw again " +
+                "with the SAME brief — finished work is kept, so a retry " +
+                "costs nothing and answers instantly once the drawing lands. " +
+                "If it misses twice more, say so honestly and leave the shot " +
+                "to its written note.",
+            };
           }
+          recordAiCall(convex, {
+            feature: "diagram",
+            model: AI.diagram.vector.model,
+            latencyMs: vector.latencyMs,
+            status: "ok",
+          });
+          html = vector.html;
         }
         if (!html) {
           html = await generateDiagram(brief, frame, undefined, ({ usage, latencyMs }) =>

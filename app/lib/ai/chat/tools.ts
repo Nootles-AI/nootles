@@ -127,7 +127,8 @@ export const TOOLS = {
             "figure, an illustration; drawn by a vector artist, so expect art, " +
             "not labels. diagram: anything whose WORDS matter — a mockup with " +
             "readable UI text, a labelled figure — where text must land as " +
-            "editable text.",
+            "editable text. Never diagram for a storyboard shot: a title " +
+            "card's lettering is part of the picture.",
         ),
     }),
   },
