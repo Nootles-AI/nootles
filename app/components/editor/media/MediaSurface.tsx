@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, type ReactNode } from "react";
+import { useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { useConvex } from "convex/react";
 import { put } from "../album/upload";
 import { useReadOnly } from "../readOnly";
@@ -8,6 +8,8 @@ import { LinkIcon, Search } from "../../Icons";
 import { classify } from "./link";
 import { useVerified } from "./verify";
 import { playableSrc, usePlayer } from "./playback";
+import { SearchPanel } from "./SearchPanel";
+import { SERVICES, takeArm, type Service } from "./search";
 import {
   AppleMusicMark,
   SoundCloudMark,
@@ -52,11 +54,13 @@ const EMBED_ALLOW =
   "autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture";
 
 export function MediaSurface({
+  blockId,
   url,
   title,
   fallbackKind,
   onSet,
 }: {
+  blockId: string;
   url: string;
   title: string;
   /** The block's own type: what a storage URL plays as when it can't say. */
@@ -83,6 +87,10 @@ export function MediaSurface({
   const [draft, setDraft] = useState("");
   const [progress, setProgress] = useState<number | null>(null);
   const [error, setError] = useState("");
+  // Opened by `/spotify` or `/apple music`, which leave a note for this block
+  // on the way past. Read once, as initial state, so it is never a render that
+  // corrects itself afterwards.
+  const [service, setService] = useState<Service | null>(() => takeArm(blockId));
 
   function commitLink(raw: string) {
     const trimmed = raw.trim();
@@ -125,8 +133,15 @@ export function MediaSurface({
     // An empty media block is an invitation, and a viewer has nothing to
     // accept: on the share route it renders as the nothing it holds.
     if (readOnly) return null;
+    const searchable: [Service, () => ReactNode][] = [
+      ["spotify", () => <SpotifyMark />],
+      ["apple", () => <AppleMusicMark />],
+    ];
     return (
-      <div className="nt-media">
+      <div
+        className={`nt-media${service ? ` is-armed is-${service}` : ""}`}
+        style={service ? ({ "--brand": SERVICES[service].brand } as CSSProperties) : undefined}
+      >
         {progress !== null ? (
           <div className="nt-media-drop is-busy">
             <span>Uploading — {Math.round(progress * 100)}%</span>
@@ -145,8 +160,13 @@ export function MediaSurface({
           >
             <input
               className="nt-media-input"
-              placeholder="Paste an audio or video link…"
+              placeholder={
+                service
+                  ? `Search ${SERVICES[service].label}…`
+                  : "Paste an audio or video link…"
+              }
               value={draft}
+              autoFocus={service !== null}
               onChange={(event) => {
                 setDraft(event.target.value);
                 if (error) setError("");
@@ -159,23 +179,62 @@ export function MediaSurface({
                 }
               }}
               onKeyDown={(event) => {
-                if (event.key === "Enter" && draft.trim()) commitLink(draft);
+                // A link is a link even while searching, and beats the list to
+                // the Enter — which is why this stops here rather than reaching
+                // the panel's handler on the way up.
+                if (event.key === "Enter" && classify(draft.trim())) {
+                  event.stopPropagation();
+                  commitLink(draft);
+                } else if (event.key === "Enter" && !service && draft.trim()) {
+                  commitLink(draft);
+                } else if (event.key === "Escape" && service) {
+                  event.stopPropagation();
+                  setService(null);
+                  setDraft("");
+                }
               }}
             />
-            <span className="nt-media-marks" aria-hidden>
-              <SpotifyMark />
-              <AppleMusicMark />
-              <YouTubeMark />
-              <SoundCloudMark />
-              <VimeoMark />
+            <span className="nt-media-marks">
+              {searchable.map(([which, Mark]) => (
+                <button
+                  key={which}
+                  type="button"
+                  className={`nt-media-mark${service === which ? " is-on" : ""}`}
+                  aria-label={`Search ${SERVICES[which].label}`}
+                  aria-pressed={service === which}
+                  style={{ "--brand": SERVICES[which].brand } as CSSProperties}
+                  onClick={() => {
+                    setService(service === which ? null : which);
+                    setError("");
+                  }}
+                >
+                  {Mark()}
+                </button>
+              ))}
+              {/* The video services and SoundCloud say what a link may be, not
+                  what can be searched: YouTube and Vimeo because a video needs
+                  no search, SoundCloud because it has issued no API key in
+                  years. They are a legend, so they are not buttons. */}
+              <span className="nt-media-hint" aria-hidden>
+                <YouTubeMark />
+                <SoundCloudMark />
+                <VimeoMark />
+              </span>
             </span>
             <span className="nt-media-rule" />
             <button
               type="button"
               className="nt-media-upload"
-              onClick={() => picker.current?.click()}
+              onClick={() => {
+                if (service) {
+                  setService(null);
+                  setDraft("");
+                } else {
+                  picker.current?.click();
+                }
+              }}
             >
-              Upload file
+              {service ? "Cancel" : "Upload file"}
             </button>
             <input
               ref={picker}
@@ -188,6 +247,20 @@ export function MediaSurface({
               }}
             />
           </div>
+        )}
+        {service && (
+          <SearchPanel
+            service={service}
+            query={draft}
+            onPick={(track) =>
+              onSet({
+                url: track.url,
+                name: "",
+                caption: `${track.title} — ${track.artist}`,
+                media: "audio",
+              })
+            }
+          />
         )}
         {error && <div className="nt-media-error">{error}</div>}
       </div>
