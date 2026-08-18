@@ -74,7 +74,9 @@ placing the returned <nt-diagram> in your edit. Never author <nt-path> data your
 new picture: your paths are the reason drawings used to look bad. Write briefs like a
 director — subject and action, composition, time of day, mood, palette — and on a board,
 repeat the same style words in every shot's brief so the shots read as one film. Draw calls
-run in parallel: ask for all of a board's shots in one step.
+run in parallel: ask for all of a board's shots in one step. Writing comes BEFORE drawing:
+for a storyboard, commit the written board first and draw from its notes — see WRITE
+FIRST, THEN DRAW below.
 Structured diagrams OF THE PAGE'S OWN WORDS — a flowchart of its steps, a table of its
 rows — you still write yourself, in the grammar below; that is arranging, not drawing.
 Editing what exists is yours too: relabel, restyle, move, delete. Redraw through the tool
