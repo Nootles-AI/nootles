@@ -870,8 +870,16 @@ export class ReviewSession {
       (h) => (page.status[h.id] ?? "pending") !== "rejected",
     );
     const expected = surviving.flatMap((h) => h.added);
-    if (!expected.length) return;
-    if (expected.some((id) => editor.getBlock(id))) return;
+    if (expected.length) {
+      if (expected.some((id) => editor.getBlock(id))) return;
+    } else if (standingProps(surviving, page.ops, editor)) {
+      // No insertions to look for. Whole-value prop writes are the other
+      // testable shape — and far from rare: every canvas, album and storyboard
+      // edit is one. A turn that is neither (text-only changes) stays
+      // un-restaged, as before: re-running content ops against text someone
+      // has since edited would be worse than asking again.
+      return;
+    }
 
     const keep = new Set(surviving.map((h) => h.id));
     const ops = planReplay({ ops: page.ops, trace: page.trace, hunks: page.hunks, keep, before });
@@ -968,6 +976,44 @@ export class ReviewSession {
  * since — a checkpoint round trip at least. The applier throws on an id it
  * cannot find, and a batch that dies halfway is worse than one that never ran.
  */
+/**
+ * Whether a changed-only turn's edits are still in the document — the
+ * {@link ReviewSession.restage} question, asked of the one changed shape it can
+ * be asked of.
+ *
+ * A prop write is whole-value, so "did it land" has an exact answer: the block
+ * either carries the op's values or it does not. A turn whose surviving ops
+ * include none (text-only rewrites) reports standing, which keeps the old
+ * behaviour for the one shape where re-application genuinely could fight text
+ * the user has edited since. A target block that no longer exists also reads
+ * as standing — restaging cannot conjure the block back, and its hunks settle
+ * as superseded through the usual paths.
+ */
+function standingProps(
+  surviving: Hunk[],
+  ops: Operation[],
+  editor: LiveEditor,
+): boolean {
+  const mine = new Set(surviving.flatMap((h) => h.opIndices));
+  for (let i = 0; i < ops.length; i++) {
+    if (!mine.has(i)) continue;
+    const op = ops[i];
+    if (op.kind !== "updateBlockProps") continue;
+    let block;
+    try {
+      block = editor.getBlock(op.blockId);
+    } catch {
+      continue;
+    }
+    if (!block) continue;
+    const props = block.props as Record<string, unknown>;
+    for (const [name, value] of Object.entries(op.props)) {
+      if (props[name] !== value) return false;
+    }
+  }
+  return true;
+}
+
 function absentRefs(editor: LiveEditor, batch: Batch): string[] {
   const coming = new Set(batch.ops.flatMap(produces));
   const named = batch.ops.flatMap((op) => {

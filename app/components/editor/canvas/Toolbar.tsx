@@ -50,7 +50,9 @@ const svg = {
   strokeLinejoin: "round" as const,
 };
 
-const TOOLS: readonly { tool: CanvasTool; id: ShortcutId; icon: ReactNode }[] = [
+// Exported for the storyboard's vertical bar, which shows a subset of the same
+// tools — one drawing of each glyph, however many bars carry it.
+export const TOOLS: readonly { tool: CanvasTool; id: ShortcutId; icon: ReactNode }[] = [
   {
     tool: "move",
     id: "tool.move",
@@ -147,13 +149,13 @@ const TOOLS: readonly { tool: CanvasTool; id: ShortcutId; icon: ReactNode }[] = 
   },
 ];
 
-const UNDO = (
+export const UNDO = (
   <svg {...svg}>
     <path d="M4 8h9a5 5 0 0 1 0 10H8M4 8l4-4M4 8l4 4" />
   </svg>
 );
 
-const REDO = (
+export const REDO = (
   <svg {...svg}>
     <path d="M20 8h-9a5 5 0 0 0 0 10h5M20 8l-4-4M20 8l-4 4" />
   </svg>
@@ -252,7 +254,7 @@ function useDock(viewport: ViewportController) {
   return dock;
 }
 
-function Button({
+export function Button({
   label,
   hint,
   pressed,

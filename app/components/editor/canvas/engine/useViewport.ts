@@ -166,6 +166,16 @@ export interface UseViewportOptions {
   initial?: Viewport;
   minZoom?: number;
   maxZoom?: number;
+  /**
+   * Bind no input. Wheel, pinch and space-drag are left to the page, and the
+   * transform moves only when a caller sets it.
+   *
+   * A storyboard shot is a fixed frame that scales with its column, not a
+   * window onto an endless surface: there is nothing off-screen to reach, so
+   * panning it would only ever lose the picture. Read once, like `initial` —
+   * a viewport does not become lockable halfway through its life.
+   */
+  locked?: boolean;
 }
 
 type ViewportEngine = ViewportController & { mount(): () => void };
@@ -536,6 +546,9 @@ function createViewport(options: UseViewportOptions): ViewportEngine {
 
     const el = containerRef.current;
     if (!el) return () => {};
+    // Locked: the transform is still painted above, so a caller's `set` shows;
+    // only the listeners that would let the user move it are never bound.
+    if (options.locked) return () => {};
 
     el.addEventListener("wheel", onWheel, { passive: false });
     el.addEventListener("pointerdown", onPointerDown, true);

@@ -28,7 +28,11 @@ export function searchModel() {
 
 /** The model that expands `<nt-build-diagram>` into canvas HTML. */
 export function diagramModel() {
-  return openrouter().chat(AI.diagram.model);
+  return openrouter().chat(AI.diagram.model, {
+    // Pinned, never the provider's default — this line reasons hard when left
+    // to itself, and a drawing lane lives on time-to-first-shape.
+    reasoning: { effort: AI.diagram.effort },
+  });
 }
 
 function openrouter() {

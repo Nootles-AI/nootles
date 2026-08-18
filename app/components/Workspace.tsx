@@ -46,9 +46,10 @@ const COMPACT = "(max-width: 1023px)";
 /* Everything that belongs to the canvas being edited. A press anywhere else is
    what "deselect" means — and the panels have to be in here, because a field in
    one takes focus off the canvas without meaning to leave it. The mention menu
-   is portalled to the body but belongs to a label edit inside the canvas. */
+   is portalled to the body but belongs to a label edit inside the canvas; the
+   storyboard's fullscreen shot is a whole canvas view portalled the same way. */
 const CANVAS_SHELL =
-  ".nt-canvas, .nt-lyr, .nt-style-panel, .nt-toolbar, .nt-mention-anchor";
+  ".nt-canvas, .nt-lyr, .nt-style-panel, .nt-toolbar, .nt-mention-anchor, .nt-sb-full";
 
 /* Room left above a diagram too tall to centre. */
 const REVEAL_TOP = 24;
@@ -384,7 +385,10 @@ export function Workspace({ projectId }: { projectId: Id<"projects"> }) {
             Both are fixed, and the resize handles carry a z-index of their own —
             hence the stacking context around this one. */}
         <div className="relative" style={{ zIndex: "var(--z-sticky)" }}>
-          {canvas ? (
+          {/* A storyboard shot claims the shell for the panels but carries its
+              own vertical bar beside the board, so the floating pill stands
+              down for it the way it does for a review. */}
+          {canvas && !canvas.api.board ? (
             <Toolbar
               store={canvas.api.store}
               viewport={canvas.api.viewport}

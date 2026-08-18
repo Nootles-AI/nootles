@@ -1,5 +1,7 @@
 import { parseAlbum } from "@/app/components/editor/album/parse";
 import { serializeAlbum } from "@/app/components/editor/album/serialize";
+import { parseStoryboard } from "@/app/components/editor/storyboard/parse";
+import { serializeStoryboard } from "@/app/components/editor/storyboard/serialize";
 import { adoptScene } from "@/app/components/editor/canvas/scene/adopt";
 import { parseScene } from "@/app/components/editor/canvas/scene/parse";
 import { serializeScene } from "@/app/components/editor/canvas/scene/serialize";
@@ -82,6 +84,17 @@ function albumData(html: string): string {
   return serializeAlbum({ ...parseAlbum(html), id: undefined });
 }
 
+/**
+ * A storyboard as the block stores it. Canonicalising both sides of the diff
+ * through the board's own parser matters more here than anywhere: each shot
+ * holds a whole diagram, and a model that rewrote one shot will have re-emitted
+ * the other five in whatever spelling it fancied. Normalised, those five are
+ * byte-identical and the board reads as the one change it actually was.
+ */
+function storyboardData(html: string): string {
+  return serializeStoryboard({ ...parseStoryboard(html), id: undefined });
+}
+
 function propsOf(node: DocNode): Record<string, string | number | boolean> | undefined {
   if (node.type === "heading") return { level: node.level ?? 2 };
   if (node.type === "checkListItem") return { checked: node.checked ?? false };
@@ -92,6 +105,7 @@ function propsOf(node: DocNode): Record<string, string | number | boolean> | und
   if (node.type === "mathBlock") return { source: node.rows.join("\n") };
   if (node.type === "canvas") return { data: canvasData(node.html) };
   if (node.type === "album") return { data: albumData(node.html) };
+  if (node.type === "storyboard") return { data: storyboardData(node.html) };
   if (MEDIA.has(node.type) && "url" in node) {
     return {
       ...(node.url !== undefined ? { url: node.url } : {}),
@@ -187,6 +201,16 @@ function updateOps(next: DocNode, current: DocNode): Operation[] {
     // answers a hunk at a time, and one picture is not a hunk.
     const data = albumData(next.html);
     if (data !== albumData(current.html)) {
+      ops.push({ kind: "updateBlockProps", blockId: id, props: { data } });
+    }
+    return ops;
+  }
+
+  if (next.type === "storyboard" && current.type === "storyboard") {
+    // Whole-board, and a shot is not a hunk either — a board is one decision
+    // to keep or discard, the way a diagram is.
+    const data = storyboardData(next.html);
+    if (data !== storyboardData(current.html)) {
       ops.push({ kind: "updateBlockProps", blockId: id, props: { data } });
     }
     return ops;

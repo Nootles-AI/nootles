@@ -42,6 +42,7 @@ export const BLOCK_TYPES = [
   "mathBlock",
   "canvas",
   "album",
+  "storyboard",
   "table",
   "divider",
   "image",

@@ -1,5 +1,7 @@
 import { parseAlbum } from "@/app/components/editor/album/parse";
 import { serializeAlbum } from "@/app/components/editor/album/serialize";
+import { parseStoryboard } from "@/app/components/editor/storyboard/parse";
+import { serializeStoryboard } from "@/app/components/editor/storyboard/serialize";
 import { migrateLegacyCanvas } from "@/app/components/editor/canvas/scene/migrate";
 import { serializeScene } from "@/app/components/editor/canvas/scene/serialize";
 import type { AnyBlock } from "../projection";
@@ -190,6 +192,14 @@ function blockToHtml(block: AnyBlock): string {
       // id has to be put on the way past.
       return serializeAlbum({
         ...parseAlbum(String(block.props.data ?? "")),
+        id: block.id,
+      });
+    case "storyboard":
+      // And again. The board's own id is the block's; the shots inside carry
+      // none, because a shot is addressed by its position — it is shot three,
+      // and it stays shot three however it is written down.
+      return serializeStoryboard({
+        ...parseStoryboard(String(block.props.data ?? "")),
         id: block.id,
       });
     case "paragraph":

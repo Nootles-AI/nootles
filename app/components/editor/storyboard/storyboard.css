@@ -1,0 +1,253 @@
+/*
+ * The board's chrome — all of it real DOM, none of it in any scene.
+ *
+ * That is the point of the container model: a shot's number, its rules and the
+ * frame around it are not shapes, so they cannot be selected, dragged, deleted
+ * or listed in the layers panel. They are simply not in the canvas.
+ */
+
+.nt-sb-wrap {
+  position: relative;
+  margin: 8px 0;
+}
+
+.nt-sb {
+  display: grid;
+  align-items: start;
+}
+
+/* The width grip — the canvas block's, on the board's own right edge. Widening
+   is how the column count changes: the shots scale until the width crosses a
+   boundary, then snap to the new count. */
+.nt-sb-grip {
+  position: absolute;
+  top: 0;
+  right: -4px;
+  bottom: 0;
+  width: 8px;
+  cursor: ew-resize;
+  /* Above the bar. When the board is dragged to the pane's limit the clamped
+     bar comes to rest over the board's right edge — exactly where this strip
+     is — and a grip underneath it would leave no way to drag the board back.
+     The strip only ever covers the pill's outer few px, where no button is. */
+  z-index: 2;
+}
+.nt-sb-grip::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: 3px;
+  width: 3px;
+  height: 32px;
+  margin-top: -16px;
+  border-radius: 999px;
+  background: var(--faint);
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease);
+}
+.nt-sb-wrap:hover .nt-sb-grip::after {
+  opacity: 0.7;
+}
+
+/* The bar's anchor at the board's right shoulder. `left` is written by the
+   surface, which clamps it to the editor pane so the tools never leave the
+   screen however wide the board is dragged. */
+.nt-sb-bar-dock {
+  position: absolute;
+  top: 0;
+  z-index: 1;
+  visibility: hidden;
+}
+
+/* The toolbar pill, turned on end. Same chrome as the floating one — the
+   separators alone change axis with it. */
+.nt-sb-bar.nt-toolbar {
+  flex-direction: column;
+  animation: none;
+}
+.nt-sb-bar .nt-toolbar-sep {
+  width: 16px;
+  height: 1px;
+  margin-inline: 0;
+  margin-block: 4px;
+}
+.nt-sb-bar .nt-sb-ratio {
+  font-size: 10px;
+  padding: 0 4px;
+}
+
+/* The column count chip: the pin's glyph and its number, one readout. */
+.nt-sb-cols {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 5px;
+}
+.nt-sb-cols[aria-pressed="true"] {
+  color: var(--foreground);
+}
+
+.nt-sb-shot {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* Per-shot chrome — the album's tile chips, on a frame. Anchored to the
+   shot's top right, which is the frame's: the canvas sits at the top. */
+.nt-sb-chrome {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease);
+}
+.nt-sb-shot:hover .nt-sb-chrome {
+  opacity: 1;
+}
+.nt-sb-chrome button {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--background) 88%, transparent);
+  color: var(--muted);
+  transition: color var(--dur-fast) var(--ease);
+}
+.nt-sb-chrome svg {
+  width: 13px;
+  height: 13px;
+}
+.nt-sb-chrome button:hover {
+  color: var(--foreground);
+}
+
+/* A shot's canvas: a frame, not a block. The block-sized canvas paints itself
+   grey paper and rounds its corners; a shot is a white frame the width of its
+   column, so it takes neither. */
+.nt-canvas.nt-canvas-shot {
+  width: auto;
+  margin: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: #fff;
+}
+
+/* The active shot is the one the toolbar speaks for. Said with the border
+   rather than a ring, because the canvas is deliberately accent-free — this has
+   to read as "this one" without becoming a selection colour. */
+.nt-sb-shot.is-active > .nt-canvas-shot {
+  border-color: var(--border-strong);
+}
+
+.nt-sb-num {
+  padding-top: 6px;
+  font-size: var(--text-meta);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--tracking-meta);
+  color: var(--muted);
+}
+
+/*
+ * The writing surface: ruled lines, in the hand.
+ *
+ * A textarea rather than a contenteditable because a note is plain text and
+ * nothing more — no marks, no chips, no nodes — and because a fixed three-line
+ * box that scrolls is the honest answer to a long note. The earlier design let
+ * an over-long caption spill into the row beneath it.
+ *
+ * `line-height` and the rule pitch are one measurement written twice; if they
+ * ever disagree the writing walks off the lines as it goes down the box.
+ */
+.nt-sb-note {
+  --sb-rule-h: 18px;
+  width: 100%;
+  height: calc(var(--sb-rule-h) * 3);
+  padding: 0;
+  border: 0;
+  outline: none;
+  resize: none;
+  overflow-y: auto;
+  font-family: var(--font-hand), ui-rounded, cursive;
+  font-size: 15px;
+  line-height: var(--sb-rule-h);
+  color: var(--foreground);
+  background-color: transparent;
+  background-image: repeating-linear-gradient(
+    to bottom,
+    transparent 0 calc(var(--sb-rule-h) - 1px),
+    var(--border) calc(var(--sb-rule-h) - 1px) var(--sb-rule-h)
+  );
+  /* Scrolls with the text, so a fourth line has a rule under it too. */
+  background-attachment: local;
+}
+
+.nt-sb-note::placeholder {
+  color: var(--faint);
+}
+
+/*
+ * One shot, full size: the document blurred to a wash behind the frame, the
+ * bar gone horizontal at its foot. No room colour of its own — this is the
+ * page, out of focus, which is what keeps it feeling like the same place.
+ */
+.nt-sb-full {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  padding: 48px 48px 24px;
+  background: color-mix(in oklch, var(--background) 55%, transparent);
+  backdrop-filter: blur(14px);
+  animation: nt-fade-in var(--dur) var(--ease);
+}
+
+/* The room the frame is fitted into — measured, and the fit is a scale, so
+   tall ratios stand centred rather than stretched. */
+.nt-sb-full-stage {
+  display: grid;
+  flex: 1;
+  place-items: center;
+  width: 100%;
+  min-height: 0;
+}
+.nt-sb-full-stage .nt-canvas-shot {
+  box-shadow: 0 10px 30px oklch(0.2 0.01 90 / 0.14);
+}
+
+.nt-sb-full-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  color: var(--muted);
+  transition:
+    background var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
+}
+.nt-sb-full-close:hover {
+  background: var(--hover);
+  color: var(--foreground);
+}
+
+/* The same bar, laid back down: the pill's own axis, separators and all. */
+.nt-sb-bar-h .nt-sb-bar.nt-toolbar {
+  flex-direction: row;
+}
+.nt-sb-bar-h .nt-sb-bar .nt-toolbar-sep {
+  width: 1px;
+  height: 16px;
+  margin-inline: 4px;
+  margin-block: 0;
+}

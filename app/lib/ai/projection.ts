@@ -1,4 +1,5 @@
 import { parseAlbum } from "@/app/components/editor/album/parse";
+import { parseStoryboard } from "@/app/components/editor/storyboard/parse";
 import { labelText } from "@/app/components/editor/canvas/scene/label";
 import { migrateLegacyCanvas } from "@/app/components/editor/canvas/scene/migrate";
 import { isGroup, type SceneNode } from "@/app/components/editor/canvas/scene/types";
@@ -253,6 +254,20 @@ function projectBlock(
         ...(videos ? [`${videos} video${videos === 1 ? "" : "s"}`] : []),
       ];
       push(`${id} album (${parts.join(", ") || "empty"})`);
+      break;
+    }
+    case "storyboard": {
+      // Shot by shot, because that is the unit the model works in — what each
+      // one says, and whether anything has been drawn in it yet. The drawings
+      // themselves are not listed: a board is six diagrams, and spelling them
+      // all out would cost more of the window than the whole rest of the page.
+      const board = parseStoryboard(String(block.props.data ?? ""));
+      push(`${id} storyboard ${board.ratio}, ${board.shots.length} shots`);
+      board.shots.forEach((shot, i) => {
+        const drawn = shot.scene ? "drawn" : "empty";
+        const note = shot.note.replace(/\n/g, " / ");
+        push(`  shot ${i + 1} (${drawn}) ${note ? `"${note}"` : "no note"}`);
+      });
       break;
     }
     default:

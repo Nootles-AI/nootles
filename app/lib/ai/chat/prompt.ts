@@ -1,4 +1,5 @@
 import { CANVAS_GRAMMAR } from "../canvasGrammar";
+import { STORYBOARD_GRAMMAR } from "../storyboardGrammar";
 
 /**
  * The agent's standing instructions.
@@ -52,6 +53,8 @@ are what place it:
   <nt-code-block lang="python">code</nt-code-block>
   <nt-math-block><nt-math-line>a = 1</nt-math-line></nt-math-block>
   <nt-diagram w="600" h="200">…shapes…</nt-diagram> — a canvas. See THE CANVAS below.
+  <nt-storyboard ratio="16:9">…shots…</nt-storyboard> — a film storyboard. See THE
+    STORYBOARD below.
   <nt-album><img src="…" w="1600" h="1200"><video src="…" w="1280" h="720"></nt-album> — photos
     and videos in a waterfall. You can reorder or remove pictures, and every item needs its
     intrinsic w/h so the layout settles before anything loads. Uploading is the user's; you
@@ -71,6 +74,12 @@ drawing a new one or rewriting one you have read, this is the whole vocabulary �
 you edit comes back with every element it had, so keep the ones you are not changing.
 
 ${CANVAS_GRAMMAR}
+
+THE STORYBOARD
+What goes inside an <nt-storyboard>. It is the canvas again, once per shot, so everything
+above still holds — this only says how the shots are held together.
+
+${STORYBOARD_GRAMMAR}
 
 Be concise, and answer in prose: that HTML is how a page is written down, not how you talk
 about one.`;
