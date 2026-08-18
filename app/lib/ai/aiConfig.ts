@@ -61,9 +61,16 @@ export const AI = {
    * plus 2x plus 1" as a math block and a numbered sequence as a diagram —
    * the others fell back to a bullet list. All three correctly declined on
    * ordinary prose, which is the case that matters most.
+   *
+   * Moved off 2.5 (2026-08): Google retired it, answering 404 "no longer
+   * available" from 9 July, months before the announced October shutdown. The
+   * aggregator had been quietly remapping the dead slug, so the lane only
+   * broke when it was called directly — the measurements above are 2.5's and
+   * want redoing. 3.7 because the diagram lane already runs on it and it is
+   * cheaper per output token than the model it replaces.
    */
   reformat: {
-    model: "google/gemini-2.5-flash",
+    model: "google/gemini-3.7-flash",
     maxTokens: 900,
     /** More than three chips is a menu, not a suggestion. */
     maxCandidates: 3,
@@ -141,11 +148,14 @@ export const AI = {
     /**
      * The web search behind `search_web`. A separate, cheap model on purpose:
      * the searching model only has to read result pages and answer from them,
-     * which Flash does in ~2.3s with citations — asking Sonnet to do it would
-     * cost a second long-context call per search for no better answer.
+     * which Flash does in ~2.3s with citations — asking the chat model to do it
+     * would cost a second long-context call per search for no better answer.
+     *
+     * On 3.7 for the reason `reformat` is: 2.5 is retired, and this lane died
+     * with it the moment the aggregator stopped covering for the dead slug.
      */
     search: {
-      model: "google/gemini-2.5-flash",
+      model: "google/gemini-3.7-flash",
       maxResults: 5,
     },
     /**
@@ -290,6 +300,8 @@ export const AI = {
    */
   prices: {
     "codestral-2508": { in: 0.3, out: 0.9 },
+    // Retired by Google in July 2026 and kept for the same reason as the two
+    // below: every row is priced by the model that actually served it.
     "google/gemini-2.5-flash": { in: 0.3, out: 2.5 },
     "google/gemini-3.7-flash": { in: 0.375, out: 1.875 },
     "openai/gpt-5.6-terra": { in: 1, out: 6, cacheRead: 0.1, cacheWrite: 1.25 },

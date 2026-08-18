@@ -222,6 +222,13 @@ export function chatTools(
           system: SEARCH_SYSTEM,
           prompt: query,
           abortSignal,
+        }).catch((error: unknown) => {
+          // The agent reports "couldn't search" either way; without this the
+          // reason never reaches anyone who could act on it.
+          if (process.env.NODE_ENV !== "production") {
+            console.warn(`[search_web] ${(error as Error)?.message ?? error}`);
+          }
+          throw error;
         });
         return {
           answer: text,

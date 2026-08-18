@@ -1,5 +1,5 @@
 import { AI } from "./aiConfig";
-import { chatTarget } from "./providers";
+import { chatTarget, reportUpstream } from "./providers";
 
 /**
  * Guesses which surface a feedback report is about, from everything the
@@ -71,7 +71,10 @@ export async function categorizeFeedback(
     }),
     signal,
   });
-  if (!res.ok) return { category: "general" };
+  if (!res.ok) {
+    await reportUpstream("categorize", res);
+    return { category: "general" };
+  }
 
   const json = await res.json();
   const usage = json?.usage

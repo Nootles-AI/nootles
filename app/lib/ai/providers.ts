@@ -81,6 +81,27 @@ const CHAT_URLS: Record<"openrouter" | "google" | "openai", string> = {
 /** Where a call goes, what pays for it, and what to call the model there. */
 export type Target = { url: string; key: string; model: string };
 
+/**
+ * Why an upstream call failed, in development only.
+ *
+ * The small lanes answer a refusal with an empty result — right for a
+ * suggestion nobody asked for, and wrong for working out why it is ALWAYS
+ * empty: a rejected key and an unknown model id both arrive as "no
+ * candidates". The vendor's own message is the only thing that tells them
+ * apart, so it is read here rather than thrown away, and the body is cloned so
+ * the caller's own read is untouched.
+ */
+export async function reportUpstream(lane: string, res: Response): Promise<void> {
+  if (process.env.NODE_ENV === "production") return;
+  const detail = await res
+    .clone()
+    .text()
+    .catch(() => "");
+  console.warn(
+    `[${lane}] upstream ${res.status} ${res.statusText} — ${detail.slice(0, 500) || "(no body)"}`,
+  );
+}
+
 /** For the small one-shot lanes that POST their own body: reformat, categorize,
  *  feedback completion. */
 export function chatTarget(slug: string): Target {
