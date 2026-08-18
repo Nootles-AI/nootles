@@ -28,13 +28,17 @@ export async function POST(req: Request) {
 
   const started = Date.now();
   try {
-    const { candidates, usage } = await reformatCandidates(block, req.signal);
+    const { candidates, usage, failure } = await reformatCandidates(block, req.signal);
     recordAiCall(asUser(token), {
       feature: "reformat",
       model: AI.reformat.model,
       ...usage,
       latencyMs: Date.now() - started,
-      status: "ok",
+      // The user gets the same quiet 200 either way — an ambient suggestion has
+      // no business raising an error at someone who did not ask for it — but a
+      // lane that answered nothing because the wire refused is not an `ok` call,
+      // and recording it as one is how this went unnoticed for six weeks.
+      ...(failure ? { status: "error" as const, errorCode: failure } : { status: "ok" as const }),
     });
     return Response.json({ candidates });
   } catch (e) {

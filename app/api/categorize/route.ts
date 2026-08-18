@@ -31,7 +31,7 @@ export async function POST(req: Request) {
 
   const started = Date.now();
   try {
-    const { category, usage } = await categorizeFeedback(
+    const { category, usage, failure } = await categorizeFeedback(
       {
         text,
         ...(typeof ops === "string" ? { ops } : {}),
@@ -44,7 +44,9 @@ export async function POST(req: Request) {
       model: AI.reformat.model,
       ...usage,
       latencyMs: Date.now() - started,
-      status: "ok",
+      // "general" is both a real guess and the fallback, so only the row can say
+      // whether the model chose it. See the reformat route's note.
+      ...(failure ? { status: "error" as const, errorCode: failure } : { status: "ok" as const }),
     });
     return Response.json({ category });
   } catch (e) {

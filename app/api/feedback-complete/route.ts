@@ -28,7 +28,7 @@ export async function POST(req: Request) {
 
   const started = Date.now();
   try {
-    const { completion, usage } = await completeFeedback(
+    const { completion, usage, failure } = await completeFeedback(
       {
         text,
         kind: kind === "wish" ? "wish" : "issue",
@@ -42,7 +42,9 @@ export async function POST(req: Request) {
       model: AI.reformat.model,
       ...usage,
       latencyMs: Date.now() - started,
-      status: "ok",
+      // See the reformat route's note: no ghost text is a fine answer, and a
+      // refused call is not one.
+      ...(failure ? { status: "error" as const, errorCode: failure } : { status: "ok" as const }),
     });
     return Response.json({ completion });
   } catch (e) {
