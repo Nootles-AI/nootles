@@ -48,16 +48,25 @@ export type VectorDrawResult = {
 };
 
 /**
+ * The frame an unframed drawing gets — "draw a cat" with no board in sight.
+ *
+ * A scene is a scene whether or not a storyboard gave it dimensions; cover-fit
+ * merely needs SOME shape to fit. 4:3 at the document column's width: wide
+ * enough to sit flush in the column a diagram block occupies, tall enough that
+ * a single subject is not letterboxed into a sliver.
+ */
+const DEFAULT_FRAME = { w: 600, h: 450 };
+
+/**
  * One drawing from the vector model, as canonical scene markup — or null, and
- * the caller falls back to the LLM lane rather than failing the tool call. A
- * frame is required: cover-fit needs a shape to fit, and the callers that have
- * none (document diagrams) are the ones that belong on the LLM lane anyway.
+ * the caller falls back to the LLM lane rather than failing the tool call.
  */
 export async function generateVectorDrawing(
   brief: string,
-  frame: NonNullable<DrawFrame>,
+  requested: DrawFrame,
   signal?: AbortSignal,
 ): Promise<VectorDrawResult | null> {
+  const frame = requested ?? DEFAULT_FRAME;
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) throw new Error("OPENROUTER_API_KEY is not set");
   const started = Date.now();

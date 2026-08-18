@@ -75,11 +75,13 @@ export function chatTools(
       execute: async ({ brief, w, h, kind }, { abortSignal }) => {
         const frame = w && h ? { w, h } : null;
 
-        // A scene with a frame goes to the vector specialist; words-first work
-        // and unframed diagrams stay on the LLM lane, whose labels are text.
-        // A specialist miss falls through rather than failing the call — the
+        // Every scene goes to the vector specialist, framed or not — a bare
+        // "draw a cat" is as much a picture as a storyboard shot, and an
+        // unframed one takes the specialist's document-sized default. Only
+        // words-first work stays on the LLM lane, whose labels are text. A
+        // specialist miss falls through rather than failing the call — the
         // agent asked for a drawing, not for a particular pen.
-        if (frame && kind !== "diagram") {
+        if (kind !== "diagram") {
           const vector = await generateVectorDrawing(brief, frame, abortSignal);
           if (vector) {
             recordAiCall(convex, {
