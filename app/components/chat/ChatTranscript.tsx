@@ -429,6 +429,7 @@ const STEPS: Record<string, { doing: string; failed: string }> = {
   open_page: { doing: "Opening…", failed: "Couldn't open that page" },
   read_open_page: { doing: "Reading…", failed: "Couldn't read the open page" },
   edit_page: { doing: "Writing…", failed: "Couldn't edit that page" },
+  draw: { doing: "Drawing…", failed: "Couldn't draw that" },
   search_web: { doing: "Searching the web…", failed: "Couldn't search the web" },
   create_page: { doing: "Adding a page…", failed: "Couldn't add the page" },
   rename_page: { doing: "Retitling…", failed: "Couldn't retitle that page" },
@@ -475,7 +476,13 @@ function stepLine(part: ToolUIPart | DynamicToolUIPart): string {
     return "Left it alone";
   }
   if (part.state !== "output-available") {
-    return query ? `Searching for “${query}”…` : (step?.doing ?? `${name}…`);
+    if (query) return `Searching for “${query}”…`;
+    // The brief is the one argument worth quoting: six parallel draw calls as
+    // six bare "draw…" lines read as a stutter, where six briefs read as a
+    // shot list assembling itself.
+    const brief = (part.input as { brief?: string } | undefined)?.brief;
+    if (name === "draw" && brief) return `Drawing ${clause(brief)}…`;
+    return step?.doing ?? `${name}…`;
   }
 
   switch (name) {
@@ -487,14 +494,26 @@ function stepLine(part: ToolUIPart | DynamicToolUIPart): string {
     case "read_open_page":
       return `Read ${pageTitle(part.output) ?? "an untitled page"}`;
     case "edit_page": {
-      // Answered with the page as it now stands, so a result carrying no page is
-      // an edit that did not happen — a bad id, or nothing left to change.
-      const title = pageTitle(part.output);
-      return title ? `Edited ${title}` : "Left the page as it was";
+      // The tool opens a successful answer with "Done:", whatever the page is
+      // called — judging by title alone read every edit of an UNTITLED page as
+      // "left it as it was", straight-faced, under six drawings it had placed.
+      const done =
+        typeof part.output === "string" && part.output.startsWith("Done:");
+      if (!done) return "Left the page as it was";
+      return `Edited ${pageTitle(part.output) ?? "the page"}`;
     }
     case "open_page": {
       const title = (part.output as { title?: string } | undefined)?.title;
       return `Opened ${title?.trim() || "an untitled page"}`;
+    }
+    case "draw": {
+      const brief = (part.input as { brief?: string } | undefined)?.brief;
+      // The tool answers {error} when nothing worth drawing came back — an
+      // ordinary result to the protocol, a miss to the reader.
+      if ((part.output as { error?: string } | undefined)?.error) {
+        return "Nothing came of that drawing";
+      }
+      return brief ? `Drew ${clause(brief)}` : "Drew a canvas";
     }
     case "search_web":
       return query ? `Searched for “${query}”` : "Searched the web";
@@ -509,6 +528,16 @@ function stepLine(part: ToolUIPart | DynamicToolUIPart): string {
     default:
       return name;
   }
+}
+
+/**
+ * A brief's opening clause, quoted — enough to tell six draw lines apart
+ * without the transcript becoming the prompt. Cut at a word, never mid-one.
+ */
+function clause(text: string): string {
+  const flat = text.replace(/\s+/g, " ").trim();
+  if (flat.length <= 48) return `“${flat}”`;
+  return `“${flat.slice(0, 48).replace(/\s+\S*$/, "")}…”`;
 }
 
 /** The page tools answer with HTML, and a page with a title says so in one. */

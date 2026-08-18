@@ -128,12 +128,31 @@ async function editPage(
     return notApplied(resolved.errors, index);
   }
 
-  const staged = await ctx.review.stage({
-    pageId,
-    editor,
-    batch: resolved.batch,
-    ...(replacing?.length ? { replacing } : {}),
-  });
+  let staged;
+  try {
+    staged = await ctx.review.stage({
+      pageId,
+      editor,
+      batch: resolved.batch,
+      ...(replacing?.length ? { replacing } : {}),
+    });
+  } catch (error) {
+    // A stage that dies (an editor mid-remount, a fork that would not take) is
+    // transient, and the expensive parts of the turn — drawings from the draw
+    // tool especially — are already in hand. Measured in the field before this
+    // message existed: the agent read a thrown stage as its whole approach
+    // failing and REDREW every frame, several times over. Say what actually
+    // happened and what to keep.
+    if (process.env.NODE_ENV !== "production") {
+      console.warn("[edit_page] stage failed\n  ", error);
+    }
+    return [
+      "The edit could not be applied just now — nothing on the page changed, and",
+      "this was not a problem with your HTML. Call edit_page once more with the",
+      "SAME content. Reuse everything you already have — especially drawings from",
+      "draw calls; do not draw them again.",
+    ].join("\n");
+  }
   const counts = [
     staged.added && `${staged.added} block${staged.added === 1 ? "" : "s"} added`,
     staged.removed && `${staged.removed} removed`,

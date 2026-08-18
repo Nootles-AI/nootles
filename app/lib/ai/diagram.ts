@@ -276,9 +276,30 @@ few bold shapes beat many fine ones, and filled silhouettes beat outlines.`
 /**
  * The `<nt-diagram>` element out of a finished reply, or "". Models fence, and
  * sometimes preface — the element is the reply.
+ *
+ * A reply the token cap cut off has no closing tag, and demanding one threw
+ * whole drawings away: a rich brief ("cinematic 3D, forced perspective") runs
+ * long, the cap lands mid-shape, and the ninety complete shapes before the cut
+ * were discarded with the half one — measured as a third of a board's draws
+ * coming back empty and being expensively redrawn. Salvage instead: keep
+ * everything up to the last complete element, close the diagram ourselves, and
+ * let the parser's ordinary tolerance handle the seam.
  */
 export function diagramElement(text: string): string {
-  return /<nt-diagram[\s\S]*<\/nt-diagram>/i.exec(text)?.[0] ?? "";
+  const whole = /<nt-diagram[\s\S]*<\/nt-diagram>/i.exec(text)?.[0];
+  if (whole) return whole;
+  const open = text.search(/<nt-diagram[\s>]/i);
+  if (open === -1) return "";
+  let body = text.slice(open);
+  if (!body.includes(">")) return "";
+  // Cut after the last complete closing tag, so what we close holds only
+  // whole shapes — the tail is usually an element severed mid-attribute.
+  const lastClose = body.lastIndexOf("</nt-");
+  if (lastClose > 0) {
+    const end = body.indexOf(">", lastClose);
+    if (end !== -1) body = body.slice(0, end + 1);
+  }
+  return `${body}\n</nt-diagram>`;
 }
 
 /**
@@ -301,7 +322,7 @@ export async function generateDiagram(
   onUsage?: (result: { usage: LanguageModelUsage; latencyMs: number }) => void,
 ): Promise<string> {
   const started = Date.now();
-  const { text, totalUsage } = await generateText({
+  const { text, totalUsage, finishReason } = await generateText({
     model: diagramModel(),
     system: SYSTEM + frameNote(frame),
     messages: [
@@ -318,5 +339,12 @@ export async function generateDiagram(
     abortSignal: signal,
   });
   onUsage?.({ usage: totalUsage, latencyMs: Date.now() - started });
-  return diagramElement(text);
+  const html = diagramElement(text);
+  if (process.env.NODE_ENV !== "production") {
+    console.log(
+      `[draw] finish=${finishReason} text=${text.length}ch html=${html.length}ch` +
+        ` brief="${brief.slice(0, 60)}"`,
+    );
+  }
+  return html;
 }

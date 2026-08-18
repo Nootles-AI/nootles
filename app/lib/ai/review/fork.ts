@@ -1,3 +1,5 @@
+import { TextSelection } from "prosemirror-state";
+import type { EditorView } from "prosemirror-view";
 import type { LiveEditor } from "@/app/components/editor/EditorRegistry";
 
 /**
@@ -34,7 +36,24 @@ export function isForked(editor: LiveEditor): boolean {
 
 export function ensureForked(editor: LiveEditor) {
   const fork = forkApi(editor);
-  if (fork && !fork.store.state.isForked) fork.fork();
+  if (!fork || fork.store.state.isForked) return;
+  try {
+    fork.fork();
+  } catch (error) {
+    // Forking carries the selection into the clone, and a selection parked in
+    // a contentless block — the caret left in a canvas or storyboard the user
+    // just clicked — cannot be re-made as a TextSelection there, so fork()
+    // throws. Measured in the field: the agent's whole edit then failed and it
+    // REDREW everything, so a stray caret cost a turn's worth of drawing.
+    // Park the selection somewhere textual and try once more.
+    const view = (editor as unknown as { prosemirrorView?: EditorView })
+      .prosemirrorView;
+    if (!view) throw error;
+    view.dispatch(
+      view.state.tr.setSelection(TextSelection.atStart(view.state.doc)),
+    );
+    fork.fork();
+  }
 }
 
 /**
