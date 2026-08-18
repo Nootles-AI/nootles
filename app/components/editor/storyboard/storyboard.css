@@ -156,9 +156,14 @@
  * The writing surface: ruled lines, in the hand.
  *
  * A textarea rather than a contenteditable because a note is plain text and
- * nothing more — no marks, no chips, no nodes — and because a fixed three-line
- * box that scrolls is the honest answer to a long note. The earlier design let
- * an over-long caption spill into the row beneath it.
+ * nothing more — no marks, no chips, no nodes — and because a box that stops
+ * growing and scrolls is the honest answer to a long note. The earlier design
+ * let an over-long caption spill into the row beneath it.
+ *
+ * Three ruled lines always, five at the most: the paper takes what is written
+ * on it and then holds. `field-sizing` is what measures the wrapped text, and
+ * where it is missing the `rows` attribute leaves the box at its three-line
+ * floor — the shape this had before, not a broken one.
  *
  * `line-height` and the rule pitch are one measurement written twice; if they
  * ever disagree the writing walks off the lines as it goes down the box.
@@ -166,7 +171,10 @@
 .nt-sb-note {
   --sb-rule-h: 18px;
   width: 100%;
-  height: calc(var(--sb-rule-h) * 3);
+  height: auto;
+  field-sizing: content;
+  min-height: calc(var(--sb-rule-h) * 3);
+  max-height: calc(var(--sb-rule-h) * 5);
   padding: 0;
   border: 0;
   outline: none;
