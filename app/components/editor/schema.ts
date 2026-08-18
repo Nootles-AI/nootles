@@ -8,12 +8,17 @@ import { mathBlockSpec } from "./blocks/MathBlock";
 import { canvasBlockSpec } from "./blocks/CanvasBlock";
 import { albumBlockSpec } from "./blocks/AlbumBlock";
 import { storyboardBlockSpec } from "./blocks/StoryboardBlock";
+import { audioBlockSpec } from "./blocks/AudioBlock";
 import { mathInlineSpec } from "./inline/MathInline";
 import { pageMentionSpec } from "./inline/PageMention";
 import type { BlockType } from "@/convex/ai/operations";
 
-// Swap BlockNote's built-in code block for our CodeMirror-backed `code` block.
-const { codeBlock: _builtInCodeBlock, ...rest } = defaultBlockSpecs;
+// Swap BlockNote's built-in code and audio blocks for our own.
+const {
+  codeBlock: _builtInCodeBlock,
+  audio: _builtInAudio,
+  ...rest
+} = defaultBlockSpecs;
 
 export const schema = BlockNoteSchema.create({
   blockSpecs: {
@@ -23,6 +28,7 @@ export const schema = BlockNoteSchema.create({
     canvas: canvasBlockSpec,
     album: albumBlockSpec,
     storyboard: storyboardBlockSpec,
+    audio: audioBlockSpec,
   },
   inlineContentSpecs: {
     ...defaultInlineContentSpecs,

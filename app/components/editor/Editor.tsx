@@ -110,6 +110,21 @@ const menuPlacement = {
   },
 };
 
+// One section per group name. The menu keys its sections by group, so a group
+// that appears in the defaults AND in our items — Media does — would render as
+// duplicate-keyed twins, which React warns about and draws wrong.
+function groupAdjacent(
+  items: DefaultReactSuggestionItem[],
+): DefaultReactSuggestionItem[] {
+  const order = new Map<string | undefined, number>();
+  for (const item of items) {
+    if (!order.has(item.group)) order.set(item.group, order.size);
+  }
+  return [...items].sort(
+    (a, b) => order.get(a.group)! - order.get(b.group)!,
+  );
+}
+
 function filterItems(
   items: DefaultReactSuggestionItem[],
   query: string,
@@ -163,6 +178,23 @@ function customSlashItems(editor: EditorInstance): DefaultReactSuggestionItem[] 
         const block = editor.getTextCursorPosition().block;
         editor.updateBlock(block, { type: "album", props: { data: "" } });
         track("block_created", { type: "album" });
+      },
+    },
+    {
+      title: "Audio",
+      subtext: "A song by link — or an audio file",
+      aliases: [
+        "audio", "song", "music", "track", "sound", "spotify",
+        "apple music", "youtube", "soundcloud", "mp3", "podcast",
+      ],
+      group: "Media",
+      onItemClick: () => {
+        const block = editor.getTextCursorPosition().block;
+        editor.updateBlock(block, {
+          type: "audio",
+          props: { url: "", name: "", caption: "" },
+        });
+        track("block_created", { type: "audio" });
       },
     },
     {
@@ -380,10 +412,15 @@ function EditorSurface({
               floatingUIOptions={menuPlacement}
               getItems={async (query) =>
                 filterItems(
-                  [
-                    ...getDefaultReactSlashMenuItems(editor),
+                  groupAdjacent([
+                    // The stock Audio item still qualifies against our audio
+                    // block's schema; ours replaces it.
+                    ...getDefaultReactSlashMenuItems(editor).filter(
+                      (item) =>
+                        item.title !== editor.dictionary.slash_menu.audio.title,
+                    ),
                     ...customSlashItems(editor),
-                  ],
+                  ]),
                   query,
                 )
               }

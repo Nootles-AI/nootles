@@ -1,4 +1,5 @@
 import { parseAlbum } from "@/app/components/editor/album/parse";
+import { describeSource } from "@/app/components/editor/audio/link";
 import { parseStoryboard } from "@/app/components/editor/storyboard/parse";
 import { labelText } from "@/app/components/editor/canvas/scene/label";
 import { migrateLegacyCanvas } from "@/app/components/editor/canvas/scene/migrate";
@@ -268,6 +269,16 @@ function projectBlock(
         const note = shot.note.replace(/\n/g, " / ");
         push(`  shot ${i + 1} (${drawn}) ${note ? `"${note}"` : "no note"}`);
       });
+      break;
+    }
+    case "audio": {
+      // One line: where it plays from, and what it is if the block knows.
+      const url = String(block.props.url ?? "");
+      const title =
+        String(block.props.caption ?? "").trim() ||
+        String(block.props.name ?? "").trim();
+      const from = url ? (describeSource(url) ?? "link") : "empty";
+      push(`${id} audio (${from})${title ? ` ${title}` : ""}`);
       break;
     }
     default:

@@ -59,6 +59,14 @@ are what place it:
     and videos in a waterfall. You can reorder or remove pictures, and every item needs its
     intrinsic w/h so the layout settles before anything loads. Uploading is the user's; you
     cannot invent a src.
+  <audio src="…" title="After the Storm — Kali Uchis"></audio> — a song. src is the song's page
+    on Spotify, Apple Music, YouTube or SoundCloud — the block plays it as that provider's
+    player — or a direct audio file URL. Unlike pictures, a song's src is yours to write: when
+    the user asks for one — by name, by artist, or by feel ("something for this scene") — pick
+    a real song, link it where you are sure it lives, and always say in title what is playing.
+    Unsure of an exact URL, never guess an id: write a search link like
+    https://open.spotify.com/search/kali%20uchis%20after%20the%20storm, which the block shows
+    as a labelled link the user can follow.
 Inline: <code>maxRetries</code>, <strong>bold</strong>, <em>italic</em>, <nt-math>x^2</nt-math>,
   <a href="https://example.com">a link</a> — and keep the ones already in a block you rewrite.
 References: <nt-ref page="pageId">Page title</nt-ref> renders as a chip — a small page glyph and

@@ -1,0 +1,159 @@
+/* The audio block: a song by link or by file.
+
+   Same restraint as the album — chrome in the page's own greys, no accent.
+   The only colour an audio block ever shows is whatever the provider's
+   player brings with it. */
+
+.nt-audio {
+  position: relative;
+  width: 100%;
+}
+
+/* Empty: one quiet row. The input carries the invitation, the four grey marks
+   say what kind of link it means, and the upload button is the other door. */
+.nt-audio-drop {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 52px;
+  padding: 0 14px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius);
+  color: var(--muted);
+  transition: border-color var(--dur-fast) var(--ease);
+}
+.nt-audio-drop:hover,
+.nt-audio-drop:focus-within {
+  border-color: var(--muted);
+}
+.nt-audio-drop.is-busy {
+  justify-content: center;
+  color: var(--muted);
+}
+
+.nt-audio-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: none;
+  outline: none;
+  font: inherit;
+  color: var(--foreground);
+}
+.nt-audio-input::placeholder {
+  color: var(--faint);
+}
+
+.nt-audio-marks {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--faint);
+}
+
+.nt-audio-rule {
+  align-self: stretch;
+  margin: 12px 0;
+  width: 1px;
+  background: var(--border);
+}
+
+.nt-audio-upload {
+  flex: none;
+  color: var(--muted);
+  font-size: var(--text-meta-lg);
+  white-space: nowrap;
+}
+.nt-audio-upload:hover {
+  color: var(--foreground);
+}
+
+.nt-audio-picker {
+  display: none;
+}
+
+.nt-audio-error {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: var(--text-meta-lg);
+}
+
+/* Filled: the player is the block. Corners match the providers' own. */
+.nt-audio-embed {
+  display: block;
+  width: 100%;
+  border: 0;
+  border-radius: var(--radius-lg);
+}
+.nt-audio-embed.is-video {
+  aspect-ratio: 16 / 9;
+  height: auto;
+}
+
+.nt-audio-file {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 0;
+}
+.nt-audio-title {
+  color: var(--muted);
+  font-size: var(--text-meta-lg);
+}
+.nt-audio-player {
+  width: 100%;
+}
+
+/* A link that is not a player: kept as a labelled card, not a broken embed. */
+.nt-audio-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--muted);
+  transition: border-color var(--dur-fast) var(--ease);
+}
+a.nt-audio-card:hover {
+  border-color: var(--border-strong);
+}
+.nt-audio-card-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--foreground);
+}
+.nt-audio-card-host {
+  flex: none;
+  color: var(--faint);
+  font-size: var(--text-meta-lg);
+}
+
+/* Swapping the song out: present only under the pointer, in the corner the
+   providers leave alone. */
+.nt-audio-swap {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--elevated);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: var(--text-meta-lg);
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease);
+}
+.nt-audio:hover .nt-audio-swap,
+.nt-audio-swap:focus-visible {
+  opacity: 1;
+}
+.nt-audio-swap:hover {
+  color: var(--foreground);
+}
