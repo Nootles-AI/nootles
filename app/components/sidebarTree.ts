@@ -19,27 +19,44 @@ export type Target =
   | { kind: "page"; id: Id<"pages"> }
   | { kind: "folder"; id: Id<"folders"> };
 
-export type TreeRowData =
+/**
+ * All the tree reads of a row, written as the parts rather than the documents:
+ * the share surface builds the same tree from a public query that hands out no
+ * more than titles and places.
+ */
+export type TreeFolder = Pick<
+  Doc<"folders">,
+  "_id" | "title" | "parentId" | "order"
+>;
+export type TreePage = Pick<
+  Doc<"pages">,
+  "_id" | "title" | "folderId" | "order"
+>;
+
+export type TreeRowData<
+  F extends TreeFolder = Doc<"folders">,
+  P extends TreePage = Doc<"pages">,
+> =
   | {
       kind: "folder";
-      folder: Doc<"folders">;
+      folder: F;
       parentId: Id<"folders"> | null;
       depth: number;
       expanded: boolean;
     }
   | {
       kind: "page";
-      page: Doc<"pages">;
+      page: P;
       parentId: Id<"folders"> | null;
       depth: number;
     };
 
 /** One level's row before sorting: either kind, on the level's one order line. */
-type LevelEntry =
-  | { kind: "folder"; folder: Doc<"folders"> }
-  | { kind: "page"; page: Doc<"pages"> };
+type LevelEntry<F extends TreeFolder, P extends TreePage> =
+  | { kind: "folder"; folder: F }
+  | { kind: "page"; page: P };
 
-const orderOf = (e: LevelEntry): number =>
+const orderOf = (e: LevelEntry<TreeFolder, TreePage>): number =>
   e.kind === "folder" ? e.folder.order : e.page.order;
 
 /**
@@ -50,7 +67,7 @@ const orderOf = (e: LevelEntry): number =>
  * would take its pages with it.
  */
 function homes(
-  folders: readonly Doc<"folders">[],
+  folders: readonly TreeFolder[],
 ): Map<Id<"folders">, Id<"folders"> | null> {
   const byId = new Map(folders.map((f) => [f._id, f]));
 
@@ -58,7 +75,7 @@ function homes(
   // provisional `false` is what a cycle meets when it comes back around, so
   // every folder on the loop answers false instead of recurring forever.
   const rooted = new Map<Id<"folders">, boolean>();
-  const isRooted = (folder: Doc<"folders">): boolean => {
+  const isRooted = (folder: TreeFolder): boolean => {
     const known = rooted.get(folder._id);
     if (known !== undefined) return known;
     rooted.set(folder._id, false);
@@ -85,16 +102,16 @@ function homes(
  * `collapsed` holds folder ids the user has closed; anything absent is open,
  * so a folder that arrives while you are looking at it arrives open.
  */
-export function flattenTree(
-  folders: readonly Doc<"folders">[],
-  pages: readonly Doc<"pages">[],
+export function flattenTree<F extends TreeFolder, P extends TreePage>(
+  folders: readonly F[],
+  pages: readonly P[],
   collapsed: ReadonlySet<string>,
-): TreeRowData[] {
+): TreeRowData<F, P>[] {
   const parentOf = homes(folders);
   const known = new Set<string>(folders.map((f) => f._id));
 
-  const levels = new Map<Id<"folders"> | null, LevelEntry[]>();
-  const put = (home: Id<"folders"> | null, entry: LevelEntry) => {
+  const levels = new Map<Id<"folders"> | null, LevelEntry<F, P>[]>();
+  const put = (home: Id<"folders"> | null, entry: LevelEntry<F, P>) => {
     const level = levels.get(home);
     if (level) level.push(entry);
     else levels.set(home, [entry]);
@@ -114,7 +131,7 @@ export function flattenTree(
     level.sort((a, b) => orderOf(a) - orderOf(b));
   }
 
-  const out: TreeRowData[] = [];
+  const out: TreeRowData<F, P>[] = [];
   const walk = (parentId: Id<"folders"> | null, depth: number) => {
     for (const entry of levels.get(parentId) ?? []) {
       if (entry.kind === "folder") {
@@ -130,9 +147,12 @@ export function flattenTree(
   return out;
 }
 
+/** Any tree row, for the walks below — they read a row's kind and id, no more. */
+type AnyRow = TreeRowData<TreeFolder, TreePage>;
+
 /** True when `candidate` is `root` or sits somewhere beneath it. */
 export function isInside(
-  folders: readonly Doc<"folders">[],
+  folders: readonly TreeFolder[],
   candidate: Id<"folders">,
   root: Id<"folders">,
 ): boolean {
@@ -150,13 +170,13 @@ export function isInside(
 }
 
 /** What a row is, as selection and the clipboard hold it. */
-export function targetOf(row: TreeRowData): Target {
+export function targetOf(row: AnyRow): Target {
   return row.kind === "folder"
     ? { kind: "folder", id: row.folder._id }
     : { kind: "page", id: row.page._id };
 }
 
-export const rowId = (row: TreeRowData): string =>
+export const rowId = (row: AnyRow): string =>
   row.kind === "folder" ? row.folder._id : row.page._id;
 
 /**
@@ -167,7 +187,7 @@ export const rowId = (row: TreeRowData): string =>
  * screen the range appears to reach.
  */
 export function rangeBetween(
-  rows: readonly TreeRowData[],
+  rows: readonly AnyRow[],
   from: string,
   to: string,
 ): Target[] {
@@ -184,7 +204,7 @@ export function rangeBetween(
  * its folder stops being acted on the moment it stops being visible.
  */
 export function visibleSelection(
-  rows: readonly TreeRowData[],
+  rows: readonly AnyRow[],
   selection: readonly Target[],
 ): Target[] {
   const chosen = new Set<string>(selection.map((t) => t.id));
@@ -203,7 +223,7 @@ export function visibleSelection(
  * visible too: the walk only descends through folders that are open.
  */
 export function topmost(
-  rows: readonly TreeRowData[],
+  rows: readonly AnyRow[],
   selection: readonly Target[],
 ): Target[] {
   const parentOf = new Map<string, string | null>(

@@ -7,7 +7,8 @@ import { requireOwned, requireOwner } from "./auth";
 /**
  * Link sharing, one link per role. Security is capability-based: each token is
  * an unguessable UUID minted here, and `view` is the only public door — it
- * hands out page titles and docIds, nothing else. Document *content* is then
+ * hands out the navigation tree (page and folder titles, docIds, and where
+ * each row sits), nothing else. Document *content* is then
  * read through the ordinary sync endpoints, whose read check admits docs whose
  * project has a live link (see `prosemirror.ts`).
  *
@@ -76,18 +77,37 @@ export const view = query({
   handler: async (ctx, args) => {
     const found = await projectForToken(ctx, args.token);
     if (!found) return null;
-    // Ordered by the index (projectId, order) — the sidebar's own order.
+    // Both ordered by the index (projectId, order) — the sidebar's own order,
+    // one line per level shared by folders and pages alike.
     const pages = await ctx.db
       .query("pages")
+      .withIndex("by_project", (q) => q.eq("projectId", found.project._id))
+      .collect();
+    const folders = await ctx.db
+      .query("folders")
       .withIndex("by_project", (q) => q.eq("projectId", found.project._id))
       .collect();
     return {
       projectId: found.project._id,
       role: found.role,
       title: found.project.title,
-      // `_id` rides along for the mention chips: a chip names a page by id,
-      // and the share surface has to answer which of its pages that is.
-      pages: pages.map((p) => ({ _id: p._id, title: p.title, docId: p.docId })),
+      // A shared project keeps its shape: `folderId` and `order` are what let
+      // the share rail rebuild the owner's tree from the same code the sidebar
+      // uses. `_id` rides along for the mention chips too — a chip names a page
+      // by id, and the share surface has to answer which of its pages that is.
+      pages: pages.map((p) => ({
+        _id: p._id,
+        title: p.title,
+        docId: p.docId,
+        folderId: p.folderId,
+        order: p.order,
+      })),
+      folders: folders.map((f) => ({
+        _id: f._id,
+        title: f.title,
+        parentId: f.parentId,
+        order: f.order,
+      })),
     };
   },
 });
