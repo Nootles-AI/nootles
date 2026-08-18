@@ -361,6 +361,13 @@ function elementToNode(el: Element, raw: string[]): DocNode | null {
   // it would turn a five-picture album into five image blocks.
   if (tag === "nt-album") return { type: "album", id, html: el.outerHTML };
 
+  // And a storyboard, which is deliberately not TRANSPARENT either: the
+  // `<nt-diagram>` inside a shot belongs to that shot, and walking into one
+  // would turn a six-shot board into six loose canvas blocks.
+  if (tag === "nt-storyboard") {
+    return { type: "storyboard", id, html: el.outerHTML };
+  }
+
   return null;
 }
 

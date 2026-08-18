@@ -43,6 +43,8 @@ export const TAG_ALIASES: Record<string, string> = {
   flowchart: "nt-diagram",
   album: "nt-album",
   gallery: "nt-album",
+  storyboard: "nt-storyboard",
+  "nt-board": "nt-storyboard",
   math: "nt-math",
   file: "nt-file",
   attachment: "nt-file",
@@ -148,7 +150,14 @@ export type DocNode =
    * their order and their shapes have exactly one representation. See
    * `app/components/editor/album/` for the parser both halves share.
    */
-  | { type: "album"; id?: string; html: string };
+  | { type: "album"; id?: string; html: string }
+  /**
+   * A storyboard, carried as the `<nt-storyboard>` markup itself — for the
+   * third time and the same reason: the block already stores this grammar, so
+   * the shots, their drawings and their notes have exactly one representation.
+   * See `app/components/editor/storyboard/` for the parser both halves share.
+   */
+  | { type: "storyboard"; id?: string; html: string };
 
 /**
  * Content words shared between two texts, as a share of the completion's own.

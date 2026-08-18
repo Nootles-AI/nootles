@@ -44,6 +44,7 @@ const CONTENTLESS = new Set([
   "mathBlock",
   "canvas",
   "album",
+  "storyboard",
   "divider",
   "image",
   "video",

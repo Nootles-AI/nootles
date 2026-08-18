@@ -37,6 +37,61 @@ export const seedShareVerify = internalMutation({
   },
 });
 
+/**
+ * A project+page owned by a THROWAWAY CLERK USER, for authenticated E2E: the
+ * caller creates the user via the Clerk Backend API and passes its subject.
+ * Same lifecycle as the rest of this file — verification only, then swept.
+ */
+export const seedOwnedVerify = internalMutation({
+  args: { subject: v.string(), title: v.optional(v.string()) },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const projectId = await ctx.db.insert("projects", {
+      ownerId: args.subject,
+      title: args.title ?? "Storyboard verify",
+      shareToken: crypto.randomUUID(),
+      editShareToken: crypto.randomUUID(),
+      createdAt: now,
+    });
+    const docId = crypto.randomUUID();
+    const pageId = await ctx.db.insert("pages", {
+      ownerId: args.subject,
+      projectId,
+      title: "Board",
+      order: 0,
+      docId,
+      createdAt: now,
+    });
+    await ctx.db.insert("ydocs", {
+      docId,
+      seq: 0,
+      snapshotSeq: 0,
+      snapshotParts: 0,
+      updatedAt: now,
+    });
+    return { projectId, pageId, docId };
+  },
+});
+
+export const cleanOwnedVerify = internalMutation({
+  args: { subject: v.string() },
+  handler: async (ctx, args) => {
+    const projects = await ctx.db
+      .query("projects")
+      .withIndex("by_owner", (q) => q.eq("ownerId", args.subject))
+      .collect();
+    for (const project of projects) {
+      const pages = await ctx.db
+        .query("pages")
+        .withIndex("by_project", (q) => q.eq("projectId", project._id))
+        .collect();
+      await Promise.all(pages.map((p) => ctx.db.delete(p._id)));
+      await ctx.db.delete(project._id);
+    }
+    return projects.length;
+  },
+});
+
 /** Makes the verify page's doc Yjs-native so the harness can write to it. */
 export const initVerifyYDoc = internalMutation({
   args: {},

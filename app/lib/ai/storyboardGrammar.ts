@@ -1,0 +1,57 @@
+/**
+ * The storyboard grammar, taught once — the canvas grammar's companion.
+ *
+ * Its own module for the reason `canvasGrammar.ts` is: more than one lane will
+ * want it (the chat agent today, a builder tomorrow), and a grammar copied into
+ * a prompt is a grammar that drifts from the parser the first time either is
+ * touched.
+ *
+ * It is deliberately short, and it is short because the container model made it
+ * so. An earlier design built a board out of one canvas, and teaching it took
+ * three times this: frame-local coordinates, which groups were scaffolding and
+ * must not be edited, how auto-layout decides what carries x/y. Giving each
+ * shot its own canvas deleted all of that from the prompt as well as from the
+ * code — a shot is a diagram at its own origin, which the model already knows
+ * how to write.
+ */
+export const STORYBOARD_GRAMMAR = `A storyboard is a list of shots. Each shot is a small
+canvas with a note under it, and the shots are laid out in as many columns as the page
+has room for — so the board reflows on its own and you never place a shot yourself.
+
+  <nt-storyboard ratio="16:9">
+    <nt-shot>
+      <nt-diagram w="320" h="180">…the picture, drawn…</nt-diagram>
+      <nt-note>What happens in this shot.</nt-note>
+    </nt-shot>
+    <nt-shot>
+      <nt-diagram w="320" h="180">…</nt-diagram>
+      <nt-note>And in this one.</nt-note>
+    </nt-shot>
+  </nt-storyboard>
+
+THE PICTURE is an ordinary <nt-diagram>, drawn exactly as THE CANVAS says — every shape,
+the pen, and the same rules about what to draw with. Its own top-left is 0 0; a shot knows
+nothing about the board around it or the shots beside it. It is 320 wide, and as tall as
+the ratio makes it: 16:9 → 180, 2.39:1 → 134, 1.85:1 → 173, 4:3 → 240, 1:1 → 320,
+9:16 → 569 (portrait — reels, shorts). Give
+every shot the same w and h as the board's ratio. A shot with nothing drawn yet has no
+<nt-diagram> at all.
+
+Draw for the size. A shot is shown a couple of hundred pixels wide, so it wants a few bold
+shapes and no fine detail — a figure, a horizon, a doorway. It is a shot, not a schematic.
+
+THE NOTE is the action, in plain words on ruled lines. Text only: no tags, no marks, no
+page references. Line breaks are real newlines. Two or three short lines is what fits.
+
+SHOT NUMBERS draw themselves from position. Never write a number in a note.
+
+RATIO is the board's, not the shot's. Changing it re-crops every shot — the drawings keep
+their coordinates and the frame around them changes, which is what changing format does.
+A w or cols attribute on <nt-storyboard> is display state the user set — the width they
+dragged the board to, the column count they pinned. Keep both exactly as you found them,
+and never add one.
+
+TO EDIT a board, return the WHOLE <nt-storyboard> element with every shot in it, changing
+only what you mean to change. Shots have no ids: they are addressed by position, so a
+board that comes back with five shots where there were six has deleted the sixth. Adding,
+removing and reordering shots is done by writing the list you want.`;

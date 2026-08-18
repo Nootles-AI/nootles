@@ -33,6 +33,8 @@ import { hintExtension } from "./ai/hintText";
 import { reviewExtension } from "./ai/reviewExtension";
 import { ReviewOverlay } from "./ai/ReviewOverlay";
 import { track } from "@/app/lib/telemetry";
+import { serializeStoryboard } from "./storyboard/serialize";
+import { emptyStoryboard } from "./storyboard/types";
 import { useTabCompletion, type PageMode } from "./ai/useTabCompletion";
 import { useReformat } from "./ai/useReformat";
 import { ReformatBar } from "./ai/ReformatBar";
@@ -133,6 +135,23 @@ function customSlashItems(editor: EditorInstance): DefaultReactSuggestionItem[] 
         const block = editor.getTextCursorPosition().block;
         editor.updateBlock(block, { type: "canvas", props: { data: "" } });
         track("block_created", { type: "canvas" });
+      },
+    },
+    {
+      title: "Storyboard",
+      subtext: "Shot frames with room to write underneath",
+      aliases: [
+        "storyboard", "board", "shots", "frames", "panels", "scene",
+        "film", "sequence", "shotlist", "previs",
+      ],
+      group: "Canvas",
+      onItemClick: () => {
+        const block = editor.getTextCursorPosition().block;
+        editor.updateBlock(block, {
+          type: "storyboard",
+          props: { data: serializeStoryboard(emptyStoryboard()) },
+        });
+        track("block_created", { type: "storyboard" });
       },
     },
     {

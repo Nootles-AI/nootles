@@ -167,7 +167,22 @@ export const AI = {
    * sequence as a diagram. Swapping it is this one line.
    */
   diagram: {
-    model: "google/gemini-2.5-flash",
+    /**
+     * Switched from Gemini 2.5 Flash (2026-08): 3.7 Flash sits in the top
+     * drawing tier of the current generation (Willison's Aug-16 SVG eval) while
+     * being flash-latency, streamable and — unusually for an upgrade — cheaper
+     * per token than 2.5. Claude Fable 5 draws better still but at ~25x the
+     * price and chat-lane latency; if a "redraw this frame beautifully" action
+     * ever ships, it is the model for that button, not for this lane.
+     */
+    model: "google/gemini-3.7-flash",
+    /**
+     * Reasoning budget. The eval's best drawings came at high effort, but high
+     * spends its gain before the first shape reaches the canvas — and this lane
+     * streams shapes as they arrive. Medium buys most of the quality at a
+     * latency the preview can wear; the dial is here to tune against real use.
+     */
+    effort: "medium",
     /**
      * A drawing is the long case, and by a wide margin. A mockup is a few dozen
      * short elements; a storyboard is one `<nt-path>` per stroke, and a `d` with
@@ -245,6 +260,7 @@ export const AI = {
   prices: {
     "codestral-2508": { in: 0.3, out: 0.9 },
     "google/gemini-2.5-flash": { in: 0.3, out: 2.5 },
+    "google/gemini-3.7-flash": { in: 0.375, out: 1.875 },
     "openai/gpt-5.6-terra": { in: 1, out: 6, cacheRead: 0.1, cacheWrite: 1.25 },
     // Kept after the switch away: the ledger prices each row by the model that
     // served it, so removing this would silently un-cost every earlier chat.

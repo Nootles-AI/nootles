@@ -60,6 +60,9 @@ import {
   type RotatedRect,
 } from "../scene/geometry";
 import { mintId } from "../scene/ops";
+// A leaf module of pure constants — no cycle, though the surface knows nothing
+// else about storyboards.
+import type { Ratio } from "../../storyboard/types";
 import { serializeScene } from "../scene/serialize";
 import {
   findNode,
@@ -297,6 +300,32 @@ export interface CanvasApi {
    * land it with {@link setDiagram}.
    */
   previewStyle(decls: StylePatch): void;
+  /**
+   * The board this canvas is a shot of, or absent on a canvas that stands on
+   * its own.
+   *
+   * A canvas knows nothing about storyboards and never sets this — the board's
+   * container attaches it to whichever shot's api it publishes, so the one
+   * toolbar can carry the board's controls beside the shot's tools. Optional
+   * rather than nullable so an ordinary canvas is unchanged by its existence.
+   */
+  board?: BoardApi;
+}
+
+/** What the control bar can do to the board a shot belongs to. */
+export interface BoardApi {
+  ratio: Ratio;
+  shots: number;
+  setRatio(ratio: Ratio): void;
+  addShot(): void;
+  /** Columns showing right now — pinned or width-decided. */
+  cols: number;
+  /** The most columns this board could hold; the pin steps within [1, most]. */
+  most: number;
+  /** Whether a pin is set, or the width is deciding. */
+  pinned: boolean;
+  pin(delta: number): void;
+  unpin(): void;
 }
 
 export interface CanvasSurfaceProps {
@@ -316,6 +345,19 @@ export interface CanvasSurfaceProps {
    * context menu) is off.
    */
   readOnly?: boolean;
+  /**
+   * Render as a fixed frame rather than a block-sized, pannable canvas — a
+   * storyboard shot.
+   *
+   * The scene keeps its authored size and is drawn at `scale`, so a board that
+   * reflows to fewer columns shows the same drawing larger rather than
+   * rewriting a single coordinate. Everything that makes a canvas a canvas —
+   * tools, gestures, snapping, the layers and style panels — is untouched;
+   * what goes away is the block chrome that has no meaning inside a shot: the
+   * resize grips, the empty-canvas hint, and panning to somewhere there is
+   * nothing to find.
+   */
+  frame?: { w: number; h: number; scale: number };
 }
 
 export function CanvasSurface({
@@ -323,10 +365,19 @@ export function CanvasSurface({
   onChange,
   onApi,
   readOnly = false,
+  frame,
 }: CanvasSurfaceProps) {
   const store = useScene({ source, onChange });
   const scene = useSceneSnapshot(store);
-  const viewport = useViewport();
+  const viewport = useViewport(frame ? { locked: true } : undefined);
+
+  // A shot is drawn at whatever scale its column asks for. Written through the
+  // viewport rather than as a CSS transform on the wrapper so that every
+  // coordinate conversion the gestures and the overlay already do — which all
+  // run through `clientToScene` — stays correct at any size, for free.
+  useEffect(() => {
+    if (frame) viewport.set({ x: 0, y: 0, zoom: frame.scale });
+  }, [viewport, frame]);
   // The scene store is what puts a selection back on undo; without it a
   // selection change is simply not in the history.
   const selection = useSelectionStore(scene, store);
@@ -513,10 +564,21 @@ export function CanvasSurface({
    * whole surface, so a tool chosen underneath it would be a tool you could not
    * reach — and the tool bar showing something the surface is not doing.
    */
-  const changeTool = useCallback((next: CanvasTool) => {
-    setOpenPath(null);
-    setTool(next);
-  }, []);
+  // Existence only, so `changeTool` — and the api memoised on it — keeps its
+  // identity when the container re-renders the frame object with equal values.
+  const inFrame = frame !== undefined;
+  const changeTool = useCallback(
+    (next: CanvasTool) => {
+      // A shot has no use for either: the hand pans a viewport that is locked
+      // to its frame, and a connector joins nodes of a diagram — a storyboard's
+      // relations are its shot order, not arrows. Refused here rather than in
+      // the bar so the keymap's `h` and `c` cannot reach them either.
+      if (inFrame && (next === "hand" || next === "connector")) return;
+      setOpenPath(null);
+      setTool(next);
+    },
+    [inFrame],
+  );
 
   const toolControl = useMemo(
     () => ({ get: () => latest.current.tool, set: changeTool }),
@@ -553,13 +615,16 @@ export function CanvasSurface({
 
   /** Frame everything visible — the first paint, and the rescue button. */
   const frameContent = useCallback(() => {
+    // A shot is framed by its container at a fixed scale; fitting the content
+    // here would zoom a viewport whose whole point is that it never moves.
+    if (inFrame) return;
     const ids = store
       .getScene()
       .nodes.filter((node) => !node.hidden)
       .map((node) => node.id);
     if (!ids.length) return;
     viewport.zoomToFit(absoluteSelectionBounds(store.getScene(), ids));
-  }, [store, viewport]);
+  }, [store, viewport, inFrame]);
 
   // A diagram authored wider than the column would otherwise open cropped.
   const fitted = useRef(false);
@@ -1000,9 +1065,15 @@ export function CanvasSurface({
   return (
     <div
       ref={wrap}
-      className="nt-canvas"
+      className={frame ? "nt-canvas nt-canvas-shot" : "nt-canvas"}
       contentEditable={false}
-      style={width === null ? { height } : { height, width }}
+      style={
+        frame
+          ? { width: frame.w * frame.scale, height: frame.h * frame.scale }
+          : width === null
+            ? { height }
+            : { height, width }
+      }
     >
       <div
         ref={containerRef}
@@ -1075,12 +1146,12 @@ export function CanvasSurface({
           />
         )}
 
-        {scene.nodes.length === 0 && !readOnly && (
+        {scene.nodes.length === 0 && !readOnly && !frame && (
           <p className="nt-canvas-hint">Pick a shape from the toolbar</p>
         )}
       </div>
 
-      {!readOnly && (
+      {!readOnly && !frame && (
         <>
           <div
             className="nt-canvas-grip"
