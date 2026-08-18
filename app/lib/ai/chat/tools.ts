@@ -72,6 +72,40 @@ export const TOOLS = {
         ),
     }),
   },
+  draw: {
+    description:
+      "Draw one canvas — a scene, a storyboard shot, a mockup, an " +
+      "illustration — and return it as an <nt-diagram> element to place in " +
+      "your edit. A drawing specialist holds the pen, so anything DRAWN " +
+      "should come from here rather than from your own paths. Returns only " +
+      "the element; nothing touches the page until you place it with " +
+      "edit_page. You may call this several times in parallel — one call per " +
+      "storyboard shot.",
+    inputSchema: z.object({
+      brief: z
+        .string()
+        .describe(
+          "What to draw, as a director would say it: subject and action, " +
+            "composition (close on…, wide of…), time of day, mood, and the " +
+            "colours or style the board is using — repeat the same style " +
+            "words across a board's shots so they read as one film.",
+        ),
+      w: z
+        .number()
+        .int()
+        .optional()
+        .describe(
+          "Frame width, with h: the drawing fills this box edge to edge. A " +
+            "storyboard shot is 320 wide. Leave both out for a document " +
+            "diagram, which sizes itself to the column.",
+        ),
+      h: z
+        .number()
+        .int()
+        .optional()
+        .describe("Frame height. A shot's is the board ratio's: see THE PICTURE."),
+    }),
+  },
   search_web: {
     description:
       "Search the web for something the project does not already say. Returns a " +

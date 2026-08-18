@@ -1,4 +1,4 @@
-import { streamText, type LanguageModelUsage } from "ai";
+import { generateText, streamText, type LanguageModelUsage } from "ai";
 import { AI } from "./aiConfig";
 import { CANVAS_GRAMMAR } from "./canvasGrammar";
 import { diagramModel } from "./chat/provider";
@@ -247,4 +247,76 @@ function userMessage(brief: string, page: string, title: string): string {
     ? `The page${title.trim() ? ` "${title.trim()}"` : ""} says:\n${page.trim()}\n\n`
     : "";
   return `${context}Draw: ${brief}`;
+}
+
+/**
+ * A fixed frame to fill — a storyboard shot, rather than a document diagram.
+ * Null means the ordinary 600px-column sizing the grammar teaches.
+ */
+export type DrawFrame = { w: number; h: number } | null;
+
+/**
+ * What changes when the target is a frame, said AFTER the grammar so the more
+ * specific instruction wins. The grammar's sizing rules assume a diagram born
+ * into a document column with margins; a shot is a film frame, and a film
+ * frame is filled to its edges — a margin there reads as a mistake, not as
+ * breathing room.
+ */
+const frameNote = (frame: DrawFrame): string =>
+  frame
+    ? `\n\nTHE FRAME
+This drawing is one storyboard frame, exactly ${frame.w} wide and ${frame.h} tall. Set
+<nt-diagram w="${frame.w}" h="${frame.h}"> exactly and IGNORE the column sizing above: no
+margin, no 40px inset. Fill the frame to its edges the way a film shot fills the screen —
+sky and ground bleed off all four sides, and the subject sits where the camera would put
+it. Give <nt-diagram> itself the scene's ground colour in style. It is shown small, so a
+few bold shapes beat many fine ones, and filled silhouettes beat outlines.`
+    : "";
+
+/**
+ * The `<nt-diagram>` element out of a finished reply, or "". Models fence, and
+ * sometimes preface — the element is the reply.
+ */
+export function diagramElement(text: string): string {
+  return /<nt-diagram[\s\S]*<\/nt-diagram>/i.exec(text)?.[0] ?? "";
+}
+
+/**
+ * One drawing, whole — the chat agent's `draw` tool.
+ *
+ * The agent's own model is picked for tool orchestration and long-context
+ * recall, not for drawing, and inside a turn a drawing is a side task: its
+ * attention is split across page reads, board structure and six captions at
+ * once. This call gives every picture what the drawing benchmarks give theirs
+ * — a drawing specialist, one canvas, nothing else on its mind. The same
+ * split the completion lane has always used, reached from the other side.
+ *
+ * Non-streaming because a tool result is atomic; the review preview shows the
+ * finished drawing the moment the agent places it.
+ */
+export async function generateDiagram(
+  brief: string,
+  frame: DrawFrame,
+  signal?: AbortSignal,
+  onUsage?: (result: { usage: LanguageModelUsage; latencyMs: number }) => void,
+): Promise<string> {
+  const started = Date.now();
+  const { text, totalUsage } = await generateText({
+    model: diagramModel(),
+    system: SYSTEM + frameNote(frame),
+    messages: [
+      ...SHOTS.flatMap(
+        (shot) =>
+          [
+            { role: "user" as const, content: `Draw: ${shot.brief}` },
+            { role: "assistant" as const, content: shot.html },
+          ] as const,
+      ),
+      { role: "user", content: `Draw: ${brief}` },
+    ],
+    maxOutputTokens: AI.diagram.maxTokens,
+    abortSignal: signal,
+  });
+  onUsage?.({ usage: totalUsage, latencyMs: Date.now() - started });
+  return diagramElement(text);
 }

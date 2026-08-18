@@ -13,6 +13,7 @@ import { project, type AnyBlock } from "@/app/lib/ai/projection";
 import { resolveBatch, warnRejected } from "@/app/lib/ai/validate";
 import { applyBatch, caretTarget, type ApplyResult } from "@/app/lib/ai/apply";
 import { broadcastFimFlash } from "@/app/lib/sync/fimFlash";
+import { loadIconCatalog } from "@/app/components/editor/canvas/icons/registry";
 import { adoptScene } from "@/app/components/editor/canvas/scene/adopt";
 import { migrateLegacyCanvas } from "@/app/components/editor/canvas/scene/migrate";
 import { serializeScene } from "@/app/components/editor/canvas/scene/serialize";
@@ -314,7 +315,7 @@ function tablePreview(
  */
 function previewSignature(acc: string): string {
   const shapes = (
-    acc.match(/<\/nt-(?:rect|ellipse|polygon|text|image|path|group)>/gi) ?? []
+    acc.match(/<\/nt-(?:rect|ellipse|polygon|text|image|path|group|icon)>/gi) ?? []
   ).length;
   const edges = (acc.match(/<\/nt-edge\s*>/gi) ?? []).length;
   return `${proseTail(acc)}:${shapes}:${edges}:${acc.length >> 5}`;
@@ -480,6 +481,9 @@ export function useTabCompletion(
 
   useEffect(() => {
     if (!editor) return;
+    // Warm start, so the awaits on the hot paths are settled promises by the
+    // time any completion arrives.
+    void loadIconCatalog();
     let timer: ReturnType<typeof setTimeout> | null = null;
     let abort: AbortController | null = null;
     /**
@@ -773,6 +777,8 @@ export function useTabCompletion(
       mySeq: number,
       place: (diagram: string) => string | null,
     ): Promise<string | null> => {
+      await loadIconCatalog();
+      if (mySeq !== seq) return null;
       const controller = new AbortController();
       abort = controller;
       let out = "";
@@ -885,6 +891,10 @@ export function useTabCompletion(
     const run = async (mySeq: number) => {
       const ctx = context();
       if (!ctx) return;
+      // Before any model output is parsed, never after: an <nt-icon> the
+      // registry cannot resolve yet would land as a placeholder.
+      await loadIconCatalog();
+      if (mySeq !== seq) return;
       const controller = new AbortController();
       abort = controller;
       const started = performance.now();

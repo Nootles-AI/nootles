@@ -4,6 +4,7 @@ import type { ConvexReactClient } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { LiveEditor } from "@/app/components/editor/EditorRegistry";
+import { loadIconCatalog } from "@/app/components/editor/canvas/icons/registry";
 import { AI } from "../aiConfig";
 import { compileDocHtml } from "../html/compile";
 import type { DocNode } from "../html/grammar";
@@ -79,6 +80,9 @@ async function editPage(
   html: string,
   replacing: string[] | undefined,
 ): Promise<string> {
+  // The model's HTML may place icons; the registry must be able to answer
+  // before anything parses it.
+  await loadIconCatalog();
   const page = await fetchPage(ctx, pageId);
   // The applier needs the live editor, and only the open page has one.
   ctx.openPage(pageId);
