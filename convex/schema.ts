@@ -432,6 +432,28 @@ export default defineSchema({
     .index("by_owner", ["ownerId", "createdAt"]),
 
   /**
+   * Drawings the chat's draw tool has made, waiting to be placed.
+   *
+   * Out of band by necessity, not preference: a drawn storyboard shot is
+   * ~100KB of path data, and carried inside the tool result it travelled
+   * everywhere a message travels — through the model's own step loop (nine
+   * shots put 400K tokens into one request), into the persisted transcript
+   * (2.14MiB, over the document ceiling), and back up with every later turn.
+   * Here, a result is a ref and a row is a drawing; `edit_page` redeems refs
+   * against this table, which also survives a reload where a message-borne
+   * drawing did not. Rows are transient — placed content lives in the
+   * document — and a cron sweeps the stale ones.
+   */
+  drawings: defineTable({
+    ownerId: v.string(),
+    ref: v.string(),
+    data: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_ref", ["ref"])
+    .index("by_owner", ["ownerId", "createdAt"]),
+
+  /**
    * One row per LLM request, whatever the feature — the cost and reliability
    * ledger. Written fire-and-forget from the API routes after each stream ends.
    */

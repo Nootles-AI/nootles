@@ -71,33 +71,61 @@ export async function generateVectorDrawing(
   if (!apiKey) throw new Error("OPENROUTER_API_KEY is not set");
   const started = Date.now();
 
-  let svg: string;
-  try {
-    const res = await fetch("https://openrouter.ai/api/v1/images/generations", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: AI.diagram.vector.model,
-        prompt: brief,
-        size: sizeFor(frame),
-      }),
-      signal,
-    });
-    if (!res.ok) return null;
-    const json = (await res.json()) as {
-      data?: { b64_json?: string }[];
-      error?: unknown;
-    };
-    const b64 = json.data?.[0]?.b64_json;
-    if (!b64) return null;
-    svg = Buffer.from(b64, "base64").toString("utf8");
-  } catch (error) {
-    if ((error as Error).name === "AbortError") throw error;
+  // A silent miss here silently changes who drew the picture — the earlier
+  // routing fell back to the LLM lane with no trace, and the only clue was
+  // the wrong model in the cost ledger. Every miss says why now, and a
+  // transient failure gets one more try: a board fires nine of these at
+  // once, which is exactly the shape rate limits are made of.
+  const miss = (why: string): null => {
+    if (process.env.NODE_ENV !== "production") {
+      console.warn(`[vector-draw] miss (${why}): "${brief.slice(0, 60)}"`);
+    }
     return null;
+  };
+
+  let svg: string | null = null;
+  for (let attempt = 0; attempt < 2 && svg === null; attempt++) {
+    try {
+      const res = await fetch("https://openrouter.ai/api/v1/images/generations", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: AI.diagram.vector.model,
+          // The suffix leans on the model for economy. Left to itself a crowd
+          // scene came back as thousands of paths — slow enough to generate
+          // that parallel draws outlived their step — and at shot scale that
+          // detail is invisible anyway. The importer enforces a hard budget;
+          // this asks for drawings that fit it by nature.
+          prompt: `${brief}. Bold simple flat vector, clean shapes, no fine detail or texture.`,
+          size: sizeFor(frame),
+        }),
+        signal,
+      });
+      if (res.status === 429 || res.status >= 500) {
+        if (attempt === 0) {
+          await new Promise((r) => setTimeout(r, 2000));
+          continue;
+        }
+        return miss(`http ${res.status}`);
+      }
+      if (!res.ok) return miss(`http ${res.status}`);
+      const json = (await res.json()) as { data?: { b64_json?: string }[] };
+      const b64 = json.data?.[0]?.b64_json;
+      if (!b64) return miss("no image in response");
+      svg = Buffer.from(b64, "base64").toString("utf8");
+    } catch (error) {
+      if ((error as Error).name === "AbortError") throw error;
+      if (attempt === 0) {
+        await new Promise((r) => setTimeout(r, 2000));
+        continue;
+      }
+      return miss(String((error as Error).message ?? error).slice(0, 80));
+    }
   }
+  if (svg === null) return miss("exhausted retries");
 
   const imported = importSvgScene(
     svg,

@@ -81,6 +81,7 @@ export function chatTools(
         // words-first work stays on the LLM lane, whose labels are text. A
         // specialist miss falls through rather than failing the call — the
         // agent asked for a drawing, not for a particular pen.
+        let html = "";
         if (kind !== "diagram") {
           const vector = await generateVectorDrawing(brief, frame, abortSignal);
           if (vector) {
@@ -90,27 +91,23 @@ export function chatTools(
               latencyMs: vector.latencyMs,
               status: "ok",
             });
-            const ref = `d${randomUUID().slice(0, 6)}`;
-            return {
-              ref,
-              shapes: (vector.html.match(/<nt-[a-z]/g) ?? []).length - 1,
-              html: vector.html,
-            };
+            html = vector.html;
           }
         }
-
-        const html = await generateDiagram(brief, frame, abortSignal, ({ usage, latencyMs }) =>
-          recordAiCall(convex, {
-            feature: "diagram",
-            model: AI.diagram.model,
-            promptTokens: usage.inputTokens,
-            completionTokens: usage.outputTokens,
-            cacheReadTokens: usage.inputTokenDetails?.cacheReadTokens,
-            cacheWriteTokens: usage.inputTokenDetails?.cacheWriteTokens,
-            latencyMs,
-            status: "ok",
-          }),
-        );
+        if (!html) {
+          html = await generateDiagram(brief, frame, abortSignal, ({ usage, latencyMs }) =>
+            recordAiCall(convex, {
+              feature: "diagram",
+              model: AI.diagram.model,
+              promptTokens: usage.inputTokens,
+              completionTokens: usage.outputTokens,
+              cacheReadTokens: usage.inputTokenDetails?.cacheReadTokens,
+              cacheWriteTokens: usage.inputTokenDetails?.cacheWriteTokens,
+              latencyMs,
+              status: "ok",
+            }),
+          );
+        }
         if (!html) {
           return {
             error:
@@ -118,14 +115,17 @@ export function chatTools(
               "picture — a subject, an action, a composition — and try once more.",
           };
         }
-        // The drawing goes back by NAME. `html` rides along for the browser,
-        // which is where it is needed, and `stripDrawings` takes it out of what
-        // the model reads — nine shots is fifteen thousand tokens of path data,
-        // and a model handed that back has to write every character of it out
-        // again to place it. Measured: it declined, and answered with a summary
-        // of an edit it never made.
+        // The drawing goes into its own table and the result is a NAME. Not an
+        // optimisation — carried in the result, a drawing rides everywhere a
+        // message rides: through the model's own step loop (nine shots put
+        // 400K tokens into one request — the draw tool executes server-side,
+        // so its results re-enter the model INSIDE the request, where the
+        // route's transcript stripping never runs), and into a persisted
+        // transcript that Convex refused at 2.14MiB. A ref weighs nothing in
+        // all three places, and `edit_page` redeems it from the table.
         const ref = `d${randomUUID().slice(0, 6)}`;
-        return { ref, shapes: (html.match(/<nt-[a-z]/g) ?? []).length - 1, html };
+        await convex.mutation(api.ai.drawings.put, { ref, data: html });
+        return { ref, shapes: (html.match(/<nt-[a-z]/g) ?? []).length - 1 };
       },
     }),
 

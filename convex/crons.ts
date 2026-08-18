@@ -26,4 +26,12 @@ crons.interval(
   {},
 );
 
+/** Unplaced drawings from the draw tool; placed ones live in the document. */
+crons.interval(
+  "purge stale drawings",
+  { hours: 6 },
+  internal.ai.drawings.purgeStale,
+  {},
+);
+
 export default crons;

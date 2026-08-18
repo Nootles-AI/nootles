@@ -31,15 +31,6 @@ export type ToolContext = {
   openPageId: () => Id<"pages"> | null;
   openPage: (pageId: Id<"pages">) => void;
   editorFor: (pageId: Id<"pages">) => Promise<LiveEditor>;
-  /**
-   * The drawings this turn's `draw` calls produced, by the name each returned.
-   *
-   * The tool runs on the server and this one runs here, so the tool result is
-   * the only thing that crosses — and the model never sees the markup inside
-   * it (see `stripDrawings`). It writes `<nt-diagram ref="…">` instead, and
-   * this is where the name is redeemed.
-   */
-  drawings: () => ReadonlyMap<string, string>;
 };
 
 /** `<nt-diagram ref="d3"></nt-diagram>` — a drawing placed by name. */
@@ -119,7 +110,18 @@ async function editPage(
   // The model's HTML may place icons; the registry must be able to answer
   // before anything parses it.
   await loadIconCatalog();
-  const placed = expandRefs(html, ctx.drawings());
+  // Drawings are redeemed from their own table — the tool result named them
+  // and carried nothing else, so this query is where the pictures actually
+  // arrive. Fetched only when the edit places any.
+  const named = [...html.matchAll(REF)].map((m) => m[1]);
+  const drawings = named.length
+    ? new Map(
+        Object.entries(
+          await ctx.convex.query(api.ai.drawings.get, { refs: [...new Set(named)] }),
+        ),
+      )
+    : new Map<string, string>();
+  const placed = expandRefs(html, drawings);
   if (placed.missing.length) {
     return [
       `That edit was not applied, and nothing on the page changed. There ${

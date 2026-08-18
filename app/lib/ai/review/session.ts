@@ -14,6 +14,7 @@ import { asReview } from "./attribution";
 import { ensureForked, isForked, mergeFork } from "./fork";
 import { computeHunks, type Hunk } from "./hunks";
 import { canonicalise, produces, target } from "./ops";
+import { packTurn, unpackTurn } from "./pack";
 import { planReplay } from "./replay";
 import { restoreDocument, undoHunks } from "./undo";
 
@@ -475,13 +476,14 @@ export class ReviewSession {
   }
 
   /** Turns that were left unanswered — a reload, a closed tab. */
-  hydrate(rows: Doc<"chatTurns">[]) {
+  async hydrate(rows: Doc<"chatTurns">[]) {
     const known = new Set(this.turns.map((t) => t.chatPromptId));
     const fresh = rows.filter((r) => !known.has(r.chatPromptId));
-    const restored = fresh.map(fromRow);
+    const restored = await Promise.all(fresh.map(fromRow));
     if (!restored.length) return;
     for (const row of fresh) {
-      for (const page of ((row.hunks ?? {}) as StoredHunks).pages ?? []) {
+      const hunks = await unpackTurn<StoredHunks>(row.hunks ?? {});
+      for (const page of hunks.pages ?? []) {
         if (page.edited?.length) {
           this.edited.set(key(row.chatPromptId, page.pageId), new Set(page.edited));
         }
@@ -942,7 +944,9 @@ export class ReviewSession {
       chatPromptId: turn.chatPromptId,
       pageIds: turn.pages.map((p) => p.pageId),
       checkpointIds: turn.pages.map((p) => p.checkpointId),
-      trace: convexSafe({
+      // Packed, not plain — see `pack.ts`. JSON.stringify inside the pack
+      // handles what `convexSafe` handled for the object form.
+      trace: await packTurn({
         pages: turn.pages.map(({ pageId, checkpointId, ops, trace, replacing, logged }) => ({
           pageId,
           checkpointId,
@@ -952,7 +956,7 @@ export class ReviewSession {
           logged,
         })),
       }),
-      hunks: convexSafe({
+      hunks: await packTurn({
         pages: turn.pages.map(({ pageId, hunks, status }) => ({
           pageId,
           hunks,
@@ -1091,9 +1095,9 @@ type StoredHunks = {
   pages?: Array<Pick<PageReview, "pageId" | "hunks" | "status"> & { edited?: string[] }>;
 };
 
-function fromRow(row: Doc<"chatTurns">): TurnReview {
-  const trace = (row.trace ?? {}) as StoredTrace;
-  const hunks = (row.hunks ?? {}) as StoredHunks;
+async function fromRow(row: Doc<"chatTurns">): Promise<TurnReview> {
+  const trace = await unpackTurn<StoredTrace>(row.trace ?? {});
+  const hunks = await unpackTurn<StoredHunks>(row.hunks ?? {});
   return {
     threadId: row.threadId,
     projectId: row.projectId,

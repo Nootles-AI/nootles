@@ -12,6 +12,7 @@ import type * as admin from "../admin.js";
 import type * as ai_calls from "../ai/calls.js";
 import type * as ai_checkpoints from "../ai/checkpoints.js";
 import type * as ai_context from "../ai/context.js";
+import type * as ai_drawings from "../ai/drawings.js";
 import type * as ai_opLog from "../ai/opLog.js";
 import type * as ai_operations from "../ai/operations.js";
 import type * as ai_questions from "../ai/questions.js";
@@ -60,6 +61,7 @@ declare const fullApi: ApiFromModules<{
   "ai/calls": typeof ai_calls;
   "ai/checkpoints": typeof ai_checkpoints;
   "ai/context": typeof ai_context;
+  "ai/drawings": typeof ai_drawings;
   "ai/opLog": typeof ai_opLog;
   "ai/operations": typeof ai_operations;
   "ai/questions": typeof ai_questions;
