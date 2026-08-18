@@ -48,6 +48,7 @@ export const BLOCK_TYPES = [
   "image",
   "video",
   "audio",
+  "location",
   "file",
 ] as const;
 export const blockType = z.enum(BLOCK_TYPES);

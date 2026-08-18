@@ -49,6 +49,9 @@ export const TAG_ALIASES: Record<string, string> = {
   song: "audio",
   music: "audio",
   "nt-audio": "audio",
+  location: "nt-location",
+  place: "nt-location",
+  "nt-place": "nt-location",
   file: "nt-file",
   attachment: "nt-file",
   ref: "nt-ref",
@@ -160,7 +163,14 @@ export type DocNode =
    * the shots, their drawings and their notes have exactly one representation.
    * See `app/components/editor/storyboard/` for the parser both halves share.
    */
-  | { type: "storyboard"; id?: string; html: string };
+  | { type: "storyboard"; id?: string; html: string }
+  /**
+   * A place card, carried as the `<nt-location>` markup itself — for the same
+   * reason as the three above: the block stores this grammar, so the place's
+   * facts, the pictures chosen and the parts switched off have exactly one
+   * representation. See `app/components/editor/location/`.
+   */
+  | { type: "location"; id?: string; html: string };
 
 /**
  * Content words shared between two texts, as a share of the completion's own.
