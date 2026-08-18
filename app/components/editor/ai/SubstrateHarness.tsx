@@ -11,6 +11,7 @@ import { applyBatch } from "@/app/lib/ai/apply";
 import { toDocHtml } from "@/app/lib/ai/html/serialize";
 import { parseDocHtml } from "@/app/lib/ai/html/parse";
 import { compileDocHtml } from "@/app/lib/ai/html/compile";
+import { packTurn, unpackTurn } from "@/app/lib/ai/review/pack";
 
 /**
  * Dev-only harness for the AI substrate, with no model involved.
@@ -113,7 +114,11 @@ export function SubstrateHarness({
         return;
       }
       const chatPromptId = crypto.randomUUID();
-      await createCheckpoint({ pageId, chatPromptId, docSnapshot: editor.document });
+      await createCheckpoint({
+        pageId,
+        chatPromptId,
+        docSnapshot: await packTurn(editor.document),
+      });
       applyBatch(editor, resolved.batch);
       await appendBatch({
         pageId,
@@ -140,7 +145,7 @@ export function SubstrateHarness({
     await createCheckpoint({
       pageId,
       chatPromptId: crypto.randomUUID(),
-      docSnapshot: editor.document,
+      docSnapshot: await packTurn(editor.document),
     });
     setLog({ ok: true, msg: "Checkpoint saved." });
   };
@@ -236,7 +241,7 @@ export function SubstrateHarness({
                   {c.chatPromptId.slice(0, 8)}
                 </span>
                 <button
-                  onClick={() => onRestore(c.docSnapshot)}
+                  onClick={async () => onRestore(await unpackTurn(c.docSnapshot))}
                   className="rounded px-1.5 py-0.5 text-[11px] font-medium text-foreground hover:bg-black/5"
                 >
                   Restore

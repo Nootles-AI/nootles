@@ -205,6 +205,8 @@ export function importSvgScene(
   svg: string,
   frame: { w: number; h: number },
   parseHtml: ParseHtml,
+  /** Layer-panel name for the group the drawing arrives as. */
+  label = "Drawing",
 ): ImportedScene | null {
   const doc = parseHtml(`<!DOCTYPE html><html><body>${svg}</body></html>`);
   const root = doc.querySelector("svg");
@@ -277,12 +279,33 @@ export function importSvgScene(
     ],
   );
 
+  // One named group around the whole drawing, spanning the frame at the
+  // origin — children's coordinates are already relative to it. The picture
+  // then moves, layers and deletes as one thing, and the layer panel shows
+  // its parts under one name instead of hundreds of loose paths.
+  const kept = budgeted(scaled.nodes.map(rounded));
   return {
     scene: {
       ...scaled,
       w: frame.w,
       h: frame.h,
-      nodes: budgeted(scaled.nodes.map(rounded)),
+      nodes: [
+        {
+          id: "v0",
+          kind: "group",
+          x: 0,
+          y: 0,
+          w: frame.w,
+          h: frame.h,
+          rot: 0,
+          style: {},
+          label,
+          locked: false,
+          hidden: false,
+          attrs: {},
+          children: kept,
+        },
+      ],
     },
     dropped,
   };

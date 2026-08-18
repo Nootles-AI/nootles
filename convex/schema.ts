@@ -254,6 +254,13 @@ export default defineSchema({
     docId: v.string(),
     seq: v.number(),
     update: v.bytes(),
+    /**
+     * Present on updates too large for one row: `parts` rows share the seq,
+     * written in one transaction, joined by `yshape.joinUpdateRows` before
+     * anything applies them. Absent means whole — every pre-existing row.
+     */
+    part: v.optional(v.number()),
+    parts: v.optional(v.number()),
   }).index("by_doc_and_seq", ["docId", "seq"]),
 
   /**
@@ -450,7 +457,9 @@ export default defineSchema({
     data: v.string(),
     createdAt: v.number(),
   })
-    .index("by_ref", ["ref"])
+    // Owner-scoped: refs are deterministic (a brief's fingerprint), so two
+    // accounts drawing the same brief legitimately share a ref string.
+    .index("by_owner_and_ref", ["ownerId", "ref"])
     .index("by_owner", ["ownerId", "createdAt"]),
 
   /**

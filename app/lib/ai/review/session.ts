@@ -365,7 +365,7 @@ export class ReviewSession {
         checkpointId: await this.deps.convex.mutation(api.ai.checkpoints.create, {
           pageId,
           chatPromptId: `rewind:${chatPromptId}`,
-          docSnapshot: convexSafe(editor.document as unknown as AnyBlock[]),
+          docSnapshot: await packTurn(convexSafe(editor.document as unknown as AnyBlock[])),
         }),
       });
       restoreDocument(editor, before);
@@ -591,7 +591,9 @@ export class ReviewSession {
       const checkpointId = await this.deps.convex.mutation(api.ai.checkpoints.create, {
         pageId,
         chatPromptId,
-        docSnapshot: before,
+        // Packed like the turn row: a drawn page's snapshot is mostly path
+        // data, and raw it clears Convex's 1MiB value ceiling on its own.
+        docSnapshot: await packTurn(before),
       });
       page = {
         pageId,
@@ -970,7 +972,8 @@ export class ReviewSession {
 
   private async checkpointDoc(checkpointId: Id<"checkpoints">): Promise<AnyBlock[] | null> {
     const row = await this.deps.convex.query(api.ai.checkpoints.get, { id: checkpointId });
-    return (row?.docSnapshot as AnyBlock[]) ?? null;
+    if (row?.docSnapshot == null) return null;
+    return await unpackTurn<AnyBlock[]>(row.docSnapshot);
   }
 }
 

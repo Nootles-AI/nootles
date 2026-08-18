@@ -3,11 +3,17 @@ import { parseHTML } from "linkedom";
 import { importSvgScene } from "./svgImport";
 import { serializeScene } from "@/app/components/editor/canvas/scene/serialize";
 import { parseScene } from "@/app/components/editor/canvas/scene/parse";
-import type { PathNode } from "@/app/components/editor/canvas/scene/types";
+import type {
+  GroupNode,
+  PathNode,
+} from "@/app/components/editor/canvas/scene/types";
 
 const dom = (h: string) => parseHTML(h).document as unknown as Document;
 const run = (svg: string, frame = { w: 320, h: 180 }) =>
-  importSvgScene(svg, frame, dom);
+  importSvgScene(svg, frame, dom, "Drawing");
+/** Every import arrives as one group; the shapes are its children. */
+const shapes = (out: ReturnType<typeof run>) =>
+  (out!.scene.nodes[0] as GroupNode).children;
 
 /**
  * Held to what the census of real Recraft output exercises — flat paths,
@@ -24,7 +30,11 @@ describe("importSvgScene", () => {
       </svg>`,
     );
     expect(out).not.toBeNull();
-    const [sky, box] = out!.scene.nodes as PathNode[];
+    const [group] = out!.scene.nodes as GroupNode[];
+    expect(group.kind).toBe("group");
+    expect(group.label).toBe("Drawing");
+    expect([group.x, group.y, group.w, group.h]).toEqual([0, 0, 320, 180]);
+    const [sky, box] = shapes(out) as PathNode[];
     expect(out!.scene.w).toBe(320);
     expect([sky.x, sky.y, sky.w, sky.h]).toEqual([0, 0, 320, 180]);
     expect([box.x, box.y, box.w, box.h]).toEqual([50, 50, 50, 50]);
@@ -45,7 +55,7 @@ describe("importSvgScene", () => {
     const out = run(
       `<svg viewBox="0 0 320 320"><path d="M 0 0 L 320 0 L 320 320 L 0 320 Z" fill="#111"/></svg>`,
     );
-    const [bg] = out!.scene.nodes;
+    const [bg] = shapes(out);
     expect(bg.w).toBe(320);
     expect(bg.y).toBe(-70);
   });
@@ -59,7 +69,7 @@ describe("importSvgScene", () => {
         </g>
       </svg>`,
     );
-    const [rect, circle] = out!.scene.nodes;
+    const [rect, circle] = shapes(out);
     // rect at (100,50) source → halved.
     expect([rect.x, rect.y, rect.w, rect.h]).toEqual([50, 25, 50, 30]);
     // circle centre (300,80) r30 → box (270,50)-(330,110) → halved.
@@ -77,7 +87,7 @@ describe("importSvgScene", () => {
         <path d="M 0 0 L 32 0 L 32 18 Z"/>
       </svg>`,
     );
-    const [grad, bare] = out!.scene.nodes;
+    const [grad, bare] = shapes(out);
     expect(grad.style.fill).toBe("rgb(200,100,50)");
     expect(bare.style.fill).toBe("#000000");
   });
@@ -91,7 +101,7 @@ describe("importSvgScene", () => {
         <path d="M 0 0 L 64 0 L 64 36 Z" fill="#123"/>
       </svg>`,
     );
-    expect(out!.scene.nodes).toHaveLength(1);
+    expect(shapes(out)).toHaveLength(1);
     expect(out!.dropped).toBe(1);
   });
 
@@ -108,7 +118,7 @@ describe("importSvgScene", () => {
     const out = run(
       `<svg viewBox="0 0 2048 1152"><path d="M 218.467 307.914 L 1343.853 524.981 L 300 900 Z" fill="#123"/></svg>`,
     );
-    const [p] = out!.scene.nodes;
+    const [p] = shapes(out);
     const html = JSON.stringify(p);
     expect(html).not.toMatch(/\d\.\d{3,}/);
   });

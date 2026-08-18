@@ -7,6 +7,7 @@ import {
   removeAwarenessStates,
 } from "y-protocols/awareness";
 import { api } from "@/convex/_generated/api";
+import { joinUpdateRows, splitUpdate } from "@/convex/yshape";
 
 /**
  * A Yjs provider over Convex: the `meta` query is the wake-up channel, and
@@ -33,9 +34,9 @@ const FLUSH_MS = 500;
 const MAX_RETRY_MS = 10_000;
 /**
  * A merged flush larger than this is sent as its original updates instead —
- * each is keystroke-batch sized. A SINGLE update past Convex's 1MiB value cap
- * still fails; if a surface ever legitimately produces one, the append
- * protocol grows a part/of envelope (the seam is here).
+ * each is keystroke-batch sized. A SINGLE update past the cap is split by
+ * `yshape.splitUpdate` and sent as one multi-row append: an accepted drawn
+ * storyboard is exactly that, one 2MiB+ update from one transaction.
  */
 const MERGE_CAP_BYTES = 800 * 1024;
 /** Cursor moves ride a trailing throttle; stillness still beats every 10s. */
@@ -191,6 +192,9 @@ export class YConvexProvider {
         });
         if (!meta) continue; // not Yjs-native (yet); the watch will say when
         if (meta.snapshotSeq > this.cursor && meta.snapshotParts > 0) {
+          // Chunks are byte SLICES of one encoded update, so they gather into
+          // one buffer and apply once — a slice on its own is not an update.
+          const chunks: ArrayBuffer[] = [];
           for (let part = 0; part < meta.snapshotParts; part++) {
             const chunk = await this.client.query(api.ydoc.snapshot, {
               docId: this.docId,
@@ -198,14 +202,21 @@ export class YConvexProvider {
               part,
             });
             // A chunk can vanish if a newer fold replaced it mid-read; the
-            // loop re-runs from fresh meta and the partial apply was harmless.
+            // loop re-runs from fresh meta, nothing having been applied.
             if (chunk === null) {
               this.pullAgain = true;
               break;
             }
-            Y.applyUpdate(this.doc, new Uint8Array(chunk), this);
+            chunks.push(chunk);
           }
           if (this.pullAgain) continue;
+          const whole = new Uint8Array(chunks.reduce((n, c) => n + c.byteLength, 0));
+          let at = 0;
+          for (const c of chunks) {
+            whole.set(new Uint8Array(c), at);
+            at += c.byteLength;
+          }
+          Y.applyUpdate(this.doc, whole, this);
           this.cursor = meta.snapshotSeq;
         }
         while (this.cursor < meta.seq) {
@@ -214,8 +225,11 @@ export class YConvexProvider {
             afterSeq: this.cursor,
           });
           if (rows.length === 0) break;
-          for (const row of rows) {
-            Y.applyUpdate(this.doc, new Uint8Array(row.update), this);
+          // Joined first: a chunked update's rows are slices, not updates.
+          const joined = joinUpdateRows(rows);
+          if (joined.length === 0) break;
+          for (const row of joined) {
+            Y.applyUpdate(this.doc, row.update, this);
             this.cursor = Math.max(this.cursor, row.seq);
           }
         }
@@ -359,13 +373,16 @@ export class YConvexProvider {
     this.emit();
     try {
       for (const update of batch) {
-        await this.client.mutation(api.ydoc.append, {
-          docId: this.docId,
-          update: update.buffer.slice(
-            update.byteOffset,
-            update.byteOffset + update.byteLength,
-          ) as ArrayBuffer,
-        });
+        // Split when one row cannot hold it — a drawn storyboard's accept is
+        // one transaction and therefore one update, measured past 2MiB. One
+        // mutation carries every part, so the group lands atomically.
+        const chunks = splitUpdate(update);
+        await this.client.mutation(
+          api.ydoc.append,
+          chunks.length === 1
+            ? { docId: this.docId, update: chunks[0] }
+            : { docId: this.docId, chunks },
+        );
       }
       this.retryMs = 0;
       this.lastFlushAt = Date.now();

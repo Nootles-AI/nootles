@@ -5,11 +5,12 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { LiveEditor } from "@/app/components/editor/EditorRegistry";
 import { loadIconCatalog } from "@/app/components/editor/canvas/icons/registry";
+import { joinUpdateRows } from "@/convex/yshape";
 import { AI } from "../aiConfig";
 import { compileDocHtml } from "../html/compile";
 import type { DocNode } from "../html/grammar";
 import { parseDocHtml } from "../html/parse";
-import { toDocHtml, toDocHtmlWithin } from "../html/serialize";
+import { redeemDrawnStubs, toDocHtml, toDocHtmlWithin } from "../html/serialize";
 import { project, type AnyBlock, type DocIndex } from "../projection";
 import type { ReviewSession } from "../review/session";
 import { blocksFromSnapshot, blocksFromYUpdates } from "../snapshot";
@@ -74,15 +75,17 @@ export async function runClientTool(
 ): Promise<unknown> {
   switch (name) {
     case "read_page": {
-      const { pageId } = TOOLS.read_page.inputSchema.parse(input);
-      return await readPage(ctx, pageId as Id<"pages">);
+      const { pageId, expand } = TOOLS.read_page.inputSchema.parse(input);
+      return await readPage(ctx, pageId as Id<"pages">, expand);
     }
     case "open_page": {
       const { pageId } = TOOLS.open_page.inputSchema.parse(input);
       return await openPage(ctx, pageId as Id<"pages">);
     }
-    case "read_open_page":
-      return await readOpenPage(ctx);
+    case "read_open_page": {
+      const { expand } = TOOLS.read_open_page.inputSchema.parse(input ?? {});
+      return await readOpenPage(ctx, expand);
+    }
     case "edit_page": {
       const { pageId, html, replacing } = TOOLS.edit_page.inputSchema.parse(input);
       return await editPage(ctx, pageId as Id<"pages">, html, replacing);
@@ -130,12 +133,25 @@ async function editPage(
       "Use the ref each draw call returned, exactly as it came back — or call draw again.",
     ].join("\n");
   }
-  const source = placed.html;
   const page = await fetchPage(ctx, pageId);
   // The applier needs the live editor, and only the open page has one.
   ctx.openPage(pageId);
   const editor = await ctx.editorFor(pageId);
   const document = editor.document as unknown as AnyBlock[];
+
+  // Reads hand the model drawn pictures as addressed stubs; here each returned
+  // stub is redeemed for the shapes it stands for, from the live document. Both
+  // sides of the diff then hold the full picture, so a kept stub is no change.
+  const drawn = redeemDrawnStubs(placed.html, document);
+  if (drawn.missing.length) {
+    return [
+      `That edit was not applied, and nothing on the page changed. There is no drawn picture at ${drawn.missing
+        .map((a) => `"${a}"`)
+        .join(", ")} any more — it may have moved or been deleted.`,
+      "Read the page again and return its drawn stubs exactly as it gives them.",
+    ].join("\n");
+  }
+  const source = drawn.html;
 
   const next = parseDocHtml(source);
   const current = parseDocHtml(toDocHtml(document));
@@ -267,7 +283,7 @@ async function openPage(
  * way is a page as it was a moment ago — and an edit written against that reads
  * the last thing typed as a block to delete.
  */
-async function readOpenPage(ctx: ToolContext): Promise<string> {
+async function readOpenPage(ctx: ToolContext, expand?: string[]): Promise<string> {
   const pageId = ctx.openPageId();
   if (!pageId) {
     throw new Error("No page is open. Call list_pages, then open_page.");
@@ -276,20 +292,24 @@ async function readOpenPage(ctx: ToolContext): Promise<string> {
     fetchPage(ctx, pageId),
     ctx.editorFor(pageId),
   ]);
-  return pageHtml(editor.document as unknown as AnyBlock[], page.title);
+  return pageHtml(editor.document as unknown as AnyBlock[], page.title, expand);
 }
 
-async function readPage(ctx: ToolContext, pageId: Id<"pages">): Promise<string> {
+async function readPage(
+  ctx: ToolContext,
+  pageId: Id<"pages">,
+  expand?: string[],
+): Promise<string> {
   // The open page is read from the editor itself. The stored copy trails the
   // caret by a debounce, and `edit_page` diffs against the live document — so
   // reading the open page from the server hands the model a version of a block
   // the user has since typed into, and echoing it back unchanged compiles to a
   // setBlockContent that reverts them. Valid ids throughout, so neither the
   // id guard nor `resolveBatch` catches it.
-  if (ctx.openPageId() === pageId) return await readOpenPage(ctx);
+  if (ctx.openPageId() === pageId) return await readOpenPage(ctx, expand);
 
   const page = await fetchPage(ctx, pageId);
-  return pageHtml(await storedBlocks(ctx, page.docId), page.title);
+  return pageHtml(await storedBlocks(ctx, page.docId), page.title, expand);
 }
 
 /**
@@ -308,14 +328,29 @@ async function storedBlocks(ctx: ToolContext, docId: string): Promise<AnyBlock[]
   if (state === "yjs") {
     const meta = await ctx.convex.query(api.ydoc.meta, { docId });
     if (!meta) return [];
-    const parts: ArrayBuffer[] = [];
+    // Snapshot chunks are byte SLICES of one encoded update, not updates —
+    // concatenated back into one buffer before anything applies them. (Applied
+    // one by one they parse as garbage, a bug that stayed latent only while no
+    // document was big enough to snapshot in parts; drawn boards are.)
+    const chunks: ArrayBuffer[] = [];
     for (let part = 0; part < meta.snapshotParts; part++) {
       const chunk = await ctx.convex.query(api.ydoc.snapshot, {
         docId,
         gen: meta.snapshotSeq,
         part,
       });
-      if (chunk) parts.push(chunk);
+      if (chunk) chunks.push(chunk);
+    }
+    const parts: ArrayBuffer[] = [];
+    if (chunks.length) {
+      const total = chunks.reduce((sum, c) => sum + c.byteLength, 0);
+      const whole = new Uint8Array(total);
+      let at = 0;
+      for (const c of chunks) {
+        whole.set(new Uint8Array(c), at);
+        at += c.byteLength;
+      }
+      parts.push(whole.buffer);
     }
     let cursor = meta.snapshotSeq;
     for (;;) {
@@ -324,10 +359,17 @@ async function storedBlocks(ctx: ToolContext, docId: string): Promise<AnyBlock[]
         afterSeq: cursor,
       });
       if (!rows.length) break;
-      for (const row of rows) {
-        parts.push(row.update);
+      // Chunked update rows are slices too; joined before applying.
+      for (const row of joinUpdateRows(rows)) {
+        parts.push(
+          row.update.buffer.slice(
+            row.update.byteOffset,
+            row.update.byteOffset + row.update.byteLength,
+          ) as ArrayBuffer,
+        );
         cursor = Math.max(cursor, row.seq);
       }
+      if (rows.length && cursor < rows[rows.length - 1].seq) break;
     }
     return blocksFromYUpdates(parts);
   }
@@ -362,8 +404,14 @@ async function fetchPage(ctx: ToolContext, pageId: Id<"pages">) {
  * otherwise reads as a page that ends there, and the model writes the rest of it
  * back over the part it never saw.
  */
-function pageHtml(blocks: AnyBlock[], title: string): string {
-  const { html, dropped } = toDocHtmlWithin(blocks, AI.chat.maxPageChars, { title });
+function pageHtml(blocks: AnyBlock[], title: string, expand?: string[]): string {
+  const { html, dropped } = toDocHtmlWithin(blocks, AI.chat.maxPageChars, {
+    title,
+    // Drawn pictures read as addressed stubs unless asked for — hundreds of
+    // kilobytes of path data the model must not spend its window on.
+    collapseDrawn: true,
+    ...(expand?.length ? { expandDrawn: new Set(expand) } : {}),
+  });
   // A page nobody has opened yet serializes to nothing, and a tool that answers
   // with nothing reads as a tool that failed.
   if (!blocks.length) return `${html}\n<!-- this page is empty -->`.trim();

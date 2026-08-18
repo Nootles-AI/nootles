@@ -33,6 +33,15 @@ export const TOOLS = {
       "read_open_page — that one is the live document.",
     inputSchema: z.object({
       pageId: z.string().describe("A page id from list_pages."),
+      expand: z
+        .array(z.string())
+        .optional()
+        .describe(
+          "Block ids whose DRAWN pictures should come back shape by shape " +
+            'instead of as <nt-diagram drawn="…"> stubs. Only for a block ' +
+            "whose shapes you mean to edit by hand — a drawn picture is " +
+            "large, and the stub is all you need to keep, move or replace it.",
+        ),
     }),
   },
   open_page: {
@@ -47,7 +56,12 @@ export const TOOLS = {
     description:
       "Read the page that is open, as it stands right now — including anything " +
       "typed or changed since it was last saved. Returns Nootles HTML.",
-    inputSchema: z.object({}),
+    inputSchema: z.object({
+      expand: z
+        .array(z.string())
+        .optional()
+        .describe("As on read_page: block ids to read drawn pictures in full."),
+    }),
   },
   edit_page: {
     description:

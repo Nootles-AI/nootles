@@ -2,6 +2,7 @@ import { internalMutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
 import * as Y from "yjs";
 import { components } from "./_generated/api";
+import { joinUpdateRows } from "./yshape";
 
 /**
  * Throwaway verification seed — an isolated project under a fake subject so
@@ -163,10 +164,19 @@ export const verifyMigration = internalQuery({
           .collect()
       : [];
     const doc = new Y.Doc();
-    for (const c of chunks.sort((a, b) => a.part - b.part)) {
-      Y.applyUpdate(doc, new Uint8Array(c.data));
+    // Snapshot chunks are byte slices of ONE update — concatenated, then
+    // applied; and chunked update rows join the same way (see yshape).
+    const ordered = chunks.sort((a, b) => a.part - b.part);
+    if (ordered.length) {
+      const whole = new Uint8Array(ordered.reduce((n, c) => n + c.data.byteLength, 0));
+      let at = 0;
+      for (const c of ordered) {
+        whole.set(new Uint8Array(c.data), at);
+        at += c.data.byteLength;
+      }
+      Y.applyUpdate(doc, whole);
     }
-    for (const u of updates) Y.applyUpdate(doc, new Uint8Array(u.update));
+    for (const u of joinUpdateRows(updates)) Y.applyUpdate(doc, u.update);
     const yText = doc
       .getXmlFragment("prosemirror")
       .toString()

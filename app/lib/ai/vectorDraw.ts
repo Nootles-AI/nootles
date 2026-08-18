@@ -131,6 +131,8 @@ export async function generateVectorDrawing(
     svg,
     frame,
     (html) => parseHTML(html).document as unknown as Document,
+    // The brief's opening clause names the layer — "Close on the detective".
+    brief.split(/[,.;—\n]/)[0].trim().slice(0, 48) || "Drawing",
   );
   if (!imported) return null;
   if (imported.dropped && process.env.NODE_ENV !== "production") {
