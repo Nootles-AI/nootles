@@ -27,11 +27,51 @@ describe("media link classification", () => {
     expect(source).toMatchObject({ kind: "spotify", height: 352 });
   });
 
-  it("keeps a Spotify search as a link — no id to guess at", () => {
+  it("reads a Spotify search as the search it is, not as a player", () => {
     expect(classify("https://open.spotify.com/search/after%20the%20storm")).toEqual({
-      kind: "link",
+      kind: "search",
       url: "https://open.spotify.com/search/after%20the%20storm",
+      provider: "Spotify",
+      query: "after the storm",
     });
+  });
+
+  it("names a search on the other shelves too", () => {
+    expect(classify("https://www.youtube.com/results?search_query=powers+of+ten")).toMatchObject({
+      kind: "search",
+      provider: "YouTube",
+      query: "powers of ten",
+    });
+    expect(classify("https://music.apple.com/us/search?term=kali%20uchis")).toMatchObject({
+      kind: "search",
+      provider: "Apple Music",
+      query: "kali uchis",
+    });
+    expect(classify("https://soundcloud.com/search?q=flickermood")).toMatchObject({
+      kind: "search",
+      provider: "SoundCloud",
+      query: "flickermood",
+    });
+  });
+
+  it("refuses an id that is not shaped like one — a wrong id is a 404 in a frame", () => {
+    // 21 chars and 23 chars: a Spotify id is exactly 22.
+    expect(classify("https://open.spotify.com/track/5mCPDVBb16L4XQwDdbRUp")?.kind).toBe("link");
+    expect(classify("https://open.spotify.com/track/5mCPDVBb16L4XQwDdbRUpzZ")?.kind).toBe("link");
+    // A YouTube video id is exactly 11.
+    expect(classify("https://www.youtube.com/watch?v=dQw4w9Wg")?.kind).toBe("link");
+    expect(classify("https://youtu.be/dQw4w9WgXcQXX")?.kind).toBe("link");
+  });
+
+  it("takes the URI the Spotify app copies, which names a track exactly", () => {
+    expect(classify("spotify:track:5mCPDVBb16L4XQwDdbRUpz")).toEqual({
+      kind: "spotify",
+      embedUrl: "https://open.spotify.com/embed/track/5mCPDVBb16L4XQwDdbRUpz",
+      height: 152,
+    });
+    expect(classify("spotify:album:4SZko61aMnmgvNhfhgTuD3")).toMatchObject({ height: 352 });
+    // Still nothing that is not an id.
+    expect(classify("spotify:track:../../evil")).toBeNull();
   });
 
   it("moves an Apple Music album to the embed host, song selection intact", () => {

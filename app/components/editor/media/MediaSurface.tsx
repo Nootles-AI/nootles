@@ -4,8 +4,9 @@ import { useRef, useState, type ReactNode } from "react";
 import { useConvex } from "convex/react";
 import { put } from "../album/upload";
 import { useReadOnly } from "../readOnly";
-import { LinkIcon } from "../../Icons";
+import { LinkIcon, Search } from "../../Icons";
 import { classify } from "./link";
+import { useVerified } from "./verify";
 import {
   AppleMusicMark,
   SoundCloudMark,
@@ -68,6 +69,7 @@ export function MediaSurface({
 }) {
   const readOnly = useReadOnly();
   const convex = useConvex();
+  const verdict = useVerified(url);
   const picker = useRef<HTMLInputElement>(null);
   const [draft, setDraft] = useState("");
   const [progress, setProgress] = useState<number | null>(null);
@@ -192,6 +194,41 @@ export function MediaSurface({
         <LinkIcon width={15} height={15} />
         <span className="nt-media-card-title">{title || url}</span>
       </div>
+    );
+  } else if (source.kind === "search") {
+    // Not a player and never was: a search stands for a song someone still has
+    // to pick. Said plainly, because an unlabelled link here reads as a player
+    // that failed.
+    player = (
+      <a className="nt-media-card" href={source.url} target="_blank" rel="noreferrer">
+        <Search width={15} height={15} />
+        <span className="nt-media-card-title">{title || source.query}</span>
+        <span className="nt-media-card-host">Find on {source.provider}</span>
+      </a>
+    );
+  } else if (verdict === "missing") {
+    // The provider says plainly that this is not there. Showing the player
+    // would put its 404 inside the document. What the block was FOR is the
+    // title, so keep that and offer the search the link should have been; with
+    // no title there is nothing to search for, so the dead link itself stays
+    // visible rather than being dressed up as a query.
+    player = (
+      <a
+        className="nt-media-card"
+        href={
+          title
+            ? `https://open.spotify.com/search/${encodeURIComponent(title)}`
+            : url
+        }
+        target="_blank"
+        rel="noreferrer"
+      >
+        <Search width={15} height={15} />
+        <span className="nt-media-card-title">{title || url}</span>
+        <span className="nt-media-card-host">
+          {title ? "link is dead — search" : "link is dead"}
+        </span>
+      </a>
     );
   } else {
     switch (source.kind) {
