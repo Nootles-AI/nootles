@@ -7,12 +7,13 @@ const dom = (html: string) => parseHTML(html).document as unknown as Document;
 const parse = (html: string) => parseDocHtml(html, dom);
 
 /**
- * The audio element is how the AI puts a song on a page — "add a drake song
- * below" ends as one of these. What has to hold: the element a model writes
- * lands on the block's props, the spellings a model might reach for are
- * accepted, and a block serializes back to the same element it parses from.
+ * The audio and video elements are how the AI puts media on a page — "add a
+ * drake song below" ends as one of these. What has to hold: the element a
+ * model writes lands on the block's props, the spellings a model might reach
+ * for are accepted, and a block serializes back to the same element it parses
+ * from.
  */
-describe("audio in the document grammar", () => {
+describe("media in the document grammar", () => {
   it("parses a model-written song into an insert of the audio block", () => {
     expect(
       parse(
@@ -55,6 +56,30 @@ describe("audio in the document grammar", () => {
         id: "b1",
         url: "https://soundcloud.com/forss/flickermood",
         caption: "Flickermood — Forss",
+      },
+    ]);
+  });
+
+  it("does the same for a video", () => {
+    const block = {
+      id: "b2",
+      type: "video",
+      props: {
+        url: "https://vimeo.com/76979871",
+        name: "",
+        caption: "The Mountain — TSO",
+      },
+    };
+    const html = toDocHtml([block]);
+    expect(html).toBe(
+      '<video id="b2" src="https://vimeo.com/76979871" title="The Mountain — TSO"></video>',
+    );
+    expect(parse(html)).toEqual([
+      {
+        type: "video",
+        id: "b2",
+        url: "https://vimeo.com/76979871",
+        caption: "The Mountain — TSO",
       },
     ]);
   });

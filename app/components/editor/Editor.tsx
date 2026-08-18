@@ -131,11 +131,37 @@ function filterItems(
 ): DefaultReactSuggestionItem[] {
   const q = query.trim().toLowerCase();
   if (!q) return items;
-  return items.filter(
-    (i) =>
-      i.title.toLowerCase().includes(q) ||
-      i.aliases?.some((a) => a.toLowerCase().includes(q)),
-  );
+  // An item NAMED what was typed outranks one that merely answers to it —
+  // "/media" must land on Media, not on the first thing with a "media" alias.
+  // Ranking moves whole groups (by their best item), never items across
+  // groups, so each group stays one contiguous — one-keyed — section.
+  const score = (i: DefaultReactSuggestionItem): number =>
+    i.title.toLowerCase().startsWith(q)
+      ? 0
+      : i.title.toLowerCase().includes(q)
+        ? 1
+        : i.aliases?.some((a) => a.toLowerCase().includes(q))
+          ? 2
+          : 3;
+  const kept = items
+    .map((item, index) => ({ item, index, score: score(item) }))
+    .filter((e) => e.score < 3);
+  const groupBest = new Map<string | undefined, number>();
+  const groupOrder = new Map<string | undefined, number>();
+  for (const e of kept) {
+    const g = e.item.group;
+    groupBest.set(g, Math.min(groupBest.get(g) ?? 3, e.score));
+    if (!groupOrder.has(g)) groupOrder.set(g, groupOrder.size);
+  }
+  return kept
+    .sort(
+      (a, b) =>
+        groupBest.get(a.item.group)! - groupBest.get(b.item.group)! ||
+        groupOrder.get(a.item.group)! - groupOrder.get(b.item.group)! ||
+        a.score - b.score ||
+        a.index - b.index,
+    )
+    .map((e) => e.item);
 }
 
 // Our custom insert items, grouped separately from the default "Basic blocks".
@@ -170,6 +196,28 @@ function customSlashItems(editor: EditorInstance): DefaultReactSuggestionItem[] 
       },
     },
     {
+      // Ahead of Album on purpose: both answer to "video", and a tie goes to
+      // the earlier item — "/video" should reach the player, not the gallery.
+      title: "Media",
+      subtext: "A song or video by link — or a file",
+      aliases: [
+        "media", "audio", "video", "song", "music", "track", "sound",
+        "spotify", "apple music", "youtube", "vimeo", "soundcloud",
+        "uppbeat", "mp3", "mp4", "podcast", "film", "embed",
+      ],
+      group: "Media",
+      onItemClick: () => {
+        const block = editor.getTextCursorPosition().block;
+        // `audio` only until a link or file settles it — the block converts
+        // itself to `video` when what lands in it is one.
+        editor.updateBlock(block, {
+          type: "audio",
+          props: { url: "", name: "", caption: "" },
+        });
+        track("block_created", { type: "media" });
+      },
+    },
+    {
       title: "Album",
       subtext: "Photos and videos, in a waterfall",
       aliases: ["album", "photos", "gallery", "waterfall", "masonry", "images", "video", "media"],
@@ -178,23 +226,6 @@ function customSlashItems(editor: EditorInstance): DefaultReactSuggestionItem[] 
         const block = editor.getTextCursorPosition().block;
         editor.updateBlock(block, { type: "album", props: { data: "" } });
         track("block_created", { type: "album" });
-      },
-    },
-    {
-      title: "Audio",
-      subtext: "A song by link — or an audio file",
-      aliases: [
-        "audio", "song", "music", "track", "sound", "spotify",
-        "apple music", "youtube", "soundcloud", "mp3", "podcast",
-      ],
-      group: "Media",
-      onItemClick: () => {
-        const block = editor.getTextCursorPosition().block;
-        editor.updateBlock(block, {
-          type: "audio",
-          props: { url: "", name: "", caption: "" },
-        });
-        track("block_created", { type: "audio" });
       },
     },
     {
@@ -412,15 +443,26 @@ function EditorSurface({
               floatingUIOptions={menuPlacement}
               getItems={async (query) =>
                 filterItems(
-                  groupAdjacent([
-                    // The stock Audio item still qualifies against our audio
-                    // block's schema; ours replaces it.
-                    ...getDefaultReactSlashMenuItems(editor).filter(
-                      (item) =>
-                        item.title !== editor.dictionary.slash_menu.audio.title,
+                  groupAdjacent(
+                    [
+                      // The stock Audio and Video items still qualify against
+                      // our block specs; our Media item replaces both.
+                      ...getDefaultReactSlashMenuItems(editor).filter(
+                        (item) =>
+                          item.title !== editor.dictionary.slash_menu.audio.title &&
+                          item.title !== editor.dictionary.slash_menu.video.title,
+                      ),
+                      ...customSlashItems(editor),
+                    ].map((item) =>
+                      // The menu keys section labels and item titles in one
+                      // list, so a group named exactly like our Media item
+                      // would be its duplicate key. "Media blocks" also reads
+                      // like the stock "Basic blocks" section.
+                      item.group === editor.dictionary.slash_menu.image.group
+                        ? { ...item, group: "Media blocks" }
+                        : item,
                     ),
-                    ...customSlashItems(editor),
-                  ]),
+                  ),
                   query,
                 )
               }

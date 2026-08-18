@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { classify, describeSource } from "./link";
+import { blockTypeFor, classify, describeSource } from "./link";
 
-describe("audio link classification", () => {
+describe("media link classification", () => {
   it("turns a Spotify track page into the compact player", () => {
     const source = classify(
       "https://open.spotify.com/track/1oHNvJVbFkexQc0BpQp7Y4?si=abc123",
@@ -74,6 +74,38 @@ describe("audio link classification", () => {
     });
   });
 
+  it("embeds every spelling of a Vimeo video via its player", () => {
+    for (const raw of [
+      "https://vimeo.com/76979871",
+      "https://vimeo.com/channels/staffpicks/76979871",
+      "https://vimeo.com/groups/name/videos/76979871",
+      "https://player.vimeo.com/video/76979871",
+    ]) {
+      expect(classify(raw)).toEqual({
+        kind: "vimeo",
+        embedUrl: "https://player.vimeo.com/video/76979871",
+      });
+    }
+  });
+
+  it("keeps an unlisted Vimeo hash, which the player needs back", () => {
+    expect(classify("https://vimeo.com/76979871/abcd1234ef")).toEqual({
+      kind: "vimeo",
+      embedUrl: "https://player.vimeo.com/video/76979871?h=abcd1234ef",
+    });
+  });
+
+  it("recognises an Uppbeat track and names it — no embed exists", () => {
+    expect(
+      classify("https://uppbeat.io/t/kevin-macleod/monkeys-spinning-monkeys"),
+    ).toEqual({
+      kind: "uppbeat",
+      url: "https://uppbeat.io/t/kevin-macleod/monkeys-spinning-monkeys",
+      label: "monkeys spinning monkeys — kevin macleod",
+    });
+    expect(classify("https://uppbeat.io/browse/music")?.kind).toBe("link");
+  });
+
   it("hands any named SoundCloud page to the resolving widget", () => {
     const source = classify("https://soundcloud.com/forss/flickermood");
     expect(source).toEqual({
@@ -87,11 +119,33 @@ describe("audio link classification", () => {
   });
 
   it("plays a file: by extension, or anything out of Convex storage", () => {
-    expect(classify("https://example.com/song.mp3")?.kind).toBe("file");
-    expect(classify("https://example.com/song.FLAC")?.kind).toBe("file");
+    expect(classify("https://example.com/song.mp3")).toMatchObject({
+      kind: "file",
+      media: "audio",
+    });
+    expect(classify("https://example.com/song.FLAC")).toMatchObject({
+      media: "audio",
+    });
+    expect(classify("https://example.com/clip.mp4")).toMatchObject({
+      kind: "file",
+      media: "video",
+    });
+    // Storage serves no extension: the block that uploaded it knows which.
     expect(
-      classify("https://happy-otter-123.convex.cloud/api/storage/abc-def")?.kind,
-    ).toBe("file");
+      classify("https://happy-otter-123.convex.cloud/api/storage/abc-def"),
+    ).toMatchObject({ kind: "file", media: null });
+  });
+
+  it("settles which block a link belongs in", () => {
+    expect(blockTypeFor("https://open.spotify.com/track/1oHNvJVbFkexQc0BpQp7Y4")).toBe("audio");
+    expect(blockTypeFor("https://uppbeat.io/t/a/b")).toBe("audio");
+    expect(blockTypeFor("https://www.youtube.com/watch?v=dQw4w9WgXcQ")).toBe("video");
+    expect(blockTypeFor("https://vimeo.com/76979871")).toBe("video");
+    expect(blockTypeFor("https://example.com/clip.webm")).toBe("video");
+    // Says nothing about itself: the block stays what it already is.
+    expect(blockTypeFor("https://x.convex.cloud/api/storage/abc")).toBeNull();
+    expect(blockTypeFor("https://bandcamp.com/some-song")).toBeNull();
+    expect(blockTypeFor("nonsense")).toBeNull();
   });
 
   it("keeps an unrecognised web URL as a link", () => {
@@ -114,6 +168,8 @@ describe("audio link classification", () => {
       "apple music",
     );
     expect(describeSource("https://example.com/song.mp3")).toBe("file");
+    expect(describeSource("https://vimeo.com/76979871")).toBe("vimeo");
+    expect(describeSource("https://uppbeat.io/t/a/b")).toBe("uppbeat");
     expect(describeSource("nonsense")).toBeNull();
   });
 });

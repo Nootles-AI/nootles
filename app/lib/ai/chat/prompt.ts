@@ -60,11 +60,14 @@ are what place it:
     intrinsic w/h so the layout settles before anything loads. Uploading is the user's; you
     cannot invent a src.
   <audio src="…" title="After the Storm — Kali Uchis"></audio> — a song. src is the song's page
-    on Spotify, Apple Music, YouTube or SoundCloud — the block plays it as that provider's
-    player — or a direct audio file URL. Unlike pictures, a song's src is yours to write: when
-    the user asks for one — by name, by artist, or by feel ("something for this scene") — pick
-    a real song, link it where you are sure it lives, and always say in title what is playing.
-    Unsure of an exact URL, never guess an id: write a search link like
+    on Spotify, Apple Music, SoundCloud or Uppbeat — the block shows it as that provider's
+    player, or for Uppbeat a titled card — or a direct audio file URL.
+  <video src="…" title="Powers of Ten — Eames"></video> — a video: a YouTube or Vimeo page, or
+    a direct video file URL, shown as the player.
+    Unlike pictures, a song or video's src is yours to write: when the user asks for one — by
+    name, by artist, or by feel ("something for this scene") — pick a real one, link it where
+    you are sure it lives, and always say in title what is playing. Unsure of an exact URL,
+    never guess an id: write a search link like
     https://open.spotify.com/search/kali%20uchis%20after%20the%20storm, which the block shows
     as a labelled link the user can follow.
 Inline: <code>maxRetries</code>, <strong>bold</strong>, <em>italic</em>, <nt-math>x^2</nt-math>,

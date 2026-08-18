@@ -10,13 +10,16 @@ import {
   AppleMusicMark,
   SoundCloudMark,
   SpotifyMark,
+  VimeoMark,
   YouTubeMark,
 } from "./ProviderIcons";
-import "./audio.css";
+import "./media.css";
 
 /**
- * The audio block's face: an empty one asks for a link or a file, a filled one
- * plays.
+ * The media block's face: an empty one asks for a link or a file, a filled one
+ * plays. One face for two block types — `audio` and `video` share it, and the
+ * committed link is what settles which of the two the block is (see
+ * `MediaBlock.tsx`).
  *
  * A pasted provider link becomes that provider's player the moment it lands —
  * no confirm step, because the paste was the confirmation. A URL that is
@@ -34,22 +37,34 @@ const ACCEPT = [
   "audio/ogg",
   "audio/opus",
   "audio/flac",
+  "video/mp4",
+  "video/webm",
+  "video/quicktime",
 ].join(",");
 
-/** Audio is uploaded as chosen — no transcode lane — so the door is smaller. */
+/** Uploaded as chosen — no transcode lane here, unlike the album's videos. */
 const MAX_AUDIO_BYTES = 60_000_000;
+const MAX_VIDEO_BYTES = 250_000_000;
 
 const EMBED_ALLOW =
   "autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture";
 
-export function AudioSurface({
+export function MediaSurface({
   url,
   title,
+  fallbackKind,
   onSet,
 }: {
   url: string;
   title: string;
-  onSet: (next: { url: string; name: string; caption: string }) => void;
+  /** The block's own type: what a storage URL plays as when it can't say. */
+  fallbackKind: "audio" | "video";
+  onSet: (next: {
+    url: string;
+    name: string;
+    caption: string;
+    media: "audio" | "video" | null;
+  }) => void;
 }) {
   const readOnly = useReadOnly();
   const convex = useConvex();
@@ -64,24 +79,30 @@ export function AudioSurface({
       setError("That doesn't look like a link.");
       return;
     }
-    onSet({ url: trimmed, name: "", caption: "" });
+    onSet({ url: trimmed, name: "", caption: "", media: null });
   }
 
   async function upload(file: File | undefined) {
     if (!file) return;
-    if (!file.type.startsWith("audio/")) {
-      setError("That isn't an audio file.");
+    const media = file.type.startsWith("audio/")
+      ? "audio"
+      : file.type.startsWith("video/")
+        ? "video"
+        : null;
+    if (!media) {
+      setError("That isn't an audio or video file.");
       return;
     }
-    if (file.size > MAX_AUDIO_BYTES) {
-      setError("Too big — audio tops out at 60MB.");
+    const cap = media === "audio" ? MAX_AUDIO_BYTES : MAX_VIDEO_BYTES;
+    if (file.size > cap) {
+      setError(`Too big — ${media} tops out at ${Math.round(cap / 1_000_000)}MB.`);
       return;
     }
     setError("");
     setProgress(0);
     try {
       const uploaded = await put(convex, file, file.type, setProgress);
-      onSet({ url: uploaded, name: file.name, caption: "" });
+      onSet({ url: uploaded, name: file.name, caption: "", media });
     } catch {
       setError("Upload failed — try again.");
     } finally {
@@ -90,18 +111,18 @@ export function AudioSurface({
   }
 
   if (!url) {
-    // An empty audio block is an invitation, and a viewer has nothing to
+    // An empty media block is an invitation, and a viewer has nothing to
     // accept: on the share route it renders as the nothing it holds.
     if (readOnly) return null;
     return (
-      <div className="nt-audio">
+      <div className="nt-media">
         {progress !== null ? (
-          <div className="nt-audio-drop is-busy">
+          <div className="nt-media-drop is-busy">
             <span>Uploading — {Math.round(progress * 100)}%</span>
           </div>
         ) : (
           <div
-            className="nt-audio-drop"
+            className="nt-media-drop"
             onDragOver={(event) => {
               if (event.dataTransfer.types.includes("Files")) event.preventDefault();
             }}
@@ -112,8 +133,8 @@ export function AudioSurface({
             }}
           >
             <input
-              className="nt-audio-input"
-              placeholder="Paste an audio link…"
+              className="nt-media-input"
+              placeholder="Paste an audio or video link…"
               value={draft}
               onChange={(event) => {
                 setDraft(event.target.value);
@@ -130,23 +151,24 @@ export function AudioSurface({
                 if (event.key === "Enter" && draft.trim()) commitLink(draft);
               }}
             />
-            <span className="nt-audio-marks" aria-hidden>
+            <span className="nt-media-marks" aria-hidden>
               <SpotifyMark />
               <AppleMusicMark />
               <YouTubeMark />
               <SoundCloudMark />
+              <VimeoMark />
             </span>
-            <span className="nt-audio-rule" />
+            <span className="nt-media-rule" />
             <button
               type="button"
-              className="nt-audio-upload"
+              className="nt-media-upload"
               onClick={() => picker.current?.click()}
             >
               Upload file
             </button>
             <input
               ref={picker}
-              className="nt-audio-picker"
+              className="nt-media-picker"
               type="file"
               accept={ACCEPT}
               onChange={(event) => {
@@ -156,7 +178,7 @@ export function AudioSurface({
             />
           </div>
         )}
-        {error && <div className="nt-audio-error">{error}</div>}
+        {error && <div className="nt-media-error">{error}</div>}
       </div>
     );
   }
@@ -166,57 +188,75 @@ export function AudioSurface({
   if (!source) {
     // props hold something no URL parser accepts; show it rather than lose it.
     player = (
-      <div className="nt-audio-card">
+      <div className="nt-media-card">
         <LinkIcon width={15} height={15} />
-        <span className="nt-audio-card-title">{title || url}</span>
+        <span className="nt-media-card-title">{title || url}</span>
       </div>
-    );
-  } else if (source.kind === "youtube") {
-    player = (
-      <iframe
-        className="nt-audio-embed is-video"
-        src={source.embedUrl}
-        title="Audio player"
-        allow={EMBED_ALLOW}
-        allowFullScreen
-        loading="lazy"
-      />
-    );
-  } else if (source.kind === "file") {
-    player = (
-      <div className="nt-audio-file">
-        {title && <div className="nt-audio-title">{title}</div>}
-        <audio className="nt-audio-player" controls src={source.url} />
-      </div>
-    );
-  } else if (source.kind === "link") {
-    player = (
-      <a className="nt-audio-card" href={source.url} target="_blank" rel="noreferrer">
-        <LinkIcon width={15} height={15} />
-        <span className="nt-audio-card-title">{title || source.url}</span>
-        <span className="nt-audio-card-host">{new URL(source.url).hostname}</span>
-      </a>
     );
   } else {
-    player = (
-      <iframe
-        className="nt-audio-embed"
-        src={source.embedUrl}
-        height={source.height}
-        title="Audio player"
-        allow={EMBED_ALLOW}
-        loading="lazy"
-      />
-    );
+    switch (source.kind) {
+      case "youtube":
+      case "vimeo":
+        player = (
+          <iframe
+            className="nt-media-embed is-video"
+            src={source.embedUrl}
+            title="Media player"
+            allow={EMBED_ALLOW}
+            allowFullScreen
+            loading="lazy"
+          />
+        );
+        break;
+      case "file": {
+        const media = source.media ?? fallbackKind;
+        player = (
+          <div className="nt-media-file">
+            {title && <div className="nt-media-title">{title}</div>}
+            {media === "video" ? (
+              <video className="nt-media-video" controls src={source.url} />
+            ) : (
+              <audio className="nt-media-player" controls src={source.url} />
+            )}
+          </div>
+        );
+        break;
+      }
+      case "uppbeat":
+      case "link": {
+        // Uppbeat has no embeddable player, so its card carries the track name.
+        const label =
+          title || (source.kind === "uppbeat" ? source.label : source.url);
+        player = (
+          <a className="nt-media-card" href={source.url} target="_blank" rel="noreferrer">
+            <LinkIcon width={15} height={15} />
+            <span className="nt-media-card-title">{label}</span>
+            <span className="nt-media-card-host">{new URL(source.url).hostname}</span>
+          </a>
+        );
+        break;
+      }
+      default:
+        player = (
+          <iframe
+            className="nt-media-embed"
+            src={source.embedUrl}
+            height={source.height}
+            title="Media player"
+            allow={EMBED_ALLOW}
+            loading="lazy"
+          />
+        );
+    }
   }
   return (
-    <div className="nt-audio">
+    <div className="nt-media">
       {player}
       {!readOnly && (
         <button
           type="button"
-          className="nt-audio-swap"
-          onClick={() => onSet({ url: "", name: "", caption: "" })}
+          className="nt-media-swap"
+          onClick={() => onSet({ url: "", name: "", caption: "", media: null })}
         >
           Replace
         </button>
