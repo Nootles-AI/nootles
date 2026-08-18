@@ -58,8 +58,9 @@ export type VectorDrawResult = {
 const DEFAULT_FRAME = { w: 600, h: 450 };
 
 /**
- * One drawing from the vector model, as canonical scene markup — or null, and
- * the caller falls back to the LLM lane rather than failing the tool call.
+ * One drawing from the vector model, as canonical scene markup — or null. A
+ * scene has no understudy: the caller answers a miss with "call again", not
+ * with the LLM lane, whose drawings are not worth placing in a board.
  */
 export async function generateVectorDrawing(
   brief: string,
@@ -71,11 +72,8 @@ export async function generateVectorDrawing(
   if (!apiKey) throw new Error("OPENROUTER_API_KEY is not set");
   const started = Date.now();
 
-  // A silent miss here silently changes who drew the picture — the earlier
-  // routing fell back to the LLM lane with no trace, and the only clue was
-  // the wrong model in the cost ledger. Every miss says why now, and a
-  // transient failure gets one more try: a board fires nine of these at
-  // once, which is exactly the shape rate limits are made of.
+  // A silent miss here once silently changed who drew the picture; every
+  // miss says why now, so the ledger and the logs tell one story.
   const miss = (why: string): null => {
     if (process.env.NODE_ENV !== "production") {
       console.warn(`[vector-draw] miss (${why}): "${brief.slice(0, 60)}"`);
@@ -83,8 +81,13 @@ export async function generateVectorDrawing(
     return null;
   };
 
+  // A board fires nine of these at once, which is exactly the shape rate
+  // limits and connection churn are made of — and the artist has no
+  // understudy any more (a scene that misses stays missed until retried),
+  // so patience is the reliability budget: four tries, backing off.
+  const backoffMs = [2_000, 5_000, 10_000];
   let svg: string | null = null;
-  for (let attempt = 0; attempt < 2 && svg === null; attempt++) {
+  for (let attempt = 0; attempt <= backoffMs.length && svg === null; attempt++) {
     try {
       const res = await fetch("https://openrouter.ai/api/v1/images/generations", {
         method: "POST",
@@ -105,8 +108,8 @@ export async function generateVectorDrawing(
         signal,
       });
       if (res.status === 429 || res.status >= 500) {
-        if (attempt === 0) {
-          await new Promise((r) => setTimeout(r, 2000));
+        if (attempt < backoffMs.length) {
+          await new Promise((r) => setTimeout(r, backoffMs[attempt]));
           continue;
         }
         return miss(`http ${res.status}`);
@@ -118,8 +121,8 @@ export async function generateVectorDrawing(
       svg = Buffer.from(b64, "base64").toString("utf8");
     } catch (error) {
       if ((error as Error).name === "AbortError") throw error;
-      if (attempt === 0) {
-        await new Promise((r) => setTimeout(r, 2000));
+      if (attempt < backoffMs.length) {
+        await new Promise((r) => setTimeout(r, backoffMs[attempt]));
         continue;
       }
       return miss(String((error as Error).message ?? error).slice(0, 80));

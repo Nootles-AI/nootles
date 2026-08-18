@@ -66,7 +66,12 @@ function isDrawn(sceneHtml: string): boolean {
 
 function drawnStub(sceneHtml: string, blockId: string, at: string): string {
   const shapes = (sceneHtml.match(/<nt-[a-z]/g) ?? []).length - 1;
-  return `<nt-diagram${attr("id", blockId)} drawn="${shapes} shapes"${attr("at", at)}></nt-diagram>`;
+  // The importer names each drawing's group after its brief's opening clause;
+  // quoting that here tells the model what a picture it cannot see SHOWS —
+  // which is what lets it fill a board's missing shots in the same world.
+  const name = /<nt-group[^>]*\bname="([^"]*)"/.exec(sceneHtml)?.[1];
+  const drawn = `${name ? `${name} — ` : ""}${shapes} shapes`;
+  return `<nt-diagram${attr("id", blockId)} drawn="${drawn}"${attr("at", at)}></nt-diagram>`;
 }
 
 /** A stub coming back in the model's own HTML — the `at` names the picture. */

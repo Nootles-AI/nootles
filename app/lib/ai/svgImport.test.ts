@@ -32,7 +32,7 @@ describe("importSvgScene", () => {
     expect(out).not.toBeNull();
     const [group] = out!.scene.nodes as GroupNode[];
     expect(group.kind).toBe("group");
-    expect(group.label).toBe("Drawing");
+    expect(group.name).toBe("Drawing");
     expect([group.x, group.y, group.w, group.h]).toEqual([0, 0, 320, 180]);
     const [sky, box] = shapes(out) as PathNode[];
     expect(out!.scene.w).toBe(320);

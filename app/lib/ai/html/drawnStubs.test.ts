@@ -100,6 +100,21 @@ describe("drawn stubs", () => {
     expect(parseStoryboard(redeemed.html).shots[1].scene).toBe(scene);
   });
 
+  it("quotes the drawing's group name in the stub, so the model knows the shot", () => {
+    const named = scene.replace(
+      /^<nt-diagram([^>]*)>/,
+      '<nt-diagram$1>\n  <nt-group id="v0" x="0" y="0" w="320" h="180" name="Close on the thief">',
+    );
+    // Wrap the path inside the group by closing it before </nt-diagram>.
+    const grouped = named.replace(/\n<\/nt-diagram>$/, "\n  </nt-group>\n</nt-diagram>");
+    const gBoard = block("B2", "storyboard", serializeStoryboard({
+      ratio: "16:9",
+      shots: [{ scene: grouped, note: "The chase begins." }],
+    }));
+    const collapsed = toDocHtml([gBoard], { collapseDrawn: true });
+    expect(collapsed).toContain('drawn="Close on the thief — 2 shapes"');
+  });
+
   it("collapses and redeems a drawn canvas block byte for byte", () => {
     const full = toDocHtml([canvas]);
     const collapsed = toDocHtml([canvas], { collapseDrawn: true });
