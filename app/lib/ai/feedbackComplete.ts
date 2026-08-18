@@ -1,5 +1,5 @@
 import { AI } from "./aiConfig";
-import { chatTarget } from "./providers";
+import { chatTarget, reportUpstream } from "./providers";
 
 /**
  * Finishes the sentence a user is typing into the feedback form, informed by
@@ -56,7 +56,10 @@ export async function completeFeedback(
     }),
     signal,
   });
-  if (!res.ok) return { completion: "" };
+  if (!res.ok) {
+    await reportUpstream("feedback-complete", res);
+    return { completion: "" };
+  }
 
   const json = await res.json();
   const usage = json?.usage

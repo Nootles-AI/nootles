@@ -3,7 +3,7 @@ import { serializeScene } from "@/app/components/editor/canvas/scene/serialize";
 import { AI } from "./aiConfig";
 import type { DrawFrame } from "./diagram";
 import { DEFAULT_DRAW_CHOICE, MONOCHROME_STYLES, type DrawChoice } from "./drawStyles";
-import { imageTarget, viaOpenRouter } from "./providers";
+import { imageTarget, reportUpstream, viaOpenRouter } from "./providers";
 import { importSvgScene } from "./svgImport";
 
 /**
@@ -175,9 +175,16 @@ export async function generateVectorDrawing(
           await new Promise((r) => setTimeout(r, backoffMs[attempt]));
           continue;
         }
+        await reportUpstream("vector-draw", res);
         return miss(`http ${res.status}`);
       }
-      if (!res.ok) return miss(`http ${res.status}`);
+      if (!res.ok) {
+        // The refusal itself, not just its number: this wire's shape is written
+        // from the docs, so a 400 here is most likely a field the endpoint
+        // spells differently — and the body is what names it.
+        await reportUpstream("vector-draw", res);
+        return miss(`http ${res.status}`);
+      }
       const json = (await res.json()) as { data?: { b64_json?: string }[] };
       const b64 = json.data?.[0]?.b64_json;
       if (!b64) return miss("no image in response");

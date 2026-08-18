@@ -1,5 +1,5 @@
 import { AI } from "./aiConfig";
-import { chatTarget } from "./providers";
+import { chatTarget, reportUpstream } from "./providers";
 
 /**
  * Reformat candidates for one finished block.
@@ -152,7 +152,10 @@ export async function reformatCandidates(
     }),
     signal,
   });
-  if (!res.ok) return { candidates: [] };
+  if (!res.ok) {
+    await reportUpstream("reformat", res);
+    return { candidates: [] };
+  }
 
   const json = await res.json();
   const usage = json?.usage
