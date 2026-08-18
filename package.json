@@ -10,6 +10,8 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@ai-sdk/google": "^4.0.44",
+    "@ai-sdk/openai": "^4.0.42",
     "@blocknote/core": "^0.52.1",
     "@blocknote/mantine": "^0.52.1",
     "@blocknote/react": "^0.52.1",
@@ -33,7 +35,7 @@
     "@lezer/highlight": "^1.2.3",
     "@openrouter/ai-sdk-provider": "^3.0.0",
     "@sentry/nextjs": "^10.69.0",
-    "ai": "^7.0.37",
+    "ai": "^7.0.66",
     "convex": "^1.42.3",
     "html-to-image": "^1.11.13",
     "katex": "^0.18.1",

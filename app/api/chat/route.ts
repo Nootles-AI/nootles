@@ -117,8 +117,14 @@ export async function POST(req: Request) {
   const note = openPageNote(pageId);
   if (note) instructions.push({ role: "system", content: note });
 
+  // Taken apart rather than spread: this call's tool typing is what the step
+  // budget and `activeTools` are checked against, and spreading a bundle that
+  // declares an optional `tools` would widen it.
+  const { model, providerOptions } = chatModel();
+
   const result = streamText({
-    model: chatModel(),
+    model,
+    providerOptions,
     instructions,
     messages: markCachePoints(
       spent ? [...history, { role: "user", content: OUT_OF_STEPS }] : history,

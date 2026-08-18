@@ -1,4 +1,5 @@
 import { AI } from "./aiConfig";
+import { chatTarget } from "./providers";
 
 /**
  * Finishes the sentence a user is typing into the feedback form, informed by
@@ -30,8 +31,7 @@ export async function completeFeedback(
   completion: string;
   usage?: { promptTokens?: number; completionTokens?: number };
 }> {
-  const key = process.env.OPENROUTER_API_KEY;
-  if (!key) throw new Error("OPENROUTER_API_KEY is not set");
+  const { url, key, model } = chatTarget(AI.reformat.model);
 
   const context = [
     `Report type: ${input.kind === "issue" ? "bug report" : "feature request"}`,
@@ -42,11 +42,11 @@ export async function completeFeedback(
     .filter(Boolean)
     .join("\n\n");
 
-  const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+  const res = await fetch(url, {
     method: "POST",
     headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: AI.reformat.model,
+      model,
       max_tokens: 40,
       temperature: 0.3,
       messages: [

@@ -272,7 +272,7 @@ export function streamDiagram(
 ): Response {
   const started = Date.now();
   const result = streamText({
-    model: diagramModel(),
+    ...diagramModel(),
     system: SYSTEM,
     messages: [
       ...SHOTS.flatMap(
@@ -396,7 +396,7 @@ export async function generateDiagram(
     ? { w: frame.w * DRAW_SCALE, h: frame.h * DRAW_SCALE }
     : null;
   const { text, totalUsage, finishReason } = await generateText({
-    model: diagramModel(),
+    ...diagramModel(),
     system: SYSTEM + frameNote(room),
     messages: [
       ...SHOTS.flatMap(

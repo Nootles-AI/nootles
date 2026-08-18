@@ -7,6 +7,35 @@ with a Figma-style canvas. The long-term bet: an ambient LLM reads and edits eve
 the surface through the **same operations a human uses**. Build accordingly — even
 pre-AI work must be AI-ready.
 
+## Hard rule: never spend a paid API key without explicit approval
+
+**Do not cause a call to any external, paid API endpoint unless the operator has approved
+that specific run, in this conversation, for this task.** An OpenRouter account was closed
+for fraud because agent test loops hammered it; treat every model call as real money and a
+real abuse signal.
+
+This covers the obvious and the indirect:
+
+- Direct calls — `curl`, `fetch`, a scratch script, a Node one-liner against any provider.
+- Test/eval loops — anything that calls `app/lib/ai/**` (`fim`, `reformat`, `categorize`,
+  `feedbackComplete`, `vectorDraw`, `chat/*`) or the routes under `app/api/**` that wrap
+  them. One "quick check" of the draw tool fires nine image generations.
+- Driving the app in a browser (Playwright, Chrome) on a page where ambient completion,
+  reformat, chat, or draw can fire. Typing in the editor spends the FIM key per keystroke
+  window. If you must drive the UI, stay off AI surfaces or run with the AI keys unset.
+- Background/scheduled work — crons, loops, subagents, workflows. A subagent inherits this
+  rule; say so in its prompt.
+
+Which account a lane spends is `USE_OPENROUTER` (see `app/lib/ai/providers.ts`): unset or
+false calls each vendor directly on its own key, so a runaway lane can only drain the one
+service it belongs to. That is a blast-radius limit, not permission to test against it.
+
+The default is **static verification**: `tsc --noEmit`, ESLint, unit tests, reading the
+provider's request/response shape off code and types. Ask before the first live call, name
+the endpoint and roughly how many calls, and stop at that number — approval for one run is
+not approval for a loop. If a key is missing, that is not a blocker to route around;
+report it.
+
 ## North-star principle
 
 - **One operation vocabulary.** Every mutation (human UI action or future LLM tool call)

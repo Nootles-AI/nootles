@@ -1,4 +1,5 @@
 import { AI } from "./aiConfig";
+import { chatTarget } from "./providers";
 
 /**
  * Guesses which surface a feedback report is about, from everything the
@@ -46,8 +47,7 @@ export async function categorizeFeedback(
   category: FeedbackCategory;
   usage?: { promptTokens?: number; completionTokens?: number };
 }> {
-  const key = process.env.OPENROUTER_API_KEY;
-  if (!key) throw new Error("OPENROUTER_API_KEY is not set");
+  const { url, key, model } = chatTarget(AI.reformat.model);
 
   const context = [
     `Report: ${input.text.slice(0, 1500)}`,
@@ -57,11 +57,11 @@ export async function categorizeFeedback(
     .filter(Boolean)
     .join("\n\n");
 
-  const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+  const res = await fetch(url, {
     method: "POST",
     headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: AI.reformat.model,
+      model,
       max_tokens: 8,
       temperature: 0,
       messages: [
