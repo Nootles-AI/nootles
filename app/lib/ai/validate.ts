@@ -49,6 +49,7 @@ const CONTENTLESS = new Set([
   "image",
   "video",
   "audio",
+  "location",
   "file",
 ]);
 

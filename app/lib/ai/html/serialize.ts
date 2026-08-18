@@ -1,5 +1,7 @@
 import { parseAlbum } from "@/app/components/editor/album/parse";
 import { serializeAlbum } from "@/app/components/editor/album/serialize";
+import { parseLocation } from "@/app/components/editor/location/parse";
+import { serializeLocation } from "@/app/components/editor/location/serialize";
 import { parseStoryboard } from "@/app/components/editor/storyboard/parse";
 import { serializeStoryboard } from "@/app/components/editor/storyboard/serialize";
 import { migrateLegacyCanvas } from "@/app/components/editor/canvas/scene/migrate";
@@ -277,6 +279,13 @@ function blockToHtml(block: AnyBlock, opts: SerializeOptions): string {
       // id has to be put on the way past.
       return serializeAlbum({
         ...parseAlbum(String(block.props.data ?? "")),
+        id: block.id,
+      });
+    case "location":
+      // As with the album: the block stores this grammar, so only its own id
+      // has to be put on the way past.
+      return serializeLocation({
+        ...parseLocation(String(block.props.data ?? "")),
         id: block.id,
       });
     case "storyboard": {

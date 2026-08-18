@@ -1,5 +1,6 @@
 import { parseAlbum } from "@/app/components/editor/album/parse";
 import { describeSource } from "@/app/components/editor/media/link";
+import { parseLocation } from "@/app/components/editor/location/parse";
 import { parseStoryboard } from "@/app/components/editor/storyboard/parse";
 import { labelText } from "@/app/components/editor/canvas/scene/label";
 import { migrateLegacyCanvas } from "@/app/components/editor/canvas/scene/migrate";
@@ -269,6 +270,20 @@ function projectBlock(
         const note = shot.note.replace(/\n/g, " / ");
         push(`  shot ${i + 1} (${drawn}) ${note ? `"${note}"` : "no note"}`);
       });
+      break;
+    }
+    case "location": {
+      // The place, and what the card is actually showing of it — the pictures
+      // are counted rather than listed, because their URLs say nothing the
+      // model can act on.
+      const place = parseLocation(String(block.props.data ?? ""));
+      const shown = place.images.filter((image) => !image.off).length;
+      const parts = [
+        place.address,
+        place.rating !== undefined ? `${place.rating}★` : "",
+        shown ? `${shown} photo${shown === 1 ? "" : "s"}` : "",
+      ].filter(Boolean);
+      push(`${id} location ${place.name || "(unnamed)"}${parts.length ? ` — ${parts.join(", ")}` : ""}`);
       break;
     }
     case "audio":

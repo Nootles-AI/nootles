@@ -364,6 +364,13 @@ function elementToNode(el: Element, raw: string[]): DocNode | null {
   // And a storyboard, which is deliberately not TRANSPARENT either: the
   // `<nt-diagram>` inside a shot belongs to that shot, and walking into one
   // would turn a six-shot board into six loose canvas blocks.
+  // A place card, taken whole for the same reason as an album: the <img>
+  // elements inside are the card's pictures, and walking into them would turn
+  // one café into three image blocks.
+  if (tag === "nt-location") {
+    return { type: "location", id, html: el.outerHTML };
+  }
+
   if (tag === "nt-storyboard") {
     return { type: "storyboard", id, html: el.outerHTML };
   }

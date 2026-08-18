@@ -140,6 +140,31 @@ export const TOOLS = {
         ),
     }),
   },
+  find_places: {
+    description:
+      "Look up real places on Google Maps — cafes, restaurants, hotels, " +
+      "anything with an address. Returns each place's name, address, " +
+      "coordinates, star rating, how many people rated it, and its " +
+      "photographs. This is the ONLY source of a place's rating, photos or " +
+      "id: none of that may come from memory. Ask once per place or per kind " +
+      "of place; \"cafes near the Ferry Building\" is one call, not ten.",
+    inputSchema: z.object({
+      query: z
+        .string()
+        .describe(
+          "What to look for, in words, including where: \"cafes near Ferry " +
+            "Building, San Francisco\". For a route, ask along it — one call " +
+            "per waypoint you care about.",
+        ),
+      near: z
+        .string()
+        .optional()
+        .describe(
+          "\"lat,lng\" to bias the search toward, when the conversation has " +
+            "given you one. A bias, not a filter.",
+        ),
+    }),
+  },
   search_web: {
     description:
       "Search the web for something the project does not already say. Returns a " +

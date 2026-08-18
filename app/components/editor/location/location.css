@@ -1,0 +1,246 @@
+/* The location block: a place, as a card.
+
+   The card is paper with a map on it — one border, one radius, no shadow, and
+   the only colour is whatever the map itself brings. The stars are the single
+   exception, and they are a measurement rather than a decoration. */
+
+.nt-loc {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--background);
+  transition: border-color var(--dur-fast) var(--ease);
+}
+.nt-loc.is-active {
+  border-color: var(--border-strong);
+}
+
+/* Empty: the same quiet row every other block opens with. */
+.nt-loc-empty {
+  overflow: visible;
+  border: 0;
+}
+.nt-loc-drop {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 52px;
+  padding: 0 14px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius);
+  color: var(--muted);
+  transition: border-color var(--dur-fast) var(--ease);
+}
+.nt-loc-drop:hover,
+.nt-loc-drop:focus-within {
+  border-color: var(--muted);
+}
+.nt-loc-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: none;
+  outline: none;
+  font: inherit;
+  color: var(--foreground);
+}
+.nt-loc-input::placeholder {
+  color: var(--faint);
+}
+.nt-loc-busy {
+  flex: none;
+  color: var(--faint);
+  font-size: var(--text-meta-lg);
+}
+
+.nt-loc-results {
+  position: absolute;
+  z-index: var(--z-dropdown);
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  max-height: 300px;
+  overflow-y: auto;
+  padding: 4px;
+  background: var(--elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow:
+    0 1px 2px oklch(0.25 0.005 90 / 0.05),
+    0 4px 12px oklch(0.25 0.005 90 / 0.07),
+    0 16px 40px oklch(0.25 0.005 90 / 0.1);
+  animation: nt-menu-in var(--dur) var(--ease);
+}
+.nt-loc-note {
+  padding: 10px 12px;
+  color: var(--muted);
+  font-size: var(--text-meta-lg);
+}
+.nt-loc-hit {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 10px;
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: var(--radius);
+  text-align: left;
+}
+.nt-loc-hit:hover {
+  background: var(--sunken);
+}
+.nt-loc-hit-name {
+  color: var(--foreground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nt-loc-hit-rating {
+  color: var(--muted);
+  font-size: var(--text-meta-lg);
+  font-variant-numeric: tabular-nums;
+}
+.nt-loc-hit-address {
+  grid-column: 1 / -1;
+  color: var(--faint);
+  font-size: var(--text-meta-lg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Filled. The map is the lid; everything said about the place sits under it. */
+.nt-loc-map-wrap {
+  position: relative;
+}
+/* Glass over an unchosen map: invisible, and gone the moment the card is the
+   one being edited. */
+.nt-loc-shield {
+  position: absolute;
+  inset: 0;
+  cursor: default;
+}
+
+.nt-loc-map {
+  display: block;
+  width: 100%;
+  height: 190px;
+  border: 0;
+  background: var(--sunken);
+}
+
+.nt-loc-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px 13px;
+}
+
+.nt-loc-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.nt-loc-name {
+  font-weight: 500;
+  color: var(--foreground);
+}
+
+.nt-loc-rating {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--text-meta-lg);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+/* One row of stars with a second clipped over it, so 4.5 is half a star wide
+   rather than five glyphs rounded to something the place did not earn. */
+.nt-loc-stars {
+  position: relative;
+  display: inline-block;
+  letter-spacing: 1px;
+  color: var(--border-strong);
+}
+.nt-loc-stars-on {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  color: oklch(0.72 0.14 78);
+}
+.nt-loc-votes {
+  color: var(--faint);
+}
+
+.nt-loc-address,
+.nt-loc-note-text {
+  color: var(--muted);
+  font-size: var(--text-meta-lg);
+}
+.nt-loc-note-text {
+  color: var(--foreground);
+  font-size: inherit;
+}
+
+.nt-loc-photos {
+  display: flex;
+  gap: 6px;
+  margin-top: 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.nt-loc-photos::-webkit-scrollbar {
+  display: none;
+}
+.nt-loc-photo {
+  flex: none;
+  width: 116px;
+  height: 78px;
+  object-fit: cover;
+  border-radius: var(--radius);
+  background: var(--sunken);
+}
+
+.nt-loc-foot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 2px;
+  font-size: var(--text-meta-lg);
+}
+.nt-loc-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+}
+.nt-loc-link:hover {
+  color: var(--foreground);
+}
+.nt-loc-drive {
+  color: var(--faint);
+}
+
+/* The panel's own two controls: a name to correct, and a picture to add. */
+.nt-loc-field {
+  width: 100%;
+  min-height: var(--control-sm);
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--background);
+  outline: none;
+  font: inherit;
+  font-size: var(--text-ui);
+  color: var(--foreground);
+}
+.nt-loc-field:focus {
+  border-color: var(--border-strong);
+}
+.nt-loc-picker {
+  display: none;
+}

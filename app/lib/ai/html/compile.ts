@@ -1,5 +1,7 @@
 import { parseAlbum } from "@/app/components/editor/album/parse";
 import { serializeAlbum } from "@/app/components/editor/album/serialize";
+import { parseLocation } from "@/app/components/editor/location/parse";
+import { serializeLocation } from "@/app/components/editor/location/serialize";
 import { parseStoryboard } from "@/app/components/editor/storyboard/parse";
 import { serializeStoryboard } from "@/app/components/editor/storyboard/serialize";
 import { adoptScene } from "@/app/components/editor/canvas/scene/adopt";
@@ -91,6 +93,11 @@ function albumData(html: string): string {
  * the other five in whatever spelling it fancied. Normalised, those five are
  * byte-identical and the board reads as the one change it actually was.
  */
+/** A place card as the block stores it, canonicalised through its own parser. */
+function locationData(html: string): string {
+  return serializeLocation({ ...parseLocation(html), id: undefined });
+}
+
 function storyboardData(html: string): string {
   return serializeStoryboard({ ...parseStoryboard(html), id: undefined });
 }
@@ -106,6 +113,7 @@ function propsOf(node: DocNode): Record<string, string | number | boolean> | und
   if (node.type === "canvas") return { data: canvasData(node.html) };
   if (node.type === "album") return { data: albumData(node.html) };
   if (node.type === "storyboard") return { data: storyboardData(node.html) };
+  if (node.type === "location") return { data: locationData(node.html) };
   if (MEDIA.has(node.type) && "url" in node) {
     return {
       ...(node.url !== undefined ? { url: node.url } : {}),
@@ -201,6 +209,15 @@ function updateOps(next: DocNode, current: DocNode): Operation[] {
     // answers a hunk at a time, and one picture is not a hunk.
     const data = albumData(next.html);
     if (data !== albumData(current.html)) {
+      ops.push({ kind: "updateBlockProps", blockId: id, props: { data } });
+    }
+    return ops;
+  }
+
+  if (next.type === "location" && current.type === "location") {
+    // Whole-card: what to show of a place is one decision, like a diagram.
+    const data = locationData(next.html);
+    if (data !== locationData(current.html)) {
       ops.push({ kind: "updateBlockProps", blockId: id, props: { data } });
     }
     return ops;
