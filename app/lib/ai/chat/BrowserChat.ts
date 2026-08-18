@@ -36,8 +36,12 @@ export type ChatSnapshot = {
    * `status` alone.
    */
   busy: boolean;
-  /** What the turn is waiting to be allowed to do, if anything. */
-  approval: PendingApproval | null;
+  /**
+   * What the turn is waiting to be allowed to do. A list because a step's draw
+   * calls arrive as a salvo and pause together — one picker answers them all —
+   * where a deletion still comes one at a time.
+   */
+  approvals: PendingApproval[];
 };
 
 /** Whether a tool call has an answer the model can be handed. */
@@ -50,15 +54,16 @@ export function isAnswered(part: AbMessage["parts"][number]): boolean {
   );
 }
 
-function pendingApproval(messages: AbMessage[]): PendingApproval | null {
+function pendingApprovals(messages: AbMessage[]): PendingApproval[] {
   const last = messages[messages.length - 1];
-  if (last?.role !== "assistant") return null;
+  if (last?.role !== "assistant") return [];
+  const out: PendingApproval[] = [];
   for (const part of last.parts) {
     if (isToolUIPart(part) && part.state === "approval-requested") {
-      return { id: part.approval.id, toolName: getToolName(part), input: part.input };
+      out.push({ id: part.approval.id, toolName: getToolName(part), input: part.input });
     }
   }
-  return null;
+  return out;
 }
 
 export class ChatStore implements ChatState<AbMessage> {
@@ -80,7 +85,7 @@ export class ChatStore implements ChatState<AbMessage> {
   }
 
   private build(): ChatSnapshot {
-    const approval = pendingApproval(this._messages);
+    const approvals = pendingApprovals(this._messages);
     return {
       messages: this._messages,
       status: this._status,
@@ -89,8 +94,8 @@ export class ChatStore implements ChatState<AbMessage> {
         this._status === "submitted" ||
         this._status === "streaming" ||
         this.running.size > 0 ||
-        approval !== null,
-      approval,
+        approvals.length > 0,
+      approvals,
     };
   }
 

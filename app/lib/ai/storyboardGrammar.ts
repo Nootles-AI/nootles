@@ -33,8 +33,9 @@ THE PICTURE is an ordinary <nt-diagram>, drawn exactly as THE CANVAS says — ev
 the pen, and the same rules about what to draw with. Its own top-left is 0 0; a shot knows
 nothing about the board around it or the shots beside it. It is 320 wide, and as tall as
 the ratio makes it: 16:9 → 180, 2.39:1 → 134, 1.85:1 → 173, 4:3 → 240, 1:1 → 320,
-9:16 → 569 (portrait — reels, shorts). Give
-every shot the same w and h as the board's ratio. A shot with nothing drawn yet has no
+9:16 → 569 (portrait — reels, shorts). Those numbers are for shapes you write BY HAND: give
+every such shot the same w and h as the board's ratio. A DRAWN shot never uses them — draw
+takes the board's ratio and works the frame out itself. A shot with nothing drawn yet has no
 <nt-diagram> at all.
 
 Draw for the size. A shot is shown a couple of hundred pixels wide, so it wants a few bold
@@ -45,9 +46,14 @@ the script the pictures answer to. Build a board in that order, as two edits:
  1. Write the whole board and COMMIT it with edit_page — every shot's note filled, no
     <nt-diagram> yet. The user reads the story while the drawing happens.
  2. Then one draw call per shot, all in one step, each brief built FROM that shot's note —
-    the note's action is the subject; add composition, light and the board's shared style
-    words. Place them with a second edit_page, notes unchanged, each shot carrying the ref
-    its own draw call returned:
+    the note's action is the subject; add composition, light and the board's shared mood
+    and palette words. The rendering style is the user's: they pick it once for the whole
+    salvo when you call draw, so never name a technique in a brief. Every one of those
+    calls passes ratio — the board's own, copied from <nt-storyboard ratio="…"> — and
+    never w or h: the frame is worked out from the ratio, and a shot drawn to a height
+    you calculated yourself is a picture too big for the shot it goes in. Place them with
+    a second edit_page, notes unchanged, each shot carrying the ref its own draw call
+    returned:
       <nt-shot><nt-diagram ref="d4a91c"></nt-diagram><nt-note>The note, as written</nt-note></nt-shot>
 Never draw a shot whose note you have not written: a picture that came first leaves the
 note describing the drawing instead of the story.
@@ -86,7 +92,8 @@ finished work is kept, so a retry is free and answers instantly once the drawing
 After a second miss, say which shots stayed written-only; never quietly leave a board
 part-drawn.
 
-FILLING OR REDRAWING shots on a board drawn earlier: build each brief FROM that shot's
-note, and reuse the exact style words the board's other briefs used — your earlier draw
-calls show them, and each stub's drawn attribute says what its picture shows. The fills
-must read as frames of the same film, drawn by the same hand.`;
+FILLING OR REDRAWING shots on a board drawn earlier: pass that board's ratio as every
+other shot's draw call did, build each brief FROM that shot's
+note, and reuse the exact mood and palette words the board's other briefs used — your
+earlier draw calls show them, and each stub's drawn attribute says what its picture shows.
+The fills must read as frames of the same film, drawn by the same hand.`;

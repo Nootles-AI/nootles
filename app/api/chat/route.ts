@@ -12,6 +12,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { AI } from "@/app/lib/ai/aiConfig";
 import { downloadAttachments } from "@/app/lib/ai/chat/download";
+import { drawChoiceSchema } from "@/app/lib/ai/drawStyles";
 import { convertDataPart } from "@/app/lib/ai/chat/parts";
 import { chatModel } from "@/app/lib/ai/chat/provider";
 import {
@@ -55,10 +56,11 @@ export async function POST(req: Request) {
     return new Response("Invalid JSON", { status: 400 });
   }
 
-  const { messages, projectId, pageId } = (body ?? {}) as {
+  const { messages, projectId, pageId, drawStyle } = (body ?? {}) as {
     messages?: AbMessage[];
     projectId?: Id<"projects">;
     pageId?: Id<"pages">;
+    drawStyle?: unknown;
   };
   if (!Array.isArray(messages)) {
     return new Response("`messages` must be an array", { status: 400 });
@@ -121,10 +123,18 @@ export async function POST(req: Request) {
     messages: markCachePoints(
       spent ? [...history, { role: "user", content: OUT_OF_STEPS }] : history,
     ),
-    tools: chatTools(projectId, convex, {
-      repos: !!project?.repos.length,
-      files: !!project?.files.length,
-    }),
+    tools: chatTools(
+      projectId,
+      convex,
+      {
+        repos: !!project?.repos.length,
+        files: !!project?.files.length,
+      },
+      // The user's style for this turn's drawings, set by the picker that
+      // answered the draw approvals. Absent or malformed reads as the
+      // default — a request hand-rolled without a choice still draws.
+      drawChoiceSchema.safeParse(drawStyle).data,
+    ),
     // The tools that could change something are not merely discouraged, they are
     // absent from the request.
     activeTools: spent ? [] : undefined,

@@ -3,8 +3,10 @@ import { generateText, tool } from "ai";
 import type { ConvexHttpClient } from "convex/browser";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { SHOT_W, shotHeight } from "@/app/components/editor/storyboard/types";
 import { AI } from "../aiConfig";
 import { generateDiagram } from "../diagram";
+import { DEFAULT_DRAW_CHOICE, type DrawChoice } from "../drawStyles";
 import { recordAiCall } from "../recordCall";
 import { generateVectorDrawing } from "../vectorDraw";
 import { reason } from "@/app/lib/github";
@@ -25,6 +27,12 @@ export function chatTools(
   convex: ConvexHttpClient,
   /** Whether this project has any linked repositories / context files. */
   has: { repos: boolean; files: boolean },
+  /**
+   * The style the user settled for this turn's drawings. Chosen in the
+   * browser — a scene draw pauses for approval, the picker answers it, and
+   * the choice rides the resume request's body into here.
+   */
+  drawStyle: DrawChoice = DEFAULT_DRAW_CHOICE,
 ) {
   return {
     // Offered only where there is something to point them at. A project with no
@@ -72,8 +80,25 @@ export function chatTools(
        * a tool loop's. Costed like every other diagram call, under the same
        * feature, because that is what it is.
        */
-      execute: async ({ brief, w, h, kind }) => {
-        const frame = w && h ? { w, h } : null;
+      // A scene waits for the user to set its style and artistic level — the
+      // picker in the chat answers the approval, and the choice arrives in
+      // the resume request's body. A diagram has no style to set: its lane is
+      // the LLM, so it runs straight through.
+      needsApproval: ({ kind }) => kind !== "diagram",
+      execute: async ({ brief, w, h, kind, ratio }) => {
+        // A shot's frame is COMPUTED from the board's ratio, never taken from
+        // the model's arithmetic. It used to be handed w and h against a table
+        // of ratio→height in the prompt, and a board of 16:9 shots came back
+        // drawn 569 tall — the 9:16 row — so every picture stood three times
+        // its shot and hung out of the frame. The model now names the ratio it
+        // can read off the board, and the one place that knows what a shot
+        // measures works out the rest.
+        const frame = ratio
+          ? { w: SHOT_W, h: shotHeight(ratio) }
+          : w && h
+            ? { w, h }
+            : null;
+        const scene = kind !== "diagram";
 
         // The ref is the brief's own fingerprint, which makes drawing
         // IDEMPOTENT — and idempotence is the whole reliability story. A
@@ -84,9 +109,19 @@ export function chatTools(
         // work below deliberately ignores the request's abort signal — an
         // orphaned draw finishes and stores anyway — and the retry, hashing
         // the same brief, finds the finished drawing here for free instead
-        // of paying the artist twice.
+        // of paying the artist twice. The style is part of the fingerprint:
+        // the same brief in a different style is a different drawing, not a
+        // cache hit on the old one.
         const ref = `d${createHash("sha256")
-          .update(JSON.stringify([brief, frame?.w, frame?.h, kind ?? "scene"]))
+          .update(
+            JSON.stringify([
+              brief,
+              frame?.w,
+              frame?.h,
+              kind ?? "scene",
+              ...(scene ? [drawStyle.style, drawStyle.artisticLevel] : []),
+            ]),
+          )
           .digest("hex")
           .slice(0, 10)}`;
         const cached = await convex.query(api.ai.drawings.get, { refs: [ref] });
@@ -103,8 +138,8 @@ export function chatTools(
         // worth keeping — an honest miss the agent can retry (idempotently,
         // for free) beats a bad drawing it will place.
         let html = "";
-        if (kind !== "diagram") {
-          const vector = await generateVectorDrawing(brief, frame);
+        if (scene) {
+          const vector = await generateVectorDrawing(brief, frame, drawStyle);
           if (!vector) {
             return {
               error:

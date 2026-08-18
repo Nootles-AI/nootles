@@ -15,6 +15,8 @@ import { ArrowLeft, Paperclip } from "@/app/components/Icons";
 import { Menu, MenuItem } from "@/app/components/Menu";
 import type { PendingApproval } from "@/app/lib/ai/chat/BrowserChat";
 import type { AbMessage } from "@/app/lib/ai/chat/types";
+import type { DrawChoice } from "@/app/lib/ai/drawStyles";
+import { DrawStylePicker } from "./DrawStylePicker";
 import { Markdown } from "./Markdown";
 
 /**
@@ -28,10 +30,11 @@ import { Markdown } from "./Markdown";
 export function ChatTranscript({
   messages,
   busy,
-  approval,
+  approvals,
   projectId,
   threadId,
   onAnswerApproval,
+  onAnswerDraws,
   rewinding,
   onRewind,
   onRewindCancel,
@@ -40,10 +43,11 @@ export function ChatTranscript({
 }: {
   messages: AbMessage[];
   busy: boolean;
-  approval: PendingApproval | null;
+  approvals: PendingApproval[];
   projectId: Id<"projects">;
   threadId: Id<"chatThreads"> | null;
   onAnswerApproval: (approved: boolean) => void;
+  onAnswerDraws: (choice: DrawChoice | null) => void;
   /** The message being rewound to, held open while it is decided. */
   rewinding: string | null;
   onRewind: (message: AbMessage, what: RewindScope) => void;
@@ -92,6 +96,11 @@ export function ChatTranscript({
   // is about.
   const from = rewinding ? messages.findIndex((m) => m.id === rewinding) : -1;
 
+  // Two questions can be pending, each with its own card: a salvo of drawings
+  // waiting on one style, and anything graver waiting to be allowed at all.
+  const drawApprovals = approvals.filter((a) => a.toolName === "draw");
+  const otherApproval = approvals.find((a) => a.toolName !== "draw") ?? null;
+
   return (
     <div ref={scrollerRef} className="nt-transcript">
       {messages.map((message, index) => (
@@ -114,7 +123,11 @@ export function ChatTranscript({
               // A board's shots arrive as one salvo of parallel calls; nine
               // near-identical lines read as a stutter, one count reads as
               // work. A lone call keeps its quoted brief — detail is only
-              // noise in a crowd.
+              // noise in a crowd. A salvo still waiting on its style says
+              // nothing here: the picker below is the statement.
+              if (item.draws.every((p) => p.state === "approval-requested")) {
+                return null;
+              }
               const running = item.draws.some(isRunning);
               return (
                 <p
@@ -196,10 +209,13 @@ export function ChatTranscript({
         </div>
       ))}
 
-      {approval ? (
+      {drawApprovals.length > 0 && (
+        <DrawStylePicker count={drawApprovals.length} onAnswer={onAnswerDraws} />
+      )}
+      {otherApproval ? (
         <DeleteApproval
           projectId={projectId}
-          input={approval.input}
+          input={otherApproval.input}
           onAnswer={onAnswerApproval}
         />
       ) : (
@@ -207,6 +223,7 @@ export function ChatTranscript({
         // still running says it better, and both at once read as two things
         // going on when there is one.
         busy &&
+        !drawApprovals.length &&
         !messages[messages.length - 1]?.parts.some(isRunning) && (
           <div className="nt-turn-pending" role="status">
             <span className="nt-thinking-dot" aria-hidden />
@@ -409,8 +426,9 @@ function FileChip({ filename, href }: { filename: string; href?: string }) {
  * the reason to allow it is the conversation above it, and the turn is held
  * open behind this — nothing is sent, and nothing runs, until it is answered.
  *
- * `delete_page` is the only tool declared with `needsApproval`; the day there is
- * another, this chooses between them.
+ * Draw calls also pause for approval, but they ask a different question and get
+ * their own card (the style picker); this one takes whatever else is pending —
+ * today that is only `delete_page`.
  */
 function DeleteApproval({
   projectId,
@@ -488,18 +506,24 @@ function groupParts(parts: AbMessage["parts"]): PartItem[] {
 /** The salvo as one line: a count while it runs, a tally when it settles. */
 function drawsLine(draws: DrawPart[]): string {
   const n = draws.length;
+  // Refused at the picker — read off the click, like a lone call's stepLine,
+  // so the line does not sit on "Drawing…" while the denial makes its round
+  // trip to the server.
+  const denied = draws.filter(
+    (p) => p.state === "output-denied" || p.approval?.approved === false,
+  ).length;
+  if (denied === n) return "Left the drawings undrawn";
   const drawn = draws.filter(
     (p) =>
       p.state === "output-available" &&
       !(p.output as { error?: string } | undefined)?.error,
   ).length;
-  const settled = draws.filter(
-    (p) => p.state === "output-available" || p.state === "output-error",
-  ).length;
-  const what = draws.every((p) => {
-    const input = p.input as { w?: number; h?: number } | undefined;
-    return input?.w && input?.h;
-  })
+  const settled =
+    draws.filter(
+      (p) => p.state === "output-available" || p.state === "output-error",
+    ).length + denied;
+  // A shot is a draw that named a board ratio; anything else is a drawing.
+  const what = draws.every((p) => (p.input as { ratio?: string } | undefined)?.ratio)
     ? "shot"
     : "drawing";
   if (settled < n) return `Drawing ${n} ${what}s — ${drawn} done…`;

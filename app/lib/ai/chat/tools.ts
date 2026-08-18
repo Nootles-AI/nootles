@@ -102,23 +102,31 @@ export const TOOLS = {
         .describe(
           "What to draw, as a director would say it: subject and action, " +
             "composition (close on…, wide of…), time of day, mood, and the " +
-            "colours or style the board is using — repeat the same style " +
-            "words across a board's shots so they read as one film.",
+            "colours the board is using — repeat the same mood and palette " +
+            "words across a board's shots so they read as one film. The " +
+            "rendering style is not yours to name: the user picks it on a " +
+            "card when you call draw.",
+        ),
+      ratio: z
+        .enum(["16:9", "2.39:1", "1.85:1", "4:3", "1:1", "9:16"])
+        .optional()
+        .describe(
+          "For a STORYBOARD SHOT: the board's own ratio, copied from its " +
+            '<nt-storyboard ratio="…"> — and nothing else. The shot\'s frame ' +
+            "is worked out from it, so a shot never needs w or h. Getting " +
+            "this wrong is what makes a picture too big for its shot.",
         ),
       w: z
         .number()
         .int()
         .optional()
         .describe(
-          "Frame width, with h: the drawing fills this box edge to edge. A " +
-            "storyboard shot is 320 wide. Leave both out for a standalone " +
-            "drawing — it takes a document-sized frame on its own.",
+          "Frame width, with h: the drawing fills this box edge to edge. Only " +
+            "for a drawing that is NOT a storyboard shot and needs a " +
+            "particular size; a shot passes ratio instead. Leave all three " +
+            "out for a standalone drawing — it takes a document-sized frame.",
         ),
-      h: z
-        .number()
-        .int()
-        .optional()
-        .describe("Frame height. A shot's is the board ratio's: see THE PICTURE."),
+      h: z.number().int().optional().describe("Frame height, with w."),
       kind: z
         .enum(["scene", "diagram"])
         .optional()
