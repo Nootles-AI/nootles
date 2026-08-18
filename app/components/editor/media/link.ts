@@ -22,18 +22,51 @@ export type MediaSource =
   | { kind: "youtube" | "vimeo"; embedUrl: string }
   | { kind: "uppbeat"; url: string; label: string }
   | { kind: "file"; url: string; media: "audio" | "video" | null }
+  | { kind: "search"; url: string; provider: string; query: string }
   | { kind: "link"; url: string };
 
 const AUDIO_FILE = /\.(mp3|m4a|aac|wav|ogg|oga|opus|flac)$/i;
 const VIDEO_FILE = /\.(mp4|webm|mov|m4v|ogv)$/i;
 
+/**
+ * Ids are exact widths, and that is load-bearing rather than pedantic: a
+ * player is an IFRAME, so a wrong id renders as the provider's own error page
+ * sitting inside the block, which reads as the feature being broken. An id
+ * that is not shaped like one is not one — the block shows an honest card
+ * instead. Shape is all that can be checked without the network; see
+ * `app/api/media/verify` for the part that asks the provider.
+ */
+const SPOTIFY_ID = /^[A-Za-z0-9]{22}$/;
 /** A YouTube video id, and nothing that could smuggle markup into an iframe. */
-const YT_ID = /^[A-Za-z0-9_-]{6,}$/;
+const YT_ID = /^[A-Za-z0-9_-]{11}$/;
+const YT_LIST = /^[A-Za-z0-9_-]{13,42}$/;
+
+const searchOf = (url: URL, provider: string, query: string | null): MediaSource => ({
+  kind: "search",
+  url: url.href,
+  provider,
+  query: query?.trim() ?? "",
+});
 
 export function classify(raw: string): MediaSource | null {
+  const trimmed = raw.trim();
+
+  // What the Spotify desktop app puts on the clipboard under "Copy Spotify
+  // URI". Not a web URL, so it never reaches the parser below, but it names a
+  // track exactly — and the id is the whole of what the embed needs.
+  const uri = trimmed.match(/^spotify:(track|album|playlist|episode|show):([A-Za-z0-9]+)$/i);
+  if (uri && SPOTIFY_ID.test(uri[2])) {
+    const what = uri[1].toLowerCase();
+    return {
+      kind: "spotify",
+      embedUrl: `https://open.spotify.com/embed/${what}/${uri[2]}`,
+      height: what === "track" || what === "episode" ? 152 : 352,
+    };
+  }
+
   let url: URL;
   try {
-    url = new URL(raw.trim());
+    url = new URL(trimmed);
   } catch {
     return null;
   }
@@ -44,10 +77,14 @@ export function classify(raw: string): MediaSource | null {
   const host = url.hostname.replace(/^www\./, "").toLowerCase();
 
   if (host === "open.spotify.com") {
+    const search = url.pathname.match(/^\/search\/(.+)$/);
+    if (search) {
+      return searchOf(url, "Spotify", decodeURIComponent(search[1]));
+    }
     const m = url.pathname.match(
       /^\/(?:intl-[a-z]{2,4}(?:-[a-z]{2,4})?\/)?(?:embed\/)?(track|album|playlist|episode|show|artist)\/([A-Za-z0-9]+)/,
     );
-    if (m) {
+    if (m && SPOTIFY_ID.test(m[2])) {
       const [, what, id] = m;
       return {
         kind: "spotify",
@@ -60,6 +97,9 @@ export function classify(raw: string): MediaSource | null {
   }
 
   if (host === "music.apple.com" || host === "embed.music.apple.com") {
+    if (url.pathname.endsWith("/search") || url.searchParams.has("term")) {
+      return searchOf(url, "Apple Music", url.searchParams.get("term"));
+    }
     if (/\/(album|song|playlist|station|music-video)\//.test(url.pathname)) {
       // Same path on the embed host. `?i=` narrows an album page to one song,
       // which the short player fits.
@@ -79,6 +119,9 @@ export function classify(raw: string): MediaSource | null {
     host === "music.youtube.com" ||
     host === "youtube-nocookie.com"
   ) {
+    if (url.pathname === "/results") {
+      return searchOf(url, "YouTube", url.searchParams.get("search_query"));
+    }
     const id =
       url.searchParams.get("v") ??
       url.pathname.match(/^\/(?:shorts|embed|live)\/([^/?]+)/)?.[1];
@@ -89,7 +132,7 @@ export function classify(raw: string): MediaSource | null {
       };
     }
     const list = url.searchParams.get("list");
-    if (url.pathname === "/playlist" && list && YT_ID.test(list)) {
+    if (url.pathname === "/playlist" && list && YT_LIST.test(list)) {
       return {
         kind: "youtube",
         embedUrl: `https://www.youtube-nocookie.com/embed/videoseries?list=${list}`,
@@ -125,6 +168,9 @@ export function classify(raw: string): MediaSource | null {
   }
 
   if (host === "soundcloud.com" || host === "on.soundcloud.com") {
+    if (url.pathname === "/search") {
+      return searchOf(url, "SoundCloud", url.searchParams.get("q"));
+    }
     // The widget resolves the page itself, so every soundcloud.com URL that
     // names something — a track, a set, an artist — is playable as given.
     if (url.pathname.length > 1) {
@@ -185,6 +231,9 @@ export function blockTypeFor(raw: string): "audio" | "video" | null {
       return "video";
     case "file":
       return source.media;
+    case "search":
+      // A search still says which shelf it is looking on.
+      return source.provider === "YouTube" ? "video" : "audio";
     default:
       return null;
   }
