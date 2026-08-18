@@ -488,26 +488,28 @@ export function StoryboardSurface({
                   publish(i);
               }}
             />
-            {!readOnly && (
-              <div className="nt-sb-chrome">
+            {/* Opening a shot is looking, not editing — a tile is a thumbnail
+                whichever side of the pen you are on, and a reader who cannot
+                see the drawing has not been shown it. Removing a shot is the
+                edit, and stays behind the pen. */}
+            <div className="nt-sb-chrome">
+              <button
+                type="button"
+                aria-label="Open shot full screen"
+                onClick={() => openFull(i)}
+              >
+                {EXPAND}
+              </button>
+              {!readOnly && board.shots.length > 1 && (
                 <button
                   type="button"
-                  aria-label="Open shot full screen"
-                  onClick={() => openFull(i)}
+                  aria-label="Remove shot"
+                  onClick={() => removeShot(i)}
                 >
-                  {EXPAND}
+                  <X />
                 </button>
-                {board.shots.length > 1 && (
-                  <button
-                    type="button"
-                    aria-label="Remove shot"
-                    onClick={() => removeShot(i)}
-                  >
-                    <X />
-                  </button>
-                )}
-              </div>
-            )}
+              )}
+            </div>
             <div className="nt-sb-num">{i + 1}</div>
             <textarea
               className="nt-sb-note"
@@ -542,11 +544,12 @@ export function StoryboardSurface({
         </div>
       )}
 
-      {!readOnly && full !== null && (
+      {full !== null && (
         <FullscreenShot
           scene={board.shots[full].scene}
           frameH={frameH}
           board={boardApi}
+          readOnly={readOnly}
           onScene={(scene) => setShot(full, { scene })}
           onClaim={claimFull}
           onClose={closeFull}

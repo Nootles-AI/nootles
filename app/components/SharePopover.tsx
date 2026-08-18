@@ -15,6 +15,7 @@ import { Id } from "@/convex/_generated/dataModel";
 import { track } from "@/app/lib/telemetry";
 import { LinkIcon } from "./Icons";
 import { Segmented, type Segment } from "./Segmented";
+import "./share/access.css";
 
 type LinkRole = "editor" | "viewer";
 
@@ -91,6 +92,13 @@ function SharePopoverBody({
   const links = useQuery(api.share.links, { projectId });
   const collaborators = useQuery(api.share.collaborators, { projectId });
   const setLink = useMutation(api.share.setLink);
+  // The owner's whole inbox, narrowed here: the toast and this list are the
+  // same question in two places, so they read the same query rather than two
+  // that could disagree about who is still waiting.
+  const waiting = (useQuery(api.share.incomingRequests) ?? []).filter(
+    (ask) => ask.projectId === projectId,
+  );
+  const decide = useMutation(api.share.decideRequest);
   const { user: me } = useUser();
 
   const tipId = useId();
@@ -278,6 +286,60 @@ function SharePopoverBody({
               Create {role} link
             </button>
           </>
+        )}
+
+        {waiting.length > 0 && (
+          <div className="mt-4">
+            <div className="nt-field-label">
+              Waiting to edit
+              <span className="nt-field-note">{waiting.length}</span>
+            </div>
+            <ul aria-label="People waiting to edit" className="space-y-px">
+              {waiting.map((ask) => (
+                <li key={ask.requestId} className="nt-ask-row">
+                  {ask.imageUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={ask.imageUrl}
+                      alt=""
+                      className="h-5 w-5 shrink-0 rounded-full"
+                    />
+                  ) : (
+                    <span aria-hidden className="nt-monogram shrink-0">
+                      {initial(ask.name ?? ask.email)}
+                    </span>
+                  )}
+                  <span className="nt-ask-row-name">
+                    {ask.name ?? ask.email ?? "Someone"}
+                  </span>
+                  <button
+                    className="nt-ask-no"
+                    onClick={() => {
+                      track("access_request_decided", { grant: false });
+                      void decide({
+                        requestId: ask.requestId,
+                        grant: false,
+                      }).catch(() => {});
+                    }}
+                  >
+                    Not now
+                  </button>
+                  <button
+                    className="nt-ask-yes"
+                    onClick={() => {
+                      track("access_request_decided", { grant: true });
+                      void decide({
+                        requestId: ask.requestId,
+                        grant: true,
+                      }).catch(() => {});
+                    }}
+                  >
+                    Give edit access
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
         )}
 
         {collaborators === undefined ? (

@@ -17,6 +17,7 @@ import { FixedToast } from "./feedback/FixedToast";
 import { Menu, MenuItem } from "./Menu";
 import { NewProjectDialog, type NewProject } from "./NewProjectDialog";
 import { PagePreview } from "./PagePreview";
+import { AccessRequests } from "./share/AccessRequests";
 
 type View = "grid" | "list";
 type Project = NonNullable<
@@ -332,6 +333,9 @@ export function ProjectsScreen() {
           already allows. */}
       <Feedback />
       <FixedToast />
+      {/* Same reasoning: someone asking to edit should reach the owner here
+          too, not only inside whichever project they happen to open. */}
+      <AccessRequests />
     </main>
   );
 }

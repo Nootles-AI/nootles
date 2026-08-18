@@ -17,6 +17,7 @@ import {
 } from "./Icons";
 import { AccountMenu } from "./AccountMenu";
 import { SharePopover } from "./SharePopover";
+import { RequestEditButton } from "./share/AccessRequests";
 import { ConfirmDeleteDialog } from "./ConfirmDelete";
 import { ContextDialog } from "./context/ContextDialog";
 import { ContextMenu } from "./ContextMenu";
@@ -498,6 +499,10 @@ export function Sidebar({
             project, and the one place a repository or file can be attached to
             it. Owner-only — the sheet is the project's, and its dialog manages
             it. */}
+        {/* A viewer's one verb: ask for the pen. Above the pages for the same
+            reason Context is — it holds for the whole project. */}
+        {role === "viewer" && <RequestEditButton projectId={projectId} />}
+
         {owner && (
           <button
             onClick={() => setShowingContext(true)}

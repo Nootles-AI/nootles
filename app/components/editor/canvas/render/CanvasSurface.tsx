@@ -424,7 +424,15 @@ export function CanvasSurface({
   /** The node whose double-click asked to edit its label, this event. */
   const asked = useRef<NodeId | null>(null);
 
-  const [tool, setTool] = useState<CanvasTool>(readOnly ? "hand" : "move");
+  // Read-only means the hand is the only tool there is — except inside a
+  // frame, where there is nowhere to pan to. `changeTool` refuses the hand for
+  // a framed surface, and this is the same refusal at the tool's birth: a shot
+  // that started on the hand would let a drag push the picture out of its own
+  // frame, since the pan runs through the controller rather than the listeners
+  // `locked` withholds.
+  const [tool, setTool] = useState<CanvasTool>(
+    readOnly && !frame ? "hand" : "move",
+  );
   const [editing, setEditing] = useState<NodeId | null>(null);
   /**
    * Vector edit mode: the path whose points are open, if any.

@@ -167,8 +167,9 @@ export interface UseViewportOptions {
   minZoom?: number;
   maxZoom?: number;
   /**
-   * Bind no input. Wheel, pinch and space-drag are left to the page, and the
-   * transform moves only when a caller sets it.
+   * Bind no input, and refuse to navigate. Wheel, pinch and space-drag are
+   * left to the page, every pan and zoom verb becomes a no-op, and the
+   * transform moves only through `set`.
    *
    * A storyboard shot is a fixed frame that scales with its column, not a
    * window onto an endless surface: there is nothing off-screen to reach, so
@@ -578,17 +579,27 @@ function createViewport(options: UseViewportOptions): ViewportEngine {
     };
   }
 
+  /**
+   * Locked means locked, not merely unlistened-to: the navigating verbs are
+   * refused here as well, so a caller that pans imperatively — the hand tool
+   * runs the pointer loop itself and calls {@link panBy} — cannot walk a shot
+   * out of its own frame. `set` stays open; it is how the frame's own scale is
+   * placed, and the one door left is easier to reason about than a rule about
+   * which callers are trusted.
+   */
+  const still = () => {};
+
   return {
     containerRef,
     sceneRef,
     mount,
     get: () => vp,
     set: (next) => commit(next.x, next.y, next.zoom),
-    panBy,
-    zoomTo,
-    zoomBy,
-    zoomToFit,
-    resetZoom: () => zoomTo(1),
+    panBy: options.locked ? still : panBy,
+    zoomTo: options.locked ? still : zoomTo,
+    zoomBy: options.locked ? still : zoomBy,
+    zoomToFit: options.locked ? still : zoomToFit,
+    resetZoom: options.locked ? still : () => zoomTo(1),
     clientToScene: (point) =>
       viewportToScene(toViewportPoint(point.x, point.y), vp),
     sceneToClient: (point) => {
