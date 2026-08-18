@@ -97,8 +97,8 @@ export const TOOLS = {
         .optional()
         .describe(
           "Frame width, with h: the drawing fills this box edge to edge. A " +
-            "storyboard shot is 320 wide. Leave both out for a document " +
-            "diagram, which sizes itself to the column.",
+            "storyboard shot is 320 wide. Leave both out for a standalone " +
+            "drawing — it takes a document-sized frame on its own.",
         ),
       h: z
         .number()
