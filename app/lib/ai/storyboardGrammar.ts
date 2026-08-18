@@ -39,8 +39,16 @@ every shot the same w and h as the board's ratio. A shot with nothing drawn yet 
 
 Draw for the size. A shot is shown a couple of hundred pixels wide, so it wants a few bold
 shapes and no fine detail — a figure, a horizon, a doorway. It is a shot, not a schematic.
-With the draw tool available, every shot's picture comes from it: one call per shot with
-w=320 and h as above, briefs sharing the board's style words, all shots in one step.
+
+WRITE FIRST, THEN DRAW. A storyboard is a story before it is pictures, and the notes are
+the script the pictures answer to. Build a board in that order, as two edits:
+ 1. Write the whole board and COMMIT it with edit_page — every shot's note filled, no
+    <nt-diagram> yet. The user reads the story while the drawing happens.
+ 2. Then one draw call per shot, all in one step, each brief built FROM that shot's note —
+    the note's action is the subject; add composition, light and the board's shared style
+    words. Place the returned diagrams with a second edit_page, notes unchanged.
+Never draw a shot whose note you have not written: a picture that came first leaves the
+note describing the drawing instead of the story.
 
 THE NOTE is the action, in plain words on ruled lines. Text only: no tags, no marks, no
 page references. Line breaks are real newlines. Two or three short lines is what fits.
