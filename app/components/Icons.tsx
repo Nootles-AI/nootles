@@ -182,6 +182,15 @@ export function Code(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+export function Search(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <circle cx="11" cy="11" r="7" />
+      <path d="m20 20-3.6-3.6" />
+    </svg>
+  );
+}
+
 export function Paperclip(props: SVGProps<SVGSVGElement>) {
   return (
     <svg {...base} {...props}>
