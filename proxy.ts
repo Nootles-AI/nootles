@@ -16,6 +16,9 @@ const isPublic = createRouteMatcher([
   // Share links are capability URLs: the token in the path is the whole
   // admission, and demanding a session first would defeat their point.
   "/share/(.*)",
+  // A place card's photographs, which a shared page has to be able to draw.
+  // Bytes only, and only ever from Google Places — see the route's own note.
+  "/api/places/photo(.*)",
 ]);
 
 export default clerkMiddleware(async (auth, request) => {

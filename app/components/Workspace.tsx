@@ -12,6 +12,8 @@ import {
   CanvasStylePanel,
   type ActiveCanvas,
 } from "./editor/canvas/shell";
+import { LocationPanel } from "./editor/location/LocationPanel";
+import { LocationShellContext, type ActiveLocation } from "./editor/location/shell";
 import { useOpenPage } from "./OpenPageContext";
 import { Sidebar } from "./Sidebar";
 import { PageSurface } from "./PageSurface";
@@ -52,6 +54,10 @@ const COMPACT = "(max-width: 1023px)";
 const CANVAS_SHELL =
   ".nt-canvas, .nt-lyr, .nt-style-panel, .nt-toolbar, .nt-mention-anchor, .nt-sb-full";
 
+/* The same idea for a place card: a press inside the card or its panel is
+   still about that card, and anywhere else is done with it. */
+const LOCATION_SHELL = ".nt-loc, .nt-style-panel";
+
 /* Room left above a diagram too tall to centre. */
 const REVEAL_TOP = 24;
 /* Under this, the scroll is not worth the motion. */
@@ -84,6 +90,8 @@ export function Workspace({ projectId }: { projectId: Id<"projects"> }) {
 
   const [canvas, setCanvas] = useState<ActiveCanvas | null>(null);
   const shell = useMemo(() => ({ active: canvas, set: setCanvas }), [canvas]);
+  const [place, setPlace] = useState<ActiveLocation | null>(null);
+  const placeShell = useMemo(() => ({ active: place, set: setPlace }), [place]);
 
   const compact = useMediaQuery(COMPACT);
 
@@ -105,6 +113,9 @@ export function Workspace({ projectId }: { projectId: Id<"projects"> }) {
   // where there is room for them. The toolbar appears either way, and the
   // diagram is fully editable without the panels.
   const canvasPanels = compact ? null : canvas;
+  // A selected place card takes the right rail the same way, and yields to a
+  // diagram: editing one is a whole mode, choosing what a card shows is not.
+  const placePanel = compact || canvas ? null : place;
 
   // Restore persisted layout on the client. Defaults render first (so SSR and
   // the first client render match — no hydration mismatch), then we sync from
@@ -138,6 +149,17 @@ export function Workspace({ projectId }: { projectId: Id<"projects"> }) {
     window.addEventListener("pointerdown", onDown, true);
     return () => window.removeEventListener("pointerdown", onDown, true);
   }, [editing]);
+
+  const chosen = place !== null;
+  useEffect(() => {
+    if (!chosen) return;
+    const onDown = (event: PointerEvent) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (!target?.closest(LOCATION_SHELL)) setPlace(null);
+    };
+    window.addEventListener("pointerdown", onDown, true);
+    return () => window.removeEventListener("pointerdown", onDown, true);
+  }, [chosen]);
 
   useEffect(() => {
     if (!openDrawer) return;
@@ -298,6 +320,7 @@ export function Workspace({ projectId }: { projectId: Id<"projects"> }) {
 
   return (
     <CanvasShellContext value={shell}>
+      <LocationShellContext value={placeShell}>
      <ReadOnlyContext value={viewer}>
      <PagesProvider pages={sortedPages ?? null}>
      <CompletionContextProvider projectId={projectId}>
@@ -367,6 +390,8 @@ export function Workspace({ projectId }: { projectId: Id<"projects"> }) {
             edge tab — absence, not a locked door. */}
         {canvasPanels ? (
           <CanvasStylePanel api={canvasPanels.api} />
+        ) : placePanel ? (
+          <LocationPanel active={placePanel} />
         ) : viewer ? null : showRight ? (
           <>
             <ResizeHandle onResize={onResizeRight} ariaLabel="Resize chat" />
@@ -438,6 +463,7 @@ export function Workspace({ projectId }: { projectId: Id<"projects"> }) {
      </CompletionContextProvider>
      </PagesProvider>
      </ReadOnlyContext>
+      </LocationShellContext>
     </CanvasShellContext>
   );
 }

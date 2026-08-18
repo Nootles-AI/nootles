@@ -239,6 +239,20 @@ function customSlashItems(editor: EditorInstance): DefaultReactSuggestionItem[] 
       },
     })),
     {
+      title: "Location",
+      subtext: "A place, with a map, photos and reviews",
+      aliases: [
+        "location", "place", "map", "maps", "address", "cafe", "restaurant",
+        "pin", "google maps", "directions", "venue",
+      ],
+      group: "Media",
+      onItemClick: () => {
+        const block = editor.getTextCursorPosition().block;
+        editor.updateBlock(block, { type: "location", props: { data: "" } });
+        track("block_created", { type: "location" });
+      },
+    },
+    {
       title: "Album",
       subtext: "Photos and videos, in a waterfall",
       aliases: ["album", "photos", "gallery", "waterfall", "masonry", "images", "video", "media"],

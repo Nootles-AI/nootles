@@ -10,6 +10,7 @@ import { DEFAULT_DRAW_CHOICE, type DrawChoice } from "../drawStyles";
 import { recordAiCall } from "../recordCall";
 import { generateVectorDrawing } from "../vectorDraw";
 import { reason } from "@/app/lib/github";
+import { configured as placesConfigured, search as findPlaces } from "@/app/lib/places";
 import { searchModel } from "./provider";
 import { noSuchPage, TOOLS } from "./tools";
 
@@ -189,6 +190,25 @@ export function chatTools(
         // all three places, and `edit_page` redeems it from the table.
         await convex.mutation(api.ai.drawings.put, { ref, data: html });
         return { ref, shapes: (html.match(/<nt-[a-z]/g) ?? []).length - 1 };
+      },
+    }),
+
+    // Straight into the engine rather than back through /api/places: this
+    // server has no session of its own, and its own protected route would
+    // send it to the sign-in page.
+    find_places: tool({
+      ...TOOLS.find_places,
+      execute: async ({ query, near }) => {
+        if (!placesConfigured()) {
+          throw new Error(
+            "Place lookup is not configured here (no GOOGLE_MAPS_API_KEY), so " +
+              "ratings and photographs are unavailable. Say so plainly rather " +
+              "than writing a place card with invented ones.",
+          );
+        }
+        const found = await findPlaces(query, near ?? null);
+        if ("error" in found) throw new Error(found.error);
+        return "places" in found ? found.places : [];
       },
     }),
 

@@ -20,6 +20,15 @@
         ],
         "createdAt": "2026-08-16T21:58:37.079Z",
         "reason": "Claude: stage height transition is the waterfall's documented re-pack glide over transform-placed tiles; .nt-album-full max-height is a one-shot edit-mode scene change where transform would break crop fraction math"
+      },
+      {
+        "rule": "broken-image",
+        "value": "*",
+        "files": [
+          "app/components/editor/location/serialize.ts"
+        ],
+        "createdAt": "2026-08-18T09:41:27.120Z",
+        "reason": "Not a rendered image: this is the location grammar's serializer, emitting <img src> as canonical TEXT for the round-trip contract (same shape as album/serialize.ts). src is always image.src, never empty."
       }
     ]
   }

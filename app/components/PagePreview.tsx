@@ -6,6 +6,7 @@ import { useConvex, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { joinUpdateRows } from "@/convex/yshape";
 import { parseAlbum } from "@/app/components/editor/album/parse";
+import { parseLocation } from "./editor/location/parse";
 import type { AnyBlock } from "@/app/lib/ai/projection";
 
 const YJS_ON = process.env.NEXT_PUBLIC_YJS === "1";
@@ -346,6 +347,17 @@ function Block({
     case "audio":
     case "file":
       return <span className="nt-thumb-media" />;
+
+    case "location": {
+      // The name is the whole of what a thumbnail can honestly say: the map is
+      // an iframe and the photographs are a network away.
+      const place = parseLocation(String(props.data ?? ""));
+      return place.name ? (
+        <p className="nt-thumb-p">{place.name}</p>
+      ) : (
+        <span className="nt-thumb-media" />
+      );
+    }
 
     default:
       return (
