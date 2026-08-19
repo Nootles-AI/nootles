@@ -34,7 +34,7 @@ export const schema = BlockNoteSchema.create({
     audio: audioBlockSpec,
     video: videoBlockSpec,
     location: locationBlockSpec,
-    link: linkBlockSpec,
+    linkCard: linkBlockSpec,
   },
   inlineContentSpecs: {
     ...defaultInlineContentSpecs,

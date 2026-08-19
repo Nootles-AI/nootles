@@ -49,7 +49,7 @@ export const BLOCK_TYPES = [
   "video",
   "audio",
   "location",
-  "link",
+  "linkCard",
   "file",
 ] as const;
 export const blockType = z.enum(BLOCK_TYPES);
