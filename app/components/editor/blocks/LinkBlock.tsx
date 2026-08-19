@@ -11,7 +11,7 @@ import { LinkSurface } from "../link/LinkSurface";
  */
 export const linkBlockSpec = createReactBlockSpec(
   {
-    type: "linkCard",
+    type: "link",
     propSchema: { data: { default: "" } },
     content: "none",
   },
