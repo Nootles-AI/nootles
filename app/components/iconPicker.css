@@ -49,9 +49,13 @@
   gap: 4px;
   padding: 4px 6px;
   border-radius: var(--radius-sm);
-  font-size: var(--text-meta);
+  font-size: var(--text-ui);
   color: var(--muted);
   transition: background var(--dur-fast) var(--ease);
+}
+/* The one destructive control in the popover says so. */
+.nt-iconpicker-remove:hover {
+  color: var(--danger);
 }
 .nt-iconpicker-remove:hover,
 .nt-iconpicker-close:hover {
@@ -88,7 +92,7 @@
 }
 
 .nt-iconpicker-body {
-  max-height: 260px;
+  height: 260px;
   overflow-y: auto;
   overscroll-behavior: contain;
   padding: 0 6px 6px;
@@ -109,9 +113,33 @@
   background-color: var(--muted);
 }
 
-.nt-iconpicker-grid {
+.nt-iconpicker-groups {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(34px, 1fr));
+  gap: 2px;
+}
+/* Spans the row so a section starts on its own line, with more air above than
+   below — the label belongs to what follows it. */
+.nt-iconpicker-group {
+  grid-column: 1 / -1;
+  margin: 12px 0 2px;
+  padding-inline: 4px;
+  font-size: var(--text-meta);
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.nt-iconpicker-groups > .nt-iconpicker-group:first-child {
+  margin-top: 2px;
+}
+
+/* Larger than the emoji cells on purpose. There are two dozen of these and
+   they are picked at a glance, where a thousand emoji are scanned — and the
+   bigger cell fills the shared body height instead of leaving it empty. */
+.nt-iconpicker-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(46px, 1fr));
   gap: 2px;
 }
 .nt-iconpicker-cell {
@@ -128,6 +156,11 @@
 .nt-iconpicker-cell:hover,
 .nt-iconpicker-cell:focus-visible {
   background: var(--hover);
+  color: var(--foreground);
+}
+/* Which one the row is wearing now, so reopening says "you are here". */
+.nt-iconpicker-cell[data-current] {
+  background: var(--selected);
   color: var(--foreground);
 }
 .nt-iconpicker-emoji {
@@ -186,7 +219,10 @@
 }
 
 /* The page header's icon: a target when set, and an offer when not. */
+/* Pulled back by its own centring inset so the glyph's left edge lands on the
+   title's, rather than 5px right of it. */
 .nt-page-icon {
+  margin-left: -5px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -209,13 +245,15 @@
 }
 
 /* Offered only on hover of the header, so a page with no icon stays quiet. */
+/* Same idea: the offer sits where the icon will, not indented past it. */
 .nt-page-addicon {
+  margin-left: -7px;
   display: flex;
   align-items: center;
   gap: 5px;
   padding: 4px 7px;
   border-radius: var(--radius-sm);
-  font-size: var(--text-meta);
+  font-size: var(--text-ui);
   color: var(--muted);
   opacity: 0;
   transition:
@@ -234,6 +272,14 @@
 .nt-iconpicker-anchor {
   position: fixed;
   z-index: var(--z-modal);
+}
+
+/* Where there is no hover there is no reveal, and the offer would be
+   unreachable — so it simply stands. */
+@media (hover: none) {
+  .nt-page-addicon {
+    opacity: 1;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

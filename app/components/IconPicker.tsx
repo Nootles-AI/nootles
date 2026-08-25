@@ -14,7 +14,7 @@
  * is imported when the tab is first opened and never from the shell.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useConvex } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -24,7 +24,13 @@ import "./iconPicker.css";
 
 type Tab = "emoji" | "icons" | "upload";
 
-type EmojiEntry = { id: string; native: string; name: string; keywords: string[] };
+type EmojiEntry = {
+  id: string;
+  native: string;
+  name: string;
+  keywords: string[];
+  group: string;
+};
 
 /** What the picker accepts. Anything a browser can draw at 20px. */
 const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif", "image/svg+xml"];
@@ -34,24 +40,51 @@ const MAX_BYTES = 2 * 1024 * 1024;
  * emoji-mart ships its data as a map of ids to entries whose skins carry the
  * character. Flattened once per session into the shape the grid reads.
  */
+/** emoji-mart's category ids, in the product's own words. */
+const GROUP_LABELS: Record<string, string> = {
+  frequent: "Frequent",
+  people: "Smileys & people",
+  nature: "Animals & nature",
+  foods: "Food & drink",
+  activity: "Activity",
+  places: "Travel & places",
+  objects: "Objects",
+  symbols: "Symbols",
+  flags: "Flags",
+};
+
 let emojiCache: EmojiEntry[] | null = null;
 async function loadEmoji(): Promise<EmojiEntry[]> {
   if (emojiCache) return emojiCache;
   const mod = await import("@emoji-mart/data");
   const data = ("default" in mod ? mod.default : mod) as {
+    categories: { id: string; emojis: string[] }[];
     emojis: Record<
       string,
       { id: string; name: string; keywords?: string[]; skins: { native: string }[] }
     >;
   };
-  emojiCache = Object.values(data.emojis)
-    .map((e) => ({
-      id: e.id,
-      native: e.skins?.[0]?.native ?? "",
-      name: e.name,
-      keywords: e.keywords ?? [],
-    }))
-    .filter((e) => e.native);
+  // Walked in CATEGORY order rather than key order. Raw key order puts every
+  // face first, which filled the whole panel with expressions and left objects
+  // and symbols unreachable without typing.
+  const seen = new Set<string>();
+  const out: EmojiEntry[] = [];
+  for (const category of data.categories ?? []) {
+    for (const id of category.emojis ?? []) {
+      const e = data.emojis[id];
+      const native = e?.skins?.[0]?.native;
+      if (!e || !native || seen.has(id)) continue;
+      seen.add(id);
+      out.push({
+        id,
+        native,
+        name: e.name,
+        keywords: e.keywords ?? [],
+        group: GROUP_LABELS[category.id] ?? category.id,
+      });
+    }
+  }
+  emojiCache = out;
   return emojiCache;
 }
 
@@ -114,19 +147,53 @@ export function IconPicker({
     };
   }, [tab, emoji]);
 
+  /**
+   * Arrow keys walk the grid. Without this the only way through is Tab, and a
+   * grid of a thousand emoji is a thousand stops before anything else on the
+   * page.
+   */
+  const roam = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!e.key.startsWith("Arrow")) return;
+    const cells = [
+      ...(root.current?.querySelectorAll<HTMLButtonElement>(".nt-iconpicker-cell") ?? []),
+    ];
+    const at = cells.indexOf(document.activeElement as HTMLButtonElement);
+    if (at < 0) return;
+    // One row's worth, measured rather than assumed: the grid is auto-fill and
+    // the count changes with the popover's width.
+    const top = cells[0].offsetTop;
+    const perRow = Math.max(1, cells.findIndex((c) => c.offsetTop > top));
+    const step =
+      e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : e.key === "ArrowDown" ? perRow : -perRow;
+    const next = cells[at + step];
+    if (!next) return;
+    e.preventDefault();
+    next.focus();
+  };
+
   const q = query.trim().toLowerCase();
 
   const emojiHits = useMemo(() => {
     if (!emoji) return [];
-    if (!q) return emoji.slice(0, 240);
-    return emoji
-      .filter((e) => e.id.includes(q) || e.name.toLowerCase().includes(q) ||
-        e.keywords.some((k) => k.includes(q)))
-      .slice(0, 240);
+    if (!q) return emoji;
+    return emoji.filter(
+      (e) =>
+        e.id.includes(q) ||
+        e.name.toLowerCase().includes(q) ||
+        e.keywords.some((k) => k.includes(q)),
+    );
   }, [emoji, q]);
 
   const iconHits = useMemo(
-    () => (q ? ICON_CHOICES.filter(([name]) => name.includes(q)) : ICON_CHOICES),
+    () =>
+      q
+        ? ICON_CHOICES.filter(
+            (c) =>
+              c.name.includes(q) ||
+              c.label.toLowerCase().includes(q) ||
+              c.keywords.some((k) => k.includes(q)),
+          )
+        : ICON_CHOICES,
     [q],
   );
 
@@ -204,12 +271,24 @@ export function IconPicker({
             onChange={(e) => setQuery(e.target.value)}
             placeholder={tab === "emoji" ? "Search emoji" : "Search icons"}
             aria-label={tab === "emoji" ? "Search emoji" : "Search icons"}
+            onKeyDown={(e) => {
+              // Typing a name and pressing Enter should take the obvious hit,
+              // rather than making you Tab into the grid to reach it.
+              if (e.key === "Enter") {
+                e.preventDefault();
+                root.current?.querySelector<HTMLButtonElement>(".nt-iconpicker-cell")?.click();
+                return;
+              }
+              if (e.key !== "ArrowDown") return;
+              e.preventDefault();
+              root.current?.querySelector<HTMLButtonElement>(".nt-iconpicker-cell")?.focus();
+            }}
           />
         </div>
       )}
 
       {tab === "emoji" && (
-        <div className="nt-iconpicker-body">
+        <div className="nt-iconpicker-body" onKeyDown={roam}>
           {loadFailed ? (
             <p className="nt-iconpicker-note">Emoji could not load.</p>
           ) : !emoji ? (
@@ -217,16 +296,27 @@ export function IconPicker({
           ) : emojiHits.length === 0 ? (
             <p className="nt-iconpicker-note">No emoji match “{query.trim()}”.</p>
           ) : (
-            <div className="nt-iconpicker-grid">
-              {emojiHits.map((e) => (
-                <button
-                  key={e.id}
-                  className="nt-iconpicker-cell"
-                  title={e.name}
-                  onClick={() => onPick({ kind: "emoji", value: e.native })}
-                >
-                  <span className="nt-iconpicker-emoji">{e.native}</span>
-                </button>
+            <div className="nt-iconpicker-groups">
+              {emojiHits.map((e, i) => (
+                <Fragment key={e.id}>
+                  {/* A section opens where the category changes. Suppressed
+                      while searching: hits are ranked by the query, not by
+                      where they happen to live. */}
+                  {!q && e.group !== emojiHits[i - 1]?.group && (
+                    <p className="nt-iconpicker-group">{e.group}</p>
+                  )}
+                  <button
+                    className="nt-iconpicker-cell"
+                    title={e.name}
+                    aria-label={e.name}
+                    data-current={
+                      icon?.kind === "emoji" && icon.value === e.native ? "" : undefined
+                    }
+                    onClick={() => onPick({ kind: "emoji", value: e.native })}
+                  >
+                    <span className="nt-iconpicker-emoji">{e.native}</span>
+                  </button>
+                </Fragment>
               ))}
             </div>
           )}
@@ -234,20 +324,24 @@ export function IconPicker({
       )}
 
       {tab === "icons" && (
-        <div className="nt-iconpicker-body">
+        <div className="nt-iconpicker-body" onKeyDown={roam}>
           {iconHits.length === 0 ? (
             <p className="nt-iconpicker-note">No icons match “{query.trim()}”.</p>
           ) : (
             <div className="nt-iconpicker-grid">
-              {iconHits.map(([name]) => (
+              {iconHits.map((choice) => (
                 <button
-                  key={name}
+                  key={choice.name}
                   className="nt-iconpicker-cell"
-                  title={name}
-                  onClick={() => onPick({ kind: "icon", name })}
+                  title={choice.label}
+                  aria-label={choice.label}
+                  data-current={
+                    icon?.kind === "icon" && icon.name === choice.name ? "" : undefined
+                  }
+                  onClick={() => onPick({ kind: "icon", name: choice.name })}
                 >
                   <RowIcon
-                    icon={{ kind: "icon", name }}
+                    icon={{ kind: "icon", name: choice.name }}
                     kind={kind}
                     size={18}
                     className="nt-iconpicker-glyph"

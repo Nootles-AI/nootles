@@ -839,9 +839,11 @@ export function Sidebar({
           className="nt-iconpicker-anchor"
           /* Opened where the menu was, clamped so it cannot hang off the
              bottom of a short window. */
+          /* Clamped on BOTH axes against the picker's real size, so a menu
+             opened near an edge does not push it off screen. */
           style={{
-            left: iconTarget.x,
-            top: Math.min(iconTarget.y, Math.max(8, window.innerHeight - 380)),
+            left: Math.max(8, Math.min(iconTarget.x, window.innerWidth - 336)),
+            top: Math.max(8, Math.min(iconTarget.y, window.innerHeight - 372)),
           }}
         >
           <IconPicker

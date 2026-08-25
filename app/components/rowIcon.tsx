@@ -18,38 +18,32 @@
 import { createElement, type SVGProps } from "react";
 import type { Id } from "@/convex/_generated/dataModel";
 import {
-  Bug,
-  Car,
-  Check,
-  Code,
-  Columns,
-  FileDoc,
-  Folder,
-  FolderPlus,
-  Info,
-  LinkIcon,
-  MediaPlus,
-  Paperclip,
-  Play,
-  Search,
-  Settings,
-  Shuffle,
-  Sparkle,
-  Sparkles,
-  Table,
-  Trash,
-  Diagram,
-  Storyboard,
   Album,
-  Location,
+  Bolt,
+  Book,
+  Briefcase,
+  Bulb,
+  Calendar,
+  Chart,
+  Clock,
+  Code,
+  Compass,
+  Diagram,
+  FileDoc,
+  Flag,
+  Folder,
+  Heart,
   Image as ImageGlyph,
-  Quote,
-  TodoList,
-  NumberedList,
-  BulletList,
+  Leaf,
+  Location,
+  Map as MapGlyph,
   MathBlock,
-  CodeBlock,
-  Heading1,
+  Person,
+  Rocket,
+  Star,
+  Storyboard,
+  Table,
+  Target,
 } from "./Icons";
 
 /** The shape stored on a page or folder row. Mirrors `rowIcon` in the schema. */
@@ -63,48 +57,55 @@ type Glyph = (props: SVGProps<SVGSVGElement>) => React.JSX.Element;
 /**
  * The drawn glyphs offered as page icons, by the name stored on the row.
  *
- * A curated subset rather than everything `Icons.tsx` exports: the module also
- * holds chrome that means something specific in this product — the brand mark,
- * the panel toggles, the AI's sparkle — and a page wearing one of those would
- * be claiming something it is not. Names are stored, not components, so this
- * list can grow without a migration.
+ * SUBJECTS, not commands. The block glyphs elsewhere in `Icons.tsx` name what a
+ * block IS — a heading, a bulleted list, a code fence — and a page wearing one
+ * of those reads as a heading rather than as itself. What someone answers when
+ * they give a page an icon is what the page is ABOUT, so these are nouns.
+ *
+ * Three deliberate exclusions: the AI's sparkle, because amber and that mark
+ * mean "the model did this" and a page may not claim it; the trash glyph,
+ * because it is the Remove button in the very popover that offers it; and the
+ * plain page and folder marks, because they are already the default and
+ * choosing one would be an invisible no-op.
+ *
+ * Each carries the words someone would actually search — "photo" finds the
+ * picture, "task" finds the target — because the stored slug is a key, not
+ * vocabulary. Names are stored rather than components, so this list can grow
+ * without a migration.
  */
-export const ICON_CHOICES: ReadonlyArray<readonly [string, Glyph]> = [
-  ["doc", FileDoc],
-  ["folder", Folder],
-  ["folder-plus", FolderPlus],
-  ["heading", Heading1],
-  ["quote", Quote],
-  ["todo", TodoList],
-  ["numbered", NumberedList],
-  ["bullets", BulletList],
-  ["table", Table],
-  ["diagram", Diagram],
-  ["storyboard", Storyboard],
-  ["album", Album],
-  ["image", ImageGlyph],
-  ["media", MediaPlus],
-  ["play", Play],
-  ["location", Location],
-  ["code", Code],
-  ["code-block", CodeBlock],
-  ["math", MathBlock],
-  ["columns", Columns],
-  ["search", Search],
-  ["link", LinkIcon],
-  ["paperclip", Paperclip],
-  ["settings", Settings],
-  ["info", Info],
-  ["bug", Bug],
-  ["check", Check],
-  ["shuffle", Shuffle],
-  ["car", Car],
-  ["trash", Trash],
-  ["sparkle", Sparkle],
-  ["sparkles", Sparkles],
+export const ICON_CHOICES: ReadonlyArray<{
+  readonly name: string;
+  readonly label: string;
+  readonly glyph: Glyph;
+  readonly keywords: readonly string[];
+}> = [
+  { name: "rocket", label: "Rocket", glyph: Rocket, keywords: ["launch", "ship", "start", "space"] },
+  { name: "star", label: "Star", glyph: Star, keywords: ["favourite", "favorite", "important"] },
+  { name: "flag", label: "Flag", glyph: Flag, keywords: ["milestone", "goal", "mark"] },
+  { name: "target", label: "Target", glyph: Target, keywords: ["goal", "task", "aim", "objective"] },
+  { name: "bolt", label: "Bolt", glyph: Bolt, keywords: ["fast", "energy", "power", "quick"] },
+  { name: "bulb", label: "Idea", glyph: Bulb, keywords: ["idea", "thought", "insight", "light"] },
+  { name: "heart", label: "Heart", glyph: Heart, keywords: ["love", "like", "care"] },
+  { name: "calendar", label: "Calendar", glyph: Calendar, keywords: ["date", "schedule", "plan", "week"] },
+  { name: "clock", label: "Clock", glyph: Clock, keywords: ["time", "history", "log", "later"] },
+  { name: "book", label: "Book", glyph: Book, keywords: ["notes", "read", "journal", "docs"] },
+  { name: "chart", label: "Chart", glyph: Chart, keywords: ["data", "metrics", "graph", "numbers"] },
+  { name: "briefcase", label: "Work", glyph: Briefcase, keywords: ["work", "business", "job", "client"] },
+  { name: "person", label: "Person", glyph: Person, keywords: ["people", "team", "who", "user"] },
+  { name: "map", label: "Map", glyph: MapGlyph, keywords: ["plan", "route", "roadmap", "where"] },
+  { name: "compass", label: "Compass", glyph: Compass, keywords: ["direction", "explore", "find"] },
+  { name: "location", label: "Place", glyph: Location, keywords: ["place", "pin", "address", "where"] },
+  { name: "leaf", label: "Leaf", glyph: Leaf, keywords: ["nature", "growth", "green", "new"] },
+  { name: "image", label: "Picture", glyph: ImageGlyph, keywords: ["photo", "picture", "image", "art"] },
+  { name: "album", label: "Gallery", glyph: Album, keywords: ["photos", "gallery", "album"] },
+  { name: "diagram", label: "Diagram", glyph: Diagram, keywords: ["flow", "system", "architecture"] },
+  { name: "storyboard", label: "Storyboard", glyph: Storyboard, keywords: ["shots", "film", "scenes"] },
+  { name: "table", label: "Table", glyph: Table, keywords: ["grid", "rows", "spreadsheet"] },
+  { name: "code", label: "Code", glyph: Code, keywords: ["code", "dev", "engineering", "api"] },
+  { name: "math", label: "Maths", glyph: MathBlock, keywords: ["math", "maths", "formula", "calc"] },
 ];
 
-const BY_NAME = new Map<string, Glyph>(ICON_CHOICES);
+const BY_NAME = new Map<string, Glyph>(ICON_CHOICES.map((c) => [c.name, c.glyph]));
 
 /** Whether this build still draws that glyph. */
 export function hasIcon(name: string): boolean {
