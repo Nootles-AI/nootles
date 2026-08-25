@@ -54,17 +54,9 @@ export const BLOCK_TYPES = [
 export const blockType = z.enum(BLOCK_TYPES);
 export type BlockType = z.infer<typeof blockType>;
 
-/** Shapes a canvas block can hold (mirrors app/components/editor/canvas/types.ts). */
-export const SHAPE_KINDS = ["rectangle", "ellipse", "diamond", "text"] as const;
-export const shapeKind = z.enum(SHAPE_KINDS);
-export type ShapeKind = z.infer<typeof shapeKind>;
-
 export const MARKS = ["bold", "italic", "underline", "strike", "code"] as const;
 export const mark = z.enum(MARKS);
 export type Mark = z.infer<typeof mark>;
-
-export const vec2 = z.object({ x: z.number(), y: z.number() });
-export type Vec2 = z.infer<typeof vec2>;
 
 /**
  * A run of inline content. The model never emits raw ProseMirror JSON — only
@@ -156,17 +148,17 @@ export const newBlock: z.ZodType<NewBlock> = z.lazy(() =>
   }),
 );
 
-/** Reference to a shape: an existing id, or a `tempId` minted earlier in the batch. */
-export const shapeRef = z.union([
-  z.object({ shapeId: z.string() }),
-  z.object({ tempId: z.string() }),
-]);
-export type ShapeRef = z.infer<typeof shapeRef>;
-
 // ---------------------------------------------------------------------------
 // Operations
 // ---------------------------------------------------------------------------
 
+/**
+ * There is deliberately no per-shape/per-edge op. A diagram's truth is the
+ * per-shape CRDT maps in the page's Y.Doc, mirrored to the block's canvas HTML;
+ * an op that rewrote that HTML from a node list would bypass the maps and
+ * replace the whole board. Diagrams change through `updateBlockProps` as a
+ * whole, which the mirror diffs back INTO the maps shape by shape.
+ */
 const insertBlocks = z.object({
   kind: z.literal("insertBlocks"),
   at: position,
@@ -221,61 +213,6 @@ const updateMathRow = z.object({
   latex: z.string(),
 });
 
-const addShape = z.object({
-  kind: z.literal("addShape"),
-  blockId: z.string(),
-  tempId: z.string(),
-  shape: shapeKind,
-  position: vec2,
-  width: z.number().positive().optional(),
-  height: z.number().positive().optional(),
-  label: z.string().optional(),
-});
-
-const updateShape = z.object({
-  kind: z.literal("updateShape"),
-  blockId: z.string(),
-  shapeId: z.string(),
-  patch: z
-    .object({
-      position: vec2.optional(),
-      width: z.number().positive().optional(),
-      height: z.number().positive().optional(),
-      label: z.string().optional(),
-    })
-    .refine((p) => Object.keys(p).length > 0, "patch must change something"),
-});
-
-const removeShape = z.object({
-  kind: z.literal("removeShape"),
-  blockId: z.string(),
-  shapeId: z.string(),
-});
-
-const connectEdge = z.object({
-  kind: z.literal("connectEdge"),
-  blockId: z.string(),
-  tempId: z.string(),
-  source: shapeRef,
-  target: shapeRef,
-  sourceHandle: z.string().optional(),
-  targetHandle: z.string().optional(),
-  label: z.string().optional(),
-});
-
-const disconnectEdge = z.object({
-  kind: z.literal("disconnectEdge"),
-  blockId: z.string(),
-  edgeId: z.string(),
-});
-
-const setEdgeLabel = z.object({
-  kind: z.literal("setEdgeLabel"),
-  blockId: z.string(),
-  edgeId: z.string(),
-  label: z.string(),
-});
-
 export const operation = z.discriminatedUnion("kind", [
   insertBlocks,
   updateBlockProps,
@@ -285,12 +222,6 @@ export const operation = z.discriminatedUnion("kind", [
   removeBlock,
   setMathRows,
   updateMathRow,
-  addShape,
-  updateShape,
-  removeShape,
-  connectEdge,
-  disconnectEdge,
-  setEdgeLabel,
 ]);
 export type Operation = z.infer<typeof operation>;
 export type OpKind = Operation["kind"];

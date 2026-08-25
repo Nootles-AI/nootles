@@ -20,7 +20,8 @@ export function ChatPanel({
   pageId,
   onCollapse,
 }: {
-  width: number;
+  /** A CSS width — the shell holds the rail's live one in a custom property. */
+  width: string;
   projectId: Id<"projects">;
   pageId: Id<"pages"> | null;
   onCollapse: () => void;

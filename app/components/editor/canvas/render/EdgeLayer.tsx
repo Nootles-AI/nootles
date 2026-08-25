@@ -1,6 +1,6 @@
 "use client";
 
-import { memo } from "react";
+import { memo, useMemo } from "react";
 import {
   edgePoints,
   obstaclesFor,
@@ -44,16 +44,22 @@ export const EdgeLayer = memo(function EdgeLayer({
   onPick,
   onHover,
 }: EdgeLayerProps) {
-  if (scene.edges.length === 0) return null;
-
-  // One pass over the nodes for the whole layer, not one per connector.
-  const obstacles = sceneObstacles(scene);
-  const drawn = scene.edges.flatMap((edge) => {
-    const points = edgePoints(scene, edge, obstaclesFor(obstacles, edge));
-    // A connector naming a node that is not there is kept in the file — the
-    // author can still fix it — but there is nothing to draw between.
-    return points ? [{ edge, points }] : [];
-  });
+  // Routing is a pure function of the scene, and hovering a line is not an
+  // edit: without this, gliding the pointer across the connectors re-routes
+  // every one of them to toggle a class name.
+  const drawn = useMemo(() => {
+    if (scene.edges.length === 0) return [];
+    // One pass over the nodes for the whole layer, not one per connector.
+    const obstacles = sceneObstacles(scene);
+    return scene.edges.flatMap((edge) => {
+      const points = edgePoints(scene, edge, obstaclesFor(obstacles, edge));
+      // A connector naming a node that is not there is kept in the file — the
+      // author can still fix it — but there is nothing to draw between.
+      return points
+        ? [{ edge, d: pointsToPath(points), at: polylineMidpoint(points) }]
+        : [];
+    });
+  }, [scene]);
   if (drawn.length === 0) return null;
 
   return (
@@ -74,8 +80,7 @@ export const EdgeLayer = memo(function EdgeLayer({
           </marker>
         </defs>
 
-        {drawn.map(({ edge, points }) => {
-          const d = pointsToPath(points);
+        {drawn.map(({ edge, d }) => {
           const state =
             (selected.has(edge.id) ? " is-selected" : "") +
             (hoverId === edge.id ? " is-hover" : "");
@@ -106,9 +111,8 @@ export const EdgeLayer = memo(function EdgeLayer({
       {/* Labels are HTML, not SVG text: they inherit the same typography the
           shapes use, and a shape's label and a connector's should not be two
           different rendering paths. */}
-      {drawn.map(({ edge, points }) => {
+      {drawn.map(({ edge, at }) => {
         if (!edge.label) return null;
-        const at = polylineMidpoint(points);
         return (
           <div
             key={edge.id}

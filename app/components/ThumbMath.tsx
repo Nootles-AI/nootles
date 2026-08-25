@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import katex from "katex";
 import "katex/dist/katex.min.css";
 
@@ -24,10 +25,12 @@ export default function ThumbMath({
 }) {
   // `throwOnError: false` renders a malformed expression as red text rather
   // than taking the preview down with it — the same bargain the editor makes.
-  const html = katex.renderToString(latex, {
-    throwOnError: false,
-    displayMode: display,
-  });
+  // Typesetting belongs to the expression, not to the render: a card redrawing
+  // should not re-set the maths on it.
+  const html = useMemo(
+    () => katex.renderToString(latex, { throwOnError: false, displayMode: display }),
+    [latex, display],
+  );
   return (
     <span
       className={display ? "nt-thumb-katex is-block" : "nt-thumb-katex"}

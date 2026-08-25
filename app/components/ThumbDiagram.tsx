@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import { ScenePreview, sceneFrom } from "./editor/ai/ScenePreview";
 
 /**
@@ -14,7 +15,9 @@ import { ScenePreview, sceneFrom } from "./editor/ai/ScenePreview";
  * out exactly as the block lays it out, then shrunk with everything else.
  */
 export default function ThumbDiagram({ data }: { data: string }) {
-  const scene = sceneFrom(data);
+  // A full HTML parse of the diagram, pure on the source — so it belongs to
+  // the string, not to the render.
+  const scene = useMemo(() => sceneFrom(data), [data]);
   if (!scene.nodes.length) return null;
   // Fills the slot rather than sizing itself. The slot exists before this
   // module does — see the canvas case in `PagePreview` — and it is the one

@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { memo, type ReactNode } from "react";
 import { safeHref } from "@/app/lib/ai/html/parse";
 
 /**
@@ -21,10 +21,13 @@ import { safeHref } from "@/app/lib/ai/html/parse";
  * Fenced code blocks and tables are not handled and pass through as written —
  * the model puts those on the page rather than in the chat. If they start
  * turning up here, they belong in RULES and `blocksOf` respectively.
+ *
+ * Memoized on the text: a turn writes prose once and then goes on calling
+ * tools, and every one of those redraws the turn it belongs to.
  */
-export function Markdown({ text }: { text: string }) {
+export const Markdown = memo(function Markdown({ text }: { text: string }) {
   return <>{blocksOf(text)}</>;
-}
+});
 
 const HEADING = /^ {0,3}(#{1,6})\s+(.*)$/;
 const RULE = /^ {0,3}([-*_])\s*(?:\1\s*){2,}$/;

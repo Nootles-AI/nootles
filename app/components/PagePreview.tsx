@@ -8,8 +8,36 @@ import { joinUpdateRows } from "@/convex/yshape";
 import { parseAlbum } from "@/app/components/editor/album/parse";
 import { parseLocation } from "./editor/location/parse";
 import type { AnyBlock } from "@/app/lib/ai/projection";
+import type { YReader } from "@/app/lib/ai/snapshot";
 
 const YJS_ON = process.env.NEXT_PUBLIC_YJS === "1";
+
+/**
+ * The closest together two reads of a page may be.
+ *
+ * A thumbnail wants seconds-freshness, not the editor's 500ms flush: a page
+ * being edited in another tab otherwise bumps `seq` ten times a sentence, and
+ * every card watching it rebuilds on every bump. Reads are spaced instead, so
+ * an editing session next door costs the grid one rebuild every couple of
+ * seconds however fast the typing is. The first read is not delayed.
+ */
+const SETTLE_MS = 2000;
+
+/**
+ * Reads once `SETTLE_MS` has passed since the last read, and returns the
+ * cancel. Spacing rather than debouncing, so a page under continuous editing
+ * still refreshes — a trailing debounce would never fire at all.
+ */
+function spacedRead(stamp: { current: number }, read: () => void) {
+  const timer = setTimeout(
+    () => {
+      stamp.current = Date.now();
+      read();
+    },
+    Math.max(0, SETTLE_MS - (Date.now() - stamp.current)),
+  );
+  return () => clearTimeout(timer);
+}
 
 /**
  * The width the document is written at — `--measure`. The thumbnail lays out at
@@ -60,6 +88,7 @@ export function PagePreview({ docId }: { docId: string | null }) {
   const meta = useQuery(api.ydoc.meta, yjs && docId ? { docId } : "skip");
 
   const [blocks, setBlocks] = useState<AnyBlock[] | null>(null);
+  const lastRead = useRef(0);
 
   /*
    * BlockNote is the heaviest thing in the app and this route has no other use
@@ -78,78 +107,112 @@ export function PagePreview({ docId }: { docId: string | null }) {
     if (since === undefined) return;
 
     let cancelled = false;
-    void (async () => {
-      const { blocksFromSnapshot } = await import("@/app/lib/ai/snapshot");
-      if (cancelled) return;
-      try {
-        setBlocks(blocksFromSnapshot(snapshot.content, since.steps));
-      } catch {
-        // A document the reader cannot rebuild is a blank card, not a blank
-        // screen. Nothing here is worth failing the projects list over.
-        setBlocks([]);
-      }
-    })();
+    const cancel = spacedRead(lastRead, () => {
+      void (async () => {
+        const { blocksFromSnapshot } = await import("@/app/lib/ai/snapshot");
+        if (cancelled) return;
+        try {
+          setBlocks(blocksFromSnapshot(snapshot.content, since.steps));
+        } catch {
+          // A document the reader cannot rebuild is a blank card, not a blank
+          // screen. Nothing here is worth failing the projects list over.
+          setBlocks([]);
+        }
+      })();
+    });
     return () => {
       cancelled = true;
+      cancel();
     };
   }, [yjs, snapshot, since]);
 
-  // The Yjs read: chunks and tail fetched by hand (the chunk count is data,
-  // so it cannot be a fixed set of hooks), re-run whenever `meta.seq` moves.
+  // The Yjs read: chunks and tail fetched by hand (the chunk count is data, so
+  // it cannot be a fixed set of hooks), re-run whenever `meta.seq` moves. The
+  // card's own document is what it is re-run against, so a move costs the
+  // updates since the last read rather than the whole page again.
+  const live = useRef<{ docId: string; reader: YReader; cursor: number } | null>(
+    null,
+  );
+  useEffect(
+    () => () => {
+      live.current?.reader.destroy();
+      live.current = null;
+    },
+    [],
+  );
+
   useEffect(() => {
     if (!yjs || !docId || !meta) return;
     let cancelled = false;
-    void (async () => {
-      try {
-        // Snapshot chunks are byte slices of ONE update — gathered back into
-        // one buffer — and chunked update rows join the same way (yshape).
-        const chunks: ArrayBuffer[] = [];
-        for (let part = 0; part < meta.snapshotParts; part++) {
-          const chunk = await convex.query(api.ydoc.snapshot, {
-            docId,
-            gen: meta.snapshotSeq,
-            part,
-          });
-          if (chunk) chunks.push(chunk);
-        }
-        const parts: ArrayBuffer[] = [];
-        if (chunks.length) {
-          const whole = new Uint8Array(chunks.reduce((n, c) => n + c.byteLength, 0));
-          let at = 0;
-          for (const c of chunks) {
-            whole.set(new Uint8Array(c), at);
-            at += c.byteLength;
+    const cancel = spacedRead(lastRead, () => {
+      void (async () => {
+        try {
+          if (live.current && live.current.docId !== docId) {
+            live.current.reader.destroy();
+            live.current = null;
           }
-          parts.push(whole.buffer);
-        }
-        let cursor = meta.snapshotSeq;
-        for (;;) {
-          const rows = await convex.query(api.ydoc.updatesSince, {
+          const { yReader } = await import("@/app/lib/ai/snapshot");
+          if (cancelled) return;
+          const card = (live.current ??= {
             docId,
-            afterSeq: cursor,
+            reader: yReader(),
+            cursor: 0,
           });
-          if (!rows.length) break;
-          const joined = joinUpdateRows(rows);
-          if (!joined.length) break;
-          for (const row of joined) {
-            parts.push(
-              row.update.buffer.slice(
-                row.update.byteOffset,
-                row.update.byteOffset + row.update.byteLength,
-              ) as ArrayBuffer,
+
+          // A compaction deletes the updates it folded, so a reader still
+          // behind the snapshot cannot page across it and takes the snapshot
+          // instead. One already past it holds that state anyway.
+          if (card.cursor < meta.snapshotSeq) {
+            // Snapshot chunks are byte slices of ONE update — gathered back
+            // into one buffer — and chunked update rows join the same way
+            // (yshape).
+            const chunks: ArrayBuffer[] = [];
+            for (let part = 0; part < meta.snapshotParts; part++) {
+              const chunk = await convex.query(api.ydoc.snapshot, {
+                docId,
+                gen: meta.snapshotSeq,
+                part,
+              });
+              if (chunk) chunks.push(chunk);
+            }
+            if (cancelled) return;
+            // A compaction landing between `meta` and this fetch takes the
+            // generation out from under it. Leave the cursor where it is and
+            // wait for the `meta` that compaction is about to publish —
+            // advancing it now would step over the log the fold consumed.
+            if (chunks.length !== meta.snapshotParts) return;
+            const whole = new Uint8Array(
+              chunks.reduce((n, c) => n + c.byteLength, 0),
             );
-            cursor = Math.max(cursor, row.seq);
+            let at = 0;
+            for (const c of chunks) {
+              whole.set(new Uint8Array(c), at);
+              at += c.byteLength;
+            }
+            card.reader.apply([whole]);
+            card.cursor = meta.snapshotSeq;
           }
+          for (;;) {
+            const rows = await convex.query(api.ydoc.updatesSince, {
+              docId,
+              afterSeq: card.cursor,
+            });
+            if (cancelled) return;
+            if (!rows.length) break;
+            const joined = joinUpdateRows(rows);
+            if (!joined.length) break;
+            card.reader.apply(joined.map((row) => row.update));
+            card.cursor = joined.reduce((n, row) => Math.max(n, row.seq), card.cursor);
+          }
+          setBlocks(card.reader.blocks());
+        } catch {
+          if (!cancelled) setBlocks([]);
         }
-        const { blocksFromYUpdates } = await import("@/app/lib/ai/snapshot");
-        if (cancelled) return;
-        setBlocks(blocksFromYUpdates(parts));
-      } catch {
-        if (!cancelled) setBlocks([]);
-      }
-    })();
+      })();
+    });
     return () => {
       cancelled = true;
+      cancel();
     };
   }, [yjs, docId, meta, convex]);
   /* eslint-enable react-hooks/set-state-in-effect */

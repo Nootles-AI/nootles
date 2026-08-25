@@ -137,6 +137,13 @@ export const restorable = query({
  *
  * Only the caller's own turns: a review is between a person and their AI, so
  * one collaborator's pending answer is never another's banner.
+ *
+ * Thin on purpose. This is subscribed to for the life of a project page, and
+ * every `save` during a streaming turn re-runs it — carrying `trace` and
+ * `hunks` it would push the turn's whole packed luggage back to the client
+ * that just uploaded it, several times per turn, for hydration to discard.
+ * The blobs are fetched per turn from {@link byPrompt} when hydration wants
+ * them.
  */
 export const unreviewed = query({
   args: { projectId: v.id("projects") },
@@ -158,6 +165,16 @@ export const unreviewed = query({
     return groups
       .flat()
       .filter((t) => t.ownerId === me)
-      .sort((a, b) => a.createdAt - b.createdAt);
+      .sort((a, b) => a.createdAt - b.createdAt)
+      .map((t) => ({
+        chatPromptId: t.chatPromptId,
+        threadId: t.threadId,
+        projectId: t.projectId,
+        pageIds: t.pageIds,
+        checkpointIds: t.checkpointIds,
+        status: t.status,
+        rewoundAt: t.rewoundAt ?? null,
+        createdAt: t.createdAt,
+      }));
   },
 });

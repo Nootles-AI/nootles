@@ -36,7 +36,7 @@ import {
 import { useContextMenu } from "../ContextMenu";
 import { ConnectorTool } from "./ConnectorTool";
 import { EdgeLayer } from "./EdgeLayer";
-import { reflowEdges } from "./liveEdges";
+import { reflowEdges, type EdgeElements } from "./liveEdges";
 import { useTransformGesture } from "../engine/gestures";
 import { useCanvasShortcuts, type CanvasTool } from "../engine/shortcuts";
 import type { SnapGuide } from "../engine/snapping";
@@ -66,6 +66,8 @@ import type { Ratio } from "../../storyboard/types";
 import { serializeScene } from "../scene/serialize";
 import {
   findNode,
+  nodePath,
+  walk,
   type NodeId,
   type Point,
   type Rect,
@@ -275,6 +277,21 @@ function Refit({
 }
 
 /**
+ * The active tool, as an external store.
+ *
+ * A value would have to live on {@link CanvasApi}, and the api is published to
+ * the shell — so every R, O or L would be a top-level state change re-rendering
+ * the whole workspace to move a pressed state in the toolbar. Whoever draws the
+ * tool subscribes to it instead, and the api keeps its identity for the life of
+ * the canvas.
+ */
+export interface ToolControl {
+  get(): CanvasTool;
+  set(tool: CanvasTool): void;
+  subscribe(listener: () => void): () => void;
+}
+
+/**
  * How the screen reaches one canvas: the stores for the panels, the viewport
  * and the tool for the toolbar, and the one write that is not an op.
  */
@@ -282,7 +299,7 @@ export interface CanvasApi {
   store: SceneStore;
   selection: SelectionStore;
   viewport: ViewportController;
-  tool: CanvasTool;
+  tools: ToolControl;
   setTool(tool: CanvasTool): void;
   /** The diagram's own fields — `StylePanel`'s `onDiagramChange`. */
   setDiagram(patch: DiagramPatch): void;
@@ -331,11 +348,12 @@ export interface BoardApi {
 export interface CanvasSurfaceProps {
   /** The block's persisted string: canvas HTML, or legacy JSON. */
   source: string;
-  onChange: (source: string) => void;
+  onChange: (source: string, scene: Scene) => void;
   /**
-   * Published on mount, whenever the canvas takes focus and on every tool
-   * change; `null` on unmount. The shell holds the latest and mounts the
-   * toolbar and the panels against it.
+   * Published on mount and whenever the canvas takes focus; `null` on unmount.
+   * The object keeps its identity for the life of the canvas, so claiming the
+   * shell is the only thing that moves state above it. The shell holds the
+   * latest and mounts the toolbar and the panels against it.
    */
   onApi?: (api: CanvasApi | null) => void;
   /**
@@ -435,6 +453,12 @@ export function CanvasSurface({
   // to do with a pointer is point, which is what `move` does once the paths
   // that move things are closed off below.
   const [tool, setTool] = useState<CanvasTool>("move");
+  // The same tool, as the external store the shell reads it through. Written
+  // before the listeners are told, so a subscriber woken by the notification
+  // reads the new value in the render that notification schedules — an effect
+  // would land after it.
+  const toolRef = useRef<CanvasTool>("move");
+  const toolListeners = useRef(new Set<() => void>());
   const [editing, setEditing] = useState<NodeId | null>(null);
   /**
    * Vector edit mode: the path whose points are open, if any.
@@ -455,10 +479,10 @@ export function CanvasSurface({
    */
   const picking = tool === "move" || tool === "scale";
 
-  const latest = useRef({ tool, onChange, onApi });
+  const latest = useRef({ onChange, onApi });
   // Latest-callback refs: written in an effect, never during render.
   useEffect(() => {
-    latest.current = { tool, onChange, onApi };
+    latest.current = { onChange, onApi };
   });
 
   /**
@@ -477,15 +501,14 @@ export function CanvasSurface({
       const attrs = { ...current.attrs };
       if (patch.h !== undefined) attrs[HEIGHT_ATTR] = FIXED;
       if (patch.w !== undefined) attrs[WIDTH_ATTR] = FIXED;
-      latest.current.onChange(
-        serializeScene({
-          ...current,
-          w: patch.w ?? current.w,
-          h: patch.h ?? current.h,
-          style,
-          attrs,
-        }),
-      );
+      const next: Scene = {
+        ...current,
+        w: patch.w ?? current.w,
+        h: patch.h ?? current.h,
+        style,
+        attrs,
+      };
+      latest.current.onChange(serializeScene(next), next);
     },
     [store],
   );
@@ -513,16 +536,36 @@ export function CanvasSurface({
       if (current.attrs[attr] === undefined) return;
       const attrs = { ...current.attrs };
       delete attrs[attr];
-      latest.current.onChange(serializeScene({ ...current, attrs }));
+      const next: Scene = { ...current, attrs };
+      latest.current.onChange(serializeScene(next), next);
     },
     [store],
   );
 
+  /**
+   * What a gesture is allowed to assume for its whole duration: nothing
+   * re-renders while a finger is down, so the elements are the ones it found on
+   * the first frame, and the only shapes that have left their model positions
+   * are the ones under the top-level nodes it is moving.
+   */
+  const held = useRef<{
+    moving: ReadonlySet<NodeId>;
+    elements: Map<NodeId, HTMLElement | null>;
+    edges: EdgeElements;
+  } | null>(null);
+
   const getElement = useCallback(
-    (id: NodeId) =>
-      viewport.sceneRef.current?.querySelector<HTMLElement>(
-        `[data-id="${CSS.escape(id)}"]`,
-      ) ?? null,
+    (id: NodeId) => {
+      const cache = held.current;
+      const known = cache?.elements.get(id);
+      if (known !== undefined) return known;
+      const el =
+        viewport.sceneRef.current?.querySelector<HTMLElement>(
+          `[data-id="${CSS.escape(id)}"]`,
+        ) ?? null;
+      cache?.elements.set(id, el);
+      return el;
+    },
     [viewport],
   );
 
@@ -530,20 +573,49 @@ export function CanvasSurface({
    * The shapes' live boxes, read from the DOM rather than the scene: mid-drag
    * the elements have moved and the model has not, and the element is the only
    * one of the two telling the truth. Falls back to the scene for anything not
-   * rendered — a node inside a collapsed branch has no element to measure.
+   * rendered — a node inside a collapsed branch has no element to measure — and
+   * for everything a running gesture is *not* moving, whose element would only
+   * confirm the box the scene already holds at the cost of a forced layout.
    */
   const reflowLive = useCallback(() => {
     const scene = store.getScene();
     if (scene.edges.length === 0) return;
-    reflowEdges(sceneRef.current, scene, (id) => {
-      const el = getElement(id);
-      if (!el) return null;
-      const r = el.getBoundingClientRect();
-      const a = viewport.clientToScene({ x: r.left, y: r.top });
-      const b = viewport.clientToScene({ x: r.right, y: r.bottom });
-      return { x: a.x, y: a.y, w: b.x - a.x, h: b.y - a.y };
-    });
+    const cache = held.current;
+    reflowEdges(
+      sceneRef.current,
+      scene,
+      (id) => {
+        if (cache && !cache.moving.has(id)) return null;
+        const el = getElement(id);
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        const a = viewport.clientToScene({ x: r.left, y: r.top });
+        const b = viewport.clientToScene({ x: r.right, y: r.bottom });
+        return { x: a.x, y: a.y, w: b.x - a.x, h: b.y - a.y };
+      },
+      cache?.edges,
+    );
   }, [store, sceneRef, getElement, viewport]);
+
+  /**
+   * Everything a gesture can move: the whole subtree of each top-level node the
+   * selection reaches into. A hugging ancestor grows and its flow siblings
+   * shift, and a reorder slides the shapes the dragged one passes — all of them
+   * under the same top-level node, and none of them anywhere else.
+   */
+  const movingSubtrees = useCallback((): Set<NodeId> => {
+    const scene = store.getScene();
+    const roots = new Set<NodeId>();
+    for (const id of selection.getSnapshot().ids) {
+      const top = nodePath(scene, id)[0];
+      if (top) roots.add(top.id);
+    }
+    const out = new Set<NodeId>();
+    for (const node of scene.nodes) {
+      if (roots.has(node.id)) walk([node], (n) => void out.add(n.id));
+    }
+    return out;
+  }, [store, selection]);
 
   const gesture = useTransformGesture({
     store,
@@ -564,8 +636,17 @@ export function CanvasSurface({
     // so nothing re-renders and the paths written above would stay stale. One
     // frame later the DOM has settled either way.
     onActiveChange: (active) => {
-      if (active) moveDidDrag.current = true;
-      else requestAnimationFrame(reflowLive);
+      if (active) {
+        moveDidDrag.current = true;
+        held.current = {
+          moving: movingSubtrees(),
+          elements: new Map(),
+          edges: new Map(),
+        };
+        return;
+      }
+      held.current = null;
+      requestAnimationFrame(reflowLive);
     },
   });
 
@@ -585,13 +666,24 @@ export function CanvasSurface({
       // the bar so the keymap's `h` and `c` cannot reach them either.
       if (inFrame && (next === "hand" || next === "connector")) return;
       setOpenPath(null);
+      toolRef.current = next;
       setTool(next);
+      for (const listener of toolListeners.current) listener();
     },
     [inFrame],
   );
 
-  const toolControl = useMemo(
-    () => ({ get: () => latest.current.tool, set: changeTool }),
+  const toolControl = useMemo<ToolControl>(
+    () => ({
+      get: () => toolRef.current,
+      set: changeTool,
+      subscribe: (listener) => {
+        toolListeners.current.add(listener);
+        return () => {
+          toolListeners.current.delete(listener);
+        };
+      },
+    }),
     [changeTool],
   );
 
@@ -649,7 +741,7 @@ export function CanvasSurface({
       store,
       selection,
       viewport,
-      tool,
+      tools: toolControl,
       setTool: changeTool,
       setDiagram,
       previewSize,
@@ -659,7 +751,7 @@ export function CanvasSurface({
       store,
       selection,
       viewport,
-      tool,
+      toolControl,
       changeTool,
       setDiagram,
       previewSize,

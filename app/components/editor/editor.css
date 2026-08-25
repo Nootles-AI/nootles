@@ -22,6 +22,96 @@
   margin-block: 3px;
 }
 
+/* ---- Block handles (the + and the grip in the gutter) -----------------
+   The floating anchor is BlockNote's; the cluster inside it is ours.
+
+   It is a HOVER AFFORDANCE, not a surface: the only thing in it that may
+   answer a pointer is the two buttons. BlockNote gives the anchor a fixed
+   height per block type — 108px under an h1 — with nothing to stop it hit
+   testing, so a tall invisible box sat over the gutter of the block BELOW a
+   heading and swallowed clicks that were meant to place a caret. The heights
+   are gone and pointer-events say the rest. */
+.nt-side-menu-anchor {
+  --nt-z-block-handle: calc(var(--z-dropdown) - 1);
+  pointer-events: none;
+  animation: nt-handle-in var(--dur) var(--ease);
+}
+@keyframes nt-handle-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* The one authored moment: moving between blocks glides rather than
+   teleports. Armed only for the length of a move to another BLOCK — the same
+   transform is rewritten on every scroll frame and while a block grows, and a
+   transition there would leave the handle swimming behind the text. */
+.nt-side-menu-anchor[data-nt-slide] {
+  transition: transform var(--dur) var(--ease);
+}
+
+/* Past the pane's edge the anchor's containing block is outside the scroller,
+   so nothing would clip it and it would paint over the sidebar. */
+.nt-side-menu-anchor[data-nt-offscreen] {
+  visibility: hidden;
+}
+
+/* `height: auto` is the fix for BlockNote's per-block-type heights, which the
+   cluster inherits through `bn-side-menu` — kept on it only so the drag menu
+   still picks up the item metrics BlockNote hangs off that class. */
+.nt-side-menu-anchor .nt-block-handles {
+  display: flex;
+  align-items: center;
+  height: auto;
+  border-radius: var(--radius);
+}
+
+/* A gutter too narrow to hold the cluster leaves it clamped over the first
+   words of the line. Given the page's own paper under it and a shadow to lift
+   it, that reads as a control resting on the text instead of a collision. */
+.nt-side-menu-anchor[data-nt-tight] .nt-block-handles {
+  background: var(--background);
+  box-shadow:
+    0 1px 2px oklch(0.25 0.005 90 / 0.06),
+    0 2px 8px oklch(0.25 0.005 90 / 0.09);
+}
+
+/* Over a selected block the cluster stops carrying its own surface: the plate
+   is already the surface, and paper on top of it reads as a hole punched in
+   the selection rather than a control resting on it. The buttons keep their
+   own hover, which is what says the handle is live. */
+.nt-side-menu-anchor[data-nt-selected] .nt-block-handles,
+.nt-side-menu-anchor[data-nt-selected][data-nt-tight] .nt-block-handles {
+  background: transparent;
+  box-shadow: none;
+}
+
+/* Ink, hover, active and the open-menu latch all come from `.nt-icon-btn`;
+   these two are the only things the gutter adds. */
+.nt-side-menu-anchor .nt-block-handle {
+  pointer-events: auto;
+}
+.nt-side-menu-anchor .nt-block-handle[draggable="true"] {
+  cursor: grab;
+}
+.nt-side-menu-anchor .nt-block-handle[draggable="true"]:active {
+  cursor: grabbing;
+}
+
+/* Mantine renders the drag menu inside the anchor rather than in a portal, so
+   it has to opt back into pointer events with it. */
+.nt-side-menu-anchor .bn-menu-dropdown {
+  pointer-events: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nt-side-menu-anchor,
+  .nt-side-menu-anchor[data-nt-slide] {
+    animation: none;
+    transition: none;
+  }
+}
+
 /* ---- Custom code block (CodeMirror) ---------------------------------- */
 /* Neutralize BlockNote's built-in codeBlock styling (it targets the shared
    `codeBlock` type name): kill its dark background, radius and padding so our

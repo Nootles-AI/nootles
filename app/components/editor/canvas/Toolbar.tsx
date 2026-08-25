@@ -35,6 +35,7 @@ import {
   type CanvasTool,
   type ShortcutId,
 } from "./engine/shortcuts";
+import type { ToolControl } from "./render/CanvasSurface";
 import { useViewportValue, type ViewportController } from "./engine/useViewport";
 import { absoluteSelectionBounds } from "./scene/geometry";
 import "./canvas.css";
@@ -291,11 +292,12 @@ export function Button({
 export interface ToolbarProps {
   store: SceneStore;
   viewport: ViewportController;
-  tool: CanvasTool;
-  onTool: (tool: CanvasTool) => void;
+  /** Subscribed to rather than passed as a value: see {@link ToolControl}. */
+  tools: ToolControl;
 }
 
-export function Toolbar({ store, viewport, tool, onTool }: ToolbarProps) {
+export function Toolbar({ store, viewport, tools }: ToolbarProps) {
+  const tool = useSyncExternalStore(tools.subscribe, tools.get, tools.get);
   const { zoom } = useViewportValue(viewport);
   const { canUndo, canRedo } = useSceneHistory(store);
   const dock = useDock(viewport);
@@ -332,7 +334,7 @@ export function Toolbar({ store, viewport, tool, onTool }: ToolbarProps) {
             label={SHORTCUTS_BY_ID[shortcut].label}
             hint={hint(shortcut)}
             pressed={tool === id}
-            onClick={() => onTool(id)}
+            onClick={() => tools.set(id)}
           >
             {icon}
           </Button>

@@ -865,14 +865,40 @@ export function walk(
   step(nodes, null);
 }
 
+/**
+ * Id → node and its parent, for one scene, built on first ask and memoised on
+ * the scene object.
+ *
+ * Every list-shaped consumer — the connector router's obstacles, the edge
+ * layer, co-presence, a gesture's frames — looks ids up inside a loop, and a
+ * DFS per lookup makes each of those quietly O(N²). Identity-keyed rather than
+ * invalidated, so it stays correct under the structural sharing `./ops`
+ * guarantees: a new scene is a new key, and untouched subtrees simply keep
+ * their entries alive in the version that still holds them.
+ */
+interface SceneEntry {
+  node: SceneNode;
+  parent: GroupNode | null;
+}
+
+const INDEXED = new WeakMap<object, Map<NodeId, SceneEntry>>();
+
+function sceneIndex(scene: SceneLike): Map<NodeId, SceneEntry> {
+  const cached = INDEXED.get(scene);
+  if (cached) return cached;
+  const index = new Map<NodeId, SceneEntry>();
+  walk(rootNodes(scene), (node, parent) => {
+    // Duplicate ids are not legal, but a hand-authored file can carry them;
+    // the first in document order wins, as the DFS this replaces did.
+    if (!index.has(node.id)) index.set(node.id, { node, parent });
+  });
+  INDEXED.set(scene, index);
+  return index;
+}
+
 /** The node with this id, at any depth. `null` when it is not in the scene. */
 export function findNode(scene: SceneLike, id: NodeId): SceneNode | null {
-  let found: SceneNode | null = null;
-  walk(rootNodes(scene), (node) => {
-    if (found) return false;
-    if (node.id === id) found = node;
-  });
-  return found;
+  return sceneIndex(scene).get(id)?.node ?? null;
 }
 
 /**
@@ -880,16 +906,7 @@ export function findNode(scene: SceneLike, id: NodeId): SceneNode | null {
  * {@link findNode} first if you need to tell those apart.
  */
 export function findParent(scene: SceneLike, id: NodeId): GroupNode | null {
-  let found: GroupNode | null = null;
-  let done = false;
-  walk(rootNodes(scene), (node, parent) => {
-    if (done) return false;
-    if (node.id === id) {
-      found = parent;
-      done = true;
-    }
-  });
-  return found;
+  return sceneIndex(scene).get(id)?.parent ?? null;
 }
 
 /**
@@ -901,17 +918,20 @@ export function findParent(scene: SceneLike, id: NodeId): GroupNode | null {
  * rather than being written twice with different endpoints.
  */
 export function nodePath(scene: SceneLike, id: NodeId): SceneNode[] {
-  const path: SceneNode[] = [];
-  const step = (list: readonly SceneNode[]): boolean => {
-    for (const node of list) {
-      path.push(node);
-      if (node.id === id) return true;
-      if (isContainer(node) && step(node.children)) return true;
-      path.pop();
-    }
-    return false;
-  };
-  return step(rootNodes(scene)) ? path : [];
+  const index = sceneIndex(scene);
+  let entry = index.get(id);
+  if (!entry) return [];
+  const path: SceneNode[] = [entry.node];
+  while (entry.parent) {
+    const parent: GroupNode = entry.parent;
+    path.push(parent);
+    const up = index.get(parent.id);
+    // A duplicate id whose first occurrence is elsewhere would send the walk
+    // sideways; stop rather than climb somebody else's chain.
+    if (!up || up.node !== parent) break;
+    entry = up;
+  }
+  return path.reverse();
 }
 
 /**

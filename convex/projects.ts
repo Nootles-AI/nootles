@@ -1,4 +1,6 @@
 import { mutation, query } from "./_generated/server";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
+import type { Doc, Id } from "./_generated/dataModel";
 import { v } from "convex/values";
 import {
   ownerId as currentOwner,
@@ -11,6 +13,81 @@ import {
 import { ABOUT, BACKGROUND } from "./ai/questions";
 import { add as addRepos } from "./github/repos";
 import { repoRef } from "./schema";
+
+/**
+ * The page facts the projects screen draws — how many, which one to preview,
+ * and when the project was last touched.
+ *
+ * Read off the project row wherever it carries them: derived the honest way,
+ * a screen listing N projects reads every page of all of them, and any page
+ * edit anywhere re-runs it. `pageCount` being set is what says the whole
+ * summary is; projects written before it existed fall back to the pages.
+ */
+async function pageSummary(ctx: QueryCtx, project: Doc<"projects">) {
+  if (project.pageCount !== undefined) {
+    return {
+      pageCount: project.pageCount,
+      firstPageDocId: project.firstPageDocId ?? null,
+      updatedAt: project.updatedAt ?? project.createdAt,
+    };
+  }
+  // Ordered by the index, so the first row is the page the sidebar shows at
+  // the top — the one a thumbnail of "this project" should be of.
+  const pages = await ctx.db
+    .query("pages")
+    .withIndex("by_project", (q) => q.eq("projectId", project._id))
+    .collect();
+  return {
+    pageCount: pages.length,
+    firstPageDocId: pages[0]?.docId ?? null,
+    updatedAt: pages.reduce(
+      (m, pg) => Math.max(m, pg.updatedAt ?? pg.createdAt),
+      project.createdAt,
+    ),
+  };
+}
+
+/**
+ * Recomputes the denormalized summary. EVERY mutation that adds, removes,
+ * renames or reorders a page has to call this — nothing else refreshes it, and
+ * what it holds is what the projects screen believes.
+ */
+export async function refreshPageSummary(
+  ctx: MutationCtx,
+  projectId: Id<"projects">,
+) {
+  const project = await ctx.db.get(projectId);
+  if (!project) return;
+  const pages = await ctx.db
+    .query("pages")
+    .withIndex("by_project", (q) => q.eq("projectId", projectId))
+    .collect();
+  await ctx.db.patch(projectId, {
+    pageCount: pages.length,
+    firstPageDocId: pages[0]?.docId,
+    updatedAt: pages.reduce(
+      (m, pg) => Math.max(m, pg.updatedAt ?? pg.createdAt),
+      project.createdAt,
+    ),
+  });
+}
+
+/**
+ * Carries a page's edited-stamp up to the project, for the debounced touches
+ * that change nothing else about the page set. A project that has no summary
+ * yet gets a whole one — which is how projects predating it are folded in,
+ * one first edit at a time, without a migration.
+ */
+export async function stampProject(
+  ctx: MutationCtx,
+  projectId: Id<"projects">,
+  at: number,
+) {
+  const project = await ctx.db.get(projectId);
+  if (!project) return;
+  if (project.pageCount === undefined) return await refreshPageSummary(ctx, projectId);
+  await ctx.db.patch(projectId, { updatedAt: at });
+}
 
 export const list = query({
   args: {},
@@ -66,11 +143,8 @@ export const sharedWithMe = query({
         // already listed under "mine", so here it would only duplicate it
         // under a role label that lies.
         if (!role || role === "owner") return null;
-        const [pages, ownerProfile] = await Promise.all([
-          ctx.db
-            .query("pages")
-            .withIndex("by_project", (q) => q.eq("projectId", project._id))
-            .collect(),
+        const [summary, ownerProfile] = await Promise.all([
+          pageSummary(ctx, project),
           ctx.db
             .query("profiles")
             .withIndex("by_owner", (q) => q.eq("ownerId", project.ownerId))
@@ -81,12 +155,7 @@ export const sharedWithMe = query({
           title: project.title,
           role,
           ownerName: ownerProfile?.name ?? ownerProfile?.email ?? null,
-          pageCount: pages.length,
-          firstPageDocId: pages[0]?.docId ?? null,
-          updatedAt: pages.reduce(
-            (m, pg) => Math.max(m, pg.updatedAt ?? pg.createdAt),
-            project.createdAt,
-          ),
+          ...summary,
         };
       }),
     );
@@ -154,6 +223,7 @@ export const create = mutation({
       docId: crypto.randomUUID(),
       createdAt: now,
     });
+    await refreshPageSummary(ctx, projectId);
     return projectId;
   },
 });
@@ -184,28 +254,11 @@ export const listForScreen = query({
       .collect();
 
     const rows = await Promise.all(
-      projects.map(async (p) => {
-        // Ordered by the index, so the first row is the page the sidebar shows
-        // at the top — the one a thumbnail of "this project" should be of.
-        const pages = await ctx.db
-          .query("pages")
-          .withIndex("by_project", (q) => q.eq("projectId", p._id))
-          .collect();
-
-        return {
-          ...p,
-          pageCount: pages.length,
-          firstPageDocId: pages[0]?.docId ?? null,
-          updatedAt: pages.reduce(
-            (m, pg) => Math.max(m, pg.updatedAt ?? pg.createdAt),
-            p.createdAt,
-          ),
-        };
-      }),
+      projects.map(async (p) => ({ ...p, ...(await pageSummary(ctx, p)) })),
     );
 
     // Most recently touched first. Sorted here rather than by an index because
-    // `updatedAt` is derived from the pages, not stored on the project.
+    // the summary is maintained, not indexed.
     return rows.sort((a, b) => b.updatedAt - a.updatedAt);
   },
 });
@@ -220,7 +273,7 @@ export const rename = mutation({
 
 /**
  * Deletes a project and everything hanging off it. The hierarchy is bounded
- * (project → page → canvas → shape/edge) so this terminates, but it is a lot of
+ * (project → page → its substrate rows) so this terminates, but it is a lot of
  * rows: a very large project could approach Convex's per-mutation write limit,
  * at which point this needs to become a paginated action.
  *
@@ -236,21 +289,6 @@ export const remove = mutation({
       .collect();
 
     for (const page of pages) {
-      const canvases = await ctx.db
-        .query("canvases")
-        .withIndex("by_page", (q) => q.eq("pageId", page._id))
-        .collect();
-      for (const canvas of canvases) {
-        for (const table of ["shapes", "edges"] as const) {
-          const rows = await ctx.db
-            .query(table)
-            .withIndex("by_canvas", (q) => q.eq("canvasId", canvas._id))
-            .collect();
-          await Promise.all(rows.map((r) => ctx.db.delete(r._id)));
-        }
-        await ctx.db.delete(canvas._id);
-      }
-
       for (const table of ["opLog", "checkpoints", "suggestionLog"] as const) {
         const rows = await ctx.db
           .query(table)

@@ -1,6 +1,7 @@
 "use client";
 
 import type { ConvexReactClient } from "convex/react";
+import type { Node } from "prosemirror-model";
 import { prosemirrorToYDoc } from "y-prosemirror";
 import * as Y from "yjs";
 import { api } from "@/convex/_generated/api";
@@ -18,6 +19,21 @@ import { nodeFromSnapshot } from "@/app/lib/ai/snapshot";
 function encode(doc: Y.Doc): ArrayBuffer {
   const u = Y.encodeStateAsUpdate(doc);
   return u.buffer.slice(u.byteOffset, u.byteOffset + u.byteLength) as ArrayBuffer;
+}
+
+/**
+ * A ProseMirror document as the single update a Yjs doc is born from.
+ *
+ * Exported because content is also built on the client where there is nothing
+ * to migrate — first run assembles its seeded pages before any document
+ * exists — and a doc born through a different conversion is a doc that reads
+ * differently.
+ */
+export function yUpdateFrom(node: Node): ArrayBuffer {
+  const doc = prosemirrorToYDoc(node, "prosemirror");
+  const update = encode(doc);
+  doc.destroy();
+  return update;
 }
 
 /** A brand-new doc: nothing to convert, the editor bootstraps content. */
@@ -38,12 +54,9 @@ export async function migrateLegacyDoc(client: ConvexReactClient, docId: string)
     version: snapshot.version,
   });
   const node = nodeFromSnapshot(snapshot.content, since.steps);
-  const doc = prosemirrorToYDoc(node, "prosemirror");
-  const legacyVersion = snapshot.version + since.steps.length;
   await client.mutation(api.ydoc.init, {
     docId,
-    update: encode(doc),
-    legacyVersion,
+    update: yUpdateFrom(node),
+    legacyVersion: snapshot.version + since.steps.length,
   });
-  doc.destroy();
 }

@@ -1,7 +1,8 @@
 import { ConvexError, v } from "convex/values";
 import { internal } from "../_generated/api";
 import { internalMutation, internalQuery, mutation, query } from "../_generated/server";
-import { projectRole, readOwned, requireOwned, requireOwner } from "../auth";
+import { projectRole, readOwned, requireOwned } from "../auth";
+import { uploadUrl } from "../uploads";
 import { CONTEXT_FILE_HELP, fileKind, MAX_FILE_BYTES } from "./shared";
 
 /**
@@ -14,13 +15,7 @@ import { CONTEXT_FILE_HELP, fileKind, MAX_FILE_BYTES } from "./shared";
  * written.
  */
 
-export const generateUploadUrl = mutation({
-  args: {},
-  handler: async (ctx) => {
-    await requireOwner(ctx);
-    return await ctx.storage.generateUploadUrl();
-  },
-});
+export const generateUploadUrl = mutation({ args: {}, handler: uploadUrl });
 
 export const listForProject = query({
   args: { projectId: v.id("projects") },

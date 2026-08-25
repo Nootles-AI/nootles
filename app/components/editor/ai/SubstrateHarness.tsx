@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { BlockNoteEditor, PartialBlock } from "@blocknote/core";
-import { useMutation, useQuery } from "convex/react";
+import { useConvex, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import { project, type AnyBlock } from "@/app/lib/ai/projection";
@@ -43,9 +43,12 @@ export function SubstrateHarness({
   /** Null while mirroring the live document; a string once you start editing. */
   const [htmlDraft, setHtmlDraft] = useState<string | null>(null);
 
+  const convex = useConvex();
   const appendBatch = useMutation(api.ai.opLog.appendBatch);
   const createCheckpoint = useMutation(api.ai.checkpoints.create);
-  const checkpoints = useQuery(api.ai.checkpoints.list, { pageId });
+  // Only while the pane is open: this is dev-only, but the harness is mounted
+  // on every editable page and the list re-pushes on every AI turn.
+  const checkpoints = useQuery(api.ai.checkpoints.list, open ? { pageId } : "skip");
 
   const refresh = useCallback(() => setTick((t) => t + 1), []);
 
@@ -150,8 +153,15 @@ export function SubstrateHarness({
     setLog({ ok: true, msg: "Checkpoint saved." });
   };
 
-  const onRestore = (snapshot: unknown) => {
-    editor.replaceBlocks(editor.document, snapshot as AnyPartialBlock[]);
+  // The list carries labels only; the snapshot is fetched for the one restored.
+  const onRestore = async (id: Id<"checkpoints">) => {
+    const row = await convex.query(api.ai.checkpoints.get, { id });
+    if (row?.docSnapshot == null) {
+      setLog({ ok: false, msg: "That checkpoint is gone." });
+      return;
+    }
+    const snapshot = await unpackTurn<AnyPartialBlock[]>(row.docSnapshot);
+    editor.replaceBlocks(editor.document, snapshot);
     setHtmlDraft(null);
     refresh();
     setLog({ ok: true, msg: "Restored to checkpoint." });
@@ -241,7 +251,7 @@ export function SubstrateHarness({
                   {c.chatPromptId.slice(0, 8)}
                 </span>
                 <button
-                  onClick={async () => onRestore(await unpackTurn(c.docSnapshot))}
+                  onClick={() => void onRestore(c._id)}
                   className="rounded px-1.5 py-0.5 text-[11px] font-medium text-foreground hover:bg-black/5"
                 >
                   Restore

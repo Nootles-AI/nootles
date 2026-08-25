@@ -23,51 +23,67 @@ import {
 
 const SURVIVAL_DELAY_MS = 10 * 60 * 1000;
 const TEXT_CAP = 2000;
+const CONTEXT_CAP = 500;
+
+/** One settled suggestion, minus the page it settled on. */
+const settled = {
+  kind: v.string(),
+  gateOk: v.boolean(),
+  shown: v.boolean(),
+  outcome: v.union(
+    v.literal("gated"),
+    v.literal("accepted"),
+    v.literal("dismissed"),
+    v.literal("superseded"),
+    v.literal("failed"),
+  ),
+  latencyMs: v.number(),
+  suggestionText: v.optional(v.string()),
+  contextBefore: v.optional(v.string()),
+  model: v.optional(v.string()),
+  pageMode: v.optional(v.union(v.literal("create"), v.literal("complete"))),
+  docLength: v.optional(v.number()),
+  decisionMs: v.optional(v.number()),
+  dismissReason: v.optional(
+    v.union(
+      v.literal("typed-through"),
+      v.literal("cursor-moved"),
+      v.literal("superseded"),
+      v.literal("escape"),
+      v.literal("timeout"),
+    ),
+  ),
+  blockIds: v.optional(v.array(v.string())),
+  acceptedText: v.optional(v.string()),
+  candidateCount: v.optional(v.number()),
+  chosenIndex: v.optional(v.number()),
+};
+
+type Settled = {
+  suggestionText?: string;
+  acceptedText?: string;
+  contextBefore?: string;
+};
+
+/** Free text is capped on the way in; nothing downstream reads past these. */
+function capped<T extends Settled>(row: T): T {
+  return {
+    ...row,
+    suggestionText: row.suggestionText?.slice(0, TEXT_CAP),
+    acceptedText: row.acceptedText?.slice(0, TEXT_CAP),
+    contextBefore: row.contextBefore?.slice(0, CONTEXT_CAP),
+  };
+}
 
 export const log = mutation({
-  args: {
-    pageId: v.id("pages"),
-    kind: v.string(),
-    gateOk: v.boolean(),
-    shown: v.boolean(),
-    outcome: v.union(
-      v.literal("gated"),
-      v.literal("accepted"),
-      v.literal("dismissed"),
-      v.literal("superseded"),
-      v.literal("failed"),
-    ),
-    latencyMs: v.number(),
-    suggestionText: v.optional(v.string()),
-    contextBefore: v.optional(v.string()),
-    model: v.optional(v.string()),
-    pageMode: v.optional(v.union(v.literal("create"), v.literal("complete"))),
-    docLength: v.optional(v.number()),
-    decisionMs: v.optional(v.number()),
-    dismissReason: v.optional(
-      v.union(
-        v.literal("typed-through"),
-        v.literal("cursor-moved"),
-        v.literal("superseded"),
-        v.literal("escape"),
-        v.literal("timeout"),
-      ),
-    ),
-    blockIds: v.optional(v.array(v.string())),
-    acceptedText: v.optional(v.string()),
-    candidateCount: v.optional(v.number()),
-    chosenIndex: v.optional(v.number()),
-  },
+  args: { pageId: v.id("pages"), ...settled },
   handler: async (ctx, args) => {
     await requireEditable(ctx, "pages", args.pageId);
     // The row records whose completion this was, not whose page it landed on.
     const ownerId = await requireOwner(ctx);
     const id = await ctx.db.insert("suggestionLog", {
       ownerId,
-      ...args,
-      suggestionText: args.suggestionText?.slice(0, TEXT_CAP),
-      acceptedText: args.acceptedText?.slice(0, TEXT_CAP),
-      contextBefore: args.contextBefore?.slice(0, 500),
+      ...capped(args),
       createdAt: Date.now(),
     });
     if (args.outcome === "accepted" && args.acceptedText && args.blockIds?.length) {
@@ -78,6 +94,36 @@ export const log = mutation({
       );
     }
     return id;
+  },
+});
+
+/**
+ * A burst of suggestions nobody accepted, written together.
+ *
+ * The lane offers something at every pause in typing, so outcomes arrive at
+ * typing cadence — one mutation each is sustained traffic against the same
+ * connection the document syncs over, for rows that are only ever read in
+ * aggregate. Accepts stay on `log`: they are rare, they need the id back for
+ * an undo to amend, and only they schedule a survival score.
+ */
+const BATCH_CAP = 64;
+
+export const logMany = mutation({
+  args: { pageId: v.id("pages"), rows: v.array(v.object(settled)) },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await requireEditable(ctx, "pages", args.pageId);
+    const ownerId = await requireOwner(ctx);
+    const createdAt = Date.now();
+    for (const row of args.rows.slice(0, BATCH_CAP)) {
+      await ctx.db.insert("suggestionLog", {
+        ownerId,
+        pageId: args.pageId,
+        ...capped(row),
+        createdAt,
+      });
+    }
+    return null;
   },
 });
 

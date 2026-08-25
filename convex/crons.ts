@@ -34,4 +34,17 @@ crons.interval(
   {},
 );
 
+/**
+ * The AI substrate's two write-only tables, past the window anything reads
+ * them over. Both sweeps take a bounded bite and are frequent enough that a
+ * busy account's backlog drains between them.
+ */
+crons.interval("prune the op log", { hours: 1 }, internal.ai.opLog.purgeOld, {});
+crons.interval(
+  "prune old checkpoints",
+  { hours: 1 },
+  internal.ai.checkpoints.purgeOld,
+  {},
+);
+
 export default crons;

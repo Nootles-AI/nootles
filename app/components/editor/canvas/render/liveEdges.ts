@@ -6,7 +6,13 @@ import {
   sceneObstacles,
 } from "../scene/edgePath";
 import { absoluteBounds } from "../scene/geometry";
-import { findNode, type NodeId, type Rect, type Scene } from "../scene/types";
+import {
+  findNode,
+  type EdgeId,
+  type NodeId,
+  type Rect,
+  type Scene,
+} from "../scene/types";
 
 /**
  * Re-route the connectors mid-gesture, without going through the store.
@@ -29,20 +35,39 @@ import { findNode, type NodeId, type Rect, type Scene } from "../scene/types";
 /** A node's live box in scene units, or `null` to fall back to the scene. */
 export type LiveBox = (id: NodeId) => Rect | null;
 
-/** A top-level obstacle's live box: the node itself, which is the first id in
- *  its own subtree. */
-function liveBoxOf(
-  covers: ReadonlySet<NodeId>,
-  boxOf: (id: NodeId) => Rect,
-): Rect | null {
-  for (const id of covers) return boxOf(id);
-  return null;
+/**
+ * A connector's elements, found once and written to every frame after.
+ *
+ * Nothing re-renders while a finger is down, so the elements the first frame
+ * finds are the ones the last one writes to — and a `querySelectorAll` per
+ * connector per frame is a DOM scan the drag can feel.
+ */
+export type EdgeElements = Map<
+  EdgeId,
+  { paths: Element[]; label: HTMLElement | null }
+>;
+
+function elementsFor(
+  root: HTMLElement,
+  id: EdgeId,
+  cache: EdgeElements | null | undefined,
+): { paths: Element[]; label: HTMLElement | null } {
+  const known = cache?.get(id);
+  if (known) return known;
+  const selector = CSS.escape(id);
+  const found = {
+    paths: [...root.querySelectorAll(`[data-edge="${selector}"]`)],
+    label: root.querySelector<HTMLElement>(`[data-edge-label="${selector}"]`),
+  };
+  cache?.set(id, found);
+  return found;
 }
 
 export function reflowEdges(
   root: HTMLElement | null,
   scene: Scene,
   live: LiveBox,
+  cache?: EdgeElements | null,
 ): void {
   if (!root || scene.edges.length === 0) return;
 
@@ -56,15 +81,21 @@ export function reflowEdges(
     return box;
   };
 
-  // The obstacles move with the shapes, so they are rebuilt from the live
-  // boxes too — a connector must route around where a shape IS, not where the
-  // scene still thinks it is.
-  const shapes = sceneObstacles(scene).map((o) => ({
-    ...o,
-    box: liveBoxOf(o.covers, boxOf) ?? o.box,
-  }));
+  // The obstacles move with the shapes, so the ones that are moving are rebuilt
+  // from their live boxes — a connector must route around where a shape IS, not
+  // where the scene still thinks it is. The rest keep the box the scene gave
+  // them, which is the one the commit will draw them at anyway.
+  const shapes = sceneObstacles(scene).map((o) => {
+    // The first id in `covers` is the top-level node itself.
+    for (const id of o.covers) {
+      const box = live(id);
+      boxes.set(id, box ?? o.box);
+      return box ? { covers: o.covers, box } : o;
+    }
+    return o;
+  });
 
-  const writes: { id: string; d: string; at: { x: number; y: number } }[] = [];
+  const writes: { id: EdgeId; d: string; at: { x: number; y: number } }[] = [];
   for (const edge of scene.edges) {
     // Both ends have to still exist; the boxes themselves come from `boxOf`.
     if (!findNode(scene, edge.from) || !findNode(scene, edge.to)) continue;
@@ -82,17 +113,11 @@ export function reflowEdges(
   }
 
   for (const write of writes) {
-    for (const path of root.querySelectorAll(
-      `[data-edge="${CSS.escape(write.id)}"]`,
-    )) {
-      path.setAttribute("d", write.d);
-    }
-    const label = root.querySelector<HTMLElement>(
-      `[data-edge-label="${CSS.escape(write.id)}"]`,
-    );
-    if (label) {
-      label.style.left = `${write.at.x}px`;
-      label.style.top = `${write.at.y}px`;
+    const els = elementsFor(root, write.id, cache);
+    for (const path of els.paths) path.setAttribute("d", write.d);
+    if (els.label) {
+      els.label.style.left = `${write.at.x}px`;
+      els.label.style.top = `${write.at.y}px`;
     }
   }
 }

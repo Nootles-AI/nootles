@@ -16,7 +16,7 @@ import { consumes, produces, target } from "./ops";
  * checkpoint document answers it.
  */
 
-export type HunkKind = "insert" | "replace" | "remove" | "canvas" | "move" | "update";
+export type HunkKind = "insert" | "replace" | "remove" | "move" | "update";
 
 /** What a run of ops did to the document — the part an undo has to reverse. */
 export type Change = {
@@ -36,15 +36,6 @@ export type Hunk = Change & {
   /** Positions in the page's accumulated op list, ascending. */
   opIndices: number[];
 };
-
-const CANVAS_OPS = new Set<Operation["kind"]>([
-  "addShape",
-  "updateShape",
-  "removeShape",
-  "connectEdge",
-  "disconnectEdge",
-  "setEdgeLabel",
-]);
 
 export function computeHunks({
   chatPromptId,
@@ -284,7 +275,6 @@ function kindOf(
   if (adds && removes) return "replace";
   if (adds) return "insert";
   if (removes) return "remove";
-  if (opIndices.some((i) => CANVAS_OPS.has(ops[i].kind))) return "canvas";
   if (opIndices.every((i) => ops[i].kind === "moveBlock")) return "move";
   return "update";
 }

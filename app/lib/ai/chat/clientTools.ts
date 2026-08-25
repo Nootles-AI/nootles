@@ -5,7 +5,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { LiveEditor } from "@/app/components/editor/EditorRegistry";
 import { loadIconCatalog } from "@/app/components/editor/canvas/icons/registry";
-import { joinUpdateRows } from "@/convex/yshape";
+import { readYDocUpdates } from "@/app/lib/sync/ydocRead";
 import { AI } from "../aiConfig";
 import { compileDocHtml } from "../html/compile";
 import type { DocNode } from "../html/grammar";
@@ -13,7 +13,7 @@ import { parseDocHtml } from "../html/parse";
 import { redeemDrawnStubs, toDocHtml, toDocHtmlWithin } from "../html/serialize";
 import { project, type AnyBlock, type DocIndex } from "../projection";
 import type { ReviewSession } from "../review/session";
-import { blocksFromSnapshot, blocksFromYUpdates } from "../snapshot";
+import { blocksFromSnapshot, yReader } from "../snapshot";
 import { resolveBatch, warnRejected } from "../validate";
 import { noSuchPage, TOOLS } from "./tools";
 
@@ -326,52 +326,13 @@ async function storedBlocks(ctx: ToolContext, docId: string): Promise<AnyBlock[]
       ? await ctx.convex.query(api.ydoc.state, { docId })
       : "legacy";
   if (state === "yjs") {
-    const meta = await ctx.convex.query(api.ydoc.meta, { docId });
-    if (!meta) return [];
-    // Snapshot chunks are byte SLICES of one encoded update, not updates —
-    // concatenated back into one buffer before anything applies them. (Applied
-    // one by one they parse as garbage, a bug that stayed latent only while no
-    // document was big enough to snapshot in parts; drawn boards are.)
-    const chunks: ArrayBuffer[] = [];
-    for (let part = 0; part < meta.snapshotParts; part++) {
-      const chunk = await ctx.convex.query(api.ydoc.snapshot, {
-        docId,
-        gen: meta.snapshotSeq,
-        part,
-      });
-      if (chunk) chunks.push(chunk);
+    const reader = yReader();
+    try {
+      reader.apply(await readYDocUpdates(ctx.convex, docId));
+      return reader.blocks();
+    } finally {
+      reader.destroy();
     }
-    const parts: ArrayBuffer[] = [];
-    if (chunks.length) {
-      const total = chunks.reduce((sum, c) => sum + c.byteLength, 0);
-      const whole = new Uint8Array(total);
-      let at = 0;
-      for (const c of chunks) {
-        whole.set(new Uint8Array(c), at);
-        at += c.byteLength;
-      }
-      parts.push(whole.buffer);
-    }
-    let cursor = meta.snapshotSeq;
-    for (;;) {
-      const rows = await ctx.convex.query(api.ydoc.updatesSince, {
-        docId,
-        afterSeq: cursor,
-      });
-      if (!rows.length) break;
-      // Chunked update rows are slices too; joined before applying.
-      for (const row of joinUpdateRows(rows)) {
-        parts.push(
-          row.update.buffer.slice(
-            row.update.byteOffset,
-            row.update.byteOffset + row.update.byteLength,
-          ) as ArrayBuffer,
-        );
-        cursor = Math.max(cursor, row.seq);
-      }
-      if (rows.length && cursor < rows[rows.length - 1].seq) break;
-    }
-    return blocksFromYUpdates(parts);
   }
 
   const snapshot = await ctx.convex.query(api.prosemirror.getSnapshot, {

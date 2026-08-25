@@ -1,14 +1,16 @@
 "use client";
 
-import { Fragment, useEffect, useRef, useState } from "react";
-import katex from "katex";
-import "katex/dist/katex.min.css";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { createReactBlockSpec } from "@blocknote/react";
 import type { ComputeEngine } from "@cortex-js/compute-engine";
 import { MathField } from "../math/MathField";
+import { Katex } from "../math/katex";
 import { useReadOnly } from "../readOnly";
 import { evaluateLines, type LineResult } from "../math/engine";
+import { decodeResults, encodeResults } from "../math/results";
+import { useDebouncedPersist } from "../useDebouncedPersist";
 import { toDocHtmlSplit } from "@/app/lib/ai/html/serialize";
+import { AI } from "@/app/lib/ai/aiConfig";
 import { track } from "@/app/lib/telemetry";
 import { usePageTitle } from "../PageTitleContext";
 import type { AnyBlock } from "@/app/lib/ai/projection";
@@ -17,6 +19,15 @@ type Row = { id: number; latex: string };
 
 /** A completion showing under the caret: the rest of this row, plus new rows. */
 type MathGhost = { rowId: number; tail: string; rows: string[] };
+
+/** Quiet time before typed rows reach the block. Keystrokes are not writes. */
+const PERSIST_MS = 400;
+
+/**
+ * As many rows ahead as a suggestion is worth reading. Also where the stream
+ * stops: past this the model is writing the rest of the page, on our money.
+ */
+const GHOST_ROWS = 6;
 
 /**
  * Reads a completion back out of the grammar. The model finishes the open
@@ -33,24 +44,14 @@ function parseMathCompletion(acc: string): Omit<MathGhost, "rowId"> | null {
   const rows = parts
     .slice(1, -1)
     .map((s) => (s.match(/<nt-math-line[^>]*>([\s\S]*)/)?.[1] ?? "").trim())
-    .filter(Boolean);
+    .filter(Boolean)
+    .slice(0, GHOST_ROWS);
   if (!tail && !rows.length) return null;
   return { tail, rows };
 }
 
 function GhostLatex({ latex }: { latex: string }) {
-  let html: string;
-  try {
-    html = katex.renderToString(latex, { throwOnError: false });
-  } catch {
-    return <span className="nt-mathblock-ghost">{latex}</span>;
-  }
-  return (
-    <span
-      className="nt-mathblock-ghost"
-      dangerouslySetInnerHTML={{ __html: html }}
-    />
-  );
+  return <Katex latex={latex} className="nt-mathblock-ghost" />;
 }
 
 function sourceToRows(source: string): Row[] {
@@ -64,30 +65,24 @@ function ResultView({ result }: { result?: LineResult }) {
     return <span className="nt-mathblock-error">{result.error}</span>;
   }
   if (result.valueLatex == null) return null;
-  const html = katex.renderToString(`=\\; ${result.valueLatex}`, {
-    throwOnError: false,
-  });
   return (
-    <span
-      className="nt-mathblock-value"
-      dangerouslySetInnerHTML={{ __html: html }}
-    />
+    <Katex latex={`=\\; ${result.valueLatex}`} className="nt-mathblock-value" />
   );
 }
 
-function MathBlockView({
-  source,
-  onChange,
-  getFimContext,
-}: {
+type MathBlockProps = {
   source: string;
-  onChange: (source: string) => void;
+  /** The evaluated column as stored — see `results.ts`. */
+  results: string;
+  onChange: (source: string, results: string) => void;
   /** Document HTML split at the caret inside this block, for completion. */
   getFimContext?: (
     offset: number,
     title: string,
   ) => { prefix: string; suffix: string } | null;
-}) {
+};
+
+function MathBlockView({ source, onChange, getFimContext }: MathBlockProps) {
   // A page-level fact, reached from deep in the editor tree.
   const pageTitle = usePageTitle();
   const [rows, setRows] = useState<Row[]>(() => sourceToRows(source));
@@ -101,20 +96,46 @@ function MathBlockView({
   const evalTracked = useRef(false);
   const ceClass = useRef<typeof ComputeEngine | null>(null);
   const recomputeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Last value we persisted; lets us tell our own round-tripped writes apart
-  // from genuinely external `source` changes (AI ops, another synced tab).
-  const lastSource = useRef(source);
+
+  /**
+   * The evaluated column and the rows it was computed from, kept together so a
+   * write can only ever store values that belong to the source beside them —
+   * the reader trusts the pair and skips the engine entirely.
+   */
+  const evaluated = useRef<{ source: string; results: LineResult[] }>({
+    source: "",
+    results: [],
+  });
+  const persist = useDebouncedPersist(
+    (s) =>
+      onChange(
+        s,
+        encodeResults(evaluated.current.source, evaluated.current.results),
+      ),
+    PERSIST_MS,
+    source,
+    // An outside change (an AI op, another synced tab): the rows are replaced,
+    // and the values follow on the next compute.
+    (s) => {
+      const rs = sourceToRows(s);
+      setRows(rs);
+      scheduleRecompute(rs);
+    },
+  );
 
   const recompute = (rs: Row[]) => {
     if (!ceClass.current) return;
+    const latex = rs.map((r) => r.latex);
     try {
-      setResults(evaluateLines(ceClass.current, rs.map((r) => r.latex)));
+      const next = evaluateLines(ceClass.current, latex);
+      evaluated.current = { source: latex.join("\n"), results: next };
+      setResults(next);
       if (!evalTracked.current && rs.some((r) => r.latex.trim())) {
         evalTracked.current = true;
         track("math_evaluated", {});
       }
     } catch {
+      evaluated.current = { source: "", results: [] };
       setResults([]);
     }
   };
@@ -130,7 +151,6 @@ function MathBlockView({
     return () => {
       cancelled = true;
       if (recomputeTimer.current) clearTimeout(recomputeTimer.current);
-      if (persistTimer.current) clearTimeout(persistTimer.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -140,29 +160,12 @@ function MathBlockView({
     recomputeTimer.current = setTimeout(() => recompute(rs), 120);
   };
   const schedulePersist = (rs: Row[]) => {
-    if (persistTimer.current) clearTimeout(persistTimer.current);
-    persistTimer.current = setTimeout(() => {
-      const s = rs.map((r) => r.latex).join("\n");
-      lastSource.current = s;
-      onChange(s);
-    }, 400);
+    persist.schedule(rs.map((r) => r.latex).join("\n"));
   };
-
-  // Reconcile external `source` changes (an AI op, or the same doc edited in
-  // another tab). Our own debounced writes set `lastSource` first, so they
-  // no-op here and never stomp the caret mid-edit.
-  useEffect(() => {
-    if (source === lastSource.current) return;
-    lastSource.current = source;
-    const rs = sourceToRows(source);
-    setRows(rs);
-    scheduleRecompute(rs);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [source]);
 
   // Completion inside the block. The caret is inside a MathLive field rather
   // than the document, so we place it in the serialized HTML by offset — the
-  // model still reads the whole page and answers in <nt-math-line>s.
+  // model still reads the page and answers in <nt-math-line>s.
   const ctxRef = useRef(getFimContext);
   const ghostRef = useRef<MathGhost | null>(null);
   const completeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -196,7 +199,14 @@ function MathBlockView({
       const res = await fetch("/api/complete", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ before: ctx.prefix, after: ctx.suffix, mode: "html" }),
+        body: JSON.stringify({
+          // The wire call cuts to these numbers anyway; cutting here too keeps
+          // a page carrying one very large block from uploading what is about
+          // to be trimmed off again.
+          before: ctx.prefix.slice(-AI.fim.maxBefore),
+          after: ctx.suffix.slice(0, AI.fim.maxAfter),
+          mode: "structure",
+        }),
         signal: controller.signal,
       });
       if (!res.ok || !res.body) return;
@@ -209,17 +219,32 @@ function MathBlockView({
         acc += value;
         const parsed = parseMathCompletion(acc);
         if (parsed) setGhost({ rowId, ...parsed });
+        // The block is closed, or the suggestion is already further ahead than
+        // anyone reads: whatever comes next cannot reach the ghost, and every
+        // token of it is paid for.
+        if (
+          acc.indexOf("</nt-math-block") !== -1 ||
+          (parsed?.rows.length ?? 0) >= GHOST_ROWS
+        ) {
+          break;
+        }
       }
+      controller.abort();
     } catch {
       // superseded or offline
     }
   };
 
-  const scheduleComplete = (rs: Row[], rowId: number) => {
-    if (completeTimer.current) clearTimeout(completeTimer.current);
-    abortRef.current?.abort();
+  /** Stop suggesting: nothing in flight, nothing pending, nothing showing. */
+  const dismissGhost = () => {
     seqRef.current++;
+    abortRef.current?.abort();
+    if (completeTimer.current) clearTimeout(completeTimer.current);
     setGhost(null);
+  };
+
+  const scheduleComplete = (rs: Row[], rowId: number) => {
+    dismissGhost();
     const mySeq = seqRef.current;
     completeTimer.current = setTimeout(
       () => void runComplete(rs, rowId, mySeq),
@@ -231,9 +256,7 @@ function MathBlockView({
   const acceptGhost = (): boolean => {
     const g = ghostRef.current;
     if (!g) return false;
-    seqRef.current++;
-    abortRef.current?.abort();
-    setGhost(null);
+    dismissGhost();
     setRows((prev) => {
       const idx = prev.findIndex((r) => r.id === g.rowId);
       if (idx === -1) return prev;
@@ -298,7 +321,7 @@ function MathBlockView({
                 onEnter={() => addRowAfter(row.id)}
                 onBackspaceEmpty={() => removeRow(row.id)}
                 onTab={acceptGhost}
-                onEscape={() => setGhost(null)}
+                onEscape={dismissGhost}
               />
               {ghost?.rowId === row.id && ghost.tail ? (
                 <GhostLatex latex={ghost.tail} />
@@ -323,46 +346,50 @@ function MathBlockView({
 
 /**
  * The share viewer's math block: the same rows and the same evaluated results,
- * drawn with KaTeX instead of mounting a MathLive field per line. The compute
- * engine still loads (lazily) because the results are content, not chrome.
+ * drawn with KaTeX instead of mounting a MathLive field per line.
+ *
+ * The results are content, so they ride with the source and are simply read
+ * back. The engine loads only when they are missing or belong to a source that
+ * has since changed — a board written by the AI, or a document last edited
+ * before the values were stored.
  */
-function MathBlockStatic({ source }: { source: string }) {
+function MathBlockStatic({
+  source,
+  results: stored,
+}: {
+  source: string;
+  results: string;
+}) {
   const rows = sourceToRows(source);
-  const [results, setResults] = useState<LineResult[]>([]);
+  const saved = useMemo(() => decodeResults(source, stored), [source, stored]);
+  const [computed, setComputed] = useState<LineResult[] | null>(null);
 
   useEffect(() => {
+    if (saved) return;
     let cancelled = false;
     void import("@cortex-js/compute-engine").then(({ ComputeEngine }) => {
       if (cancelled) return;
       try {
-        setResults(
-          evaluateLines(ComputeEngine, source.split("\n")),
-        );
+        setComputed(evaluateLines(ComputeEngine, source.split("\n")));
       } catch {
-        setResults([]);
+        setComputed(null);
       }
     });
     return () => {
       cancelled = true;
     };
-  }, [source]);
+  }, [source, saved]);
+
+  const results = saved ?? computed;
 
   return (
     <div className="nt-mathblock" contentEditable={false}>
       {rows.map((row, i) => (
         <div className="nt-mathblock-row" key={row.id}>
           <div className="nt-mathblock-input">
-            {row.latex.trim() && (
-              <span
-                dangerouslySetInnerHTML={{
-                  __html: katex.renderToString(row.latex, {
-                    throwOnError: false,
-                  }),
-                }}
-              />
-            )}
+            {row.latex.trim() && <Katex latex={row.latex} />}
           </div>
-          <ResultView result={results[i]} />
+          <ResultView result={results?.[i]} />
         </div>
       ))}
     </div>
@@ -370,31 +397,34 @@ function MathBlockStatic({ source }: { source: string }) {
 }
 
 /** Hooks live in the branches, so the choice has to sit one component above. */
-function MathBlockRoot(props: Parameters<typeof MathBlockView>[0]) {
+function MathBlockRoot(props: MathBlockProps) {
   const readOnly = useReadOnly();
-  if (readOnly) return <MathBlockStatic source={props.source} />;
+  if (readOnly) {
+    return <MathBlockStatic source={props.source} results={props.results} />;
+  }
   return <MathBlockView {...props} />;
 }
 
 export const mathBlockSpec = createReactBlockSpec(
   {
     type: "mathBlock",
-    propSchema: { source: { default: "" } },
+    propSchema: { source: { default: "" }, results: { default: "" } },
     content: "none",
   },
   {
     render: ({ block, editor }) => (
       <MathBlockRoot
         source={block.props.source}
-        onChange={(source) =>
-          editor.updateBlock(block.id, { props: { source } })
+        results={block.props.results}
+        onChange={(source, results) =>
+          editor.updateBlock(block.id, { props: { source, results } })
         }
         getFimContext={(offset, title) =>
           toDocHtmlSplit(
             editor.document as unknown as AnyBlock[],
             block.id,
             offset,
-            { title },
+            { title, window: AI.projection.window, collapseDrawn: true },
           )
         }
       />

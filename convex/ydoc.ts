@@ -5,6 +5,7 @@ import { components, internal } from "./_generated/api";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
 import { checkRead, checkWrite, pageForDoc } from "./prosemirror";
+import { stampProject } from "./projects";
 import { joinUpdateRows } from "./yshape";
 
 /**
@@ -62,6 +63,12 @@ export const state = query({
   returns: v.union(v.literal("yjs"), v.literal("legacy"), v.literal("empty")),
   handler: async (ctx, args) => {
     await checkRead(ctx, args.docId);
+    // The page's own flag first: this query is subscribed to for the life of
+    // every open editor, and the `ydocs` row it would otherwise read is
+    // rewritten by every flush — an invalidation twice a second for an answer
+    // that changes once in a document's life. `append` stamps the flag.
+    const page = await pageForDoc(ctx, args.docId);
+    if (page?.yjs) return "yjs";
     if (await ydocRow(ctx, args.docId)) return "yjs";
     const legacy: number | null = await ctx.runQuery(
       components.prosemirrorSync.lib.latestVersion,
@@ -191,20 +198,39 @@ export const append = mutation({
     const now = Date.now();
     await ctx.db.patch(row._id, { seq, updatedAt: now });
 
-    // The same coarse edited-stamp the legacy pipeline hung on snapshots.
+    // The same coarse edited-stamp the legacy pipeline hung on snapshots, plus
+    // the pipeline flag `state` reads — stamped here rather than in `init`
+    // because docs that migrated before the flag existed would never get it.
     const page = await pageForDoc(ctx, args.docId);
-    if (page && now - (page.updatedAt ?? 0) > TOUCH_EVERY_MS) {
-      await ctx.db.patch(page._id, { updatedAt: now });
+    if (page) {
+      const touched = now - (page.updatedAt ?? 0) > TOUCH_EVERY_MS;
+      if (touched || !page.yjs) {
+        await ctx.db.patch(page._id, {
+          ...(touched ? { updatedAt: now } : {}),
+          ...(page.yjs ? {} : { yjs: true }),
+        });
+      }
+      if (touched) await stampProject(ctx, page.projectId, now);
     }
 
     // Modulo rather than >=, so one threshold crossing schedules one compact
     // even while further appends land before it runs.
     const pending = seq - row.snapshotSeq;
     if (pending > 0 && pending % COMPACT_EVERY === 0) {
-      await ctx.scheduler.runAfter(0, internal.ydoc.compact, {
-        docId: args.docId,
-        targetSeq: seq,
-      });
+      if ((row.snapshotBytes ?? 0) >= READ_BUDGET) {
+        // `compact` would read the whole snapshot only to find it too heavy to
+        // fold. Said here instead, where the doc is still being written to, so
+        // a document growing past what the fold can carry is visible rather
+        // than silently accumulating log forever.
+        console.warn(
+          `ydoc: ${args.docId} holds a ${row.snapshotBytes}-byte snapshot; its log no longer folds`,
+        );
+      } else {
+        await ctx.scheduler.runAfter(0, internal.ydoc.compact, {
+          docId: args.docId,
+          targetSeq: seq,
+        });
+      }
     }
     return seq;
   },
@@ -299,6 +325,11 @@ export const compact = internalMutation({
       console.warn(
         `ydoc: ${args.docId} holds a ${oldBytes}-byte snapshot; too heavy to fold`,
       );
+      // Recorded so `append` can stop scheduling a pass whose only work is
+      // reading this snapshot to reach this line.
+      if (row.snapshotBytes !== oldBytes) {
+        await ctx.db.patch(row._id, { snapshotBytes: oldBytes });
+      }
       return null;
     }
     let bytes = oldBytes;
@@ -365,6 +396,7 @@ export const compact = internalMutation({
     await ctx.db.patch(row._id, {
       snapshotSeq: reached,
       snapshotParts: parts,
+      snapshotBytes: encoded.byteLength,
     });
     // Still behind: carry on in a fresh transaction, from the snapshot this
     // pass just wrote. A reader arriving between passes sees a whole doc.

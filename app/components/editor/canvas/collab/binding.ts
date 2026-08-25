@@ -38,11 +38,13 @@ import {
  * elsewhere — a collaborator, a fork merging, the migration racing on another
  * client — is materialized back to HTML and adopted.
  *
- * The block prop stays alive as a MIRROR: every local flush still writes the
- * serialized HTML onto the block, so every reader of the old contract —
- * thumbnails, `read_page`, copy/paste, the AI's whole-document projection —
- * keeps working unchanged. The mirror is display-grade (it trails a merge by
- * one edit); the maps are the truth. An incoming prop change that does not
+ * The block prop stays alive as a MIRROR: the serialized HTML is still written
+ * onto the block, so every reader of the old contract — thumbnails,
+ * `read_page`, copy/paste, the AI's whole-document projection — keeps working
+ * unchanged. The mirror is display-grade, and trails on a cadence of its own
+ * (see `blocks/CanvasBlock.tsx`) rather than on the store's flush: it is a
+ * whole diagram per write where the maps are a shape per write. The maps are
+ * the truth. An incoming prop change that does not
  * match the current maps is an EXTERNAL author — the AI writing a whole
  * diagram — and diffs in like anything else, which is what upgrades even
  * whole-HTML writes to per-shape merges.
@@ -61,14 +63,17 @@ export class CanvasCollab {
   /** The last HTML this client wrote to the block prop (or saw at attach). */
   lastMirrored: string | null = null;
   /**
-   * Serializations of recent map states. A peer's block-prop mirror is a
-   * LAGGING projection — written on their flush cadence while their map
-   * writes stream ahead — so "differs from the maps now" cannot mean
-   * "external author". Anything matching a recent state is a mirror echo and
-   * is ignored; only content the maps have NEVER said (the AI writing a
-   * whole diagram) adopts.
+   * Recent map states. A peer's block-prop mirror is a LAGGING projection —
+   * written on their flush cadence while their map writes stream ahead — so
+   * "differs from the maps now" cannot mean "external author". Anything
+   * matching a recent state is a mirror echo and is ignored; only content the
+   * maps have NEVER said (the AI writing a whole diagram) adopts.
+   *
+   * Held as the scenes they were, and serialized only when a block-prop change
+   * actually arrives to be compared against: preparing for that arrival on
+   * every committed edit is the edit paying the arrival's bill.
    */
-  private recent: string[] = [];
+  private recent: { scene: Scene; html: string | null }[] = [];
 
   constructor(private blockId: string) {}
 
@@ -107,6 +112,7 @@ export class CanvasCollab {
   }
 
   setStore(store: SceneStore | null) {
+    if (this.store === store) return;
     this.store?.setLiveWriter(null);
     this.store = store;
     if (store) {
@@ -119,7 +125,7 @@ export class CanvasCollab {
           CANVAS_LOCAL,
         );
         this.known = scene;
-        this.note(serializeScene(materializeCanvas(this.root)));
+        this.note(materializeCanvas(this.root));
       });
       this.pushToStore();
     }
@@ -133,24 +139,40 @@ export class CanvasCollab {
     return propSource;
   }
 
-  private note(html: string) {
-    if (this.recent[this.recent.length - 1] === html) return;
-    this.recent.push(html);
+  private note(scene: Scene, html: string | null = null) {
+    if (this.recent[this.recent.length - 1]?.scene === scene) return;
+    this.recent.push({ scene, html });
     if (this.recent.length > 24) this.recent.shift();
   }
 
+  /** Whether this HTML is one of the states the maps have already been in.
+   *  Newest first: a mirror lags by an edit or two, so an echo is recognised
+   *  after a serialization or two and only a genuine external author pays for
+   *  the whole window. */
+  private echoes(html: string): boolean {
+    for (let i = this.recent.length - 1; i >= 0; i--) {
+      const entry = this.recent[i];
+      entry.html ??= serializeScene(entry.scene);
+      if (entry.html === html) return true;
+    }
+    return false;
+  }
+
   /** A local flush: HTML from the store, per-shape writes to the maps. */
-  writeLocal(html: string) {
+  writeLocal(html: string, scene?: Scene) {
     if (!this.root || !this.doc) return;
-    const next = migrateLegacyCanvas(html);
+    this.lastMirrored = html;
+    // The live writer streamed this very scene into the maps as it was
+    // committed; the flush is the same edit arriving again as a string.
+    if (scene && scene === this.known) return;
+    const next = scene ?? migrateLegacyCanvas(html);
     this.doc.transact(
       () => applySceneDiff(this.root!, this.known, next),
       CANVAS_LOCAL,
     );
     // The store now believes `next`; the next flush diffs against it.
     this.known = next;
-    this.lastMirrored = html;
-    this.note(serializeScene(materializeCanvas(this.root)));
+    this.note(materializeCanvas(this.root));
   }
 
   /**
@@ -162,7 +184,7 @@ export class CanvasCollab {
   adoptExternal(html: string) {
     if (!this.root || !this.doc) return;
     this.lastMirrored = html;
-    if (this.recent.includes(html)) return; // a mirror echo, however lagged
+    if (this.echoes(html)) return; // a mirror echo, however lagged
     const before = serializeScene(materializeCanvas(this.root));
     if (html === before) return;
     const next = migrateLegacyCanvas(html);
@@ -198,7 +220,7 @@ export class CanvasCollab {
     // always ahead of the flushed HTML — adopting then would wipe the undo
     // history for an "arrival" that is just the store's own unflushed work.
     const html = serializeScene(merged);
-    this.note(html);
+    this.note(merged, html);
     if (serializeScene(this.store.getScene()) !== html) {
       this.store.adoptRemote(html);
     }

@@ -35,12 +35,16 @@ export async function POST(req: Request) {
     return new Response("`before` must be a string", { status: 400 });
   }
 
-  const html = mode === "html";
+  // What the caller is completing INTO, which is what the budget is for.
+  // "html" is the older spelling of "structure" and still arrives from the
+  // code and math lanes.
+  const shape =
+    mode === "complete" ? "complete" : mode === "prose" ? "prose" : "structure";
   return streamFim(before, typeof after === "string" ? after : "", {
+    maxTokens: AI.fim.maxTokens[shape],
     // Structure spans lines, so stopping at a newline would truncate a block
-    // mid-way. Plain prose stays short because the suffix bounds it.
-    maxTokens: html ? AI.fim.htmlMaxTokens : AI.fim.ghostMaxTokens,
-    stop: html ? [] : undefined,
+    // mid-way. Prose is a clause, and a line break is where it ends.
+    ...(shape === "structure" ? { stop: "none" as const } : {}),
     // Its own field, never folded into `before`: the document is what gets
     // trimmed, and a seed that travelled inside it would be trimmed first.
     ...(typeof seed === "string" ? { seed } : {}),

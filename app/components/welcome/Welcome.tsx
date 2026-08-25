@@ -108,7 +108,7 @@ export function Welcome() {
     try {
       // BlockNote is the heaviest thing in the app and this route has no other
       // use for it — the preview draws from plain block data.
-      const { docFromBlocks } = await import("@/app/lib/onboarding/seed");
+      const { seedUpdate } = await import("@/app/lib/onboarding/seed");
       await create({
         // One fixed name, because the next screen is the project list and this
         // card has to be findable there as what it is.
@@ -120,7 +120,7 @@ export function Welcome() {
         defaultMode: mode,
         pages: template.pages.map((page) => ({
           title: page.title,
-          doc: docFromBlocks(page.blocks),
+          update: seedUpdate(page.blocks),
         })),
         context: sheet(template, role),
         priorChat: template.script.priorChat,

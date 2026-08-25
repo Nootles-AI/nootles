@@ -53,6 +53,9 @@ export type DropAnchor<T> = T | null | "end";
 
 type Line = { top: number; depth: number };
 
+/** A row's vertical extent, in the list's own coordinates. */
+type Span = { top: number; bottom: number };
+
 type Drop = {
   parentId: Id<"folders"> | null;
   after: DropAnchor<Id<"pages"> | Id<"folders">>;
@@ -120,17 +123,39 @@ export function useTreeDrag(
     asideRef.current = aside;
   });
 
-  /** The visible rows paired with their live rects, in tree order. */
-  const measure = (): { row: TreeRow; rect: DOMRect }[] => {
+  /**
+   * The visible rows and their extents within the list, in tree order.
+   *
+   * Measured once per row list and held relative to the list's own top: rows do
+   * not move under a drag, so a move needs one rect — the list's — rather than
+   * every row's. Anything that reshapes the list hands `rows` a new identity,
+   * which is what a hover-expand does, and that is the cache's expiry.
+   */
+  const measured = useRef<{
+    of: readonly TreeRow[];
+    rows: TreeRow[];
+    spans: Span[];
+  } | null>(null);
+
+  const measure = () => {
     const list = listRef.current;
-    if (!list) return [];
+    if (!list) return null;
+    const held = measured.current;
+    if (held?.of === rowsRef.current) return held;
     const byId = new Map(rowsRef.current.map((r) => [r.id as string, r]));
-    const out: { row: TreeRow; rect: DOMRect }[] = [];
+    const listTop = list.getBoundingClientRect().top;
+    const rows: TreeRow[] = [];
+    const spans: Span[] = [];
     for (const el of list.querySelectorAll<HTMLElement>("[data-row]")) {
       const row = byId.get(el.dataset.row ?? "");
-      if (row) out.push({ row, rect: el.getBoundingClientRect() });
+      if (!row) continue;
+      const rect = el.getBoundingClientRect();
+      rows.push(row);
+      spans.push({ top: rect.top - listTop, bottom: rect.bottom - listTop });
     }
-    return out;
+    const next = { of: rowsRef.current, rows, spans };
+    measured.current = next;
+    return next;
   };
 
   /** The previous same-parent sibling, either kind, in render order. */
@@ -161,27 +186,29 @@ export function useTreeDrag(
     clientY: number,
   ): Spot | null => {
     const list = listRef.current;
-    const measured = measure();
-    if (!list || measured.length === 0) return null;
-    const listTop = list.getBoundingClientRect().top;
-    const rows = measured.map((m) => m.row);
+    const held = measure();
+    if (!list || !held || held.rows.length === 0) return null;
+    const { rows, spans } = held;
+    // The one live measurement a move needs: everything else is relative to it.
+    const y = clientY - list.getBoundingClientRect().top;
 
     // Past the last row: the top level's end.
-    const last = measured[measured.length - 1];
-    if (clientY >= last.rect.bottom) {
+    const last = spans[spans.length - 1];
+    if (y >= last.bottom) {
       return {
         drop: { parentId: null, after: "end" },
-        line: { top: last.rect.bottom - listTop, depth: 0 },
+        line: { top: last.bottom, depth: 0 },
         intoId: null,
       };
     }
 
-    let i = measured.findIndex((m) => clientY < m.rect.bottom);
-    if (i < 0) i = measured.length - 1;
-    const { row, rect } = measured[i];
+    let i = spans.findIndex((s) => y < s.bottom);
+    if (i < 0) i = spans.length - 1;
+    const row = rows[i];
+    const span = spans[i];
     const frac = Math.min(
       1,
-      Math.max(0, (clientY - rect.top) / Math.max(1, rect.height)),
+      Math.max(0, (y - span.top) / Math.max(1, span.bottom - span.top)),
     );
 
     if (row.kind === "page") {
@@ -190,7 +217,7 @@ export function useTreeDrag(
       return {
         drop: { parentId: row.parentId, after: anchor },
         line: {
-          top: (frac < 0.5 ? rect.top : rect.bottom) - listTop,
+          top: frac < 0.5 ? span.top : span.bottom,
           depth: row.depth,
         },
         intoId: null,
@@ -201,7 +228,7 @@ export function useTreeDrag(
       if (blocked(row.parentId)) return null;
       return {
         drop: { parentId: row.parentId, after: before(rows, i)?.id ?? null },
-        line: { top: rect.top - listTop, depth: row.depth },
+        line: { top: span.top, depth: row.depth },
         intoId: null,
       };
     }
@@ -217,14 +244,14 @@ export function useTreeDrag(
       if (blocked(row.id)) return null;
       return {
         drop: { parentId: row.id, after: null },
-        line: { top: rect.bottom - listTop, depth: row.depth + 1 },
+        line: { top: span.bottom, depth: row.depth + 1 },
         intoId: null,
       };
     }
     if (blocked(row.parentId)) return null;
     return {
       drop: { parentId: row.parentId, after: row.id },
-      line: { top: rect.bottom - listTop, depth: row.depth },
+      line: { top: span.bottom, depth: row.depth },
       intoId: null,
     };
   };
@@ -274,6 +301,9 @@ export function useTreeDrag(
     let spot: Spot | null = null;
     let marked: HTMLElement | null = null;
     let hover: { id: Id<"folders">; since: number } | null = null;
+    /* The list is told where the drag is once a frame. Where it IS lives in
+       `spot`, read straight off the pointer, so a release never waits for one. */
+    let frame = 0;
 
     const mark = (zone: HTMLElement | null) => {
       if (marked === zone) return;
@@ -308,7 +338,7 @@ export function useTreeDrag(
         hover = { id: hover.id, since: Infinity };
       }
 
-      setDrag({
+      const next = {
         ids: carriedIds,
         line: spot?.line ?? null,
         intoId: spot?.intoId ?? null,
@@ -316,6 +346,11 @@ export function useTreeDrag(
         // is not being taken out of anything.
         toRoot: !!spot && spot.drop.parentId === null && row.parentId !== null,
         pointer: { x: ev.clientX, y: ev.clientY },
+      };
+      if (frame) cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        setDrag(next);
       });
     };
 
@@ -323,6 +358,8 @@ export function useTreeDrag(
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", drop);
       window.removeEventListener("pointercancel", abort);
+      if (frame) cancelAnimationFrame(frame);
+      measured.current = null;
       mark(null);
       if (!started) return;
       document.body.style.cursor = "";

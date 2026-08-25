@@ -11,14 +11,35 @@
 export const AI = {
   fim: {
     model: "codestral-2508",
-    /** Prose completions are bounded by the suffix, so they stay short. */
-    ghostMaxTokens: 32,
     /**
-     * Structure spans many lines. A five-node flowchart with labelled edges
-     * runs past 160 tokens, and truncation silently drops the trailing edges —
-     * which reads as "the diagram lost its arrows".
+     * Token budget per completion SHAPE, which the caller states in its
+     * request.
+     *
+     * One budget for every caller is what let a completion run away: every
+     * editor request asked for structure, so a one-clause prose continuation
+     * was allowed the whole structural budget with no stop sequence, and a
+     * model that started repeating itself had nothing to stop it.
      */
-    htmlMaxTokens: 420,
+    maxTokens: {
+      /** "complete": the few words the page already implies, and no more. */
+      complete: 64,
+      /** Prose where a block would be cut anyway — inside a table cell. */
+      prose: 96,
+      /**
+       * Structure spans many lines. A five-node flowchart with labelled edges
+       * runs past 160 tokens, and truncation silently drops the trailing edges —
+       * which reads as "the diagram lost its arrows".
+       */
+      structure: 420,
+    },
+    /**
+     * How much of the document the model is shown either side of the caret.
+     * The wire call enforces it; the callers cut to the same numbers, so a page
+     * carrying one very large block does not upload what is about to be
+     * trimmed off again.
+     */
+    maxBefore: 4000,
+    maxAfter: 1000,
     /**
      * How much of the project's standing context rides the completion seed —
      * the sheet's answers and the head of each context file, so a completion
@@ -279,7 +300,12 @@ export const AI = {
       minContextChars: 14,
       /** Blocks (code, math, diagram) may be proposed. */
       allowBlocks: true,
-      maxChars: Infinity,
+      /**
+       * Ghost text past this is not a continuation any more. Finite because
+       * this is the only bound inside the read loop: unbounded, a model that
+       * started looping was drawn in full and billed in full.
+       */
+      maxChars: 300,
       minGrounding: 0,
     },
     complete: {

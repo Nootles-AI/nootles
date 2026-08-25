@@ -9,6 +9,7 @@ import {
   levelOf,
   removePageCascade,
 } from "./pages";
+import { rowIcon } from "./schema";
 
 /**
  * Sidebar folders — the project's navigation tree. Pure structure: a folder
@@ -85,6 +86,15 @@ export const rename = mutation({
   },
 });
 
+/** Sets or clears the folder's icon; omitting `icon` clears it. */
+export const setIcon = mutation({
+  args: { folderId: v.id("folders"), icon: v.optional(rowIcon) },
+  handler: async (ctx, args) => {
+    await requireEditable(ctx, "folders", args.folderId);
+    await ctx.db.patch(args.folderId, { icon: args.icon });
+  },
+});
+
 /**
  * Deletes a folder and everything below it — subfolders, and every page they
  * hold with the full page cascade. Irreversible; the UI confirms first.
@@ -158,6 +168,7 @@ async function cloneFolder(
     ownerId: src.ownerId,
     projectId: src.projectId,
     title: placed.title,
+    icon: src.icon,
     parentId,
     order: placed.order,
     createdAt: Date.now(),
