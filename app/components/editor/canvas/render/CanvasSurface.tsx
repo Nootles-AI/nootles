@@ -28,7 +28,6 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
-  type CSSProperties,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
@@ -36,7 +35,12 @@ import {
 import { useContextMenu } from "../ContextMenu";
 import { ConnectorTool } from "./ConnectorTool";
 import { EdgeLayer } from "./EdgeLayer";
-import { reflowEdges, type EdgeElements } from "./liveEdges";
+import {
+  prepareObstacles,
+  reflowEdges,
+  type EdgeElements,
+  type LiveObstacles,
+} from "./liveEdges";
 import { useTransformGesture } from "../engine/gestures";
 import { useCanvasShortcuts, type CanvasTool } from "../engine/shortcuts";
 import type { SnapGuide } from "../engine/snapping";
@@ -52,8 +56,6 @@ import { useViewport, type ViewportController } from "../engine/useViewport";
 import type { DiagramPatch } from "../panels/StylePanel";
 import {
   absoluteBounds,
-  absoluteRect,
-  absoluteRotation,
   absoluteSelectionBounds,
   hitTestPath,
   normalizeRect,
@@ -73,7 +75,6 @@ import {
   type Rect,
   type EdgeId,
   type Scene,
-  type StyleMap,
   type StylePatch,
 } from "../scene/types";
 import {
@@ -88,7 +89,7 @@ import { defaultBox, newNode, type DrawKind } from "./newShape";
 import { Overlay, type OverlayApi } from "./Overlay";
 import { shapeWriter, type ShapeWriter } from "./svgShape";
 import { PenTool } from "./PenTool";
-import { ShapeView } from "./ShapeView";
+import { ShapeView, toCss } from "./ShapeView";
 import "../canvas.css";
 
 /** Kept clear either side, so a widened block cannot reach the window's edge. */
@@ -138,18 +139,6 @@ function drag(
   window.addEventListener("pointercancel", up);
 }
 
-/** `border-radius` → `borderRadius`, for the diagram's own declarations. */
-function toCss(style: StyleMap): CSSProperties {
-  const out: Record<string, string> = {};
-  for (const prop in style) {
-    const key = prop.startsWith("--")
-      ? prop
-      : prop.replace(/-([a-z])/g, (_, char: string) => char.toUpperCase());
-    out[key] = style[prop];
-  }
-  return out as CSSProperties;
-}
-
 /** A style patch straight onto an element — kebab-case and custom properties. */
 function writeStyle(style: CSSStyleDeclaration | undefined, decls: StylePatch) {
   if (!style) return;
@@ -158,10 +147,6 @@ function writeStyle(style: CSSStyleDeclaration | undefined, decls: StylePatch) {
     if (value === undefined) style.removeProperty(prop);
     else style.setProperty(prop, value);
   }
-}
-
-function frameOf(scene: Scene, id: NodeId): RotatedRect {
-  return { ...absoluteRect(scene, id), rot: absoluteRotation(scene, id) };
 }
 
 /** The widest the block may be drawn without escaping the document's scroller. */
@@ -194,6 +179,17 @@ function overlapArea(a: Rect, b: Rect): number {
   const w = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
   const h = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y);
   return w > 0 && h > 0 ? w * h : 0;
+}
+
+/**
+ * Every visible shape, unioned — the box the fit frames, and the same box the
+ * wheel asks about before it decides a pan has nothing left to reveal.
+ */
+function contentRect(scene: Scene): Rect {
+  return absoluteSelectionBounds(
+    scene,
+    scene.nodes.filter((node) => !node.hidden).map((node) => node.id),
+  );
 }
 
 /** The part of the scene the container is showing, in scene px. */
@@ -393,7 +389,13 @@ export function CanvasSurface({
   const scene = useSceneSnapshot(store);
   // Pinned for a shot, which has nowhere to pan to, and for a reader, who has
   // nothing to reach that the first fit did not already bring into view.
-  const viewport = useViewport(frame || readOnly ? { locked: true } : undefined);
+  // `content` is read once, so it answers through the store rather than closing
+  // over the scene this render happened to see.
+  const viewport = useViewport(
+    frame || readOnly
+      ? { locked: true }
+      : { content: () => contentRect(store.getScene()) },
+  );
 
   // A shot is drawn at whatever scale its column asks for. Written through the
   // viewport rather than as a CSS transform on the wrapper so that every
@@ -545,13 +547,15 @@ export function CanvasSurface({
   /**
    * What a gesture is allowed to assume for its whole duration: nothing
    * re-renders while a finger is down, so the elements are the ones it found on
-   * the first frame, and the only shapes that have left their model positions
-   * are the ones under the top-level nodes it is moving.
+   * the first frame, the only shapes that have left their model positions are
+   * the ones under the top-level nodes it is moving, and what every connector
+   * has to route around is therefore settled the moment the gesture starts.
    */
   const held = useRef<{
     moving: ReadonlySet<NodeId>;
     elements: Map<NodeId, HTMLElement | null>;
     edges: EdgeElements;
+    obstacles: LiveObstacles;
   } | null>(null);
 
   const getElement = useCallback(
@@ -593,7 +597,7 @@ export function CanvasSurface({
         const b = viewport.clientToScene({ x: r.right, y: r.bottom });
         return { x: a.x, y: a.y, w: b.x - a.x, h: b.y - a.y };
       },
-      cache?.edges,
+      cache,
     );
   }, [store, sceneRef, getElement, viewport]);
 
@@ -638,10 +642,12 @@ export function CanvasSurface({
     onActiveChange: (active) => {
       if (active) {
         moveDidDrag.current = true;
+        const moving = movingSubtrees();
         held.current = {
-          moving: movingSubtrees(),
+          moving,
           elements: new Map(),
           edges: new Map(),
+          obstacles: prepareObstacles(store.getScene(), moving),
         };
         return;
       }
@@ -720,12 +726,9 @@ export function CanvasSurface({
     // A shot is framed by its container at a fixed scale; fitting the content
     // here would zoom a viewport whose whole point is that it never moves.
     if (inFrame) return;
-    const ids = store
-      .getScene()
-      .nodes.filter((node) => !node.hidden)
-      .map((node) => node.id);
-    if (!ids.length) return;
-    viewport.zoomToFit(absoluteSelectionBounds(store.getScene(), ids));
+    const scene = store.getScene();
+    if (!scene.nodes.some((node) => !node.hidden)) return;
+    viewport.zoomToFit(contentRect(scene));
   }, [store, viewport, inFrame]);
 
   // A diagram authored wider than the column would otherwise open cropped.
@@ -903,6 +906,7 @@ export function CanvasSurface({
     // drag, both of which would otherwise cost the canvas its focus — and with
     // it the keymap and the clipboard.
     viewport.containerRef.current?.focus({ preventScroll: true });
+    dropHover();
     busy.current = true;
 
     if (tool === "hand") {
@@ -982,11 +986,47 @@ export function CanvasSurface({
     }
   };
 
+  /**
+   * The pointer's last position over the canvas, and the frame that will read
+   * it. Answering where the ring goes costs a hit test down the tree and a
+   * `getBoundingClientRect` to convert the point — per event, at pointer rate,
+   * for something that can only be shown once a frame. So the same idiom as
+   * {@link drag}: keep the latest, do the work once.
+   */
+  const hoverAt = useRef<{
+    clientX: number;
+    clientY: number;
+    deep: boolean;
+  } | null>(null);
+  const hoverFrame = useRef(0);
+
+  /** Give up the queued frame — the pointer has left, gone down, or the canvas
+   *  has. A press is the one case that is not simply tidying: `onPointerMove`
+   *  stands down for a gesture, but a frame queued just before the press would
+   *  still land inside it and re-render the surface out from under a drag that
+   *  has been promised nothing will. */
+  const dropHover = useCallback(() => {
+    if (hoverFrame.current) cancelAnimationFrame(hoverFrame.current);
+    hoverFrame.current = 0;
+    hoverAt.current = null;
+  }, []);
+  useEffect(() => dropHover, [dropHover]);
+
   const onPointerMove = (event: ReactPointerEvent) => {
     if (busy.current || !picking || editPath || gesture.isActive()) return;
-    // Deep read-only for the same reason the click is: the ring has to promise
-    // what the click will actually take.
-    selection.hover(scenePoint(event), { deep: readOnly || event.altKey });
+    hoverAt.current = {
+      clientX: event.clientX,
+      clientY: event.clientY,
+      // Deep read-only for the same reason the click is: the ring has to
+      // promise what the click will actually take.
+      deep: readOnly || event.altKey,
+    };
+    if (hoverFrame.current) return;
+    hoverFrame.current = requestAnimationFrame(() => {
+      hoverFrame.current = 0;
+      const at = hoverAt.current;
+      if (at) selection.hover(scenePoint(at), { deep: at.deep });
+    });
   };
 
   /**
@@ -1144,20 +1184,6 @@ export function CanvasSurface({
   // them for the same reason: in vector edit mode the anchors are the chrome.
   const framed = picking && !editPath;
 
-  const members = useMemo(
-    () =>
-      framed && sel.ids.length > 1
-        ? sel.ids.map((id) => frameOf(scene, id))
-        : NO_MEMBERS,
-    [scene, sel.ids, framed],
-  );
-
-  const hover = useMemo(() => {
-    const id = sel.hoverId;
-    if (!id || !framed || sel.ids.includes(id)) return null;
-    return frameOf(scene, id);
-  }, [scene, sel.hoverId, sel.ids, framed]);
-
   /** Every visible node's box, which is what tells us the content is lost. */
   const contentBounds = useMemo(
     () =>
@@ -1200,7 +1226,10 @@ export function CanvasSurface({
         onFocus={publish}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
-        onPointerLeave={() => selection.hover(null)}
+        onPointerLeave={() => {
+          dropHover();
+          selection.hover(null);
+        }}
         onDoubleClick={readOnly ? undefined : onDoubleClick}
         onContextMenu={readOnly ? undefined : onContextMenu}
       >
@@ -1209,6 +1238,7 @@ export function CanvasSurface({
               it joins, and its arrowhead lands on the box edge either way. */}
           <EdgeLayer
             scene={scene}
+            viewport={viewport}
             selected={sel.edgeSelected}
             hoverId={hoverEdge}
             // Unattached rather than ignored, so a press on a connector falls
@@ -1233,9 +1263,9 @@ export function CanvasSurface({
             ref={overlay}
             viewport={viewport}
             selection={framed && sel.ids.length ? sel.selectionBounds : null}
-            members={members}
+            members={framed ? sel.memberBounds : NO_MEMBERS}
             ids={sel.ids}
-            hover={hover}
+            hover={framed ? sel.hoverBounds : null}
             onResizeStart={tool === "scale" ? gesture.startScale : gesture.startResize}
             onRotateStart={gesture.startRotate}
             // Withheld read-only, which is also what stops the overlay reading

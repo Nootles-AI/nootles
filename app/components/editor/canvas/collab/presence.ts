@@ -1,7 +1,17 @@
 import type { Awareness } from "y-protocols/awareness";
 import { laidOutScene } from "../scene/autoLayout";
-import { absoluteRect, absoluteRotation } from "../scene/geometry";
-import { findNode, nodePath, type Point, type Scene } from "../scene/types";
+import {
+  absoluteRect,
+  absoluteRotation,
+  viewportToScene,
+} from "../scene/geometry";
+import {
+  findNode,
+  nodePath,
+  type Point,
+  type Scene,
+  type Viewport,
+} from "../scene/types";
 import { offsetIn, pointAt } from "./labelCaret";
 
 /**
@@ -50,7 +60,7 @@ type Api = {
     containerRef: { current: HTMLDivElement | null };
     sceneRef: { current: HTMLDivElement | null };
     clientToScene(point: Point): Point;
-    get(): { zoom: number };
+    get(): Viewport;
     subscribe(cb: () => void): () => void;
   };
 };
@@ -82,24 +92,42 @@ export function broadcastCanvasPresence(
 ): () => void {
   let lastHadFrames = false;
 
+  // One uninterrupted read burst, then the arithmetic. `clientToScene` re-reads
+  // the container's rect on every call, so measuring through it would cost two
+  // forced container reads PER SHAPE — 128 of them at MAX_LIVE_FRAMES. The
+  // container's frame is read once and every element rect converted against it.
   const measure = (): CanvasSignal["frames"] => {
     const layer = api.viewport.sceneRef.current;
-    if (!layer) return undefined;
-    const frames: NonNullable<CanvasSignal["frames"]> = {};
-    let any = 0;
+    const container = api.viewport.containerRef.current;
+    if (!layer || !container) return undefined;
+
+    const host = container.getBoundingClientRect();
+    const originX = host.left + container.clientLeft;
+    const originY = host.top + container.clientTop;
+    const viewport = api.viewport.get();
+    const measured: { id: string; rect: DOMRect }[] = [];
     for (const id of api.selection.getSnapshot().ids) {
-      if (any >= MAX_LIVE_FRAMES) break;
+      if (measured.length >= MAX_LIVE_FRAMES) break;
       const el = layer.querySelector<HTMLElement>(
         `[data-id="${CSS.escape(id)}"]`,
       );
-      if (!el) continue;
-      const rect = el.getBoundingClientRect();
-      const a = api.viewport.clientToScene({ x: rect.left, y: rect.top });
-      const b = api.viewport.clientToScene({ x: rect.right, y: rect.bottom });
-      frames[id] = { x: a.x, y: a.y, w: b.x - a.x, h: b.y - a.y };
-      any += 1;
+      if (el) measured.push({ id, rect: el.getBoundingClientRect() });
     }
-    return any ? frames : undefined;
+    if (!measured.length) return undefined;
+
+    const frames: NonNullable<CanvasSignal["frames"]> = {};
+    for (const { id, rect } of measured) {
+      const a = viewportToScene(
+        { x: rect.left - originX, y: rect.top - originY },
+        viewport,
+      );
+      const b = viewportToScene(
+        { x: rect.right - originX, y: rect.bottom - originY },
+        viewport,
+      );
+      frames[id] = { x: a.x, y: a.y, w: b.x - a.x, h: b.y - a.y };
+    }
+    return frames;
   };
 
   // The label caret, read off the live DOM selection: inside a `.nt-edit` on
@@ -177,6 +205,13 @@ export function broadcastCanvasPresence(
   // so the pointer itself is the signal: while it is down on this canvas, the
   // selection's live boxes are sampled off the DOM; the release announcement
   // drops the frames. Bracketed gestures (sliders, resizes) count too.
+  //
+  // The interval only REQUESTS a sample; the reads happen in the frame it
+  // schedules. Measuring straight off the timer lands after the gesture's DOM
+  // writes but before the browser's own layout, forcing a SECOND layout for
+  // that frame — precisely what a drag cannot afford. Inside rAF the reads
+  // batch with the layout that was going to happen anyway. The 90ms cadence is
+  // unchanged; only where in the frame it lands is.
   let pointerDown = false;
   const container = api.viewport.containerRef.current;
   const onDown = () => {
@@ -191,14 +226,26 @@ export function broadcastCanvasPresence(
   window.addEventListener("pointerup", onUp, { capture: true });
   window.addEventListener("pointercancel", onUp, { capture: true });
 
+  let pendingSample = 0;
   const sampler = setInterval(() => {
-    if (pointerDown || api.store.gesturing()) announce(true);
-    else if (lastHadFrames) announce(false);
+    const live = pointerDown || api.store.gesturing();
+    // Asked before the frame is requested, not inside it: an idle canvas that
+    // scheduled one anyway would oblige the browser to run the rendering steps
+    // ~11 times a second for the life of the document, and a page with nothing
+    // moving on it would never go rendering-idle.
+    if (!live && !lastHadFrames) return;
+    if (pendingSample) return;
+    pendingSample = requestAnimationFrame(() => {
+      pendingSample = 0;
+      if (pointerDown || api.store.gesturing()) announce(true);
+      else if (lastHadFrames) announce(false);
+    });
   }, SAMPLE_MS);
 
   return () => {
     unsubSelection();
     clearInterval(sampler);
+    if (pendingSample) cancelAnimationFrame(pendingSample);
     document.removeEventListener("selectionchange", onCaret);
     container?.removeEventListener("pointerdown", onDown, { capture: true });
     container?.removeEventListener("input", onCaret, true);

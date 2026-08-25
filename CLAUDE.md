@@ -68,6 +68,13 @@ Project → Page (1:1 with a canvas surface) → Block[text | canvas] → Shape 
   and best-in-class. Hold it to a higher bar than anything else; polish over shortcuts.
 - Light-mode only. Neutral styling — **no blue selection rings / accent colors** on custom
   blocks or canvas. Match Notion/Figma restraint.
+  - **One sanctioned exception:** `--nt-select` (declared in `canvas/canvas.css`) is the canvas's
+    single accent, and it marks *the system's live answer to an input* — never a property of the
+    thing. That is the one job neutral grey cannot do. In practice: the selection frame and its
+    grips, a selected connector and its label, the connector tool's plugs / target ring / preview,
+    and the layers panel's drag drop-indicator. Note the layers panel's *selected row* is neutral
+    (`--selected`) — a resting state is not an answer. Everything else on the canvas stays neutral.
+    Don't extend it, and don't remove it.
 - Interactions should feel native (Notion-clean block logic, instant edit-on-insert,
   keyboard copy/cut/paste/delete everywhere).
 

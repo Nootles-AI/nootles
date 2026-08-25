@@ -713,6 +713,18 @@ const NUDGE: Readonly<Record<string, Point>> = {
   arrowdown: { x: 0, y: 1 },
 };
 
+/** Which way an arrow key moves the selection, by character or by physical key. */
+function nudgeDelta(e: KeyboardEvent): Point | null {
+  return NUDGE[eventKey(e)] ?? NUDGE[codeKey(e.code) ?? ""] ?? null;
+}
+
+/**
+ * How long a run of nudges survives with no further arrow key. Longer than the
+ * delay an OS waits before a held key starts repeating, so holding one arrow
+ * stays a single run; in the ordinary case the key coming up ends it sooner.
+ */
+const NUDGE_RUN_MS = 600;
+
 export interface CanvasShortcutOptions {
   scene: SceneStore;
   selection: SelectionStore;
@@ -857,11 +869,50 @@ export function useCanvasShortcuts({
       return true;
     };
 
+    /** The nudge run's idle timer; non-null exactly while its bracket is open. */
+    let nudgeIdle: ReturnType<typeof setTimeout> | null = null;
+    /**
+     * The selection the open run started under, held by identity — which the
+     * selection store makes meaningful: it threads the same `ids` array through
+     * a hover change, so pointing at a shape mid-run is not mistaken for the
+     * selection moving on.
+     */
+    let nudgeSelection: readonly NodeId[] = [];
+
+    const endNudgeRun = () => {
+      if (nudgeIdle === null) return;
+      clearTimeout(nudgeIdle);
+      nudgeIdle = null;
+      latest.current.scene.commit();
+    };
+
+    /**
+     * Move the selection by one step, bracketing a run of them into one undo
+     * entry.
+     *
+     * The bracket is not about nudging, it is about key repeat: holding an
+     * arrow has the OS deliver a keydown every few tens of milliseconds, and
+     * outside a bracket every dispatch is an entry of its own, so two seconds
+     * of ⇧→ would spend most of the store's bounded history and take as many
+     * ⌘Zs to walk back. Direction and step may change freely within the run —
+     * arrow-keying a shape into place is one gesture to the user, and the
+     * bracket only decides where history is cut, never what the ops do.
+     *
+     * The run ends at the key coming up, at {@link NUDGE_RUN_MS} of quiet, at
+     * any other command, or at the selection moving elsewhere, so nothing that
+     * is not part of the same arrow-keying is folded into the entry.
+     */
     const nudge = (e: KeyboardEvent, step: number): boolean => {
-      const delta =
-        NUDGE[eventKey(e)] ?? NUDGE[codeKey(e.code) ?? ""] ?? null;
+      const delta = nudgeDelta(e);
       const ids = targetIds();
       if (!delta || ids.length === 0) return false;
+      if (nudgeIdle === null) {
+        nudgeSelection = latest.current.selection.getSnapshot().ids;
+        latest.current.scene.begin();
+      } else {
+        clearTimeout(nudgeIdle);
+      }
+      nudgeIdle = setTimeout(endNudgeRun, NUDGE_RUN_MS);
       dispatch({ type: "move", ids, dx: delta.x * step, dy: delta.y * step });
       return true;
     };
@@ -1131,11 +1182,26 @@ export function useCanvasShortcuts({
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.isComposing || isTextEntry()) return;
       const id = match(e, apple);
-      if (!id || !commands[id](e)) return;
+      if (!id) return;
+      // Anything but another nudge closes an open run first — so an unrelated
+      // edit is never folded into it, and ⌘Z is not refused for the depth we
+      // are holding.
+      if (id !== "move.nudge" && id !== "move.nudgeFar") endNudgeRun();
+      if (!commands[id](e)) return;
       e.preventDefault();
       // The canvas is inside a ProseMirror document that wants these same keys.
       e.stopPropagation();
     };
+
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (nudgeDelta(e)) endNudgeRun();
+    };
+
+    const unsubscribeSelection = latest.current.selection.subscribe(() => {
+      if (latest.current.selection.getSnapshot().ids !== nudgeSelection) {
+        endNudgeRun();
+      }
+    });
 
     /**
      * Clipboard events are listened for on the document in the capture phase,
@@ -1182,11 +1248,17 @@ export function useCanvasShortcuts({
     };
 
     el.addEventListener("keydown", onKeyDown);
+    el.addEventListener("keyup", onKeyUp);
     document.addEventListener("copy", onCopy, true);
     document.addEventListener("cut", onCut, true);
     document.addEventListener("paste", onPaste, true);
     return () => {
+      // A bracket left open would wedge the store: undo and redo both refuse
+      // while one is, and a remote scene waits for it.
+      endNudgeRun();
+      unsubscribeSelection();
       el.removeEventListener("keydown", onKeyDown);
+      el.removeEventListener("keyup", onKeyUp);
       document.removeEventListener("copy", onCopy, true);
       document.removeEventListener("cut", onCut, true);
       document.removeEventListener("paste", onPaste, true);
