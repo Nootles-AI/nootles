@@ -597,7 +597,7 @@ function EditorSurface({
   // back over that strip rather than on the editor itself.
   const marqueeSurface = useRef<HTMLDivElement>(null);
   const selected = readOnly ? null : blockSelection(editor);
-  const marquee = useBlockMarquee({
+  useBlockMarquee({
     surfaceRef: marqueeSurface,
     selection: selected,
     enabled: !readOnly,
@@ -623,7 +623,6 @@ function EditorSurface({
       <div
         ref={marqueeSurface}
         className="nt-marquee-surface"
-        onPointerDown={marquee.onPointerDown}
         onMouseUp={promoteSpanned}
       >
         <BlockNoteView

@@ -1,33 +1,47 @@
 "use client";
 
 /**
- * The gutter gesture: press beside the text and band down it to take whole
- * blocks, the way Finder takes files and the sidebar takes pages.
+ * Box selection: press anywhere in the document that is not text and band
+ * across whole blocks, the way Finder takes files and the sidebar takes pages.
  *
- * It lives outside the editor on purpose. `.bn-editor` has no inline padding
- * (see `editor.css`), so there is no margin INSIDE the contenteditable to press
- * on — the strip the drag handle floats in belongs to the page, not to
- * ProseMirror. So the caller mounts this on a wrapper that reclaims that strip
- * (`.nt-marquee-surface`), and the press never has to travel through the
- * editor's own event handling.
+ * ## Where the press is heard
  *
- * Two things it inherits from `sidebarMarquee`, because they are the same
- * gesture: a distance gate before a press becomes a drag, so a click stays a
- * click, and hit-testing by VERTICAL OVERLAP alone, because a full-width row
- * carries no horizontal information. Two things it adds, because a document is
- * not a sidebar: the surface is `contenteditable`, so native text selection
- * has to be held off for the whole gesture, and a page is taller than the
- * window, so the band scrolls the page when it reaches the edge.
+ * On the SCROLLER, not on a wrapper around the editor. A wrapper only hears
+ * presses inside its own box, which made "can a band start here" a question
+ * about layout — whether that box reached out into the gutter, whether it grew
+ * past the last block — and the answer was no in most of the places a hand
+ * actually reaches. The scroller is the document area by definition, so the
+ * question becomes one rule asked of the point itself: is there text under it,
+ * or a control.
  *
- * The band is drawn imperatively rather than through React state. A rubber band
- * moves with the pointer; routing that through a re-render would re-render the
- * whole editor sixty times a second to move one rectangle. It is one fixed
- * `div` on `document.body`, positioned directly — which also means the caller
- * renders nothing for it.
+ * `pressIsOnText` is that rule, and it asks the browser rather than guessing
+ * from element boxes: a block runs the full width of the column, so its element
+ * says nothing about whether there is anything at the point. The caret the
+ * browser would place is the honest answer — vertically first, because asked
+ * about a point below the last line it answers with the nearest caret it has,
+ * up on that line.
+ *
+ * ## What it inherits, and what it adds
+ *
+ * From `sidebarMarquee`, because it is the same gesture: a distance gate before
+ * a press becomes a drag, so a click stays a click, and hit-testing by VERTICAL
+ * OVERLAP alone, because a full-width row carries no horizontal information.
+ * What a document adds: the surface is `contenteditable`, so native text
+ * selection has to be held off for the whole gesture (and preventing a
+ * pointerdown does not prevent the mousedown ProseMirror listens for), and a
+ * page is taller than the window, so the band scrolls when it reaches an edge.
+ *
+ * Blocks are measured ONCE when the gesture starts and held in the scroller's
+ * own coordinates: they do not move while a band is drawn over them, and
+ * measuring per frame meant a layout flush for every block on every pointer
+ * move. The band itself is one fixed `div` positioned imperatively — routing a
+ * rubber band through React state would re-render the editor to move a
+ * rectangle.
  */
 
+
 import { useCallback, useEffect, useRef } from "react";
-import type { PointerEvent as ReactPointerEvent, RefObject } from "react";
+import type { RefObject } from "react";
 import { type BlockSelectionStore } from "./blockSelection";
 import "./blockSelection.css";
 
@@ -155,16 +169,11 @@ export interface BlockMarqueeOptions {
   enabled?: boolean;
 }
 
-export interface BlockMarquee {
-  /** Put this on the surface element. It renders nothing of its own. */
-  onPointerDown: (event: ReactPointerEvent) => void;
-}
-
 export function useBlockMarquee({
   surfaceRef,
   selection,
   enabled = true,
-}: BlockMarqueeOptions): BlockMarquee {
+}: BlockMarqueeOptions): void {
   const latest = useRef({ selection, enabled });
   const teardown = useRef<(() => void) | null>(null);
 
@@ -176,14 +185,18 @@ export function useBlockMarquee({
   // A gesture must not outlive the surface it is banding across.
   useEffect(() => () => teardown.current?.(), []);
 
-  const onPointerDown = useCallback(
-    (event: ReactPointerEvent) => {
+  const start = useCallback(
+    (event: PointerEvent) => {
       const store = latest.current.selection;
       const surface = surfaceRef.current;
       if (!latest.current.enabled || !store || !surface) return;
       if (event.button !== 0) return;
       const target = event.target;
       if (!(target instanceof Element) || target.closest(CONTROLS)) return;
+
+      // Everything from the top of the document down is fair game; above it is
+      // the title and the mode toggle, which are not the document.
+      if (event.clientY < surface.getBoundingClientRect().top - 4) return;
 
       // Inside a block, only its text owns the press; the room to the right of
       // a short line is as good a place to start a box as the margin is.
@@ -426,5 +439,21 @@ export function useBlockMarquee({
     [surfaceRef],
   );
 
-  return { onPointerDown };
+  /**
+   * Listen on the SCROLLER, not on a wrapper around the editor.
+   *
+   * A wrapper only hears presses inside its own box, so the gesture kept
+   * depending on that box reaching the right places — out into the gutter, and
+   * down past the last block — which made "can I start a band here" a question
+   * about layout rather than about what is under the pointer. The scroller is
+   * the whole document area by definition. Where a band may start is then one
+   * rule, asked of the point itself: is there text there, or a control.
+   */
+  useEffect(() => {
+    const surface = surfaceRef.current;
+    if (!surface) return;
+    const scroller = scrollerOf(surface);
+    scroller.addEventListener("pointerdown", start);
+    return () => scroller.removeEventListener("pointerdown", start);
+  }, [surfaceRef, start, enabled]);
 }
