@@ -151,9 +151,9 @@
   margin-top: 2px;
 }
 
-/* Smaller than the emoji cells. These are hairline outlines on a 256 box —
-   drawn fine enough that size is what carries them, and a thousand of them read
-   as a set rather than as a row of buttons at this scale. */
+/* Smaller than the emoji cells. These are fine outlines on a 256 box, drawn
+   light enough that size is what carries them, and a thousand of them read as a
+   set rather than as a row of buttons at this scale. */
 .nt-iconpicker-glyph {
   width: 17px;
   height: 17px;
