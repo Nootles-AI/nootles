@@ -238,7 +238,9 @@ export function IconPicker({
             <button
               key={t}
               role="tab"
+              id={`nt-icontab-${t}`}
               aria-selected={tab === t}
+              aria-controls="nt-iconpanel"
               className="nt-iconpicker-tab"
               data-active={tab === t || undefined}
               onClick={() => setTab(t)}
@@ -288,7 +290,14 @@ export function IconPicker({
       )}
 
       {tab === "emoji" && (
-        <div className="nt-iconpicker-body" onKeyDown={roam}>
+        <div
+          id="nt-iconpanel"
+          role="tabpanel"
+          aria-labelledby={`nt-icontab-${tab}`}
+          className="nt-iconpicker-body"
+          data-filtered={q || undefined}
+          onKeyDown={roam}
+        >
           {loadFailed ? (
             <p className="nt-iconpicker-note">Emoji could not load.</p>
           ) : !emoji ? (
@@ -324,7 +333,14 @@ export function IconPicker({
       )}
 
       {tab === "icons" && (
-        <div className="nt-iconpicker-body" onKeyDown={roam}>
+        <div
+          id="nt-iconpanel"
+          role="tabpanel"
+          aria-labelledby={`nt-icontab-${tab}`}
+          className="nt-iconpicker-body"
+          data-filtered={q || undefined}
+          onKeyDown={roam}
+        >
           {iconHits.length === 0 ? (
             <p className="nt-iconpicker-note">No icons match “{query.trim()}”.</p>
           ) : (
@@ -354,7 +370,12 @@ export function IconPicker({
       )}
 
       {tab === "upload" && (
-        <div className="nt-iconpicker-body nt-iconpicker-upload">
+        <div
+          id="nt-iconpanel"
+          role="tabpanel"
+          aria-labelledby="nt-icontab-upload"
+          className="nt-iconpicker-body nt-iconpicker-upload"
+        >
           <label className="nt-iconpicker-drop">
             <input
               type="file"

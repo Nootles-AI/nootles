@@ -91,6 +91,10 @@
   border-color: var(--foreground);
 }
 
+/* One height across the three tabs so the popover does not resize under the
+   cursor as they switch — but only while BROWSING. A live query sizes to its
+   results instead, because holding 260px behind three hits is a slab of empty
+   card, which is worse than the jump it was preventing. */
 .nt-iconpicker-body {
   height: 260px;
   overflow-y: auto;
@@ -99,6 +103,10 @@
   /* A surface we did not draw, themed from the palette like the rest. */
   scrollbar-width: thin;
   scrollbar-color: var(--border) transparent;
+}
+.nt-iconpicker-body[data-filtered] {
+  height: auto;
+  max-height: 260px;
 }
 .nt-iconpicker-body::-webkit-scrollbar {
   width: 10px;
@@ -134,13 +142,18 @@
   margin-top: 2px;
 }
 
-/* Larger than the emoji cells on purpose. There are two dozen of these and
-   they are picked at a glance, where a thousand emoji are scanned — and the
-   bigger cell fills the shared body height instead of leaving it empty. */
+/* Slightly larger than an emoji cell — these are picked at a glance where a
+   thousand emoji are scanned — but only slightly: at 46px the 18px glyph was a
+   small mark floating in air and the grid lost two columns. The glyph grew
+   instead, so the cell has something in it. */
 .nt-iconpicker-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(46px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(38px, 1fr));
   gap: 2px;
+}
+.nt-iconpicker-grid .nt-iconpicker-cell svg {
+  width: 22px;
+  height: 22px;
 }
 .nt-iconpicker-cell {
   display: flex;
