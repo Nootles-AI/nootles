@@ -193,7 +193,6 @@ export function PageSurface({
             >
               <IconPicker
                 icon={(page.icon ?? null) as RowIconValue | null}
-                kind="page"
                 onPick={(next) => {
                   void setIcon({ pageId, icon: next ?? undefined });
                   closePicker();

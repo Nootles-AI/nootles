@@ -18,11 +18,11 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { useConvex } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { ICON_CHOICES, RowIcon, type RowIconValue } from "./rowIcon";
+import { type RowIconValue } from "./rowIcon";
 import { Search, Trash, X } from "./Icons";
 import "./iconPicker.css";
 
-type Tab = "emoji" | "icons" | "upload";
+type Tab = "icons" | "emoji" | "upload";
 
 type EmojiEntry = {
   id: string;
@@ -52,6 +52,24 @@ const GROUP_LABELS: Record<string, string> = {
   symbols: "Symbols",
   flags: "Flags",
 };
+
+type IconEntry = { name: string; d: string };
+
+/** The Phosphor Thin catalog, pulled the first time the Icons tab is opened. */
+let iconCache: { all: IconEntry[]; suggested: IconEntry[]; box: number } | null = null;
+async function loadIcons() {
+  if (iconCache) return iconCache;
+  const m = await import("./pageIcons");
+  const entry = (name: string): IconEntry | null =>
+    m.PAGE_ICONS[name] ? { name, d: m.PAGE_ICONS[name] } : null;
+  const suggested = m.SUGGESTED_ICONS.map(entry).filter((e): e is IconEntry => !!e);
+  const first = new Set(suggested.map((e) => e.name));
+  const all = Object.keys(m.PAGE_ICONS)
+    .filter((n) => !first.has(n))
+    .map((name) => ({ name, d: m.PAGE_ICONS[name] }));
+  iconCache = { all, suggested, box: m.PAGE_ICON_BOX };
+  return iconCache;
+}
 
 let emojiCache: EmojiEntry[] | null = null;
 async function loadEmoji(): Promise<EmojiEntry[]> {
@@ -88,22 +106,28 @@ async function loadEmoji(): Promise<EmojiEntry[]> {
   return emojiCache;
 }
 
+/** "map-trifold" reads as "Map trifold" — the set ships slugs, not names. */
+function label(name: string): string {
+  const words = name.replace(/-/g, " ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
 export function IconPicker({
   icon,
-  kind,
   onPick,
   onClose,
 }: {
   icon: RowIconValue | null | undefined;
-  kind: "page" | "folder";
   /** `null` clears the icon. */
   onPick: (next: RowIconValue | null) => void;
   onClose: () => void;
 }) {
   const convex = useConvex();
-  const [tab, setTab] = useState<Tab>("emoji");
+  const [tab, setTab] = useState<Tab>("icons");
   const [query, setQuery] = useState("");
   const [emoji, setEmoji] = useState<EmojiEntry[] | null>(emojiCache);
+  const [icons, setIcons] = useState(iconCache);
+  const [iconsFailed, setIconsFailed] = useState(false);
   const [loadFailed, setLoadFailed] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -134,6 +158,18 @@ export function IconPicker({
       window.removeEventListener("pointerdown", away);
     };
   }, [onClose]);
+
+  useEffect(() => {
+    if (tab !== "icons" || icons) return;
+    let live = true;
+    loadIcons().then(
+      (c) => live && setIcons(c),
+      () => live && setIconsFailed(true),
+    );
+    return () => {
+      live = false;
+    };
+  }, [tab, icons]);
 
   useEffect(() => {
     if (tab !== "emoji" || emoji) return;
@@ -184,18 +220,18 @@ export function IconPicker({
     );
   }, [emoji, q]);
 
-  const iconHits = useMemo(
-    () =>
-      q
-        ? ICON_CHOICES.filter(
-            (c) =>
-              c.name.includes(q) ||
-              c.label.toLowerCase().includes(q) ||
-              c.keywords.some((k) => k.includes(q)),
-          )
-        : ICON_CHOICES,
-    [q],
-  );
+  /**
+   * Empty field: the suggested lead, then the rest of the alphabet behind a
+   * heading. A query searches the whole set — 1,500 subjects are reached by
+   * naming one, not by scrolling to it.
+   */
+  const iconHits = useMemo(() => {
+    if (!icons) return [];
+    if (!q) return [...icons.suggested, ...icons.all];
+    const hit = (e: IconEntry) => e.name.includes(q);
+    return [...icons.suggested.filter(hit), ...icons.all.filter(hit)];
+  }, [icons, q]);
+  const leadCount = !q && icons ? icons.suggested.length : 0;
 
   const upload = useCallback(
     async (file: File) => {
@@ -234,7 +270,7 @@ export function IconPicker({
     <div className="nt-menu nt-iconpicker" ref={root} role="dialog" aria-label="Choose an icon">
       <div className="nt-iconpicker-head">
         <div className="nt-iconpicker-tabs" role="tablist">
-          {(["emoji", "icons", "upload"] as const).map((t) => (
+          {(["icons", "emoji", "upload"] as const).map((t) => (
             <button
               key={t}
               role="tab"
@@ -245,7 +281,7 @@ export function IconPicker({
               data-active={tab === t || undefined}
               onClick={() => setTab(t)}
             >
-              {t === "emoji" ? "Emoji" : t === "icons" ? "Icons" : "Upload"}
+              {t === "icons" ? "Icons" : t === "emoji" ? "Emoji" : "Upload"}
             </button>
           ))}
         </div>
@@ -336,33 +372,56 @@ export function IconPicker({
         <div
           id="nt-iconpanel"
           role="tabpanel"
-          aria-labelledby={`nt-icontab-${tab}`}
+          aria-labelledby="nt-icontab-icons"
           className="nt-iconpicker-body"
           data-filtered={q || undefined}
           onKeyDown={roam}
         >
-          {iconHits.length === 0 ? (
+          {iconsFailed ? (
+            <p className="nt-iconpicker-note">Icons could not load.</p>
+          ) : !icons ? (
+            <p className="nt-iconpicker-note">Loading icons…</p>
+          ) : iconHits.length === 0 ? (
             <p className="nt-iconpicker-note">No icons match “{query.trim()}”.</p>
           ) : (
-            <div className="nt-iconpicker-grid">
-              {iconHits.map((choice) => (
-                <button
-                  key={choice.name}
-                  className="nt-iconpicker-cell"
-                  title={choice.label}
-                  aria-label={choice.label}
-                  data-current={
-                    icon?.kind === "icon" && icon.name === choice.name ? "" : undefined
-                  }
-                  onClick={() => onPick({ kind: "icon", name: choice.name })}
-                >
-                  <RowIcon
-                    icon={{ kind: "icon", name: choice.name }}
-                    kind={kind}
-                    size={18}
-                    className="nt-iconpicker-glyph"
-                  />
-                </button>
+            <div className="nt-iconpicker-groups">
+              {iconHits.map((choice, i) => (
+                <Fragment key={choice.name}>
+                  {/* Two sections while browsing: what a page is usually about,
+                      then everything else. A query flattens them, because a hit
+                      is a hit wherever it came from. */}
+                  {leadCount > 0 && i === 0 && (
+                    <p className="nt-iconpicker-group">Suggested</p>
+                  )}
+                  {leadCount > 0 && i === leadCount && (
+                    <p className="nt-iconpicker-group">All icons</p>
+                  )}
+                  <button
+                    className="nt-iconpicker-cell"
+                    title={label(choice.name)}
+                    aria-label={label(choice.name)}
+                    data-current={
+                      icon?.kind === "icon" && icon.name === choice.name ? "" : undefined
+                    }
+                    onClick={() =>
+                      onPick({
+                        kind: "icon",
+                        name: choice.name,
+                        d: choice.d,
+                        box: icons.box,
+                      })
+                    }
+                  >
+                    <svg
+                      className="nt-iconpicker-glyph"
+                      viewBox={`0 0 ${icons.box} ${icons.box}`}
+                      fill="currentColor"
+                      aria-hidden
+                    >
+                      <path d={choice.d} />
+                    </svg>
+                  </button>
+                </Fragment>
               ))}
             </div>
           )}

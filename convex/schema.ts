@@ -73,7 +73,25 @@ export const feedbackStatus = v.union(
  */
 export const rowIcon = v.union(
   v.object({ kind: v.literal("emoji"), value: v.string() }),
-  v.object({ kind: v.literal("icon"), name: v.string() }),
+  v.object({
+    kind: v.literal("icon"),
+    name: v.string(),
+    /**
+     * The glyph's own path data, carried with the choice.
+     *
+     * The catalog it came from is a lazily-loaded 664KB, and a sidebar draws
+     * every row's icon at once — so resolving a name against that catalog
+     * would drag it into the shell for every page that has an icon at all.
+     * The path is a few hundred bytes and makes the row self-contained: it
+     * draws on a share route, and it survives the catalog being recurated.
+     *
+     * Optional because the name is the identity; a row without it falls back
+     * to the default glyph rather than to nothing.
+     */
+    d: v.optional(v.string()),
+    /** The box `d` is drawn in. Absent means the catalog's own 256. */
+    box: v.optional(v.number()),
+  }),
   v.object({
     kind: v.literal("image"),
     storageId: v.id("_storage"),

@@ -49,7 +49,7 @@ import {
 /** The shape stored on a page or folder row. Mirrors `rowIcon` in the schema. */
 export type RowIconValue =
   | { kind: "emoji"; value: string }
-  | { kind: "icon"; name: string }
+  | { kind: "icon"; name: string; d?: string; box?: number }
   | { kind: "image"; storageId: Id<"_storage">; url: string };
 
 type Glyph = (props: SVGProps<SVGSVGElement>) => React.JSX.Element;
@@ -73,7 +73,7 @@ type Glyph = (props: SVGProps<SVGSVGElement>) => React.JSX.Element;
  * vocabulary. Names are stored rather than components, so this list can grow
  * without a migration.
  */
-export const ICON_CHOICES: ReadonlyArray<{
+const ICON_CHOICES: ReadonlyArray<{
   readonly name: string;
   readonly label: string;
   readonly glyph: Glyph;
@@ -151,6 +151,24 @@ export function RowIcon({
         className={`${cls} nt-icon-image`}
         style={{ width: size, height: size }}
       />
+    );
+  }
+
+  if (icon?.kind === "icon" && icon.d) {
+    // Filled outlines from Phosphor Thin: the hairline IS the shape, so this
+    // paints with fill and no stroke, unlike the drawn set below.
+    const box = icon.box ?? 256;
+    return (
+      <svg
+        width={size}
+        height={size}
+        viewBox={`0 0 ${box} ${box}`}
+        fill="currentColor"
+        className={cls}
+        aria-hidden
+      >
+        <path d={icon.d} />
+      </svg>
     );
   }
 

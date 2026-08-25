@@ -126,6 +126,15 @@
   grid-template-columns: repeat(auto-fill, minmax(34px, 1fr));
   gap: 2px;
 }
+/* The icon panel packs tighter than the emoji one: a hairline glyph at 17px
+   needs less room than a colour emoji at 20px, and a set this large wants more
+   of itself on screen at once. */
+#nt-iconpanel .nt-iconpicker-groups {
+  grid-template-columns: repeat(auto-fill, minmax(30px, 1fr));
+}
+#nt-iconpanel .nt-iconpicker-cell {
+  color: var(--foreground);
+}
 /* Spans the row so a section starts on its own line, with more air above than
    below — the label belongs to what follows it. */
 .nt-iconpicker-group {
@@ -142,18 +151,12 @@
   margin-top: 2px;
 }
 
-/* Slightly larger than an emoji cell — these are picked at a glance where a
-   thousand emoji are scanned — but only slightly: at 46px the 18px glyph was a
-   small mark floating in air and the grid lost two columns. The glyph grew
-   instead, so the cell has something in it. */
-.nt-iconpicker-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(38px, 1fr));
-  gap: 2px;
-}
-.nt-iconpicker-grid .nt-iconpicker-cell svg {
-  width: 22px;
-  height: 22px;
+/* Smaller than the emoji cells. These are hairline outlines on a 256 box —
+   drawn fine enough that size is what carries them, and a thousand of them read
+   as a set rather than as a row of buttons at this scale. */
+.nt-iconpicker-glyph {
+  width: 17px;
+  height: 17px;
 }
 .nt-iconpicker-cell {
   display: flex;

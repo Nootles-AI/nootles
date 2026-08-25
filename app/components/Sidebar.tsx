@@ -848,7 +848,6 @@ export function Sidebar({
         >
           <IconPicker
             icon={iconOf(iconTarget.target)}
-            kind={iconTarget.target.kind === "folder" ? "folder" : "page"}
             onPick={(next) => {
               const icon = next ?? undefined;
               const t = iconTarget.target;
