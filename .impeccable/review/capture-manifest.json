@@ -1,0 +1,65 @@
+{
+  "sha": "14f6d5d",
+  "dirty": false,
+  "capturedAt": "2026-08-25T20:22:40.234Z",
+  "viewports": {
+    "icons": {
+      "viewport": "1440x900",
+      "pickerOpen": true,
+      "emojiGroups": 8,
+      "groupNames": [
+        "Smileys & people",
+        "Animals & nature",
+        "Food & drink"
+      ],
+      "searchHits": 3,
+      "headersWhileSearching": 0,
+      "headerIcon": 1,
+      "sidebarIcon": 2,
+      "iconTabCells": 24,
+      "iconGrid": {
+        "cells": 24,
+        "columns": 7,
+        "rows": 4
+      },
+      "keywordHits": 2,
+      "keywordLabels": [
+        "Picture",
+        "Gallery"
+      ],
+      "uploadTab": true,
+      "offerReturns": true,
+      "consoleErrors": []
+    },
+    "icons-mobile": {
+      "viewport": "414x896",
+      "pickerOpen": true,
+      "emojiGroups": 8,
+      "groupNames": [
+        "Smileys & people",
+        "Animals & nature",
+        "Food & drink"
+      ],
+      "searchHits": 3,
+      "headersWhileSearching": 0,
+      "headerIcon": 1,
+      "sidebarIcon": 1,
+      "iconTabCells": 24,
+      "iconGrid": {
+        "cells": 24,
+        "columns": 7,
+        "rows": 4
+      },
+      "keywordHits": 2,
+      "keywordLabels": [
+        "Picture",
+        "Gallery"
+      ],
+      "uploadTab": true,
+      "offerReturns": true,
+      "consoleErrors": [
+        "WebSocket connection to 'ws://localhost:3010/_next/webpack-hmr?id=1GM_yymRWRJziACCuS-fP' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED"
+      ]
+    }
+  }
+}
