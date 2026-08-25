@@ -77,6 +77,10 @@ export class YConvexProvider {
   private keepaliveTimer: ReturnType<typeof setInterval> | null = null;
   /** Remote clientIds we've surfaced, and when their row was last fresh. */
   private seenClients = new Map<number, number>();
+  /** Live remote sessions at the last presence push — 0 means no audience. */
+  private peers = 0;
+  /** Whether this session has announced itself at all since connecting. */
+  private announced = false;
   private onPageHide = () => void this.sendLeave();
 
   constructor(client: ConvexReactClient, docId: string, doc: Y.Doc) {
@@ -137,6 +141,8 @@ export class YConvexProvider {
   disconnect() {
     if (!this.connected) return;
     this.connected = false;
+    this.peers = 0;
+    this.announced = false;
     this.unwatch?.();
     this.unwatch = null;
     this.unwatchPresence?.();
@@ -194,22 +200,24 @@ export class YConvexProvider {
         if (meta.snapshotSeq > this.cursor && meta.snapshotParts > 0) {
           // Chunks are byte SLICES of one encoded update, so they gather into
           // one buffer and apply once — a slice on its own is not an update.
-          const chunks: ArrayBuffer[] = [];
-          for (let part = 0; part < meta.snapshotParts; part++) {
-            const chunk = await this.client.query(api.ydoc.snapshot, {
-              docId: this.docId,
-              gen: meta.snapshotSeq,
-              part,
-            });
-            // A chunk can vanish if a newer fold replaced it mid-read; the
-            // loop re-runs from fresh meta, nothing having been applied.
-            if (chunk === null) {
-              this.pullAgain = true;
-              break;
-            }
-            chunks.push(chunk);
+          // Fetched together: the part count is known upfront, and a doc past
+          // one chunk should not cost a round trip per 800KiB of itself.
+          const fetched = await Promise.all(
+            Array.from({ length: meta.snapshotParts }, (_, part) =>
+              this.client.query(api.ydoc.snapshot, {
+                docId: this.docId,
+                gen: meta.snapshotSeq,
+                part,
+              }),
+            ),
+          );
+          // A chunk can vanish if a newer fold replaced it mid-read; the loop
+          // re-runs from fresh meta, nothing having been applied.
+          if (fetched.some((c) => c === null)) {
+            this.pullAgain = true;
+            continue;
           }
-          if (this.pullAgain) continue;
+          const chunks = fetched as ArrayBuffer[];
           const whole = new Uint8Array(chunks.reduce((n, c) => n + c.byteLength, 0));
           let at = 0;
           for (const c of chunks) {
@@ -251,6 +259,10 @@ export class YConvexProvider {
    * sets) ship as one small heartbeat on a trailing throttle; a keepalive
    * refreshes the row while nothing moves. Anything applied with "remote" as
    * origin is someone else's state coming back and never re-ships.
+   *
+   * Alone, only the announcement goes out: a caret with no audience is not
+   * worth a write per keystroke, the keepalive keeps the row alive, and
+   * `applyPresence` sends the moment somebody arrives to see it.
    */
   private onAwareness = (
     { added, updated, removed }: { added: number[]; updated: number[]; removed: number[] },
@@ -259,6 +271,7 @@ export class YConvexProvider {
     if (origin === "remote" || !this.connected) return;
     const mine = this.doc.clientID;
     if (![...added, ...updated, ...removed].includes(mine)) return;
+    if (this.announced && this.peers === 0) return;
     if (this.awarenessTimer) return;
     this.awarenessTimer = setTimeout(() => {
       this.awarenessTimer = null;
@@ -276,6 +289,7 @@ export class YConvexProvider {
       imageUrl?: string;
     };
     const encoded = encodeAwarenessUpdate(this.awareness, [this.doc.clientID]);
+    this.announced = true;
     void this.client
       .mutation(api.presence.heartbeat, {
         docId: this.docId,
@@ -310,6 +324,9 @@ export class YConvexProvider {
       if (row.sessionId === this.sessionId) continue;
       if (now - row.updatedAt > PRESENCE_STALE_MS) continue;
       live.add(row.clientId);
+      // A row nobody rewrote holds the state we already applied; decoding it
+      // again is work y-protocols would only discard after the fact.
+      if (this.seenClients.get(row.clientId) === row.updatedAt) continue;
       this.seenClients.set(row.clientId, row.updatedAt);
       applyAwarenessUpdate(this.awareness, new Uint8Array(row.state), "remote");
     }
@@ -318,6 +335,11 @@ export class YConvexProvider {
       for (const id of gone) this.seenClients.delete(id);
       removeAwarenessStates(this.awareness, gone, "remote");
     }
+    // Arriving into an empty room means nothing was being sent; the first
+    // person to join has to be told where the caret is.
+    const alone = this.peers === 0;
+    this.peers = live.size;
+    if (alone && this.peers > 0) this.sendAwareness();
   }
 
   private async sendLeave() {
@@ -377,12 +399,16 @@ export class YConvexProvider {
         // one transaction and therefore one update, measured past 2MiB. One
         // mutation carries every part, so the group lands atomically.
         const chunks = splitUpdate(update);
-        await this.client.mutation(
+        const seq = await this.client.mutation(
           api.ydoc.append,
           chunks.length === 1
             ? { docId: this.docId, update: chunks[0] }
             : { docId: this.docId, chunks },
         );
+        // Landing exactly one past the cursor proves nobody else's update sits
+        // in the gap — the seq is dense — so these bytes, which the doc
+        // already holds, need not be downloaded back to be skipped.
+        if (seq === this.cursor + 1) this.cursor = seq;
       }
       this.retryMs = 0;
       this.lastFlushAt = Date.now();
@@ -408,6 +434,25 @@ type Held = { provider: YConvexProvider; refs: number };
 const held = new Map<string, Held>();
 
 /**
+ * Documents let go of recently, kept in memory rather than destroyed. The
+ * expensive part of opening a page is the snapshot and the log behind it, and
+ * a back-navigation is the one case where we already have both — reviving one
+ * of these paints from a doc that is already synced, while `connect` catches
+ * up whatever changed in between. Presence is dropped on release, so a warm
+ * doc costs nothing on the wire.
+ */
+const RECENT_MAX = 4;
+const recent = new Map<string, YConvexProvider>();
+/** Whose session the warm docs belong to; a different client discards them. */
+let recentClient: ConvexReactClient | null = null;
+
+function forget(docId: string, provider: YConvexProvider) {
+  recent.delete(docId);
+  provider.destroy();
+  provider.doc.destroy();
+}
+
+/**
  * Provider by Y.Doc — how surfaces that hold a doc but not a docId (the
  * canvas binding) reach the awareness channel. A forked doc has no provider,
  * which is exactly right: a fork is private, and presence must not leak it.
@@ -427,9 +472,18 @@ export function acquireProvider(
   client: ConvexReactClient,
   docId: string,
 ): YConvexProvider {
+  if (recentClient !== client) {
+    for (const [id, provider] of recent) forget(id, provider);
+    recentClient = client;
+  }
   let entry = held.get(docId);
   if (!entry) {
-    entry = { provider: new YConvexProvider(client, docId, new Y.Doc()), refs: 0 };
+    const warm = recent.get(docId);
+    recent.delete(docId);
+    entry = {
+      provider: warm ?? new YConvexProvider(client, docId, new Y.Doc()),
+      refs: 0,
+    };
     held.set(docId, entry);
   }
   entry.refs++;
@@ -447,10 +501,13 @@ export function releaseProvider(docId: string) {
   if (!entry) return;
   entry.refs--;
   setTimeout(() => {
-    if (entry.refs <= 0 && held.get(docId) === entry) {
-      held.delete(docId);
-      entry.provider.destroy();
-      entry.provider.doc.destroy();
+    if (entry.refs > 0 || held.get(docId) !== entry) return;
+    held.delete(docId);
+    entry.provider.disconnect();
+    recent.set(docId, entry.provider);
+    for (const [oldest, provider] of recent) {
+      if (recent.size <= RECENT_MAX) break;
+      forget(oldest, provider);
     }
   }, 0);
 }

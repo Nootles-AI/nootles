@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, type ReactNode, type RefObject } from "react";
+import { useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import Link from "next/link";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
@@ -42,7 +42,8 @@ import {
 const INDENT = 12;
 
 type Props = {
-  width: number;
+  /** A CSS width — the shell holds the rail's live one in a custom property. */
+  width: string;
   projectId: Id<"projects">;
   /** The focused pane's page — the one the chat and the agent are pointed at. */
   selectedPageId: Id<"pages"> | null;
@@ -147,25 +148,38 @@ export function Sidebar({
     persistCollapsed(next);
   };
 
-  const rows = flattenTree(folders ?? [], pages ?? [], collapsed);
-  const dragRows: TreeRow[] = rows.map((r) =>
-    r.kind === "folder"
-      ? {
-          kind: "folder",
-          id: r.folder._id,
-          parentId: r.parentId,
-          depth: r.depth,
-          expanded: r.expanded,
-        }
-      : { kind: "page", id: r.page._id, parentId: r.parentId, depth: r.depth },
+  const rows = useMemo(
+    () => flattenTree(folders ?? [], pages ?? [], collapsed),
+    [folders, pages, collapsed],
+  );
+  /* Held still across renders the tree did not cause — a row drag re-renders
+     this panel per frame, and the drag reads its own measurements back off
+     this array's identity. */
+  const dragRows: TreeRow[] = useMemo(
+    () =>
+      rows.map((r) =>
+        r.kind === "folder"
+          ? {
+              kind: "folder",
+              id: r.folder._id,
+              parentId: r.parentId,
+              depth: r.depth,
+              expanded: r.expanded,
+            }
+          : { kind: "page", id: r.page._id, parentId: r.parentId, depth: r.depth },
+      ),
+    [rows],
   );
 
   // Only what is on screen counts as selected: closing a folder takes its
   // contents out of the selection rather than leaving them acted on unseen.
-  const picked = visibleSelection(rows, selection);
+  const picked = useMemo(() => visibleSelection(rows, selection), [rows, selection]);
   /** The rows a verb runs on — a chosen folder already carries its contents. */
-  const acting = topmost(rows, picked);
-  const pickedIds = new Set<string>(picked.map((t) => t.id));
+  const acting = useMemo(() => topmost(rows, picked), [rows, picked]);
+  const pickedIds = useMemo(
+    () => new Set<string>(picked.map((t) => t.id)),
+    [picked],
+  );
 
   /** Finder's three ways to pick: replace, toggle, or extend from the anchor. */
   const pick = (row: TreeRowData, e: { metaKey: boolean; ctrlKey: boolean; shiftKey: boolean }) => {

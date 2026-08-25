@@ -475,10 +475,29 @@ export class ReviewSession {
     );
   }
 
-  /** Turns that were left unanswered — a reload, a closed tab. */
-  async hydrate(rows: Doc<"chatTurns">[]) {
+  /**
+   * Turns that were left unanswered — a reload, a closed tab.
+   *
+   * The subscription that feeds this carries no `trace` or `hunks`, so the
+   * blobs are fetched here, once, for the turns that are actually new.
+   */
+  async hydrate(rows: readonly Pick<Doc<"chatTurns">, "chatPromptId">[]) {
     const known = new Set(this.turns.map((t) => t.chatPromptId));
-    const fresh = rows.filter((r) => !known.has(r.chatPromptId));
+    const wanted = rows.filter((r) => !known.has(r.chatPromptId));
+    if (!wanted.length) return;
+    const loaded = await Promise.all(
+      wanted.map((r) =>
+        this.deps.convex.query(api.chat.turns.byPrompt, {
+          chatPromptId: r.chatPromptId,
+        }),
+      ),
+    );
+    // Hydration can overlap itself — every re-query runs it — and the awaits
+    // above are long enough for a second pass to have added the same turn.
+    const settled = new Set(this.turns.map((t) => t.chatPromptId));
+    const fresh = loaded.filter(
+      (row): row is Doc<"chatTurns"> => row !== null && !settled.has(row.chatPromptId),
+    );
     const restored = await Promise.all(fresh.map(fromRow));
     if (!restored.length) return;
     for (const row of fresh) {

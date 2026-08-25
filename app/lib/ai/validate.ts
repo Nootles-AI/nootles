@@ -6,8 +6,8 @@ import type { DocIndex } from "./projection";
  *
  *   1. Zod shape validation (via `parseBatch`).
  *   2. Reference resolution against the current doc's reverse index — every
- *      referenced block/shape/edge id must already exist, or be a `tempId`
- *      declared earlier in the same batch.
+ *      referenced block id must already exist, or be a `tempId` declared
+ *      earlier in the same batch.
  *
  * A batch is all-or-nothing: if any op fails either gate, the whole batch is
  * rejected with a structured error and nothing is applied. (A future LLM can
@@ -58,8 +58,6 @@ function typeHasContent(type: string): boolean {
 }
 
 type BlockRef = { type: string; hasContent: boolean };
-type ShapeRefInfo = { canvasBlockId: string };
-type EdgeRefInfo = { canvasBlockId: string };
 
 export function resolveBatch(input: unknown, index: DocIndex): ResolveResult {
   const parsed = parseBatch(input);
@@ -80,9 +78,6 @@ export function resolveBatch(input: unknown, index: DocIndex): ResolveResult {
   for (const [id, e] of index.blocks) {
     blocks.set(id, { type: e.type, hasContent: e.hasContent });
   }
-  const shapes = new Map<string, ShapeRefInfo>(index.shapes);
-  const edges = new Map<string, EdgeRefInfo>(index.edges);
-
   const tag = (id: string) => `⟦${id}⟧`;
 
   const requireBlock = (id: string, ctx: string): BlockRef | null => {
@@ -102,7 +97,6 @@ export function resolveBatch(input: unknown, index: DocIndex): ResolveResult {
     }
     return true;
   };
-  const requireCanvas = (id: string, ctx: string) => requireType(id, "canvas", ctx);
   const requireMath = (id: string, ctx: string) => requireType(id, "mathBlock", ctx);
   const checkPositionRef = (
     at: { at: string; ref?: string },
@@ -110,36 +104,6 @@ export function resolveBatch(input: unknown, index: DocIndex): ResolveResult {
   ) => {
     if ((at.at === "after" || at.at === "before") && at.ref) {
       requireBlock(at.ref, `${ctx} position`);
-    }
-  };
-
-  const checkShapeInCanvas = (
-    shapeId: string,
-    canvasBlockId: string,
-    ctx: string,
-  ) => {
-    const s = shapes.get(shapeId);
-    if (!s) {
-      errors.push(`${ctx}: unknown shape ${tag(shapeId)}`);
-      return;
-    }
-    if (s.canvasBlockId !== canvasBlockId) {
-      errors.push(`${ctx}: shape ${tag(shapeId)} is not in ${tag(canvasBlockId)}`);
-    }
-  };
-
-  const checkEdgeInCanvas = (
-    edgeId: string,
-    canvasBlockId: string,
-    ctx: string,
-  ) => {
-    const e = edges.get(edgeId);
-    if (!e) {
-      errors.push(`${ctx}: unknown edge ${tag(edgeId)}`);
-      return;
-    }
-    if (e.canvasBlockId !== canvasBlockId) {
-      errors.push(`${ctx}: edge ${tag(edgeId)} is not in ${tag(canvasBlockId)}`);
     }
   };
 
@@ -194,53 +158,6 @@ export function resolveBatch(input: unknown, index: DocIndex): ResolveResult {
         }
         break;
       }
-      case "addShape": {
-        if (requireCanvas(op.blockId, ctx)) {
-          if (shapes.has(op.tempId)) {
-            errors.push(`${ctx}: duplicate tempId ${tag(op.tempId)}`);
-          }
-          shapes.set(op.tempId, { canvasBlockId: op.blockId });
-        }
-        break;
-      }
-      case "updateShape":
-        if (requireCanvas(op.blockId, ctx)) {
-          checkShapeInCanvas(op.shapeId, op.blockId, ctx);
-        }
-        break;
-      case "removeShape":
-        if (requireCanvas(op.blockId, ctx)) {
-          checkShapeInCanvas(op.shapeId, op.blockId, ctx);
-        }
-        break;
-      case "connectEdge": {
-        if (requireCanvas(op.blockId, ctx)) {
-          const resolveRef = (
-            ref: { shapeId: string } | { tempId: string },
-            side: string,
-          ) => {
-            const id = "shapeId" in ref ? ref.shapeId : ref.tempId;
-            checkShapeInCanvas(id, op.blockId, `${ctx} ${side}`);
-          };
-          resolveRef(op.source, "source");
-          resolveRef(op.target, "target");
-          if (edges.has(op.tempId)) {
-            errors.push(`${ctx}: duplicate tempId ${tag(op.tempId)}`);
-          }
-          edges.set(op.tempId, { canvasBlockId: op.blockId });
-        }
-        break;
-      }
-      case "disconnectEdge":
-        if (requireCanvas(op.blockId, ctx)) {
-          checkEdgeInCanvas(op.edgeId, op.blockId, ctx);
-        }
-        break;
-      case "setEdgeLabel":
-        if (requireCanvas(op.blockId, ctx)) {
-          checkEdgeInCanvas(op.edgeId, op.blockId, ctx);
-        }
-        break;
     }
   });
 

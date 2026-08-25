@@ -55,7 +55,6 @@ export function ProjectsScreen() {
   const [ctx, setCtx] = useState<{ project: Project; x: number; y: number } | null>(
     null,
   );
-  const [draft, setDraft] = useState("");
   const [naming, setNaming] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
 
@@ -71,33 +70,35 @@ export function ProjectsScreen() {
     localStorage.setItem("nt:projectsView", view);
   }, [view]);
 
-  // Stable so the memoized shared rows sit out this screen's re-renders —
-  // every rename keystroke was re-rendering each shared card's PagePreview.
+  // Stable so the memoized cards and rows sit out this screen's re-renders —
+  // every one of them carries a live PagePreview, and a rename keystroke was
+  // re-rendering the lot.
   const open = useCallback(
     (id: Id<"projects">) => router.push(`/p/${id}`),
     [router],
   );
-
-  const startRename = (p: Project) => {
-    setDraft(p.title);
-    setEditingId(p._id);
-  };
+  const startRename = useCallback((p: Project) => setEditingId(p._id), []);
+  const cancelRename = useCallback(() => setEditingId(null), []);
+  const askDelete = useCallback((p: Project) => setConfirming(p), []);
 
   /**
    * An empty name is not a rename, and silently restoring the old one looks
    * like the keystroke was lost. It says so instead, and keeps the field open.
    */
-  const commitRename = (id: Id<"projects">) => {
-    const title = draft.trim();
-    if (!title) {
-      setFailure("A project needs a name.");
-      return;
-    }
-    setEditingId(null);
-    renameProject({ projectId: id, title }).catch(() =>
-      setFailure("That rename didn’t save."),
-    );
-  };
+  const commitRename = useCallback(
+    (id: Id<"projects">, name: string) => {
+      const title = name.trim();
+      if (!title) {
+        setFailure("A project needs a name.");
+        return;
+      }
+      setEditingId(null);
+      renameProject({ projectId: id, title }).catch(() =>
+        setFailure("That rename didn’t save."),
+      );
+    },
+    [renameProject],
+  );
 
   /**
    * A project is made from what the dialog collected and then opened, rather
@@ -213,13 +214,11 @@ export function ProjectsScreen() {
                 <Card
                   project={p}
                   editing={editingId === p._id}
-                  draft={draft}
-                  onDraft={setDraft}
-                  onOpen={() => open(p._id)}
-                  onRename={() => startRename(p)}
-                  onCommit={() => commitRename(p._id)}
-                  onCancel={() => setEditingId(null)}
-                  onDelete={() => setConfirming(p)}
+                  onOpen={open}
+                  onRename={startRename}
+                  onCommit={commitRename}
+                  onCancel={cancelRename}
+                  onDelete={askDelete}
                 />
               </li>
             ))}
@@ -245,13 +244,11 @@ export function ProjectsScreen() {
                   <Row
                     project={p}
                     editing={editingId === p._id}
-                    draft={draft}
-                    onDraft={setDraft}
-                    onOpen={() => open(p._id)}
-                    onRename={() => startRename(p)}
-                    onCommit={() => commitRename(p._id)}
-                    onCancel={() => setEditingId(null)}
-                    onDelete={() => setConfirming(p)}
+                    onOpen={open}
+                    onRename={startRename}
+                    onCommit={commitRename}
+                    onCancel={cancelRename}
+                    onDelete={askDelete}
                   />
                 </li>
               ))}
@@ -433,31 +430,36 @@ function ProjectActions({
   );
 }
 
-/** The rename field, identical in both views so the interaction is one thing. */
+/**
+ * The rename field, identical in both views so the interaction is one thing.
+ *
+ * It owns the draft. Held one level up it was screen state, and every keystroke
+ * re-rendered every other card on the screen — thumbnails, maths and diagrams
+ * included — to type into this one.
+ */
 function NameField({
-  draft,
-  onDraft,
+  initial,
   onCommit,
   onCancel,
   className,
 }: {
-  draft: string;
-  onDraft: (v: string) => void;
-  onCommit: () => void;
+  initial: string;
+  onCommit: (name: string) => void;
   onCancel: () => void;
   className: string;
 }) {
+  const [draft, setDraft] = useState(initial);
   return (
     <Editable
       autoFocus
       value={draft}
       label="Project name"
-      onInput={onDraft}
-      onBlur={onCommit}
+      onInput={setDraft}
+      onBlur={() => onCommit(draft)}
       onKeyDown={(e) => {
         if (e.key === "Enter") {
           e.preventDefault();
-          onCommit();
+          onCommit(draft);
         }
         if (e.key === "Escape") {
           e.preventDefault();
@@ -469,11 +471,10 @@ function NameField({
   );
 }
 
-function Card({
+/** Memoized for the same reason `SharedCard` is: a live PagePreview each. */
+const Card = memo(function Card({
   project,
   editing,
-  draft,
-  onDraft,
   onOpen,
   onRename,
   onCommit,
@@ -482,20 +483,19 @@ function Card({
 }: {
   project: Project;
   editing: boolean;
-  draft: string;
-  onDraft: (v: string) => void;
-  onOpen: () => void;
-  onRename: () => void;
-  onCommit: () => void;
+  onOpen: (id: Id<"projects">) => void;
+  onRename: (project: Project) => void;
+  onCommit: (id: Id<"projects">, name: string) => void;
   onCancel: () => void;
-  onDelete: () => void;
+  onDelete: (project: Project) => void;
 }) {
   const name = project.title || "Untitled project";
+  const open = () => onOpen(project._id);
   return (
     <div className="nt-card group">
       {/* The thumbnail is the target; the footer is chrome. Nesting the menu
           inside this button would be a button inside a button. */}
-      <button onClick={onOpen} aria-label={`Open ${name}`} className="nt-card-open">
+      <button onClick={open} aria-label={`Open ${name}`} className="nt-card-open">
         <PagePreview docId={project.firstPageDocId} />
       </button>
 
@@ -503,9 +503,8 @@ function Card({
         <div className="min-w-0 flex-1">
           {editing ? (
             <NameField
-              draft={draft}
-              onDraft={onDraft}
-              onCommit={onCommit}
+              initial={project.title}
+              onCommit={(text) => onCommit(project._id, text)}
               onCancel={onCancel}
               className="nt-card-name block w-full"
             />
@@ -520,21 +519,19 @@ function Card({
         </div>
         <RowMenu
           project={project}
-          onOpen={onOpen}
-          onRename={onRename}
-          onDelete={onDelete}
+          onOpen={open}
+          onRename={() => onRename(project)}
+          onDelete={() => onDelete(project)}
           className="is-sm"
         />
       </div>
     </div>
   );
-}
+});
 
-function Row({
+const Row = memo(function Row({
   project,
   editing,
-  draft,
-  onDraft,
   onOpen,
   onRename,
   onCommit,
@@ -543,27 +540,25 @@ function Row({
 }: {
   project: Project;
   editing: boolean;
-  draft: string;
-  onDraft: (v: string) => void;
-  onOpen: () => void;
-  onRename: () => void;
-  onCommit: () => void;
+  onOpen: (id: Id<"projects">) => void;
+  onRename: (project: Project) => void;
+  onCommit: (id: Id<"projects">, name: string) => void;
   onCancel: () => void;
-  onDelete: () => void;
+  onDelete: (project: Project) => void;
 }) {
   const name = project.title || "Untitled project";
+  const open = () => onOpen(project._id);
   return (
     <>
       {editing ? (
         <NameField
-          draft={draft}
-          onDraft={onDraft}
-          onCommit={onCommit}
+          initial={project.title}
+          onCommit={(text) => onCommit(project._id, text)}
           onCancel={onCancel}
           className="nt-row-edit is-selected min-w-0 flex-1 font-medium"
         />
       ) : (
-        <button onClick={onOpen} className="nt-row min-w-0 flex-1 font-medium">
+        <button onClick={open} className="nt-row min-w-0 flex-1 font-medium">
           <span className="nt-row-label">{name}</span>
         </button>
       )}
@@ -578,15 +573,15 @@ function Row({
       <span className="nt-col-actions">
         <RowMenu
           project={project}
-          onOpen={onOpen}
-          onRename={onRename}
-          onDelete={onDelete}
+          onOpen={open}
+          onRename={() => onRename(project)}
+          onDelete={() => onDelete(project)}
           className="opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 aria-expanded:opacity-100"
         />
       </span>
     </>
   );
-}
+});
 
 /** Your standing in someone else's project, in the words Docs taught. */
 const roleLabel = (p: SharedProject) =>

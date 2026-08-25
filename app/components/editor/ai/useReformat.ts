@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { BlockNoteEditor } from "@blocknote/core";
+import type { EditorState } from "prosemirror-state";
 import * as Sentry from "@sentry/nextjs";
 import { useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
@@ -266,11 +267,40 @@ export function useReformat(
     };
 
     /**
+     * The document and the caret's block as of the last run.
+     *
+     * One keystroke fires both events — it changes the document AND moves the
+     * caret — and every arrow key inside a block fires the second on its own.
+     * While these two hold, neither the run nor its text can have changed, so
+     * the answer is already known and the walk below is the long way to it.
+     */
+    let seenDoc: unknown = null;
+    let seenBlock: string | null = null;
+
+    /** The caret's block id, read straight off ProseMirror. */
+    const caretBlockId = (state: EditorState): string | null => {
+      const $from = state.selection.$from;
+      for (let d = $from.depth; d >= 0; d--) {
+        const id = ($from.node(d).attrs as { id?: unknown } | undefined)?.id;
+        if (typeof id === "string") return id;
+      }
+      return null;
+    };
+
+    /**
      * Runs on edits and on caret moves alike. Leaving a block finishes it, but so
      * does simply stopping — type an obvious table and never move, and waiting
      * for you to leave would mean never offering it at all.
      */
     const schedule = () => {
+      const state = editor.prosemirrorView?.state;
+      if (state) {
+        const block = caretBlockId(state);
+        if (state.doc === seenDoc && block === seenBlock) return;
+        seenDoc = state.doc;
+        seenBlock = block;
+      }
+
       const run = runAtCursor();
       if (!run?.length) return;
       const html = toDocHtml(run);

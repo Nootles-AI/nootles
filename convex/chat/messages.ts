@@ -71,12 +71,15 @@ export const put = mutation({
   },
   handler: async (ctx, args) => {
     const { ownerId } = await requireOwned(ctx, "chatThreads", args.threadId);
-    const existing = await ctx.db
+    // By index, not by scanning: a turn writes several times and a transcript
+    // holds whole read_page documents, so finding one row must not cost the
+    // thread.
+    const match = await ctx.db
       .query("chatMessages")
-      .withIndex("by_thread", (q) => q.eq("threadId", args.threadId))
-      .collect();
-
-    const match = existing.find((m) => m.uiId === args.uiId);
+      .withIndex("by_thread_and_uiId", (q) =>
+        q.eq("threadId", args.threadId).eq("uiId", args.uiId),
+      )
+      .unique();
     if (match) {
       await ctx.db.patch(match._id, {
         parts: args.parts,
@@ -86,7 +89,13 @@ export const put = mutation({
       return match._id;
     }
 
-    const seq = existing.reduce((max, m) => Math.max(max, m.seq), -1) + 1;
+    // The index is [threadId, seq], so the newest row is one read away.
+    const last = await ctx.db
+      .query("chatMessages")
+      .withIndex("by_thread", (q) => q.eq("threadId", args.threadId))
+      .order("desc")
+      .first();
+    const seq = (last?.seq ?? -1) + 1;
     const id = await ctx.db.insert("chatMessages", {
       ownerId,
       threadId: args.threadId,
@@ -119,9 +128,10 @@ export const truncateFrom = mutation({
     await requireOwned(ctx, "chatThreads", args.threadId);
     const from = await ctx.db
       .query("chatMessages")
-      .withIndex("by_thread", (q) => q.eq("threadId", args.threadId))
-      .filter((q) => q.eq(q.field("uiId"), args.uiId))
-      .first();
+      .withIndex("by_thread_and_uiId", (q) =>
+        q.eq("threadId", args.threadId).eq("uiId", args.uiId),
+      )
+      .unique();
     if (!from) return 0;
 
     const rows = await ctx.db

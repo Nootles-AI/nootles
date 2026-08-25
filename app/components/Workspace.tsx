@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
@@ -41,6 +48,15 @@ const RIGHT = { def: 320, min: 260, max: 560 };
    them — and neither can be squeezed out of existence. */
 const SPLIT = { def: 0.5, min: 0.25, max: 0.75 };
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
+
+/* The three widths, as custom properties on the shell rather than numbers
+   passed down. A drag can then write the live value straight to the DOM and
+   leave React alone until the pointer is released — the alternative is a render
+   of the sidebar, both documents and the transcript per frame of a rail drag. */
+const VARS = { left: "--nt-left", right: "--nt-right", aside: "--nt-aside" };
+const LEFT_W = `var(${VARS.left})`;
+const RIGHT_W = `var(${VARS.right})`;
+const DRAWER_W = "288px";
 
 /* Below this the three fixed panels leave no usable column for the document
    (462px of chrome against a 560px viewport left 2px of text), so they stop
@@ -251,22 +267,41 @@ export function Workspace({ projectId }: { projectId: Id<"projects"> }) {
     return stop;
   }, [activeCanvasId, activeCanvas]);
 
+  /* The live value goes to the DOM; only the release goes to React, which is
+     what keeps a drag off the document and the transcript. */
+  const shellRef = useRef<HTMLDivElement>(null);
+  const write = useCallback((name: string, value: string) => {
+    shellRef.current?.style.setProperty(name, value);
+  }, []);
+
   const onResizeLeft = useCallback(
-    (clientX: number) => setLeftWidth(clamp(clientX, LEFT.min, LEFT.max)),
-    [],
+    (clientX: number, done: boolean) => {
+      const width = clamp(clientX, LEFT.min, LEFT.max);
+      if (done) setLeftWidth(width);
+      else write(VARS.left, `${width}px`);
+    },
+    [write],
   );
   const onResizeRight = useCallback(
-    (clientX: number) =>
-      setRightWidth(clamp(window.innerWidth - clientX, RIGHT.min, RIGHT.max)),
-    [],
+    (clientX: number, done: boolean) => {
+      const width = clamp(window.innerWidth - clientX, RIGHT.min, RIGHT.max);
+      if (done) setRightWidth(width);
+      else write(VARS.right, `${width}px`);
+    },
+    [write],
   );
   // Measured against the column rather than the window: what is left of it
   // after the rails is all the two panes have to share.
-  const onResizeAside = useCallback((clientX: number) => {
-    const box = columnRef.current?.getBoundingClientRect();
-    if (!box) return;
-    setAsideShare(clamp((box.right - clientX) / box.width, SPLIT.min, SPLIT.max));
-  }, []);
+  const onResizeAside = useCallback(
+    (clientX: number, done: boolean) => {
+      const box = columnRef.current?.getBoundingClientRect();
+      if (!box) return;
+      const share = clamp((box.right - clientX) / box.width, SPLIT.min, SPLIT.max);
+      if (done) setAsideShare(share);
+      else write(VARS.aside, `${share * 100}%`);
+    },
+    [write],
+  );
 
   // The project comes from the route now. Only the pages are a selection, and
   // they are derived rather than synced via effects: each pane holds the
@@ -278,9 +313,17 @@ export function Workspace({ projectId }: { projectId: Id<"projects"> }) {
   // serves all three — a shared project must not feel like a lesser app.
   const role = useQuery(api.projects.myRole, { projectId });
   const viewer = role === "viewer";
-  const sortedPages = pages
-    ? [...pages].sort((a, b) => a.order - b.order)
-    : undefined;
+  const sortedPages = useMemo(
+    () => (pages ? [...pages].sort((a, b) => a.order - b.order) : undefined),
+    [pages],
+  );
+  /* Named pages, and nothing else about them. The context reaches through
+     BlockNote's node views into mention chips and shape labels, so it must not
+     churn on a shell render or carry a field they never read. */
+  const pageRefs = useMemo(
+    () => sortedPages?.map((p) => ({ _id: p._id, title: p.title })) ?? null,
+    [sortedPages],
+  );
   const known = (id: Id<"pages"> | null | undefined) =>
     id && sortedPages?.some((p) => p._id === id) ? id : null;
   const mainPageId = known(main.page) ?? sortedPages?.[0]?._id ?? null;
@@ -296,7 +339,7 @@ export function Workspace({ projectId }: { projectId: Id<"projects"> }) {
 
   const sidebar = (
     <Sidebar
-      width={compact ? 288 : leftWidth}
+      width={compact ? DRAWER_W : LEFT_W}
       projectId={projectId}
       selectedPageId={effectivePageId}
       otherPageId={focus === "aside" ? mainPageId : asidePageId}
@@ -312,7 +355,7 @@ export function Workspace({ projectId }: { projectId: Id<"projects"> }) {
 
   const chat = (
     <ChatPanel
-      width={compact ? 288 : rightWidth}
+      width={compact ? DRAWER_W : RIGHT_W}
       projectId={projectId}
       pageId={effectivePageId}
       onCollapse={() => (compact ? setDrawer(null) : setRightOpen(false))}
@@ -323,15 +366,25 @@ export function Workspace({ projectId }: { projectId: Id<"projects"> }) {
     <CanvasShellContext value={shell}>
       <LocationShellContext value={placeShell}>
      <ReadOnlyContext value={viewer}>
-     <PagesProvider pages={sortedPages ?? null}>
+     <PagesProvider pages={pageRefs}>
      <CompletionContextProvider projectId={projectId}>
      <PanelsProvider value={panels}>
-      <div className="flex h-screen w-full overflow-hidden">
+      <div
+        ref={shellRef}
+        className="flex h-screen w-full overflow-hidden"
+        style={
+          {
+            [VARS.left]: `${leftWidth}px`,
+            [VARS.right]: `${rightWidth}px`,
+            [VARS.aside]: `${asideShare * 100}%`,
+          } as CSSProperties
+        }
+      >
         {canvasPanels ? (
           <>
             <aside
               className="nt-panel nt-rail-l"
-              style={{ width: leftWidth }}
+              style={{ width: LEFT_W }}
               aria-label="Layers"
             >
               <LayersPanel
@@ -379,7 +432,7 @@ export function Workspace({ projectId }: { projectId: Id<"projects"> }) {
               <ResizeHandle onResize={onResizeAside} ariaLabel="Resize split" />
               <div
                 className="flex min-w-0 shrink-0"
-                style={{ width: `${asideShare * 100}%` }}
+                style={{ width: `var(${VARS.aside})` }}
               >
                 <PageSurface pageId={asidePageId} pane="aside" />
               </div>
@@ -420,8 +473,7 @@ export function Workspace({ projectId }: { projectId: Id<"projects"> }) {
             <Toolbar
               store={canvas.api.store}
               viewport={canvas.api.viewport}
-              tool={canvas.api.tool}
-              onTool={canvas.api.setTool}
+              tools={canvas.api.tools}
             />
           ) : (
             // Here rather than under the editor: the changes it answers for can

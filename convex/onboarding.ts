@@ -1,7 +1,8 @@
 import { mutation } from "./_generated/server";
 import { v } from "convex/values";
+import { api } from "./_generated/api";
 import { requireOwner } from "./auth";
-import { seedDoc } from "./prosemirror";
+import { refreshPageSummary } from "./projects";
 
 const mode = v.union(v.literal("create"), v.literal("complete"));
 
@@ -15,7 +16,10 @@ const mode = v.union(v.literal("create"), v.literal("complete"));
  * halfway through showing someone a half-built project on their first visit,
  * which is the one impression worth protecting.
  *
- * `doc` is ProseMirror JSON assembled on the client; see `seedDoc`.
+ * Each page's `update` is the Yjs update its document is born from, built on
+ * the client where the editor's schema lives (see `onboarding/seed`). Seeded
+ * pages join the pipeline every other document is on, so nobody's first open
+ * is a migration.
  */
 export const createSeededProject = mutation({
   args: {
@@ -25,7 +29,7 @@ export const createSeededProject = mutation({
     role: v.optional(v.string()),
     useCase: v.optional(v.string()),
     defaultMode: mode,
-    pages: v.array(v.object({ title: v.string(), doc: v.any() })),
+    pages: v.array(v.object({ title: v.string(), update: v.bytes() })),
     /** Survey answers, already phrased as the Q&A the sheet holds. */
     context: v.array(v.object({ question: v.string(), answer: v.string() })),
     /**
@@ -62,11 +66,13 @@ export const createSeededProject = mutation({
         mode: args.defaultMode,
         order,
         docId,
+        yjs: true,
         createdAt: now,
         updatedAt: now,
       });
-      await seedDoc(ctx, docId, page.doc);
+      await ctx.runMutation(api.ydoc.init, { docId, update: page.update });
     }
+    await refreshPageSummary(ctx, projectId);
 
     for (const entry of args.context) {
       await ctx.db.insert("contextSheet", {

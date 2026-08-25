@@ -1,14 +1,19 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { createReactBlockSpec } from "@blocknote/react";
-import { CodeMirrorEditor } from "../codemirror/CodeMirrorEditor";
+import { CodeSurface } from "../codemirror/CodeSurface";
 import { useReadOnly } from "../readOnly";
+import { useDebouncedPersist } from "../useDebouncedPersist";
 import { toDocHtmlSplit } from "@/app/lib/ai/html/serialize";
+import { AI } from "@/app/lib/ai/aiConfig";
 import { track } from "@/app/lib/telemetry";
 import { usePageTitle } from "../PageTitleContext";
 import type { AnyBlock } from "@/app/lib/ai/projection";
 import { LANGUAGES, languageLabel } from "../codemirror/languages";
+
+/** Quiet time before typed code reaches the block. Keystrokes are not writes. */
+const PERSIST_MS = 400;
 
 function CaretDown() {
   return (
@@ -87,32 +92,10 @@ function CodeBlockView({
   const title = usePageTitle();
   const readOnly = useReadOnly();
 
-  // Debounce persistence: CodeMirror holds the live text; we only write it into
-  // the block prop after a pause (and flush on blur/unmount), so typing stays
-  // O(1) instead of rewriting the whole string into ProseMirror per keystroke.
-  const pending = useRef<string | null>(null);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const flushRef = useRef<() => void>(() => {});
-  useEffect(() => {
-    flushRef.current = () => {
-      if (timer.current) {
-        clearTimeout(timer.current);
-        timer.current = null;
-      }
-      if (pending.current !== null) {
-        onChangeCode(pending.current);
-        pending.current = null;
-      }
-    };
-  });
-
-  useEffect(() => () => flushRef.current(), []);
-
-  const handleChange = (value: string) => {
-    pending.current = value;
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => flushRef.current(), 400);
-  };
+  // CodeMirror holds the live text; it reaches the block prop after a pause,
+  // and on blur or unmount. An outside change needs no reconciling here — the
+  // editor below takes it into its own document.
+  const persist = useDebouncedPersist(onChangeCode, PERSIST_MS, code);
 
   return (
     <div className="nt-code" contentEditable={false}>
@@ -133,11 +116,11 @@ function CodeBlockView({
           </>
         )}
       </div>
-      <CodeMirrorEditor
+      <CodeSurface
         initialValue={code}
         language={language}
-        onChange={handleChange}
-        onBlur={() => flushRef.current()}
+        onChange={persist.schedule}
+        onBlur={persist.flush}
         readOnly={readOnly}
         // The page title is a page-level fact and this block sits deep in the
         // editor tree, so it comes from context and is handed back up.
@@ -178,7 +161,7 @@ export const codeBlockSpec = createReactBlockSpec(
             editor.document as unknown as AnyBlock[],
             block.id,
             offset,
-            { title },
+            { title, window: AI.projection.window, collapseDrawn: true },
           )
         }
       />

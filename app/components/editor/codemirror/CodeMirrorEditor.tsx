@@ -120,22 +120,36 @@ export function CodeMirrorEditor({
     if (!view) return;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let abort: AbortController | null = null;
+    // Which suggestion is current. The caret alone cannot say: a stream
+    // dismissed with Escape is dismissed at the offset it was asked for, and
+    // would otherwise draw itself again on the next chunk.
+    let seq = 0;
 
     const run = async () => {
       const build = ctxRef.current;
       if (!build) return;
       const sel = view.state.selection.main;
       if (!sel.empty) return;
+      const mySeq = seq;
       const offset = sel.head;
       const ctx = build(offset);
       if (!ctx) return;
       const controller = new AbortController();
       abort = controller;
+      const current = () =>
+        seq === mySeq && view.state.selection.main.head === offset;
       try {
         const res = await fetch("/api/complete", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ before: ctx.prefix, after: ctx.suffix, mode: "html" }),
+          body: JSON.stringify({
+            // The wire call cuts to these numbers anyway; cutting here too
+            // keeps a page carrying one very large block from uploading what
+            // is about to be trimmed off again.
+            before: ctx.prefix.slice(-AI.fim.maxBefore),
+            after: ctx.suffix.slice(0, AI.fim.maxAfter),
+            mode: "structure",
+          }),
           signal: controller.signal,
         });
         if (!res.ok || !res.body) return;
@@ -143,6 +157,7 @@ export function CodeMirrorEditor({
         let acc = "";
         let settled = "";
         let headLitAt = 0;
+        let closed = false;
         for (;;) {
           const { value, done } = await reader.read();
           if (done) break;
@@ -150,8 +165,9 @@ export function CodeMirrorEditor({
           // The completion should stay inside the element; if the model starts
           // closing it, we've got everything that belongs in the block.
           const cut = acc.indexOf("</");
-          const text = (cut === -1 ? acc : acc.slice(0, cut)).replace(/\s+$/, "");
-          if (view.state.selection.main.head !== offset) return;
+          closed = cut !== -1;
+          const text = (closed ? acc.slice(0, cut) : acc).replace(/\s+$/, "");
+          if (!current()) return;
           if (text) {
             if (!headLitAt) headLitAt = performance.now();
             view.dispatch({
@@ -159,13 +175,17 @@ export function CodeMirrorEditor({
             });
             settled = text;
           }
+          // Everything that belongs in the block has arrived; the rest of the
+          // completion is the rest of the page, and it is paid for by token.
+          if (closed) break;
         }
+        if (closed) controller.abort();
         // The stream stopped: drop the live edge, keep the suggestion — but
         // hold the head long enough to actually be seen (see aiConfig).
         if (settled) {
           const done = settled;
           const settle = () => {
-            if (view.state.selection.main.head !== offset) return;
+            if (!current()) return;
             view.dispatch({
               effects: setCodeGhost.of({ text: done, streaming: false }),
             });
@@ -179,13 +199,26 @@ export function CodeMirrorEditor({
       }
     };
 
-    const schedule = () => {
+    /** Nothing in flight, nothing pending: the suggestion is over. */
+    const dismiss = () => {
+      seq++;
       if (timer) clearTimeout(timer);
+      timer = null;
       abort?.abort();
+    };
+
+    const schedule = () => {
+      dismiss();
       timer = setTimeout(() => void run(), 400);
     };
 
     const listener = EditorView.updateListener.of((u) => {
+      // A cleared ghost is a stream nobody is waiting for any more — Escape
+      // dismissing it, or Tab having taken it (see ghost.ts).
+      const cleared = u.transactions.some((tr) =>
+        tr.effects.some((e) => e.is(setCodeGhost) && e.value === null),
+      );
+      if (cleared) dismiss();
       if (u.docChanged || u.selectionSet) schedule();
     });
     view.dispatch({ effects: StateEffect.appendConfig.of(listener) });

@@ -1,9 +1,4 @@
-import type {
-  NewBlock,
-  Operation,
-  Position,
-  ShapeRef,
-} from "@/convex/ai/operations";
+import type { NewBlock, Operation, Position } from "@/convex/ai/operations";
 import type { IdMap } from "../apply";
 
 /**
@@ -24,42 +19,19 @@ import type { IdMap } from "../apply";
 
 /** Names an op brings into existence, including nested inserted blocks. */
 export function produces(op: Operation): string[] {
-  switch (op.kind) {
-    case "insertBlocks":
-      return [...eachNewBlock(op.blocks)].map((b) => b.tempId);
-    case "addShape":
-    case "connectEdge":
-      return [op.tempId];
-    default:
-      return [];
-  }
+  return op.kind === "insertBlocks"
+    ? [...eachNewBlock(op.blocks)].map((b) => b.tempId)
+    : [];
 }
 
 /** Names an op acts ON — a hard dependency on whatever created them. */
 export function consumes(op: Operation): string[] {
-  switch (op.kind) {
-    case "insertBlocks":
-      return [];
-    case "connectEdge":
-      return [op.blockId, shapeName(op.source), shapeName(op.target)];
-    case "updateShape":
-    case "removeShape":
-      return [op.blockId, op.shapeId];
-    case "disconnectEdge":
-    case "setEdgeLabel":
-      return [op.blockId, op.edgeId];
-    default:
-      return [op.blockId];
-  }
+  return op.kind === "insertBlocks" ? [] : [op.blockId];
 }
 
 /** The block an op addresses; an insert addresses none, it makes one. */
 export function target(op: Operation): string | undefined {
   return op.kind === "insertBlocks" ? undefined : op.blockId;
-}
-
-export function shapeName(ref: ShapeRef): string {
-  return "shapeId" in ref ? ref.shapeId : ref.tempId;
 }
 
 export function* eachNewBlock(blocks: NewBlock[]): Generator<NewBlock> {
@@ -79,13 +51,9 @@ export function* eachNewBlock(blocks: NewBlock[]): Generator<NewBlock> {
  */
 export function canonicalise(ops: Operation[], ids: IdMap): Operation[] {
   const block = (id: string) => ids.blocks[id] ?? id;
-  const shape = (id: string) => ids.shapes[id] ?? id;
-  const edge = (id: string) => ids.edges[id] ?? id;
 
   const at = (p: Position): Position =>
     p.at === "after" || p.at === "before" ? { at: p.at, ref: block(p.ref) } : p;
-  const shapeRef = (r: ShapeRef): ShapeRef =>
-    "shapeId" in r ? { shapeId: shape(r.shapeId) } : { tempId: shape(r.tempId) };
   const rename = (nb: NewBlock): NewBlock => ({
     ...nb,
     tempId: block(nb.tempId),
@@ -98,22 +66,6 @@ export function canonicalise(ops: Operation[], ids: IdMap): Operation[] {
         return { ...op, at: at(op.at), blocks: op.blocks.map(rename) };
       case "moveBlock":
         return { ...op, blockId: block(op.blockId), to: at(op.to) };
-      case "addShape":
-        return { ...op, blockId: block(op.blockId), tempId: shape(op.tempId) };
-      case "connectEdge":
-        return {
-          ...op,
-          blockId: block(op.blockId),
-          tempId: edge(op.tempId),
-          source: shapeRef(op.source),
-          target: shapeRef(op.target),
-        };
-      case "updateShape":
-      case "removeShape":
-        return { ...op, blockId: block(op.blockId), shapeId: shape(op.shapeId) };
-      case "disconnectEdge":
-      case "setEdgeLabel":
-        return { ...op, blockId: block(op.blockId), edgeId: edge(op.edgeId) };
       default:
         return { ...op, blockId: block(op.blockId) };
     }

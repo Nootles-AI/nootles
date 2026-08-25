@@ -1,6 +1,7 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { requireOwner } from "./auth";
+import { uploadUrl } from "./uploads";
 
 /**
  * Where an album's photos and videos are put.
@@ -16,17 +17,11 @@ import { requireOwner } from "./auth";
  *
  * Separate from `chat/attachments.ts` deliberately: that door decides what a
  * model may read and holds ids because a thread is re-read months later; this
- * one decides what a document may hold. They are the same four lines today and
- * will not stay the same shape.
+ * one decides what a document may hold. They share one authorization policy
+ * (`uploads.ts`) and will not stay the same shape.
  */
 
-export const generateUploadUrl = mutation({
-  args: {},
-  handler: async (ctx) => {
-    await requireOwner(ctx);
-    return await ctx.storage.generateUploadUrl();
-  },
-});
+export const generateUploadUrl = mutation({ args: {}, handler: uploadUrl });
 
 /**
  * Signed-in only, which is as far as ownership can reach: a storage id is not a

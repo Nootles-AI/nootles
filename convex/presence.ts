@@ -17,6 +17,13 @@ import { checkRead } from "./prosemirror";
 /** A row older than this is a ghost; the cron deletes, clients ignore sooner. */
 const EXPIRE_MS = 60_000;
 
+/**
+ * How coarsely the roster reports freshness. The facepile only ever judges a
+ * row against a 30s staleness horizon, so rounding here is what keeps a caret
+ * moving at heartbeat cadence from changing the roster's value at all.
+ */
+const ROSTER_BUCKET_MS = 5_000;
+
 export const heartbeat = mutation({
   args: {
     docId: v.string(),
@@ -73,6 +80,32 @@ export const list = query({
       user: r.user,
       state: r.state,
       updatedAt: r.updatedAt,
+    }));
+  },
+});
+
+/**
+ * Who is announced, without the caret bytes — the facepile's channel.
+ *
+ * Split from {@link list} because the two have opposite appetites: awareness
+ * changes at caret speed and is only wanted by the provider, while a roster
+ * changes when somebody arrives or leaves. Bucketed freshness is what makes
+ * that true of the VALUE too, so a page of typing pushes this query nothing.
+ */
+export const roster = query({
+  args: { docId: v.string() },
+  handler: async (ctx, args) => {
+    await checkRead(ctx, args.docId);
+    const rows = await ctx.db
+      .query("presence")
+      .withIndex("by_doc", (q) => q.eq("docId", args.docId))
+      .take(100);
+    return rows.map((r) => ({
+      sessionId: r.sessionId,
+      clientId: r.clientId,
+      userId: r.userId ?? null,
+      user: r.user,
+      updatedAt: Math.floor(r.updatedAt / ROSTER_BUCKET_MS) * ROSTER_BUCKET_MS,
     }));
   },
 });

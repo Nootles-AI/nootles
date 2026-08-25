@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  memo,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -12,6 +13,7 @@ import {
 import { X } from "@/app/components/Icons";
 import { CanvasSurface, type CanvasApi } from "../canvas/render/CanvasSurface";
 import { useCanvasShell } from "../canvas/shell";
+import { useDebouncedPersist } from "../useDebouncedPersist";
 import { FullscreenShot } from "./FullscreenShot";
 import { StoryboardToolbar } from "./StoryboardToolbar";
 import { parseStoryboard } from "./parse";
@@ -74,6 +76,119 @@ function columnsFor(width: number, shots: number, pinned?: number): number {
   return Math.max(1, Math.min(MAX_COLS, fits, Math.max(1, shots)));
 }
 
+type ShotProps = {
+  index: number;
+  scene: string;
+  note: string;
+  frame: { w: number; h: number; scale: number };
+  active: boolean;
+  readOnly: boolean;
+  removable: boolean;
+  placeholder?: string;
+  onScene: (index: number, scene: string) => void;
+  onNote: (index: number, note: string) => void;
+  onApi: (index: number, api: CanvasApi | null) => void;
+  onClaim: (index: number) => void;
+  onOpen: (index: number) => void;
+  onRemove: (index: number) => void;
+};
+
+/**
+ * One shot: a canvas, its chrome, and the words under it.
+ *
+ * Memoised, and every callback it is handed takes the shot's index rather than
+ * closing over it, so the identities hold still and a keystroke in one note
+ * re-renders one shot rather than the whole board. A full board is twelve
+ * canvases, each with a store, a viewport, a selection and an overlay of its
+ * own, and none of them has anything to say about a caption.
+ */
+const Shot = memo(function Shot({
+  index,
+  scene,
+  note,
+  frame,
+  active,
+  readOnly,
+  removable,
+  placeholder,
+  onScene,
+  onNote,
+  onApi,
+  onClaim,
+  onOpen,
+  onRemove,
+}: ShotProps) {
+  // The canvas is held apart from the rest of the shot: a note is typed into
+  // the same component the drawing lives in, and nothing about a caption is
+  // the canvas's business.
+  const canvas = useMemo(
+    () => (
+      <CanvasSurface
+        source={scene}
+        onChange={(html) => onScene(index, html)}
+        readOnly={readOnly}
+        frame={frame}
+        onApi={(api) => onApi(index, api)}
+      />
+    ),
+    [scene, readOnly, frame, index, onScene, onApi],
+  );
+
+  return (
+    <div
+      className={`nt-sb-shot${active ? " is-active" : ""}`}
+      // Only the canvas claims the shell. A press on the note or the chrome is
+      // a press outside it: the workspace clears the claim, and the bar and the
+      // panels leave together — clicking a note is clicking prose.
+      onPointerDownCapture={
+        readOnly
+          ? undefined
+          : (e) => {
+              if (e.target instanceof Element && e.target.closest(".nt-canvas"))
+                onClaim(index);
+            }
+      }
+    >
+      {canvas}
+      {/* Opening a shot is looking, not editing — a tile is a thumbnail
+          whichever side of the pen you are on, and a reader who cannot see the
+          drawing has not been shown it. Removing a shot is the edit, and stays
+          behind the pen. */}
+      <div className="nt-sb-chrome">
+        <button
+          type="button"
+          aria-label="Open shot full screen"
+          onClick={() => onOpen(index)}
+        >
+          {EXPAND}
+        </button>
+        {!readOnly && removable && (
+          <button
+            type="button"
+            aria-label="Remove shot"
+            onClick={() => onRemove(index)}
+          >
+            <X />
+          </button>
+        )}
+      </div>
+      <div className="nt-sb-num">{index + 1}</div>
+      <textarea
+        className="nt-sb-note"
+        value={note}
+        readOnly={readOnly}
+        rows={3}
+        spellCheck={false}
+        placeholder={placeholder}
+        onChange={(e) => onNote(index, e.target.value)}
+        // The board is a void node in the document; without this a keystroke
+        // reaches ProseMirror as well as the field.
+        onKeyDown={(e) => e.stopPropagation()}
+      />
+    </div>
+  );
+});
+
 export interface StoryboardSurfaceProps {
   source: string;
   onChange: (source: string) => void;
@@ -95,11 +210,9 @@ export function StoryboardSurface({
   /**
    * The board, held locally and written back on a debounce — the same bargain
    * the canvas makes, for the same reason: typing must stay O(1) and a
-   * keystroke is not worth a document mutation.
-   *
-   * `mine` is the last string this component wrote. A prop equal to it is our
-   * own write coming home and is ignored; anything else is a real outside
-   * change (a collaborator, an AI edit, an undo) and is adopted.
+   * keystroke is not worth a document mutation. A `source` that is not our own
+   * write coming home is a real outside change (a collaborator, an AI edit, an
+   * undo), and is adopted whole.
    */
   const [board, setBoard] = useState<Storyboard>(() => read(source));
   /**
@@ -115,46 +228,29 @@ export function StoryboardSurface({
    * left, whatever React is doing.
    */
   const boardRef = useRef(board);
-  const mine = useRef<string | null>(null);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const onChangeRef = useRef(onChange);
-  useEffect(() => {
-    onChangeRef.current = onChange;
-  });
-
-  useEffect(() => {
-    if (source === mine.current) return;
-    const next = read(source);
-    boardRef.current = next;
-    setBoard(next);
-  }, [source]);
+  const persist = useDebouncedPersist(
+    onChange,
+    NOTE_FLUSH_MS,
+    source,
+    (html) => {
+      const next = read(html);
+      boardRef.current = next;
+      setBoard(next);
+    },
+  );
 
   const write = useCallback(
     (up: (prev: Storyboard) => Storyboard, now = true) => {
       const next = up(boardRef.current);
       boardRef.current = next;
       setBoard(next);
-      const flush = () => {
-        const html = serializeStoryboard(next);
-        // Idempotence: a flush that reproduces the last write says nothing.
-        // Without it, echoes rewrite identical data into the document — and
-        // every one is a CRDT update every collaborator has to download.
-        if (html === mine.current) return;
-        mine.current = html;
-        onChangeRef.current(html);
-      };
-      if (timer.current) clearTimeout(timer.current);
-      if (now) flush();
-      else timer.current = setTimeout(flush, NOTE_FLUSH_MS);
+      // Serialized at the flush rather than here: a board is every shot's
+      // drawing, and a note being typed must not pay for that per keystroke.
+      const html = () => serializeStoryboard(boardRef.current);
+      if (now) persist.write(html);
+      else persist.schedule(html);
     },
-    [],
-  );
-
-  useEffect(
-    () => () => {
-      if (timer.current) clearTimeout(timer.current);
-    },
-    [],
+    [persist],
   );
 
   // Width drives the column count, which drives the scale. Measured rather than
@@ -204,6 +300,16 @@ export function StoryboardSurface({
       );
     },
     [write],
+  );
+
+  const setScene = useCallback(
+    (index: number, scene: string) => setShot(index, { scene }),
+    [setShot],
+  );
+  /** A note reaches the document on the pause, not on the keystroke. */
+  const setNote = useCallback(
+    (index: number, note: string) => setShot(index, { note }, false),
+    [setShot],
   );
 
   /**
@@ -308,17 +414,36 @@ export function StoryboardSurface({
     if (claimed && full === null) publish(active);
   }, [claimed, full, publish, active]);
 
-  const claim = (index: number) => {
-    setActive(index);
-    setShotApi(apis.current.get(index) ?? null);
-    publish(index);
-  };
+  const claim = useCallback(
+    (index: number) => {
+      setActive(index);
+      setShotApi(apis.current.get(index) ?? null);
+      publish(index);
+    },
+    [publish],
+  );
 
-  const openFull = (index: number) => {
+  const openFull = useCallback((index: number) => {
     setActive(index);
     setShotApi(apis.current.get(index) ?? null);
     setWantFull(index);
-  };
+  }, []);
+
+  const registerApi = useCallback(
+    (index: number, api: CanvasApi | null) => {
+      if (api) apis.current.set(index, api);
+      else apis.current.delete(index);
+      if (index !== activeRef.current || readOnly) return;
+      setShotApi(api);
+      // A fresh api reaches the shell only while this board holds it — a
+      // mounting shot must not take the claim from whatever is actually being
+      // edited.
+      if (api && shellRef.current.active?.blockId.startsWith(`${blockId}:`)) {
+        publish(index);
+      }
+    },
+    [blockId, publish, readOnly],
+  );
 
   const closeFull = useCallback(() => setWantFull(null), []);
 
@@ -333,23 +458,27 @@ export function StoryboardSurface({
     [blockId, full, boardApi],
   );
 
-  const removeShot = (index: number) => {
-    // The last shot stays: an empty board reads back as three defaults.
-    if (boardRef.current.shots.length <= 1) return;
-    write((prev) => ({
-      ...prev,
-      shots: prev.shots.filter((_, i) => i !== index),
-    }));
-    // The `apis` map needs no fixing: its keys are render positions, and the
-    // component at each position — whose api the entry holds — is keyed the
-    // same way, so both shift together and the unmounting tail removes itself.
-    const next = Math.min(
-      active > index ? active - 1 : active,
-      boardRef.current.shots.length - 1,
-    );
-    setActive(next);
-    setShotApi(apis.current.get(next) ?? null);
-  };
+  const removeShot = useCallback(
+    (index: number) => {
+      // The last shot stays: an empty board reads back as three defaults.
+      if (boardRef.current.shots.length <= 1) return;
+      write((prev) => ({
+        ...prev,
+        shots: prev.shots.filter((_, i) => i !== index),
+      }));
+      // The `apis` map needs no fixing: its keys are render positions, and the
+      // component at each position — whose api the entry holds — is keyed the
+      // same way, so both shift together and the unmounting tail removes itself.
+      const was = activeRef.current;
+      const next = Math.min(
+        was > index ? was - 1 : was,
+        boardRef.current.shots.length - 1,
+      );
+      setActive(next);
+      setShotApi(apis.current.get(next) ?? null);
+    },
+    [write],
+  );
 
   /**
    * The width grip — the album's, on a board.
@@ -455,75 +584,23 @@ export function StoryboardSurface({
         style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`, gap: GAP }}
       >
         {board.shots.map((shot, i) => (
-          <div
+          <Shot
             key={i}
-            className={`nt-sb-shot${i === active && claimed ? " is-active" : ""}`}
-            // Only the canvas claims the shell. A press on the note or the
-            // chrome is a press outside it: the workspace clears the claim,
-            // and the bar and the panels leave together — clicking a note is
-            // clicking prose.
-            onPointerDownCapture={
-              readOnly
-                ? undefined
-                : (e) => {
-                    if (e.target instanceof Element && e.target.closest(".nt-canvas"))
-                      claim(i);
-                  }
-            }
-          >
-            <CanvasSurface
-              source={shot.scene}
-              onChange={(scene) => setShot(i, { scene })}
-              readOnly={readOnly}
-              frame={shotFrame}
-              onApi={(api) => {
-                if (api) apis.current.set(i, api);
-                else apis.current.delete(i);
-                if (i !== activeRef.current || readOnly) return;
-                setShotApi(api);
-                // A fresh api reaches the shell only while this board holds
-                // it — a mounting shot must not take the claim from whatever
-                // is actually being edited.
-                if (api && shellRef.current.active?.blockId.startsWith(`${blockId}:`))
-                  publish(i);
-              }}
-            />
-            {/* Opening a shot is looking, not editing — a tile is a thumbnail
-                whichever side of the pen you are on, and a reader who cannot
-                see the drawing has not been shown it. Removing a shot is the
-                edit, and stays behind the pen. */}
-            <div className="nt-sb-chrome">
-              <button
-                type="button"
-                aria-label="Open shot full screen"
-                onClick={() => openFull(i)}
-              >
-                {EXPAND}
-              </button>
-              {!readOnly && board.shots.length > 1 && (
-                <button
-                  type="button"
-                  aria-label="Remove shot"
-                  onClick={() => removeShot(i)}
-                >
-                  <X />
-                </button>
-              )}
-            </div>
-            <div className="nt-sb-num">{i + 1}</div>
-            <textarea
-              className="nt-sb-note"
-              value={shot.note}
-              readOnly={readOnly}
-              rows={3}
-              spellCheck={false}
-              placeholder={i === 0 ? "What happens…" : undefined}
-              onChange={(e) => setShot(i, { note: e.target.value }, false)}
-              // The board is a void node in the document; without this a
-              // keystroke reaches ProseMirror as well as the field.
-              onKeyDown={(e) => e.stopPropagation()}
-            />
-          </div>
+            index={i}
+            scene={shot.scene}
+            note={shot.note}
+            frame={shotFrame}
+            active={i === active && claimed}
+            readOnly={readOnly}
+            removable={board.shots.length > 1}
+            placeholder={i === 0 ? "What happens…" : undefined}
+            onScene={setScene}
+            onNote={setNote}
+            onApi={registerApi}
+            onClaim={claim}
+            onOpen={openFull}
+            onRemove={removeShot}
+          />
         ))}
       </div>
 

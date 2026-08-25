@@ -98,7 +98,9 @@ function blockPositions(doc: Node): Map<string, Seated> {
   doc.descendants((node, pos) => {
     const id = (node.attrs as { id?: unknown } | undefined)?.id;
     if (typeof id === "string" && node.firstChild) out.set(id, { node, pos });
-    return true;
+    // Ids sit on block containers, never on inline content — and inline content
+    // is nearly the whole tree in a text-heavy document.
+    return !node.isTextblock;
   });
   return out;
 }

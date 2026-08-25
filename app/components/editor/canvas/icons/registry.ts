@@ -9,10 +9,11 @@
  * or change without a migration.
  *
  * The catalog itself (~150KB of path data) stays out of every bundle until an
- * AI lane arms: `loadIconCatalog()` is a dynamic import the lanes kick off
- * when they mount and AWAIT before parsing model output, so lookup itself can
- * stay synchronous — which is what keeps `parseScene` pure and every existing
- * call site untouched.
+ * AI lane actually asks for one: `loadIconCatalog()` is a dynamic import the
+ * lanes kick off when they dispatch a request and AWAIT before parsing model
+ * output, so lookup itself can stay synchronous — which is what keeps
+ * `parseScene` pure and every existing call site untouched. Editing sessions
+ * that never produce a diagram never pay for it.
  */
 
 export type IconDef = {

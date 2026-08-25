@@ -78,6 +78,7 @@ export class ChatStore implements ChatState<AbMessage> {
    * between mutations so it does not loop.
    */
   private snap: ChatSnapshot;
+  private frame: number | null = null;
 
   constructor(initial: AbMessage[] = []) {
     this._messages = initial;
@@ -99,9 +100,19 @@ export class ChatStore implements ChatState<AbMessage> {
     };
   }
 
+  /**
+   * The snapshot is rebuilt at once — anything reading `getSnapshot()` after a
+   * mutation must see it — but React is told once a frame. A stream writes the
+   * message several times between two paints, and each telling costs a render
+   * of the whole transcript.
+   */
   private emit() {
     this.snap = this.build();
-    for (const listener of this.listeners) listener();
+    if (this.frame !== null) return;
+    this.frame = requestAnimationFrame(() => {
+      this.frame = null;
+      for (const listener of this.listeners) listener();
+    });
   }
 
   get status() {
@@ -146,10 +157,12 @@ export class ChatStore implements ChatState<AbMessage> {
 
   replaceMessage = (index: number, message: AbMessage) => {
     const next = this._messages.slice();
-    // Cloned because the SDK keeps mutating the message it handed us as more
-    // of the stream arrives; without this React would compare a value to
-    // itself and skip the render.
-    next[index] = this.snapshot(message);
+    // A fresh object because the SDK keeps mutating the message it handed us as
+    // more of the stream arrives; without this React would compare a value to
+    // itself and skip the render. Shallow on purpose — the parts are read at
+    // render time either way, where a deep clone would copy every tool result
+    // in the turn, whole pages of HTML among them, once per chunk.
+    next[index] = { ...message, parts: message.parts.slice() };
     this._messages = next;
     this.emit();
   };
@@ -185,6 +198,10 @@ export class ChatStore implements ChatState<AbMessage> {
     this.emit();
   };
 
+  /**
+   * The SDK's own copy of a message it is about to stream into — taken once a
+   * request rather than once a chunk, so it can afford to be deep.
+   */
   snapshot = <T,>(value: T): T => structuredClone(value);
 
   subscribe = (listener: () => void) => {

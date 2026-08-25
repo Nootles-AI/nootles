@@ -20,11 +20,24 @@ import {
 } from "../canvas/collab/ymap";
 import { providerForDoc } from "@/app/lib/sync/YConvexProvider";
 import { serializeScene } from "../canvas/scene/serialize";
+import type { Scene } from "../canvas/scene/types";
 import { CanvasSurface, type CanvasApi } from "../canvas/render/CanvasSurface";
 import { useCanvasShell } from "../canvas/shell";
 
 /** How many preceding blocks of page text to hand the canvas for context. */
 const CONTEXT_BLOCKS = 4;
+
+/**
+ * How long the block-prop mirror trails the maps while a diagram is being
+ * edited.
+ *
+ * The maps carry the edit itself, per shape; the prop carries the whole
+ * serialized diagram, and putting that into the page's update log on the
+ * store's own 500ms cadence writes a copy of the drawing per edit pause. The
+ * mirror is display-grade by contract (see `canvas/collab/binding.ts`), so it
+ * waits — and lands early whenever the diagram is let go or the tab is.
+ */
+const MIRROR_MS = 5000;
 
 /** The one editor member this block needs beyond what the spec hands over. */
 type HostEditor = {
@@ -112,21 +125,64 @@ function CanvasBlockView({
     return () => collab.detach();
   }, [collab, yDoc]);
 
+  /** The mirror waiting to be written, and the timer that will write it. */
+  const mirror = useRef<{
+    html: string;
+    timer: ReturnType<typeof setTimeout>;
+  } | null>(null);
+
+  const writeMirror = useCallback(() => {
+    const held = mirror.current;
+    if (!held) return;
+    clearTimeout(held.timer);
+    mirror.current = null;
+    try {
+      onChangeRef.current(held.html);
+    } catch {
+      // The block can be gone by the time the mirror lands — a delete, or the
+      // page it was on being closed. The maps still hold the diagram.
+    }
+  }, []);
+
+  const dropMirror = useCallback(() => {
+    if (!mirror.current) return;
+    clearTimeout(mirror.current.timer);
+    mirror.current = null;
+  }, []);
+
   // A prop change nobody here mirrored: a collaborator's mirror (a no-op once
-  // their map writes arrived) or the AI writing a whole diagram.
+  // their map writes arrived) or the AI writing a whole diagram. Ours in
+  // waiting predates theirs, and writing it after would put the diagram back.
   useEffect(() => {
     if (!yDoc || !collab.attached) return;
-    if (source !== collab.lastMirrored) collab.adoptExternal(source);
-  }, [collab, yDoc, source]);
+    if (source === collab.lastMirrored) return;
+    dropMirror();
+    collab.adoptExternal(source);
+  }, [collab, yDoc, source, dropMirror]);
 
-  /** Local flushes go to the maps AND to the prop — the mirror. */
+  /** Local flushes go to the maps at once; the prop mirror follows behind. */
   const collabChange = useCallback(
-    (html: string) => {
-      collab.writeLocal(html);
-      onChangeRef.current(html);
+    (html: string, scene: Scene) => {
+      collab.writeLocal(html, scene);
+      if (mirror.current) clearTimeout(mirror.current.timer);
+      mirror.current = { html, timer: setTimeout(writeMirror, MIRROR_MS) };
     },
-    [collab],
+    [collab, writeMirror],
   );
+
+  // Letting the diagram go, hiding the tab, and unmounting are all moments a
+  // reader of the prop — a thumbnail, `read_page`, a copy — may come next.
+  useEffect(() => {
+    if (!mine) writeMirror();
+  }, [mine, writeMirror]);
+  useEffect(() => {
+    const onHide = () => {
+      if (document.visibilityState === "hidden") writeMirror();
+    };
+    document.addEventListener("visibilitychange", onHide);
+    return () => document.removeEventListener("visibilitychange", onHide);
+  }, [writeMirror]);
+  useEffect(() => () => writeMirror(), [writeMirror]);
 
   // Everyone paints co-presence (leaves, selections, live drags); a forked
   // doc has no provider, so a review's private canvas shows nobody and tells
@@ -228,13 +284,15 @@ function CanvasBlockView({
         <CanvasSurface
           source={surfaceSource}
           onChange={surfaceChange}
-          // Republished on every tool change, and withdrawn on unmount; either
-          // way it speaks for this block only while this block holds the shell.
+          // Published once and withdrawn on unmount; either way it speaks for
+          // this block only while this block holds the shell.
           onApi={(next) => {
             api.current = next;
             setLiveApi(next);
             collab.setStore(next?.store ?? null);
-            if (mine) shell.set(next ? { blockId, api: next } : null);
+            if (mine && shell.active?.api !== next) {
+              shell.set(next ? { blockId, api: next } : null);
+            }
           }}
         />
       </CanvasAiContext>

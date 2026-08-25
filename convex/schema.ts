@@ -5,19 +5,18 @@ import { v } from "convex/values";
  * Nootles data model — bounded, non-recursive hierarchy:
  *   Project → Page → Block[text|canvas] → (canvas) Shape → {text, image}
  *
- * Text/block *content* is synced separately via @convex-dev/prosemirror-sync
- * (step-based). This schema holds the structural tree, the freeform canvas
- * shapes (high-frequency, kept out of the PM doc), and the AI substrate tables
- * (operation log, checkpoints, context sheet).
+ * Text/block *content* is synced separately as Yjs updates (`ydocs`/`yUpdates`/
+ * `ySnapshots`), or through @convex-dev/prosemirror-sync for documents not yet
+ * migrated. A diagram is part of that content, not a table: its shapes and
+ * edges are per-shape CRDT maps inside the page's Y.Doc, mirrored to the canvas
+ * HTML on the block. This schema holds the structural tree around all of that,
+ * and the AI substrate tables (operation log, checkpoints, context sheet).
  *
  * Tenancy: every top-level row carries `ownerId` — the Clerk subject that
  * created it. Access beyond the owner is granted per project through share
  * links and the claims they leave behind (`shareClaims`); resolution lives in
  * `auth.ts`, never at call sites.
  */
-
-// A 2D point / size used across shapes.
-const vec2 = v.object({ x: v.number(), y: v.number() });
 
 /**
  * Which surface a feedback report is about. One value per product surface,
@@ -81,6 +80,16 @@ export default defineSchema({
      */
     shareToken: v.optional(v.string()),
     editShareToken: v.optional(v.string()),
+    /**
+     * What the projects screen draws about this project's pages, denormalized
+     * so the screen's read set stops covering every page of every project.
+     * Maintained by `projects.refreshPageSummary`; absent on projects written
+     * before it existed, which the screen still derives from the pages.
+     * `pageCount` present is what says the whole summary is.
+     */
+    pageCount: v.optional(v.number()),
+    firstPageDocId: v.optional(v.string()),
+    updatedAt: v.optional(v.number()),
     createdAt: v.number(),
   })
     .index("by_owner", ["ownerId"])
@@ -244,6 +253,13 @@ export default defineSchema({
     order: v.number(),
     // prosemirror-sync document id for this page's block flow.
     docId: v.string(),
+    /**
+     * Set once this page's document moved to the Yjs pipeline — the same fact
+     * as a `ydocs` row, kept here so `ydoc.state` can answer without reading a
+     * row that every flush rewrites. Absent until the doc's next append, which
+     * is where it is stamped; `ydoc.state` falls back to the `ydocs` lookup.
+     */
+    yjs: v.optional(v.boolean()),
     createdAt: v.number(),
     /**
      * Last time the page's content changed, stamped from the sync component's
@@ -282,6 +298,13 @@ export default defineSchema({
     snapshotSeq: v.number(),
     /** Chunk count of the current snapshot; 0 = no snapshot yet. */
     snapshotParts: v.number(),
+    /**
+     * Encoded size of the current snapshot. Written by the compactor so that
+     * `append` can tell, without reading the chunks, that a fold would only
+     * read them to find them too heavy to fold. Absent on snapshots written
+     * before it existed.
+     */
+    snapshotBytes: v.optional(v.number()),
     /** The legacy pipeline's version at migration, for audit. */
     migratedFromVersion: v.optional(v.number()),
     updatedAt: v.number(),
@@ -349,52 +372,6 @@ export default defineSchema({
     .index("by_doc", ["docId"])
     .index("by_updated", ["updatedAt"]),
 
-  /**
-   * Canvas blocks. A page's text blocks live inside the prosemirror-sync doc;
-   * a *canvas* block is represented in the doc as a void node holding this
-   * canvasId, and its shapes/edges live in the tables below (reactive, cheap
-   * to mutate at drag frequency).
-   */
-  canvases: defineTable({
-    ownerId: v.string(),
-    pageId: v.id("pages"),
-    // Stable id referenced by the void node inside the PM doc.
-    blockId: v.string(),
-    createdAt: v.number(),
-  })
-    .index("by_page", ["pageId"])
-    .index("by_block", ["blockId"]),
-
-  shapes: defineTable({
-    ownerId: v.string(),
-    canvasId: v.id("canvases"),
-    kind: v.union(
-      v.literal("rectangle"),
-      v.literal("ellipse"),
-      v.literal("diamond"),
-      v.literal("node"), // generic diagram node
-      v.literal("image"),
-    ),
-    position: vec2,
-    size: vec2,
-    // Rich text shown inside the shape (reuses the block text editor).
-    // Stored as BlockNote/PM JSON; null for pure-image shapes.
-    text: v.optional(v.any()),
-    // Convex storage id when kind === "image".
-    storageId: v.optional(v.id("_storage")),
-    style: v.optional(v.any()),
-    createdAt: v.number(),
-  }).index("by_canvas", ["canvasId"]),
-
-  edges: defineTable({
-    ownerId: v.string(),
-    canvasId: v.id("canvases"),
-    source: v.id("shapes"),
-    target: v.id("shapes"),
-    label: v.optional(v.string()),
-    style: v.optional(v.any()),
-  }).index("by_canvas", ["canvasId"]),
-
   // ---- AI substrate (populated in Phase 2; defined now so it's stable) ----
 
   /** Append-only log of Operations (human + AI), the Context Spine feed. */
@@ -414,9 +391,10 @@ export default defineSchema({
     ownerId: v.string(),
     pageId: v.id("pages"),
     chatPromptId: v.string(),
-    // Snapshot of the PM doc + shapes/edges at this point in time.
+    /** The packed BlockNote document, diagrams and all — see `ai/checkpoints.ts`. */
     docSnapshot: v.any(),
-    canvasSnapshot: v.any(),
+    /** Only ever written null, by rows older than this comment. */
+    canvasSnapshot: v.optional(v.any()),
     createdAt: v.number(),
   }).index("by_page", ["pageId", "createdAt"]),
 
@@ -897,7 +875,11 @@ export default defineSchema({
       ),
     ),
     createdAt: v.number(),
-  }).index("by_thread", ["threadId", "seq"]),
+  })
+    .index("by_thread", ["threadId", "seq"])
+    // The upsert's lookup: `put` is keyed on the SDK's message id, and reading
+    // the whole transcript to find one row is what it cost without this.
+    .index("by_thread_and_uiId", ["threadId", "uiId"]),
 
   /**
    * One agent turn that touched the document, and where its review stands.

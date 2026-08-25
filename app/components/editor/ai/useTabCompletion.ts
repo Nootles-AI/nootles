@@ -249,6 +249,64 @@ function displayText(text: string): string {
 }
 
 /**
+ * A completion that never closes its element reads to the whole token budget:
+ * `firstBlock` cannot call a `<ul>` done while the model keeps opening `<li>`s.
+ * Past this much markup, whatever is arriving is not one block.
+ */
+const STRUCTURE_CEILING = 4000;
+
+/**
+ * Shortest and longest repeating unit worth calling a loop. Below the floor a
+ * repeated cell value reads as one; above the ceiling the model is writing.
+ */
+const LOOP_MIN = 12;
+const LOOP_MAX = 400;
+
+/**
+ * Where a degenerate repeat begins — the index just past its FIRST occurrence,
+ * or -1.
+ *
+ * Periodicity rather than a line- or element-wise comparison: a model that
+ * starts looping repeats whatever unit it happens to be in — a clause, a table
+ * row, a whole list item — and one test catches all three, including a repeat
+ * still half-arrived. Three passes is the threshold; two can be deliberate.
+ */
+function loopCut(text: string): number {
+  const n = text.length;
+  const last = text[n - 1];
+  for (let p = LOOP_MIN; p <= LOOP_MAX && p * 3 <= n; p++) {
+    // Two character comparisons to dismiss almost every period, before any
+    // string is built: this runs on every chunk of every completion.
+    if (text[n - 1 - p] !== last || text[n - 1 - 2 * p] !== last) continue;
+    const unit = text.slice(n - p);
+    if (!/\w/.test(unit)) continue;
+    if (!text.startsWith(unit, n - 2 * p) || !text.startsWith(unit, n - 3 * p)) {
+      continue;
+    }
+    let first = n - 3 * p;
+    while (first - p >= 0 && text.startsWith(unit, first - p)) first -= p;
+    return first + p;
+  }
+  return -1;
+}
+
+/**
+ * How much of a completion is new words rather than the same ones again.
+ *
+ * `grounding` cannot see a loop: it is set overlap, so a phrase written twenty
+ * times scores a perfect 1.0 against a page that contains it once. Short
+ * completions are exempt — a handful of words is too few to tell a repeat from
+ * a rhythm.
+ */
+function variety(text: string): number {
+  const w = text.toLowerCase().match(/[a-z][a-z0-9]*/g) ?? [];
+  if (w.length < 12) return 1;
+  return new Set(w).size / w.length;
+}
+
+const MIN_VARIETY = 0.4;
+
+/**
  * Preview built from a HALF-ARRIVED completion, so a diagram draws itself as its
  * shapes come in rather than sitting behind a spinner for a few seconds.
  *
@@ -441,6 +499,24 @@ type DismissReason =
   | "escape"
   | "timeout";
 
+/** A settled suggestion as a batched telemetry write carries it. */
+type TurnedDown = {
+  kind: string;
+  gateOk: boolean;
+  shown: boolean;
+  outcome: "accepted" | "dismissed" | "superseded";
+  latencyMs: number;
+  suggestionText: string;
+  contextBefore?: string;
+  model: string;
+  pageMode: PageMode;
+  docLength: number;
+  decisionMs: number;
+  dismissReason?: DismissReason;
+  blockIds?: string[];
+  acceptedText?: string;
+};
+
 const squash = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
 
 /**
@@ -453,6 +529,13 @@ function firstClause(text: string, max: number): string {
   return cut.length > max ? cut.slice(0, max).replace(/\s+\S*$/, "") : cut;
 }
 
+/** How long a refusal stands, and how many are remembered at once. */
+const REFUSAL_MS = 60_000;
+const REFUSAL_KEEP = 12;
+
+/** Long enough to gather a burst of typing, short enough to survive a reload. */
+const FLUSH_MS = 5000;
+
 export function useTabCompletion(
   editor: Editor | null | undefined,
   pageId?: Id<"pages"> | null,
@@ -463,6 +546,7 @@ export function useTabCompletion(
 ) {
   const appendBatch = useMutation(api.ai.opLog.appendBatch);
   const logSuggestion = useMutation(api.ai.suggestions.log);
+  const logTurnedDown = useMutation(api.ai.suggestions.logMany);
   const amendSuggestion = useMutation(api.ai.suggestions.amend);
   // A ref like the mutations, and for the same reason: the next completion
   // should carry the latest context without a changed sheet restarting the
@@ -470,20 +554,19 @@ export function useTabCompletion(
   const contextSeed = useCompletionContext();
   const appendRef = useRef(appendBatch);
   const logRef = useRef(logSuggestion);
+  const logManyRef = useRef(logTurnedDown);
   const amendRef = useRef(amendSuggestion);
   const seedRef = useRef(contextSeed);
   useEffect(() => {
     appendRef.current = appendBatch;
     logRef.current = logSuggestion;
+    logManyRef.current = logTurnedDown;
     amendRef.current = amendSuggestion;
     seedRef.current = contextSeed;
   });
 
   useEffect(() => {
     if (!editor) return;
-    // Warm start, so the awaits on the hot paths are settled promises by the
-    // time any completion arrives.
-    void loadIconCatalog();
     let timer: ReturnType<typeof setTimeout> | null = null;
     let abort: AbortController | null = null;
     /**
@@ -496,13 +579,47 @@ export function useTabCompletion(
     let liveAbort: AbortController | null = null;
     let seq = 0;
     let shown: ShownState | null = null;
+    /**
+     * What Escape has already turned down, by where it was offered and what it
+     * said.
+     *
+     * The request is byte-identical and the model runs at temperature 0.2 with
+     * no seed, so parking the caret back where it was asks the same question
+     * and gets the same answer — the dismissed suggestion returns pause after
+     * pause. Escape only: typing through and moving on are not refusals, and
+     * treating them as ones would make the lane go quiet.
+     */
+    const refusals = new Map<string, { at: number; block: string }>();
 
     const view = () => editor.prosemirrorView;
     // Convex mutations trigger React state; dispatching one from inside the
     // editor's update cycle re-enters rendering. Always defer writes out of it.
     const defer = (fn: () => void) => setTimeout(fn, 0);
 
-    /** The full telemetry row for a settled suggestion. Resolves to its id. */
+    /**
+     * Turned-down suggestions, waiting to travel together.
+     *
+     * The lane shows a suggestion at every pause and most of them are typed
+     * through, so one mutation each is a write per pause for the whole session
+     * — sustained traffic competing with the document's own flushes, for rows
+     * nobody reads one at a time. Accepts still go alone: they are rare, and
+     * the id one returns is what an undo amends.
+     */
+    const turnedDown: TurnedDown[] = [];
+    let flushTimer: ReturnType<typeof setTimeout> | null = null;
+    const flush = () => {
+      if (flushTimer) clearTimeout(flushTimer);
+      flushTimer = null;
+      if (!pageId || !turnedDown.length) return;
+      void logManyRef
+        .current({ pageId, rows: turnedDown.splice(0) })
+        .catch(() => {});
+    };
+    // A closed tab would otherwise take the last few with it.
+    const onHide = () => flush();
+    window.addEventListener("pagehide", onHide);
+
+    /** The telemetry row for a settled suggestion; an accept resolves to its id. */
     const logOutcome = (
       s: ShownState,
       outcome: "accepted" | "dismissed" | "superseded",
@@ -527,21 +644,32 @@ export function useTabCompletion(
         if (outcome === "dismissed") noteDismissal();
       }
       if (!pageId) return Promise.resolve(null);
-      return logRef.current({
-        pageId,
+      const row = {
         kind: s.kind,
         gateOk: true,
         shown: true,
         outcome,
         latencyMs: s.latencyMs,
         suggestionText: s.text,
-        contextBefore: s.contextBefore,
         model: s.kind === "Add diagram" ? AI.diagram.model : AI.fim.model,
         pageMode: mode,
         docLength: s.docLength,
         decisionMs,
         ...extra,
-      });
+      };
+      if (outcome !== "accepted") {
+        // What was on screen around it only answers questions about accepts
+        // and about a suggestion someone stopped to refuse; typing through one
+        // says nothing that needs 500 characters of the page to read.
+        turnedDown.push(
+          extra?.dismissReason === "escape"
+            ? { ...row, contextBefore: s.contextBefore }
+            : row,
+        );
+        if (!flushTimer) flushTimer = setTimeout(flush, FLUSH_MS);
+        return Promise.resolve(null);
+      }
+      return logRef.current({ ...row, pageId, contextBefore: s.contextBefore });
     };
 
     /**
@@ -680,11 +808,54 @@ export function useTabCompletion(
       });
     });
 
+    const caretBlockText = (): string => {
+      try {
+        const id = editor.getTextCursorPosition().block.id as string;
+        return squash(blockTextOf(id) ?? "");
+      } catch {
+        return "";
+      }
+    };
+
+    const refusalKey = (contextBefore: string, text: string) =>
+      `${squash(contextBefore)}\0${squash(displayText(text))}`;
+
+    /** Whether this suggestion, offered here, has already been refused. */
+    const refused = (contextBefore: string, text: string): boolean => {
+      const key = refusalKey(contextBefore, text);
+      const hit = refusals.get(key);
+      if (!hit) return false;
+      // A refusal is about a moment. It expires with time, and the moment the
+      // block it was refused in says something else it is a new question.
+      if (Date.now() - hit.at > REFUSAL_MS || caretBlockText() !== hit.block) {
+        refusals.delete(key);
+        return false;
+      }
+      return true;
+    };
+
     // Escape, as opposed to typing through or moving away.
     setDismissHandler(() => {
+      // A real supersede, and the only place there is one: an Escape changes
+      // neither the document nor the selection, so `schedule()` never hears
+      // about it. Without this the stream still in flight redraws what was
+      // just dismissed on its next chunk, and the settle timer puts it back
+      // after that. Deliberately NOT routed through `schedule()`, which would
+      // turn a dismissal into a fresh request for the same completion.
+      seq++;
+      abort?.abort();
+      if (timer) clearTimeout(timer);
+      timer = null;
       const s = shown;
       shown = null;
       if (!s) return;
+      const key = refusalKey(s.contextBefore, s.text);
+      refusals.delete(key);
+      refusals.set(key, { at: Date.now(), block: caretBlockText() });
+      for (const oldest of refusals.keys()) {
+        if (refusals.size <= REFUSAL_KEEP) break;
+        refusals.delete(oldest);
+      }
       defer(() => {
         void logOutcome(s, "dismissed", { dismissReason: "escape" }).catch(
           () => {},
@@ -708,10 +879,34 @@ export function useTabCompletion(
       );
     };
 
+    /**
+     * How the document is projected for the model: the caret's neighbourhood,
+     * with imported drawings collapsed to a stub. The whole page used to be
+     * serialized on every debounce — every canvas re-parsed and re-serialized,
+     * every storyboard with it — for a prompt the server then trimmed to its
+     * last few thousand characters.
+     *
+     * Both halves of the lane read the SAME projection: the split the model
+     * completes, and the `current` the compiler diffs its answer against. A
+     * drawing collapsed on one side only would read as one the model deleted.
+     */
+    const projection = {
+      title,
+      window: AI.projection.window,
+      collapseDrawn: true,
+    };
+
     const context = () => {
       const state = editor.prosemirrorState;
       const sel = state.selection;
       if (!sel.empty || !sel.$from.parent.isTextblock) return null;
+      // Nothing to complete from, settled before anything is serialized. A
+      // ProseMirror position counts node boundaries as well as characters, and
+      // the title rides in front of the prefix on its own line, so this bounds
+      // the exact check below from above: too generous, never too strict.
+      if (sel.from + title.length + 1 < AI.modes[mode].minContextChars) {
+        return null;
+      }
       // A caret in a table cell. BlockNote's cursor block is the table itself —
       // cells are not blocks — so which cell has to be read off the ProseMirror
       // ancestry: the row's index in the table, the cell's index in the row.
@@ -734,7 +929,7 @@ export function useTabCompletion(
         blocks,
         cursorBlockId,
         sel.$from.parentOffset,
-        { title },
+        projection,
         cell,
       );
       if (!split) return null;
@@ -908,16 +1103,37 @@ export function useTabCompletion(
           latencyMs,
           shownAt: performance.now(),
           text: acc,
-          contextBefore: ctx.visible.slice(-500),
+          contextBefore,
           docLength: ctx.visible.length,
         };
       };
 
       const limits = AI.modes[mode];
+      // What this caret can accept, which is what the token budget and the stop
+      // sequences are for. A table cell holds inline content only, so a block
+      // opened inside one is cut on arrival — no reason to buy its tokens.
+      const shape = !limits.allowBlocks
+        ? "complete"
+        : ctx.cell
+          ? "prose"
+          : "structure";
+      const contextBefore = ctx.visible.slice(-500);
+      /**
+       * The projection with a completion spliced in, parsed. Memoised on the
+       * completion, because settling asks the same question twice — once to
+       * compile the answer, once to draw it — and this is a DOM parse.
+       */
+      let parsed: { text: string; nodes: DocNode[] } | null = null;
+      const parseWith = (text: string): DocNode[] => {
+        if (parsed?.text !== text) {
+          parsed = { text, nodes: parseDocHtml(ctx.prefix + text) };
+        }
+        return parsed.nodes;
+      };
       // How many blocks stand before the caret. Whatever the parse returns past
       // this is what the completion added, read in its place in the document —
       // a bare `<li>` cannot say which kind of list it belongs to on its own.
-      const written = parseDocHtml(ctx.prefix).length;
+      const written = parseWith("").length;
       // The caret's own block included: the completion writes into it too, and
       // it is the block a "1." the user just typed is sitting in.
       const from = Math.max(0, written - 1);
@@ -934,12 +1150,21 @@ export function useTabCompletion(
       ];
       const preview = (text: string) => {
         try {
-          const nodes = parseDocHtml(ctx.prefix + text);
+          const nodes = parseWith(text);
           return blocksFromMarkup(authored(nodes, nodes.length).slice(written));
         } catch {
           return [];
         }
       };
+      /** The document as it stands, in the projection the model was shown. */
+      let currentNodes: DocNode[] | null = null;
+      const current = () =>
+        (currentNodes ??= parseDocHtml(
+          toDocHtml(ctx.blocks, {
+            ...projection,
+            cursorBlockId: ctx.cursorBlockId,
+          }),
+        ));
       /**
        * The completion as ops: the document rebuilt with it spliced in, and the
        * difference taken. Null when there is nothing to do or the batch does
@@ -951,14 +1176,13 @@ export function useTabCompletion(
        */
       const compileWith = (completion: string): Batch | null => {
         try {
-          const ends = parseDocHtml(ctx.prefix + completion).length;
+          const ends = parseWith(completion).length;
           const next = authored(
             parseDocHtml(ctx.prefix + completion + ctx.suffix),
             ends,
           );
-          const current = parseDocHtml(toDocHtml(ctx.blocks));
           const batch = compileDocHtml(next, {
-            current,
+            current: current(),
             anchorBlockId: ctx.cursorBlockId,
           });
           if (!batch.ops.length) return null;
@@ -981,10 +1205,13 @@ export function useTabCompletion(
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
-            before: ctx.prefix,
-            after: ctx.suffix,
+            // Cut to what the wire call keeps. The whole projection is still
+            // what the completion is compiled against; it is only the upload
+            // that has nothing to gain from the part about to be trimmed.
+            before: ctx.prefix.slice(-AI.fim.maxBefore),
+            after: ctx.suffix.slice(0, AI.fim.maxAfter),
             seed: PREAMBLE + seedRef.current,
-            mode: "html",
+            mode: shape,
           }),
           signal: controller.signal,
         });
@@ -1013,7 +1240,18 @@ export function useTabCompletion(
           try {
             const bounded = firstBlock(raw);
             acc = bounded.text;
+            // The model has started repeating itself. Keep the first pass and
+            // stop reading — nothing after a loop begins is worth showing, and
+            // breaking here aborts the stream, so the rest is not billed.
+            const looped = loopCut(acc);
+            if (looped !== -1) {
+              acc = acc.slice(0, looped);
+              break;
+            }
             if (bounded.done) break; // the block closed; nothing after it is ours
+            // An element that never closes reads to the whole token budget
+            // otherwise: `firstBlock` has no way to say it is finished.
+            if (acc.length > STRUCTURE_CEILING) break;
             // Nobody wants a diagram proposed while someone is still talking —
             // but the words BEFORE the block are still a good completion, and
             // throwing them out with it is what made "the formula is:" followed
@@ -1174,6 +1412,22 @@ export function useTabCompletion(
           return clear();
         }
       }
+
+      // The gate above is the one a mode can switch off, and "create" — where a
+      // runaway completion actually shows up — switches it off. These two the
+      // mode does not reach: a completion that says one thing over and over, or
+      // that hands the page back words it can already read either side of the
+      // caret, is not a completion in any mode.
+      const offered = displayText(acc).trim();
+      if (variety(offered) < MIN_VARIETY) return clear();
+      const after = ctx.suffix.slice(0, 400).replace(/<[^>]*>/g, " ");
+      const around = squash(`${contextBefore.slice(-200)} ${after}`);
+      if (offered.length >= LOOP_MIN && around.includes(squash(offered))) {
+        return clear();
+      }
+      // Already turned down, here, with these words. Escape is the dismissal
+      // that means "not this" rather than "not now".
+      if (refused(contextBefore, acc)) return clear();
 
       // Plain prose — no markup at all — is the fast path: the ghost text IS
       // the insertion, so accepting is a plain insertText.
@@ -1336,6 +1590,8 @@ export function useTabCompletion(
         shown = null;
         void logOutcome(s, "superseded").catch(() => {});
       }
+      window.removeEventListener("pagehide", onHide);
+      flush();
       setActionApplyHandler(null);
       setGhostAcceptHandler(null);
       setDismissHandler(null);

@@ -66,6 +66,7 @@ import {
   findNode,
   findParent,
   isContainer,
+  nodePath,
   walk,
   type GroupNode,
   type NodeFrame,
@@ -128,7 +129,7 @@ export interface TransformGestureOptions {
   getSelection(): readonly NodeId[];
   /** The element the viewport transform is applied to — the coordinate origin. */
   getContainer(): HTMLElement | null;
-  /** A node's rendered element. The surface keeps the map; we only read it. */
+  /** A node's rendered element. The surface finds and caches it; we only read. */
   getElement(id: NodeId): HTMLElement | null;
   overlay?: { current: OverlayHandle | null };
   /** New selection after a gesture that creates nodes (alt-drag duplicate). */
@@ -1118,14 +1119,30 @@ function applyScale(
  */
 function relayout(session: Session) {
   const moved = new Map(session.frames.map((frame) => [frame.id, frame]));
-  const patch = (nodes: readonly SceneNode[]): SceneNode[] =>
-    nodes.map((node) => {
+  // Only the chains down to the moved nodes are rebuilt; every other subtree
+  // is handed back by identity, so a frame allocates a few objects rather than
+  // a copy of the diagram.
+  const touched = new Set<NodeId>();
+  for (const frame of session.frames) {
+    for (const node of nodePath(session.scene, frame.id)) touched.add(node.id);
+  }
+  const patch = (nodes: SceneNode[]): SceneNode[] => {
+    let changed = false;
+    const out = nodes.map((node) => {
+      if (!touched.has(node.id)) return node;
       const f = moved.get(node.id);
-      const next = f
+      let next: SceneNode = f
         ? { ...node, x: f.x, y: f.y, w: f.w, h: f.h, rot: f.rot }
         : node;
-      return isContainer(next) ? { ...next, children: patch(next.children) } : next;
+      if (isContainer(next)) {
+        const children = patch(next.children);
+        if (children !== next.children) next = { ...next, children };
+      }
+      if (next !== node) changed = true;
+      return next;
     });
+    return changed ? out : nodes;
+  };
 
   const laid = laidOutScene(
     reflowHugs({ ...session.scene, nodes: patch(session.scene.nodes) }),

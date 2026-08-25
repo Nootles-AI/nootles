@@ -8,12 +8,22 @@
 import { AI } from "./aiConfig";
 
 const FIM_URL = "https://api.mistral.ai/v1/fim/completions";
-const MAX_BEFORE = 4000;
-const MAX_AFTER = 1000;
+const { maxBefore: MAX_BEFORE, maxAfter: MAX_AFTER } = AI.fim;
+
+/** Where prose ends: a line break the suffix did not ask for. */
+const DEFAULT_STOP = ["\n\n", "\n"];
 
 export type FimOpts = {
   maxTokens?: number;
-  stop?: string[];
+  /**
+   * Where the model must stop, or `"none"` for the deliberate absence of any
+   * stop sequence.
+   *
+   * A word rather than `[]`, because an empty array reads as "unset" at the
+   * call site: written that way the newline stops were silently off for every
+   * editor completion, and nothing in the request said so.
+   */
+  stop?: string[] | "none";
   signal?: AbortSignal;
   /**
    * Grammar teaching prepended to the prompt, and the one part of it exempt
@@ -50,6 +60,7 @@ async function fimFetch(
   const trimmed = before.length > MAX_BEFORE ? before.slice(-MAX_BEFORE) : before;
   const prompt = (opts.seed ?? "") + trimmed;
   const suffix = after.length > MAX_AFTER ? after.slice(0, MAX_AFTER) : after;
+  const stop = opts.stop ?? DEFAULT_STOP;
   return fetch(FIM_URL, {
     method: "POST",
     headers: {
@@ -60,9 +71,9 @@ async function fimFetch(
       model: AI.fim.model,
       prompt,
       suffix,
-      max_tokens: opts.maxTokens ?? AI.fim.ghostMaxTokens,
+      max_tokens: opts.maxTokens ?? AI.fim.maxTokens.prose,
       temperature: 0.2,
-      stop: opts.stop ?? ["\n\n", "\n"],
+      ...(stop === "none" ? {} : { stop }),
       stream,
     }),
     signal: opts.signal,

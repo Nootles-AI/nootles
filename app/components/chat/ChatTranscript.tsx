@@ -1,6 +1,13 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import {
   getToolName,
   isToolUIPart,
@@ -62,6 +69,24 @@ export function ChatTranscript({
   const endRef = useRef<HTMLDivElement>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
 
+  // The rows below sit out a render only if everything handed to them is
+  // unchanged, and a fresh closure per stream chunk is exactly what would stop
+  // them — so the callbacks are read late instead of captured.
+  const latest = useRef({ onRewind, onRewindCancel, onRewindCommit });
+  useEffect(() => {
+    latest.current = { onRewind, onRewindCancel, onRewindCommit };
+  });
+  const rewindTo = useCallback(
+    (message: AbMessage, what: RewindScope) =>
+      latest.current.onRewind(message, what),
+    [],
+  );
+  const cancelRewind = useCallback(() => latest.current.onRewindCancel(), []);
+  const commitRewind = useCallback(
+    (text: string) => latest.current.onRewindCommit(text),
+    [],
+  );
+
   // Follow the stream, but only when already at the bottom: yanking someone
   // back down while they are reading an earlier answer is worse than not
   // following at all.
@@ -104,109 +129,21 @@ export function ChatTranscript({
   return (
     <div ref={scrollerRef} className="nt-transcript">
       {messages.map((message, index) => (
-        <div
+        <MessageRow
           key={message.id}
-          className={`nt-turn is-${message.role}${
-            from >= 0 && index > from ? " is-dropping" : ""
-          }`}
-        >
-          {message.id === rewinding ? (
-            <RewindDraft
-              initial={textOf(message)}
-              onCancel={onRewindCancel}
-              onCommit={onRewindCommit}
-            />
-          ) : (
-          groupParts(message.parts).map((item) => {
-            const i = item.key;
-            if ("draws" in item) {
-              // A board's shots arrive as one salvo of parallel calls; nine
-              // near-identical lines read as a stutter, one count reads as
-              // work. A lone call keeps its quoted brief — detail is only
-              // noise in a crowd. A salvo still waiting on its style says
-              // nothing here: the picker below is the statement.
-              if (item.draws.every((p) => p.state === "approval-requested")) {
-                return null;
-              }
-              const running = item.draws.some(isRunning);
-              return (
-                <p
-                  key={i}
-                  className={`nt-turn-step${running ? " is-running" : ""}`}
-                >
-                  {running && <span className="nt-thinking-dot" aria-hidden />}
-                  {item.draws.length === 1
-                    ? stepLine(item.draws[0])
-                    : drawsLine(item.draws)}
-                </p>
-              );
-            }
-            const part = item.part;
-            if (part.type === "text") {
-              // Only what the agent wrote is read as markdown. A question is
-              // shown as it was typed — someone who wrote an asterisk meant an
-              // asterisk, and reformatting their own words back at them is the
-              // one place this would be wrong.
-              return message.role === "assistant" ? (
-                <Markdown key={i} text={part.text} />
-              ) : (
-                <p key={i} className="nt-turn-text">
-                  {part.text}
-                </p>
-              );
-            }
-            // What came with the question. A mention keeps its "@" because that
-            // is how it was written; a file gets the clip it was attached with.
-            if (part.type === "data-mention") {
-              const { data } = part;
-              return (
-                <span key={i} className="nt-chip">
-                  @{data.kind === "page" ? data.title.trim() || "Untitled" : data.filename}
-                </span>
-              );
-            }
-            if (part.type === "data-attachment") {
-              return <FileChip key={i} filename={part.data.filename} />;
-            }
-            // An image lives in storage rather than in the message, so the chip
-            // is the way back to it.
-            if (part.type === "file") {
-              return (
-                <FileChip key={i} filename={part.filename ?? "Image"} href={part.url} />
-              );
-            }
-            if (isToolUIPart(part)) {
-              // A call waiting to be allowed is shown as the question below,
-              // not as a line claiming it is under way.
-              if (part.state === "approval-requested") return null;
-              const failed = part.state === "output-error";
-              // The step that is still running carries the pulse, because it is
-              // the one that knows what is happening: "Writing…" beside a live
-              // dot says more than "Thinking…" ever did, and there is only ever
-              // one of them on screen.
-              const running = isRunning(part);
-              return (
-                <p
-                  key={i}
-                  className={`nt-turn-step${failed ? " is-failed" : ""}${
-                    running ? " is-running" : ""
-                  }`}
-                >
-                  {running && <span className="nt-thinking-dot" aria-hidden />}
-                  {stepLine(part)}
-                </p>
-              );
-            }
-            return null;
-          })
-          )}
-          {message.role === "user" && !busy && !rewinding && (
-            <Rewind
-              pageCount={pagesChangedBy(restorable, message.metadata?.chatPromptId)}
-              onRewind={(what) => onRewind(message, what)}
-            />
-          )}
-        </div>
+          message={message}
+          dropping={from >= 0 && index > from}
+          drafting={message.id === rewinding}
+          rewindable={message.role === "user" && !busy && !rewinding}
+          pageCount={
+            message.role === "user"
+              ? pagesChangedBy(restorable, message.metadata?.chatPromptId)
+              : 0
+          }
+          onRewind={rewindTo}
+          onRewindCancel={cancelRewind}
+          onRewindCommit={commitRewind}
+        />
       ))}
 
       {drawApprovals.length > 0 && (
@@ -236,6 +173,135 @@ export function ChatTranscript({
     </div>
   );
 }
+
+/**
+ * One turn.
+ *
+ * Memoized, and the only reason the panel survives a long thread: a stream
+ * writes the assistant message several times a second, and every turn above it
+ * would otherwise re-run this markdown parser from scratch each time. The store
+ * replaces one message and keeps the rest, so identity is what says a turn has
+ * nothing new to say.
+ */
+const MessageRow = memo(function MessageRow({
+  message,
+  dropping,
+  drafting,
+  rewindable,
+  pageCount,
+  onRewind,
+  onRewindCancel,
+  onRewindCommit,
+}: {
+  message: AbMessage;
+  /** On its way out with a rewind that has not been confirmed yet. */
+  dropping: boolean;
+  /** This is the message the rewind winds back to, open for editing. */
+  drafting: boolean;
+  rewindable: boolean;
+  pageCount: number;
+  onRewind: (message: AbMessage, what: RewindScope) => void;
+  onRewindCancel: () => void;
+  onRewindCommit: (text: string) => void;
+}) {
+  return (
+    <div className={`nt-turn is-${message.role}${dropping ? " is-dropping" : ""}`}>
+      {drafting ? (
+        <RewindDraft
+          initial={textOf(message)}
+          onCancel={onRewindCancel}
+          onCommit={onRewindCommit}
+        />
+      ) : (
+        groupParts(message.parts).map((item) => {
+          const i = item.key;
+          if ("draws" in item) {
+            // A board's shots arrive as one salvo of parallel calls; nine
+            // near-identical lines read as a stutter, one count reads as
+            // work. A lone call keeps its quoted brief — detail is only
+            // noise in a crowd. A salvo still waiting on its style says
+            // nothing here: the picker below is the statement.
+            if (item.draws.every((p) => p.state === "approval-requested")) {
+              return null;
+            }
+            const running = item.draws.some(isRunning);
+            return (
+              <p
+                key={i}
+                className={`nt-turn-step${running ? " is-running" : ""}`}
+              >
+                {running && <span className="nt-thinking-dot" aria-hidden />}
+                {item.draws.length === 1
+                  ? stepLine(item.draws[0])
+                  : drawsLine(item.draws)}
+              </p>
+            );
+          }
+          const part = item.part;
+          if (part.type === "text") {
+            // Only what the agent wrote is read as markdown. A question is
+            // shown as it was typed — someone who wrote an asterisk meant an
+            // asterisk, and reformatting their own words back at them is the
+            // one place this would be wrong.
+            return message.role === "assistant" ? (
+              <Markdown key={i} text={part.text} />
+            ) : (
+              <p key={i} className="nt-turn-text">
+                {part.text}
+              </p>
+            );
+          }
+          // What came with the question. A mention keeps its "@" because that
+          // is how it was written; a file gets the clip it was attached with.
+          if (part.type === "data-mention") {
+            const { data } = part;
+            return (
+              <span key={i} className="nt-chip">
+                @{data.kind === "page" ? data.title.trim() || "Untitled" : data.filename}
+              </span>
+            );
+          }
+          if (part.type === "data-attachment") {
+            return <FileChip key={i} filename={part.data.filename} />;
+          }
+          // An image lives in storage rather than in the message, so the chip
+          // is the way back to it.
+          if (part.type === "file") {
+            return (
+              <FileChip key={i} filename={part.filename ?? "Image"} href={part.url} />
+            );
+          }
+          if (isToolUIPart(part)) {
+            // A call waiting to be allowed is shown as the question below,
+            // not as a line claiming it is under way.
+            if (part.state === "approval-requested") return null;
+            const failed = part.state === "output-error";
+            // The step that is still running carries the pulse, because it is
+            // the one that knows what is happening: "Writing…" beside a live
+            // dot says more than "Thinking…" ever did, and there is only ever
+            // one of them on screen.
+            const running = isRunning(part);
+            return (
+              <p
+                key={i}
+                className={`nt-turn-step${failed ? " is-failed" : ""}${
+                  running ? " is-running" : ""
+                }`}
+              >
+                {running && <span className="nt-thinking-dot" aria-hidden />}
+                {stepLine(part)}
+              </p>
+            );
+          }
+          return null;
+        })
+      )}
+      {rewindable && (
+        <Rewind pageCount={pageCount} onRewind={(what) => onRewind(message, what)} />
+      )}
+    </div>
+  );
+});
 
 /**
  * The question, open for editing, with the rewind already showing.

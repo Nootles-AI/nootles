@@ -366,13 +366,33 @@ export function applySceneDiff(
 
   // Which shapes' parent/order this edit actually moved.
   const moved = movedIds(prev, next, was, want);
-  const orderKeys = planOrders(shapes, next);
+  // An order key is only ever written for a shape this edit moved, or one the
+  // maps do not hold yet. Planning them reads every entry in the map and runs
+  // a subsequence per parent, so an edit that reordered nothing — a recolour,
+  // a nudge — never asks.
+  let orderKeys: Map<string, string> | null = null;
+  const orderOf = (id: NodeId): string =>
+    (orderKeys ??= planOrders(shapes, next)).get(id) ?? "";
 
   for (const [id, { node, parentId }] of want) {
-    const fields = fieldsOf(node, parentId, orderKeys.get(id)!);
-    const existing = shapes.get(id) as Y.Map<unknown> | undefined;
     const before = was.get(id);
+    // `./ops` shares structure: a node the edit did not touch comes back as the
+    // same object, and an unmoved one of those has nothing to write. Skipping
+    // it here is what keeps a nudge or a slider tick proportional to the edit
+    // rather than to the diagram.
+    if (
+      before &&
+      before.node === node &&
+      before.parentId === parentId &&
+      !moved.has(id) &&
+      shapes.has(id)
+    ) {
+      continue;
+    }
+    const fields = fieldsOf(node, parentId, "");
+    const existing = shapes.get(id) as Y.Map<unknown> | undefined;
     if (!existing) {
+      fields.parent = { id: parentId, order: orderOf(id) };
       const entry = new Y.Map<unknown>();
       for (const [k, v] of Object.entries(fields)) entry.set(k, v);
       shapes.set(id, entry);
@@ -381,6 +401,7 @@ export function applySceneDiff(
     if (!before) {
       // Known to the map but new to this client's history — write whole,
       // minimally (setIfChanged skips what already matches).
+      fields.parent = { id: parentId, order: orderOf(id) };
       for (const [k, v] of Object.entries(fields)) setIfChanged(existing, k, v);
       continue;
     }
@@ -408,7 +429,9 @@ export function applySceneDiff(
         setIfChanged(existing, key, value);
       }
     }
-    if (moved.has(id)) setIfChanged(existing, "parent", fields.parent);
+    if (moved.has(id)) {
+      setIfChanged(existing, "parent", { id: parentId, order: orderOf(id) });
+    }
   }
 
   // Edges: the same prev-gated shape, flat.
@@ -465,23 +488,29 @@ function movedIds(
     }
     if (before.parentId !== entry.parentId) moved.add(id);
   }
-  const listOf = (scene: Scene, parentId: NodeId | null): NodeId[] => {
-    const out: NodeId[] = [];
+  // Every parent's child list from ONE walk of each scene: asking per parent
+  // walks the whole scene once per group, which is quadratic on a nested
+  // diagram and runs on every committed edit.
+  const listsOf = (scene: Scene): Map<NodeId | null, NodeId[]> => {
+    const out = new Map<NodeId | null, NodeId[]>([[null, []]]);
     walk(scene.nodes, (node, parent) => {
-      if ((parent?.id ?? null) === parentId) out.push(node.id);
+      const key = parent?.id ?? null;
+      const list = out.get(key);
+      if (list) list.push(node.id);
+      else out.set(key, [node.id]);
+      if (isContainer(node) && !out.has(node.id)) out.set(node.id, []);
     });
     return out;
   };
-  const parents = new Set<NodeId | null>([null]);
-  walk(next.nodes, (node) => {
-    if (isContainer(node)) parents.add(node.id);
-  });
-  for (const parentId of parents) {
-    const nextIds = listOf(next, parentId);
+  const prevLists = listsOf(prev);
+
+  for (const [parentId, nextIds] of listsOf(next)) {
     const shared = new Set(
       nextIds.filter((id) => was.has(id) && was.get(id)!.parentId === parentId),
     );
-    const prevSeq = listOf(prev, parentId).filter((id) => shared.has(id));
+    const prevSeq = (prevLists.get(parentId) ?? []).filter((id) =>
+      shared.has(id),
+    );
     const nextSeq = nextIds.filter((id) => shared.has(id));
     if (prevSeq.join(" ") !== nextSeq.join(" ")) {
       for (const id of nextSeq) moved.add(id);
@@ -495,7 +524,8 @@ function edgeOrderDirty(
   next: readonly SceneEdge[],
 ): boolean {
   const shared = new Set(prev.map((e) => e.id));
-  const a = prev.filter((e) => next.some((n) => n.id === e.id)).map((e) => e.id);
+  const want = new Set(next.map((e) => e.id));
+  const a = prev.filter((e) => want.has(e.id)).map((e) => e.id);
   const b = next.filter((e) => shared.has(e.id)).map((e) => e.id);
   return a.join(" ") !== b.join(" ");
 }

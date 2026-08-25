@@ -312,21 +312,6 @@ export const remove = mutation({
  * page a deleted folder holds). Caller has authorized the page.
  */
 export async function removePageCascade(ctx: MutationCtx, page: Doc<"pages">) {
-  const canvases = await ctx.db
-    .query("canvases")
-    .withIndex("by_page", (q) => q.eq("pageId", page._id))
-    .collect();
-  for (const canvas of canvases) {
-    for (const table of ["shapes", "edges"] as const) {
-      const rows = await ctx.db
-        .query(table)
-        .withIndex("by_canvas", (q) => q.eq("canvasId", canvas._id))
-        .collect();
-      await Promise.all(rows.map((r) => ctx.db.delete(r._id)));
-    }
-    await ctx.db.delete(canvas._id);
-  }
-
   for (const table of ["opLog", "checkpoints", "suggestionLog"] as const) {
     const rows = await ctx.db
       .query(table)

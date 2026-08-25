@@ -67,6 +67,13 @@ export function StoryboardToolbar({
   board: BoardApi;
 }) {
   const { canUndo, canRedo } = useSceneHistory(api.store);
+  // The pressed tool is subscribed to rather than read off the api, which does
+  // not change when the tool does — see {@link ToolControl}.
+  const active = useSyncExternalStore(
+    api.tools.subscribe,
+    api.tools.get,
+    api.tools.get,
+  );
   const apple = useSyncExternalStore(neverChanges, isApplePlatform, notApple);
   const hint = (id: (typeof TOOLS)[number]["id"]) => shortcutHint(id, apple);
 
@@ -77,7 +84,7 @@ export function StoryboardToolbar({
           key={tool}
           label={SHORTCUTS_BY_ID[id].label}
           hint={hint(id)}
-          pressed={api.tool === (tool as CanvasTool)}
+          pressed={active === (tool as CanvasTool)}
           onClick={() => api.setTool(tool)}
         >
           {icon}

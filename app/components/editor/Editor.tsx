@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useEffect, useRef } from "react";
 import { BlockNoteView } from "@blocknote/mantine";
 import "@blocknote/mantine/style.css";
@@ -28,7 +29,6 @@ import { useRegisterEditor } from "./EditorRegistry";
 import { BlockSideMenu } from "./BlockSideMenu";
 import { PageTitleProvider } from "./PageTitleContext";
 import { InlineCodeButton } from "./InlineCodeButton";
-import { SubstrateHarness } from "./ai/SubstrateHarness";
 import { completionExtension } from "./ai/completionExtension";
 import { hintExtension } from "./ai/hintText";
 import { reviewExtension } from "./ai/reviewExtension";
@@ -334,6 +334,15 @@ const EXTENSIONS = [
 ];
 
 const placeholder = <div className="min-h-[40vh]" aria-hidden />;
+
+/**
+ * Development only, and it brings the whole op/projection stack with it — so
+ * it is fetched when a dev opens it rather than shipped with the editor.
+ */
+const SubstrateHarness = dynamic(
+  () => import("./ai/SubstrateHarness").then((m) => m.SubstrateHarness),
+  { ssr: false },
+);
 
 /**
  * The block editor for a single page — a dispatcher over two sync pipelines.

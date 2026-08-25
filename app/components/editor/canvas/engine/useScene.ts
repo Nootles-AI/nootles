@@ -110,7 +110,7 @@ export class SceneStore {
   /** Set for the rest of the task by any edit — see {@link recordSelection}. */
   private justEdited = false;
 
-  private write: (source: string) => void = () => {};
+  private write: (source: string, scene: Scene) => void = () => {};
   private lastSource: string;
   /** An external source that arrived mid-gesture, adopted once it ends. */
   private pendingSource: string | null = null;
@@ -128,8 +128,12 @@ export class SceneStore {
    * Where a serialized scene goes. Kept mutable and set from an effect: the
    * block hands down a fresh closure on every render, and capturing the first
    * one would persist into a stale editor.
+   *
+   * The scene the string came from rides along, so a writer that wants the
+   * model — the CRDT binding, which diffs it — does not re-parse the HTML this
+   * store serialized a line earlier.
    */
-  setWriter = (write: (source: string) => void): void => {
+  setWriter = (write: (source: string, scene: Scene) => void): void => {
     this.write = write;
   };
 
@@ -353,7 +357,7 @@ export class SceneStore {
     const html = serializeScene(this.scene);
     if (html === this.lastSource) return;
     this.lastSource = html;
-    this.write(html);
+    this.write(html, this.scene);
   };
 
   dispose = (): void => {
@@ -445,8 +449,8 @@ export class SceneStore {
 export interface UseSceneOptions {
   /** The canvas block's persisted string — canvas HTML, or legacy JSON. */
   source: string;
-  /** Persists a new source onto the block. */
-  onChange: (source: string) => void;
+  /** Persists a new source onto the block, with the scene it came from. */
+  onChange: (source: string, scene: Scene) => void;
 }
 
 /**

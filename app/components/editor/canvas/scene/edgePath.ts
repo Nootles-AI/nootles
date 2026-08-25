@@ -268,16 +268,24 @@ export interface Obstacle {
   box: Rect;
 }
 
+const OBSTACLES = new WeakMap<Scene, Obstacle[]>();
+
 /** Computed once per scene and shared by every edge in it: `absoluteBounds`
- *  walks the tree, and doing that per edge per frame is what a drag notices. */
+ *  walks the tree, and doing that per edge per frame is what a drag notices.
+ *  Memoised on the scene, since the edge layer and the live router both want
+ *  the same list — the layer once per render, the router once per frame. */
 export function sceneObstacles(scene: Scene): Obstacle[] {
-  return scene.nodes
+  const cached = OBSTACLES.get(scene);
+  if (cached) return cached;
+  const built = scene.nodes
     .filter((node) => !node.hidden)
     .map((node) => {
       const covers = new Set<NodeId>();
       walk([node], (n) => void covers.add(n.id));
       return { covers, box: absoluteBounds(scene, node.id) };
     });
+  OBSTACLES.set(scene, built);
+  return built;
 }
 
 /** The obstacles that are not one of this connector's own ends. */
