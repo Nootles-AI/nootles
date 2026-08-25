@@ -89,8 +89,11 @@ export function PageSurface({
           space the panels left over, so collapsing chat slid every line of text
           sideways. A document surface should hold still, like a code editor.
           The left gutter also houses BlockNote's drag handle and + button. */}
+      {/* Grows to fill the pane so the empty room under the last block still
+          belongs to the document — that is where a hand reaches to start a box
+          selection, and a content-height column would leave it to the scroller. */}
       <div
-        className="w-full px-6 py-12 sm:px-14 sm:py-20"
+        className="flex w-full flex-1 flex-col px-6 py-12 sm:px-14 sm:py-20"
         style={{ maxWidth: "calc(var(--measure) + 7rem)" }}
       >
         <div className="mb-6 flex items-center justify-start gap-2">

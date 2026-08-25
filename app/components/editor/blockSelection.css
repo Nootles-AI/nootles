@@ -25,8 +25,14 @@
    without moving anything. */
 .nt-marquee-surface {
   --nt-page-gutter: 24px;
+  /* Reaches back over the page's own gutter, where the drag handle floats and
+     where a band down the margin starts. */
   margin-inline: calc(-1 * var(--nt-page-gutter));
   padding-inline: var(--nt-page-gutter);
+  /* ...and down over whatever room is left under the last block, so pressing
+     in the empty page below the text starts a band rather than hitting the
+     scroller behind it. */
+  flex: 1 1 auto;
 }
 @media (min-width: 640px) {
   .nt-marquee-surface {

@@ -554,37 +554,6 @@ export function blockSelection(editor: BlockSelectionEditor): BlockSelectionStor
 // Hit-testing a band
 // ---------------------------------------------------------------------------
 
-/**
- * The blocks a horizontal band covers, by VERTICAL OVERLAP alone.
- *
- * A block spans the full column, so where the band is horizontally says
- * nothing about what it means — and requiring horizontal overlap would mean a
- * band drawn down the gutter, which is where this gesture starts, selected
- * nothing.
- *
- * A block inside a block already covered is left out: selecting a parent takes
- * its children with it, and naming both would decorate the same pixels twice.
- *
- * @param top Viewport coordinates, as `getBoundingClientRect` reports them.
- */
-export function blockIdsInBand(
-  root: HTMLElement,
-  top: number,
-  bottom: number,
-): string[] {
-  const ids: string[] = [];
-  let covered: HTMLElement | null = null;
-  for (const el of root.querySelectorAll<HTMLElement>(".bn-block-outer[data-id]")) {
-    // Document order, so a covered block's descendants follow it immediately.
-    if (covered?.contains(el)) continue;
-    const rect = el.getBoundingClientRect();
-    if (rect.height === 0 || rect.bottom <= top || rect.top >= bottom) continue;
-    covered = el;
-    if (el.dataset.id) ids.push(el.dataset.id);
-  }
-  return ids;
-}
-
 // ---------------------------------------------------------------------------
 // Keys
 // ---------------------------------------------------------------------------

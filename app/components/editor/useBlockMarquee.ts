@@ -28,7 +28,7 @@
 
 import { useCallback, useEffect, useRef } from "react";
 import type { PointerEvent as ReactPointerEvent, RefObject } from "react";
-import { blockIdsInBand, type BlockSelectionStore } from "./blockSelection";
+import { type BlockSelectionStore } from "./blockSelection";
 import "./blockSelection.css";
 
 /** How far the pointer travels before a press is a drag. */
@@ -38,13 +38,59 @@ const EDGE = 56;
 /** Fastest the page scrolls itself, per frame. */
 const MAX_STEP = 20;
 
+/** Controls own their press outright — a band never starts on one. */
+const CONTROLS =
+  "button, a, input, textarea, select, [role='button'], [role='menuitem']";
+
+/** How far past the last character before the press counts as empty space. */
+const PAST_TEXT = 8;
+
+/** The caret the browser would put at this point, however it spells it. */
+function caretRectAt(x: number, y: number): DOMRect | null {
+  const doc = document as Document & {
+    caretRangeFromPoint?: (x: number, y: number) => Range | null;
+    caretPositionFromPoint?: (
+      x: number,
+      y: number,
+    ) => { offsetNode: Node; offset: number } | null;
+  };
+  let range: Range | null = null;
+  if (typeof doc.caretRangeFromPoint === "function") {
+    range = doc.caretRangeFromPoint(x, y);
+  } else if (typeof doc.caretPositionFromPoint === "function") {
+    const position = doc.caretPositionFromPoint(x, y);
+    if (position) {
+      range = document.createRange();
+      range.setStart(position.offsetNode, position.offset);
+      range.collapse(true);
+    }
+  }
+  if (!range) return null;
+  const rect = range.getBoundingClientRect();
+  return rect.width === 0 && rect.height === 0 ? null : rect;
+}
+
 /**
- * Targets that own their own press. A block does — a click in it places the
- * caret, and dragging through it is BlockNote's text selection, which already
- * spans blocks. Controls do too. Everything left is margin.
+ * Whether a press inside a block landed on its TEXT rather than the empty
+ * space beside it.
+ *
+ * A block runs the full width of the column, so "inside a block" says nothing
+ * about whether there is anything there: the room to the right of a short line
+ * is as empty as the margin, and it is where a hand reaches to start a box.
+ * The browser's own caret is the honest answer — placed at the end of the line
+ * when the point is past it, so a press well right of that caret is a press on
+ * nothing.
  */
-const OWNS_ITS_PRESS =
-  ".bn-block-outer, button, a, input, textarea, select, [role='button'], [role='menuitem']";
+function pressIsOnText(x: number, y: number): boolean {
+  const caret = caretRectAt(x, y);
+  if (!caret) return false;
+  // Vertically first. Asked about a point below the last line, the browser
+  // answers with the nearest caret it has — up on that line — so comparing x
+  // alone reads the empty page under a document as text and refuses the band
+  // the whole way down.
+  if (y < caret.top || y > caret.bottom) return false;
+  return x <= caret.right + PAST_TEXT;
+}
 
 type Viewport = { top: number; bottom: number; left: number; right: number };
 
@@ -84,6 +130,11 @@ function viewportOf(scroller: HTMLElement): Viewport {
 function stepFor(intrusion: number): number {
   const ratio = Math.min(1, Math.max(0, intrusion / EDGE));
   return Math.ceil(ratio * ratio * MAX_STEP);
+}
+
+/** Take an event out of the DOM's hands entirely. */
+function swallow(event: Event): void {
+  event.preventDefault();
 }
 
 function sameIds(a: readonly string[], b: readonly string[]): boolean {
@@ -132,12 +183,29 @@ export function useBlockMarquee({
       if (!latest.current.enabled || !store || !surface) return;
       if (event.button !== 0) return;
       const target = event.target;
-      if (!(target instanceof Element) || target.closest(OWNS_ITS_PRESS)) return;
+      if (!(target instanceof Element) || target.closest(CONTROLS)) return;
 
-      // The gutter is not a place to put a caret, and a press that reaches the
-      // contenteditable starts one. Taking the default now is also what keeps
-      // the browser from beginning a native text selection under the band.
-      event.preventDefault();
+      // Inside a block, only its text owns the press; the room to the right of
+      // a short line is as good a place to start a box as the margin is.
+      const inBlock = !!target.closest(".bn-block-outer");
+      if (inBlock && pressIsOnText(event.clientX, event.clientY)) return;
+
+      // Outside the editor there is no caret to place, so the default goes now
+      // — that is also what stops the browser drawing its own text selection
+      // under the band. Inside a block the default has to stand until the
+      // gesture proves itself a drag, or a plain click would stop placing the
+      // caret at the end of the line, which is what a click there is for.
+      if (!inBlock) {
+        event.preventDefault();
+        // ...and again on the mousedown behind it. Preventing a pointerdown
+        // does NOT prevent the mouse event that follows, and ProseMirror
+        // listens for that one — without this it starts its own text selection
+        // and draws it under the band the whole way down.
+        window.addEventListener("mousedown", swallow, {
+          capture: true,
+          once: true,
+        });
+      }
       teardown.current?.();
 
       const scroller = scrollerOf(surface);
@@ -160,7 +228,58 @@ export function useBlockMarquee({
       let dragging = false;
       let band: HTMLDivElement | null = null;
       let frame = 0;
+      let painting = 0;
       let applied: readonly string[] = before;
+
+      /**
+       * Every block's extent, measured ONCE when the gesture starts and held in
+       * the scroller's own coordinates so scrolling does not invalidate it.
+       *
+       * Measuring per frame meant a `getBoundingClientRect` for every block in
+       * the document on every pointer move — the layout flush that made the
+       * band feel heavy on a long page. Blocks do not move while a band is
+       * drawn over them, so one pass is all it takes.
+       */
+      type Row = { el: HTMLElement; id: string; top: number; bottom: number };
+      let rows: Row[] = [];
+      const measure = () => {
+        const offset = scroller.scrollTop;
+        rows = [];
+        for (const el of surface.querySelectorAll<HTMLElement>(
+          ".bn-block-outer[data-id]",
+        )) {
+          const rect = el.getBoundingClientRect();
+          const id = el.dataset.id;
+          if (!id || rect.height === 0) continue;
+          rows.push({
+            el,
+            id,
+            top: rect.top + offset,
+            bottom: rect.bottom + offset,
+          });
+        }
+      };
+
+      /**
+       * The blocks a band covers, by vertical overlap alone — a block spans the
+       * column, so where the band is horizontally says nothing about what it
+       * means. A block inside one already covered is left out: taking a parent
+       * takes its children with it.
+       */
+      const idsInBand = (top: number, bottom: number): string[] => {
+        const offset = scroller.scrollTop;
+        const docTop = top + offset;
+        const docBottom = bottom + offset;
+        const ids: string[] = [];
+        let covered: HTMLElement | null = null;
+        for (const row of rows) {
+          if (covered?.contains(row.el)) continue;
+          if (row.bottom <= docTop || row.top >= docBottom) continue;
+          covered = row.el;
+          ids.push(row.id);
+        }
+        return ids;
+      };
 
       const scrollStep = (): number => {
         const view = viewportOf(scroller);
@@ -196,7 +315,7 @@ export function useBlockMarquee({
 
         // The band decides by its FULL extent, not its clamped one: a block
         // scrolled just past the edge is still under the band.
-        const covered = blockIdsInBand(surface, top, bottom);
+        const covered = idsInBand(top, bottom);
         const next = additive ? [...base, ...covered] : covered;
         if (sameIds(next, applied)) return;
         applied = next;
@@ -212,8 +331,22 @@ export function useBlockMarquee({
         frame = requestAnimationFrame(tick);
       };
 
+      /** One paint per frame, however fast the pointer reports. */
+      const schedule = () => {
+        if (painting) return;
+        painting = requestAnimationFrame(() => {
+          painting = 0;
+          paint();
+        });
+      };
+
       const begin = () => {
         dragging = true;
+        measure();
+        // The press inside a block did not take the default, so the browser may
+        // have started its own text selection on the way here. Drop it before
+        // the band draws over the top of it.
+        if (inBlock) window.getSelection()?.removeAllRanges();
         // The document is contenteditable: without this the browser draws its
         // own text selection under the band and fights it the whole way down.
         document.body.style.userSelect = "none";
@@ -232,9 +365,12 @@ export function useBlockMarquee({
         pointerY = ev.clientY;
         if (!dragging) {
           if (Math.hypot(ev.clientX - pressX, ev.clientY - pressY) < SLOP) return;
+          // Only now is this a drag rather than a click, so only now does the
+          // caret lose its claim on the press.
+          ev.preventDefault();
           begin();
         }
-        paint();
+        schedule();
         if (scrollStep()) {
           if (!frame) frame = requestAnimationFrame(tick);
         } else if (frame) {
@@ -249,8 +385,12 @@ export function useBlockMarquee({
         window.removeEventListener("pointerup", finish);
         window.removeEventListener("pointercancel", cancel);
         window.removeEventListener("keydown", onKey, true);
+        window.removeEventListener("mousedown", swallow, true);
         if (frame) cancelAnimationFrame(frame);
+        if (painting) cancelAnimationFrame(painting);
         frame = 0;
+        painting = 0;
+        rows = [];
         band?.remove();
         band = null;
         document.body.style.userSelect = "";
