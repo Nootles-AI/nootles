@@ -167,6 +167,16 @@ const gutterFit: Middleware = {
       "data-nt-offscreen",
       overflow !== null && (overflow.top > 0 || overflow.bottom > 0),
     );
+    /* Whether the block under the handle is part of a block selection. The
+       cluster otherwise paints its own paper over the selection plate, which
+       reads as a hole punched in the very thing it is standing on. Read off the
+       DOM rather than the store: this already has the block element, and the
+       class is the same fact. */
+    flag(
+      floating,
+      "data-nt-selected",
+      !!anchor.closest?.(".nt-block-selected"),
+    );
 
     return { x: state.x + nudge, y };
   },

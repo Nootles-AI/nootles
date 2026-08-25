@@ -75,8 +75,24 @@ body.nt-banding * {
    It bleeds 8px into the gutter, the way a highlighter overshoots a word, and
    not at all vertically: blocks sit 3px apart, and a run of selected ones
    reads better as a stack of plates than as one column with a seam down it. */
+/* `fit-content` is what makes the plate match a block that draws past the
+   column, without measuring anything.
+
+   A diagram, storyboard, album or table can be dragged wider than the text
+   column, and it overflows this box — so a plate inset against the box stops
+   short of the thing it is selecting. `fit-content` floors the width at the
+   content's own minimum, which for those blocks is the width they were dragged
+   to; `min-width: 100%` keeps everything else exactly the column, because a
+   paragraph's minimum is one word and it would otherwise shrink to it.
+   Nothing moves: the wide child was already drawn out there, and this only
+   grows the box that was letting it overflow.
+   Deliberately CSS rather than a measured custom property — writing inline
+   styles onto a node ProseMirror manages makes it re-read the node and drop
+   the selection that put the plate there. */
 .nt-editor .bn-block-outer.nt-block-selected {
   position: relative;
+  width: fit-content;
+  min-width: 100%;
 }
 .nt-editor .bn-block-outer.nt-block-selected::after {
   content: "";

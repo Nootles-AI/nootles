@@ -76,6 +76,16 @@
     0 2px 8px oklch(0.25 0.005 90 / 0.09);
 }
 
+/* Over a selected block the cluster stops carrying its own surface: the plate
+   is already the surface, and paper on top of it reads as a hole punched in
+   the selection rather than a control resting on it. The buttons keep their
+   own hover, which is what says the handle is live. */
+.nt-side-menu-anchor[data-nt-selected] .nt-block-handles,
+.nt-side-menu-anchor[data-nt-selected][data-nt-tight] .nt-block-handles {
+  background: transparent;
+  box-shadow: none;
+}
+
 /* Ink, hover, active and the open-menu latch all come from `.nt-icon-btn`;
    these two are the only things the gutter adds. */
 .nt-side-menu-anchor .nt-block-handle {
