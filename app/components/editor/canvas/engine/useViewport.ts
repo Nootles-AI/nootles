@@ -25,9 +25,18 @@
  * ```
  *
  * The container clips and receives input; the scene layer carries the
- * transform. The hook owns two pieces of the container's inline style —
+ * transform. The hook owns one piece of the container's inline style —
  * `cursor` — and three of the scene layer's — `transform`, `transform-origin`
  * and `will-change`. Don't set those from the host.
+ *
+ * Note what is deliberately NOT here: `--k`, one screen px in scene units,
+ * which anything holding its screen size across a zoom counter-scales through.
+ * Publishing it on the scene layer would be convenient — every scene-space
+ * element inherits from it — but a custom property changing on that shared
+ * ancestor invalidates style for every shape in the diagram on every frame of
+ * a zoom, which is the precise cost the promotion below exists to avoid. So
+ * each layer that needs it writes its own onto its own root: the overlay, the
+ * edge layer, the connector tool, the presence cursors.
  *
  * ## Why the layer is only promoted while it moves
  *
@@ -37,6 +46,16 @@
  * hairline and curve stays the bitmap it was drawn at until something happens
  * to invalidate it. So the promotion is a property of the *gesture*, not of the
  * layer: see {@link SETTLE_MS}.
+ *
+ * ## Why the commands ease and the gestures do not
+ *
+ * A gesture is already an animation: the hand supplies every frame and the
+ * viewport's only job is to keep up, so a wheel, a pinch and a drag are
+ * applied the instant they arrive. A command is not — ⌘0, ⇧1, a pick from the
+ * zoom menu each land as a single instant, and cutting the view from one place
+ * to another costs the reader the only thing a canvas really gives them, which
+ * is knowing where they are. So the navigating verbs ease over
+ * {@link NAVIGATE_MS}, and any live input takes the view back mid-flight.
  *
  * ## Coordinate spaces
  *
@@ -99,6 +118,30 @@ const MAX_WHEEL_ZOOM_STEP = 60;
 const SETTLE_MS = 140;
 
 /**
+ * How long a navigation verb takes to arrive. Long enough for the eye to
+ * follow the content from where it was to where it went — which is the whole
+ * point, since a jump costs the user the place they were standing — and short
+ * enough that a held ⌘+ still reads as a control and not as a ride.
+ */
+const NAVIGATE_MS = 180;
+
+/**
+ * Pushes against a hard edge that a wheel pan absorbs before the page is
+ * handed the scroll. The tail of a trackpad fling routinely overshoots by an
+ * event or two, and a document that jumped on the first of those would feel
+ * like a trapdoor.
+ */
+const WHEEL_EDGE_GRACE = 2;
+
+/**
+ * A gap this long ends a wheel gesture: the next event measures the reach
+ * again and starts counting edge pushes from zero. Long enough to span the
+ * ragged frames of trackpad momentum, short enough that a fresh scroll is
+ * asked as a fresh question.
+ */
+const WHEEL_IDLE_MS = 120;
+
+/**
  * `"ready"` means space is held and a press will pan — the gesture layer must
  * not start a marquee or a drag. `"active"` means a pan is in progress.
  */
@@ -124,7 +167,11 @@ export interface ViewportController {
    */
   get(): Viewport;
 
-  /** Absolute set; `zoom` is clamped to {@link MIN_ZOOM}–{@link MAX_ZOOM}. */
+  /**
+   * Absolute set, instantly; `zoom` is clamped to {@link MIN_ZOOM}–
+   * {@link MAX_ZOOM}. Placement, not navigation — this is a caller saying
+   * where the view *is*, and it cancels anything the view was easing towards.
+   */
   set(next: Viewport): void;
 
   /** Translate by a delta in screen px. */
@@ -133,6 +180,10 @@ export interface ViewportController {
   /**
    * Zoom, holding the scene point under `anchor` still. `anchor` is in
    * viewport px and defaults to the container's centre.
+   *
+   * This and the three verbs below are navigation: they ease over
+   * {@link NAVIGATE_MS} rather than cut, and any live input — a wheel, a
+   * pinch, a drag, a further command — takes the view back at once.
    */
   zoomTo(zoom: number, anchor?: Point): void;
 
@@ -156,7 +207,9 @@ export interface ViewportController {
   /**
    * Called after the transform has been written for a frame. Returns an
    * unsubscribe function, and is shaped to drop straight into
-   * `useSyncExternalStore` — see {@link useViewportValue}.
+   * `useSyncExternalStore` — but subscribe to a SCALAR read off {@link get},
+   * never to the viewport object itself, which is freshly allocated per frame
+   * and would re-render its reader on every pan.
    */
   subscribe(onChange: () => void): () => void;
 }
@@ -177,6 +230,14 @@ export interface UseViewportOptions {
    * a viewport does not become lockable halfway through its life.
    */
   locked?: boolean;
+  /**
+   * The content's own box in scene px — everything a pan could still bring
+   * into view. The wheel asks at the start of each gesture whether anything is
+   * left to reveal before it decides to keep a scroll or hand it to the page,
+   * so this must answer from the live scene and not from one render's copy of
+   * it. Without it every pan is kept; see {@link onWheel}.
+   */
+  content?: () => Rect | null;
 }
 
 type ViewportEngine = ViewportController & { mount(): () => void };
@@ -243,6 +304,27 @@ function createViewport(options: UseViewportOptions): ViewportEngine {
   let promoted = false;
   let settle = 0;
 
+  /** The frame of the navigation tween, when the view is easing somewhere. */
+  let tween = 0;
+
+  /**
+   * Whether the browser has painted this viewport yet. A tween has to ease
+   * *from* something the user has seen, and the one-time fit that brings an
+   * oversized diagram into the column runs before the first frame: there is no
+   * "from" there, only a placement, and a placement is simply where it lands.
+   */
+  let seen = false;
+  let firstFrame = 0;
+
+  /**
+   * The content's box in scene px and the container's visible size, as read at
+   * the start of a wheel gesture — see {@link onWheel} for what the wheel does
+   * with it and why it is not read per event.
+   */
+  let reach: { box: Rect; cw: number; ch: number } | null = null;
+  let wheelAt = 0;
+  let edgePushes = 0;
+
   // -------------------------------------------------------------------------
   // Writing the viewport
   // -------------------------------------------------------------------------
@@ -301,6 +383,81 @@ function createViewport(options: UseViewportOptions): ViewportEngine {
   }
 
   // -------------------------------------------------------------------------
+  // Easing the navigation verbs
+  // -------------------------------------------------------------------------
+
+  /**
+   * Whatever the view was doing on its own, it stops. Every path the user
+   * drives the viewport through calls this first: an animation that argues
+   * with a live gesture is worse than no animation at all.
+   */
+  function stopTween(): void {
+    if (tween === 0) return;
+    cancelAnimationFrame(tween);
+    tween = 0;
+  }
+
+  /**
+   * Ease to a viewport, and land on it exactly.
+   *
+   * Zoom is interpolated *geometrically* — the eye reads zoom as a ratio, so a
+   * linear ramp through the scale visibly accelerates into its last frames,
+   * which is the standard tell of a hand-rolled zoom. The translation is not
+   * interpolated at all: it is re-solved every frame about the one viewport
+   * point the start and the end agree on, so whatever the move is *about* —
+   * the pointer, the centre, the middle of the thing being framed — holds
+   * still for the whole of it instead of drifting out and back. Two viewports
+   * at the same zoom have no such point, and there the translation is a line.
+   *
+   * Because `commit` drives it, a tween is a moving viewport like any other:
+   * the layer stays promoted for the duration and settles once it arrives, and
+   * `get()` reports where the view is now, not where it is going.
+   */
+  function tweenTo(to: Viewport): void {
+    stopTween();
+    const z = clamp(to.zoom, minZoom, maxZoom);
+    if (to.x === vp.x && to.y === vp.y && z === vp.zoom) return;
+    if (!seen || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
+      commit(to.x, to.y, z);
+      return;
+    }
+
+    const from = vp;
+    const ratio = z / from.zoom;
+    // `1 - ratio` is the fixed point's divisor; where it vanishes the solve is
+    // a 0/0 and the move is a pan with a rounding error attached to it.
+    const about = Math.abs(1 - ratio) > 1e-4;
+    const fx = about ? (to.x - from.x * ratio) / (1 - ratio) : 0;
+    const fy = about ? (to.y - from.y * ratio) / (1 - ratio) : 0;
+    const logFrom = Math.log(from.zoom);
+    const logSpan = Math.log(z) - logFrom;
+    // Timed from the first frame it is actually given, not from now: a call
+    // made while the main thread is busy would otherwise spend its ease
+    // waiting, and arrive as the jump it was meant to replace.
+    let start = 0;
+
+    const step = (now: number): void => {
+      if (start === 0) start = now;
+      const t = (now - start) / NAVIGATE_MS;
+      if (t >= 1) {
+        tween = 0;
+        commit(to.x, to.y, z);
+        return;
+      }
+      tween = requestAnimationFrame(step);
+      const e = 1 - (1 - t) ** 3;
+      const zoom = Math.exp(logFrom + logSpan * e);
+      if (about) {
+        const k = zoom / from.zoom;
+        commit(fx - (fx - from.x) * k, fy - (fy - from.y) * k, zoom);
+      } else {
+        commit(from.x + (to.x - from.x) * e, from.y + (to.y - from.y) * e, zoom);
+      }
+    };
+    tween = requestAnimationFrame(step);
+  }
+
+  // -------------------------------------------------------------------------
   // Geometry against the container
   // -------------------------------------------------------------------------
 
@@ -325,24 +482,37 @@ function createViewport(options: UseViewportOptions): ViewportEngine {
   // Public transforms
   // -------------------------------------------------------------------------
 
+  /** A hand on the surface — the drag tools, the space-drag, the wheel. */
   function panBy(dx: number, dy: number): void {
+    stopTween();
     commit(vp.x + dx, vp.y + dy, vp.zoom);
   }
 
   /**
-   * Zoom about a point. The scene coordinate under `anchor` must not move, so
-   * the translation is solved from it rather than nudged — and the zoom is
-   * clamped *before* the translation is derived, or the content would drift
-   * sideways every time you kept pinching at the limit.
+   * The viewport that reaches `zoom` about a point. The scene coordinate under
+   * `anchor` must not move, so the translation is solved from it rather than
+   * nudged — and the zoom is clamped *before* the translation is derived, or
+   * the content would drift sideways every time you kept pinching at the
+   * limit. `null` when there is nowhere to go.
    */
-  function zoomTo(zoom: number, anchor?: Point): void {
+  function zoomAbout(zoom: number, anchor?: Point): Viewport | null {
     const z = clamp(zoom, minZoom, maxZoom);
-    if (z === vp.zoom) return;
+    if (z === vp.zoom) return null;
     const p = anchor ?? centreAnchor();
     const k = z / vp.zoom;
-    commit(p.x - (p.x - vp.x) * k, p.y - (p.y - vp.y) * k, z);
+    return { x: p.x - (p.x - vp.x) * k, y: p.y - (p.y - vp.y) * k, zoom: z };
   }
 
+  function zoomTo(zoom: number, anchor?: Point): void {
+    const to = zoomAbout(zoom, anchor);
+    if (to) tweenTo(to);
+  }
+
+  /**
+   * Compounding from where the view is *now*, not from where an unfinished
+   * tween was headed: a held ⌘+ then eases on continuously instead of firing
+   * one animation per key repeat and landing three octaves later.
+   */
   function zoomBy(factor: number, anchor?: Point): void {
     zoomTo(vp.zoom * factor, anchor);
   }
@@ -366,11 +536,11 @@ function createViewport(options: UseViewportOptions): ViewportEngine {
         ? clamp(Math.min(availW / bounds.w, availH / bounds.h), minZoom, cap)
         : vp.zoom;
 
-    commit(
-      cw / 2 - (bounds.x + bounds.w / 2) * z,
-      ch / 2 - (bounds.y + bounds.h / 2) * z,
-      z,
-    );
+    tweenTo({
+      x: cw / 2 - (bounds.x + bounds.w / 2) * z,
+      y: ch / 2 - (bounds.y + bounds.h / 2) * z,
+      zoom: z,
+    });
   }
 
   // -------------------------------------------------------------------------
@@ -394,9 +564,21 @@ function createViewport(options: UseViewportOptions): ViewportEngine {
    *    were an image. This is the "click to interact" contract every embedded
    *    map and canvas uses, and it is the only rule that lets both gestures
    *    exist without one stealing from the other.
+   *  - **A pan with nothing left to reveal is handed back.** Engagement is
+   *    otherwise permanent until the user presses somewhere else, so a reader
+   *    who has the whole diagram in view and keeps scrolling gets nothing at
+   *    all, and no hint that the page is what they now want. When the content
+   *    is already inside the container on every axis the delta asks for —
+   *    nothing can come in, whichever way it pushes — and has been for
+   *    {@link WHEEL_EDGE_GRACE} events running, so that the overshoot at the
+   *    end of a fling is never read as a request, the event is left alone and
+   *    chains to the page. Panning only: a pinch is unambiguous and stays ours
+   *    wherever the view is. If the content is not known the event is consumed
+   *    exactly as before, because losing the release is a small loss and a page
+   *    scrolling out from under a canvas is a large one.
    *
    * The listener is registered non-passive precisely so the consuming branches
-   * *can* call `preventDefault`; the non-consuming branch must return before
+   * *can* call `preventDefault`; the non-consuming branches must return before
    * it does, which is the whole reason this function is shaped as it is.
    */
   function onWheel(e: WheelEvent): void {
@@ -405,15 +587,78 @@ function createViewport(options: UseViewportOptions): ViewportEngine {
 
     const zooming = e.ctrlKey || e.metaKey;
     if (!zooming && !isEngaged()) return;
+    const d = wheelDelta(e, el);
+
+    if (zooming) {
+      e.preventDefault();
+      stopTween();
+      const step = clamp(d.y, -MAX_WHEEL_ZOOM_STEP, MAX_WHEEL_ZOOM_STEP);
+      const to = zoomAbout(
+        vp.zoom * Math.exp(-step * ZOOM_SENSITIVITY),
+        toViewportPoint(e.clientX, e.clientY),
+      );
+      // Applied live rather than eased: the gesture is already the animation.
+      if (to) commit(to.x, to.y, to.zoom);
+      return;
+    }
+
+    if (e.timeStamp - wheelAt > WHEEL_IDLE_MS) {
+      measureReach(el);
+      edgePushes = 0;
+    }
+    wheelAt = e.timeStamp;
+    if (!hasReach(d)) {
+      if (++edgePushes > WHEEL_EDGE_GRACE) return;
+    } else {
+      edgePushes = 0;
+    }
 
     e.preventDefault();
-    const d = wheelDelta(e, el);
-    if (zooming) {
-      const step = clamp(d.y, -MAX_WHEEL_ZOOM_STEP, MAX_WHEEL_ZOOM_STEP);
-      zoomBy(Math.exp(-step * ZOOM_SENSITIVITY), toViewportPoint(e.clientX, e.clientY));
-    } else {
-      panBy(-d.x, -d.y);
-    }
+    panBy(-d.x, -d.y);
+  }
+
+  /**
+   * The content against the container, in scene px so that projecting it back
+   * out survives the rest of the gesture however far it pans. Read once per
+   * gesture and never per event: the answer cannot change while the wheel is
+   * turning — only the viewport moves, and {@link hasReach} carries the box
+   * through that — and the wheel handler is the hottest path in the
+   * application.
+   *
+   * It is the content that is asked for and not the scene layer's own box: the
+   * layer is `inset: 0` on the container, so measuring it would only ever hand
+   * back the container's own rect, which says nothing about where the shapes
+   * are. The host answers with the same union the "show content" fit frames,
+   * so the two agree on what being lost means.
+   */
+  function measureReach(el: HTMLElement): void {
+    const cw = el.clientWidth;
+    const ch = el.clientHeight;
+    const box = options.content?.();
+    reach = box && cw > 0 && ch > 0 ? { box, cw, ch } : null;
+  }
+
+  /**
+   * Is there content left to bring into view along the axes `d` asks for?
+   *
+   * The test is containment and not the nearer edge: the whole content has to
+   * be inside the container on an axis before a push along that axis counts as
+   * a push at nothing. Content that still runs off one side has somewhere to
+   * go in both directions — the far side is where the user is heading — and
+   * the cost of erring that way is only a scroll the canvas kept when it could
+   * have passed it on, where the cost of erring the other way is a diagram
+   * whose far end cannot be reached. Unknown counts as room for the same
+   * reason, and an axis with no delta asks for nothing and answers nothing.
+   */
+  function hasReach(d: Point): boolean {
+    if (!reach) return true;
+    if (d.x === 0 && d.y === 0) return true;
+    const { box } = reach;
+    const left = box.x * vp.zoom + vp.x;
+    const top = box.y * vp.zoom + vp.y;
+    const x = d.x !== 0 && (left < -1 || left + box.w * vp.zoom > reach.cw + 1);
+    const y = d.y !== 0 && (top < -1 || top + box.h * vp.zoom > reach.ch + 1);
+    return x || y;
   }
 
   // -------------------------------------------------------------------------
@@ -448,6 +693,12 @@ function createViewport(options: UseViewportOptions): ViewportEngine {
   }
 
   function onPointerDown(e: PointerEvent): void {
+    // Capture phase on the container, so this runs for every press inside the
+    // canvas and not only for the two this handler goes on to claim: a drag or
+    // a marquee freezes the scene point it started from, and a view still
+    // easing somewhere would slide that point out from under the cursor for
+    // the rest of the flight.
+    stopTween();
     if (pan) return;
     const middle = e.button === 1;
     const spacePan = e.button === 0 && spaceDown && isEngaged();
@@ -544,12 +795,35 @@ function createViewport(options: UseViewportOptions): ViewportEngine {
       // not moving, and a layer nobody is moving is only ever a stale bitmap.
       paint();
     }
+    // Anything placed before the browser has drawn a frame is where the view
+    // *starts*; from here on there is a "from" for a tween to ease out of.
+    firstFrame = requestAnimationFrame(() => {
+      firstFrame = 0;
+      seen = true;
+    });
+
+    /** Everything this engine can have in flight, dropped. */
+    const idle = (): void => {
+      stopTween();
+      if (firstFrame !== 0) {
+        cancelAnimationFrame(firstFrame);
+        firstFrame = 0;
+      }
+      seen = false;
+      if (frame !== 0) {
+        cancelAnimationFrame(frame);
+        frame = 0;
+      }
+      if (settle !== 0) {
+        clearTimeout(settle);
+        settle = 0;
+      }
+    };
 
     const el = containerRef.current;
-    if (!el) return () => {};
     // Locked: the transform is still painted above, so a caller's `set` shows;
     // only the listeners that would let the user move it are never bound.
-    if (options.locked) return () => {};
+    if (!el || options.locked) return idle;
 
     el.addEventListener("wheel", onWheel, { passive: false });
     el.addEventListener("pointerdown", onPointerDown, true);
@@ -568,14 +842,7 @@ function createViewport(options: UseViewportOptions): ViewportEngine {
       window.removeEventListener("keyup", onKeyUp);
       window.removeEventListener("blur", onWindowBlur);
       endPan();
-      if (frame !== 0) {
-        cancelAnimationFrame(frame);
-        frame = 0;
-      }
-      if (settle !== 0) {
-        clearTimeout(settle);
-        settle = 0;
-      }
+      idle();
     };
   }
 
@@ -587,9 +854,9 @@ function createViewport(options: UseViewportOptions): ViewportEngine {
    *
    * The line is who the move is for. `panBy`/`zoomTo`/`zoomBy`/`resetZoom` are
    * a user going somewhere, and there is nowhere to go. `set` and
-   * {@link zoomToFit} are a caller PLACING the view — the frame's own scale,
-   * and the once-only fit that brings an oversized diagram into the column —
-   * and refusing those would not pin the view, it would strand it.
+   * {@link zoomToFit} are, or can be, a caller PLACING the view — the frame's
+   * own scale, and the once-only fit that brings an oversized diagram into the
+   * column — and refusing those would not pin the view, it would strand it.
    */
   const still = () => {};
 
@@ -598,7 +865,12 @@ function createViewport(options: UseViewportOptions): ViewportEngine {
     sceneRef,
     mount,
     get: () => vp,
-    set: (next) => commit(next.x, next.y, next.zoom),
+    // Instant, and it wins: a placement is a caller saying where the view *is*,
+    // so an animation still on its way somewhere else is simply over.
+    set: (next) => {
+      stopTween();
+      commit(next.x, next.y, next.zoom);
+    },
     panBy: options.locked ? still : panBy,
     zoomTo: options.locked ? still : zoomTo,
     zoomBy: options.locked ? still : zoomBy,
@@ -641,10 +913,21 @@ export function useViewport(options: UseViewportOptions = {}): ViewportControlle
 }
 
 /**
- * The viewport as a render value, for the few things that genuinely need one —
- * a zoom readout, a minimap. Everything that draws in scene coordinates should
- * live inside the transformed layer and read nothing at all.
+ * The zoom, as a render value — the one viewport field anything genuinely
+ * renders from (a readout, a minimap's scale). A scalar on purpose: `get()`
+ * returns a new object every frame, so subscribing to the viewport itself
+ * re-renders the reader on every pan for a number that did not move.
+ *
+ * Everything that draws in scene coordinates should live inside the transformed
+ * layer, counter-scale through `--k`, and read nothing at all.
  */
-export function useViewportValue(viewport: ViewportController): Viewport {
-  return useSyncExternalStore(viewport.subscribe, viewport.get, viewport.get);
+export function useViewportZoom(viewport: ViewportController): number {
+  return useSyncExternalStore(
+    viewport.subscribe,
+    () => viewport.get().zoom,
+    UNZOOMED,
+  );
 }
+
+/** Stable server snapshot: a canvas always hydrates at 100%. */
+const UNZOOMED = () => 1;

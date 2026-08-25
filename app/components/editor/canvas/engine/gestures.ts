@@ -50,6 +50,7 @@ import {
   absoluteRotation,
   angleOf,
   HANDLE_EDGES,
+  HANDLES,
   normalizeAngle,
   resizeRect,
   rotateAround,
@@ -80,7 +81,7 @@ import {
 } from "../scene/types";
 import {
   boxTargets,
-  collectSnapLines,
+  collectSnapScope,
   createSnapper,
   resizeTargets,
   type SnapGuide,
@@ -104,6 +105,9 @@ export interface TransformStore {
   dispatch(ops: SceneOp[]): void;
 }
 
+/** What the overlay's readout chip describes while a gesture runs. */
+export type ReadoutMode = "move" | "resize" | "rotate";
+
 /**
  * The overlay's imperative handle. Called once per frame during a gesture, and
  * once with `null` when it ends — which means "the gesture is over, draw
@@ -117,9 +121,28 @@ export interface OverlayHandle {
   ): void;
   /** The four corner radii in scene px, clockwise from the top-left. */
   radius(corners: readonly number[]): void;
+  /**
+   * What the readout should say, announced once as the gesture goes active. The
+   * overlay knows this already for its own handles, but a move starts on the
+   * shape and never touches one — so the mode has to arrive from here.
+   */
+  mode(mode: ReadoutMode | null): void;
 }
 
 export type GestureMode = "move" | "resize" | "scale" | "rotate" | "reorder";
+
+/**
+ * Which of them the readout can speak for. A scale reads as the box it lands
+ * on, like a resize; a reorder is placed by the layout rather than the pointer,
+ * so coordinates would be a lie.
+ */
+const READOUT: Record<GestureMode, ReadoutMode | null> = {
+  move: "move",
+  resize: "resize",
+  scale: "resize",
+  rotate: "rotate",
+  reorder: null,
+};
 
 export interface TransformGestureOptions {
   store: TransformStore;
@@ -207,6 +230,17 @@ const RADIUS_PROPS = [
 ];
 
 const NO_GUIDES: readonly SnapGuide[] = [];
+
+/** Snap options for the two gestures that pass them, hoisted: `snap` runs once
+ *  a frame and a fresh literal per call is garbage on the hottest path. */
+const WITH_SPACING = { spacing: true } as const;
+const RESIZE_DRIVES: Record<Handle, { drives: { x: boolean; y: boolean } }> =
+  Object.fromEntries(
+    HANDLES.map((h) => [
+      h,
+      { drives: { x: h !== "n" && h !== "s", y: h !== "e" && h !== "w" } },
+    ]),
+  ) as Record<Handle, { drives: { x: boolean; y: boolean } }>;
 const ORIGIN: Point = { x: 0, y: 0 };
 
 // ---------------------------------------------------------------------------
@@ -781,9 +815,10 @@ function createSession(
     targets,
     targetsX: targets.filter((t) => t.axis === "x"),
     targetsY: targets.filter((t) => t.axis === "y"),
-    snapper: createSnapper(collectSnapLines(scene, new Set(ids)), {
+    snapper: createSnapper(collectSnapScope(scene, new Set(ids)), {
       threshold: o.snapThreshold,
       grid: o.grid,
+      moving: bounds,
     }),
     reorder: null,
     flow: starts.some((s) => s.flow),
@@ -895,6 +930,7 @@ function runFrame(session: Session, o: TransformGestureOptions) {
     const dy = session.client.y - session.startClient.y;
     if (Math.abs(dx) < DRAG_THRESHOLD && Math.abs(dy) < DRAG_THRESHOLD) return;
     session.active = true;
+    o.overlay?.current?.mode(READOUT[session.mode]);
     o.onActiveChange?.(true);
   }
 
@@ -962,6 +998,9 @@ function applyMove(
     { x: dx, y: dy },
     zoom,
     !session.mods.free,
+    // The one gesture that carries a rigid box, so the one that can be offered
+    // an equal gap on either side of it.
+    WITH_SPACING,
   );
   dx = snapped.dx;
   dy = snapped.dy;
@@ -1005,7 +1044,7 @@ function applyResize(
       true,
       // An edge handle drives one axis. Saying so keeps its guide as long as
       // what actually moved, rather than as long as the pointer wandered.
-      { x: handle !== "n" && handle !== "s", y: handle !== "e" && handle !== "w" },
+      RESIZE_DRIVES[handle],
     );
     delta = { x: snapped.dx, y: snapped.dy };
     guides = snapped.guides;

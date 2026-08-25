@@ -1,6 +1,9 @@
 /* ===== Connector tool ====================================================
-   Covers the viewport and draws in viewport px, so a plug is the same size on
-   screen however far out you are zoomed. Nothing here is in scene units. */
+   The div covers the viewport and takes the pointer; everything drawn hangs off
+   an inner group carrying the scene transform, so coordinates below are scene
+   px and a pan or a zoom costs nothing. `--k` is one screen px expressed in
+   them — every size here that must be constant on screen goes through it, and
+   inside an SVG a CSS `px` is one user unit, so `k * n px` is n screen px. */
 
 .nt-connector {
   position: absolute;
@@ -20,9 +23,10 @@
    the selection accent because they are an answer to the tool being on, not a
    property of the shape. */
 .nt-connector-plug {
+  r: calc(var(--k, 1) * 3.5px);
   fill: var(--background);
   stroke: var(--nt-select);
-  stroke-width: 1.5;
+  stroke-width: calc(var(--k, 1) * 1.5);
 }
 .nt-connector-plug.is-live {
   fill: var(--nt-select);
@@ -30,16 +34,17 @@
 
 /* The box a release would land on. */
 .nt-connector-target {
+  rx: calc(var(--k, 1) * 3px);
   fill: none;
   stroke: var(--nt-select);
-  stroke-width: 1.5;
+  stroke-width: calc(var(--k, 1) * 1.5);
 }
 
 .nt-connector-preview {
   fill: none;
   stroke: var(--nt-select);
-  stroke-width: 1.5;
+  stroke-width: calc(var(--k, 1) * 1.5);
   stroke-linecap: round;
   stroke-linejoin: round;
-  stroke-dasharray: 4 3;
+  stroke-dasharray: calc(var(--k, 1) * 4px) calc(var(--k, 1) * 3px);
 }

@@ -2,7 +2,9 @@
 
 /**
  * Everything drawn on top of the shapes: the selection frame and its handles,
- * the hover outline, the marquee, the snap guides and the gesture readout.
+ * the hover outline, the marquee, the snap guides — alignment lines and
+ * equal-gap marks — and the gesture readout, which says where a move is putting
+ * the box, how big a resize is making it, or what angle a rotation is at.
  *
  * Mount it as the last child of the viewport's scene layer, so it inherits the
  * pan/zoom transform for free — every coordinate here is scene px and a pan
@@ -25,14 +27,17 @@ import {
   useImperativeHandle,
   useLayoutEffect,
   useRef,
-  useSyncExternalStore,
   type PointerEvent as ReactPointerEvent,
   type Ref,
 } from "react";
 
-import { rotationCursor, type OverlayHandle } from "../engine/gestures";
+import {
+  rotationCursor,
+  type OverlayHandle,
+  type ReadoutMode,
+} from "../engine/gestures";
 import type { SnapGuide } from "../engine/snapping";
-import type { ViewportController } from "../engine/useViewport";
+import { useViewportZoom, type ViewportController } from "../engine/useViewport";
 import {
   nodeBounds,
   normalizeAngle,
@@ -88,6 +93,9 @@ const RADIUS_TARGET = 13;
 /** Four extra dots inside a small box read as noise long before they overlap. */
 const RADIUS_MIN_BOX = 72;
 const TICK = 3;
+/** An equal-gap mark's end bars, taller than a guide's tick so it reads as a
+ *  measurement of the gap rather than as a line something sits on. */
+const GAP_CAP = 5;
 const CHIP_GAP = 9;
 
 /** Where each handle sits in the box, as a fraction. */
@@ -152,11 +160,16 @@ function outlineOf(r: RotatedRect) {
   };
 }
 
-/** Lines with Figma's end ticks, as one path. */
+/**
+ * Lines with Figma's end ticks, as one path. A spacing mark is the same
+ * geometry put to another use: it spans only the gap it measures, and its ends
+ * are bars rather than ticks — so a run of equal gaps reads as a row of short
+ * double-ended bars, not as one long line through everything.
+ */
 function guidePath(guides: readonly SnapGuide[], k: number): string {
-  const t = TICK * k;
   let d = "";
   for (const g of guides) {
+    const t = (g.kind === "spacing" ? GAP_CAP : TICK) * k;
     if (g.axis === "x") {
       d += `M${g.at} ${g.from}V${g.to}`;
       d += `M${g.at - t} ${g.from}h${t * 2}M${g.at - t} ${g.to}h${t * 2}`;
@@ -201,11 +214,7 @@ export function Overlay({
   readOnly = false,
   ref,
 }: OverlayProps) {
-  const zoom = useSyncExternalStore(
-    viewport.subscribe,
-    () => viewport.get().zoom,
-    () => 1,
-  );
+  const zoom = useViewportZoom(viewport);
 
   const root = useRef<SVGSVGElement>(null);
   const frame = useRef<SVGGElement>(null);
@@ -229,8 +238,11 @@ export function Overlay({
     selection: null as RotatedRect | null,
     /** Corner radii in scene px, or `null` for no radius handles at all. */
     radii: null as readonly number[] | null,
-    /** Which handle started the gesture, i.e. what the readout should say. */
-    mode: null as "resize" | "rotate" | null,
+    /**
+     * What the readout should say. Set by the handle that started the gesture,
+     * or announced by the gesture layer for a move, which starts on the shape.
+     */
+    mode: null as ReadoutMode | null,
     live: false,
   });
 
@@ -321,7 +333,10 @@ export function Overlay({
       const label =
         mode === "rotate"
           ? `${Math.round(normalizeAngle(rot))}°`
-          : `${Math.round(w)} × ${Math.round(h)}`;
+          : mode === "move"
+            ? // Where the box is landing, which is what a move is choosing.
+              `${Math.round(x)}, ${Math.round(y)}`
+            : `${Math.round(w)} × ${Math.round(h)}`;
       // Monospace, so the box can be sized without measuring.
       const width = label.length * 6.7 + 14;
       chipText.current!.textContent = label;
@@ -377,6 +392,9 @@ export function Overlay({
         state.current.mode = null;
         const current = state.current.selection;
         draw(current, current?.rot ?? 0, NO_GUIDES, false);
+      },
+      mode(next) {
+        state.current.mode = next;
       },
       radius(values) {
         state.current.radii = values;

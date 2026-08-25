@@ -9,8 +9,10 @@
  * bars asking for the same corner is one bar too many, and the unanswered
  * question outranks the tool palette.
  *
- * It takes the stores rather than values: the zoom readout and the undo state
- * subscribe here, so a pan re-renders this pill and nothing else.
+ * It takes the stores rather than values, and the readouts subscribe to the
+ * scalars they show rather than to whole viewport or history objects. A pan
+ * allocates a fresh `Viewport` every frame but leaves `zoom` alone, so it
+ * re-renders nothing here; only an actual zoom change redraws the pill.
  */
 
 import {
@@ -36,7 +38,7 @@ import {
   type ShortcutId,
 } from "./engine/shortcuts";
 import type { ToolControl } from "./render/CanvasSurface";
-import { useViewportValue, type ViewportController } from "./engine/useViewport";
+import { useViewportZoom, type ViewportController } from "./engine/useViewport";
 import { absoluteSelectionBounds } from "./scene/geometry";
 import "./canvas.css";
 
@@ -298,7 +300,9 @@ export interface ToolbarProps {
 
 export function Toolbar({ store, viewport, tools }: ToolbarProps) {
   const tool = useSyncExternalStore(tools.subscribe, tools.get, tools.get);
-  const { zoom } = useViewportValue(viewport);
+  // The scalar, not the whole viewport: `commit()` allocates a fresh object on
+  // every pan frame, and this pill only shows the zoom.
+  const zoom = useViewportZoom(viewport);
   const { canUndo, canRedo } = useSceneHistory(store);
   const dock = useDock(viewport);
 

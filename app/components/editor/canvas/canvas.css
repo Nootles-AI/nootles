@@ -58,9 +58,13 @@
 .nt-canvas-viewport[data-tool="pen"] {
   cursor: var(--nt-pen-cursor);
 }
+/* Every tool the surface arms for a drag-to-draw; keep in step with the draw
+   branch of `CanvasSurface`'s pointerdown. */
 .nt-canvas-viewport[data-tool="rect"],
 .nt-canvas-viewport[data-tool="ellipse"],
-.nt-canvas-viewport[data-tool="text"] {
+.nt-canvas-viewport[data-tool="text"],
+.nt-canvas-viewport[data-tool="polygon"],
+.nt-canvas-viewport[data-tool="diamond"] {
   cursor: crosshair;
 }
 /* Set imperatively for the duration of a hand-tool pan, so it costs no render.

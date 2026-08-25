@@ -1,12 +1,6 @@
 "use client";
 
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-  useSyncExternalStore,
-} from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { isApplyingAi, pushHumanOp } from "@/app/lib/debugRing";
 import { track } from "@/app/lib/telemetry";
 import { migrateLegacyCanvas } from "../scene/migrate";
@@ -24,15 +18,19 @@ import {
  * The canvas editor's store — one `Scene`, one way to change it, one place it
  * is persisted from.
  *
- * The store lives outside React on purpose. A canvas is hundreds of shapes and
- * every gesture, panel and keystroke lands in the same tree, so holding the
- * scene in a Context would re-render every shape on every change. Instead the
- * store is read through {@link useSyncExternalStore}: one notification per
- * change reaches every subscriber, but a component that reads a single node
- * gets back the *same object* when its node did not change, and React bails out
- * of the render. That only works because `./scene/ops` guarantees structural
- * sharing — untouched subtrees keep their identity — so the granularity is a
- * property of the data, not of a diffing pass here.
+ * The store lives outside React on purpose. It is one mutable object that
+ * gestures, panels and the keymap all write to between renders, and undo and
+ * persistence are its business rather than a component's. React reads it through
+ * {@link useSyncExternalStore}, so each consumer subscribes to the projection it
+ * actually needs — the surface to the whole scene, the toolbar to whether undo
+ * has anything to do.
+ *
+ * The scene projection re-renders the surface on every edit, and that is
+ * affordable because `./scene/ops` guarantees structural sharing: an edit hands
+ * back a scene whose untouched subtrees are the *same objects*, and `ShapeView`
+ * is memo'd on its node — so dragging one shape reconciles the node list and
+ * re-renders one shape. The granularity is a property of the data, not of a
+ * diffing pass here.
  *
  * ## History is bracketed, not sampled
  *
@@ -172,12 +170,8 @@ export class SceneStore {
   };
 
   /** The whole scene. Its identity changes on every edit — prefer
-   *  {@link getNode} or {@link getRootNodes} where they will do. */
+   *  {@link getNode} where it will do. */
   getScene = (): Scene => this.scene;
-
-  /** The top-level nodes, back-to-front. Keeps its identity through any edit
-   *  inside a group, so the surface is not re-rendered by one. */
-  getRootNodes = (): readonly SceneNode[] => this.scene.nodes;
 
   /** The node with this id at any depth, or `null` once it is gone. */
   getNode = (id: NodeId): SceneNode | null => {
@@ -478,21 +472,6 @@ export function useScene({ source, onChange }: UseSceneOptions): SceneStore {
 /** The whole scene. Re-renders on every edit — the surface's own hook. */
 export function useSceneSnapshot(store: SceneStore): Scene {
   return useSyncExternalStore(store.subscribe, store.getScene, store.getScene);
-}
-
-/** The top-level nodes. Re-renders only when that list changes. */
-export function useSceneNodes(store: SceneStore): readonly SceneNode[] {
-  return useSyncExternalStore(
-    store.subscribe,
-    store.getRootNodes,
-    store.getRootNodes,
-  );
-}
-
-/** One node. Re-renders only when *that* node changes — what `ShapeView` uses. */
-export function useSceneNode(store: SceneStore, id: NodeId): SceneNode | null {
-  const read = useCallback(() => store.getNode(id), [store, id]);
-  return useSyncExternalStore(store.subscribe, read, read);
 }
 
 /** Whether undo and redo have anything to do, as reactive state. */

@@ -1,6 +1,8 @@
 /* ===== Connectors =========================================================
    The edge layer sits inside the transformed scene, so everything here is in
    scene units and scales with the zoom — the same bargain the shapes make.
+   The one exception is the invisible hit strip, which is counter-scaled through
+   `--k` so it stays a constant size under the pointer.
 
    Neutral, like the rest of the canvas: a connector is drawn in the shape line
    ramp, and selection is a weight and a colour step rather than a ring. */
@@ -25,16 +27,23 @@
     stroke-width var(--dur-fast) var(--ease);
 }
 
-/* Fat, invisible, and the only thing in the layer that takes a pointer. A
-   1.5px line is not a target; 12px of scene space either side of it is. */
+/* Fat, invisible, and the only thing in the layer that takes a pointer. The
+   drawn line scales with the zoom because its weight is part of the drawing,
+   exactly as a shape's border is; a hit target is not drawn, it is aimed at, so
+   it is held at 12 screen px through `--k`. Left in scene units it would be a
+   3px sliver at 25% and swallow the shapes underneath at 400%.
+
+   No cursor of its own, deliberately: a connector is a thing you select, not a
+   destination you follow, and the hand this used to show is the one cursor that
+   promises navigation. It inherits the surface's, like every other pickable
+   thing on the canvas. */
 .nt-edge-hit {
   fill: none;
   stroke: transparent;
-  stroke-width: 12;
+  stroke-width: calc(12px * var(--k, 1));
   stroke-linecap: round;
   stroke-linejoin: round;
   pointer-events: stroke;
-  cursor: pointer;
 }
 
 .nt-edge.is-hover .nt-edge-line {

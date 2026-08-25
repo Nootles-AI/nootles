@@ -20,11 +20,15 @@
  *
  * ## Subscription discipline
  *
- * Selection changes must not re-render the scene. The store is a
- * `subscribe`/`getSnapshot` pair, and a `ShapeView` subscribes through
- * {@link useIsSelected}, whose snapshot is a boolean — `useSyncExternalStore`
- * compares what it returns, so a shape re-renders only when its own
- * selectedness flips, never because a sibling was selected or the hover moved.
+ * The store is a `subscribe`/`getSnapshot` pair that notifies only when the
+ * snapshot actually moves — a hover landing on the node it was already on, or a
+ * click re-selecting what was already selected, is silent. So a pointer crossing
+ * a shape costs at most one render of the canvas surface.
+ *
+ * That render maps over every node, but it does not redraw them: `ShapeView` is
+ * memo'd on its node, `scene/ops` keeps the identity of every subtree an edit
+ * did not touch, and nothing else the surface hands a shape moves when the
+ * selection does. What re-renders is the overlay, which is what changed.
  *
  * ## Where the scene comes from
  *
@@ -50,13 +54,7 @@
  * see its `recordSelection`.
  */
 
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-  useSyncExternalStore,
-} from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { laidOutScene } from "../scene/autoLayout";
 import {
   absoluteRect,
@@ -610,7 +608,8 @@ export interface ResolvedSelection {
    * which has no rotation of its own.
    */
   selectionBounds: RotatedRect;
-  /** Each selected node's own frame, for the faint per-member outlines. */
+  /** Each selected node's own frame, for the faint per-member outlines. Empty
+   *  below two, where {@link selectionBounds} is already that one node's frame. */
   memberBounds: readonly RotatedRect[];
   /** The hovered node's frame; `null` when nothing is hovered or it is selected. */
   hoverBounds: RotatedRect | null;
@@ -669,14 +668,4 @@ export function useSelection(store: SelectionStore, scene: SceneLike): ResolvedS
       edgeSelected: snapshot.edgeSelected,
     };
   }, [scene, snapshot]);
-}
-
-/**
- * Whether one node is selected. The snapshot is a boolean, so a shape
- * re-renders only when its own state flips — this is what keeps selecting a
- * node from re-rendering the scene.
- */
-export function useIsSelected(store: SelectionStore, id: NodeId): boolean {
-  const isSelected = useCallback(() => store.isSelected(id), [store, id]);
-  return useSyncExternalStore(store.subscribe, isSelected, isSelected);
 }
