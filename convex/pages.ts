@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import { components } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { readVisible, requireEditable } from "./auth";
+import { rowIcon } from "./schema";
 
 export const listByProject = query({
   args: { projectId: v.id("projects") },
@@ -190,6 +191,7 @@ export async function clonePage(
     projectId: page.projectId,
     title: placed.title,
     mode: page.mode,
+    icon: page.icon,
     folderId,
     order: placed.order,
     docId,
@@ -288,6 +290,22 @@ export const rename = mutation({
   handler: async (ctx, args) => {
     await requireEditable(ctx, "pages", args.pageId);
     await ctx.db.patch(args.pageId, { title: args.title, updatedAt: Date.now() });
+  },
+});
+
+/**
+ * Sets or clears the page's icon. Omitting `icon` clears it, which is how the
+ * picker's "Remove" reads — a separate mutation for removal would be a second
+ * place to keep the same permission check.
+ *
+ * Deliberately does not stamp `updatedAt`: that field means the page's content
+ * changed, and dressing a row is not writing in it.
+ */
+export const setIcon = mutation({
+  args: { pageId: v.id("pages"), icon: v.optional(rowIcon) },
+  handler: async (ctx, args) => {
+    await requireEditable(ctx, "pages", args.pageId);
+    await ctx.db.patch(args.pageId, { icon: args.icon });
   },
 });
 

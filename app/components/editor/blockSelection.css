@@ -1,0 +1,109 @@
+/* ---- Multi-block selection ----------------------------------------------
+   Three surfaces: the strip a band starts in, the band itself, and what a
+   selected block looks like once the band lets go.
+
+   Nothing here is blue. A selected block is the page's own ink at low opacity
+   — the same neutral wash the sidebar uses for a selected row — because the
+   one colour that carries a meaning in this product is the amber, and the
+   meaning is the AI, not "you clicked this". */
+
+/* The press surface.
+
+   `.bn-editor` has `padding-inline: 0`, so the strip beside the text is the
+   PAGE's padding, not the editor's — there is no margin inside the
+   contenteditable to press on. This reaches back out over that strip without
+   moving a single glyph: a negative margin and an equal padding cancel, so the
+   column is exactly where it was and the gutter is now inside the box that
+   hears the press.
+
+   The two values are `PageSurface`'s own `px-6 sm:px-14`. If that column ever
+   changes, set `--nt-page-gutter` on this element rather than editing here.
+
+   Deliberately layout-neutral and UNPOSITIONED: the band draws itself on
+   `document.body`, so this box never needs to be a containing block — and not
+   being one means it can wrap the editor's overlays as well as the editor
+   without moving anything. */
+.nt-marquee-surface {
+  --nt-page-gutter: 24px;
+  margin-inline: calc(-1 * var(--nt-page-gutter));
+  padding-inline: var(--nt-page-gutter);
+}
+@media (min-width: 640px) {
+  .nt-marquee-surface {
+    --nt-page-gutter: 56px;
+  }
+}
+
+/* While a band is being drawn. The gesture crosses the contenteditable, and
+   the browser's own answer to that is an I-beam under every word the band
+   passes — a cursor that offers to do the thing the band is already doing.
+   `body *` outranks the UA's `cursor: auto` on text without needing
+   `!important`, and it comes off the moment the pointer lifts. */
+body.nt-banding,
+body.nt-banding * {
+  cursor: default;
+}
+
+/* The band. Fixed rather than absolute — it is drawn on `document.body`, so
+   nothing in the page's overflow can clip it, and the hook clamps it to the
+   scroller instead. Same hairline and wash as the sidebar's `.nt-marquee`;
+   this is one gesture with two homes, and it should look like it. */
+.nt-block-marquee {
+  position: fixed;
+  z-index: var(--z-overlay);
+  border: 1px solid var(--border-strong);
+  border-radius: 2px;
+  background: var(--hover);
+  pointer-events: none;
+}
+
+/* A selected block.
+
+   Painted OVER the block rather than behind it, at 6.5% ink — enough that a
+   whole page of selected blocks still reads as a page, and light enough that
+   every word under it stays comfortably past AA. Over the block is the only
+   place that works for the blocks that matter most here: a diagram, an album
+   and a media player all paint their own background, and a plate behind them
+   would be invisible on exactly the blocks a band is most often drawn across.
+
+   It bleeds 8px into the gutter, the way a highlighter overshoots a word, and
+   not at all vertically: blocks sit 3px apart, and a run of selected ones
+   reads better as a stack of plates than as one column with a seam down it. */
+.nt-editor .bn-block-outer.nt-block-selected {
+  position: relative;
+}
+.nt-editor .bn-block-outer.nt-block-selected::after {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  inset-inline: -8px;
+  border-radius: var(--radius-sm);
+  background: var(--selected);
+  pointer-events: none;
+  /* The one authored moment: the plate arrives rather than blinking on. Short
+     enough that it never delays the answer to a gesture in progress. */
+  animation: nt-block-select-in var(--dur-fast) var(--ease);
+}
+@keyframes nt-block-select-in {
+  from {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nt-editor .bn-block-outer.nt-block-selected::after {
+    animation: none;
+  }
+}
+
+/* Text selection, which until now was whatever the browser felt like — a blue
+   this product does not otherwise contain, on the one surface that is meant to
+   read as paper. It is the same wash as a selected block, a little stronger
+   because it has to be legible against a single word.
+
+   Zero specificity on purpose (`:where`): it beats the browser default, which
+   is all it is for, and yields to anything with an opinion of its own — the
+   code block's dark theme selects with its own colour and must keep it. */
+:where(.nt-editor .bn-editor)::selection,
+:where(.nt-editor .bn-editor) ::selection {
+  background: color-mix(in oklch, var(--foreground) 15%, transparent);
+}

@@ -3,6 +3,7 @@ import { feedbackCategory } from "./schema";
 import { v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
 import { ownerId as currentOwner, requireOwned, requireOwner } from "./auth";
+import { uploadUrl } from "./uploads";
 import { next as nextCounter, TICKET } from "./counters";
 
 /**
@@ -14,13 +15,7 @@ import { next as nextCounter, TICKET } from "./counters";
 const TEXT_CAP = 10_000;
 const CONSOLE_CAP = 100_000;
 
-export const generateUploadUrl = mutation({
-  args: {},
-  handler: async (ctx) => {
-    await requireOwner(ctx);
-    return await ctx.storage.generateUploadUrl();
-  },
-});
+export const generateUploadUrl = mutation({ args: {}, handler: uploadUrl });
 
 export const submit = mutation({
   args: {

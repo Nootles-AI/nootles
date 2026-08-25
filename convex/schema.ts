@@ -57,6 +57,26 @@ export const feedbackStatus = v.union(
  * A repository as the picker hands it over — the same shape whether it is being
  * linked to a project that exists or carried alongside one being created.
  */
+/**
+ * The icon a sidebar row carries — a page's or a folder's.
+ *
+ * Three sources, one shape, because the row that draws it should not care where
+ * it came from: an emoji, one of the app's own drawn glyphs by export name, or
+ * an uploaded image. A discriminated union rather than a formatted string so
+ * the future ambient LLM can set one through the same validated operation a
+ * person does, and so an unknown `kind` fails at the door instead of rendering
+ * as a broken glyph.
+ *
+ * `icon` stays optional everywhere it appears: a row without one keeps the
+ * fixed page/folder glyph it has always drawn, so this is purely additive and
+ * needs no migration.
+ */
+export const rowIcon = v.union(
+  v.object({ kind: v.literal("emoji"), value: v.string() }),
+  v.object({ kind: v.literal("icon"), name: v.string() }),
+  v.object({ kind: v.literal("image"), storageId: v.id("_storage") }),
+);
+
 export const repoRef = v.object({
   /** "owner/name", the way GitHub writes it and the way the agent names it. */
   fullName: v.string(),
@@ -225,6 +245,8 @@ export default defineSchema({
     title: v.string(),
     /** Containing folder; absent = the project's top level. */
     parentId: v.optional(v.id("folders")),
+    /** Chosen icon; absent = the fixed folder glyph. See `rowIcon`. */
+    icon: v.optional(rowIcon),
     /** Manual place among the level's rows, folders and pages alike. */
     order: v.number(),
     createdAt: v.number(),
@@ -248,6 +270,8 @@ export default defineSchema({
     mode: v.optional(v.union(v.literal("create"), v.literal("complete"))),
     /** Containing sidebar folder; absent = the project's top level. */
     folderId: v.optional(v.id("folders")),
+    /** Chosen icon; absent = the fixed page glyph. See `rowIcon`. */
+    icon: v.optional(rowIcon),
     // Manual place among the level's rows — one order line with its sibling
     // folders, not a rank within pages alone.
     order: v.number(),

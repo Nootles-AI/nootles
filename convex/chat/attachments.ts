@@ -1,6 +1,7 @@
 import { mutation, query } from "../_generated/server";
 import { v } from "convex/values";
 import { requireOwner } from "../auth";
+import { uploadUrl } from "../uploads";
 
 /**
  * Files attached to a chat message.
@@ -15,13 +16,7 @@ import { requireOwner } from "../auth";
  * been uploaded and is not in a message yet.
  */
 
-export const generateUploadUrl = mutation({
-  args: {},
-  handler: async (ctx) => {
-    await requireOwner(ctx);
-    return await ctx.storage.generateUploadUrl();
-  },
-});
+export const generateUploadUrl = mutation({ args: {}, handler: uploadUrl });
 
 /**
  * Signed-in only, which is as far as ownership can reach here: a storage id is

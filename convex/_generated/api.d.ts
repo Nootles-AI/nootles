@@ -48,6 +48,7 @@ import type * as share from "../share.js";
 import type * as surveys from "../surveys.js";
 import type * as tickets from "../tickets.js";
 import type * as tree from "../tree.js";
+import type * as uploads from "../uploads.js";
 import type * as ydoc from "../ydoc.js";
 import type * as yshape from "../yshape.js";
 
@@ -98,6 +99,7 @@ declare const fullApi: ApiFromModules<{
   surveys: typeof surveys;
   tickets: typeof tickets;
   tree: typeof tree;
+  uploads: typeof uploads;
   ydoc: typeof ydoc;
   yshape: typeof yshape;
 }>;

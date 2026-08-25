@@ -386,3 +386,280 @@ export function Sparkle(props: SVGProps<SVGSVGElement>) {
     </svg>
   );
 }
+
+/* ------------------------------------------------------------------ *
+ * Block glyphs — the slash menu's set.
+ *
+ * One family, one grid: content sits inside x3–21 / y3.5–20.5, list rows run
+ * x11–21 with the leading mark in x3–9, and every framed block (image, media,
+ * table, code, math) uses the same 18×16 rx-2.5 frame so a column of them reads
+ * flush. Pairs are deliberate — a bare mark is the inline form of the framed
+ * one (Equation/MathBlock, InlineCode/CodeBlock).
+ * ------------------------------------------------------------------ */
+
+/** The 18×16 card every framed block glyph is drawn inside. */
+const BLOCK_FRAME = { x: 3, y: 4, width: 18, height: 16, rx: 2.5 } as const;
+
+export function Paragraph(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M4 6h16M4 12h16M4 18h9" />
+    </svg>
+  );
+}
+
+/** The H the three heading levels share; only the numeral beside it changes. */
+const HEADING_H = "M4 12h8M4 18V6M12 18V6";
+
+export function Heading1(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <path d={HEADING_H} />
+      <path d="m17 12 3-2v8" />
+    </svg>
+  );
+}
+
+export function Heading2(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <path d={HEADING_H} />
+      <path d="M21 18h-4c0-4 4-3 4-6 0-1.5-2-2.5-4-1" />
+    </svg>
+  );
+}
+
+export function Heading3(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <path d={HEADING_H} />
+      <path d="M17.5 10.5c1.7-1 3.5 0 3.5 1.5a2 2 0 0 1-2 2" />
+      <path d="M17 17.5c2 1.5 4 .3 4-1.5a2 2 0 0 0-2-2" />
+    </svg>
+  );
+}
+
+/** The block quote as it looks on the page: the rule, then the indented text. */
+export function Quote(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M4 5v14" />
+      <path d="M9 9h12M9 15h7" />
+    </svg>
+  );
+}
+
+export function BulletList(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M4.5 6h.01M4.5 12h.01M4.5 18h.01" />
+      <path d="M11 6h10M11 12h10M11 18h10" />
+    </svg>
+  );
+}
+
+/**
+ * Two rows, not three. A drawn numeral needs roughly six units of height to
+ * keep its counter open at 16px, and three of those don't fit down the box —
+ * so the icons whose leading mark is a *glyph* (this, TodoList) run two rows on
+ * the same y8/y16.5 rhythm, while the ones led by a dot or a caret run three.
+ */
+export function NumberedList(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M4.5 5h1.2v6M4.1 11h3.2" />
+      <path d="M7.4 19.5H4c0-1.3 3-2.3 3-4.2a1.7 1.7 0 0 0-3-1.2" />
+      <path d="M11 8h10M11 16.5h10" />
+    </svg>
+  );
+}
+
+/** One box still to tick, one already ticked — the check sits outside the box
+ *  on purpose; inside it there is no counter left at 16px. */
+export function TodoList(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <rect x="3" y="5" width="6" height="6" rx="1.5" />
+      <path d="m3.2 16.4 2.1 2.1 4-4.2" />
+      <path d="M11 8h10M11 16.5h10" />
+    </svg>
+  );
+}
+
+/** Closed disclosure, with the one line it would reveal indented beneath. */
+export function ToggleList(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <path d="m4.5 6 3 3-3 3" />
+      <path d="M11 9h10" />
+      <path d="M14 17.5h7" />
+    </svg>
+  );
+}
+
+export function Table(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <rect {...BLOCK_FRAME} />
+      <path d="M3 9.5h18" />
+      <path d="M9 9.5V20M15 9.5V20" />
+    </svg>
+  );
+}
+
+/** Full-bleed, unlike `Minus`, which is a control's dash rather than a rule. */
+export function Divider(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M3 12h18" />
+    </svg>
+  );
+}
+
+/** Two nodes and the elbow between them — the canvas block in miniature. */
+export function Diagram(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <rect x="3" y="3.5" width="8" height="7" rx="2" />
+      <rect x="13" y="13.5" width="8" height="7" rx="2" />
+      <path d="M7 10.5v4.5a2 2 0 0 0 2 2h4" />
+    </svg>
+  );
+}
+
+/** Shot frames with the caption lines that sit under them. */
+export function Storyboard(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <rect x="3" y="3.5" width="8" height="7" rx="1.5" />
+      <rect x="13" y="3.5" width="8" height="7" rx="1.5" />
+      <path d="M3 15h8M13 15h8" />
+      <path d="M3 19.5h5M13 19.5h5" />
+    </svg>
+  );
+}
+
+/** The waterfall: one tall column beside two short ones. */
+export function Album(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <rect x="3" y="3.5" width="8" height="17" rx="2" />
+      <rect x="13" y="3.5" width="8" height="7.5" rx="2" />
+      <rect x="13" y="13" width="8" height="7.5" rx="2" />
+    </svg>
+  );
+}
+
+export function MediaPlay(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <rect {...BLOCK_FRAME} />
+      <path d="m10 9 5.5 3-5.5 3Z" />
+    </svg>
+  );
+}
+
+/** The service marks, redrawn in this set's stroke rather than dropped in as
+ *  brand artwork — a filled logo beside these would read as a foreign object. */
+export function Spotify(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M7.2 9c3.2-.9 6.7-.6 9.7.9" />
+      <path d="M7.9 12.5c2.6-.7 5.4-.5 7.9.8" />
+      <path d="M8.6 15.9c2-.5 4.2-.3 6 .6" />
+    </svg>
+  );
+}
+
+export function AppleMusic(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <rect x="3" y="3" width="18" height="18" rx="5" />
+      <path d="M10 15.5V8.6l5.5-1.4v6.9" />
+      <circle cx="8.4" cy="15.5" r="1.6" />
+      <circle cx="13.9" cy="14.1" r="1.6" />
+    </svg>
+  );
+}
+
+export function Location(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M19.2 10.5c0 4.4-4.9 9-6.6 10.4a1 1 0 0 1-1.2 0C9.7 19.5 4.8 14.9 4.8 10.5a7.2 7.2 0 0 1 14.4 0Z" />
+      <circle cx="12" cy="10.5" r="2.7" />
+    </svg>
+  );
+}
+
+export function Image(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <rect {...BLOCK_FRAME} />
+      <circle cx="8.5" cy="9.5" r="1.8" />
+      <path d="m21 15.5-3.1-3.1a2 2 0 0 0-2.8 0L7 20" />
+    </svg>
+  );
+}
+
+/** `FileDoc`'s sibling on this grid. The chip glyph runs y2–22 to hold its own
+ *  beside text; in a menu column that extra height reads as a size mismatch. */
+export function FileBlock(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M15 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" />
+      <path d="M15 3v4a1 1 0 0 0 1 1h4" />
+    </svg>
+  );
+}
+
+export function Emoji(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M9 10h.01M15 10h.01" />
+      <path d="M8.4 14.5a4.6 4.6 0 0 0 7.2 0" />
+    </svg>
+  );
+}
+
+/** The radical, bare: math running inside a sentence. */
+export function Equation(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M3 12.5h2.8l3.4 7L14 4.5h7" />
+    </svg>
+  );
+}
+
+/** The same radical, framed: math that owns the line. */
+export function MathBlock(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <rect {...BLOCK_FRAME} />
+      <path d="M6.5 12h1.7l2.3 4.8L14 8h3.5" />
+    </svg>
+  );
+}
+
+/** Angle brackets around a character — the inline mark, not `Code`, which runs
+ *  the full 24 box and outweighs everything beside it in a menu. */
+export function InlineCode(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <path d="m8 7-5 5 5 5" />
+      <path d="m16 7 5 5-5 5" />
+      <path d="M13.8 7 10.2 17" />
+    </svg>
+  );
+}
+
+export function CodeBlock(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <rect {...BLOCK_FRAME} />
+      <path d="m9.5 9.5-2.5 2.5 2.5 2.5" />
+      <path d="m14.5 9.5 2.5 2.5-2.5 2.5" />
+    </svg>
+  );
+}
