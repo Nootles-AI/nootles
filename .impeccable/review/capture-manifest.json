@@ -1,0 +1,73 @@
+{
+  "sha": "a7af2cc",
+  "dirty": false,
+  "capturedAt": "2026-08-25T20:42:49.484Z",
+  "viewports": {
+    "icons": {
+      "viewport": "1440x900",
+      "pickerOpen": true,
+      "firstTab": "Icons",
+      "iconCells": 1527,
+      "iconGroups": [
+        "Suggested",
+        "All icons"
+      ],
+      "iconGrid": {
+        "columns": 9,
+        "cell": 32,
+        "glyph": 17
+      },
+      "searchHits": 2,
+      "searchLabels": [
+        "Rocket",
+        "Rocket launch"
+      ],
+      "headerIcon": 1,
+      "sidebarIcon": 2,
+      "emojiGroups": 8,
+      "emojiGroupNames": [
+        "Smileys & people",
+        "Animals & nature",
+        "Food & drink"
+      ],
+      "emojiSearchHits": 3,
+      "emojiHeadersWhileSearching": 0,
+      "uploadTab": true,
+      "offerReturns": true,
+      "consoleErrors": []
+    },
+    "icons-mobile": {
+      "viewport": "414x896",
+      "pickerOpen": true,
+      "firstTab": "Icons",
+      "iconCells": 1527,
+      "iconGroups": [
+        "Suggested",
+        "All icons"
+      ],
+      "iconGrid": {
+        "columns": 9,
+        "cell": 32,
+        "glyph": 17
+      },
+      "searchHits": 2,
+      "searchLabels": [
+        "Rocket",
+        "Rocket launch"
+      ],
+      "headerIcon": 1,
+      "sidebarIcon": 1,
+      "emojiGroups": 8,
+      "emojiGroupNames": [
+        "Smileys & people",
+        "Animals & nature",
+        "Food & drink"
+      ],
+      "emojiSearchHits": 3,
+      "emojiHeadersWhileSearching": 0,
+      "uploadTab": true,
+      "offerReturns": true,
+      "consoleErrors": []
+    }
+  }
+}

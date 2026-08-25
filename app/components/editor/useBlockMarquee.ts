@@ -54,7 +54,37 @@ const MAX_STEP = 20;
 
 /** Controls own their press outright — a band never starts on one. */
 const CONTROLS =
-  "button, a, input, textarea, select, [role='button'], [role='menuitem']";
+  "button, a, input, textarea, select, [role='button'], [role='menuitem']," +
+  // The width/height grips, which live inside their block but are dragged.
+  ".nt-canvas-grip, .nt-canvas-grip-x, .nt-sb-grip, .nt-album-grip";
+
+/**
+ * Blocks whose INTERIOR is their own gesture surface.
+ *
+ * A diagram is dragged and its shapes resized; a storyboard shot is drawn in; a
+ * table's columns are pulled; an album's tiles are carried. None of that is
+ * text and none of it is a control, so without this the band starts underneath
+ * the gesture the person is actually making and selects blocks while they move
+ * a shape.
+ *
+ * Keyed on BlockNote's own `data-content-type`, which it stamps on every
+ * block's content element with the block's name — so a block type added later
+ * is opted in by naming it here, and the margin beside these blocks still bands
+ * normally because the attribute only covers their content.
+ */
+const OWNS_ITS_INTERIOR = new Set([
+  "canvas",
+  "storyboard",
+  "album",
+  "table",
+  "audio",
+  "video",
+  "image",
+  "file",
+  "location",
+  "codeBlock",
+  "mathBlock",
+]);
 
 /** How far past the last character before the press counts as empty space. */
 const PAST_TEXT = 8;
@@ -197,6 +227,11 @@ export function useBlockMarquee({
       // Everything from the top of the document down is fair game; above it is
       // the title and the mode toggle, which are not the document.
       if (event.clientY < surface.getBoundingClientRect().top - 4) return;
+
+      // A rich block's interior belongs to that block — see OWNS_ITS_INTERIOR.
+      const content = target.closest("[data-content-type]");
+      const type = content?.getAttribute("data-content-type");
+      if (type && OWNS_ITS_INTERIOR.has(type)) return;
 
       // Inside a block, only its text owns the press; the room to the right of
       // a short line is as good a place to start a box as the margin is.
