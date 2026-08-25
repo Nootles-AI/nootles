@@ -74,7 +74,17 @@ export const feedbackStatus = v.union(
 export const rowIcon = v.union(
   v.object({ kind: v.literal("emoji"), value: v.string() }),
   v.object({ kind: v.literal("icon"), name: v.string() }),
-  v.object({ kind: v.literal("image"), storageId: v.id("_storage") }),
+  v.object({
+    kind: v.literal("image"),
+    storageId: v.id("_storage"),
+    /**
+     * The permanent bearer URL, kept beside the id for the same reason albums
+     * keep theirs: a sidebar draws every row's icon at once, and a shared page
+     * has no signed-in identity to resolve a storage id with. The id stays so
+     * the file can still be found when the icon is replaced.
+     */
+    url: v.string(),
+  }),
 );
 
 export const repoRef = v.object({

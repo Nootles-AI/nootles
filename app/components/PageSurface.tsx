@@ -4,8 +4,19 @@ import { useEffect, useRef } from "react";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
+import dynamic from "next/dynamic";
+import { useState } from "react";
 import { Editable } from "./Editable";
 import { Editor } from "./editor/Editor";
+import { RowIcon, type RowIconValue } from "./rowIcon";
+import "./iconPicker.css";
+
+/* A megabyte of emoji data hangs off this; it has no business in the shell's
+   first-paint chunk when most page views never open it. */
+const IconPicker = dynamic(
+  () => import("./IconPicker").then((m) => m.IconPicker),
+  { ssr: false },
+);
 import { useEditorRegistry } from "./editor/EditorRegistry";
 import { ModeToggle } from "./ModeToggle";
 import { CurrentPageProvider, useOpenPage, type Pane } from "./OpenPageContext";
@@ -24,6 +35,8 @@ export function PageSurface({
   const page = useQuery(api.pages.get, { pageId });
   const rename = useMutation(api.pages.rename);
   const setMode = useMutation(api.pages.setMode);
+  const setIcon = useMutation(api.pages.setIcon);
+  const [picking, setPicking] = useState(false);
   // Provided by the workspace for viewer-role visitors; the whole column obeys.
   const readOnly = useReadOnly();
   const { main, aside, focus, back, closeAside, focusPane } = useOpenPage();
@@ -124,6 +137,47 @@ export function PageSurface({
             >
               <X />
             </button>
+          )}
+        </div>
+        {/* The icon sits with the title, and is set by clicking it — the
+            gesture everyone already knows from the tools this resembles. With
+            no icon there is nothing to click, so the offer appears on hover of
+            the header rather than standing there as permanent chrome. */}
+        <div className="nt-page-head relative flex items-center gap-2">
+          {page.icon ? (
+            readOnly ? (
+              <span className="nt-page-icon">
+                <RowIcon icon={page.icon as RowIconValue} kind="page" size={30} />
+              </span>
+            ) : (
+              <button
+                className="nt-page-icon"
+                onClick={() => setPicking((v) => !v)}
+                aria-label="Change page icon"
+                title="Change icon"
+              >
+                <RowIcon icon={page.icon as RowIconValue} kind="page" size={30} />
+              </button>
+            )
+          ) : (
+            !readOnly && (
+              <button className="nt-page-addicon" onClick={() => setPicking((v) => !v)}>
+                Add icon
+              </button>
+            )
+          )}
+          {picking && !readOnly && (
+            <div className="absolute left-0 top-full z-10 mt-1">
+              <IconPicker
+                icon={(page.icon ?? null) as RowIconValue | null}
+                kind="page"
+                onPick={(next) => {
+                  void setIcon({ pageId, icon: next ?? undefined });
+                  setPicking(false);
+                }}
+                onClose={() => setPicking(false)}
+              />
+            </div>
           )}
         </div>
         {readOnly ? (

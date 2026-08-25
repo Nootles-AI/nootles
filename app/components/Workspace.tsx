@@ -28,7 +28,7 @@ import { ChatPanel } from "./ChatPanel";
 import { ReviewBar } from "./ReviewBar";
 import { ResizeHandle } from "./ResizeHandle";
 import { PanelsProvider } from "./PanelsContext";
-import { PagesProvider } from "./PagesContext";
+import { PagesProvider, type PageRef } from "./PagesContext";
 import { CompletionContextProvider } from "./editor/ai/CompletionContext";
 import { ReadOnlyContext } from "./editor/readOnly";
 import { Facepile } from "./presence/Facepile";
@@ -321,7 +321,12 @@ export function Workspace({ projectId }: { projectId: Id<"projects"> }) {
      BlockNote's node views into mention chips and shape labels, so it must not
      churn on a shell render or carry a field they never read. */
   const pageRefs = useMemo(
-    () => sortedPages?.map((p) => ({ _id: p._id, title: p.title })) ?? null,
+    () =>
+      sortedPages?.map((p) => ({
+        _id: p._id,
+        title: p.title,
+        icon: p.icon as PageRef["icon"],
+      })) ?? null,
     [sortedPages],
   );
   const known = (id: Id<"pages"> | null | undefined) =>

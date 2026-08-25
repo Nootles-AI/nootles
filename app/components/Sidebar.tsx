@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import Link from "next/link";
 import { useQuery, useMutation } from "convex/react";
@@ -9,12 +10,12 @@ import { track } from "@/app/lib/telemetry";
 import {
   ArrowLeft,
   ChevronRight,
-  FileDoc,
-  Folder,
   FolderPlus,
   PanelLeft,
   Plus,
 } from "./Icons";
+import { RowIcon, type RowIconValue } from "./rowIcon";
+import "./iconPicker.css";
 import { AccountMenu } from "./AccountMenu";
 import { SharePopover } from "./SharePopover";
 import { RequestEditButton } from "./share/AccessRequests";
@@ -37,6 +38,12 @@ import {
   type Target,
   type TreeRowData,
 } from "./sidebarTree";
+
+/* Carries the emoji set; kept out of the shell's first-paint chunk. */
+const IconPicker = dynamic(
+  () => import("./IconPicker").then((m) => m.IconPicker),
+  { ssr: false },
+);
 
 /** Indent per tree level, mirroring the drop line's inline offset. */
 const INDENT = 12;
@@ -78,6 +85,26 @@ export function Sidebar({
   const canEdit = owner || role === "editor";
   const changes = usePageChanges();
   const hints = useHints();
+  const setPageIcon = useMutation(api.pages.setIcon);
+  const setFolderIcon = useMutation(api.folders.setIcon);
+  /** The row whose icon is being chosen, and where its menu was opened. */
+  const [iconTarget, setIconTarget] = useState<
+    { target: Target; x: number; y: number } | null
+  >(null);
+  /** The icon a row is wearing now, so the picker can offer Remove. */
+  const iconOf = (t: Target): RowIconValue | null => {
+    if (t.kind === "folder") {
+      return ((folders ?? []).find((f) => f._id === t.id)?.icon ?? null) as
+        | RowIconValue
+        | null;
+    }
+    if (t.kind === "page") {
+      return ((pages ?? []).find((p) => p._id === t.id)?.icon ?? null) as
+        | RowIconValue
+        | null;
+    }
+    return null;
+  };
   const createPage = useMutation(api.pages.create);
   const renamePage = useMutation(api.pages.rename);
   const removePage = useMutation(api.pages.remove);
@@ -601,11 +628,14 @@ export function Sidebar({
                         />
                       )}
                     </span>
-                    {row.kind === "folder" ? (
-                      <Folder width={14} height={14} className="nt-row-icon" />
-                    ) : (
-                      <FileDoc width={14} height={14} className="nt-row-icon" />
-                    )}
+                    <RowIcon
+                      icon={
+                        (row.kind === "folder" ? row.folder.icon : row.page.icon) as
+                          | RowIconValue
+                          | undefined
+                      }
+                      kind={row.kind === "folder" ? "folder" : "page"}
+                    />
                     <Editable
                       autoFocus
                       value={draft}
@@ -666,7 +696,10 @@ export function Sidebar({
                         className={`nt-row-chevron${row.expanded ? " is-open" : ""}`}
                       />
                     </span>
-                    <Folder width={14} height={14} className="nt-row-icon" />
+                    <RowIcon
+                      icon={row.folder.icon as RowIconValue | undefined}
+                      kind="folder"
+                    />
                     <span className="nt-row-label">
                       {row.folder.title || "Untitled"}
                     </span>
@@ -714,7 +747,10 @@ export function Sidebar({
                   style={indent}
                 >
                   <span className="nt-row-twist" />
-                  <FileDoc width={14} height={14} className="nt-row-icon" />
+                  <RowIcon
+                    icon={row.page.icon as RowIconValue | undefined}
+                    kind="page"
+                  />
                   <span className="nt-row-label">
                     {row.page.title || "Untitled"}
                   </span>
@@ -790,11 +826,37 @@ export function Sidebar({
               onClip={(op) => setClip({ items: rowSubjects, op })}
               onPaste={pasteInto}
               onRename={(t) => startRename(t, nameOf(t))}
+              onIcon={(t) => setIconTarget({ target: t, x: ctx.x, y: ctx.y })}
               onDelete={() => setConfirming(rowSubjects)}
               onClose={() => setCtx(null)}
             />
           )}
         </ContextMenu>
+      )}
+
+      {iconTarget && (
+        <div
+          className="nt-iconpicker-anchor"
+          /* Opened where the menu was, clamped so it cannot hang off the
+             bottom of a short window. */
+          style={{
+            left: iconTarget.x,
+            top: Math.min(iconTarget.y, Math.max(8, window.innerHeight - 380)),
+          }}
+        >
+          <IconPicker
+            icon={iconOf(iconTarget.target)}
+            kind={iconTarget.target.kind === "folder" ? "folder" : "page"}
+            onPick={(next) => {
+              const icon = next ?? undefined;
+              const t = iconTarget.target;
+              if (t.kind === "folder") void setFolderIcon({ folderId: t.id, icon });
+              else if (t.kind === "page") void setPageIcon({ pageId: t.id, icon });
+              setIconTarget(null);
+            }}
+            onClose={() => setIconTarget(null)}
+          />
+        </div>
       )}
 
       {showingContext && (
@@ -917,6 +979,7 @@ function RowMenu({
   onClip,
   onPaste,
   onRename,
+  onIcon,
   onDelete,
   onClose,
 }: {
@@ -928,6 +991,7 @@ function RowMenu({
   onClip: (op: "copy" | "cut") => void;
   onPaste: (dest: Id<"folders"> | null) => void;
   onRename: (t: Target) => void;
+  onIcon: (t: Target) => void;
   onDelete: () => void;
   onClose: () => void;
 }) {
@@ -962,6 +1026,7 @@ function RowMenu({
         <>
           <div className="nt-menu-sep" />
           <Item onClick={act(() => onRename(only))}>Rename</Item>
+          <Item onClick={act(() => onIcon(only))}>Change icon…</Item>
         </>
       )}
       <div className="nt-menu-sep" />

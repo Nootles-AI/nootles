@@ -4,7 +4,7 @@ import { createReactInlineContentSpec } from "@blocknote/react";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useCurrentPage, useOpenPageOptional } from "../../OpenPageContext";
 import { usePages } from "../../PagesContext";
-import { FileDoc } from "../../Icons";
+import { RowIcon, type RowIconValue } from "../../rowIcon";
 
 /**
  * "@Page" — a chip that names another page and opens it on click.
@@ -52,9 +52,14 @@ function PageMentionView({
           : undefined
       }
     >
-      {/* The glyph is the referent's kind — a page, today. When chips learn to
-          name tickets and files, the icon is what will tell them apart. */}
-      <FileDoc className="nt-ref-icon" aria-hidden />
+      {/* The page's own icon when it has chosen one, read from the live list
+          so it follows a change the way the title does; otherwise the page
+          glyph, which is what a chip has always worn. */}
+      <RowIcon
+        icon={live?.icon as RowIconValue | undefined}
+        kind="page"
+        className="nt-ref-icon"
+      />
       {label}
     </span>
   );
