@@ -16,6 +16,7 @@ import { PagesProvider } from "../PagesContext";
 import { flattenTree } from "../sidebarTree";
 import { ReadOnlyContext } from "../editor/readOnly";
 import { Facepile } from "../presence/Facepile";
+import { EditorSkeleton } from "../Skeleton";
 import { GuestChatRail } from "./GuestChatRail";
 import { SharedEditor } from "./SharedEditor";
 import { SignInToEdit } from "./SignInToEdit";
@@ -162,12 +163,10 @@ export function SharedProject({ token }: { token: string }) {
             className="w-full px-6 py-12 sm:px-14 sm:py-20"
             style={{ maxWidth: "calc(var(--measure) + 7rem)" }}
           >
-            <div className="nt-skeleton h-8 w-1/2" />
-            <div className="mt-8 space-y-3">
-              <div className="nt-skeleton h-4 w-full" />
-              <div className="nt-skeleton h-4 w-11/12" />
-              <div className="nt-skeleton h-4 w-2/3" />
+            <div className="nt-doc-title">
+              <span className="nt-skeleton" style={{ width: "44%" }} />
             </div>
+            <EditorSkeleton />
           </div>
         </main>
       </div>

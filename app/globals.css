@@ -1020,11 +1020,15 @@ textarea.nt-input {
 /* ---- Loading -----------------------------------------------------------
    Placeholders match the shape of what replaces them, so content swaps in
    without reflow. The sweep is the only thing that moves. */
+/* A wash rather than a value, because a skeleton has to be legible on whatever
+   it stands in for: `--surface` is a panel's OWN colour, so bars drawn in it
+   vanished inside the sidebar and barely showed on the page. Mixed from the
+   foreground instead, one fixed step darker than whatever is underneath. */
 .nt-skeleton {
   position: relative;
   overflow: hidden;
   border-radius: var(--radius);
-  background: var(--surface);
+  background: color-mix(in oklch, var(--foreground) 6%, transparent);
 }
 .nt-skeleton::after {
   content: "";
@@ -1038,11 +1042,95 @@ textarea.nt-input {
     transparent 100%
   );
   animation: nt-sweep 1.7s var(--ease) infinite;
+  /* Set per bar so a stack of them does not pulse in lockstep, which reads as
+     one object blinking rather than several things arriving. A custom property
+     because animation-delay does not inherit — the animation lives on this
+     pseudo-element, and the delay is written on the bar. */
+  animation-delay: var(--nt-skeleton-delay, 0ms);
 }
 @keyframes nt-sweep {
   to {
     transform: translateX(100%);
   }
+}
+
+/* ---- The page, before it arrives ----------------------------------------
+   Measured in the document's own units so nothing moves when the words land:
+   a line box is `--text-body` at `--leading-body`, and each block carries the
+   editor's own 3px rhythm (see editor.css). The bar inside a line is about a
+   cap height — a line of prose is not a slab, and drawing one that thick
+   makes the page look like a form. */
+.nt-doc-skeleton {
+  /* Contains the first line's 3px so it is not collapsed away: the editor's
+     own first block keeps that margin, and without this the bars sit a few
+     pixels above the words that replace them. */
+  display: flow-root;
+  font-size: var(--text-body);
+}
+.nt-doc-line,
+.nt-doc-title {
+  display: flex;
+  align-items: center;
+}
+.nt-doc-line {
+  height: calc(1em * var(--leading-body));
+  margin-block: 3px;
+}
+.nt-doc-line > span {
+  height: 0.7em;
+  border-radius: var(--radius-sm);
+}
+/* A paragraph break is the blank line the eye reads as one. */
+.nt-doc-para + .nt-doc-para {
+  margin-top: calc(1em * var(--leading-body) * 0.75);
+}
+/* The title's own line box, and the 2rem the editor sits below it — so the
+   first paragraph of the real document lands on the first bar drawn here. */
+.nt-doc-title {
+  height: calc(var(--text-title) * 1.5);
+  margin-bottom: 2rem;
+  font-size: var(--text-title);
+}
+.nt-doc-title > span {
+  height: 0.62em;
+  border-radius: var(--radius);
+}
+/* The row the mode toggle lands in, held at that control's own height: 2px of
+   `nt-mode` padding and 3px of button padding around one `--text-meta` line.
+   What is drawn inside it is deliberately smaller than the box it reserves —
+   the toggle is chrome, and a ghost at full size outweighed the title, which
+   is the one thing on this page the eye should reach first. */
+.nt-doc-chrome-row {
+  display: flex;
+  align-items: center;
+  height: calc(var(--text-meta) * 1.5 + 10px);
+  margin-bottom: 1.5rem;
+}
+.nt-doc-chrome {
+  width: 96px;
+  height: 16px;
+}
+
+/* A control that has not arrived: the row vocabulary's own height, so the
+   header it sits in does not resize when the real buttons land. */
+.nt-chrome-ghost {
+  height: var(--control);
+}
+
+/* A tree row that is only a shape: the real one's height and slots, none of
+   its hover or press states — there is nothing here to press. */
+.nt-tree-ghost {
+  pointer-events: none;
+}
+.nt-tree-glyph {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border-radius: var(--radius-sm);
+}
+.nt-tree-label {
+  height: 9px;
+  border-radius: var(--radius-sm);
 }
 
 /* ---- Streaming ---------------------------------------------------------

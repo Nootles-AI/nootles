@@ -24,6 +24,7 @@ import { LocationShellContext, type ActiveLocation } from "./editor/location/she
 import { useOpenPage } from "./OpenPageContext";
 import { Sidebar } from "./Sidebar";
 import { PageSurface } from "./PageSurface";
+import { PageSkeleton } from "./Skeleton";
 import { ChatPanel } from "./ChatPanel";
 import { ReviewBar } from "./ReviewBar";
 import { ResizeHandle } from "./ResizeHandle";
@@ -436,6 +437,11 @@ export function Workspace({ projectId }: { projectId: Id<"projects"> }) {
               pane="main"
               row={rowFor(mainPageId)}
             />
+          ) : sortedPages === undefined ? (
+            /* No page to show YET is not the same as no pages — telling
+               someone with forty of them to press + is a small betrayal, and
+               it lasts exactly as long as the query does. */
+            <PageSkeleton />
           ) : (
             <EmptyWorkspace />
           )}

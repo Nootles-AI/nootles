@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Authed } from "./components/Authed";
 import { ProjectsScreen } from "./components/ProjectsScreen";
 import { FirstRun } from "./components/welcome/FirstRun";
+import { ProjectsSkeleton } from "./components/Skeleton";
 
 export const metadata: Metadata = {
   title: "Nootles",
@@ -14,7 +15,7 @@ export const metadata: Metadata = {
  */
 export default function Home() {
   return (
-    <Authed>
+    <Authed fallback={<ProjectsSkeleton />}>
       <FirstRun>
         <ProjectsScreen />
       </FirstRun>

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import type { Id } from "@/convex/_generated/dataModel";
 import { Authed } from "@/app/components/Authed";
+import { WorkspaceSkeleton } from "@/app/components/Skeleton";
 import { Workspace } from "@/app/components/Workspace";
 import { OpenPageProvider } from "@/app/components/OpenPageContext";
 import { ReviewProvider } from "@/app/components/ReviewContext";
@@ -23,7 +24,7 @@ export default async function ProjectPage({
   // All three providers sit above the workspace because the chat panel is a
   // sibling of the document, not a parent of it: this is where they meet.
   return (
-    <Authed>
+    <Authed fallback={<WorkspaceSkeleton />}>
       <EditorRegistryProvider>
         <OpenPageProvider>
           <ReviewProvider projectId={projectId as Id<"projects">}>

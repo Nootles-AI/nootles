@@ -11,15 +11,22 @@ import { Authenticated, AuthLoading } from "convex/react";
  * so, a second before the real document arrives. There is no unauthenticated
  * branch because `proxy.ts` turns those requests around before they get here.
  *
- * Renders nothing while it waits: this window is a few hundred milliseconds, and
- * the surfaces underneath already have skeletons of their own.
+ * `fallback` is what stands in meanwhile, and it matters more than it sounds:
+ * this gate is the FIRST thing in the tree, so whatever it renders is what the
+ * server puts in the HTML and what the browser paints before Clerk has even
+ * loaded. A route that passes nothing gets a blank sheet for as long as that
+ * takes — which on a cold workspace load was over a second of white screen.
  */
-export function Authed({ children }: { children: ReactNode }) {
+export function Authed({
+  children,
+  fallback,
+}: {
+  children: ReactNode;
+  fallback?: ReactNode;
+}) {
   return (
     <>
-      <AuthLoading>
-        <div className="flex-1" aria-busy="true" />
-      </AuthLoading>
+      <AuthLoading>{fallback ?? <div className="flex-1" aria-busy="true" />}</AuthLoading>
       <Authenticated>{children}</Authenticated>
     </>
   );
