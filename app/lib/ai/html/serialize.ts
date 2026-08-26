@@ -4,8 +4,10 @@ import { parseLocation } from "@/app/components/editor/location/parse";
 import { serializeLocation } from "@/app/components/editor/location/serialize";
 import { parseStoryboard } from "@/app/components/editor/storyboard/parse";
 import { serializeStoryboard } from "@/app/components/editor/storyboard/serialize";
+import { labelText } from "@/app/components/editor/canvas/scene/label";
 import { migrateLegacyCanvas } from "@/app/components/editor/canvas/scene/migrate";
 import { serializeScene } from "@/app/components/editor/canvas/scene/serialize";
+import { isGroup, type Scene, type SceneNode } from "@/app/components/editor/canvas/scene/types";
 import type { AnyBlock } from "../projection";
 import { MARK_TAGS, type Mark, type Run } from "./grammar";
 
@@ -52,6 +54,20 @@ type SerializeOptions = {
   collapseDrawn?: boolean;
   /** Block ids exempt from the collapse — the model asked to see the shapes. */
   expandDrawn?: ReadonlySet<string>;
+  /**
+   * Serialize every diagram as the macro that would have created it —
+   * `<nt-build-diagram id>brief</nt-build-diagram>` — never its shapes.
+   *
+   * The completion lane's projection. Stage one's whole job around diagrams is
+   * to WRITE that element; shown a finished `<nt-diagram>` instead, it learned
+   * by imitation to author one itself — dark boxes copied from the neighbour,
+   * connectors as `<nt-line>`, a tag the scene parser silently drops. As briefs
+   * the page demonstrates the macro, and the shapes stop riding the prompt on
+   * every pause. Safe for the compile half because the doc parser returns null
+   * for the tag: both sides of the diff read the same projection, so an
+   * untouched diagram compiles to nothing.
+   */
+  diagramsAsBriefs?: boolean;
 };
 
 /**
@@ -74,6 +90,33 @@ function drawnStub(sceneHtml: string, blockId: string, at: string): string {
   const name = /<nt-group[^>]*\bname="([^"]*)"/.exec(sceneHtml)?.[1];
   const drawn = `${name ? `${name} — ` : ""}${shapes} shapes`;
   return `<nt-diagram${attr("id", blockId)} drawn="${drawn}"${attr("at", at)}></nt-diagram>`;
+}
+
+/** How many of a diagram's labels its brief quotes before trailing off. */
+const BRIEF_LABELS = 8;
+
+/**
+ * A diagram said the way a brief would ask for it. The labels carry the page's
+ * own words into the projection — `visible` strips tags but keeps text, so the
+ * grounding gate and the builder's page context still see what the diagram
+ * says — and the phrasing reads as a brief, which is the style the model will
+ * copy when it writes one of its own.
+ */
+function briefStub(scene: Scene, blockId: string): string {
+  const labels: string[] = [];
+  const walk = (nodes: readonly SceneNode[]) => {
+    for (const node of nodes) {
+      const text = labelText(node.label).trim();
+      if (text) labels.push(text);
+      if (isGroup(node)) walk(node.children);
+    }
+  };
+  walk(scene.nodes);
+  const shown = labels.slice(0, BRIEF_LABELS);
+  const brief = shown.length
+    ? `a diagram of ${shown.join(", ")}${labels.length > shown.length ? ", …" : ""}`
+    : `a diagram (${scene.nodes.length} shapes)`;
+  return `<nt-build-diagram${attr("id", blockId)}>${esc(brief)}</nt-build-diagram>`;
 }
 
 /** A stub coming back in the model's own HTML — the `at` names the picture. */
@@ -265,10 +308,9 @@ function blockToHtml(block: AnyBlock, opts: SerializeOptions): string {
       // the block's own id to put on it, which is how the compiler tells an
       // edit of this diagram from a new one. Documents written before the
       // canvas stored HTML come through the migrator on the way past.
-      const scene = serializeScene({
-        ...migrateLegacyCanvas(String(block.props.data ?? "")),
-        id: block.id,
-      });
+      const parsed = migrateLegacyCanvas(String(block.props.data ?? ""));
+      if (opts.diagramsAsBriefs) return briefStub(parsed, block.id);
+      const scene = serializeScene({ ...parsed, id: block.id });
       if (opts.collapseDrawn && !opts.expandDrawn?.has(block.id) && isDrawn(scene)) {
         return drawnStub(scene, block.id, block.id);
       }
