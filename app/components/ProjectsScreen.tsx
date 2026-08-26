@@ -1,6 +1,7 @@
 "use client";
 
 import { memo, useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
@@ -277,7 +278,7 @@ export function ProjectsScreen() {
             <ul className="nt-grid mt-2">
               {shared.map((p) => (
                 <li key={p._id}>
-                  <SharedCard project={p} onOpen={open} />
+                  <SharedCard project={p} />
                 </li>
               ))}
             </ul>
@@ -285,7 +286,7 @@ export function ProjectsScreen() {
             <ul className="mt-1">
               {shared.map((p) => (
                 <li key={p._id} className="nt-list-row">
-                  <SharedRow project={p} onOpen={open} />
+                  <SharedRow project={p} />
                 </li>
               ))}
             </ul>
@@ -334,6 +335,43 @@ export function ProjectsScreen() {
           too, not only inside whichever project they happen to open. */}
       <AccessRequests />
     </main>
+  );
+}
+
+/**
+ * The link that opens a project, in both views.
+ *
+ * A real anchor, so ⌘-click opens a project in its own tab — and so its hit
+ * area can be stretched over the whole card or row (`nt-card-link`,
+ * `nt-row-open`) without nesting the ⋯ menu inside it.
+ *
+ * The hover fetches the workspace route ahead of the click. That route carries
+ * the editor, which is the heaviest bundle in the app, and paying for it while
+ * the cursor is still travelling is most of what makes opening a project feel
+ * immediate. Link's own prefetch is off because it fires on VIEWPORT entry:
+ * a shelf of sixty cards would open sixty requests to warm sixty routes nobody
+ * asked for. Hovering one is the closest thing to intent there is.
+ */
+function OpenProject({
+  id,
+  className,
+  children,
+}: {
+  id: Id<"projects">;
+  className: string;
+  children: React.ReactNode;
+}) {
+  const router = useRouter();
+  const href = `/p/${id}`;
+  return (
+    <Link
+      href={href}
+      prefetch={false}
+      onPointerEnter={() => router.prefetch(href)}
+      className={className}
+    >
+      {children}
+    </Link>
   );
 }
 
@@ -493,11 +531,7 @@ const Card = memo(function Card({
   const open = () => onOpen(project._id);
   return (
     <div className="nt-card group">
-      {/* The thumbnail is the target; the footer is chrome. Nesting the menu
-          inside this button would be a button inside a button. */}
-      <button onClick={open} aria-label={`Open ${name}`} className="nt-card-open">
-        <PagePreview docId={project.firstPageDocId} />
-      </button>
+      <PagePreview docId={project.firstPageDocId} />
 
       <div className="nt-card-foot">
         <div className="min-w-0 flex-1">
@@ -509,7 +543,12 @@ const Card = memo(function Card({
               className="nt-card-name block w-full"
             />
           ) : (
-            <p className="nt-card-name">{name}</p>
+            /* The chin opens the project the way the thumbnail does: a card
+               that says "23 pages · 2d ago" under a picture of the page reads
+               as one target, and half of it used to be dead. */
+            <OpenProject id={project._id} className="nt-card-name nt-card-link">
+              {name}
+            </OpenProject>
           )}
           <p className="nt-card-meta">
             <span>{pages(project.pageCount)}</span>
@@ -558,9 +597,14 @@ const Row = memo(function Row({
           className="nt-row-edit is-selected min-w-0 flex-1 font-medium"
         />
       ) : (
-        <button onClick={open} className="nt-row min-w-0 flex-1 font-medium">
+        /* Same reach as the card's chin: the name's hit area covers the whole
+           row, so the pages and edited columns are not dead space. */
+        <OpenProject
+          id={project._id}
+          className="nt-row nt-row-open min-w-0 flex-1 font-medium"
+        >
           <span className="nt-row-label">{name}</span>
-        </button>
+        </OpenProject>
       )}
       {/* Held in the layout while renaming rather than unmounted, so the row
           does not change shape as the field opens. */}
@@ -599,28 +643,22 @@ const roleLabel = (p: SharedProject) =>
  *
  * Memoized (row too): these carry live PagePreviews, and this screen re-renders
  * on every rename keystroke. Holds because the query result is referentially
- * stable between server updates and `open` is a stable callback.
+ * stable between server updates.
  */
 const SharedCard = memo(function SharedCard({
   project,
-  onOpen,
 }: {
   project: SharedProject;
-  onOpen: (id: Id<"projects">) => void;
 }) {
   const name = project.title || "Untitled project";
   return (
     <div className="nt-card">
-      <button
-        onClick={() => onOpen(project._id)}
-        aria-label={`Open ${name}`}
-        className="nt-card-open"
-      >
-        <PagePreview docId={project.firstPageDocId} />
-      </button>
+      <PagePreview docId={project.firstPageDocId} />
       <div className="nt-card-foot">
         <div className="min-w-0 flex-1">
-          <p className="nt-card-name">{name}</p>
+          <OpenProject id={project._id} className="nt-card-name nt-card-link">
+            {name}
+          </OpenProject>
           <p className="nt-card-meta">
             {project.ownerName && (
               <>
@@ -638,10 +676,8 @@ const SharedCard = memo(function SharedCard({
 
 const SharedRow = memo(function SharedRow({
   project,
-  onOpen,
 }: {
   project: SharedProject;
-  onOpen: (id: Id<"projects">) => void;
 }) {
   const name = project.title || "Untitled project";
   return (
@@ -651,9 +687,9 @@ const SharedRow = memo(function SharedRow({
           name truncates — the role rides in its own span so "can edit" is
           never what falls off the end. Below sm the fixed columns leave the
           name no room to share, so the attribution stands down entirely. */}
-      <button
-        onClick={() => onOpen(project._id)}
-        className="nt-row min-w-0 flex-1 font-medium"
+      <OpenProject
+        id={project._id}
+        className="nt-row nt-row-open min-w-0 flex-1 font-medium"
       >
         <span className="nt-row-label flex-initial">{name}</span>
         <span className="hidden min-w-0 items-center gap-2 font-normal text-muted sm:flex">
@@ -665,7 +701,7 @@ const SharedRow = memo(function SharedRow({
           )}
           <span className="shrink-0">{roleLabel(project)}</span>
         </span>
-      </button>
+      </OpenProject>
       <span className="nt-meta nt-col-pages">{project.pageCount}</span>
       <span className="nt-meta nt-col-when">{when(project.updatedAt)}</span>
       <span className="nt-col-actions" />

@@ -1,7 +1,13 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type RefObject,
+} from "react";
 import { useConvex, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { joinUpdateRows } from "@/convex/yshape";
@@ -51,6 +57,37 @@ const DOC_WIDTH = 600;
 /** Past this nothing is above the crop, even on the tallest card. */
 const MAX_BLOCKS = 18;
 
+/** How far outside the viewport a card starts reading its page. */
+const NEAR_MARGIN = "600px";
+
+/**
+ * True once the element has come within {@link NEAR_MARGIN} of the viewport,
+ * and true from then on.
+ *
+ * Drawing a card means reading a whole document: a subscription, the snapshot,
+ * the log behind it, and a Y.Doc rebuilt on the main thread. An account with
+ * sixty projects paid all of that sixty times to fill the six cards a window
+ * holds — and those six queued behind the other fifty-four. Staying true
+ * afterwards is deliberate: a card scrolled past keeps its reader, so coming
+ * back to it costs nothing.
+ */
+function useNearViewport(ref: RefObject<HTMLElement | null>): boolean {
+  const [near, setNear] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || near) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) setNear(true);
+      },
+      { rootMargin: NEAR_MARGIN },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [ref, near]);
+  return near;
+}
+
 /** Loaded only for a page that has a diagram on it. */
 const ThumbDiagram = dynamic(() => import("./ThumbDiagram"), { ssr: false });
 /** Likewise KaTeX and its stylesheet — most pages have no maths. */
@@ -71,21 +108,36 @@ const ThumbMath = dynamic(() => import("./ThumbMath"), { ssr: false });
  */
 export function PagePreview({ docId }: { docId: string | null }) {
   const convex = useConvex();
-  const state = useQuery(
-    api.ydoc.state,
-    YJS_ON && docId ? { docId } : "skip",
+  // The card is fluid, so the shrink factor is measured rather than assumed —
+  // and this is also what the viewport gate watches, so it is mounted from the
+  // first paint whatever state the reading is in.
+  const box = useRef<HTMLDivElement>(null);
+  const near = useNearViewport(box);
+
+  /*
+   * `meta` is the Yjs pipeline's version channel — a change in `seq` is what
+   * re-reads — and it doubles as the answer to which pipeline this doc is on:
+   * null means there is no `ydocs` row, which is precisely what `ydoc.state`
+   * would have said the slow way. Asking `state` first cost every card an
+   * extra query (one that re-derives access AND may call into the
+   * prosemirror-sync component) and put the query that matters a whole round
+   * trip behind it.
+   */
+  const meta = useQuery(
+    api.ydoc.meta,
+    YJS_ON && near && docId ? { docId } : "skip",
   );
-  const yjs = YJS_ON && state === "yjs";
+  const yjs = YJS_ON && meta != null;
+  // Undefined is "not answered yet", null is "answered: not a Yjs doc".
+  const legacy = !YJS_ON || meta === null;
   const snapshot = useQuery(
     api.prosemirror.getSnapshot,
-    docId && !yjs && (!YJS_ON || state !== undefined) ? { id: docId } : "skip",
+    near && docId && legacy ? { id: docId } : "skip",
   );
   const since = useQuery(
     api.prosemirror.getSteps,
-    !yjs && snapshot?.content ? { id: docId!, version: snapshot.version } : "skip",
+    snapshot?.content ? { id: docId!, version: snapshot.version } : "skip",
   );
-  // The Yjs pipeline's version channel: a change in `seq` is what re-reads.
-  const meta = useQuery(api.ydoc.meta, yjs && docId ? { docId } : "skip");
 
   const [blocks, setBlocks] = useState<AnyBlock[] | null>(null);
   const lastRead = useRef(0);
@@ -165,17 +217,20 @@ export function PagePreview({ docId }: { docId: string | null }) {
           if (card.cursor < meta.snapshotSeq) {
             // Snapshot chunks are byte slices of ONE update — gathered back
             // into one buffer — and chunked update rows join the same way
-            // (yshape).
-            const chunks: ArrayBuffer[] = [];
-            for (let part = 0; part < meta.snapshotParts; part++) {
-              const chunk = await convex.query(api.ydoc.snapshot, {
-                docId,
-                gen: meta.snapshotSeq,
-                part,
-              });
-              if (chunk) chunks.push(chunk);
-            }
+            // (yshape). Fetched together, the way the editor's provider does:
+            // the part count is known upfront, so a document past one chunk
+            // should not cost a round trip per 800KiB of itself.
+            const fetched = await Promise.all(
+              Array.from({ length: meta.snapshotParts }, (_, part) =>
+                convex.query(api.ydoc.snapshot, {
+                  docId,
+                  gen: meta.snapshotSeq,
+                  part,
+                }),
+              ),
+            );
             if (cancelled) return;
+            const chunks = fetched.filter((c) => c !== null);
             // A compaction landing between `meta` and this fetch takes the
             // generation out from under it. Leave the cursor where it is and
             // wait for the `meta` that compaction is about to publish —
@@ -192,7 +247,10 @@ export function PagePreview({ docId }: { docId: string | null }) {
             card.reader.apply([whole]);
             card.cursor = meta.snapshotSeq;
           }
-          for (;;) {
+          // `meta.seq` is dense, so a cursor that already reaches it has the
+          // whole document — asking for a tail that cannot exist was a round
+          // trip every card paid, on every read, to be told nothing.
+          while (card.cursor < meta.seq) {
             const rows = await convex.query(api.ydoc.updatesSince, {
               docId,
               afterSeq: card.cursor,
@@ -217,8 +275,6 @@ export function PagePreview({ docId }: { docId: string | null }) {
   }, [yjs, docId, meta, convex]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
-  // The card is fluid, so the shrink factor is measured rather than assumed.
-  const box = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(0);
   useLayoutEffect(() => {
     const el = box.current;
@@ -228,40 +284,41 @@ export function PagePreview({ docId }: { docId: string | null }) {
     const observer = new ResizeObserver(measure);
     observer.observe(el);
     return () => observer.disconnect();
-    // Depends on `blocks` because the measured element does not exist until
-    // they arrive — the skeleton and the empty state render a different box.
-    // With an empty dependency list this runs once against a null ref, and the
-    // page stays hidden for good.
-  }, [blocks]);
+  }, []);
 
-  if (blocks === null) {
-    return <div className="nt-thumb nt-skeleton rounded-none" aria-hidden="true" />;
-  }
-
-  if (!blocks.length) {
-    return (
-      <div className="nt-thumb is-empty" aria-hidden="true">
-        <span className="nt-thumb-blank" />
-      </div>
-    );
-  }
-
+  // One element for all three states, rather than one each: it is what the
+  // viewport gate observes and what the width is measured off, so it has to
+  // exist before there is anything to draw in it.
   return (
-    <div ref={box} className="nt-thumb" aria-hidden="true">
-      {/* Hidden until measured, so the page is never seen at full size for a
-          frame before the transform lands. */}
-      <div
-        className="nt-thumb-page"
-        style={{
-          width: DOC_WIDTH,
-          transform: `scale(${scale})`,
-          visibility: scale ? "visible" : "hidden",
-        }}
-      >
-        {blocks.slice(0, MAX_BLOCKS).map((block) => (
-          <Block key={block.id} block={block} />
-        ))}
-      </div>
+    <div
+      ref={box}
+      aria-hidden="true"
+      className={
+        blocks === null
+          ? "nt-thumb nt-skeleton rounded-none"
+          : blocks.length
+            ? "nt-thumb"
+            : "nt-thumb is-empty"
+      }
+    >
+      {blocks === null ? null : blocks.length ? (
+        // Hidden until measured, so the page is never seen at full size for a
+        // frame before the transform lands.
+        <div
+          className="nt-thumb-page"
+          style={{
+            width: DOC_WIDTH,
+            transform: `scale(${scale})`,
+            visibility: scale ? "visible" : "hidden",
+          }}
+        >
+          {blocks.slice(0, MAX_BLOCKS).map((block) => (
+            <Block key={block.id} block={block} />
+          ))}
+        </div>
+      ) : (
+        <span className="nt-thumb-blank" />
+      )}
     </div>
   );
 }

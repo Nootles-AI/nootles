@@ -3,7 +3,7 @@
 import { useEffect, useRef } from "react";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import { Id } from "@/convex/_generated/dataModel";
+import { Doc, Id } from "@/convex/_generated/dataModel";
 import { Editable } from "./Editable";
 import { Editor } from "./editor/Editor";
 import { useEditorRegistry } from "./editor/EditorRegistry";
@@ -16,12 +16,24 @@ import type { PageMode } from "./editor/ai/useTabCompletion";
 export function PageSurface({
   pageId,
   pane,
+  row,
 }: {
   pageId: Id<"pages">;
   /** Which column this is; the second one can be closed, and both take focus. */
   pane: Pane;
+  /**
+   * This page's row from the workspace's own list, when it holds one.
+   *
+   * The document cannot start loading until its `docId` is known, and waiting
+   * for `pages.get` to say so put the whole editor chain a round trip behind a
+   * fact the workspace already had in hand. `get` still runs — it is what keeps
+   * the title live and what answers for a page that has been deleted — but it
+   * is no longer what the first paint waits on.
+   */
+  row?: Doc<"pages">;
 }) {
-  const page = useQuery(api.pages.get, { pageId });
+  const live = useQuery(api.pages.get, { pageId });
+  const page = live === undefined ? row : live;
   const rename = useMutation(api.pages.rename);
   const setMode = useMutation(api.pages.setMode);
   // Provided by the workspace for viewer-role visitors; the whole column obeys.
