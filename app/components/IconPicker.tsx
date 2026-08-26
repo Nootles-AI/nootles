@@ -55,7 +55,7 @@ const GROUP_LABELS: Record<string, string> = {
 
 type IconEntry = { name: string; d: string };
 
-/** The Phosphor Light catalog, pulled the first time the Icons tab is opened. */
+/** The Phosphor Regular catalog, pulled the first time the Icons tab is opened. */
 let iconCache: { all: IconEntry[]; suggested: IconEntry[]; box: number } | null = null;
 async function loadIcons() {
   if (iconCache) return iconCache;

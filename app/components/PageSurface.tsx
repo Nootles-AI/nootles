@@ -4,19 +4,8 @@ import { useEffect, useRef } from "react";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
-import dynamic from "next/dynamic";
-import { useState } from "react";
 import { Editable } from "./Editable";
 import { Editor } from "./editor/Editor";
-import { RowIcon, type RowIconValue } from "./rowIcon";
-import "./iconPicker.css";
-
-/* A megabyte of emoji data hangs off this; it has no business in the shell's
-   first-paint chunk when most page views never open it. */
-const IconPicker = dynamic(
-  () => import("./IconPicker").then((m) => m.IconPicker),
-  { ssr: false },
-);
 import { useEditorRegistry } from "./editor/EditorRegistry";
 import { ModeToggle } from "./ModeToggle";
 import { CurrentPageProvider, useOpenPage, type Pane } from "./OpenPageContext";
@@ -35,25 +24,6 @@ export function PageSurface({
   const page = useQuery(api.pages.get, { pageId });
   const rename = useMutation(api.pages.rename);
   const setMode = useMutation(api.pages.setMode);
-  const setIcon = useMutation(api.pages.setIcon);
-  /** Where the picker opens, in viewport coordinates, once a trigger is hit. */
-  const [picking, setPicking] = useState<{ x: number; y: number } | null>(null);
-  const head = useRef<HTMLDivElement>(null);
-  /* Opened against a FIXED anchor rather than absolutely inside the header.
-     The page column is narrower than the picker on a phone and the pane
-     scrolls, so an absolutely-placed panel was clipped by its own container —
-     taking the close button with it. */
-  const openPicker = (e: React.MouseEvent<HTMLButtonElement>) => {
-    const r = e.currentTarget.getBoundingClientRect();
-    setPicking({ x: r.left, y: r.bottom + 6 });
-  };
-  /* Focus lands on the header, not on the trigger: Remove swaps the icon
-     button out for the "Add icon" offer, so the element that opened this may
-     not exist by the time it closes. The container always does. */
-  const closePicker = () => {
-    setPicking(null);
-    head.current?.focus();
-  };
   // Provided by the workspace for viewer-role visitors; the whole column obeys.
   const readOnly = useReadOnly();
   const { main, aside, focus, back, closeAside, focusPane } = useOpenPage();
@@ -154,52 +124,6 @@ export function PageSurface({
             >
               <X />
             </button>
-          )}
-        </div>
-        {/* The icon sits with the title, and is set by clicking it — the
-            gesture everyone already knows from the tools this resembles. With
-            no icon there is nothing to click, so the offer appears on hover of
-            the header rather than standing there as permanent chrome. */}
-        <div ref={head} tabIndex={-1} className="nt-page-head relative flex items-center gap-2">
-          {page.icon ? (
-            readOnly ? (
-              <span className="nt-page-icon">
-                <RowIcon icon={page.icon as RowIconValue} kind="page" size={30} />
-              </span>
-            ) : (
-              <button
-                className="nt-page-icon"
-                onClick={openPicker}
-                aria-label="Change page icon"
-                title="Change icon"
-              >
-                <RowIcon icon={page.icon as RowIconValue} kind="page" size={30} />
-              </button>
-            )
-          ) : (
-            !readOnly && (
-              <button className="nt-page-addicon" onClick={openPicker}>
-                Add icon
-              </button>
-            )
-          )}
-          {picking && !readOnly && (
-            <div
-              className="nt-iconpicker-anchor"
-              style={{
-                left: Math.max(8, Math.min(picking.x, window.innerWidth - 336)),
-                top: Math.max(8, Math.min(picking.y, window.innerHeight - 372)),
-              }}
-            >
-              <IconPicker
-                icon={(page.icon ?? null) as RowIconValue | null}
-                onPick={(next) => {
-                  void setIcon({ pageId, icon: next ?? undefined });
-                  closePicker();
-                }}
-                onClose={closePicker}
-              />
-            </div>
           )}
         </div>
         {readOnly ? (
