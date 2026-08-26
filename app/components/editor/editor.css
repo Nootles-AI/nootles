@@ -400,18 +400,6 @@
   width: 100%;
   min-width: 0;
 }
-.nt-mathblock-value {
-  flex: 0 0 auto;
-  color: var(--muted);
-  white-space: nowrap;
-}
-.nt-mathblock-error {
-  flex: 0 0 auto;
-  color: var(--danger);
-  font-size: 0.82em;
-  font-style: italic;
-  white-space: nowrap;
-}
 
 /* ---- First-touch hints ----------------------------------------------
    The page's own placeholder voice — `--muted`, like the composer's and the

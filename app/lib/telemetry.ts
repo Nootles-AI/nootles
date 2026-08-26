@@ -23,7 +23,6 @@ type EventMap = {
   mention_inserted: { surface: "editor" | "canvas" };
   canvas_shape_added: { kind: string };
   canvas_edge_connected: Record<string, never>;
-  math_evaluated: Record<string, never>;
   code_language_set: { lang: string };
   suggestion_shown: { kind: string; latencyMs: number };
   suggestion_accepted: { kind: string; latencyMs: number; decisionMs: number };
