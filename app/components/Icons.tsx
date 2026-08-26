@@ -663,3 +663,152 @@ export function CodeBlock(props: SVGProps<SVGSVGElement>) {
     </svg>
   );
 }
+
+/* ---- Page identity ------------------------------------------------------
+   Subjects rather than commands: what a page is ABOUT, which is the question
+   someone answers when they give one an icon. The block glyphs above name what
+   a block IS, and a page wearing one of those reads as a heading rather than as
+   itself. Same grid and stroke as the rest of the file. */
+
+export function Rocket(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M12 3c3 2 4.5 5 4.5 8.5L12 16l-4.5-4.5C7.5 8 9 5 12 3Z" />
+      <circle cx="12" cy="9.5" r="1.6" />
+      <path d="M9 15.5 7 20l4-1.5M15 15.5 17 20l-4-1.5" />
+    </svg>
+  );
+}
+
+export function Star(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <path d="m12 3.5 2.7 5.6 6 .8-4.4 4.2 1.1 6.1-5.4-3-5.4 3 1.1-6.1L3.3 9.9l6-.8Z" />
+    </svg>
+  );
+}
+
+export function Flag(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M5 21V4" />
+      <path d="M5 5h11l-1.6 3.5L16 12H5" />
+    </svg>
+  );
+}
+
+export function Target(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <circle cx="12" cy="12" r="8" />
+      <circle cx="12" cy="12" r="4" />
+      <circle cx="12" cy="12" r="1" />
+    </svg>
+  );
+}
+
+export function Calendar(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <rect x="3.5" y="5" width="17" height="15" rx="2.5" />
+      <path d="M3.5 10h17M8 3.5v3M16 3.5v3" />
+    </svg>
+  );
+}
+
+export function Book(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5Z" />
+      <path d="M4 20.5A2.5 2.5 0 0 1 6.5 18H20v3H6.5A2.5 2.5 0 0 1 4 20.5Z" />
+    </svg>
+  );
+}
+
+export function Chart(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M4 20h16" />
+      <path d="M7 20v-6M12 20V6M17 20v-9" />
+    </svg>
+  );
+}
+
+export function Bulb(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M9 17a6 6 0 1 1 6 0v1.5H9Z" />
+      <path d="M10 21h4" />
+    </svg>
+  );
+}
+
+export function Briefcase(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <rect x="3" y="7.5" width="18" height="12" rx="2.5" />
+      <path d="M9 7.5V6a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v1.5" />
+    </svg>
+  );
+}
+
+export function Clock(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M12 7.5V12l3 2" />
+    </svg>
+  );
+}
+
+export function Map(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M9 4.5 3.5 7v12.5L9 17l6 2.5 5.5-2.5V4.5L15 7Z" />
+      <path d="M9 4.5V17M15 7v12.5" />
+    </svg>
+  );
+}
+
+export function Person(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <circle cx="12" cy="8" r="3.5" />
+      <path d="M5.5 20a6.5 6.5 0 0 1 13 0" />
+    </svg>
+  );
+}
+
+export function Heart(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M12 20s-7-4.4-7-9a4 4 0 0 1 7-2.6A4 4 0 0 1 19 11c0 4.6-7 9-7 9Z" />
+    </svg>
+  );
+}
+
+export function Bolt(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M13 3 5.5 13.5H11L10 21l7.5-10.5H12Z" />
+    </svg>
+  );
+}
+
+export function Leaf(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M20 4c0 8-5 12-11 12a5 5 0 0 1 0-10c5 0 8-1 11-2Z" />
+      <path d="M4 20c3-4 6-6 10-7.5" />
+    </svg>
+  );
+}
+
+export function Compass(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="m15 9-2 4.5L8.5 15l2-4.5Z" />
+    </svg>
+  );
+}

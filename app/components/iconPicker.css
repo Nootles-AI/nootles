@@ -1,0 +1,309 @@
+/* ---- Icon picker --------------------------------------------------------
+   Chrome, shadow and the open animation come from `.nt-menu`, which the root
+   carries alongside `.nt-iconpicker`. This should read as the same object as
+   the account menu and the slash menu, because it is. */
+
+.nt-iconpicker {
+  display: flex;
+  /* Never wider than the window it opens in. The page column is inset, so a
+     fixed 320 ran the close button and the last column of emoji off the right
+     edge of a phone. */
+  width: min(320px, calc(100vw - 32px));
+  flex-direction: column;
+  padding: 0;
+}
+
+.nt-iconpicker-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 6px 0;
+}
+
+.nt-iconpicker-tabs {
+  display: flex;
+  gap: 2px;
+  margin-right: auto;
+}
+.nt-iconpicker-tab {
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-ui);
+  color: var(--muted);
+  transition:
+    background var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
+}
+.nt-iconpicker-tab:hover {
+  color: var(--foreground);
+}
+.nt-iconpicker-tab[data-active] {
+  background: var(--hover);
+  color: var(--foreground);
+}
+
+.nt-iconpicker-remove,
+.nt-iconpicker-close {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-ui);
+  color: var(--muted);
+  transition: background var(--dur-fast) var(--ease);
+}
+/* The one destructive control in the popover says so. */
+.nt-iconpicker-remove:hover {
+  color: var(--danger);
+}
+.nt-iconpicker-remove:hover,
+.nt-iconpicker-close:hover {
+  background: var(--hover);
+  color: var(--foreground);
+}
+
+.nt-iconpicker-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+}
+.nt-iconpicker-search input {
+  width: 100%;
+  height: var(--control);
+  border: 0;
+  background: transparent;
+  font-size: var(--text-ui);
+  color: var(--foreground);
+  outline: none;
+}
+.nt-iconpicker-search input::placeholder {
+  color: var(--muted);
+}
+/* The field owns the ring, so the whole control reads as focused rather than
+   the bare input inside it. */
+.nt-iconpicker-search:focus-within {
+  border-color: var(--foreground);
+}
+
+/* One height across the three tabs so the popover does not resize under the
+   cursor as they switch — but only while BROWSING. A live query sizes to its
+   results instead, because holding 260px behind three hits is a slab of empty
+   card, which is worse than the jump it was preventing. */
+.nt-iconpicker-body {
+  height: 260px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 6px 6px;
+  /* A surface we did not draw, themed from the palette like the rest. */
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+.nt-iconpicker-body[data-filtered] {
+  height: auto;
+  max-height: 260px;
+}
+.nt-iconpicker-body::-webkit-scrollbar {
+  width: 10px;
+}
+.nt-iconpicker-body::-webkit-scrollbar-thumb {
+  background-clip: padding-box;
+  background-color: var(--border);
+  border: 3px solid transparent;
+  border-radius: 999px;
+}
+.nt-iconpicker-body::-webkit-scrollbar-thumb:hover {
+  background-color: var(--muted);
+}
+
+.nt-iconpicker-groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(34px, 1fr));
+  gap: 2px;
+}
+/* The icon panel packs tighter than the emoji one: a hairline glyph at 17px
+   needs less room than a colour emoji at 20px, and a set this large wants more
+   of itself on screen at once. */
+#nt-iconpanel .nt-iconpicker-groups {
+  grid-template-columns: repeat(auto-fill, minmax(30px, 1fr));
+}
+#nt-iconpanel .nt-iconpicker-cell {
+  color: var(--foreground);
+}
+/* Spans the row so a section starts on its own line, with more air above than
+   below — the label belongs to what follows it. */
+.nt-iconpicker-group {
+  grid-column: 1 / -1;
+  margin: 12px 0 2px;
+  padding-inline: 4px;
+  font-size: var(--text-meta);
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.nt-iconpicker-groups > .nt-iconpicker-group:first-child {
+  margin-top: 2px;
+}
+
+/* Smaller than the emoji cells. These are fine outlines on a 256 box, drawn
+   light enough that size is what carries them, and a thousand of them read as a
+   set rather than as a row of buttons at this scale. */
+.nt-iconpicker-glyph {
+  width: 17px;
+  height: 17px;
+}
+.nt-iconpicker-cell {
+  display: flex;
+  aspect-ratio: 1;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  transition:
+    background var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
+}
+.nt-iconpicker-cell:hover,
+.nt-iconpicker-cell:focus-visible {
+  background: var(--hover);
+  color: var(--foreground);
+}
+/* Which one the row is wearing now, so reopening says "you are here". */
+.nt-iconpicker-cell[data-current] {
+  background: var(--selected);
+  color: var(--foreground);
+}
+.nt-iconpicker-emoji {
+  font-size: 20px;
+  line-height: 1;
+}
+
+.nt-iconpicker-note,
+.nt-iconpicker-error {
+  padding: 10px 4px;
+  font-size: var(--text-ui);
+  color: var(--muted);
+}
+.nt-iconpicker-error {
+  color: var(--danger);
+}
+
+.nt-iconpicker-upload {
+  padding: 6px;
+}
+.nt-iconpicker-drop {
+  display: flex;
+  cursor: pointer;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 24px 12px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  font-size: var(--text-ui);
+  color: var(--foreground);
+  text-align: center;
+  transition: border-color var(--dur-fast) var(--ease);
+}
+.nt-iconpicker-drop:hover {
+  border-color: var(--muted);
+}
+.nt-iconpicker-drop input {
+  display: none;
+}
+.nt-iconpicker-hint {
+  font-size: var(--text-meta);
+  color: var(--muted);
+}
+
+/* ---- Where icons are drawn ---------------------------------------------- */
+
+.nt-icon-emoji {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.nt-icon-image {
+  border-radius: 3px;
+  object-fit: cover;
+}
+
+/* The page header's icon: a target when set, and an offer when not. */
+/* Pulled back by its own centring inset so the glyph's left edge lands on the
+   title's, rather than 5px right of it. */
+.nt-page-icon {
+  margin-left: -5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius);
+  color: var(--muted);
+  transition: background var(--dur-fast) var(--ease);
+}
+.nt-page-icon:hover {
+  background: var(--hover);
+}
+.nt-page-icon .nt-icon-emoji {
+  font-size: 30px;
+}
+.nt-page-icon .nt-icon-image {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+}
+
+/* Offered only on hover of the header, so a page with no icon stays quiet. */
+/* Same idea: the offer sits where the icon will, not indented past it. */
+.nt-page-addicon {
+  margin-left: -7px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 7px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-ui);
+  color: var(--muted);
+  opacity: 0;
+  transition:
+    opacity var(--dur) var(--ease),
+    background var(--dur-fast) var(--ease);
+}
+.nt-page-head:hover .nt-page-addicon,
+.nt-page-addicon:focus-visible {
+  opacity: 1;
+}
+.nt-page-addicon:hover {
+  background: var(--hover);
+  color: var(--foreground);
+}
+
+.nt-iconpicker-anchor {
+  position: fixed;
+  z-index: var(--z-modal);
+}
+
+/* Where there is no hover there is no reveal, and the offer would be
+   unreachable — so it simply stands. */
+@media (hover: none) {
+  .nt-page-addicon {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nt-iconpicker,
+  .nt-page-addicon,
+  .nt-iconpicker-cell,
+  .nt-iconpicker-tab {
+    animation: none;
+    transition: none;
+  }
+}

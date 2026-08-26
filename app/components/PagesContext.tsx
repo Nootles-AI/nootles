@@ -2,8 +2,14 @@
 
 import { createContext, useContext, type ReactNode } from "react";
 import type { Id } from "@/convex/_generated/dataModel";
+import type { RowIconValue } from "./rowIcon";
 
-export type PageRef = { _id: Id<"pages">; title: string };
+export type PageRef = {
+  _id: Id<"pages">;
+  title: string;
+  /** The page's chosen icon, so a chip wears it the way the sidebar does. */
+  icon?: RowIconValue;
+};
 
 /**
  * The project's pages, in sidebar order, for anything that names a page —
