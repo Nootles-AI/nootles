@@ -155,7 +155,7 @@ export function RowIcon({
   }
 
   if (icon?.kind === "icon" && icon.d) {
-    // Filled outlines from Phosphor Light: the line IS the shape, so this
+    // Filled outlines from Phosphor Regular: the line IS the shape, so this
     // paints with fill and no stroke, unlike the drawn set below.
     const box = icon.box ?? 256;
     return (

@@ -234,73 +234,13 @@
   object-fit: cover;
 }
 
-/* The page header's icon: a target when set, and an offer when not. */
-/* Pulled back by its own centring inset so the glyph's left edge lands on the
-   title's, rather than 5px right of it. */
-.nt-page-icon {
-  margin-left: -5px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 40px;
-  height: 40px;
-  border-radius: var(--radius);
-  color: var(--muted);
-  transition: background var(--dur-fast) var(--ease);
-}
-.nt-page-icon:hover {
-  background: var(--hover);
-}
-.nt-page-icon .nt-icon-emoji {
-  font-size: 30px;
-}
-.nt-page-icon .nt-icon-image {
-  width: 32px;
-  height: 32px;
-  border-radius: var(--radius-sm);
-}
-
-/* Offered only on hover of the header, so a page with no icon stays quiet. */
-/* Same idea: the offer sits where the icon will, not indented past it. */
-.nt-page-addicon {
-  margin-left: -7px;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  padding: 4px 7px;
-  border-radius: var(--radius-sm);
-  font-size: var(--text-ui);
-  color: var(--muted);
-  opacity: 0;
-  transition:
-    opacity var(--dur) var(--ease),
-    background var(--dur-fast) var(--ease);
-}
-.nt-page-head:hover .nt-page-addicon,
-.nt-page-addicon:focus-visible {
-  opacity: 1;
-}
-.nt-page-addicon:hover {
-  background: var(--hover);
-  color: var(--foreground);
-}
-
 .nt-iconpicker-anchor {
   position: fixed;
   z-index: var(--z-modal);
 }
 
-/* Where there is no hover there is no reveal, and the offer would be
-   unreachable — so it simply stands. */
-@media (hover: none) {
-  .nt-page-addicon {
-    opacity: 1;
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
   .nt-iconpicker,
-  .nt-page-addicon,
   .nt-iconpicker-cell,
   .nt-iconpicker-tab {
     animation: none;
