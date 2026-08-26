@@ -228,12 +228,14 @@ export const AI = {
      */
     model: "google/gemini-3.7-flash",
     /**
-     * Reasoning budget. The eval's best drawings came at high effort, but high
-     * spends its gain before the first shape reaches the canvas — and this lane
-     * streams shapes as they arrive. Medium buys most of the quality at a
-     * latency the preview can wear; the dial is here to tune against real use.
+     * Reasoning budget. Low, like every other Gemini lane that answers a pause
+     * in typing: medium was measured in the ledger at 13-49s per diagram with
+     * 2,600-6,100 output tokens — most of it thinking spent before the first
+     * shape, which is exactly the phase this lane's streaming preview cannot
+     * hide. 2.5 Flash drew a whole diagram in under 5s; low is the closest 3.7
+     * can be pinned to that, since it cannot be told to stop thinking at all.
      */
-    effort: "medium",
+    effort: "low",
     /**
      * A drawing is the long case, and by a wide margin. A mockup is a few dozen
      * short elements; a storyboard is one `<nt-path>` per stroke, and a `d` with
