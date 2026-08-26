@@ -86,11 +86,11 @@ Project → Page (1:1 with a canvas surface) → Block[text | canvas] → Shape 
 | Backend / DB | Convex (hosted cloud deployments: dev + prod; see `.env.local` / `.env.prod`) |
 | Editor | BlockNote (ProseMirror) + `@convex-dev/prosemirror-sync` |
 | Code blocks | CodeMirror 6 (grammars lazy-loaded per language) |
-| Math | MathLive (edit) + KaTeX (render) + `@cortex-js/compute-engine` (evaluate) |
+| Math | MathLive (edit) + KaTeX (render) — no evaluation |
 | Diagrams | In-house canvas — no library. DOM + SVG renderer, CSS flex/grid auto-layout |
 
-- **Lazy-load heavy libraries** on demand (MathLive, Compute Engine, per-language
-  CodeMirror grammars). Don't pull them into the initial bundle.
+- **Lazy-load heavy libraries** on demand (MathLive, per-language CodeMirror
+  grammars). Don't pull them into the initial bundle.
 
 ## Framework: this is NOT stock Next.js
 

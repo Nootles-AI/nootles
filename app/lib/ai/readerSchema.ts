@@ -61,10 +61,7 @@ export const readerSchema = BlockNoteSchema.create({
       language: { default: "typescript" },
       code: { default: "" },
     }),
-    mathBlock: standIn("mathBlock", {
-      source: { default: "" },
-      results: { default: "" },
-    }),
+    mathBlock: standIn("mathBlock", { source: { default: "" } }),
     canvas: standIn("canvas", { data: { default: "" } }),
     album: standIn("album", { data: { default: "" } }),
     storyboard: standIn("storyboard", { data: { default: "" } }),
