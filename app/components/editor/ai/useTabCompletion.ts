@@ -894,6 +894,10 @@ export function useTabCompletion(
       title,
       window: AI.projection.window,
       collapseDrawn: true,
+      // Diagrams appear as the <nt-build-diagram> macro, never as shapes: shown
+      // a finished <nt-diagram>, the FIM model imitated it — connectors as
+      // <nt-line>, a tag the parser drops — instead of writing the brief.
+      diagramsAsBriefs: true,
     };
 
     const context = () => {
