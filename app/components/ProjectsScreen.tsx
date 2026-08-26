@@ -1,6 +1,12 @@
 "use client";
 
-import { memo, useCallback, useEffect, useState } from "react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useState,
+  type CSSProperties,
+} from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery, useMutation } from "convex/react";
@@ -18,6 +24,7 @@ import { FixedToast } from "./feedback/FixedToast";
 import { Menu, MenuItem } from "./Menu";
 import { NewProjectDialog, type NewProject } from "./NewProjectDialog";
 import { PagePreview } from "./PagePreview";
+import { ProjectCardsSkeleton } from "./Skeleton";
 import { AccessRequests } from "./share/AccessRequests";
 
 type View = "grid" | "list";
@@ -721,7 +728,12 @@ function Skeletons({ view }: { view: View }) {
           <li key={i} className="nt-list-row">
             <span
               className="nt-skeleton ml-2 h-4 flex-1"
-              style={{ maxWidth: `${[52, 38, 61, 45][i]}%`, animationDelay: `${i * 110}ms` }}
+              style={
+                {
+                  maxWidth: `${[52, 38, 61, 45][i]}%`,
+                  "--nt-skeleton-delay": `${i * 110}ms`,
+                } as CSSProperties
+              }
             />
             <span className="nt-skeleton nt-col-pages h-3" />
             <span className="nt-skeleton nt-col-when h-3" />
@@ -731,23 +743,7 @@ function Skeletons({ view }: { view: View }) {
       </ul>
     );
   }
-  return (
-    <ul className="nt-grid" aria-busy="true" aria-label="Loading projects">
-      {[0, 1, 2, 3, 4, 5].map((i) => (
-        <li key={i}>
-          <div className="nt-card">
-            <span
-              className="nt-skeleton block aspect-[4/3] rounded-none"
-              style={{ animationDelay: `${i * 90}ms` }}
-            />
-            <div className="nt-card-foot">
-              <span className="nt-skeleton h-3.5 flex-1" style={{ maxWidth: "60%" }} />
-            </div>
-          </div>
-        </li>
-      ))}
-    </ul>
-  );
+  return <ProjectCardsSkeleton />;
 }
 
 /** Teaches what a project is, and offers the one action worth taking. */

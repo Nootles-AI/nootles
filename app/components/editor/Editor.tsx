@@ -45,6 +45,7 @@ import { useBlockMarquee } from "./useBlockMarquee";
 import { SlashMenu } from "./SlashMenu";
 import * as Icon from "../Icons";
 import { useReadOnly } from "./readOnly";
+import { EditorSkeleton } from "../Skeleton";
 import "./editor.css";
 
 type EditorInstance = typeof schema.BlockNoteEditor;
@@ -458,7 +459,24 @@ const EXTENSIONS = [
   blockSelectionExtension,
 ];
 
-const placeholder = <div className="min-h-[40vh]" aria-hidden />;
+/**
+ * A document on its way: the prose shape it will land in.
+ *
+ * Distinct from `blank` below, and the distinction is honesty — this one says
+ * "something is coming", so it must only be shown where something is.
+ */
+const loading = (
+  <div className="min-h-[40vh]" aria-busy="true">
+    <EditorSkeleton />
+  </div>
+);
+
+/**
+ * Room where a document would be, and nothing else. For the one case that is
+ * not loading at all: a viewer looking at a page nobody has written yet. A
+ * shimmer there would promise words that are never going to arrive.
+ */
+const blank = <div className="min-h-[40vh]" aria-hidden />;
 
 /**
  * Development only, and it brings the whole op/projection stack with it — so
@@ -497,13 +515,13 @@ export function Editor(props: EditorProps) {
     YJS_ON && meta === null ? { docId: props.docId } : "skip",
   );
   if (!YJS_ON) return <LegacyEditor {...props} />;
-  if (meta === undefined) return placeholder;
+  if (meta === undefined) return loading;
   if (meta !== null) return <YjsEditor {...props} />;
   // No `ydocs` row: legacy or never-written, and only `state` tells them apart.
-  if (state === undefined) return placeholder;
+  if (state === undefined) return loading;
   if (state === "yjs") return <YjsEditor {...props} />;
   if (readOnly) {
-    return state === "legacy" ? <LegacyEditor {...props} /> : placeholder;
+    return state === "legacy" ? <LegacyEditor {...props} /> : blank;
   }
   return <BecomeYjs docId={props.docId} state={state} />;
 }
@@ -522,7 +540,7 @@ function BecomeYjs({ docId, state }: { docId: string; state: "legacy" | "empty" 
     const run = state === "legacy" ? migrateLegacyDoc : initEmptyYDoc;
     run(convex, docId).finally(() => migrating.delete(docId));
   }, [convex, docId, state]);
-  return placeholder;
+  return loading;
 }
 
 function YjsEditor({ docId, pageId, title = "", mode = "create" }: EditorProps) {
@@ -536,7 +554,7 @@ function YjsEditor({ docId, pageId, title = "", mode = "create" }: EditorProps) 
     },
     editorOptions: { schema, extensions: EXTENSIONS },
   });
-  if (!editor) return placeholder;
+  if (!editor) return loading;
   return (
     <EditorSurface
       editor={editor}
@@ -568,7 +586,7 @@ function LegacyEditor({ docId, pageId, title = "", mode = "create" }: EditorProp
     }
   }, [sync, docId, readOnly]);
 
-  if (!sync.editor) return placeholder;
+  if (!sync.editor) return loading;
   return (
     <EditorSurface
       editor={sync.editor}

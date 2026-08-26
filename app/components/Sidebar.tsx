@@ -15,6 +15,7 @@ import {
   Plus,
 } from "./Icons";
 import { RowIcon, type RowIconValue } from "./rowIcon";
+import { TreeSkeleton } from "./Skeleton";
 import "./iconPicker.css";
 import { AccountMenu } from "./AccountMenu";
 import { SharePopover } from "./SharePopover";
@@ -179,6 +180,9 @@ export function Sidebar({
     () => flattenTree(folders ?? [], pages ?? [], collapsed),
     [folders, pages, collapsed],
   );
+  /* An empty tree and an unanswered one look identical from `rows`, and the
+     panel used to say "No pages yet" for both. */
+  const loadingTree = pages === undefined || folders === undefined;
   /* Held still across renders the tree did not cause — a row drag re-renders
      this panel per frame, and the drag reads its own measurements back off
      this array's identity. */
@@ -506,6 +510,13 @@ export function Sidebar({
             onKeyDown={keys}
             className="nt-row-edit w-full font-semibold"
           />
+        ) : project === undefined ? (
+          /* "Untitled project" is a real answer about a real project, and for
+             a beat on every open it was said about one that simply had not
+             arrived yet. */
+          <div className="nt-row nt-tree-ghost w-full" aria-hidden="true">
+            <span className="nt-skeleton nt-tree-label" style={{ width: "52%" }} />
+          </div>
         ) : (
           <button
             onDoubleClick={
@@ -590,10 +601,14 @@ export function Sidebar({
           aria-multiselectable
           className={`nt-pages relative space-y-px${otherPageId ? " is-split" : ""}`}
         >
-          {rows.length === 0 && (
-            <li className="px-2 py-1 text-[13px] text-muted">
-              {canEdit ? "No pages yet — press + to add one." : "No pages yet."}
-            </li>
+          {loadingTree ? (
+            <TreeSkeleton />
+          ) : (
+            rows.length === 0 && (
+              <li className="px-2 py-1 text-[13px] text-muted">
+                {canEdit ? "No pages yet — press + to add one." : "No pages yet."}
+              </li>
+            )
           )}
           {rows.map((row, i) => {
             const id = row.kind === "folder" ? row.folder._id : row.page._id;

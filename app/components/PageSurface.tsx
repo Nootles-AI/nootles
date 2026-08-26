@@ -9,6 +9,7 @@ import { Editor } from "./editor/Editor";
 import { useEditorRegistry } from "./editor/EditorRegistry";
 import { ModeToggle } from "./ModeToggle";
 import { CurrentPageProvider, useOpenPage, type Pane } from "./OpenPageContext";
+import { PageSkeleton } from "./Skeleton";
 import { ArrowLeft, X } from "./Icons";
 import { useReadOnly } from "./editor/readOnly";
 import type { PageMode } from "./editor/ai/useTabCompletion";
@@ -55,24 +56,9 @@ export function PageSurface({
     [],
   );
 
-  if (page === undefined) {
-    // Mirrors the real column so the title and first paragraphs land in place.
-    return (
-      <main className="flex flex-1 flex-col overflow-hidden" aria-busy="true">
-        <div
-          className="w-full px-6 py-12 sm:px-14 sm:py-20"
-          style={{ maxWidth: "calc(var(--measure) + 7rem)" }}
-        >
-          <div className="nt-skeleton h-8 w-1/2" />
-          <div className="mt-8 space-y-3">
-            <div className="nt-skeleton h-4 w-full" />
-            <div className="nt-skeleton h-4 w-11/12" />
-            <div className="nt-skeleton h-4 w-2/3" />
-          </div>
-        </div>
-      </main>
-    );
-  }
+  // Mirrors the real column so the toggle, the title and the first paragraphs
+  // all land in place rather than pushing each other about as they arrive.
+  if (page === undefined) return <PageSkeleton />;
   if (page === null) {
     return (
       <div className="flex flex-1 items-center justify-center text-sm text-muted">
