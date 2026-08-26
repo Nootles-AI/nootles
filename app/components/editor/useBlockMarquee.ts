@@ -6,13 +6,25 @@
  *
  * ## Where the press is heard
  *
- * On the SCROLLER, not on a wrapper around the editor. A wrapper only hears
- * presses inside its own box, which made "can a band start here" a question
- * about layout — whether that box reached out into the gutter, whether it grew
- * past the last block — and the answer was no in most of the places a hand
- * actually reaches. The scroller is the document area by definition, so the
- * question becomes one rule asked of the point itself: is there text under it,
- * or a control.
+ * On the document's PANE — the element the page is shown in. It reaches the
+ * gutter and the room below the last block, so "can a band start here" is not a
+ * question about any box's extent; and it stops there, so the application's
+ * chrome is not this gesture's business. Within the pane the question is a rule
+ * asked of the point itself: is there text under it, a control, a block that
+ * owns its own interior, or a layer floating over the page.
+ *
+ * ## What it takes from the press, and how narrowly
+ *
+ * Cancelling a `pointerdown` takes the browser's whole compatibility mouse
+ * stream with it — `mousedown` first among them — and this application dismisses
+ * every menu and starts every pane resize on `mousedown`. Doing that from a
+ * listener the width of the window is how a gesture in the document came to
+ * freeze the toolbar's menus and kill the resize handles.
+ *
+ * So nothing is taken from the `pointerdown` at all. What ProseMirror listens
+ * for is the `mousedown`, and off the blocks exactly that one event is swallowed
+ * — on the PANE, once, for this press. Inside a block even that is left alone
+ * until the gesture proves itself a drag, or a click would stop placing a caret.
  *
  * `pressIsOnText` is that rule, and it asks the browser rather than guessing
  * from element boxes: a block runs the full width of the column, so its element
@@ -27,9 +39,9 @@
  * a press becomes a drag, so a click stays a click, and hit-testing by VERTICAL
  * OVERLAP alone, because a full-width row carries no horizontal information.
  * What a document adds: the surface is `contenteditable`, so native text
- * selection has to be held off for the whole gesture (and preventing a
- * pointerdown does not prevent the mousedown ProseMirror listens for), and a
- * page is taller than the window, so the band scrolls when it reaches an edge.
+ * selection has to be held off for the whole gesture — cleared and then
+ * suppressed once the drag starts, never by cancelling the press — and a page
+ * is taller than the window, so the band scrolls when it reaches an edge.
  *
  * Blocks are measured ONCE when the gesture starts and held in the scroller's
  * own coordinates: they do not move while a band is drawn over them, and
@@ -138,22 +150,51 @@ function pressIsOnText(x: number, y: number): boolean {
 
 type Viewport = { top: number; bottom: number; left: number; right: number };
 
-/** The nearest ancestor that actually scrolls, else the page itself. */
-function scrollerOf(el: HTMLElement): HTMLElement {
+/**
+ * The pane the document is shown in: the nearest ancestor that is a scroll
+ * container BY ROLE, whether or not it happens to be overflowing right now.
+ *
+ * "Does it scroll at this instant" is the wrong question, and asking it was how
+ * this gesture came to hear every press in the application: on a page shorter
+ * than the window nothing overflows, so the walk fell through to
+ * `document.documentElement` and the "document area" became the whole window —
+ * sidebar, panels, toolbar and every menu scrim included. A pane is the
+ * document's pane when it is empty, too.
+ *
+ * Falls back to the surface itself, never to the document. A surface with no
+ * scrolling ancestor is its own extent; the auto-scroll then has nothing to
+ * move, which is the truth rather than a reason to widen the gesture.
+ */
+function paneOf(el: HTMLElement): HTMLElement {
   let node = el.parentElement;
   while (node && node !== document.body) {
     const overflow = getComputedStyle(node).overflowY;
-    if (
-      (overflow === "auto" || overflow === "scroll" || overflow === "overlay") &&
-      node.scrollHeight > node.clientHeight
-    ) {
+    if (overflow === "auto" || overflow === "scroll" || overflow === "overlay") {
       return node;
     }
     node = node.parentElement;
   }
-  return document.scrollingElement instanceof HTMLElement
-    ? document.scrollingElement
-    : document.documentElement;
+  return el;
+}
+
+/**
+ * Whether the press landed on something floating over the document rather than
+ * on the document.
+ *
+ * Menus, popovers and their full-screen dismissal scrims are rendered inline,
+ * so they are DOM descendants of whatever component opened them — several of
+ * them of the editor itself. They are all taken out of flow to float, and that
+ * is the property to ask about: a rule, so a popover added later is covered
+ * without being named anywhere.
+ */
+function onFloatingLayer(target: Element, pane: HTMLElement): boolean {
+  let node: Element | null = target;
+  while (node && node !== pane) {
+    const position = getComputedStyle(node).position;
+    if (position === "fixed" || position === "sticky") return true;
+    node = node.parentElement;
+  }
+  return false;
 }
 
 /** What that scroller can show right now, in viewport coordinates. */
@@ -176,9 +217,14 @@ function stepFor(intrusion: number): number {
   return Math.ceil(ratio * ratio * MAX_STEP);
 }
 
-/** Take an event out of the DOM's hands entirely. */
+/**
+ * Take this event out of the DOM's hands: ProseMirror must neither act on it
+ * nor see it. Registered on the pane for one press at a time — never on the
+ * window, where it would reach the whole application.
+ */
 function swallow(event: Event): void {
   event.preventDefault();
+  event.stopPropagation();
 }
 
 function sameIds(a: readonly string[], b: readonly string[]): boolean {
@@ -238,25 +284,36 @@ export function useBlockMarquee({
       const inBlock = !!target.closest(".bn-block-outer");
       if (inBlock && pressIsOnText(event.clientX, event.clientY)) return;
 
-      // Outside the editor there is no caret to place, so the default goes now
-      // — that is also what stops the browser drawing its own text selection
-      // under the band. Inside a block the default has to stand until the
-      // gesture proves itself a drag, or a plain click would stop placing the
-      // caret at the end of the line, which is what a click there is for.
+      const scroller = paneOf(surface);
+
+      // A menu, a popover, or the full-screen scrim one puts up to catch the
+      // press that dismisses it — floating over the document, not part of it.
+      if (onFloatingLayer(target, scroller)) return;
+
+      // Off the blocks there is no caret to place, and ProseMirror would
+      // otherwise start its own text selection and draw it under the band the
+      // whole way down. So the `mousedown` behind this press — the event
+      // ProseMirror actually listens for — is taken out before it can reach it.
+      //
+      // On the PANE, and only for this one press. Cancelling the `pointerdown`
+      // instead is what this used to do, and it took the browser's whole
+      // compatibility mouse stream with it, for every press in the window: the
+      // application dismisses its menus and starts its pane resizes on
+      // `mousedown`, and all of them silently stopped working. Scoped here, the
+      // suppression reaches ProseMirror and nothing else.
+      //
+      // Inside a block the press is left alone regardless, or a plain click
+      // would stop placing the caret at the end of the line, which is what a
+      // click there is for; the drag takes the default when it proves itself
+      // one, in `begin`.
       if (!inBlock) {
-        event.preventDefault();
-        // ...and again on the mousedown behind it. Preventing a pointerdown
-        // does NOT prevent the mouse event that follows, and ProseMirror
-        // listens for that one — without this it starts its own text selection
-        // and draws it under the band the whole way down.
-        window.addEventListener("mousedown", swallow, {
+        scroller.addEventListener("mousedown", swallow, {
           capture: true,
           once: true,
         });
       }
       teardown.current?.();
 
-      const scroller = scrollerOf(surface);
       const origin = surface.getBoundingClientRect();
       // The anchor is kept in the SURFACE's coordinates, not the viewport's:
       // the page scrolls under the band, and a viewport anchor would slide up
@@ -391,9 +448,15 @@ export function useBlockMarquee({
       const begin = () => {
         dragging = true;
         measure();
-        // The press inside a block did not take the default, so the browser may
-        // have started its own text selection on the way here. Drop it before
-        // the band draws over the top of it.
+        // A press that landed in a block has been dragging text since it went
+        // down; drop that before the band draws over the top of it.
+        //
+        // Only when it did. `removeAllRanges` is not free: ProseMirror watches
+        // `selectionchange`, and emptying the selection out from under it makes
+        // it resync and drop the very block selection the band is putting there
+        // — the band draws and nothing stays selected. Off the blocks there is
+        // nothing to drop anyway, and `user-select` below is what holds the
+        // line for the rest of the gesture.
         if (inBlock) window.getSelection()?.removeAllRanges();
         // The document is contenteditable: without this the browser draws its
         // own text selection under the band and fights it the whole way down.
@@ -433,7 +496,7 @@ export function useBlockMarquee({
         window.removeEventListener("pointerup", finish);
         window.removeEventListener("pointercancel", cancel);
         window.removeEventListener("keydown", onKey, true);
-        window.removeEventListener("mousedown", swallow, true);
+        scroller.removeEventListener("mousedown", swallow, true);
         if (frame) cancelAnimationFrame(frame);
         if (painting) cancelAnimationFrame(painting);
         frame = 0;
@@ -475,20 +538,19 @@ export function useBlockMarquee({
   );
 
   /**
-   * Listen on the SCROLLER, not on a wrapper around the editor.
+   * Listen on the document's PANE — see {@link paneOf}.
    *
-   * A wrapper only hears presses inside its own box, so the gesture kept
-   * depending on that box reaching the right places — out into the gutter, and
-   * down past the last block — which made "can I start a band here" a question
-   * about layout rather than about what is under the pointer. The scroller is
-   * the whole document area by definition. Where a band may start is then one
-   * rule, asked of the point itself: is there text there, or a control.
+   * The pane is the document area by definition, so a band can start out in the
+   * gutter and below the last block without that being a question about any
+   * box's extent. What it is emphatically not is the window: the application's
+   * chrome — sidebar, panels, toolbar, every menu and its dismissal scrim —
+   * lives outside this element and must never hear from this gesture.
    */
   useEffect(() => {
     const surface = surfaceRef.current;
     if (!surface) return;
-    const scroller = scrollerOf(surface);
-    scroller.addEventListener("pointerdown", start);
-    return () => scroller.removeEventListener("pointerdown", start);
+    const pane = paneOf(surface);
+    pane.addEventListener("pointerdown", start);
+    return () => pane.removeEventListener("pointerdown", start);
   }, [surfaceRef, start, enabled]);
 }

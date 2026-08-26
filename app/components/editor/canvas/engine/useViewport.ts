@@ -745,9 +745,14 @@ function createViewport(options: UseViewportOptions): ViewportEngine {
   }
 
   /**
-   * `preventDefault` on `pointerdown` does not cancel the compatibility mouse
-   * events, and it is those that start middle-click autoscroll on Windows and
-   * a text selection drag everywhere. Suppress them once the pan is underway.
+   * A belt to `onPointerDown`'s braces, for the pan and for the pan only.
+   *
+   * Cancelling the `pointerdown` above does suppress the compatibility mouse
+   * events that would otherwise start middle-click autoscroll on Windows and a
+   * text selection drag everywhere — so this is not load-bearing. It is kept
+   * because the cost is one comparison on a press the pan has already claimed,
+   * and because a pan is scoped to this container: unlike a cancel taken on
+   * every press in the document, it can strand nothing.
    */
   function onMouseDown(e: MouseEvent): void {
     if (!pan) return;

@@ -18,6 +18,24 @@
  * The panels and the toolbar are *not* rendered here. They belong to the
  * screen, not to a 600px column of a document, so the canvas publishes
  * {@link CanvasApi} instead and the shell mounts them.
+ *
+ * ## Two scenes, and which question each one answers
+ *
+ * `scene` is the model. A node an auto-layout group places does not keep its
+ * position there — the flow decides it, and the model's `x`/`y` is whatever it
+ * last happened to be. So the model answers exactly one question: what to
+ * render. The browser lays the shapes out from it, which is the point.
+ *
+ * `laid` — `laidOutScene(scene)` — answers every other one. Where is this
+ * shape, what is under this point, what does this connector attach to, how big
+ * is the content. Asking the model any of those reads a stale number: a child
+ * duplicated into a laid-out group renders where the flow puts it and hit-tests
+ * where the model left it, so double-click finds nothing there and the group
+ * answers instead.
+ *
+ * The rule, then: **render from `scene`, measure and hit-test `laid`.** It is
+ * free to take — `laidOutScene` memoises on the scene object — so there is no
+ * reason to reach for the model and no excuse for the two to drift again.
  */
 
 import {
@@ -61,6 +79,7 @@ import {
   normalizeRect,
   type RotatedRect,
 } from "../scene/geometry";
+import { laidOutScene } from "../scene/autoLayout";
 import { mintId } from "../scene/ops";
 // A leaf module of pure constants — no cycle, though the surface knows nothing
 // else about storyboards.
@@ -185,7 +204,8 @@ function overlapArea(a: Rect, b: Rect): number {
  * Every visible shape, unioned — the box the fit frames, and the same box the
  * wheel asks about before it decides a pan has nothing left to reveal.
  */
-function contentRect(scene: Scene): Rect {
+function contentRect(model: Scene): Rect {
+  const scene = laidOutScene(model);
   return absoluteSelectionBounds(
     scene,
     scene.nodes.filter((node) => !node.hidden).map((node) => node.id),
@@ -387,6 +407,17 @@ export function CanvasSurface({
 }: CanvasSurfaceProps) {
   const store = useScene({ source, onChange });
   const scene = useSceneSnapshot(store);
+  /**
+   * The same scene with every auto-laid-out child placed where it is actually
+   * drawn — see the note on coordinates in the module header.
+   *
+   * Free: `laidOutScene` memoises on the scene object, and `useSelection` has
+   * already asked for this one, so this is the identical object rather than a
+   * second pass. Rendering still goes through `scene`: the shapes are laid out
+   * by CSS, and handing the renderer pre-placed boxes would be telling the
+   * browser the answer to the question it is being asked.
+   */
+  const laid = laidOutScene(scene);
   // Pinned for a shot, which has nowhere to pan to, and for a reader, who has
   // nothing to reach that the first fit did not already bring into view.
   // `content` is read once, so it answers through the store rather than closing
@@ -582,7 +613,10 @@ export function CanvasSurface({
    * confirm the box the scene already holds at the cost of a forced layout.
    */
   const reflowLive = useCallback(() => {
-    const scene = store.getScene();
+    // Laid out, like every other geometry read here, and through the same
+    // memo, so the identity `reflowEdges` checks its prepared obstacles
+    // against still matches what `onActiveChange` prepared them from.
+    const scene = laidOutScene(store.getScene());
     if (scene.edges.length === 0) return;
     const cache = held.current;
     reflowEdges(
@@ -647,7 +681,7 @@ export function CanvasSurface({
           moving,
           elements: new Map(),
           edges: new Map(),
-          obstacles: prepareObstacles(store.getScene(), moving),
+          obstacles: prepareObstacles(laidOutScene(store.getScene()), moving),
         };
         return;
       }
@@ -1041,14 +1075,14 @@ export function CanvasSurface({
     const wanted = asked.current;
     asked.current = null;
     const point = scenePoint(event);
-    const chain = hitTestPath(scene, point);
+    const chain = hitTestPath(laid, point);
     if (chain.length === 0) return;
     const descending = descends(sel.enteredPath, chain);
     selection.enter(point);
     if (descending) return;
     const ids = selection.getSnapshot().ids;
     if (ids.length !== 1) return;
-    const node = findNode(scene, ids[0]);
+    const node = findNode(laid, ids[0]);
     if (node?.kind === "path") setOpenPath(node.id);
     else if (wanted && ids[0] === wanted) setEditing(wanted);
   };
@@ -1057,7 +1091,7 @@ export function CanvasSurface({
     event.preventDefault();
     viewport.containerRef.current?.focus({ preventScroll: true });
     const point = scenePoint(event);
-    const chain = hitTestPath(scene, point);
+    const chain = hitTestPath(laid, point);
     // Nothing under the pointer: every entry would be dead, so this is a
     // deselect rather than a menu.
     if (chain.length === 0) {
@@ -1187,10 +1221,10 @@ export function CanvasSurface({
   /** Every visible node's box, which is what tells us the content is lost. */
   const contentBounds = useMemo(
     () =>
-      scene.nodes
+      laid.nodes
         .filter((node) => !node.hidden)
-        .map((node) => absoluteBounds(scene, node.id)),
-    [scene],
+        .map((node) => absoluteBounds(laid, node.id)),
+    [laid],
   );
 
   /**
@@ -1237,7 +1271,7 @@ export function CanvasSurface({
           {/* Under the shapes: a connector reads as running behind the things
               it joins, and its arrowhead lands on the box edge either way. */}
           <EdgeLayer
-            scene={scene}
+            scene={laid}
             viewport={viewport}
             selected={sel.edgeSelected}
             hoverId={hoverEdge}

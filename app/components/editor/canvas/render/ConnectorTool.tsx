@@ -43,6 +43,7 @@ import {
   pointsToPath,
   sideNearest,
 } from "../scene/edgePath";
+import { laidOutScene } from "../scene/autoLayout";
 import { absoluteBounds, hitTest } from "../scene/geometry";
 import { mintEdgeId } from "../scene/ops";
 import {
@@ -93,7 +94,11 @@ function candidates(scene: Scene, enteredId: NodeId | null): SceneNode[] {
 }
 
 export function ConnectorTool({ store, viewport, selection }: ConnectorToolProps) {
-  const scene = useSceneSnapshot(store);
+  // Laid out: everything below asks this scene where a shape IS — to aim a
+  // plug, to decide what the pointer is over, to draw the preview. A child an
+  // auto-layout group places is not at the `x`/`y` the model holds for it, so
+  // the model would put the plugs on a box nobody can see.
+  const scene = laidOutScene(useSceneSnapshot(store));
   /** The grabbed plug, for as long as a drag lasts. Where the pointer is and
    *  what it is over live in `dragRef`: they are painted, not rendered. */
   const [grabbed, setGrabbed] = useState<Plug | null>(null);
