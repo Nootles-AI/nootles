@@ -2177,6 +2177,7 @@ body:has(.nt-review-bar) .nt-reformat-switcher {
    border is the only thing separating it from the page: no shadow at rest,
    because twenty resting shadows is a texture, not a hierarchy. */
 .nt-card {
+  position: relative;
   display: flex;
   flex-direction: column;
   width: 100%;
@@ -2195,16 +2196,30 @@ body:has(.nt-review-bar) .nt-reformat-switcher {
 .nt-card:active {
   background: var(--hover);
 }
-/* The card and its footer menu are siblings, not nested buttons — so the card
-   shows the pressed state and the footer stays clickable on its own. */
-.nt-card-open {
+/* One target, the whole card. The name is the link; its hit area reaches back
+   over the thumbnail and the rest of the chin, so there is no dead strip under
+   the picture. The ⋯ menu is a sibling raised above that layer rather than a
+   button nested inside a link. */
+.nt-card-link {
   display: block;
-  width: 100%;
-  text-align: left;
+}
+.nt-card-link::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+.nt-card-foot .nt-icon-btn {
+  position: relative;
 }
 /* The card clips its thumbnail, which would clip an outset focus ring with it.
-   Drawn inside instead, so keyboard focus is visible at all. */
-.nt-card-open:focus-visible {
+   Drawn inside instead, so keyboard focus is visible at all — and drawn on the
+   card rather than on the few words of the name, because the card is what the
+   ring is naming. */
+.nt-card-link:focus-visible {
+  outline: none;
+}
+.nt-card:has(.nt-card-link:focus-visible) {
+  outline: 2px solid var(--accent);
   outline-offset: -2px;
 }
 
@@ -2472,12 +2487,36 @@ body:has(.nt-review-bar) .nt-reformat-switcher {
   color: var(--muted);
 }
 .nt-list-row {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 12px;
+  border-radius: var(--radius);
+  transition: background var(--dur-fast) var(--ease);
 }
 .nt-list-row + .nt-list-row {
   margin-top: 1px;
+}
+/* The same reach the card has: the name's hit area covers the row, so the
+   pages and edited columns open the project too. The wash follows the hit
+   area — left on the label, it would light a third of what you can press. */
+.nt-row-open::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+.nt-row.nt-row-open:hover,
+.nt-row.nt-row-open:active {
+  background: none;
+}
+.nt-list-row:has(.nt-row-open:hover) {
+  background: var(--hover);
+}
+.nt-list-row:has(.nt-row-open:active) {
+  background: var(--active);
+}
+.nt-list-row > .nt-col-actions {
+  position: relative;
 }
 /* Reserved so a row does not change width when its menu appears, and so the
    count and date sit under their headings. */

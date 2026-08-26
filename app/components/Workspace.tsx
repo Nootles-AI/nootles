@@ -331,6 +331,9 @@ export function Workspace({ projectId }: { projectId: Id<"projects"> }) {
   );
   const known = (id: Id<"pages"> | null | undefined) =>
     id && sortedPages?.some((p) => p._id === id) ? id : null;
+  /* The row this list already holds, handed to the pane so its document can
+     start loading without waiting for a `pages.get` of its own. */
+  const rowFor = (id: Id<"pages">) => sortedPages?.find((p) => p._id === id);
   const mainPageId = known(main.page) ?? sortedPages?.[0]?._id ?? null;
   // The second pane shows exactly what it was asked to, deleted page and all:
   // it says so in its own words and the close button is right there, which is
@@ -428,7 +431,11 @@ export function Workspace({ projectId }: { projectId: Id<"projects"> }) {
             />
           </div>
           {mainPageId ? (
-            <PageSurface pageId={mainPageId} pane="main" />
+            <PageSurface
+              pageId={mainPageId}
+              pane="main"
+              row={rowFor(mainPageId)}
+            />
           ) : (
             <EmptyWorkspace />
           )}
@@ -439,7 +446,11 @@ export function Workspace({ projectId }: { projectId: Id<"projects"> }) {
                 className="flex min-w-0 shrink-0"
                 style={{ width: `var(${VARS.aside})` }}
               >
-                <PageSurface pageId={asidePageId} pane="aside" />
+                <PageSurface
+                  pageId={asidePageId}
+                  pane="aside"
+                  row={rowFor(asidePageId)}
+                />
               </div>
             </>
           )}

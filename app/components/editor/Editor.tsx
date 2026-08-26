@@ -481,16 +481,30 @@ const SubstrateHarness = dynamic(
  */
 export function Editor(props: EditorProps) {
   const readOnly = useReadOnly();
+  /*
+   * `meta` rather than `state` is the first question asked, because for a Yjs
+   * doc — which by now is nearly all of them — it is the ONLY question: a
+   * non-null answer means there is a `ydocs` row, which is exactly what
+   * `state` would have reported. It is also the query the provider opens with,
+   * so by the time this renders the editor that fetch is already answered from
+   * the client's cache and the document's bytes are the next round trip rather
+   * than the third. `state` is still asked, but only where `meta` cannot tell
+   * legacy from never-written.
+   */
+  const meta = useQuery(api.ydoc.meta, YJS_ON ? { docId: props.docId } : "skip");
   const state = useQuery(
     api.ydoc.state,
-    YJS_ON ? { docId: props.docId } : "skip",
+    YJS_ON && meta === null ? { docId: props.docId } : "skip",
   );
-  if (!YJS_ON || (state === "legacy" && readOnly)) {
-    return <LegacyEditor {...props} />;
-  }
+  if (!YJS_ON) return <LegacyEditor {...props} />;
+  if (meta === undefined) return placeholder;
+  if (meta !== null) return <YjsEditor {...props} />;
+  // No `ydocs` row: legacy or never-written, and only `state` tells them apart.
   if (state === undefined) return placeholder;
   if (state === "yjs") return <YjsEditor {...props} />;
-  if (readOnly) return placeholder;
+  if (readOnly) {
+    return state === "legacy" ? <LegacyEditor {...props} /> : placeholder;
+  }
   return <BecomeYjs docId={props.docId} state={state} />;
 }
 
