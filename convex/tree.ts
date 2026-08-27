@@ -1,8 +1,16 @@
-import { mutation } from "./_generated/server";
+import { mutation, type MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import { requireEditable } from "./auth";
-import { folderIn, levelOf, placeBetween } from "./pages";
+import { readVisible, requireEditable } from "./auth";
+import { cloneFolder, removeFolderCascade } from "./folders";
+import {
+  clonePage,
+  folderIn,
+  levelOf,
+  placeBetween,
+  removePageCascade,
+} from "./pages";
+import { refreshPageSummary } from "./projects";
 
 /**
  * The sidebar tree's one move verb. Folders and pages share a single order
@@ -124,6 +132,135 @@ export const move = mutation({
           parentId: args.parentId,
           order: orders[i],
         });
+      }
+    }
+  },
+});
+
+/** A project's whole tree, as {@link cloneFolder} recurses over it. */
+async function treeRows(ctx: MutationCtx, projectId: Id<"projects">) {
+  return {
+    folders: await ctx.db
+      .query("folders")
+      .withIndex("by_project", (q) => q.eq("projectId", projectId))
+      .collect(),
+    pages: await ctx.db
+      .query("pages")
+      .withIndex("by_project", (q) => q.eq("projectId", projectId))
+      .collect(),
+  };
+}
+
+/**
+ * The clipboard's crossing verb: copies rows — pages, folders with everything
+ * below them — into another project, appended to one of its levels in the
+ * order they were handed over. `move` also deletes the sources, which is what
+ * pasting a cut means. Crossing must be a copy rather than a carry (new rows,
+ * new documents) because `move` above refuses to mix projects: the sources'
+ * orders mean nothing among the destination's. The copies belong wholly to
+ * where they land — the destination project and its owner — and keep their
+ * titles: a copy in another project is never beside its source, so
+ * `pages.duplicate`'s "which one is which" question does not arise.
+ *
+ * Two projects, two gates. Landing takes the pen on the destination; reading
+ * the sources takes any role on theirs — a copy takes nothing a viewer cannot
+ * already see — except under `move`, whose delete takes the pen there too. A
+ * source that has vanished since it was copied is skipped, the same way the
+ * sidebar's paste skips rows its clipboard has outlived.
+ */
+export const copyTo = mutation({
+  args: {
+    /** The carried rows, top-down — the copies land in this order. */
+    items: v.array(
+      v.union(
+        v.object({ kind: v.literal("page"), id: v.id("pages") }),
+        v.object({ kind: v.literal("folder"), id: v.id("folders") }),
+      ),
+    ),
+    /** The project the copies land in. */
+    projectId: v.id("projects"),
+    /** Folder of that project to land in; absent = its top level. */
+    folderId: v.optional(v.id("folders")),
+    /** Delete the sources once copied — a paste that spends a cut. */
+    move: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    const project = await requireEditable(ctx, "projects", args.projectId);
+    if (args.folderId) await folderIn(ctx, args.projectId, args.folderId);
+
+    const sources: Moving[] = [];
+    for (const item of args.items) {
+      if (item.kind === "page") {
+        const doc = await readVisible(ctx, "pages", item.id);
+        if (!doc) continue;
+        if (args.move) await requireEditable(ctx, "pages", item.id);
+        sources.push({ kind: "page", doc });
+      } else {
+        const doc = await readVisible(ctx, "folders", item.id);
+        if (!doc) continue;
+        if (args.move) await requireEditable(ctx, "folders", item.id);
+        sources.push({ kind: "folder", doc });
+      }
+    }
+    if (!sources.length) return;
+
+    // Every tree is loaded once, before any insert: the destination's for the
+    // placement, each source project's for its folders' recursion — and when
+    // they are the same project, the shared snapshot is exactly what
+    // `cloneFolder` wants, a tree the copy is not yet part of.
+    const held = new Map<
+      Id<"projects">,
+      Awaited<ReturnType<typeof treeRows>>
+    >();
+    const treeOf = async (projectId: Id<"projects">) => {
+      let tree = held.get(projectId);
+      if (!tree) held.set(projectId, (tree = await treeRows(ctx, projectId)));
+      return tree;
+    };
+
+    const dest = await treeOf(args.projectId);
+    const siblings = levelOf(dest.folders, dest.pages, args.folderId ?? null);
+    const orders = placeBetween(siblings, "end", sources.length);
+    const home = { projectId: args.projectId, ownerId: project.ownerId };
+
+    for (const [i, src] of sources.entries()) {
+      const placed = { title: src.doc.title, order: orders[i] };
+      if (src.kind === "page") {
+        await clonePage(ctx, src.doc, args.folderId, placed, home);
+      } else {
+        const tree = await treeOf(src.doc.projectId);
+        await cloneFolder(
+          ctx,
+          tree.folders,
+          tree.pages,
+          src.doc,
+          args.folderId,
+          placed,
+          home,
+        );
+      }
+    }
+
+    if (args.move) {
+      // Re-read before each delete: a group may overlap itself — a folder and
+      // a row inside it — and the first cascade may have taken the second.
+      for (const src of sources) {
+        if (src.kind === "page") {
+          const live = await ctx.db.get(src.doc._id);
+          if (live) await removePageCascade(ctx, live);
+        } else {
+          const live = await ctx.db.get(src.doc._id);
+          if (live) await removeFolderCascade(ctx, live);
+        }
+      }
+    }
+
+    // Both ends' denormalized summaries: the destination gained pages either
+    // way, and a move took the sources' with it.
+    await refreshPageSummary(ctx, args.projectId);
+    if (args.move) {
+      for (const projectId of new Set(sources.map((s) => s.doc.projectId))) {
+        if (projectId !== args.projectId) await refreshPageSummary(ctx, projectId);
       }
     }
   },

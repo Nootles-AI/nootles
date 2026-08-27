@@ -25,6 +25,7 @@ import { ContextMenu } from "./ContextMenu";
 import { Editable } from "./Editable";
 import { usePageChanges, type PageChange } from "./ReviewContext";
 import { useHints } from "./hints/useHints";
+import { useSharedClip } from "./sidebarClipboard";
 import { useTreeDrag, type TreeRow } from "./sidebarDrag";
 import { useMarquee } from "./sidebarMarquee";
 import {
@@ -114,6 +115,7 @@ export function Sidebar({
   const removeFolder = useMutation(api.folders.remove);
   const duplicateFolder = useMutation(api.folders.duplicate);
   const moveRows = useMutation(api.tree.move);
+  const copyRows = useMutation(api.tree.copyTo);
   const renameProject = useMutation(api.projects.rename);
 
   const [editing, setEditing] = useState<Target | { kind: "project" } | null>(
@@ -126,11 +128,9 @@ export function Sidebar({
   const [selection, setSelection] = useState<readonly Target[]>([]);
   /** Where a shift-range measures from — the last row picked outright. */
   const [anchor, setAnchor] = useState<string | null>(null);
-  /** What ⌘C/⌘X holds until ⌘V spends it; "cut" is spent, "copy" is not. */
-  const [clip, setClip] = useState<{
-    items: readonly Target[];
-    op: "copy" | "cut";
-  } | null>(null);
+  /** What ⌘C/⌘X holds until ⌘V spends it; "cut" is spent, "copy" is not.
+      Shared across tabs, so rows copied here can land in another project. */
+  const [clip, setClip] = useSharedClip();
   /** Where a right-click opened a menu, and on what, in viewport coordinates. */
   const [ctx, setCtx] = useState<{
     target: Target | { kind: "list" };
@@ -350,9 +350,26 @@ export function Sidebar({
   /**
    * Spends the clipboard into a folder (null = top level). A cut is a move and
    * is spent; a copy is a deep duplicate and keeps, so ⌘V can stamp it again.
+   * A clip taken in another project crosses: one mutation copies the rows in
+   * — or moves them, when the clip is a cut — since this tab's tree holds
+   * nothing to move among.
    */
   const pasteInto = (dest: Id<"folders"> | null) => {
     if (!clip) return;
+    if (clip.projectId !== projectId) {
+      // The sources live in a tree this tab has not loaded, so the server
+      // resolves them — and skips any the clipboard has outlived.
+      void copyRows({
+        items: [...clip.items],
+        projectId,
+        folderId: dest ?? undefined,
+        move: clip.op === "cut",
+      });
+      if (clip.op === "cut") setClip(null);
+      expand(dest);
+      track("sidebar_pasted", { kind: clip.items[0].kind, op: clip.op, across: true });
+      return;
+    }
     // A folder cannot be pasted inside itself; the rest of the group still can.
     const items = clip.items.filter(
       (t) =>
@@ -384,7 +401,7 @@ export function Sidebar({
       })();
     }
     expand(dest);
-    track("sidebar_pasted", { kind: items[0].kind, op: clip.op });
+    track("sidebar_pasted", { kind: items[0].kind, op: clip.op, across: false });
   };
 
   /** The folder a paste lands in, read off the selection the way VS Code does. */
@@ -428,7 +445,7 @@ export function Sidebar({
     if (key === "c" || key === "x") {
       if (!acting.length) return;
       e.preventDefault();
-      setClip({ items: acting, op: key === "c" ? "copy" : "cut" });
+      setClip({ items: acting, op: key === "c" ? "copy" : "cut", projectId });
     } else if (key === "v") {
       if (!clip) return;
       e.preventDefault();
@@ -823,7 +840,7 @@ export function Sidebar({
               destFor={destFor}
               onNewPage={newPage}
               onNewFolder={newFolder}
-              onClip={(op) => setClip({ items: rowSubjects, op })}
+              onClip={(op) => setClip({ items: rowSubjects, op, projectId })}
               onPaste={pasteInto}
               onRename={(t) => startRename(t, nameOf(t))}
               onIcon={(t) => setIconTarget({ target: t, x: ctx.x, y: ctx.y })}
