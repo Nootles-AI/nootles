@@ -167,28 +167,38 @@ export const duplicate = mutation({
     if (args.folderId) await folderIn(ctx, page.projectId, args.folderId);
     const siblings = await levelRows(ctx, page.projectId, args.folderId ?? null);
     const beside = (page.folderId ?? null) === (args.folderId ?? null);
-    return await clonePage(ctx, page, args.folderId, {
-      title: beside ? `${page.title || "Untitled"} copy` : page.title,
-      order: endOrder(siblings),
-    });
+    return await clonePage(
+      ctx,
+      page,
+      args.folderId,
+      {
+        title: beside ? `${page.title || "Untitled"} copy` : page.title,
+        order: endOrder(siblings),
+      },
+      { projectId: page.projectId, ownerId: page.ownerId },
+    );
   },
 });
 
 /**
  * The write half of {@link duplicate}, shared with folder duplication (which
- * clones every page a folder holds). Caller has authorized the source page.
+ * clones every page a folder holds) and with `tree.copyTo` (which lands the
+ * copy in another project). Caller has authorized the source page and `home`
+ * — the project the copy belongs to, whose owner it takes, so a copy can
+ * never disagree with the project it hangs off.
  */
 export async function clonePage(
   ctx: MutationCtx,
   page: Doc<"pages">,
   folderId: Id<"folders"> | undefined,
   placed: { title: string; order: number },
+  home: { projectId: Id<"projects">; ownerId: string },
 ): Promise<Id<"pages">> {
   const docId = crypto.randomUUID();
   await copyDoc(ctx, page.docId, docId);
   return await ctx.db.insert("pages", {
-    ownerId: page.ownerId,
-    projectId: page.projectId,
+    ownerId: home.ownerId,
+    projectId: home.projectId,
     title: placed.title,
     mode: page.mode,
     icon: page.icon,

@@ -103,29 +103,40 @@ export const remove = mutation({
   args: { folderId: v.id("folders") },
   handler: async (ctx, args) => {
     const folder = await requireEditable(ctx, "folders", args.folderId);
-    const all = await projectFolders(ctx, folder.projectId);
-
-    const doomed = new Set<Id<"folders">>([folder._id]);
-    // One pass per level; the tree is loaded, so this is set lookups, not reads.
-    for (let grew = true; grew; ) {
-      grew = false;
-      for (const f of all) {
-        if (f.parentId && doomed.has(f.parentId) && !doomed.has(f._id)) {
-          doomed.add(f._id);
-          grew = true;
-        }
-      }
-    }
-
-    const pages = await projectPages(ctx, folder.projectId);
-    for (const page of pages) {
-      if (page.folderId && doomed.has(page.folderId)) {
-        await removePageCascade(ctx, page);
-      }
-    }
-    for (const id of doomed) await ctx.db.delete(id);
+    await removeFolderCascade(ctx, folder);
   },
 });
+
+/**
+ * The cascade itself, shared with `tree.copyTo` (whose move half deletes what
+ * it has copied). Caller has authorized the folder.
+ */
+export async function removeFolderCascade(
+  ctx: MutationCtx,
+  folder: Doc<"folders">,
+) {
+  const all = await projectFolders(ctx, folder.projectId);
+
+  const doomed = new Set<Id<"folders">>([folder._id]);
+  // One pass per level; the tree is loaded, so this is set lookups, not reads.
+  for (let grew = true; grew; ) {
+    grew = false;
+    for (const f of all) {
+      if (f.parentId && doomed.has(f.parentId) && !doomed.has(f._id)) {
+        doomed.add(f._id);
+        grew = true;
+      }
+    }
+  }
+
+  const pages = await projectPages(ctx, folder.projectId);
+  for (const page of pages) {
+    if (page.folderId && doomed.has(page.folderId)) {
+      await removePageCascade(ctx, page);
+    }
+  }
+  for (const id of doomed) await ctx.db.delete(id);
+}
 
 /**
  * A deep copy of a folder — subfolders and pages, documents included —
@@ -144,29 +155,39 @@ export const duplicate = mutation({
     const pages = await projectPages(ctx, folder.projectId);
     const siblings = levelOf(all, pages, args.parentId ?? null);
     const beside = (folder.parentId ?? null) === (args.parentId ?? null);
-    return await cloneFolder(ctx, all, pages, folder, args.parentId, {
-      title: beside ? `${folder.title || "Untitled"} copy` : folder.title,
-      order: endOrder(siblings),
-    });
+    return await cloneFolder(
+      ctx,
+      all,
+      pages,
+      folder,
+      args.parentId,
+      {
+        title: beside ? `${folder.title || "Untitled"} copy` : folder.title,
+        order: endOrder(siblings),
+      },
+      { projectId: folder.projectId, ownerId: folder.ownerId },
+    );
   },
 });
 
 /**
  * Recursion over a snapshot of the tree taken before any insert, so the copy
  * never meets its own clones. Children keep their titles and orders — only the
- * root of the copy is placed.
+ * root of the copy is placed. Every row lands in `home` — the source's own
+ * project when duplicating, another project entirely under `tree.copyTo`.
  */
-async function cloneFolder(
+export async function cloneFolder(
   ctx: MutationCtx,
   all: Doc<"folders">[],
   pages: Doc<"pages">[],
   src: Doc<"folders">,
   parentId: Id<"folders"> | undefined,
   placed: { title: string; order: number },
+  home: { projectId: Id<"projects">; ownerId: string },
 ): Promise<Id<"folders">> {
   const id = await ctx.db.insert("folders", {
-    ownerId: src.ownerId,
-    projectId: src.projectId,
+    ownerId: home.ownerId,
+    projectId: home.projectId,
     title: placed.title,
     icon: src.icon,
     parentId,
@@ -174,13 +195,18 @@ async function cloneFolder(
     createdAt: Date.now(),
   });
   for (const child of all.filter((f) => f.parentId === src._id)) {
-    await cloneFolder(ctx, all, pages, child, id, {
-      title: child.title,
-      order: child.order,
-    });
+    await cloneFolder(
+      ctx,
+      all,
+      pages,
+      child,
+      id,
+      { title: child.title, order: child.order },
+      home,
+    );
   }
   for (const page of pages.filter((p) => p.folderId === src._id)) {
-    await clonePage(ctx, page, id, { title: page.title, order: page.order });
+    await clonePage(ctx, page, id, { title: page.title, order: page.order }, home);
   }
   return id;
 }

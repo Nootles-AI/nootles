@@ -434,6 +434,259 @@ describe("pages.duplicate", () => {
   });
 });
 
+describe("tree.copyTo", () => {
+  const OTHER = { subject: "user_other" };
+
+  /** A second project — the destination, or a stranger's — under `owner`. */
+  async function land(
+    t: TestConvex<typeof schema>,
+    owner: string,
+    share?: { link: "read" | "edit"; grantee: string; role: "viewer" | "editor" },
+  ) {
+    return await t.run(async (ctx) => {
+      const projectId = await ctx.db.insert("projects", {
+        ownerId: owner,
+        title: "Q",
+        createdAt: 1,
+        ...(share?.link === "read" ? { shareToken: "tok" } : {}),
+        ...(share?.link === "edit" ? { editShareToken: "tok" } : {}),
+      });
+      if (share) {
+        await ctx.db.insert("shareClaims", {
+          projectId,
+          granteeId: share.grantee,
+          role: share.role,
+          createdAt: 1,
+        });
+      }
+      return projectId;
+    });
+  }
+
+  test("copies a page into another project, content and all, keeping its title", async () => {
+    const t = harness();
+    const projectId = await world(t);
+    const other = await land(t, OWNER.subject);
+    const pageId = await as(t).mutation(api.pages.create, {
+      projectId,
+      title: "Notes",
+    });
+    const docId = (await t.run(async (ctx) => ctx.db.get(pageId)))!.docId;
+    await t.run(async (ctx) => {
+      await ctx.db.insert("ydocs", {
+        docId,
+        seq: 2,
+        snapshotSeq: 0,
+        snapshotParts: 0,
+        updatedAt: 1,
+      });
+      await ctx.db.insert("yUpdates", { docId, seq: 1, update: new ArrayBuffer(4) });
+      await ctx.db.insert("yUpdates", { docId, seq: 2, update: new ArrayBuffer(4) });
+    });
+
+    await as(t).mutation(api.tree.copyTo, {
+      items: [{ kind: "page", id: pageId }],
+      projectId: other,
+    });
+
+    // The source stays: a copy is not a carry.
+    const kept = await as(t).query(api.pages.listByProject, { projectId });
+    expect(kept.map((p) => p._id)).toEqual([pageId]);
+
+    const landed = await as(t).query(api.pages.listByProject, {
+      projectId: other,
+    });
+    expect(landed).toHaveLength(1);
+    // No " copy" suffix — in another project it is never beside its source.
+    expect(landed[0].title).toBe("Notes");
+    expect(landed[0].projectId).toBe(other);
+    expect(landed[0].docId).not.toBe(docId);
+    await t.run(async (ctx) => {
+      const copy = await ctx.db
+        .query("ydocs")
+        .withIndex("by_doc", (q) => q.eq("docId", landed[0].docId))
+        .unique();
+      expect(copy?.seq).toBe(2);
+    });
+    // The destination's denormalized summary heard about its new page.
+    const project = await t.run(async (ctx) => ctx.db.get(other));
+    expect(project!.pageCount).toBe(1);
+  });
+
+  test("deep-copies a folder subtree across, every row owned by the destination", async () => {
+    const t = harness();
+    const projectId = await world(t);
+    // The destination belongs to someone else; the caller holds its pen.
+    const other = await land(t, OTHER.subject, {
+      link: "edit",
+      grantee: OWNER.subject,
+      role: "editor",
+    });
+    const a = await as(t).mutation(api.folders.create, { projectId, title: "A" });
+    const b = await as(t).mutation(api.folders.create, {
+      projectId,
+      parentId: a,
+      title: "B",
+    });
+    await as(t).mutation(api.pages.create, { projectId, folderId: b, title: "Deep" });
+    const into = await t
+      .withIdentity(OTHER)
+      .mutation(api.folders.create, { projectId: other, title: "Dest" });
+
+    await as(t).mutation(api.tree.copyTo, {
+      items: [{ kind: "folder", id: a }],
+      projectId: other,
+      folderId: into,
+    });
+
+    const folders = await as(t).query(api.folders.listByProject, {
+      projectId: other,
+    });
+    const aCopy = folders.find((f) => f.title === "A");
+    const bCopy = folders.find((f) => f.title === "B");
+    expect(aCopy?.parentId).toBe(into);
+    expect(bCopy?.parentId).toBe(aCopy?._id);
+    const pages = await as(t).query(api.pages.listByProject, { projectId: other });
+    expect(pages.map((p) => [p.title, p.folderId])).toEqual([["Deep", bCopy?._id]]);
+    // Copies belong to the project they land in, not to who pasted them.
+    for (const row of [aCopy!, bCopy!, pages[0]]) {
+      expect(row.ownerId).toBe(OTHER.subject);
+      expect(row.projectId).toBe(other);
+    }
+  });
+
+  test("a group lands together at the end, in the order it was handed over", async () => {
+    const t = harness();
+    const projectId = await world(t);
+    const other = await land(t, OWNER.subject);
+    await t.withIdentity(OWNER).mutation(api.pages.create, {
+      projectId: other,
+      title: "already",
+    });
+    const p = await as(t).mutation(api.pages.create, { projectId, title: "p" });
+    const f = await as(t).mutation(api.folders.create, { projectId, title: "f" });
+    const q = await as(t).mutation(api.pages.create, { projectId, title: "q" });
+
+    await as(t).mutation(api.tree.copyTo, {
+      items: [
+        { kind: "page", id: p },
+        { kind: "folder", id: f },
+        { kind: "page", id: q },
+      ],
+      projectId: other,
+    });
+
+    const folders = await as(t).query(api.folders.listByProject, {
+      projectId: other,
+    });
+    const pages = await as(t).query(api.pages.listByProject, { projectId: other });
+    const level = [...folders, ...pages]
+      .sort((x, y) => x.order - y.order)
+      .map((r) => r.title);
+    expect(level).toEqual(["already", "p", "f", "q"]);
+  });
+
+  test("move deletes the sources and refreshes both summaries", async () => {
+    const t = harness();
+    const projectId = await world(t);
+    const other = await land(t, OWNER.subject);
+    const pageId = await as(t).mutation(api.pages.create, {
+      projectId,
+      title: "Roaming",
+    });
+
+    await as(t).mutation(api.tree.copyTo, {
+      items: [{ kind: "page", id: pageId }],
+      projectId: other,
+      move: true,
+    });
+
+    const kept = await as(t).query(api.pages.listByProject, { projectId });
+    expect(kept).toHaveLength(0);
+    const landed = await as(t).query(api.pages.listByProject, { projectId: other });
+    expect(landed.map((p) => p.title)).toEqual(["Roaming"]);
+    const [from, to] = await t.run(async (ctx) => [
+      await ctx.db.get(projectId),
+      await ctx.db.get(other),
+    ]);
+    expect(from!.pageCount).toBe(0);
+    expect(to!.pageCount).toBe(1);
+  });
+
+  test("a viewer of the source may copy out of it, but not cut", async () => {
+    const t = harness();
+    // OTHER's project, shared read-only with the caller.
+    const theirs = await land(t, OTHER.subject, {
+      link: "read",
+      grantee: OWNER.subject,
+      role: "viewer",
+    });
+    const theirPage = await t.withIdentity(OTHER).mutation(api.pages.create, {
+      projectId: theirs,
+      title: "Shared",
+    });
+    const mine = await world(t);
+
+    await as(t).mutation(api.tree.copyTo, {
+      items: [{ kind: "page", id: theirPage }],
+      projectId: mine,
+    });
+    const landed = await as(t).query(api.pages.listByProject, { projectId: mine });
+    expect(landed.map((p) => [p.title, p.ownerId])).toEqual([
+      ["Shared", OWNER.subject],
+    ]);
+
+    // Cutting deletes the source, and a viewer holds no pen there.
+    await expect(
+      as(t).mutation(api.tree.copyTo, {
+        items: [{ kind: "page", id: theirPage }],
+        projectId: mine,
+        move: true,
+      }),
+    ).rejects.toThrow("Not found");
+  });
+
+  test("skips sources the caller cannot see, without conceding they exist", async () => {
+    const t = harness();
+    const theirs = await land(t, OTHER.subject);
+    const hidden = await t.withIdentity(OTHER).mutation(api.pages.create, {
+      projectId: theirs,
+      title: "Private",
+    });
+    const mine = await world(t);
+
+    await as(t).mutation(api.tree.copyTo, {
+      items: [{ kind: "page", id: hidden }],
+      projectId: mine,
+    });
+    const landed = await as(t).query(api.pages.listByProject, { projectId: mine });
+    expect(landed).toHaveLength(0);
+  });
+
+  test("refuses a destination the caller cannot edit, and a folder from elsewhere", async () => {
+    const t = harness();
+    const projectId = await world(t);
+    const pageId = await as(t).mutation(api.pages.create, { projectId });
+    const theirs = await land(t, OTHER.subject);
+    await expect(
+      as(t).mutation(api.tree.copyTo, {
+        items: [{ kind: "page", id: pageId }],
+        projectId: theirs,
+      }),
+    ).rejects.toThrow("Not found");
+
+    const other = await land(t, OWNER.subject);
+    const foreign = await as(t).mutation(api.folders.create, { projectId });
+    await expect(
+      as(t).mutation(api.tree.copyTo, {
+        items: [{ kind: "page", id: pageId }],
+        projectId: other,
+        folderId: foreign,
+      }),
+    ).rejects.toThrow("Not found");
+  });
+});
+
 describe("folders.duplicate", () => {
   test("deep-copies the subtree, pages included", async () => {
     const t = harness();
