@@ -1,5 +1,6 @@
 import { parseAlbum } from "@/app/components/editor/album/parse";
 import { serializeAlbum } from "@/app/components/editor/album/serialize";
+import { MAX_COLS } from "@/app/components/editor/album/types";
 import { parseLocation } from "@/app/components/editor/location/parse";
 import { serializeLocation } from "@/app/components/editor/location/serialize";
 import { parseStoryboard } from "@/app/components/editor/storyboard/parse";
@@ -54,6 +55,13 @@ type SerializeOptions = {
   collapseDrawn?: boolean;
   /** Block ids exempt from the collapse — the model asked to see the shapes. */
   expandDrawn?: ReadonlySet<string>;
+  /**
+   * Collapse albums to `<nt-album at="blockId" holds="23 photos" cols="4">`.
+   * Set wherever the model is the reader — see `albumStub` for why an album's
+   * markup is the one block worth hiding outright, and `album_edit` for what
+   * replaces it. The editor's own reads leave this off and get the pictures.
+   */
+  collapseAlbums?: boolean;
   /**
    * Serialize every diagram as the macro that would have created it —
    * `<nt-build-diagram id>brief</nt-build-diagram>` — never its shapes.
@@ -122,6 +130,37 @@ function briefStub(scene: Scene, blockId: string): string {
 /** A stub coming back in the model's own HTML — the `at` names the picture. */
 const DRAWN_STUB = /<nt-diagram\b[^>]*\bat="([^"]+)"[^>]*>\s*<\/nt-diagram\s*>/gi;
 
+/** The album's own, keyed on the block id its `at` carries. */
+const ALBUM_STUB = /<nt-album\b[^>]*\bat="([^"]+)"[^>]*>\s*<\/nt-album\s*>/gi;
+
+/**
+ * An album, as a read hands it to the model.
+ *
+ * Every picture in an album is a storage URL the model can neither fetch nor
+ * invent, and eighty characters of it — so the full markup is a page's largest
+ * block and its least useful, re-sent on every step of a tool loop. The stub
+ * says what the block is and how big, and `album_edit` is how it is changed;
+ * what the pictures LOOK like comes from the index the same read appends.
+ *
+ * Being a stub is also what makes dropping the URLs safe. A model that echoes
+ * this element back is saying "this album, unchanged", and redemption puts the
+ * real pictures back before anything compiles — where an echoed list of
+ * URL-less items would have compiled to an album with no pictures in it at all.
+ */
+function albumStub(block: AnyBlock): string {
+  const album = parseAlbum(String(block.props.data ?? ""));
+  const photos = album.items.filter((i) => i.kind === "image").length;
+  const videos = album.items.length - photos;
+  const held = [
+    ...(photos ? [`${photos} photo${photos === 1 ? "" : "s"}`] : []),
+    ...(videos ? [`${videos} video${videos === 1 ? "" : "s"}`] : []),
+  ].join(", ");
+  return `<nt-album${attr("at", block.id)}${attr("holds", held || "empty")}${attr(
+    "cols",
+    album.cols,
+  )}${attr("w", album.w)}></nt-album>`;
+}
+
 function findBlock(blocks: AnyBlock[], id: string): AnyBlock | null {
   for (const b of blocks) {
     if (b.id === id) return b;
@@ -144,7 +183,7 @@ export function redeemDrawnStubs(
   blocks: AnyBlock[],
 ): { html: string; missing: string[] } {
   const missing: string[] = [];
-  const out = html.replace(DRAWN_STUB, (whole, at: string) => {
+  const out = redeemAlbumStubs(html, blocks, missing).replace(DRAWN_STUB, (whole, at: string) => {
     const colon = at.lastIndexOf(":");
     const shot = colon >= 0 ? Number(at.slice(colon + 1)) : NaN;
     const blockId = Number.isInteger(shot) ? at.slice(0, colon) : at;
@@ -162,6 +201,32 @@ export function redeemDrawnStubs(
     return whole;
   });
   return { html: out, missing };
+}
+
+/**
+ * Album stubs back to the pictures they stand for. Attributes the model may
+ * have changed on the way past are honoured — `cols` and `w` are the album's
+ * own shape and the one part of it the stub genuinely carries — so "four
+ * columns, same pictures" is a thing the model can say in HTML as well as
+ * through `album_edit`.
+ */
+function redeemAlbumStubs(html: string, blocks: AnyBlock[], missing: string[]): string {
+  return html.replace(ALBUM_STUB, (whole, at: string) => {
+    const block = findBlock(blocks, at);
+    if (block?.type !== "album") {
+      missing.push(at);
+      return whole;
+    }
+    const asked = /\bcols="(\d+)"/i.exec(whole);
+    const wide = /\bw="(\d+)"/i.exec(whole);
+    const album = parseAlbum(String(block.props.data ?? ""));
+    return serializeAlbum({
+      ...album,
+      id: block.id,
+      ...(asked ? { cols: Math.min(MAX_COLS, Math.max(1, Number(asked[1]))) } : { cols: undefined }),
+      ...(wide ? { w: Number(wide[1]) } : { w: undefined }),
+    });
+  });
 }
 
 const ESCAPE: Record<string, string> = {
@@ -319,10 +384,12 @@ function blockToHtml(block: AnyBlock, opts: SerializeOptions): string {
     case "album":
       // As with the diagram above: the block stores this grammar, so only its
       // id has to be put on the way past.
-      return serializeAlbum({
-        ...parseAlbum(String(block.props.data ?? "")),
-        id: block.id,
-      });
+      return opts.collapseAlbums
+        ? albumStub(block)
+        : serializeAlbum({
+            ...parseAlbum(String(block.props.data ?? "")),
+            id: block.id,
+          });
     case "location":
       // As with the album: the block stores this grammar, so only its own id
       // has to be put on the way past.

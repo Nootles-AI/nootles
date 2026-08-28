@@ -203,6 +203,45 @@ export const AI = {
   },
 
   /**
+   * What the agent knows about an album's pictures, and what it costs to learn.
+   *
+   * Three tiers, and the order is the whole design. Colour and contrast are
+   * measured in the browser at upload off a canvas that exists anyway — free,
+   * deterministic, no key — and they answer every question about palette,
+   * spread and monochrome outright. Captions come from ONE call over a contact
+   * sheet of up to two dozen tiles, which is why a 24-photo album indexes for
+   * a fraction of a cent instead of for 24 image payloads. Full-resolution
+   * looking is last and rare.
+   *
+   * The captioning tier is LAZY on purpose, and the laziness is a safety rule
+   * as much as a cost one: a person dropping four hundred holiday photos into a
+   * page must not thereby fire four hundred requests at a vendor. Nothing
+   * external is touched until somebody asks the agent about the album, and what
+   * it learns is kept forever after.
+   */
+  album: {
+    /**
+     * Flash, for the same reason `search_web` uses it: this is a describing job,
+     * not a reasoning one, and the chat model's long-context strength buys
+     * nothing here at six times the price.
+     */
+    model: "google/gemini-3.7-flash",
+    /**
+     * Room for a caption and a score per tile. Twenty-four tiles at roughly
+     * twenty tokens each, and headroom for the model to be a little wordy.
+     */
+    answerTokens: 900,
+    /** Longest a caption is kept. A sentence is the unit; a paragraph is noise. */
+    maxAltChars: 90,
+    /**
+     * Pictures shown at full resolution in one `look_at`. The tier exists for
+     * reading a sign in a photograph or judging a crop — questions a thumbnail
+     * genuinely cannot answer — and four is past any of them.
+     */
+    lookAtMost: 4,
+  },
+
+  /**
    * The diagram builder — the second stage of the completion lane.
    *
    * The FIM model writes `<nt-build-diagram>` where a diagram belongs and says

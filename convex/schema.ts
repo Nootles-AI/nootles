@@ -534,6 +534,72 @@ export default defineSchema({
     .index("by_owner", ["ownerId", "createdAt"]),
 
   /**
+   * What a photograph in an album looks like, so the agent does not have to be
+   * shown the photograph to know.
+   *
+   * Keyed by the picture's storage URL rather than by the block holding it,
+   * because the subject is the PICTURE: one used in two albums is indexed once,
+   * a reordered album needs no rewrite, and copying a moodboard into another
+   * document brings its index along. Derived data, so it is deliberately not in
+   * the document — an album's markup stays what a person authored, and the
+   * round trip that the AI edits diagrams and albums through stays exact.
+   *
+   * Two tiers in one row. The colour columns are computed in the browser at
+   * upload from the canvas the re-encode already drew (free, no model), and are
+   * enough on their own to answer anything about palette or spread. `alt` and
+   * `striking` come from one cheap vision call over a contact sheet, written
+   * the first time an agent expands the album and kept forever after.
+   */
+  imageMeta: defineTable({
+    ownerId: v.string(),
+    src: v.string(),
+    hex: v.string(),
+    palette: v.array(v.string()),
+    hue: v.number(),
+    sat: v.number(),
+    light: v.number(),
+    /**
+     * Absent, not zero, when nobody measured it: a picture fetched from the web
+     * never passed through a canvas here, so its colours come from what the
+     * provider published and its contrast was never seen. Zero would read as
+     * "measured, and utterly flat", which is a different and false claim.
+     */
+    energy: v.optional(v.number()),
+    /** ---- Written by the captioning pass, which may never run. ---- */
+    alt: v.optional(v.string()),
+    striking: v.optional(v.number()),
+    indexedAt: v.optional(v.number()),
+    createdAt: v.number(),
+  }).index("by_owner_and_src", ["ownerId", "src"]),
+
+  /**
+   * Pictures `find_images` has found, waiting to be added to an album.
+   *
+   * The `drawings` pattern, for the same reason and one more. A tool result
+   * carries refs rather than URLs so the model never handles a URL it could
+   * mistype or invent — and because the row is the only place an `add` op's
+   * source can come from, the server fetches bytes exclusively from an address
+   * IT minted. That is the whole SSRF story: there is no path by which a URL
+   * the model wrote reaches a fetch.
+   */
+  foundImages: defineTable({
+    ownerId: v.string(),
+    ref: v.string(),
+    url: v.string(),
+    w: v.number(),
+    h: v.number(),
+    alt: v.string(),
+    hex: v.string(),
+    /** Photographer and source, which the licence requires travel with the picture. */
+    credit: v.string(),
+    /** The provider's download-report endpoint, pinged when the picture is kept. */
+    report: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_owner_and_ref", ["ownerId", "ref"])
+    .index("by_owner", ["ownerId", "createdAt"]),
+
+  /**
    * One row per LLM request, whatever the feature — the cost and reliability
    * ledger. Written fire-and-forget from the API routes after each stream ends.
    */
@@ -546,6 +612,7 @@ export default defineSchema({
       v.literal("chat"),
       v.literal("categorize"),
       v.literal("feedback"),
+      v.literal("album"),
     ),
     model: v.string(),
     promptTokens: v.optional(v.number()),

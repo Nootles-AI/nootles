@@ -140,6 +140,135 @@ export const TOOLS = {
         ),
     }),
   },
+  album_edit: {
+    description:
+      "Change an album — reorder it, drop pictures, make one bigger, set its " +
+      "columns, add pictures found with find_images. Pictures are named by the " +
+      "HANDLE in the first column of the album index, which read_page gives " +
+      "you when you expand the album; positions shift as soon as anything " +
+      "moves, handles do not. Send every change to one album as ONE call: the " +
+      "ops are applied in the order you write them. The user reviews the " +
+      "result and may discard it. Prefer this to rewriting the album in " +
+      "edit_page, which costs a hundred times as much and can lose pictures.",
+    inputSchema: z.object({
+      pageId: z.string().describe("A page id from list_pages."),
+      blockId: z
+        .string()
+        .describe("The album's block id — the `at` on its <nt-album> stub."),
+      ops: z
+        .array(
+          z.union([
+            z
+              .object({
+                op: z.literal("order"),
+                items: z
+                  .array(z.string())
+                  .describe(
+                    "Handles, in the order the album should read. Anything you " +
+                      "leave out keeps its order behind the ones you name, so a " +
+                      "short list promotes rather than deletes.",
+                  ),
+              })
+              .describe("Rearrange. The cheapest way to say a whole new order."),
+            z.object({
+              op: z.literal("move"),
+              item: z.string(),
+              to: z.number().int().describe("Its new position, counting from 0."),
+            }),
+            z.object({ op: z.literal("remove"), items: z.array(z.string()) }),
+            z
+              .object({
+                op: z.literal("span"),
+                item: z.string(),
+                cols: z
+                  .number()
+                  .int()
+                  .min(1)
+                  .max(6)
+                  .describe("Columns this one picture is drawn across."),
+              })
+              .describe(
+                "Make one picture bigger. With position, this is the whole of " +
+                  "how prominent a picture is — see THE ALBUM in your instructions.",
+              ),
+            z
+              .object({
+                op: z.literal("grid"),
+                cols: z
+                  .number()
+                  .int()
+                  .min(1)
+                  .max(6)
+                  .nullable()
+                  .optional()
+                  .describe("Columns for the whole album; null to let its width decide."),
+                width: z
+                  .number()
+                  .int()
+                  .nullable()
+                  .optional()
+                  .describe("The block's width in pixels; null to track the text column."),
+              })
+              .describe("The album's own shape."),
+            z.object({
+              op: z.literal("add"),
+              refs: z
+                .array(z.string())
+                .describe("Refs from find_images, exactly as it returned them."),
+              at: z
+                .number()
+                .int()
+                .optional()
+                .describe("Where to insert, counting from 0. The end if left out."),
+            }),
+          ]),
+        )
+        .min(1),
+    }),
+  },
+  find_images: {
+    description:
+      "Find photographs on the web to put in an album. Returns a REF per " +
+      "picture, with its shape, its dominant colour and what it shows; you add " +
+      "them by passing those refs to album_edit's add op, which copies the " +
+      "pictures into this document. You are not shown the pictures and do not " +
+      "need to be. Search for a LOOK, not a list: one call for \"weathered " +
+      "coastal timber, overcast\" beats six for six nouns.",
+    inputSchema: z.object({
+      query: z
+        .string()
+        .describe(
+          "What the pictures should look like, in words — subject, light, " +
+            'mood, palette: "empty brutalist stairwells, hard shadows".',
+        ),
+      count: z.number().int().min(1).max(12).optional().describe("Up to 12. Five if left out."),
+      orientation: z.enum(["landscape", "portrait", "square"]).optional(),
+      colour: z
+        .string()
+        .optional()
+        .describe(
+          "A colour to bias towards, as a plain word (\"teal\", \"black_and_white\"). " +
+            "Use the album's own dominant colours when matching a moodboard.",
+        ),
+    }),
+  },
+  look_at: {
+    description:
+      "Look at up to four of an album's pictures at full size. Almost never " +
+      "needed: the album index read_page gives you already says what each " +
+      "picture is, what colour it is and how striking it is, and every " +
+      "question about palette, spread or arrangement is answerable from that " +
+      "alone. Use this only for something a description genuinely cannot " +
+      "carry — reading words inside a photograph, or judging a crop.",
+    inputSchema: z.object({
+      blockId: z.string().describe("The album's block id."),
+      items: z
+        .array(z.string())
+        .min(1)
+        .max(4)
+        .describe("Handles from the album index, at most four."),
+    }),
+  },
   find_places: {
     description:
       "Look up real places on Google Maps — cafes, restaurants, hotels, " +
@@ -318,6 +447,11 @@ export const CLIENT_TOOLS = [
   "open_page",
   "read_open_page",
   "edit_page",
+  // Both for the same reason as `edit_page`: an album's pictures are in the
+  // live document, and its pixels are only reachable from a browser at all —
+  // a storage URL is a bearer the server has no session to derive.
+  "album_edit",
+  "look_at",
 ] as const satisfies readonly ToolName[];
 
 export function isClientTool(name: string): name is (typeof CLIENT_TOOLS)[number] {

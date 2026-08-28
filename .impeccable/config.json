@@ -29,6 +29,15 @@
         ],
         "createdAt": "2026-08-18T09:41:27.120Z",
         "reason": "Not a rendered image: this is the location grammar's serializer, emitting <img src> as canonical TEXT for the round-trip contract (same shape as album/serialize.ts). src is always image.src, never empty."
+      },
+      {
+        "rule": "broken-image",
+        "value": "*",
+        "files": [
+          "app/lib/ai/chat/serverTools.ts"
+        ],
+        "createdAt": "2026-08-28T05:12:27.954Z",
+        "reason": "No markup in this file: it defines LLM tool schemas, and the match is prose inside a tool's error string telling the model not to invent an <img src>."
       }
     ]
   }
