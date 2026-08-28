@@ -2,10 +2,12 @@
 
 import dynamic from "next/dynamic";
 import {
+  Component,
   useEffect,
   useLayoutEffect,
   useRef,
   useState,
+  type ReactNode,
   type RefObject,
 } from "react";
 import { useConvex, useQuery } from "convex/react";
@@ -107,6 +109,40 @@ const ThumbMath = dynamic(() => import("./ThumbMath"), { ssr: false });
  * because nothing in it is text meant to be read at this size.
  */
 export function PagePreview({ docId }: { docId: string | null }) {
+  return (
+    <PreviewBoundary>
+      <PreviewReader docId={docId} />
+    </PreviewBoundary>
+  );
+}
+
+/**
+ * A thumbnail must never take the screen down with it. The queries below can
+ * start erroring mid-view — a share revoked, a summary gone stale — and an
+ * uncaught subscription error unmounts the whole app, not just this card. The
+ * failed card draws its blank face instead.
+ */
+class PreviewBoundary extends Component<
+  { children: ReactNode },
+  { failed: boolean }
+> {
+  state = { failed: false };
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  render() {
+    if (this.state.failed) {
+      return (
+        <div aria-hidden="true" className="nt-thumb is-empty">
+          <span className="nt-thumb-blank" />
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+function PreviewReader({ docId }: { docId: string | null }) {
   const convex = useConvex();
   // The card is fluid, so the shrink factor is measured rather than assumed —
   // and this is also what the viewport gate watches, so it is mounted from the

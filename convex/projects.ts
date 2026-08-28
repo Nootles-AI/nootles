@@ -25,11 +25,24 @@ import { repoRef } from "./schema";
  */
 async function pageSummary(ctx: QueryCtx, project: Doc<"projects">) {
   if (project.pageCount !== undefined) {
-    return {
-      pageCount: project.pageCount,
-      firstPageDocId: project.firstPageDocId ?? null,
-      updatedAt: project.updatedAt ?? project.createdAt,
-    };
+    // Verify the one reference a reader acts on before handing it out: a
+    // `firstPageDocId` whose page has since been deleted subscribes every
+    // card to a document `checkRead` refuses, and that server error unmounts
+    // the whole screen. A dangling summary falls back to the live scan.
+    const docId = project.firstPageDocId ?? null;
+    const first = docId
+      ? await ctx.db
+          .query("pages")
+          .withIndex("by_doc", (q) => q.eq("docId", docId))
+          .unique()
+      : null;
+    if (docId === null || first?.projectId === project._id) {
+      return {
+        pageCount: project.pageCount,
+        firstPageDocId: docId,
+        updatedAt: project.updatedAt ?? project.createdAt,
+      };
+    }
   }
   // Ordered by the index, so the first row is the page the sidebar shows at
   // the top — the one a thumbnail of "this project" should be of.

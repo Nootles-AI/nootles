@@ -9,6 +9,7 @@ import {
   levelOf,
   removePageCascade,
 } from "./pages";
+import { refreshPageSummary } from "./projects";
 import { rowIcon } from "./schema";
 
 /**
@@ -104,6 +105,7 @@ export const remove = mutation({
   handler: async (ctx, args) => {
     const folder = await requireEditable(ctx, "folders", args.folderId);
     await removeFolderCascade(ctx, folder);
+    await refreshPageSummary(ctx, folder.projectId);
   },
 });
 
@@ -155,7 +157,7 @@ export const duplicate = mutation({
     const pages = await projectPages(ctx, folder.projectId);
     const siblings = levelOf(all, pages, args.parentId ?? null);
     const beside = (folder.parentId ?? null) === (args.parentId ?? null);
-    return await cloneFolder(
+    const copyId = await cloneFolder(
       ctx,
       all,
       pages,
@@ -167,6 +169,8 @@ export const duplicate = mutation({
       },
       { projectId: folder.projectId, ownerId: folder.ownerId },
     );
+    await refreshPageSummary(ctx, folder.projectId);
+    return copyId;
   },
 });
 

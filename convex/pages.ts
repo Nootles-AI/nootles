@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import { components } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { readVisible, requireEditable } from "./auth";
+import { refreshPageSummary, stampProject } from "./projects";
 import { rowIcon } from "./schema";
 
 export const listByProject = query({
@@ -86,7 +87,7 @@ export const create = mutation({
     const folderId = args.folderId ?? anchor?.folderId;
     const siblings = await levelRows(ctx, args.projectId, folderId ?? null);
     const placed = args.after ? orderAfter(siblings, args.after) : null;
-    return await ctx.db.insert("pages", {
+    const pageId = await ctx.db.insert("pages", {
       ownerId,
       projectId: args.projectId,
       // Empty by default so the doc shows its grayed "Untitled" placeholder;
@@ -97,6 +98,8 @@ export const create = mutation({
       docId: crypto.randomUUID(),
       createdAt: Date.now(),
     });
+    await refreshPageSummary(ctx, args.projectId);
+    return pageId;
   },
 });
 
@@ -167,7 +170,7 @@ export const duplicate = mutation({
     if (args.folderId) await folderIn(ctx, page.projectId, args.folderId);
     const siblings = await levelRows(ctx, page.projectId, args.folderId ?? null);
     const beside = (page.folderId ?? null) === (args.folderId ?? null);
-    return await clonePage(
+    const pageId = await clonePage(
       ctx,
       page,
       args.folderId,
@@ -177,6 +180,8 @@ export const duplicate = mutation({
       },
       { projectId: page.projectId, ownerId: page.ownerId },
     );
+    await refreshPageSummary(ctx, page.projectId);
+    return pageId;
   },
 });
 
@@ -298,8 +303,10 @@ export const setMode = mutation({
 export const rename = mutation({
   args: { pageId: v.id("pages"), title: v.string() },
   handler: async (ctx, args) => {
-    await requireEditable(ctx, "pages", args.pageId);
-    await ctx.db.patch(args.pageId, { title: args.title, updatedAt: Date.now() });
+    const page = await requireEditable(ctx, "pages", args.pageId);
+    const now = Date.now();
+    await ctx.db.patch(args.pageId, { title: args.title, updatedAt: now });
+    await stampProject(ctx, page.projectId, now);
   },
 });
 
@@ -332,6 +339,7 @@ export const remove = mutation({
   handler: async (ctx, args) => {
     const page = await requireEditable(ctx, "pages", args.pageId);
     await removePageCascade(ctx, page);
+    await refreshPageSummary(ctx, page.projectId);
   },
 });
 
