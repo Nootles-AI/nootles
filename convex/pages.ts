@@ -2,7 +2,7 @@ import { mutation, query, type MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
 import { components } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { readVisible, requireEditable } from "./auth";
+import { isTrashed, readVisible, requireEditable } from "./auth";
 import { refreshPageSummary, stampProject } from "./projects";
 import { rowIcon } from "./schema";
 
@@ -10,10 +10,12 @@ export const listByProject = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
     if (!(await readVisible(ctx, "projects", args.projectId))) return [];
-    return await ctx.db
-      .query("pages")
-      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
-      .collect();
+    return (
+      await ctx.db
+        .query("pages")
+        .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+        .collect()
+    ).filter((p) => !isTrashed(p));
   },
 });
 
@@ -63,7 +65,12 @@ async function levelRows(
     .query("pages")
     .withIndex("by_project", (q) => q.eq("projectId", projectId))
     .collect();
-  return levelOf(folders, pages, parentId);
+  // Trashed rows keep their orders but stop counting as neighbours.
+  return levelOf(
+    folders.filter((f) => !isTrashed(f)),
+    pages.filter((p) => !isTrashed(p)),
+    parentId,
+  );
 }
 
 export const create = mutation({
@@ -327,19 +334,22 @@ export const setIcon = mutation({
 });
 
 /**
- * Deletes a page and everything hanging off it — the same cascade
- * `projects.remove` runs for each of its pages.
+ * Deletes a page — softly. The row is stamped `deletedAt` and every read
+ * treats it as missing; nothing hanging off it is touched, so a restore
+ * brings the page back whole (checkpoints, suggestion log and all). The
+ * purge cron runs {@link removePageCascade} once retention passes, which is
+ * when the delete becomes the irreversible one it used to be immediately.
  *
- * Irreversible; the UI confirms first. The prosemirror-sync document keyed by
- * `docId` is deliberately left alone: it belongs to the sync component rather
- * than this schema, and orphaning it costs storage, not correctness.
+ * Returns what it marked, in the shape `trash.restore` takes — the undo
+ * entry the sidebar records is exactly this value.
  */
 export const remove = mutation({
   args: { pageId: v.id("pages") },
   handler: async (ctx, args) => {
     const page = await requireEditable(ctx, "pages", args.pageId);
-    await removePageCascade(ctx, page);
+    await ctx.db.patch(page._id, { deletedAt: Date.now() });
     await refreshPageSummary(ctx, page.projectId);
+    return { pages: [page._id], folders: [] };
   },
 });
 

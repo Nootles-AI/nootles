@@ -1,11 +1,20 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import Link from "next/link";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
+import { EntryDomain, type HistoryEntry } from "@/app/lib/history/entryDomain";
+import { useWorkspaceHistory } from "@/app/lib/history/useWorkspaceHistory";
 import { track } from "@/app/lib/telemetry";
 import {
   ArrowLeft,
@@ -39,6 +48,9 @@ import {
   type Target,
   type TreeRowData,
 } from "./sidebarTree";
+
+/** One chrome domain per project, surviving the sidebar's own unmounts. */
+const chromeDomains = new Map<string, EntryDomain>();
 
 /* Carries the emoji set; kept out of the shell's first-paint chunk. */
 const IconPicker = dynamic(
@@ -117,6 +129,32 @@ export function Sidebar({
   const moveRows = useMutation(api.tree.move);
   const copyRows = useMutation(api.tree.copyTo);
   const renameProject = useMutation(api.projects.rename);
+  const placeRows = useMutation(api.tree.place);
+  const restoreRows = useMutation(api.trash.restore);
+  const trashRows = useMutation(api.trash.remove);
+
+  // The sidebar's place on the workspace timeline. Its rows persist through
+  // mutations, so each verb records an entry carrying its own way back —
+  // renames hold the prior title, moves their prior placements, deletes the
+  // restore for exactly what they marked. Kept per project at module scope so
+  // the drawer closing (compact mode) does not cost the way back.
+  const spine = useWorkspaceHistory();
+  const chromeRef = useRef<EntryDomain | null>(null);
+  useEffect(() => {
+    if (!spine) return;
+    let domain = chromeDomains.get(projectId);
+    if (!domain) {
+      domain = new EntryDomain(spine, "chrome");
+      chromeDomains.set(projectId, domain);
+    }
+    chromeRef.current = domain;
+    const unregister = spine.register("chrome", domain);
+    return () => {
+      chromeRef.current = null;
+      unregister();
+    };
+  }, [spine, projectId]);
+  const recordChrome = (entry: HistoryEntry) => chromeRef.current?.record(entry);
 
   const [editing, setEditing] = useState<Target | { kind: "project" } | null>(
     null,
@@ -263,7 +301,7 @@ export function Sidebar({
     dragRows,
     {
       onMove: (moved, parentId, after) => {
-        void moveRows({
+        const args = {
           items: moved.map((r) =>
             r.kind === "page"
               ? { kind: "page" as const, id: r.id }
@@ -272,6 +310,13 @@ export function Sidebar({
           parentId: parentId ?? undefined,
           after: after === "end" ? undefined : (after ?? undefined),
           atEnd: after === "end",
+        };
+        void moveRows(args).then((prior) => {
+          if (!prior?.length) return;
+          recordChrome({
+            undo: () => placeRows({ items: prior }),
+            redo: () => moveRows(args),
+          });
         });
         expand(parentId);
         if (moved.some((r) => r.kind === "page")) track("page_moved", {});
@@ -299,12 +344,35 @@ export function Sidebar({
     const title = draft.trim();
     if (!editing) return;
     if (editing.kind === "project") {
-      if (title) renameProject({ projectId, title });
+      const before = project?.title ?? "";
+      if (title && title !== before) {
+        void renameProject({ projectId, title });
+        recordChrome({
+          undo: () => renameProject({ projectId, title: before }),
+          redo: () => renameProject({ projectId, title }),
+        });
+      }
     } else if (editing.kind === "page") {
       // Empty is allowed: the row falls back to "Untitled".
-      renamePage({ pageId: editing.id, title });
+      const before = nameOf(editing);
+      const pageId = editing.id;
+      void renamePage({ pageId, title });
+      if (title !== before) {
+        recordChrome({
+          undo: () => renamePage({ pageId, title: before }),
+          redo: () => renamePage({ pageId, title }),
+        });
+      }
     } else {
-      renameFolder({ folderId: editing.id, title });
+      const before = nameOf(editing);
+      const folderId = editing.id;
+      void renameFolder({ folderId, title });
+      if (title !== before) {
+        recordChrome({
+          undo: () => renameFolder({ folderId, title: before }),
+          redo: () => renameFolder({ folderId, title }),
+        });
+      }
     }
     setEditing(null);
   };
@@ -334,6 +402,10 @@ export function Sidebar({
       expand(folderId);
       selectOnly({ kind: "page", id });
       onSelectPage(id);
+      recordChrome({
+        undo: () => trashRows({ pages: [id] }),
+        redo: () => restoreRows({ pages: [id] }),
+      });
     });
   };
 
@@ -342,9 +414,53 @@ export function Sidebar({
       track("folder_created", {});
       expand(parentId);
       selectOnly({ kind: "folder", id });
+      recordChrome({
+        undo: () => trashRows({ folders: [id] }),
+        redo: () => restoreRows({ folders: [id] }),
+      });
       // Instant edit-on-insert, like every other thing this app creates.
       startRename({ kind: "folder", id }, "");
     });
+  };
+
+  /**
+   * The way back from rows this sidebar brought into being — a paste's
+   * copies, a duplicate. Created folders come down with their whole subtree
+   * (the cascade names what it marks), redo restores exactly that, and a
+   * cut's spent sources travel the other way on both legs.
+   */
+  const unmakeEntry = (
+    created: readonly (
+      | { kind: "page"; id: Id<"pages"> }
+      | { kind: "folder"; id: Id<"folders"> }
+    )[],
+    removed?: { pages: Id<"pages">[]; folders: Id<"folders">[] },
+  ): HistoryEntry => {
+    let marked = {
+      pages: created.flatMap((c) => (c.kind === "page" ? [c.id] : [])),
+      folders: [] as Id<"folders">[],
+    };
+    return {
+      undo: async () => {
+        const taking = {
+          pages: created.flatMap((c) => (c.kind === "page" ? [c.id] : [])),
+          folders: [] as Id<"folders">[],
+        };
+        if (taking.pages.length) await trashRows({ pages: taking.pages });
+        for (const c of created) {
+          if (c.kind !== "folder") continue;
+          const affected = await removeFolder({ folderId: c.id });
+          taking.pages.push(...affected.pages);
+          taking.folders.push(...affected.folders);
+        }
+        marked = taking;
+        if (removed) await restoreRows(removed);
+      },
+      redo: async () => {
+        await restoreRows(marked);
+        if (removed) await trashRows(removed);
+      },
+    };
   };
 
   /**
@@ -364,6 +480,9 @@ export function Sidebar({
         projectId,
         folderId: dest ?? undefined,
         move: clip.op === "cut",
+      }).then((got) => {
+        if (!got || !got.created.length) return;
+        recordChrome(unmakeEntry(got.created, got.removed));
       });
       if (clip.op === "cut") setClip(null);
       expand(dest);
@@ -379,25 +498,42 @@ export function Sidebar({
     if (!items.length) return;
 
     if (clip.op === "cut") {
-      void moveRows({
+      const args = {
         items: [...items],
         parentId: dest ?? undefined,
         atEnd: true,
+      };
+      void moveRows(args).then((prior) => {
+        if (!prior?.length) return;
+        recordChrome({
+          undo: () => placeRows({ items: prior }),
+          redo: () => moveRows(args),
+        });
       });
       setClip(null);
     } else {
       // Sequential, so the copies land in the order they were taken.
       void (async () => {
+        const created: (
+          | { kind: "page"; id: Id<"pages"> }
+          | { kind: "folder"; id: Id<"folders"> }
+        )[] = [];
         for (const t of items) {
           if (t.kind === "page") {
-            await duplicatePage({ pageId: t.id, folderId: dest ?? undefined });
+            const id = await duplicatePage({
+              pageId: t.id,
+              folderId: dest ?? undefined,
+            });
+            created.push({ kind: "page", id });
           } else {
-            await duplicateFolder({
+            const id = await duplicateFolder({
               folderId: t.id,
               parentId: dest ?? undefined,
             });
+            created.push({ kind: "folder", id });
           }
         }
+        if (created.length) recordChrome(unmakeEntry(created));
       })();
     }
     expand(dest);
@@ -868,8 +1004,22 @@ export function Sidebar({
             onPick={(next) => {
               const icon = next ?? undefined;
               const t = iconTarget.target;
-              if (t.kind === "folder") void setFolderIcon({ folderId: t.id, icon });
-              else if (t.kind === "page") void setPageIcon({ pageId: t.id, icon });
+              const before = iconOf(t) ?? undefined;
+              if (t.kind === "folder") {
+                const folderId = t.id;
+                void setFolderIcon({ folderId, icon });
+                recordChrome({
+                  undo: () => setFolderIcon({ folderId, icon: before }),
+                  redo: () => setFolderIcon({ folderId, icon }),
+                });
+              } else if (t.kind === "page") {
+                const pageId = t.id;
+                void setPageIcon({ pageId, icon });
+                recordChrome({
+                  undo: () => setPageIcon({ pageId, icon: before }),
+                  redo: () => setPageIcon({ pageId, icon }),
+                });
+              }
               setIconTarget(null);
             }}
             onClose={() => setIconTarget(null)}
@@ -890,10 +1040,26 @@ export function Sidebar({
           what={confirmingWhat}
           onCancel={() => setConfirming(null)}
           onConfirm={() => {
-            for (const t of confirming) {
-              if (t.kind === "page") removePage({ pageId: t.id });
-              else removeFolder({ folderId: t.id });
-            }
+            // One entry for the whole selection: a multi-delete is one act,
+            // and one press brings all of it back.
+            void (async () => {
+              const marked = {
+                pages: [] as Id<"pages">[],
+                folders: [] as Id<"folders">[],
+              };
+              for (const t of confirming) {
+                const affected =
+                  t.kind === "page"
+                    ? await removePage({ pageId: t.id })
+                    : await removeFolder({ folderId: t.id });
+                marked.pages.push(...affected.pages);
+                marked.folders.push(...affected.folders);
+              }
+              recordChrome({
+                undo: () => restoreRows(marked),
+                redo: () => trashRows(marked),
+              });
+            })();
             setSelection([]);
             setConfirming(null);
           }}

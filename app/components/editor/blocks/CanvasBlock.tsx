@@ -19,6 +19,11 @@ import {
   materializeCanvas,
 } from "../canvas/collab/ymap";
 import { providerForDoc } from "@/app/lib/sync/YConvexProvider";
+import { useCanvasUndoDomain } from "@/app/lib/history/canvasDomain";
+import { registerSurface } from "@/app/lib/history/surfaceRegistry";
+import { useWorkspaceHistory } from "@/app/lib/history/useWorkspaceHistory";
+import { useCurrentPage } from "@/app/components/OpenPageContext";
+import { peekSceneStore } from "../canvas/engine/useScene";
 import { serializeScene } from "../canvas/scene/serialize";
 import type { Scene } from "../canvas/scene/types";
 import { CanvasSurface, type CanvasApi } from "../canvas/render/CanvasSurface";
@@ -102,9 +107,13 @@ function CanvasBlockView({
     [editor, forkNonce],
   );
 
-  // What the surface's store is born with: the maps when they hold the
-  // diagram, else the prop. Pure read; StrictMode may run it twice, harmlessly.
+  // What the surface's store is born with: a warm store's own knowledge when
+  // one survived a page switch (so reviving it reads as no change at all),
+  // else the maps when they hold the diagram, else the prop. Pure read;
+  // StrictMode may run it twice, harmlessly.
   const [seed] = useState(() => {
+    const held = peekSceneStore(`canvas:${blockId}`);
+    if (held) return held.seedSource();
     if (yDoc) {
       const root = yDoc.getMap<unknown>(canvasMapName(blockId));
       if (hasCanvasState(root)) return serializeScene(materializeCanvas(root));
@@ -250,6 +259,21 @@ function CanvasBlockView({
     if (!mine && api.current) shell.set({ blockId, api: api.current });
   };
 
+  // The workspace history spine: this diagram is one undo domain, and the
+  // surface registry is how a focus restore re-claims it — after navigating
+  // back to this page, if that is where the undo led.
+  const spine = useWorkspaceHistory();
+  const pageId = useCurrentPage();
+  useCanvasUndoDomain(spine, liveApi?.store ?? null, blockId, pageId);
+  const claimRef = useRef(claim);
+  useEffect(() => {
+    claimRef.current = claim;
+  });
+  useEffect(() => {
+    if (readOnly) return;
+    return registerSurface(blockId, () => claimRef.current());
+  }, [blockId, readOnly]);
+
   if (readOnly) {
     // The surface's own view-only mode: a click still picks out one shape, and
     // everything that would move one — or move the view — is off, as is the
@@ -261,6 +285,7 @@ function CanvasBlockView({
           <CanvasSurface
             source={surfaceSource}
             onChange={() => {}}
+            storeKey={`canvas:${blockId}`}
             readOnly
             // Captured so remote edits flow in and co-presence paints; a
             // viewer never claims the shell, so they never broadcast.
@@ -284,6 +309,7 @@ function CanvasBlockView({
         <CanvasSurface
           source={surfaceSource}
           onChange={surfaceChange}
+          storeKey={`canvas:${blockId}`}
           // Published once and withdrawn on unmount; either way it speaks for
           // this block only while this block holds the shell.
           onApi={(next) => {
@@ -316,7 +342,15 @@ export const canvasBlockSpec = createReactBlockSpec(
       <CanvasBlockView
         blockId={block.id}
         source={block.props.data}
-        onChange={(data) => editor.updateBlock(block.id, { props: { data } })}
+        // Out of the document's history: the diagram's undo is the scene
+        // store's, and a whole-diagram prop write on the text stack would put
+        // the same edit on two ledgers — ⌘Z in prose could pop a drawing.
+        onChange={(data) =>
+          editor.transact((tr) => {
+            tr.setMeta("addToHistory", false);
+            editor.updateBlock(block.id, { props: { data } });
+          })
+        }
         editor={editor as unknown as HostEditor}
         // Text just above the diagram, so completing a shape label can draw on
         // what the page is actually about.

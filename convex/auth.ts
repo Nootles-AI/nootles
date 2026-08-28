@@ -43,6 +43,15 @@ export async function requireOwner(ctx: { auth: Auth }): Promise<string> {
  * `table` goes unused at runtime; it binds the type parameter so callers get
  * back a `Doc<"pages">` rather than a union of every owned table.
  */
+/**
+ * Whether a row is soft-deleted. Central so every access path answers the
+ * same: a stamped row reads as missing everywhere except `trash.ts`, which
+ * is the one module allowed to see the other side.
+ */
+export function isTrashed(doc: object): boolean {
+  return "deletedAt" in doc && doc.deletedAt !== undefined;
+}
+
 export async function readOwned<T extends Owned>(
   ctx: QueryCtx,
   table: T,
@@ -51,7 +60,7 @@ export async function readOwned<T extends Owned>(
   const owner = await ownerId(ctx);
   if (!owner) return null;
   const doc = await ctx.db.get(id);
-  return doc && doc.ownerId === owner ? doc : null;
+  return doc && doc.ownerId === owner && !isTrashed(doc) ? doc : null;
 }
 
 /** The same lookup, for callers that cannot proceed without the row. */
@@ -139,9 +148,9 @@ export async function readVisible<T extends Shared>(
   id: Id<T>,
 ): Promise<Doc<T> | null> {
   const doc = (await ctx.db.get(id)) as Doc<T> | null;
-  if (!doc) return null;
+  if (!doc || isTrashed(doc)) return null;
   const project = await projectOf(ctx, doc);
-  if (!project) return null;
+  if (!project || isTrashed(project)) return null;
   return (await roleForProject(ctx, project)) ? doc : null;
 }
 
@@ -156,9 +165,9 @@ export async function requireEditable<T extends Shared>(
   id: Id<T>,
 ): Promise<Doc<T>> {
   const doc = (await ctx.db.get(id)) as Doc<T> | null;
-  if (doc) {
+  if (doc && !isTrashed(doc)) {
     const project = await projectOf(ctx, doc);
-    if (project) {
+    if (project && !isTrashed(project)) {
       const role = await roleForProject(ctx, project);
       if (role === "owner" || role === "editor") return doc;
     }

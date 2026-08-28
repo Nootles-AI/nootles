@@ -2,6 +2,7 @@
 
 import { useConvex } from "convex/react";
 import { useRef, useState } from "react";
+import { undoScope } from "@/app/lib/history/useWorkspaceHistory";
 import { Check } from "../../Icons";
 import { put } from "../album/upload";
 import { CheckRow, PanelSection } from "../canvas/panels/controls/PanelSection";
@@ -130,7 +131,10 @@ export function LocationPanel({ active }: { active: ActiveLocation }) {
   const theirs = location.images.filter(isGoogle);
 
   return (
-    <aside className="nt-style-panel" aria-label="Location">
+    // The undo scope: every write this panel makes lands on the document's
+    // history, so ⌘Z pressed here must reach the workspace timeline rather
+    // than dying in a checkbox.
+    <aside className="nt-style-panel" aria-label="Location" {...undoScope}>
       <div className="nt-section-label nt-style-panel-head">
         <span>Location</span>
       </div>

@@ -138,11 +138,20 @@ export default defineSchema({
     pageCount: v.optional(v.number()),
     firstPageDocId: v.optional(v.string()),
     updatedAt: v.optional(v.number()),
+    /**
+     * Soft delete — set is deleted, absent is live. Every read treats a
+     * stamped row as missing (`auth.ts` centrally, list queries locally);
+     * `trash.restore` clears it, and a cron purges rows past retention with
+     * the old hard cascade. What this buys is an undo for the one class of
+     * action that used to be irreversible.
+     */
+    deletedAt: v.optional(v.number()),
     createdAt: v.number(),
   })
     .index("by_owner", ["ownerId"])
     .index("by_share_token", ["shareToken"])
-    .index("by_edit_share_token", ["editShareToken"]),
+    .index("by_edit_share_token", ["editShareToken"])
+    .index("by_deleted", ["deletedAt"]),
 
   /**
    * What visiting a share link while signed in leaves behind: a bookmark plus
@@ -277,8 +286,12 @@ export default defineSchema({
     icon: v.optional(rowIcon),
     /** Manual place among the level's rows, folders and pages alike. */
     order: v.number(),
+    /** Soft delete — see `projects.deletedAt`. */
+    deletedAt: v.optional(v.number()),
     createdAt: v.number(),
-  }).index("by_project", ["projectId", "order"]),
+  })
+    .index("by_project", ["projectId", "order"])
+    .index("by_deleted", ["deletedAt"]),
 
   pages: defineTable({
     ownerId: v.string(),
@@ -324,9 +337,12 @@ export default defineSchema({
      * fall back to `createdAt`.
      */
     updatedAt: v.optional(v.number()),
+    /** Soft delete — see `projects.deletedAt`. */
+    deletedAt: v.optional(v.number()),
   })
     .index("by_project", ["projectId", "order"])
-    .index("by_doc", ["docId"]),
+    .index("by_doc", ["docId"])
+    .index("by_deleted", ["deletedAt"]),
 
   // ---- Document sync (Yjs) ------------------------------------------------
   // One CRDT document per page, stored as an update log folded into chunked

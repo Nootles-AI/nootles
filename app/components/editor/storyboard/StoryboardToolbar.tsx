@@ -11,6 +11,10 @@ import {
   shortcutHint,
   type CanvasTool,
 } from "../canvas/engine/shortcuts";
+import {
+  useSpineState,
+  useWorkspaceHistory,
+} from "@/app/lib/history/useWorkspaceHistory";
 import { useSceneHistory } from "../canvas/engine/useScene";
 import type { BoardApi, CanvasApi } from "../canvas/render/CanvasSurface";
 import { RATIOS, type Ratio } from "./types";
@@ -66,7 +70,15 @@ export function StoryboardToolbar({
   api: CanvasApi;
   board: BoardApi;
 }) {
-  const { canUndo, canRedo } = useSceneHistory(api.store);
+  // One timeline: with the workspace spine present the bar's Undo walks it —
+  // a drawing persists onto the board's block prop, so the way back is the
+  // document's history, not the shot store's private stack.
+  const spine = useWorkspaceHistory();
+  const local = useSceneHistory(api.store);
+  const global = useSpineState(spine);
+  const { canUndo, canRedo } = spine ? global : local;
+  const undo = spine ? () => void spine.undo() : () => void api.store.undo();
+  const redo = spine ? () => void spine.redo() : () => void api.store.redo();
   // The pressed tool is subscribed to rather than read off the api, which does
   // not change when the tool does — see {@link ToolControl}.
   const active = useSyncExternalStore(
@@ -97,7 +109,7 @@ export function StoryboardToolbar({
         label="Undo"
         hint={shortcutHint("edit.undo", apple)}
         disabled={!canUndo}
-        onClick={api.store.undo}
+        onClick={undo}
       >
         {UNDO}
       </Button>
@@ -105,7 +117,7 @@ export function StoryboardToolbar({
         label="Redo"
         hint={shortcutHint("edit.redo", apple)}
         disabled={!canRedo}
-        onClick={api.store.redo}
+        onClick={redo}
       >
         {REDO}
       </Button>

@@ -2,7 +2,7 @@ import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
-import { ownerId, requireOwned, requireOwner, roleForProject } from "./auth";
+import { isTrashed, ownerId, requireOwned, requireOwner, roleForProject } from "./auth";
 
 /**
  * Link sharing, one link per role. Security is capability-based: each token is
@@ -33,11 +33,12 @@ async function projectForToken(
     .query("projects")
     .withIndex("by_share_token", (q) => q.eq("shareToken", token))
     .unique();
-  if (asViewer) return { project: asViewer, role: "viewer" };
+  if (asViewer) return isTrashed(asViewer) ? null : { project: asViewer, role: "viewer" };
   const asEditor = await ctx.db
     .query("projects")
     .withIndex("by_edit_share_token", (q) => q.eq("editShareToken", token))
     .unique();
+  if (asEditor && isTrashed(asEditor)) return null;
   return asEditor ? { project: asEditor, role: "editor" } : null;
 }
 
@@ -79,14 +80,18 @@ export const view = query({
     if (!found) return null;
     // Both ordered by the index (projectId, order) — the sidebar's own order,
     // one line per level shared by folders and pages alike.
-    const pages = await ctx.db
-      .query("pages")
-      .withIndex("by_project", (q) => q.eq("projectId", found.project._id))
-      .collect();
-    const folders = await ctx.db
-      .query("folders")
-      .withIndex("by_project", (q) => q.eq("projectId", found.project._id))
-      .collect();
+    const pages = (
+      await ctx.db
+        .query("pages")
+        .withIndex("by_project", (q) => q.eq("projectId", found.project._id))
+        .collect()
+    ).filter((p) => !isTrashed(p));
+    const folders = (
+      await ctx.db
+        .query("folders")
+        .withIndex("by_project", (q) => q.eq("projectId", found.project._id))
+        .collect()
+    ).filter((f) => !isTrashed(f));
     return {
       projectId: found.project._id,
       role: found.role,
