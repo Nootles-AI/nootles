@@ -89,6 +89,8 @@ type Drag =
 /** How far an arrow key moves the selected anchors, in scene px. */
 const NUDGE = 1;
 const NUDGE_FAR = 10;
+/** Quiet that ends an arrow-nudge run — longer than any key repeat. */
+const NUDGE_RUN_MS = 600;
 
 const ARROWS: Readonly<Record<string, Point>> = {
   ArrowLeft: { x: -1, y: 0 },
@@ -446,7 +448,28 @@ export function PenTool({
     [store],
   );
 
+  /**
+   * Arrow nudges bracket into one entry per run, exactly as the canvas
+   * keymap's do — a held key repeating at sixty entries a second is one
+   * intention. The run closes on quiet, on any other interaction, and on an
+   * undo asking for the floor (the store's before-step hook).
+   */
+  const nudgeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const endNudgeRun = useCallback(() => {
+    if (nudgeTimer.current === null) return;
+    clearTimeout(nudgeTimer.current);
+    nudgeTimer.current = null;
+    store.commit();
+  }, [store]);
+  const nudgeStep = useCallback(() => {
+    if (nudgeTimer.current === null) store.begin();
+    else clearTimeout(nudgeTimer.current);
+    nudgeTimer.current = setTimeout(endNudgeRun, NUDGE_RUN_MS);
+  }, [store, endNudgeRun]);
+  useEffect(() => store.onBeforeStep(endNudgeRun), [store, endNudgeRun]);
+
   const finish = useCallback(() => {
+    endNudgeRun();
     const id = idRef.current;
     if (anchorsRef.current.length < 2) {
       if (id) store.dispatch({ type: "remove", ids: [id] });
@@ -455,7 +478,7 @@ export function PenTool({
     }
     write();
     onFinish(id);
-  }, [store, write, onFinish]);
+  }, [endNudgeRun, store, write, onFinish]);
 
   /** One visual update and one committed edit per frame, never per event. */
   const schedule = useCallback(() => {
@@ -472,6 +495,11 @@ export function PenTool({
       if (frameRef.current) cancelAnimationFrame(frameRef.current);
       // Escape can unmount us mid-drag; an unclosed bracket would wedge undo.
       if (bracketRef.current) store.commit();
+      if (nudgeTimer.current !== null) {
+        clearTimeout(nudgeTimer.current);
+        nudgeTimer.current = null;
+        store.commit();
+      }
     },
     [store],
   );
@@ -515,6 +543,9 @@ export function PenTool({
       const closed = closedRef.current;
 
       const begin = (drag: Drag) => {
+        // A pointer gesture is its own entry; a nudge run still open would
+        // otherwise swallow it.
+        endNudgeRun();
         e.currentTarget.setPointerCapture(e.pointerId);
         pointerRef.current = e.pointerId;
         dragRef.current = drag;
@@ -607,6 +638,7 @@ export function PenTool({
       viewport,
       store,
       closesLoop,
+      endNudgeRun,
       hitHandle,
       write,
       ensureNode,
@@ -741,6 +773,7 @@ export function PenTool({
       if (arrow) {
         claim();
         const step = e.shiftKey ? NUDGE_FAR : NUDGE;
+        nudgeStep();
         anchorsRef.current = nudgeAnchors(
           anchorsRef.current,
           selected,
@@ -754,6 +787,7 @@ export function PenTool({
 
       if (e.key !== "Backspace" && e.key !== "Delete") return;
       claim();
+      endNudgeRun();
       // Highest index first, so each removal leaves the ones still to go where
       // they were. What is left simply joins up — the path stays one subpath.
       let next = anchorsRef.current;
@@ -769,7 +803,7 @@ export function PenTool({
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [finish, write, sync]);
+  }, [finish, write, sync, nudgeStep, endNudgeRun]);
 
   // -- Overlay --------------------------------------------------------------
 

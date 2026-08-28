@@ -157,7 +157,9 @@ export function StylePanel({
           className="nt-style-panel-body"
           // Sections must stay the body's direct children — the rule that draws
           // the dividers says so — hence the handler here rather than a wrapper.
-          onPointerDown={nodes.length ? hold : undefined}
+          // Connectors too: an edge-colour drag is as much one gesture as a
+          // shape's, and without the hold it split on the idle timer.
+          onPointerDown={nodes.length || edges.length ? hold : undefined}
         >
           {edges.length > 0 ? (
           // A connector has no box, so none of the shape sections apply to it.

@@ -67,6 +67,10 @@ import "./album.css";
 /** Pointer past this and a press on a tile was a drag, not a click. */
 const DRAG_SLOP = 4;
 
+/** How long an arrived picture waits for the next before committing — long
+ *  enough that a multi-drop of ordinary photos lands as one edit. */
+const ADD_SETTLE_MS = 300;
+
 /**
  * After a re-pack, how long the answer stands before it may change again.
  * The re-pack moves tile boundaries under a pointer that has not moved, and an
@@ -318,6 +322,31 @@ export function AlbumSurface({
     [tiled, room, columns],
   );
 
+  /**
+   * Arrived pictures waiting to be committed together. A twenty-photo drop
+   * used to land as twenty edits — twenty undo steps — so arrivals now settle
+   * for a beat and commit as one `add`; only an upload slower than the window
+   * starts another. The pending tile stays up until its picture commits, so
+   * nothing flickers out between the two lists.
+   */
+  const settling = useRef<{
+    items: { id: string; item: AlbumItem }[];
+    timer: ReturnType<typeof setTimeout> | null;
+  }>({ items: [], timer: null });
+  const flushAdds = useCallback(() => {
+    const held = settling.current;
+    if (held.timer) {
+      clearTimeout(held.timer);
+      held.timer = null;
+    }
+    if (!held.items.length) return;
+    const taken = held.items;
+    held.items = [];
+    commit(run({ op: "add", items: taken.map((t) => t.item) }));
+    const ids = new Set(taken.map((t) => t.id));
+    setPending((list) => list.filter((waiting) => !ids.has(waiting.id)));
+  }, [commit, run]);
+
   const add = useCallback(
     async (files: File[]) => {
       if (readOnly || !files.length) return;
@@ -329,8 +358,10 @@ export function AlbumSurface({
             list.map((item) => (item.id === id ? { ...item, progress, note } : item)),
           ),
         onItem: (id, item, stats) => {
-          commit(run({ op: "add", items: [item] }));
-          setPending((list) => list.filter((waiting) => waiting.id !== id));
+          const held = settling.current;
+          held.items.push({ id, item });
+          if (held.timer) clearTimeout(held.timer);
+          held.timer = setTimeout(flushAdds, ADD_SETTLE_MS);
           // What the picture looks like, measured off the canvas the re-encode
           // already drew. Written beside the picture rather than into it, and
           // fire-and-forget: an index that does not land costs the agent a
@@ -344,8 +375,9 @@ export function AlbumSurface({
         onDrop: (id) => setPending((list) => list.filter((waiting) => waiting.id !== id)),
         onError: setRefused,
       });
+      flushAdds();
     },
-    [convex, commit, run, readOnly],
+    [convex, flushAdds, readOnly],
   );
 
   const remove = (index: number) => {
