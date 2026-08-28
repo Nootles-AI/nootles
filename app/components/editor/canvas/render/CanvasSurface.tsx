@@ -72,6 +72,7 @@ import {
 } from "../engine/useSelection";
 import { useViewport, type ViewportController } from "../engine/useViewport";
 import type { DiagramPatch } from "../panels/StylePanel";
+import { undoScope } from "@/app/lib/history/useWorkspaceHistory";
 import {
   absoluteBounds,
   absoluteSelectionBounds,
@@ -383,6 +384,11 @@ export interface CanvasSurfaceProps {
    */
   readOnly?: boolean;
   /**
+   * Keeps the scene store — and its undo history — warm across unmounts,
+   * shared under this key. See {@link useScene}.
+   */
+  storeKey?: string;
+  /**
    * Render as a fixed frame rather than a block-sized, pannable canvas — a
    * storyboard shot.
    *
@@ -402,9 +408,10 @@ export function CanvasSurface({
   onChange,
   onApi,
   readOnly = false,
+  storeKey,
   frame,
 }: CanvasSurfaceProps) {
-  const store = useScene({ source, onChange });
+  const store = useScene({ source, onChange, cacheKey: storeKey });
   const scene = useSceneSnapshot(store);
   /**
    * The same scene with every auto-laid-out child placed where it is actually
@@ -1232,6 +1239,7 @@ export function CanvasSurface({
       ref={wrap}
       className={frame ? "nt-canvas nt-canvas-shot" : "nt-canvas"}
       contentEditable={false}
+      {...undoScope}
       style={
         frame
           ? { width: frame.w * frame.scale, height: frame.h * frame.scale }

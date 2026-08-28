@@ -18,6 +18,14 @@ import { useConvex, useQuery } from "convex/react";
 import { useUser } from "@clerk/nextjs";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
+import {
+  useTextUndoDomain,
+  type UndoHostEditor,
+} from "@/app/lib/history/textDomain";
+import {
+  undoScope,
+  useWorkspaceHistory,
+} from "@/app/lib/history/useWorkspaceHistory";
 import { useYjsEditor } from "@/app/lib/sync/useYjsEditor";
 import { initEmptyYDoc, migrateLegacyDoc } from "@/app/lib/sync/migrate";
 import { collabColor } from "@/app/lib/sync/colors";
@@ -606,6 +614,16 @@ function EditorSurface({
   useTabCompletion(readOnly ? null : editor, pageId, title, mode, docId);
   const reformat = useReformat(readOnly ? null : editor, pageId);
 
+  // The document is one domain on the workspace history spine — Yjs only;
+  // the legacy pipeline keeps ProseMirror's own history and bindings.
+  const spine = useWorkspaceHistory();
+  useTextUndoDomain(
+    pipeline === "yjs" ? spine : null,
+    editor as unknown as UndoHostEditor,
+    docId,
+    pageId,
+  );
+
   // The band starts in the page's gutter, which is outside the
   // contenteditable — so it is heard on a layout-neutral wrapper that reaches
   // back over that strip rather than on the editor itself.
@@ -638,6 +656,7 @@ function EditorSurface({
         ref={marqueeSurface}
         className="nt-marquee-surface"
         onMouseUp={promoteSpanned}
+        {...undoScope}
       >
         <BlockNoteView
           editor={editor}

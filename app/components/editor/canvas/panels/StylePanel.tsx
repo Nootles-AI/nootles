@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef } from "react";
+import { undoScope } from "@/app/lib/history/useWorkspaceHistory";
 import { useSceneSnapshot, type SceneStore } from "../engine/useScene";
 import {
   hasText,
@@ -143,7 +144,7 @@ export function StylePanel({
 
   return (
     <ColorVariablesContext value={colorVars}>
-      <aside className="nt-style-panel" aria-label="Design">
+      <aside className="nt-style-panel" aria-label="Design" {...undoScope}>
         {/* The layers rail says what it is; this one used to say nothing, which
           left the two halves of the same shell looking unrelated. */}
         <div className="nt-section-label nt-style-panel-head">

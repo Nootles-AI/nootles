@@ -12,6 +12,13 @@ import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import { useMediaQuery } from "@/app/lib/useMediaQuery";
+import { FocusDomain } from "@/app/lib/history/focusDomain";
+import { awaitSurface } from "@/app/lib/history/surfaceRegistry";
+import {
+  undoScope,
+  useWorkspaceHistory,
+  WorkspaceHistoryProvider,
+} from "@/app/lib/history/useWorkspaceHistory";
 import { LayersPanel } from "./editor/canvas/panels/LayersPanel";
 import { Toolbar } from "./editor/canvas/Toolbar";
 import {
@@ -92,7 +99,27 @@ function scrollParent(el: HTMLElement): HTMLElement | null {
   return null;
 }
 
+/**
+ * Where the shell has the pointer's attention — a claimed diagram, a chosen
+ * place card, or neither. A focus stop on the workspace timeline, so undo
+ * re-traces the way the user moved between surfaces (Figma's model).
+ */
+type WorkspaceFocus =
+  | { kind: "none" }
+  | { kind: "canvas" | "place"; pageId: string | null; blockId: string };
+
+const focusKey = (f: WorkspaceFocus) =>
+  f.kind === "none" ? "none" : `${f.kind}:${f.blockId}`;
+
 export function Workspace({ projectId }: { projectId: Id<"projects"> }) {
+  return (
+    <WorkspaceHistoryProvider projectId={projectId}>
+      <WorkspaceInner projectId={projectId} />
+    </WorkspaceHistoryProvider>
+  );
+}
+
+function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
   const { main, aside, focus, open, openAside } = useOpenPage();
 
   const [leftWidth, setLeftWidth] = useState(LEFT.def);
@@ -106,9 +133,101 @@ export function Workspace({ projectId }: { projectId: Id<"projects"> }) {
   const [drawer, setDrawer] = useState<"left" | "right" | null>(null);
 
   const [canvas, setCanvas] = useState<ActiveCanvas | null>(null);
-  const shell = useMemo(() => ({ active: canvas, set: setCanvas }), [canvas]);
   const [place, setPlace] = useState<ActiveLocation | null>(null);
-  const placeShell = useMemo(() => ({ active: place, set: setPlace }), [place]);
+
+  // ---- The workspace history spine ---------------------------------------
+  // The shell's claims are focus history (a stop on the timeline), and the
+  // spine's steps can lead to other pages — so the workspace supplies both
+  // the recording wrappers around its own setters and the navigator.
+  const spine = useWorkspaceHistory();
+  const pageRef = useRef<string | null>(null);
+  const openRef = useRef(open);
+  const canvasRef = useRef(canvas);
+  const placeRef = useRef(place);
+  useEffect(() => {
+    openRef.current = open;
+    canvasRef.current = canvas;
+    placeRef.current = place;
+  });
+
+  useEffect(() => {
+    if (!spine) return;
+    spine.setNavigator({
+      currentPage: () => pageRef.current,
+      openPage: (pageId) => openRef.current(pageId as Id<"pages">),
+    });
+    return () => spine.setNavigator(null);
+  }, [spine]);
+
+  const applyFocus = useCallback((state: WorkspaceFocus) => {
+    if (state.kind === "none") {
+      setCanvas(null);
+      setPlace(null);
+      return;
+    }
+    if (state.pageId && pageRef.current !== state.pageId) {
+      openRef.current(state.pageId as Id<"pages">);
+    }
+    // The block claims the shell itself once it is mounted — after the
+    // navigation above, when the restore crossed a page.
+    void awaitSurface(state.blockId).then((claim) => claim?.());
+  }, []);
+  // Held in a ref: only event handlers and the spine ever reach it, and the
+  // linter rightly refuses render-phase access to ref-reading closures.
+  const focusDomainRef = useRef<FocusDomain<WorkspaceFocus> | null>(null);
+  useEffect(() => {
+    if (!spine) return;
+    const domain = new FocusDomain<WorkspaceFocus>(spine, "focus", applyFocus);
+    focusDomainRef.current = domain;
+    const unregister = spine.register("focus", domain);
+    return () => {
+      focusDomainRef.current = null;
+      unregister();
+    };
+  }, [spine, applyFocus]);
+
+  const describeFocus = useCallback(
+    (c: ActiveCanvas | null, p: ActiveLocation | null): WorkspaceFocus =>
+      c
+        ? { kind: "canvas", pageId: pageRef.current, blockId: c.blockId }
+        : p
+          ? { kind: "place", pageId: pageRef.current, blockId: p.blockId }
+          : { kind: "none" },
+    [],
+  );
+  const claimCanvas = useCallback(
+    (next: ActiveCanvas | null) => {
+      const domain = focusDomainRef.current;
+      const before = describeFocus(canvasRef.current, placeRef.current);
+      const after = describeFocus(next, placeRef.current);
+      if (domain && focusKey(before) !== focusKey(after)) {
+        domain.record(before, after);
+      }
+      setCanvas(next);
+    },
+    [describeFocus],
+  );
+  const claimPlace = useCallback(
+    (next: ActiveLocation | null) => {
+      const domain = focusDomainRef.current;
+      const before = describeFocus(canvasRef.current, placeRef.current);
+      const after = describeFocus(canvasRef.current, next);
+      if (domain && focusKey(before) !== focusKey(after)) {
+        domain.record(before, after);
+      }
+      setPlace(next);
+    },
+    [describeFocus],
+  );
+
+  const shell = useMemo(
+    () => ({ active: canvas, set: claimCanvas }),
+    [canvas, claimCanvas],
+  );
+  const placeShell = useMemo(
+    () => ({ active: place, set: claimPlace }),
+    [place, claimPlace],
+  );
 
   const compact = useMediaQuery(COMPACT);
 
@@ -161,22 +280,22 @@ export function Workspace({ projectId }: { projectId: Id<"projects"> }) {
     if (!editing) return;
     const onDown = (event: PointerEvent) => {
       const target = event.target instanceof Element ? event.target : null;
-      if (!target?.closest(CANVAS_SHELL)) setCanvas(null);
+      if (!target?.closest(CANVAS_SHELL)) claimCanvas(null);
     };
     window.addEventListener("pointerdown", onDown, true);
     return () => window.removeEventListener("pointerdown", onDown, true);
-  }, [editing]);
+  }, [editing, claimCanvas]);
 
   const chosen = place !== null;
   useEffect(() => {
     if (!chosen) return;
     const onDown = (event: PointerEvent) => {
       const target = event.target instanceof Element ? event.target : null;
-      if (!target?.closest(LOCATION_SHELL)) setPlace(null);
+      if (!target?.closest(LOCATION_SHELL)) claimPlace(null);
     };
     window.addEventListener("pointerdown", onDown, true);
     return () => window.removeEventListener("pointerdown", onDown, true);
-  }, [chosen]);
+  }, [chosen, claimPlace]);
 
   useEffect(() => {
     if (!openDrawer) return;
@@ -345,6 +464,11 @@ export function Workspace({ projectId }: { projectId: Id<"projects"> }) {
   const effectivePageId =
     (focus === "aside" ? known(asidePageId) : null) ?? mainPageId;
 
+  // What the spine's navigator answers with — always the focused pane's page.
+  useEffect(() => {
+    pageRef.current = effectivePageId ?? null;
+  });
+
   const sidebar = (
     <Sidebar
       width={compact ? DRAWER_W : LEFT_W}
@@ -394,6 +518,7 @@ export function Workspace({ projectId }: { projectId: Id<"projects"> }) {
               className="nt-panel nt-rail-l"
               style={{ width: LEFT_W }}
               aria-label="Layers"
+              {...undoScope}
             >
               <LayersPanel
                 store={canvasPanels.api.store}

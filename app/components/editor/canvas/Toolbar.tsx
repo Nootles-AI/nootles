@@ -29,6 +29,10 @@ import {
   setSnapEnabled,
   subscribe as subscribeSnap,
 } from "./engine/snapping";
+import {
+  useSpineState,
+  useWorkspaceHistory,
+} from "@/app/lib/history/useWorkspaceHistory";
 import { useSceneHistory, type SceneStore } from "./engine/useScene";
 import {
   SHORTCUTS_BY_ID,
@@ -303,7 +307,15 @@ export function Toolbar({ store, viewport, tools }: ToolbarProps) {
   // The scalar, not the whole viewport: `commit()` allocates a fresh object on
   // every pan frame, and this pill only shows the zoom.
   const zoom = useViewportZoom(viewport);
-  const { canUndo, canRedo } = useSceneHistory(store);
+  // One timeline: with the workspace spine present the buttons walk it (the
+  // diagram's entries included, in order); without it — the share route, the
+  // legacy pipeline — they walk the store's own history as they always did.
+  const spine = useWorkspaceHistory();
+  const local = useSceneHistory(store);
+  const global = useSpineState(spine);
+  const { canUndo, canRedo } = spine ? global : local;
+  const undo = spine ? () => void spine.undo() : () => void store.undo();
+  const redo = spine ? () => void spine.redo() : () => void store.redo();
   const dock = useDock(viewport);
 
   // `navigator` does not exist on the server, and a glyph that differed between
@@ -350,7 +362,7 @@ export function Toolbar({ store, viewport, tools }: ToolbarProps) {
           label="Undo"
           hint={hint("edit.undo")}
           disabled={!canUndo}
-          onClick={store.undo}
+          onClick={undo}
         >
           {UNDO}
         </Button>
@@ -358,7 +370,7 @@ export function Toolbar({ store, viewport, tools }: ToolbarProps) {
           label="Redo"
           hint={hint("edit.redo")}
           disabled={!canRedo}
-          onClick={store.redo}
+          onClick={redo}
         >
           {REDO}
         </Button>

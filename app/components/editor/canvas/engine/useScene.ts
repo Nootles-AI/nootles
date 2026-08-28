@@ -383,6 +383,14 @@ export class SceneStore {
     this.setScene(migrateLegacyCanvas(source), false);
   };
 
+  /**
+   * The source a REVIVED store's surface should be seeded with — what this
+   * store last knew the block to say. Seeding a remount with anything else
+   * would make `setSource` read the drift as an external edit and record a
+   * history entry nobody made.
+   */
+  seedSource = (): string => this.lastSource;
+
   /** Write now, if there is anything unwritten. */
   flush = (): void => {
     this.cancelPersist();
@@ -490,14 +498,50 @@ export interface UseSceneOptions {
   source: string;
   /** Persists a new source onto the block, with the scene it came from. */
   onChange: (source: string, scene: Scene) => void;
+  /**
+   * Keeps the store — and with it the undo history — alive across unmounts,
+   * shared under this key. Without one, a page switch was a fresh undo
+   * horizon for every diagram on it; with one, coming back resumes where the
+   * history left off. The workspace history spine depends on this: its
+   * tokens outlive the page, so the entries behind them must too.
+   */
+  cacheKey?: string;
+}
+
+/** Stores kept warm for closed pages, bounded like the doc cache is. */
+const WARM_MAX = 16;
+const warm = new Map<string, SceneStore>();
+
+/** The warm store under this key, if one is held — how a remount seeds its
+ *  surface with what the store already knows. */
+export function peekSceneStore(cacheKey: string): SceneStore | null {
+  return warm.get(cacheKey) ?? null;
 }
 
 /**
  * The store for one canvas block. Parsed once, from whichever format the block
  * was written in; written back on a 500ms debounce.
  */
-export function useScene({ source, onChange }: UseSceneOptions): SceneStore {
-  const [store] = useState(() => new SceneStore(source));
+export function useScene({ source, onChange, cacheKey }: UseSceneOptions): SceneStore {
+  const [store] = useState(() => {
+    const held = cacheKey ? warm.get(cacheKey) : null;
+    if (held) {
+      // Move-to-back: the eviction order is least recently mounted.
+      warm.delete(cacheKey!);
+      warm.set(cacheKey!, held);
+      return held;
+    }
+    const made = new SceneStore(source);
+    if (cacheKey) {
+      warm.set(cacheKey, made);
+      for (const [oldest, old] of warm) {
+        if (warm.size <= WARM_MAX) break;
+        warm.delete(oldest);
+        old.dispose();
+      }
+    }
+    return made;
+  });
 
   useEffect(() => {
     store.setWriter(onChange);
@@ -509,6 +553,8 @@ export function useScene({ source, onChange }: UseSceneOptions): SceneStore {
     store.setSource(source);
   }, [store, source]);
 
+  // A cached store still flushes and lets its subscribers go on unmount —
+  // dispose leaves the store itself intact, so reviving it is just mounting.
   useEffect(() => () => store.dispose(), [store]);
 
   return store;
