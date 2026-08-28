@@ -4,6 +4,11 @@ import { useEffect, useRef } from "react";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Doc, Id } from "@/convex/_generated/dataModel";
+import { EntryDomain } from "@/app/lib/history/entryDomain";
+import {
+  undoScope,
+  useWorkspaceHistory,
+} from "@/app/lib/history/useWorkspaceHistory";
 import { Editable } from "./Editable";
 import { Editor } from "./editor/Editor";
 import { useEditorRegistry } from "./editor/EditorRegistry";
@@ -55,6 +60,33 @@ export function PageSurface({
     [],
   );
 
+  // The title's place on the workspace timeline. The row is not in the Y doc —
+  // it persists through a mutation — so each debounce commit records an entry
+  // holding the prior title, and undo writes it back through the same verb.
+  const spine = useWorkspaceHistory();
+  const titleDomainRef = useRef<EntryDomain | null>(null);
+  useEffect(() => {
+    if (!spine) return;
+    const domain = new EntryDomain(spine, `title:${pageId}`);
+    titleDomainRef.current = domain;
+    const unregister = spine.register(`title:${pageId}`, domain, pageId);
+    return () => {
+      titleDomainRef.current = null;
+      unregister();
+    };
+  }, [spine, pageId]);
+  /** The last title this surface knows to be persisted — the entry's "before". */
+  const committedTitle = useRef<string | null>(null);
+  const titleHost = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    committedTitle.current = null;
+  }, [pageId]);
+  useEffect(() => {
+    // Mirror the live row while no edit is pending — an undo, or a rename
+    // from the sidebar, moves the baseline the next entry diffs against.
+    if (page && debounceRef.current === null) committedTitle.current = page.title;
+  });
+
   if (page === undefined) {
     // Mirrors the real column so the title and first paragraphs land in place.
     return (
@@ -81,9 +113,33 @@ export function PageSurface({
     );
   }
 
+  /** Write a title back — an undo or redo landing. The Editable only accepts
+   *  pushed values while unfocused, so a caret sitting in the title lets go. */
+  const restoreTitle = (title: string) => {
+    committedTitle.current = title;
+    const active = document.activeElement;
+    if (
+      active instanceof HTMLElement &&
+      titleHost.current?.contains(active)
+    ) {
+      active.blur();
+    }
+    return rename({ pageId, title }).then(() => {});
+  };
+
   const persistTitle = (text: string) => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => rename({ pageId, title: text }), 400);
+    debounceRef.current = setTimeout(() => {
+      debounceRef.current = null;
+      const before = committedTitle.current ?? "";
+      if (text === before) return;
+      committedTitle.current = text;
+      void rename({ pageId, title: text });
+      titleDomainRef.current?.record({
+        undo: () => restoreTitle(before),
+        redo: () => restoreTitle(text),
+      });
+    }, 400);
   };
 
   return (
@@ -143,6 +199,7 @@ export function PageSurface({
             {page.title || "Untitled"}
           </h1>
         ) : (
+        <div ref={titleHost} className="contents" {...undoScope}>
         <Editable
           value={page.title}
           onInput={persistTitle}
@@ -169,6 +226,7 @@ export function PageSurface({
           label="Page title"
           className="w-full text-[length:var(--text-title)] font-semibold tracking-[-0.02em] text-balance"
         />
+        </div>
         )}
         <div className="mt-8">
           <Editor

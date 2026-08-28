@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { registerSurface } from "@/app/lib/history/surfaceRegistry";
 import { Car, LinkIcon, Search } from "../../Icons";
 import { useReadOnly } from "../readOnly";
 import { embedUrl, isMapsUrl, isShortMapsUrl, linkUrl, parseMapsUrl } from "./maps";
@@ -75,6 +76,17 @@ export function LocationSurface({
   const claim = () => {
     if (!readOnly && has) shell.set({ blockId, location, set });
   };
+
+  // How a focus restore on the workspace timeline re-chooses this card —
+  // including after navigating back to the page it lives on.
+  const claimRef = useRef(claim);
+  useEffect(() => {
+    claimRef.current = claim;
+  });
+  useEffect(() => {
+    if (readOnly) return;
+    return registerSurface(blockId, () => claimRef.current());
+  }, [blockId, readOnly]);
   // The panel edits what the card says NOW, so a card that changes under it
   // republishes — but only when it has actually changed, which is what keeps
   // this from being a loop.

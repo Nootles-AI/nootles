@@ -3,7 +3,7 @@
 import { useEffect, useRef } from "react";
 import { EditorState, Compartment, StateEffect } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
-import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
+import { defaultKeymap, indentWithTab } from "@codemirror/commands";
 import { AI } from "@/app/lib/ai/aiConfig";
 import { eveningExtensions } from "./theme";
 import { codeGhostExtension, setCodeGhost } from "./ghost";
@@ -61,8 +61,11 @@ export function CodeMirrorEditor({
           ...(readOnly
             ? [EditorState.readOnly.of(true), EditorView.editable.of(false)]
             : []),
-          history(),
-          keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
+          // No CodeMirror-local history: code edits persist onto the block
+          // prop and live on the workspace timeline like everything else.
+          // A second stack here meant ⌘Z answered differently depending on
+          // where the caret sat, and the two stacks could ping-pong.
+          keymap.of([...defaultKeymap, indentWithTab]),
           langCompartment.current.of([]),
           codeGhostExtension,
           EditorState.tabSize.of(2),
@@ -92,17 +95,32 @@ export function CodeMirrorEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Reconcile external `value` changes (an AI op, or the same doc edited in
-  // another tab) into the live editor. Our own edits set `lastValue` first, so
-  // they no-op here and leave the caret untouched.
+  // Reconcile external `value` changes (an AI op, an undo landing on the
+  // block prop, the same doc edited in another tab) into the live editor. Our
+  // own edits set `lastValue` first, so they no-op here and leave the caret
+  // untouched. The change is dispatched as the minimal middle — common prefix
+  // and suffix stripped — so the caret maps through it instead of being
+  // thrown by a whole-document replace.
   useEffect(() => {
     const view = viewRef.current;
     if (!view) return;
     if (initialValue === lastValue.current) return;
-    if (initialValue === view.state.doc.toString()) return;
+    const prev = view.state.doc.toString();
+    if (initialValue === prev) return;
     lastValue.current = initialValue;
+    const next = initialValue;
+    let start = 0;
+    while (start < prev.length && start < next.length && prev[start] === next[start]) {
+      start++;
+    }
+    let prevEnd = prev.length;
+    let nextEnd = next.length;
+    while (prevEnd > start && nextEnd > start && prev[prevEnd - 1] === next[nextEnd - 1]) {
+      prevEnd--;
+      nextEnd--;
+    }
     view.dispatch({
-      changes: { from: 0, to: view.state.doc.length, insert: initialValue },
+      changes: { from: start, to: prevEnd, insert: next.slice(start, nextEnd) },
     });
   }, [initialValue]);
 
