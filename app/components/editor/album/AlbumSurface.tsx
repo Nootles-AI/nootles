@@ -276,6 +276,28 @@ export function AlbumSurface({
     span: number;
   } | null>(null);
 
+  /**
+   * A stand-in is spent the moment the document catches up to the commit it
+   * was standing in for.
+   *
+   * `over` covers exactly one render — the one where the write has been made
+   * but the prop has not come round yet. Left standing past that, it also
+   * matches the document going BACK to that source, which is what an undo is:
+   * ⌘Z reverted the album underneath a screen that never changed, and the
+   * next carry then wrote the stale arrangement back, defeating the undo for
+   * good. Retired here, a document that says `over` again is the document
+   * genuinely going back, and it wins.
+   *
+   * The carry's own preview has no `over` — it stands in for a gesture, not
+   * for a write — and is left alone; the drop replaces it.
+   */
+  /* eslint-disable react-hooks/set-state-in-effect */
+  useEffect(() => {
+    if (preview?.over !== undefined && preview.from === source) setPreview(null);
+    if (sizing?.over !== undefined && sizing.from === source) setSizing(null);
+  }, [preview, sizing, source]);
+  /* eslint-enable react-hooks/set-state-in-effect */
+
   const items = useMemo(() => {
     let base = album.items;
     if (preview) {
