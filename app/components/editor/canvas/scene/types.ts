@@ -672,7 +672,21 @@ export type SceneOp =
    * Re-aim one end, or both. Omitting an end leaves it where it was, which is
    * what makes a swap a single op.
    */
-  | { type: "reconnect"; id: EdgeId; from?: NodeId; to?: NodeId };
+  | { type: "reconnect"; id: EdgeId; from?: NodeId; to?: NodeId }
+  /**
+   * The diagram's own fields — canvas size, the surface's `style`, and its
+   * root attributes. Merge semantics throughout, `undefined` removing a
+   * declaration or attribute. An op rather than a block-prop write so the
+   * surface's size and background take the same undoable path as everything
+   * else on it.
+   */
+  | {
+      type: "setDiagram";
+      w?: number;
+      h?: number;
+      style?: StylePatch;
+      attrs?: Record<string, string | undefined>;
+    };
 
 export type SceneOpType = SceneOp["type"];
 

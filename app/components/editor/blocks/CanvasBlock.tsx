@@ -316,7 +316,15 @@ export const canvasBlockSpec = createReactBlockSpec(
       <CanvasBlockView
         blockId={block.id}
         source={block.props.data}
-        onChange={(data) => editor.updateBlock(block.id, { props: { data } })}
+        // Out of the document's history: the diagram's undo is the scene
+        // store's, and a whole-diagram prop write on the text stack would put
+        // the same edit on two ledgers — ⌘Z in prose could pop a drawing.
+        onChange={(data) =>
+          editor.transact((tr) => {
+            tr.setMeta("addToHistory", false);
+            editor.updateBlock(block.id, { props: { data } });
+          })
+        }
         editor={editor as unknown as HostEditor}
         // Text just above the diagram, so completing a shape label can draw on
         // what the page is actually about.

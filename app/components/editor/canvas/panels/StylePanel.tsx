@@ -69,8 +69,8 @@ export type SectionProps = {
 };
 
 /**
- * The diagram's own properties. `SceneOp` addresses nodes and has no root op,
- * so these go back to the canvas surface, which owns the block's source.
+ * The diagram's own properties. Handed back to the canvas surface, which owns
+ * turning them into a `setDiagram` op — the panel never sees the scene root.
  */
 export type DiagramPatch = { w?: number; h?: number; style?: StylePatch };
 
@@ -96,7 +96,7 @@ export function StylePanel({
   onPreviewStyle,
 }: StylePanelProps) {
   const scene = useSceneSnapshot(store);
-  const { run, live, flush } = useHistoryBracket(store);
+  const { run, live } = useHistoryBracket(store);
 
   const nodes = selection.slice();
   const props: SectionProps = {
@@ -125,17 +125,11 @@ export function StylePanel({
   }, [live]);
 
   /**
-   * The diagram's own fields are not ops: they re-serialize the block and come
-   * back through it, and the store defers an incoming source while a bracket is
-   * open. Closing first is what makes the canvas repaint at once.
+   * The diagram's own fields land as a `setDiagram` op through the surface —
+   * inside a live bracket when one is open (a variable recoloured mid-drag
+   * belongs to the drag), its own history entry otherwise.
    */
-  const changeDiagram = useCallback(
-    (patch: DiagramPatch) => {
-      flush();
-      onDiagramChange(patch);
-    },
-    [flush, onDiagramChange],
-  );
+  const changeDiagram = onDiagramChange;
 
   // Colour variables are the diagram's own custom properties, so the surface is
   // both where they are declared and what resolves them for every shape.
@@ -182,9 +176,9 @@ export function StylePanel({
             />
           </LiveEditContext>
         ) : nodes.length === 0 ? (
-            // Deliberately outside the live context: one of these costs a
-            // re-parse of the whole canvas, so it is committed on release — and
-            // previewed in the meantime by the surface, which needs neither.
+            // Deliberately outside the live context: a scrub previews through
+            // the surface's own DOM writes and commits once on release, so the
+            // whole drag is one entry without holding a bracket open.
             <DiagramFields
               scene={scene}
               onChange={changeDiagram}
@@ -269,7 +263,6 @@ const IDLE_MS = 350;
 function useHistoryBracket(store: SceneStore): {
   run: (ops: readonly SceneOp[]) => void;
   live: LiveEdit;
-  flush: () => void;
 } {
   const open = useRef(false);
   /** Gestures currently holding the bracket open. */
@@ -333,11 +326,17 @@ function useHistoryBracket(store: SceneStore): {
     [close],
   );
 
-  const flush = useCallback(() => {
-    if (held.current === 0) close();
-  }, [close]);
+  // An undo landing inside the idle window settles the typing run first, so
+  // the step is not refused for a bracket whose gesture already ended. A
+  // pointer still holding the bracket keeps it — undo mid-drag stays refused.
+  useEffect(
+    () => store.onBeforeStep(() => {
+      if (held.current === 0) close();
+    }),
+    [store, close],
+  );
 
-  return { run, live, flush };
+  return { run, live };
 }
 
 /**

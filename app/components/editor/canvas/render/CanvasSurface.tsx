@@ -84,7 +84,6 @@ import { mintId } from "../scene/ops";
 // A leaf module of pure constants — no cycle, though the surface knows nothing
 // else about storyboards.
 import type { Ratio } from "../../storyboard/types";
-import { serializeScene } from "../scene/serialize";
 import {
   findNode,
   nodePath,
@@ -512,36 +511,30 @@ export function CanvasSurface({
    */
   const picking = tool === "move" || tool === "scale";
 
-  const latest = useRef({ onChange, onApi });
+  const latest = useRef({ onApi });
   // Latest-callback refs: written in an effect, never during render.
   useEffect(() => {
-    latest.current = { onChange, onApi };
+    latest.current = { onApi };
   });
 
   /**
-   * The diagram's own properties, which are the block's source rather than an
-   * op. The store recognises the write coming back and adopts it, so it stays
-   * one undoable step and the scene is never rebuilt behind a live gesture.
+   * The diagram's own properties, as an op like any other — one undoable
+   * entry, and on the shared pipeline one per-key meta write. (These used to
+   * bypass the store and write the block prop directly, which the CRDT
+   * pipeline's frozen seed turned into an edit no history ever saw.)
    */
   const setDiagram = useCallback(
     (patch: DiagramPatch) => {
-      const current = store.getScene();
-      const style = { ...current.style };
-      for (const [prop, value] of Object.entries(patch.style ?? {})) {
-        if (value === undefined) delete style[prop];
-        else style[prop] = value;
-      }
-      const attrs = { ...current.attrs };
+      const attrs: Record<string, string | undefined> = {};
       if (patch.h !== undefined) attrs[HEIGHT_ATTR] = FIXED;
       if (patch.w !== undefined) attrs[WIDTH_ATTR] = FIXED;
-      const next: Scene = {
-        ...current,
-        w: patch.w ?? current.w,
-        h: patch.h ?? current.h,
-        style,
-        attrs,
-      };
-      latest.current.onChange(serializeScene(next), next);
+      store.dispatch({
+        type: "setDiagram",
+        ...(patch.w !== undefined ? { w: patch.w } : {}),
+        ...(patch.h !== undefined ? { h: patch.h } : {}),
+        ...(patch.style ? { style: patch.style } : {}),
+        ...(Object.keys(attrs).length ? { attrs } : {}),
+      });
     },
     [store],
   );
@@ -565,12 +558,8 @@ export function CanvasSurface({
   /** Back to a size the layout derives — double-click on a grip. */
   const fit = useCallback(
     (attr: string) => {
-      const current = store.getScene();
-      if (current.attrs[attr] === undefined) return;
-      const attrs = { ...current.attrs };
-      delete attrs[attr];
-      const next: Scene = { ...current, attrs };
-      latest.current.onChange(serializeScene(next), next);
+      if (store.getScene().attrs[attr] === undefined) return;
+      store.dispatch({ type: "setDiagram", attrs: { [attr]: undefined } });
     },
     [store],
   );

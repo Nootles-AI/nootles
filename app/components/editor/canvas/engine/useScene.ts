@@ -89,6 +89,19 @@ interface HistoryEntry {
   selectionOnly: boolean;
 }
 
+/**
+ * What just happened to this store's history, for anything keeping a parallel
+ * record — the workspace history spine holds one token per entry here, and
+ * these events are what keep the two ledgers the same length.
+ */
+export type SceneHistoryEvent =
+  /** An entry was pushed onto `past`. */
+  | { type: "push"; selectionOnly: boolean }
+  /** The oldest entry fell off the bounded end of `past`. */
+  | { type: "trim" }
+  /** A collaborator's merge reset both stacks. */
+  | { type: "clear" };
+
 export class SceneStore {
   private scene: Scene;
   /** Id → node for the current scene, built on demand and dropped on change. */
@@ -150,6 +163,29 @@ export class SceneStore {
 
   /** Whether a gesture bracket is open — the presence sampler's cue. */
   gesturing = (): boolean => this.depth > 0;
+
+  private historyListeners = new Set<(event: SceneHistoryEvent) => void>();
+  /** Every change to the history ledger, as it happens. */
+  onHistory = (fn: (event: SceneHistoryEvent) => void): (() => void) => {
+    this.historyListeners.add(fn);
+    return () => this.historyListeners.delete(fn);
+  };
+
+  private emitHistory(event: SceneHistoryEvent): void {
+    for (const fn of this.historyListeners) fn(event);
+  }
+
+  private beforeStep = new Set<() => void>();
+  /**
+   * Runs at the top of {@link undo} and {@link redo}, before the depth check —
+   * the chance for an idle-held bracket (a panel's typing run) to settle so
+   * the step is not refused for a gesture that already ended. A live pointer
+   * gesture deliberately does not settle: undo mid-drag stays refused.
+   */
+  onBeforeStep = (fn: () => void): (() => void) => {
+    this.beforeStep.add(fn);
+    return () => this.beforeStep.delete(fn);
+  };
 
   /**
    * Hook the selection into history, so undo and redo rewind it alongside the
@@ -293,14 +329,17 @@ export class SceneStore {
     this.notify();
   };
 
-  undo = (): void => {
-    if (this.depth > 0) return;
-    this.step(this.past, this.future);
+  /** False when refused (mid-gesture) or when there was nothing to step. */
+  undo = (): boolean => {
+    for (const fn of this.beforeStep) fn();
+    if (this.depth > 0) return false;
+    return this.step(this.past, this.future);
   };
 
-  redo = (): void => {
-    if (this.depth > 0) return;
-    this.step(this.future, this.past);
+  redo = (): boolean => {
+    for (const fn of this.beforeStep) fn();
+    if (this.depth > 0) return false;
+    return this.step(this.future, this.past);
   };
 
   // -- Persistence ----------------------------------------------------------
@@ -340,6 +379,7 @@ export class SceneStore {
     this.dirty = false;
     this.past = [];
     this.future = [];
+    this.emitHistory({ type: "clear" });
     this.setScene(migrateLegacyCanvas(source), false);
   };
 
@@ -372,9 +412,9 @@ export class SceneStore {
    * becomes the other stack's next entry, so redo restores the selection an
    * undone change had left behind.
    */
-  private step(from: HistoryEntry[], to: HistoryEntry[]): void {
+  private step(from: HistoryEntry[], to: HistoryEntry[]): boolean {
     const entry = from.pop();
-    if (!entry) return;
+    if (!entry) return false;
     to.push({
       scene: this.scene,
       selection: this.captureSelection(),
@@ -384,6 +424,7 @@ export class SceneStore {
     // `canUndo` and `canRedo` have moved.
     this.setScene(entry.scene, entry.scene !== this.scene);
     entry.selection?.();
+    return true;
   }
 
   private setScene(scene: Scene, persist: boolean): void {
@@ -430,7 +471,11 @@ export class SceneStore {
 
   private push(entry: HistoryEntry): void {
     this.past.push(entry);
-    if (this.past.length > MAX_HISTORY) this.past.shift();
+    this.emitHistory({ type: "push", selectionOnly: entry.selectionOnly });
+    if (this.past.length > MAX_HISTORY) {
+      this.past.shift();
+      this.emitHistory({ type: "trim" });
+    }
   }
 
   private cancelPersist(): void {
