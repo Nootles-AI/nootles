@@ -4,6 +4,7 @@ import type { ConvexReactClient } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { MAX_VIDEO_BYTES, measureVideo, prepareVideo } from "./video";
+import { statsFrom, type ImageStats } from "./stats";
 import type { AlbumItem } from "./types";
 
 /**
@@ -72,8 +73,15 @@ export type Handlers = {
   /** A file has been measured: put an outline down for it. */
   onPending: (pending: Pending) => void;
   onAdvance: (id: string, progress: number, note: string) => void;
-  /** The picture is up. Its outline can go. */
-  onItem: (id: string, item: AlbumItem) => void;
+  /**
+   * The picture is up. Its outline can go.
+   *
+   * `stats` is what the picture looks like, measured off the canvas the
+   * re-encode already drew — free, and the whole of what the agent knows about
+   * an album's colour. Null where nothing could be measured: an animated GIF
+   * passed through untouched, or a video with no poster frame.
+   */
+  onItem: (id: string, item: AlbumItem, stats: ImageStats | null) => void;
   /** It failed, and its outline should go with it. */
   onDrop: (id: string) => void;
   /** Said in words the uploader can act on. */
@@ -121,14 +129,14 @@ export async function ingest(
   if (!taken.length) return;
 
   const ids = taken.map(() => crypto.randomUUID());
-  const results = new Array<AlbumItem | null | undefined>(taken.length);
+  const results = new Array<Prepared | null | undefined>(taken.length);
   let flushed = 0;
 
   /** Hand over everything now complete from the front of the queue. */
   const flush = () => {
     while (flushed < results.length && results[flushed] !== undefined) {
-      const item = results[flushed];
-      if (item) handlers.onItem(ids[flushed], item);
+      const done = results[flushed];
+      if (done) handlers.onItem(ids[flushed], done.item, done.stats);
       else handlers.onDrop(ids[flushed]);
       flushed++;
     }
@@ -170,11 +178,13 @@ type Hooks = {
   advance: (progress: number, note: string) => void;
 };
 
+type Prepared = { item: AlbumItem; stats: ImageStats | null };
+
 async function prepare(
   convex: ConvexReactClient,
   file: File,
   hooks: Hooks,
-): Promise<AlbumItem> {
+): Promise<Prepared> {
   if (file.type.startsWith("video/")) {
     const shape = await measureVideo(file);
     hooks.measured(shape.w, shape.h, "video");
@@ -189,11 +199,16 @@ async function prepare(
       video.poster ? put(convex, video.poster, "image/webp") : null,
     ]);
     return {
-      kind: "video",
-      src,
-      w: video.w,
-      h: video.h,
-      ...(poster ? { poster } : {}),
+      item: {
+        kind: "video",
+        src,
+        w: video.w,
+        h: video.h,
+        ...(poster ? { poster } : {}),
+      },
+      // A film's colour is its first frame's, which is the frame the tile shows
+      // anyway — so what is measured is exactly what an album reads as.
+      stats: video.poster ? await statsOf(video.poster) : null,
     };
   }
 
@@ -201,13 +216,27 @@ async function prepare(
   const src = await put(convex, image.blob, image.type, (fraction) => {
     hooks.advance(fraction, "Uploading");
   });
-  return { kind: "image", src, w: image.w, h: image.h };
+  return {
+    item: { kind: "image", src, w: image.w, h: image.h },
+    stats: image.stats,
+  };
+}
+
+/** Colour off a blob nothing has decoded yet — the video poster's path in. */
+async function statsOf(blob: Blob): Promise<ImageStats | null> {
+  const bitmap = await createImageBitmap(blob).catch(() => null);
+  if (!bitmap) return null;
+  try {
+    return statsFrom(bitmap);
+  } finally {
+    bitmap.close();
+  }
 }
 
 async function prepareImage(
   file: File,
   hooks: Hooks,
-): Promise<{ blob: Blob; type: string; w: number; h: number }> {
+): Promise<{ blob: Blob; type: string; w: number; h: number; stats: ImageStats | null }> {
   // `from-image` is load-bearing: a phone writes the rotation into EXIF rather
   // than into the pixels, and the default here ignores it — every portrait
   // photo would arrive on its side, and its w/h would describe the wrong shape.
@@ -221,13 +250,24 @@ async function prepareImage(
 
     // An animated GIF has nothing to gain and a whole animation to lose.
     if (file.type === "image/gif") {
-      return { blob: file, type: file.type, w: bitmap.width, h: bitmap.height };
+      return {
+        blob: file,
+        type: file.type,
+        w: bitmap.width,
+        h: bitmap.height,
+        stats: statsFrom(bitmap),
+      };
     }
 
     const canvas = document.createElement("canvas");
     canvas.width = w;
     canvas.height = h;
     canvas.getContext("2d")?.drawImage(bitmap, 0, 0, w, h);
+    // Read here, off the canvas that exists anyway, before the encode. It is
+    // the one moment in a picture's life when its pixels are in hand and
+    // same-origin — after this it is a URL on another host, where a canvas
+    // cannot read it back at all.
+    const stats = statsFrom(canvas);
 
     const webp = await new Promise<Blob | null>((resolve) => {
       canvas.toBlob(resolve, "image/webp", IMAGE_QUALITY);
@@ -235,9 +275,9 @@ async function prepareImage(
     // A small, already-tight photo can encode LARGER than it arrived. Keeping
     // the smaller of the two is what stops "compression" adding weight.
     if (!webp || (scale === 1 && webp.size >= file.size)) {
-      return { blob: file, type: file.type, w: bitmap.width, h: bitmap.height };
+      return { blob: file, type: file.type, w: bitmap.width, h: bitmap.height, stats };
     }
-    return { blob: webp, type: "image/webp", w, h };
+    return { blob: webp, type: "image/webp", w, h, stats };
   } finally {
     bitmap.close();
   }

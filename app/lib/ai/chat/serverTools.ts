@@ -7,6 +7,7 @@ import { SHOT_W, shotHeight } from "@/app/components/editor/storyboard/types";
 import { AI } from "../aiConfig";
 import { generateDiagram } from "../diagram";
 import { DEFAULT_DRAW_CHOICE, type DrawChoice } from "../drawStyles";
+import { findImages, imagesConfigured } from "../findImages";
 import { recordAiCall } from "../recordCall";
 import { generateVectorDrawing } from "../vectorDraw";
 import { reason } from "@/app/lib/github";
@@ -72,6 +73,81 @@ export function chatTools(
     open_page: tool(TOOLS.open_page),
     read_open_page: tool(TOOLS.read_open_page),
     edit_page: tool(TOOLS.edit_page),
+    album_edit: tool(TOOLS.album_edit),
+
+    look_at: tool({
+      ...TOOLS.look_at,
+      /**
+       * The one tool whose result is pictures rather than words. The browser
+       * fetches the pictures (a storage URL is a bearer this server has no
+       * session to derive) and hands back inline data; this turns them into the
+       * media parts a provider takes.
+       *
+       * Every other tool's output is a string, and a string is what a provider
+       * will always accept — so if a model here ever refuses media parts, the
+       * fix is to describe the pictures instead, not to change what the browser
+       * sends.
+       */
+      toModelOutput: ({ output }: { output: unknown }) => {
+        const { images } = (output ?? {}) as {
+          images?: { handle: string; dataUri: string; mediaType: string }[];
+        };
+        if (!images?.length) {
+          return { type: "text", value: String((output as { error?: string })?.error ?? "") };
+        }
+        return {
+          type: "content",
+          value: images.flatMap((image) => [
+            { type: "text" as const, text: `${image.handle}:` },
+            {
+              type: "image-data" as const,
+              // Base64 only. The browser hands back a whole data URI because
+              // that is what a FileReader gives it; the prefix is the wrapper,
+              // not the picture.
+              data: image.dataUri.slice(image.dataUri.indexOf(",") + 1),
+              mediaType: image.mediaType,
+            },
+          ]),
+        };
+      },
+    }),
+
+    find_images: tool({
+      ...TOOLS.find_images,
+      execute: async ({ query, count, orientation, colour }, { abortSignal }) => {
+        if (!imagesConfigured()) {
+          throw new Error(
+            "Image search is not configured here (no UNSPLASH_ACCESS_KEY), so " +
+              "there is no way to find pictures on the web. Say so plainly — do " +
+              "not write an <img src> of your own, which would be a picture that " +
+              "does not exist.",
+          );
+        }
+        const found = await findImages(
+          query,
+          { ...(count ? { count } : {}), ...(orientation ? { orientation } : {}), ...(colour ? { colour } : {}) },
+          abortSignal,
+        );
+        if (!found.length) {
+          throw new Error(
+            `Nothing found for "${query}". Try describing the look differently — ` +
+              "a mood and a subject find pictures where a long list of nouns does not.",
+          );
+        }
+        // The row is what `album_edit`'s add op redeems, and the only place the
+        // picture's address exists. Written before the model is told the ref,
+        // so a ref it is given always resolves.
+        await convex.mutation(api.ai.found.put, { found });
+        return found.map(({ ref, w, h, alt, hex, credit }) => ({
+          ref,
+          w,
+          h,
+          alt,
+          hex,
+          credit,
+        }));
+      },
+    }),
 
     draw: tool({
       ...TOOLS.draw,

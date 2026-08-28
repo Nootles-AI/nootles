@@ -248,12 +248,13 @@ function projectBlock(
       // Counted rather than listed. A picture's line would be its storage URL,
       // which tells the model nothing it can act on and costs it a line each;
       // what it needs to know is that this block is pictures, and how many.
-      const { items } = parseAlbum(String(block.props.data ?? ""));
+      const { items, cols } = parseAlbum(String(block.props.data ?? ""));
       const photos = items.filter((i) => i.kind === "image").length;
       const videos = items.length - photos;
       const parts = [
         ...(photos ? [`${photos} photo${photos === 1 ? "" : "s"}`] : []),
         ...(videos ? [`${videos} video${videos === 1 ? "" : "s"}`] : []),
+        ...(cols ? [`${cols} columns`] : []),
       ];
       push(`${id} album (${parts.join(", ") || "empty"})`);
       break;

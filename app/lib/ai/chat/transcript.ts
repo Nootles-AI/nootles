@@ -34,6 +34,10 @@ const PAGE_SNAPSHOTS: ReadonlySet<string> = new Set([
   "read_page",
   "read_open_page",
   "edit_page",
+  // The album index is a page read by another name, and goes stale the same
+  // way: a reorder renames nothing, but a re-cut picture takes a new handle
+  // and a removed one leaves a handle that answers to nothing.
+  "album_edit",
 ]);
 
 /**

@@ -13,6 +13,7 @@ import {
 } from "react";
 import { flushSync } from "react-dom";
 import { useConvex } from "convex/react";
+import { api } from "@/convex/_generated/api";
 import {
   ChevronsLeftRight,
   ChevronsRightLeft,
@@ -27,6 +28,8 @@ import { Tooltip } from "@/app/components/Tooltip";
 import { useMediaQuery } from "@/app/lib/useMediaQuery";
 import { useReadOnly } from "../readOnly";
 import { Lightbox } from "./Lightbox";
+import { handlesFor, indexByHandle } from "./handle";
+import { applyAlbumOps, type AlbumOp } from "./ops";
 import { parseAlbum } from "./parse";
 import { serializeAlbum } from "./serialize";
 import { ALBUM_ACCEPT, ingest, type Pending } from "./upload";
@@ -127,29 +130,6 @@ function watchPlayback(entries: IntersectionObserverEntry[]): void {
   }
 }
 
-/** One column wide is the default, and a default is written by omission. */
-function withSpan(item: AlbumItem, span: number): AlbumItem {
-  const { span: _wasSpan, ...rest } = item;
-  return span > 1 ? { ...rest, span } : rest;
-}
-
-/**
- * A name per picture that survives the round trip through the document.
- *
- * The source, which is unique per upload; the suffix covers the one case it can
- * repeat, which is markup naming the same picture twice. Object identity cannot
- * do this job — every commit re-serializes the album and the prop comes back to
- * be parsed again, so every object is replaced each time.
- */
-function namesOf(items: readonly AlbumItem[]): string[] {
-  const seen = new Map<string, number>();
-  return items.map((item) => {
-    const n = seen.get(item.src) ?? 0;
-    seen.set(item.src, n + 1);
-    return n ? `${item.src}#${n}` : item.src;
-  });
-}
-
 export function AlbumSurface({
   source,
   onChange,
@@ -186,6 +166,22 @@ export function AlbumSurface({
     latest.current(text);
     return text;
   }, []);
+
+  /**
+   * A change said in the shared vocabulary — the same seven verbs the agent's
+   * `album_edit` writes, applied by the same function (`ops.ts`). The bar's
+   * buttons and a tool call are then not two paths that must be kept in step;
+   * they are one path with two callers.
+   *
+   * The carry in `grab` is the one exception, and deliberately: what it commits
+   * is the arrangement already on screen, settled by the packer under the
+   * pointer, and re-deriving that through a reorder would be a longer way of
+   * writing down the list it is already holding.
+   */
+  const run = useCallback(
+    (...ops: AlbumOp[]) => applyAlbumOps(view.current, ops).album,
+    [],
+  );
 
   // Measured, not derived: the column count follows the room the block was
   // given, and only the element knows what that is. Read before paint, so the
@@ -290,7 +286,7 @@ export function AlbumSurface({
     return base.map((item, i) => (i === sizing.at ? { ...item, span: sizing.span } : item));
   }, [preview, sizing, source, album.items, carry]);
 
-  const names = useMemo(() => namesOf(items), [items]);
+  const names = useMemo(() => handlesFor(items), [items]);
 
   // Painted in list order but MOUNTED in a fixed one: React must never move
   // these DOM nodes, because moving a node kills its in-flight transition —
@@ -332,22 +328,28 @@ export function AlbumSurface({
           setPending((list) =>
             list.map((item) => (item.id === id ? { ...item, progress, note } : item)),
           ),
-        onItem: (id, item) => {
-          commit({ ...view.current, items: [...view.current.items, item] });
+        onItem: (id, item, stats) => {
+          commit(run({ op: "add", items: [item] }));
           setPending((list) => list.filter((waiting) => waiting.id !== id));
+          // What the picture looks like, measured off the canvas the re-encode
+          // already drew. Written beside the picture rather than into it, and
+          // fire-and-forget: an index that does not land costs the agent a
+          // captioning call later, and costs the person uploading nothing.
+          if (stats) {
+            void convex
+              .mutation(api.imageMeta.put, { entries: [{ src: item.src, ...stats }] })
+              .catch(() => {});
+          }
         },
         onDrop: (id) => setPending((list) => list.filter((waiting) => waiting.id !== id)),
         onError: setRefused,
       });
     },
-    [convex, commit, readOnly],
+    [convex, commit, run, readOnly],
   );
 
   const remove = (index: number) => {
-    commit({
-      ...view.current,
-      items: view.current.items.filter((_, i) => i !== index),
-    });
+    commit(run({ op: "remove", items: [names[index]] }));
   };
 
   /**
@@ -523,13 +525,12 @@ export function AlbumSurface({
   const pin = (delta: number) => {
     const next = Math.min(most, Math.max(1, columns + delta));
     if (next === columns) return;
-    commit({ ...view.current, cols: next });
+    commit(run({ op: "grid", cols: next }));
   };
 
   /** Back to as many as the width holds, written by omission. */
   const unpin = () => {
-    const { cols: _pinned, ...rest } = view.current;
-    commit(rest);
+    commit(run({ op: "grid", cols: null }));
   };
 
   /** A new order nobody chose — re-dealt until it is actually new. */
@@ -537,20 +538,18 @@ export function AlbumSurface({
     const held = view.current.items;
     if (held.length < 2) return;
     const before = serializeAlbum(view.current);
-    let list = held;
+    const handles = handlesFor(held);
+    let dealt = view.current;
     for (let tries = 0; tries < 8; tries++) {
-      list = [...held];
-      for (let i = list.length - 1; i > 0; i--) {
+      const order = [...handles];
+      for (let i = order.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
-        [list[i], list[j]] = [list[j], list[i]];
+        [order[i], order[j]] = [order[j], order[i]];
       }
-      if (serializeAlbum({ ...view.current, items: list }) !== before) break;
+      dealt = run({ op: "order", items: order });
+      if (serializeAlbum(dealt) !== before) break;
     }
-    setPreview({
-      from: commit({ ...view.current, items: list }),
-      over: source,
-      items: list,
-    });
+    setPreview({ from: commit(dealt), over: source, items: dealt.items });
   };
 
   /**
@@ -559,39 +558,16 @@ export function AlbumSurface({
    * every later cut, and dropped again the moment the original is restored.
    */
   const replace = (index: number, next: AlbumItem) => {
-    const was = view.current.items[index];
-    if (!was) return;
-    const origin =
-      was.of ??
-      ({
-        src: was.src,
-        w: was.w,
-        h: was.h,
-        ...(was.poster ? { poster: was.poster } : {}),
-      } satisfies AlbumItem["of"]);
-    const kept = view.current.items.map((item, i) =>
-      i === index
-        ? {
-            ...next,
-            ...(was.span ? { span: was.span } : {}),
-            ...(next.src === origin.src ? {} : { of: origin }),
-          }
-        : item,
-    );
-    commit({ ...view.current, items: kept });
+    if (!view.current.items[index]) return;
+    commit(run({ op: "replace", item: names[index], with: next }));
   };
 
   /** One document position per press, committed — the tiles glide to answer. */
   const move = (index: number, to: number) => {
     if (to < 0 || to >= view.current.items.length) return;
-    const list = [...view.current.items];
-    list.splice(to, 0, ...list.splice(index, 1));
-    setPreview({
-      from: commit({ ...view.current, items: list }),
-      over: source,
-      items: list,
-    });
-    setSaid(`Moved to position ${to + 1} of ${list.length}`);
+    const moved = run({ op: "move", item: names[index], to });
+    setPreview({ from: commit(moved), over: source, items: moved.items });
+    setSaid(`Moved to position ${to + 1} of ${moved.items.length}`);
   };
 
   /**
@@ -604,18 +580,18 @@ export function AlbumSurface({
    * its own confirmation, which no elastic on a handle ever quite was.
    */
   const resize = (index: number, delta: number) => {
-    const item = view.current.items[index];
+    // By handle, like the op below it. A step is relative to the width the
+    // picture is ALREADY drawn at, and during a preview the picture at this
+    // position is not the one the document has there.
+    const item = view.current.items[indexByHandle(view.current.items).get(names[index]) ?? -1];
     if (!item) return;
     const wide = Math.min(columns, item.span ?? 1);
     const span = Math.min(columns, Math.max(1, wide + delta));
     if (span === wide) return;
-    const resized = view.current.items.map((it, i) =>
-      i === index ? withSpan(it, span) : it,
-    );
     // Keyed like the reorder's preview: the new width shows now, and stands in
     // for the render the commit takes to come back as the prop.
     setSizing({
-      from: commit({ ...view.current, items: resized }),
+      from: commit(run({ op: "span", item: names[index], cols: span })),
       over: source,
       at: index,
       span,
@@ -657,16 +633,14 @@ export function AlbumSurface({
       () => {
         if (!took) return;
         setFitting(false);
-        const { cols: _unpinned, ...rest } = view.current;
-        commit({ ...rest, w: next });
+        commit(run({ op: "grid", width: next, cols: null }));
       },
     );
   };
 
   const fit = () => {
-    const { w: _w, cols: _cols, ...rest } = view.current;
     if (wrap.current) wrap.current.style.width = "";
-    commit(rest);
+    commit(run({ op: "grid", width: null, cols: null }));
   };
 
   const empty = items.length === 0 && pending.length === 0;

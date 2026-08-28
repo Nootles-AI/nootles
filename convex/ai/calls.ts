@@ -18,6 +18,7 @@ export const record = mutation({
       v.literal("chat"),
       v.literal("categorize"),
       v.literal("feedback"),
+      v.literal("album"),
     ),
     model: v.string(),
     promptTokens: v.optional(v.number()),

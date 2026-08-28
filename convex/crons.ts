@@ -34,6 +34,14 @@ crons.interval(
   {},
 );
 
+/** The same story for pictures find_images turned up and nobody added. */
+crons.interval(
+  "purge stale found images",
+  { hours: 6 },
+  internal.ai.found.purgeStale,
+  {},
+);
+
 /**
  * The AI substrate's two write-only tables, past the window anything reads
  * them over. Both sweeps take a bounded bite and are frequent enough that a
