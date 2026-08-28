@@ -1,14 +1,8 @@
 import { mutation, query, type MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import { readVisible, requireEditable } from "./auth";
-import {
-  clonePage,
-  endOrder,
-  folderIn,
-  levelOf,
-  removePageCascade,
-} from "./pages";
+import { isTrashed, readVisible, requireEditable } from "./auth";
+import { clonePage, endOrder, folderIn, levelOf } from "./pages";
 import { refreshPageSummary } from "./projects";
 import { rowIcon } from "./schema";
 
@@ -19,34 +13,42 @@ import { rowIcon } from "./schema";
  * folder is `tree.move`'s job, the same verb that moves a page.
  */
 
+/** The project's LIVE folders — trashed rows read as missing here too. */
 async function projectFolders(
   ctx: MutationCtx,
   projectId: Id<"projects">,
 ): Promise<Doc<"folders">[]> {
-  return await ctx.db
-    .query("folders")
-    .withIndex("by_project", (q) => q.eq("projectId", projectId))
-    .collect();
+  return (
+    await ctx.db
+      .query("folders")
+      .withIndex("by_project", (q) => q.eq("projectId", projectId))
+      .collect()
+  ).filter((f) => !isTrashed(f));
 }
 
+/** The project's LIVE pages. */
 async function projectPages(
   ctx: MutationCtx,
   projectId: Id<"projects">,
 ): Promise<Doc<"pages">[]> {
-  return await ctx.db
-    .query("pages")
-    .withIndex("by_project", (q) => q.eq("projectId", projectId))
-    .collect();
+  return (
+    await ctx.db
+      .query("pages")
+      .withIndex("by_project", (q) => q.eq("projectId", projectId))
+      .collect()
+  ).filter((p) => !isTrashed(p));
 }
 
 export const listByProject = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
     if (!(await readVisible(ctx, "projects", args.projectId))) return [];
-    return await ctx.db
-      .query("folders")
-      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
-      .collect();
+    return (
+      await ctx.db
+        .query("folders")
+        .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+        .collect()
+    ).filter((f) => !isTrashed(f));
   },
 });
 
@@ -97,26 +99,33 @@ export const setIcon = mutation({
 });
 
 /**
- * Deletes a folder and everything below it — subfolders, and every page they
- * hold with the full page cascade. Irreversible; the UI confirms first.
+ * Deletes a folder and everything below it — softly, subfolders and pages
+ * stamped rather than destroyed, so the whole subtree comes back from one
+ * restore. Rows already in the trash keep their own earlier stamp: restoring
+ * this delete must not resurrect what a previous one took.
+ *
+ * Returns exactly what it marked, in the shape `trash.restore` takes.
  */
 export const remove = mutation({
   args: { folderId: v.id("folders") },
   handler: async (ctx, args) => {
     const folder = await requireEditable(ctx, "folders", args.folderId);
-    await removeFolderCascade(ctx, folder);
+    const affected = await softRemoveFolderCascade(ctx, folder);
     await refreshPageSummary(ctx, folder.projectId);
+    return affected;
   },
 });
 
 /**
- * The cascade itself, shared with `tree.copyTo` (whose move half deletes what
- * it has copied). Caller has authorized the folder.
+ * The soft cascade, shared with `tree.copyTo` (whose move half trashes what
+ * it has copied). Caller has authorized the folder. Only LIVE descendants are
+ * marked — {@link projectFolders} and {@link projectPages} filter — which is
+ * what keeps each delete's undo scoped to that delete.
  */
-export async function removeFolderCascade(
+export async function softRemoveFolderCascade(
   ctx: MutationCtx,
   folder: Doc<"folders">,
-) {
+): Promise<{ pages: Id<"pages">[]; folders: Id<"folders">[] }> {
   const all = await projectFolders(ctx, folder.projectId);
 
   const doomed = new Set<Id<"folders">>([folder._id]);
@@ -131,13 +140,16 @@ export async function removeFolderCascade(
     }
   }
 
-  const pages = await projectPages(ctx, folder.projectId);
-  for (const page of pages) {
+  const now = Date.now();
+  const pages: Id<"pages">[] = [];
+  for (const page of await projectPages(ctx, folder.projectId)) {
     if (page.folderId && doomed.has(page.folderId)) {
-      await removePageCascade(ctx, page);
+      await ctx.db.patch(page._id, { deletedAt: now });
+      pages.push(page._id);
     }
   }
-  for (const id of doomed) await ctx.db.delete(id);
+  for (const id of doomed) await ctx.db.patch(id, { deletedAt: now });
+  return { pages, folders: [...doomed] };
 }
 
 /**

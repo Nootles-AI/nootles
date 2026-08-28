@@ -47,6 +47,12 @@ crons.interval(
  * them over. Both sweeps take a bounded bite and are frequent enough that a
  * busy account's backlog drains between them.
  */
+/**
+ * Soft-deleted pages, folders and projects past their restore window — the
+ * moment a delete becomes the irreversible one it used to be immediately.
+ */
+crons.interval("purge the trash", { hours: 24 }, internal.trash.purge, {});
+
 crons.interval("prune the op log", { hours: 1 }, internal.ai.opLog.purgeOld, {});
 crons.interval(
   "prune old checkpoints",

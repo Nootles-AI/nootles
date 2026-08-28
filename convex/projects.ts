@@ -4,6 +4,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { v } from "convex/values";
 import {
   ownerId as currentOwner,
+  isTrashed,
   projectRole,
   readVisible,
   requireOwned,
@@ -46,10 +47,12 @@ async function pageSummary(ctx: QueryCtx, project: Doc<"projects">) {
   }
   // Ordered by the index, so the first row is the page the sidebar shows at
   // the top — the one a thumbnail of "this project" should be of.
-  const pages = await ctx.db
-    .query("pages")
-    .withIndex("by_project", (q) => q.eq("projectId", project._id))
-    .collect();
+  const pages = (
+    await ctx.db
+      .query("pages")
+      .withIndex("by_project", (q) => q.eq("projectId", project._id))
+      .collect()
+  ).filter((p) => !isTrashed(p));
   return {
     pageCount: pages.length,
     firstPageDocId: pages[0]?.docId ?? null,
@@ -71,10 +74,12 @@ export async function refreshPageSummary(
 ) {
   const project = await ctx.db.get(projectId);
   if (!project) return;
-  const pages = await ctx.db
-    .query("pages")
-    .withIndex("by_project", (q) => q.eq("projectId", projectId))
-    .collect();
+  const pages = (
+    await ctx.db
+      .query("pages")
+      .withIndex("by_project", (q) => q.eq("projectId", projectId))
+      .collect()
+  ).filter((p) => !isTrashed(p));
   await ctx.db.patch(projectId, {
     pageCount: pages.length,
     firstPageDocId: pages[0]?.docId,
@@ -107,11 +112,13 @@ export const list = query({
   handler: async (ctx) => {
     const owner = await currentOwner(ctx);
     if (!owner) return [];
-    return await ctx.db
-      .query("projects")
-      .withIndex("by_owner", (q) => q.eq("ownerId", owner))
-      .order("desc")
-      .collect();
+    return (
+      await ctx.db
+        .query("projects")
+        .withIndex("by_owner", (q) => q.eq("ownerId", owner))
+        .order("desc")
+        .collect()
+    ).filter((p) => !isTrashed(p));
   },
 });
 
@@ -150,7 +157,7 @@ export const sharedWithMe = query({
     const rows = await Promise.all(
       claims.map(async (claim) => {
         const project = await ctx.db.get(claim.projectId);
-        if (!project) return null;
+        if (!project || isTrashed(project)) return null;
         const role = await roleForProject(ctx, project);
         // "owner" would mean a stray claim on the caller's own project —
         // already listed under "mine", so here it would only duplicate it
@@ -261,10 +268,12 @@ export const listForScreen = query({
   handler: async (ctx) => {
     const owner = await currentOwner(ctx);
     if (!owner) return [];
-    const projects = await ctx.db
-      .query("projects")
-      .withIndex("by_owner", (q) => q.eq("ownerId", owner))
-      .collect();
+    const projects = (
+      await ctx.db
+        .query("projects")
+        .withIndex("by_owner", (q) => q.eq("ownerId", owner))
+        .collect()
+    ).filter((p) => !isTrashed(p));
 
     const rows = await Promise.all(
       projects.map(async (p) => ({ ...p, ...(await pageSummary(ctx, p)) })),
@@ -285,20 +294,29 @@ export const rename = mutation({
 });
 
 /**
- * Deletes a project and everything hanging off it. The hierarchy is bounded
- * (project → page → its substrate rows) so this terminates, but it is a lot of
- * rows: a very large project could approach Convex's per-mutation write limit,
- * at which point this needs to become a paginated action.
- *
- * Irreversible — the UI asks for confirmation before calling it.
+ * Deletes a project — softly, one stamp on the row. Every read resolves
+ * through the project (`auth.ts`), so its pages, folders and conversations
+ * all vanish with it and all come back with `trash.restore`. The purge cron
+ * runs {@link purgeProject} once retention passes.
  */
 export const remove = mutation({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
     await requireOwned(ctx, "projects", args.projectId);
+    await ctx.db.patch(args.projectId, { deletedAt: Date.now() });
+  },
+});
+
+/**
+ * The hard cascade, now the purge's. The hierarchy is bounded (project → page
+ * → its substrate rows) so this terminates, but it is a lot of rows: a very
+ * large project could approach Convex's per-mutation write limit, at which
+ * point this needs to become a paginated action.
+ */
+export async function purgeProject(ctx: MutationCtx, projectId: Id<"projects">) {
     const pages = await ctx.db
       .query("pages")
-      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+      .withIndex("by_project", (q) => q.eq("projectId", projectId))
       .collect();
 
     for (const page of pages) {
@@ -316,7 +334,7 @@ export const remove = mutation({
     for (const table of ["contextSheet", "projectRepos", "folders"] as const) {
       const rows = await ctx.db
         .query(table)
-        .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+        .withIndex("by_project", (q) => q.eq("projectId", projectId))
         .collect();
       await Promise.all(rows.map((r) => ctx.db.delete(r._id)));
     }
@@ -326,7 +344,7 @@ export const remove = mutation({
     // awaiting an answer — so orphaned ones would accumulate for good.
     const threads = await ctx.db
       .query("chatThreads")
-      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+      .withIndex("by_project", (q) => q.eq("projectId", projectId))
       .collect();
     for (const thread of threads) {
       for (const table of ["chatMessages", "chatTurns"] as const) {
@@ -339,6 +357,5 @@ export const remove = mutation({
       await ctx.db.delete(thread._id);
     }
 
-    await ctx.db.delete(args.projectId);
-  },
-});
+    await ctx.db.delete(projectId);
+}

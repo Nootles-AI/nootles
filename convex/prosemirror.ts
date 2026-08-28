@@ -2,7 +2,7 @@ import { components } from "./_generated/api";
 import { ProsemirrorSync } from "@convex-dev/prosemirror-sync";
 import type { DataModel } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { roleForProject } from "./auth";
+import { isTrashed, roleForProject } from "./auth";
 
 /**
  * Collaborative sync for each page's block flow. The client (BlockNote) talks to
@@ -38,9 +38,9 @@ export async function pageForDoc(ctx: QueryCtx, id: string) {
  */
 export async function checkRead(ctx: QueryCtx, id: string) {
   const page = await pageForDoc(ctx, id);
-  if (!page) throw new Error("Not found");
+  if (!page || isTrashed(page)) throw new Error("Not found");
   const project = await ctx.db.get(page.projectId);
-  if (!project) throw new Error("Not found");
+  if (!project || isTrashed(project)) throw new Error("Not found");
   if (await roleForProject(ctx, project)) return;
   if (project.shareToken || project.editShareToken) return;
   throw new Error("Not found");
@@ -49,9 +49,9 @@ export async function checkRead(ctx: QueryCtx, id: string) {
 /** Writes need a writing role — the owner, or an editor-link claimant. */
 export async function checkWrite(ctx: QueryCtx, id: string) {
   const page = await pageForDoc(ctx, id);
-  if (!page) throw new Error("Not found");
+  if (!page || isTrashed(page)) throw new Error("Not found");
   const project = await ctx.db.get(page.projectId);
-  if (!project) throw new Error("Not found");
+  if (!project || isTrashed(project)) throw new Error("Not found");
   const role = await roleForProject(ctx, project);
   if (role !== "owner" && role !== "editor") throw new Error("Not found");
 }

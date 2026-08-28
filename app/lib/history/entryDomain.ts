@@ -12,8 +12,10 @@ import type { DomainStep, UndoDomain, WorkspaceHistory } from "./spine";
  * timeline wedged on a failing network call.
  */
 export interface HistoryEntry {
-  undo(): void | Promise<void>;
-  redo(): void | Promise<void>;
+  /** May return a promise — awaited before the step counts. The value itself
+   *  is ignored, so a mutation's own return rides through unwrapped. */
+  undo(): unknown;
+  redo(): unknown;
 }
 
 export class EntryDomain implements UndoDomain {

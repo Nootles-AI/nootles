@@ -60,18 +60,18 @@ export function PageSurface({
     [],
   );
 
-  // The title's place on the workspace timeline. The row is not in the Y doc —
-  // it persists through a mutation — so each debounce commit records an entry
-  // holding the prior title, and undo writes it back through the same verb.
+  // The page row's place on the workspace timeline — its title and its mode
+  // persist through mutations, not the Y doc, so each commit records an entry
+  // holding the prior value, and undo writes it back through the same verb.
   const spine = useWorkspaceHistory();
-  const titleDomainRef = useRef<EntryDomain | null>(null);
+  const pageDomainRef = useRef<EntryDomain | null>(null);
   useEffect(() => {
     if (!spine) return;
-    const domain = new EntryDomain(spine, `title:${pageId}`);
-    titleDomainRef.current = domain;
-    const unregister = spine.register(`title:${pageId}`, domain, pageId);
+    const domain = new EntryDomain(spine, `page:${pageId}`);
+    pageDomainRef.current = domain;
+    const unregister = spine.register(`page:${pageId}`, domain, pageId);
     return () => {
-      titleDomainRef.current = null;
+      pageDomainRef.current = null;
       unregister();
     };
   }, [spine, pageId]);
@@ -135,7 +135,7 @@ export function PageSurface({
       if (text === before) return;
       committedTitle.current = text;
       void rename({ pageId, title: text });
-      titleDomainRef.current?.record({
+      pageDomainRef.current?.record({
         undo: () => restoreTitle(before),
         redo: () => restoreTitle(text),
       });
@@ -180,7 +180,15 @@ export function PageSurface({
           {!readOnly && (
             <ModeToggle
               mode={(page.mode ?? "create") as PageMode}
-              onChange={(mode) => setMode({ pageId, mode })}
+              onChange={(mode) => {
+                const before = (page.mode ?? "create") as PageMode;
+                if (mode === before) return;
+                void setMode({ pageId, mode });
+                pageDomainRef.current?.record({
+                  undo: () => setMode({ pageId, mode: before }),
+                  redo: () => setMode({ pageId, mode }),
+                });
+              }}
             />
           )}
           {pane === "aside" && (

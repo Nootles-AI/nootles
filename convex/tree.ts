@@ -1,15 +1,9 @@
 import { mutation, type MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import { readVisible, requireEditable } from "./auth";
-import { cloneFolder, removeFolderCascade } from "./folders";
-import {
-  clonePage,
-  folderIn,
-  levelOf,
-  placeBetween,
-  removePageCascade,
-} from "./pages";
+import { isTrashed, readVisible, requireEditable } from "./auth";
+import { cloneFolder, softRemoveFolderCascade } from "./folders";
+import { clonePage, folderIn, levelOf, placeBetween } from "./pages";
 import { refreshPageSummary } from "./projects";
 
 /**
@@ -88,10 +82,12 @@ export const move = mutation({
       throw new Error("Not found");
     }
 
-    const folders = await ctx.db
-      .query("folders")
-      .withIndex("by_project", (q) => q.eq("projectId", projectId))
-      .collect();
+    const folders = (
+      await ctx.db
+        .query("folders")
+        .withIndex("by_project", (q) => q.eq("projectId", projectId))
+        .collect()
+    ).filter((f) => !isTrashed(f));
     if (args.parentId) {
       await folderIn(ctx, projectId, args.parentId);
       // Every carried folder is checked: a group is only as legal as its worst
@@ -103,10 +99,12 @@ export const move = mutation({
       }
     }
 
-    const pages = await ctx.db
-      .query("pages")
-      .withIndex("by_project", (q) => q.eq("projectId", projectId))
-      .collect();
+    const pages = (
+      await ctx.db
+        .query("pages")
+        .withIndex("by_project", (q) => q.eq("projectId", projectId))
+        .collect()
+    ).filter((p) => !isTrashed(p));
     const carried = new Set<string>(args.items.map((i) => i.id));
     const rest = levelOf(folders, pages, args.parentId ?? null).filter(
       (r) => !carried.has(r._id),
@@ -121,6 +119,23 @@ export const move = mutation({
           : null;
 
     const orders = placeBetween(rest, anchor, moving.length);
+    // Where each row stood, returned so the sidebar's undo entry can hand it
+    // straight back to `place`.
+    const prior = moving.map((m) =>
+      m.kind === "page"
+        ? {
+            kind: "page" as const,
+            id: m.doc._id,
+            parentId: m.doc.folderId,
+            order: m.doc.order,
+          }
+        : {
+            kind: "folder" as const,
+            id: m.doc._id,
+            parentId: m.doc.parentId,
+            order: m.doc.order,
+          },
+    );
     for (const [i, m] of moving.entries()) {
       if (m.kind === "page") {
         await ctx.db.patch(m.doc._id, {
@@ -136,20 +151,72 @@ export const move = mutation({
     }
     // A reorder can change which page is first — the summary's preview.
     await refreshPageSummary(ctx, projectId);
+    return prior;
   },
 });
 
-/** A project's whole tree, as {@link cloneFolder} recurses over it. */
+/**
+ * Puts rows back where they stood — the inverse `move` returns, and undo
+ * replays. Explicit placements rather than an anchor, because the anchor a
+ * move was made against may itself have moved since.
+ */
+export const place = mutation({
+  args: {
+    items: v.array(
+      v.union(
+        v.object({
+          kind: v.literal("page"),
+          id: v.id("pages"),
+          parentId: v.optional(v.id("folders")),
+          order: v.number(),
+        }),
+        v.object({
+          kind: v.literal("folder"),
+          id: v.id("folders"),
+          parentId: v.optional(v.id("folders")),
+          order: v.number(),
+        }),
+      ),
+    ),
+  },
+  handler: async (ctx, args) => {
+    let projectId: Id<"projects"> | null = null;
+    for (const item of args.items) {
+      if (item.kind === "page") {
+        const page = await requireEditable(ctx, "pages", item.id);
+        projectId = page.projectId;
+        await ctx.db.patch(item.id, {
+          folderId: item.parentId,
+          order: item.order,
+        });
+      } else {
+        const folder = await requireEditable(ctx, "folders", item.id);
+        projectId = folder.projectId;
+        await ctx.db.patch(item.id, {
+          parentId: item.parentId,
+          order: item.order,
+        });
+      }
+    }
+    if (projectId) await refreshPageSummary(ctx, projectId);
+  },
+});
+
+/** A project's whole LIVE tree, as {@link cloneFolder} recurses over it. */
 async function treeRows(ctx: MutationCtx, projectId: Id<"projects">) {
   return {
-    folders: await ctx.db
-      .query("folders")
-      .withIndex("by_project", (q) => q.eq("projectId", projectId))
-      .collect(),
-    pages: await ctx.db
-      .query("pages")
-      .withIndex("by_project", (q) => q.eq("projectId", projectId))
-      .collect(),
+    folders: (
+      await ctx.db
+        .query("folders")
+        .withIndex("by_project", (q) => q.eq("projectId", projectId))
+        .collect()
+    ).filter((f) => !isTrashed(f)),
+    pages: (
+      await ctx.db
+        .query("pages")
+        .withIndex("by_project", (q) => q.eq("projectId", projectId))
+        .collect()
+    ).filter((p) => !isTrashed(p)),
   };
 }
 
@@ -225,13 +292,18 @@ export const copyTo = mutation({
     const orders = placeBetween(siblings, "end", sources.length);
     const home = { projectId: args.projectId, ownerId: project.ownerId };
 
+    const created: (
+      | { kind: "page"; id: Id<"pages"> }
+      | { kind: "folder"; id: Id<"folders"> }
+    )[] = [];
     for (const [i, src] of sources.entries()) {
       const placed = { title: src.doc.title, order: orders[i] };
       if (src.kind === "page") {
-        await clonePage(ctx, src.doc, args.folderId, placed, home);
+        const id = await clonePage(ctx, src.doc, args.folderId, placed, home);
+        created.push({ kind: "page", id });
       } else {
         const tree = await treeOf(src.doc.projectId);
-        await cloneFolder(
+        const id = await cloneFolder(
           ctx,
           tree.folders,
           tree.pages,
@@ -240,19 +312,30 @@ export const copyTo = mutation({
           placed,
           home,
         );
+        created.push({ kind: "folder", id });
       }
     }
 
+    const removed: { pages: Id<"pages">[]; folders: Id<"folders">[] } = {
+      pages: [],
+      folders: [],
+    };
     if (args.move) {
       // Re-read before each delete: a group may overlap itself — a folder and
       // a row inside it — and the first cascade may have taken the second.
       for (const src of sources) {
+        const live = await ctx.db.get(src.doc._id);
+        if (!live || isTrashed(live)) continue;
         if (src.kind === "page") {
-          const live = await ctx.db.get(src.doc._id);
-          if (live) await removePageCascade(ctx, live);
+          await ctx.db.patch(src.doc._id, { deletedAt: Date.now() });
+          removed.pages.push(src.doc._id as Id<"pages">);
         } else {
-          const live = await ctx.db.get(src.doc._id);
-          if (live) await removeFolderCascade(ctx, live);
+          const affected = await softRemoveFolderCascade(
+            ctx,
+            live as Doc<"folders">,
+          );
+          removed.pages.push(...affected.pages);
+          removed.folders.push(...affected.folders);
         }
       }
     }
@@ -265,5 +348,8 @@ export const copyTo = mutation({
         if (projectId !== args.projectId) await refreshPageSummary(ctx, projectId);
       }
     }
+    // What landed and what the cut spent — the undo entry restores `removed`
+    // and re-trashes `created`.
+    return { created, removed };
   },
 });
