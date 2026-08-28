@@ -134,6 +134,8 @@ export const move = mutation({
         });
       }
     }
+    // A reorder can change which page is first — the summary's preview.
+    await refreshPageSummary(ctx, projectId);
   },
 });
 
