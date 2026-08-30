@@ -33,12 +33,24 @@ const jwks = JSON.stringify({
   keys: [{ ...jwk, kid, use: "sig", alg: "RS256" }],
 });
 
+/** Both variables, for one deployment. Never mix a key across deployments. */
+const commands = (flag) =>
+  [
+    `  npx convex env set ${flag}IMPERSONATION_PRIVATE_KEY -- ${JSON.stringify(pem)}`,
+    "",
+    `  npx convex env set ${flag}IMPERSONATION_JWKS -- ${JSON.stringify(jwks)}`,
+  ].join("\n");
+
 process.stdout.write(
   [
-    "Set both on ONE Convex deployment (add --prod for production):",
+    "A fresh keypair. Run BOTH commands from one block, and only one block —",
+    "a key is per-deployment, and mixing them means tokens that never verify.",
     "",
-    `  npx convex env set IMPERSONATION_PRIVATE_KEY -- ${JSON.stringify(pem)}`,
-    `  npx convex env set IMPERSONATION_JWKS -- ${JSON.stringify(jwks)}`,
+    "── PRODUCTION ─────────────────────────────────────────────────────────",
+    commands("--prod "),
+    "",
+    "── DEV ────────────────────────────────────────────────────────────────",
+    commands(""),
     "",
     "The private half is a master key: it can mint a session for any user.",
     "Do not commit it, and do not paste it anywhere it will be logged.",
