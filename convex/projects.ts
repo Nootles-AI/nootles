@@ -13,6 +13,7 @@ import {
   standInActor,
 } from "./auth";
 import { ABOUT, BACKGROUND } from "./ai/questions";
+import { requireQuota } from "./entitlements";
 import { add as addRepos } from "./github/repos";
 import { repoRef } from "./schema";
 
@@ -211,6 +212,10 @@ export const create = mutation({
   },
   handler: async (ctx, args) => {
     const ownerId = await requireOwner(ctx);
+    // The free plan's project limit. Deliberately not in `onboarding.ts`: the
+    // tutorial's seeded project is the one project everybody gets regardless,
+    // and metering it would mean a new account walked into a wall on arrival.
+    await requireQuota(ctx, ownerId, "projects");
     const now = Date.now();
     const projectId = await ctx.db.insert("projects", {
       ownerId,

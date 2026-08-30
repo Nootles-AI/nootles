@@ -9,6 +9,8 @@ import { Id } from "@/convex/_generated/dataModel";
 import { track } from "@/app/lib/telemetry";
 import { GridView, ListView, MoreHorizontal, Plus } from "./Icons";
 import { AccountMenu } from "./AccountMenu";
+import { PlanWall } from "./billing/PlanWall";
+import { usePlan } from "@/app/lib/usePlan";
 import { Brandmark } from "./Brand";
 import { ConfirmDeleteDialog } from "./ConfirmDelete";
 import { ContextMenu } from "./ContextMenu";
@@ -59,7 +61,9 @@ export function ProjectsScreen() {
     null,
   );
   const [naming, setNaming] = useState(false);
+  const [walled, setWalled] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
+  const { room } = usePlan();
 
   // Restore the persisted view on the client. The default renders first so SSR
   // and the first client render agree; set-state-in-effect is correct here.
@@ -183,9 +187,12 @@ export function ProjectsScreen() {
           {/* Nothing here belongs to a project, so no role gates it — an
               operator standing in would be offered a button the server is
               about to refuse. */}
+          {/* The button never disappears when the free projects are gone — it
+              opens the wall instead. An affordance that vanishes reads as a
+              bug; one that explains itself reads as a limit. */}
           {!standIn && (
             <button
-              onClick={() => setNaming(true)}
+              onClick={() => (room("projects") ? setNaming(true) : setWalled(true))}
               className="nt-row gap-1.5 bg-sunken px-3 font-medium"
             >
               <Plus width={14} height={14} />
@@ -320,6 +327,8 @@ export function ProjectsScreen() {
       {naming && (
         <NewProjectDialog onCancel={() => setNaming(false)} onCreate={create} />
       )}
+
+      {walled && <PlanWall meter="projects" onClose={() => setWalled(false)} />}
 
       {confirming && (
         <ConfirmDeleteDialog

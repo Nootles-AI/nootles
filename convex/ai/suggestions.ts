@@ -8,6 +8,7 @@ import {
   requireOwned,
   requireOwner,
 } from "../auth";
+import { spendMeter } from "../entitlements";
 
 /**
  * Telemetry for the ambient suggestion pipeline. Every proposal that reaches
@@ -86,6 +87,12 @@ export const log = mutation({
       ...capped(args),
       createdAt: Date.now(),
     });
+    if (args.outcome === "accepted") {
+      // The free allowance is spent by KEEPING a suggestion, not by being
+      // offered one — a completion nobody took is not something to charge for.
+      // The cost guard is elsewhere, on generation, in `/api/complete`.
+      await spendMeter(ctx, ownerId, "completions");
+    }
     if (args.outcome === "accepted" && args.acceptedText && args.blockIds?.length) {
       await ctx.scheduler.runAfter(
         SURVIVAL_DELAY_MS,

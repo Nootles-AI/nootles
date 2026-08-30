@@ -31,6 +31,8 @@ import {
 import type { AbMessage } from "@/app/lib/ai/chat/types";
 import { recordAiCall } from "@/app/lib/ai/recordCall";
 import { asUser } from "@/app/lib/convexServer";
+import { quotaResponse } from "@/app/lib/entitlementGate";
+import { isQuotaRefusal } from "@/convex/entitlements";
 import { sessionToken } from "@/app/lib/session";
 
 /**
@@ -56,10 +58,11 @@ export async function POST(req: Request) {
     return new Response("Invalid JSON", { status: 400 });
   }
 
-  const { messages, projectId, pageId, drawStyle } = (body ?? {}) as {
+  const { messages, projectId, pageId, threadId, drawStyle } = (body ?? {}) as {
     messages?: AbMessage[];
     projectId?: Id<"projects">;
     pageId?: Id<"pages">;
+    threadId?: Id<"chatThreads">;
     drawStyle?: unknown;
   };
   if (!Array.isArray(messages)) {
@@ -67,6 +70,13 @@ export async function POST(req: Request) {
   }
   if (!projectId) {
     return new Response("`projectId` is required", { status: 400 });
+  }
+  // Required, not optional: it is what the conversation is charged against, and
+  // a turn the allowance cannot see is a turn that spends the key for free. The
+  // composer always has a thread by the time it sends — it queues the first
+  // draft until one exists (`ChatPanel`) — so nothing legitimate arrives without.
+  if (!threadId) {
+    return new Response("`threadId` is required", { status: 400 });
   }
 
   // A call whose result never arrived — an abandoned turn, a closed tab — is
@@ -97,6 +107,18 @@ export async function POST(req: Request) {
   const spent = budget <= 0 && !answeringApproval(messages);
 
   const convex = asUser(token);
+
+  // Charges the conversation against the free allowance, once, and refuses when
+  // there is none left. Idempotent, which matters here: one turn is several
+  // requests as client tools are answered, and only the first is a new
+  // conversation. Ahead of the model, so a refusal costs nothing.
+  try {
+    await convex.mutation(api.entitlements.beginChat, { threadId });
+  } catch (e) {
+    if (isQuotaRefusal(e)) return quotaResponse("chats");
+    throw e;
+  }
+
   // What the user said this project is. Read per request rather than per turn
   // because the sheet is a living thing, and it is one round trip: without it
   // the agent writes into every project as if it were the same project.

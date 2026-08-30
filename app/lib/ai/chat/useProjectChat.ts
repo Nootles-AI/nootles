@@ -175,6 +175,11 @@ export function useProjectChat({
             messages,
             projectId: latest.current.projectId,
             pageId: latest.current.pageId,
+            // What the conversation is charged against. Bound like `persist`'s
+            // copy rather than read from `latest`: a request must be billed to
+            // the thread that sent it, not to whichever one is open when it
+            // lands.
+            threadId: boundThreadId,
             // The style the picker settled, if any turn here has drawn: the
             // approved draw calls execute on the resume request, and this is
             // how the route knows what the user chose.

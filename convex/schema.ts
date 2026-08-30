@@ -883,6 +883,147 @@ export default defineSchema({
     createdAt: v.number(),
   }).index("by_project", ["projectId"]),
 
+  // ---- Billing & entitlements ---------------------------------------------
+
+  /**
+   * What an account may do, and how much of the free allowance it has spent.
+   *
+   * One row per account, created lazily on the first thing that needs to be
+   * counted — so its absence means "free, untouched" rather than an error, the
+   * same way a missing `profiles` row means "new account".
+   *
+   * `vip` is the operator's override and outranks everything, including a
+   * lapsed subscription: it is how a friend, an investor or a support case gets
+   * in without money changing hands. It is written only from `adminBilling.ts`,
+   * and `vipNote` is required there because an unexplained free account is
+   * indistinguishable from a mistake six months later.
+   *
+   * The two counters are here rather than derived from `suggestionLog` and
+   * `chatThreads` because both of those grow without bound and the meters are
+   * read on the hot path of every completion. Projects are NOT counted here —
+   * they are counted live off the `by_owner` index, since a stored count drifts
+   * against trash and restore.
+   */
+  billingAccounts: defineTable({
+    ownerId: v.string(),
+    /** Operator override — a complete pass, outranking every other source. */
+    vip: v.optional(v.boolean()),
+    /** Why, in the operator's words. Required whenever `vip` is turned on. */
+    vipNote: v.optional(v.string()),
+    vipSetAt: v.optional(v.number()),
+    /** Which operator session set it — the audit trail, as `impersonations` keeps one. */
+    vipSetBy: v.optional(v.id("adminSessions")),
+    /** Suggestions this account has ACCEPTED. Offers are free; keeping one is not. */
+    acceptedCompletions: v.number(),
+    /** Threads that have actually reached the model. See `chatThreads.billedAt`. */
+    chatConversations: v.number(),
+    /**
+     * Where this account met the paywall, and what it did next.
+     *
+     * Recorded because the interesting number is not how many people pay, it
+     * is how many were STOPPED and then did not — that difference is the only
+     * evidence about whether the free run is too thin, too generous, or
+     * stopping people at the wrong thing. Which wall it was matters for the
+     * same reason: being cut off mid-conversation and running out of projects
+     * are different arguments about the price.
+     */
+    walls: v.optional(
+      v.object({
+        firstAt: v.number(),
+        lastAt: v.number(),
+        /** How many times each wall was shown. */
+        projects: v.number(),
+        completions: v.number(),
+        chats: v.number(),
+      }),
+    ),
+    /**
+     * When they last opened Stripe's checkout, and how many times. Set on the
+     * way OUT to Stripe, so it counts intent rather than payment — an account
+     * with a checkout and no subscription is somebody who looked at the price
+     * and stopped, which is the most useful row on the whole dashboard.
+     */
+    checkoutAt: v.optional(v.number()),
+    checkouts: v.optional(v.number()),
+    /**
+     * The Stripe customer, mirrored here so ops can reach a person's billing
+     * without a round trip through the component's tables.
+     */
+    stripeCustomerId: v.optional(v.string()),
+    /**
+     * The subscription as Stripe last reported it, mirrored by the webhook.
+     *
+     * Mirrored rather than read live from the component on every access check:
+     * this is consulted on the hot path of every completion, and a webhook that
+     * is briefly behind is a far smaller problem than an entitlement read that
+     * has to join another component's tables to answer at all. Absent = this
+     * account has never subscribed.
+     */
+    subscription: v.optional(
+      v.object({
+        /** Stripe's own status word, stored verbatim — see `entitlements.ts`. */
+        status: v.string(),
+        interval: v.union(v.literal("month"), v.literal("year")),
+        /** Paid through this instant; a cancellation still runs to here. */
+        currentPeriodEnd: v.number(),
+        cancelAtPeriodEnd: v.boolean(),
+        priceId: v.string(),
+        subscriptionId: v.string(),
+        updatedAt: v.number(),
+      }),
+    ),
+    createdAt: v.number(),
+  }).index("by_owner", ["ownerId"]),
+
+  /**
+   * Codes that grant free access — the operator's way to let someone in
+   * without a card. Deliberately NOT Stripe's promotion codes: those discount a
+   * price, and this table is for the case where no money moves at all, which
+   * Stripe has no representation for.
+   *
+   * Two independent lifetimes, which is the part worth reading twice:
+   * `expiresAt` is when the CODE stops being redeemable, and `durationDays` is
+   * how long the GRANT lasts once someone has redeemed it. A launch code can be
+   * open for a week and grant a year; a reviewer code can be open forever and
+   * grant a month.
+   */
+  accessCodes: defineTable({
+    /** Uppercase and unique. Compared case-insensitively at redeem. */
+    code: v.string(),
+    /** What this code is for, in the operator's words — shown in ops only. */
+    label: v.string(),
+    /** How many people may redeem it; absent = unlimited. */
+    maxRedemptions: v.optional(v.number()),
+    /** Kept on the row so the cap is one read rather than a scan of redemptions. */
+    redemptions: v.number(),
+    /** How long the grant lasts once redeemed; absent = permanent. */
+    durationDays: v.optional(v.number()),
+    /** When the code stops being redeemable; absent = never. */
+    expiresAt: v.optional(v.number()),
+    /** Set = withdrawn. Existing grants survive — revoking a code is not a clawback. */
+    disabledAt: v.optional(v.number()),
+    createdAt: v.number(),
+  }).index("by_code", ["code"]),
+
+  /**
+   * One row per person per code. Both the record of who got in for free and
+   * the lock that stops a code being redeemed twice by the same account.
+   *
+   * `expiresAt` is copied from the code's `durationDays` at redemption rather
+   * than recomputed, so shortening a code later cannot retroactively cut short
+   * a grant somebody is already holding.
+   */
+  codeRedemptions: defineTable({
+    codeId: v.id("accessCodes"),
+    ownerId: v.string(),
+    redeemedAt: v.number(),
+    /** When this grant lapses; absent = permanent. */
+    expiresAt: v.optional(v.number()),
+  })
+    .index("by_owner", ["ownerId"])
+    .index("by_code", ["codeId"])
+    .index("by_owner_and_code", ["ownerId", "codeId"]),
+
   // ---- GitHub -------------------------------------------------------------
 
   /**
@@ -991,6 +1132,15 @@ export default defineSchema({
     ownerId: v.string(),
     projectId: v.id("projects"),
     title: v.string(),
+    /**
+     * When this thread first reached the model, and so when it was charged
+     * against the free allowance. Present is the idempotency key: a thread is
+     * counted once however long the conversation runs, and one already counted
+     * keeps working after the allowance is gone — a wall in the middle of a
+     * conversation would punish the person for continuing to talk. A thread
+     * opened and abandoned never reaches here and costs nothing.
+     */
+    billedAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_project", ["projectId", "updatedAt"]),
