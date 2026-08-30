@@ -73,9 +73,12 @@ function Banner({ token }: { token: string }) {
   return (
     <div className="nt-imp" role="status">
       <span className="nt-imp-dot" aria-hidden />
-      <span>
-        Viewing as <strong>{who?.email ?? who?.name ?? who?.subject ?? "…"}</strong> —
-        read-only
+      {/* The label is resolved server-side — name, then address, then a short
+          form of the id — so this and the ops dashboard name a person the
+          same way. `title` keeps the full subject reachable without spending
+          the banner's one line on it. */}
+      <span title={who?.subject}>
+        Viewing as <strong>{who?.label ?? "…"}</strong> — read-only
       </span>
       <span className="nt-imp-left">{Math.max(0, Math.ceil(remaining / 60000))}m left</span>
       <button className="nt-imp-end" onClick={end}>

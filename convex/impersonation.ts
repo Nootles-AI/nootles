@@ -65,11 +65,26 @@ export const begin = internalMutation({
 });
 
 /**
+ * The id as a person-sized handle. The same form the ops dashboard's
+ * `shortUser` shows, so a nameless account reads identically on both ends —
+ * an operator should not have to match a 32-character string by eye to know
+ * they landed on the account they clicked.
+ */
+function shortSubject(subject: string): string {
+  return subject.replace(/^user_/, "").slice(0, 8);
+}
+
+/**
  * Whose account this session is looking at, or null when it is your own.
  *
  * Runs as the stood-in identity, so it reads their profile the ordinary way.
  * The app asks this to draw the banner — the token itself is what the server
  * believes, and nothing here is trusted for access.
+ *
+ * `label` is the single answer to "who is this", resolved here rather than in
+ * the banner so there is one ordering to change. `.trim() ||` rather than
+ * `??`: a profile stamped with an empty string is as nameless as one never
+ * stamped at all, and `??` would put that empty string in the banner.
  */
 export const current = query({
   args: {},
@@ -78,8 +93,7 @@ export const current = query({
     v.object({
       subject: v.string(),
       actor: v.string(),
-      email: v.union(v.string(), v.null()),
-      name: v.union(v.string(), v.null()),
+      label: v.string(),
     }),
   ),
   handler: async (ctx) => {
@@ -93,8 +107,10 @@ export const current = query({
     return {
       subject: identity.subject,
       actor,
-      email: profile?.email ?? null,
-      name: profile?.name ?? null,
+      label:
+        profile?.name?.trim() ||
+        profile?.email?.trim() ||
+        shortSubject(identity.subject),
     };
   },
 });

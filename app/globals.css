@@ -2977,8 +2977,20 @@ body:has(.nt-review-bar) .nt-sampler {
   box-shadow: 0 6px 20px oklch(0.25 0.005 90 / 0.18);
   font-size: var(--text-ui);
   animation: nt-menu-in var(--dur) var(--ease);
+  /* A label is a name, an address, or a short id — and an address can be
+     long. The pill gives way before the viewport does. */
+  max-width: min(92vw, 620px);
+}
+.nt-imp strong {
+  display: inline-block;
+  max-width: 24ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
 }
 .nt-imp-dot {
+  flex-shrink: 0;
   width: 6px;
   height: 6px;
   border-radius: 999px;
@@ -2987,8 +2999,10 @@ body:has(.nt-review-bar) .nt-sampler {
 .nt-imp-left {
   opacity: 0.6;
   font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
 }
 .nt-imp-end {
+  flex-shrink: 0;
   padding: 3px 12px;
   border-radius: 999px;
   border: 1px solid color-mix(in oklab, var(--background) 35%, transparent);
