@@ -10,6 +10,8 @@ import { ChatReviewBar } from "./chat/ChatReviewBar";
 import { ChatTranscript, type RewindScope } from "./chat/ChatTranscript";
 import { ThreadPicker } from "./chat/ThreadPicker";
 import { useReview } from "./ReviewContext";
+import { PlanWall } from "./billing/PlanWall";
+import { usePlan } from "@/app/lib/usePlan";
 import { useProjectChat, type ChatDraft } from "@/app/lib/ai/chat/useProjectChat";
 import type { AbMessage } from "@/app/lib/ai/chat/types";
 import type { ReturnPoint } from "@/app/lib/ai/review/session";
@@ -32,6 +34,8 @@ export function ChatPanel({
 
   const [picked, setPicked] = useState<Id<"chatThreads"> | null>(null);
   const [picking, setPicking] = useState(false);
+  const [walled, setWalled] = useState(false);
+  const { room } = usePlan();
   /**
    * A rewind being decided: which message it winds back to, what it covers, and
    * where each page stood before it was previewed. Nothing here has happened to
@@ -72,6 +76,14 @@ export function ChatPanel({
   const active = threads?.find((t) => t._id === threadId);
 
   const onSend = async (draft: ChatDraft) => {
+    // The wall is here rather than on the New chat button, because that is
+    // where the charge is: a conversation costs an allowance slot when it
+    // first reaches the model, so opening an empty thread and closing it is
+    // free, and one already paid for keeps going whatever is left.
+    if (!room("chats") && active?.billedAt === undefined) {
+      setWalled(true);
+      return;
+    }
     if (!threadId) {
       queued.current = draft;
       setPicked(await createThread({ projectId }));
@@ -195,6 +207,8 @@ export function ChatPanel({
         onSend={onSend}
         onStop={chat.stop}
       />
+
+      {walled && <PlanWall meter="chats" onClose={() => setWalled(false)} />}
     </aside>
   );
 }

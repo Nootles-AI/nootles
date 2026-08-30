@@ -8,7 +8,9 @@
  * @module
  */
 
+import type * as accessCodes from "../accessCodes.js";
 import type * as admin from "../admin.js";
+import type * as adminBilling from "../adminBilling.js";
 import type * as ai_calls from "../ai/calls.js";
 import type * as ai_checkpoints from "../ai/checkpoints.js";
 import type * as ai_context from "../ai/context.js";
@@ -20,6 +22,7 @@ import type * as ai_questions from "../ai/questions.js";
 import type * as ai_suggestions from "../ai/suggestions.js";
 import type * as albums from "../albums.js";
 import type * as auth from "../auth.js";
+import type * as billing from "../billing.js";
 import type * as chat_attachments from "../chat/attachments.js";
 import type * as chat_messages from "../chat/messages.js";
 import type * as chat_threads from "../chat/threads.js";
@@ -27,6 +30,7 @@ import type * as chat_turns from "../chat/turns.js";
 import type * as counters from "../counters.js";
 import type * as crons from "../crons.js";
 import type * as devSeed from "../devSeed.js";
+import type * as entitlements from "../entitlements.js";
 import type * as feedback from "../feedback.js";
 import type * as files_context from "../files/context.js";
 import type * as files_extract from "../files/extract.js";
@@ -65,7 +69,9 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  accessCodes: typeof accessCodes;
   admin: typeof admin;
+  adminBilling: typeof adminBilling;
   "ai/calls": typeof ai_calls;
   "ai/checkpoints": typeof ai_checkpoints;
   "ai/context": typeof ai_context;
@@ -77,6 +83,7 @@ declare const fullApi: ApiFromModules<{
   "ai/suggestions": typeof ai_suggestions;
   albums: typeof albums;
   auth: typeof auth;
+  billing: typeof billing;
   "chat/attachments": typeof chat_attachments;
   "chat/messages": typeof chat_messages;
   "chat/threads": typeof chat_threads;
@@ -84,6 +91,7 @@ declare const fullApi: ApiFromModules<{
   counters: typeof counters;
   crons: typeof crons;
   devSeed: typeof devSeed;
+  entitlements: typeof entitlements;
   feedback: typeof feedback;
   "files/context": typeof files_context;
   "files/extract": typeof files_extract;
@@ -144,4 +152,5 @@ export declare const internal: FilterApi<
 
 export declare const components: {
   prosemirrorSync: import("@convex-dev/prosemirror-sync/_generated/component.js").ComponentApi<"prosemirrorSync">;
+  stripe: import("@convex-dev/stripe/_generated/component.js").ComponentApi<"stripe">;
 };

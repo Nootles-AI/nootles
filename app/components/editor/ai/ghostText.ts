@@ -319,7 +319,12 @@ export function ghostTextPlugin(): Plugin<Suggestion> {
           // something to say. A chip next to streaming ghost text reads as two
           // competing suggestions rather than one, and a chip that can only
           // manage "Apply suggestion" is a control with no subject.
-          const pending = s.batch === null;
+          // "Pending" means there is nothing for Tab to do YET — which is the
+          // same test `setAction` and `acceptSuggestion` already apply: a
+          // suggestion is actionable with a finished batch OR an `onAccept`.
+          // Reading only `batch` here drew a chip as still-generating when its
+          // `onAccept` was standing by, ready and unannounced.
+          const pending = s.batch === null && !s.onAccept;
           decos.push(
             Decoration.widget(s.pos, chipWidget(s.label, pending), {
               side: 1,

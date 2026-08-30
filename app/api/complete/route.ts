@@ -2,6 +2,7 @@ import { AI } from "@/app/lib/ai/aiConfig";
 import { streamFim } from "@/app/lib/ai/fim";
 import { recordAiCall } from "@/app/lib/ai/recordCall";
 import { asUser } from "@/app/lib/convexServer";
+import { refuseIfSpent } from "@/app/lib/entitlementGate";
 import { sessionToken } from "@/app/lib/session";
 
 /**
@@ -17,6 +18,12 @@ import { sessionToken } from "@/app/lib/session";
 export async function POST(req: Request) {
   const token = await sessionToken();
   if (!token) return new Response("Unauthorized", { status: 401 });
+
+  // Ahead of the model, not after it: the meter is charged when a suggestion is
+  // KEPT, so this is the only place that stops a client streaming completions
+  // it never accepts. See `entitlementGate`.
+  const spent = await refuseIfSpent(token, "completions");
+  if (spent) return spent;
 
   let body: unknown;
   try {

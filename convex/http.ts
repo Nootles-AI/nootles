@@ -1,4 +1,6 @@
 import { httpRouter } from "convex/server";
+import { registerRoutes } from "@convex-dev/stripe";
+import { components, internal } from "./_generated/api";
 import { httpAction } from "./_generated/server";
 
 /**
@@ -52,6 +54,32 @@ http.route({
     // then fails to verify, which is the right posture for a missing key.
     json(JSON.parse(process.env.IMPERSONATION_JWKS ?? '{"keys":[]}')),
   ),
+});
+
+/**
+ * Stripe's webhook.
+ *
+ * The component verifies the signature and keeps its own tables in step with
+ * Stripe; the handler below runs after that and copies the result onto the
+ * account, where `entitlements.ts` reads it. Mirroring rather than joining
+ * keeps the entitlement read local — it is on the hot path of every completion
+ * — and a handler that throws returns 500, which Stripe retries, so the two
+ * copies converge rather than drift.
+ *
+ * `onEvent` rather than a list of subscription events: an invoice paid, a
+ * payment recovered and a plan changed all move where an account stands, and
+ * enumerating which ones do is a list that would go stale silently. Re-reading
+ * one account is cheap enough not to need the distinction.
+ */
+registerRoutes(http, components.stripe, {
+  onEvent: async (ctx, event) => {
+    const object = event.data.object as { metadata?: Record<string, string> };
+    // Written by `billing.startCheckout` as `subscriptionMetadata`, which is
+    // also how the component links its own rows to a user.
+    const userId = object.metadata?.userId;
+    if (!userId) return;
+    await ctx.runMutation(internal.billing.mirrorSubscription, { userId });
+  },
 });
 
 export default http;

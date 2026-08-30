@@ -45,6 +45,7 @@ import { track } from "@/app/lib/telemetry";
 import { serializeStoryboard } from "./storyboard/serialize";
 import { emptyStoryboard } from "./storyboard/types";
 import { useTabCompletion, type PageMode } from "./ai/useTabCompletion";
+import { PlanWall } from "../billing/PlanWall";
 import { useReformat } from "./ai/useReformat";
 import { ReformatBar } from "./ai/ReformatBar";
 import { arrivalFlashExtension } from "./arrivalFlash";
@@ -611,7 +612,7 @@ function EditorSurface({
   const readOnly = useReadOnly();
 
   useRegisterEditor(pageId, editor, docId, pipeline);
-  useTabCompletion(readOnly ? null : editor, pageId, title, mode, docId);
+  const completion = useTabCompletion(readOnly ? null : editor, pageId, title, mode, docId);
   const reformat = useReformat(readOnly ? null : editor, pageId);
 
   // The document is one domain on the workspace history spine — Yjs only;
@@ -690,6 +691,11 @@ function EditorSurface({
           )}
         </BlockNoteView>
       </div>
+      {/* Raised by Tab on the out-of-completions chip — the wall is drawn
+          here rather than by the lane, which has no render of its own. */}
+      {completion.walled && (
+        <PlanWall meter="completions" onClose={completion.dismissWall} />
+      )}
       {!readOnly && pageId && <ReviewOverlay editor={editor} pageId={pageId} />}
       {!readOnly && reformat.state && (
         <ReformatBar

@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { BlockNoteEditor } from "@blocknote/core";
 import * as Sentry from "@sentry/nextjs";
 import { useMutation } from "convex/react";
 import { track } from "@/app/lib/telemetry";
+import { usePlan } from "@/app/lib/usePlan";
 import { noteDismissal } from "@/app/components/feedback/sampler";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
@@ -544,6 +545,20 @@ export function useTabCompletion(
   /** The sync doc, so an accept can announce itself to collaborators. */
   docId?: string,
 ) {
+  const { left } = usePlan();
+  /**
+   * The wall this lane raises, held here and drawn by the editor.
+   *
+   * Not a redirect and not a toast: the suggestion the user reached for is
+   * replaced by the reason there isn't one, and Tab — the key they were
+   * already pressing — is what asks about it.
+   */
+  const [walled, setWalled] = useState(false);
+  const spentRef = useRef(false);
+  useEffect(() => {
+    spentRef.current = left !== null && left.completions === 0;
+  });
+
   const appendBatch = useMutation(api.ai.opLog.appendBatch);
   const logSuggestion = useMutation(api.ai.suggestions.log);
   const logTurnedDown = useMutation(api.ai.suggestions.logMany);
@@ -568,6 +583,13 @@ export function useTabCompletion(
   useEffect(() => {
     if (!editor) return;
     let timer: ReturnType<typeof setTimeout> | null = null;
+    /**
+     * Whether the out-of-completions chip has already been offered on this
+     * page. Scoped to the effect, so it resets when the page changes — the
+     * sentence is worth saying once per document, not once per pause and not
+     * once ever.
+     */
+    let wallOffered = false;
     let abort: AbortController | null = null;
     /**
      * A diagram the user accepted mid-flight, still being written into.
@@ -1090,6 +1112,32 @@ export function useTabCompletion(
     const run = async (mySeq: number) => {
       const ctx = context();
       if (!ctx) return;
+
+      /**
+       * Out of free completions: say so where the completion would have been.
+       *
+       * The alternative — the lane simply going quiet — is the worst of the
+       * three walls, because nothing was refused out loud. The editor would
+       * just get worse, and a feature that silently stops working reads as a
+       * bug rather than as a limit. So the chip takes the suggestion's place
+       * and Tab, which is the key they were already reaching for, opens the
+       * plans. No model is called, so being out costs nothing to say.
+       *
+       * Once per visit to a page. It is a fact about the account, not news,
+       * and repeating it at every pause would be nagging somebody inside their
+       * own document.
+       */
+      if (spentRef.current) {
+        const v = view();
+        if (!v || wallOffered) return;
+        wallOffered = true;
+        setAction(v, {
+          label: "Free completions used up",
+          batch: null,
+          onAccept: () => setWalled(true),
+        });
+        return;
+      }
       // Before any model output is parsed, never after: an <nt-icon> the
       // registry cannot resolve yet would land as a placeholder.
       await loadIconCatalog();
@@ -1601,4 +1649,6 @@ export function useTabCompletion(
       setDismissHandler(null);
     };
   }, [editor, pageId, title, mode, docId]);
+
+  return { walled, dismissWall: useCallback(() => setWalled(false), []) };
 }

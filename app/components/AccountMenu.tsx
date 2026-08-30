@@ -1,6 +1,8 @@
 "use client";
 
 import { useClerk, useUser } from "@clerk/nextjs";
+import { useRouter } from "next/navigation";
+import { usePlan } from "@/app/lib/usePlan";
 import { Menu, MenuItem } from "./Menu";
 
 /** First letter of whatever we know them by — name, else the email. */
@@ -20,6 +22,8 @@ function initial(name: string | null | undefined, email: string | undefined) {
 export function AccountMenu() {
   const { user, isLoaded } = useUser();
   const { signOut } = useClerk();
+  const router = useRouter();
+  const { entitlement: plan } = usePlan();
 
   // Nothing rather than an empty circle: this sits in a header, and a element
   // that changes size on load moves the things next to it.
@@ -43,8 +47,26 @@ export function AccountMenu() {
         <>
           <div className="nt-menu-caption">
             <span className="nt-row-label">{label}</span>
+            {/* Where the free run stands, said in the one place the account
+                already lives. A limit nobody can look up before they hit it is
+                a limit that arrives as an accusation. */}
+            {plan && (
+              <span className="nt-note mt-0.5 block">
+                {plan.left === null
+                  ? "Pro"
+                  : `Free · ${plan.left.completions} completions, ${plan.left.chats} chats left`}
+              </span>
+            )}
           </div>
           <div className="nt-menu-sep" />
+          <MenuItem
+            onClick={() => {
+              close();
+              router.push("/upgrade");
+            }}
+          >
+            {plan?.left === null ? "Plan & billing" : "Upgrade to Pro"}
+          </MenuItem>
           <MenuItem
             onClick={() => {
               close();

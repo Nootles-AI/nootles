@@ -165,3 +165,47 @@ export const interleaveSidebarRows = internalMutation({
     return { projects: batch.page.length, patched, done: batch.isDone };
   },
 });
+
+/**
+ * Marks every conversation that already exists as paid for.
+ *
+ * The chat meter charges a thread the first time it reaches the model, and
+ * `billedAt` is what records that it has been charged. Threads written before
+ * the paywall existed carry no stamp, so without this the first message
+ * somebody sends in a conversation they have been having for weeks would spend
+ * one of their ten free slots — charging them, retroactively, for something
+ * that was free when they did it.
+ *
+ * Stamped with the thread's own `createdAt` rather than now, so the record says
+ * when the conversation started rather than when this ran.
+ *
+ * Run ONCE, immediately before or after the paywall deploys; either side is
+ * fine, since a thread stamped here and a thread stamped by `beginChat` are
+ * indistinguishable afterwards. Idempotent — a second run finds nothing left
+ * unstamped and patches nothing.
+ */
+export const grandfatherChatThreads = internalMutation({
+  args: { cursor: v.optional(v.string()) },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ seen: number; stamped: number; done: boolean; cursor: string | null }> => {
+    const batch = await ctx.db
+      .query("chatThreads")
+      .paginate({ numItems: BATCH, cursor: args.cursor ?? null });
+
+    let stamped = 0;
+    for (const thread of batch.page) {
+      if (thread.billedAt !== undefined) continue;
+      await ctx.db.patch(thread._id, { billedAt: thread.createdAt });
+      stamped += 1;
+    }
+
+    return {
+      seen: batch.page.length,
+      stamped,
+      done: batch.isDone,
+      cursor: batch.isDone ? null : batch.continueCursor,
+    };
+  },
+});
