@@ -1,3 +1,4 @@
+import { ConvexError } from "convex/values";
 import type { Auth, UserIdentity } from "convex/server";
 import type { Doc, Id, TableNames } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
@@ -45,7 +46,14 @@ export function actorOf(identity: UserIdentity): string | null {
 }
 
 /** The message a stand-in session gets instead of a write. */
-const READ_ONLY = "Read-only: this session is an operator standing in for you.";
+/**
+ * `ConvexError`, so the sentence survives. A production deployment redacts a
+ * plain `Error`'s message, and this one is written to be read: the alternative
+ * is an operator watching an edit fail as "Server Error" and wondering whether
+ * the app is broken rather than whether they are standing in.
+ */
+const READ_ONLY = () =>
+  new ConvexError("Read-only: this session is an operator standing in for you.");
 
 /**
  * The whole of what makes impersonation safe.
@@ -57,7 +65,7 @@ const READ_ONLY = "Read-only: this session is an operator standing in for you.";
  * exists to prevent.
  */
 export async function refuseStandIn(ctx: { auth: Auth }): Promise<void> {
-  if (await standInActor(ctx)) throw new Error(READ_ONLY);
+  if (await standInActor(ctx)) throw READ_ONLY();
 }
 
 /**
@@ -75,7 +83,7 @@ export async function standInActor(ctx: { auth: Auth }): Promise<string | null> 
 export async function requireOwner(ctx: { auth: Auth }): Promise<string> {
   const identity = await ctx.auth.getUserIdentity();
   if (!identity) throw new Error("Not signed in");
-  if (actorOf(identity)) throw new Error(READ_ONLY);
+  if (actorOf(identity)) throw READ_ONLY();
   return identity.subject;
 }
 
