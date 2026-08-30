@@ -2,7 +2,7 @@ import { components } from "./_generated/api";
 import { ProsemirrorSync } from "@convex-dev/prosemirror-sync";
 import type { DataModel } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { isTrashed, roleForProject } from "./auth";
+import { isTrashed, refuseStandIn, roleForProject } from "./auth";
 
 /**
  * Collaborative sync for each page's block flow. The client (BlockNote) talks to
@@ -46,8 +46,16 @@ export async function checkRead(ctx: QueryCtx, id: string) {
   throw new Error("Not found");
 }
 
-/** Writes need a writing role — the owner, or an editor-link claimant. */
+/**
+ * Writes need a writing role — the owner, or an editor-link claimant.
+ *
+ * The fourth write gate, alongside the three in `auth.ts`: document content
+ * reaches this without passing through any of them, so an operator's stand-in
+ * is refused here too. Both sync pipelines land on it, so one check covers
+ * every step and every Yjs update.
+ */
 export async function checkWrite(ctx: QueryCtx, id: string) {
+  await refuseStandIn(ctx);
   const page = await pageForDoc(ctx, id);
   if (!page || isTrashed(page)) throw new Error("Not found");
   const project = await ctx.db.get(page.projectId);

@@ -26,12 +26,14 @@ function sameSecret(a: string, b: string): boolean {
   return diff === 0;
 }
 
-async function requireAdmin(ctx: QueryCtx, token: string) {
+/** Exported for `impersonation.ts`, which needs the row to log who asked. */
+export async function requireAdmin(ctx: QueryCtx, token: string) {
   const session = await ctx.db
     .query("adminSessions")
     .withIndex("by_token", (q) => q.eq("token", token))
     .unique();
   if (!session || session.expiresAt < Date.now()) throw new Error("Not authorized");
+  return session;
 }
 
 export const login = mutation({

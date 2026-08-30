@@ -841,6 +841,26 @@ export default defineSchema({
   }).index("by_token", ["token"]),
 
   /**
+   * Every time an operator stood in for a user. Written before the token is
+   * signed, so a row exists even if the mint then fails — the log is of what
+   * was ASKED for, which is the question an audit actually has.
+   *
+   * There is no `revokedAt`: the token is verified by signature alone and
+   * never touches this table, so nothing here could stop one. Expiry is the
+   * whole revocation story, which is why the window is short.
+   */
+  impersonations: defineTable({
+    /** Which operator session asked. Deleting it ends future asks, not this one. */
+    adminSessionId: v.id("adminSessions"),
+    /** The Clerk subject stood in for. */
+    subject: v.string(),
+    /** Why — required, free text, and the only part a human writes. */
+    reason: v.string(),
+    issuedAt: v.number(),
+    expiresAt: v.number(),
+  }).index("by_subject", ["subject"]),
+
+  /**
    * Micro-survey answers (PMF question, dismiss-reason sampler). Append-only;
    * "has any row" is what stops a survey being shown twice.
    */

@@ -2957,6 +2957,48 @@ body:has(.nt-review-bar) .nt-sampler {
   color: var(--foreground);
 }
 
+/* ---- Operator stand-in ---------------------------------------------------
+   Whose account you are looking at, when it is not your own. Top-center like
+   the update toast — the two are both rare and never both on — but inverted,
+   because this is the one pill that must not read as ordinary chrome. */
+.nt-imp {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: var(--z-toast);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px 6px 14px;
+  border-radius: 999px;
+  background: var(--foreground);
+  color: var(--background);
+  box-shadow: 0 6px 20px oklch(0.25 0.005 90 / 0.18);
+  font-size: var(--text-ui);
+  animation: nt-menu-in var(--dur) var(--ease);
+}
+.nt-imp-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: currentColor;
+}
+.nt-imp-left {
+  opacity: 0.6;
+  font-variant-numeric: tabular-nums;
+}
+.nt-imp-end {
+  padding: 3px 12px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in oklab, var(--background) 35%, transparent);
+  font-weight: 500;
+  transition: background var(--dur-fast) var(--ease);
+}
+.nt-imp-end:hover {
+  background: color-mix(in oklab, var(--background) 18%, transparent);
+}
+
 /* ---- Guest surface -------------------------------------------------------
    A project reached by share link, before any sign-in. The banner is the
    sanctioned amber exception (see the token block at the top): a standing

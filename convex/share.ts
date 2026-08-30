@@ -2,7 +2,14 @@ import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
-import { isTrashed, ownerId, requireOwned, requireOwner, roleForProject } from "./auth";
+import {
+  isTrashed,
+  ownerId,
+  readOwned,
+  requireOwned,
+  requireOwner,
+  roleForProject,
+} from "./auth";
 
 /**
  * Link sharing, one link per role. Security is capability-based: each token is
@@ -43,10 +50,17 @@ async function projectForToken(
 }
 
 /** Both links as the share dialog draws them. Owner only. */
+/**
+ * `readOwned` plus the throw, rather than `requireOwned`: this reads, and
+ * `requireOwned` is a write gate — it refuses an operator's stand-in, which
+ * would blind the one session most likely to be asking who a project is
+ * shared with.
+ */
 export const links = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
-    const project = await requireOwned(ctx, "projects", args.projectId);
+    const project = await readOwned(ctx, "projects", args.projectId);
+    if (!project) throw new Error("Not found");
     return {
       viewer: project.shareToken ?? null,
       editor: project.editShareToken ?? null,
@@ -179,10 +193,13 @@ export const claim = mutation({
  * Who has claimed this project, for the share dialog's access list. Owner only,
  * and read-only in v1 — removing someone means revoking the link they came by.
  */
+/** Reads, so `readOwned` — see `links` above. */
 export const collaborators = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
-    await requireOwned(ctx, "projects", args.projectId);
+    if (!(await readOwned(ctx, "projects", args.projectId))) {
+      throw new Error("Not found");
+    }
     const claims = await ctx.db
       .query("shareClaims")
       .withIndex("by_project_and_grantee", (q) =>

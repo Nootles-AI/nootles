@@ -1,4 +1,4 @@
-import type { Auth } from "convex/server";
+import type { Auth, UserIdentity } from "convex/server";
 import type { Doc, Id, TableNames } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 
@@ -29,11 +29,54 @@ export async function ownerId(ctx: { auth: Auth }): Promise<string | null> {
   return (await ctx.auth.getUserIdentity())?.subject ?? null;
 }
 
+/**
+ * The operator standing in for this identity, or null for an ordinary session.
+ *
+ * A stand-in token (minted by `impersonationMint.ts`, issued by this very
+ * deployment) carries the same `sub` as the user it answers for — which is what
+ * makes every read resolve to their rows without a single call site knowing —
+ * plus an `act` claim naming who is really behind it. Convex passes unknown
+ * claims through untouched, so `act` is the one thing that distinguishes the
+ * two, and it is deliberately flat: a string reads without narrowing, and this
+ * is consulted on the hot path of every write.
+ */
+export function actorOf(identity: UserIdentity): string | null {
+  return typeof identity.act === "string" ? identity.act : null;
+}
+
+/** The message a stand-in session gets instead of a write. */
+const READ_ONLY = "Read-only: this session is an operator standing in for you.";
+
+/**
+ * The whole of what makes impersonation safe.
+ *
+ * Every gate below that admits a WRITE calls this, so read-only is a property
+ * of the four functions that grant write scope rather than something 139
+ * mutations have to remember. A new mutation cannot opt out of it without
+ * hand-rolling its own authorization, which is already the thing this file
+ * exists to prevent.
+ */
+export async function refuseStandIn(ctx: { auth: Auth }): Promise<void> {
+  if (await standInActor(ctx)) throw new Error(READ_ONLY);
+}
+
+/**
+ * The same question asked without consequence, for the handful of places that
+ * must bend rather than break: the presence heartbeat (an operator must not
+ * appear in the user's own facepile) and the chrome that says whose account
+ * you are looking at.
+ */
+export async function standInActor(ctx: { auth: Auth }): Promise<string | null> {
+  const identity = await ctx.auth.getUserIdentity();
+  return identity ? actorOf(identity) : null;
+}
+
 /** For anything that writes — an unauthenticated write is never valid. */
 export async function requireOwner(ctx: { auth: Auth }): Promise<string> {
-  const owner = await ownerId(ctx);
-  if (!owner) throw new Error("Not signed in");
-  return owner;
+  const identity = await ctx.auth.getUserIdentity();
+  if (!identity) throw new Error("Not signed in");
+  if (actorOf(identity)) throw new Error(READ_ONLY);
+  return identity.subject;
 }
 
 /**
@@ -63,12 +106,20 @@ export async function readOwned<T extends Owned>(
   return doc && doc.ownerId === owner && !isTrashed(doc) ? doc : null;
 }
 
-/** The same lookup, for callers that cannot proceed without the row. */
+/**
+ * The same lookup, for callers that cannot proceed without the row — which in
+ * practice means the ones about to write it. That is why this refuses an
+ * operator's stand-in and `readOwned` does not: they are read scope and write
+ * scope, and the two must never collapse into one check. The two queries that
+ * legitimately need a throwing read (`share.links`, `share.collaborators`) say
+ * so with `readOwned` and their own throw.
+ */
 export async function requireOwned<T extends Owned>(
   ctx: QueryCtx,
   table: T,
   id: Id<T>,
 ): Promise<Doc<T>> {
+  await refuseStandIn(ctx);
   const doc = await readOwned(ctx, table, id);
   if (!doc) throw new Error("Not found");
   return doc;
@@ -164,6 +215,7 @@ export async function requireEditable<T extends Shared>(
   table: T,
   id: Id<T>,
 ): Promise<Doc<T>> {
+  await refuseStandIn(ctx);
   const doc = (await ctx.db.get(id)) as Doc<T> | null;
   if (doc && !isTrashed(doc)) {
     const project = await projectOf(ctx, doc);
