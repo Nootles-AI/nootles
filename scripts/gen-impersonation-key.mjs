@@ -28,17 +28,32 @@ const kid = createHash("sha256")
   .update(JSON.stringify({ e: jwk.e, kty: jwk.kty, n: jwk.n }))
   .digest("base64url");
 
-const pem = privateKey.export({ type: "pkcs8", format: "pem" });
+/**
+ * The private half as base64 DER, not PEM.
+ *
+ * A PEM is multi-line, and a multi-line value does not survive being pasted:
+ * inside double quotes a shell leaves `\n` as a literal backslash-n, so the
+ * key arrives looking right and parsing as garbage. Base64 DER is one line of
+ * `[A-Za-z0-9+/=]` — nothing a shell, a dashboard field, or a CI secret store
+ * can transform. `impersonationMint.ts` reads it back in exactly this form.
+ */
+const der = privateKey.export({ type: "pkcs8", format: "der" }).toString("base64");
 const jwks = JSON.stringify({
   keys: [{ ...jwk, kid, use: "sig", alg: "RS256" }],
 });
 
-/** Both variables, for one deployment. Never mix a key across deployments. */
+/**
+ * Both variables, for one deployment. Never mix a key across deployments.
+ *
+ * Single quotes: the JWKS is JSON and full of double quotes, and neither value
+ * can contain a single quote, so this is the one quoting that needs no
+ * escaping and survives a copy-paste intact.
+ */
 const commands = (flag) =>
   [
-    `  npx convex env set ${flag}IMPERSONATION_PRIVATE_KEY -- ${JSON.stringify(pem)}`,
+    `  npx convex env set ${flag}IMPERSONATION_PRIVATE_KEY -- '${der}'`,
     "",
-    `  npx convex env set ${flag}IMPERSONATION_JWKS -- ${JSON.stringify(jwks)}`,
+    `  npx convex env set ${flag}IMPERSONATION_JWKS -- '${jwks}'`,
   ].join("\n");
 
 process.stdout.write(
