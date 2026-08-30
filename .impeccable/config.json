@@ -38,6 +38,15 @@
         ],
         "createdAt": "2026-08-28T05:12:27.954Z",
         "reason": "No markup in this file: it defines LLM tool schemas, and the match is prose inside a tool's error string telling the model not to invent an <img src>."
+      },
+      {
+        "rule": "layout-transition",
+        "value": "*",
+        "files": [
+          "app/components/billing/paywall.css"
+        ],
+        "createdAt": "2026-08-30T07:40:00.000Z",
+        "reason": "Claude: .nt-pw-sheet max-width is the paywall's growing-in-place gesture — one property, one element, once per stage change, and the whole point of the surface is that the wall becomes the plans rather than navigating. A transform would scale the type and the strips with it. Motion's measured layout animation was tried first and removed: it runs on the main thread, which on the projects screen belongs to a grid of rendering page previews, and the sheet stalled mid-transition."
       }
     ]
   }

@@ -1,0 +1,728 @@
+/* The paywall surface — one sheet, from the sentence that stops you through to
+   the moment you are handed back.
+
+   The world is the app's own: paper, graphite, hairlines, mono for anything
+   countable. Nothing here introduces a hue. `--nt-select` is not used and must
+   not be — it marks the system's live answer to an input, and a plan you have
+   not bought is not an answer.
+
+   What this surface is allowed that the app's chrome is not: scale, and time.
+   It is a page you visit rather than chrome you work in, so the title is large,
+   the rhythm is slower, and the reveals are choreographed. The palette stays
+   exactly where it was.
+
+   THE CHASE — one timing program, every reveal numbered, the way a sign shop
+   numbers lamp banks on the elevation so the arrow runs in the right order.
+   Written here because a motion program that lives only in scattered
+   `transition` declarations is one nobody can keep in step.
+
+   These are the delays that ship. An earlier version of this block listed a
+   per-stage program the stylesheet never implemented, which is worse than no
+   program at all: it reads as a specification and is really a wish.
+
+     the ground
+       scrim washes in                                        0 → 170ms
+       sheet rises 10px, scales 0.985 → 1                     0 → 320ms
+       sheet grows into the plans (width AND height)            320ms
+
+     every stage, one positional ladder, `.nt-pw-field > *`
+       1st child                                                 40ms
+       2nd                                                       95ms
+       3rd                                                      150ms
+       4th                                                      205ms
+       5th                                                      255ms
+       6th                                                      300ms
+       7th and after                                            340ms
+       — inside a strip, cells ignite left to right on `--step`,
+         4ms apart at the 100 grain, 40ms at the 2
+
+     the deployment overrides that ladder, because here order IS the meaning
+          the ring closes                                   60 → 620ms
+          the tick lands                                   300 → 720ms
+       1  the mark itself                                          0ms
+       2  "You're on Pro", released by the finished mark         740ms
+       3  what happens next                                      830ms
+       4  where you are going                                    920ms
+       5  the drain, which starts only once the button exists   1010ms
+
+   The deployment is one propagation rather than five entrances: a single pull
+   opening a linked field, not five things that each had an idea. Nothing there
+   may arrive before 740ms — that is when the mark stops drawing. */
+
+/* ---- The chase ---------------------------------------------------------
+   Run in CSS, not on the main thread.
+
+   This sheet opens over a grid of live page previews that are still rendering
+   as it arrives, and a JS-driven stagger ticks in the same queue as that work:
+   measured here, the reveal stalled for seconds with only the title up, which
+   reads as a broken dialog rather than a slow one. Opacity and transform in a
+   CSS keyframe are composited, so the chase runs at rate no matter what React
+   is doing behind it.
+
+   The delays ARE the program written at the top of this file. Motion keeps the
+   two jobs a stylesheet cannot do: swapping one stage for the next, and the
+   deployment's drawn mark. */
+
+.nt-pw-field > * {
+  animation: nt-pw-rise var(--dur) var(--ease) backwards;
+}
+
+.nt-pw-field > *:nth-child(1) {
+  animation-delay: 40ms;
+}
+.nt-pw-field > *:nth-child(2) {
+  animation-delay: 95ms;
+}
+.nt-pw-field > *:nth-child(3) {
+  animation-delay: 150ms;
+}
+.nt-pw-field > *:nth-child(4) {
+  animation-delay: 205ms;
+}
+.nt-pw-field > *:nth-child(5) {
+  animation-delay: 255ms;
+}
+.nt-pw-field > *:nth-child(6) {
+  animation-delay: 300ms;
+}
+.nt-pw-field > *:nth-child(n + 7) {
+  animation-delay: 340ms;
+}
+
+/* The deployment runs on its own clock, because here the order is the meaning.
+   The mark is not a thing that happens alongside the sentence — its finishing is
+   what releases the sentence, which releases the way back. The ring closes at
+   620ms and the tick lands at 720ms, so nothing else may arrive before 740ms.
+   On the shared ladder above, the sentence appeared at 95ms: the mark was still
+   drawing while the page had already finished telling you. */
+.nt-pw-granted > *:nth-child(1) {
+  animation-delay: 0ms;
+}
+.nt-pw-granted > *:nth-child(2) {
+  animation-delay: 740ms;
+}
+.nt-pw-granted > *:nth-child(3) {
+  animation-delay: 830ms;
+}
+.nt-pw-granted > *:nth-child(4) {
+  animation-delay: 920ms;
+}
+.nt-pw-granted > *:nth-child(5) {
+  animation-delay: 1010ms;
+}
+
+@keyframes nt-pw-rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ---- The sheet and its ground ------------------------------------------ */
+
+.nt-pw-scrim {
+  position: fixed;
+  inset: 0;
+  animation: nt-pw-wash var(--dur) var(--ease) backwards;
+  /* The workspace stays legible underneath — it is the thing being returned
+     to, and hiding it would make this a departure rather than a pause.
+
+     Flat, deliberately. A backdrop blur here composites the entire viewport
+     every frame, and this scrim lands over a grid of live page previews: it
+     dropped the sheet's own entrance to single figures and made the staggered
+     reveal look broken. Separation is worth one shade of grey, not the frame
+     budget of the animation it exists to support. */
+  background: oklch(0.25 0.005 90 / 0.28);
+}
+
+@keyframes nt-pw-wash {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.nt-pw-holder {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  overflow-y: auto;
+  pointer-events: none;
+}
+
+.nt-pw-sheet {
+  position: relative;
+  width: 100%;
+  max-width: 460px;
+  padding: 22px 24px 24px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--elevated);
+  /* Offset and blur, so it reads as a sheet lifted off the page rather than as
+     a halo drawn around one. */
+  box-shadow:
+    0 1px 2px oklch(0.25 0.005 90 / 0.04),
+    0 12px 32px -8px oklch(0.25 0.005 90 / 0.16);
+  pointer-events: auto;
+  animation: nt-pw-arrive var(--dur-slow) var(--ease) backwards;
+  /* Growing in place is the whole idea, so the size change is a transition on
+     the sheet itself rather than a measured layout animation — properties the
+     browser owns, with nothing to gate on.
+
+     Height as well as width: the promise is that the sheet GROWS to hold the
+     plans, and widening smoothly while snapping taller is two thirds of a
+     gesture. `interpolate-size` is what lets `height: auto` be a transition
+     endpoint; where it is unsupported the height simply snaps, which is exactly
+     the behaviour this replaces. */
+  height: auto;
+  interpolate-size: allow-keywords;
+  transition:
+    max-width var(--dur-slow) var(--ease),
+    height var(--dur-slow) var(--ease);
+}
+
+.nt-pw-sheet.is-wide {
+  max-width: 560px;
+}
+
+@media (max-width: 560px) {
+  .nt-pw-holder {
+    padding: 16px;
+    align-items: end;
+  }
+
+  .nt-pw-sheet {
+    padding: 20px 18px 20px;
+  }
+
+  .nt-pw-standing {
+    padding: 14px 12px;
+  }
+}
+
+@keyframes nt-pw-arrive {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Page mode: the same sheet, standing on its own at /upgrade. It keeps the
+   sheet's shape rather than dissolving into a full-bleed page, so arriving back
+   from Stripe lands on the object you left. */
+/* The sheet needs something to be a sheet ON. White paper on a white ground
+   separated by one hairline is not an object, it is a boundary — and this is the
+   screen a returning payer lands on, so it is the last one that should read as
+   unfinished. The app's own two-value logic answers it: chrome recedes to
+   `--surface`, the thing you are reading advances to `--background`. */
+.nt-pw-page {
+  min-height: 100vh;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  background: var(--surface);
+}
+
+.nt-pw-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px 24px;
+}
+
+/* Centred rather than top-anchored: the sheet is one object on a page with
+   nothing else on it, and hanging it from the top leaves half the viewport
+   reading as content that failed to load. */
+.nt-pw-page-body {
+  display: grid;
+  place-items: center;
+  padding: clamp(16px, 5vh, 56px) 24px clamp(24px, 6vh, 64px);
+}
+
+/* ---- Type -------------------------------------------------------------- */
+
+.nt-pw-label {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--text-meta);
+  letter-spacing: var(--tracking-meta);
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.nt-pw-title {
+  font-size: 25px;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  line-height: 1.15;
+  text-wrap: balance;
+  color: var(--foreground);
+}
+
+.nt-pw-page .nt-pw-title {
+  font-size: var(--text-title);
+}
+
+.nt-pw-lede {
+  margin-top: 8px;
+  font-size: var(--text-ui);
+  line-height: 1.55;
+  color: var(--muted);
+  text-wrap: pretty;
+}
+
+.nt-pw-rule {
+  height: 1px;
+  margin: 20px 0;
+  border: 0;
+  background: var(--border);
+}
+
+/* ---- The strips --------------------------------------------------------
+   An allowance drawn as a fixed mask: every unit has a place, and the spent
+   ones are drawn as deliberately as the ones left. A bar would say "how far
+   along"; this says "how many", which is the question actually being asked.
+
+   All three strips are the same length and differ only in subdivision — 2, 10,
+   100 — so the account reads as one instrument with three scales rather than as
+   three unrelated readouts. */
+
+.nt-pw-strips {
+  display: grid;
+  gap: 15px;
+  margin-top: 14px;
+}
+
+.nt-pw-strip-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+
+.nt-pw-strip-name {
+  font-size: var(--text-ui);
+  color: var(--foreground);
+}
+
+.nt-pw-strip-count {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--text-meta-lg);
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.nt-pw-strip.is-out .nt-pw-strip-count {
+  color: var(--foreground);
+}
+
+/* One height across all three scales — 2, 10 and 100 are the same instrument
+   read at different grains, and a taller bar for the coarser count would say
+   the opposite. */
+.nt-pw-mask {
+  display: grid;
+  grid-template-columns: repeat(var(--cells), minmax(0, 1fr));
+  gap: var(--cell-gap, 2px);
+  height: 10px;
+}
+
+/* Folded rather than crushed, at EVERY width.
+
+   A hundred cells across one line is a comb whose teeth fuse: ~2.3px on the
+   560px sheet, under a pixel on a phone. Either way the subdivision stops being
+   countable and the strip reads as the solid filled bar this drawing exists to
+   refuse. So the finest scale always wraps to two rows of fifty — about 7.5px a
+   cell on the sheet, 3.9px on a phone, countable in both.
+
+   Folding at one breakpoint only was the earlier mistake: it fixed the phone
+   and left the screen this surface is mostly read on showing the very reading
+   the instrument was built to avoid. */
+.nt-pw-mask.is-fine {
+  grid-template-columns: repeat(50, minmax(0, 1fr));
+  grid-auto-rows: 10px;
+  height: auto;
+  row-gap: 2px;
+}
+
+.nt-pw-cell {
+  border-radius: 1px;
+  background: var(--foreground);
+  transform-origin: 50% 100%;
+}
+
+/* The chase, run in CSS rather than per-cell in JS: a hundred animated
+   components to say one sentence is a cost the sentence does not justify. */
+.nt-pw-mask.is-arriving .nt-pw-cell {
+  animation: nt-pw-ignite var(--dur) var(--ease) backwards;
+  animation-delay: calc(var(--i) * var(--step, 5ms));
+}
+
+@keyframes nt-pw-ignite {
+  from {
+    opacity: 0;
+    transform: scaleY(0.25);
+  }
+  to {
+    opacity: 1;
+    transform: scaleY(1);
+  }
+}
+
+/* Spent. Present, placed, and visibly not yours — the shape of what was used is
+   part of the reading, so it is drawn rather than left out.
+
+   These values are the whole seven-segment idea and were nearly lost to it: at
+   `--border` on `--surface` the spent cells sat at about 1.3:1 while the
+   remaining ones ran at 16:1, so a strip that had run out — the single fact
+   that raised this sheet — was the faintest mark on it, and an untouched
+   hundred was a black mass. Absence has to be legible to have been designed. */
+.nt-pw-cell.is-spent {
+  background: var(--faint);
+}
+
+/* All of it gone. The loudest ghost on the sheet, because it is the sentence. */
+.nt-pw-strip.is-out .nt-pw-cell {
+  background: var(--muted);
+}
+
+/* ---- The two plans ----------------------------------------------------- */
+
+.nt-pw-plans {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+@media (min-width: 520px) {
+  .nt-pw-plans {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.nt-pw-plan {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--background);
+  text-align: left;
+  transition:
+    border-color var(--dur) var(--ease),
+    background var(--dur) var(--ease),
+    transform var(--dur) var(--ease);
+}
+
+.nt-pw-plan:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  background: var(--surface);
+}
+
+.nt-pw-plan:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.nt-pw-plan:disabled {
+  opacity: 0.55;
+}
+
+.nt-pw-plan-price {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  font-size: 27px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+  color: var(--foreground);
+}
+
+.nt-pw-plan-price small {
+  font-size: var(--text-ui);
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--muted);
+}
+
+.nt-pw-plan-note {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--text-meta);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--tracking-meta);
+  color: var(--muted);
+}
+
+.nt-pw-plan-go {
+  margin-top: auto;
+  padding-top: 2px;
+  font-size: var(--text-ui);
+  color: var(--foreground);
+}
+
+/* ---- Buttons ----------------------------------------------------------- */
+
+.nt-pw-answers {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+.nt-pw-btn {
+  padding: 7px 13px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  font-size: var(--text-ui);
+  color: var(--foreground);
+  transition:
+    background var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease),
+    opacity var(--dur-fast) var(--ease);
+}
+
+.nt-pw-btn:hover:not(:disabled) {
+  background: var(--hover);
+}
+
+.nt-pw-btn.is-solid {
+  border-color: var(--foreground);
+  background: var(--foreground);
+  color: var(--background);
+  font-weight: 500;
+}
+
+.nt-pw-btn.is-solid:hover:not(:disabled) {
+  background: oklch(0.19 0.005 90);
+}
+
+.nt-pw-btn.is-outline {
+  border-color: var(--border-strong);
+}
+
+.nt-pw-btn.is-outline:hover:not(:disabled) {
+  background: var(--surface);
+}
+
+.nt-pw-btn:disabled {
+  opacity: 0.5;
+}
+
+/* ---- The code line ----------------------------------------------------- */
+
+.nt-pw-code {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.nt-pw-code label {
+  flex: 1;
+}
+
+.nt-pw-code .nt-input {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* ---- What the surface says back ---------------------------------------- */
+
+.nt-pw-said {
+  margin-top: 10px;
+  font-size: var(--text-ui);
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.nt-pw-said.is-bad {
+  color: var(--danger);
+}
+
+/* ---- The deployment ----------------------------------------------------
+   One pull opens the whole field. The mark draws, and its finishing is what
+   moves the sentence, which is what moves the way back. */
+
+.nt-pw-granted {
+  display: grid;
+  justify-items: center;
+  text-align: center;
+  padding: 8px 0 4px;
+}
+
+.nt-pw-mark {
+  width: 42px;
+  height: 42px;
+  margin-bottom: 16px;
+}
+
+/* Drawn with stroke-dash, in CSS.
+
+   The lengths are the geometry: the ring is 2πr at r=20, and the tick is its
+   two segments measured. Hard-coded because they are constants of a fixed
+   44-unit viewBox, and a hard number that renders beats a computed one that
+   arrives late — this mark was stuck part-drawn when a JS animation owned it. */
+.nt-pw-mark circle,
+.nt-pw-mark path {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.nt-pw-mark circle {
+  stroke: var(--border-strong);
+  stroke-width: 1.5;
+  stroke-dasharray: 125.7;
+  stroke-dashoffset: 125.7;
+  animation: nt-pw-draw 560ms var(--ease) 60ms forwards;
+}
+
+.nt-pw-mark path {
+  stroke: var(--foreground);
+  stroke-width: 2;
+  stroke-dasharray: 22.3;
+  stroke-dashoffset: 22.3;
+  animation: nt-pw-draw 420ms var(--ease) 300ms forwards;
+}
+
+@keyframes nt-pw-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* Paid, and the webhook has not said so yet. One segment darker than the rest,
+   because a ring of uniform colour rotates without appearing to move. */
+.nt-pw-spinner {
+  width: 42px;
+  height: 42px;
+  margin-bottom: 16px;
+  border: 1.5px solid var(--border);
+  border-top-color: var(--muted);
+  border-radius: 50%;
+  animation: nt-pw-spin 1.4s linear infinite;
+}
+
+@keyframes nt-pw-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.nt-pw-back {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 18px;
+  padding: 8px 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--foreground);
+  background: var(--foreground);
+  color: var(--background);
+  font-size: var(--text-ui);
+  font-weight: 500;
+  transition: background var(--dur-fast) var(--ease);
+}
+
+.nt-pw-back:hover {
+  background: oklch(0.19 0.005 90);
+}
+
+/* The bar that empties while the return runs itself. It is a countdown, and it
+   is allowed to be one: it is counting down to something good, and it is the
+   only thing on the surface the person may want to interrupt. */
+.nt-pw-timer {
+  width: 100%;
+  max-width: 210px;
+  height: 2px;
+  margin-top: 14px;
+  border-radius: 1px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+/* Drains only once the way back has actually arrived, and lands on empty at the
+   moment the return fires — so the bar measures the time you really have rather
+   than starting a second before the button it belongs to appears. */
+.nt-pw-timer span {
+  display: block;
+  height: 100%;
+  background: var(--faint);
+  transform-origin: 0 50%;
+  animation: nt-pw-drain calc(var(--return, 3400ms) - 1010ms) linear 1010ms
+    forwards;
+}
+
+@keyframes nt-pw-drain {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+
+/* ---- Standing ---------------------------------------------------------- */
+
+.nt-pw-standing {
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.nt-pw-standing-line {
+  font-size: var(--text-ui);
+  color: var(--foreground);
+}
+
+.nt-pw-standing-when {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--text-meta-lg);
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+/* Every animated thing on this surface, not the two that were easiest to name.
+   The chase, the ignition, the scrim, the sheet's arrival and its growth, the
+   drawn mark, the drain and the spinner all stop — and the mark is explicitly
+   reset to a closed stroke, because an animation removed from a dash-offset
+   reveal leaves the figure invisible rather than still. */
+@media (prefers-reduced-motion: reduce) {
+  .nt-pw-mask.is-arriving .nt-pw-cell,
+  .nt-pw-field > *,
+  .nt-pw-scrim,
+  .nt-pw-sheet,
+  .nt-pw-spinner,
+  .nt-pw-mark circle,
+  .nt-pw-mark path {
+    animation: none;
+  }
+
+  .nt-pw-sheet {
+    transition: none;
+  }
+
+  .nt-pw-mark circle,
+  .nt-pw-mark path {
+    stroke-dashoffset: 0;
+  }
+
+  /* A bar whose only content is its own motion. The button beside it says where
+     it goes, and the sentence says it is going. */
+  .nt-pw-timer {
+    display: none;
+  }
+}

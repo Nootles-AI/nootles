@@ -694,7 +694,15 @@ function EditorSurface({
       {/* Raised by Tab on the out-of-completions chip — the wall is drawn
           here rather than by the lane, which has no render of its own. */}
       {completion.walled && (
-        <PlanWall meter="completions" onClose={completion.dismissWall} />
+        <PlanWall
+          meter="completions"
+          // Nothing to replay: the lane resumes itself the moment the allowance
+          // stops being the reason it went quiet. The intent is carried anyway,
+          // so the way back names this page rather than the projects list.
+          intent={{ kind: "completion" }}
+          onClose={completion.dismissWall}
+          onResume={completion.dismissWall}
+        />
       )}
       {!readOnly && pageId && <ReviewOverlay editor={editor} pageId={pageId} />}
       {!readOnly && reformat.state && (

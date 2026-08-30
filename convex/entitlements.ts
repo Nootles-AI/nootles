@@ -29,22 +29,15 @@ import {
  * to live in, and the counters that record it are therefore never reset.
  */
 
-/** What a free account gets, once, ever. */
-export const FREE_LIMITS = {
-  /**
-   * Total live projects, which is the tutorial's seeded project plus one of
-   * their own. Someone who skipped the tutorial never got the seeded one and
-   * so makes two — the honest reading of a total, and much better than
-   * refusing a skipper their first project to keep an arithmetic tidy.
-   */
-  projects: 2,
-  /** Suggestions ACCEPTED. Offers cost the user nothing and are not counted. */
-  completions: 100,
-  /** Conversations that actually reached the model. See `chatThreads.billedAt`. */
-  chats: 10,
-} as const;
+/**
+ * The numbers themselves live in `limits.ts` and are re-exported here, so every
+ * server caller keeps reading them from the module that enforces them. The
+ * client imports the other end directly — see that file for why the split
+ * exists at all.
+ */
+import { FREE_LIMITS, type Meter } from "./limits";
 
-export type Meter = keyof typeof FREE_LIMITS;
+export { FREE_LIMITS, type Meter };
 
 export type Plan = "free" | "pro";
 

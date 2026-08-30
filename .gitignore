@@ -58,3 +58,6 @@ next-env.d.ts
 
 # impeccable design-hook cache
 .impeccable/hook.cache.json
+
+# impeccable decision-server transient state
+.impeccable/questions/
