@@ -12,6 +12,7 @@ import { ThreadPicker } from "./chat/ThreadPicker";
 import { useReview } from "./ReviewContext";
 import { PlanWall } from "./billing/PlanWall";
 import { usePlan } from "@/app/lib/usePlan";
+import { useResumeIntent } from "@/app/lib/billing/useResumeIntent";
 import { useProjectChat, type ChatDraft } from "@/app/lib/ai/chat/useProjectChat";
 import type { AbMessage } from "@/app/lib/ai/chat/types";
 import type { ReturnPoint } from "@/app/lib/ai/review/session";
@@ -34,7 +35,7 @@ export function ChatPanel({
 
   const [picked, setPicked] = useState<Id<"chatThreads"> | null>(null);
   const [picking, setPicking] = useState(false);
-  const [walled, setWalled] = useState(false);
+  const [walled, setWalled] = useState<ChatDraft | null>(null);
   const { room } = usePlan();
   /**
    * A rewind being decided: which message it winds back to, what it covers, and
@@ -81,7 +82,9 @@ export function ChatPanel({
     // first reaches the model, so opening an empty thread and closing it is
     // free, and one already paid for keeps going whatever is left.
     if (!room("chats") && active?.billedAt === undefined) {
-      setWalled(true);
+      // The draft goes up with the wall so that paying can send it rather than
+      // asking the person to retype what they already wrote.
+      setWalled(draft);
       return;
     }
     if (!threadId) {
@@ -93,6 +96,18 @@ export function ChatPanel({
     if (!active?.title) nameThreadFrom(titleFor(draft));
     void send(draft);
   };
+
+  /**
+   * The message that was stopped, sent on the way back in.
+   *
+   * Gated on the transport actually being up: replaying into a half-built panel
+   * loses the message silently, which is the one outcome worse than making
+   * somebody retype it. The intent is consumed as it is read, so this cannot
+   * fire twice — and twice here is two model calls and two charges.
+   */
+  useResumeIntent("chatSend", ready, (intent) => {
+    void onSend(intent.draft as ChatDraft);
+  });
 
   /**
    * Show the rewind. The pages roll back so they can be read, the exchange
@@ -208,7 +223,18 @@ export function ChatPanel({
         onStop={chat.stop}
       />
 
-      {walled && <PlanWall meter="chats" onClose={() => setWalled(false)} />}
+      {walled && (
+        <PlanWall
+          meter="chats"
+          intent={{ kind: "chatSend", projectId, pageId, draft: walled }}
+          onClose={() => setWalled(null)}
+          onResume={() => {
+            const draft = walled;
+            setWalled(null);
+            void onSend(draft);
+          }}
+        />
+      )}
     </aside>
   );
 }

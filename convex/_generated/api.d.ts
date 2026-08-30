@@ -45,6 +45,7 @@ import type * as http from "../http.js";
 import type * as imageMeta from "../imageMeta.js";
 import type * as impersonation from "../impersonation.js";
 import type * as impersonationMint from "../impersonationMint.js";
+import type * as limits from "../limits.js";
 import type * as migrations from "../migrations.js";
 import type * as onboarding from "../onboarding.js";
 import type * as pages from "../pages.js";
@@ -106,6 +107,7 @@ declare const fullApi: ApiFromModules<{
   imageMeta: typeof imageMeta;
   impersonation: typeof impersonation;
   impersonationMint: typeof impersonationMint;
+  limits: typeof limits;
   migrations: typeof migrations;
   onboarding: typeof onboarding;
   pages: typeof pages;

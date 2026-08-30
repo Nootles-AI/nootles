@@ -11,6 +11,7 @@ import { GridView, ListView, MoreHorizontal, Plus } from "./Icons";
 import { AccountMenu } from "./AccountMenu";
 import { PlanWall } from "./billing/PlanWall";
 import { usePlan } from "@/app/lib/usePlan";
+import { useResumeIntent } from "@/app/lib/billing/useResumeIntent";
 import { Brandmark } from "./Brand";
 import { ConfirmDeleteDialog } from "./ConfirmDelete";
 import { ContextMenu } from "./ContextMenu";
@@ -112,6 +113,13 @@ export function ProjectsScreen() {
    * than appearing on this screen as another card to find and click. It already
    * has a name, and its first page is the only place there is to go.
    */
+  const openNaming = useCallback(() => setNaming(true), []);
+
+  // Paid for mid-thought and came back: the dialog they were reaching for opens
+  // itself, so the wall reads as a pause in making the project rather than as a
+  // detour they have to retrace.
+  useResumeIntent("newProject", true, openNaming);
+
   const create = async (project: NewProject) => {
     const id = await createProject({
       title: project.title,
@@ -192,7 +200,7 @@ export function ProjectsScreen() {
               bug; one that explains itself reads as a limit. */}
           {!standIn && (
             <button
-              onClick={() => (room("projects") ? setNaming(true) : setWalled(true))}
+              onClick={() => (room("projects") ? openNaming() : setWalled(true))}
               className="nt-row gap-1.5 bg-sunken px-3 font-medium"
             >
               <Plus width={14} height={14} />
@@ -328,7 +336,17 @@ export function ProjectsScreen() {
         <NewProjectDialog onCancel={() => setNaming(false)} onCreate={create} />
       )}
 
-      {walled && <PlanWall meter="projects" onClose={() => setWalled(false)} />}
+      {walled && (
+        <PlanWall
+          meter="projects"
+          intent={{ kind: "newProject" }}
+          onClose={() => setWalled(false)}
+          onResume={() => {
+            setWalled(false);
+            openNaming();
+          }}
+        />
+      )}
 
       {confirming && (
         <ConfirmDeleteDialog
