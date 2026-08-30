@@ -35,9 +35,12 @@ In the Stripe dashboard (test mode), make one **product** — "Nootles Pro" —
 with two **prices** against it: one recurring monthly, one recurring yearly.
 Copy both price ids (`price_…`).
 
-Prices live there and only there. Nothing in this repo hardcodes an amount;
-`/upgrade` reads them through `billing.prices` so the number on the plan card
-and the number on the invoice cannot disagree.
+Prices live there and only there. Nothing in this repo hardcodes an amount —
+the two env vars below hold Stripe's opaque `price_…` IDs, and the amount is a
+property of the object each one names. `/upgrade` reads them through
+`billing.prices`, so the number on the plan card and the number on the invoice
+cannot disagree, and changing what you charge is a Stripe edit rather than a
+deploy.
 
 ## 2. Deployment environment
 
@@ -57,8 +60,8 @@ the other way, to production, which is why only this one needs the flag.)
 |---|---|
 | `STRIPE_SECRET_KEY` | `sk_test_…`, then `sk_live_…` when you go live |
 | `STRIPE_WEBHOOK_SECRET` | `whsec_…` from the webhook endpoint you create in step 3 |
-| `STRIPE_PRICE_MONTHLY` | the monthly `price_…` |
-| `STRIPE_PRICE_ANNUAL` | the yearly `price_…` |
+| `STRIPE_PRICE_MONTHLY` | the monthly price's API ID, `price_1Qx…` — a handle, not an amount |
+| `STRIPE_PRICE_ANNUAL` | the yearly price's API ID |
 | `APP_URL` | `https://app.nootles.com` — where Stripe returns people to |
 
 Confirm with `npx convex env list --prod --names-only`.
