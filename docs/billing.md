@@ -5,8 +5,11 @@
 Run this once, either side of the deploy:
 
 ```
-npx convex run migrations:grandfatherChatThreads '{}'
+npx convex run migrations:grandfatherChatThreads '{}' --prod
 ```
+
+(`convex run` defaults to your dev deployment too — without `--prod` this
+stamps the wrong database and your real users stay exposed to the charge.)
 
 It stamps every conversation that already exists as paid for. Without it, the
 first message somebody sends in a thread they have been using for weeks spends
@@ -38,8 +41,17 @@ and the number on the invoice cannot disagree.
 
 ## 2. Deployment environment
 
-Set on the **Convex** deployment (`npx convex env set NAME value`), not in
-`.env.local` — these are read by Convex functions, not by Next.
+Set on the **Convex** deployment, not in `.env.local` — these are read by
+Convex functions, not by Next.
+
+```
+npx convex env set --prod STRIPE_SECRET_KEY sk_test_…
+```
+
+`--prod` is not optional. `convex env set` writes to your **dev** deployment by
+default, which is not the one the live site talks to — the variables would look
+set and `/upgrade` would still say Pro is not on sale. (`convex deploy` defaults
+the other way, to production, which is why only this one needs the flag.)
 
 | Name | What it is |
 |---|---|
@@ -47,21 +59,26 @@ Set on the **Convex** deployment (`npx convex env set NAME value`), not in
 | `STRIPE_WEBHOOK_SECRET` | `whsec_…` from the webhook endpoint you create in step 3 |
 | `STRIPE_PRICE_MONTHLY` | the monthly `price_…` |
 | `STRIPE_PRICE_ANNUAL` | the yearly `price_…` |
-| `APP_URL` | e.g. `https://nootles.app` — where Stripe returns people to |
+| `APP_URL` | `https://app.nootles.com` — where Stripe returns people to |
+
+Confirm with `npx convex env list --prod --names-only`.
 
 `APP_URL` is server-side on purpose: a return URL the browser chose would be an
 open redirect sitting in the middle of a payment.
 
 ## 3. The webhook
 
-Point a Stripe webhook at `https://<your-deployment>.convex.site/stripe/webhook`
-and subscribe it to the `customer.subscription.*` and `checkout.session.*`
-events. `convex/http.ts` registers the route; the component verifies the
+Point a Stripe webhook at
+`https://brilliant-buffalo-463.convex.site/stripe/webhook` (production) and
+subscribe it to the `customer.subscription.*` and `checkout.session.*` events.
+Note `.convex.site`, not `.convex.cloud` — only the `.site` host serves HTTP
+endpoints, and a webhook aimed at the other one fails silently. `convex/http.ts` registers the route; the component verifies the
 signature and syncs its own tables, and the handler beside it copies the result
 onto `billingAccounts`, which is what `entitlements.ts` reads.
 
-Locally: `stripe listen --forward-to <deployment>.convex.site/stripe/webhook`,
-and use the `whsec_` it prints.
+Locally: `stripe listen --forward-to quick-cobra-443.convex.site/stripe/webhook`,
+and use the `whsec_` it prints — set that one WITHOUT `--prod`, alongside an
+`APP_URL` of `http://localhost:3000`.
 
 ## 4. Going live
 
