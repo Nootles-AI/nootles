@@ -19,9 +19,37 @@ const isPublic = createRouteMatcher([
   // A place card's photographs, which a shared page has to be able to draw.
   // Bytes only, and only ever from Google Places — see the route's own note.
   "/api/places/photo(.*)",
+  // Where an operator's stand-in token is caught. Public because it has to run
+  // BEFORE any redirect: the token rides in the fragment, and a fragment does
+  // not survive a bounce through Clerk and back. It reaches the cookie first,
+  // and the redirect to `/` is then protected like everything else — so an
+  // operator who was signed out signs in and lands in the session intact.
+  // The page itself discloses nothing; the token is only worth what Convex
+  // decides it is worth.
+  "/impersonate",
 ]);
 
+/**
+ * The AI lanes, which are what an operator stand-in must not reach.
+ *
+ * Everything else about impersonation is enforced in Convex, but these routes
+ * answer to the Clerk cookie — the operator's own — rather than to the stand-in
+ * token, so Convex never sees them. Left open they would spend the model key
+ * and write against the wrong account entirely. The cookie's presence is the
+ * whole signal; nothing here needs to trust its contents.
+ */
+const isModelSpend = createRouteMatcher(["/api/(.*)"]);
+
 export default clerkMiddleware(async (auth, request) => {
+  if (
+    isModelSpend(request) &&
+    request.cookies.has("nt_imp") &&
+    !isPublic(request)
+  ) {
+    return new Response("Unavailable while standing in for another account", {
+      status: 403,
+    });
+  }
   if (!isPublic(request)) await auth.protect();
 });
 

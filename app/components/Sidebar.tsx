@@ -33,6 +33,7 @@ import { ContextDialog } from "./context/ContextDialog";
 import { ContextMenu } from "./ContextMenu";
 import { Editable } from "./Editable";
 import { usePageChanges, type PageChange } from "./ReviewContext";
+import { useStandIn } from "./StandIn";
 import { useHints } from "./hints/useHints";
 import { useSharedClip } from "./sidebarClipboard";
 import { useTreeDrag, type TreeRow } from "./sidebarDrag";
@@ -94,6 +95,7 @@ export function Sidebar({
   // What this sidebar may offer: editors get the page verbs, only the owner
   // gets the project's own — sharing, renaming it, its context sheet.
   const role = useQuery(api.projects.myRole, { projectId });
+  const standIn = useStandIn();
   const owner = role === "owner";
   const canEdit = owner || role === "editor";
   const changes = usePageChanges();
@@ -695,7 +697,9 @@ export function Sidebar({
             it. */}
         {/* A viewer's one verb: ask for the pen. Above the pages for the same
             reason Context is — it holds for the whole project. */}
-        {role === "viewer" && <RequestEditButton projectId={projectId} />}
+        {/* An operator standing in reads as a viewer, but asking the owner for
+            the pen on their own project is not a thing to offer them. */}
+        {role === "viewer" && !standIn && <RequestEditButton projectId={projectId} />}
 
         {owner && (
           <button

@@ -18,6 +18,7 @@ import { FixedToast } from "./feedback/FixedToast";
 import { Menu, MenuItem } from "./Menu";
 import { NewProjectDialog, type NewProject } from "./NewProjectDialog";
 import { PagePreview } from "./PagePreview";
+import { useStandIn } from "./StandIn";
 import { AccessRequests } from "./share/AccessRequests";
 
 type View = "grid" | "list";
@@ -44,6 +45,7 @@ const pages = (n: number) => `${n} ${n === 1 ? "page" : "pages"}`;
 
 export function ProjectsScreen() {
   const router = useRouter();
+  const standIn = useStandIn();
   const projects = useQuery(api.projects.listForScreen);
   const shared = useQuery(api.projects.sharedWithMe);
   const createProject = useMutation(api.projects.create);
@@ -178,13 +180,18 @@ export function ProjectsScreen() {
             </button>
           </div>
 
-          <button
-            onClick={() => setNaming(true)}
-            className="nt-row gap-1.5 bg-sunken px-3 font-medium"
-          >
-            <Plus width={14} height={14} />
-            New project
-          </button>
+          {/* Nothing here belongs to a project, so no role gates it — an
+              operator standing in would be offered a button the server is
+              about to refuse. */}
+          {!standIn && (
+            <button
+              onClick={() => setNaming(true)}
+              className="nt-row gap-1.5 bg-sunken px-3 font-medium"
+            >
+              <Plus width={14} height={14} />
+              New project
+            </button>
+          )}
           <AccountMenu />
         </div>
       </header>
@@ -436,6 +443,9 @@ function ProjectActions({
   onRename: () => void;
   onDelete: () => void;
 }) {
+  // An operator standing in keeps Open — looking is the whole point — and
+  // loses the two verbs the server would refuse.
+  const standIn = useStandIn();
   return (
     <>
       <MenuItem
@@ -446,24 +456,28 @@ function ProjectActions({
       >
         Open
       </MenuItem>
-      <MenuItem
-        onClick={() => {
-          onRename();
-          close({ restoreFocus: false });
-        }}
-      >
-        Rename
-      </MenuItem>
-      <div className="nt-menu-sep" />
-      <MenuItem
-        danger
-        onClick={() => {
-          onDelete();
-          close({ restoreFocus: false });
-        }}
-      >
-        Delete…
-      </MenuItem>
+      {!standIn && (
+        <>
+          <MenuItem
+            onClick={() => {
+              onRename();
+              close({ restoreFocus: false });
+            }}
+          >
+            Rename
+          </MenuItem>
+          <div className="nt-menu-sep" />
+          <MenuItem
+            danger
+            onClick={() => {
+              onDelete();
+              close({ restoreFocus: false });
+            }}
+          >
+            Delete…
+          </MenuItem>
+        </>
+      )}
     </>
   );
 }
@@ -752,6 +766,7 @@ function Skeletons({ view }: { view: View }) {
 
 /** Teaches what a project is, and offers the one action worth taking. */
 function Empty({ onCreate }: { onCreate: () => void }) {
+  const standIn = useStandIn();
   return (
     <div className="rounded-lg bg-surface px-6 py-16 text-center">
       <p className="text-sm font-medium">No projects yet</p>
@@ -759,13 +774,15 @@ function Empty({ onCreate }: { onCreate: () => void }) {
         A project holds a set of pages — prose, diagrams and maths in one place.
         The first one arrives with a blank page ready to go.
       </p>
-      <button
-        onClick={onCreate}
-        className="nt-row mx-auto mt-5 gap-1.5 bg-background px-3 font-medium"
-      >
-        <Plus width={14} height={14} />
-        New project
-      </button>
+      {!standIn && (
+        <button
+          onClick={onCreate}
+          className="nt-row mx-auto mt-5 gap-1.5 bg-background px-3 font-medium"
+        >
+          <Plus width={14} height={14} />
+          New project
+        </button>
+      )}
     </div>
   );
 }

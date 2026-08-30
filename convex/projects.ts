@@ -10,6 +10,7 @@ import {
   requireOwned,
   requireOwner,
   roleForProject,
+  standInActor,
 } from "./auth";
 import { ABOUT, BACKGROUND } from "./ai/questions";
 import { add as addRepos } from "./github/repos";
@@ -133,9 +134,22 @@ export const get = query({
  * owner's and editors', viewers read. Null means "not yours to see", which the
  * client treats the same as a project that does not exist.
  */
+/**
+ * What chrome to wear. An operator's stand-in is told "viewer" whatever the
+ * user really is: the workspace already knows how to be read-only for a share
+ * recipient, so demoting the one query the client asks turns the entire
+ * surface — editor, sidebar, chat, share — into a window rather than a desk.
+ *
+ * This is the *courtesy* half of read-only, not the guarantee. The gates in
+ * `auth.ts` and `prosemirror.ts` are what actually refuse a write, and they
+ * read the token rather than this answer.
+ */
 export const myRole = query({
   args: { projectId: v.id("projects") },
-  handler: async (ctx, args) => await projectRole(ctx, args.projectId),
+  handler: async (ctx, args) => {
+    const role = await projectRole(ctx, args.projectId);
+    return role && (await standInActor(ctx)) ? "viewer" : role;
+  },
 });
 
 /**

@@ -5,6 +5,7 @@ import "./globals.css";
 import { ConvexClientProvider } from "./ConvexClientProvider";
 import { TelemetryProvider } from "./components/TelemetryProvider";
 import { UpdateToast } from "./components/UpdateToast";
+import { StandInProvider } from "./components/StandIn";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -46,7 +47,7 @@ export default function RootLayout({
         <ClerkProvider>
           <ConvexClientProvider>
             <TelemetryProvider>
-              {children}
+              <StandInProvider>{children}</StandInProvider>
               <UpdateToast />
             </TelemetryProvider>
           </ConvexClientProvider>

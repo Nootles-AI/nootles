@@ -1,6 +1,6 @@
 import { internalMutation, mutation, query } from "./_generated/server";
 import { v } from "convex/values";
-import { ownerId } from "./auth";
+import { ownerId, standInActor } from "./auth";
 import { checkRead } from "./prosemirror";
 
 /**
@@ -39,6 +39,11 @@ export const heartbeat = mutation({
   returns: v.null(),
   handler: async (ctx, args) => {
     await checkRead(ctx, args.docId);
+    // The one write an operator's stand-in is refused quietly rather than
+    // loudly: announcing yourself is read-level everywhere else, but here it
+    // would put the user's own face in their own facepile. Watching is not
+    // being there, and a heartbeat that threw would only retry forever.
+    if (await standInActor(ctx)) return null;
     const me = await ownerId(ctx);
     const existing = await ctx.db
       .query("presence")
