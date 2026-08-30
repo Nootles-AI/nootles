@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { requireAdmin } from "./admin";
 import { standInActor } from "./auth";
 import { internalMutation, query } from "./_generated/server";
@@ -42,7 +42,10 @@ export const begin = internalMutation({
   handler: async (ctx, args) => {
     const session = await requireAdmin(ctx, args.token);
     const reason = args.reason.trim();
-    if (reason.length < 3) throw new Error("A reason is required");
+    // ConvexError throughout: a production deployment redacts a plain Error's
+    // message, and every failure here is one an operator can fix if only they
+    // are told which one it is.
+    if (reason.length < 3) throw new ConvexError("A reason is required.");
     // A subject with no profile is a typo, and a typo would mint a working
     // token for a tenant that owns nothing — every screen empty, and half an
     // hour spent debugging the wrong thing.
@@ -50,7 +53,7 @@ export const begin = internalMutation({
       .query("profiles")
       .withIndex("by_owner", (q) => q.eq("ownerId", args.subject))
       .unique();
-    if (!profile) throw new Error("No such user");
+    if (!profile) throw new ConvexError("No account on file under that id.");
     const issuedAt = Date.now();
     const expiresAt = issuedAt + SESSION_MS;
     const jti = await ctx.db.insert("impersonations", {
