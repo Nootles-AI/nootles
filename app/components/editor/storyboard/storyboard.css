@@ -202,10 +202,16 @@
  * One shot, full size: the document blurred to a wash behind the frame, the
  * bar gone horizontal at its foot. No room colour of its own — this is the
  * page, out of focus, which is what keeps it feeling like the same place.
+ *
+ * Full size means the document's room, not the window's. A shot opened this way
+ * is still being edited — the layers and design rails are turned over to it —
+ * so it stops at the column's edges (`--nt-stage-*`, published by the shell) and
+ * leaves the rails beside it standing. Without them, it is a lightbox for a
+ * drawing you cannot change.
  */
 .nt-sb-full {
   position: fixed;
-  inset: 0;
+  inset: 0 var(--nt-stage-r, 0px) 0 var(--nt-stage-l, 0px);
   z-index: var(--z-modal);
   display: flex;
   flex-direction: column;
