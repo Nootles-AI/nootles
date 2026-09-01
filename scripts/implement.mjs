@@ -42,8 +42,6 @@ const WORK = path.resolve(".implement");
 const STATE = path.join(WORK, "state.json");
 const SHOTS = path.join(WORK, "shots");
 
-const REPO = "ahosseini06/nootles";
-
 /**
  * Paths the agent may not touch, mirroring docs/agent-allowlist.md — which is
  * the prose; this is the enforcement. Keep them in step.
@@ -170,10 +168,12 @@ function sh(cmd, args, opts = {}) {
 /**
  * The one place a branch or pull-request title is spelled.
  *
- * `NT-{n}_{slug}` is what the poller matches on, so a title assembled by hand
- * somewhere else is a link silently not made. The slug is normalised rather
- * than validated: rejecting "Fix the canvas!" helps nobody when
- * `fix_the_canvas` is obviously what was meant.
+ * `NT-{n}_{slug}` is a convention now, not a key: nothing reads it back, so a
+ * branch named some other way costs a reviewer the ticket rather than costing
+ * the ticket a link. It is still spelled in exactly one place, because a
+ * convention nobody can assemble consistently is not one. The slug is
+ * normalised rather than validated: rejecting "Fix the canvas!" helps nobody
+ * when `fix_the_canvas` is obviously what was meant.
  */
 function canonicalName(number, slug) {
   const clean = String(slug ?? "")
@@ -394,25 +394,18 @@ async function file(number, slug, bodyFile) {
     "--body-file",
     bodyFile,
   ]).trim();
-  const prNumber = Number(url.split("/").pop());
 
-  const now = Date.now();
-  const id = await idOf(state.token, n);
-  await mutation("admin:feedbackAttachAgentPr", {
-    token: state.token,
-    id,
-    repo: REPO,
-    prNumber,
-    title,
-    url,
-    now,
-  });
+  // The attempt, and nothing else. Nootles used to keep a row per pull request
+  // and poll GitHub to age it; it no longer knows GitHub exists, so what gets
+  // written back is the one fact this process is the authority on — that it
+  // tried, and filed. The URL is reported here, to the operator reading the
+  // run, rather than stored.
   await mutation("admin:feedbackRecordAgentAttempt", {
     token: state.token,
-    id,
+    id: await idOf(state.token, n),
     outcome: "filed",
     runId: state.runId,
-    now,
+    now: Date.now(),
   });
   await bump(state, { filed: 1 });
   console.log(JSON.stringify({ filed: true, title, url }, null, 2));
@@ -613,7 +606,7 @@ function check(number, bodyFile) {
     const branch = sh("git", ["rev-parse", "--abbrev-ref", "HEAD"]).trim();
     if (!new RegExp(`^NT-${Number(number)}(?:_|$)`, "i").test(branch)) {
       advisory.push(
-        `on branch "${branch}", which does not begin "NT-${Number(number)}_" — the poller links pull requests by that title, so this one would never find its ticket`,
+        `on branch "${branch}", which does not begin "NT-${Number(number)}_" — nothing links a pull request to its ticket automatically any more, so the name is the only thing that says which ticket this is`,
       );
     }
   }
