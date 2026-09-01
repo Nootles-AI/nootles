@@ -94,18 +94,11 @@ async function withScreenshot(ctx: QueryCtx, row: Doc<"feedback">) {
   };
 }
 
-/** How many linked PRs the inbox will group at once. Far past any real count. */
-const PR_SCAN = 1000;
-
 /**
- * A ticket as the detail page needs it: its screenshot, the pull requests that
- * name it, and — when it repeats another — the name to send the reader to.
+ * A ticket as the detail page needs it: its screenshot and — when it repeats
+ * another — the name to send the reader to.
  */
 async function withDetail(ctx: QueryCtx, row: Doc<"feedback">) {
-  const prs = await ctx.db
-    .query("ticketPrs")
-    .withIndex("by_ticket", (q) => q.eq("ticketId", row._id))
-    .take(20);
   const parent = row.duplicateOf ? await ctx.db.get(row.duplicateOf) : null;
   const duplicates = await ctx.db
     .query("feedback")
@@ -113,7 +106,6 @@ async function withDetail(ctx: QueryCtx, row: Doc<"feedback">) {
     .take(50);
   return {
     ...(await withScreenshot(ctx, row)),
-    prs: prs.sort((a, b) => b.firstSeenAt - a.firstSeenAt),
     duplicateOfNumber: parent?.number ?? null,
     duplicateNumbers: duplicates.map((d) => d.number).sort((a, b) => a - b),
   };
@@ -145,23 +137,11 @@ export const feedbackList = query({
           : q.eq(q.field("duplicateOf"), undefined),
       )
       .paginate(args.paginationOpts);
-    // One scan of a small table, grouped in memory — a `by_ticket` lookup per
-    // row would be 200 index reads to render one screen.
-    const linked = await ctx.db.query("ticketPrs").take(PR_SCAN);
-    const byTicket = new Map<string, string[]>();
-    for (const pr of linked) {
-      const states = byTicket.get(pr.ticketId) ?? [];
-      states.push(pr.state);
-      byTicket.set(pr.ticketId, states);
-    }
 
     return {
       ...result,
       page: await Promise.all(
-        result.page.map(async (row) => ({
-          ...(await withScreenshot(ctx, row)),
-          prStates: byTicket.get(row._id) ?? [],
-        })),
+        result.page.map((row) => withScreenshot(ctx, row)),
       ),
     };
   },
@@ -191,7 +171,7 @@ export const feedbackGet = query({
 
 /**
  * The same ticket by its `NT-{number}` name — what the dashboard's own URLs and
- * the PR poller both resolve, since neither has a Convex id to hand.
+ * the agent's routines both resolve, since neither has a Convex id to hand.
  */
 export const feedbackByNumber = query({
   args: { token: v.string(), number: v.number() },
@@ -838,7 +818,6 @@ export const implementQueue = query({
           q.gte(q.field("triageScore"), cfg.scoreThreshold),
           q.neq(q.field("status"), "done"),
           q.neq(q.field("status"), "declined"),
-          q.neq(q.field("status"), "pr_filed"),
         ),
       )
       .take(QUEUE_SCAN);
@@ -925,50 +904,6 @@ export const feedbackClearTriage = mutation({
       triagedAt: undefined,
       triageRunId: undefined,
       rubricVersion: undefined,
-    });
-  },
-});
-
-/**
- * A pull request the agent opened, registered the moment it exists.
- *
- * The poller would find it within fifteen minutes anyway, but would record it
- * as a person's — provenance is not recoverable from the GitHub API. Claiming
- * it here is what makes `agentFiled` mean anything; the poller's upsert leaves
- * that field alone precisely so this claim survives it.
- */
-export const feedbackAttachAgentPr = mutation({
-  args: {
-    token: v.string(),
-    id: v.id("feedback"),
-    repo: v.string(),
-    prNumber: v.number(),
-    title: v.string(),
-    url: v.string(),
-    now: v.number(),
-  },
-  handler: async (ctx, args) => {
-    await requireAdmin(ctx, args.token);
-    const existing = await ctx.db
-      .query("ticketPrs")
-      .withIndex("by_repo_and_prNumber", (q) =>
-        q.eq("repo", args.repo).eq("prNumber", args.prNumber),
-      )
-      .unique();
-    if (existing) {
-      await ctx.db.patch(existing._id, { agentFiled: true, updatedAt: args.now });
-      return;
-    }
-    await ctx.db.insert("ticketPrs", {
-      ticketId: args.id,
-      repo: args.repo,
-      prNumber: args.prNumber,
-      title: args.title,
-      url: args.url,
-      state: "open",
-      agentFiled: true,
-      firstSeenAt: args.now,
-      updatedAt: args.now,
     });
   },
 });

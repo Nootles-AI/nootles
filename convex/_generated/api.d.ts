@@ -53,7 +53,6 @@ import type * as presence from "../presence.js";
 import type * as profiles from "../profiles.js";
 import type * as projects from "../projects.js";
 import type * as prosemirror from "../prosemirror.js";
-import type * as prs from "../prs.js";
 import type * as share from "../share.js";
 import type * as surveys from "../surveys.js";
 import type * as tickets from "../tickets.js";
@@ -115,7 +114,6 @@ declare const fullApi: ApiFromModules<{
   profiles: typeof profiles;
   projects: typeof projects;
   prosemirror: typeof prosemirror;
-  prs: typeof prs;
   share: typeof share;
   surveys: typeof surveys;
   tickets: typeof tickets;

@@ -179,11 +179,12 @@ reviewer can check it themselves. End with `Fixes NT-42`. If you touched
 paragraph on how `serialize(parse(html)) === html` still holds — nothing tests
 it.
 
-Nothing to write back afterwards: the poller links the pull request to its ticket
-on its next pass, moves the ticket to `pr_filed`, and to `done` when it merges.
-Do **not** file through `implement.mjs file`, and do not record an agent attempt
-— that ledger belongs to the nightly routine, and attended work inside it makes
-the Agent page lie about what the machine did.
+Then move the ticket yourself, in the dashboard: `in_progress` when the pull
+request is open, `done` when it merges. Nothing does this for you — Nootles used
+to poll GitHub and walk the ticket along behind the PR, and no longer knows
+GitHub exists. Do **not** file through `implement.mjs file`, and do not record an
+agent attempt — that ledger belongs to the nightly routine, and attended work
+inside it makes the Agent page lie about what the machine did.
 
 ## 7. Report
 
