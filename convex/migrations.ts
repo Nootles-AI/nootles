@@ -209,3 +209,50 @@ export const grandfatherChatThreads = internalMutation({
     };
   },
 });
+
+/**
+ * Clears the ground the PR poller stood on, so the schema can stop describing
+ * it.
+ *
+ * This one is NOT optional and NOT run at leisure: Convex validates a pushed
+ * schema against the documents already in the database, so the deploy that
+ * drops `ticketPrs` and the `pr_filed` literal is refused outright while a
+ * single row of either still exists. Deploy this function first, run it, then
+ * deploy the removal.
+ *
+ * `pr_filed` becomes `in_progress` rather than `done`. The two facts a PR
+ * carried are not the same fact — opened is work begun, merged is work
+ * finished — and only merging ever moved a ticket to `done`. Anything sitting
+ * at `pr_filed` therefore has an unmerged PR against it, which is exactly what
+ * `in_progress` has always meant.
+ *
+ * Idempotent, and safe to re-run: the second pass finds no `pr_filed` rows and
+ * no `ticketPrs`, and reports zeroes.
+ */
+export const retirePrLinks = internalMutation({
+  args: {},
+  handler: async (
+    ctx,
+  ): Promise<{ moved: number; unlinked: number; done: boolean }> => {
+    const stalled = await ctx.db
+      .query("feedback")
+      .withIndex("by_status", (q) => q.eq("status", "pr_filed"))
+      .take(BATCH);
+    for (const ticket of stalled) {
+      await ctx.db.patch(ticket._id, { status: "in_progress" });
+    }
+
+    // Whole rows, not a field: the table itself is going. Taken in the same
+    // bounded bite so one transaction cannot outgrow the write limit.
+    const links = await ctx.db.query("ticketPrs").take(BATCH);
+    for (const link of links) {
+      await ctx.db.delete(link._id);
+    }
+
+    const done = stalled.length < BATCH && links.length < BATCH;
+    if (!done) {
+      await ctx.scheduler.runAfter(0, internal.migrations.retirePrLinks, {});
+    }
+    return { moved: stalled.length, unlinked: links.length, done };
+  },
+});
