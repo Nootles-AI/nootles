@@ -1,6 +1,6 @@
 # NML / ProseMirror refactor plan
 
-Status: planned; not implemented.
+Status: in progress; steps 1–2 complete.
 
 ProseMirror remains the browser editing engine. Canonical ownership moves from a
 ProseMirror-shaped Yjs root to a typed, versioned NML AST stored directly in Yjs. Existing
@@ -12,7 +12,7 @@ The binding v1 choices are in
 [`nml-foundational-decisions.md`](nml-foundational-decisions.md). Reopening one requires an
 explicit architecture decision covering migration and compatibility.
 
-## 2. Build the headless NML core
+## 2. Build the headless NML core — complete
 
 - Implement versioned AST types, runtime schemas, stable IDs, normalization, validation,
   repair, strict serialization, parsing modes, diagnostics, and pure migrations.
@@ -20,6 +20,18 @@ explicit architecture decision covering migration and compatibility.
 - Add golden fixtures, parser/serializer properties, fuzzing, and Browser/Node parity.
 
 **Gate:** canonical text round-trips preserve semantic equality, IDs, and domain content.
+
+Implemented in `app/lib/nml/`. Schema v1 now has strict Zod runtime schemas, stable IDs,
+normalization, structured diagnostics, deterministic duplicate-ID repair, a pure migration
+registry, and canonical/import/model parsing modes. Canonical documents use an explicit
+`<nt-document id="…" schema-version="1">` envelope. Album, storyboard, location, and
+canvas values validate through schemas owned by those domains; temporary custom-domain
+`legacyMarkup` is escaped and losslessly serialized.
+
+The golden fixture covers every v1 block and inline kind. Generated properties, malformed
+input fuzzing, and independent Node/DOMParser-compatible entry points verify semantic,
+ID, and domain round trips. The core is isolated from persistence and does not change the
+live BlockNote/ProseMirror authority; Yjs encoding begins in step 3.
 
 ## 3. Define the canonical Yjs encoding
 

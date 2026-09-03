@@ -1,6 +1,7 @@
 # Canonical NML AST and Yjs encoding
 
-Status: proposed architecture; not implemented.
+Status: headless schema-v1 core implemented; Yjs encoding and runtime adoption remain
+planned.
 
 Implementation sequencing is tracked in
 [`nml-prosemirror-refactor-plan.md`](nml-prosemirror-refactor-plan.md). Binding v1 choices
@@ -79,6 +80,11 @@ type NmlDocument = {
 };
 ```
 
+Canonical text wraps this envelope as
+`<nt-document id="DOCUMENT_ID" schema-version="1">…</nt-document>` with one trailing
+newline. This wrapper is required in canonical mode; fragments belong to import/model
+adapters.
+
 Rules:
 
 - `schemaVersion` identifies the canonical AST/Yjs schema, not the application version.
@@ -152,6 +158,7 @@ type ListItemBlock = NmlBlockBase<
 > & { content: InlineContent };
 
 type TableBlock = NmlBlockBase<"table", { headerRows: number }> & {
+  columns: Array<{ id: NodeId }>;
   rows: TableRow[];
 };
 
@@ -187,6 +194,11 @@ not restated independently. Every mutable custom-block domain belongs in the can
 serialized inner markup is a derived representation and must not become a second source of
 truth. A temporary `legacyMarkup` field is permitted only while migrating existing stored
 documents, is read-only, and must be removed once that domain has a structured schema.
+
+The implemented v1 core imports runtime schemas from the existing canvas, album,
+storyboard, and location owners. Its canvas AST uses the owner's complete `Scene` value;
+step 3 maps that semantic value into the planned ID-keyed Yjs representation rather than
+introducing a second canvas schema in the core.
 
 ### Canonical canvas scene
 
@@ -505,6 +517,10 @@ Parsing modes:
    content, and returns diagnostics.
 3. `model`: accepts the documented model conveniences and returns diagnostics plus typed
    operations relative to a known document. It must never be used to decode persistence.
+
+The implemented parser exposes all three trust modes and structured diagnostics. Operation
+compilation remains deliberately deferred to the semantic executor in step 4; until then,
+model mode returns a normalized AST and diagnostics and is never a persistence decoder.
 
 ## Validation and repair
 
