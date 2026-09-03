@@ -22,7 +22,8 @@ owns the document model.
 - Preserve intent under concurrent edits without whole-document replacement.
 - Make serialization deterministic and lossless.
 - Permit multiple view engines without storing a view engine's private representation.
-- Preserve Nootles' bounded hierarchy and exact custom-block round trips.
+- Preserve Nootles' bounded hierarchy while making custom-block domains, including the
+  complete canvas scene, canonical AST data.
 - Support schema evolution through explicit, deterministic migrations.
 
 ## Non-goals
@@ -170,16 +171,71 @@ type MediaSource =
   | { kind: "storage"; storageId: string }
   | { kind: "url"; url: string };
 
-type CanvasBlock = NmlBlockBase<"canvas", CanvasProps>;
 type AlbumBlock = NmlBlockBase<"album", AlbumProps>;
 type StoryboardBlock = NmlBlockBase<"storyboard", StoryboardProps>;
 type LocationBlock = NmlBlockBase<"location", LocationProps>;
 ```
 
 The concrete custom-block property schemas must be imported from their domain definitions,
-not restated independently. Until each custom block is structurally encoded in the AST,
-its canonical, uncollapsed inner NML may be retained in a typed `canonicalMarkup` field.
-That is a migration bridge, not permission for arbitrary HTML.
+not restated independently. Every mutable custom-block domain belongs in the canonical AST;
+serialized inner markup is a derived representation and must not become a second source of
+truth. A temporary `legacyMarkup` field is permitted only while migrating existing stored
+documents, is read-only, and must be removed once that domain has a structured schema.
+
+### Canonical canvas scene
+
+A canvas block owns its complete scene inside the NML AST. Shapes and edges are NML domain
+nodes, not document blocks, and therefore do not appear as ProseMirror children.
+
+```ts
+type CanvasBlock = NmlBlockBase<"canvas", CanvasBlockProps> & {
+  scene: NmlCanvasScene;
+};
+
+type NmlCanvasScene = {
+  schemaVersion: number;
+  shapes: Record<ShapeId, NmlShape>;
+  edges: Record<EdgeId, NmlEdge>;
+};
+
+type NmlShape = {
+  id: ShapeId;
+  kind: ShapeKind;
+  parentId: ShapeId | null;
+  orderKey: string;
+  geometry: ShapeGeometry;
+  style: ShapeStyle;
+  label: CanvasRichText;
+  image?: CanvasImage;
+  data: ShapeKindData;
+};
+
+type NmlEdge = {
+  id: EdgeId;
+  orderKey: string;
+  from: EdgeEndpoint;
+  to: EdgeEndpoint;
+  route: EdgeRoute;
+  style: EdgeStyle;
+  label: CanvasRichText;
+};
+```
+
+Rules:
+
+- The canvas block, every shape, and every edge have stable IDs.
+- `parentId` expresses grouping; it may reference only a group in the same scene.
+- Grouping is bounded to the canvas shape hierarchy and can never contain a page or block.
+- `orderKey` provides deterministic fractional ordering within a parent. Array position is
+  not identity or durable ordering metadata.
+- Geometry, styles, endpoints, labels, and kind-specific data are typed and validated by
+  the canvas domain schema.
+- Viewport, active tool, hover, transient selection, resize previews, and awareness are
+  view state and never part of the canonical AST.
+- Canvas text may reuse the canonical inline AST through an explicitly supported subset;
+  its ownership and selection domain remain canvas-specific.
+- `<nt-diagram>` is the deterministic textual serialization of `scene`, not a stored live
+  mirror and not an independently writable value.
 
 ### Child rules
 
@@ -191,8 +247,9 @@ That is a migration bridge, not permission for arbitrary HTML.
   serialize under one `<ul>` or `<ol>` wrapper.
 - A toggle's child blocks are bounded document children; they do not create a page or
   arbitrary recursive surface.
-- Canvas shapes are not `NmlBlock` children. They belong to the canvas domain and retain
-  their bounded `Shape -> {rich text, image}` hierarchy.
+- Canvas shapes are not `NmlBlock` children, but they are canonical descendants of the
+  canvas block through its typed `scene`. They retain the bounded
+  `Shape -> {rich text, image}` hierarchy.
 
 ## Inline AST
 
@@ -249,6 +306,22 @@ Y.Map
 └── domain content: typed shared values
 ```
 
+A canvas block's domain content is encoded directly beneath its block map:
+
+```text
+canvas block: Y.Map
+├── id / type / props
+└── scene: Y.Map
+    ├── schemaVersion: number
+    ├── shapes: Y.Map<shapeId, Y.Map<shape fields>>
+    └── edges: Y.Map<edgeId, Y.Map<edge fields>>
+```
+
+Shape labels use collaborative shared text. Composite geometry or style fields that must
+change atomically use one validated shared value; independently mutable fields use
+separate map keys. Parent and fractional order keys are stored on shapes so one shape
+update does not rewrite a scene-wide array.
+
 Encoding rules:
 
 - Ordered collections use `Y.Array`.
@@ -258,6 +331,8 @@ Encoding rules:
   of whole immutable strings.
 - Code and LaTeX use `Y.Text`.
 - Table rows and cells are addressable `Y.Map` nodes in `Y.Array`s.
+- Canvas shapes and edges use ID-keyed `Y.Map`s nested under their owning canvas block.
+  Shape edits never rewrite a whole diagram string or require a document-tree mutation.
 - Unknown keys are not silently retained in canonical state. A newer schema must either
   be understood, preserved in a versioned extension container, or rejected as unsupported.
 - The AST decoder must never depend on insertion clocks, Yjs client IDs, or internal item
@@ -299,6 +374,13 @@ All mutations target stable IDs and compile to Yjs transactions. The minimum voc
 - `replaceTableRange(tableId, range, cells)`
 - `setCode(nodeId, range, text)`
 - `setMathRow(nodeId, rowId, latex)`
+- `insertShapes(canvasId, shapes)`
+- `updateShapes(canvasId, patches)`
+- `moveShapes(canvasId, placements)`
+- `removeShapes(canvasId, shapeIds)`
+- `insertEdges(canvasId, edges)`
+- `updateEdges(canvasId, patches)`
+- `removeEdges(canvasId, edgeIds)`
 
 High-level commands such as slash commands compile into this vocabulary. Import adapters
 and model-friendly `edit_page` HTML compile into it as well. No adapter writes Yjs shared
@@ -365,12 +447,18 @@ Yjs determines causality and deterministic CRDT ordering. NML adds semantic reso
 
 ### Custom blocks and canvas
 
-- Whole-string custom markup is a temporary compatibility boundary. Concurrent writes to
-  that string are whole-value conflicts.
-- Canvas remains per-shape/per-edge CRDT data and must not regress to a whole-diagram
-  scalar. The canonical NML serializer materializes the exact `<nt-diagram>` form from
-  those maps.
+- Canvas scene data is part of the canonical NML AST and is encoded as per-shape/per-edge
+  CRDT maps beneath its canvas block. It must never regress to a whole-diagram scalar.
+- The canonical NML serializer materializes exact `<nt-diagram>` markup from the scene;
+  parsing complete diagram markup yields the same typed scene.
 - The canvas block ID and shape IDs remain stable across serialization.
+- Concurrent edits to independent shapes and independent fields merge without touching
+  the document projection or unrelated shapes.
+- Removing a shape also resolves incident edges through one domain command. Concurrent
+  edge creation against a removed endpoint is retained as a typed dangling-edge conflict
+  until deterministic repair removes it or the endpoint is restored.
+- Concurrent moves of one shape follow the structural single-parent resolution rules;
+  moving different shapes merges independently.
 - Albums/storyboards/locations need domain-specific shared structures before promising
   fine-grained concurrent edits within them.
 
@@ -398,6 +486,8 @@ Canonical output rules:
 - Serialize marks in canonical nesting order.
 - Use `\n` line endings and one final newline for complete documents.
 - Never emit token-saving stubs in canonical mode.
+- `<nt-diagram>` always materializes the complete canonical scene in canonical mode; drawn
+  and summary stubs exist only in model/read projections.
 - Never emit ephemeral selection, presence, loading, or review state.
 - URLs serialize only after scheme validation and canonical escaping.
 
@@ -492,6 +582,8 @@ type NmlIssue = {
 - Cross-runtime parity tests in browser and Node.
 - Compatibility fixtures for every existing stored BlockNote/ProseMirror document.
 - Exact canvas, album, storyboard, and location round-trip tests.
+- Canvas AST/Yjs/`<nt-diagram>` three-way equivalence tests and per-shape concurrency
+  matrices.
 - Large-document and chunked-update tests.
 
 ## Adoption sequence
@@ -499,13 +591,14 @@ type NmlIssue = {
 1. Freeze and type the lossless NML AST independently of storage.
 2. Add canonical serializer/parser tests around current documents.
 3. Define the Yjs encoding and build bidirectional converters in isolation.
-4. Mirror current documents into an NML Y.Doc and compare continuously without serving it.
+4. Mirror current documents and canvas CRDT maps into an NML Y.Doc and compare both the
+   block tree and fully materialized scenes continuously without serving it.
 5. Introduce the ProseMirror View Bridge described in
    [`nml-prosemirror-view-bridge.md`](nml-prosemirror-view-bridge.md).
 6. Migrate one document cohort with rollback and equivalence checks.
 7. Move MCP and backend readers to canonical NML.
-8. Retire the ProseMirror-shaped persisted root only after all clients and legacy documents
-   are migrated.
+8. Retire the ProseMirror-shaped persisted root and `<nt-diagram>` live mirror only after
+   all clients, canvas readers, and legacy documents are migrated.
 
 ## Open decisions
 
@@ -515,9 +608,11 @@ type NmlIssue = {
   surviving ancestor.
 - Whether table columns receive stable IDs in schema version 1.
 - Whether code and math rows need independently addressable inline marks or annotations.
-- When albums, storyboards, and locations graduate from canonical-markup compatibility
+- When albums, storyboards, and locations graduate from legacy-markup migration
   fields to fully structured CRDT domains.
-- Whether canvas shape text shares the document inline AST or remains canvas-domain rich
-  text with an explicit conversion boundary.
+- Which subset of the document inline AST canvas labels share, and how canvas-specific
+  text layout metadata remains outside that subset.
+- Whether edges remain nested beneath one canvas block only or may eventually reference
+  stable nodes outside their scene; cross-scene edges are out of scope initially.
 - Retention and user experience for named versions, checkpoints, and recovery content.
 - Maximum supported document depth, node count, inline length, and custom-block payload.
