@@ -2,6 +2,12 @@
 
 Status: proposed architecture; not implemented.
 
+Implementation sequencing is tracked in
+[`nml-prosemirror-refactor-plan.md`](nml-prosemirror-refactor-plan.md). Binding v1 choices
+for previously open foundational questions are in
+[`nml-foundational-decisions.md`](nml-foundational-decisions.md); those choices supersede
+question-form language retained below for design context.
+
 The **ProseMirror View Bridge** (PVB) presents a canonical NML-shaped Yjs document through
 ProseMirror without making ProseMirror state canonical. ProseMirror supplies mature browser
 editing behavior—selection, input, IME, clipboard, tables, accessibility, and transaction
@@ -570,7 +576,11 @@ Never log user text, NML payloads, Yjs updates, credentials, or storage URLs by 
 10. **Retirement:** remove the ProseMirror-shaped persisted Yjs root after compatibility and
     rollback windows close.
 
-## Open questions and problems to solve
+## Design-question inventory
+
+The foundational items in this inventory are decided for v1 by
+[`nml-foundational-decisions.md`](nml-foundational-decisions.md). Unanswered implementation,
+product, migration, and operational details close at the gated plan stage that needs them.
 
 ### Canonical/view boundary
 

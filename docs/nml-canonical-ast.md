@@ -2,6 +2,12 @@
 
 Status: proposed architecture; not implemented.
 
+Implementation sequencing is tracked in
+[`nml-prosemirror-refactor-plan.md`](nml-prosemirror-refactor-plan.md). Binding v1 choices
+for previously open foundational questions are in
+[`nml-foundational-decisions.md`](nml-foundational-decisions.md); those choices supersede
+question-form language retained below for design context.
+
 This document defines the canonical semantic document model for the Nootles Markup
 Language (NML). It separates three things that are easy to conflate:
 
@@ -600,7 +606,11 @@ type NmlIssue = {
 8. Retire the ProseMirror-shaped persisted root and `<nt-diagram>` live mirror only after
    all clients, canvas readers, and legacy documents are migrated.
 
-## Open decisions
+## Design-question inventory
+
+The foundational items in this inventory are decided for v1 by
+[`nml-foundational-decisions.md`](nml-foundational-decisions.md). Remaining product and
+operational details close at the gated plan stage that needs them.
 
 - `Y.XmlFragment` versus a purpose-built inline `Y.Array` encoding for inline content.
 - The move primitive needed to guarantee single-parent identity under concurrent moves.
