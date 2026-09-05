@@ -6,6 +6,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { ContextMenu } from "@/app/components/ContextMenu";
 import { MenuItem } from "@/app/components/Menu";
+import { FileDoc, LinkIcon } from "@/app/components/Icons";
 import { importReferencedPage } from "@/app/lib/notion/importRun";
 import type { PageProgress } from "@/app/lib/notion/importRun";
 import { notionPageIdFrom } from "@/app/lib/notion/notionUrl";
@@ -146,12 +147,22 @@ export function useNotionLinks({
         </p>
       ) : (
         <>
+          {/* The two glyphs carry the actual distinction: one ends as a page
+              in this project, the other stays a link out of it. */}
           {!readOnly && page && (
             <MenuItem onClick={() => void importHere(pending)}>
+              <span className="nt-notion-menu-icon" aria-hidden>
+                <FileDoc width={14} height={14} />
+              </span>
               Import here and link
             </MenuItem>
           )}
-          <MenuItem onClick={() => openInNotion(pending.href)}>Open in Notion</MenuItem>
+          <MenuItem onClick={() => openInNotion(pending.href)}>
+            <span className="nt-notion-menu-icon" aria-hidden>
+              <LinkIcon width={14} height={14} />
+            </span>
+            Open in Notion
+          </MenuItem>
         </>
       )}
     </ContextMenu>

@@ -303,10 +303,29 @@ button.nt-notion-twist:hover {
   }
 }
 
+/* Muted until the row is under the pointer, the way the slash menu's glyphs
+   behave — the label is what you read, the glyph is what you recognise. */
+.nt-notion-menu-icon {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  color: var(--muted);
+  transition: color var(--dur-fast) var(--ease);
+}
+.nt-menu-item:hover .nt-notion-menu-icon,
+.nt-menu-item:focus-visible .nt-notion-menu-icon {
+  color: var(--foreground);
+}
+
 /* A reference being followed. Lives in the menu the click opened, so the
    sentence stays where the reader is looking rather than in a corner. */
 .nt-notion-following {
-  padding: 6px 10px;
+  /* Indented past where a glyph would sit, so the line lines up with the
+     labels of the rows it replaced rather than with the menu's edge. */
+  padding: 6px var(--inset) 6px calc(var(--inset) + 16px + 8px);
   font-size: var(--text-ui);
   color: var(--muted);
 }
