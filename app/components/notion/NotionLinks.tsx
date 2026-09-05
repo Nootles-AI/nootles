@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState, type MouseEvent } from "react";
+import { useEffect, useState, type RefObject } from "react";
 import { useConvex, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -43,10 +43,13 @@ export function useNotionLinks({
   editor,
   pageId,
   readOnly,
+  surface,
 }: {
   editor: Editor;
   pageId?: Id<"pages">;
   readOnly: boolean;
+  /** The editor surface; only links inside it are ours to intercept. */
+  surface: RefObject<HTMLElement | null>;
 }) {
   const client = useConvex();
   const page = useQuery(api.pages.get, pageId ? { pageId } : "skip");
@@ -54,29 +57,42 @@ export function useNotionLinks({
   const [running, setRunning] = useState<PageProgress | null>(null);
 
   /**
-   * Capture, not bubble: BlockNote's own link handling and the browser's
-   * navigation both run on the way back up, and the offer has to be made
-   * before either of them takes the click.
+   * A native listener on the document, in the capture phase.
+   *
+   * React's synthetic capture was not enough: it is delivered from React's own
+   * root container, and the anchor's navigation still went ahead. A real
+   * capture listener on the document runs before every other handler and before
+   * the default action, and `stopImmediatePropagation` closes the last gap —
+   * whatever else is listening, on either system, does not get the click.
+   *
+   * Scoped to anchors inside this editor's surface, so a Notion link anywhere
+   * else in the app stays an ordinary link.
    */
-  const onClickCapture = useCallback((event: MouseEvent<HTMLDivElement>) => {
-    // A modified click is the reader asking for a new tab explicitly. That is
-    // an answer already, so it is not interrupted with a question.
-    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-    const anchor = (event.target as HTMLElement | null)?.closest?.("a[href]");
-    if (!anchor) return;
-    const href = anchor.getAttribute("href") ?? "";
-    const notionPageId = notionPageIdFrom(href);
-    if (!notionPageId) return;
-    event.preventDefault();
-    event.stopPropagation();
-    setPending({
-      href,
-      notionPageId,
-      label: pageTitle(anchor.textContent ?? ""),
-      x: event.clientX,
-      y: event.clientY,
-    });
-  }, []);
+  useEffect(() => {
+    const onClick = (event: globalThis.MouseEvent) => {
+      // A modified click is the reader asking for a new tab explicitly. That is
+      // an answer already, so it is not interrupted with a question.
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      if (event.button !== 0) return;
+      const target = event.target as Element | null;
+      const anchor = target?.closest?.("a[href]");
+      if (!anchor || !surface.current?.contains(anchor)) return;
+      const href = anchor.getAttribute("href") ?? "";
+      const notionPageId = notionPageIdFrom(href);
+      if (!notionPageId) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      setPending({
+        href,
+        notionPageId,
+        label: pageTitle(anchor.textContent ?? ""),
+        x: event.clientX,
+        y: event.clientY,
+      });
+    };
+    document.addEventListener("click", onClick, true);
+    return () => document.removeEventListener("click", onClick, true);
+  }, [surface]);
 
   const close = () => {
     setPending(null);
@@ -126,7 +142,7 @@ export function useNotionLinks({
     </ContextMenu>
   ) : null;
 
-  return { onClickCapture, menu };
+  return { menu };
 }
 
 function label(state: PageProgress["state"]): string {

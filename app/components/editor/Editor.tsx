@@ -614,8 +614,6 @@ function EditorSurface({
 
   useRegisterEditor(pageId, editor, docId, pipeline);
   const completion = useTabCompletion(readOnly ? null : editor, pageId, title, mode, docId);
-  // A link to a Notion page an import left behind asks before it navigates.
-  const notionLinks = useNotionLinks({ editor, pageId, readOnly });
   const reformat = useReformat(readOnly ? null : editor, pageId);
 
   // The document is one domain on the workspace history spine — Yjs only;
@@ -632,6 +630,8 @@ function EditorSurface({
   // contenteditable — so it is heard on a layout-neutral wrapper that reaches
   // back over that strip rather than on the editor itself.
   const marqueeSurface = useRef<HTMLDivElement>(null);
+  // A link to a Notion page an import left behind asks before it navigates.
+  const notionLinks = useNotionLinks({ editor, pageId, readOnly, surface: marqueeSurface });
   const selected = readOnly ? null : blockSelection(editor);
   useBlockMarquee({
     surfaceRef: marqueeSurface,
@@ -660,7 +660,6 @@ function EditorSurface({
         ref={marqueeSurface}
         className="nt-marquee-surface"
         onMouseUp={promoteSpanned}
-        onClickCapture={notionLinks.onClickCapture}
         {...undoScope}
       >
         <BlockNoteView
