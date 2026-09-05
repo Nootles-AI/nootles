@@ -1062,6 +1062,37 @@ export default defineSchema({
   }).index("by_owner", ["ownerId"]),
 
   /**
+   * The Notion connection, one per account.
+   *
+   * OAuth rather than a pasted token, because the thing being connected is a
+   * person's own workspace and Notion asks them, in their own consent screen,
+   * which pages this app may see. That picker is the access model: the token
+   * can read what was ticked there and nothing else, so re-granting is a normal
+   * part of using the import, not a failure.
+   *
+   * Notion issues no refresh token and its access tokens do not expire, so the
+   * only thing that ends a connection is the user revoking it — which shows up
+   * as a 401 on first use and is recorded in `invalidAt` rather than guessed at.
+   */
+  notionAccounts: defineTable({
+    ownerId: v.string(),
+    /** AES-GCM ciphertext. Opening it needs the deployment's NOTION_TOKEN_KEY. */
+    sealed: v.string(),
+    /** The workspace granted, as Notion named it at connect. */
+    workspaceId: v.string(),
+    workspaceName: v.string(),
+    /** Emoji or image URL, whichever Notion gave for the workspace. */
+    workspaceIcon: v.optional(v.string()),
+    /** The integration's bot user inside that workspace. */
+    botId: v.string(),
+    /** Last four characters, so a stored token is recognisable but not readable. */
+    hint: v.string(),
+    connectedAt: v.number(),
+    /** Stamped when Notion last answered 401. See `githubAccounts.invalidAt`. */
+    invalidAt: v.optional(v.number()),
+  }).index("by_owner", ["ownerId"]),
+
+  /**
    * A repository linked to a project. Part of the Context Sheet in spirit: the
    * summary below is read into every prompt, and the agent reads the rest of the
    * repo through tools that check this table for permission first.
