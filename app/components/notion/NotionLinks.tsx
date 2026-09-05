@@ -101,7 +101,13 @@ export function useNotionLinks({
       // back would let the editor raise its link toolbar over a URL nobody
       // should be editing — the stub is a record of something that did not
       // come across, not a link somebody wrote.
-      if (isNotionBlockHref(href)) {
+      //
+      // The text check covers documents imported before stubs carried a
+      // fragment, whose links are bare ids indistinguishable from a page
+      // reference by URL alone. Those pages are already written; leaving them
+      // offering to import a database that cannot be imported is worse than a
+      // narrow rule about one exact phrase this importer used to write.
+      if (isNotionBlockHref(href) || anchor.textContent?.trim() === "open in Notion") {
         window.open(href, "_blank", "noopener,noreferrer");
         return true;
       }
