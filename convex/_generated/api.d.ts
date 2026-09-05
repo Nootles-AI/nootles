@@ -48,6 +48,7 @@ import type * as impersonationMint from "../impersonationMint.js";
 import type * as limits from "../limits.js";
 import type * as migrations from "../migrations.js";
 import type * as notion_account from "../notion/account.js";
+import type * as notion_assets from "../notion/assets.js";
 import type * as notion_pages from "../notion/pages.js";
 import type * as notion_rest from "../notion/rest.js";
 import type * as notion_seal from "../notion/seal.js";
@@ -114,6 +115,7 @@ declare const fullApi: ApiFromModules<{
   limits: typeof limits;
   migrations: typeof migrations;
   "notion/account": typeof notion_account;
+  "notion/assets": typeof notion_assets;
   "notion/pages": typeof notion_pages;
   "notion/rest": typeof notion_rest;
   "notion/seal": typeof notion_seal;

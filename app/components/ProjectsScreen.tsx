@@ -20,6 +20,7 @@ import { Feedback } from "./feedback/Feedback";
 import { FixedToast } from "./feedback/FixedToast";
 import { Menu, MenuItem } from "./Menu";
 import { NewProjectDialog, type NewProject } from "./NewProjectDialog";
+import { NotionImport } from "./notion/NotionImport";
 import { PagePreview } from "./PagePreview";
 import { useStandIn } from "./StandIn";
 import { AccessRequests } from "./share/AccessRequests";
@@ -62,6 +63,7 @@ export function ProjectsScreen() {
     null,
   );
   const [naming, setNaming] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [walled, setWalled] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
   const { room } = usePlan();
@@ -198,6 +200,17 @@ export function ProjectsScreen() {
           {/* The button never disappears when the free projects are gone — it
               opens the wall instead. An affordance that vanishes reads as a
               bug; one that explains itself reads as a limit. */}
+          {/* Quiet beside New project on purpose: importing is the rarer
+              door, and a second filled button would make the header read as
+              two equal choices when one of them is how you start. */}
+          {!standIn && (
+            <button
+              onClick={() => (room("projects") ? setImporting(true) : setWalled(true))}
+              className="nt-row px-2.5"
+            >
+              Import from Notion
+            </button>
+          )}
           {!standIn && (
             <button
               onClick={() => (room("projects") ? openNaming() : setWalled(true))}
@@ -331,6 +344,8 @@ export function ProjectsScreen() {
           />
         </ContextMenu>
       )}
+
+      {importing && <NotionImport onClose={() => setImporting(false)} />}
 
       {naming && (
         <NewProjectDialog onCancel={() => setNaming(false)} onCreate={create} />

@@ -27,6 +27,8 @@ export class NotionError extends ConvexError<string> {
     message: string,
     /** True when the token itself is the problem, which the account row records. */
     readonly unauthorized = false,
+    /** Seconds Notion asked us to wait, when it said so. */
+    readonly retryAfter?: number,
   ) {
     super(message);
     this.name = "NotionError";
@@ -64,7 +66,7 @@ export async function request(
   if (res.ok) return res;
   if (res.status === 404 && options.allowMissing) return null;
 
-  throw new NotionError(res.status, await explain(res), res.status === 401);
+  throw new NotionError(res.status, await explain(res), res.status === 401, retryAfter(res));
 }
 
 export async function json<T>(token: string, path: string, options: Options = {}): Promise<T | null> {
@@ -95,7 +97,7 @@ async function explain(res: Response): Promise<string> {
 }
 
 /** How long Notion asks us to wait, when it says so. Seconds, as a number. */
-export function retryAfter(res: Response): number | undefined {
+function retryAfter(res: Response): number | undefined {
   const header = res.headers.get("retry-after");
   const seconds = header ? Number(header) : NaN;
   return Number.isFinite(seconds) ? seconds : undefined;

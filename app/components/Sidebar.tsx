@@ -23,6 +23,7 @@ import {
   PanelLeft,
   Plus,
 } from "./Icons";
+import { NotionImport } from "./notion/NotionImport";
 import { RowIcon, type RowIconValue } from "./rowIcon";
 import "./iconPicker.css";
 import { AccountMenu } from "./AccountMenu";
@@ -87,6 +88,7 @@ export function Sidebar({
   onOpenAside,
   onCollapse,
 }: Props) {
+  const [importing, setImporting] = useState(false);
   const project = useQuery(api.projects.get, { projectId });
   const pages = useQuery(api.pages.listByProject, { projectId });
   const folders = useQuery(api.folders.listByProject, { projectId });
@@ -963,6 +965,10 @@ export function Sidebar({
               <Item onClick={() => { newFolder(); setCtx(null); }}>
                 New folder
               </Item>
+              <div className="nt-menu-sep" />
+              <Item onClick={() => { setImporting(true); setCtx(null); }}>
+                Import from Notion
+              </Item>
               {clip && (
                 <>
                   <div className="nt-menu-sep" />
@@ -989,6 +995,13 @@ export function Sidebar({
             />
           )}
         </ContextMenu>
+      )}
+
+      {importing && (
+        <NotionImport
+          target={{ projectId, projectTitle: project?.title || "this project" }}
+          onClose={() => setImporting(false)}
+        />
       )}
 
       {iconTarget && (

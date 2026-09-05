@@ -4,7 +4,7 @@ import { v } from "convex/values";
 import { action } from "../_generated/server";
 import { requireOwner } from "../auth";
 import { withToken } from "./account";
-import { NotionError, json, request, retryAfter } from "./rest";
+import { NotionError, json } from "./rest";
 
 /**
  * Reading a Notion workspace: the page tree first, then one page's blocks.
@@ -143,7 +143,8 @@ async function paced<T>(call: () => Promise<T>): Promise<T> {
     return await call();
   } catch (error) {
     if (error instanceof NotionError && error.status === 429) {
-      await sleep(5_000);
+      // Notion says how long to wait; guessing shorter just earns another 429.
+      await sleep((error.retryAfter ?? 5) * 1000);
       lastRequestAt = Date.now();
       return await call();
     }

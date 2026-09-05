@@ -1,0 +1,304 @@
+/* Notion import.
+
+   An Operate surface, so it spends nothing on expression: neutral throughout,
+   no accent (that means AI here), no brand (that means identity), no
+   --nt-select (that belongs to the canvas). Hierarchy is carried by surface
+   value, weight and the mono metadata face, the way the rest of the chrome
+   does it.
+
+   Geometry follows the shell's rule: 8px inset, 32px control boxes around 16px
+   glyphs, so a row's glyph and its text both land where every other panel puts
+   them. */
+
+.nt-notion-body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 18px;
+}
+
+/* ---- The page tree ------------------------------------------------------ */
+
+.nt-notion-tree {
+  max-height: 46vh;
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--sunken);
+}
+
+.nt-notion-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.nt-notion-twist,
+.nt-notion-twist-gap {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: var(--control-sm);
+  height: var(--control-sm);
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+}
+.nt-notion-twist svg {
+  width: 14px;
+  height: 14px;
+  transition: transform var(--dur-fast) var(--ease);
+}
+.nt-notion-twist[data-open] svg {
+  transform: rotate(90deg);
+}
+button.nt-notion-twist:hover {
+  background: var(--hover);
+  color: var(--foreground);
+}
+
+.nt-notion-pick {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  height: var(--control);
+  padding: 0 8px 0 4px;
+  border-radius: var(--radius-sm);
+  text-align: left;
+  color: var(--foreground);
+}
+.nt-notion-pick:hover {
+  background: var(--hover);
+}
+.nt-notion-pick[aria-selected="true"] {
+  background: var(--selected);
+}
+
+/* The tick. A drawn box rather than a native checkbox so it inherits the
+   palette and sits on the same 16px glyph rhythm as every other row mark. */
+.nt-notion-box {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 15px;
+  height: 15px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--background);
+  color: var(--background);
+}
+.nt-notion-box svg {
+  width: 11px;
+  height: 11px;
+}
+.nt-notion-box[data-state="on"] {
+  border-color: var(--foreground);
+  background: var(--foreground);
+}
+/* Something inside is picked but this page is not. A bar, not a tick: it is a
+   report about the children, and a half-tick reads as a broken tick. */
+.nt-notion-box[data-state="partial"]::after {
+  content: "";
+  width: 7px;
+  height: 1.5px;
+  border-radius: 1px;
+  background: var(--muted);
+}
+
+.nt-notion-glyph {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  color: var(--muted);
+}
+.nt-notion-glyph svg {
+  width: 15px;
+  height: 15px;
+}
+.nt-notion-emoji {
+  font-size: 13px;
+  line-height: 1;
+}
+
+.nt-notion-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-ui);
+}
+
+.nt-notion-count {
+  flex: none;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--text-meta);
+  letter-spacing: var(--tracking-meta);
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.nt-notion-skel {
+  height: var(--control);
+  margin: 2px 4px;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(90deg, var(--hover), var(--active), var(--hover));
+  background-size: 200% 100%;
+  animation: nt-notion-shimmer 1.4s linear infinite;
+}
+@keyframes nt-notion-shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+
+/* ---- Empty and error ---------------------------------------------------- */
+
+.nt-notion-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 180px;
+  padding: 24px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--sunken);
+  text-align: center;
+  font-size: var(--text-ui);
+}
+.nt-notion-empty .nt-note {
+  max-width: 42ch;
+}
+
+.nt-notion-error {
+  margin-bottom: 10px;
+  font-size: var(--text-ui);
+  color: var(--danger);
+}
+
+/* ---- Running ------------------------------------------------------------ */
+
+.nt-notion-runlist {
+  max-height: 46vh;
+  overflow-y: auto;
+}
+
+.nt-notion-run {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: var(--control);
+  padding: 0 4px;
+  font-size: var(--text-ui);
+  color: var(--muted);
+}
+.nt-notion-run[data-state="fetching"],
+.nt-notion-run[data-state="copying"],
+.nt-notion-run[data-state="writing"] {
+  color: var(--foreground);
+}
+.nt-notion-run[data-state="done"] {
+  color: var(--foreground);
+}
+.nt-notion-run[data-state="failed"] {
+  color: var(--danger);
+}
+
+.nt-notion-run-mark {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  color: var(--faint);
+}
+.nt-notion-run-mark svg {
+  width: 14px;
+  height: 14px;
+}
+.nt-notion-run[data-state="done"] .nt-notion-run-mark {
+  color: var(--foreground);
+}
+/* The one authored moment: the row being worked on breathes, so a long import
+   reads as alive without a spinner on every line. */
+.nt-notion-run[data-state="fetching"] .nt-notion-run-mark,
+.nt-notion-run[data-state="copying"] .nt-notion-run-mark,
+.nt-notion-run[data-state="writing"] .nt-notion-run-mark {
+  animation: nt-notion-pulse 1.6s var(--ease) infinite;
+}
+@keyframes nt-notion-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.nt-notion-run-state {
+  flex: none;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--text-meta);
+  letter-spacing: var(--tracking-meta);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- The report --------------------------------------------------------- */
+
+.nt-notion-report {
+  max-height: 46vh;
+  overflow-y: auto;
+}
+
+.nt-notion-reported + .nt-notion-reported {
+  border-top: 1px solid var(--border);
+}
+
+.nt-notion-reported-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  min-height: var(--control);
+  padding: 0 4px;
+  text-align: left;
+  font-size: var(--text-ui);
+}
+.nt-notion-reported-head:not(:disabled):hover {
+  background: var(--hover);
+}
+.nt-notion-reported[data-state="failed"] .nt-notion-run-state {
+  color: var(--danger);
+}
+
+.nt-notion-detail {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 12px;
+  padding: 4px 8px 10px 28px;
+}
+.nt-notion-detail > div {
+  display: contents;
+}
+.nt-notion-detail dt {
+  font-size: var(--text-ui);
+  color: var(--muted);
+}
+.nt-notion-detail dd {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--text-meta-lg);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nt-notion-skel,
+  .nt-notion-run-mark {
+    animation: none;
+  }
+}
