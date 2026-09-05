@@ -4,6 +4,7 @@ import { useEffect, useState, type RefObject } from "react";
 import { useConvex, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { LinkToolbar, type LinkToolbarProps } from "@blocknote/react";
 import { ContextMenu } from "@/app/components/ContextMenu";
 import { MenuItem } from "@/app/components/Menu";
 import { FileDoc } from "@/app/components/Icons";
@@ -42,6 +43,17 @@ let active: ((event: globalThis.MouseEvent) => boolean) | null = null;
 
 export function notionLinkClick(event: globalThis.MouseEvent): boolean {
   return active?.(event) ?? false;
+}
+
+/**
+ * A link this importer wrote as a stub's way back to Notion.
+ *
+ * Both the click handler and the link toolbar ask this, so a stub can never
+ * behave like a stub in one and like an ordinary link in the other. The text
+ * covers documents imported before stubs carried a fragment.
+ */
+export function isStubLink(href: string, text?: string | null): boolean {
+  return isNotionBlockHref(href) || text?.trim() === "open in Notion";
 }
 
 type Pending = {
@@ -107,7 +119,7 @@ export function useNotionLinks({
       // reference by URL alone. Those pages are already written; leaving them
       // offering to import a database that cannot be imported is worse than a
       // narrow rule about one exact phrase this importer used to write.
-      if (isNotionBlockHref(href) || anchor.textContent?.trim() === "open in Notion") {
+      if (isStubLink(href, anchor.textContent)) {
         window.open(href, "_blank", "noopener,noreferrer");
         return true;
       }
@@ -187,6 +199,19 @@ export function useNotionLinks({
   ) : null;
 
   return { menu };
+}
+
+/**
+ * The editor's link toolbar, absent over a stub's own link.
+ *
+ * Hover was still raising edit-and-delete over a URL nobody wrote and nobody
+ * should change — the click was handled but the toolbar is a separate
+ * controller and never saw that decision. Rendering nothing for these leaves
+ * every other link exactly as it was.
+ */
+export function LinkToolbarUnlessStub(props: LinkToolbarProps) {
+  if (isStubLink(props.url, props.text)) return null;
+  return <LinkToolbar {...props} />;
 }
 
 function label(state: PageProgress["state"]): string {

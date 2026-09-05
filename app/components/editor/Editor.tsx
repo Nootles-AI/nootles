@@ -9,6 +9,7 @@ import {
   getFormattingToolbarItems,
   FormattingToolbar,
   FormattingToolbarController,
+  LinkToolbarController,
   SuggestionMenuController,
   type DefaultReactSuggestionItem,
 } from "@blocknote/react";
@@ -47,7 +48,11 @@ import { emptyStoryboard } from "./storyboard/types";
 import { useTabCompletion, type PageMode } from "./ai/useTabCompletion";
 import { PlanWall } from "../billing/PlanWall";
 import { useReformat } from "./ai/useReformat";
-import { notionLinkClick, useNotionLinks } from "@/app/components/notion/NotionLinks";
+import {
+  LinkToolbarUnlessStub,
+  notionLinkClick,
+  useNotionLinks,
+} from "@/app/components/notion/NotionLinks";
 import { ReformatBar } from "./ai/ReformatBar";
 import { arrivalFlashExtension } from "./arrivalFlash";
 import { blockSelection, blockSelectionExtension } from "./blockSelection";
@@ -670,11 +675,13 @@ function EditorSurface({
           sideMenu={false}
           slashMenu={false}
           formattingToolbar={false}
+          linkToolbar={false}
         >
           {!readOnly && (
             <>
               <BlockSideMenu />
               <FormattingToolbarController formattingToolbar={Toolbar} />
+              <LinkToolbarController linkToolbar={LinkToolbarUnlessStub} />
               <SuggestionMenuController
                 triggerCharacter="/"
                 floatingUIOptions={menuPlacement}
