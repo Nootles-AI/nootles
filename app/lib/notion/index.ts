@@ -3,3 +3,4 @@ export * from "./languages";
 export * from "./richText";
 export * from "./types";
 export * from "./plan";
+export * from "./notionUrl";

@@ -27,6 +27,13 @@ export function notionPageIdFrom(href: string): string | null {
   const host = url.hostname.toLowerCase();
   if (!HOSTS.has(host) && !host.endsWith(".notion.site")) return null;
 
+  // A fragment addresses a block inside a page, not the page. Notion writes
+  // these for a link to a specific block, and this importer writes one for
+  // every stub it leaves behind — a database, a template, a block type we do
+  // not know. None of those is a page that could be imported, so none of them
+  // is worth offering to import.
+  if (url.hash) return null;
+
   // The id is the tail of the last path segment, after any title slug:
   // /Some-Page-Title-1a2b…  and  /1a2b… are both ordinary.
   const last = url.pathname.split("/").filter(Boolean).pop();

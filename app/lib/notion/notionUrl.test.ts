@@ -22,6 +22,12 @@ describe("notionPageIdFrom", () => {
     expect(notionPageIdFrom(`https://acme.notion.site/Plan-${bare}`)).toBe(dashed);
   });
 
+  it("declines a link into a block, which is not a page you can import", () => {
+    // Every stub this importer leaves behind is one of these: a database, a
+    // template, a block type we do not know.
+    expect(notionPageIdFrom(`https://www.notion.so/${bare}#${bare}`)).toBeNull();
+  });
+
   it("declines anything that is not a Notion page", () => {
     expect(notionPageIdFrom("https://example.com/notion.so/" + bare)).toBeNull();
     expect(notionPageIdFrom("https://www.notion.so/")).toBeNull();

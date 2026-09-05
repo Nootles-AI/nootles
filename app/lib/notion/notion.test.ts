@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { LANGUAGES } from "@/app/components/editor/codemirror/languages";
 import { validateDocument } from "@/app/lib/nml/validate";
 import type { NmlBlock, NmlCodeBlock, NmlTableBlock, NmlTextBlock } from "@/app/lib/nml/schema";
-import { NOTION_LANGUAGES, convertBlocks, convertPage, type NotionBlock } from ".";
+import { NOTION_LANGUAGES, convertBlocks, convertPage, notionPageIdFrom, type NotionBlock } from ".";
 
 const ids = () => {
   let n = 0;
@@ -253,6 +253,23 @@ describe("the unbounded set", () => {
       raw: unknown,
     });
     expect(codes(result)).toContain("notion_block_stubbed");
+  });
+
+  it("points a stub at the block it stands for, not at a page", () => {
+    const page = "1a2b3c4d-5e6f-7081-9203-34a5b6c7d8e9";
+    const db = "9f8e7d6c-5b4a-3021-8765-4321fedcba09";
+    const result = convertBlocks([block("child_database", {}, { id: db })], {
+      createId: ids(),
+      sourcePageId: page,
+    });
+    const link = (result.blocks[0] as NmlTextBlock).content.at(-1);
+    // The fragment is what stops the editor offering to import a database:
+    // `notionPageIdFrom` declines any URL that addresses a block.
+    expect(link).toMatchObject({
+      type: "link",
+      href: `https://www.notion.so/${page.replace(/-/g, "")}#${db.replace(/-/g, "")}`,
+    });
+    expect(notionPageIdFrom((link as { href: string }).href)).toBeNull();
   });
 
   it("stubs Notion's own unsupported placeholder", () => {

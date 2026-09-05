@@ -58,6 +58,13 @@ export type NotionConvertOptions = {
   createId?: () => string;
   /** Notion page id → Nootles page id, for pages inside the same import set. */
   resolvePage?: (notionPageId: string) => string | undefined;
+  /**
+   * The Notion page these blocks came from, so a stub can link to the block it
+   * stands for rather than to a bare id. A database or an unknown block is not
+   * a page: linking to it as though it were offers the reader an import that
+   * could never work.
+   */
+  sourcePageId?: string;
 };
 
 const HEADINGS: Record<string, 1 | 2 | 3> = { heading_1: 1, heading_2: 2, heading_3: 3 };
@@ -98,6 +105,11 @@ export function convertBlocks(
 ): NotionConvertResult {
   const createId = options.createId ?? defaultCreateId;
   const resolvePage = options.resolvePage ?? (() => undefined);
+  /** Where a stub sends you: the block itself, inside the page it came from. */
+  const blockHref = (blockId: string) =>
+    options.sourcePageId
+      ? `${notionUrl(options.sourcePageId)}#${blockId.replace(/-/g, "")}`
+      : notionUrl(blockId);
   const diagnostics: NmlIssue[] = [];
   const ledger: NotionLedgerEntry[] = [];
   const assets: NotionAssetRequest[] = [];
@@ -129,7 +141,7 @@ export function convertBlocks(
         { type: "text", text: "Unsupported Notion block ", marks: ["italic"] },
         { type: "text", text: block.type, marks: ["code"] },
         { type: "text", text: " — ", marks: ["italic"] },
-        { type: "link", href: notionUrl(block.id), content: [{ type: "text", text: "open in Notion", marks: ["italic"] }] },
+        { type: "link", href: blockHref(block.id), content: [{ type: "text", text: "open in Notion", marks: ["italic"] }] },
       ],
     }];
   };
@@ -383,7 +395,7 @@ export function convertPage(
   blocks: NotionBlock[],
   options: NotionConvertOptions = {},
 ): NotionConvertResult & { document: NmlDocument } {
-  const result = convertBlocks(blocks, options);
+  const result = convertBlocks(blocks, { sourcePageId: documentId, ...options });
   const document = normalizeDocument({
     schemaVersion: NML_SCHEMA_VERSION,
     documentId,
