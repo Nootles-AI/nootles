@@ -150,50 +150,14 @@ export async function runImport(request: ImportRequest): Promise<ImportProgress>
       stopIfAborted(signal);
       const entry = progress.pages[index];
       try {
-        entry.state = "fetching";
-        report();
-
-        const blocks = (await client.action(api.notion.pages.fetchBlocks, {
-          pageId: planned.notionId,
-        })) as NotionBlock[];
-
-        const converted = convertPage(planned.notionId, blocks, { resolvePage });
-
-        // Files are copied before anything is written, so a page never appears
-        // holding links that are already dying.
-        const media = new Map<string, string>();
-        let lostMedia = 0;
-        if (converted.assets.length) {
-          entry.state = "copying";
-          report();
-        }
-        for (const asset of converted.assets) {
-          stopIfAborted(signal);
-          const stored = (await client.action(api.notion.assets.rehost, {
-            url: asset.url,
-          })) as { url: string } | null;
-          if (stored) media.set(asset.blockId, stored.url);
-          else lostMedia++;
-        }
-
-        entry.state = "writing";
-        report();
-
-        const pageId = pageIds.get(planned.key)!;
-        const page = await client.query(api.pages.get, { pageId });
-        if (!page) throw new Error("The page vanished before it could be filled.");
-        await writeDocument(client, page.docId, toBlockNote(converted.blocks, media));
-
-        const issues: Record<string, number> = {};
-        for (const issue of converted.diagnostics) {
-          issues[issue.code] = (issues[issue.code] ?? 0) + 1;
-        }
-        entry.state = "done";
-        entry.blocks = count(converted.blocks);
-        entry.issues = issues;
-        entry.stubbed = converted.ledger.filter((e) => e.reason === "stubbed").length;
-        entry.lostMedia = lostMedia;
-        report();
+        await fillPage(client, {
+          pageId: pageIds.get(planned.key)!,
+          notionId: planned.notionId,
+          resolvePage,
+          signal,
+          into: entry,
+          report,
+        });
       } catch (error) {
         if (isAbort(error)) throw error;
         entry.state = "failed";
@@ -211,6 +175,123 @@ export async function runImport(request: ImportRequest): Promise<ImportProgress>
     report();
     return progress;
   }
+}
+
+
+/**
+ * Fetch one Notion page, copy its files, and write it into a page that exists.
+ *
+ * The whole of an import's per-page work, in one place, because it is also the
+ * whole of resolving a single reference: a link followed from inside a document
+ * runs exactly what the wizard runs, on one page.
+ */
+async function fillPage(
+  client: ConvexReactClient,
+  options: {
+    pageId: Id<"pages">;
+    notionId: string;
+    resolvePage: (notionPageId: string) => string | undefined;
+    signal?: AbortSignal;
+    into: PageProgress;
+    report: () => void;
+  },
+): Promise<void> {
+  const { into: entry, report, signal } = options;
+  entry.state = "fetching";
+  report();
+
+  const blocks = (await client.action(api.notion.pages.fetchBlocks, {
+    pageId: options.notionId,
+  })) as NotionBlock[];
+
+  const converted = convertPage(options.notionId, blocks, {
+    resolvePage: options.resolvePage,
+  });
+
+  // Files are copied before anything is written, so a page never appears
+  // holding links that are already dying.
+  const media = new Map<string, string>();
+  let lostMedia = 0;
+  if (converted.assets.length) {
+    entry.state = "copying";
+    report();
+  }
+  for (const asset of converted.assets) {
+    stopIfAborted(signal);
+    const stored = (await client.action(api.notion.assets.rehost, {
+      url: asset.url,
+    })) as { url: string } | null;
+    if (stored) media.set(asset.blockId, stored.url);
+    else lostMedia++;
+  }
+
+  entry.state = "writing";
+  report();
+
+  const page = await client.query(api.pages.get, { pageId: options.pageId });
+  if (!page) throw new Error("The page vanished before it could be filled.");
+  await writeDocument(client, page.docId, toBlockNote(converted.blocks, media));
+
+  const issues: Record<string, number> = {};
+  for (const issue of converted.diagnostics) {
+    issues[issue.code] = (issues[issue.code] ?? 0) + 1;
+  }
+  entry.state = "done";
+  entry.blocks = count(converted.blocks);
+  entry.issues = issues;
+  entry.stubbed = converted.ledger.filter((e) => e.reason === "stubbed").length;
+  entry.lostMedia = lostMedia;
+  report();
+}
+
+/**
+ * Bring in one page that a document already links to, beside the page linking
+ * to it.
+ *
+ * Landing it in the same folder is what "here" means: you followed a reference
+ * out of this page, so the thing you get back belongs next to it, not at the
+ * top of a project you were not looking at.
+ */
+export async function importReferencedPage(
+  client: ConvexReactClient,
+  options: {
+    projectId: Id<"projects">;
+    folderId?: Id<"folders">;
+    notionPageId: string;
+    title: string;
+    onProgress?: (page: PageProgress) => void;
+  },
+): Promise<{ pageId: Id<"pages">; progress: PageProgress }> {
+  const entry: PageProgress = {
+    notionId: options.notionPageId,
+    title: options.title,
+    state: "waiting",
+  };
+  const report = () => options.onProgress?.({ ...entry });
+  report();
+
+  const pageId = (await client.mutation(api.pages.create, {
+    projectId: options.projectId,
+    title: options.title,
+    ...(options.folderId ? { folderId: options.folderId } : {}),
+  })) as Id<"pages">;
+
+  try {
+    await fillPage(client, {
+      pageId,
+      notionId: options.notionPageId,
+      // Nothing else is being imported alongside it, so every other reference
+      // this page carries stays a Notion link — followable the same way.
+      resolvePage: () => undefined,
+      into: entry,
+      report,
+    });
+  } catch (error) {
+    entry.state = "failed";
+    entry.error = message(error);
+    report();
+  }
+  return { pageId, progress: entry };
 }
 
 /**

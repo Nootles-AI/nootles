@@ -47,6 +47,7 @@ import { emptyStoryboard } from "./storyboard/types";
 import { useTabCompletion, type PageMode } from "./ai/useTabCompletion";
 import { PlanWall } from "../billing/PlanWall";
 import { useReformat } from "./ai/useReformat";
+import { useNotionLinks } from "@/app/components/notion/NotionLinks";
 import { ReformatBar } from "./ai/ReformatBar";
 import { arrivalFlashExtension } from "./arrivalFlash";
 import { blockSelection, blockSelectionExtension } from "./blockSelection";
@@ -613,6 +614,8 @@ function EditorSurface({
 
   useRegisterEditor(pageId, editor, docId, pipeline);
   const completion = useTabCompletion(readOnly ? null : editor, pageId, title, mode, docId);
+  // A link to a Notion page an import left behind asks before it navigates.
+  const notionLinks = useNotionLinks({ editor, pageId, readOnly });
   const reformat = useReformat(readOnly ? null : editor, pageId);
 
   // The document is one domain on the workspace history spine — Yjs only;
@@ -657,6 +660,7 @@ function EditorSurface({
         ref={marqueeSurface}
         className="nt-marquee-surface"
         onMouseUp={promoteSpanned}
+        onClickCapture={notionLinks.onClickCapture}
         {...undoScope}
       >
         <BlockNoteView
@@ -691,6 +695,7 @@ function EditorSurface({
           )}
         </BlockNoteView>
       </div>
+      {notionLinks.menu}
       {/* Raised by Tab on the out-of-completions chip — the wall is drawn
           here rather than by the lane, which has no render of its own. */}
       {completion.walled && (

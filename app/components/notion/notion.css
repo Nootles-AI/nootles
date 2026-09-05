@@ -302,3 +302,11 @@ button.nt-notion-twist:hover {
     animation: none;
   }
 }
+
+/* A reference being followed. Lives in the menu the click opened, so the
+   sentence stays where the reader is looking rather than in a corner. */
+.nt-notion-following {
+  padding: 6px 10px;
+  font-size: var(--text-ui);
+  color: var(--muted);
+}
