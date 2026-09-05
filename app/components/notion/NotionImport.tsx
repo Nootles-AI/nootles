@@ -5,7 +5,7 @@ import { useAction, useConvex, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { Dialog } from "@/app/components/Dialog";
-import { Check, ChevronRight, FileDoc, RotateCcw } from "@/app/components/Icons";
+import { Check, ChevronRight, FileDoc, RotateCcw, Search } from "@/app/components/Icons";
 import type { NotionPageNode } from "@/app/lib/notion/plan";
 import {
   runImport,
@@ -57,7 +57,7 @@ function Body({
   const [roots, setRoots] = useState<NotionPageNode[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [selection, setSelection] = useState<ReadonlySet<string>>(new Set());
-  const [projectTitle, setProjectTitle] = useState("");
+  const [query, setQuery] = useState("");
   const [progress, setProgress] = useState<ImportProgress | null>(null);
   const abort = useRef<AbortController | null>(null);
 
@@ -87,6 +87,19 @@ function Body({
 
   const count = selection.size;
   const running = progress?.phase === "creating" || progress?.phase === "importing";
+  const shown = useMemo(() => matching(roots ?? [], query), [roots, query]);
+  /**
+   * The project takes the name of the page you picked.
+   *
+   * The topmost selected page in the tree's own order, which for the usual
+   * import — one page and everything under it — is the thing you would have
+   * typed anyway. Only a pick spanning several unrelated tops has no obvious
+   * name, and then the workspace's is the honest one.
+   */
+  const derivedTitle = useMemo(() => {
+    const first = roots ? topmostSelected(roots, selection) : undefined;
+    return first ?? `${status?.account?.workspaceName ?? "Notion"} import`;
+  }, [roots, selection, status]);
 
   const start = async () => {
     if (!roots || !count) return;
@@ -97,7 +110,7 @@ function Body({
       roots,
       selection,
       ...(target ? { projectId: target.projectId, folderId: target.folderId } : {}),
-      newProjectTitle: projectTitle.trim() || `${workspace} import`,
+      newProjectTitle: derivedTitle,
       onProgress: setProgress,
       signal: controller.signal,
     });
@@ -170,7 +183,9 @@ function Body({
       title={target ? `Import into ${target.projectTitle}` : "Import from Notion"}
       note={
         roots && roots.length
-          ? `Pages ${workspace} shared with Nootles. Missing something? Grant it in Notion.`
+          ? count && !target
+            ? `Lands in a new project called “${derivedTitle}”.`
+            : `Pages ${workspace} shared with Nootles. Missing something? Grant it in Notion.`
           : undefined
       }
       foot={
@@ -196,17 +211,15 @@ function Body({
         </>
       }
     >
-      {!target && (
-        <div className="mb-3">
-          <label className="nt-field-label" htmlFor="ni-title">
-            New project
-          </label>
+      {!!roots?.length && (
+        <div className="nt-notion-search">
+          <Search className="nt-notion-search-icon" aria-hidden />
           <input
-            id="ni-title"
             className="nt-input"
-            value={projectTitle}
-            onChange={(e) => setProjectTitle(e.target.value)}
-            placeholder={`${workspace} import`}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search pages"
+            aria-label="Search pages"
           />
         </div>
       )}
@@ -234,13 +247,19 @@ function Body({
 
       {roots && roots.length > 0 && (
         <div className="nt-notion-tree" role="tree">
-          {roots.map((node) => (
+          {shown.length === 0 && (
+            <p className="nt-notion-nomatch">No page here is called that.</p>
+          )}
+          {shown.map((node) => (
             <TreeRow
               key={node.id}
               node={node}
               depth={0}
               selection={selection}
               setSelection={setSelection}
+              // A search that hid its own results behind a twist would be no
+              // search at all.
+              forceOpen={!!query}
             />
           ))}
         </div>
@@ -278,13 +297,16 @@ function TreeRow({
   depth,
   selection,
   setSelection,
+  forceOpen,
 }: {
   node: NotionPageNode;
   depth: number;
   selection: ReadonlySet<string>;
   setSelection: (next: ReadonlySet<string>) => void;
+  forceOpen: boolean;
 }) {
-  const [open, setOpen] = useState(depth === 0);
+  const [collapsed, setCollapsed] = useState(depth !== 0);
+  const open = forceOpen || !collapsed;
   const checked = selection.has(node.id);
   const descendants = useMemo(() => ids(node).slice(1), [node]);
   const someChildren = descendants.some((id) => selection.has(id));
@@ -310,7 +332,7 @@ function TreeRow({
             aria-label={open ? "Collapse" : "Expand"}
             aria-expanded={open}
             data-open={open || undefined}
-            onClick={() => setOpen(!open)}
+            onClick={() => setCollapsed(open)}
           >
             <ChevronRight />
           </button>
@@ -348,6 +370,7 @@ function TreeRow({
             depth={depth + 1}
             selection={selection}
             setSelection={setSelection}
+            forceOpen={forceOpen}
           />
         ))}
     </>
@@ -510,6 +533,35 @@ function TreeSkeleton() {
       ))}
     </div>
   );
+}
+
+/**
+ * The tree pruned to what matches, ancestors kept.
+ *
+ * A page whose own title does not match still appears when something under it
+ * does — otherwise a search would hide the path to its own results.
+ */
+function matching(nodes: NotionPageNode[], query: string): NotionPageNode[] {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return nodes;
+  return nodes.flatMap((node) => {
+    const children = matching(node.children, query);
+    const hit = node.title.toLowerCase().includes(needle);
+    return hit || children.length ? [{ ...node, children }] : [];
+  });
+}
+
+/** The first selected page in the tree's own order. */
+function topmostSelected(
+  nodes: NotionPageNode[],
+  selection: ReadonlySet<string>,
+): string | undefined {
+  for (const node of nodes) {
+    if (selection.has(node.id)) return node.title;
+    const inside = topmostSelected(node.children, selection);
+    if (inside) return inside;
+  }
+  return undefined;
 }
 
 function ids(node: NotionPageNode): string[] {

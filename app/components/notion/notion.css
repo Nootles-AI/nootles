@@ -18,6 +18,39 @@
   padding: 18px;
 }
 
+/* ---- Search ------------------------------------------------------------- */
+
+/* The glyph sits inside the field rather than beside it: the field is the
+   whole width of the tree below it, and a label out here would push the two
+   out of alignment for no reading gain. */
+.nt-notion-search {
+  position: relative;
+  margin-bottom: 8px;
+}
+.nt-notion-search .nt-input {
+  padding-left: 30px;
+}
+.nt-notion-search-icon {
+  position: absolute;
+  top: 50%;
+  left: 9px;
+  width: 14px;
+  height: 14px;
+  transform: translateY(-50%);
+  color: var(--faint);
+  pointer-events: none;
+}
+.nt-notion-search:focus-within .nt-notion-search-icon {
+  color: var(--muted);
+}
+
+.nt-notion-nomatch {
+  padding: 20px 10px;
+  text-align: center;
+  font-size: var(--text-ui);
+  color: var(--muted);
+}
+
 /* ---- The page tree ------------------------------------------------------ */
 
 .nt-notion-tree {
