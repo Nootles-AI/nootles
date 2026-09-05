@@ -329,3 +329,33 @@ button.nt-notion-twist:hover {
   font-size: var(--text-ui);
   color: var(--muted);
 }
+
+/* ---- The stub's own link ------------------------------------------------
+   A block that did not come across leaves a note behind, and the way back to
+   it reads as a control rather than as prose: it is the one actionable thing
+   in a sentence that is otherwise a record of an absence.
+
+   Selected by what it is — a Notion URL addressing a block — because that is
+   exactly the rule the click handler uses. A stub is the only thing that
+   writes one, and anything else that did would deserve the same treatment. */
+.nt-editor a[href*="notion.so"][href*="#"] {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--background);
+  color: var(--muted);
+  font-size: var(--text-meta-lg);
+  font-style: normal;
+  text-decoration: none;
+  vertical-align: baseline;
+  transition:
+    background var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
+}
+.nt-editor a[href*="notion.so"][href*="#"]:hover {
+  background: var(--hover);
+  color: var(--foreground);
+}

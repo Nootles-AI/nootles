@@ -138,10 +138,10 @@ export function convertBlocks(
       props: {},
       children: [],
       content: [
-        { type: "text", text: "Unsupported Notion block ", marks: ["italic"] },
+        { type: "text", text: "Nootles cannot hold a ", marks: ["italic"] },
         { type: "text", text: block.type, marks: ["code"] },
-        { type: "text", text: " — ", marks: ["italic"] },
-        { type: "link", href: blockHref(block.id), content: [{ type: "text", text: "open in Notion", marks: ["italic"] }] },
+        { type: "text", text: " yet. ", marks: ["italic"] },
+        { type: "link", href: blockHref(block.id), content: [{ type: "text", text: "Open in Notion", marks: [] }] },
       ],
     }];
   };

@@ -1,8 +1,23 @@
 import { describe, expect, it } from "vitest";
-import { notionPageIdFrom } from "./notionUrl";
+import { isNotionBlockHref, notionPageIdFrom } from "./notionUrl";
 
 const bare = "1a2b3c4d5e6f7081920334a5b6c7d8e9";
 const dashed = "1a2b3c4d-5e6f-7081-9203-34a5b6c7d8e9";
+
+describe("isNotionBlockHref", () => {
+  it("recognises the block links stubs are made of", () => {
+    expect(isNotionBlockHref(`https://www.notion.so/${bare}#${bare}`)).toBe(true);
+  });
+
+  it("is false for a page, which is a thing you import rather than open", () => {
+    expect(isNotionBlockHref(`https://www.notion.so/${bare}`)).toBe(false);
+  });
+
+  it("is false for anything that is not Notion", () => {
+    expect(isNotionBlockHref("https://example.com/a#b")).toBe(false);
+    expect(isNotionBlockHref("not a url")).toBe(false);
+  });
+});
 
 describe("notionPageIdFrom", () => {
   it("reads the id this importer writes", () => {

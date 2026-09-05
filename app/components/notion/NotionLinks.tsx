@@ -10,7 +10,8 @@ import { FileDoc } from "@/app/components/Icons";
 import { NotionMark } from "@/app/components/NotionMark";
 import { importReferencedPage } from "@/app/lib/notion/importRun";
 import type { PageProgress } from "@/app/lib/notion/importRun";
-import { notionPageIdFrom } from "@/app/lib/notion/notionUrl";
+import { isNotionBlockHref, notionPageIdFrom } from "@/app/lib/notion/notionUrl";
+import "./notion.css";
 import { pageTitle } from "@/app/components/editor/inline/PageMention";
 
 /**
@@ -95,6 +96,16 @@ export function useNotionLinks({
       const anchor = target?.closest?.("a[href]");
       if (!anchor || !surface.current?.contains(anchor)) return false;
       const href = anchor.getAttribute("href") ?? "";
+
+      // A stub's own link: open it and say the click is handled. Handing it
+      // back would let the editor raise its link toolbar over a URL nobody
+      // should be editing — the stub is a record of something that did not
+      // come across, not a link somebody wrote.
+      if (isNotionBlockHref(href)) {
+        window.open(href, "_blank", "noopener,noreferrer");
+        return true;
+      }
+
       const notionPageId = notionPageIdFrom(href);
       if (!notionPageId) return false;
       setPending({

@@ -42,6 +42,23 @@ export function notionPageIdFrom(href: string): string | null {
   return match ? dash(match[1].toLowerCase()) : null;
 }
 
+/**
+ * A link to a block inside a Notion page — what every stub this importer
+ * leaves behind points at. Not a page, so never an import offer; but still
+ * ours to open, because handing the click back to the editor is what raises
+ * the link toolbar over a thing nobody should be editing.
+ */
+export function isNotionBlockHref(href: string): boolean {
+  try {
+    const url = new URL(href);
+    const host = url.hostname.toLowerCase();
+    if (!HOSTS.has(host) && !host.endsWith(".notion.site")) return false;
+    return url.hash.length > 1;
+  } catch {
+    return false;
+  }
+}
+
 /** The dashed form the API answers to. */
 function dash(id: string): string {
   return [
