@@ -583,6 +583,21 @@ export function AppleMusic(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+/**
+ * Notion, drawn the way every other mark here is: the tile and the letter in
+ * this set's own stroke, not the official asset. Same reason Spotify is three
+ * arcs — a logo pasted in at its real weight sits in a menu looking like
+ * somebody else's furniture.
+ */
+export function Notion(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <rect x="3" y="3" width="18" height="18" rx="5" />
+      <path d="M9 16.5v-9l6 9v-9" />
+    </svg>
+  );
+}
+
 export function Location(props: SVGProps<SVGSVGElement>) {
   return (
     <svg {...base} {...props}>
