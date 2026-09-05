@@ -99,6 +99,31 @@ export function useNotionLinks({
    * any of this state exists. One slot is enough: one document is open at a
    * time, and the effect's cleanup is what makes that true rather than hopeful.
    */
+  /**
+   * Keep the caret out of the stub's button.
+   *
+   * The label is inline content in a contenteditable, so the browser puts a
+   * cursor wherever the press lands — inside the words "Open in Notion",
+   * which are not words anybody is editing. `links.onClick` cannot help: by
+   * the time a click exists the selection has already moved.
+   *
+   * `mousedown`, not `pointerdown`. Cancelling pointerdown suppresses the
+   * mousedown that follows it and takes the click with it (and this app has
+   * been bitten by exactly that before); cancelling mousedown suppresses only
+   * the focus and selection change, which is the whole intent, and is what
+   * every toolbar button does.
+   */
+  useEffect(() => {
+    const keepCaretOut = (event: globalThis.MouseEvent) => {
+      const anchor = (event.target as Element | null)?.closest?.("a[href]");
+      if (!anchor || !surface.current?.contains(anchor)) return;
+      if (!isStubLink(anchor.getAttribute("href") ?? "", anchor.textContent)) return;
+      event.preventDefault();
+    };
+    document.addEventListener("mousedown", keepCaretOut, true);
+    return () => document.removeEventListener("mousedown", keepCaretOut, true);
+  }, [surface]);
+
   useEffect(() => {
     active = (event) => {
       // A modified click is the reader asking for a new tab explicitly. That is

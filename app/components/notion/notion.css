@@ -384,6 +384,10 @@ button.nt-notion-twist:hover {
   font-style: normal;
   text-decoration: none;
   vertical-align: baseline;
+  /* It is a control, so it does not behave like the prose around it: no
+     caret, no drag-selecting through its label, and a pointer over it. */
+  user-select: none;
+  cursor: pointer;
   transition:
     background var(--dur-fast) var(--ease),
     color var(--dur-fast) var(--ease);
