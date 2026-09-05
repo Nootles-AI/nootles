@@ -27,6 +27,20 @@ import { pageTitle } from "@/app/components/editor/inline/PageMention";
  * inside.
  */
 
+
+/**
+ * The live surface's link handler, if one is mounted.
+ *
+ * `notionLinkClick` is what the editor is configured with; it answers `false`
+ * whenever no surface has claimed the click, which is BlockNote's way of being
+ * told to carry on and open the link as it always did.
+ */
+let active: ((event: globalThis.MouseEvent) => boolean) | null = null;
+
+export function notionLinkClick(event: globalThis.MouseEvent): boolean {
+  return active?.(event) ?? false;
+}
+
 type Pending = {
   href: string;
   notionPageId: string;
@@ -57,31 +71,30 @@ export function useNotionLinks({
   const [running, setRunning] = useState<PageProgress | null>(null);
 
   /**
-   * A native listener on the document, in the capture phase.
+   * BlockNote's own link-click seam.
    *
-   * React's synthetic capture was not enough: it is delivered from React's own
-   * root container, and the anchor's navigation still went ahead. A real
-   * capture listener on the document runs before every other handler and before
-   * the default action, and `stopImmediatePropagation` closes the last gap —
-   * whatever else is listening, on either system, does not get the click.
+   * Its Link extension opens links itself — `window.open`, from a ProseMirror
+   * click handler — so neither React's synthetic capture nor a real capture
+   * listener on the document reliably got there first. The library provides
+   * `links.onClick` for exactly this: supply one and the default open is
+   * disabled, and returning `false` hands the click straight back.
    *
-   * Scoped to anchors inside this editor's surface, so a Notion link anywhere
-   * else in the app stays an ordinary link.
+   * Registered through a module slot rather than a prop because the editor is
+   * constructed a level above this surface, and its options are built before
+   * any of this state exists. One slot is enough: one document is open at a
+   * time, and the effect's cleanup is what makes that true rather than hopeful.
    */
   useEffect(() => {
-    const onClick = (event: globalThis.MouseEvent) => {
+    active = (event) => {
       // A modified click is the reader asking for a new tab explicitly. That is
       // an answer already, so it is not interrupted with a question.
-      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-      if (event.button !== 0) return;
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return false;
       const target = event.target as Element | null;
       const anchor = target?.closest?.("a[href]");
-      if (!anchor || !surface.current?.contains(anchor)) return;
+      if (!anchor || !surface.current?.contains(anchor)) return false;
       const href = anchor.getAttribute("href") ?? "";
       const notionPageId = notionPageIdFrom(href);
-      if (!notionPageId) return;
-      event.preventDefault();
-      event.stopImmediatePropagation();
+      if (!notionPageId) return false;
       setPending({
         href,
         notionPageId,
@@ -89,9 +102,11 @@ export function useNotionLinks({
         x: event.clientX,
         y: event.clientY,
       });
+      return true;
     };
-    document.addEventListener("click", onClick, true);
-    return () => document.removeEventListener("click", onClick, true);
+    return () => {
+      active = null;
+    };
   }, [surface]);
 
   const close = () => {
