@@ -1,7 +1,7 @@
 # Canonical NML AST and Yjs encoding
 
-Status: headless schema-v1 core implemented; Yjs encoding and runtime adoption remain
-planned.
+Status: headless schema-v1 core and canonical Yjs encoding implemented; runtime adoption
+remains planned.
 
 Implementation sequencing is tracked in
 [`nml-prosemirror-refactor-plan.md`](nml-prosemirror-refactor-plan.md). Binding v1 choices
@@ -303,6 +303,12 @@ Resolution rules:
 
 ## Canonical Yjs encoding
 
+Implemented in `app/lib/nml/yjs.ts` as encoding version 1. The decoder is strict: unknown
+keys, wrong shared types, malformed values, and unsupported schema/encoding versions fail
+closed with structured diagnostics. The initialization API validates and normalizes the
+AST before writing and refuses to replace an existing `nml` root; only the semantic
+executor introduced in step 4 may own later shared-type mutations.
+
 The canonical root is a `Y.Map` named `nml`:
 
 ```text
@@ -356,6 +362,11 @@ Encoding rules:
 - The AST decoder must never depend on insertion clocks, Yjs client IDs, or internal item
   identifiers. Those are collaboration mechanics, not product identity.
 - One semantic command executes in one Yjs transaction with a structured origin.
+
+The implemented observer retains state-vector boundaries and emits attributed semantic
+change summaries for valid transactions. It reports diagnostics instead of advancing its
+known-good decoded state when an invalid low-level mutation is observed. Full command-level
+change metadata begins with the semantic executor in step 4.
 
 ### Transaction origin
 

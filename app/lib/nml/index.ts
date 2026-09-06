@@ -5,3 +5,4 @@ export * from "./repair";
 export * from "./schema";
 export * from "./serialize";
 export * from "./validate";
+export * from "./yjs";
