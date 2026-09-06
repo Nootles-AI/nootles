@@ -1,6 +1,6 @@
 # NML / ProseMirror refactor plan
 
-Status: in progress; steps 1–2 complete.
+Status: in progress; steps 1–3 complete.
 
 ProseMirror remains the browser editing engine. Canonical ownership moves from a
 ProseMirror-shaped Yjs root to a typed, versioned NML AST stored directly in Yjs. Existing
@@ -31,9 +31,9 @@ canvas values validate through schemas owned by those domains; temporary custom-
 The golden fixture covers every v1 block and inline kind. Generated properties, malformed
 input fuzzing, and independent Node/DOMParser-compatible entry points verify semantic,
 ID, and domain round trips. The core is isolated from persistence and does not change the
-live BlockNote/ProseMirror authority; Yjs encoding begins in step 3.
+live BlockNote/ProseMirror authority.
 
-## 3. Define the canonical Yjs encoding
+## 3. Define the canonical Yjs encoding — complete
 
 - Add `Y.Map("nml")`, collaborative inline text, addressable tables, `Y.Text` code/math,
   structured domains, canvas scene maps, origins, and semantic change-set observation.
@@ -41,6 +41,22 @@ live BlockNote/ProseMirror authority; Yjs encoding begins in step 3.
 - Test AST/Yjs equality, chunking, cross-runtime parity, and multi-client merging.
 
 **Gate:** browser and Node decode the same AST from the same Y.Doc.
+
+Implemented in `app/lib/nml/yjs.ts`. The versioned `nml` root encodes ordered blocks and
+children as `Y.Array`, typed property/domain objects as nested shared maps/arrays, prose as
+`Y.XmlFragment`/`Y.XmlText`, and code, math, and canvas labels as `Y.Text`. Tables retain
+addressable columns, rows, and cells. Canvas scenes use ID-keyed shape/edge maps with
+fractional order and independently collaborative labels; geometry and style stay atomic
+values where their domain invariants require it.
+
+Encoding and decoding validate schema versions, shared-type shapes, and key whitelists and
+fail closed on malformed or newer state. Initialization refuses to overwrite an existing
+canonical root; subsequent writes are reserved for the step-4 semantic executor. A
+transaction observer emits attributed, state-vector-bounded semantic change summaries.
+Round-trip, update chunk reconstruction, independent-runtime decoding, malformed-state,
+origin observation, and multi-client text/canvas merge tests enforce the gate. This module
+is still headless: no editor, provider, persistence, backend, AI, or MCP path consumes the
+canonical root yet.
 
 ## 4. Implement the semantic command executor
 
