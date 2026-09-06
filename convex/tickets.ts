@@ -4,9 +4,9 @@ import type { Infer } from "convex/values";
 import type { feedbackStatus } from "./schema";
 
 /**
- * Ticket rules that more than one caller has to obey — the PR poller, the
- * operator's dashboard, and later the agent all move tickets around, and a rule
- * enforced in only one of those places is not a rule.
+ * Ticket rules that more than one caller has to obey — the operator's
+ * dashboard and the agent both move tickets around, and a rule enforced in
+ * only one of those places is not a rule.
  */
 
 export type TicketStatus = Infer<typeof feedbackStatus>;

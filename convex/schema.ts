@@ -38,17 +38,17 @@ export const feedbackCategory = v.union(
 
 /**
  * Where a ticket stands: new → seen (auto, on first open) → in_progress →
- * pr_filed → done; declined ends a wish that won't be built.
+ * done; declined ends a wish that won't be built.
  *
- * `pr_filed` is set by the PR poller whenever a pull request names the ticket,
- * whoever wrote it — provenance lives on the `ticketPrs` row, not here, so this
- * ladder stays about the ticket rather than about who did the work.
+ * Every rung is now moved by a person or by the agent reporting on itself.
+ * There used to be a sixth, `pr_filed`, which nothing here set — a GitHub poll
+ * did, on noticing a pull request whose title named the ticket. That link is
+ * gone, and with it the only status this ladder did not own.
  */
 export const feedbackStatus = v.union(
   v.literal("new"),
   v.literal("seen"),
   v.literal("in_progress"),
-  v.literal("pr_filed"),
   v.literal("done"),
   v.literal("declined"),
 );
@@ -745,38 +745,6 @@ export default defineSchema({
     .index("by_owner", ["ownerId", "createdAt"])
     .index("by_number", ["number"])
     .index("by_duplicateOf", ["duplicateOf"]),
-
-  /**
-   * Pull requests that name a ticket, found by the poller in `prs.ts`.
-   *
-   * Its own table rather than an array on the ticket: a document's array is
-   * rewritten whole on every update and grows unbounded, where an upsert keyed
-   * by `by_repo_and_prNumber` touches one row — which matters when the poller
-   * re-sees every open PR every fifteen minutes.
-   */
-  ticketPrs: defineTable({
-    ticketId: v.id("feedback"),
-    repo: v.string(),
-    prNumber: v.number(),
-    title: v.string(),
-    url: v.string(),
-    /** GitHub reports draft separately from open, and merged as a closed PR
-     *  carrying `merged_at`; this flattens all four into one state. */
-    state: v.union(
-      v.literal("draft"),
-      v.literal("open"),
-      v.literal("closed"),
-      v.literal("merged"),
-    ),
-    mergedAt: v.optional(v.number()),
-    /** Whether the agent opened it. Provenance is per-PR: a ticket can carry
-     *  one of each. */
-    agentFiled: v.boolean(),
-    firstSeenAt: v.number(),
-    updatedAt: v.number(),
-  })
-    .index("by_ticket", ["ticketId"])
-    .index("by_repo_and_prNumber", ["repo", "prNumber"]),
 
   /**
    * One row per agent run — what it read, what it changed, and what broke.
