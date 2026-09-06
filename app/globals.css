@@ -225,6 +225,8 @@ body {
    they share these. Alignment lives here, once. */
 
 .nt-panel {
+  position: relative;
+  z-index: var(--z-base);
   display: flex;
   height: 100%;
   flex-shrink: 0;
