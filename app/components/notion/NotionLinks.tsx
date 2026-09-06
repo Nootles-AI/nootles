@@ -114,14 +114,37 @@ export function useNotionLinks({
    * every toolbar button does.
    */
   useEffect(() => {
-    const keepCaretOut = (event: globalThis.MouseEvent) => {
+    const stubUnder = (event: globalThis.MouseEvent): Element | null => {
       const anchor = (event.target as Element | null)?.closest?.("a[href]");
-      if (!anchor || !surface.current?.contains(anchor)) return;
-      if (!isStubLink(anchor.getAttribute("href") ?? "", anchor.textContent)) return;
-      event.preventDefault();
+      if (!anchor || !surface.current?.contains(anchor)) return null;
+      return isStubLink(anchor.getAttribute("href") ?? "", anchor.textContent)
+        ? anchor
+        : null;
     };
+
+    const keepCaretOut = (event: globalThis.MouseEvent) => {
+      if (stubUnder(event)) event.preventDefault();
+    };
+
+    // Declining the press means ProseMirror never builds the click it would
+    // have handed to BlockNote, so opening the link becomes ours as well.
+    // Both halves belong to the same gesture and neither works alone.
+    const open = (event: globalThis.MouseEvent) => {
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      if (event.button !== 0) return;
+      const anchor = stubUnder(event);
+      if (!anchor) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      window.open(anchor.getAttribute("href")!, "_blank", "noopener,noreferrer");
+    };
+
     document.addEventListener("mousedown", keepCaretOut, true);
-    return () => document.removeEventListener("mousedown", keepCaretOut, true);
+    document.addEventListener("click", open, true);
+    return () => {
+      document.removeEventListener("mousedown", keepCaretOut, true);
+      document.removeEventListener("click", open, true);
+    };
   }, [surface]);
 
   useEffect(() => {
@@ -134,20 +157,10 @@ export function useNotionLinks({
       if (!anchor || !surface.current?.contains(anchor)) return false;
       const href = anchor.getAttribute("href") ?? "";
 
-      // A stub's own link: open it and say the click is handled. Handing it
-      // back would let the editor raise its link toolbar over a URL nobody
-      // should be editing — the stub is a record of something that did not
-      // come across, not a link somebody wrote.
-      //
-      // The text check covers documents imported before stubs carried a
-      // fragment, whose links are bare ids indistinguishable from a page
-      // reference by URL alone. Those pages are already written; leaving them
-      // offering to import a database that cannot be imported is worse than a
-      // narrow rule about one exact phrase this importer used to write.
-      if (isStubLink(href, anchor.textContent)) {
-        window.open(href, "_blank", "noopener,noreferrer");
-        return true;
-      }
+      // Stubs never reach here — the effect above stops their click before
+      // ProseMirror sees it — but saying so costs nothing and means a stub can
+      // never fall through to the import offer.
+      if (isStubLink(href, anchor.textContent)) return true;
 
       const notionPageId = notionPageIdFrom(href);
       if (!notionPageId) return false;
