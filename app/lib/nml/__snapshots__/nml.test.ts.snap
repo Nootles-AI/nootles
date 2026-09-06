@@ -1,0 +1,60 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`canonical NML > has a golden serialization covering every v1 block and inline node 1`] = `
+"<nt-document id="doc-1" schema-version="1">
+  <p id="p-1"><code><strong><em><s><u>Every mark</u></s></em></strong></code><a href="https://example.com?a=1&amp;b=2"><em> linked</em></a><nt-math id="im-1">x &lt; y</nt-math><nt-ref id="ref-1" page-id="page-2">Other &amp; page</nt-ref></p>
+  <h2 id="h-1">Heading</h2>
+  <blockquote id="q-1">Quote</blockquote>
+  <ul>
+    <li id="b-1">Bullet
+      <ul>
+        <li id="b-2">Nested</li>
+      </ul>
+    </li>
+  </ul>
+  <ol start="3">
+    <li id="n-1">Third</li>
+    <li id="n-2">Fourth</li>
+  </ol>
+  <ul data-kind="check">
+    <li id="c-1" checked="true">Done</li>
+  </ul>
+  <details id="t-1"><summary>Details</summary>
+    <p id="p-2">Inside</p>
+  </details>
+  <table id="table-1" header-rows="1">
+    <colgroup><col id="col-1"><col id="col-2"></colgroup>
+    <tr id="row-1"><th id="cell-1">A</th><th id="cell-2">B</th></tr>
+    <tr id="row-2"><td id="cell-3">1</td><td id="cell-4">2</td></tr>
+  </table>
+  <nt-code-block id="code-1" language="typescript">if (a &lt; b) {
+  x &amp;&amp; y;
+}</nt-code-block>
+  <nt-math-block id="math-1">
+    <nt-math-line id="mr-1">a &amp; b</nt-math-line>
+    <nt-math-line id="mr-2">c &lt; d</nt-math-line>
+  </nt-math-block>
+  <hr id="divider-1">
+  <img id="image-1" src="/image.png" caption="A picture">
+  <video id="video-1" storage-id="storage-1"></video>
+  <audio id="audio-1"></audio>
+  <nt-file id="file-1" name="notes.txt"></nt-file>
+  <nt-diagram id="canvas-1" w="320" h="180">
+    <nt-rect id="shape-1" x="10" y="20" w="100" h="50">Box</nt-rect>
+    <nt-group id="group-1" x="0" y="0" w="200" h="100">
+      <nt-ellipse id="shape-2" x="5" y="5" w="20" h="20"></nt-ellipse>
+    </nt-group>
+    <nt-edge id="edge-1" from="shape-1" to="shape-2">to</nt-edge>
+  </nt-diagram>
+  <nt-album id="album-1">
+    <img src="/one.jpg" w="3" h="2">
+  <nt-legacy-markup>&lt;gallery source="old"&gt;kept &amp; safe&lt;/gallery&gt;</nt-legacy-markup></nt-album>
+  <nt-storyboard id="story-1" ratio="16:9">
+    <nt-shot>
+      <nt-note>First shot</nt-note>
+    </nt-shot>
+  </nt-storyboard>
+  <nt-location id="location-1" name="Somewhere"></nt-location>
+</nt-document>
+"
+`;
