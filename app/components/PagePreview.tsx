@@ -15,6 +15,7 @@ import { api } from "@/convex/_generated/api";
 import { joinUpdateRows } from "@/convex/yshape";
 import { parseAlbum } from "@/app/components/editor/album/parse";
 import { parseLocation } from "./editor/location/parse";
+import { describeStub } from "@/app/lib/notion/stub";
 import type { AnyBlock } from "@/app/lib/ai/projection";
 import type { YReader } from "@/app/lib/ai/snapshot";
 
@@ -514,6 +515,11 @@ function Block({
         <span className="nt-thumb-media" />
       );
     }
+
+    case "notionStub":
+      // A line, not a well: the card is one row tall on the page, and what
+      // identifies it at this size is that a name sits where content did not.
+      return <p className="nt-thumb-p">{describeStub(String(props.notionType ?? "")).label}</p>;
 
     default:
       return (

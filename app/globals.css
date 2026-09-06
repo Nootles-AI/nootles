@@ -360,7 +360,8 @@ body {
 }
 /* The row vocabulary was missing its disabled state, so every call site that
    needed one bolted on its own opacity and left the row still hoverable. */
-.nt-row:disabled {
+.nt-row:disabled,
+.nt-row[aria-disabled="true"] {
   opacity: 0.5;
   pointer-events: none;
 }

@@ -22,7 +22,14 @@ import {
   FolderPlus,
   PanelLeft,
   Plus,
+  X,
 } from "./Icons";
+import { NotionImport } from "./notion/NotionImport";
+import {
+  describeOutcome,
+  useNotionOutcome,
+  type OutcomeLine,
+} from "@/app/lib/notion/outcome";
 import { RowIcon, type RowIconValue } from "./rowIcon";
 import "./iconPicker.css";
 import { AccountMenu } from "./AccountMenu";
@@ -87,6 +94,17 @@ export function Sidebar({
   onOpenAside,
   onCollapse,
 }: Props) {
+  // Back from Notion's consent screen, which the import dialog sent them to:
+  // a grant reopens the dialog they left, and anything else is said under the
+  // project's name. Initial state rather than an effect — the outcome is known
+  // before the first render and is not derived from anything that changes.
+  const notion = useNotionOutcome();
+  const [importing, setImporting] = useState(notion.outcome === "connected");
+  const [notice, setNotice] = useState<OutcomeLine | null>(
+    notion.outcome && notion.outcome !== "connected"
+      ? describeOutcome(notion.outcome, notion.reason)
+      : null,
+  );
   const project = useQuery(api.projects.get, { projectId });
   const pages = useQuery(api.pages.listByProject, { projectId });
   const folders = useQuery(api.folders.listByProject, { projectId });
@@ -676,6 +694,25 @@ export function Sidebar({
         )}
       </div>
 
+      {notice && (
+        <div
+          role={notice.problem ? "alert" : "status"}
+          className={`mx-2 mb-2 flex items-start gap-1 pl-2 text-[13px] leading-snug ${
+            notice.problem ? "text-danger" : "text-muted"
+          }`}
+        >
+          <span className="min-w-0 flex-1 py-1">{notice.text}</span>
+          <button
+            type="button"
+            onClick={() => setNotice(null)}
+            aria-label="Dismiss"
+            className="nt-icon-btn is-sm shrink-0"
+          >
+            <X />
+          </button>
+        </div>
+      )}
+
       <nav
         className="flex-1 overflow-y-auto px-2 pb-2"
         onKeyDown={navKeys}
@@ -963,6 +1000,10 @@ export function Sidebar({
               <Item onClick={() => { newFolder(); setCtx(null); }}>
                 New folder
               </Item>
+              <div className="nt-menu-sep" />
+              <Item onClick={() => { setNotice(null); setImporting(true); setCtx(null); }}>
+                Import from Notion
+              </Item>
               {clip && (
                 <>
                   <div className="nt-menu-sep" />
@@ -989,6 +1030,13 @@ export function Sidebar({
             />
           )}
         </ContextMenu>
+      )}
+
+      {importing && (
+        <NotionImport
+          target={{ projectId, projectTitle: project?.title || "this project" }}
+          onClose={() => setImporting(false)}
+        />
       )}
 
       {iconTarget && (

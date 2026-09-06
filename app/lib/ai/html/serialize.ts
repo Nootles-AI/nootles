@@ -414,6 +414,14 @@ function blockToHtml(block: AnyBlock, opts: SerializeOptions): string {
     }
     case "paragraph":
       return `<p${id}>${inner}</p>`;
+    case "notionStub":
+      // The opaque element below, with the Notion type on it: the model sees
+      // what sat here and that it is not its to write. The parser drops
+      // `nt-block` on the way back, so the stub stays un-authorable.
+      return `<nt-block${id}${attr("type", block.type)}${attr(
+        "notion-type",
+        String(block.props.notionType ?? ""),
+      )}></nt-block>`;
     default:
       // A block type the grammar has no tag for. Emitted opaque and named
       // rather than as an empty <p>: an empty paragraph reads as a gap to fill,

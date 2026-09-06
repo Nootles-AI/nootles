@@ -76,6 +76,12 @@ export const readerSchema = BlockNoteSchema.create({
       caption: { default: "" },
     }),
     location: standIn("location", { data: { default: "" } }),
+    notionStub: standIn("notionStub", {
+      notionType: { default: "" },
+      notionId: { default: "" },
+      href: { default: "" },
+      raw: { default: "" },
+    }),
   },
   inlineContentSpecs: {
     ...defaultInlineContentSpecs,

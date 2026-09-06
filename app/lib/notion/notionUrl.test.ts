@@ -1,0 +1,52 @@
+import { describe, expect, it } from "vitest";
+import { isNotionBlockHref, notionPageIdFrom } from "./notionUrl";
+
+const bare = "1a2b3c4d5e6f7081920334a5b6c7d8e9";
+const dashed = "1a2b3c4d-5e6f-7081-9203-34a5b6c7d8e9";
+
+describe("isNotionBlockHref", () => {
+  it("recognises the block links stubs are made of", () => {
+    expect(isNotionBlockHref(`https://www.notion.so/${bare}#${bare}`)).toBe(true);
+  });
+
+  it("is false for a page, which is a thing you import rather than open", () => {
+    expect(isNotionBlockHref(`https://www.notion.so/${bare}`)).toBe(false);
+  });
+
+  it("is false for anything that is not Notion", () => {
+    expect(isNotionBlockHref("https://example.com/a#b")).toBe(false);
+    expect(isNotionBlockHref("not a url")).toBe(false);
+  });
+});
+
+describe("notionPageIdFrom", () => {
+  it("reads the id this importer writes", () => {
+    expect(notionPageIdFrom(`https://www.notion.so/${bare}`)).toBe(dashed);
+  });
+
+  it("reads the id off a titled URL a person would paste", () => {
+    expect(notionPageIdFrom(`https://www.notion.so/Launch-Plan-${bare}`)).toBe(dashed);
+  });
+
+  it("ignores the query Notion appends to its own links", () => {
+    expect(notionPageIdFrom(`https://www.notion.so/Plan-${bare}?pvs=4`)).toBe(dashed);
+  });
+
+  it("handles a workspace path and a published site", () => {
+    expect(notionPageIdFrom(`https://www.notion.so/acme/Plan-${bare}`)).toBe(dashed);
+    expect(notionPageIdFrom(`https://acme.notion.site/Plan-${bare}`)).toBe(dashed);
+  });
+
+  it("declines a link into a block, which is not a page you can import", () => {
+    // Every stub this importer leaves behind is one of these: a database, a
+    // template, a block type we do not know.
+    expect(notionPageIdFrom(`https://www.notion.so/${bare}#${bare}`)).toBeNull();
+  });
+
+  it("declines anything that is not a Notion page", () => {
+    expect(notionPageIdFrom("https://example.com/notion.so/" + bare)).toBeNull();
+    expect(notionPageIdFrom("https://www.notion.so/")).toBeNull();
+    expect(notionPageIdFrom("https://www.notion.so/not-an-id")).toBeNull();
+    expect(notionPageIdFrom("not a url")).toBeNull();
+  });
+});
