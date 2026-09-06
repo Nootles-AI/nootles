@@ -1,6 +1,7 @@
 # Notion → Nootles import: the translation map
 
-Status: proposed; no implementation yet. Direction is **one-way, Notion → Nootles only**
+Status: implemented on `feat/notion-import` (PR #88). Direction is **one-way, Notion → Nootles
+only**
 (see [Why one-way](#why-one-way-and-what-actually-answers-the-adoption-risk)).
 
 The target of this import is the **canonical NML AST**
@@ -130,12 +131,17 @@ paragraph with a link. What is left is genuinely unknown types.
 2. **The stub is built from blocks that already exist.** A `quote` whose content is the
    block-type name plus a `link` to the Notion original. No NML schema change, so this
    does not block on v1 being locked, and it renders as a visible, clickable placeholder
-   rather than a hole.
+   rather than a hole. As built: NML v1 keeps exactly this quote-plus-link form in the
+   canonical document, and the editor projection (`toBlockNote`) swaps it for a locked
+   `notionStub` block wherever the ledger says the id was stubbed — so an older import
+   without a ledger still shows the quote, and nothing needs migrating.
 3. **Fidelity is kept outside the document.** An import ledger stores the raw Notion JSON
    for every stubbed and every degraded block, keyed by the NML block id it became.
    `app/lib/nml/migrate.ts` already exists as a pure migration registry: when NML v2 adds
    a real embed block, the stubs upgrade in place from the ledger — without re-fetching
-   from Notion, whose token may be long gone by then.
+   from Notion, whose token may be long gone by then. As built: the ledger lives only
+   for the run, and the raw row rides on the `notionStub` block itself (children
+   stripped, empty past 32KB), so the upgrade happens from the document alone.
 4. **Every import ends with a fidelity report.** Blocks imported, perfect, degraded,
    stubbed, each degraded class named and linked. This is what makes a lossy import feel
    trustworthy instead of suspicious.
@@ -178,10 +184,18 @@ its storage cost.
 
 **The Notion API is paginated and rate-limited.** Block children come 100 at a time,
 `has_children` forces a recursive walk, and the limit is roughly three requests a second.
-A large page tree takes minutes. The import must be a background job (Convex action +
-scheduler) with resumable progress, not a request. It touches no AI lane and spends no
-model tokens — but it is an external API, and the job needs its own backoff and its own
-failure surface on the import row.
+A large page tree takes minutes. It touches no AI lane and spends no model tokens — but it
+is an external API, and the run needs its own backoff and its own failure surface.
+
+As built, the run is not a background job: it runs client-side, in the tab that started
+it, with progress in the import dialog and cleanup of whatever never reached done — on
+stop, and equally for a page that failed inside a run that otherwise finished (unfinished
+and failed pages and the folders left empty are removed, the failure kept for the report;
+a fresh project that landed nothing is removed with them).
+Documents are authored through the editor's own write path — the page's Y.Doc, via the
+same provider a person's keystrokes go through — and that path lives in the browser, not
+in a Convex action. A resumable server job would need a second writer for documents, and
+one write path is the point.
 
 ## Auth: connect, not sign-in
 

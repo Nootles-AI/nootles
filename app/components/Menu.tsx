@@ -7,7 +7,9 @@ import {
   useRef,
   useState,
   type ReactNode,
+  type Ref,
 } from "react";
+import Link from "next/link";
 
 type Align = "start" | "end";
 type Side = "top" | "bottom";
@@ -176,18 +178,44 @@ export function MenuItem({
   onClick,
   children,
   danger,
+  ref,
 }: {
   onClick: () => void;
   children: ReactNode;
   danger?: boolean;
+  /** For a menu that has to move focus between its own items itself. */
+  ref?: Ref<HTMLButtonElement>;
 }) {
   return (
     <button
+      ref={ref}
       role="menuitem"
       onClick={onClick}
       className={`nt-menu-item${danger ? " is-danger" : ""}`}
     >
       {children}
     </button>
+  );
+}
+
+/**
+ * An item that goes somewhere. A link rather than a button pushing a route,
+ * so it keeps a link's affordances — a new tab from a modified click, an
+ * address to copy — and the menu's arrow keys find it by its role like any
+ * other item.
+ */
+export function MenuLink({
+  href,
+  onClick,
+  children,
+}: {
+  href: string;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <Link role="menuitem" href={href} onClick={onClick} className="nt-menu-item">
+      {children}
+    </Link>
   );
 }

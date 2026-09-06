@@ -1,6 +1,7 @@
 import { parseAlbum } from "@/app/components/editor/album/parse";
 import { describeSource } from "@/app/components/editor/media/link";
 import { parseLocation } from "@/app/components/editor/location/parse";
+import { describeStub } from "@/app/lib/notion/stub";
 import { parseStoryboard } from "@/app/components/editor/storyboard/parse";
 import { labelText } from "@/app/components/editor/canvas/scene/label";
 import { migrateLegacyCanvas } from "@/app/components/editor/canvas/scene/migrate";
@@ -285,6 +286,13 @@ function projectBlock(
         shown ? `${shown} photo${shown === 1 ? "" : "s"}` : "",
       ].filter(Boolean);
       push(`${id} location ${place.name || "(unnamed)"}${parts.length ? ` — ${parts.join(", ")}` : ""}`);
+      break;
+    }
+    case "notionStub": {
+      // Named for what it stood for, so the model knows a database or a synced
+      // block sat here and leaves the gap alone rather than filling it.
+      const stub = describeStub(String(block.props.notionType ?? ""));
+      push(`${id} notion stub (${stub.label}, not imported)`);
       break;
     }
     case "audio":

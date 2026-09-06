@@ -21,6 +21,11 @@ import { FixedToast } from "./feedback/FixedToast";
 import { Menu, MenuItem } from "./Menu";
 import { NewProjectDialog, type NewProject } from "./NewProjectDialog";
 import { NotionImport } from "./notion/NotionImport";
+import {
+  describeOutcome,
+  useNotionOutcome,
+  type OutcomeLine,
+} from "@/app/lib/notion/outcome";
 import { PagePreview } from "./PagePreview";
 import { useStandIn } from "./StandIn";
 import { AccessRequests } from "./share/AccessRequests";
@@ -63,9 +68,19 @@ export function ProjectsScreen() {
     null,
   );
   const [naming, setNaming] = useState(false);
-  const [importing, setImporting] = useState(false);
+  // Back from Notion's consent screen, which the import dialog sent them to:
+  // a grant reopens the dialog they left, and anything else is said in the
+  // notice line. Initial state rather than an effect — the outcome is known
+  // before the first render and is not derived from anything that changes.
+  const notion = useNotionOutcome();
+  const [importing, setImporting] = useState(notion.outcome === "connected");
   const [walled, setWalled] = useState(false);
-  const [failure, setFailure] = useState<string | null>(null);
+  const [notice, setNotice] = useState<OutcomeLine | null>(
+    notion.outcome && notion.outcome !== "connected"
+      ? describeOutcome(notion.outcome, notion.reason)
+      : null,
+  );
+  const setFailure = useCallback((text: string) => setNotice({ text, problem: true }), []);
   const { room } = usePlan();
 
   // Restore the persisted view on the client. The default renders first so SSR
@@ -107,7 +122,7 @@ export function ProjectsScreen() {
         setFailure("That rename didn’t save."),
       );
     },
-    [renameProject],
+    [renameProject, setFailure],
   );
 
   /**
@@ -224,11 +239,15 @@ export function ProjectsScreen() {
         </div>
       </header>
 
-      {/* One place for anything that failed, rather than a mutation failing in
-          silence. It clears on the next successful action. */}
-      {failure && (
-        <p role="alert" className="mt-3 text-[13px] text-danger">
-          {failure}
+      {/* One place for anything worth a sentence — a mutation that failed, a
+          connection that was cancelled — rather than either happening in
+          silence. Only a problem wears danger ink. */}
+      {notice && (
+        <p
+          role={notice.problem ? "alert" : "status"}
+          className={`mt-3 text-[13px] ${notice.problem ? "text-danger" : "text-muted"}`}
+        >
+          {notice.text}
         </p>
       )}
 

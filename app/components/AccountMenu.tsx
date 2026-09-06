@@ -1,9 +1,8 @@
 "use client";
 
 import { useClerk, useUser } from "@clerk/nextjs";
-import { useRouter } from "next/navigation";
 import { usePlan } from "@/app/lib/usePlan";
-import { Menu, MenuItem } from "./Menu";
+import { Menu, MenuItem, MenuLink } from "./Menu";
 
 /** First letter of whatever we know them by — name, else the email. */
 function initial(name: string | null | undefined, email: string | undefined) {
@@ -22,7 +21,6 @@ function initial(name: string | null | undefined, email: string | undefined) {
 export function AccountMenu() {
   const { user, isLoaded } = useUser();
   const { signOut } = useClerk();
-  const router = useRouter();
   const { entitlement: plan } = usePlan();
 
   // Nothing rather than an empty circle: this sits in a header, and a element
@@ -59,14 +57,12 @@ export function AccountMenu() {
             )}
           </div>
           <div className="nt-menu-sep" />
-          <MenuItem
-            onClick={() => {
-              close();
-              router.push("/upgrade");
-            }}
-          >
+          <MenuLink href="/settings" onClick={() => close()}>
+            Settings
+          </MenuLink>
+          <MenuLink href="/upgrade" onClick={() => close()}>
             {plan?.left === null ? "Plan & billing" : "Upgrade to Pro"}
-          </MenuItem>
+          </MenuLink>
           <MenuItem
             onClick={() => {
               close();

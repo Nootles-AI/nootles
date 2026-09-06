@@ -1,0 +1,223 @@
+/* Settings — the account's standing arrangements, one row each.
+
+   An Operate surface, so it spends nothing on expression: neutral throughout,
+   no accent (that means AI here), no brand (that means identity), no
+   --nt-select (that belongs to the canvas). Hierarchy is carried by surface
+   value, weight and the mono metadata face, the way the rest of the chrome
+   does it.
+
+   The chrome is the plan page's: same topbar, same way back, same title
+   scale. Where the plan page centres one sheet, this one hangs a column from
+   the top — it is a list that will grow, and a list centred in the viewport
+   moves every time a row is added to it. */
+
+.nt-set-page {
+  min-height: 100vh;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  background: var(--surface);
+}
+
+.nt-set-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px 24px;
+}
+
+.nt-set-body {
+  width: 100%;
+  /* Wider than the plan sheet: a row here holds an identity on the left and
+     two actions on the right, and at the sheet's width the two meet. */
+  max-width: 640px;
+  margin: 0 auto;
+  padding: clamp(16px, 5vh, 56px) 24px clamp(24px, 6vh, 64px);
+}
+
+.nt-set-title {
+  font-size: var(--text-title);
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  line-height: 1.15;
+  color: var(--foreground);
+}
+
+/* ---- Sections ------------------------------------------------------------
+   A section is a label and a card of rows. The label is the field label's,
+   not a mono eyebrow: the mono face is for counts and dates, and an uppercase
+   eyebrow over one row reads as scaffolding. The card is the elevated surface
+   with a hairline, the same object a menu is drawn as, so a row on it reads
+   as a thing you can act on rather than as a paragraph. */
+
+.nt-set-section {
+  margin-top: 36px;
+}
+
+.nt-set-label {
+  margin-bottom: 8px;
+  font-size: var(--text-ui);
+  font-weight: 500;
+  color: var(--foreground);
+}
+
+.nt-set-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--elevated);
+}
+
+.nt-set-list > li + li {
+  border-top: 1px solid var(--border);
+}
+
+/* ---- A row ---------------------------------------------------------------
+   Glyph, identity, actions. The glyph sits in a 32px box so it lands on the
+   same line as the first row of text and the first button; the identity is
+   allowed to wrap where the buttons are not. */
+
+.nt-set-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 12px;
+}
+/* Focus only ever parks here, handed on by a control that is about to go. */
+.nt-set-row:focus-visible {
+  outline: none;
+}
+
+.nt-set-glyph {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: var(--control);
+  height: var(--control);
+  color: var(--foreground);
+}
+
+.nt-set-body-col {
+  flex: 1 1 auto;
+  min-width: 0;
+  /* Centres a one-line identity on the glyph; longer ones grow downward. */
+  padding-top: 6px;
+}
+
+.nt-set-name {
+  font-size: var(--text-ui);
+  font-weight: 500;
+  line-height: 20px;
+  color: var(--foreground);
+}
+
+.nt-set-workspace {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: var(--text-ui);
+  line-height: 20px;
+  color: var(--foreground);
+}
+.nt-set-workspace > span {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.nt-set-workspace-icon {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--radius-sm);
+  object-fit: cover;
+}
+.nt-set-workspace-emoji {
+  flex: none;
+  width: 16px;
+  font-size: var(--text-ui);
+  line-height: 16px;
+  text-align: center;
+}
+
+.nt-set-meta {
+  margin-top: 2px;
+  /* One figure; a date broken across two lines is two figures. */
+  white-space: nowrap;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--text-meta-lg);
+  line-height: 18px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.nt-set-note {
+  margin-top: 2px;
+  font-size: var(--text-ui);
+  line-height: 1.5;
+  color: var(--muted);
+  text-wrap: pretty;
+}
+
+.nt-set-problem {
+  margin-top: 4px;
+  font-size: var(--text-ui);
+  line-height: 1.5;
+  color: var(--danger);
+  text-wrap: pretty;
+}
+
+.nt-set-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+}
+
+/* ---- The outcome line ------------------------------------------------------
+   How the round trip ended, said once under the row it is about and left
+   there until dismissed. A line rather than a toast: it belongs to this row,
+   and a toast belongs to nothing. A line rather than a well, too: it is one
+   more sentence in the row's column, in the note or problem voice the row
+   already speaks, with the dismiss beside it.
+
+   The one authored moment on this surface: the line settles into place, so a
+   sentence that arrived with the page reads as a report rather than as
+   something that was always there. */
+
+.nt-set-outcome {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  animation: nt-set-settle var(--dur-slow) var(--ease) backwards;
+}
+.nt-set-outcome > span {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+@keyframes nt-set-settle {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+@media (max-width: 560px) {
+  .nt-set-row {
+    flex-wrap: wrap;
+  }
+  .nt-set-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nt-set-outcome {
+    animation: none;
+  }
+}

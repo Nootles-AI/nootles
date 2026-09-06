@@ -1,0 +1,83 @@
+/* The Notion stub: a block that did not come across, as a locked card.
+
+   A record of an absence, so it spends nothing on expression: a well on the
+   page, one hairline, the mark in muted ink. Nothing in it is editable and
+   nothing in it hovers except the one control, which is the way back to the
+   block it stands for. Selection is the editor's own plate, drawn over the
+   block like any other. The radius is the block cards' (`.nt-loc`,
+   `.nt-link`); the well rather than their paper is the one thing that says
+   "absence" instead of "thing". */
+
+.nt-stub {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  /* One control row, with the card's own 4px of breathing room around it. */
+  min-height: calc(var(--control) + 8px);
+  padding: 4px 4px 4px calc(var(--inset) + 4px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--sunken);
+  user-select: none;
+}
+
+.nt-stub-mark {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  color: var(--muted);
+}
+.nt-stub-mark svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* The label and its reason on one line, the reason in the mono meta face so
+   the two read as a name and a note about it rather than as a sentence. */
+.nt-stub-text {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.nt-stub-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: var(--text-ui);
+  color: var(--foreground);
+}
+/* A type the product has no name for is shown as Notion spells it. */
+.nt-stub-type {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--text-meta-lg);
+  letter-spacing: var(--tracking-meta);
+  color: var(--foreground);
+}
+.nt-stub-reason {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--text-meta);
+  letter-spacing: var(--tracking-meta);
+  color: var(--muted);
+}
+
+.nt-stub-open {
+  flex: none;
+  white-space: nowrap;
+  text-decoration: none;
+}
+
+@media (max-width: 560px) {
+  .nt-stub-reason {
+    display: none;
+  }
+}

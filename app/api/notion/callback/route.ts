@@ -8,6 +8,7 @@ import {
   exchangeCode,
   oauthConfig,
   safeReturn,
+  type FailureReason,
 } from "../oauth";
 
 /**
@@ -22,7 +23,10 @@ import {
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const params = url.searchParams;
-  const returnTo = safeReturn(req.headers.get("cookie") ? readCookie(req, RETURN_COOKIE) : undefined);
+  // Wherever `/connect` was pressed — the settings page, or the import dialog
+  // on whatever page it was open over — and the front door when the cookie has
+  // expired or was never set.
+  const returnTo = safeReturn(readCookie(req, RETURN_COOKIE));
   const done = (query: Record<string, string>) => {
     const target = new URL(returnTo, url.origin);
     for (const [key, value] of Object.entries(query)) target.searchParams.set(key, value);
@@ -31,6 +35,7 @@ export async function GET(req: Request) {
     res.cookies.delete(RETURN_COOKIE);
     return res;
   };
+  const failed = (reason: FailureReason) => done({ notion: "error", reason });
 
   // The user pressed Cancel on Notion's consent screen. Not an error worth a
   // stack trace, but the UI should say something rather than silently return.
@@ -41,19 +46,17 @@ export async function GET(req: Request) {
   if (!token) return new Response("Unauthorized", { status: 401 });
 
   const config = oauthConfig();
-  if (!config) return done({ notion: "error", reason: "unconfigured" });
+  if (!config) return failed("unconfigured");
 
   // The state cookie is the whole CSRF defence: without it, anyone could walk a
   // signed-in user onto this URL carrying their own authorization code and
   // attach their Notion workspace to somebody else's account.
   const expected = readCookie(req, STATE_COOKIE);
   const state = params.get("state");
-  if (!expected || !state || state !== expected) {
-    return done({ notion: "error", reason: "state" });
-  }
+  if (!expected || !state || state !== expected) return failed("state");
 
   const code = params.get("code");
-  if (!code) return done({ notion: "error", reason: "no_code" });
+  if (!code) return failed("no_code");
 
   try {
     const granted = await exchangeCode(config, code);
@@ -67,7 +70,7 @@ export async function GET(req: Request) {
   } catch {
     // The message is not forwarded: it can carry the client secret's rejection
     // detail, and the useful half is already a sentence the UI can write.
-    return done({ notion: "error", reason: "exchange" });
+    return failed("exchange");
   }
 }
 

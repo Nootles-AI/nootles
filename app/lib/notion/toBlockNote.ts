@@ -1,9 +1,11 @@
 import type {
   NmlBlock,
   NmlInlineContent,
+  NmlLink,
   NmlMark,
   NmlMediaSource,
 } from "@/app/lib/nml/schema";
+import type { NotionLedgerEntry } from "./convert";
 
 /**
  * NML blocks into the BlockNote blocks the editor actually inserts.
@@ -60,12 +62,67 @@ function inline(content: NmlInlineContent): BNInline[] {
  */
 export type ResolvedMedia = ReadonlyMap<string, string>;
 
-export function toBlockNote(blocks: NmlBlock[], media: ResolvedMedia): AnyPartialBlock[] {
-  return blocks.map((block) => one(block, media)).filter((block) => block !== null);
+/**
+ * The ledger's stubbed entries, keyed by the NML block id each became.
+ *
+ * The canonical document keeps a stub as a quote with a link — NML v1 has no
+ * block for a thing it cannot hold. The editor shows the same block locked
+ * instead, the way the link-follow menu is a view over an ordinary link: the
+ * document does not change, only what a reader meets.
+ */
+export type Stubs = ReadonlyMap<string, NotionLedgerEntry>;
+
+export function toBlockNote(
+  blocks: NmlBlock[],
+  media: ResolvedMedia,
+  stubs: Stubs = new Map(),
+): AnyPartialBlock[] {
+  return blocks.map((block) => one(block, media, stubs)).filter((block) => block !== null);
 }
 
-function one(block: NmlBlock, media: ResolvedMedia): AnyPartialBlock | null {
-  const children = block.children.length ? { children: toBlockNote(block.children, media) } : {};
+/**
+ * Raw Notion JSON past this size is left out of the block rather than
+ * truncated: half a JSON document is no use to the migration that would read
+ * it, and the block still names its type and links back to the original.
+ */
+export const RAW_CAP = 32 * 1024;
+
+/**
+ * The ledger's JSON as the block carries it: the row alone, without the
+ * children the fetcher walked in, so a synced block never embeds a subtree.
+ */
+export function stubRaw(entry: NotionLedgerEntry): string {
+  const { children: _children, ...row } = entry.raw;
+  const json = JSON.stringify(row);
+  return json.length <= RAW_CAP ? json : "";
+}
+
+/** The way back the converter wrote into the quote, if the block holds one. */
+function hrefOf(block: NmlBlock): string {
+  if (!("content" in block) || !Array.isArray(block.content)) return "";
+  const link = block.content.find((node): node is NmlLink => node.type === "link");
+  return link?.href ?? "";
+}
+
+function stub(block: NmlBlock, entry: NotionLedgerEntry): AnyPartialBlock {
+  return {
+    type: "notionStub",
+    props: {
+      notionType: entry.notionType,
+      notionId: entry.notionId,
+      href: hrefOf(block),
+      raw: stubRaw(entry),
+    },
+  };
+}
+
+function one(block: NmlBlock, media: ResolvedMedia, stubs: Stubs): AnyPartialBlock | null {
+  const stubbed = stubs.get(block.id);
+  if (stubbed) return stub(block, stubbed);
+
+  const children = block.children.length
+    ? { children: toBlockNote(block.children, media, stubs) }
+    : {};
 
   switch (block.type) {
     case "paragraph":

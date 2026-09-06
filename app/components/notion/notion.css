@@ -37,13 +37,15 @@
   width: 14px;
   height: 14px;
   transform: translateY(-50%);
-  color: var(--faint);
+  color: var(--muted);
   pointer-events: none;
 }
 .nt-notion-search:focus-within .nt-notion-search-icon {
-  color: var(--muted);
+  color: var(--foreground);
 }
 
+/* A sentence where rows would be: the tree still loading, or a search that
+   found nothing. The same plain line the repository picker loads with. */
 .nt-notion-nomatch {
   padding: 20px 10px;
   text-align: center;
@@ -53,6 +55,8 @@
 
 /* ---- The page tree ------------------------------------------------------ */
 
+/* The box the rows sit in; the tree itself is the role, not the frame, so a
+   sentence about the rows can share the box without sitting inside the tree. */
 .nt-notion-tree {
   max-height: 46vh;
   overflow-y: auto;
@@ -106,12 +110,12 @@ button.nt-notion-twist:hover {
 .nt-notion-pick:hover {
   background: var(--hover);
 }
-.nt-notion-pick[aria-selected="true"] {
-  background: var(--selected);
-}
 
 /* The tick. A drawn box rather than a native checkbox so it inherits the
-   palette and sits on the same 16px glyph rhythm as every other row mark. */
+   palette and sits on the same 16px glyph rhythm as every other row mark. The
+   box carries the whole state: a ticked row is not washed grey, because a tick
+   on a page ticks everything under it and a tree gone grey wholesale says
+   nothing a row of ticks does not. */
 .nt-notion-box {
   display: grid;
   place-items: center;
@@ -154,7 +158,7 @@ button.nt-notion-twist:hover {
   height: 15px;
 }
 .nt-notion-emoji {
-  font-size: 13px;
+  font-size: var(--text-ui);
   line-height: 1;
 }
 
@@ -172,22 +176,8 @@ button.nt-notion-twist:hover {
   font-family: var(--font-mono), ui-monospace, monospace;
   font-size: var(--text-meta);
   letter-spacing: var(--tracking-meta);
-  color: var(--faint);
+  color: var(--muted);
   font-variant-numeric: tabular-nums;
-}
-
-.nt-notion-skel {
-  height: var(--control);
-  margin: 2px 4px;
-  border-radius: var(--radius-sm);
-  background: linear-gradient(90deg, var(--hover), var(--active), var(--hover));
-  background-size: 200% 100%;
-  animation: nt-notion-shimmer 1.4s linear infinite;
-}
-@keyframes nt-notion-shimmer {
-  to {
-    background-position: -200% 0;
-  }
 }
 
 /* ---- Empty and error ---------------------------------------------------- */
@@ -217,6 +207,57 @@ button.nt-notion-twist:hover {
 
 /* ---- Running ------------------------------------------------------------ */
 
+/* The bar. Two pixels of the title's own ink on a rule, under the head so it
+   reads as the title's claim being made good rather than as a widget. The
+   track is the hairline ink rather than the well, which on the dialog's white
+   is invisible — and a fill with no track is a growing stripe, not a measure. */
+.nt-progress {
+  position: relative;
+  height: 2px;
+  margin-top: 14px;
+  border-radius: 1px;
+  background: var(--border);
+  overflow: hidden;
+}
+/* Scaled rather than widened, so a value arriving every rehost costs a
+   composite and not a layout. */
+.nt-progress-fill {
+  display: block;
+  width: 100%;
+  height: 100%;
+  transform-origin: left;
+  /* Starts from nothing, so the first value grows out of the left edge
+     rather than shrinking in from a full line. */
+  transform: scaleX(0);
+  background: var(--foreground);
+  transition: transform var(--dur-slow) var(--ease);
+}
+/* Nothing to measure yet: the track itself is dashed rather than a segment
+   slid along it, so the state is told by shape — plainly not the empty track
+   and plainly not a full fill — and reads the same with motion off. Drawn on
+   the track, not the fill, so the fill still grows out of the left edge when
+   the first value arrives. The count beside it says what is under way; the
+   row pulse below is this surface's one authored motion. */
+.nt-progress[data-indeterminate] {
+  background: repeating-linear-gradient(
+    90deg,
+    var(--foreground) 0 8px,
+    transparent 8px 16px
+  );
+}
+
+/* The count. Plain on purpose: it is the one line that changes as the run
+   goes, so it holds nothing but the number. */
+.nt-notion-live {
+  margin-bottom: 8px;
+  padding: 0 4px;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--text-meta-lg);
+  letter-spacing: var(--tracking-meta);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
 .nt-notion-runlist {
   max-height: 46vh;
   overflow-y: auto;
@@ -233,14 +274,20 @@ button.nt-notion-twist:hover {
 }
 .nt-notion-run[data-state="fetching"],
 .nt-notion-run[data-state="copying"],
-.nt-notion-run[data-state="writing"] {
-  color: var(--foreground);
-}
+.nt-notion-run[data-state="writing"],
 .nt-notion-run[data-state="done"] {
   color: var(--foreground);
 }
 .nt-notion-run[data-state="failed"] {
   color: var(--danger);
+}
+.nt-notion-run[data-state="failed"] .nt-notion-run-state {
+  color: var(--danger);
+}
+.nt-notion-run[data-state="removed"] {
+  color: var(--muted);
+  text-decoration: line-through;
+  text-decoration-color: var(--faint);
 }
 
 .nt-notion-run-mark {
@@ -249,7 +296,7 @@ button.nt-notion-twist:hover {
   flex: none;
   width: 16px;
   height: 16px;
-  color: var(--faint);
+  color: var(--muted);
 }
 .nt-notion-run-mark svg {
   width: 14px;
@@ -258,8 +305,8 @@ button.nt-notion-twist:hover {
 .nt-notion-run[data-state="done"] .nt-notion-run-mark {
   color: var(--foreground);
 }
-/* The one authored moment: the row being worked on breathes, so a long import
-   reads as alive without a spinner on every line. */
+/* This surface's one authored motion: the row being worked on breathes, so a
+   long import reads as alive without a spinner on every line. */
 .nt-notion-run[data-state="fetching"] .nt-notion-run-mark,
 .nt-notion-run[data-state="copying"] .nt-notion-run-mark,
 .nt-notion-run[data-state="writing"] .nt-notion-run-mark {
@@ -278,6 +325,17 @@ button.nt-notion-twist:hover {
   letter-spacing: var(--tracking-meta);
   color: var(--muted);
   font-variant-numeric: tabular-nums;
+}
+
+/* The step and, once it has run a while, how long: two figures on one line,
+   the time kept apart so a changing count does not shove it about. */
+.nt-notion-step {
+  display: inline-flex;
+  gap: 10px;
+}
+.nt-notion-step-time {
+  min-width: 4ch;
+  text-align: right;
 }
 
 /* ---- The report --------------------------------------------------------- */
@@ -307,6 +365,11 @@ button.nt-notion-twist:hover {
 .nt-notion-reported[data-state="failed"] .nt-notion-run-state {
   color: var(--danger);
 }
+.nt-notion-reported[data-state="removed"] .nt-notion-title {
+  color: var(--muted);
+  text-decoration: line-through;
+  text-decoration-color: var(--faint);
+}
 
 .nt-notion-detail {
   display: grid;
@@ -329,12 +392,7 @@ button.nt-notion-twist:hover {
   text-align: right;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .nt-notion-skel,
-  .nt-notion-run-mark {
-    animation: none;
-  }
-}
+/* ---- Following a link -------------------------------------------------- */
 
 /* Muted until the row is under the pointer, the way the slash menu's glyphs
    behave — the label is what you read, the glyph is what you recognise. */
@@ -354,45 +412,31 @@ button.nt-notion-twist:hover {
 }
 
 /* A reference being followed. Lives in the menu the click opened, so the
-   sentence stays where the reader is looking rather than in a corner. */
+   step stays where the reader is looking rather than in a corner — the same
+   step, in the same face, that the import dialog's rows show. */
 .nt-notion-following {
   /* Indented past where a glyph would sit, so the line lines up with the
      labels of the rows it replaced rather than with the menu's edge. */
-  padding: 6px var(--inset) 6px calc(var(--inset) + 16px + 8px);
-  font-size: var(--text-ui);
-  color: var(--muted);
-}
-
-/* ---- The stub's own link ------------------------------------------------
-   A block that did not come across leaves a note behind, and the way back to
-   it reads as a control rather than as prose: it is the one actionable thing
-   in a sentence that is otherwise a record of an absence.
-
-   Selected by what it is — a Notion URL addressing a block — because that is
-   exactly the rule the click handler uses. A stub is the only thing that
-   writes one, and anything else that did would deserve the same treatment. */
-.nt-editor a[href*="notion.so"][href*="#"] {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  height: 22px;
-  padding: 0 8px;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-sm);
-  background: var(--background);
-  color: var(--muted);
+  height: var(--control);
+  padding: 0 var(--inset) 0 calc(var(--inset) + 16px + 8px);
+  font-family: var(--font-mono), ui-monospace, monospace;
   font-size: var(--text-meta-lg);
-  font-style: normal;
-  text-decoration: none;
-  vertical-align: baseline;
-  /* It is a control, so it does not behave like the prose around it: no
-     caret, no drag-selecting through its label, and a pointer over it. */
-  user-select: none;
-  cursor: pointer;
-  transition:
-    background var(--dur-fast) var(--ease),
-    color var(--dur-fast) var(--ease);
+  letter-spacing: var(--tracking-meta);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
 }
-.nt-editor a[href*="notion.so"][href*="#"]:hover {
-  background: var(--hover);
-  color: var(--foreground);
+.nt-notion-following[data-state="failed"] {
+  color: var(--danger);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nt-notion-run-mark {
+    animation: none;
+  }
+  .nt-notion-twist svg,
+  .nt-progress-fill {
+    transition: none;
+  }
 }

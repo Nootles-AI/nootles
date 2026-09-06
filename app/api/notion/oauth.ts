@@ -77,6 +77,13 @@ export async function exchangeCode(
   return (await res.json()) as NotionTokenResponse;
 }
 
+/**
+ * Why a connection did not happen, as the callback writes it into `?reason=`.
+ * Declared here so the sentence the settings page writes for each code and the
+ * code the route emits cannot drift apart.
+ */
+export type FailureReason = "state" | "no_code" | "exchange" | "unconfigured";
+
 /** Only ever bounce back inside this app, whatever the cookie says. */
 export function safeReturn(value: string | undefined): string {
   return value && value.startsWith("/") && !value.startsWith("//") ? value : "/";

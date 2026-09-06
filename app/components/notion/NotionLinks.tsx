@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState, type RefObject } from "react";
+import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { useConvex, useQuery } from "convex/react";
+import { NodeSelection, type EditorState } from "prosemirror-state";
+import type { EditorView } from "prosemirror-view";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { LinkToolbar, type LinkToolbarProps } from "@blocknote/react";
 import { ContextMenu } from "@/app/components/ContextMenu";
 import { MenuItem } from "@/app/components/Menu";
 import { FileDoc } from "@/app/components/Icons";
@@ -12,6 +13,7 @@ import { NotionMark } from "@/app/components/NotionMark";
 import { importReferencedPage } from "@/app/lib/notion/importRun";
 import type { PageProgress } from "@/app/lib/notion/importRun";
 import { isNotionBlockHref, notionPageIdFrom } from "@/app/lib/notion/notionUrl";
+import { PageStep } from "./Progress";
 import "./notion.css";
 import { pageTitle } from "@/app/components/editor/inline/PageMention";
 
@@ -29,8 +31,12 @@ import { pageTitle } from "@/app/components/editor/inline/PageMention";
  * Notion" does what an untouched link always did. Nothing is decided for you,
  * and the choice is only ever offered on a link we can actually name a page
  * inside.
+ *
+ * The offer is raised two ways, because a click is not the only way to reach a
+ * link: Mod+Enter with the caret inside one raises the same menu, anchored at
+ * the link, and the same key on a selected stub block opens the block's way
+ * back to Notion. One key, "follow the Notion reference under the caret".
  */
-
 
 /**
  * The live surface's link handler, if one is mounted.
@@ -43,17 +49,6 @@ let active: ((event: globalThis.MouseEvent) => boolean) | null = null;
 
 export function notionLinkClick(event: globalThis.MouseEvent): boolean {
   return active?.(event) ?? false;
-}
-
-/**
- * A link this importer wrote as a stub's way back to Notion.
- *
- * Both the click handler and the link toolbar ask this, so a stub can never
- * behave like a stub in one and like an ordinary link in the other. The text
- * covers documents imported before stubs carried a fragment.
- */
-export function isStubLink(href: string, text?: string | null): boolean {
-  return isNotionBlockHref(href) || text?.trim() === "open in Notion";
 }
 
 type Pending = {
@@ -84,6 +79,23 @@ export function useNotionLinks({
   const page = useQuery(api.pages.get, pageId ? { pageId } : "skip");
   const [pending, setPending] = useState<Pending | null>(null);
   const [running, setRunning] = useState<PageProgress | null>(null);
+  const follow = useRef<AbortController | null>(null);
+  const openItem = useRef<HTMLButtonElement>(null);
+
+  /**
+   * Raise the offer for a link, if it is one we can name a page inside.
+   * Answers whether it was raised, so a caller can hand an unclaimed link
+   * back to whatever it interrupted.
+   */
+  const offer = useCallback((href: string, label: string, x: number, y: number): boolean => {
+    // A link to a block inside a page is an ordinary link: not a page, so
+    // nothing to offer.
+    if (isNotionBlockHref(href)) return false;
+    const notionPageId = notionPageIdFrom(href);
+    if (!notionPageId) return false;
+    setPending({ href, notionPageId, label: pageTitle(label), x, y });
+    return true;
+  }, []);
 
   /**
    * BlockNote's own link-click seam.
@@ -99,54 +111,6 @@ export function useNotionLinks({
    * any of this state exists. One slot is enough: one document is open at a
    * time, and the effect's cleanup is what makes that true rather than hopeful.
    */
-  /**
-   * Keep the caret out of the stub's button.
-   *
-   * The label is inline content in a contenteditable, so the browser puts a
-   * cursor wherever the press lands — inside the words "Open in Notion",
-   * which are not words anybody is editing. `links.onClick` cannot help: by
-   * the time a click exists the selection has already moved.
-   *
-   * `mousedown`, not `pointerdown`. Cancelling pointerdown suppresses the
-   * mousedown that follows it and takes the click with it (and this app has
-   * been bitten by exactly that before); cancelling mousedown suppresses only
-   * the focus and selection change, which is the whole intent, and is what
-   * every toolbar button does.
-   */
-  useEffect(() => {
-    const stubUnder = (event: globalThis.MouseEvent): Element | null => {
-      const anchor = (event.target as Element | null)?.closest?.("a[href]");
-      if (!anchor || !surface.current?.contains(anchor)) return null;
-      return isStubLink(anchor.getAttribute("href") ?? "", anchor.textContent)
-        ? anchor
-        : null;
-    };
-
-    const keepCaretOut = (event: globalThis.MouseEvent) => {
-      if (stubUnder(event)) event.preventDefault();
-    };
-
-    // Declining the press means ProseMirror never builds the click it would
-    // have handed to BlockNote, so opening the link becomes ours as well.
-    // Both halves belong to the same gesture and neither works alone.
-    const open = (event: globalThis.MouseEvent) => {
-      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-      if (event.button !== 0) return;
-      const anchor = stubUnder(event);
-      if (!anchor) return;
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      window.open(anchor.getAttribute("href")!, "_blank", "noopener,noreferrer");
-    };
-
-    document.addEventListener("mousedown", keepCaretOut, true);
-    document.addEventListener("click", open, true);
-    return () => {
-      document.removeEventListener("mousedown", keepCaretOut, true);
-      document.removeEventListener("click", open, true);
-    };
-  }, [surface]);
-
   useEffect(() => {
     active = (event) => {
       // A modified click is the reader asking for a new tab explicitly. That is
@@ -156,31 +120,69 @@ export function useNotionLinks({
       const anchor = target?.closest?.("a[href]");
       if (!anchor || !surface.current?.contains(anchor)) return false;
       const href = anchor.getAttribute("href") ?? "";
-
-      // Stubs never reach here — the effect above stops their click before
-      // ProseMirror sees it — but saying so costs nothing and means a stub can
-      // never fall through to the import offer.
-      if (isStubLink(href, anchor.textContent)) return true;
-
-      const notionPageId = notionPageIdFrom(href);
-      if (!notionPageId) return false;
-      setPending({
-        href,
-        notionPageId,
-        label: pageTitle(anchor.textContent ?? ""),
-        x: event.clientX,
-        y: event.clientY,
-      });
-      return true;
+      return offer(href, anchor.textContent ?? "", event.clientX, event.clientY);
     };
     return () => {
       active = null;
     };
-  }, [surface]);
+  }, [offer, surface]);
 
+  /**
+   * The same offer from the keyboard.
+   *
+   * Heard in the capture phase on the surface, ahead of ProseMirror's own
+   * keymaps, and claimed only when there is a Notion reference to follow —
+   * every other Mod+Enter goes on to whoever wanted it. A stub block has one
+   * answer, so it is opened outright; a link has two, so the menu is raised
+   * where the link is and takes focus, the way it does from a click.
+   */
+  useEffect(() => {
+    const el = surface.current;
+    if (!el) return;
+    const onKey = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Enter" || !(event.metaKey || event.ctrlKey)) return;
+      if (event.shiftKey || event.altKey || event.isComposing) return;
+      const view = editor.prosemirrorView as EditorView | undefined;
+      if (!view) return;
+      const { selection } = view.state;
+
+      if (selection instanceof NodeSelection && selection.node.type.name === "notionStub") {
+        const href = String(selection.node.attrs.href ?? "");
+        if (!href) return;
+        event.preventDefault();
+        event.stopPropagation();
+        window.open(href, "_blank", "noopener,noreferrer");
+        return;
+      }
+
+      const link = linkAtCaret(view.state);
+      if (!link) return;
+      const { left, bottom } = view.coordsAtPos(link.from);
+      if (!offer(link.href, link.text, left, bottom)) return;
+      event.preventDefault();
+      event.stopPropagation();
+    };
+    el.addEventListener("keydown", onKey, true);
+    return () => el.removeEventListener("keydown", onKey, true);
+  }, [editor, offer, surface]);
+
+  // A follow still running when the document goes away is abandoned with it.
+  useEffect(() => () => follow.current?.abort(), []);
+
+  /**
+   * Every way out of the menu comes through here, so every one of them gives
+   * the caret back: the menu took focus, and a reader who pressed Escape
+   * should be where they were, not on the page body. Closing also stops a
+   * follow in progress — the menu is the only place its progress is shown,
+   * and an import that carries on after its status has gone would land a
+   * page nobody watched arrive.
+   */
   const close = () => {
+    follow.current?.abort();
+    follow.current = null;
     setPending(null);
     setRunning(null);
+    editor.focus();
   };
 
   const openInNotion = (href: string) => {
@@ -190,13 +192,21 @@ export function useNotionLinks({
 
   const importHere = async (target: Pending) => {
     if (!page) return;
+    // The item just pressed is about to give way to the progress line; focus
+    // moves to the item that stays, so the menu keeps it.
+    openItem.current?.focus();
+    const controller = new AbortController();
+    follow.current = controller;
     const { pageId: made, progress } = await importReferencedPage(client, {
       projectId: page.projectId,
       ...(page.folderId ? { folderId: page.folderId } : {}),
       notionPageId: target.notionPageId,
       title: target.label,
       onProgress: setRunning,
+      signal: controller.signal,
     });
+    if (controller.signal.aborted) return;
+    follow.current = null;
     if (progress.state === "done") {
       relink(editor, target.href, made, target.label);
       close();
@@ -208,31 +218,33 @@ export function useNotionLinks({
   const menu = pending ? (
     <ContextMenu x={pending.x} y={pending.y} label="Notion page" onClose={close}>
       {running ? (
-        <p className="nt-notion-following">
-          {running.state === "failed"
-            ? (running.error ?? "That page could not be imported.")
-            : label(running.state)}
+        // The step, where the item that started it was: the reader is
+        // already looking here, and a region that announces its changes is
+        // the only way the step reaches a reader who cannot see it.
+        <p role="status" className="nt-notion-following" data-state={running.state}>
+          <PageStep page={running} />
         </p>
       ) : (
-        <>
-          {/* The two glyphs carry the actual distinction: one ends as a page
-              in this project, the other goes back to where it still lives. */}
-          {!readOnly && page && (
-            <MenuItem onClick={() => void importHere(pending)}>
-              <span className="nt-notion-menu-icon" aria-hidden>
-                <FileDoc width={14} height={14} />
-              </span>
-              Import here and link
-            </MenuItem>
-          )}
-          <MenuItem onClick={() => openInNotion(pending.href)}>
+        !readOnly &&
+        page && (
+          <MenuItem onClick={() => void importHere(pending)}>
             <span className="nt-notion-menu-icon" aria-hidden>
-              <NotionMark width={14} height={14} />
+              <FileDoc width={14} height={14} />
             </span>
-            Open in Notion
+            Import here and link
           </MenuItem>
-        </>
+        )
       )}
+      {/* Present throughout, so the menu is never a menu with nothing in it
+          and focus always has an item to sit on. The two glyphs carry the
+          actual distinction: one ends as a page in this project, the other
+          goes back to where it still lives. */}
+      <MenuItem ref={openItem} onClick={() => openInNotion(pending.href)}>
+        <span className="nt-notion-menu-icon" aria-hidden>
+          <NotionMark width={14} height={14} />
+        </span>
+        Open in Notion
+      </MenuItem>
     </ContextMenu>
   ) : null;
 
@@ -240,22 +252,38 @@ export function useNotionLinks({
 }
 
 /**
- * The editor's link toolbar, absent over a stub's own link.
- *
- * Hover was still raising edit-and-delete over a URL nobody wrote and nobody
- * should change — the click was handled but the toolbar is a separate
- * controller and never saw that decision. Rendering nothing for these leaves
- * every other link exactly as it was.
+ * The link the caret is in, if any: its address, its whole text, and where it
+ * starts. Walks the caret's own textblock, grouping the runs of text that
+ * carry one link mark to one address, and answers with the run the caret
+ * sits in or at either edge of.
  */
-export function LinkToolbarUnlessStub(props: LinkToolbarProps) {
-  if (isStubLink(props.url, props.text)) return null;
-  return <LinkToolbar {...props} />;
-}
+function linkAtCaret(state: EditorState): { href: string; text: string; from: number } | null {
+  if (state.selection instanceof NodeSelection) return null;
+  const type = state.schema.marks.link;
+  const { $from } = state.selection;
+  if (!type || !$from.parent.isTextblock) return null;
+  const at = $from.parentOffset;
+  const base = $from.start();
 
-function label(state: PageProgress["state"]): string {
-  if (state === "copying") return "Copying files…";
-  if (state === "writing") return "Writing the page…";
-  return "Reading Notion…";
+  let hit: { href: string; text: string; from: number } | null = null;
+  let run: { href: string; text: string; from: number; to: number } | null = null;
+  $from.parent.forEach((node, offset) => {
+    const mark = type.isInSet(node.marks);
+    const href = mark ? String(mark.attrs.href ?? "") : null;
+    if (href !== null && run && run.href === href && run.to === offset) {
+      run.text += node.textContent;
+      run.to = offset + node.nodeSize;
+    } else {
+      run =
+        href === null
+          ? null
+          : { href, text: node.textContent, from: offset, to: offset + node.nodeSize };
+    }
+    if (run && run.from <= at && at <= run.to) {
+      hit = { href: run.href, text: run.text, from: base + run.from };
+    }
+  });
+  return hit;
 }
 
 /**
@@ -263,19 +291,22 @@ function label(state: PageProgress["state"]): string {
  *
  * Every one, not only the one clicked: the same page is often referenced more
  * than once, and leaving the others pointing at Notion would make the document
- * disagree with itself about where that page lives. Written through
- * `updateBlock`, which is the call a person's own edit makes.
+ * disagree with itself about where that page lives. Every block, too, at any
+ * depth — a reference inside a list item is no less a reference. Written
+ * through `updateBlock`, which is the call a person's own edit makes.
  */
 function relink(editor: Editor, href: string, pageId: Id<"pages">, title: string): void {
-  for (const block of editor.document) {
+  editor.forEachBlock((block: { id: string; content: unknown }) => {
     const content = block.content;
-    if (!Array.isArray(content)) continue;
-    let changed = false;
-    const next = content.map((item: { type: string; href?: string }) => {
-      if (item.type !== "link" || item.href !== href) return item;
-      changed = true;
-      return { type: "pageMention", props: { pageId, title } };
-    });
-    if (changed) editor.updateBlock(block.id, { content: next });
-  }
+    if (Array.isArray(content)) {
+      let changed = false;
+      const next = content.map((item: { type: string; href?: string }) => {
+        if (item.type !== "link" || item.href !== href) return item;
+        changed = true;
+        return { type: "pageMention", props: { pageId, title } };
+      });
+      if (changed) editor.updateBlock(block.id, { content: next });
+    }
+    return true;
+  });
 }
