@@ -14,6 +14,7 @@ import {
 
 export const NML_YJS_ROOT = "nml";
 export const NML_YJS_ENCODING_VERSION = 1 as const;
+export const NML_YJS_STRUCTURE_KEY = "structure";
 
 export type NmlTransactionOrigin = {
   version: 1;
@@ -442,19 +443,36 @@ export function writeNmlDocument(doc: Y.Doc, document: NmlDocument, origin?: Nml
     const blocks = new Y.Array<Y.Map<unknown>>();
     blocks.insert(0, normalized.blocks.map(blockToY));
     root.set("blocks", blocks);
+    const structure = new Y.Map<unknown>();
+    const registry = new Y.Map<Y.Map<unknown>>();
+    const placements = new Y.Map<Y.Map<unknown>>();
+    const deletions = new Y.Map<boolean>();
+    const index = (items: Y.Array<Y.Map<unknown>>, parentId: string | null) => items.toArray().forEach((item, position) => {
+      const id = String(item.get("id"));
+      placements.set(id, mapOf({ parentId, orderKey: keyForIndex(position) }));
+      index(item.get("children") as Y.Array<Y.Map<unknown>>, id);
+    });
+    index(blocks, null);
+    structure.set("registry", registry);
+    structure.set("placements", placements);
+    structure.set("deletions", deletions);
+    root.set(NML_YJS_STRUCTURE_KEY, structure);
   }, origin);
 }
 
 export function decodeNmlDocument(doc: Y.Doc): NmlDocument {
   const root = doc.getMap<unknown>(NML_YJS_ROOT);
-  assertKeys(root, ["encodingVersion", "schemaVersion", "documentId", "blocks"], [NML_YJS_ROOT]);
+  assertKeys(root, ["encodingVersion", "schemaVersion", "documentId", "blocks", NML_YJS_STRUCTURE_KEY], [NML_YJS_ROOT]);
   if (root.get("encodingVersion") !== NML_YJS_ENCODING_VERSION) {
     throw decodeFailure([NML_YJS_ROOT, "encodingVersion"], "Unsupported NML Yjs encoding version.");
   }
+  const legacyBlocks = expectArray(root.get("blocks"), [NML_YJS_ROOT, "blocks"]);
   const candidate = {
     schemaVersion: root.get("schemaVersion"),
     documentId: root.get("documentId"),
-    blocks: expectArray(root.get("blocks"), [NML_YJS_ROOT, "blocks"]).toArray().map((block, index) => blockFromY(block, ["blocks", index])),
+    blocks: root.has(NML_YJS_STRUCTURE_KEY)
+      ? structuredBlocks(root.get(NML_YJS_STRUCTURE_KEY), legacyBlocks)
+      : legacyBlocks.toArray().map((block, index) => blockFromY(block, ["blocks", index])),
   };
   const parsed = nmlDocumentSchema.safeParse(candidate);
   if (!parsed.success) {
@@ -466,6 +484,56 @@ export function decodeNmlDocument(doc: Y.Doc): NmlDocument {
     })));
   }
   return normalizeDocument(parsed.data);
+}
+
+function structuredBlocks(value: unknown, legacy: Y.Array<unknown>): unknown[] {
+  const structure = expectMap(value, [NML_YJS_ROOT, NML_YJS_STRUCTURE_KEY]);
+  assertKeys(structure, ["registry", "placements", "deletions"], [NML_YJS_ROOT, NML_YJS_STRUCTURE_KEY]);
+  const registry = expectMap(structure.get("registry"), [NML_YJS_ROOT, NML_YJS_STRUCTURE_KEY, "registry"]);
+  const placements = expectMap(structure.get("placements"), [NML_YJS_ROOT, NML_YJS_STRUCTURE_KEY, "placements"]);
+  const deletions = expectMap(structure.get("deletions"), [NML_YJS_ROOT, NML_YJS_STRUCTURE_KEY, "deletions"]);
+  type Row = { id: string; block: JsonObject; parentId: string | null; orderKey: string };
+  const maps = new Map<string, Y.Map<unknown>>();
+  const collect = (raw: unknown, path: Array<string | number>) => {
+    const map = expectMap(raw, path);
+    const id = expectString(map.get("id"), [...path, "id"]);
+    maps.set(id, map);
+    const children = expectArray(map.get("children"), [...path, "children"]);
+    children.toArray().forEach((child, index) => collect(child, [...path, "children", index]));
+  };
+  legacy.toArray().forEach((block, index) => collect(block, ["blocks", index]));
+  registry.forEach((block, id) => collect(block, [NML_YJS_ROOT, NML_YJS_STRUCTURE_KEY, "registry", id]));
+  const rows: Row[] = [];
+  maps.forEach((map, id) => {
+    if (deletions.get(id) === true) return;
+    const placement = expectMap(placements.get(id), [NML_YJS_ROOT, NML_YJS_STRUCTURE_KEY, "placements", id]);
+    assertKeys(placement, ["parentId", "orderKey"], [NML_YJS_ROOT, NML_YJS_STRUCTURE_KEY, "placements", id]);
+    const parent = placement.get("parentId");
+    if (parent !== null && typeof parent !== "string") throw decodeFailure([NML_YJS_ROOT, NML_YJS_STRUCTURE_KEY, "placements", id, "parentId"], "Expected string or null.");
+    const block = blockFromY(map, [NML_YJS_ROOT, NML_YJS_STRUCTURE_KEY, "registry", id]) as JsonObject;
+    block.children = [];
+    rows.push({ id, block, parentId: parent as string | null, orderKey: expectString(placement.get("orderKey"), [NML_YJS_ROOT, NML_YJS_STRUCTURE_KEY, "placements", id, "orderKey"]) });
+  });
+  const live = new Set(rows.map((row) => row.id));
+  const byParent = new Map<string | null, Row[]>();
+  for (const row of rows) {
+    // A concurrent insertion into a deleted/missing parent survives in recovery at root.
+    const parentId = row.parentId !== null && live.has(row.parentId) ? row.parentId : null;
+    const list = byParent.get(parentId) ?? [];
+    list.push(row);
+    byParent.set(parentId, list);
+  }
+  const building = new Set<string>();
+  const build = (parentId: string | null): unknown[] => (byParent.get(parentId) ?? [])
+    .sort((a, b) => a.orderKey.localeCompare(b.orderKey) || a.id.localeCompare(b.id))
+    .map((row) => {
+      if (building.has(row.id)) throw decodeFailure([NML_YJS_ROOT, NML_YJS_STRUCTURE_KEY, "placements", row.id], "Block parent cycle.");
+      building.add(row.id);
+      row.block.children = build(row.id);
+      building.delete(row.id);
+      return row.block;
+    });
+  return build(null);
 }
 
 function positions(document: NmlDocument): Map<string, { parentId: string | null; index: number; block: NmlBlock }> {
@@ -537,3 +605,13 @@ export function isNmlOrigin(value: unknown): value is NmlTransactionOrigin {
   return origin.version === 1 && typeof origin.transactionId === "string" && typeof origin.command === "string" &&
     !!origin.actor && typeof origin.actor.userId === "string" && ["human", "model", "system"].includes(origin.actor.kind ?? "");
 }
+
+/** Internal shared-type constructors used exclusively by the semantic executor. */
+export {
+  blockToY as nmlBlockToY,
+  canvasToY as nmlCanvasToY,
+  inlineToY as nmlInlineToY,
+  mapOf as nmlYMapOf,
+  plainValue as nmlYPlainValue,
+  sharedValue as nmlYSharedValue,
+};

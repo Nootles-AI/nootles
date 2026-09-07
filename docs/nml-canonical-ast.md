@@ -330,6 +330,22 @@ Y.Map
 └── domain content: typed shared values
 ```
 
+Step 4 retains those block maps as stable content records and adds a structural layer:
+
+```text
+nml.structure: Y.Map
+├── registry: Y.Map<nodeId, block Y.Map>
+├── placements: Y.Map<nodeId, { parentId, orderKey } Y.Map>
+└── deletions: Y.Map<nodeId, boolean>
+```
+
+Initial block maps remain in the step-3 tree for update compatibility; newly inserted
+records live in the registry. The decoder indexes both sources and materializes the tree
+only from placement records. A deletion tombstone is independent from placement, so it
+wins over a concurrent move. A live record whose intended parent was concurrently deleted
+is materialized at the recovery root (the document root in this headless stage) rather
+than silently discarded.
+
 A canvas block's domain content is encoded directly beneath its block map:
 
 ```text
@@ -366,7 +382,8 @@ Encoding rules:
 The implemented observer retains state-vector boundaries and emits attributed semantic
 change summaries for valid transactions. It reports diagnostics instead of advancing its
 known-good decoded state when an invalid low-level mutation is observed. Full command-level
-change metadata begins with the semantic executor in step 4.
+change metadata is complemented by the step-4 executor's durable receipt, typed conflict,
+temporary-ID, precondition, and transaction-origin results.
 
 ### Transaction origin
 
