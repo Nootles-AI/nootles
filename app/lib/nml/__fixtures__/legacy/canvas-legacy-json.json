@@ -1,0 +1,11 @@
+{
+  "documentId": "doc-canvas-legacy",
+  "blocks": [
+    {
+      "id": "canvas-legacy",
+      "type": "canvas",
+      "props": { "data": "{\"nodes\":[{\"id\":\"n1\",\"position\":{\"x\":200,\"y\":160},\"width\":120,\"height\":60,\"data\":{\"label\":\"Start\",\"shape\":\"rectangle\"}},{\"id\":\"n2\",\"position\":{\"x\":420,\"y\":160},\"width\":120,\"height\":60,\"data\":{\"label\":\"End\",\"shape\":\"ellipse\"}}],\"edges\":[{\"id\":\"le1\",\"source\":\"n1\",\"target\":\"n2\"}]}" },
+      "children": []
+    }
+  ]
+}

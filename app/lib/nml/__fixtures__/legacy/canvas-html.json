@@ -1,0 +1,11 @@
+{
+  "documentId": "doc-canvas-html",
+  "blocks": [
+    {
+      "id": "canvas1",
+      "type": "canvas",
+      "props": { "data": "<nt-diagram id=\"canvas1\" w=\"960\" h=\"540\"><nt-rect id=\"s1\" x=\"40\" y=\"24\" w=\"160\" h=\"72\">Box</nt-rect><nt-ellipse id=\"s2\" x=\"280\" y=\"24\" w=\"120\" h=\"120\">Circle</nt-ellipse><nt-group id=\"g1\" x=\"40\" y=\"200\" w=\"400\" h=\"160\"><nt-rect id=\"s3\" x=\"10\" y=\"10\" w=\"120\" h=\"60\">Child</nt-rect></nt-group><nt-edge id=\"e1\" from=\"s1\" to=\"s2\">link</nt-edge></nt-diagram>" },
+      "children": []
+    }
+  ]
+}
