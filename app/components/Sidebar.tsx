@@ -24,6 +24,7 @@ import {
   Plus,
   X,
 } from "./Icons";
+import { useNotionAvailable } from "./notion/NotionAvailable";
 import { NotionImport } from "./notion/NotionImport";
 import {
   describeOutcome,
@@ -99,6 +100,7 @@ export function Sidebar({
   // project's name. Initial state rather than an effect — the outcome is known
   // before the first render and is not derived from anything that changes.
   const notion = useNotionOutcome();
+  const notionAvailable = useNotionAvailable();
   const [importing, setImporting] = useState(notion.outcome === "connected");
   const [notice, setNotice] = useState<OutcomeLine | null>(
     notion.outcome && notion.outcome !== "connected"
@@ -1000,10 +1002,14 @@ export function Sidebar({
               <Item onClick={() => { newFolder(); setCtx(null); }}>
                 New folder
               </Item>
-              <div className="nt-menu-sep" />
-              <Item onClick={() => { setNotice(null); setImporting(true); setCtx(null); }}>
-                Import from Notion
-              </Item>
+              {notionAvailable && (
+                <>
+                  <div className="nt-menu-sep" />
+                  <Item onClick={() => { setNotice(null); setImporting(true); setCtx(null); }}>
+                    Import from Notion
+                  </Item>
+                </>
+              )}
               {clip && (
                 <>
                   <div className="nt-menu-sep" />

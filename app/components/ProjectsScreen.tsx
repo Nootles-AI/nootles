@@ -20,6 +20,7 @@ import { Feedback } from "./feedback/Feedback";
 import { FixedToast } from "./feedback/FixedToast";
 import { Menu, MenuItem } from "./Menu";
 import { NewProjectDialog, type NewProject } from "./NewProjectDialog";
+import { useNotionAvailable } from "./notion/NotionAvailable";
 import { NotionImport } from "./notion/NotionImport";
 import {
   describeOutcome,
@@ -73,6 +74,9 @@ export function ProjectsScreen() {
   // notice line. Initial state rather than an effect — the outcome is known
   // before the first render and is not derived from anything that changes.
   const notion = useNotionOutcome();
+  // Absent, not disabled, on a deployment without the integration: a door
+  // that opens onto "set this env var" is not a door.
+  const notionAvailable = useNotionAvailable();
   const [importing, setImporting] = useState(notion.outcome === "connected");
   const [walled, setWalled] = useState(false);
   const [notice, setNotice] = useState<OutcomeLine | null>(
@@ -218,7 +222,7 @@ export function ProjectsScreen() {
           {/* Quiet beside New project on purpose: importing is the rarer
               door, and a second filled button would make the header read as
               two equal choices when one of them is how you start. */}
-          {!standIn && (
+          {!standIn && notionAvailable && (
             <button
               onClick={() => (room("projects") ? setImporting(true) : setWalled(true))}
               className="nt-row px-2.5"
