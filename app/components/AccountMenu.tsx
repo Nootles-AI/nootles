@@ -3,6 +3,7 @@
 import { useClerk, useUser } from "@clerk/nextjs";
 import { usePlan } from "@/app/lib/usePlan";
 import { Menu, MenuItem, MenuLink } from "./Menu";
+import { useNotionAvailable } from "./notion/NotionAvailable";
 
 /** First letter of whatever we know them by — name, else the email. */
 function initial(name: string | null | undefined, email: string | undefined) {
@@ -22,6 +23,9 @@ export function AccountMenu() {
   const { user, isLoaded } = useUser();
   const { signOut } = useClerk();
   const { entitlement: plan } = usePlan();
+  // Settings holds one thing, the Notion connection; a deployment without the
+  // integration has nothing to settle, so the door to it is not offered.
+  const settings = useNotionAvailable();
 
   // Nothing rather than an empty circle: this sits in a header, and a element
   // that changes size on load moves the things next to it.
@@ -57,9 +61,11 @@ export function AccountMenu() {
             )}
           </div>
           <div className="nt-menu-sep" />
-          <MenuLink href="/settings" onClick={() => close()}>
-            Settings
-          </MenuLink>
+          {settings && (
+            <MenuLink href="/settings" onClick={() => close()}>
+              Settings
+            </MenuLink>
+          )}
           <MenuLink href="/upgrade" onClick={() => close()}>
             {plan?.left === null ? "Plan & billing" : "Upgrade to Pro"}
           </MenuLink>

@@ -9,6 +9,7 @@ import { Wordmark } from "@/app/components/Brand";
 import { DialogBox } from "@/app/components/Dialog";
 import { X } from "@/app/components/Icons";
 import { NotionMark } from "@/app/components/NotionMark";
+import { useNotionAvailable } from "@/app/components/notion/NotionAvailable";
 import {
   describeOutcome,
   useNotionOutcome,
@@ -27,7 +28,9 @@ import "./settings.css";
  * started from here, which is why the outcome line lives on this row.
  */
 export function Settings() {
-  const status = useQuery(api.notion.account.status, {});
+  const available = useNotionAvailable();
+  // The status is only worth asking for where the row will be drawn.
+  const status = useQuery(api.notion.account.status, available ? {} : "skip");
   const outcome = useNotionOutcome();
 
   return (
@@ -45,7 +48,7 @@ export function Settings() {
         <section
           className="nt-set-section"
           aria-labelledby="nt-set-integrations"
-          aria-busy={!status}
+          aria-busy={available === undefined || (available && !status)}
         >
           <h2 id="nt-set-integrations" className="nt-set-label">
             Integrations
@@ -54,7 +57,13 @@ export function Settings() {
               the query is in flight offers it for an instant to people who
               connected months ago, and an empty card is a skeleton by another
               name. */}
-          {status && (
+          {/* The menu never links here on a deployment without the
+              integration, but a bookmark still can, and it should find a
+              sentence rather than a blank. */}
+          {available === false && (
+            <p className="nt-set-note">Nothing to set up on this deployment yet.</p>
+          )}
+          {available && status && (
             <ul className="nt-set-list">
               <li>
                 <NotionRow

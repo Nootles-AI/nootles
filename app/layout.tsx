@@ -6,6 +6,8 @@ import { ConvexClientProvider } from "./ConvexClientProvider";
 import { TelemetryProvider } from "./components/TelemetryProvider";
 import { UpdateToast } from "./components/UpdateToast";
 import { StandInProvider } from "./components/StandIn";
+import { NotionConfigProvider } from "./components/notion/NotionAvailable";
+import { oauthConfig } from "./api/notion/oauth";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -47,7 +49,9 @@ export default function RootLayout({
         <ClerkProvider>
           <ConvexClientProvider>
             <TelemetryProvider>
-              <StandInProvider>{children}</StandInProvider>
+              <NotionConfigProvider oauth={oauthConfig() !== null}>
+                <StandInProvider>{children}</StandInProvider>
+              </NotionConfigProvider>
               <UpdateToast />
             </TelemetryProvider>
           </ConvexClientProvider>

@@ -13,6 +13,7 @@ import { NotionMark } from "@/app/components/NotionMark";
 import { importReferencedPage } from "@/app/lib/notion/importRun";
 import type { PageProgress } from "@/app/lib/notion/importRun";
 import { isNotionBlockHref, notionPageIdFrom } from "@/app/lib/notion/notionUrl";
+import { useNotionAvailable } from "./NotionAvailable";
 import { PageStep } from "./Progress";
 import "./notion.css";
 import { pageTitle } from "@/app/components/editor/inline/PageMention";
@@ -77,6 +78,9 @@ export function useNotionLinks({
 }) {
   const client = useConvex();
   const page = useQuery(api.pages.get, pageId ? { pageId } : "skip");
+  // Without the integration there is nothing to offer: a Notion link is an
+  // ordinary link, and the click goes back to BlockNote untouched.
+  const available = useNotionAvailable();
   const [pending, setPending] = useState<Pending | null>(null);
   const [running, setRunning] = useState<PageProgress | null>(null);
   const follow = useRef<AbortController | null>(null);
@@ -88,6 +92,7 @@ export function useNotionLinks({
    * back to whatever it interrupted.
    */
   const offer = useCallback((href: string, label: string, x: number, y: number): boolean => {
+    if (!available) return false;
     // A link to a block inside a page is an ordinary link: not a page, so
     // nothing to offer.
     if (isNotionBlockHref(href)) return false;
@@ -95,7 +100,7 @@ export function useNotionLinks({
     if (!notionPageId) return false;
     setPending({ href, notionPageId, label: pageTitle(label), x, y });
     return true;
-  }, []);
+  }, [available]);
 
   /**
    * BlockNote's own link-click seam.
