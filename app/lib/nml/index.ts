@@ -1,4 +1,5 @@
 export * from "./migrate";
+export * from "./commands";
 export * from "./normalize";
 export * from "./parse";
 export * from "./repair";

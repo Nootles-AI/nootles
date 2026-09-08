@@ -67,6 +67,28 @@ canonical root yet.
 
 **Gate:** fuzzed command sequences and concurrency matrices preserve every invariant.
 
+Implemented in `app/lib/nml/commands.ts`. The headless executor authorizes before reading,
+resolves declared temporary IDs, checks state/node preconditions and durable idempotency
+receipts, dry-runs and validates the full batch on a cloned Y.Doc, and commits successful
+batches as one attributed transaction. Typed conflicts include authorization, stale state,
+missing/duplicate entities, incompatible targets, invalid parents/anchors/ranges, dangling
+edges, and idempotency-key reuse.
+
+The vocabulary covers block insert/remove/move, property patches, UTF-16/grapheme-safe
+inline replacement and marks, split/join, stable-ID table ranges, code and math text,
+atomic custom domains, and per-shape/per-edge canvas edits. Block structure now adds an
+ID-keyed registry, LWW placement records, and independent deletion tombstones over the
+step-3 tree encoding. This keeps one live parent, makes deletion win over concurrent moves,
+and recovers a concurrent child insertion at the document root if its parent disappears.
+Legacy step-3 documents are decoded and upgraded lazily on their first structural command.
+
+The gate is covered by command-domain tests, batch rollback and replay tests, authorization
+ordering, stale-state and grapheme checks, deterministic command fuzzing, character-level
+inline/code replica tests, concurrent move/delete matrices, and parent-deletion recovery.
+The executor is exported as the common vocabulary, but existing AI, slash-command, import,
+editor, provider, persistence, backend, and MCP paths remain deliberately unwired until
+their later migration stages.
+
 ## 5. Add legacy conversion and shadow NML
 
 - Convert current BlockNote/ProseMirror documents and canvas map/HTML pairs into NML.
