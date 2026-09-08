@@ -1,0 +1,169 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      /* The plugin window is Figma's, so it wears Figma's own theme tokens
+         and nothing of Nootles' — a guest in someone else's house. */
+      :root {
+        color-scheme: light dark;
+      }
+      body {
+        margin: 0;
+        padding: 16px;
+        font: 11px/1.5 Inter, -apple-system, system-ui, sans-serif;
+        color: var(--figma-color-text);
+        background: var(--figma-color-bg);
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        height: 100vh;
+        box-sizing: border-box;
+      }
+      h1 {
+        margin: 0;
+        font-size: 13px;
+        font-weight: 600;
+      }
+      p {
+        margin: 0;
+        color: var(--figma-color-text-secondary);
+      }
+      .selection {
+        min-height: 1.5em;
+      }
+      button {
+        appearance: none;
+        border: 0;
+        border-radius: 6px;
+        padding: 0 14px;
+        height: 32px;
+        font: inherit;
+        font-weight: 500;
+        cursor: pointer;
+        background: var(--figma-color-bg-brand);
+        color: var(--figma-color-text-onbrand);
+      }
+      button:disabled {
+        background: var(--figma-color-bg-disabled);
+        color: var(--figma-color-text-disabled);
+        cursor: default;
+      }
+      .status {
+        min-height: 1.5em;
+      }
+      .status.is-ok {
+        color: var(--figma-color-text-success);
+      }
+      .status.is-problem {
+        color: var(--figma-color-text-danger);
+      }
+      .report {
+        margin: 0;
+        padding: 0 0 0 16px;
+        overflow: auto;
+        flex: 1;
+        color: var(--figma-color-text-secondary);
+      }
+      .report li + li {
+        margin-top: 4px;
+      }
+      textarea {
+        position: absolute;
+        left: -9999px;
+        top: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Copy for Nootles</h1>
+    <p class="selection" id="selection">Nothing selected.</p>
+    <button id="copy" disabled>Copy</button>
+    <p class="status" id="status"></p>
+    <ul class="report" id="report"></ul>
+    <textarea id="scratch" aria-hidden="true" tabindex="-1"></textarea>
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const button = $("copy");
+      const status = $("status");
+      const report = $("report");
+      let count = 0;
+
+      const say = (text, tone) => {
+        status.textContent = text;
+        status.className = "status" + (tone ? " is-" + tone : "");
+      };
+
+      // The clipboard from an iframe: the modern API first, the old one when
+      // the sandbox withholds it — which the plugin window sometimes does.
+      const toClipboard = async (text) => {
+        try {
+          await navigator.clipboard.writeText(text);
+          return true;
+        } catch {}
+        const scratch = $("scratch");
+        scratch.value = text;
+        scratch.focus();
+        scratch.select();
+        try {
+          return document.execCommand("copy");
+        } catch {
+          return false;
+        } finally {
+          scratch.value = "";
+        }
+      };
+
+      button.onclick = () => {
+        say("");
+        report.replaceChildren();
+        parent.postMessage({ pluginMessage: { type: "copy" } }, "*");
+      };
+
+      window.onmessage = async (event) => {
+        const message = event.data.pluginMessage;
+        if (!message) return;
+        switch (message.type) {
+          case "selection": {
+            count = message.count;
+            button.disabled = count === 0;
+            $("selection").textContent =
+              count === 0
+                ? "Nothing selected."
+                : count === 1
+                  ? `“${message.names[0]}”`
+                  : `${count} layers, from “${message.names[0]}”`;
+            button.textContent = count > 1 ? `Copy ${count} layers` : "Copy";
+            break;
+          }
+          case "busy":
+            button.disabled = true;
+            say("Reading the selection…");
+            break;
+          case "failed":
+            button.disabled = count === 0;
+            say(message.message, "problem");
+            break;
+          case "ready": {
+            button.disabled = count === 0;
+            const ok = await toClipboard(message.html);
+            if (!ok) {
+              say("The clipboard would not take it. Try again with the plugin window focused.", "problem");
+              break;
+            }
+            const shapes = message.count === 1 ? "1 shape" : `${message.count} shapes`;
+            say(`Copied ${shapes}. Paste onto a Nootles canvas.`, "ok");
+            report.replaceChildren(
+              ...message.report.map((line) => {
+                const li = document.createElement("li");
+                li.textContent = `${line.name}: ${line.message}`;
+                return li;
+              }),
+            );
+            break;
+          }
+        }
+      };
+    </script>
+  </body>
+</html>

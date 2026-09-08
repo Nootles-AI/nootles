@@ -362,6 +362,18 @@ spoken name is spelled out for assistive tech, mixed state reads "Mixed", every
 continuous edit runs inside the store's history bracket so a drag is one undo entry, and
 nothing is offered for a selection it cannot apply to.
 
+## The translation layer: a plugin first
+
+The paste comes through a Figma plugin (`figma-plugin/`), chosen over the REST API
+because a copy in Figma and a paste in Nootles is the flow that needs no explanation,
+and because it is hard to say which of a file's frames one canvas should hold — the
+selection says it. The plugin is a pure converter over the Plugin API's node shapes,
+serialized by the canvas's own serializer, so the clipboard carries exactly the
+grammar a hand would have drawn; the canvas's paste handler already accepts it. Every
+node keeps its Figma id as `data-figma-id`, the hook a later paste-and-replace hangs
+on. Sign in with Figma and a link paste can follow, reusing the converter through a
+thin adapter over the REST node shape.
+
 ## The harness that defines "1:1"
 
 Parity is a measurement, not an opinion, so the plan starts with the instrument:

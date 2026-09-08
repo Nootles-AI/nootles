@@ -33,7 +33,7 @@
  * executed.
  */
 
-import { safeHref } from "@/app/lib/ai/html/parse";
+import { safeHref } from "@/app/lib/safeHref";
 
 export type LabelStyle = Readonly<Record<string, string>>;
 
@@ -462,8 +462,14 @@ const REF_TAGS = new Set(["nt-ref", "ref", "page-ref", "mention"]);
 /** Elements whose text is not label text under any reading. */
 const SKIPPED = new Set(["script", "style", "template"]);
 
+/**
+ * The weights the bold tag stands for, and no others. A browser's own bold
+ * command writes `bold` or `700`; any other number is a weight in its own
+ * right — a 600 or a 900 folded into `<b>` would come back as 700, and the
+ * round trip would have quietly changed the text.
+ */
 function isBoldWeight(weight: string): boolean {
-  return weight === "bold" || weight === "bolder" || Number.parseInt(weight, 10) >= 600;
+  return weight === "bold" || weight === "bolder" || Number.parseInt(weight, 10) === 700;
 }
 
 /** The ref an element is, if it is one: the grammar's tag, or the editor's chip. */
