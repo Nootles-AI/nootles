@@ -1,6 +1,57 @@
 # NML ProseMirror View Bridge
 
-Status: proposed architecture; not implemented.
+Status: step 6 read-only projection implemented in isolation; editable translation and
+runtime adoption remain proposed.
+
+## Implemented read-only slice
+
+`app/lib/nml/view/` exports the adapter registry, projection, stable-ID position index,
+and `ReadOnlyNmlBridge`. The canonical `app/lib/nml` entry point stays free of PM/DOM
+imports. The separate `view/browser` entry point mounts a non-editable `EditorView`;
+`NmlReadOnlyView` adds React portals to existing domain renderers, preserving application
+provider context. Callers supply an already-authorized Y.Doc and retain its lifetime. No
+production route mounts the preview, and the reader never imports the command executor or
+writes canonical state.
+
+Every v1 adapter preserves semantic AST content and IDs. Identity-free wrappers and list
+ordinals are view-only. Columns remain table metadata, while rows/cells/math rows and
+inline embeds have PM node IDs. Canvas atoms contain only block identity/props; reverse
+projection resolves the scene from the canonical snapshot. Unsupported adapters retain
+complete blocks as inert atoms. Newer/malformed data remains in the caller's Y.Doc, with a
+visible unavailable/stale preview notice. Legacy domain markup is never inserted into DOM.
+
+Unchanged PM nodes and relative subtree indexes are cached. Canonical changes use minimal
+PM replacements with selection mapping; canvas-only updates notify domain views without
+PM transactions. Current CodeMirror, KaTeX, canvas, album, storyboard, location, and media
+surfaces render read-only. Canvas rendering consumes derived owner serialization; direct
+fine-grained scene subscriptions/gestures remain step 10. Storage media needs an authorized
+host URL resolver, otherwise an unavailable notice preserves its identity. Toggle expansion
+is local view state. Content transactions are blocked even with forged bridge metadata.
+
+Drift checks are explicit idle/development work: canonical round-trip and index parity,
+one rebuild, then freeze. Renderer errors retain content and freeze the preview. Diagnostics
+contain only codes and optional IDs. Destruction removes subscriptions, not the source.
+
+**Performance/compatibility boundary:** the existing Yjs observer, decoder, validation, and
+snapshot comparison still scan whole documents. The pipeline does not yet meet the step-7
+O(1) typing budget. The existing executor also replaces whole inline fragments for
+mixed-mark/complex operations, which can overwrite unseen concurrent text; this must close
+before collaborative rich editing ships. Read-only projection cannot repair upstream loss.
+
+Verification uses Node 22.22.1, `npm test`, `npx tsc --noEmit`, and `npm run lint`. The
+standalone browser comparison uses existing esbuild/Tailwind tooling and an
+operator-installed Puppeteer, without adding repository dependencies:
+
+```sh
+NML_PUPPETEER_MODULE=/absolute/path/to/puppeteer/lib/puppeteer/puppeteer.js node tests/nml-view.browser.mjs
+```
+
+The runner builds a temporary static site and mounts current read-only BlockNote alongside
+the bridge. It checks desktop/mobile fixtures, rejected input/paste/drop, remote text and
+canvas updates, drift/newer-version fallback, and cleanup. External HTTP is intercepted and
+Convex uses an inert fixture WebSocket; no backend, paid API, keys, or user data is needed.
+Screenshots go to the temporary path printed on success. `NML_CHROME_PATH` can select an
+installed browser. The sections below describe the full future bridge beyond this slice.
 
 Implementation sequencing is tracked in
 [`nml-prosemirror-refactor-plan.md`](nml-prosemirror-refactor-plan.md). Binding v1 choices
