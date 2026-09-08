@@ -22,6 +22,7 @@ import {
   nmlInlineToY,
   nmlYMapOf,
   nmlYSharedValue,
+  NmlYjsIndex,
   type NmlTransactionOrigin,
 } from "./yjs";
 
@@ -159,6 +160,8 @@ export type ExecuteNmlCommandsOptions = {
     stateVector?: Uint8Array;
     nodes?: Record<string, "exists" | "absent">;
   };
+  /** A caller-owned index enables the validated O(1) plain-text execution path. */
+  index?: NmlYjsIndex;
 };
 
 type BlockRef = {
@@ -955,17 +958,123 @@ function resolveTemps<T>(value: T, mapping: Record<string, string>): T {
   return value;
 }
 
+function insertedPlainText(content: NmlInlineContent): string | null {
+  if (!content.every((node) => node.type === "text" && node.marks.length === 0)) return null;
+  return content.map((node) => node.type === "text" ? node.text : "").join("");
+}
+
+function replaceSharedPlainText(
+  index: NmlYjsIndex,
+  nodeId: string,
+  range: NmlRange,
+  inserted: string,
+): void {
+  const target = index.plainText(nodeId);
+  if (!target) conflict("incompatible_node", `Node ${nodeId} is not an unmarked plain-text block.`);
+  let at = 0;
+  for (const textNode of target.textNodes) {
+    const length = textNode.length;
+    const from = Math.max(0, range.from - at);
+    const to = Math.min(length, range.to - at);
+    if (to > from) textNode.delete(from, to - from);
+    at += length;
+  }
+  if (!inserted) return;
+  const afterDelete = index.plainText(nodeId);
+  if (!afterDelete) conflict("incompatible_node", `Node ${nodeId} left the plain-text encoding.`);
+  let remaining = range.from;
+  let insertion: { node: Y.XmlText; offset: number } | null = null;
+  for (const textNode of afterDelete.textNodes) {
+    if (remaining <= textNode.length) {
+      insertion = { node: textNode, offset: remaining };
+      break;
+    }
+    remaining -= textNode.length;
+  }
+  if (!insertion) {
+    const node = new Y.XmlText();
+    afterDelete.fragment.insert(afterDelete.fragment.length, [node]);
+    insertion = { node, offset: 0 };
+  }
+  insertion.node.insert(insertion.offset, inserted);
+}
+
+function executePlainTextFast(
+  options: ExecuteNmlCommandsOptions,
+): NmlCommandReceipt | null {
+  const index = options.index;
+  if (!index || !index.owns(options.doc) || !index.isCurrent() || options.commands.length === 0 || options.temporaryIds?.length ||
+      !options.commands.every((command) => command.type === "replaceInline")) return null;
+
+  const simulations = new Map<string, string>();
+  const prepared: Array<{ command: Extract<NmlCommand, { type: "replaceInline" }>; inserted: string }> = [];
+  for (const command of options.commands as Array<Extract<NmlCommand, { type: "replaceInline" }>>) {
+    const target = index.plainText(command.nodeId);
+    const inserted = insertedPlainText(command.content);
+    if (!target || inserted === null) return null;
+    const text = simulations.get(command.nodeId) ?? target.text;
+    assertRange(command.range, text.length);
+    if (!isGraphemeBoundary(text, command.range.from) || !isGraphemeBoundary(text, command.range.to)) {
+      conflict("invalid_range", "Inline ranges cannot split a grapheme cluster.");
+    }
+    simulations.set(command.nodeId, text.slice(0, command.range.from) + inserted + text.slice(command.range.to));
+    prepared.push({ command, inserted });
+  }
+  if (!index.allowsPlainText(simulations)) return null;
+
+  const root = options.doc.getMap<unknown>(NML_YJS_ROOT);
+  if (root.get("documentId") !== options.documentId) {
+    conflict("document_mismatch", "Authorized document does not match canonical state.");
+  }
+  const receipts = options.doc.getMap<string>(RECEIPTS_ROOT);
+  const rawFingerprint = fingerprint(options.commands);
+  const prior = receipts.get(options.idempotencyKey);
+  if (prior) {
+    const parsed = JSON.parse(prior) as NmlCommandReceipt & { fingerprint: string };
+    if (parsed.fingerprint !== rawFingerprint) conflict("idempotency_mismatch", "Idempotency key was already used for different commands.");
+    const { fingerprint: _fingerprint, ...receipt } = parsed;
+    return receipt;
+  }
+  if (options.preconditions?.stateVector && !bytesEqual(options.preconditions.stateVector, Y.encodeStateVector(options.doc))) {
+    conflict("stale_state", "Document state no longer matches the precondition.");
+  }
+  for (const [id, state] of Object.entries(options.preconditions?.nodes ?? {})) {
+    if ((state === "exists") !== !!index.block(id)) {
+      conflict(state === "exists" ? "missing_node" : "duplicate_id", `Node ${id} violated its ${state} precondition.`);
+    }
+  }
+  const receipt: NmlCommandReceipt = {
+    status: "applied",
+    idempotencyKey: options.idempotencyKey,
+    transactionId: options.origin.transactionId,
+    temporaryIds: {},
+    commandCount: prepared.length,
+  };
+  options.doc.transact(() => {
+    for (const { command, inserted } of prepared) {
+      replaceSharedPlainText(index, command.nodeId, command.range, inserted);
+    }
+    receipts.set(options.idempotencyKey, JSON.stringify({ ...receipt, fingerprint: rawFingerprint }));
+  }, options.origin);
+  index.syncPlainText([...simulations.keys()]);
+  return receipt;
+}
+
 export async function executeNmlCommands(
   options: ExecuteNmlCommandsOptions,
 ): Promise<NmlCommandReceipt> {
-  if (
-    !(await options.authorize({
-      documentId: options.documentId,
-      actor: options.origin.actor,
-      access: "write",
-    }))
-  )
+  const authorization = options.authorize({
+    documentId: options.documentId,
+    actor: options.origin.actor,
+    access: "write",
+  });
+  const allowed = typeof authorization === "object" && authorization !== null && "then" in authorization
+    ? await authorization
+    : authorization;
+  if (!allowed)
     conflict("unauthorized", "Write authorization was denied.");
+  const fast = executePlainTextFast(options);
+  if (fast) return fast;
   const current = decodeNmlDocument(options.doc);
   if (current.documentId !== options.documentId)
     conflict(
@@ -1055,5 +1164,8 @@ export async function executeNmlCommands(
       JSON.stringify({ ...receipt, fingerprint: rawFingerprint }),
     );
   }, options.origin);
+  if (options.index?.owns(options.doc) && !options.index.isCurrent()) {
+    options.index.refresh(decodeNmlDocument(options.doc));
+  }
   return receipt;
 }

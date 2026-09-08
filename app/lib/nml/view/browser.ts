@@ -1,7 +1,7 @@
 import { EditorView, type NodeView } from "prosemirror-view";
 import type { Node as PmNode } from "prosemirror-model";
 import type { NmlBlock } from "../schema";
-import type { ReadOnlyNmlBridge } from "./bridge";
+import type { NmlViewBridge, PlainTextNmlBridge, ReadOnlyNmlBridge } from "./bridge";
 import { loadKatex } from "@/app/components/editor/math/katex";
 import { FILE_DOC_PATHS } from "@/app/components/Icons";
 
@@ -9,7 +9,7 @@ export type DomainMount = { update: (block: NmlBlock) => void; destroy: () => vo
 export type DomainRenderer = (host: HTMLElement, block: NmlBlock) => DomainMount;
 export const DOMAIN_TYPES = new Set(["codeBlock", "mathBlock", "canvas", "album", "storyboard", "location", "image", "video", "audio", "file"]);
 
-export function mountReadOnlyNmlView(host: HTMLElement, bridge: ReadOnlyNmlBridge, renderDomain?: DomainRenderer): { view: EditorView; destroy: () => void } {
+function mountNmlView(host: HTMLElement, bridge: NmlViewBridge, renderDomain?: DomainRenderer): { view: EditorView; destroy: () => void } {
   const domainViews = new Map<string, DomainMount>();
   const nodeViews: Record<string, (node: PmNode) => NodeView> = {};
   const toggle = bridge.projection.registry.get("toggleListItem");
@@ -111,13 +111,23 @@ export function mountReadOnlyNmlView(host: HTMLElement, bridge: ReadOnlyNmlBridg
     };
   }
   const view = new EditorView(host, {
-    state: bridge.state, nodeViews, editable: () => false,
+    state: bridge.state, nodeViews, editable: () => bridge.isEditable(),
     // BlockNote's global plugins treat every .bn-editor as their own schema.
-    attributes: { class: "bn-default-styles nt-nml-view", role: "document", "aria-label": "Read-only document", "aria-readonly": "true" },
+    attributes: {
+      class: "bn-default-styles nt-nml-view",
+      role: bridge.isEditable() ? "textbox" : "document",
+      "aria-label": bridge.isEditable() ? "Plain-text document editor" : "Read-only document",
+      "aria-readonly": String(!bridge.isEditable()),
+      ...(bridge.isEditable() ? { "aria-multiline": "true" } : {}),
+    },
     dispatchTransaction: (transaction) => { if (!bridge.dispatch(transaction)) view.updateState(bridge.state); },
     handlePaste: () => true,
     handleDrop: () => true,
-    handleDOMEvents: { beforeinput: (_view, event) => { event.preventDefault(); return true; } },
+    handleDOMEvents: { beforeinput: (_view, event) => {
+      if (bridge.isEditable()) return false;
+      event.preventDefault();
+      return true;
+    } },
   });
   const notice = host.ownerDocument.createElement("div");
   notice.setAttribute("role", "status");
@@ -127,7 +137,9 @@ export function mountReadOnlyNmlView(host: HTMLElement, bridge: ReadOnlyNmlBridg
     host.dataset.nmlStatus = bridge.status();
     notice.hidden = bridge.status() !== "frozen";
     notice.textContent = bridge.status() === "frozen" ? "This preview is unavailable or out of date. Reopen with a compatible client. Your document has been preserved." : "";
-    view.dom.setAttribute("aria-label", bridge.status() === "frozen" ? "Document preview unavailable or out of date. Reopen with a compatible client." : "Read-only document");
+    view.dom.setAttribute("aria-label", bridge.status() === "frozen"
+      ? "Document preview unavailable or out of date. Reopen with a compatible client."
+      : bridge.isEditable() ? "Plain-text document editor" : "Read-only document");
   };
   showStatus();
   const stop = bridge.subscribe((update) => {
@@ -139,4 +151,12 @@ export function mountReadOnlyNmlView(host: HTMLElement, bridge: ReadOnlyNmlBridg
     showStatus();
   });
   return { view, destroy: () => { stop(); view.destroy(); notice.remove(); delete host.dataset.nmlStatus; } };
+}
+
+export function mountReadOnlyNmlView(host: HTMLElement, bridge: ReadOnlyNmlBridge, renderDomain?: DomainRenderer): { view: EditorView; destroy: () => void } {
+  return mountNmlView(host, bridge, renderDomain);
+}
+
+export function mountPlainTextNmlView(host: HTMLElement, bridge: PlainTextNmlBridge, renderDomain?: DomainRenderer): { view: EditorView; destroy: () => void } {
+  return mountNmlView(host, bridge, renderDomain);
 }

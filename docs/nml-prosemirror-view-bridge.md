@@ -1,17 +1,15 @@
 # NML ProseMirror View Bridge
 
-Status: step 6 read-only projection implemented in isolation; editable translation and
-runtime adoption remain proposed.
+Status: steps 6–7 read-only projection and isolated plain-text editing implemented;
+runtime adoption and later editing capabilities remain proposed.
 
-## Implemented read-only slice
+## Implemented read-only and plain-text slices
 
 `app/lib/nml/view/` exports the adapter registry, projection, stable-ID position index,
-and `ReadOnlyNmlBridge`. The canonical `app/lib/nml` entry point stays free of PM/DOM
-imports. The separate `view/browser` entry point mounts a non-editable `EditorView`;
-`NmlReadOnlyView` adds React portals to existing domain renderers, preserving application
-provider context. Callers supply an already-authorized Y.Doc and retain its lifetime. No
-production route mounts the preview, and the reader never imports the command executor or
-writes canonical state.
+and `ReadOnlyNmlBridge`. Step 7 adds `PlainTextNmlBridge`, its editable browser mount, and
+`NmlPlainTextView`. The canonical `app/lib/nml` entry point stays free of PM/DOM imports.
+React portals preserve application provider context for domain renderers. Callers supply
+an authorized Y.Doc and retain its lifetime. No production route mounts either host.
 
 Every v1 adapter preserves semantic AST content and IDs. Identity-free wrappers and list
 ordinals are view-only. Columns remain table metadata, while rows/cells/math rows and
@@ -26,17 +24,29 @@ PM transactions. Current CodeMirror, KaTeX, canvas, album, storyboard, location,
 surfaces render read-only. Canvas rendering consumes derived owner serialization; direct
 fine-grained scene subscriptions/gestures remain step 10. Storage media needs an authorized
 host URL resolver, otherwise an unavailable notice preserves its identity. Toggle expansion
-is local view state. Content transactions are blocked even with forged bridge metadata.
+is local view state. The read-only host blocks every content transaction even with forged
+bridge metadata. The plain-text host accepts only one-block unmarked paragraph, heading,
+or quote replacements; lists, rich inlines, marks, structure, paste, and drop remain
+blocked.
 
 Drift checks are explicit idle/development work: canonical round-trip and index parity,
 one rebuild, then freeze. Renderer errors retain content and freeze the preview. Diagnostics
 contain only codes and optional IDs. Destruction removes subscriptions, not the source.
 
-**Performance/compatibility boundary:** the existing Yjs observer, decoder, validation, and
-snapshot comparison still scan whole documents. The pipeline does not yet meet the step-7
-O(1) typing budget. The existing executor also replaces whole inline fragments for
-mixed-mark/complex operations, which can overwrite unseen concurrent text; this must close
-before collaborative rich editing ships. Read-only projection cannot repair upstream loss.
+Step 7 gives the supported typing path a local stable-ID shared-type index, incremental
+observer snapshots, character-level Y.XmlText commands, minimal canonical-to-PM text diffs,
+and a Fenwick-backed position index. A normal keystroke touches its text node and top-level
+PM shard without a full decode, validation pass, projection, serialization, or document
+scan. Size limits, state/node preconditions, authorization, atomic batches, and idempotency
+still apply. Structural and complex-inline commands use the validated full path. The older
+whole-fragment mixed-mark path remains outside the editing gate until step 9 replaces it.
+
+Optimistic PM transactions carry bridge/request metadata. Canonical transactions with the
+matching request ID acknowledge without echo or apply the smallest reconcile diff;
+rejected/unauthorized/stale requests roll back to the latest canonical projection.
+Selection-only, metadata-only, and semantic no-op transactions remain local. Remote text
+maps the current PM selection through that minimal diff. Durable selection identities,
+awareness, deletion fallback, and composition buffering remain step 8.
 
 Verification uses Node 22.22.1, `npm test`, `npx tsc --noEmit`, and `npm run lint`. The
 standalone browser comparison uses existing esbuild/Tailwind tooling and an
@@ -47,11 +57,14 @@ NML_PUPPETEER_MODULE=/absolute/path/to/puppeteer/lib/puppeteer/puppeteer.js node
 ```
 
 The runner builds a temporary static site and mounts current read-only BlockNote alongside
-the bridge. It checks desktop/mobile fixtures, rejected input/paste/drop, remote text and
-canvas updates, drift/newer-version fallback, and cleanup. External HTTP is intercepted and
-Convex uses an inert fixture WebSocket; no backend, paid API, keys, or user data is needed.
-Screenshots go to the temporary path printed on success. `NML_CHROME_PATH` can select an
-installed browser. The sections below describe the full future bridge beyond this slice.
+the bridge, then mounts the isolated plain-text editor. It checks desktop/mobile fixtures,
+real typing/selection/delete/Unicode input, rejected structure/rich input/paste/drop,
+optimistic acknowledgement and rollback, a reconnect race, remote-caret mapping, remote
+text/canvas updates, drift/newer-version fallback, and cleanup. External HTTP is
+intercepted and Convex uses an inert fixture WebSocket; no backend, paid API, keys, or user
+data is needed. Screenshots go to the temporary path printed on success.
+`NML_CHROME_PATH` can select an installed browser. The sections below describe the full
+future bridge beyond these slices.
 
 Implementation sequencing is tracked in
 [`nml-prosemirror-refactor-plan.md`](nml-prosemirror-refactor-plan.md). Binding v1 choices
@@ -522,6 +535,7 @@ type BridgeTransactionMeta = {
   bridgeId: string;
   direction: "nml-to-pm" | "pm-optimistic" | "pm-reconcile";
   canonicalTransactionId?: string;
+  requestId?: string;
 };
 ```
 

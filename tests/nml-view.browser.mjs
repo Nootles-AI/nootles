@@ -118,6 +118,126 @@ try {
     }
     await page.screenshot({ path: path.join(output, `${fixture}-desktop.png`), fullPage: true });
   }
+
+  // Exercise the step-7 editor through real Chromium input and selection behavior.
+  await page.evaluate(() => window.nmlHarness.mountEditable());
+  await page.waitForSelector('#bridge .nt-nml-view[contenteditable="true"]');
+  assert.equal(await page.$eval("#bridge .nt-nml-view", (el) => el.getAttribute("role")), "textbox");
+  assert.equal(await page.$eval("#bridge .nt-nml-view", (el) => el.getAttribute("aria-readonly")), "false");
+  const initialEditing = await page.evaluate(() => window.nmlHarness.inspect());
+  assert.equal(initialEditing.parity, true);
+
+  await page.click('#bridge [data-nml-id="heading"]');
+  await page.keyboard.press("End");
+  await page.keyboard.type(" typed");
+  await page.waitForFunction(() => document.querySelector('#bridge [data-nml-id="heading"]').textContent === "Heading typed");
+
+  await page.click('#bridge [data-nml-id="quote"]');
+  await page.keyboard.press("End");
+  await page.keyboard.down("Shift");
+  for (let index = 0; index < 4; index++) await page.keyboard.press("ArrowLeft");
+  await page.keyboard.up("Shift");
+  await page.keyboard.type("TEXT");
+  await page.keyboard.press("Backspace");
+  await page.evaluate(() => {
+    const editor = document.querySelector("#bridge .nt-nml-view");
+    const target = document.querySelector('#bridge [data-nml-id="quote"]');
+    const text = document.createTreeWalker(target, NodeFilter.SHOW_TEXT).nextNode();
+    const selection = window.getSelection();
+    const range = document.createRange();
+    editor.focus();
+    range.setStart(text, 0); range.collapse(true);
+    selection.removeAllRanges(); selection.addRange(range);
+    document.dispatchEvent(new Event("selectionchange"));
+  });
+  await page.waitForFunction(() => window.nmlHarness.selectionOffset("quote") === 0);
+  await page.keyboard.press("Delete");
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.equal(await page.$eval('#bridge [data-nml-id="quote"]', (el) => el.textContent), "uote TEX");
+
+  await page.click('#bridge [data-nml-id="plain"]');
+  await page.keyboard.press("End");
+  await page.keyboard.sendCharacter(" 👩🏽‍💻 café");
+  await page.waitForFunction(() => document.querySelector('#bridge [data-nml-id="plain"]').textContent === "Plain text 👩🏽‍💻 café");
+  const afterTyping = await page.evaluate(() => window.nmlHarness.inspect());
+  assert.equal(afterTyping.parity, true);
+  assert.equal(afterTyping.performance.fullObserverDecodes, initialEditing.performance.fullObserverDecodes);
+  assert.equal(afterTyping.performance.fullProjections, initialEditing.performance.fullProjections);
+  assert.equal(afterTyping.performance.yjsIndexScans, initialEditing.performance.yjsIndexScans);
+  assert.ok(afterTyping.requests.some((request) => request.status === "optimistic"));
+  assert.ok(afterTyping.requests.some((request) => request.status === "acknowledged"));
+  assert.equal(afterTyping.requests.some((request) => request.status === "reconciled"), false);
+  assert.equal(afterTyping.updates, afterTyping.requests.filter((request) => request.status === "acknowledged").length);
+
+  const beforeRejectedShapes = structuredClone(afterTyping.ast);
+  await page.keyboard.press("Enter");
+  await page.evaluate(() => {
+    const target = document.querySelector("#bridge .nt-nml-view");
+    const data = new DataTransfer(); data.setData("text/plain", "PASTE MUST STAY OUT");
+    target.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+    target.dispatchEvent(new DragEvent("drop", { dataTransfer: data, bubbles: true, cancelable: true }));
+  });
+  await page.click('#bridge [data-nml-id="rich"]');
+  await page.keyboard.press("End");
+  await page.keyboard.type("X");
+  await page.click('#bridge [data-nml-id="list"]');
+  await page.keyboard.press("End");
+  await page.keyboard.type("X");
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  const afterRejectedShapes = await page.evaluate(() => window.nmlHarness.inspect());
+  assert.deepEqual(afterRejectedShapes.ast, beforeRejectedShapes);
+  assert.equal(await page.$eval('#bridge [data-nml-id="rich"]', (el) => el.textContent), "Rich text");
+  assert.equal(await page.$eval('#bridge [data-nml-id="list"]', (el) => el.textContent), "List text");
+  assert.ok(afterRejectedShapes.diagnostics.filter((entry) => entry.code === "content_rejected").length >= 2);
+
+  await page.click('#bridge [data-nml-id="quote"]');
+  await page.keyboard.press("Home");
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("ArrowRight");
+  assert.equal(await page.evaluate(() => window.nmlHarness.selectionOffset("quote")), 2);
+  await page.waitForFunction(() => window.nmlHarness.stateSelectionOffset("quote") === 2);
+  await page.evaluate(() => window.nmlHarness.remoteEdit("quote", 0, 0, "R"));
+  await page.waitForFunction(() => document.querySelector('#bridge [data-nml-id="quote"]').textContent.startsWith("R"));
+  assert.equal(await page.evaluate(() => window.nmlHarness.stateSelectionOffset("quote")), 3);
+  assert.equal(await page.evaluate(() => window.nmlHarness.selectionOffset("quote")), 3);
+
+  await page.evaluate(() => window.nmlHarness.setAuthorization("deny"));
+  const headingBeforeDenied = await page.$eval('#bridge [data-nml-id="heading"]', (el) => el.textContent);
+  await page.click('#bridge [data-nml-id="heading"]');
+  await page.keyboard.press("End");
+  await page.keyboard.sendCharacter("DENIED");
+  await page.waitForFunction((expected) => document.querySelector('#bridge [data-nml-id="heading"]').textContent === expected, {}, headingBeforeDenied);
+  const denied = await page.evaluate(() => window.nmlHarness.inspect());
+  assert.equal(denied.requests.at(-1).status, "rejected");
+  assert.ok(denied.diagnostics.some((entry) => entry.code === "commit_rejected"));
+  assert.equal(JSON.stringify(denied.diagnostics).includes("DENIED"), false);
+
+  await page.evaluate(() => window.nmlHarness.setAuthorization("defer"));
+  const headingBeforeDeferred = await page.$eval('#bridge [data-nml-id="heading"]', (el) => el.textContent);
+  await page.click('#bridge [data-nml-id="heading"]');
+  await page.keyboard.press("End");
+  await page.keyboard.sendCharacter("LOCAL");
+  await page.waitForFunction((expected) => document.querySelector('#bridge [data-nml-id="heading"]').textContent === `${expected}LOCAL`, {}, headingBeforeDeferred);
+  await page.evaluate(() => window.nmlHarness.remoteEdit("heading", 0, 0, "REMOTE "));
+  await page.waitForFunction((expected) => document.querySelector('#bridge [data-nml-id="heading"]').textContent === `REMOTE ${expected}`, {}, headingBeforeDeferred);
+  await page.evaluate(() => window.nmlHarness.resolveAuthorization(true));
+  await page.waitForFunction(() => window.nmlHarness.inspect().requests.at(-1)?.status === "rejected");
+  const reconciled = await page.evaluate(() => window.nmlHarness.inspect());
+  assert.equal(reconciled.parity, true);
+  assert.equal(await page.$eval('#bridge [data-nml-id="heading"]', (el) => el.textContent), `REMOTE ${headingBeforeDeferred}`);
+  assert.equal(JSON.stringify(reconciled.ast).includes("LOCAL"), false);
+  await page.screenshot({ path: path.join(output, "plain-text-editing-desktop.png"), fullPage: true });
+
+  await page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true });
+  await page.evaluate(() => window.nmlHarness.mountEditable());
+  await page.waitForSelector('#bridge .nt-nml-view[contenteditable="true"]');
+  await page.click('#bridge [data-nml-id="quote"]');
+  await page.keyboard.press("End");
+  await page.keyboard.sendCharacter(" mobile");
+  await page.waitForFunction(() => document.querySelector('#bridge [data-nml-id="quote"]').textContent === "Quote text mobile");
+  assert.equal((await page.evaluate(() => window.nmlHarness.inspect())).parity, true);
+  await page.screenshot({ path: path.join(output, "plain-text-editing-mobile.png"), fullPage: true });
+
   await page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true });
   await page.evaluate(() => window.nmlHarness.mount("rich"));
   await page.waitForSelector("#bridge .nt-nml-view");
@@ -132,5 +252,5 @@ try {
   await page.evaluate(() => window.nmlHarness.destroy());
   assert.deepEqual(errors, []);
   assert.deepEqual(paidRequests, []);
-  console.log(JSON.stringify({ result: "passed", fixtures: 8, desktop: "1440x1100", mobile: "390x844", screenshots: output, browserErrors: errors.length, paidRequests: paidRequests.length }, null, 2));
+  console.log(JSON.stringify({ result: "passed", fixtures: 8, editableWorkflows: 2, desktop: "1440x1100", mobile: "390x844", screenshots: output, browserErrors: errors.length, paidRequests: paidRequests.length }, null, 2));
 } finally { await browser?.close(); await new Promise((resolve) => server.close(resolve)); }

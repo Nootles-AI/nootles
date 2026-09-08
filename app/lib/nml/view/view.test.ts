@@ -177,6 +177,9 @@ describe("incremental view and identity index", () => {
     expect(updates).toHaveBeenCalledTimes(1);
     expect(update.mock.calls.at(-1)![0].transaction.getMeta("addToHistory")).toBe(false);
     expect(bridge.projection.read(bridge.state.doc, decodeNmlDocument(ydoc))).toEqual(decodeNmlDocument(ydoc));
+    const fresh = new PositionIndex(); fresh.update(bridge.state.doc);
+    expect(bridge.index.byId).toEqual(fresh.byId);
+    expect(bridge.snapshot()).toEqual(decodeNmlDocument(ydoc));
     expect(bridge.checkDrift()).toBe(true);
     bridge.destroy(); ydoc.destroy();
   });

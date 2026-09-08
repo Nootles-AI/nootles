@@ -158,7 +158,7 @@ overwrite unseen concurrent text. Character-level rich-inline commands must repl
 path before the corresponding collaborative editing gate; the reader cannot repair content
 lost upstream.
 
-## 7. Add plain-text editing and acknowledgement
+## 7. Add plain-text editing and acknowledgement — complete
 
 - Translate paragraph, heading, and quote edits into character-level NML commands.
 - Classify selection-only, content, view-only, and bridge-origin transactions.
@@ -167,6 +167,28 @@ lost upstream.
 
 **Gate:** typing, reconnect, acknowledgement, and remote-caret cases pass without
 full-document work, drift, or selection loss.
+
+Implemented as the opt-in `PlainTextNmlBridge`/`NmlPlainTextView`. Unmarked paragraph,
+heading, and quote replacements translate to stable-ID `replaceInline` commands and mutate
+the owning Y.XmlText ranges at character granularity. Selection/metadata-only and
+same-document no-op transactions stay local; structural, rich-inline, list, paste, and
+drop changes remain rejected for step 9. Optimistic requests carry request/transaction
+IDs, acknowledge without echo when canonical text matches, reconcile with minimal PM text
+diffs when it differs, and roll back to canonical state on authorization, validation, or
+stale-state rejection. Diagnostics contain codes and node IDs only.
+
+The hot path uses a local stable-ID Yjs index, incremental observer snapshots, minimal PM
+transactions, and a Fenwick-backed position index. Ordinary text input does not decode,
+validate, serialize, project, or scan the whole document; full validation remains the
+fallback for structural/complex operations and size-limit failures. The gate covers
+10,000-block edits, hundreds of deterministic edits, grapheme rejection, request replay,
+async rejection/reconnect races, same-block remote-caret mapping, three offline replicas,
+concurrent first inserts, structural fallback, and real Chromium typing on desktop/mobile
+with all external traffic intercepted.
+
+This remains isolated from production routes, providers, Convex persistence, AI, backend,
+and MCP paths. Durable/awareness selections and true IME composition buffering remain step
+8; structure, paste/drop, marks, links, and other rich editing remain step 9.
 
 ## 8. Add selection, awareness, and IME
 
