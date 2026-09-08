@@ -1,6 +1,6 @@
 # NML / ProseMirror refactor plan
 
-Status: in progress; steps 1–5 complete.
+Status: in progress; steps 1–6 complete.
 
 ProseMirror remains the browser editing engine. Canonical ownership moves from a
 ProseMirror-shaped Yjs root to a typed, versioned NML AST stored directly in Yjs. Existing
@@ -123,13 +123,40 @@ normalization, dropped view-only styles, and non-list children hoisted to siblin
 a headless library addition: no editor, provider, persistence, backend, AI, or MCP path
 builds or serves the shadow yet.
 
-## 6. Build the read-only ProseMirror View Bridge
+## 6. Build the read-only ProseMirror View Bridge — complete
 
 - Implement the adapter registry, projection-only wrappers, stable-ID attributes,
   incremental indexes, unsupported-node placeholders, drift detection, and safe fallback.
 - Project NML into ProseMirror without enabling PM-to-NML edits.
 
 **Gate:** every adapter passes AST -> PM -> AST equality and matches the current view.
+
+Implemented in `app/lib/nml/view/` and the opt-in `app/components/editor/nml/` browser
+host. Every v1 block/inline adapter preserves semantic content and stable IDs. Wrappers
+and numbered-list counters are view-only; unsupported adapters retain entire blocks in
+inert placeholders. Cached PM subtrees and relative indexes support minimal replacement
+transactions with selection mapping. Canvas scenes stay outside PM, and canvas-only
+changes notify domain views without a PM transaction. Current domain renderers are reused
+through read-only React portals that retain application context.
+
+Local content transactions are rejected, including forged bridge metadata. Explicit drift
+checks compare canonical round trips and indexes, rebuild once, then freeze on repeated
+drift. Malformed/newer sources and renderer failures retain canonical content and show
+safe-state notices. The bridge neither owns nor writes the caller's authorized Y.Doc.
+
+The gate includes all-adapter/corpus round trips, semantic DOM tests, generated structural
+batches, three-client plain-text/structure merges, large-page/index checks, and an isolated
+Puppeteer comparison against current BlockNote read-only views. No live editor, provider,
+persistence, AI, backend, or MCP path mounts this preview. See the
+[bridge implementation notes](nml-prosemirror-view-bridge.md) for the browser command.
+
+**Later editing prerequisites:** the existing canonical observer/decoder and snapshot
+comparisons still scan whole ASTs; only PM projection and index subtree scans are
+incremental. The step-7 typing path must remove upstream full-document work. The existing
+executor's mixed-mark/complex-inline path also replaces entire inline fragments and can
+overwrite unseen concurrent text. Character-level rich-inline commands must replace that
+path before the corresponding collaborative editing gate; the reader cannot repair content
+lost upstream.
 
 ## 7. Add plain-text editing and acknowledgement
 
