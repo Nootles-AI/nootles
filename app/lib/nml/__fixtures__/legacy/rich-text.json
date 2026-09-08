@@ -1,0 +1,49 @@
+{
+  "documentId": "doc-rich-text",
+  "blocks": [
+    {
+      "id": "p1",
+      "type": "paragraph",
+      "props": { "textColor": "default", "backgroundColor": "default", "textAlignment": "left" },
+      "content": [
+        { "type": "text", "text": "Plain and ", "styles": {} },
+        { "type": "text", "text": "bold italic", "styles": { "bold": true, "italic": true } },
+        { "type": "text", "text": " then ", "styles": {} },
+        { "type": "text", "text": "code", "styles": { "code": true } },
+        { "type": "text", "text": " ", "styles": {} },
+        { "type": "link", "href": "https://nootles.ai", "content": [{ "type": "text", "text": "a link", "styles": { "underline": true } }] },
+        { "type": "math", "props": { "latex": "x^2 + y^2" } },
+        { "type": "pageMention", "props": { "pageId": "page-42", "title": "Other page" } }
+      ],
+      "children": []
+    },
+    {
+      "id": "p-colored",
+      "type": "paragraph",
+      "props": { "textColor": "red", "backgroundColor": "default", "textAlignment": "left" },
+      "content": [{ "type": "text", "text": "Colored text keeps its words", "styles": { "textColor": "red" } }],
+      "children": []
+    },
+    { "id": "h1", "type": "heading", "props": { "level": 1, "textColor": "default", "backgroundColor": "default", "textAlignment": "left" }, "content": [{ "type": "text", "text": "A heading", "styles": {} }], "children": [] },
+    { "id": "q1", "type": "quote", "props": {}, "content": [{ "type": "text", "text": "A quote", "styles": {} }], "children": [] },
+    {
+      "id": "b1",
+      "type": "bulletListItem",
+      "props": {},
+      "content": [{ "type": "text", "text": "Top bullet", "styles": {} }],
+      "children": [
+        { "id": "b1a", "type": "bulletListItem", "props": {}, "content": [{ "type": "text", "text": "Nested bullet", "styles": {} }], "children": [] }
+      ]
+    },
+    { "id": "n1", "type": "numberedListItem", "props": { "start": 3 }, "content": [{ "type": "text", "text": "Third", "styles": {} }], "children": [] },
+    { "id": "c1", "type": "checkListItem", "props": { "checked": true }, "content": [{ "type": "text", "text": "Done", "styles": {} }], "children": [] },
+    {
+      "id": "t1",
+      "type": "toggleListItem",
+      "props": {},
+      "content": [{ "type": "text", "text": "Toggle summary", "styles": {} }],
+      "children": [{ "id": "t1p", "type": "paragraph", "props": {}, "content": [{ "type": "text", "text": "Inside the toggle", "styles": {} }], "children": [] }]
+    },
+    { "id": "div1", "type": "divider", "props": {}, "children": [] }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "documentId": "doc-table",
+  "blocks": [
+    {
+      "id": "table1",
+      "type": "table",
+      "props": {},
+      "content": {
+        "type": "tableContent",
+        "headerRows": 1,
+        "columnWidths": [120, 120],
+        "rows": [
+          { "cells": [{ "type": "tableCell", "props": {}, "content": [{ "type": "text", "text": "Name", "styles": { "bold": true } }] }, { "type": "tableCell", "props": {}, "content": [{ "type": "text", "text": "Value", "styles": { "bold": true } }] }] },
+          { "cells": [{ "type": "tableCell", "props": {}, "content": [{ "type": "text", "text": "Alpha", "styles": {} }] }, { "type": "tableCell", "props": {}, "content": [{ "type": "text", "text": "1", "styles": {} }] }] },
+          { "cells": [[{ "type": "text", "text": "Beta", "styles": {} }], [{ "type": "text", "text": "2", "styles": {} }]] }
+        ]
+      },
+      "children": []
+    }
+  ]
+}

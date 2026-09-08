@@ -1,0 +1,8 @@
+{
+  "documentId": "doc-code-math",
+  "blocks": [
+    { "id": "code1", "type": "codeBlock", "props": { "language": "typescript", "code": "if (a < b) {\n  x && y;\n}" }, "content": [], "children": [] },
+    { "id": "math1", "type": "mathBlock", "props": { "source": "a + b\nc < d" }, "content": [], "children": [] },
+    { "id": "math-empty", "type": "mathBlock", "props": { "source": "" }, "content": [], "children": [] }
+  ]
+}

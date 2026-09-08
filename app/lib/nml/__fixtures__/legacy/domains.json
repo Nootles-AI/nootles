@@ -1,0 +1,8 @@
+{
+  "documentId": "doc-domains",
+  "blocks": [
+    { "id": "album1", "type": "album", "props": { "data": "<nt-album cols=\"3\"><img src=\"https://example.com/a.jpg\" w=\"1600\" h=\"1200\"><img src=\"https://example.com/b.jpg\" w=\"1200\" h=\"1600\"></nt-album>" }, "children": [] },
+    { "id": "story1", "type": "storyboard", "props": { "data": "<nt-storyboard ratio=\"16:9\"><nt-shot><nt-note>Opening wide shot</nt-note></nt-shot><nt-shot><nt-note>Close up</nt-note></nt-shot></nt-storyboard>" }, "children": [] },
+    { "id": "loc1", "type": "location", "props": { "data": "<nt-location name=\"HQ\" address=\"123 Main St\"><note>Great spot</note><img src=\"https://example.com/hq.jpg\"></nt-location>" }, "children": [] }
+  ]
+}

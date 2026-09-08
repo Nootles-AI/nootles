@@ -1,6 +1,6 @@
 # NML / ProseMirror refactor plan
 
-Status: in progress; steps 1–3 complete.
+Status: in progress; steps 1–5 complete.
 
 ProseMirror remains the browser editing engine. Canonical ownership moves from a
 ProseMirror-shaped Yjs root to a typed, versioned NML AST stored directly in Yjs. Existing
@@ -89,7 +89,7 @@ The executor is exported as the common vocabulary, but existing AI, slash-comman
 editor, provider, persistence, backend, and MCP paths remain deliberately unwired until
 their later migration stages.
 
-## 5. Add legacy conversion and shadow NML
+## 5. Add legacy conversion and shadow NML — complete
 
 - Convert current BlockNote/ProseMirror documents and canvas map/HTML pairs into NML.
 - Keep serving legacy truth while maintaining a non-serving shadow NML document.
@@ -98,6 +98,30 @@ their later migration stages.
 
 **Gate:** the agreed corpus sustains semantic parity and every mismatch class
 is understood.
+
+Implemented in `app/lib/nml/legacy.ts`. `convertLegacyDocument` maps BlockNote block JSON —
+the same denormalized tree the AI projection and applier read — directly into the v1 AST,
+reading block props rather than the AI HTML grammar, which has drifted from the canonical
+tags (`lang`/`language`, `page`/`page-id`, `alt`/`caption`, checklists as `<input>`) and
+would lose fidelity. Custom domains decode through their owners (`migrateLegacyCanvas`,
+`parseAlbum`/`parseStoryboard`/`parseLocation`), so no second schema exists. `buildLegacyShadow`
+encodes the converted AST into a non-serving canonical Y.Doc via the existing writer.
+`canvasSceneFromMirror`/`canvasSceneFromMaps` and `compareScenes` reconcile the two canvas
+truths (the `<nt-diagram>` block-prop mirror and the per-shape CRDT maps). `compareLegacyToNml`
+re-derives structure, IDs, inline semantics, and materialized scenes from the raw legacy tree
+on a separate code path and classifies every difference.
+
+The gate is covered by a representative compatibility-fixture corpus (rich text, tables,
+code/math, media, canvas HTML, legacy React-Flow canvas JSON, album/storyboard/location,
+`notionStub`, and nested-hoist) with golden conversion, per-fixture shadow Yjs round-trip,
+per-mismatch-class tests, canvas map/mirror parity, a corpus parity gate, and fuzzing.
+Across the corpus every document round-trips through the shadow and sustains semantic
+parity; the only comparison mismatch is the understood `unsupported-block` class. The other
+understood classes are recorded as conversion diagnostics: minted IDs for BlockNote's
+position-only entities (inline embeds, table columns/rows/cells), prose-whitespace
+normalization, dropped view-only styles, and non-list children hoisted to siblings. This is
+a headless library addition: no editor, provider, persistence, backend, AI, or MCP path
+builds or serves the shadow yet.
 
 ## 6. Build the read-only ProseMirror View Bridge
 
