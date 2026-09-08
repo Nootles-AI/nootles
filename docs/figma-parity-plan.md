@@ -54,8 +54,8 @@ Worth stating so the plan is about the gaps, not the whole surface.
 - Effects as stacks: drop shadow, inner shadow, layer blur, background blur, several of
   each, with spread and colour.
 - Opacity, blend modes, brightness/contrast/saturation/grayscale adjustments.
-- Auto layout: row, column, grid, gap, per-side padding, align, justify, hug via
-  `fit-content`, per-child stretch.
+- Auto layout: row, column, grid, gap, per-side padding, align, justify, hug and fixed
+  sizing on the group (`fit-content`), per-child stretch, and a clip-content toggle.
 - Colour variables as custom properties on the diagram, referenced by `var()`. (The one
   sanctioned custom property, because CSS variables *are* the native spelling of a
   variable.)
@@ -154,7 +154,7 @@ pixel-equivalent at 1x, and every run is editable in place.
 | Figma | Native spelling | Render | Edit | Size |
 |---|---|---|---|---|
 | Frame vs group vs section | All `nt-group`. A frame is a group with its own box and paint, which the model already allows; a Figma group hugs, which is `width: fit-content; height: fit-content`. A section is a frame. No new attribute | exists | Layers glyph tells them apart from their style | S |
-| Clip content | `overflow: hidden`; groups currently force `overflow: visible` | Honour the declaration when present | Toggle on frames | S |
+| Clip content | `overflow: hidden` — the Layout section already offers the toggle | Verify the group honours it on every kind of child | exists | S |
 | Wrap | `flex-wrap: wrap`; `autoLayout.ts` today models one line | Engine models wrapping | Toggle in Layout | M |
 | Min and max width/height | `min-width`, `max-width`, `min-height`, `max-height` | Engine reads them | Fields | S |
 | Fill / hug / fixed per child | `flex: 1` for fill along the main axis and `align-self: stretch` across it, `fit-content` for hug, px for fixed | Engine reads all three | Per-child sizing pickers | M |

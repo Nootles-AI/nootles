@@ -654,3 +654,15 @@
 .nt-font-option {
   width: 100%;
 }
+
+/* The picture behind an image fill, at swatch size, where a colour swatch
+   would show its colour. */
+.nt-ctl-thumb {
+  display: block;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  background-size: cover;
+  background-position: center;
+  border: 1px solid var(--border);
+}

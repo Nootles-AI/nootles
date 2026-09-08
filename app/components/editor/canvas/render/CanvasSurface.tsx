@@ -905,15 +905,21 @@ export function CanvasSurface({
         });
         store.commit();
         overlay.current?.update(null, 0, NO_GUIDES);
-        select(id);
+        select(id, kind);
       },
     );
   };
 
-  /** A shape you just made: selected, back on the move tool, caret in its label. */
-  const select = (id: NodeId) => {
+  /**
+   * A shape you just made: selected, back on the move tool. Only a text gets
+   * its caret straight away — a text with nothing in it is nothing — while a
+   * box waits for a double-click, as Figma's do: most boxes are drawn to be
+   * arranged first and named later, and a caret in every new one turned the
+   * next keystroke into a label.
+   */
+  const select = (id: NodeId, kind: DrawKind) => {
     selection.select([id]);
-    setEditing(id);
+    if (kind === "text") setEditing(id);
     setTool("move");
   };
 

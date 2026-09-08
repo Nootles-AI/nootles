@@ -1534,6 +1534,14 @@ function finish(
     ops = duplicate.ops;
     select = duplicate.ids;
   } else {
+    // A scale previews as a CSS transform on the element, and React writes a
+    // style key only when it changes. Scaled from a corner, `x`/`y` are what
+    // they were, so the transform React would write is the one it wrote last
+    // — and the preview's `scale(k)` would stay on an element whose box the
+    // op has already grown by k, drawing it k times too large. The element
+    // goes back to what React last wrote before the op lands, so the render
+    // that follows starts from what it believes is there.
+    if (session.mode === "scale") restoreDom(session);
     ops = transformOps(session);
   }
 
