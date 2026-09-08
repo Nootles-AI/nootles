@@ -68,6 +68,14 @@
       .report li + li {
         margin-top: 4px;
       }
+      .foot {
+        margin-top: auto;
+      }
+      .foot a {
+        color: var(--figma-color-text-secondary);
+        text-decoration: underline;
+        text-underline-offset: 2px;
+      }
       textarea {
         position: absolute;
         left: -9999px;
@@ -81,6 +89,7 @@
     <button id="copy" disabled>Copy</button>
     <p class="status" id="status"></p>
     <ul class="report" id="report"></ul>
+    <p class="foot"><a href="#" id="details" hidden>Copy details for a bug report</a></p>
     <textarea id="scratch" aria-hidden="true" tabindex="-1"></textarea>
     <script>
       const $ = (id) => document.getElementById(id);
@@ -88,6 +97,15 @@
       const status = $("status");
       const report = $("report");
       let count = 0;
+      let details = "";
+      const detailsLink = $("details");
+      // What the converter saw and what it wrote, for a report about a paste
+      // that landed wrong. Nothing leaves the clipboard on its own.
+      detailsLink.onclick = async (event) => {
+        event.preventDefault();
+        const ok = await toClipboard(details);
+        say(ok ? "Details copied. Paste them into the bug report." : "The clipboard would not take it.", ok ? "ok" : "problem");
+      };
 
       const say = (text, tone) => {
         status.textContent = text;
@@ -153,6 +171,8 @@
             }
             const shapes = message.count === 1 ? "1 shape" : `${message.count} shapes`;
             say(`Copied ${shapes}. Paste onto a Nootles canvas.`, "ok");
+            details = message.details;
+            detailsLink.hidden = false;
             report.replaceChildren(
               ...message.report.map((line) => {
                 const li = document.createElement("li");

@@ -18,7 +18,7 @@ import type { FigNode } from "./model";
 type ToUi =
   | { type: "selection"; count: number; names: string[] }
   | { type: "busy" }
-  | { type: "ready"; html: string; count: number; report: Diagnostic[] }
+  | { type: "ready"; html: string; count: number; report: Diagnostic[]; details: string }
   | { type: "failed"; message: string };
 
 type FromUi = { type: "copy" } | { type: "close" };
@@ -52,6 +52,55 @@ async function imageSource(hash: string): Promise<string | null> {
   return `data:${mimeOf(bytes)};base64,${figma.base64Encode(bytes)}`;
 }
 
+/**
+ * The fields the converter reads, as plain JSON, for a bug report.
+ *
+ * Positions are the thing most likely to be wrong and least possible to fix
+ * from a description, so the report carries exactly what the converter saw:
+ * every transform, size and layout setting, down the tree. Image hashes stay
+ * hashes; the bytes are not what anyone needs to read.
+ */
+const DETAIL_FIELDS = [
+  "id", "name", "type", "visible", "locked",
+  "x", "y", "width", "height", "rotation", "relativeTransform", "absoluteTransform",
+  "opacity", "blendMode", "fills", "strokes", "strokeWeight", "strokeAlign", "dashPattern",
+  "strokeCap", "strokeJoin", "cornerRadius", "topLeftRadius", "topRightRadius",
+  "bottomRightRadius", "bottomLeftRadius", "effects",
+  "layoutMode", "layoutWrap", "itemSpacing", "counterAxisSpacing", "paddingLeft",
+  "paddingRight", "paddingTop", "paddingBottom", "primaryAxisAlignItems",
+  "counterAxisAlignItems", "layoutSizingHorizontal", "layoutSizingVertical",
+  "layoutPositioning", "clipsContent", "arcData", "pointCount",
+  "vectorPaths", "fillGeometry", "strokeGeometry",
+  "characters", "fontSize", "fontName", "textAlignHorizontal", "textAlignVertical",
+  "textAutoResize", "maxLines", "lineHeight", "letterSpacing", "paragraphSpacing",
+  "textCase", "textDecoration",
+  "connectorStart", "connectorEnd", "connectorLineType", "text", "shapeType",
+] as const;
+
+function detail(node: unknown, depth = 0): unknown {
+  if (depth > 12 || typeof node !== "object" || node === null) return undefined;
+  const source = node as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const field of DETAIL_FIELDS) {
+    const value = source[field];
+    if (value === undefined || typeof value === "symbol") continue;
+    out[field] = typeof value === "function" ? undefined : value;
+  }
+  if (typeof source.getStyledTextSegments === "function") {
+    try {
+      out.segments = (source.getStyledTextSegments as (f: string[]) => unknown)([
+        "fontSize", "fontName", "fills", "textDecoration", "textCase", "letterSpacing", "hyperlink", "listOptions",
+      ]);
+    } catch {
+      // A text whose font is missing refuses; the rest of the node still tells.
+    }
+  }
+  if (Array.isArray(source.children)) {
+    out.children = (source.children as unknown[]).map((child) => detail(child, depth + 1));
+  }
+  return out;
+}
+
 async function copy() {
   const selection = figma.currentPage.selection;
   if (selection.length === 0) {
@@ -63,11 +112,17 @@ async function copy() {
     // The Plugin API's nodes are the model's shape and more; the converter
     // reads only the fields the model names.
     const result = await convertSelection(selection as unknown as FigNode[], imageSource);
+    const html = serializeScene(result.scene);
     post({
       type: "ready",
-      html: serializeScene(result.scene),
+      html,
       count: result.count,
       report: result.report,
+      details: JSON.stringify(
+        { selection: selection.map((node) => detail(node)), html, report: result.report },
+        (_key, value: unknown) => (typeof value === "symbol" ? "mixed" : value),
+        2,
+      ),
     });
   } catch (error) {
     post({
