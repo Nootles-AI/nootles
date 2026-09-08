@@ -3,6 +3,7 @@ import { keyForIndex } from "@/app/components/editor/canvas/collab/order";
 import type { Scene, SceneEdge, SceneNode } from "@/app/components/editor/canvas/scene/types";
 import { normalizeDocument } from "./normalize";
 import {
+  NML_LIMITS,
   NML_MARKS,
   nmlDocumentSchema,
   type NmlBlock,
@@ -44,6 +45,16 @@ export type NmlChangeSet = {
   afterStateVector: Uint8Array;
   changes: NmlChange[];
   diagnostics: NmlIssue[];
+  /** Present on validated full-path observations so readers need not decode twice. */
+  document?: NmlDocument;
+};
+
+export type NmlPlainTextTarget = {
+  nodeId: string;
+  type: "paragraph" | "heading" | "quote";
+  text: string;
+  fragment: Y.XmlFragment;
+  textNodes: Y.XmlText[];
 };
 
 export class NmlYjsDecodeError extends Error {
@@ -460,6 +471,197 @@ export function writeNmlDocument(doc: Y.Doc, document: NmlDocument, origin?: Nml
   }, origin);
 }
 
+const PLAIN_TEXT_BLOCKS = new Set(["paragraph", "heading", "quote"]);
+
+function inlineUnits(content: NmlInlineContent): number {
+  return content.reduce((total, node) => total + (node.type === "text"
+    ? node.text.length
+    : node.type === "link"
+      ? inlineUnits(node.content)
+      : node.type === "math" ? node.latex.length : node.fallbackTitle.length), 0);
+}
+
+function documentInlineUnits(document: NmlDocument): number {
+  let total = 0;
+  const visit = (block: NmlBlock) => {
+    if ("content" in block) total += inlineUnits(block.content);
+    if (block.type === "table") block.rows.forEach((row) => row.cells.forEach((cell) => { total += inlineUnits(cell.content); }));
+    block.children.forEach(visit);
+  };
+  document.blocks.forEach(visit);
+  return total;
+}
+
+function equalBytes(left: Uint8Array, right: Uint8Array): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+/**
+ * A local, non-persisted ID index over canonical shared types. Initial construction is
+ * O(document size); ordinary text lookup is O(1). Structural changes refresh the index.
+ */
+export class NmlYjsIndex {
+  private blocks = new Map<string, Y.Map<unknown>>();
+  private scans = 0;
+  private totalInlineUnits: number | null = null;
+  private plainTextLengths = new Map<string, number>();
+  private stateVector: Uint8Array = new Uint8Array();
+  private initialized = false;
+
+  constructor(private readonly doc: Y.Doc, initialDocument?: NmlDocument) {
+    this.refresh(initialDocument);
+  }
+
+  refresh(document?: NmlDocument): void {
+    const stateVector = Y.encodeStateVector(this.doc);
+    if (this.initialized && equalBytes(this.stateVector, stateVector)) {
+      if (document && this.totalInlineUnits === null) this.trackDocument(document);
+      return;
+    }
+    const next = new Map<string, Y.Map<unknown>>();
+    const root = this.doc.getMap<unknown>(NML_YJS_ROOT);
+    const visit = (value: unknown) => {
+      if (!(value instanceof Y.Array)) return;
+      for (const candidate of value.toArray()) {
+        if (!(candidate instanceof Y.Map)) continue;
+        const id = candidate.get("id");
+        if (typeof id === "string") next.set(id, candidate as Y.Map<unknown>);
+        visit(candidate.get("children"));
+      }
+    };
+    visit(root.get("blocks"));
+    const structure = root.get(NML_YJS_STRUCTURE_KEY);
+    const registry = structure instanceof Y.Map ? structure.get("registry") : null;
+    if (registry instanceof Y.Map) {
+      registry.forEach((candidate, id) => {
+        if (candidate instanceof Y.Map) next.set(id, candidate as Y.Map<unknown>);
+      });
+    }
+    this.blocks = next;
+    this.initialized = true;
+    this.stateVector = stateVector;
+    if (document) this.trackDocument(document);
+    else {
+      this.totalInlineUnits = null;
+      this.plainTextLengths.clear();
+    }
+    this.scans++;
+  }
+
+  private trackDocument(document: NmlDocument): void {
+    this.totalInlineUnits = documentInlineUnits(document);
+    this.plainTextLengths.clear();
+    const visit = (block: NmlBlock) => {
+      if (PLAIN_TEXT_BLOCKS.has(block.type) && "content" in block &&
+          block.content.every((node) => node.type === "text" && node.marks.length === 0)) {
+        this.plainTextLengths.set(block.id, inlineUnits(block.content));
+      }
+      block.children.forEach(visit);
+    };
+    document.blocks.forEach(visit);
+  }
+
+  owns(doc: Y.Doc): boolean {
+    return this.doc === doc;
+  }
+
+  isCurrent(): boolean {
+    return equalBytes(this.stateVector, Y.encodeStateVector(this.doc));
+  }
+
+  allowsPlainText(finalText: ReadonlyMap<string, string>): boolean {
+    if (this.totalInlineUnits === null) return false;
+    let next = this.totalInlineUnits;
+    for (const [nodeId, value] of finalText) {
+      const prior = this.plainTextLengths.get(nodeId);
+      if (prior === undefined) return false;
+      next += value.length - prior;
+    }
+    return next <= NML_LIMITS.maxInlineUtf16;
+  }
+
+  syncPlainText(nodeIds: readonly string[]): void {
+    if (this.totalInlineUnits !== null) {
+      for (const nodeId of nodeIds) {
+        const target = this.plainText(nodeId);
+        const prior = this.plainTextLengths.get(nodeId);
+        if (!target || prior === undefined) {
+          this.totalInlineUnits = null;
+          this.plainTextLengths.clear();
+          break;
+        }
+        this.totalInlineUnits += target.text.length - prior;
+        this.plainTextLengths.set(nodeId, target.text.length);
+      }
+    }
+    this.stateVector = Y.encodeStateVector(this.doc);
+  }
+
+  scanCount(): number {
+    return this.scans;
+  }
+
+  block(nodeId: string): Y.Map<unknown> | undefined {
+    const root = this.doc.getMap<unknown>(NML_YJS_ROOT);
+    const structure = root.get(NML_YJS_STRUCTURE_KEY);
+    const deletions = structure instanceof Y.Map ? structure.get("deletions") : null;
+    if (deletions instanceof Y.Map && deletions.get(nodeId) === true) return undefined;
+    if (!this.blocks.has(nodeId) && structure instanceof Y.Map) {
+      const registry = structure.get("registry");
+      const candidate = registry instanceof Y.Map ? registry.get(nodeId) : null;
+      if (candidate instanceof Y.Map) this.blocks.set(nodeId, candidate as Y.Map<unknown>);
+    }
+    return this.blocks.get(nodeId);
+  }
+
+  plainText(nodeId: string): NmlPlainTextTarget | null {
+    const block = this.block(nodeId);
+    const type = block?.get("type");
+    const fragment = block?.get("content");
+    if (!block || typeof type !== "string" || !PLAIN_TEXT_BLOCKS.has(type) || !(fragment instanceof Y.XmlFragment)) return null;
+    const textNodes = fragment.toArray();
+    if (!textNodes.every((node): node is Y.XmlText => node instanceof Y.XmlText && Object.keys(node.getAttributes()).length === 0)) return null;
+    return {
+      nodeId,
+      type: type as NmlPlainTextTarget["type"],
+      text: textNodes.map((node) => node.toString()).join(""),
+      fragment,
+      textNodes,
+    };
+  }
+
+  changedPlainTextNodeIds(transaction: Y.Transaction): string[] | null {
+    const root = this.doc.getMap<unknown>(NML_YJS_ROOT);
+    const ids = new Set<string>();
+    for (const changedType of transaction.changed.keys()) {
+      let cursor: Y.AbstractType<unknown> | null = changedType as Y.AbstractType<unknown>;
+      let belongsToRoot = false;
+      while (cursor) {
+        if (cursor === root) {
+          belongsToRoot = true;
+          break;
+        }
+        cursor = cursor.parent as Y.AbstractType<unknown> | null;
+      }
+      if (!belongsToRoot) continue;
+
+      cursor = changedType as Y.AbstractType<unknown>;
+      let owner: Y.Map<unknown> | null = null;
+      while (cursor && cursor !== root) {
+        if (cursor instanceof Y.Map && typeof cursor.get("id") === "string" && cursor.get("content") instanceof Y.XmlFragment) {
+          owner = cursor as Y.Map<unknown>;
+          break;
+        }
+        cursor = cursor.parent as Y.AbstractType<unknown> | null;
+      }
+      const id = owner?.get("id");
+      if (typeof id !== "string" || !this.plainText(id)) return null;
+      ids.add(id);
+    }
+    return ids.size ? [...ids] : null;
+  }
+}
+
 export function decodeNmlDocument(doc: Y.Doc): NmlDocument {
   const root = doc.getMap<unknown>(NML_YJS_ROOT);
   assertKeys(root, ["encodingVersion", "schemaVersion", "documentId", "blocks", NML_YJS_STRUCTURE_KEY], [NML_YJS_ROOT]);
@@ -573,17 +775,52 @@ function changed(before: NmlDocument, after: NmlDocument): NmlChange[] {
   return changes;
 }
 
-export function observeNmlChanges(doc: Y.Doc, listener: (changeSet: NmlChangeSet) => void): () => void {
-  let before = decodeNmlDocument(doc);
+export function observeNmlChanges(
+  doc: Y.Doc,
+  listener: (changeSet: NmlChangeSet) => void,
+  options: {
+    initialDocument?: NmlDocument;
+    index?: NmlYjsIndex;
+    incrementalPlainText?: boolean;
+    onFullDecode?: () => void;
+  } = {},
+): () => void {
+  let before = options.initialDocument ? structuredClone(options.initialDocument) : decodeNmlDocument(doc);
+  let beforePositions = positions(before);
   let beforeStateVector = Y.encodeStateVector(doc);
   const handler = (transaction: Y.Transaction) => {
     if (!(transaction.changedParentTypes as Map<unknown, unknown>).has(doc.getMap(NML_YJS_ROOT))) return;
     const afterStateVector = Y.encodeStateVector(doc);
+    const origin = isNmlOrigin(transaction.origin) ? transaction.origin : null;
+    const plainTextIds = options.incrementalPlainText ? options.index?.changedPlainTextNodeIds(transaction) : null;
+    if (plainTextIds?.length) {
+      const changes: NmlChange[] = [];
+      let valid = true;
+      for (const nodeId of plainTextIds) {
+        const target = options.index?.plainText(nodeId);
+        const prior = beforePositions.get(nodeId)?.block;
+        if (!target || !prior || !("content" in prior) || !PLAIN_TEXT_BLOCKS.has(prior.type) ||
+            !prior.content.every((node) => node.type === "text" && node.marks.length === 0)) {
+          valid = false;
+          break;
+        }
+        prior.content = target.text ? [{ type: "text", text: target.text, marks: [] }] : [];
+        changes.push({ kind: "text", nodeId });
+      }
+      if (valid) {
+        options.index?.syncPlainText(plainTextIds);
+        listener({ transactionId: origin?.transactionId, origin, beforeStateVector, afterStateVector, changes, diagnostics: [] });
+        beforeStateVector = afterStateVector;
+        return;
+      }
+    }
     try {
+      options.onFullDecode?.();
       const after = decodeNmlDocument(doc);
-      const origin = isNmlOrigin(transaction.origin) ? transaction.origin : null;
-      listener({ transactionId: origin?.transactionId, origin, beforeStateVector, afterStateVector, changes: changed(before, after), diagnostics: [] });
+      listener({ transactionId: origin?.transactionId, origin, beforeStateVector, afterStateVector, changes: changed(before, after), diagnostics: [], document: after });
       before = after;
+      beforePositions = positions(before);
+      options.index?.refresh(after);
     } catch (error) {
       listener({
         origin: isNmlOrigin(transaction.origin) ? transaction.origin : null,
