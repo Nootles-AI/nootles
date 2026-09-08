@@ -14,7 +14,7 @@
  * shape.
  */
 
-import { memo, type CSSProperties, type SyntheticEvent } from "react";
+import { memo, useLayoutEffect, useRef, type CSSProperties, type SyntheticEvent } from "react";
 
 import { layoutOf } from "../scene/autoLayout";
 import { labelText } from "../scene/label";
@@ -61,6 +61,11 @@ export interface ShapeViewProps {
    * Absent on a read-only surface, where a solo chip just navigates.
    */
   onEditOpen?: (id: NodeId) => void;
+  /**
+   * The box the browser gave a text sized by its own words (`width:
+   * max-content`, `height: auto`), reported so the model can hold it.
+   */
+  onMeasure?: (id: NodeId, w: number, h: number) => void;
   /** Set by the enclosing group on its children; the surface omits it. */
   flow?: Flow;
 }
@@ -82,9 +87,25 @@ export const ShapeView = memo(function ShapeView({
   onEditEnd,
   onEditLive,
   onEditOpen,
+  onMeasure,
   flow,
 }: ShapeViewProps) {
   const editing = editingId === node.id && hasText(node) && !node.locked;
+  const box = useRef<HTMLDivElement>(null);
+  const autoW = isAutoSize(node.style.width);
+  const autoH = isAutoSize(node.style.height);
+  // The one DOM read in the canvas, and it is the browser's own text layout,
+  // which nothing in `scene/` can do without a font. Reported, not written:
+  // the surface decides whether the number is news.
+  useLayoutEffect(() => {
+    const el = box.current;
+    if (!el || !onMeasure || !(autoW || autoH) || !hasText(node)) return;
+    const report = () => onMeasure(node.id, el.offsetWidth, el.offsetHeight);
+    report();
+    const observer = new ResizeObserver(report);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [autoW, autoH, node, onMeasure]);
 
   // A hidden node inside an auto-layout group keeps its slot — `resolveLayout`
   // counts it — so there it is painted invisible instead of dropped, and its
@@ -141,6 +162,7 @@ export const ShapeView = memo(function ShapeView({
 
   return (
     <div
+      ref={box}
       data-id={node.id}
       className={className}
       style={style}
@@ -159,6 +181,7 @@ export const ShapeView = memo(function ShapeView({
       ) : hasText(node) ? (
         <LabelContent
           label={node.label}
+          clamp={node.style["-webkit-line-clamp"]}
           onEdit={
             !node.locked && onEditOpen ? () => onEditOpen(node.id) : undefined
           }
@@ -175,6 +198,7 @@ export const ShapeView = memo(function ShapeView({
               onEditEnd={onEditEnd}
               onEditLive={onEditLive}
               onEditOpen={onEditOpen}
+              onMeasure={onMeasure}
             />
           ))
         : null}
@@ -210,20 +234,38 @@ function boxStyle(
   /** For the kinds that are their own geometry and have no `Shape` to ask. */
   drop?: (prop: string) => boolean,
 ): CSSProperties {
+  const dropped = drop ?? (shape ? shape.drop : undefined);
   return {
-    ...toCss(node.style, drop ?? (shape ? shape.drop : undefined)),
+    ...toCss(node.style, (prop) => LABEL_OWNED.has(prop) || !!dropped?.(prop)),
     ...(shape?.clip ? { clipPath: shape.clip } : null),
     ...labelInset(node),
     position: flow ? "relative" : "absolute",
     transform: flow
       ? `rotate(${node.rot}deg)`
       : `translate(${node.x}px, ${node.y}px) rotate(${node.rot}deg)`,
-    width: flow === "stretch-x" ? "auto" : `${node.w}px`,
-    height: flow === "stretch-y" ? "auto" : `${node.h}px`,
+    // A sizing keyword in the node's own style — `width: max-content` for a
+    // text that is as wide as its words — is the one thing allowed to beat the
+    // attribute: the attribute then holds what the browser measured.
+    ...(isAutoSize(node.style.width)
+      ? { width: node.style.width }
+      : { width: flow === "stretch-x" ? "auto" : `${node.w}px` }),
+    ...(isAutoSize(node.style.height)
+      ? { height: node.style.height }
+      : { height: flow === "stretch-y" ? "auto" : `${node.h}px` }),
     ...(flow ? { flex: "none" } : null),
     ...(node.hidden ? { visibility: "hidden" as const } : null),
     ...(node.locked ? { pointerEvents: "none" as const } : null),
   };
+}
+
+/** Declarations the label element paints rather than the box. */
+const LABEL_OWNED = new Set(["-webkit-line-clamp"]);
+
+const AUTO_SIZE = new Set(["max-content", "min-content", "fit-content", "auto"]);
+
+/** True for the `width`/`height` keywords that hand sizing to the contents. */
+export function isAutoSize(value: string | undefined): boolean {
+  return value !== undefined && AUTO_SIZE.has(value.trim().toLowerCase());
 }
 
 /**

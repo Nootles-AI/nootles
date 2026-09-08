@@ -54,3 +54,49 @@
 .nt-edit:empty {
   min-width: 1px;
 }
+
+/* ---- Rich labels ----------------------------------------------------------
+   A label's paragraphs and lists carry their own spacing in their own
+   `style`, so the defaults here are the browser's zeroed: what a paragraph
+   has is what its declaration says and nothing the stylesheet added. */
+.nt-label-blocks {
+  display: block;
+  min-width: 0;
+}
+.nt-label p,
+.nt-label li,
+.nt-edit p,
+.nt-edit li {
+  margin: 0;
+}
+/* Markers back on: the app's reset strips them from every list, and a list
+   with no marker is a paragraph with an indent. */
+.nt-label ul,
+.nt-label ol,
+.nt-edit ul,
+.nt-edit ol {
+  margin: 0;
+  padding-left: 1.5em;
+  text-align: left;
+}
+.nt-label ul,
+.nt-edit ul {
+  list-style: disc;
+}
+.nt-label ol,
+.nt-edit ol {
+  list-style: decimal;
+}
+.nt-label a,
+.nt-edit a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
+/* Truncation is the label's, not the box's: the clamp needs a block
+   formatting context of its own, which the shape's flex box is not. */
+.nt-label.is-clamped {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}

@@ -1,11 +1,12 @@
 import { z } from "zod";
-import { labelRuns, runsToLabel } from "./label";
+import { blocksToLabel, labelBlocks } from "./label";
 import type { Scene, SceneNode } from "./types";
 
 const stringMap = z.record(z.string(), z.string());
 const finite = z.number().finite();
-const canonicalLabel = z.string().refine((label) => runsToLabel(labelRuns(label)) === label, {
-  message: "Canvas labels must use canonical escaped text, <b>, and <nt-ref> markup.",
+const canonicalLabel = z.string().refine((label) => blocksToLabel(labelBlocks(label)) === label, {
+  message:
+    "Canvas labels must use canonical escaped text, <b> <i> <u> <s> <a> <span style> <p> <ul> <ol> <li>, and <nt-ref> markup.",
 });
 const base = {
   id: z.string().min(1),

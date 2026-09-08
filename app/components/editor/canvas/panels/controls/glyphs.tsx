@@ -398,3 +398,74 @@ export function TextAlign({ d, ...props }: Props & { d: string }) {
     </Line>
   );
 }
+
+/** A slanted I: the italic toggle. */
+export function Italic(props: Props) {
+  return (
+    <Line {...props}>
+      <path d="M6.5 3.5h5M4.5 12.5h5M9.6 3.5l-3.2 9" />
+    </Line>
+  );
+}
+
+/** Text that sizes its own width: one line, arrows out both sides. */
+export function AutoWidth(props: Props) {
+  return (
+    <Line {...props}>
+      <path d="M5.5 5.5h5M8 5.5v5" strokeOpacity="0.45" />
+      <path d="M1.8 13h12.4M1.8 13l1.4-1.4M1.8 13l1.4 1.4M14.2 13l-1.4-1.4M14.2 13l-1.4 1.4" />
+    </Line>
+  );
+}
+
+/** Text that sizes its own height: a fixed width, arrows top and bottom. */
+export function AutoHeight(props: Props) {
+  return (
+    <Line {...props}>
+      <path d="M4 5.5h5M6.5 5.5v5" strokeOpacity="0.45" />
+      <path d="M13 1.8v12.4M13 1.8l-1.4 1.4M13 1.8l1.4 1.4M13 14.2l-1.4-1.4M13 14.2l1.4-1.4" />
+    </Line>
+  );
+}
+
+/** A fixed box, both ways. */
+export function FixedSize(props: Props) {
+  return (
+    <Line {...props}>
+      <rect x="2.5" y="2.5" width="11" height="11" rx="1" />
+      <path d="M5.5 6h5M8 6v4.5" strokeOpacity="0.45" />
+    </Line>
+  );
+}
+
+/** Two paragraphs and the gap between them. */
+export function ParagraphSpacing(props: Props) {
+  return (
+    <Line {...props}>
+      <path d="M2.5 3h11M2.5 5.5h7" />
+      <path d="M2.5 10.5h11M2.5 13h7" />
+      <path d="M14 6.6v2.8" strokeOpacity="0.45" />
+    </Line>
+  );
+}
+
+/** A first line set in from the rest. */
+export function Indent(props: Props) {
+  return (
+    <Line {...props}>
+      <path d="M6.5 3.5h7M2.5 8h11M2.5 12.5h11" />
+      <path d="M2 3.5l2 1.5-2 1.5" strokeOpacity="0.45" />
+    </Line>
+  );
+}
+
+/** More: the row's own settings. */
+export function Dots(props: Props) {
+  return (
+    <Line {...props}>
+      <circle cx="4" cy="8" r="0.9" fill="currentColor" stroke="none" />
+      <circle cx="8" cy="8" r="0.9" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="8" r="0.9" fill="currentColor" stroke="none" />
+    </Line>
+  );
+}

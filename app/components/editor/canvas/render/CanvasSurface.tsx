@@ -108,6 +108,7 @@ import { defaultBox, newNode, type DrawKind } from "./newShape";
 import { Overlay, type OverlayApi } from "./Overlay";
 import { shapeWriter, type ShapeWriter } from "./svgShape";
 import { PenTool } from "./PenTool";
+import { useSceneFonts } from "./fonts";
 import { ShapeView, toCss } from "./ShapeView";
 import "../canvas.css";
 
@@ -413,6 +414,9 @@ export function CanvasSurface({
 }: CanvasSurfaceProps) {
   const store = useScene({ source, onChange, cacheKey: storeKey });
   const scene = useSceneSnapshot(store);
+  // Every family the scene names, asked for once. The declaration is the
+  // manifest; nothing else records which faces a diagram is set in.
+  useSceneFonts(scene);
   /**
    * The same scene with every auto-laid-out child placed where it is actually
    * drawn — see the note on coordinates in the module header.
@@ -1109,6 +1113,21 @@ export function CanvasSurface({
    */
   const liveLabel = useRef<NodeId | null>(null);
 
+  /**
+   * A text sized by its words has told us its box. Written only when it is
+   * news, to the half pixel: the observer reports on every layout, and a
+   * write that changed nothing would still travel to every other tab.
+   */
+  const onMeasure = useCallback(
+    (id: NodeId, w: number, h: number) => {
+      const node = store.getNode(id);
+      if (!node) return;
+      if (Math.abs(node.w - w) < 0.5 && Math.abs(node.h - h) < 0.5) return;
+      store.measure([{ id, x: node.x, y: node.y, w, h }]);
+    },
+    [store],
+  );
+
   const onEditLive = useCallback(
     (id: NodeId, label: string) => {
       if (liveLabel.current !== id) {
@@ -1288,6 +1307,7 @@ export function CanvasSurface({
               // Withheld read-only: with no edit to offer, a solo chip's click
               // goes straight to the page, the one thing a viewer can do.
               onEditOpen={readOnly ? undefined : onEditOpen}
+              onMeasure={readOnly ? undefined : onMeasure}
             />
           ))}
           <Overlay

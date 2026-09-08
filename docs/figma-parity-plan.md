@@ -1,6 +1,6 @@
 # Figma parity plan for the canvas
 
-Status: proposed. Nothing here is built.
+Status: in progress. Phase 1 (Text) is built on `feat/figma-parity-text`; the harness and Phases 2–7 are not.
 
 The goal is a canvas that can hold everything a Figma paste carries, so the Figma →
 Nootles translation layer is a compiler and not a compromise. "Everything" is measured
@@ -72,6 +72,20 @@ Ordered by how much pasted content each phase unblocks. Sizes are rough and rela
 
 The largest gap and the one every paste hits: nearly every Figma frame carries text, and
 Figma text is styled per character range.
+
+**As built (feat/figma-parity-text).** The label grammar in `scene/label.ts` reads and
+writes `<b> <i> <u> <s> <a href> <span style>` runs and `<p>`, `<ul>`, `<ol>`, `<li>`
+blocks, with one canonical nesting so equal marks are equal bytes; a label that is one
+bare paragraph serializes exactly as before. The editor commits through the same DOM
+walker the parser uses, so ⌘B, ⌘I, ⌘U and ⌘⇧X land as the grammar's tags whichever way
+the browser wrote them; Alt+Enter starts a paragraph, Enter inside a list item the next
+item. The style panel edits the selected range while a label is open (`render/labelEditing.ts`)
+and the whole node otherwise. Auto width and auto height are `width: max-content` and
+`height: auto`, with the measured box written back into `w`/`h` outside history. Any
+family is loaded by name from its declaration (`render/fonts.ts`), and the font field is a
+search over a catalog plus free text. Truncation is `-webkit-line-clamp`, painted by the
+label rather than the box. Paragraph spacing, indent, lists and max lines live behind the
+Type settings popover.
 
 | Figma | Native spelling | Render | Edit | Size |
 |---|---|---|---|---|
