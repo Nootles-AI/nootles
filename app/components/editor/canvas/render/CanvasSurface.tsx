@@ -59,7 +59,10 @@ import {
   type EdgeElements,
   type LiveObstacles,
 } from "./liveEdges";
-import { useTransformGesture } from "../engine/gestures";
+import { prepareBooleans, reflowBooleans, type LiveBooleans } from "./liveBoolean";
+import { useTransformGesture,
+  type LiveFrame,
+} from "../engine/gestures";
 import { useCanvasShortcuts, type CanvasTool } from "../engine/shortcuts";
 import type { SnapGuide } from "../engine/snapping";
 import { useScene, useSceneSnapshot, type SceneStore } from "../engine/useScene";
@@ -108,6 +111,7 @@ import { defaultBox, newNode, type DrawKind } from "./newShape";
 import { Overlay, type OverlayApi } from "./Overlay";
 import { shapeWriter, type ShapeWriter } from "./svgShape";
 import { PenTool } from "./PenTool";
+import { useSceneFonts } from "./fonts";
 import { ShapeView, toCss } from "./ShapeView";
 import "../canvas.css";
 
@@ -413,6 +417,9 @@ export function CanvasSurface({
 }: CanvasSurfaceProps) {
   const store = useScene({ source, onChange, cacheKey: storeKey });
   const scene = useSceneSnapshot(store);
+  // Every family the scene names, asked for once. The declaration is the
+  // manifest; nothing else records which faces a diagram is set in.
+  useSceneFonts(scene);
   /**
    * The same scene with every auto-laid-out child placed where it is actually
    * drawn — see the note on coordinates in the module header.
@@ -583,6 +590,7 @@ export function CanvasSurface({
     elements: Map<NodeId, HTMLElement | null>;
     edges: EdgeElements;
     obstacles: LiveObstacles;
+    booleans: LiveBooleans;
   } | null>(null);
 
   const getElement = useCallback(
@@ -608,13 +616,16 @@ export function CanvasSurface({
    * for everything a running gesture is *not* moving, whose element would only
    * confirm the box the scene already holds at the cost of a forced layout.
    */
-  const reflowLive = useCallback(() => {
+  const reflowLive = useCallback((frames: readonly LiveFrame[] = []) => {
+    const cache = held.current;
+    // A boolean's cut is a function of its operands' boxes, which the gesture
+    // knows and no element shows: the operands are not drawn.
+    reflowBooleans(cache?.booleans ?? null, store.getScene(), frames);
     // Laid out, like every other geometry read here, and through the same
     // memo, so the identity `reflowEdges` checks its prepared obstacles
     // against still matches what `onActiveChange` prepared them from.
     const scene = laidOutScene(store.getScene());
     if (scene.edges.length === 0) return;
-    const cache = held.current;
     reflowEdges(
       sceneRef.current,
       scene,
@@ -678,11 +689,12 @@ export function CanvasSurface({
           elements: new Map(),
           edges: new Map(),
           obstacles: prepareObstacles(laidOutScene(store.getScene()), moving),
+          booleans: prepareBooleans(store.getScene(), selection.getSnapshot().ids, getElement),
         };
         return;
       }
       held.current = null;
-      requestAnimationFrame(reflowLive);
+      requestAnimationFrame(() => reflowLive());
     },
   });
 
@@ -901,15 +913,21 @@ export function CanvasSurface({
         });
         store.commit();
         overlay.current?.update(null, 0, NO_GUIDES);
-        select(id);
+        select(id, kind);
       },
     );
   };
 
-  /** A shape you just made: selected, back on the move tool, caret in its label. */
-  const select = (id: NodeId) => {
+  /**
+   * A shape you just made: selected, back on the move tool. Only a text gets
+   * its caret straight away — a text with nothing in it is nothing — while a
+   * box waits for a double-click, as Figma's do: most boxes are drawn to be
+   * arranged first and named later, and a caret in every new one turned the
+   * next keystroke into a label.
+   */
+  const select = (id: NodeId, kind: DrawKind) => {
     selection.select([id]);
-    setEditing(id);
+    if (kind === "text") setEditing(id);
     setTool("move");
   };
 
@@ -1109,6 +1127,21 @@ export function CanvasSurface({
    */
   const liveLabel = useRef<NodeId | null>(null);
 
+  /**
+   * A text sized by its words has told us its box. Written only when it is
+   * news, to the half pixel: the observer reports on every layout, and a
+   * write that changed nothing would still travel to every other tab.
+   */
+  const onMeasure = useCallback(
+    (id: NodeId, w: number, h: number) => {
+      const node = store.getNode(id);
+      if (!node) return;
+      if (Math.abs(node.w - w) < 0.5 && Math.abs(node.h - h) < 0.5) return;
+      store.measure([{ id, x: node.x, y: node.y, w, h }]);
+    },
+    [store],
+  );
+
   const onEditLive = useCallback(
     (id: NodeId, label: string) => {
       if (liveLabel.current !== id) {
@@ -1288,6 +1321,7 @@ export function CanvasSurface({
               // Withheld read-only: with no edit to offer, a solo chip's click
               // goes straight to the page, the one thing a viewer can do.
               onEditOpen={readOnly ? undefined : onEditOpen}
+              onMeasure={readOnly ? undefined : onMeasure}
             />
           ))}
           <Overlay

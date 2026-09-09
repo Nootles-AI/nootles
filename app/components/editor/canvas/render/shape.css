@@ -39,6 +39,16 @@
   min-height: 1lh;
 }
 
+/* The selection wears the label's own ink, washed thin. The browser's default
+   is the system accent, chosen without a glance at the fill it lands on, and
+   it vanishes on a fill of its own colour — or on grey, in the inactive grey
+   an unfocused window paints. Ink always contrasts with the fill (the words
+   are readable), so a wash of ink reads on every shape, whatever it wears. */
+.nt-edit::selection,
+.nt-edit *::selection {
+  background-color: color-mix(in oklab, currentColor 24%, transparent);
+}
+
 /* Empty, there is nothing for the browser to hang a caret on. Blockified as a
    flex item it is a box with no line box in it and no width; in an `<nt-text>`
    the grammar wrote without a `display` it is a bare inline box, which
@@ -53,4 +63,50 @@
    cannot paint it outside the shape. */
 .nt-edit:empty {
   min-width: 1px;
+}
+
+/* ---- Rich labels ----------------------------------------------------------
+   A label's paragraphs and lists carry their own spacing in their own
+   `style`, so the defaults here are the browser's zeroed: what a paragraph
+   has is what its declaration says and nothing the stylesheet added. */
+.nt-label-blocks {
+  display: block;
+  min-width: 0;
+}
+.nt-label p,
+.nt-label li,
+.nt-edit p,
+.nt-edit li {
+  margin: 0;
+}
+/* Markers back on: the app's reset strips them from every list, and a list
+   with no marker is a paragraph with an indent. */
+.nt-label ul,
+.nt-label ol,
+.nt-edit ul,
+.nt-edit ol {
+  margin: 0;
+  padding-left: 1.5em;
+  text-align: left;
+}
+.nt-label ul,
+.nt-edit ul {
+  list-style: disc;
+}
+.nt-label ol,
+.nt-edit ol {
+  list-style: decimal;
+}
+.nt-label a,
+.nt-edit a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
+/* Truncation is the label's, not the box's: the clamp needs a block
+   formatting context of its own, which the shape's flex box is not. */
+.nt-label.is-clamped {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }

@@ -635,3 +635,34 @@
   font-size: var(--text-ui);
   color: var(--muted);
 }
+
+/* ---- The font picker -------------------------------------------------------
+   A search over the catalog and a list drawn in each face, so the name and
+   the look arrive together. The list is bounded and scrolls; the field above
+   it keeps focus while the list is browsed. */
+.nt-font-pop {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px;
+}
+.nt-font-list {
+  max-height: 240px;
+  overflow-y: auto;
+  margin: 0 -2px;
+}
+.nt-font-option {
+  width: 100%;
+}
+
+/* The picture behind an image fill, at swatch size, where a colour swatch
+   would show its colour. */
+.nt-ctl-thumb {
+  display: block;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  background-size: cover;
+  background-position: center;
+  border: 1px solid var(--border);
+}

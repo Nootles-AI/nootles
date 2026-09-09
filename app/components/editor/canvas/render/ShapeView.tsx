@@ -14,20 +14,23 @@
  * shape.
  */
 
-import { memo, type CSSProperties, type SyntheticEvent } from "react";
+import { memo, useLayoutEffect, useRef, useSyncExternalStore, type CSSProperties, type SyntheticEvent } from "react";
 
-import { layoutOf } from "../scene/autoLayout";
+import { isPinned, layoutOf } from "../scene/autoLayout";
+import { clipperReady, derivedPath, loadClipper, operandsPath, subscribeClipper } from "../scene/boolean";
 import { labelText } from "../scene/label";
 import { LabelContent, LabelEdit } from "./ShapeLabel";
 import {
   hasText,
+  isBoolean,
   isGroup,
   type GroupLayout,
+  type GroupNode,
   type NodeId,
   type SceneNode,
   type StyleMap,
 } from "../scene/types";
-import { pathPaint, shapeOf, type Shape } from "./svgShape";
+import { paintsBox, pathPaint, shadowFilter, shapeOf, type Shape } from "./svgShape";
 import "./shape.css";
 
 /**
@@ -61,6 +64,11 @@ export interface ShapeViewProps {
    * Absent on a read-only surface, where a solo chip just navigates.
    */
   onEditOpen?: (id: NodeId) => void;
+  /**
+   * The box the browser gave a text sized by its own words (`width:
+   * max-content`, `height: auto`), reported so the model can hold it.
+   */
+  onMeasure?: (id: NodeId, w: number, h: number) => void;
   /** Set by the enclosing group on its children; the surface omits it. */
   flow?: Flow;
 }
@@ -82,9 +90,28 @@ export const ShapeView = memo(function ShapeView({
   onEditEnd,
   onEditLive,
   onEditOpen,
-  flow,
+  onMeasure,
+  flow: slot,
 }: ShapeViewProps) {
+  // A child pinned inside an auto-layout group is placed by its own `x`/`y`,
+  // the way `scene/autoLayout` places it: out of the flow, in the group's box.
+  const flow = slot && isPinned(node) ? undefined : slot;
   const editing = editingId === node.id && hasText(node) && !node.locked;
+  const box = useRef<HTMLDivElement>(null);
+  const autoW = isAutoSize(node.style.width);
+  const autoH = isAutoSize(node.style.height);
+  // The one DOM read in the canvas, and it is the browser's own text layout,
+  // which nothing in `scene/` can do without a font. Reported, not written:
+  // the surface decides whether the number is news.
+  useLayoutEffect(() => {
+    const el = box.current;
+    if (!el || !onMeasure || !(autoW || autoH) || !hasText(node)) return;
+    const report = () => onMeasure(node.id, el.offsetWidth, el.offsetHeight);
+    report();
+    const observer = new ResizeObserver(report);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [autoW, autoH, node, onMeasure]);
 
   // A hidden node inside an auto-layout group keeps its slot — `resolveLayout`
   // counts it — so there it is painted invisible instead of dropped, and its
@@ -92,33 +119,17 @@ export const ShapeView = memo(function ShapeView({
   if (node.hidden && !flow) return null;
 
   const shape = shapeOf(node);
-  const style = boxStyle(node, flow, shape);
+  // A shadow follows the drawing, not the box, wherever the box is not the
+  // drawing: the SVG kinds, and a group that paints nothing of its own.
+  const cast =
+    node.kind === "path" || shape || (isGroup(node) && !paintsBox(node.style))
+      ? shadowFilter(node.style)
+      : null;
+  const style = { ...boxStyle(node, flow, shape), ...cast };
   const className = `nt-node nt-node-${node.kind}${editing ? " is-editing" : ""}`;
 
-  if (node.kind === "path") {
-    const { paint, drop } = pathPaint(node.style);
-    return (
-      <svg
-        data-id={node.id}
-        className={className}
-        // `overflow: visible` because a stroke straddles the geometry it
-        // follows, and the box is tight to that geometry — clipped, every
-        // curve loses its outer half and a mitred corner far more than that.
-        // A zero-length axis is a straight line, and a zero-sized view box is
-        // not rendered at all, so it takes a 1 to exist.
-        style={{ ...boxStyle(node, flow, null, drop), ...paint, overflow: "visible" }}
-        viewBox={`0 0 ${node.w || 1} ${node.h || 1}`}
-        preserveAspectRatio="none"
-      >
-        {/* `d` is local to the box and the `resize` op stretches it with the
-            box, so the view box is always exactly the box. A live resize writes
-            only the CSS size, leaving the two of them stale together — which is
-            the same stretch, so the preview and what lands are one geometry.
-            The stroke stays the weight it was authored at. */}
-        <path d={node.d} vectorEffect="non-scaling-stroke" />
-      </svg>
-    );
-  }
+  if (node.kind === "path") return <PathView node={node} d={node.d} flow={flow} cast={cast} className={className} />;
+  if (isBoolean(node)) return <BooleanView node={node} flow={flow} cast={cast} className={className} />;
 
   if (node.kind === "image") {
     // `src` is any URL or data URI, and the grammar's `object-fit` needs a real
@@ -141,6 +152,7 @@ export const ShapeView = memo(function ShapeView({
 
   return (
     <div
+      ref={box}
       data-id={node.id}
       className={className}
       style={style}
@@ -159,6 +171,7 @@ export const ShapeView = memo(function ShapeView({
       ) : hasText(node) ? (
         <LabelContent
           label={node.label}
+          clamp={node.style["-webkit-line-clamp"]}
           onEdit={
             !node.locked && onEditOpen ? () => onEditOpen(node.id) : undefined
           }
@@ -175,12 +188,72 @@ export const ShapeView = memo(function ShapeView({
               onEditEnd={onEditEnd}
               onEditLive={onEditLive}
               onEditOpen={onEditOpen}
+              onMeasure={onMeasure}
             />
           ))
         : null}
     </div>
   );
 });
+
+/** A path: the one element that IS its geometry. */
+function PathView({
+  node,
+  d,
+  flow,
+  cast,
+  className,
+  fillRule,
+}: {
+  node: SceneNode;
+  d: string;
+  flow: Flow | undefined;
+  cast: CSSProperties | null;
+  className: string;
+  /** A boolean's rings never overlap, so even-odd paints them alike and a
+   *  hole is a hole; a pen path keeps SVG's default and its own `fill-rule`. */
+  fillRule?: "evenodd";
+}) {
+  const { paint, drop } = pathPaint(node.style, d);
+  return (
+    <svg
+      data-id={node.id}
+      className={className}
+      // `overflow: visible` because a stroke straddles the geometry it
+      // follows, and the box is tight to that geometry — clipped, every
+      // curve loses its outer half and a mitred corner far more than that.
+      // A zero-length axis is a straight line, and a zero-sized view box is
+      // not rendered at all, so it takes a 1 to exist.
+      style={{ ...boxStyle(node, flow, null, drop), ...paint, ...cast, overflow: "visible" }}
+      viewBox={`0 0 ${node.w || 1} ${node.h || 1}`}
+      preserveAspectRatio="none"
+    >
+      {/* `d` is local to the box and the `resize` op stretches it with the
+          box, so the view box is always exactly the box. A live resize writes
+          only the CSS size, leaving the two of them stale together — which is
+          the same stretch, so the preview and what lands are one geometry.
+          The stroke stays the weight it was authored at. */}
+      <path d={d} fillRule={fillRule} vectorEffect="non-scaling-stroke" />
+    </svg>
+  );
+}
+
+/**
+ * A boolean group draws one derived path and none of its children. The
+ * clipper is fetched on the first one seen; until it lands the operands'
+ * outlines stand in, drawn together.
+ */
+function BooleanView(props: {
+  node: GroupNode;
+  flow: Flow | undefined;
+  cast: CSSProperties | null;
+  className: string;
+}) {
+  const ready = useSyncExternalStore(subscribeClipper, clipperReady, () => false);
+  if (!ready) void loadClipper();
+  const d = (ready ? derivedPath(props.node) : null) ?? operandsPath(props.node);
+  return <PathView {...props} d={d} fillRule="evenodd" />;
+}
 
 /**
  * The box, as CSS.
@@ -210,20 +283,38 @@ function boxStyle(
   /** For the kinds that are their own geometry and have no `Shape` to ask. */
   drop?: (prop: string) => boolean,
 ): CSSProperties {
+  const dropped = drop ?? (shape ? shape.drop : undefined);
   return {
-    ...toCss(node.style, drop ?? (shape ? shape.drop : undefined)),
+    ...toCss(node.style, (prop) => LABEL_OWNED.has(prop) || !!dropped?.(prop)),
     ...(shape?.clip ? { clipPath: shape.clip } : null),
     ...labelInset(node),
     position: flow ? "relative" : "absolute",
     transform: flow
       ? `rotate(${node.rot}deg)`
       : `translate(${node.x}px, ${node.y}px) rotate(${node.rot}deg)`,
-    width: flow === "stretch-x" ? "auto" : `${node.w}px`,
-    height: flow === "stretch-y" ? "auto" : `${node.h}px`,
+    // A sizing keyword in the node's own style — `width: max-content` for a
+    // text that is as wide as its words — is the one thing allowed to beat the
+    // attribute: the attribute then holds what the browser measured.
+    ...(isAutoSize(node.style.width)
+      ? { width: node.style.width }
+      : { width: flow === "stretch-x" ? "auto" : `${node.w}px` }),
+    ...(isAutoSize(node.style.height)
+      ? { height: node.style.height }
+      : { height: flow === "stretch-y" ? "auto" : `${node.h}px` }),
     ...(flow ? { flex: "none" } : null),
     ...(node.hidden ? { visibility: "hidden" as const } : null),
     ...(node.locked ? { pointerEvents: "none" as const } : null),
   };
+}
+
+/** Declarations the label element paints rather than the box. */
+const LABEL_OWNED = new Set(["-webkit-line-clamp"]);
+
+const AUTO_SIZE = new Set(["max-content", "min-content", "fit-content", "auto"]);
+
+/** True for the `width`/`height` keywords that hand sizing to the contents. */
+export function isAutoSize(value: string | undefined): boolean {
+  return value !== undefined && AUTO_SIZE.has(value.trim().toLowerCase());
 }
 
 /**

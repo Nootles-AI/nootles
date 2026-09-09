@@ -1,11 +1,12 @@
 import { z } from "zod";
-import { labelRuns, runsToLabel } from "./label";
-import type { Scene, SceneNode } from "./types";
+import { blocksToLabel, labelBlocks } from "./label";
+import { BOOLEAN_OPS, type Scene, type SceneNode } from "./types";
 
 const stringMap = z.record(z.string(), z.string());
 const finite = z.number().finite();
-const canonicalLabel = z.string().refine((label) => runsToLabel(labelRuns(label)) === label, {
-  message: "Canvas labels must use canonical escaped text, <b>, and <nt-ref> markup.",
+const canonicalLabel = z.string().refine((label) => blocksToLabel(labelBlocks(label)) === label, {
+  message:
+    "Canvas labels must use canonical escaped text, <b> <i> <u> <s> <a> <span style> <p> <ul> <ol> <li>, and <nt-ref> markup.",
 });
 const base = {
   id: z.string().min(1),
@@ -38,7 +39,14 @@ export const sceneNodeSchema: z.ZodType<SceneNode> = z.lazy(() =>
     z.object({ ...base, kind: z.literal("text") }).strict(),
     z.object({ ...base, kind: z.literal("image"), src: z.string() }).strict(),
     z.object({ ...base, kind: z.literal("path"), d: z.string() }).strict(),
-    z.object({ ...base, kind: z.literal("group"), children: z.array(sceneNodeSchema) }).strict(),
+    z
+      .object({
+        ...base,
+        kind: z.literal("group"),
+        children: z.array(sceneNodeSchema),
+        op: z.enum(BOOLEAN_OPS).optional(),
+      })
+      .strict(),
   ]),
 );
 

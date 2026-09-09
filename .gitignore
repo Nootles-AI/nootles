@@ -61,3 +61,6 @@ next-env.d.ts
 
 # impeccable decision-server transient state
 .impeccable/questions/
+
+# Figma plugin bundle, built by `npm run figma:build`
+figma-plugin/dist

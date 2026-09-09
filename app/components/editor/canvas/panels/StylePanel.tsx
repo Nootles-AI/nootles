@@ -15,7 +15,9 @@ import {
   type ShapeParams,
   type StyleMap,
   type StylePatch,
+  isBoolean,
 } from "../scene/types";
+import { canBoolean } from "../scene/boolean";
 import {
   ColorVariablesContext,
   readColorVariables,
@@ -27,6 +29,7 @@ import { NumberField } from "./controls/NumberField";
 import { PanelSection } from "./controls/PanelSection";
 import { rememberStyle } from "../render/newShape";
 import { AlignRow } from "./sections/AlignRow";
+import { BooleanRow } from "./sections/BooleanRow";
 import { EdgeSection } from "./sections/EdgeSection";
 import { AppearanceSection } from "./sections/AppearanceSection";
 import { EffectsSection } from "./sections/EffectsSection";
@@ -82,6 +85,8 @@ export type StylePanelProps = {
   /** Resolved connectors — `ResolvedSelection.edges`. Never both at once. */
   edges: readonly SceneEdge[];
   onDiagramChange: (patch: DiagramPatch) => void;
+  /** The boolean row makes a group and then wants it selected. */
+  onSelect: (ids: readonly NodeId[]) => void;
   /** `CanvasApi.previewSize` — a size shown without being committed. */
   onPreviewSize?: (size: { w?: number; h?: number }) => void;
   /** `CanvasApi.previewStyle` — declarations shown without being committed. */
@@ -93,6 +98,7 @@ export function StylePanel({
   selection,
   edges,
   onDiagramChange,
+  onSelect,
   onPreviewSize,
   onPreviewStyle,
 }: StylePanelProps) {
@@ -191,9 +197,12 @@ export function StylePanel({
           ) : (
             <LiveEditContext value={live}>
               <AlignRow {...props} />
+              {canBoolean(nodes) && (
+                <BooleanRow selection={nodes} scene={scene} run={run} select={onSelect} />
+              )}
               <PositionSection {...props} />
               {nodes.some(hasShapeParams) && <ShapeSection {...props} />}
-              {nodes.some(isGroup) && <LayoutSection {...props} />}
+              {nodes.some((node) => isGroup(node) && !isBoolean(node)) && <LayoutSection {...props} />}
               {nodes.some(hasText) && <TypographySection {...props} />}
               <AppearanceSection {...props} />
               <FillSection {...props} />

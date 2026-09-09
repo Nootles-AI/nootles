@@ -14,10 +14,11 @@
 import type { CSSProperties, ReactElement } from "react";
 
 import { unitPolygon } from "../scene/geometry";
+import { arcPath, roundedPolygon, scaled, straight, vertexRadius } from "../scene/outline";
+import { LENGTH, paintOf, words } from "../scene/paint";
 import {
   arcOf,
   isArc,
-  type Point,
   type SceneNode,
   type StyleMap,
 } from "../scene/types";
@@ -47,10 +48,6 @@ export interface Shape {
 
 /** Paint the browser would apply to the element's rectangle. */
 const BOX_PAINT = /^(background|border|outline|fill|stroke)(-|$)/;
-
-/** A gradient or an image: a paint an SVG `fill` cannot take. */
-const CSS_PAINT =
-  /^(?:repeating-)?(?:linear|radial|conic)-gradient\(|^(?:url|image-set|element)\(/i;
 
 const dropPaint = (prop: string) => BOX_PAINT.test(prop);
 const dropStroke = (prop: string) =>
@@ -89,11 +86,14 @@ export const DRAWN_STROKE_WIDTH = "2";
  * down, and `fill-rule` or a `stroke-linejoin` the author wrote by hand is
  * carried by the same route without this file having to name it.
  */
-export function pathPaint(style: StyleMap): {
+export function pathPaint(
+  style: StyleMap,
+  d: string,
+): {
   paint: CSSProperties;
   drop: (prop: string) => boolean;
 } {
-  const { fill, attrs } = paintOf(style);
+  const { fill, attrs, css } = paintOf(style);
   // Everything the author spelled in SVG — `fill`, `stroke`, `stroke-width`,
   // `fill-rule`, anything else — reaches the element through `toCss`, which
   // `dropBoxPaint` leaves alone. This function only fills in what is MISSING,
@@ -106,6 +106,13 @@ export function pathPaint(style: StyleMap): {
   // translation, so a model reaching for the property every other kind uses
   // paints the drawing instead of a rectangle behind it.
   if (!saidFill && fill !== null) paint.fill = fill;
+  // A fill only CSS can draw — a gradient, a picture — stays on the element
+  // as its `background`, clipped to the geometry: the bargain a polygon makes,
+  // with the same cost, that the outer half of a stroke is cut away.
+  if (css !== null) {
+    paint.fill = "none";
+    paint.clipPath = `path("${d}")`;
+  }
   if (!saidStroke && attrs.stroke) {
     paint.stroke = attrs.stroke;
     if (style["stroke-width"] === undefined && attrs.strokeWidth) {
@@ -117,7 +124,7 @@ export function pathPaint(style: StyleMap): {
   }
 
   // What the element will actually be filled with, counting the translation.
-  const fillNow = saidFill ? style.fill.trim() : paint.fill;
+  const fillNow = saidFill ? style.fill.trim() : (css ?? paint.fill);
   const strokeNow = saidStroke || paint.stroke !== undefined;
 
   // Nothing named a fill. SVG's default is opaque black, which turns an open
@@ -132,7 +139,63 @@ export function pathPaint(style: StyleMap): {
     paint.stroke = DRAWN_INK;
     if (style["stroke-width"] === undefined) paint.strokeWidth = DRAWN_STROKE_WIDTH;
   }
-  return { paint, drop: dropBoxPaint };
+  return { paint, drop: css !== null ? dropBorder : dropBoxPaint };
+}
+
+/** Border and outline only: the background is the shape's own fill. */
+const dropBorder = (prop: string) => /^(border|outline)(-|$)/.test(prop);
+
+/** Whether a style paints the element's rectangle at all. */
+export function paintsBox(style: StyleMap): boolean {
+  for (const prop in style) {
+    const value = style[prop].trim();
+    if (BOX_ONLY_PAINT.test(prop) && value && value !== "none" && value !== "transparent") return true;
+  }
+  return false;
+}
+
+/**
+ * `box-shadow` realised as `filter: drop-shadow()`, for the kinds whose box
+ * is not their shape — a path, a polygon, an arc, a group with no paint of its
+ * own — so the shadow follows what is drawn rather than the rectangle around
+ * it. The document keeps the `box-shadow` spelling; this is how the renderer
+ * reads it. One `drop-shadow()` per layer, in order. An inset layer and a
+ * spread have no filter form and are left out.
+ */
+export function shadowFilter(style: StyleMap): CSSProperties | null {
+  const shadow = style["box-shadow"];
+  if (!shadow || shadow.trim() === "none") return null;
+  const cast = layers(shadow)
+    .map(dropShadow)
+    .filter((f): f is string => f !== null);
+  const filter = [style.filter, ...cast].filter((f) => f && f !== "none").join(" ");
+  return { boxShadow: "none", ...(filter ? { filter } : null) };
+}
+
+function dropShadow(layer: string): string | null {
+  const parts = words(layer);
+  if (parts.includes("inset")) return null;
+  const [x = "0", y = "0", blur = "0"] = parts.filter((w) => LENGTH.test(w));
+  const color = parts.filter((w) => !LENGTH.test(w)).join(" ");
+  return `drop-shadow(${[x, y, blur, color].filter(Boolean).join(" ")})`;
+}
+
+/** Comma-separated layers, with `rgba(0, 0, 0, 0.2)` left whole. */
+function layers(css: string): string[] {
+  const out: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i <= css.length; i++) {
+    const c = css[i];
+    if (c === "(") depth++;
+    else if (c === ")") depth--;
+    else if ((c === undefined || c === ",") && depth === 0) {
+      const layer = css.slice(start, i).trim();
+      if (layer) out.push(layer);
+      start = i + 1;
+    }
+  }
+  return out;
 }
 
 /**
@@ -174,6 +237,8 @@ export function shapeOf(node: SceneNode): Shape | null {
 
 type Geometry = { points?: string; d?: string; clip: string };
 
+const pct = (n: number) => `${Math.round(n * 100000) / 1000}%`;
+
 function geometryOf(node: SceneNode): Geometry | null {
   if (node.kind === "polygon") {
     const unit = unitPolygon(node.sides);
@@ -202,9 +267,6 @@ function geometryOf(node: SceneNode): Geometry | null {
   }
   return null;
 }
-
-const scaled = (unit: readonly Point[], w: number, h: number): Point[] =>
-  unit.map((p) => ({ x: p.x * w, y: p.y * h }));
 
 // ---------------------------------------------------------------------------
 // Resizing live
@@ -270,240 +332,4 @@ export function shapeWriter(
       if (was.clip) el.style.clipPath = was.clip;
     },
   };
-}
-
-/** The plain outline, for a box too degenerate to round. */
-const straight = (points: readonly Point[]): string =>
-  `M ${points.map((p) => `${round(p.x)} ${round(p.y)}`).join(" L ")} Z`;
-
-// ---------------------------------------------------------------------------
-// Polygon corner radius
-// ---------------------------------------------------------------------------
-
-/**
- * `border-radius` as the one radius a polygon can have.
- *
- * The shorthand's other three values are dropped: a polygon has vertices, not a
- * top-left and a bottom-right, so there is nothing for them to name. The
- * declaration is still the same one the style panel writes and the grammar
- * already round-trips — only its meaning is the shape's rather than the box's.
- */
-function vertexRadius(
-  value: string | undefined,
-  w: number,
-  h: number,
-): number {
-  const first = value?.trim().split(/[\s/]+/)[0] ?? "";
-  const n = Number.parseFloat(first);
-  if (!Number.isFinite(n) || n <= 0) return 0;
-  // A percentage resolves against the shorter side: a vertex radius is
-  // isotropic, so there is no horizontal half and vertical half to split it
-  // between the two axes the way a box corner does.
-  return first.endsWith("%") ? (n / 100) * Math.min(w, h) : n;
-}
-
-/**
- * Figma's polygon corner radius: every vertex replaced by a circular arc
- * tangent to both of its edges.
- *
- * One radius serves every vertex, clamped to the most the tightest one can
- * take — a per-vertex clamp would round a stretched polygon unevenly, and
- * letting a tangent point run past an edge's midpoint is what makes two
- * neighbouring arcs cross and the path fold over itself.
- *
- * Returns `""` for geometry too degenerate to round, which the caller reads as
- * "draw the plain polygon".
- */
-function roundedPolygon(points: readonly Point[], radius: number): string {
-  const n = points.length;
-  const corners: { v: Point; from: Point; to: Point; tan: number }[] = [];
-  let limit = radius;
-  let turn = 0;
-
-  for (let i = 0; i < n; i++) {
-    const v = points[i];
-    const a = delta(points[(i + n - 1) % n], v);
-    const b = delta(points[(i + 1) % n], v);
-    const la = Math.hypot(a.x, a.y);
-    const lb = Math.hypot(b.x, b.y);
-    if (la === 0 || lb === 0) return "";
-    const from = { x: a.x / la, y: a.y / la };
-    const to = { x: b.x / lb, y: b.y / lb };
-    // tan(θ/2) for the interior angle θ: the tangent length is radius / tan.
-    const tan = Math.tan(
-      Math.acos(clamp(from.x * to.x + from.y * to.y, -1, 1)) / 2,
-    );
-    if (!(tan > 0)) return "";
-    corners.push({ v, from, to, tan });
-    limit = Math.min(limit, (Math.min(la, lb) / 2) * tan);
-    turn += from.y * to.x - from.x * to.y;
-  }
-  if (!(limit > 0)) return "";
-
-  // Which way the outline turns decides the arcs' sweep; a corner arc is always
-  // the minor one, so the large-arc flag is 0.
-  const sweep = turn > 0 ? 1 : 0;
-  const r = round(limit);
-  let d = "";
-  for (const { v, from, to, tan } of corners) {
-    const t = limit / tan;
-    d += `${d ? " L" : "M"} ${point(v, from, t)} A ${r} ${r} 0 0 ${sweep} ${point(v, to, t)}`;
-  }
-  return `${d} Z`;
-}
-
-const delta = (a: Point, b: Point): Point => ({ x: a.x - b.x, y: a.y - b.y });
-
-const clamp = (n: number, lo: number, hi: number) =>
-  n < lo ? lo : n > hi ? hi : n;
-
-const point = (v: Point, dir: Point, t: number) =>
-  `${round(v.x + dir.x * t)} ${round(v.y + dir.y * t)}`;
-
-const round = (n: number) => Math.round(n * 1000) / 1000;
-const pct = (n: number) => `${round(n * 100)}%`;
-
-/** Degrees clockwise from twelve o'clock, as Figma's arc controls state them. */
-function polar(c: Point2, r: Point2, deg: number): string {
-  const t = ((deg - 90) * Math.PI) / 180;
-  return `${round(c[0] + r[0] * Math.cos(t))} ${round(c[1] + r[1] * Math.sin(t))}`;
-}
-
-type Point2 = [number, number];
-
-/** A whole ellipse as two half arcs — one arc of 360° would put its endpoints on
- *  top of each other and draw nothing at all. */
-function whole(c: Point2, r: Point2): string {
-  const [rx, ry] = [round(r[0]), round(r[1])];
-  const [left, right] = [round(c[0] - r[0]), round(c[0] + r[0])];
-  const cy = round(c[1]);
-  return `M ${left} ${cy} A ${rx} ${ry} 0 1 0 ${right} ${cy} A ${rx} ${ry} 0 1 0 ${left} ${cy} Z`;
-}
-
-/**
- * The ellipse as Figma's arc controls describe it: a pie wedge when there is no
- * hole, an annular sector when there is, and a ring when the sweep is whole.
- */
-function arcPath(
-  w: number,
-  h: number,
-  { start, sweep, inner }: { start: number; sweep: number; inner: number },
-): string {
-  const c: Point2 = [w / 2, h / 2];
-  const r: Point2 = [w / 2, h / 2];
-  const hole: Point2 = [r[0] * inner, r[1] * inner];
-
-  if (Math.abs(sweep) >= 360) {
-    return inner > 0 ? `${whole(c, r)} ${whole(c, hole)}` : whole(c, r);
-  }
-  if (sweep === 0) return "";
-
-  const large = Math.abs(sweep) > 180 ? 1 : 0;
-  const cw = sweep > 0 ? 1 : 0;
-  const end = start + sweep;
-  const outer = `A ${round(r[0])} ${round(r[1])} 0 ${large} ${cw} ${polar(c, r, end)}`;
-  if (inner <= 0) {
-    return `M ${round(c[0])} ${round(c[1])} L ${polar(c, r, start)} ${outer} Z`;
-  }
-  return `M ${polar(c, r, start)} ${outer} L ${polar(c, hole, end)} A ${round(hole[0])} ${round(hole[1])} 0 ${large} ${1 - cw} ${polar(c, hole, start)} Z`;
-}
-
-// ---------------------------------------------------------------------------
-// Box paint → SVG paint
-// ---------------------------------------------------------------------------
-
-interface Paint {
-  /** `null` when only CSS can draw it, and the box keeps it. */
-  fill: string | null;
-  attrs: {
-    stroke?: string;
-    strokeWidth?: string;
-    strokeDasharray?: string;
-  };
-}
-
-/** How the stroke panel spells a dash, mirrored so both sides say one thing. */
-const DASHARRAY: Record<string, string> = { dashed: "8 6", dotted: "2 4" };
-
-const LENGTH = /^-?[\d.]+[a-z%]*$/i;
-const LINE_STYLE = new Set([
-  "none",
-  "hidden",
-  "solid",
-  "dashed",
-  "dotted",
-  "double",
-  "groove",
-  "ridge",
-  "inset",
-  "outset",
-]);
-
-/**
- * The node's `background` becomes the shape's `fill` and its `border` — or
- * `outline`, or either one's longhands, or a bare SVG `stroke` — becomes the
- * shape's stroke. That is the whole mapping, and it is one-way: the style panel
- * keeps writing box CSS, so a triangle and a rectangle are still styled by the
- * same controls.
- *
- * CSS puts a `border` inside the box while an SVG stroke straddles the edge, so
- * a heavy stroke sits half a weight further out here than on a rect.
- */
-function paintOf(style: StyleMap): Paint {
-  const fill = (
-    style.fill ??
-    style["background-color"] ??
-    style.background ??
-    ""
-  ).trim();
-  return {
-    fill: !fill || CSS_PAINT.test(fill) ? null : fill,
-    attrs: strokeOf(style),
-  };
-}
-
-function strokeOf(style: StyleMap): Paint["attrs"] {
-  if (style.stroke && style.stroke !== "none") {
-    return {
-      stroke: style.stroke,
-      strokeWidth: style["stroke-width"] ?? "1",
-      strokeDasharray: style["stroke-dasharray"],
-    };
-  }
-  const box =
-    style.border !== undefined || style["border-color"] !== undefined
-      ? "border"
-      : "outline";
-  let width = style[`${box}-width`];
-  let line = style[`${box}-style`];
-  let color = style[`${box}-color`];
-  for (const word of words(style[box] ?? "")) {
-    if (LENGTH.test(word)) width ??= word;
-    else if (LINE_STYLE.has(word)) line ??= word;
-    else color ??= word;
-  }
-  if (!color || line === "none" || line === "hidden") return {};
-  return {
-    stroke: color,
-    strokeWidth: width ?? "1px",
-    strokeDasharray: line ? DASHARRAY[line] : undefined,
-  };
-}
-
-/** Shorthand parts, with `rgb(1 2 3)` left whole. */
-function words(css: string): string[] {
-  const out: string[] = [];
-  let depth = 0;
-  let start = 0;
-  for (let i = 0; i <= css.length; i++) {
-    const c = css[i];
-    if (c === "(") depth++;
-    else if (c === ")") depth--;
-    else if ((c === undefined || c === " ") && depth === 0) {
-      const word = css.slice(start, i).trim();
-      if (word) out.push(word);
-      start = i + 1;
-    }
-  }
-  return out;
 }

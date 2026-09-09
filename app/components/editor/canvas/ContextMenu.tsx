@@ -20,6 +20,7 @@ import {
 import { shortcutHint, type ShortcutId } from "./engine/shortcuts";
 import type { SceneStore } from "./engine/useScene";
 import type { SelectionStore } from "./engine/useSelection";
+import { booleanOps, canBoolean, flattenOps, loadClipper } from "./scene/boolean";
 import { duplicateNodes, mintId } from "./scene/ops";
 import {
   findNode,
@@ -29,6 +30,8 @@ import {
   selectedNodes,
   type NodeId,
   type Point,
+  isBoolean,
+  type BooleanOp,
 } from "./scene/types";
 import "./canvas.css";
 
@@ -81,6 +84,14 @@ function duplicate(
   );
   selection.select(copies);
 }
+
+/** Figma's boolean submenu, flat: four operations and the flatten. */
+const BOOLEANS: { label: string; shortcut: ShortcutId; op: BooleanOp }[] = [
+  { label: "Union", shortcut: "edit.union", op: "union" },
+  { label: "Subtract", shortcut: "edit.subtract", op: "subtract" },
+  { label: "Intersect", shortcut: "edit.intersect", op: "intersect" },
+  { label: "Exclude", shortcut: "edit.exclude", op: "exclude" },
+];
 
 function buildActions(
   store: SceneStore,
@@ -147,6 +158,31 @@ function buildActions(
           store.dispatch({ type: "remove", ids });
           selection.clear();
         },
+      },
+    ],
+    [
+      ...BOOLEANS.map(
+        ({ label, shortcut, op }): MenuAction => ({
+          label,
+          shortcut,
+          disabled: !canBoolean(nodes),
+          run: () => {
+            const result = booleanOps(scene, nodes, op);
+            if (!result) return;
+            store.dispatch(result.ops);
+            selection.select(result.select);
+          },
+        }),
+      ),
+      {
+        label: "Flatten",
+        shortcut: "edit.flatten",
+        disabled: !nodes.some(isBoolean),
+        run: () =>
+          void loadClipper().then(() => {
+            const ops = flattenOps(store.getScene(), ids);
+            if (ops.length) store.dispatch(ops);
+          }),
       },
     ],
     [

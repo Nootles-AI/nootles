@@ -2,6 +2,7 @@
 
 import { X } from "@/app/components/Icons";
 import type { SceneNode, StyleMap } from "../../scene/types";
+import { isBoolean } from "../../scene/types";
 import { ColorField } from "../controls/ColorField";
 import { Dash as DashGlyph, StrokeWeight } from "../controls/glyphs";
 import { IconButton } from "../controls/IconButton";
@@ -75,8 +76,11 @@ function shorthandOf(
   return style[prop] ?? (parts.length ? parts.join(" ") : undefined);
 }
 
+/** Drawn as a path, so painted as one: a pen path or a boolean group. */
+const drawn = (node: SceneNode) => node.kind === "path" || isBoolean(node);
+
 function readStroke(node: SceneNode): Stroke | null {
-  if (node.kind === "path") {
+  if (drawn(node)) {
     const color = node.style.stroke;
     if (!color || color === "none") return null;
     const width = Number.parseFloat(node.style["stroke-width"] ?? "");
@@ -112,7 +116,7 @@ function readStroke(node: SceneNode): Stroke | null {
 
 function writeStroke(node: SceneNode, stroke: Stroke | null): StyleMap {
   const style = { ...node.style };
-  const path = node.kind === "path";
+  const path = drawn(node);
   for (const prop of path ? PATH_PROPS : BOX_PROPS) delete style[prop];
   if (!stroke) return style;
 
@@ -208,7 +212,7 @@ export function StrokeSection({ selection, patch }: SectionProps) {
         </span>
       </div>
 
-      {!selection.every((node) => node.kind === "path") && (
+      {!selection.every(drawn) && (
         <div className="nt-ctl-row">
           <SelectField
             label="Align"

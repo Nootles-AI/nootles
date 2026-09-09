@@ -222,6 +222,22 @@ async function prepare(
   };
 }
 
+/**
+ * One picture, made smaller and put up, answering with its permanent URL.
+ *
+ * The album's own pipeline — the same re-encode, the same door — offered to
+ * the places that hold one image rather than a waterfall of them: an image
+ * fill on a canvas shape. A photo dropped on a rectangle should weigh what a
+ * photo in an album weighs.
+ */
+export async function putImage(convex: ConvexReactClient, file: File): Promise<string> {
+  const { taken, refused } = acceptable([file]);
+  if (!taken.length) throw new Error(refused[0] ?? "That file isn't a picture.");
+  if (file.type.startsWith("video/")) throw new Error("A fill takes a picture, not a video.");
+  const image = await prepareImage(file, { measured: () => {}, advance: () => {} });
+  return await put(convex, image.blob, image.type);
+}
+
 /** Colour off a blob nothing has decoded yet — the video poster's path in. */
 async function statsOf(blob: Blob): Promise<ImageStats | null> {
   const bitmap = await createImageBitmap(blob).catch(() => null);

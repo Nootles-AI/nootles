@@ -160,17 +160,29 @@ export interface TransformGestureOptions {
   /** Raised when a gesture starts moving and when it ends. */
   onActiveChange?(active: boolean): void;
   /**
-   * After each frame's DOM writes. For anything drawn *from* the shapes rather
-   * than by them — the connectors, whose route is a function of two boxes that
-   * this gesture is in the middle of moving.
+   * After each frame's DOM writes, with every moving node's box this frame.
+   * For anything drawn *from* the shapes rather than by them — the connectors,
+   * whose route is a function of two boxes that this gesture is in the middle
+   * of moving, and a boolean group, whose one drawing is cut from operands
+   * that have no element of their own to read.
    */
-  onFrame?(): void;
+  onFrame?(frames: readonly LiveFrame[]): void;
   /** Grid pitch in scene px. `0`/omitted disables grid snapping. */
   grid?: number;
   /** Snap distance in SCREEN px, so it is constant at every zoom. */
   snapThreshold?: number;
   /** Floor for a resized box. Defaults to 1 scene px. */
   minSize?: number;
+}
+
+/** A moving node's box this frame, in its parent's space — what the op will say. */
+export interface LiveFrame {
+  id: NodeId;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  rot: number;
 }
 
 export interface TransformGestureApi {
@@ -946,7 +958,7 @@ function runFrame(session: Session, o: TransformGestureOptions) {
   if (session.mode === "reorder") {
     applyReorder(session, point);
     writeOverlay(session, o, NO_GUIDES);
-    o.onFrame?.();
+    o.onFrame?.(NO_FRAMES);
     return;
   }
 
@@ -970,8 +982,10 @@ function runFrame(session: Session, o: TransformGestureOptions) {
   writeOverlay(session, o, guides);
   // After the writes: whatever reads the shapes' live boxes must read them as
   // they are this frame, not as they were last one.
-  o.onFrame?.();
+  o.onFrame?.(session.frames);
 }
+
+const NO_FRAMES: readonly LiveFrame[] = [];
 
 function applyMove(
   session: Session,
@@ -1534,6 +1548,14 @@ function finish(
     ops = duplicate.ops;
     select = duplicate.ids;
   } else {
+    // A scale previews as a CSS transform on the element, and React writes a
+    // style key only when it changes. Scaled from a corner, `x`/`y` are what
+    // they were, so the transform React would write is the one it wrote last
+    // — and the preview's `scale(k)` would stay on an element whose box the
+    // op has already grown by k, drawing it k times too large. The element
+    // goes back to what React last wrote before the op lands, so the render
+    // that follows starts from what it believes is there.
+    if (session.mode === "scale") restoreDom(session);
     ops = transformOps(session);
   }
 
