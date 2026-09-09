@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { blocksToLabel, labelBlocks } from "./label";
-import type { Scene, SceneNode } from "./types";
+import { BOOLEAN_OPS, type Scene, type SceneNode } from "./types";
 
 const stringMap = z.record(z.string(), z.string());
 const finite = z.number().finite();
@@ -39,7 +39,14 @@ export const sceneNodeSchema: z.ZodType<SceneNode> = z.lazy(() =>
     z.object({ ...base, kind: z.literal("text") }).strict(),
     z.object({ ...base, kind: z.literal("image"), src: z.string() }).strict(),
     z.object({ ...base, kind: z.literal("path"), d: z.string() }).strict(),
-    z.object({ ...base, kind: z.literal("group"), children: z.array(sceneNodeSchema) }).strict(),
+    z
+      .object({
+        ...base,
+        kind: z.literal("group"),
+        children: z.array(sceneNodeSchema),
+        op: z.enum(BOOLEAN_OPS).optional(),
+      })
+      .strict(),
   ]),
 );
 

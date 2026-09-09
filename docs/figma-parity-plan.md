@@ -125,9 +125,9 @@ pixel-equivalent at 1x, and every run is editable in place.
 
 | Figma | Native spelling | Render | Edit | Size |
 |---|---|---|---|---|
-| Drop shadow on non-rectangular shapes | The same `box-shadow` stack. Today the box takes it, so a polygon shadows its rectangle | Renderer realises `box-shadow` on SVG kinds as `filter: drop-shadow()`, one per layer, so the shadow follows the shape | none | M |
+| Drop shadow on non-rectangular shapes | The same `box-shadow` stack | **Built.** The renderer realises `box-shadow` on path, polygon and arc kinds as `filter: drop-shadow()`, one per layer; spread has no filter form and is dropped there | none | — |
 | Inner shadow on non-rectangular shapes | `box-shadow: inset …`, same stack | Renderer realises it through an SVG filter it owns; the document keeps the `inset` spelling | none | M |
-| Shadows and blur on frames and groups | Same stack on `<nt-group>` | A filled frame is a box and works today; a hugging group with no fill is realised with `filter: drop-shadow` so children cast as one | none | S |
+| Shadows and blur on frames and groups | Same stack on `<nt-group>` | **Built.** A filled frame is a box; a group with no paint of its own is realised with `filter: drop-shadow` so its children cast as one | none | — |
 | Noise, texture | `filter: url("data:image/svg+xml,…")` — a native inline `filter` value pointing at an SVG filter carried as a data URI in the declaration itself. No `<defs>`, nothing outside the element | native | Effects list gains both; the panel writes the URI from amount, size and colour | M |
 | Effect visibility toggle | Already modelled per layer | — | — | — |
 | Glass | **Deferred by decision.** | | | — |
@@ -141,10 +141,10 @@ pixel-equivalent at 1x, and every run is editable in place.
 | Flip horizontal / vertical | `scale: -1 1` / `scale: 1 -1`, the CSS individual transform property, which composes with the renderer's own `transform` | native | Two buttons in Position | S |
 | Corner smoothing (squircle) | `corner-shape: superellipse(k)` — the CSS Borders 4 property, shipping in Chromium since 139. Figma's 0–1 smoothing maps onto the exponent | native where supported; the renderer polyfills with a generated `clip-path` elsewhere | Slider beside radius | M |
 | Star | New kind `nt-star` with `points` and `inner` attributes, mirroring `nt-polygon`'s `sides`. Geometry, so an attribute | SVG like polygon | Shape section | S |
-| Line node | A two-anchor `nt-path`; nothing new | exists | — | — |
+| Line node | A two-anchor `nt-path`; nothing new. A `LINE` has no `vectorPaths`, so the plugin writes the segment across its box rather than stroking its `strokeGeometry` outline | exists | — | — |
 | Line and path end caps: arrow, triangle, reversed, circle, diamond, bar, round, square | `marker-start` / `marker-end` — SVG's own presentation properties — with a fixed vocabulary of ids (`url(#arrow)`, `url(#circle)`, …) the renderer defines once, the way it already defines `#nt-edge-arrow`; `stroke-linecap` for round and square | markers coloured with `context-stroke` | Cap pickers on Stroke for path kinds | M |
 | Arc commands in path data | `parsePath` reads M L H V C S Q T Z; add `A` | Arcs become cubics on parse, as the pen tool has no arc anchor | none | S |
-| Boolean operations: union, subtract, intersect, exclude | An `nt-group` with `op="union"` holding the operand paths, so the operation stays editable and the result is derived. Geometry, so an attribute; there is no CSS for a boolean | Derived path computed on render | Four buttons on a multi-path selection, plus Flatten | L |
+| Boolean operations: union, subtract, intersect, exclude | **Shipped.** An `nt-group` with `op="union"` holding the operands — any closed kind, a group of them, or another boolean — so the operation stays editable and the result is derived. Geometry, so an attribute; there is no CSS for a boolean. The plugin writes one from a `BOOLEAN_OPERATION` | Derived on render (`scene/boolean.ts`): outlines flattened under a pixel, clipped by `polygon-clipping`, loaded on the first boolean seen. The result wears the group's paint | The boolean strip in the panel, the context menu, ⌘⌥U/S/I/X; Flatten (⌘E) is `setPath` on the group | L |
 | Vector networks | Out of scope: the plugin flattens to subpaths, which the model already holds | | | — |
 
 **Gate:** Figma's shape tools and vector editor output, pasted, is the same picture and stays editable.
@@ -158,7 +158,7 @@ pixel-equivalent at 1x, and every run is editable in place.
 | Wrap | `flex-wrap: wrap`; `autoLayout.ts` today models one line | Engine models wrapping | Toggle in Layout | M |
 | Min and max width/height | `min-width`, `max-width`, `min-height`, `max-height` | Engine reads them | Fields | S |
 | Fill / hug / fixed per child | `flex: 1` for fill along the main axis and `align-self: stretch` across it, `fit-content` for hug, px for fixed | Engine reads all three | Per-child sizing pickers | M |
-| Absolute-positioned child inside auto layout | `position: absolute` on the child; its authored `x`/`y` stay | Engine skips it in flow | Toggle on the child | S |
+| Absolute-positioned child inside auto layout | `position: absolute` on the child; its authored `x`/`y` stay | **Built.** The engine leaves it at its `x`/`y` and gives it no room; the renderer places it by those | Toggle on the child | S |
 | Canvas stacking (first on top) | `order` on children, or the existing `*-reverse` directions | Engine reads `order` | — | S |
 | Grid: spans, explicit tracks, per-axis gaps | `grid-template-rows`, `grid-column: span 2`, `row-gap`, `column-gap` — already carried, partly read | Engine reads all | Grid fields | M |
 | Constraints | `constraints="left top"` attribute on children of a plain frame, values from Figma's own vocabulary per axis: `left`, `right`, `center`, `scale`, `stretch` / `top`, `bottom`, `center`, `scale`, `stretch`. Omitted when `left top`, the default. A relationship to the parent, not a look, so an attribute beside `x`/`y` rather than `left`/`right` in CSS, which an agent would read as positioning | The `resize` op on a frame re-solves each child from its constraint and its box | Constraint picker, like Figma's | M |
@@ -171,7 +171,7 @@ Nootles the way it does in Figma.
 
 | Figma | Native spelling | Render | Edit | Size |
 |---|---|---|---|---|
-| Masks | Figma's mask is a layer that masks its siblings above. The native spelling is the result, not the mechanism: the masked siblings sit in a group carrying `clip-path: path("…")` for a vector mask, or `mask-image: url("data:…")` with `mask-mode` for an alpha or luminance mask. The masking layer *is* that declaration, so it does not survive as a separate node | native | "Use as mask" on a layer writes the group and the declaration; "Release" reverses it | M |
+| Masks | Figma's mask is a layer that masks its siblings above. The native spelling is the result, not the mechanism: the masked siblings sit in a group carrying `clip-path: path("…")` for a vector mask, or `mask-image: url("data:…")` with `mask-mode` for an alpha or luminance mask. The masking layer *is* that declaration, so it does not survive as a separate node. The plugin writes the vector form today, `overflow: hidden` when the mask is a plain box over its container; picture and text masks are applied as their outline and reported | native | "Use as mask" on a layer writes the group and the declaration; "Release" reverses it | M |
 | Isolate blending | `isolation: isolate` on groups | native | Toggle | S |
 | Layer opacity on groups | `opacity` | native | exists | — |
 
@@ -245,7 +245,7 @@ Figma's idioms are the reference, and the ones this panel already speaks are kep
 | Control | For | Figma idiom | Notes |
 |---|---|---|---|
 | **Points** and **Inner** fields for a star, beside the polygon's Sides | P4 | Figma's star has count and ratio in the shape's own row | Same section, same number fields |
-| **Boolean row**: Union, Subtract, Intersect, Exclude as an icon toggle, plus Flatten | P4 | Figma's boolean group in the toolbar dropdown and the Shape section | Shown for a selection of two or more vectors, or a boolean group; the toggle reads the group's `op` |
+| **Boolean row**: Union, Subtract, Intersect, Exclude as an icon toggle, plus Flatten | P4 — shipped | Figma's boolean group in the toolbar dropdown and the Shape section | Shown for two or more shapes, or a group; the toggle reads a lone boolean group's `op` |
 
 ### Layout
 
@@ -316,7 +316,7 @@ them.
 |---|---|---|---|
 | **Use as mask / Release mask** in the layer's context menu and the shortcut Figma uses | P6 | Figma's mask command | Writes the clip or mask group; the layers panel shows the masked children indented under a mask glyph |
 | **Frame selection / Group selection** in the context menu | P5 | Figma's two commands | Frame writes a group with a box; Group writes a hugging one |
-| **Boolean commands** in the context menu, mirroring the Shape row | P4 | Figma's boolean submenu | |
+| **Boolean commands** in the context menu, mirroring the Shape row | P4 — shipped | Figma's boolean submenu | Flat, not a submenu |
 | **Flip** in the context menu, mirroring Position | P4 | | |
 
 ### Connector inspector

@@ -17,6 +17,7 @@
  */
 
 import type { SVGProps } from "react";
+import type { BooleanOp } from "../../scene/types";
 
 type Props = SVGProps<SVGSVGElement>;
 
@@ -466,6 +467,36 @@ export function Dots(props: Props) {
       <circle cx="4" cy="8" r="0.9" fill="currentColor" stroke="none" />
       <circle cx="8" cy="8" r="0.9" fill="currentColor" stroke="none" />
       <circle cx="12" cy="8" r="0.9" fill="currentColor" stroke="none" />
+    </Line>
+  );
+}
+
+/* ---- Boolean ------------------------------------------------------------ */
+
+/** Two overlapping squares, with what the operation keeps filled in. */
+const SQUARE_A = "M2.5 2.5h8v8h-8Z";
+const SQUARE_B = "M5.5 5.5h8v8h-8Z";
+const KEPT: Record<BooleanOp, string> = {
+  union: "M2.5 2.5h8v3h3v8h-8v-3h-3Z",
+  subtract: "M2.5 2.5h8v3h-5v5h-3Z",
+  intersect: "M5.5 5.5h5v5h-5Z",
+  exclude: "M2.5 2.5h8v3h-5v5h-3Z M13.5 13.5h-8v-3h5v-5h3Z",
+};
+
+export function Boolean({ op, ...props }: Props & { op: BooleanOp }) {
+  return (
+    <Solid {...props}>
+      <path d={`${SQUARE_A} ${SQUARE_B}`} fill="none" stroke="currentColor" strokeWidth="1" strokeOpacity="0.4" />
+      <path d={KEPT[op]} />
+    </Solid>
+  );
+}
+
+/** The union's outline alone: one shape, no operation left in it. */
+export function Flatten(props: Props) {
+  return (
+    <Line {...props}>
+      <path d="M2.5 2.5h8v3h3v8h-8v-3h-3Z" />
     </Line>
   );
 }
