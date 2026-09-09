@@ -242,6 +242,31 @@ export interface UseViewportOptions {
 
 type ViewportEngine = ViewportController & { mount(): () => void };
 
+/**
+ * How much of a wheel push along one axis the content can take, with `pos`
+ * its near edge and `size` its extent in container px, `span` the container's.
+ *
+ * Content larger than the container always has somewhere to go: the far side
+ * is where the user is heading, and erring that way only keeps a scroll the
+ * page could have had, where erring the other way leaves an end unreachable.
+ * Content that fits is kept in view: a push slides it up to the container's
+ * edge and no further, and one that would only carry it out of view takes
+ * nothing, which is what lets the page have the scroll. Content already past
+ * an edge may come back in but not go further out. Zoomed out until the whole
+ * diagram fits, this is the difference between panning it around the block
+ * and a swipe that jitters two events and hands the rest to the page.
+ */
+export function absorb(pos: number, size: number, span: number, d: number): number {
+  if (d === 0) return 0;
+  if (size >= span) return d;
+  const target = pos - d;
+  // A positive push moves the content toward the near edge (0), a negative one
+  // toward the far edge (span − size); out of range, only the way back is open.
+  const stop = d > 0 ? Math.min(pos, 0) : Math.max(pos, span - size);
+  const next = d > 0 ? Math.max(target, stop) : Math.min(target, stop);
+  return pos - next;
+}
+
 function clamp(v: number, lo: number, hi: number): number {
   return v < lo ? lo : v > hi ? hi : v;
 }
@@ -607,14 +632,15 @@ function createViewport(options: UseViewportOptions): ViewportEngine {
       edgePushes = 0;
     }
     wheelAt = e.timeStamp;
-    if (!hasReach(d)) {
+    const a = absorbed(d);
+    if (a.x === 0 && a.y === 0) {
       if (++edgePushes > WHEEL_EDGE_GRACE) return;
     } else {
       edgePushes = 0;
     }
 
     e.preventDefault();
-    panBy(-d.x, -d.y);
+    panBy(-a.x, -a.y);
   }
 
   /**
@@ -639,26 +665,16 @@ function createViewport(options: UseViewportOptions): ViewportEngine {
   }
 
   /**
-   * Is there content left to bring into view along the axes `d` asks for?
-   *
-   * The test is containment and not the nearer edge: the whole content has to
-   * be inside the container on an axis before a push along that axis counts as
-   * a push at nothing. Content that still runs off one side has somewhere to
-   * go in both directions — the far side is where the user is heading — and
-   * the cost of erring that way is only a scroll the canvas kept when it could
-   * have passed it on, where the cost of erring the other way is a diagram
-   * whose far end cannot be reached. Unknown counts as room for the same
-   * reason, and an axis with no delta asks for nothing and answers nothing.
+   * How much of a wheel push the canvas takes, per axis — see {@link absorb}.
+   * Unknown content counts as room, for the reason given at {@link onWheel}.
    */
-  function hasReach(d: Point): boolean {
-    if (!reach) return true;
-    if (d.x === 0 && d.y === 0) return true;
-    const { box } = reach;
-    const left = box.x * vp.zoom + vp.x;
-    const top = box.y * vp.zoom + vp.y;
-    const x = d.x !== 0 && (left < -1 || left + box.w * vp.zoom > reach.cw + 1);
-    const y = d.y !== 0 && (top < -1 || top + box.h * vp.zoom > reach.ch + 1);
-    return x || y;
+  function absorbed(d: Point): Point {
+    if (!reach) return d;
+    const { box, cw, ch } = reach;
+    return {
+      x: absorb(box.x * vp.zoom + vp.x, box.w * vp.zoom, cw, d.x),
+      y: absorb(box.y * vp.zoom + vp.y, box.h * vp.zoom, ch, d.y),
+    };
   }
 
   // -------------------------------------------------------------------------
