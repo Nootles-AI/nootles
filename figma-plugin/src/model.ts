@@ -75,6 +75,9 @@ export interface FigNode {
   type: string;
   visible?: boolean;
   locked?: boolean;
+  /** Masks every sibling after it in `children` — the layers above it. */
+  isMask?: boolean;
+  maskType?: "ALPHA" | "VECTOR" | "LUMINANCE";
 
   x: number;
   y: number;
@@ -123,6 +126,7 @@ export interface FigNode {
   pointCount?: number;
 
   // Vectors.
+  booleanOperation?: "UNION" | "INTERSECT" | "SUBTRACT" | "EXCLUDE";
   vectorPaths?: { windingRule: string; data: string }[];
   fillGeometry?: { windingRule?: string; data: string }[];
   strokeGeometry?: { windingRule?: string; data: string }[];

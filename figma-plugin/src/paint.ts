@@ -163,9 +163,26 @@ export function backgroundOf(
 // ---------------------------------------------------------------------------
 
 /**
- * The first visible solid stroke, spelled the way the stroke panel spells a
- * position: inside is a `border`, outside an `outline`, centre an outline
- * pulled back by half its weight.
+ * The stroke a node wears: the first visible one that has a colour to give.
+ * A stroke is one colour in CSS, so a gradient stroke is worn as its first
+ * stop; {@link isGradient} lets the caller say so.
+ */
+export function firstStroke(strokes: Paint[] | undefined): Paint | undefined {
+  return (strokes ?? []).find((s) => visible(s) && strokeColor(s) !== null);
+}
+
+export const isGradient = (paint: Paint | undefined): boolean => !!paint && paint.type.startsWith("GRADIENT_");
+
+function strokeColor(paint: Paint): string | null {
+  if (paint.type === "SOLID" && paint.color) return cssColor(paint.color, paint.opacity ?? 1);
+  const stop = isGradient(paint) ? paint.gradientStops?.[0] : undefined;
+  return stop ? cssColor(stop.color, paint.opacity ?? 1) : null;
+}
+
+/**
+ * A box's stroke, spelled the way the stroke panel spells a position: inside
+ * is a `border`, outside an `outline`, centre an outline pulled back by half
+ * its weight.
  */
 export function strokeDecls(
   strokes: Paint[] | undefined,
@@ -173,9 +190,9 @@ export function strokeDecls(
   align: "INSIDE" | "OUTSIDE" | "CENTER" | undefined,
   dash: number[] | undefined,
 ): Decls {
-  const stroke = (strokes ?? []).find((s) => visible(s) && s.type === "SOLID" && s.color);
-  if (!stroke || !stroke.color || !weight || weight <= 0) return {};
-  const color = cssColor(stroke.color, stroke.opacity ?? 1);
+  const stroke = firstStroke(strokes);
+  const color = stroke ? strokeColor(stroke) : null;
+  if (!color || !weight || weight <= 0) return {};
   const style = dash && dash.length ? "dashed" : "solid";
   const value = `${px(weight)} ${style} ${color}`;
   if (align === "OUTSIDE") return { outline: value };
@@ -183,28 +200,44 @@ export function strokeDecls(
   return { border: value };
 }
 
-/** A path's own paint: SVG's words, on the element that is the path. */
-export function pathPaintDecls(
+/**
+ * A path's fill. One solid is SVG's own `fill`. Anything SVG's `fill` cannot
+ * take — a gradient, a picture, a stack — is the same `background` a box
+ * wears, which the renderer clips to the path. Nothing visible is `fill:
+ * none`, said out loud: an unpainted path is otherwise given the pen's ink.
+ */
+export function pathFillDecls(
   fills: Paint[],
+  w: number,
+  h: number,
+  image: (layer: ImageLayer) => string | null,
+): Decls {
+  const shown = fills.filter(visible);
+  const only = shown.length === 1 ? shown[0] : null;
+  if (only && only.type === "SOLID" && only.color) return { fill: cssColor(only.color, only.opacity ?? 1) };
+  const background = shown.length ? backgroundOf(shown, w, h, image) : undefined;
+  return background ? { background } : { fill: "none" };
+}
+
+/** A path's stroke: SVG's words, on the element that is the path. */
+export function pathStrokeDecls(
   strokes: Paint[] | undefined,
   weight: number | undefined,
   dash: number[] | undefined,
   cap: string | undefined,
   join: string | undefined,
 ): Decls {
-  const out: Decls = {};
-  const fill = fills.find((f) => visible(f) && f.type === "SOLID" && f.color);
-  out.fill = fill && fill.color ? cssColor(fill.color, fill.opacity ?? 1) : "none";
-  const stroke = (strokes ?? []).find((s) => visible(s) && s.type === "SOLID" && s.color);
-  if (stroke && stroke.color && weight) {
-    out.stroke = cssColor(stroke.color, stroke.opacity ?? 1);
-    out["stroke-width"] = String(round(weight));
-    if (dash && dash.length) out["stroke-dasharray"] = dash.map((n) => round(n)).join(" ");
-    const caps: Record<string, string> = { ROUND: "round", SQUARE: "square" };
-    if (cap && caps[cap]) out["stroke-linecap"] = caps[cap];
-    const joins: Record<string, string> = { ROUND: "round", BEVEL: "bevel" };
-    if (join && joins[join]) out["stroke-linejoin"] = joins[join];
-  }
+  const stroke = firstStroke(strokes);
+  const color = stroke ? strokeColor(stroke) : null;
+  // Said out loud for the same reason as `fill: none`: with neither, the
+  // renderer assumes a line was meant and inks one.
+  if (!color || !weight) return { stroke: "none" };
+  const out: Decls = { stroke: color, "stroke-width": String(round(weight)) };
+  if (dash && dash.length) out["stroke-dasharray"] = dash.map((n) => round(n)).join(" ");
+  const caps: Record<string, string> = { ROUND: "round", SQUARE: "square" };
+  if (cap && caps[cap]) out["stroke-linecap"] = caps[cap];
+  const joins: Record<string, string> = { ROUND: "round", BEVEL: "bevel" };
+  if (join && joins[join]) out["stroke-linejoin"] = joins[join];
   return out;
 }
 
