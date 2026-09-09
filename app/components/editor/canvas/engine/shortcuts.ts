@@ -57,6 +57,7 @@ import {
   unionBounds,
 } from "../scene/geometry";
 import { HUG } from "../scene/autoLayout";
+import { booleanOps, flattenOps, loadClipper } from "../scene/boolean";
 import { mintEdgeIds, mintIds } from "../scene/ops";
 import { parseScene } from "../scene/parse";
 import { serializeScene } from "../scene/serialize";
@@ -78,6 +79,8 @@ import {
   type SceneNode,
   type SceneOp,
   type StylePatch,
+  isBoolean,
+  type BooleanOp,
 } from "../scene/types";
 import type { SceneStore } from "./useScene";
 import type { SelectionStore } from "./useSelection";
@@ -165,6 +168,11 @@ export type ShortcutId =
   | "edit.group"
   | "edit.ungroup"
   | "edit.autoLayout"
+  | "edit.union"
+  | "edit.subtract"
+  | "edit.intersect"
+  | "edit.exclude"
+  | "edit.flatten"
   | "edit.delete"
   | "edit.copy"
   | "edit.cut"
@@ -235,6 +243,12 @@ export const SHORTCUTS: readonly Shortcut[] = [
     group: "Edit",
     keys: ["Shift+a"],
   },
+  // Figma's boolean bindings, and its ⌘E for flatten.
+  { id: "edit.union", label: "Union", group: "Edit", keys: ["Mod+Alt+u"] },
+  { id: "edit.subtract", label: "Subtract", group: "Edit", keys: ["Mod+Alt+s"] },
+  { id: "edit.intersect", label: "Intersect", group: "Edit", keys: ["Mod+Alt+i"] },
+  { id: "edit.exclude", label: "Exclude", group: "Edit", keys: ["Mod+Alt+x"] },
+  { id: "edit.flatten", label: "Flatten", group: "Edit", keys: ["Mod+e"] },
   {
     id: "edit.delete",
     label: "Delete",
@@ -772,6 +786,14 @@ export function useCanvasShortcuts({
     /** The addressable selection: live, top-most, in document order. */
     const targets = () =>
       topSelection(scene(), latest.current.selection.getSnapshot().ids);
+    const boolean = (op: BooleanOp) => {
+      const current = scene();
+      const result = booleanOps(current, targets(), op);
+      if (!result) return true;
+      dispatch(result.ops);
+      latest.current.selection.select(result.select);
+      return true;
+    };
 
     const targetIds = () => targets().map((node) => node.id);
 
@@ -854,6 +876,15 @@ export function useCanvasShortcuts({
           : { type: "insert", nodes: copies, parentId },
       );
       latest.current.selection.select(copies.map((node) => node.id));
+
+      // A paste too big for the view — a whole Figma frame — is framed, so
+      // what arrived is what is seen rather than one corner of it.
+      const landed = unionBounds(copies);
+      const box = el.getBoundingClientRect();
+      const zoom = latest.current.viewport.get().zoom;
+      if (landed.w * zoom > box.width || landed.h * zoom > box.height) {
+        zoomTo({ ...landed, x: landed.x + origin.x, y: landed.y + origin.y });
+      }
     };
 
     const zoomTo = (bounds: Rect) => {
@@ -1050,6 +1081,23 @@ export function useCanvasShortcuts({
           { type: "setStyle", ids: [groupId], decls: autoLayoutDecls(current, ids) },
         ]);
         latest.current.selection.select([groupId]);
+        return true;
+      },
+
+      "edit.union": () => boolean("union"),
+      "edit.subtract": () => boolean("subtract"),
+      "edit.intersect": () => boolean("intersect"),
+      "edit.exclude": () => boolean("exclude"),
+
+      // The clipper may still be loading on a page whose first boolean this
+      // is; the flatten waits for it and reads the scene again when it lands.
+      "edit.flatten": () => {
+        const ids = targets().filter(isBoolean).map((node) => node.id);
+        if (ids.length === 0) return true;
+        void loadClipper().then(() => {
+          const ops = flattenOps(scene(), ids);
+          if (ops.length) dispatch(ops);
+        });
         return true;
       },
 

@@ -6,6 +6,7 @@ import { Image as ImageGlyph, X } from "@/app/components/Icons";
 import { Tooltip } from "@/app/components/Tooltip";
 import { putImage } from "../../../album/upload";
 import type { SceneNode } from "../../scene/types";
+import { isBoolean } from "../../scene/types";
 import { ColorField } from "../controls/ColorField";
 import { Eye } from "../controls/glyphs";
 import { IconButton } from "../controls/IconButton";
@@ -187,7 +188,7 @@ const writeFills = (fills: Fill[]): string | undefined =>
   ) || undefined;
 
 export function FillSection({ selection, patch }: SectionProps) {
-  const boxes = selection.filter((node) => node.kind !== "path");
+  const boxes = selection.filter((node) => node.kind !== "path" && !isBoolean(node));
   return boxes.length ? (
     <BoxFill nodes={boxes} patch={patch} />
   ) : (

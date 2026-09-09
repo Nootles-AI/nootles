@@ -11,7 +11,7 @@ export default defineConfig({
     environment: "edge-runtime",
     // Convex functions and the pure canvas-collab layer; UI is verified
     // in-browser.
-    include: ["convex/**/*.test.ts", "app/**/*.test.ts"],
+    include: ["convex/**/*.test.ts", "app/**/*.test.ts", "figma-plugin/**/*.test.ts"],
     server: { deps: { inline: ["convex-test"] } },
   },
 });

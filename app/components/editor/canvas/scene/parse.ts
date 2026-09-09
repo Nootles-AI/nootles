@@ -14,6 +14,8 @@ import {
   type SceneNodeBase,
   type SceneNodeKind,
   type StyleMap,
+  BOOLEAN_OPS,
+  type BooleanOp,
 } from "./types";
 
 /**
@@ -133,6 +135,15 @@ function arcAttrs(el: Element): {
     ...(sweep === undefined ? {} : { sweep: clamp(sweep, -360, 360) }),
     ...(inner === undefined ? {} : { inner: clamp(inner, 0, 1) }),
   };
+}
+
+/** A group's `op`, by presence like an arc: absent stays absent, and a value
+ *  that is not an operation reads as a union rather than vanishing. */
+function booleanOp(el: Element): BooleanOp | undefined {
+  const raw = el.getAttribute("op");
+  if (raw === null) return undefined;
+  const op = raw.trim().toLowerCase();
+  return (BOOLEAN_OPS as readonly string[]).includes(op) ? (op as BooleanOp) : "union";
 }
 
 /** `locked`, `locked=""` and `locked="true"` are all true; `"false"`/`"0"` are not. */
@@ -342,8 +353,10 @@ function elementToNode(
       return { ...base, kind: "image", src: imageSrc(el.getAttribute("src")) };
     case "path":
       return { ...base, kind: "path", d: (el.getAttribute("d") ?? "").trim() };
-    case "group":
-      return { ...base, kind: "group", children: childNodes(el, mint) };
+    case "group": {
+      const op = booleanOp(el);
+      return { ...base, kind: "group", children: childNodes(el, mint), ...(op ? { op } : {}) };
+    }
   }
 }
 

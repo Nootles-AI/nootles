@@ -32,6 +32,9 @@ and never put colour or borders in attributes.
   rot        clockwise degrees, only when rotated.
   sides      required on <nt-polygon>. 4 is a diamond, 3 a triangle, 6 a hexagon.
   d          required on <nt-path>. SVG path data.
+  op         on <nt-group>: union | subtract | intersect | exclude. The group then draws ONE
+             shape cut from its children and paints it with its own style (fill, stroke);
+             the children are operands, not drawn. subtract takes the rest from the first.
 
 Every shape needs a unique id.
 

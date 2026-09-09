@@ -254,7 +254,7 @@ export const KIND_ATTRS: Record<SceneNodeKind, readonly string[]> = {
   text: [],
   image: [],
   path: [],
-  group: [],
+  group: ["op"],
 };
 
 /** True when an attribute is modelled explicitly and must not enter `attrs`. */
@@ -388,7 +388,17 @@ export interface GroupNode extends SceneNodeBase {
   kind: "group";
   /** Document order = back-to-front, same as the scene's top level. */
   children: SceneNode[];
+  /**
+   * A boolean operation over the children, which are then its operands rather
+   * than things drawn: the group paints one derived shape with its own style,
+   * and the operands keep only their geometry. `subtract` takes the rest from
+   * the first (bottom-most); the other three are symmetric. See scene/boolean.
+   */
+  op?: BooleanOp;
 }
+
+export const BOOLEAN_OPS = ["union", "subtract", "intersect", "exclude"] as const;
+export type BooleanOp = (typeof BOOLEAN_OPS)[number];
 
 /** Discriminated on `kind`. Exhaustive `switch` is the intended way to consume it. */
 export type SceneNode =
@@ -638,7 +648,7 @@ export type SceneOp =
    * selection's bounds and rewrites the children's `x`/`y` to be relative to
    * it; the caller supplies only the id (and optionally a name).
    */
-  | { type: "group"; ids: NodeId[]; groupId: NodeId; name?: string }
+  | { type: "group"; ids: NodeId[]; groupId: NodeId; name?: string; op?: BooleanOp }
   /** Dissolve each group, splicing its children into the group's place in z-order. */
   | { type: "ungroup"; ids: NodeId[] }
   | { type: "setLocked"; ids: NodeId[]; locked: boolean }
@@ -693,12 +703,14 @@ export type SceneOpType = SceneOp["type"];
 /** One node's absolute box, for {@link SceneOp} `resize`. */
 export type NodeFrame = { id: NodeId } & Rect;
 
-/** Geometry that is not the box: {@link PolygonNode} and {@link EllipseNode}. */
+/** Geometry that is not the box: {@link PolygonNode}, {@link EllipseNode},
+ *  and a group's boolean operation. */
 export type ShapeParams = {
   sides?: number;
   start?: number;
   sweep?: number;
   inner?: number;
+  op?: BooleanOp;
 };
 
 /**
@@ -745,6 +757,11 @@ export function isGroup(node: SceneNode): node is GroupNode {
  */
 export function isContainer(node: SceneNode): node is GroupNode {
   return node.kind === "group";
+}
+
+/** A group that draws one shape cut from its children. */
+export function isBoolean(node: SceneNode): node is GroupNode & { op: BooleanOp } {
+  return node.kind === "group" && node.op !== undefined;
 }
 
 /**
@@ -841,6 +858,7 @@ export function displayName(node: SceneNode): string {
   if (node.kind === "polygon") {
     return POLYGON_NAMES[Math.round(node.sides)] ?? "Polygon";
   }
+  if (isBoolean(node)) return node.op[0].toUpperCase() + node.op.slice(1);
   // A pen path that closes encloses an area — it is a shape, and reads as one.
   // `serializePath` ends a closed path with `Z`, and testing the `d` keeps this
   // module free of the imports that make it the contract everything can hold.
