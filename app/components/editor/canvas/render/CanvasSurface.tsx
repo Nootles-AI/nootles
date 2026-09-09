@@ -59,7 +59,10 @@ import {
   type EdgeElements,
   type LiveObstacles,
 } from "./liveEdges";
-import { useTransformGesture } from "../engine/gestures";
+import { prepareBooleans, reflowBooleans, type LiveBooleans } from "./liveBoolean";
+import { useTransformGesture,
+  type LiveFrame,
+} from "../engine/gestures";
 import { useCanvasShortcuts, type CanvasTool } from "../engine/shortcuts";
 import type { SnapGuide } from "../engine/snapping";
 import { useScene, useSceneSnapshot, type SceneStore } from "../engine/useScene";
@@ -587,6 +590,7 @@ export function CanvasSurface({
     elements: Map<NodeId, HTMLElement | null>;
     edges: EdgeElements;
     obstacles: LiveObstacles;
+    booleans: LiveBooleans;
   } | null>(null);
 
   const getElement = useCallback(
@@ -612,13 +616,16 @@ export function CanvasSurface({
    * for everything a running gesture is *not* moving, whose element would only
    * confirm the box the scene already holds at the cost of a forced layout.
    */
-  const reflowLive = useCallback(() => {
+  const reflowLive = useCallback((frames: readonly LiveFrame[] = []) => {
+    const cache = held.current;
+    // A boolean's cut is a function of its operands' boxes, which the gesture
+    // knows and no element shows: the operands are not drawn.
+    reflowBooleans(cache?.booleans ?? null, store.getScene(), frames);
     // Laid out, like every other geometry read here, and through the same
     // memo, so the identity `reflowEdges` checks its prepared obstacles
     // against still matches what `onActiveChange` prepared them from.
     const scene = laidOutScene(store.getScene());
     if (scene.edges.length === 0) return;
-    const cache = held.current;
     reflowEdges(
       sceneRef.current,
       scene,
@@ -682,11 +689,12 @@ export function CanvasSurface({
           elements: new Map(),
           edges: new Map(),
           obstacles: prepareObstacles(laidOutScene(store.getScene()), moving),
+          booleans: prepareBooleans(store.getScene(), selection.getSnapshot().ids, getElement),
         };
         return;
       }
       held.current = null;
-      requestAnimationFrame(reflowLive);
+      requestAnimationFrame(() => reflowLive());
     },
   });
 
