@@ -2,11 +2,16 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createReactBlockSpec } from "@blocknote/react";
+import { useConvex } from "convex/react";
 import { ySyncPluginKey } from "y-prosemirror";
 import type * as Y from "yjs";
 import { flattenBlocks, type AnyBlock } from "@/app/lib/ai/projection";
 import { useHints } from "@/app/components/hints/useHints";
 import { useReadOnly } from "../readOnly";
+import { putDataUri } from "../album/upload";
+import { canonicalPathOps } from "../canvas/scene/canonicalPaths";
+import { shapeIdsIn } from "../canvas/scene/reveal";
+import { hoistOps, inlinePictures } from "../canvas/scene/inlineImages";
 import { CanvasAiContext } from "../canvas/canvasAi";
 import { CanvasCollab } from "../canvas/collab/binding";
 import {
@@ -159,6 +164,20 @@ function CanvasBlockView({
     mirror.current = null;
   }, []);
 
+  // What arrived from outside this canvas was not placed by the user, so the
+  // user is not looking at it: the shapes an outside edit added are brought
+  // into view. Diffed on the strings rather than the scenes because the
+  // legacy pipeline adopts the prop in the surface before this block sees it.
+  const outsideSeen = useRef(source);
+  const revealAdded = useCallback(
+    (before: string, after: string) => {
+      const had = shapeIdsIn(before);
+      const added = [...shapeIdsIn(after)].filter((id) => !had.has(id));
+      if (added.length) api.current?.reveal(added);
+    },
+    [],
+  );
+
   // A prop change nobody here mirrored: a collaborator's mirror (a no-op once
   // their map writes arrived) or the AI writing a whole diagram. Ours in
   // waiting predates theirs, and writing it after would put the diagram back.
@@ -166,8 +185,29 @@ function CanvasBlockView({
     if (!yDoc || !collab.attached) return;
     if (source === collab.lastMirrored) return;
     dropMirror();
+    const before = outsideSeen.current;
+    outsideSeen.current = source;
     collab.adoptExternal(source);
-  }, [collab, yDoc, source, dropMirror]);
+    revealAdded(before, source);
+  }, [collab, yDoc, source, dropMirror, revealAdded]);
+
+  // The legacy pipeline's equivalent: the prop is the document, and a change
+  // this block did not write is one from outside.
+  const ownWrite = useRef<string | null>(null);
+  const legacyChange = useCallback(
+    (html: string) => {
+      ownWrite.current = html;
+      onChange(html);
+    },
+    [onChange],
+  );
+  useEffect(() => {
+    if (yDoc) return;
+    if (source === ownWrite.current || source === outsideSeen.current) return;
+    const before = outsideSeen.current;
+    outsideSeen.current = source;
+    revealAdded(before, source);
+  }, [yDoc, source, revealAdded]);
 
   /** Local flushes go to the maps at once; the prop mirror follows behind. */
   const collabChange = useCallback(
@@ -218,7 +258,49 @@ function CanvasBlockView({
   }, [mine, liveApi, yDoc, blockId]);
 
   const surfaceSource = yDoc ? seed : source;
-  const surfaceChange = yDoc ? collabChange : onChange;
+  const surfaceChange = yDoc ? collabChange : legacyChange;
+  const convex = useConvex();
+  // The string of record is kept honest here, without a history entry, the
+  // moment anything lands on this canvas — a paste from Figma, an AI write, a
+  // board saved before this existed. Two normalisations: a picture's bytes
+  // move into storage and the shape is re-addressed by URL, and a path at
+  // double precision is rewritten the way the pen tool writes one. One upload
+  // per picture, whatever the outcome — the URL is kept, so a scene the
+  // collaboration binding re-adopts from the document is re-addressed from
+  // memory, and a picture that will not decode is not asked for again.
+  const pictures = useRef<Map<string, string | null>>(new Map());
+  const canonical = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (readOnly || !liveApi) return;
+    const store = liveApi.store;
+    const readdress = () => {
+      const known = new Map(
+        [...pictures.current].filter((entry): entry is [string, string] => !!entry[1]),
+      );
+      if (known.size) store.amend(hoistOps(store.getScene().nodes, known));
+    };
+    const hoist = () => {
+      const rounding = canonicalPathOps(store.getScene().nodes, canonical.current);
+      if (rounding.length) store.amend(rounding);
+      readdress();
+      const pending = inlinePictures(store.getScene().nodes).filter(
+        (uri) => !pictures.current.has(uri),
+      );
+      if (!pending.length) return;
+      for (const uri of pending) pictures.current.set(uri, null);
+      void Promise.all(
+        pending.map(async (uri) => {
+          try {
+            pictures.current.set(uri, await putDataUri(convex, uri));
+          } catch (error) {
+            console.warn("[canvas] inline picture kept inline:", error);
+          }
+        }),
+      ).then(readdress);
+    };
+    hoist();
+    return store.subscribe(hoist);
+  }, [readOnly, liveApi, convex]);
 
   /**
    * The first-touch lesson: this is an editor, not a picture. Shown only over

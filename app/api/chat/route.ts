@@ -30,10 +30,10 @@ import {
 } from "@/app/lib/ai/chat/transcript";
 import type { AbMessage } from "@/app/lib/ai/chat/types";
 import { recordAiCall } from "@/app/lib/ai/recordCall";
-import { asUser } from "@/app/lib/convexServer";
+import { asSession } from "@/app/lib/convexServer";
 import { quotaResponse } from "@/app/lib/entitlementGate";
 import { isQuotaRefusal } from "@/convex/entitlements";
-import { sessionToken } from "@/app/lib/session";
+import { session } from "@/app/lib/session";
 
 /**
  * The chat agent's loop.
@@ -48,8 +48,8 @@ export const maxDuration = 60;
 
 export async function POST(req: Request) {
   const startedAt = Date.now();
-  const token = await sessionToken();
-  if (!token) return new Response("Unauthorized", { status: 401 });
+  const caller = await session();
+  if (!caller) return new Response("Unauthorized", { status: 401 });
 
   let body: unknown;
   try {
@@ -106,7 +106,10 @@ export async function POST(req: Request) {
   const budget = AI.chat.maxSteps - stepsTaken(messages);
   const spent = budget <= 0 && !answeringApproval(messages);
 
-  const convex = asUser(token);
+  // Not `asUser`: this request streams past the life of one token, and the
+  // ledger row at the end — and a drawing stored after a slow artist — must
+  // still be written as the user. See `asSession`.
+  const convex = asSession(caller);
 
   // Charges the conversation against the free allowance, once, and refuses when
   // there is none left. Idempotent, which matters here: one turn is several

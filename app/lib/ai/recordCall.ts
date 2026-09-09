@@ -55,5 +55,12 @@ export function recordAiCall(
 ): void {
   void convex
     .mutation(api.ai.calls.record, { ...call, costUsd: costUsd(call.model, call) })
-    .catch(() => {});
+    .catch((error: unknown) => {
+      // Never the user's problem, but never silent either: a row that fails to
+      // land is a cost nobody sees, and this once hid a token expiring under a
+      // 62-second request for a whole evening.
+      if (process.env.NODE_ENV !== "production") {
+        console.warn(`[ledger] ${call.feature} row not recorded:`, error);
+      }
+    });
 }

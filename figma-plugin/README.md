@@ -23,7 +23,9 @@ Development in the plugins menu, in both Figma Design and FigJam. Rebuild after
 changes; Figma reloads the bundle on the next run.
 
 The plugin asks for no network access. Image fills are read through the Plugin
-API and travel inside the markup as data URIs.
+API and travel inside the markup as data URIs; the canvas moves them into
+storage the moment they land and keeps the URL, so the document never carries
+the bytes.
 
 ## What is carried
 

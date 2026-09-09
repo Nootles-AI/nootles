@@ -148,11 +148,16 @@ export const AI = {
    * wear; medium buys the saving instead of the headroom. Luna is cheaper again
    * and collapses to 41.3% on that same recall benchmark — the one thing a loop
    * that reads pages cannot give up.
+   *
+   * Now on Muse Spark 1.3 at the top of its dial, a trial for the one job this
+   * lane is weakest at: reading a whole design board (130K+ of grammar) and
+   * carrying its logo and icons onto a screen it adds. OpenRouter only — there
+   * is no direct route for it, so this lane needs `USE_OPENROUTER`.
    */
   chat: {
-    model: "openai/gpt-5.6-terra",
+    model: "meta/muse-spark-1.3",
     /** The dial above, traded against time-to-first-token. */
-    effort: "medium",
+    effort: "xhigh",
     /**
      * Ceiling on tool round-trips in one turn. Editing several pages costs a
      * step each for open/read/edit, so this is roughly "touch six pages", with
@@ -265,16 +270,28 @@ export const AI = {
      * price and chat-lane latency; if a "redraw this frame beautifully" action
      * ever ships, it is the model for that button, not for this lane.
      */
-    model: "google/gemini-3.7-flash",
+    model: "meta/muse-spark-1.3",
     /**
-     * Reasoning budget. Low, like every other Gemini lane that answers a pause
-     * in typing: medium was measured in the ledger at 13-49s per diagram with
+     * Reasoning budget. Low, like every other lane that answers a pause in
+     * typing: medium was measured in the ledger at 13-49s per diagram with
      * 2,600-6,100 output tokens — most of it thinking spent before the first
      * shape, which is exactly the phase this lane's streaming preview cannot
-     * hide. 2.5 Flash drew a whole diagram in under 5s; low is the closest 3.7
-     * can be pinned to that, since it cannot be told to stop thinking at all.
+     * hide. 2.5 Flash drew a whole diagram in under 5s; low is the closest a
+     * reasoning model can be pinned to that.
+     *
+     * On Muse Spark as a trial (2026-09): Flash drew inline mockups the chat
+     * lane on Muse then out-designed, so the same model is tried here at the
+     * bottom of its dial. The ledger records latency and cost per diagram;
+     * if it cannot hold near Flash's 14s, this is the line to put back.
      */
     effort: "low",
+    /**
+     * Room to think, on top of `maxTokens`. Muse spends its reasoning inside
+     * the output cap the way Gemini does (see `THINKING_HEADROOM` in
+     * providers.ts); without this a cap written for the drawing alone is spent
+     * before the first shape and the diagram arrives cut off.
+     */
+    thinkingHeadroom: 2048,
     /**
      * A drawing is the long case, and by a wide margin. A mockup is a few dozen
      * short elements; a storyboard is one `<nt-path>` per stroke, and a `d` with
@@ -380,6 +397,8 @@ export const AI = {
     "google/gemini-2.5-flash": { in: 0.3, out: 2.5 },
     "google/gemini-3.7-flash": { in: 0.375, out: 1.875 },
     "openai/gpt-5.6-terra": { in: 1, out: 6, cacheRead: 0.1, cacheWrite: 1.25 },
+    // OpenRouter's list price; no cache tier is published for it.
+    "meta/muse-spark-1.3": { in: 1.25, out: 4.25 },
     // Flat per image, not per token — `perCall` is the whole price. This is the
     // VECTOR line's price; $0.04 is what Recraft charges for the raster model of
     // the same generation, and pricing this lane at it halved every drawing.

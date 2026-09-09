@@ -108,6 +108,8 @@ export function applyOp(scene: Scene, op: SceneOp): Scene {
       return setStyle(scene, op.ids, op.decls);
     case "setLabel":
       return setLabel(scene, op.id, op.label);
+    case "setSrc":
+      return setSrc(scene, op.id, op.src);
     case "setName":
       return setName(scene, op.id, op.name);
     case "insert":
@@ -470,6 +472,15 @@ export function setLabel(scene: Scene, id: NodeId, label: string): Scene {
     scene,
     mapTree(scene.nodes, new Set([id]), (node) =>
       node.label === label ? node : patch(node, { label }),
+    ),
+  );
+}
+
+export function setSrc(scene: Scene, id: NodeId, src: string): Scene {
+  return withNodes(
+    scene,
+    mapTree(scene.nodes, new Set([id]), (node) =>
+      node.kind === "image" && node.src !== src ? { ...node, src } : node,
     ),
   );
 }

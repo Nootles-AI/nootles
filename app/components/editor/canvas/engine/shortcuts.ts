@@ -826,6 +826,7 @@ export function useCanvasShortcuts({
     const paste = (html: string, inPlace: boolean): void => {
       const fragment = parseScene(html);
       if (fragment.nodes.length === 0) return;
+      const nodes = fragment.nodes;
 
       const current = scene();
       const parentId = level();
@@ -839,7 +840,7 @@ export function useCanvasShortcuts({
       if (!inPlace) {
         // Centre the paste on what the user is looking at, as Figma does when
         // the copy did not come from the visible area.
-        const box = unionBounds(fragment.nodes);
+        const box = unionBounds(nodes);
         const view = viewportCentre();
         if (view) {
           dx += view.x - (box.x + box.w / 2);
@@ -852,7 +853,7 @@ export function useCanvasShortcuts({
       // Every node lands under a fresh id, so the connectors that came with it
       // have to be rewritten onto those before they mean anything.
       const remap = new Map<NodeId, NodeId>();
-      const copies = copiesInto(current, fragment.nodes, dx, dy, remap);
+      const copies = copiesInto(current, nodes, dx, dy, remap);
       const wanted = fragment.edges.filter(
         (edge) => remap.has(edge.from) && remap.has(edge.to),
       );

@@ -1,10 +1,11 @@
 /**
  * Who gets billed for a model call.
  *
- * One flag, read on the server only. `USE_OPENROUTER=true` sends every lane
- * back through the aggregator on one key; unset or false — the default — calls
- * each vendor directly on its own key, so a lane that runs away can only spend
- * the budget of the one service it belongs to.
+ * One flag, read on the server only. `USE_OPENROUTER=true` sends every text
+ * lane back through the aggregator on one key; unset or false — the default —
+ * calls each vendor directly on its own key, so a lane that runs away can only
+ * spend the budget of the one service it belongs to. The image lane is direct
+ * under both settings; see `imageTarget`.
  *
  * The ids in `aiConfig` stay OpenRouter slugs under both settings. They are the
  * cost ledger's keys (`AI.prices`), and a row costed today has to still cost the
@@ -230,16 +231,13 @@ export function readUsage(
  *  and the style card, and has no token ceiling to reconcile. */
 export type ImageTarget = { url: string; key: string; model: string };
 
-/** The image lane. Recraft is the only vendor here, and its own API takes the
- *  same OpenAI-shaped envelope OpenRouter wraps. */
+/**
+ * The image lane. Recraft is the only vendor here, and it is the one lane
+ * that stays on its own key whatever `USE_OPENROUTER` says: the drawing
+ * budget is kept apart from the chat budget on purpose, so a runaway board
+ * can only spend the one account it belongs to.
+ */
 export function imageTarget(slug: string): ImageTarget {
-  if (viaOpenRouter()) {
-    return {
-      url: "https://openrouter.ai/api/v1/images/generations",
-      key: apiKey("openrouter"),
-      model: slug,
-    };
-  }
   const { vendor, id } = directModel(slug);
   if (vendor !== "recraft") {
     throw new Error(`"${slug}" is not an image model`);

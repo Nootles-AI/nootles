@@ -84,6 +84,7 @@ import {
   type RotatedRect,
 } from "../scene/geometry";
 import { laidOutScene } from "../scene/autoLayout";
+import { revealBounds } from "../scene/reveal";
 import { mintId } from "../scene/ops";
 // A leaf module of pure constants — no cycle, though the surface knows nothing
 // else about storyboards.
@@ -323,6 +324,13 @@ export interface CanvasApi {
   setTool(tool: CanvasTool): void;
   /** The diagram's own fields — `StylePanel`'s `onDiagramChange`. */
   setDiagram(patch: DiagramPatch): void;
+  /**
+   * Bring shapes into view — the ones an edit from outside just added, which
+   * the user did not place and so cannot be looking at. The view eases only
+   * as far as it must (see `revealBounds`) and never zooms IN past where the
+   * user had it: a small addition is shown where it is, not blown up.
+   */
+  reveal(ids: readonly NodeId[]): void;
   /**
    * Show a width and/or height on the block without committing it, so a scrub
    * of the panel's W/H previews every frame. Written straight to the element,
@@ -773,6 +781,23 @@ export function CanvasSurface({
     viewport.zoomToFit(contentRect(scene));
   }, [store, viewport, inFrame]);
 
+  const reveal = useCallback(
+    (ids: readonly NodeId[]) => {
+      if (inFrame) return;
+      const laid = laidOutScene(store.getScene());
+      const present = ids.filter((id) => {
+        const node = findNode(laid, id);
+        return node && !node.hidden;
+      });
+      if (!present.length) return;
+      const seen = visibleRect(viewport);
+      if (!seen) return;
+      const to = revealBounds(absoluteSelectionBounds(laid, present), seen);
+      if (to) viewport.zoomToFit(to, { maxZoom: viewport.get().zoom });
+    },
+    [store, viewport, inFrame],
+  );
+
   // A diagram authored wider than the column would otherwise open cropped.
   const fitted = useRef(false);
   useLayoutEffect(() => {
@@ -789,6 +814,7 @@ export function CanvasSurface({
       tools: toolControl,
       setTool: changeTool,
       setDiagram,
+      reveal,
       previewSize,
       previewStyle,
     }),
@@ -798,6 +824,7 @@ export function CanvasSurface({
       viewport,
       toolControl,
       changeTool,
+      reveal,
       setDiagram,
       previewSize,
       previewStyle,
