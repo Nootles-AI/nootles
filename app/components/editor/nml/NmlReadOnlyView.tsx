@@ -69,7 +69,7 @@ export function NmlReadOnlyView({ bridge, resolveStorageUrl }: {
   return <NmlView bridge={bridge} editable={false} resolveStorageUrl={resolveStorageUrl} />;
 }
 
-/** Step-7 editor: only unmarked paragraph, heading, and quote text is mutable. */
+/** Step-8 isolated editor: only unmarked paragraph, heading, and quote text is mutable. */
 export function NmlPlainTextView({ bridge, resolveStorageUrl }: {
   bridge: PlainTextNmlBridge;
   resolveStorageUrl?: (storageId: string) => string | undefined;

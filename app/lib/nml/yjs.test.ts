@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   createNmlYDoc,
   decodeNmlDocument,
+  executeNmlCommands,
   NML_YJS_ROOT,
   NmlYjsDecodeError,
   normalizeDocument,
@@ -166,6 +167,35 @@ describe("canonical NML Yjs encoding", () => {
     expect(listener.mock.calls[0][0]).toMatchObject({ transactionId: "tx-1", origin, changes: [{ kind: "text", nodeId: "code1" }], diagnostics: [] });
     expect(listener.mock.calls[0][0].beforeStateVector).toBeInstanceOf(Uint8Array);
     expect(listener.mock.calls[0][0].afterStateVector).toBeInstanceOf(Uint8Array);
+  });
+
+  it("does not report surviving siblings as moved when an insertion shifts their indexes", async () => {
+    const minimal: NmlDocument = {
+      schemaVersion: 1,
+      documentId: "observer-index-shift",
+      blocks: [
+        { id: "p1", type: "paragraph", props: {}, content: [], children: [] },
+        { id: "p2", type: "paragraph", props: {}, content: [], children: [] },
+      ],
+    };
+    const doc = createNmlYDoc(minimal);
+    const listener = vi.fn();
+    const stop = observeNmlChanges(doc, listener);
+    await executeNmlCommands({
+      doc,
+      documentId: minimal.documentId,
+      commands: [{
+        type: "insertNodes", parentId: null, anchor: { beforeId: "p1" },
+        nodes: [{ id: "inserted", type: "paragraph", props: {}, content: [], children: [] }],
+      }],
+      idempotencyKey: "observer-index-shift",
+      origin: { ...origin, transactionId: "observer-index-shift" },
+      authorize: () => true,
+    });
+    stop();
+
+    expect(listener).toHaveBeenCalledOnce();
+    expect(listener.mock.calls[0][0].changes).toEqual([{ kind: "insert", parentId: null, nodeIds: ["inserted"] }]);
   });
 
   it("fails closed for unknown versions and malformed shared types", () => {

@@ -1,13 +1,16 @@
 # NML ProseMirror View Bridge
 
-Status: steps 6–7 read-only projection and isolated plain-text editing implemented;
-runtime adoption and later editing capabilities remain proposed.
+Status: steps 6–8 read-only projection, isolated plain-text editing, durable selection,
+awareness, and IME implemented; runtime adoption and later editing capabilities remain
+proposed.
 
-## Implemented read-only and plain-text slices
+## Implemented read-only, plain-text, selection, and IME slices
 
 `app/lib/nml/view/` exports the adapter registry, projection, stable-ID position index,
 and `ReadOnlyNmlBridge`. Step 7 adds `PlainTextNmlBridge`, its editable browser mount, and
-`NmlPlainTextView`. The canonical `app/lib/nml` entry point stays free of PM/DOM imports.
+`NmlPlainTextView`. Step 8 adds durable NML selections, awareness serialization, and
+composition handling to the same isolated host. The canonical `app/lib/nml` entry point
+stays free of PM/DOM imports.
 React portals preserve application provider context for domain renderers. Callers supply
 an authorized Y.Doc and retain its lifetime. No production route mounts either host.
 
@@ -44,9 +47,20 @@ whole-fragment mixed-mark path remains outside the editing gate until step 9 rep
 Optimistic PM transactions carry bridge/request metadata. Canonical transactions with the
 matching request ID acknowledge without echo or apply the smallest reconcile diff;
 rejected/unauthorized/stale requests roll back to the latest canonical projection.
-Selection-only, metadata-only, and semantic no-op transactions remain local. Remote text
-maps the current PM selection through that minimal diff. Durable selection identities,
-awareness, deletion fallback, and composition buffering remain step 8.
+Selection-only, metadata-only, and semantic no-op transactions remain local. Text
+selections persist as node IDs plus Yjs relative positions and affinity; stable node sides
+cover node, gap, all-document, table-cell, and custom-domain boundaries. Canonical changes
+restore the selection from that durable form, and deleted targets fall back by prior
+document order. Awareness broadcasts a validated JSON-safe form without PM integer
+positions and preserves other local presence fields. Semantic observation compares sibling
+order after excluding insertions/deletions, avoiding false move reports from index shifts.
+
+Real browser composition events bracket provisional unmarked plain-text changes. Interim
+changes stay out of canonical Yjs and PM history, then composition end submits one command.
+Non-intersecting remote changes continue to project, intersecting text is buffered until
+the relative selection resolves, and remotely moved targets reconcile before commit. A
+deleted target preserves only its unfinished local insertion in a copyable recovery panel;
+diagnostics remain content-free. Rich-inline composition stays outside the step-8 gate.
 
 Verification uses Node 22.22.1, `npm test`, `npx tsc --noEmit`, and `npm run lint`. The
 standalone browser comparison uses existing esbuild/Tailwind tooling and an
@@ -58,11 +72,12 @@ NML_PUPPETEER_MODULE=/absolute/path/to/puppeteer/lib/puppeteer/puppeteer.js node
 
 The runner builds a temporary static site and mounts current read-only BlockNote alongside
 the bridge, then mounts the isolated plain-text editor. It checks desktop/mobile fixtures,
-real typing/selection/delete/Unicode input, rejected structure/rich input/paste/drop,
-optimistic acknowledgement and rollback, a reconnect race, remote-caret mapping, remote
-text/canvas updates, drift/newer-version fallback, and cleanup. External HTTP is
-intercepted and Convex uses an inert fixture WebSocket; no backend, paid API, keys, or user
-data is needed. Screenshots go to the temporary path printed on success.
+real typing/selection/delete/Unicode and composition events, durable awareness wire data,
+intersecting remote composition, deleted-target recovery, rejected structure/rich
+input/paste/drop, optimistic acknowledgement and rollback, a reconnect race, remote-caret
+mapping, remote text/canvas updates, drift/newer-version fallback, and cleanup. External
+HTTP is intercepted and Convex uses an inert fixture WebSocket; no backend, paid API, keys,
+or user data is needed. Screenshots go to the temporary path printed on success.
 `NML_CHROME_PATH` can select an installed browser. The sections below describe the full
 future bridge beyond these slices.
 
@@ -473,8 +488,9 @@ Inline editing is the highest-frequency path and requires a specialized adapter:
 
 ## Composition and IME
 
-Open design policy: prefer buffering remote changes that intersect the active composition
-range until `compositionend`, while applying non-intersecting changes normally.
+The step-8 policy buffers remote changes that intersect the active composition range until
+`compositionend`, while applying non-intersecting changes normally. Interim composition
+transactions are local and composition end commits one canonical command.
 
 Required behavior:
 
@@ -676,10 +692,14 @@ product, migration, and operational details close at the gated plan stage that n
 
 ### Selection and composition
 
-- Can Yjs relative positions address every inline embed boundary required by ProseMirror?
-- What is the recovery UI when a remotely deleted node contains active composition?
-- How are gap cursors, node selections, all-selections, and table selections represented?
-- How are custom canvas/text surface transitions represented in awareness?
+- Step 8 addresses unmarked text with Yjs relative positions and stable node-side points;
+  rich inline embed boundaries remain part of step 9.
+- A remotely deleted composition target exposes the unfinished insertion in a local,
+  copyable recovery panel.
+- Gap, node, all-document, table-cell, and atomic custom-domain boundaries use stable node
+  IDs and sides rather than PM offsets.
+- Internal canvas selection and canvas/text awareness transitions remain part of the
+  canonical-canvas stage.
 
 ### Undo and review
 

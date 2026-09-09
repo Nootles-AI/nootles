@@ -1,6 +1,6 @@
 # NML / ProseMirror refactor plan
 
-Status: in progress; steps 1–6 complete.
+Status: in progress; steps 1–8 complete.
 
 ProseMirror remains the browser editing engine. Canonical ownership moves from a
 ProseMirror-shaped Yjs root to a typed, versioned NML AST stored directly in Yjs. Existing
@@ -58,7 +58,7 @@ origin observation, and multi-client text/canvas merge tests enforce the gate. T
 is still headless: no editor, provider, persistence, backend, AI, or MCP path consumes the
 canonical root yet.
 
-## 4. Implement the semantic command executor
+## 4. Implement the semantic command executor — complete
 
 - Cover structure, props, inline content, tables, code, math, shapes, and edges.
 - Support atomic batch validation, temporary IDs, preconditions, idempotency, typed
@@ -150,13 +150,11 @@ Puppeteer comparison against current BlockNote read-only views. No live editor, 
 persistence, AI, backend, or MCP path mounts this preview. See the
 [bridge implementation notes](nml-prosemirror-view-bridge.md) for the browser command.
 
-**Later editing prerequisites:** the existing canonical observer/decoder and snapshot
-comparisons still scan whole ASTs; only PM projection and index subtree scans are
-incremental. The step-7 typing path must remove upstream full-document work. The existing
-executor's mixed-mark/complex-inline path also replaces entire inline fragments and can
-overwrite unseen concurrent text. Character-level rich-inline commands must replace that
-path before the corresponding collaborative editing gate; the reader cannot repair content
-lost upstream.
+**Later editing prerequisite:** step 7 removed full-document work from the supported
+plain-text hot path. The existing executor's mixed-mark/complex-inline path still replaces
+entire inline fragments and can overwrite unseen concurrent text. Character-level
+rich-inline commands must replace that path before the step-9 collaborative editing gate;
+the reader cannot repair content lost upstream.
 
 ## 7. Add plain-text editing and acknowledgement — complete
 
@@ -187,10 +185,10 @@ concurrent first inserts, structural fallback, and real Chromium typing on deskt
 with all external traffic intercepted.
 
 This remains isolated from production routes, providers, Convex persistence, AI, backend,
-and MCP paths. Durable/awareness selections and true IME composition buffering remain step
-8; structure, paste/drop, marks, links, and other rich editing remain step 9.
+and MCP paths. Step 8 adds durable selection/awareness and IME handling to this host;
+structure, paste/drop, marks, links, and other rich editing remain step 9.
 
-## 8. Add selection, awareness, and IME
+## 8. Add selection, awareness, and IME — complete
 
 - Represent durable selections with node IDs and Yjs relative positions.
 - Map deleted selections to surviving neighbors and cover node, gap, table, and custom
@@ -199,6 +197,31 @@ and MCP paths. Durable/awareness selections and true IME composition buffering r
   deleted.
 
 **Gate:** supported desktop/mobile composition and remote-edit scenarios pass.
+
+Implemented in the isolated view bridge and browser host. Text selections use stable NML
+node IDs plus encoded Yjs relative positions and directional affinity; node, gap,
+all-document, table-cell, and custom-domain boundaries use stable node IDs and sides.
+Canonical changes resolve the durable selection against the new projection. Deleted
+targets choose the closest surviving neighbor from prior document order. Awareness carries
+a validated, JSON-safe version of the same NML selection and never broadcasts ProseMirror
+integer positions or replaces unrelated user-presence fields. Semantic change observation
+compares relative order among surviving siblings, so insert/delete index shifts are not
+misreported as moves of the composition target.
+
+Browser `compositionstart`/`compositionend` events open and close a provisional plain-text
+composition. Interim PM changes stay local and excluded from history; composition end emits
+one authorized canonical command. Non-intersecting remote text and unrelated structural
+changes project while preserving provisional text. Intersecting text waits for composition
+end and resolves through relative positions. If a collaborator deletes the target block,
+only the unfinished local insertion enters a visible copyable recovery panel; diagnostics
+retain the node ID and status without text content.
+
+The gate covers CJK, Korean, Indic, dead-key, emoji, and autocorrect input; repeated interim
+replacements; boundary/intersecting/non-intersecting remote text; unrelated inserts and
+target moves; target deletion and recovery; multiple Y.XmlText runs; selection direction,
+deletion fallback, awareness validation, and real Chromium desktop/mobile composition.
+The browser run intercepts external traffic and uses no Convex deployment, paid API, keys,
+or user data. No production route mounts the host.
 
 ## 9. Add structure and rich content
 

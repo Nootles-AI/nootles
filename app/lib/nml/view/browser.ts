@@ -11,6 +11,7 @@ export const DOMAIN_TYPES = new Set(["codeBlock", "mathBlock", "canvas", "album"
 
 function mountNmlView(host: HTMLElement, bridge: NmlViewBridge, renderDomain?: DomainRenderer): { view: EditorView; destroy: () => void } {
   const domainViews = new Map<string, DomainMount>();
+  let compositionEndTimer: ReturnType<typeof setTimeout> | null = null;
   const nodeViews: Record<string, (node: PmNode) => NodeView> = {};
   const toggle = bridge.projection.registry.get("toggleListItem");
   if (toggle) nodeViews[toggle.pmNodeType] = (node) => {
@@ -123,16 +124,46 @@ function mountNmlView(host: HTMLElement, bridge: NmlViewBridge, renderDomain?: D
     dispatchTransaction: (transaction) => { if (!bridge.dispatch(transaction)) view.updateState(bridge.state); },
     handlePaste: () => true,
     handleDrop: () => true,
-    handleDOMEvents: { beforeinput: (_view, event) => {
-      if (bridge.isEditable()) return false;
-      event.preventDefault();
-      return true;
-    } },
+    handleDOMEvents: {
+      beforeinput: (_view, event) => {
+        if (bridge.isEditable()) return false;
+        event.preventDefault();
+        return true;
+      },
+      compositionstart: () => {
+        if (!bridge.isEditable()) return false;
+        return !bridge.beginComposition();
+      },
+      compositionend: () => {
+        if (!bridge.isEditable()) return false;
+        if (compositionEndTimer) clearTimeout(compositionEndTimer);
+        // ProseMirror flushes the final DOM mutation in a microtask after this event.
+        compositionEndTimer = setTimeout(() => {
+          compositionEndTimer = null;
+          bridge.endComposition();
+        }, 0);
+        return false;
+      },
+    },
   });
   const notice = host.ownerDocument.createElement("div");
   notice.setAttribute("role", "status");
   notice.className = "nt-nml-view-notice";
   host.appendChild(notice);
+  const recovery = host.ownerDocument.createElement("div");
+  recovery.className = "nt-nml-composition-recovery";
+  recovery.setAttribute("role", "alert");
+  const recoveryLabel = host.ownerDocument.createElement("p");
+  recoveryLabel.textContent = "A collaborator removed the block you were typing in. Your unfinished text is preserved below.";
+  const recoveryText = host.ownerDocument.createElement("textarea");
+  recoveryText.readOnly = true;
+  recoveryText.setAttribute("aria-label", "Recovered unfinished text");
+  const dismissRecovery = host.ownerDocument.createElement("button");
+  dismissRecovery.type = "button";
+  dismissRecovery.textContent = "Dismiss";
+  dismissRecovery.onclick = () => bridge.clearCompositionRecovery();
+  recovery.append(recoveryLabel, recoveryText, dismissRecovery);
+  host.appendChild(recovery);
   const showStatus = () => {
     host.dataset.nmlStatus = bridge.status();
     notice.hidden = bridge.status() !== "frozen";
@@ -140,6 +171,9 @@ function mountNmlView(host: HTMLElement, bridge: NmlViewBridge, renderDomain?: D
     view.dom.setAttribute("aria-label", bridge.status() === "frozen"
       ? "Document preview unavailable or out of date. Reopen with a compatible client."
       : bridge.isEditable() ? "Plain-text document editor" : "Read-only document");
+    const preserved = bridge.compositionRecovery();
+    recovery.hidden = !preserved;
+    recoveryText.value = preserved?.text ?? "";
   };
   showStatus();
   const stop = bridge.subscribe((update) => {
@@ -150,7 +184,14 @@ function mountNmlView(host: HTMLElement, bridge: NmlViewBridge, renderDomain?: D
     }
     showStatus();
   });
-  return { view, destroy: () => { stop(); view.destroy(); notice.remove(); delete host.dataset.nmlStatus; } };
+  return { view, destroy: () => {
+    if (compositionEndTimer) clearTimeout(compositionEndTimer);
+    stop();
+    view.destroy();
+    notice.remove();
+    recovery.remove();
+    delete host.dataset.nmlStatus;
+  } };
 }
 
 export function mountReadOnlyNmlView(host: HTMLElement, bridge: ReadOnlyNmlBridge, renderDomain?: DomainRenderer): { view: EditorView; destroy: () => void } {

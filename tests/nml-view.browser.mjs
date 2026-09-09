@@ -119,13 +119,16 @@ try {
     await page.screenshot({ path: path.join(output, `${fixture}-desktop.png`), fullPage: true });
   }
 
-  // Exercise the step-7 editor through real Chromium input and selection behavior.
+  // Exercise the step-8 editor through real Chromium input, selection, and composition behavior.
   await page.evaluate(() => window.nmlHarness.mountEditable());
   await page.waitForSelector('#bridge .nt-nml-view[contenteditable="true"]');
   assert.equal(await page.$eval("#bridge .nt-nml-view", (el) => el.getAttribute("role")), "textbox");
   assert.equal(await page.$eval("#bridge .nt-nml-view", (el) => el.getAttribute("aria-readonly")), "false");
   const initialEditing = await page.evaluate(() => window.nmlHarness.inspect());
   assert.equal(initialEditing.parity, true);
+  assert.equal(initialEditing.awareness.version, 1);
+  assert.equal(Array.isArray(initialEditing.awareness.anchor.relative), true);
+  assert.equal(/pm(Start|End)|"(anchor|head)":\d/.test(JSON.stringify(initialEditing.awareness)), false);
 
   await page.click('#bridge [data-nml-id="heading"]');
   await page.keyboard.press("End");
@@ -228,13 +231,55 @@ try {
   assert.equal(JSON.stringify(reconciled.ast).includes("LOCAL"), false);
   await page.screenshot({ path: path.join(output, "plain-text-editing-desktop.png"), fullPage: true });
 
+  // Real CompositionEvents and ProseMirror composition metadata drive one canonical IME request.
+  await page.evaluate(() => window.nmlHarness.mountEditable());
+  await page.waitForSelector('#bridge .nt-nml-view[contenteditable="true"]');
+  assert.equal(await page.evaluate(() => window.nmlHarness.startComposition("plain", 10)), true);
+  assert.equal(await page.evaluate(() => window.nmlHarness.updateComposition("plain", 10, 10, "日本語")), true);
+  assert.equal(await page.$eval('#bridge [data-nml-id="plain"]', (el) => el.textContent), "Plain text日本語");
+  await page.evaluate(() => window.nmlHarness.finishComposition("日本語"));
+  await page.waitForFunction(() => window.nmlHarness.inspect().requests.at(-1)?.status === "acknowledged");
+  let composition = await page.evaluate(() => window.nmlHarness.inspect());
+  assert.equal(composition.ast.blocks.find((block) => block.id === "plain").content[0].text, "Plain text日本語");
+  assert.equal(composition.requests.filter((request) => request.status === "optimistic").length, 1);
+  assert.equal(composition.parity, true);
+
+  assert.equal(await page.evaluate(() => window.nmlHarness.startComposition("quote", 2)), true);
+  assert.equal(await page.evaluate(() => window.nmlHarness.updateComposition("quote", 2, 2, "漢")), true);
+  await page.evaluate(() => window.nmlHarness.remoteEdit("quote", 2, 2, "R"));
+  assert.equal(await page.$eval('#bridge [data-nml-id="quote"]', (el) => el.textContent), "Qu漢ote text");
+  await page.evaluate(() => window.nmlHarness.finishComposition("漢"));
+  await page.waitForFunction(() => document.querySelector('#bridge [data-nml-id="quote"]').textContent === "QuR漢ote text");
+  composition = await page.evaluate(() => window.nmlHarness.inspect());
+  assert.equal(composition.parity, true);
+  await page.screenshot({ path: path.join(output, "composition-desktop.png"), fullPage: true });
+
+  await page.evaluate(() => window.nmlHarness.mountEditable());
+  await page.waitForSelector('#bridge .nt-nml-view[contenteditable="true"]');
+  assert.equal(await page.evaluate(() => window.nmlHarness.startComposition("heading", 7)), true);
+  assert.equal(await page.evaluate(() => window.nmlHarness.updateComposition("heading", 7, 7, "unfinished 日本語")), true);
+  await page.evaluate(() => window.nmlHarness.remoteDelete("heading"));
+  await page.waitForSelector('#bridge .nt-nml-composition-recovery:not([hidden])');
+  assert.equal(await page.$eval('#bridge textarea[aria-label="Recovered unfinished text"]', (element) => element.value), "unfinished 日本語");
+  const recovered = await page.evaluate(() => window.nmlHarness.inspect());
+  assert.deepEqual(recovered.recovery, { nodeId: "heading", text: "unfinished 日本語" });
+  assert.equal(recovered.ast.blocks.some((block) => block.id === "heading"), false);
+  assert.equal(recovered.parity, true);
+  await page.screenshot({ path: path.join(output, "composition-recovery-desktop.png"), fullPage: true });
+  await page.click('#bridge .nt-nml-composition-recovery button');
+  await page.waitForSelector('#bridge .nt-nml-composition-recovery[hidden]');
+
   await page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true });
   await page.evaluate(() => window.nmlHarness.mountEditable());
   await page.waitForSelector('#bridge .nt-nml-view[contenteditable="true"]');
+  assert.equal(await page.evaluate(() => window.nmlHarness.startComposition("quote", 10)), true);
+  assert.equal(await page.evaluate(() => window.nmlHarness.updateComposition("quote", 10, 10, "한글 नमस्ते")), true);
+  await page.evaluate(() => window.nmlHarness.finishComposition("한글 नमस्ते"));
+  await page.waitForFunction(() => document.querySelector('#bridge [data-nml-id="quote"]').textContent === "Quote text한글 नमस्ते");
   await page.click('#bridge [data-nml-id="quote"]');
   await page.keyboard.press("End");
   await page.keyboard.sendCharacter(" mobile");
-  await page.waitForFunction(() => document.querySelector('#bridge [data-nml-id="quote"]').textContent === "Quote text mobile");
+  await page.waitForFunction(() => document.querySelector('#bridge [data-nml-id="quote"]').textContent === "Quote text한글 नमस्ते mobile");
   assert.equal((await page.evaluate(() => window.nmlHarness.inspect())).parity, true);
   await page.screenshot({ path: path.join(output, "plain-text-editing-mobile.png"), fullPage: true });
 
@@ -252,5 +297,5 @@ try {
   await page.evaluate(() => window.nmlHarness.destroy());
   assert.deepEqual(errors, []);
   assert.deepEqual(paidRequests, []);
-  console.log(JSON.stringify({ result: "passed", fixtures: 8, editableWorkflows: 2, desktop: "1440x1100", mobile: "390x844", screenshots: output, browserErrors: errors.length, paidRequests: paidRequests.length }, null, 2));
+  console.log(JSON.stringify({ result: "passed", fixtures: 8, editableWorkflows: 5, desktop: "1440x1100", mobile: "390x844", screenshots: output, browserErrors: errors.length, paidRequests: paidRequests.length }, null, 2));
 } finally { await browser?.close(); await new Promise((resolve) => server.close(resolve)); }
