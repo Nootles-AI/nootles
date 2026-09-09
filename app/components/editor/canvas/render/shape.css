@@ -39,6 +39,16 @@
   min-height: 1lh;
 }
 
+/* The selection wears the label's own ink, washed thin. The browser's default
+   is the system accent, chosen without a glance at the fill it lands on, and
+   it vanishes on a fill of its own colour — or on grey, in the inactive grey
+   an unfocused window paints. Ink always contrasts with the fill (the words
+   are readable), so a wash of ink reads on every shape, whatever it wears. */
+.nt-edit::selection,
+.nt-edit *::selection {
+  background-color: color-mix(in oklab, currentColor 24%, transparent);
+}
+
 /* Empty, there is nothing for the browser to hang a caret on. Blockified as a
    flex item it is a box with no line box in it and no width; in an `<nt-text>`
    the grammar wrote without a `display` it is a bare inline box, which
