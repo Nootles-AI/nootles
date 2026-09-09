@@ -71,7 +71,9 @@ export class PositionIndex {
           nodeId: id,
           pmStart: offset,
           pmEnd: offset + child.nodeSize,
-          ...(child.isLeaf ? {} : { contentStart: offset + 1 }),
+          ...(child.isLeaf ? {} : {
+            contentStart: offset + 1 + (child.firstChild?.type.name === "inline_body" ? 1 : 0),
+          }),
           parentId,
           path,
         });

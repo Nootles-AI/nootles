@@ -17,6 +17,15 @@ export const NML_YJS_ROOT = "nml";
 export const NML_YJS_ENCODING_VERSION = 1 as const;
 export const NML_YJS_STRUCTURE_KEY = "structure";
 
+/**
+ * A row and column can be inserted on disconnected replicas, so neither command can
+ * supply their intersection cell. The decoded table exposes that otherwise-missing
+ * intersection through a deterministic identity; the next edit materializes it in Yjs.
+ */
+export function nmlTableIntersectionCellId(tableId: string, rowId: string, columnId: string): string {
+  return `$nml-table-cell-${JSON.stringify([tableId, rowId, columnId])}`;
+}
+
 export type NmlTransactionOrigin = {
   version: 1;
   transactionId: string;
@@ -64,6 +73,14 @@ export type NmlPlainTextTarget = {
   textNodes: Y.XmlText[];
 };
 
+export type NmlTextTarget = {
+  nodeId: string;
+  kind: "inline" | "code" | "math";
+  text: string;
+  shared: Y.XmlFragment | Y.Text;
+  textNodes: Y.XmlText[];
+};
+
 export class NmlYjsDecodeError extends Error {
   constructor(readonly issues: NmlIssue[]) {
     super(issues.map((issue) => issue.message).join("; ") || "Invalid canonical NML Yjs state");
@@ -101,14 +118,12 @@ function plainValue(value: unknown): unknown {
 
 function xmlText(text: string, marks: readonly NmlMark[] = []): Y.XmlText {
   const node = new Y.XmlText();
-  node.insert(0, text);
-  for (const mark of marks) node.setAttribute(mark, "true");
+  node.insert(0, text, Object.fromEntries(marks.map((mark) => [mark, "true"])));
   return node;
 }
 
-function inlineToY(content: NmlInlineContent): Y.XmlFragment {
-  const fragment = new Y.XmlFragment();
-  const nodes: Array<Y.XmlText | Y.XmlElement> = content.map((inline) => {
+function inlineNodesToY(content: NmlInlineContent): Array<Y.XmlText | Y.XmlElement> {
+  return content.map((inline) => {
     if (inline.type === "text") return xmlText(inline.text, inline.marks);
     const element = new Y.XmlElement(inline.type);
     if (inline.type === "link") {
@@ -124,6 +139,11 @@ function inlineToY(content: NmlInlineContent): Y.XmlFragment {
     }
     return element;
   });
+}
+
+function inlineToY(content: NmlInlineContent): Y.XmlFragment {
+  const fragment = new Y.XmlFragment();
+  const nodes = inlineNodesToY(content);
   fragment.insert(0, nodes);
   return fragment;
 }
@@ -136,35 +156,95 @@ function marksOf(node: Y.XmlText): NmlMark[] {
   return NML_MARKS.filter((mark) => attributes[mark] === "true");
 }
 
+type SharedTextRun = {
+  type: "text";
+  text: string;
+  marks: NmlMark[];
+  href?: string;
+  linkKey?: string;
+};
+
+function textRuns(
+  node: Y.XmlText,
+  path: Array<string | number>,
+  inheritedLink?: { href: string; key: string },
+): SharedTextRun[] {
+  const inherited = marksOf(node);
+  const deltas = node.toDelta() as Array<{ insert?: unknown; attributes?: Record<string, unknown> }>;
+  return deltas.flatMap((delta, index) => {
+    if (typeof delta.insert !== "string") throw decodeFailure([...path, index], "Inline text may contain strings only.");
+    const attributes = delta.attributes ?? {};
+    for (const [key, value] of Object.entries(attributes)) {
+      if ((NML_MARKS as readonly string[]).includes(key) && value === "true") continue;
+      if ((key === "linkHref" || key === "linkKey") && typeof value === "string") continue;
+      {
+        throw decodeFailure([...path, index, key], `Unknown inline mark ${key}.`);
+      }
+    }
+    const marks = NML_MARKS.filter((mark) => attributes[mark] === "true" || (!(mark in attributes) && inherited.includes(mark)));
+    const explicitHref = attributes.linkHref;
+    const href = typeof explicitHref === "string"
+      ? explicitHref || undefined
+      : inheritedLink?.href;
+    const explicitKey = attributes.linkKey;
+    const linkKey = href
+      ? typeof explicitKey === "string" ? explicitKey : inheritedLink?.key
+      : undefined;
+    return delta.insert ? [{ type: "text" as const, text: delta.insert, marks, ...(href ? { href, linkKey } : {}) }] : [];
+  });
+}
+
 function inlineFromY(value: unknown, path: Array<string | number>): NmlInlineContent {
   if (!(value instanceof Y.XmlFragment)) throw decodeFailure(path, "Expected collaborative inline content.");
-  return value.toArray().map((node, index) => {
-    if (node instanceof Y.XmlText) return { type: "text" as const, text: node.toString(), marks: marksOf(node) };
+  const result: NmlInlineContent = [];
+  const appendTextRuns = (runs: SharedTextRun[]) => runs.forEach(({ href, linkKey, ...text }) => {
+    if (!href) {
+      result.push(text);
+      return;
+    }
+    const previous = result.at(-1);
+    const previousKey = previous?.type === "link" ? (previous as typeof previous & { _linkKey?: string })._linkKey : undefined;
+    if (previous?.type === "link" && previous.href === href && previousKey === linkKey) previous.content.push(text);
+    else result.push(Object.assign({ type: "link" as const, href, content: [text] }, { _linkKey: linkKey }));
+  });
+  value.toArray().forEach((node, index) => {
+    if (node instanceof Y.XmlText) {
+      appendTextRuns(textRuns(node, [...path, index]));
+      return;
+    }
     if (!(node instanceof Y.XmlElement)) throw decodeFailure([...path, index], "Unknown inline shared type.");
     if (node.nodeName === "link") {
       assertAttributes(node, ["href"], [...path, index]);
-      const content = node.toArray().map((child, childIndex) => {
+      const href = stringAttr(node, "href", path);
+      node.toArray().forEach((child, childIndex) => {
         if (!(child instanceof Y.XmlText)) throw decodeFailure([...path, index, childIndex], "Links may contain text only.");
-        return { type: "text" as const, text: child.toString(), marks: marksOf(child) };
+        appendTextRuns(textRuns(child, [...path, index, childIndex], { href, key: `element:${index}` }));
       });
-      return { type: "link" as const, href: stringAttr(node, "href", path), content };
+      return;
     }
     if (node.nodeName === "math") {
       assertAttributes(node, ["id", "latex"], [...path, index]);
       if (node.length) throw decodeFailure([...path, index], "Inline math cannot have children.");
-      return { type: "math" as const, id: stringAttr(node, "id", path), latex: stringAttr(node, "latex", path) };
+      result.push({ type: "math", id: stringAttr(node, "id", path), latex: stringAttr(node, "latex", path) });
+      return;
     }
     if (node.nodeName === "pageRef") {
       assertAttributes(node, ["id", "pageId", "fallbackTitle"], [...path, index]);
       if (node.length) throw decodeFailure([...path, index], "Page references cannot have children.");
-      return {
-        type: "pageRef" as const,
+      result.push({
+        type: "pageRef",
         id: stringAttr(node, "id", path),
         pageId: stringAttr(node, "pageId", path),
         fallbackTitle: stringAttr(node, "fallbackTitle", path),
-      };
+      });
+      return;
     }
     throw decodeFailure([...path, index], `Unknown inline node ${node.nodeName}.`);
+  });
+  return result.map((node) => {
+    if (node.type !== "link") return node;
+    const { _linkKey: _discard, ...link } = node as typeof node & { _linkKey?: string };
+    return link;
   });
 }
 
@@ -336,8 +416,8 @@ function blockToY(block: NmlBlock): Y.Map<unknown> {
     rows.insert(0, block.rows.map((row) => {
       const encoded = mapOf({ id: row.id });
       const cells = new Y.Array<Y.Map<unknown>>();
-      cells.insert(0, row.cells.map((cell) => {
-        const value = mapOf({ id: cell.id });
+      cells.insert(0, row.cells.map((cell, cellIndex) => {
+        const value = mapOf({ id: cell.id, columnId: block.columns[cellIndex].id });
         value.set("content", inlineToY(cell.content));
         return value;
       }));
@@ -381,18 +461,41 @@ function blockFromY(value: unknown, path: Array<string | number>): unknown {
   if (["paragraph", "quote", "heading", "bulletListItem", "numberedListItem", "checkListItem", "toggleListItem"].includes(type)) {
     base.content = inlineFromY(map.get("content"), [...path, "content"]);
   } else if (type === "table") {
-    base.columns = plainValue(expectArray(map.get("columns"), [...path, "columns"]));
+    const columns = plainValue(expectArray(map.get("columns"), [...path, "columns"])) as Array<{ id?: unknown }>;
+    const columnIds = columns.map((column, columnIndex) => expectString(column?.id, [...path, "columns", columnIndex, "id"]));
+    base.columns = columns;
     base.rows = expectArray(map.get("rows"), [...path, "rows"]).toArray().map((raw, rowIndex) => {
       const row = expectMap(raw, [...path, "rows", rowIndex]);
+      assertKeys(row, ["id", "cells"], [...path, "rows", rowIndex]);
+      const rowId = expectString(row.get("id"), [...path, "rows", rowIndex, "id"]);
+      const tagged = new Map<string, Y.Map<unknown>>();
+      const positional: Y.Map<unknown>[] = [];
+      expectArray(row.get("cells"), [...path, "rows", rowIndex, "cells"]).toArray().forEach((rawCell, cellIndex) => {
+        const cellPath = [...path, "rows", rowIndex, "cells", cellIndex];
+        const cell = expectMap(rawCell, cellPath);
+        assertKeys(cell, ["id", "columnId", "content"], cellPath);
+        const columnId = cell.get("columnId");
+        if (columnId === undefined) positional.push(cell);
+        else if (typeof columnId !== "string") throw decodeFailure([...cellPath, "columnId"], "Expected string.");
+        else if (columnIds.includes(columnId)) {
+          if (tagged.has(columnId)) throw decodeFailure([...cellPath, "columnId"], "Duplicate cell for table column.");
+          tagged.set(columnId, cell);
+        }
+        // A tagged cell whose column is no longer live is the recoverable residue of a
+        // concurrent column deletion. Column deletion wins in the materialized table.
+      });
+      const cells = columnIds.map((columnId, columnIndex) => {
+        const cell = tagged.get(columnId) ?? positional.shift();
+        if (!cell) return { id: nmlTableIntersectionCellId(String(base.id), rowId, columnId), content: [] };
+        return {
+          id: expectString(cell.get("id"), [...path, "rows", rowIndex, "cells", columnIndex, "id"]),
+          content: inlineFromY(cell.get("content"), [...path, "rows", rowIndex, "cells", columnIndex, "content"]),
+        };
+      });
+      if (positional.length) throw decodeFailure([...path, "rows", rowIndex, "cells"], "Table row has cells without live columns.");
       return {
-        id: expectString(row.get("id"), [...path, "rows", rowIndex, "id"]),
-        cells: expectArray(row.get("cells"), [...path, "rows", rowIndex, "cells"]).toArray().map((rawCell, cellIndex) => {
-          const cell = expectMap(rawCell, [...path, "rows", rowIndex, "cells", cellIndex]);
-          return {
-            id: expectString(cell.get("id"), [...path, "rows", rowIndex, "cells", cellIndex, "id"]),
-            content: inlineFromY(cell.get("content"), [...path, "rows", rowIndex, "cells", cellIndex, "content"]),
-          };
-        }),
+        id: rowId,
+        cells,
       };
     });
   } else if (type === "codeBlock") base.code = expectText(map.get("code"), [...path, "code"]);
@@ -509,6 +612,7 @@ function equalBytes(left: Uint8Array, right: Uint8Array): boolean {
  */
 export class NmlYjsIndex {
   private blocks = new Map<string, Y.Map<unknown>>();
+  private textOwners = new Map<string, { kind: NmlTextTarget["kind"]; shared: Y.XmlFragment | Y.Text }>();
   private scans = 0;
   private totalInlineUnits: number | null = null;
   private plainTextLengths = new Map<string, number>();
@@ -526,13 +630,34 @@ export class NmlYjsIndex {
       return;
     }
     const next = new Map<string, Y.Map<unknown>>();
+    const textOwners = new Map<string, { kind: NmlTextTarget["kind"]; shared: Y.XmlFragment | Y.Text }>();
     const root = this.doc.getMap<unknown>(NML_YJS_ROOT);
+    const indexTextOwner = (candidate: Y.Map<unknown>) => {
+      const id = candidate.get("id");
+      if (typeof id !== "string") return;
+      const content = candidate.get("content");
+      if (content instanceof Y.XmlFragment) textOwners.set(id, { kind: "inline", shared: content });
+      const code = candidate.get("code");
+      if (code instanceof Y.Text) textOwners.set(id, { kind: "code", shared: code });
+      const latex = candidate.get("latex");
+      if (latex instanceof Y.Text) textOwners.set(id, { kind: "math", shared: latex });
+      const rows = candidate.get("rows");
+      if (rows instanceof Y.Array) rows.toArray().forEach((row) => {
+        if (!(row instanceof Y.Map)) return;
+        indexTextOwner(row as Y.Map<unknown>);
+        const cells = row.get("cells");
+        if (cells instanceof Y.Array) cells.toArray().forEach((cell) => {
+          if (cell instanceof Y.Map) indexTextOwner(cell as Y.Map<unknown>);
+        });
+      });
+    };
     const visit = (value: unknown) => {
       if (!(value instanceof Y.Array)) return;
       for (const candidate of value.toArray()) {
         if (!(candidate instanceof Y.Map)) continue;
         const id = candidate.get("id");
         if (typeof id === "string") next.set(id, candidate as Y.Map<unknown>);
+        indexTextOwner(candidate as Y.Map<unknown>);
         visit(candidate.get("children"));
       }
     };
@@ -541,10 +666,14 @@ export class NmlYjsIndex {
     const registry = structure instanceof Y.Map ? structure.get("registry") : null;
     if (registry instanceof Y.Map) {
       registry.forEach((candidate, id) => {
-        if (candidate instanceof Y.Map) next.set(id, candidate as Y.Map<unknown>);
+        if (candidate instanceof Y.Map) {
+          next.set(id, candidate as Y.Map<unknown>);
+          indexTextOwner(candidate as Y.Map<unknown>);
+        }
       });
     }
     this.blocks = next;
+    this.textOwners = textOwners;
     this.initialized = true;
     this.stateVector = stateVector;
     if (document) this.trackDocument(document);
@@ -627,7 +756,9 @@ export class NmlYjsIndex {
     const fragment = block?.get("content");
     if (!block || typeof type !== "string" || !PLAIN_TEXT_BLOCKS.has(type) || !(fragment instanceof Y.XmlFragment)) return null;
     const textNodes = fragment.toArray();
-    if (!textNodes.every((node): node is Y.XmlText => node instanceof Y.XmlText && Object.keys(node.getAttributes()).length === 0)) return null;
+    if (!textNodes.every((node): node is Y.XmlText => node instanceof Y.XmlText &&
+        Object.keys(node.getAttributes()).length === 0 &&
+        (node.toDelta() as Array<{ attributes?: Record<string, unknown> }>).every((delta) => !delta.attributes || Object.keys(delta.attributes).length === 0))) return null;
     return {
       nodeId,
       type: type as NmlPlainTextTarget["type"],
@@ -637,40 +768,108 @@ export class NmlYjsIndex {
     };
   }
 
+  text(nodeId: string): NmlTextTarget | null {
+    const owner = this.textOwners.get(nodeId);
+    if (!owner) return null;
+    if (owner.shared instanceof Y.Text && !(owner.shared instanceof Y.XmlText)) {
+      return { nodeId, kind: owner.kind, text: owner.shared.toString(), shared: owner.shared, textNodes: [] };
+    }
+    if (!(owner.shared instanceof Y.XmlFragment)) return null;
+    const textNodes: Y.XmlText[] = [];
+    let text = "";
+    const visibleText = (node: Y.XmlText) => (node.toDelta() as Array<{ insert?: unknown }>)
+      .map((delta) => typeof delta.insert === "string" ? delta.insert : "")
+      .join("");
+    const visit = (node: Y.XmlFragment | Y.XmlElement) => {
+      for (const child of node.toArray()) {
+        if (child instanceof Y.XmlText) {
+          textNodes.push(child);
+          text += visibleText(child);
+        } else if (child instanceof Y.XmlElement && child.nodeName === "link") visit(child);
+        else if (child instanceof Y.XmlElement && (child.nodeName === "math" || child.nodeName === "pageRef")) text += "\uFFFC";
+      }
+    };
+    visit(owner.shared);
+    return { nodeId, kind: owner.kind, text, shared: owner.shared, textNodes };
+  }
+
   createRelativeTextPosition(
     nodeId: string,
     offset: number,
     affinity: "before" | "after",
   ): Uint8Array | null {
-    const target = this.plainText(nodeId);
+    const target = this.text(nodeId);
     if (!target || !Number.isInteger(offset) || offset < 0 || offset > target.text.length) return null;
-    if (!target.textNodes.length) {
-      return Y.encodeRelativePosition(Y.createRelativePositionFromTypeIndex(target.fragment, 0, affinity === "before" ? -1 : 0));
+    if (target.shared instanceof Y.Text && !(target.shared instanceof Y.XmlFragment)) {
+      return Y.encodeRelativePosition(Y.createRelativePositionFromTypeIndex(target.shared, offset, affinity === "before" ? -1 : 0));
     }
-    let remaining = offset;
-    for (const node of target.textNodes) {
-      if (remaining <= node.length) {
-        return Y.encodeRelativePosition(Y.createRelativePositionFromTypeIndex(node, remaining, affinity === "before" ? -1 : 0));
+    const fragment = target.shared as Y.XmlFragment;
+    let at = 0;
+    for (const [index, child] of fragment.toArray().entries()) {
+      if (child instanceof Y.XmlText) {
+        if (offset >= at && offset <= at + child.length) {
+          return Y.encodeRelativePosition(Y.createRelativePositionFromTypeIndex(child, offset - at, affinity === "before" ? -1 : 0));
+        }
+        at += child.length;
+      } else if (child instanceof Y.XmlElement && child.nodeName === "link") {
+        for (const nested of child.toArray()) {
+          if (!(nested instanceof Y.XmlText)) continue;
+          if (offset >= at && offset <= at + nested.length) {
+            return Y.encodeRelativePosition(Y.createRelativePositionFromTypeIndex(nested, offset - at, affinity === "before" ? -1 : 0));
+          }
+          at += nested.length;
+        }
+      } else {
+        if (offset === at || offset === at + 1) {
+          const boundary = offset === at ? index : index + 1;
+          return Y.encodeRelativePosition(Y.createRelativePositionFromTypeIndex(fragment, boundary, affinity === "before" ? -1 : 0));
+        }
+        at++;
       }
-      remaining -= node.length;
     }
-    return null;
+    return offset === at
+      ? Y.encodeRelativePosition(Y.createRelativePositionFromTypeIndex(fragment, fragment.length, affinity === "before" ? -1 : 0))
+      : null;
   }
 
   resolveRelativeTextPosition(nodeId: string, encoded: Uint8Array): number | null {
     if (!(encoded instanceof Uint8Array) || encoded.length === 0 || encoded.length > 256) return null;
-    const target = this.plainText(nodeId);
+    const target = this.text(nodeId);
     if (!target) return null;
     try {
       const absolute = Y.createAbsolutePositionFromRelativePosition(Y.decodeRelativePosition(encoded), this.doc);
       if (!absolute) return null;
-      if (absolute.type === target.fragment) {
-        if (absolute.index < 0 || absolute.index > target.textNodes.length) return null;
-        return target.textNodes.slice(0, absolute.index).reduce((total, node) => total + node.length, 0);
+      if (target.shared instanceof Y.Text && !(target.shared instanceof Y.XmlFragment)) {
+        return absolute.type === target.shared && absolute.index >= 0 && absolute.index <= target.shared.length ? absolute.index : null;
+      }
+      if (absolute.type === target.shared) {
+        const fragment = target.shared as Y.XmlFragment;
+        if (absolute.index < 0 || absolute.index > fragment.length) return null;
+        let units = 0;
+        fragment.toArray().slice(0, absolute.index).forEach((node) => {
+          if (node instanceof Y.XmlText) units += node.length;
+          else if (node instanceof Y.XmlElement && node.nodeName === "link") units += node.toArray().reduce((sum, child) => sum + (child instanceof Y.XmlText ? child.length : 0), 0);
+          else units += 1;
+        });
+        return units;
       }
       const index = target.textNodes.indexOf(absolute.type as Y.XmlText);
       if (index < 0 || absolute.index < 0 || absolute.index > target.textNodes[index].length) return null;
-      return target.textNodes.slice(0, index).reduce((total, node) => total + node.length, 0) + absolute.index;
+      let units = 0;
+      const fragment = target.shared as Y.XmlFragment;
+      outer: for (const node of fragment.toArray()) {
+        if (node instanceof Y.XmlText) {
+          if (node === absolute.type) break;
+          units += node.length;
+        } else if (node instanceof Y.XmlElement && node.nodeName === "link") {
+          for (const child of node.toArray()) {
+            if (!(child instanceof Y.XmlText)) continue;
+            if (child === absolute.type) break outer;
+            units += child.length;
+          }
+        } else units += 1;
+      }
+      return units + absolute.index;
     } catch {
       return null;
     }
@@ -927,10 +1126,12 @@ export function observeNmlChanges(
     try {
       options.onFullDecode?.();
       const after = decodeNmlDocument(doc);
+      // Consumers restore selections while handling this notification, so new
+      // block/cell/row text owners must be addressable before the callback.
+      options.index?.refresh(after);
       listener({ transactionId: origin?.transactionId, origin, beforeStateVector, afterStateVector, changes: changed(before, after), diagnostics: [], document: after });
       before = after;
       beforePositions = positions(before);
-      options.index?.refresh(after);
     } catch (error) {
       listener({
         origin: isNmlOrigin(transaction.origin) ? transaction.origin : null,
@@ -958,6 +1159,7 @@ export {
   blockToY as nmlBlockToY,
   canvasToY as nmlCanvasToY,
   inlineToY as nmlInlineToY,
+  inlineNodesToY as nmlInlineNodesToY,
   mapOf as nmlYMapOf,
   plainValue as nmlYPlainValue,
   sharedValue as nmlYSharedValue,

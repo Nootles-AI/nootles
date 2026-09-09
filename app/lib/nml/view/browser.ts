@@ -1,7 +1,7 @@
 import { EditorView, type NodeView } from "prosemirror-view";
 import type { Node as PmNode } from "prosemirror-model";
 import type { NmlBlock } from "../schema";
-import type { NmlViewBridge, PlainTextNmlBridge, ReadOnlyNmlBridge } from "./bridge";
+import type { EditableNmlBridge, NmlViewBridge, PlainTextNmlBridge, ReadOnlyNmlBridge } from "./bridge";
 import { loadKatex } from "@/app/components/editor/math/katex";
 import { FILE_DOC_PATHS } from "@/app/components/Icons";
 
@@ -117,13 +117,40 @@ function mountNmlView(host: HTMLElement, bridge: NmlViewBridge, renderDomain?: D
     attributes: {
       class: "bn-default-styles nt-nml-view",
       role: bridge.isEditable() ? "textbox" : "document",
-      "aria-label": bridge.isEditable() ? "Plain-text document editor" : "Read-only document",
+      "aria-label": bridge.supportsRichEditing() ? "Rich document editor" : bridge.isEditable() ? "Plain-text document editor" : "Read-only document",
       "aria-readonly": String(!bridge.isEditable()),
       ...(bridge.isEditable() ? { "aria-multiline": "true" } : {}),
     },
     dispatchTransaction: (transaction) => { if (!bridge.dispatch(transaction)) view.updateState(bridge.state); },
-    handlePaste: () => true,
-    handleDrop: () => true,
+    handleKeyDown: (_view, event) => {
+      if (!bridge.isEditable()) return false;
+      if (event.key === "Enter" && bridge.supportsRichEditing()) return bridge.splitSelection();
+      if (event.key === "Backspace" && bridge.supportsRichEditing()) return bridge.joinBackward();
+      if (event.key === "Tab" && bridge.supportsRichEditing()) return bridge.indentSelection(event.shiftKey);
+      if ((event.metaKey || event.ctrlKey) && event.altKey && event.key === "ArrowUp") return bridge.moveSelection(-1);
+      if ((event.metaKey || event.ctrlKey) && event.altKey && event.key === "ArrowDown") return bridge.moveSelection(1);
+      if (!bridge.supportsRichEditing() || !(event.metaKey || event.ctrlKey)) return false;
+      if (event.key.toLowerCase() === "b") return bridge.toggleMark("bold");
+      if (event.key.toLowerCase() === "i") return bridge.toggleMark("italic");
+      if (event.key.toLowerCase() === "u") return bridge.toggleMark("underline");
+      if (event.shiftKey && event.key.toLowerCase() === "x") return bridge.toggleMark("strike");
+      if (event.key === "`") return bridge.toggleMark("code");
+      return false;
+    },
+    handlePaste: (_view, event) => {
+      if (!bridge.supportsRichEditing()) return true;
+      const text = event.clipboardData?.getData("text/plain");
+      if (text === undefined) return true;
+      event.preventDefault();
+      return bridge.pasteText(text);
+    },
+    handleDrop: (_view, event) => {
+      if (!bridge.supportsRichEditing()) return true;
+      const text = event.dataTransfer?.getData("text/plain");
+      if (text === undefined) return true;
+      event.preventDefault();
+      return bridge.pasteText(text);
+    },
     handleDOMEvents: {
       beforeinput: (_view, event) => {
         if (bridge.isEditable()) return false;
@@ -170,7 +197,7 @@ function mountNmlView(host: HTMLElement, bridge: NmlViewBridge, renderDomain?: D
     notice.textContent = bridge.status() === "frozen" ? "This preview is unavailable or out of date. Reopen with a compatible client. Your document has been preserved." : "";
     view.dom.setAttribute("aria-label", bridge.status() === "frozen"
       ? "Document preview unavailable or out of date. Reopen with a compatible client."
-      : bridge.isEditable() ? "Plain-text document editor" : "Read-only document");
+      : bridge.supportsRichEditing() ? "Rich document editor" : bridge.isEditable() ? "Plain-text document editor" : "Read-only document");
     const preserved = bridge.compositionRecovery();
     recovery.hidden = !preserved;
     recoveryText.value = preserved?.text ?? "";
@@ -199,5 +226,9 @@ export function mountReadOnlyNmlView(host: HTMLElement, bridge: ReadOnlyNmlBridg
 }
 
 export function mountPlainTextNmlView(host: HTMLElement, bridge: PlainTextNmlBridge, renderDomain?: DomainRenderer): { view: EditorView; destroy: () => void } {
+  return mountNmlView(host, bridge, renderDomain);
+}
+
+export function mountEditableNmlView(host: HTMLElement, bridge: EditableNmlBridge | PlainTextNmlBridge, renderDomain?: DomainRenderer): { view: EditorView; destroy: () => void } {
   return mountNmlView(host, bridge, renderDomain);
 }
