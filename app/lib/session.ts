@@ -14,3 +14,19 @@ export async function sessionToken(): Promise<string | null> {
   const { getToken } = await auth();
   return await getToken();
 }
+
+/**
+ * The caller's session, for a route whose one request outlives a token.
+ *
+ * The token above lives sixty seconds. The chat route streams for longer than
+ * that — a whole design board read and a screen written back ran 62s — and
+ * every Convex call it makes after the token's minute fails as unauthorised:
+ * the cost ledger lost that turn, and a drawing put away after a slow artist
+ * would go the same way. With the session id, `asSession` in `convexServer`
+ * can mint a fresh token whenever the one it holds is too old.
+ */
+export async function session(): Promise<{ token: string; sessionId: string } | null> {
+  const { getToken, sessionId } = await auth();
+  const token = await getToken();
+  return token && sessionId ? { token, sessionId } : null;
+}

@@ -5,7 +5,6 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { SHOT_W, shotHeight } from "@/app/components/editor/storyboard/types";
 import { AI } from "../aiConfig";
-import { generateDiagram } from "../diagram";
 import { DEFAULT_DRAW_CHOICE, type DrawChoice } from "../drawStyles";
 import { findImages, imagesConfigured } from "../findImages";
 import { recordAiCall } from "../recordCall";
@@ -158,12 +157,11 @@ export function chatTools(
        * a tool loop's. Costed like every other diagram call, under the same
        * feature, because that is what it is.
        */
-      // A scene waits for the user to set its style and artistic level — the
+      // A shot waits for the user to set its style and artistic level — the
       // picker in the chat answers the approval, and the choice arrives in
-      // the resume request's body. A diagram has no style to set: its lane is
-      // the LLM, so it runs straight through.
-      needsApproval: ({ kind }) => kind !== "diagram",
-      execute: async ({ brief, w, h, kind, ratio }) => {
+      // the resume request's body.
+      needsApproval: true,
+      execute: async ({ brief, ratio }) => {
         // A shot's frame is COMPUTED from the board's ratio, never taken from
         // the model's arithmetic. It used to be handed w and h against a table
         // of ratio→height in the prompt, and a board of 16:9 shots came back
@@ -171,12 +169,7 @@ export function chatTools(
         // its shot and hung out of the frame. The model now names the ratio it
         // can read off the board, and the one place that knows what a shot
         // measures works out the rest.
-        const frame = ratio
-          ? { w: SHOT_W, h: shotHeight(ratio) }
-          : w && h
-            ? { w, h }
-            : null;
-        const scene = kind !== "diagram";
+        const frame = { w: SHOT_W, h: shotHeight(ratio) };
 
         // The ref is the brief's own fingerprint, which makes drawing
         // IDEMPOTENT — and idempotence is the whole reliability story. A
@@ -189,15 +182,18 @@ export function chatTools(
         // the same brief, finds the finished drawing here for free instead
         // of paying the artist twice. The style is part of the fingerprint:
         // the same brief in a different style is a different drawing, not a
-        // cache hit on the old one.
+        // cache hit on the old one. The tuple keeps the shape it had when
+        // the tool also drew standalone pictures, so a board's finished shots
+        // are still found under their old names.
         const ref = `d${createHash("sha256")
           .update(
             JSON.stringify([
               brief,
-              frame?.w,
-              frame?.h,
-              kind ?? "scene",
-              ...(scene ? [drawStyle.style, drawStyle.artisticLevel] : []),
+              frame.w,
+              frame.h,
+              "scene",
+              drawStyle.style,
+              drawStyle.artisticLevel,
             ]),
           )
           .digest("hex")
@@ -207,49 +203,28 @@ export function chatTools(
           return { ref, shapes: (cached[ref].match(/<nt-[a-z]/g) ?? []).length - 1 };
         }
 
-        // Every scene goes to the vector specialist, framed or not — a bare
-        // "draw a cat" is as much a picture as a storyboard shot, and an
-        // unframed one takes the specialist's document-sized default. Only
-        // words-first work rides the LLM lane, whose labels are text. The
-        // lanes do NOT substitute for each other: a specialist miss used to
-        // fall through to the LLM, which filled boards with pictures not
-        // worth keeping — an honest miss the agent can retry (idempotently,
-        // for free) beats a bad drawing it will place.
-        let html = "";
-        if (scene) {
-          const vector = await generateVectorDrawing(brief, frame, drawStyle);
-          if (!vector) {
-            return {
-              error:
-                "The artist did not answer for this brief. Call draw again " +
-                "with the SAME brief — finished work is kept, so a retry " +
-                "costs nothing and answers instantly once the drawing lands. " +
-                "If it misses twice more, say so honestly and leave the shot " +
-                "to its written note.",
-            };
-          }
-          recordAiCall(convex, {
-            feature: "diagram",
-            model: AI.diagram.vector.model,
-            latencyMs: vector.latencyMs,
-            status: "ok",
-          });
-          html = vector.html;
+        // Every shot goes to the vector specialist. A miss is an honest miss
+        // the agent can retry (idempotently, for free) — it used to fall
+        // through to an LLM lane, which filled boards with pictures not worth
+        // keeping.
+        const vector = await generateVectorDrawing(brief, frame, drawStyle);
+        if (!vector) {
+          return {
+            error:
+              "The artist did not answer for this brief. Call draw again " +
+              "with the SAME brief — finished work is kept, so a retry " +
+              "costs nothing and answers instantly once the drawing lands. " +
+              "If it misses twice more, say so honestly and leave the shot " +
+              "to its written note.",
+          };
         }
-        if (!html) {
-          html = await generateDiagram(brief, frame, undefined, ({ usage, latencyMs }) =>
-            recordAiCall(convex, {
-              feature: "diagram",
-              model: AI.diagram.model,
-              promptTokens: usage.inputTokens,
-              completionTokens: usage.outputTokens,
-              cacheReadTokens: usage.inputTokenDetails?.cacheReadTokens,
-              cacheWriteTokens: usage.inputTokenDetails?.cacheWriteTokens,
-              latencyMs,
-              status: "ok",
-            }),
-          );
-        }
+        recordAiCall(convex, {
+          feature: "diagram",
+          model: AI.diagram.vector.model,
+          latencyMs: vector.latencyMs,
+          status: "ok",
+        });
+        const html = vector.html;
         if (!html) {
           return {
             error:

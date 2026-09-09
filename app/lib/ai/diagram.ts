@@ -284,7 +284,7 @@ export function streamDiagram(
       ),
       { role: "user", content: userMessage(brief, page, title) },
     ],
-    maxOutputTokens: AI.diagram.maxTokens,
+    maxOutputTokens: AI.diagram.maxTokens + AI.diagram.thinkingHeadroom,
     abortSignal: signal,
     onEnd: ({ totalUsage }) =>
       onUsage?.({ usage: totalUsage, latencyMs: Date.now() - started }),
@@ -408,7 +408,7 @@ export async function generateDiagram(
       ),
       { role: "user", content: `Draw: ${brief}` },
     ],
-    maxOutputTokens: AI.diagram.maxTokens,
+    maxOutputTokens: AI.diagram.maxTokens + AI.diagram.thinkingHeadroom,
     abortSignal: signal,
   });
   onUsage?.({ usage: totalUsage, latencyMs: Date.now() - started });

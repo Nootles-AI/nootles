@@ -210,6 +210,14 @@ describe("convertSelection", () => {
     expect(serializeScene(parse(html))).toBe(html);
   });
 
+  it("rounds path coordinates to two decimals — an icon is a hundred of them", async () => {
+    const nodes: FigNode[] = [
+      { id: "2:5", name: "Icon", type: "VECTOR", x: 0, y: 0, width: 11, height: 19, absoluteTransform: at(0, 0), fills: [solid(1, 1, 1)], vectorPaths: [{ windingRule: "NONZERO", data: "M 10.265440940856934 8.263401985168457 C 10.5 8.524380773305893 -0.001 9.2473211e-7 10 9 Z" }] },
+    ];
+    const { scene } = await convertSelection(nodes, noImages);
+    expect(findNode(scene, "f2-5")).toMatchObject({ kind: "path", d: "M 10.27 8.26 C 10.5 8.52 0 0 10 9 Z" });
+  });
+
   it("writes FigJam connectors as edges between the shapes they join", async () => {
     const nodes: FigNode[] = [
       { id: "3:1", name: "Shape", type: "SHAPE_WITH_TEXT", shapeType: "ROUNDED_RECTANGLE", x: 0, y: 0, width: 120, height: 60, absoluteTransform: at(0, 0), fills: [solid(0.9, 0.9, 1)], text: { characters: "Draft" } },

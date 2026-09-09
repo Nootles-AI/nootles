@@ -43,6 +43,28 @@ export type ToolContext = {
 /** `<nt-diagram ref="d3"></nt-diagram>` — a drawing placed by name. */
 const REF = /<nt-diagram\b[^>]*\bref="([^"]+)"[^>]*>\s*<\/nt-diagram\s*>/gi;
 
+/** Shot boundaries and refs, in document order — enough to tell inside from out. */
+const SHOT_OR_REF = /<nt-shot\b[^>]*>|<\/nt-shot\s*>|<nt-diagram\b[^>]*\bref="([^"]+)"[^>]*>/gi;
+
+/**
+ * The refs placed anywhere but inside a storyboard shot.
+ *
+ * The pen is a storyboard's for now, and the schema alone cannot say so: a
+ * ref is a name, and a name goes wherever the model writes it. So an edit
+ * that stands a drawing on its own — a mockup, an illustration in prose — is
+ * refused here, by name, before anything is redeemed.
+ */
+export function refsOutsideShots(html: string): string[] {
+  const loose: string[] = [];
+  let depth = 0;
+  for (const m of html.matchAll(SHOT_OR_REF)) {
+    if (m[0].startsWith("</")) depth = Math.max(0, depth - 1);
+    else if (m[0].startsWith("<nt-shot")) depth += 1;
+    else if (depth === 0) loose.push(m[1]);
+  }
+  return loose;
+}
+
 /** One op as the model may write it, which is not quite one op as `ops.ts` takes it. */
 type AlbumToolOp = z.infer<typeof TOOLS.album_edit.inputSchema>["ops"][number];
 
@@ -308,6 +330,18 @@ async function editPage(
   // The model's HTML may place icons; the registry must be able to answer
   // before anything parses it.
   await loadIconCatalog();
+  const loose = refsOutsideShots(html);
+  if (loose.length) {
+    return [
+      `That edit was not applied, and nothing on the page changed. ${
+        loose.length === 1 ? "The drawing" : "The drawings"
+      } ${loose.map((r) => `"${r}"`).join(", ")} ${
+        loose.length === 1 ? "was" : "were"
+      } placed outside a storyboard shot.`,
+      "A drawing goes inside a shot: <nt-shot><nt-diagram ref=\"…\"></nt-diagram><nt-note>…</nt-note></nt-shot>.",
+      "Anything else — a screen, a mockup, a diagram — is written in the canvas grammar, shape by shape.",
+    ].join("\n");
+  }
   // Drawings are redeemed from their own table — the tool result named them
   // and carried nothing else, so this query is where the pictures actually
   // arrive. Fetched only when the edit places any.
@@ -583,9 +617,10 @@ async function fetchPage(ctx: ToolContext, pageId: Id<"pages">) {
 function pageHtml(blocks: AnyBlock[], title: string, expand?: string[]): string {
   const { html, dropped } = toDocHtmlWithin(blocks, AI.chat.maxPageChars, {
     title,
-    // Drawn pictures read as addressed stubs unless asked for — hundreds of
-    // kilobytes of path data the model must not spend its window on.
-    collapseDrawn: true,
+    // Every diagram reads as a stub carrying its words, and a block the model
+    // names in `expand` reads whole, however large. Two states and nothing
+    // between: see `collapseDiagrams`.
+    collapseDiagrams: true,
     // An album always reads as a stub. Its markup is storage URLs, which the
     // model can neither fetch nor write; what its pictures LOOK like comes from
     // the index appended below, and changing one is `album_edit`.
@@ -595,8 +630,18 @@ function pageHtml(blocks: AnyBlock[], title: string, expand?: string[]): string 
   // A page nobody has opened yet serializes to nothing, and a tool that answers
   // with nothing reads as a tool that failed.
   if (!blocks.length) return `${html}\n<!-- this page is empty -->`.trim();
-  if (!dropped) return html;
-  return `${html}\n<!-- ${dropped} further block${
-    dropped === 1 ? "" : "s"
-  } on this page, not shown: it is too long to read in one go -->`;
+  const notes: string[] = [];
+  if (html.includes(' holds="')) {
+    notes.push(
+      '<!-- A diagram reads as a stub: at names it, holds says how big it is, text is every word on it. Return it as given to keep it where it is; write new shapes inside it to add them to it; pass its block id in expand to read it whole — every shape, style and path — which is what matching its look, copying its logo or icons, or editing it takes. -->',
+    );
+  }
+  if (dropped) {
+    notes.push(
+      `<!-- ${dropped} further block${
+        dropped === 1 ? "" : "s"
+      } on this page, not shown: it is too long to read in one go -->`,
+    );
+  }
+  return notes.length ? `${html}\n${notes.join("\n")}` : html;
 }

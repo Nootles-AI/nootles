@@ -626,6 +626,12 @@ export type SceneOp =
    */
   | { type: "setShape"; ids: NodeId[]; params: ShapeParams }
   | { type: "setLabel"; id: NodeId; label: string }
+  /**
+   * An image's picture, re-addressed. The one writer is the hoist that moves
+   * an inline `data:` picture into storage (see scene/inlineImages.ts): the
+   * string of record holds a URL, never bytes.
+   */
+  | { type: "setSrc"; id: NodeId; src: string }
   /** `undefined` clears an explicit name, restoring the derived one. */
   | { type: "setName"; id: NodeId; name: string | undefined }
   /**

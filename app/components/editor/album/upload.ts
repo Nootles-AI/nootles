@@ -238,6 +238,17 @@ export async function putImage(convex: ConvexReactClient, file: File): Promise<s
   return await put(convex, image.blob, image.type);
 }
 
+/**
+ * A picture that arrived inline — `data:image/…` in pasted markup — put up
+ * the same way, answering with the URL that replaces it. Refuses what
+ * `putImage` refuses, so a paste that cannot be hoisted keeps its picture
+ * inline rather than losing it.
+ */
+export async function putDataUri(convex: ConvexReactClient, uri: string): Promise<string> {
+  const blob = await (await fetch(uri)).blob();
+  return await putImage(convex, new File([blob], "pasted", { type: blob.type }));
+}
+
 /** Colour off a blob nothing has decoded yet — the video poster's path in. */
 async function statsOf(blob: Blob): Promise<ImageStats | null> {
   const bitmap = await createImageBitmap(blob).catch(() => null);

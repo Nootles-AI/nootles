@@ -468,10 +468,19 @@ function pathOf(node: FigNode): string | null {
   const lists = [node.vectorPaths, node.fillGeometry, node.strokeGeometry];
   for (const list of lists) {
     const d = (list ?? []).map((p) => p.data.trim()).filter(Boolean).join(" ");
-    if (d) return d;
+    if (d) return roundPath(d);
   }
   return null;
 }
+
+/**
+ * Figma writes path coordinates at double precision — `10.265440940856934`
+ * — and an icon is a hundred of them. Two decimals is what every other
+ * number in the document gets, finer than a screen shows, and a fifth of
+ * the bytes.
+ */
+const roundPath = (d: string): string =>
+  d.replace(/-?\d*\.\d+(?:e[+-]?\d+)?/gi, (n) => String(round(Number(n))));
 
 const strOf = (value: unknown): string | undefined => (typeof value === "string" ? value : undefined);
 
