@@ -1,7 +1,7 @@
 # Canonical NML AST and Yjs encoding
 
-Status: headless schema-v1 core and canonical Yjs encoding implemented; runtime adoption
-remains planned.
+Status: headless schema-v1 core, canonical Yjs encoding, semantic executor, and isolated
+editable bridge implemented; runtime adoption remains planned.
 
 Implementation sequencing is tracked in
 [`nml-prosemirror-refactor-plan.md`](nml-prosemirror-refactor-plan.md). Binding v1 choices
@@ -366,11 +366,13 @@ Encoding rules:
 
 - Ordered collections use `Y.Array`.
 - Scalar property bags use `Y.Map` with an explicit whitelist per node type.
-- Collaborative prose uses `Y.XmlFragment`/`Y.XmlText` with formatting attributes, or a
-  dedicated equivalent whose mapping is specified once. It must not be stored as an array
-  of whole immutable strings.
+- Collaborative prose uses `Y.XmlFragment`/`Y.XmlText` with range formatting attributes.
+  Marks and editable link runs are not whole immutable strings; legacy link elements remain
+  readable and gain range overrides when partially edited.
 - Code and LaTeX use `Y.Text`.
-- Table rows and cells are addressable `Y.Map` nodes in `Y.Array`s.
+- Table rows and cells are addressable `Y.Map` nodes in `Y.Array`s. Cells carry their stable
+  column association; a row/column pair introduced on disconnected replicas receives a
+  deterministic empty intersection identity and becomes shared on first edit.
 - Canvas shapes and edges use ID-keyed `Y.Map`s nested under their owning canvas block.
   Shape edits never rewrite a whole diagram string or require a document-tree mutation.
 - Unknown keys are not silently retained in canonical state. A newer schema must either
@@ -413,13 +415,20 @@ All mutations target stable IDs and compile to Yjs transactions. The minimum voc
 - `removeNodes(nodeIds)`
 - `moveNodes(nodeIds, destination)`
 - `setNodeProps(nodeId, patch)`
+- `setTextBlockType(nodeId, blockType, props)`
+- `setMediaBlockType(nodeId, blockType)`
 - `replaceInline(nodeId, range, content)`
 - `setInlineMarks(nodeId, range, marks)`
+- `setInlineLink(nodeId, range, href, linkKey)`
 - `splitTextBlock(nodeId, offset)`
 - `joinTextBlocks(leftId, rightId)`
 - `replaceTableRange(tableId, range, cells)`
+- `insertTableRows(tableId, anchor, rows)` / `removeTableRows(tableId, rowIds)`
+- `insertTableColumns(tableId, anchor, columns)` / `removeTableColumns(tableId, columnIds)`
 - `setCode(nodeId, range, text)`
 - `setMathRow(nodeId, rowId, latex)`
+- `insertMathRows(nodeId, anchor, rows)` / `removeMathRows(nodeId, rowIds)`
+- `replaceDomain(nodeId, domain)`
 - `insertShapes(canvasId, shapes)`
 - `updateShapes(canvasId, patches)`
 - `moveShapes(canvasId, placements)`
@@ -487,8 +496,12 @@ Yjs determines causality and deterministic CRDT ordering. NML adds semantic reso
 - Rows and cells have IDs; row insertion and deletion merge structurally.
 - Column operations are table-wide semantic commands, not independent array mutations in
   every row.
-- Concurrent column changes are ordered through stable column IDs, which should be added
-  before collaborative structural table editing ships.
+- Concurrent column changes are ordered through stable column IDs. Stored cells name their
+  column, so concurrently inserted rows and columns retain alignment independent of the
+  physical Y.Array merge order.
+- A missing concurrent row/column intersection materializes as an empty cell with a
+  deterministic ID; editing it creates the corresponding shared cell. Concurrent column
+  deletion wins over a cell attached to that removed column.
 - A rectangular selection is view state, never document state.
 
 ### Custom blocks and canvas
@@ -627,6 +640,8 @@ type NmlIssue = {
 - Yjs encode/decode equality tests.
 - Two- and three-client concurrency matrices for text, marks, moves, delete/edit, and
   parent deletion/child insertion.
+- Same-dimension and orthogonal table row/column concurrency, including first edit of a
+  derived intersection and concurrent column deletion.
 - Schema migration fixtures across every supported version.
 - Fuzz tests for malformed NML and arbitrary valid semantic-operation sequences.
 - Cross-runtime parity tests in browser and Node.

@@ -384,6 +384,106 @@ describe("NML semantic command executor", () => {
     ).toBe("AabcB");
   });
 
+  it("converges concurrent stable-ID table row and column insertions", async () => {
+    const seed = createNmlYDoc(document());
+    const replicas = () => {
+      const left = new Y.Doc(); const right = new Y.Doc();
+      const update = Y.encodeStateAsUpdate(seed);
+      Y.applyUpdate(left, update); Y.applyUpdate(right, update);
+      return { left, right };
+    };
+    const merge = (left: Y.Doc, right: Y.Doc) => {
+      Y.applyUpdate(left, Y.encodeStateAsUpdate(right));
+      Y.applyUpdate(right, Y.encodeStateAsUpdate(left));
+      expect(decodeNmlDocument(left)).toEqual(decodeNmlDocument(right));
+    };
+
+    const columns = replicas();
+    await executeNmlCommands(options(columns.left, [{
+      type: "insertTableColumns",
+      tableId: "table",
+      anchor: { afterId: "c1" },
+      columns: [{ id: "column-left", cells: [{ rowId: "r1", cell: { id: "cell-left", content: [] } }] }],
+    }], { idempotencyKey: "column-left", origin: origin("column-left") }));
+    await executeNmlCommands(options(columns.right, [{
+      type: "insertTableColumns",
+      tableId: "table",
+      anchor: { afterId: "c1" },
+      columns: [{ id: "column-right", cells: [{ rowId: "r1", cell: { id: "cell-right", content: [] } }] }],
+    }], { idempotencyKey: "column-right", origin: origin("column-right") }));
+    merge(columns.left, columns.right);
+    const mergedColumns = block(columns.left, "table") as Extract<NmlBlock, { type: "table" }>;
+    expect(mergedColumns.columns).toHaveLength(3);
+    expect(mergedColumns.rows[0].cells).toHaveLength(3);
+    expect(Object.fromEntries(mergedColumns.columns.map((column, index) => [column.id, mergedColumns.rows[0].cells[index].id]))).toEqual({
+      c1: "cell1",
+      "column-left": "cell-left",
+      "column-right": "cell-right",
+    });
+
+    const rows = replicas();
+    await executeNmlCommands(options(rows.left, [{
+      type: "insertTableRows",
+      tableId: "table",
+      anchor: { afterId: "r1" },
+      rows: [{ id: "row-left", cells: [{ id: "row-cell-left", content: [] }] }],
+    }], { idempotencyKey: "row-left", origin: origin("row-left") }));
+    await executeNmlCommands(options(rows.right, [{
+      type: "insertTableRows",
+      tableId: "table",
+      anchor: { afterId: "r1" },
+      rows: [{ id: "row-right", cells: [{ id: "row-cell-right", content: [] }] }],
+    }], { idempotencyKey: "row-right", origin: origin("row-right") }));
+    merge(rows.left, rows.right);
+    expect((block(rows.left, "table") as Extract<NmlBlock, { type: "table" }>).rows.map((row) => row.id)).toEqual(expect.arrayContaining(["r1", "row-left", "row-right"]));
+
+    const dimensions = replicas();
+    await executeNmlCommands(options(dimensions.left, [{
+      type: "insertTableColumns",
+      tableId: "table",
+      anchor: { afterId: "c1" },
+      columns: [{ id: "column-cross", cells: [{ rowId: "r1", cell: { id: "cell-cross", content: [] } }] }],
+    }], { idempotencyKey: "column-cross", origin: origin("column-cross") }));
+    await executeNmlCommands(options(dimensions.right, [{
+      type: "insertTableRows",
+      tableId: "table",
+      anchor: { afterId: "r1" },
+      rows: [{ id: "row-cross", cells: [{ id: "row-cell-cross", content: [] }] }],
+    }], { idempotencyKey: "row-cross", origin: origin("row-cross") }));
+    merge(dimensions.left, dimensions.right);
+    const mergedDimensions = block(dimensions.left, "table") as Extract<NmlBlock, { type: "table" }>;
+    expect(mergedDimensions.columns).toHaveLength(2);
+    expect(mergedDimensions.rows).toHaveLength(2);
+    expect(mergedDimensions.rows.every((row) => row.cells.length === 2)).toBe(true);
+    const intersection = mergedDimensions.rows.find((row) => row.id === "row-cross")!.cells[1];
+    await executeNmlCommands(options(dimensions.left, [{
+      type: "replaceTableRange",
+      tableId: "table",
+      rowIds: ["row-cross"],
+      columnIds: ["column-cross"],
+      cells: [[{ id: intersection.id, content: [{ type: "text", text: "materialized", marks: [] }] }]],
+    }], { idempotencyKey: "materialize-cross", origin: origin("materialize-cross") }));
+    merge(dimensions.left, dimensions.right);
+    expect((block(dimensions.right, "table") as Extract<NmlBlock, { type: "table" }>).rows[1].cells[1].content)
+      .toEqual([{ type: "text", text: "materialized", marks: [] }]);
+
+    const removal = replicas();
+    await executeNmlCommands(options(removal.left, [{
+      type: "removeTableColumns", tableId: "table", columnIds: ["c1"],
+    }], { idempotencyKey: "remove-column-cross", origin: origin("remove-column-cross") }));
+    await executeNmlCommands(options(removal.right, [{
+      type: "insertTableRows", tableId: "table", anchor: { afterId: "r1" },
+      rows: [{ id: "row-after-removal", cells: [{ id: "cell-after-removal", content: [] }] }],
+    }], { idempotencyKey: "row-after-removal", origin: origin("row-after-removal") }));
+    merge(removal.left, removal.right);
+    const removedDimension = block(removal.left, "table") as Extract<NmlBlock, { type: "table" }>;
+    expect(removedDimension.columns).toEqual([]);
+    expect(removedDimension.rows.every((row) => row.cells.length === 0)).toBe(true);
+
+    columns.left.destroy(); columns.right.destroy(); rows.left.destroy(); rows.right.destroy();
+    dimensions.left.destroy(); dimensions.right.destroy(); removal.left.destroy(); removal.right.destroy(); seed.destroy();
+  });
+
   it("preserves concurrent inline insertions at character granularity", async () => {
     const a = createNmlYDoc(document()),
       b = new Y.Doc();

@@ -1,6 +1,6 @@
 # NML / ProseMirror refactor plan
 
-Status: in progress; steps 1–8 complete.
+Status: in progress; steps 1–9 complete.
 
 ProseMirror remains the browser editing engine. Canonical ownership moves from a
 ProseMirror-shaped Yjs root to a typed, versioned NML AST stored directly in Yjs. Existing
@@ -150,11 +150,10 @@ Puppeteer comparison against current BlockNote read-only views. No live editor, 
 persistence, AI, backend, or MCP path mounts this preview. See the
 [bridge implementation notes](nml-prosemirror-view-bridge.md) for the browser command.
 
-**Later editing prerequisite:** step 7 removed full-document work from the supported
-plain-text hot path. The existing executor's mixed-mark/complex-inline path still replaces
-entire inline fragments and can overwrite unseen concurrent text. Character-level
-rich-inline commands must replace that path before the step-9 collaborative editing gate;
-the reader cannot repair content lost upstream.
+**Editing prerequisite closed in step 9:** step 7 removed full-document work from the
+supported plain-text hot path. Step 9 replaces the executor's mixed-mark/complex-inline
+replacement with range-level Y.XmlText deletion, insertion, mark formatting, and link
+formatting, so supported rich edits do not replace an entire inline fragment.
 
 ## 7. Add plain-text editing and acknowledgement — complete
 
@@ -170,7 +169,8 @@ Implemented as the opt-in `PlainTextNmlBridge`/`NmlPlainTextView`. Unmarked para
 heading, and quote replacements translate to stable-ID `replaceInline` commands and mutate
 the owning Y.XmlText ranges at character granularity. Selection/metadata-only and
 same-document no-op transactions stay local; structural, rich-inline, list, paste, and
-drop changes remain rejected for step 9. Optimistic requests carry request/transaction
+drop changes remain rejected by this compatibility host and are enabled only by the
+step-9 full bridge. Optimistic requests carry request/transaction
 IDs, acknowledge without echo when canonical text matches, reconcile with minimal PM text
 diffs when it differs, and roll back to canonical state on authorization, validation, or
 stale-state rejection. Diagnostics contain codes and node IDs only.
@@ -185,8 +185,8 @@ concurrent first inserts, structural fallback, and real Chromium typing on deskt
 with all external traffic intercepted.
 
 This remains isolated from production routes, providers, Convex persistence, AI, backend,
-and MCP paths. Step 8 adds durable selection/awareness and IME handling to this host;
-structure, paste/drop, marks, links, and other rich editing remain step 9.
+and MCP paths. Steps 8–9 extend the separate host with durable selection/awareness, IME,
+structure, paste/drop, marks, links, rich inline content, and domain editing.
 
 ## 8. Add selection, awareness, and IME — complete
 
@@ -223,7 +223,7 @@ deletion fallback, awareness validation, and real Chromium desktop/mobile compos
 The browser run intercepts external traffic and uses no Convex deployment, paid API, keys,
 or user data. No production route mounts the host.
 
-## 9. Add structure and rich content
+## 9. Add structure and rich content — complete
 
 - Implement split/join, lists, indentation, moves, paste/drop, marks, links, inline math,
   references, tables, code, math, media, and remaining custom blocks.
@@ -231,6 +231,37 @@ or user data. No production route mounts the host.
 
 **Gate:** every supported PM action passes PM -> commands -> NML -> PM equality, including
 concurrent structure.
+
+Implemented as the opt-in `EditableNmlBridge`/`NmlEditableView`, still separate from every
+production editor and persistence path. Direct bridge actions cover marked typing, block
+split/join, list indentation/outdent, sibling moves, prose/list type conversion, multiline
+plain-text paste/drop, five marks, links/unlink, inline math, and page references. Native
+ProseMirror changes receive temporary stable identities before a before/after semantic
+projection diff compiles only the affected block/domain operations. Canonical receipts map
+temporary IDs back without a visible second edit and restore the intended selection.
+
+Rich Y.XmlText edits now operate on character ranges. Marks and link boundaries are Yjs
+formatting, including partial links and adjacent equal-URL links, so concurrent text
+insertions/deletions are not overwritten by whole-fragment replacement. Durable selection
+offsets account for projection-only link wrapper tokens, and rich composition commits one
+canonical request while preserving marks, links, and inline atoms.
+
+The semantic vocabulary now includes prose/list and media type changes, row/column table
+insert/remove, stable cell edits, and math-row insert/remove. Stable column association plus
+deterministic row/column intersection identities keeps tables rectangular when disconnected
+replicas concurrently add or remove orthogonal dimensions; an empty derived intersection is
+materialized on first edit. CodeMirror emits minimal code ranges, MathLive emits stable-row
+commands, media source changes can select audio/video type, and album/storyboard/location
+portals emit validated atomic domain replacements. Canvas remains deliberately read-only
+until step 10.
+
+The gate covers projection equality after every supported action, native PM ID minting and
+copy deduplication, inserted wrappers, partial and adjacent links, inline atoms, rich IME,
+rejection rollback/privacy, row/column/table-cell and math-row operations, custom domains,
+media conversion, concurrent text/marks/link deletion, split plus concurrent suffix edits,
+concurrent moves, and same/orthogonal table-dimension merges. The standalone Chromium run
+exercises seven editable workflows on desktop/mobile with all external traffic intercepted,
+zero browser errors, and zero paid requests.
 
 ## 10. Move canvas onto canonical NML
 

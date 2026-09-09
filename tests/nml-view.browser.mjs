@@ -269,6 +269,147 @@ try {
   await page.click('#bridge .nt-nml-composition-recovery button');
   await page.waitForSelector('#bridge .nt-nml-composition-recovery[hidden]');
 
+  // Exercise the step-9 editor through real rich input and domain-owned surfaces.
+  await page.evaluate(() => window.nmlHarness.mountRichEditable());
+  await page.waitForSelector('#bridge .nt-nml-view[contenteditable="true"][aria-label="Rich document editor"]');
+  await page.waitForFunction(() => !document.getElementById("bridge").textContent.includes("Loading "));
+  assert.equal(await page.evaluate(() => window.nmlHarness.startComposition("rich-full", 4)), true);
+  assert.equal(await page.evaluate(() => window.nmlHarness.updateComposition("rich-full", 4, 4, "日本語")), true);
+  await page.evaluate(() => window.nmlHarness.finishComposition("日本語"));
+  await page.waitForFunction(() => window.nmlHarness.inspect().requests.at(-1)?.status === "acknowledged");
+  let richEditing = await page.evaluate(() => window.nmlHarness.inspect());
+  assert.equal(richEditing.ast.blocks[0].content[0].text, "Rich日本語 text");
+  assert.deepEqual(richEditing.ast.blocks[0].content[0].marks, ["bold"]);
+  assert.equal(richEditing.parity, true);
+
+  await page.evaluate(() => window.nmlHarness.mountRichEditable());
+  await page.waitForSelector('#bridge .nt-nml-view[contenteditable="true"][aria-label="Rich document editor"]');
+  await page.waitForSelector('#bridge [data-nml-id="code-rich"] .cm-content');
+  await page.click('#bridge [data-nml-id="rich-full"]');
+  await page.keyboard.press("End");
+  await page.keyboard.type("!");
+  await page.waitForFunction(() => window.nmlHarness.inspect().ast.blocks[0].content.some((part) => part.text?.endsWith("!")));
+
+  assert.equal(await page.evaluate(() => window.nmlHarness.selectInline("rich-full", 0, 4)), true);
+  await page.keyboard.down("Control");
+  await page.keyboard.press("i");
+  await page.keyboard.up("Control");
+  await page.waitForFunction(() => window.nmlHarness.inspect().ast.blocks[0].content[0].marks.includes("italic"));
+  assert.equal(await page.evaluate(() => { window.nmlHarness.selectInline("rich-full", 5, 9); return window.nmlHarness.setLink("https://example.com"); }), true);
+  await page.waitForSelector('#bridge [data-nml-id="rich-full"] a[href="https://example.com"]');
+  assert.equal(await page.evaluate(() => { window.nmlHarness.selectInline("rich-full", 6, 8); return window.nmlHarness.setLink(null); }), true);
+  await page.waitForFunction(() => document.querySelectorAll('#bridge [data-nml-id="rich-full"] a[href="https://example.com"]').length === 2);
+  assert.equal(await page.evaluate(() => { window.nmlHarness.selectInline("rich-full", 5, 9); return window.nmlHarness.setLink(null); }), true);
+  await page.waitForFunction(() => !document.querySelector('#bridge [data-nml-id="rich-full"] a'));
+  assert.equal(await page.evaluate(() => { window.nmlHarness.selectInline("rich-full", 10); return window.nmlHarness.insertInlineMath("x^2"); }), true);
+  await page.waitForSelector('#bridge [data-nml-id="rich-full"] .nt-math-inline');
+  assert.equal(await page.evaluate(() => window.nmlHarness.insertPageReference("page-2", "Second page")), true);
+  await page.waitForSelector('#bridge [data-nml-id="rich-full"] .nt-ref[data-page-id="page-2"]');
+
+  assert.equal(await page.evaluate(() => window.nmlHarness.selectInline("rich-full", 4)), true);
+  let requestCount = await page.evaluate(() => window.nmlHarness.inspect().requests.length);
+  await page.keyboard.press("Enter");
+  await page.waitForFunction(() => window.nmlHarness.inspect().ast.blocks.length > 10);
+  await page.waitForFunction((count) => {
+    const requests = window.nmlHarness.inspect().requests;
+    return requests.length > count && ["acknowledged", "reconciled"].includes(requests.at(-1)?.status);
+  }, {}, requestCount);
+  assert.equal(await page.evaluate(() => window.nmlHarness.selectInline("list-two", 3)), true);
+  requestCount = await page.evaluate(() => window.nmlHarness.inspect().requests.length);
+  await page.keyboard.press("Tab");
+  await page.waitForFunction(() => window.nmlHarness.inspect().ast.blocks.find((block) => block.id === "list-one")?.children[0]?.id === "list-two");
+  await page.waitForFunction((count) => {
+    const requests = window.nmlHarness.inspect().requests;
+    return requests.length > count && ["acknowledged", "reconciled"].includes(requests.at(-1)?.status);
+  }, {}, requestCount);
+  assert.equal(await page.evaluate(() => window.nmlHarness.selectInline("list-two", 3)), true);
+  requestCount = await page.evaluate(() => window.nmlHarness.inspect().requests.length);
+  await page.keyboard.down("Shift");
+  await page.keyboard.press("Tab");
+  await page.keyboard.up("Shift");
+  await page.waitForFunction(() => window.nmlHarness.inspect().ast.blocks.some((block) => block.id === "list-two"));
+  await page.waitForFunction((count) => {
+    const requests = window.nmlHarness.inspect().requests;
+    return requests.length > count && ["acknowledged", "reconciled"].includes(requests.at(-1)?.status);
+  }, {}, requestCount);
+  assert.equal(await page.evaluate(() => window.nmlHarness.selectInline("list-two", 2)), true);
+  assert.equal(await page.evaluate(() => window.nmlHarness.moveSelection(-1)), true);
+  await page.waitForFunction(() => {
+    const ids = window.nmlHarness.inspect().ast.blocks.map((block) => block.id);
+    return ids.indexOf("list-two") < ids.indexOf("list-one");
+  });
+
+  assert.equal(await page.evaluate(() => window.nmlHarness.selectInline("list-two", 3)), true);
+  await page.evaluate(() => {
+    const target = document.querySelector("#bridge .nt-nml-view");
+    const data = new DataTransfer(); data.setData("text/plain", "paste one\npaste two");
+    target.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+  });
+  await page.waitForFunction(() => JSON.stringify(window.nmlHarness.inspect().ast).includes("paste two"));
+  assert.equal(await page.evaluate(() => window.nmlHarness.selectInline("list-two", 3)), true);
+  await page.evaluate(() => {
+    const target = document.querySelector("#bridge .nt-nml-view");
+    const rect = document.querySelector('#bridge [data-nml-id="list-two"]').getBoundingClientRect();
+    const data = new DataTransfer(); data.setData("text/plain", "drop one\ndrop two");
+    target.dispatchEvent(new DragEvent("drop", {
+      dataTransfer: data,
+      bubbles: true,
+      cancelable: true,
+      clientX: rect.left + 8,
+      clientY: rect.top + rect.height / 2,
+    }));
+  });
+  await page.waitForFunction(() => JSON.stringify(window.nmlHarness.inspect().ast).includes("drop two"));
+
+  await page.click('#bridge [data-nml-id="table-cell"]');
+  await page.keyboard.press("End");
+  await page.keyboard.type(" edited");
+  await page.waitForFunction(() => JSON.stringify(window.nmlHarness.inspect().ast).includes("Cell edited"));
+  await page.click('#bridge [data-nml-id="code-rich"] .cm-content');
+  await page.keyboard.down("Control");
+  await page.keyboard.press("End");
+  await page.keyboard.up("Control");
+  await page.keyboard.type("; // edited");
+  await page.waitForFunction(() => window.nmlHarness.inspect().ast.blocks.find((block) => block.id === "code-rich")?.code.includes("edited"), { timeout: 3000 });
+  await page.waitForSelector('#bridge [data-nml-id="math-rich"] math-field');
+  await page.$eval('#bridge [data-nml-id="math-rich"] math-field', (field) => {
+    field.value = "x^2";
+    field.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: "^2" }));
+  });
+  await page.waitForFunction(() => window.nmlHarness.inspect().ast.blocks.find((block) => block.id === "math-rich")?.rows[0].latex.includes("2"));
+  await page.click('#bridge [data-nml-id="audio-rich"] .nt-media-input');
+  await page.keyboard.type("https://example.com/clip.mp4");
+  await page.keyboard.press("Enter");
+  await page.waitForFunction(() => {
+    const block = window.nmlHarness.inspect().ast.blocks.find((candidate) => candidate.id === "audio-rich");
+    return block?.type === "video" && block.props.source?.url === "https://example.com/clip.mp4";
+  });
+  await page.waitForFunction(() => ["acknowledged", "reconciled"].includes(window.nmlHarness.inspect().requests.at(-1)?.status));
+
+  const storyInput = '#bridge [data-nml-id="story1"] textarea';
+  await page.waitForSelector(storyInput);
+  const storyRequestCount = await page.evaluate(() => window.nmlHarness.inspect().requests.length);
+  await page.click(storyInput);
+  await page.keyboard.press("Home");
+  await page.keyboard.down("Shift");
+  await page.keyboard.press("End");
+  await page.keyboard.up("Shift");
+  await page.keyboard.type("Edited shot note");
+  assert.deepEqual(await page.$eval(storyInput, (element) => {
+    const textarea = element;
+    return { active: document.activeElement === textarea, value: textarea.value };
+  }), { active: true, value: "Edited shot note" });
+  await page.waitForFunction((count) => {
+    const requests = window.nmlHarness.inspect().requests;
+    return requests.length > count && ["acknowledged", "reconciled"].includes(requests.at(-1)?.status);
+  }, {}, storyRequestCount);
+  richEditing = await page.evaluate(() => window.nmlHarness.inspect());
+  assert.equal(richEditing.ast.blocks.find((block) => block.id === "story1")?.domain.shots[0].note, "Edited shot note");
+  assert.equal(richEditing.parity, true);
+  assert.equal(richEditing.diagnostics.length, 0);
+  assert.ok(richEditing.requests.some((request) => request.status === "acknowledged"));
+  await page.screenshot({ path: path.join(output, "rich-editing-desktop.png"), fullPage: true });
+
   await page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true });
   await page.evaluate(() => window.nmlHarness.mountEditable());
   await page.waitForSelector('#bridge .nt-nml-view[contenteditable="true"]');
@@ -297,5 +438,5 @@ try {
   await page.evaluate(() => window.nmlHarness.destroy());
   assert.deepEqual(errors, []);
   assert.deepEqual(paidRequests, []);
-  console.log(JSON.stringify({ result: "passed", fixtures: 8, editableWorkflows: 5, desktop: "1440x1100", mobile: "390x844", screenshots: output, browserErrors: errors.length, paidRequests: paidRequests.length }, null, 2));
+  console.log(JSON.stringify({ result: "passed", fixtures: 8, editableWorkflows: 7, desktop: "1440x1100", mobile: "390x844", screenshots: output, browserErrors: errors.length, paidRequests: paidRequests.length }, null, 2));
 } finally { await browser?.close(); await new Promise((resolve) => server.close(resolve)); }

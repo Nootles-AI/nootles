@@ -7,6 +7,7 @@ import {
 import type { Node as PmNode } from "prosemirror-model";
 import type { NmlYjsIndex } from "../yjs";
 import type { NodePositionEntry, PositionIndex } from "./position-index";
+import { nmlInlineOffsetToPm, pmInlineOffsetToNml } from "./projection";
 
 export type NmlPoint =
   | { kind: "text"; nodeId: string; relative: Uint8Array; affinity: "before" | "after" }
@@ -31,7 +32,7 @@ function editableEntryAt(position: number, index: PositionIndex, yjs: NmlYjsInde
   for (const candidate of [index.nodeAt(position), position > 0 ? index.nodeAt(position - 1) : null]) {
     let entry = candidate;
     while (entry) {
-      if (entry.contentStart !== undefined && position >= entry.contentStart && position <= entry.pmEnd - 1 && yjs.plainText(entry.nodeId)) return entry;
+      if (entry.contentStart !== undefined && position >= entry.contentStart && position <= entry.pmEnd - 1 && yjs.text(entry.nodeId)) return entry;
       entry = entry.parentId ? index.get(entry.parentId) ?? null : null;
     }
   }
@@ -50,12 +51,15 @@ function nodePointAt(position: number, index: PositionIndex): NmlPoint | null {
 function pointAt(
   position: number,
   affinity: "before" | "after",
+  doc: PmNode,
   index: PositionIndex,
   yjs: NmlYjsIndex,
 ): NmlPoint | null {
   const entry = editableEntryAt(position, index, yjs);
   if (entry) {
-    const relative = yjs.createRelativeTextPosition(entry.nodeId, position - entry.contentStart!, affinity);
+    const node = doc.nodeAt(entry.pmStart);
+    const offset = node ? pmInlineOffsetToNml(node, position - entry.contentStart!) : position - entry.contentStart!;
+    const relative = yjs.createRelativeTextPosition(entry.nodeId, offset, affinity);
     if (relative) return { kind: "text", nodeId: entry.nodeId, relative, affinity };
   }
   return nodePointAt(position, index);
@@ -71,6 +75,7 @@ function documentBoundary(index: PositionIndex, first: boolean): NmlPoint | null
 
 export function selectionToNml(
   selection: Selection,
+  doc: PmNode,
   index: PositionIndex,
   yjs: NmlYjsIndex,
 ): NmlSelection | null {
@@ -89,8 +94,8 @@ export function selectionToNml(
   const forward = selection.anchor <= selection.head;
   const anchorAffinity = selection.empty ? "after" : forward ? "after" : "before";
   const headAffinity = selection.empty ? "after" : forward ? "before" : "after";
-  const anchor = pointAt(selection.anchor, anchorAffinity, index, yjs);
-  const head = pointAt(selection.head, headAffinity, index, yjs);
+  const anchor = pointAt(selection.anchor, anchorAffinity, doc, index, yjs);
+  const head = pointAt(selection.head, headAffinity, doc, index, yjs);
   return anchor && head ? { anchor, head } : null;
 }
 
@@ -111,18 +116,19 @@ function fallbackPosition(
     const chosen = preferBefore ? before ?? after : after ?? before;
     if (chosen) {
       const entry = index.get(chosen)!;
-      const editable = yjs.plainText(chosen) && entry.contentStart !== undefined;
+      const editable = yjs.text(chosen) && entry.contentStart !== undefined;
       return chosen === before
         ? editable ? entry.pmEnd - 1 : entry.pmEnd
         : editable ? entry.contentStart! : entry.pmStart;
     }
   }
   const first = index.get(live[0])!;
-  return yjs.plainText(first.nodeId) && first.contentStart !== undefined ? first.contentStart : first.pmStart;
+  return yjs.text(first.nodeId) && first.contentStart !== undefined ? first.contentStart : first.pmStart;
 }
 
 function pointPosition(
   point: NmlPoint,
+  doc: PmNode,
   index: PositionIndex,
   yjs: NmlYjsIndex,
   previousOrder: readonly string[],
@@ -130,7 +136,11 @@ function pointPosition(
   const entry = index.get(point.nodeId);
   if (point.kind === "text" && entry?.contentStart !== undefined) {
     const offset = yjs.resolveRelativeTextPosition(point.nodeId, point.relative);
-    if (offset !== null) return Math.min(entry.pmEnd - 1, entry.contentStart + offset);
+    const node = doc.nodeAt(entry.pmStart);
+    if (offset !== null && node) return Math.min(
+      entry.pmEnd - 1,
+      entry.contentStart + nmlInlineOffsetToPm(node, offset, point.affinity),
+    );
   }
   if (point.kind === "node" && entry) {
     if (point.side === "before" || point.side === "on") return entry.pmStart;
@@ -161,8 +171,8 @@ export function selectionFromNml(
     const node = entry ? doc.nodeAt(entry.pmStart) : null;
     if (entry && node && NodeSelection.isSelectable(node)) return NodeSelection.create(doc, entry.pmStart);
   }
-  const anchor = pointPosition(selection.anchor, index, yjs, previousOrder);
-  const head = pointPosition(selection.head, index, yjs, previousOrder);
+  const anchor = pointPosition(selection.anchor, doc, index, yjs, previousOrder);
+  const head = pointPosition(selection.head, doc, index, yjs, previousOrder);
   if (anchor === null || head === null) return Selection.atStart(doc);
   const boundedAnchor = Math.max(0, Math.min(doc.content.size, anchor));
   const boundedHead = Math.max(0, Math.min(doc.content.size, head));

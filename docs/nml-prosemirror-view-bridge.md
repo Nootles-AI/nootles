@@ -1,16 +1,17 @@
 # NML ProseMirror View Bridge
 
-Status: steps 6–8 read-only projection, isolated plain-text editing, durable selection,
-awareness, and IME implemented; runtime adoption and later editing capabilities remain
-proposed.
+Status: steps 6–9 read-only projection, isolated plain-text/rich editing, durable selection,
+awareness, IME, structure, and custom-domain adapters implemented; runtime adoption,
+canonical canvas interaction, and history remain proposed.
 
-## Implemented read-only, plain-text, selection, and IME slices
+## Implemented read-only, plain-text, rich-editing, selection, and IME slices
 
 `app/lib/nml/view/` exports the adapter registry, projection, stable-ID position index,
 and `ReadOnlyNmlBridge`. Step 7 adds `PlainTextNmlBridge`, its editable browser mount, and
 `NmlPlainTextView`. Step 8 adds durable NML selections, awareness serialization, and
-composition handling to the same isolated host. The canonical `app/lib/nml` entry point
-stays free of PM/DOM imports.
+composition handling. Step 9 adds `EditableNmlBridge`/`NmlEditableView`, semantic
+before/after projection translation, and domain-editing portals. The canonical
+`app/lib/nml` entry point stays free of PM/DOM imports.
 React portals preserve application provider context for domain renderers. Callers supply
 an authorized Y.Doc and retain its lifetime. No production route mounts either host.
 
@@ -23,14 +24,15 @@ visible unavailable/stale preview notice. Legacy domain markup is never inserted
 
 Unchanged PM nodes and relative subtree indexes are cached. Canonical changes use minimal
 PM replacements with selection mapping; canvas-only updates notify domain views without
-PM transactions. Current CodeMirror, KaTeX, canvas, album, storyboard, location, and media
-surfaces render read-only. Canvas rendering consumes derived owner serialization; direct
-fine-grained scene subscriptions/gestures remain step 10. Storage media needs an authorized
-host URL resolver, otherwise an unavailable notice preserves its identity. Toggle expansion
-is local view state. The read-only host blocks every content transaction even with forged
-bridge metadata. The plain-text host accepts only one-block unmarked paragraph, heading,
-or quote replacements; lists, rich inlines, marks, structure, paste, and drop remain
-blocked.
+PM transactions. The full editor routes CodeMirror and MathLive changes through code/math
+commands, and routes album/storyboard/location/media controls through validated domain or
+property commands. Canvas rendering consumes derived owner serialization and stays
+read-only; direct scene subscriptions/gestures remain step 10. Storage media needs an
+authorized host URL resolver, otherwise an unavailable notice preserves its identity.
+Toggle expansion is local view state. The read-only host blocks every content transaction
+even with forged bridge metadata. The compatibility plain-text host still accepts only
+one-block unmarked paragraph, heading, or quote replacements; the full host enables the
+step-9 action set.
 
 Drift checks are explicit idle/development work: canonical round-trip and index parity,
 one rebuild, then freeze. Renderer errors retain content and freeze the preview. Diagnostics
@@ -41,12 +43,14 @@ observer snapshots, character-level Y.XmlText commands, minimal canonical-to-PM 
 and a Fenwick-backed position index. A normal keystroke touches its text node and top-level
 PM shard without a full decode, validation pass, projection, serialization, or document
 scan. Size limits, state/node preconditions, authorization, atomic batches, and idempotency
-still apply. Structural and complex-inline commands use the validated full path. The older
-whole-fragment mixed-mark path remains outside the editing gate until step 9 replaces it.
+still apply. Structural and complex-inline commands use the validated full path. Step 9
+replaces the older whole-fragment mixed-mark path with range-level shared-text operations.
 
 Optimistic PM transactions carry bridge/request metadata. Canonical transactions with the
 matching request ID acknowledge without echo or apply the smallest reconcile diff;
 rejected/unauthorized/stale requests roll back to the latest canonical projection.
+Receipt-driven selection restoration is epoch-guarded, so a late receipt cannot replace a
+newer selection made by the user.
 Selection-only, metadata-only, and semantic no-op transactions remain local. Text
 selections persist as node IDs plus Yjs relative positions and affinity; stable node sides
 cover node, gap, all-document, table-cell, and custom-domain boundaries. Canonical changes
@@ -55,12 +59,13 @@ document order. Awareness broadcasts a validated JSON-safe form without PM integ
 positions and preserves other local presence fields. Semantic observation compares sibling
 order after excluding insertions/deletions, avoiding false move reports from index shifts.
 
-Real browser composition events bracket provisional unmarked plain-text changes. Interim
+Real browser composition events bracket provisional plain or rich-text changes. Interim
 changes stay out of canonical Yjs and PM history, then composition end submits one command.
 Non-intersecting remote changes continue to project, intersecting text is buffered until
 the relative selection resolves, and remotely moved targets reconcile before commit. A
 deleted target preserves only its unfinished local insertion in a copyable recovery panel;
-diagnostics remain content-free. Rich-inline composition stays outside the step-8 gate.
+diagnostics remain content-free. The full host preserves active marks, link formatting, and
+inline-atom offsets through rich composition.
 
 Verification uses Node 22.22.1, `npm test`, `npx tsc --noEmit`, and `npm run lint`. The
 standalone browser comparison uses existing esbuild/Tailwind tooling and an
@@ -71,15 +76,16 @@ NML_PUPPETEER_MODULE=/absolute/path/to/puppeteer/lib/puppeteer/puppeteer.js node
 ```
 
 The runner builds a temporary static site and mounts current read-only BlockNote alongside
-the bridge, then mounts the isolated plain-text editor. It checks desktop/mobile fixtures,
-real typing/selection/delete/Unicode and composition events, durable awareness wire data,
-intersecting remote composition, deleted-target recovery, rejected structure/rich
-input/paste/drop, optimistic acknowledgement and rollback, a reconnect race, remote-caret
-mapping, remote text/canvas updates, drift/newer-version fallback, and cleanup. External
+the bridge, then mounts the isolated plain-text and full editors. It checks desktop/mobile
+fixtures, real typing/selection/delete/Unicode and composition events, durable awareness
+wire data, intersecting remote composition, deleted-target recovery, optimistic
+acknowledgement/rollback, a reconnect race, remote-caret mapping, rich marks and partial
+links, inline math/references, split/list/move/paste/drop actions, table/code/math/media and
+storyboard edits, remote text/canvas updates, drift/newer-version fallback, and cleanup. External
 HTTP is intercepted and Convex uses an inert fixture WebSocket; no backend, paid API, keys,
 or user data is needed. Screenshots go to the temporary path printed on success.
-`NML_CHROME_PATH` can select an installed browser. The sections below describe the full
-future bridge beyond these slices.
+`NML_CHROME_PATH` can select an installed browser. The sections below describe the bridge
+contract, including later canvas/history/migration stages.
 
 Implementation sequencing is tracked in
 [`nml-prosemirror-refactor-plan.md`](nml-prosemirror-refactor-plan.md). Binding v1 choices
@@ -476,7 +482,7 @@ validation fails.
 
 ## Inline translation
 
-Inline editing is the highest-frequency path and requires a specialized adapter:
+Inline editing is the highest-frequency path and uses a specialized adapter:
 
 - PM text insert/delete becomes a character-level mutation in the node's shared text.
 - PM marks map to the canonical NML mark set.
@@ -485,6 +491,12 @@ Inline editing is the highest-frequency path and requires a specialized adapter:
 - A simple keystroke must not diff or serialize the entire block or page.
 - Translation must preserve grapheme clusters and define offsets in one coordinate system.
 - Stored marks are view state; they affect future insertions but are not persisted alone.
+
+The implemented adapter computes grapheme-aware prefix/suffix ranges, emits mark-only and
+link-only formatting commands where possible, and reserves structural replacement for the
+small changed inline span. Link formatting carries an internal run key so adjacent equal-URL
+links remain distinct while partial unlink/relink does not clone collaborative suffix text.
+Projection-only link wrapper tokens are translated out of durable NML offsets.
 
 ## Composition and IME
 
@@ -515,20 +527,24 @@ Required behavior:
 
 - Table rows and cells map by stable IDs.
 - ProseMirror table wrapper nodes may be projection-only.
-- Row/column insertion, deletion, and merge/split actions translate to table semantic
-  commands, never a generic subtree replacement.
+- Supported row/column insertion and deletion actions translate to table semantic commands,
+  never a generic subtree replacement.
 - Cell selection maps to an NML table-range selection for commands but remains local view
   state for awareness unless collaborative table selection is explicitly designed.
-- Column resizing is view or block metadata according to the NML table schema; this must be
-  decided before implementation.
+- Each stored cell is associated with its stable column ID. Concurrent row/column insertion
+  derives a deterministic empty intersection cell, which is materialized on first edit;
+  concurrent column deletion hides cells attached to the removed column.
+- Column resizing is not part of the supported step-9 action set.
 
 ## Custom blocks
 
 - Atomic blocks use ProseMirror atom nodes with Nootles node views.
 - Editable text inside a custom block must either join the canonical inline model or be a
   separately declared NML/Yjs domain; it cannot hide mutable state only in React.
-- Code and math editors dispatch NML commands and receive canonical updates through their
-  domain adapters.
+- Code and math editors dispatch range/stable-row NML commands and receive canonical updates
+  through their domain adapters. Album, storyboard, and location edits use their owner
+  parsers and atomic `replaceDomain`; audio/video controls update typed media properties and
+  may switch the canonical media block type.
 - The complete canvas scene remains inside the canonical NML AST. ProseMirror sees one
   atomic canvas node and never materializes shapes or edges in its document tree.
 - The canvas node view subscribes directly to the owning block's canonical scene maps.
@@ -540,7 +556,7 @@ Required behavior:
 - `<nt-diagram>` is import/export/model serialization derived from the scene, never the
   node view's storage or synchronization channel.
 - Album, storyboard, and location adapters must state whether their internals are atomic or
-  fine-grained in each schema version.
+  fine-grained in each schema version. Schema v1 uses atomic validated replacements.
 
 ## Loop prevention and acknowledgement
 
@@ -627,6 +643,9 @@ Never log user text, NML payloads, Yjs updates, credentials, or storage URLs by 
 
 ## Verification matrix
 
+Step 9 closes every applicable item below. Canvas and undo remain assigned to steps 10 and
+11 respectively.
+
 - Every NML node adapter: AST -> PM -> AST semantic equality.
 - Every supported PM step: PM -> commands -> NML -> PM equality.
 - Local typing with remote insertion before, inside, and after the selection.
@@ -645,13 +664,13 @@ Never log user text, NML payloads, Yjs updates, credentials, or storage URLs by 
 
 ## Implementation stages
 
-1. **Read-only projection:** build NML AST -> PM projection and node/position index.
-2. **Parity harness:** continuously compare current editor output with canonical NML.
-3. **Plain text round trip:** translate paragraph/heading/quote PM transactions to NML.
-4. **Remote collaboration:** project backend/MCP NML changes into active selections.
-5. **Structure:** lists, split/join, moves, paste, drag/drop.
-6. **Rich inline:** marks, links, math, references.
-7. **Tables and custom blocks:** domain-specific adapters.
+1. **Read-only projection — complete:** build NML AST -> PM projection and node/position index.
+2. **Parity harness — complete:** compare current editor output with canonical NML fixtures.
+3. **Plain text round trip — complete:** translate paragraph/heading/quote PM transactions to NML.
+4. **Remote collaboration — complete for the isolated bridge:** project canonical changes into active selections.
+5. **Structure — complete for the supported action set:** lists, split/join, moves, plain-text paste/drop.
+6. **Rich inline — complete:** marks, links, math, references, and rich IME.
+7. **Tables and custom blocks — complete except canvas gestures:** semantic table/code/math/media/domain adapters.
 8. **Undo, review, and checkpoints:** canonical transaction grouping and restoration.
 9. **Migration:** switch persisted source of truth for a gated document cohort.
 10. **Retirement:** remove the ProseMirror-shaped persisted Yjs root after compatibility and
@@ -674,13 +693,12 @@ product, migration, and operational details close at the gated plan stage that n
 
 ### Translation
 
-- Is step-by-step translation reliable enough, or should transactions be translated from
-  affected-subtree before/after diffs?
-- How are replace-around steps, joins, lifts, wraps, and table plugin steps mapped without
-  depending on plugin-private behavior?
-- What is the canonical offset unit: UTF-16 code units, Unicode scalar values, or
-  grapheme clusters?
-- How are temporary IDs acknowledged without causing a visible second render?
+- Step 9 translates semantic before/after projection differences into the smallest supported
+  command set instead of depending on plugin-private step shapes; unsupported normalization,
+  row/column reordering, and cross-domain block conversion reject before canonical commit.
+- Canonical command offsets are UTF-16 code units accepted only at grapheme boundaries.
+  Temporary IDs are minted in the
+  optimistic projection and mapped by the canonical receipt before selection restoration.
 
 ### Concurrency
 
@@ -692,8 +710,8 @@ product, migration, and operational details close at the gated plan stage that n
 
 ### Selection and composition
 
-- Step 8 addresses unmarked text with Yjs relative positions and stable node-side points;
-  rich inline embed boundaries remain part of step 9.
+- Steps 8–9 address plain/rich text and inline-embed boundaries with Yjs relative positions
+  and stable node-side points.
 - A remotely deleted composition target exposes the unfinished insertion in a local,
   copyable recovery panel.
 - Gap, node, all-document, table-cell, and atomic custom-domain boundaries use stable node
@@ -712,8 +730,8 @@ product, migration, and operational details close at the gated plan stage that n
 
 ### Custom domains
 
-- Are code, math, album, storyboard, and location internals edited through PM, nested
-  editors, or direct NML domain commands?
+- Code and math use nested editors with direct semantic commands; album, storyboard, and
+  location use owner parsing plus atomic schema-v1 domain commands.
 - How does canvas text selection enter and leave the atomic ProseMirror node while canvas
   owns the internal selection and both surfaces share canonical undo grouping?
 - Which block-level canvas properties must be copied into the PM atom for layout, and which

@@ -3,8 +3,8 @@
 import { Component, lazy, Suspense, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { NmlBlock } from "@/app/lib/nml/schema";
-import type { NmlViewBridge, PlainTextNmlBridge, ReadOnlyNmlBridge } from "@/app/lib/nml/view";
-import { mountPlainTextNmlView, mountReadOnlyNmlView, type DomainRenderer } from "@/app/lib/nml/view/browser";
+import type { EditableNmlBridge, NmlViewBridge, PlainTextNmlBridge, ReadOnlyNmlBridge } from "@/app/lib/nml/view";
+import { mountEditableNmlView, mountReadOnlyNmlView, type DomainRenderer } from "@/app/lib/nml/view/browser";
 import { ReadOnlyContext } from "../readOnly";
 import "@blocknote/core/style.css";
 import "../editor.css";
@@ -39,7 +39,7 @@ class DomainPortals {
 }
 
 function NmlView({ bridge, editable, resolveStorageUrl }: {
-  bridge: ReadOnlyNmlBridge | PlainTextNmlBridge;
+  bridge: ReadOnlyNmlBridge | PlainTextNmlBridge | EditableNmlBridge;
   editable: boolean;
   resolveStorageUrl?: (storageId: string) => string | undefined;
 }) {
@@ -49,14 +49,14 @@ function NmlView({ bridge, editable, resolveStorageUrl }: {
   useEffect(() => {
     if (!host.current) return;
     const mounted = editable
-      ? mountPlainTextNmlView(host.current, bridge as PlainTextNmlBridge, portals.mount)
+      ? mountEditableNmlView(host.current, bridge as EditableNmlBridge | PlainTextNmlBridge, portals.mount)
       : mountReadOnlyNmlView(host.current, bridge as ReadOnlyNmlBridge, portals.mount);
     return () => mounted.destroy();
   }, [bridge, editable, portals]);
-  return <ReadOnlyContext.Provider value={true}>
-    <div className={`nt-editor ${editable ? "nt-nml-plain-text-editor" : "nt-nml-reader"}`} ref={host} />
+  return <ReadOnlyContext.Provider value={!bridge.supportsRichEditing()}>
+    <div className={`nt-editor ${bridge.supportsRichEditing() ? "nt-nml-editor" : editable ? "nt-nml-plain-text-editor" : "nt-nml-reader"}`} ref={host} />
     {slots.map(({ host: target, block, key }) => createPortal(
-      <DomainBoundary bridge={bridge} nodeId={block.id}><Suspense fallback={<span>Loading {block.type}…</span>}><DomainContent block={block} resolveStorageUrl={resolveStorageUrl} /></Suspense></DomainBoundary>, target, key,
+      <DomainBoundary bridge={bridge} nodeId={block.id}><Suspense fallback={<span>Loading {block.type}…</span>}><DomainContent block={block} editableBridge={bridge.supportsRichEditing() ? bridge as EditableNmlBridge : undefined} resolveStorageUrl={resolveStorageUrl} /></Suspense></DomainBoundary>, target, key,
     ))}
   </ReadOnlyContext.Provider>;
 }
@@ -72,6 +72,14 @@ export function NmlReadOnlyView({ bridge, resolveStorageUrl }: {
 /** Step-8 isolated editor: only unmarked paragraph, heading, and quote text is mutable. */
 export function NmlPlainTextView({ bridge, resolveStorageUrl }: {
   bridge: PlainTextNmlBridge;
+  resolveStorageUrl?: (storageId: string) => string | undefined;
+}) {
+  return <NmlView bridge={bridge} editable resolveStorageUrl={resolveStorageUrl} />;
+}
+
+/** Step-9 isolated editor over the canonical NML command vocabulary. */
+export function NmlEditableView({ bridge, resolveStorageUrl }: {
+  bridge: EditableNmlBridge;
   resolveStorageUrl?: (storageId: string) => string | undefined;
 }) {
   return <NmlView bridge={bridge} editable resolveStorageUrl={resolveStorageUrl} />;

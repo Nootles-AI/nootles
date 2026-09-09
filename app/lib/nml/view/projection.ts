@@ -6,9 +6,10 @@ import { validateDocument } from "../validate";
 export const BLOCK_TYPES = ["paragraph", "heading", "quote", "bulletListItem", "numberedListItem", "checkListItem", "toggleListItem", "table", "codeBlock", "mathBlock", "divider", "image", "video", "audio", "file", "canvas", "album", "storyboard", "location"] as const satisfies readonly NmlBlock["type"][];
 const _coverage: Exclude<NmlBlock["type"], typeof BLOCK_TYPES[number]> extends never ? true : never = true;
 void _coverage;
-const lists = new Set<string>(["bulletListItem", "numberedListItem", "checkListItem", "toggleListItem"]);
-const prose = new Set<string>(["paragraph", "heading", "quote"]);
-const identity = { nmlId: {}, props: { default: {} } };
+export const NML_LIST_TYPES = new Set<string>(["bulletListItem", "numberedListItem", "checkListItem", "toggleListItem"]);
+export const NML_PROSE_TYPES = new Set<string>(["paragraph", "heading", "quote"]);
+export const NML_INLINE_BLOCK_TYPES = new Set<string>([...NML_PROSE_TYPES, ...NML_LIST_TYPES]);
+const identity = { nmlId: { default: null }, props: { default: {} } };
 
 export type ProjectionContext = {
   schema: Schema;
@@ -39,8 +40,8 @@ export class NodeAdapterRegistry {
 
 function dom(block: NmlBlock["type"], node: PmNode): DOMOutputSpec {
   const attrs = { "data-nml-id": node.attrs.nmlId, "data-content-type": block };
-  if (prose.has(block)) return ["div", { "data-nml-id": node.attrs.nmlId, class: "bn-block-outer" }, ["div", { class: "bn-block" }, ["div", { class: "bn-block-content", "data-content-type": block, ...(block === "heading" ? { "data-level": node.attrs.props.level } : {}) }, [block === "heading" ? `h${node.attrs.props.level}` : block === "quote" ? "blockquote" : "p", { class: "bn-inline-content" }, 0]]]];
-  if (lists.has(block)) return ["div", { ...attrs, "data-checked": String(node.attrs.props.checked ?? false), "data-start": `${node.attrs.viewOrdinal ?? 1}.` }, 0];
+  if (NML_PROSE_TYPES.has(block)) return ["div", { "data-nml-id": node.attrs.nmlId, class: "bn-block-outer" }, ["div", { class: "bn-block" }, ["div", { class: "bn-block-content", "data-content-type": block, ...(block === "heading" ? { "data-level": node.attrs.props.level } : {}) }, [block === "heading" ? `h${node.attrs.props.level}` : block === "quote" ? "blockquote" : "p", { class: "bn-inline-content" }, 0]]]];
+  if (NML_LIST_TYPES.has(block)) return ["div", { ...attrs, "data-checked": String(node.attrs.props.checked ?? false), "data-start": `${node.attrs.viewOrdinal ?? 1}.` }, 0];
   if (block === "table") return ["table", attrs, ["tbody", 0]];
   if (block === "codeBlock") return ["pre", { ...attrs, class: "nt-code" }, ["code", 0]];
   if (block === "mathBlock") return ["div", { ...attrs, class: "nt-mathblock" }, 0];
@@ -51,12 +52,12 @@ function dom(block: NmlBlock["type"], node: PmNode): DOMOutputSpec {
 
 function defaultAdapter(type: NmlBlock["type"]): NodeAdapter {
   const pmNodeType = `nml_${type}`;
-  const content = prose.has(type) ? "inline*" : lists.has(type) ? "inline_body block_group?" : type === "table" ? "table_row*" : type === "codeBlock" ? "text*" : type === "mathBlock" ? "math_row*" : undefined;
+  const content = NML_PROSE_TYPES.has(type) ? "inline*" : NML_LIST_TYPES.has(type) ? "inline_body block_group?" : type === "table" ? "table_row*" : type === "codeBlock" ? "text*" : type === "mathBlock" ? "math_row*" : undefined;
   return {
     nmlType: type, pmNodeType,
     spec: {
       group: "block", attrs: { ...identity, ...(type === "numberedListItem" ? { viewOrdinal: { default: 1 } } : {}), ...(type === "table" ? { columns: {} } : {}), ...(["album", "storyboard", "location"].includes(type) ? { domain: {}, legacyMarkup: { default: null } } : {}) },
-      content, atom: !prose.has(type) && !lists.has(type) && type !== "table",
+      content, atom: !NML_PROSE_TYPES.has(type) && !NML_LIST_TYPES.has(type) && type !== "table",
       ...(type === "codeBlock" ? { code: true, marks: "", whitespace: "pre" as const } : {}),
       toDOM: (node) => dom(type, node),
     },
@@ -65,7 +66,7 @@ function defaultAdapter(type: NmlBlock["type"]): NodeAdapter {
       let content: PmNode[] = [];
       if ("content" in block) {
         content = inlineToPm(block.content, ctx.schema);
-        if (lists.has(type)) content = [ctx.schema.nodes.inline_body.createChecked(null, content), ...(children.length ? [ctx.schema.nodes.block_group.createChecked(null, children)] : [])];
+        if (NML_LIST_TYPES.has(type)) content = [ctx.schema.nodes.inline_body.createChecked(null, content), ...(children.length ? [ctx.schema.nodes.block_group.createChecked(null, children)] : [])];
       } else if (block.type === "table") {
         attrs.columns = structuredClone(block.columns);
         content = block.rows.map((row, index) => ctx.schema.nodes.table_row.createChecked({ nmlId: row.id }, row.cells.map((cell) => ctx.schema.nodes.table_cell.createChecked({ nmlId: cell.id, viewHeader: index < block.props.headerRows }, inlineToPm(cell.content, ctx.schema)))));
@@ -76,7 +77,7 @@ function defaultAdapter(type: NmlBlock["type"]): NodeAdapter {
     },
     fromPmNode(node, ctx, children) {
       const base = { id: node.attrs.nmlId as string, type, props: structuredClone(node.attrs.props), children };
-      if (prose.has(type) || lists.has(type)) return { ...base, content: inlineFromPm(lists.has(type) ? node.firstChild! : node) } as NmlBlock;
+      if (NML_PROSE_TYPES.has(type) || NML_LIST_TYPES.has(type)) return { ...base, content: inlineFromPm(NML_LIST_TYPES.has(type) ? node.firstChild! : node) } as NmlBlock;
       if (type === "table") {
         const rows: Array<{ id: string; cells: Array<{ id: string; content: NmlInlineContent }> }> = [];
         node.forEach((row) => {
@@ -111,11 +112,11 @@ export function createProjectionSchema(registry = new NodeAdapterRegistry()): Sc
     block_group: { content: "block*", toDOM: () => ["div", { "data-nml-wrapper": "children", style: "padding-left: 24px" }, 0] },
     // Links are inline containers to preserve adjacent equal-URL links exactly.
     link: { inline: true, group: "inline", content: "text*", attrs: { href: {} }, toDOM: (node) => ["a", { href: node.attrs.href, rel: "noopener noreferrer" }, 0] },
-    math: { inline: true, group: "inline", atom: true, attrs: { nmlId: {}, latex: {} }, toDOM: (node) => ["span", { "data-nml-id": node.attrs.nmlId, class: "nt-math-inline", contenteditable: "false" }, node.attrs.latex] },
-    pageRef: { inline: true, group: "inline", atom: true, attrs: { nmlId: {}, pageId: {}, fallbackTitle: {} }, toDOM: (node) => ["span", { "data-nml-id": node.attrs.nmlId, "data-page-id": node.attrs.pageId, class: "nt-ref", contenteditable: "false" }, node.attrs.fallbackTitle] },
-    table_row: { content: "table_cell*", attrs: { nmlId: {} }, toDOM: (node) => ["tr", { "data-nml-id": node.attrs.nmlId }, 0] },
-    table_cell: { content: "inline*", attrs: { nmlId: {}, viewHeader: { default: false } }, toDOM: (node) => [node.attrs.viewHeader ? "th" : "td", { "data-nml-id": node.attrs.nmlId }, 0] },
-    math_row: { content: "text*", marks: "", attrs: { nmlId: {} }, toDOM: (node) => ["div", { "data-nml-id": node.attrs.nmlId, class: "nt-mathblock-row" }, 0] },
+    math: { inline: true, group: "inline", atom: true, attrs: { nmlId: { default: null }, latex: {} }, toDOM: (node) => ["span", { "data-nml-id": node.attrs.nmlId, class: "nt-math-inline", contenteditable: "false" }, node.attrs.latex] },
+    pageRef: { inline: true, group: "inline", atom: true, attrs: { nmlId: { default: null }, pageId: {}, fallbackTitle: {} }, toDOM: (node) => ["span", { "data-nml-id": node.attrs.nmlId, "data-page-id": node.attrs.pageId, class: "nt-ref", contenteditable: "false" }, node.attrs.fallbackTitle] },
+    table_row: { content: "table_cell*", attrs: { nmlId: { default: null } }, toDOM: (node) => ["tr", { "data-nml-id": node.attrs.nmlId }, 0] },
+    table_cell: { content: "inline*", attrs: { nmlId: { default: null }, viewHeader: { default: false } }, toDOM: (node) => [node.attrs.viewHeader ? "th" : "td", { "data-nml-id": node.attrs.nmlId }, 0] },
+    math_row: { content: "text*", marks: "", attrs: { nmlId: { default: null } }, toDOM: (node) => ["div", { "data-nml-id": node.attrs.nmlId, class: "nt-mathblock-row" }, 0] },
     unsupported: { group: "block", atom: true, attrs: { nmlId: {}, payload: {} }, toDOM: (node) => ["div", { "data-nml-id": node.attrs.nmlId, "data-nml-unsupported": "true", contenteditable: "false", role: "note" }, "This block requires a compatible view."] },
   };
   for (const adapter of registry.values()) {
@@ -126,7 +127,7 @@ export function createProjectionSchema(registry = new NodeAdapterRegistry()): Sc
   return new Schema({ nodes, marks: Object.fromEntries(NML_MARKS.map((mark) => [mark, { toDOM: (): DOMOutputSpec => [tags[mark], 0] }])) });
 }
 
-function inlineToPm(content: NmlInlineContent, schema: Schema): PmNode[] {
+export function inlineToPm(content: NmlInlineContent, schema: Schema): PmNode[] {
   return content.flatMap((node): PmNode[] => {
     if (node.type === "text") return node.text ? [schema.text(node.text, node.marks.map((mark) => schema.marks[mark].create()))] : [];
     if (node.type === "link") return [schema.nodes.link.createChecked({ href: node.href }, inlineToPm(node.content, schema))];
@@ -135,7 +136,7 @@ function inlineToPm(content: NmlInlineContent, schema: Schema): PmNode[] {
   });
 }
 
-function inlineFromPm(node: PmNode): NmlInlineContent {
+export function inlineFromPm(node: PmNode): NmlInlineContent {
   const result: NmlInlineContent = [];
   node.forEach((child) => {
     if (child.isText) result.push({ type: "text", text: child.text!, marks: child.marks.map((mark) => mark.type.name as NmlMark) });
@@ -145,6 +146,69 @@ function inlineFromPm(node: PmNode): NmlInlineContent {
     else throw new Error("Unsupported inline projection");
   });
   return normalizeInline(result);
+}
+
+function inlineContainer(node: PmNode): PmNode {
+  return NML_LIST_TYPES.has(node.type.name.replace(/^nml_/, "")) && node.firstChild?.type.name === "inline_body"
+    ? node.firstChild
+    : node;
+}
+
+function canonicalInlineNodeLength(node: PmNode): number {
+  return node.type.name === "link" ? node.content.size : node.nodeSize;
+}
+
+/** Convert a position inside a projected inline container to the canonical NML offset. */
+export function pmInlineOffsetToNml(node: PmNode, offset: number): number {
+  const container = inlineContainer(node);
+  const bounded = Math.max(0, Math.min(container.content.size, offset));
+  let canonical = 0;
+  let result = 0;
+  container.forEach((child, pmStart) => {
+    if (pmStart >= bounded) return;
+    const length = canonicalInlineNodeLength(child);
+    if (child.type.name === "link" && bounded < pmStart + child.nodeSize) {
+      result = canonical + Math.max(0, Math.min(length, bounded - pmStart - 1));
+    } else if (bounded < pmStart + child.nodeSize) {
+      result = canonical + Math.max(0, Math.min(length, bounded - pmStart));
+    } else {
+      result = canonical + length;
+    }
+    canonical += length;
+  });
+  return result;
+}
+
+/** Convert a canonical NML inline offset back to its projected position. */
+export function nmlInlineOffsetToPm(
+  node: PmNode,
+  offset: number,
+  affinity: "before" | "after" = "after",
+): number {
+  const container = inlineContainer(node);
+  let total = 0;
+  container.forEach((child) => { total += canonicalInlineNodeLength(child); });
+  const bounded = Math.max(0, Math.min(total, offset));
+  let canonical = 0;
+  let found = false;
+  let result = container.content.size;
+  container.forEach((child, pmStart) => {
+    const length = canonicalInlineNodeLength(child);
+    if (found || bounded > canonical + length) {
+      canonical += length;
+      return;
+    }
+    found = true;
+    if (child.type.name !== "link") {
+      result = pmStart + Math.max(0, Math.min(length, bounded - canonical));
+      return;
+    }
+    const local = bounded - canonical;
+    if (local <= 0) result = affinity === "after" ? pmStart + 1 : pmStart;
+    else if (local >= length) result = affinity === "before" ? pmStart + 1 + length : pmStart + child.nodeSize;
+    else result = pmStart + 1 + local;
+  });
+  return result;
 }
 
 export function canonicalBlocks(document: NmlDocument): Map<string, NmlBlock> {
@@ -181,7 +245,7 @@ export class NmlProjection {
       // A canvas scene never occupies PM attributes, even transiently.
       const signature = JSON.stringify(!adapter ? block : { ...(block.type === "canvas" ? { id: block.id, type: block.type, props: block.props } : own), childIds: block.children.map((child) => child.id), ordinal });
       const previous = this.cache.get(block.id);
-      let candidate = previous?.signature === signature && block.children.every((child, i) => this.cache.get(child.id)?.node === children[i]) && (!lists.has(block.type) || (previous.node.lastChild?.type.name === "block_group" ? previous.node.lastChild.childCount : 0) === children.length)
+      let candidate = previous?.signature === signature && block.children.every((child, i) => this.cache.get(child.id)?.node === children[i]) && (!NML_LIST_TYPES.has(block.type) || (previous.node.lastChild?.type.name === "block_group" ? previous.node.lastChild.childCount : 0) === children.length)
         ? previous.node
         : adapter ? adapter.toPmNode(block, context, children) : this.schema.nodes.unsupported.createChecked({ nmlId: block.id, payload: structuredClone(block) });
       if (adapter && block.type === "numberedListItem" && candidate.attrs.viewOrdinal !== ordinal) candidate = candidate.type.createChecked({ ...candidate.attrs, viewOrdinal: ordinal }, candidate.content);
@@ -206,7 +270,7 @@ export class NmlProjection {
       const adapter = this.registry.values().find((entry) => entry.pmNodeType === pm.type.name);
       if (!adapter) throw new Error("Unknown projection node");
       const children: NmlBlock[] = [];
-      if (lists.has(adapter.nmlType) && pm.lastChild?.type.name === "block_group") pm.lastChild.forEach((child) => children.push(visit(child)));
+      if (NML_LIST_TYPES.has(adapter.nmlType) && pm.lastChild?.type.name === "block_group") pm.lastChild.forEach((child) => children.push(visit(child)));
       return adapter.fromPmNode(pm, ctx, children);
     };
     const result: NmlDocument = { documentId: node.attrs.documentId, schemaVersion: node.attrs.schemaVersion, blocks: [] };
