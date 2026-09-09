@@ -31,7 +31,7 @@ export type NmlTransactionOrigin = {
 };
 
 export type NmlChange =
-  | { kind: "text"; nodeId: string }
+  | { kind: "text"; nodeId: string; range?: NmlTextChangeRange }
   | { kind: "props"; nodeId: string; keys: string[] }
   | { kind: "insert"; parentId: string | null; nodeIds: string[] }
   | { kind: "remove"; parentId: string | null; nodeIds: string[] }
@@ -47,6 +47,13 @@ export type NmlChangeSet = {
   diagnostics: NmlIssue[];
   /** Present on validated full-path observations so readers need not decode twice. */
   document?: NmlDocument;
+};
+
+export type NmlTextChangeRange = {
+  /** UTF-16 offsets in the text before the transaction. */
+  from: number;
+  to: number;
+  insertedLength: number;
 };
 
 export type NmlPlainTextTarget = {
@@ -630,6 +637,45 @@ export class NmlYjsIndex {
     };
   }
 
+  createRelativeTextPosition(
+    nodeId: string,
+    offset: number,
+    affinity: "before" | "after",
+  ): Uint8Array | null {
+    const target = this.plainText(nodeId);
+    if (!target || !Number.isInteger(offset) || offset < 0 || offset > target.text.length) return null;
+    if (!target.textNodes.length) {
+      return Y.encodeRelativePosition(Y.createRelativePositionFromTypeIndex(target.fragment, 0, affinity === "before" ? -1 : 0));
+    }
+    let remaining = offset;
+    for (const node of target.textNodes) {
+      if (remaining <= node.length) {
+        return Y.encodeRelativePosition(Y.createRelativePositionFromTypeIndex(node, remaining, affinity === "before" ? -1 : 0));
+      }
+      remaining -= node.length;
+    }
+    return null;
+  }
+
+  resolveRelativeTextPosition(nodeId: string, encoded: Uint8Array): number | null {
+    if (!(encoded instanceof Uint8Array) || encoded.length === 0 || encoded.length > 256) return null;
+    const target = this.plainText(nodeId);
+    if (!target) return null;
+    try {
+      const absolute = Y.createAbsolutePositionFromRelativePosition(Y.decodeRelativePosition(encoded), this.doc);
+      if (!absolute) return null;
+      if (absolute.type === target.fragment) {
+        if (absolute.index < 0 || absolute.index > target.textNodes.length) return null;
+        return target.textNodes.slice(0, absolute.index).reduce((total, node) => total + node.length, 0);
+      }
+      const index = target.textNodes.indexOf(absolute.type as Y.XmlText);
+      if (index < 0 || absolute.index < 0 || absolute.index > target.textNodes[index].length) return null;
+      return target.textNodes.slice(0, index).reduce((total, node) => total + node.length, 0) + absolute.index;
+    } catch {
+      return null;
+    }
+  }
+
   changedPlainTextNodeIds(transaction: Y.Transaction): string[] | null {
     const root = this.doc.getMap<unknown>(NML_YJS_ROOT);
     const ids = new Set<string>();
@@ -748,21 +794,84 @@ function positions(document: NmlDocument): Map<string, { parentId: string | null
   return result;
 }
 
+function sharedSiblingRanks(
+  source: Map<string, { parentId: string | null; index: number; block: NmlBlock }>,
+  other: Map<string, { parentId: string | null; index: number; block: NmlBlock }>,
+): Map<string, number> {
+  const siblings = new Map<string | null, Array<{ id: string; index: number }>>();
+  for (const [id, value] of source) {
+    if (other.get(id)?.parentId !== value.parentId) continue;
+    const rows = siblings.get(value.parentId) ?? [];
+    rows.push({ id, index: value.index });
+    siblings.set(value.parentId, rows);
+  }
+  const ranks = new Map<string, number>();
+  for (const rows of siblings.values()) {
+    rows.sort((left, right) => left.index - right.index);
+    rows.forEach((row, rank) => ranks.set(row.id, rank));
+  }
+  return ranks;
+}
+
+function plainInlineText(block: NmlBlock): string | null {
+  if (!("content" in block) || !block.content.every((node) => node.type === "text" && node.marks.length === 0)) return null;
+  return block.content.map((node) => node.type === "text" ? node.text : "").join("");
+}
+
+const textRangeSegmenter = typeof Intl.Segmenter === "function"
+  ? new Intl.Segmenter(undefined, { granularity: "grapheme" })
+  : null;
+
+function graphemeBoundary(text: string, offset: number, direction: "before" | "after"): number {
+  if (!textRangeSegmenter) {
+    if (offset > 0 && offset < text.length && /[\uDC00-\uDFFF]/.test(text[offset]) && /[\uD800-\uDBFF]/.test(text[offset - 1])) {
+      return direction === "before" ? offset - 1 : offset + 1;
+    }
+    return offset;
+  }
+  let prior = 0;
+  for (const segment of textRangeSegmenter.segment(text)) {
+    if (segment.index === offset) return offset;
+    if (segment.index > offset) return direction === "before" ? prior : segment.index;
+    prior = segment.index;
+  }
+  return text.length;
+}
+
+function changedTextRange(before: string, after: string): NmlTextChangeRange {
+  let sharedFrom = 0;
+  while (sharedFrom < before.length && sharedFrom < after.length && before[sharedFrom] === after[sharedFrom]) sharedFrom++;
+  let suffix = 0;
+  while (suffix < before.length - sharedFrom && suffix < after.length - sharedFrom &&
+      before[before.length - 1 - suffix] === after[after.length - 1 - suffix]) suffix++;
+  const from = Math.min(
+    graphemeBoundary(before, sharedFrom, "before"),
+    graphemeBoundary(after, sharedFrom, "before"),
+  );
+  const to = graphemeBoundary(before, before.length - suffix, "after");
+  const insertedTo = graphemeBoundary(after, after.length - suffix, "after");
+  return { from, to, insertedLength: insertedTo - from };
+}
+
 function changed(before: NmlDocument, after: NmlDocument): NmlChange[] {
   const was = positions(before);
   const now = positions(after);
+  const wasRank = sharedSiblingRanks(was, now);
+  const nowRank = sharedSiblingRanks(now, was);
   const changes: NmlChange[] = [];
   for (const [id, previous] of was) {
     const next = now.get(id);
     if (!next) changes.push({ kind: "remove", parentId: previous.parentId, nodeIds: [id] });
-    else if (previous.parentId !== next.parentId || previous.index !== next.index) {
+    else if (previous.parentId !== next.parentId || wasRank.get(id) !== nowRank.get(id)) {
       changes.push({ kind: "move", nodeId: id, fromParentId: previous.parentId, toParentId: next.parentId });
     } else {
       if (JSON.stringify(previous.block.props) !== JSON.stringify(next.block.props)) {
         changes.push({ kind: "props", nodeId: id, keys: [...new Set([...Object.keys(previous.block.props), ...Object.keys(next.block.props)])].sort() });
       }
       if ("content" in previous.block && "content" in next.block && JSON.stringify(previous.block.content) !== JSON.stringify(next.block.content)) {
-        changes.push({ kind: "text", nodeId: id });
+        const beforeText = plainInlineText(previous.block);
+        const afterText = plainInlineText(next.block);
+        changes.push({ kind: "text", nodeId: id, ...(beforeText !== null && afterText !== null ? { range: changedTextRange(beforeText, afterText) } : {}) });
       }
       for (const domain of ["code", "rows", "scene", "domain"] as const) {
         if (domain in previous.block && domain in next.block && JSON.stringify(previous.block[domain as keyof NmlBlock]) !== JSON.stringify(next.block[domain as keyof NmlBlock])) {
@@ -804,8 +913,9 @@ export function observeNmlChanges(
           valid = false;
           break;
         }
+        const beforeText = prior.content.map((node) => node.type === "text" ? node.text : "").join("");
         prior.content = target.text ? [{ type: "text", text: target.text, marks: [] }] : [];
-        changes.push({ kind: "text", nodeId });
+        changes.push({ kind: "text", nodeId, range: changedTextRange(beforeText, target.text) });
       }
       if (valid) {
         options.index?.syncPlainText(plainTextIds);

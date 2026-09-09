@@ -22,5 +22,9 @@
 .nt-nml-view td, .nt-nml-view th { border: 1px solid var(--line, #ddd); padding: 6px 10px; text-align: left; }
 .nt-nml-view figure { margin: 0; }
 .nt-nml-view-notice, .nt-nml-view [data-nml-unsupported] { padding: 12px; border: 1px solid var(--line, #ddd); border-radius: 6px; }
+.nt-nml-composition-recovery { margin-top: 12px; padding: 12px; border: 1px solid var(--line, #ddd); border-radius: 6px; background: var(--surface, #fff); }
+.nt-nml-composition-recovery p { margin: 0 0 8px; }
+.nt-nml-composition-recovery textarea { display: block; width: 100%; min-height: 72px; resize: vertical; padding: 8px; border: 1px solid var(--line, #ddd); border-radius: 4px; color: inherit; background: transparent; font: inherit; }
+.nt-nml-composition-recovery button { margin-top: 8px; padding: 5px 10px; border: 1px solid var(--line, #ddd); border-radius: 4px; color: inherit; background: transparent; font: inherit; cursor: pointer; }
 .nt-nml-view a { color: inherit; text-decoration: underline; }
 .nt-nml-view .nt-ref { cursor: default; }
