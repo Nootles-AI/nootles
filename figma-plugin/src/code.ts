@@ -14,9 +14,10 @@
 import { serializeScene } from "@/app/components/editor/canvas/scene/serialize";
 import { convertSelection, type Diagnostic } from "./convert";
 import type { FigNode } from "./model";
+import { VERSION } from "./version";
 
 type ToUi =
-  | { type: "selection"; count: number; names: string[] }
+  | { type: "selection"; count: number; names: string[]; version: string }
   | { type: "busy" }
   | { type: "ready"; html: string; count: number; report: Diagnostic[]; details: string }
   | { type: "failed"; message: string };
@@ -25,7 +26,7 @@ type FromUi = { type: "copy" } | { type: "close" };
 
 const post = (message: ToUi) => figma.ui.postMessage(message);
 
-figma.showUI(__html__, { width: 320, height: 380, themeColors: true });
+figma.showUI(__html__, { width: 320, height: 420, themeColors: true });
 
 function describeSelection() {
   const selection = figma.currentPage.selection;
@@ -33,6 +34,7 @@ function describeSelection() {
     type: "selection",
     count: selection.length,
     names: selection.slice(0, 3).map((node) => node.name),
+    version: VERSION,
   });
 }
 
@@ -61,7 +63,7 @@ async function imageSource(hash: string): Promise<string | null> {
  * hashes; the bytes are not what anyone needs to read.
  */
 const DETAIL_FIELDS = [
-  "id", "name", "type", "visible", "locked",
+  "id", "name", "type", "visible", "locked", "isMask", "maskType",
   "x", "y", "width", "height", "rotation", "relativeTransform", "absoluteTransform",
   "opacity", "blendMode", "fills", "strokes", "strokeWeight", "strokeAlign", "dashPattern",
   "strokeCap", "strokeJoin", "cornerRadius", "topLeftRadius", "topRightRadius",
@@ -70,7 +72,7 @@ const DETAIL_FIELDS = [
   "paddingRight", "paddingTop", "paddingBottom", "primaryAxisAlignItems",
   "counterAxisAlignItems", "layoutSizingHorizontal", "layoutSizingVertical",
   "layoutPositioning", "clipsContent", "arcData", "pointCount",
-  "vectorPaths", "fillGeometry", "strokeGeometry",
+  "booleanOperation", "vectorPaths", "fillGeometry", "strokeGeometry",
   "characters", "fontSize", "fontName", "textAlignHorizontal", "textAlignVertical",
   "textAutoResize", "maxLines", "lineHeight", "letterSpacing", "paragraphSpacing",
   "textCase", "textDecoration",

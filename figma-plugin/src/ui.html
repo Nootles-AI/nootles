@@ -1,80 +1,266 @@
 <!doctype html>
-<html>
+<html lang="en">
   <head>
     <meta charset="utf-8" />
+    <title>Copy for Nootles</title>
     <style>
-      /* The plugin window is Figma's, so it wears Figma's own theme tokens
-         and nothing of Nootles' — a guest in someone else's house. */
+      /* The window is Figma's, so the chrome wears Figma's theme tokens; the
+         fallbacks are Figma's light values, for a preview outside the plugin
+         sandbox. Nootles itself appears only as its own mark. */
       :root {
         color-scheme: light dark;
+        --bg: var(--figma-color-bg, #ffffff);
+        --bg-secondary: var(--figma-color-bg-secondary, #f5f5f5);
+        --bg-hover: var(--figma-color-bg-hover, #f0f0f0);
+        --bg-brand: var(--figma-color-bg-brand, #0d99ff);
+        --bg-brand-hover: var(--figma-color-bg-brand-hover, #0b8ce9);
+        --bg-disabled: var(--figma-color-bg-disabled, #e6e6e6);
+        --border: var(--figma-color-border, #e6e6e6);
+        --border-strong: var(--figma-color-border-strong, #2c2c2c);
+        --text: var(--figma-color-text, #1e1e1e);
+        --text-secondary: var(--figma-color-text-secondary, #757575);
+        --text-tertiary: var(--figma-color-text-tertiary, #b3b3b3);
+        --text-onbrand: var(--figma-color-text-onbrand, #ffffff);
+        --text-disabled: var(--figma-color-text-disabled, #b3b3b3);
+        --text-success: var(--figma-color-text-success, #14ae5c);
+        --text-danger: var(--figma-color-text-danger, #f24822);
+        --text-warning: var(--figma-color-text-warning, #a35e00);
+        --icon: var(--figma-color-icon, #1e1e1e);
+        --icon-tertiary: var(--figma-color-icon-tertiary, #b3b3b3);
+        --nootles: #718568;
+      }
+      * {
+        box-sizing: border-box;
       }
       body {
         margin: 0;
-        padding: 16px;
-        font: 11px/1.5 Inter, -apple-system, system-ui, sans-serif;
-        color: var(--figma-color-text);
-        background: var(--figma-color-bg);
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+        font: 11px/16px Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+        color: var(--text);
+        background: var(--bg);
+        -webkit-font-smoothing: antialiased;
+      }
+      button,
+      a {
+        font: inherit;
+      }
+      button:focus-visible,
+      a:focus-visible {
+        outline: 2px solid var(--bg-brand);
+        outline-offset: 1px;
+      }
+
+      /* ---- Header ------------------------------------------------------ */
+      .head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        height: 40px;
+        padding: 0 16px;
+        border-bottom: 1px solid var(--border);
+        flex: none;
+      }
+      .wordmark {
+        display: block;
+        height: 16px;
+        width: auto;
+        color: var(--text);
+      }
+      .head .kicker {
+        color: var(--text-tertiary);
+        letter-spacing: 0.02em;
+      }
+
+      /* ---- Body -------------------------------------------------------- */
+      .body {
+        flex: 1;
+        min-height: 0;
         display: flex;
         flex-direction: column;
         gap: 12px;
-        height: 100vh;
-        box-sizing: border-box;
+        padding: 16px;
       }
-      h1 {
-        margin: 0;
-        font-size: 13px;
+      .card {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 12px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        background: var(--bg-secondary);
+        min-height: 60px;
+      }
+      .card .mark {
+        flex: none;
+        width: 28px;
+        height: 34px;
+        color: var(--nootles);
+      }
+      .card.is-empty .mark {
+        color: var(--icon-tertiary);
+      }
+      .card .words {
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+      .card .name {
         font-weight: 600;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
-      p {
-        margin: 0;
-        color: var(--figma-color-text-secondary);
+      .card .meta {
+        color: var(--text-secondary);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
-      .selection {
-        min-height: 1.5em;
-      }
-      button {
+
+      .primary {
         appearance: none;
         border: 0;
         border-radius: 6px;
-        padding: 0 14px;
         height: 32px;
-        font: inherit;
+        padding: 0 16px;
         font-weight: 500;
+        color: var(--text-onbrand);
+        background: var(--bg-brand);
         cursor: pointer;
-        background: var(--figma-color-bg-brand);
-        color: var(--figma-color-text-onbrand);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        transition: background 120ms;
       }
-      button:disabled {
-        background: var(--figma-color-bg-disabled);
-        color: var(--figma-color-text-disabled);
+      .primary:hover:not(:disabled) {
+        background: var(--bg-brand-hover);
+      }
+      .primary:disabled {
+        background: var(--bg-disabled);
+        color: var(--text-disabled);
         cursor: default;
       }
+      .primary kbd {
+        font: inherit;
+        opacity: 0.7;
+      }
+      .primary .spinner {
+        width: 12px;
+        height: 12px;
+        border: 1.5px solid currentColor;
+        border-right-color: transparent;
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
       .status {
-        min-height: 1.5em;
+        display: flex;
+        align-items: flex-start;
+        gap: 6px;
+        min-height: 16px;
+        color: var(--text-secondary);
+      }
+      .status svg {
+        flex: none;
+        width: 12px;
+        height: 12px;
+        margin-top: 2px;
+      }
+      .status:empty {
+        display: none;
       }
       .status.is-ok {
-        color: var(--figma-color-text-success);
+        color: var(--text-success);
       }
       .status.is-problem {
-        color: var(--figma-color-text-danger);
+        color: var(--text-danger);
       }
-      .report {
-        margin: 0;
-        padding: 0 0 0 16px;
-        overflow: auto;
+
+      /* ---- Notes: what the canvas could not hold ------------------------ */
+      .notes {
         flex: 1;
-        color: var(--figma-color-text-secondary);
+        min-height: 0;
+        display: none;
+        flex-direction: column;
+        gap: 6px;
       }
-      .report li + li {
-        margin-top: 4px;
+      .notes.is-shown {
+        display: flex;
       }
+      .notes h2 {
+        margin: 0;
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--text-secondary);
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .notes h2 .count {
+        font-weight: 500;
+        color: var(--text-tertiary);
+      }
+      .notes ul {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+        overflow: auto;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+      }
+      .notes li {
+        display: grid;
+        grid-template-columns: 88px 1fr;
+        gap: 8px;
+        padding: 6px 10px;
+        color: var(--text-secondary);
+      }
+      .notes li + li {
+        border-top: 1px solid var(--border);
+      }
+      .notes li b {
+        font-weight: 500;
+        color: var(--text);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      /* ---- Footer ------------------------------------------------------ */
       .foot {
-        margin-top: auto;
+        flex: none;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 10px 16px;
+        border-top: 1px solid var(--border);
+        color: var(--text-secondary);
       }
-      .foot a {
-        color: var(--figma-color-text-secondary);
+      .foot .quiet {
+        appearance: none;
+        border: 0;
+        background: none;
+        padding: 0;
+        color: var(--text-secondary);
         text-decoration: underline;
         text-underline-offset: 2px;
+        cursor: pointer;
+      }
+      .foot .quiet:hover {
+        color: var(--text);
+      }
+      .foot .quiet[hidden] {
+        display: none;
       }
       textarea {
         position: absolute;
@@ -84,33 +270,71 @@
     </style>
   </head>
   <body>
-    <h1>Copy for Nootles</h1>
-    <p class="selection" id="selection">Nothing selected.</p>
-    <button id="copy" disabled>Copy</button>
-    <p class="status" id="status"></p>
-    <ul class="report" id="report"></ul>
-    <p class="foot"><a href="#" id="details" hidden>Copy details for a bug report</a></p>
+    <header class="head">
+      <svg class="wordmark" viewBox="0 0 215 55" fill="currentColor" role="img" aria-label="Nootles"><path d="M186.882 47.4168C186.449 46.7923 186.257 46.1437 186.305 45.4711C186.353 44.7505 186.761 44.126 187.53 43.5975C188.011 43.2612 188.563 43.1171 189.188 43.1651C189.86 43.2132 190.461 43.5255 190.989 44.102C192.334 45.6873 193.872 46.9604 195.601 47.9212C197.331 48.834 199.444 49.2904 201.943 49.2904C203.096 49.2424 204.249 49.0502 205.401 48.7139C206.554 48.3776 207.515 47.8011 208.284 46.9844C209.101 46.1197 209.509 44.9907 209.509 43.5975C209.509 42.2524 209.101 41.1954 208.284 40.4268C207.467 39.6101 206.41 38.9615 205.113 38.4811C203.816 37.9527 202.399 37.4963 200.862 37.1119C199.276 36.6796 197.715 36.1992 196.178 35.6707C194.64 35.0942 193.247 34.3976 191.998 33.5809C190.797 32.7162 189.812 31.6592 189.043 30.4102C188.323 29.1131 187.962 27.5517 187.962 25.7261C187.962 23.5643 188.539 21.6907 189.692 20.1053C190.893 18.5199 192.478 17.2949 194.448 16.4301C196.466 15.5654 198.652 15.133 201.006 15.133C202.351 15.133 203.744 15.3012 205.185 15.6375C206.675 15.9257 208.116 16.4542 209.509 17.2228C210.902 17.9434 212.127 18.9523 213.184 20.2494C213.617 20.7298 213.857 21.3304 213.905 22.051C213.953 22.7716 213.641 23.4202 212.968 23.9967C212.44 24.381 211.839 24.5491 211.166 24.5011C210.542 24.453 210.013 24.2128 209.581 23.7805C208.572 22.5794 207.299 21.6666 205.762 21.0421C204.273 20.3695 202.615 20.0332 200.79 20.0332C199.637 20.0332 198.508 20.2014 197.403 20.5377C196.298 20.874 195.361 21.4505 194.592 22.2672C193.872 23.0358 193.511 24.1168 193.511 25.51C193.559 26.8071 193.992 27.864 194.808 28.6807C195.625 29.4974 196.73 30.17 198.123 30.6984C199.516 31.1788 201.054 31.6592 202.735 32.1397C204.273 32.524 205.738 32.9804 207.131 33.5088C208.572 33.9892 209.869 34.6378 211.022 35.4545C212.175 36.2712 213.088 37.3281 213.761 38.6252C214.433 39.8743 214.77 41.4597 214.77 43.3813C214.77 45.5912 214.145 47.5129 212.896 49.1463C211.647 50.7317 209.989 51.9567 207.924 52.8215C205.906 53.6382 203.72 54.0465 201.366 54.0465C198.724 54.0465 196.105 53.5421 193.511 52.5332C190.965 51.5243 188.755 49.8189 186.882 47.4168Z"/><path d="M169.93 54.0465C166.086 54.0465 162.723 53.2298 159.841 51.5964C156.958 49.963 154.7 47.7291 153.067 44.8946C151.482 42.0122 150.689 38.6973 150.689 34.9501C150.689 30.7705 151.506 27.2154 153.139 24.2849C154.821 21.3063 156.982 19.0484 159.625 17.5111C162.315 15.9257 165.149 15.133 168.128 15.133C170.338 15.133 172.476 15.5414 174.541 16.3581C176.607 17.1748 178.433 18.3758 180.018 19.9612C181.604 21.4985 182.877 23.3721 183.837 25.582C184.798 27.7439 185.303 30.17 185.351 32.8603C185.351 33.6289 185.063 34.2775 184.486 34.806C183.91 35.3344 183.237 35.5986 182.468 35.5986H154.004L152.707 30.6264H180.451L179.298 31.6352V30.0499C179.105 28.0802 178.433 26.3987 177.28 25.0055C176.175 23.5643 174.806 22.4593 173.172 21.6907C171.587 20.922 169.905 20.5377 168.128 20.5377C166.687 20.5377 165.245 20.8019 163.804 21.3304C162.411 21.8108 161.138 22.6275 159.985 23.7805C158.88 24.8854 157.967 26.3267 157.247 28.1042C156.574 29.8817 156.238 32.0196 156.238 34.5177C156.238 37.3041 156.79 39.7542 157.895 41.868C159.048 43.9818 160.634 45.6633 162.651 46.9124C164.669 48.1134 167.023 48.7139 169.713 48.7139C171.395 48.7139 172.86 48.4977 174.109 48.0654C175.358 47.633 176.439 47.1045 177.352 46.48C178.265 45.8074 179.033 45.1348 179.658 44.4623C180.282 44.0299 180.883 43.8137 181.459 43.8137C182.18 43.8137 182.757 44.0539 183.189 44.5343C183.669 45.0147 183.91 45.5912 183.91 46.2638C183.91 47.0805 183.525 47.8011 182.757 48.4257C181.411 49.915 179.586 51.2361 177.28 52.3891C174.974 53.494 172.524 54.0465 169.93 54.0465Z"/><path d="M147.273 50.3713C147.273 51.188 146.985 51.8846 146.409 52.4611C145.832 53.0376 145.136 53.3259 144.319 53.3259C143.502 53.3259 142.83 53.0376 142.301 52.4611C141.773 51.8846 141.508 51.188 141.508 50.3713V2.88248C141.508 2.06578 141.773 1.3932 142.301 0.864742C142.878 0.288248 143.574 0 144.391 0C145.256 0 145.952 0.288248 146.481 0.864742C147.009 1.3932 147.273 2.06578 147.273 2.88248V50.3713Z"/><path d="M118.356 16.286H135.291C136.059 16.286 136.684 16.5503 137.164 17.0787C137.693 17.6072 137.957 18.2317 137.957 18.9523C137.957 19.721 137.693 20.3695 137.164 20.898C136.684 21.3784 136.059 21.6186 135.291 21.6186H118.356C117.636 21.6186 117.011 21.3544 116.483 20.8259C115.954 20.2975 115.69 19.6489 115.69 18.8803C115.69 18.1596 115.954 17.5591 116.483 17.0787C117.011 16.5503 117.636 16.286 118.356 16.286ZM125.923 6.4856C126.739 6.4856 127.412 6.77384 127.94 7.35034C128.469 7.87879 128.733 8.55137 128.733 9.36808V44.174C128.733 45.327 128.901 46.1918 129.238 46.7683C129.574 47.3448 130.006 47.7531 130.535 47.9933C131.111 48.1855 131.664 48.2816 132.192 48.2816C132.673 48.2816 133.081 48.2095 133.417 48.0654C133.802 47.8732 134.234 47.7771 134.714 47.7771C135.195 47.7771 135.627 48.0173 136.011 48.4977C136.444 48.9301 136.66 49.5066 136.66 50.2272C136.66 51.092 136.156 51.8366 135.147 52.4612C134.138 53.0376 133.009 53.3259 131.76 53.3259C131.087 53.3259 130.246 53.2779 129.238 53.1818C128.277 53.0857 127.316 52.7734 126.355 52.245C125.394 51.7165 124.578 50.8518 123.905 49.6507C123.28 48.4017 122.968 46.6722 122.968 44.4623V9.36808C122.968 8.55137 123.256 7.87879 123.833 7.35034C124.409 6.77384 125.106 6.4856 125.923 6.4856Z"/><path d="M116.171 34.5898C116.171 38.337 115.33 41.6759 113.649 44.6064C112.015 47.5369 109.781 49.8429 106.947 51.5243C104.16 53.2058 101.014 54.0465 97.5067 54.0465C93.9997 54.0465 90.829 53.2058 87.9946 51.5243C85.1601 49.8429 82.9022 47.5369 81.2207 44.6064C79.5873 41.6759 78.7706 38.337 78.7706 34.5898C78.7706 30.8425 79.5873 27.5037 81.2207 24.5731C82.9022 21.6426 85.1601 19.3366 87.9946 17.6552C90.829 15.9737 93.9997 15.133 97.5067 15.133C101.014 15.133 104.16 15.9737 106.947 17.6552C109.781 19.3366 112.015 21.6426 113.649 24.5731C115.33 27.5037 116.171 30.8425 116.171 34.5898ZM110.406 34.5898C110.406 31.8034 109.829 29.3533 108.676 27.2394C107.571 25.1256 106.034 23.4682 104.064 22.2672C102.143 21.0661 99.9569 20.4656 97.5067 20.4656C95.0566 20.4656 92.8467 21.0661 90.877 22.2672C88.9554 23.4682 87.4181 25.1256 86.2651 27.2394C85.1121 29.3533 84.5356 31.8034 84.5356 34.5898C84.5356 37.3281 85.1121 39.7542 86.2651 41.868C87.4181 43.9818 88.9554 45.6633 90.877 46.9124C92.8467 48.1134 95.0566 48.7139 97.5067 48.7139C99.9569 48.7139 102.143 48.1134 104.064 46.9124C106.034 45.6633 107.571 43.9818 108.676 41.868C109.829 39.7542 110.406 37.3281 110.406 34.5898Z"/><path d="M77.1615 34.5898C77.1615 38.337 76.3208 41.6759 74.6394 44.6064C73.006 47.5369 70.772 49.8429 67.9376 51.5243C65.1512 53.2058 62.0045 54.0465 58.4975 54.0465C54.9905 54.0465 51.8197 53.2058 48.9853 51.5243C46.1508 49.8429 43.8929 47.5369 42.2115 44.6064C40.5781 41.6759 39.7614 38.337 39.7614 34.5898C39.7614 30.8425 40.5781 27.5037 42.2115 24.5731C43.8929 21.6426 46.1508 19.3366 48.9853 17.6552C51.8197 15.9737 54.9905 15.133 58.4975 15.133C62.0045 15.133 65.1512 15.9737 67.9376 17.6552C70.772 19.3366 73.006 21.6426 74.6394 24.5731C76.3208 27.5037 77.1615 30.8425 77.1615 34.5898ZM71.3966 34.5898C71.3966 31.8034 70.8201 29.3533 69.6671 27.2394C68.5621 25.1256 67.0248 23.4682 65.0551 22.2672C63.1335 21.0661 60.9476 20.4656 58.4975 20.4656C56.0474 20.4656 53.8375 21.0661 51.8678 22.2672C49.9461 23.4682 48.4088 25.1256 47.2558 27.2394C46.1028 29.3533 45.5263 31.8034 45.5263 34.5898C45.5263 37.3281 46.1028 39.7542 47.2558 41.868C48.4088 43.9818 49.9461 45.6633 51.8678 46.9124C53.8375 48.1134 56.0474 48.7139 58.4975 48.7139C60.9476 48.7139 63.1335 48.1134 65.0551 46.9124C67.0248 45.6633 68.5621 43.9818 69.6671 41.868C70.8201 39.7542 71.3966 37.3281 71.3966 34.5898Z"/><path d="M29.4609 18.3587C29.4609 15.3028 25.9442 8.52859 17.0928 8.37823C12.706 8.45373 9.86464 10.2409 8.08008 12.3265C6.19919 14.5248 5.50012 17.0448 5.5 18.3587V50.5521C5.5 52.0708 4.26878 53.3021 2.75 53.3021C1.23122 53.3021 0 52.0708 0 50.5521V18.3587C0.000100717 15.6385 1.23166 11.8704 3.90137 8.75031C6.66214 5.52386 10.98 2.96678 17.0527 2.87726H17.1338C29.22 3.05526 34.9609 12.4963 34.9609 18.3587V45.3792C34.9543 48.5587 32.5302 53.1294 27.041 53.3099C23.9847 53.4103 21.6726 52.3029 20.1279 50.6448C18.6683 49.078 18.0232 47.164 17.8906 45.7015C17.747 44.1175 18.0911 41.9152 19.3535 40.0169C20.7159 37.9683 23.0448 36.4478 26.373 36.3939L26.3984 36.3929H26.4238C27.5237 36.3953 28.5442 36.6219 29.4609 36.9769V18.3587ZM26.4375 41.8929C24.9597 41.9231 24.3041 42.5043 23.9326 43.0628C23.4595 43.7744 23.3214 44.6873 23.3682 45.2044C23.4064 45.6258 23.6364 46.342 24.1523 46.8958C24.5832 47.3583 25.3471 47.8625 26.8604 47.8128C27.876 47.7794 28.4671 47.3817 28.8428 46.9339C29.2764 46.417 29.4585 45.7803 29.4609 45.3734V43.7015C29.4437 43.6729 29.4233 43.6382 29.3965 43.5989C29.2429 43.3737 28.9942 43.0882 28.6602 42.8109C27.9788 42.2454 27.1839 41.9023 26.4375 41.8929Z"/><path d="M28.0629 38.4921C29.1184 37.4002 30.8596 37.3704 31.9516 38.4257C34.087 40.49 35.3377 42.5929 36.3569 44.0898C37.3796 45.5917 38.2808 46.6948 39.8959 47.6327C41.2092 48.3953 41.6563 50.0782 40.894 51.3915C40.1314 52.705 38.4477 53.1522 37.1342 52.3896C34.4776 50.847 33.0183 48.9601 31.81 47.1855C30.5982 45.4057 29.7471 43.9447 28.1293 42.3808C27.0374 41.3253 27.0076 39.5841 28.0629 38.4921Z"/></svg>
+      <span class="kicker" id="kicker">Copy for Figma</span>
+    </header>
+
+    <main class="body">
+      <div class="card is-empty" id="card">
+        <svg class="mark" viewBox="0 0 59 72" fill="currentColor" aria-hidden="true"><path d="M41.9521 22.0449C41.952 17.6934 36.9445 8.0475 24.3408 7.83301C18.0937 7.9403 14.0472 10.485 11.5059 13.4551C8.82714 16.5857 7.83206 20.1749 7.83203 22.0459V67.8887C7.83203 70.0514 6.07875 71.8047 3.91602 71.8047C1.75328 71.8047 2.0616e-06 70.0514 0 67.8887V22.0459C2.64743e-05 18.1724 1.75305 12.8064 5.55469 8.36328C9.48603 3.7687 15.6354 0.127431 24.2832 0H24.3994C41.6097 0.253683 49.7841 13.697 49.7842 22.0449V60.5225C49.7748 65.0499 46.3231 71.5582 38.5068 71.8154C34.1545 71.9585 30.8618 70.3816 28.6621 68.0205C26.5837 65.7894 25.6644 63.064 25.4756 60.9814C25.2711 58.7259 25.7618 55.5899 27.5596 52.8867C29.4996 49.9696 32.8155 47.8035 37.5547 47.7266H37.627C39.1932 47.73 40.6466 48.0521 41.9521 48.5576V22.0449ZM37.6377 55.5586C35.5397 55.6038 34.6082 56.4295 34.0801 57.2236C33.4061 58.2373 33.2096 59.5381 33.2764 60.2744C33.3308 60.8745 33.6589 61.8931 34.3936 62.6816C35.0072 63.3402 36.0943 64.0591 38.249 63.9883C39.695 63.9407 40.5373 63.3749 41.0723 62.7373C41.6896 62.0014 41.9485 61.0942 41.9521 60.5146V58.1338C41.9275 58.0929 41.8987 58.0426 41.8604 57.9863C41.6416 57.6657 41.288 57.26 40.8125 56.8652C39.8395 56.0575 38.7033 55.5693 37.6377 55.5586Z"/><path d="M39.9622 50.7151C41.4653 49.1602 43.9443 49.1182 45.4993 50.6214C48.5401 53.5608 50.3204 56.5553 51.7717 58.6868C53.228 60.8255 54.5118 62.3961 56.8118 63.7317C58.682 64.8176 59.3183 67.214 58.2327 69.0842C57.1467 70.9546 54.7495 71.5911 52.8792 70.5051C49.0962 68.3086 47.0188 65.6211 45.2981 63.094C43.5724 60.5596 42.3598 58.4793 40.0559 56.2522C38.501 54.7491 38.459 52.2701 39.9622 50.7151Z"/></svg>
+        <div class="words">
+          <div class="name" id="name">Nothing selected</div>
+          <div class="meta" id="meta">Select layers in the file to copy them.</div>
+        </div>
+      </div>
+
+      <button class="primary" id="copy" disabled>
+        <span id="label">Copy</span>
+      </button>
+
+      <p class="status" id="status"></p>
+
+      <section class="notes" id="notes" aria-live="polite">
+        <h2>Carried with changes <span class="count" id="count"></span></h2>
+        <ul id="report"></ul>
+      </section>
+    </main>
+
+    <footer class="foot">
+      <span>Paste onto a canvas with ⌘V.</span>
+      <button class="quiet" id="details" hidden title="What the converter saw and wrote, for a report about a paste that landed wrong">Copy bug details</button>
+    </footer>
     <textarea id="scratch" aria-hidden="true" tabindex="-1"></textarea>
+
     <script>
       const $ = (id) => document.getElementById(id);
+      const card = $("card");
       const button = $("copy");
+      const label = $("label");
       const status = $("status");
+      const notes = $("notes");
       const report = $("report");
+      const detailsButton = $("details");
+
       let count = 0;
+      let busy = false;
       let details = "";
-      const detailsLink = $("details");
-      // What the converter saw and what it wrote, for a report about a paste
-      // that landed wrong. Nothing leaves the clipboard on its own.
-      detailsLink.onclick = async (event) => {
-        event.preventDefault();
-        const ok = await toClipboard(details);
-        say(ok ? "Details copied. Paste them into the bug report." : "The clipboard would not take it.", ok ? "ok" : "problem");
+
+      const ICONS = {
+        ok: '<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 6.5l2.5 2.5 4.5-5"/></svg>',
+        problem: '<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="6" cy="6" r="4.75"/><path d="M6 3.5v3M6 8.25v.25"/></svg>',
       };
 
       const say = (text, tone) => {
-        status.textContent = text;
         status.className = "status" + (tone ? " is-" + tone : "");
+        status.innerHTML = "";
+        if (!text) return;
+        if (tone && ICONS[tone]) status.insertAdjacentHTML("beforeend", ICONS[tone]);
+        status.append(document.createTextNode(text));
       };
+
+      const setBusy = (next) => {
+        busy = next;
+        button.disabled = busy || count === 0;
+        label.innerHTML = busy ? '<span class="spinner" aria-hidden="true"></span> Reading the selection…' : copyLabel();
+      };
+      const copyLabel = () => (count > 1 ? `Copy ${count} layers` : "Copy");
 
       // The clipboard from an iframe: the modern API first, the old one when
       // the sandbox withholds it — which the plugin window sometimes does.
@@ -132,11 +356,37 @@
         }
       };
 
-      button.onclick = () => {
+      // A copy's notes describe that copy; a new selection or a new copy starts clean.
+      const clear = () => {
         say("");
+        notes.classList.remove("is-shown");
         report.replaceChildren();
+        detailsButton.hidden = true;
+      };
+
+      const copy = () => {
+        if (button.disabled) return;
+        clear();
         parent.postMessage({ pluginMessage: { type: "copy" } }, "*");
       };
+      button.onclick = copy;
+
+      // What the converter saw and what it wrote, for a report about a paste
+      // that landed wrong. Nothing leaves the clipboard on its own.
+      detailsButton.onclick = async () => {
+        const ok = await toClipboard(details);
+        say(ok ? "Details copied. Paste them into the bug report." : "The clipboard would not take it.", ok ? "ok" : "problem");
+      };
+
+      // Enter copies, Escape closes: the two things a hand on the keyboard means.
+      window.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" && !event.metaKey && !event.ctrlKey) {
+          event.preventDefault();
+          copy();
+        } else if (event.key === "Escape") {
+          parent.postMessage({ pluginMessage: { type: "close" } }, "*");
+        }
+      });
 
       window.onmessage = async (event) => {
         const message = event.data.pluginMessage;
@@ -144,39 +394,55 @@
         switch (message.type) {
           case "selection": {
             count = message.count;
-            button.disabled = count === 0;
-            $("selection").textContent =
-              count === 0
-                ? "Nothing selected."
-                : count === 1
-                  ? `“${message.names[0]}”`
-                  : `${count} layers, from “${message.names[0]}”`;
-            button.textContent = count > 1 ? `Copy ${count} layers` : "Copy";
+            if (message.version) $("kicker").textContent = `Copy for Figma · v${message.version}`;
+            if (!busy) clear();
+            card.classList.toggle("is-empty", count === 0);
+            if (count === 0) {
+              $("name").textContent = "Nothing selected";
+              $("meta").textContent = "Select layers in the file to copy them.";
+            } else {
+              const [first, ...rest] = message.names;
+              $("name").textContent = first;
+              $("meta").textContent =
+                count === 1
+                  ? "1 layer"
+                  : count === 2
+                    ? `and ${rest[0]}`
+                    : `and ${count - 1} more, ${rest.slice(0, 2).join(", ")}${count > 3 ? "…" : ""}`;
+            }
+            if (!busy) setBusy(false);
             break;
           }
           case "busy":
-            button.disabled = true;
-            say("Reading the selection…");
+            setBusy(true);
             break;
           case "failed":
-            button.disabled = count === 0;
+            setBusy(false);
             say(message.message, "problem");
             break;
           case "ready": {
-            button.disabled = count === 0;
+            setBusy(false);
             const ok = await toClipboard(message.html);
             if (!ok) {
-              say("The clipboard would not take it. Try again with the plugin window focused.", "problem");
+              say("The clipboard would not take it. Click the plugin window and try again.", "problem");
               break;
             }
             const shapes = message.count === 1 ? "1 shape" : `${message.count} shapes`;
             say(`Copied ${shapes}. Paste onto a Nootles canvas.`, "ok");
             details = message.details;
-            detailsLink.hidden = false;
+            detailsButton.hidden = false;
+            const lines = message.report;
+            notes.classList.toggle("is-shown", lines.length > 0);
+            $("count").textContent = lines.length ? String(lines.length) : "";
             report.replaceChildren(
-              ...message.report.map((line) => {
+              ...lines.map((line) => {
                 const li = document.createElement("li");
-                li.textContent = `${line.name}: ${line.message}`;
+                const name = document.createElement("b");
+                name.textContent = line.name;
+                name.title = line.name;
+                const text = document.createElement("span");
+                text.textContent = line.message;
+                li.append(name, text);
                 return li;
               }),
             );
