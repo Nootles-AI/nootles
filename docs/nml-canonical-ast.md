@@ -1,7 +1,7 @@
 # Canonical NML AST and Yjs encoding
 
 Status: headless schema-v1 core, canonical Yjs encoding, semantic executor, and isolated
-editable bridge implemented; runtime adoption remains planned.
+editable document/canvas bridge implemented; runtime adoption remains planned.
 
 Implementation sequencing is tracked in
 [`nml-prosemirror-refactor-plan.md`](nml-prosemirror-refactor-plan.md). Binding v1 choices
@@ -429,12 +429,16 @@ All mutations target stable IDs and compile to Yjs transactions. The minimum voc
 - `setMathRow(nodeId, rowId, latex)`
 - `insertMathRows(nodeId, anchor, rows)` / `removeMathRows(nodeId, rowIds)`
 - `replaceDomain(nodeId, domain)`
+- `updateCanvas(canvasId, patch)`
 - `insertShapes(canvasId, shapes)`
 - `updateShapes(canvasId, patches)`
+- `replaceShapeLabel(canvasId, shapeId, range, text)`
 - `moveShapes(canvasId, placements)`
 - `removeShapes(canvasId, shapeIds)`
 - `insertEdges(canvasId, edges)`
 - `updateEdges(canvasId, patches)`
+- `replaceEdgeLabel(canvasId, edgeId, range, text)`
+- `moveEdges(canvasId, placements)`
 - `removeEdges(canvasId, edgeIds)`
 
 High-level commands such as slash commands compile into this vocabulary. Import adapters

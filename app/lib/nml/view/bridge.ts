@@ -1,7 +1,8 @@
-import { EditorState, Plugin, Selection, TextSelection, type Transaction } from "prosemirror-state";
+import { EditorState, NodeSelection, Plugin, Selection, TextSelection, type Transaction } from "prosemirror-state";
 import { Fragment, type Node as PmNode } from "prosemirror-model";
 import type { Awareness } from "y-protocols/awareness";
 import * as Y from "yjs";
+import type { Scene } from "@/app/components/editor/canvas/scene/types";
 import {
   executeNmlCommands,
   NmlCommandConflict,
@@ -31,6 +32,7 @@ import {
   pmInlineOffsetToNml,
 } from "./projection";
 import { PositionIndex } from "./position-index";
+import { compileCanvasSceneChange } from "./canvas";
 import { translateProjectionTransaction } from "./translation";
 import {
   parseAwarenessSelection,
@@ -407,6 +409,35 @@ export abstract class NmlViewBridge {
   dispatchCommands(commands: NmlCommand[], changedNodeIds: string[], temporaryIds: string[] = []): boolean {
     return this.supportsRichEditing() && this.commitCommands(changedNodeIds, commands, null, "domain-edit", temporaryIds);
   }
+  dispatchCanvasScene(canvasId: string, before: Scene, after: Scene): boolean {
+    if (!this.supportsRichEditing()) return false;
+    try {
+      const compiled = compileCanvasSceneChange(canvasId, before, after);
+      if (!compiled.commands.length) return true;
+      return this.commitCommands(
+        compiled.changedNodeIds,
+        compiled.commands,
+        null,
+        "canvas-gesture",
+      );
+    } catch {
+      this.report({ code: "content_rejected", nodeId: canvasId });
+      return false;
+    }
+  }
+  canvasAwareness(): Awareness | null {
+    return this.supportsRichEditing() ? this.editing?.awareness ?? null : null;
+  }
+  selectAtomicNode(nodeId: string): boolean {
+    if (!this.supportsRichEditing()) return false;
+    const entry = this.index.get(nodeId);
+    if (!entry) return false;
+    const node = this.current.doc.nodeAt(entry.pmStart);
+    if (!node?.isAtom) return false;
+    return this.dispatch(
+      this.current.tr.setSelection(NodeSelection.create(this.current.doc, entry.pmStart)),
+    );
+  }
   toggleMark(mark: NmlMark): boolean {
     if (this.editingScope !== "full") return false;
     const target = this.selectedInlineBlock();
@@ -676,6 +707,29 @@ export abstract class NmlViewBridge {
   subscribe(listener: (update: BridgeUpdate) => void): () => void {
     this.listeners.add(listener);
     return () => { this.listeners.delete(listener); };
+  }
+  subscribeCanvas(nodeId: string, listener: () => void): () => void {
+    if (this.mode === "destroyed") return () => {};
+    const block = this.yjsIndex.block(nodeId);
+    const scene = block?.get("scene");
+    if (block?.get("type") !== "canvas" || !(scene instanceof Y.Map)) return () => {};
+
+    let active = true;
+    let queued = false;
+    const notify = () => {
+      if (queued) return;
+      queued = true;
+      queueMicrotask(() => {
+        queued = false;
+        if (!active || this.mode === "destroyed") return;
+        try { listener(); } catch { this.reportViewFailure(nodeId); }
+      });
+    };
+    scene.observeDeep(notify);
+    return () => {
+      active = false;
+      scene.unobserveDeep(notify);
+    };
   }
   reportViewFailure(nodeId: string): void {
     if (this.mode === "destroyed") return;

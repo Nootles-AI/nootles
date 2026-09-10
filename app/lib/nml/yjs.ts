@@ -320,7 +320,7 @@ function canvasFromY(value: unknown, path: Array<string | number>): Scene {
   const rows: ShapeRow[] = [];
   shapeMap.forEach((raw, id) => {
     const entry = expectMap(raw, [...path, "shapes", id]);
-    assertKeys(entry, ["kind", "parentId", "orderKey", "geometry", "style", "attrs", "locked", "hidden", "name", "label", "src", "d", "sides", "start", "sweep", "inner"], [...path, "shapes", id]);
+    assertKeys(entry, ["kind", "parentId", "orderKey", "geometry", "style", "attrs", "locked", "hidden", "name", "label", "src", "d", "sides", "start", "sweep", "inner", "op"], [...path, "shapes", id]);
     const kind = expectString(entry.get("kind"), [...path, "shapes", id, "kind"]);
     const geometry = plainValue(expectMap(entry.get("geometry"), [...path, "shapes", id, "geometry"])) as JsonObject;
     const common = {
@@ -334,7 +334,7 @@ function canvasFromY(value: unknown, path: Array<string | number>): Scene {
       attrs: plainValue(expectMap(entry.get("attrs"), [...path, "shapes", id, "attrs"])),
       ...(entry.has("name") ? { name: entry.get("name") } : {}),
     } as JsonObject;
-    for (const key of ["src", "d", "sides", "start", "sweep", "inner"]) {
+    for (const key of ["src", "d", "sides", "start", "sweep", "inner", "op"]) {
       if (entry.has(key)) common[key] = entry.get(key);
     }
     if (kind === "group") common.children = [];
