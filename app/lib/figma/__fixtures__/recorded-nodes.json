@@ -1,0 +1,42 @@
+{
+  "name": "Checkout prototype",
+  "lastModified": "2026-09-01T12:00:00Z",
+  "thumbnailUrl": "https://figma-alpha-api.s3.us-west-2.amazonaws.com/volatile-node-thumbnail",
+  "nodes": {
+    "1:2": {
+      "document": {
+        "id": "1:2",
+        "name": "Checkout",
+        "type": "FRAME",
+        "children": []
+      },
+      "components": {
+        "10:1": {
+          "key": "component-key",
+          "name": "Button",
+          "description": "Primary action",
+          "remote": false,
+          "componentSetId": "10:0"
+        }
+      },
+      "componentSets": {
+        "10:0": {
+          "key": "set-key",
+          "name": "Button",
+          "description": "Button variants",
+          "remote": false
+        }
+      },
+      "styles": {
+        "S:1": {
+          "key": "style-key",
+          "name": "Primary/Text",
+          "styleType": "TEXT",
+          "remote": false,
+          "description": ""
+        }
+      }
+    },
+    "404:1": null
+  }
+}
