@@ -572,7 +572,10 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
           />
         )}
 
-        <div ref={columnRef} className="relative flex min-w-0 flex-1">
+        {/* Keep editor-local floating UI inside the document's paint layer.
+            BlockNote's table handles carry their own z-index; without this
+            boundary a hovered handle can outrank the sibling chat rail. */}
+        <div ref={columnRef} className="relative isolate flex min-w-0 flex-1">
           {/* The workspace has no top bar, so presence floats where a top
               bar's corner would be — over the focused document. */}
           <div
