@@ -64,3 +64,10 @@ next-env.d.ts
 
 # Figma plugin bundle, built by `npm run figma:build`
 figma-plugin/dist
+
+# Versioned Figma extractor CLI bundle
+figma-extractor/dist
+
+# Local design-data captures; these can contain proprietary source material
+.nt11-cache/
+.nt11-extractions/
