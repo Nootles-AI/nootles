@@ -3,7 +3,7 @@ import { serializeScene } from "@/app/components/editor/canvas/scene/serialize";
 import { AI } from "./aiConfig";
 import type { DrawFrame } from "./diagram";
 import { DEFAULT_DRAW_CHOICE, MONOCHROME_STYLES, type DrawChoice } from "./drawStyles";
-import { imageTarget, reportUpstream, viaOpenRouter } from "./providers";
+import { imageTarget, reportUpstream } from "./providers";
 import { importSvgScene } from "./svgImport";
 
 /**
@@ -20,8 +20,10 @@ import { importSvgScene } from "./svgImport";
  * entire lane for structured diagrams, whose labels must land as text where
  * Recraft would paint them as outlines.
  *
- * Server-only: it spends whichever key `USE_OPENROUTER` selects. Everything
- * provider-specific is kept in this file. The OpenRouter wire was verified
+ * Server-only, and always on Recraft's own key — `USE_OPENROUTER` does not
+ * reach this lane (see `imageTarget`). Everything provider-specific is kept
+ * in this file. The OpenRouter body shape is still built by `recraftRequest`
+ * for the day the lane goes back through the aggregator; it was verified
  * against the live endpoint rather than the docs — the images API (not chat),
  * base64 SVG in `data[0].b64_json`, the `provider.options.recraft` passthrough
  * for style and controls, and the aspect-ratio enum the endpoint record
@@ -141,7 +143,7 @@ export async function generateVectorDrawing(
 ): Promise<VectorDrawResult | null> {
   const frame = requested ?? DEFAULT_FRAME;
   const { url, key, model } = imageTarget(AI.diagram.vector.model);
-  const direct = !viaOpenRouter();
+  const direct = true;
   const started = Date.now();
 
   // A silent miss here once silently changed who drew the picture; every

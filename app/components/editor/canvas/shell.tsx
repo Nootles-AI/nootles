@@ -40,6 +40,7 @@ export function CanvasStylePanel({ api }: { api: CanvasApi }) {
       selection={selection.nodes}
       edges={selection.edges}
       onDiagramChange={api.setDiagram}
+      onSelect={(ids) => api.selection.select(ids)}
       onPreviewSize={api.previewSize}
       onPreviewStyle={api.previewStyle}
     />

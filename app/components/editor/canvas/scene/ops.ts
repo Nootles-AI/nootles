@@ -44,6 +44,7 @@ import {
   distributeNodes as distributeMoves,
 } from "./align";
 import { hugSize, hugsOf } from "./autoLayout";
+import { pathStyleOf } from "./paint";
 import {
   absoluteRect,
   absoluteRotation,
@@ -83,6 +84,8 @@ import {
   type StyleMap,
   type StylePatch,
   type ZTarget,
+  isBoolean,
+  type BooleanOp,
 } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -105,6 +108,8 @@ export function applyOp(scene: Scene, op: SceneOp): Scene {
       return setStyle(scene, op.ids, op.decls);
     case "setLabel":
       return setLabel(scene, op.id, op.label);
+    case "setSrc":
+      return setSrc(scene, op.id, op.src);
     case "setName":
       return setName(scene, op.id, op.name);
     case "insert":
@@ -114,7 +119,7 @@ export function applyOp(scene: Scene, op: SceneOp): Scene {
     case "reorder":
       return reorderNodes(scene, op.ids, op.to);
     case "group":
-      return groupNodes(scene, op.ids, op.groupId, op.name);
+      return groupNodes(scene, op.ids, op.groupId, op.name, op.op);
     case "ungroup":
       return ungroupNodes(scene, op.ids);
     case "setLocked":
@@ -471,6 +476,15 @@ export function setLabel(scene: Scene, id: NodeId, label: string): Scene {
   );
 }
 
+export function setSrc(scene: Scene, id: NodeId, src: string): Scene {
+  return withNodes(
+    scene,
+    mapTree(scene.nodes, new Set([id]), (node) =>
+      node.kind === "image" && node.src !== src ? { ...node, src } : node,
+    ),
+  );
+}
+
 /** `undefined` drops the key entirely, restoring the derived display name —
  *  leaving `name: undefined` behind would defeat deep-equality on round trip. */
 export function setName(
@@ -541,6 +555,12 @@ export function setShape(
         const sides = Math.max(3, Math.min(100, Math.round(params.sides ?? 3)));
         return node.sides === sides ? node : { ...node, sides };
       }
+      if (node.kind === "group") {
+        if (node.op === params.op) return node;
+        const { op, ...rest } = node;
+        void op;
+        return params.op === undefined ? rest : { ...rest, op: params.op };
+      }
       if (node.kind !== "ellipse") return node;
       const { start, sweep, inner, ...rest } = node;
       const next = {
@@ -557,7 +577,9 @@ export function setShape(
 }
 
 /** Pen-tool edit. `d` is local to the box, so a point moved outside the current
- *  bounds arrives with the new `frame`. Ignored for any kind but `path`. */
+ *  bounds arrives with the new `frame`. On a boolean group it is the flatten:
+ *  the group becomes the path it drew, keeping its id, slot, style and name,
+ *  so a connector on it stays on it. Ignored for any other kind. */
 export function setPath(
   scene: Scene,
   id: NodeId,
@@ -567,6 +589,13 @@ export function setPath(
   return withNodes(
     scene,
     mapTree(scene.nodes, new Set([id]), (node) => {
+      if (isBoolean(node)) {
+        const box = frame ?? node;
+        const { children, op, ...rest } = node;
+        void children;
+        void op;
+        return { ...rest, kind: "path", d, x: box.x, y: box.y, w: Math.max(0, box.w), h: Math.max(0, box.h) };
+      }
       if (node.kind !== "path") return node;
       const box = frame ?? node;
       if (
@@ -698,6 +727,7 @@ export function groupNodes(
   ids: readonly NodeId[],
   groupId: NodeId,
   name?: string,
+  op?: BooleanOp,
 ): Scene {
   const targets = topMost(scene, ids);
   if (!targets.size) return scene;
@@ -718,7 +748,9 @@ export function groupNodes(
     ]),
   );
 
-  const frame = frameOf(members, bounds);
+  // A boolean's members are all operands: the rect that encloses the rest is
+  // the very shape the others cut, not a frame to absorb.
+  const frame = op ? null : frameOf(members, bounds);
   const box = frame
     ? bounds.get(frame.id)!
     : unionBounds(members.map((node) => ({ ...bounds.get(node.id)!, rot: 0 })));
@@ -749,13 +781,16 @@ export function groupNodes(
     w: box.w,
     h: box.h,
     rot: 0,
-    style: frame ? absorbedStyle(frame.style) : {},
+    // The result wears the bottom operand's paint, spelled as a path's: it is
+    // the shape the operation starts from, and for a subtract the one left.
+    style: frame ? absorbedStyle(frame.style) : op ? pathStyleOf(paintOnly(members[0].style)) : {},
     label: "",
     locked: false,
     hidden: false,
     attrs: frame ? frame.attrs : {},
     children,
     ...(named === undefined ? {} : { name: named }),
+    ...(op === undefined ? {} : { op }),
   };
 
   return withNodes(
@@ -810,6 +845,17 @@ function contains(outer: Rect, inner: Rect): boolean {
     inner.x + inner.w <= outer.x + outer.w + FRAME_EPSILON &&
     inner.y + inner.h <= outer.y + outer.h + FRAME_EPSILON
   );
+}
+
+/** What paints a shape rather than laying out a box: the declarations a
+ *  boolean result takes from its bottom operand. `border-radius` stays behind —
+ *  a derived outline has its corners already. */
+const PAINT_DECL = /^(background|border(?!-radius)|outline|fill|stroke|opacity|box-shadow|filter|mix-blend-mode)(-|$)/;
+
+function paintOnly(style: StyleMap): StyleMap {
+  const out: StyleMap = {};
+  for (const [prop, value] of Object.entries(style)) if (PAINT_DECL.test(prop)) out[prop] = value;
+  return out;
 }
 
 /** On a group these three mean auto-layout and hug, which would re-place and

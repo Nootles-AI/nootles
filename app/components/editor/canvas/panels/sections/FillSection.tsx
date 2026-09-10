@@ -1,8 +1,12 @@
 "use client";
 
-import { X } from "@/app/components/Icons";
+import { useRef, useState } from "react";
+import { useConvex } from "convex/react";
+import { Image as ImageGlyph, X } from "@/app/components/Icons";
 import { Tooltip } from "@/app/components/Tooltip";
+import { putImage } from "../../../album/upload";
 import type { SceneNode } from "../../scene/types";
+import { isBoolean } from "../../scene/types";
 import { ColorField } from "../controls/ColorField";
 import { Eye } from "../controls/glyphs";
 import { IconButton } from "../controls/IconButton";
@@ -184,7 +188,7 @@ const writeFills = (fills: Fill[]): string | undefined =>
   ) || undefined;
 
 export function FillSection({ selection, patch }: SectionProps) {
-  const boxes = selection.filter((node) => node.kind !== "path");
+  const boxes = selection.filter((node) => node.kind !== "path" && !isBoolean(node));
   return boxes.length ? (
     <BoxFill nodes={boxes} patch={patch} />
   ) : (
@@ -283,21 +287,7 @@ function FillRow({
             onChange={(paint) => onChange({ ...fill, paint })}
           />
         ) : image ? (
-          <input
-            // Uncontrolled while you type; remounted when the value changes
-            // under it, which a controlled field would need a draft state for.
-            key={fill.paint}
-            type="text"
-            spellCheck={false}
-            placeholder="Image URL"
-            aria-label="Image URL"
-            className="nt-ctl-text min-w-0 flex-1"
-            defaultValue={srcOf(fill.paint)}
-            onBlur={(e) => onChange({ ...fill, paint: toUrl(e.target.value) })}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") e.currentTarget.blur();
-            }}
-          />
+          <ImagePicker src={srcOf(fill.paint)} onPick={(src) => onChange({ ...fill, paint: toUrl(src) })} />
         ) : (
           <GradientField
             value={fill.paint}
@@ -372,5 +362,65 @@ function PathFill({ nodes, patch }: { nodes: SceneNode[]; patch: Patch }) {
         <span className="nt-ctl-empty">No fill</span>
       )}
     </PanelSection>
+  );
+}
+
+/**
+ * The image behind an image fill: a picture you choose, not an address you
+ * paste. It goes up through the album's pipeline — re-encoded at screen size,
+ * stored where the page's other pictures are — and the fill holds the
+ * permanent URL that comes back, which is the one thing a `url()` in the
+ * grammar was ever going to be.
+ */
+function ImagePicker({ src, onPick }: { src: string; onPick: (src: string) => void }) {
+  const convex = useConvex();
+  const input = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
+
+  const take = async (file: File | undefined) => {
+    if (!file) return;
+    setBusy(true);
+    setFailure(null);
+    try {
+      onPick(await putImage(convex, file));
+    } catch (error) {
+      setFailure(error instanceof Error ? error.message : "That picture didn't upload.");
+    } finally {
+      setBusy(false);
+      if (input.current) input.current.value = "";
+    }
+  };
+
+  return (
+    <>
+      <button
+        type="button"
+        className="nt-ctl-swatch min-w-0 flex-1"
+        aria-label={src ? "Replace image" : "Choose image"}
+        disabled={busy}
+        onClick={() => input.current?.click()}
+      >
+        <span className="nt-ctl-mark" aria-hidden>
+          {src ? (
+            // The picture itself, at swatch size: what a colour swatch is to a
+            // colour, this is to an image.
+            <span className="nt-ctl-thumb" style={{ backgroundImage: toUrl(src) }} />
+          ) : (
+            <ImageGlyph width={14} height={14} />
+          )}
+        </span>
+        <span className="nt-ctl-swatch-text">
+          {busy ? "Uploading…" : failure ? failure : src ? "Replace image" : "Choose image"}
+        </span>
+      </button>
+      <input
+        ref={input}
+        type="file"
+        accept="image/jpeg,image/png,image/webp,image/gif,image/avif"
+        hidden
+        onChange={(e) => void take(e.target.files?.[0])}
+      />
+    </>
   );
 }

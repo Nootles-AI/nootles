@@ -266,13 +266,23 @@ function inlineOffset(
 // Flex
 // ---------------------------------------------------------------------------
 
+/**
+ * A child pinned inside an auto-layout group — Figma's "absolute position" —
+ * is out of the flow: it keeps its authored `x`/`y` and takes no room.
+ */
+export const isPinned = (node: SceneNode): boolean =>
+  keyword(node.style, "position") === "absolute";
+
 function flexRects(group: GroupNode, layout: GroupLayout): Map<NodeId, Rect> {
   const rects = new Map<NodeId, Rect>();
   const { padding: pad, gap, alignItems } = layout;
   const horizontal = isRow(layout.flexDirection);
-  const order = isReverse(layout.flexDirection)
-    ? [...group.children].reverse()
-    : group.children;
+  const flowing = group.children.filter((child) => {
+    if (!isPinned(child)) return true;
+    rects.set(child.id, { x: child.x, y: child.y, w: child.w, h: child.h });
+    return false;
+  });
+  const order = isReverse(layout.flexDirection) ? [...flowing].reverse() : flowing;
 
   const mainSize = (n: SceneNode) => (horizontal ? n.w : n.h);
   const crossSize = (n: SceneNode) => (horizontal ? n.h : n.w);
@@ -321,9 +331,10 @@ function flexRects(group: GroupNode, layout: GroupLayout): Map<NodeId, Rect> {
 function flexSize(group: GroupNode, layout: GroupLayout): { w: number; h: number } {
   const { padding: pad, gap } = layout;
   const horizontal = isRow(layout.flexDirection);
-  let main = gap * Math.max(0, group.children.length - 1);
+  const flowing = group.children.filter((child) => !isPinned(child));
+  let main = gap * Math.max(0, flowing.length - 1);
   let cross = 0;
-  for (const child of group.children) {
+  for (const child of flowing) {
     main += horizontal ? child.w : child.h;
     cross = Math.max(cross, horizontal ? child.h : child.w);
   }

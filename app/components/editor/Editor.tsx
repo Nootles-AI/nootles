@@ -47,6 +47,7 @@ import { emptyStoryboard } from "./storyboard/types";
 import { useTabCompletion, type PageMode } from "./ai/useTabCompletion";
 import { PlanWall } from "../billing/PlanWall";
 import { useReformat } from "./ai/useReformat";
+import { notionLinkClick, useNotionLinks } from "@/app/components/notion/NotionLinks";
 import { ReformatBar } from "./ai/ReformatBar";
 import { arrivalFlashExtension } from "./arrivalFlash";
 import { blockSelection, blockSelectionExtension } from "./blockSelection";
@@ -543,7 +544,7 @@ function YjsEditor({ docId, pageId, title = "", mode = "create" }: EditorProps) 
       color: collabColor(user?.id ?? "anonymous"),
       ...(user?.imageUrl ? { imageUrl: user.imageUrl } : {}),
     },
-    editorOptions: { schema, extensions: EXTENSIONS },
+    editorOptions: { schema, extensions: EXTENSIONS, links: { onClick: notionLinkClick } },
   });
   if (!editor) return placeholder;
   return (
@@ -561,7 +562,7 @@ function YjsEditor({ docId, pageId, title = "", mode = "create" }: EditorProps) 
 function LegacyEditor({ docId, pageId, title = "", mode = "create" }: EditorProps) {
   const readOnly = useReadOnly();
   const sync = useBlockNoteSync<EditorInstance>(api.prosemirror, docId, {
-    editorOptions: { schema, extensions: EXTENSIONS },
+    editorOptions: { schema, extensions: EXTENSIONS, links: { onClick: notionLinkClick } },
   });
 
   // First open of a page has no document yet — create an empty one seamlessly.
@@ -629,6 +630,8 @@ function EditorSurface({
   // contenteditable — so it is heard on a layout-neutral wrapper that reaches
   // back over that strip rather than on the editor itself.
   const marqueeSurface = useRef<HTMLDivElement>(null);
+  // A link to a Notion page an import left behind asks before it navigates.
+  const notionLinks = useNotionLinks({ editor, pageId, readOnly, surface: marqueeSurface });
   const selected = readOnly ? null : blockSelection(editor);
   useBlockMarquee({
     surfaceRef: marqueeSurface,
@@ -691,6 +694,7 @@ function EditorSurface({
           )}
         </BlockNoteView>
       </div>
+      {notionLinks.menu}
       {/* Raised by Tab on the out-of-completions chip — the wall is drawn
           here rather than by the lane, which has no render of its own. */}
       {completion.walled && (

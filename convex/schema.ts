@@ -38,17 +38,17 @@ export const feedbackCategory = v.union(
 
 /**
  * Where a ticket stands: new → seen (auto, on first open) → in_progress →
- * pr_filed → done; declined ends a wish that won't be built.
+ * done; declined ends a wish that won't be built.
  *
- * `pr_filed` is set by the PR poller whenever a pull request names the ticket,
- * whoever wrote it — provenance lives on the `ticketPrs` row, not here, so this
- * ladder stays about the ticket rather than about who did the work.
+ * Every rung is now moved by a person or by the agent reporting on itself.
+ * There used to be a sixth, `pr_filed`, which nothing here set — a GitHub poll
+ * did, on noticing a pull request whose title named the ticket. That link is
+ * gone, and with it the only status this ladder did not own.
  */
 export const feedbackStatus = v.union(
   v.literal("new"),
   v.literal("seen"),
   v.literal("in_progress"),
-  v.literal("pr_filed"),
   v.literal("done"),
   v.literal("declined"),
 );
@@ -747,38 +747,6 @@ export default defineSchema({
     .index("by_duplicateOf", ["duplicateOf"]),
 
   /**
-   * Pull requests that name a ticket, found by the poller in `prs.ts`.
-   *
-   * Its own table rather than an array on the ticket: a document's array is
-   * rewritten whole on every update and grows unbounded, where an upsert keyed
-   * by `by_repo_and_prNumber` touches one row — which matters when the poller
-   * re-sees every open PR every fifteen minutes.
-   */
-  ticketPrs: defineTable({
-    ticketId: v.id("feedback"),
-    repo: v.string(),
-    prNumber: v.number(),
-    title: v.string(),
-    url: v.string(),
-    /** GitHub reports draft separately from open, and merged as a closed PR
-     *  carrying `merged_at`; this flattens all four into one state. */
-    state: v.union(
-      v.literal("draft"),
-      v.literal("open"),
-      v.literal("closed"),
-      v.literal("merged"),
-    ),
-    mergedAt: v.optional(v.number()),
-    /** Whether the agent opened it. Provenance is per-PR: a ticket can carry
-     *  one of each. */
-    agentFiled: v.boolean(),
-    firstSeenAt: v.number(),
-    updatedAt: v.number(),
-  })
-    .index("by_ticket", ["ticketId"])
-    .index("by_repo_and_prNumber", ["repo", "prNumber"]),
-
-  /**
    * One row per agent run — what it read, what it changed, and what broke.
    * The dashboard's Agent page is this table: without it a run that dies
    * halfway looks exactly like a quiet night.
@@ -1058,6 +1026,37 @@ export default defineSchema({
      * Stamped when GitHub last answered 401. A dead token is kept rather than
      * deleted so the UI can say "reconnect" instead of silently forgetting.
      */
+    invalidAt: v.optional(v.number()),
+  }).index("by_owner", ["ownerId"]),
+
+  /**
+   * The Notion connection, one per account.
+   *
+   * OAuth rather than a pasted token, because the thing being connected is a
+   * person's own workspace and Notion asks them, in their own consent screen,
+   * which pages this app may see. That picker is the access model: the token
+   * can read what was ticked there and nothing else, so re-granting is a normal
+   * part of using the import, not a failure.
+   *
+   * Notion issues no refresh token and its access tokens do not expire, so the
+   * only thing that ends a connection is the user revoking it — which shows up
+   * as a 401 on first use and is recorded in `invalidAt` rather than guessed at.
+   */
+  notionAccounts: defineTable({
+    ownerId: v.string(),
+    /** AES-GCM ciphertext. Opening it needs the deployment's NOTION_TOKEN_KEY. */
+    sealed: v.string(),
+    /** The workspace granted, as Notion named it at connect. */
+    workspaceId: v.string(),
+    workspaceName: v.string(),
+    /** Emoji or image URL, whichever Notion gave for the workspace. */
+    workspaceIcon: v.optional(v.string()),
+    /** The integration's bot user inside that workspace. */
+    botId: v.string(),
+    /** Last four characters, so a stored token is recognisable but not readable. */
+    hint: v.string(),
+    connectedAt: v.number(),
+    /** Stamped when Notion last answered 401. See `githubAccounts.invalidAt`. */
     invalidAt: v.optional(v.number()),
   }).index("by_owner", ["ownerId"]),
 

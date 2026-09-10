@@ -1,0 +1,442 @@
+/* Notion import.
+
+   An Operate surface, so it spends nothing on expression: neutral throughout,
+   no accent (that means AI here), no brand (that means identity), no
+   --nt-select (that belongs to the canvas). Hierarchy is carried by surface
+   value, weight and the mono metadata face, the way the rest of the chrome
+   does it.
+
+   Geometry follows the shell's rule: 8px inset, 32px control boxes around 16px
+   glyphs, so a row's glyph and its text both land where every other panel puts
+   them. */
+
+.nt-notion-body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 18px;
+}
+
+/* ---- Search ------------------------------------------------------------- */
+
+/* The glyph sits inside the field rather than beside it: the field is the
+   whole width of the tree below it, and a label out here would push the two
+   out of alignment for no reading gain. */
+.nt-notion-search {
+  position: relative;
+  margin-bottom: 8px;
+}
+.nt-notion-search .nt-input {
+  padding-left: 30px;
+}
+.nt-notion-search-icon {
+  position: absolute;
+  top: 50%;
+  left: 9px;
+  width: 14px;
+  height: 14px;
+  transform: translateY(-50%);
+  color: var(--muted);
+  pointer-events: none;
+}
+.nt-notion-search:focus-within .nt-notion-search-icon {
+  color: var(--foreground);
+}
+
+/* A sentence where rows would be: the tree still loading, or a search that
+   found nothing. The same plain line the repository picker loads with. */
+.nt-notion-nomatch {
+  padding: 20px 10px;
+  text-align: center;
+  font-size: var(--text-ui);
+  color: var(--muted);
+}
+
+/* ---- The page tree ------------------------------------------------------ */
+
+/* The box the rows sit in; the tree itself is the role, not the frame, so a
+   sentence about the rows can share the box without sitting inside the tree. */
+.nt-notion-tree {
+  max-height: 46vh;
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--sunken);
+}
+
+.nt-notion-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.nt-notion-twist,
+.nt-notion-twist-gap {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: var(--control-sm);
+  height: var(--control-sm);
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+}
+.nt-notion-twist svg {
+  width: 14px;
+  height: 14px;
+  transition: transform var(--dur-fast) var(--ease);
+}
+.nt-notion-twist[data-open] svg {
+  transform: rotate(90deg);
+}
+button.nt-notion-twist:hover {
+  background: var(--hover);
+  color: var(--foreground);
+}
+
+.nt-notion-pick {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  height: var(--control);
+  padding: 0 8px 0 4px;
+  border-radius: var(--radius-sm);
+  text-align: left;
+  color: var(--foreground);
+}
+.nt-notion-pick:hover {
+  background: var(--hover);
+}
+
+/* The tick. A drawn box rather than a native checkbox so it inherits the
+   palette and sits on the same 16px glyph rhythm as every other row mark. The
+   box carries the whole state: a ticked row is not washed grey, because a tick
+   on a page ticks everything under it and a tree gone grey wholesale says
+   nothing a row of ticks does not. */
+.nt-notion-box {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 15px;
+  height: 15px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--background);
+  color: var(--background);
+}
+.nt-notion-box svg {
+  width: 11px;
+  height: 11px;
+}
+.nt-notion-box[data-state="on"] {
+  border-color: var(--foreground);
+  background: var(--foreground);
+}
+/* Something inside is picked but this page is not. A bar, not a tick: it is a
+   report about the children, and a half-tick reads as a broken tick. */
+.nt-notion-box[data-state="partial"]::after {
+  content: "";
+  width: 7px;
+  height: 1.5px;
+  border-radius: 1px;
+  background: var(--muted);
+}
+
+.nt-notion-glyph {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  color: var(--muted);
+}
+.nt-notion-glyph svg {
+  width: 15px;
+  height: 15px;
+}
+.nt-notion-emoji {
+  font-size: var(--text-ui);
+  line-height: 1;
+}
+
+.nt-notion-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-ui);
+}
+
+.nt-notion-count {
+  flex: none;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--text-meta);
+  letter-spacing: var(--tracking-meta);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- Empty and error ---------------------------------------------------- */
+
+.nt-notion-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 180px;
+  padding: 24px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--sunken);
+  text-align: center;
+  font-size: var(--text-ui);
+}
+.nt-notion-empty .nt-note {
+  max-width: 42ch;
+}
+
+.nt-notion-error {
+  margin-bottom: 10px;
+  font-size: var(--text-ui);
+  color: var(--danger);
+}
+
+/* ---- Running ------------------------------------------------------------ */
+
+/* The bar. Two pixels of the title's own ink on a rule, under the head so it
+   reads as the title's claim being made good rather than as a widget. The
+   track is the hairline ink rather than the well, which on the dialog's white
+   is invisible — and a fill with no track is a growing stripe, not a measure. */
+.nt-progress {
+  position: relative;
+  height: 2px;
+  margin-top: 14px;
+  border-radius: 1px;
+  background: var(--border);
+  overflow: hidden;
+}
+/* Scaled rather than widened, so a value arriving every rehost costs a
+   composite and not a layout. */
+.nt-progress-fill {
+  display: block;
+  width: 100%;
+  height: 100%;
+  transform-origin: left;
+  /* Starts from nothing, so the first value grows out of the left edge
+     rather than shrinking in from a full line. */
+  transform: scaleX(0);
+  background: var(--foreground);
+  transition: transform var(--dur-slow) var(--ease);
+}
+/* Nothing to measure yet: the track itself is dashed rather than a segment
+   slid along it, so the state is told by shape — plainly not the empty track
+   and plainly not a full fill — and reads the same with motion off. Drawn on
+   the track, not the fill, so the fill still grows out of the left edge when
+   the first value arrives. The count beside it says what is under way; the
+   row pulse below is this surface's one authored motion. */
+.nt-progress[data-indeterminate] {
+  background: repeating-linear-gradient(
+    90deg,
+    var(--foreground) 0 8px,
+    transparent 8px 16px
+  );
+}
+
+/* The count. Plain on purpose: it is the one line that changes as the run
+   goes, so it holds nothing but the number. */
+.nt-notion-live {
+  margin-bottom: 8px;
+  padding: 0 4px;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--text-meta-lg);
+  letter-spacing: var(--tracking-meta);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.nt-notion-runlist {
+  max-height: 46vh;
+  overflow-y: auto;
+}
+
+.nt-notion-run {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: var(--control);
+  padding: 0 4px;
+  font-size: var(--text-ui);
+  color: var(--muted);
+}
+.nt-notion-run[data-state="fetching"],
+.nt-notion-run[data-state="copying"],
+.nt-notion-run[data-state="writing"],
+.nt-notion-run[data-state="done"] {
+  color: var(--foreground);
+}
+.nt-notion-run[data-state="failed"] {
+  color: var(--danger);
+}
+.nt-notion-run[data-state="failed"] .nt-notion-run-state {
+  color: var(--danger);
+}
+.nt-notion-run[data-state="removed"] {
+  color: var(--muted);
+  text-decoration: line-through;
+  text-decoration-color: var(--faint);
+}
+
+.nt-notion-run-mark {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  color: var(--muted);
+}
+.nt-notion-run-mark svg {
+  width: 14px;
+  height: 14px;
+}
+.nt-notion-run[data-state="done"] .nt-notion-run-mark {
+  color: var(--foreground);
+}
+/* This surface's one authored motion: the row being worked on breathes, so a
+   long import reads as alive without a spinner on every line. */
+.nt-notion-run[data-state="fetching"] .nt-notion-run-mark,
+.nt-notion-run[data-state="copying"] .nt-notion-run-mark,
+.nt-notion-run[data-state="writing"] .nt-notion-run-mark {
+  animation: nt-notion-pulse 1.6s var(--ease) infinite;
+}
+@keyframes nt-notion-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.nt-notion-run-state {
+  flex: none;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--text-meta);
+  letter-spacing: var(--tracking-meta);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The step and, once it has run a while, how long: two figures on one line,
+   the time kept apart so a changing count does not shove it about. */
+.nt-notion-step {
+  display: inline-flex;
+  gap: 10px;
+}
+.nt-notion-step-time {
+  min-width: 4ch;
+  text-align: right;
+}
+
+/* ---- The report --------------------------------------------------------- */
+
+.nt-notion-report {
+  max-height: 46vh;
+  overflow-y: auto;
+}
+
+.nt-notion-reported + .nt-notion-reported {
+  border-top: 1px solid var(--border);
+}
+
+.nt-notion-reported-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  min-height: var(--control);
+  padding: 0 4px;
+  text-align: left;
+  font-size: var(--text-ui);
+}
+.nt-notion-reported-head:not(:disabled):hover {
+  background: var(--hover);
+}
+.nt-notion-reported[data-state="failed"] .nt-notion-run-state {
+  color: var(--danger);
+}
+.nt-notion-reported[data-state="removed"] .nt-notion-title {
+  color: var(--muted);
+  text-decoration: line-through;
+  text-decoration-color: var(--faint);
+}
+
+.nt-notion-detail {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 12px;
+  padding: 4px 8px 10px 28px;
+}
+.nt-notion-detail > div {
+  display: contents;
+}
+.nt-notion-detail dt {
+  font-size: var(--text-ui);
+  color: var(--muted);
+}
+.nt-notion-detail dd {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--text-meta-lg);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* ---- Following a link -------------------------------------------------- */
+
+/* Muted until the row is under the pointer, the way the slash menu's glyphs
+   behave — the label is what you read, the glyph is what you recognise. */
+.nt-notion-menu-icon {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  color: var(--muted);
+  transition: color var(--dur-fast) var(--ease);
+}
+.nt-menu-item:hover .nt-notion-menu-icon,
+.nt-menu-item:focus-visible .nt-notion-menu-icon {
+  color: var(--foreground);
+}
+
+/* A reference being followed. Lives in the menu the click opened, so the
+   step stays where the reader is looking rather than in a corner — the same
+   step, in the same face, that the import dialog's rows show. */
+.nt-notion-following {
+  /* Indented past where a glyph would sit, so the line lines up with the
+     labels of the rows it replaced rather than with the menu's edge. */
+  display: flex;
+  align-items: center;
+  height: var(--control);
+  padding: 0 var(--inset) 0 calc(var(--inset) + 16px + 8px);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--text-meta-lg);
+  letter-spacing: var(--tracking-meta);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.nt-notion-following[data-state="failed"] {
+  color: var(--danger);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nt-notion-run-mark {
+    animation: none;
+  }
+  .nt-notion-twist svg,
+  .nt-progress-fill {
+    transition: none;
+  }
+}

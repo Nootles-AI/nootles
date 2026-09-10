@@ -12,7 +12,11 @@ export const metadata: Metadata = {
  * happened is decided by the webhook and read from the entitlement, because a
  * query string is something anyone can type.
  */
-export default async function UpgradePage({ searchParams }: PageProps<"/upgrade">) {
+type UpgradePageProps = {
+  searchParams: Promise<{ checkout?: string | string[] }>;
+};
+
+export default async function UpgradePage({ searchParams }: UpgradePageProps) {
   const { checkout } = await searchParams;
   return (
     <Authed>

@@ -116,6 +116,8 @@ function nodeHtml(node: SceneNode, depth: number, computed: boolean): string {
     if (node.inner !== undefined) head += numAttr("inner", node.inner);
   }
   if (node.kind === "image" && node.src) head += attr("src", node.src);
+  // Written only when set, so a plain group stays plain.
+  if (node.kind === "group" && node.op) head += attr("op", node.op);
   // Path data is written raw. Its grammar is digits, letters and separators —
   // nothing an attribute has to escape — and escaping it would leave `&amp;`
   // sitting in a `d` that a renderer hands straight to the SVG parser.

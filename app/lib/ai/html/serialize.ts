@@ -53,7 +53,19 @@ type SerializeOptions = {
    * those stay inline where the model can read and edit them.
    */
   collapseDrawn?: boolean;
-  /** Block ids exempt from the collapse — the model asked to see the shapes. */
+  /**
+   * Collapse EVERY diagram to a stub carrying its words —
+   * `<nt-diagram id="b7" at="b7" holds="371 shapes" text="CashB · Saved Deals · …">`.
+   *
+   * The chat lane's read. A diagram is either this or, for a block in
+   * `expandDrawn`, the whole grammar as stored, however large — nothing in
+   * between. Reads once came down a ladder of partial forms, each leaving
+   * off what the model could least use; every one of them was a form the
+   * model could not COPY from, and copying a logo or an icon as it stands is
+   * the one thing it is best at. Two states keep that true.
+   */
+  collapseDiagrams?: boolean;
+  /** Block ids exempt from either collapse — the model asked to see the shapes. */
   expandDrawn?: ReadonlySet<string>;
   /**
    * Collapse albums to `<nt-album at="blockId" holds="23 photos" cols="4">`.
@@ -100,6 +112,49 @@ function drawnStub(sceneHtml: string, blockId: string, at: string): string {
   return `<nt-diagram${attr("id", blockId)} drawn="${drawn}"${attr("at", at)}></nt-diagram>`;
 }
 
+/** The most of a diagram's words a stub carries — a board of screens, not a book. */
+const STUB_TEXT_CHARS = 4_000;
+
+/** Every shape or edge tag in a scene — never the `<nt-diagram>` root. */
+const SHAPE_TAG = /<nt-(?!diagram\b|edge\b)[a-z]+\b[^>]*>/g;
+
+/**
+ * A diagram as the chat lane reads it unasked: where it is, how big, and
+ * every word on it. The words are what a question about the page needs and
+ * what tells the model whether this is the board to expand; `at` is how the
+ * stub is kept, moved, or — with shapes written inside it — added to.
+ */
+function textStub(sceneHtml: string, blockId: string, at: string): string {
+  const shapes = (sceneHtml.match(SHAPE_TAG) ?? []).length;
+  const words = [...sceneHtml.matchAll(/<nt-(rect|ellipse|polygon|text)\b[^>]*>([\s\S]*?)<\/nt-\1>/g)]
+    .map((m) => m[2].replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .join(" · ");
+  const text = words.length > STUB_TEXT_CHARS ? `${words.slice(0, STUB_TEXT_CHARS)}…` : words;
+  return `<nt-diagram${attr("id", blockId)}${attr("at", at)}${attr("holds", `${shapes} shapes`)}${attr(
+    "text",
+    text,
+  )}></nt-diagram>`;
+}
+
+/**
+ * One diagram as a read shows it. `block` is the id the model expands by;
+ * `id` is what a stub carries as its own (a shot's is empty — a shot is
+ * addressed by position); `at` is the stub's address.
+ */
+function diagramRead(
+  scene: string,
+  block: string,
+  id: string,
+  at: string,
+  opts: SerializeOptions,
+): string {
+  if (opts.expandDrawn?.has(block)) return scene;
+  if (opts.collapseDiagrams) return textStub(scene, id, at);
+  if (opts.collapseDrawn && isDrawn(scene)) return drawnStub(scene, id, at);
+  return scene;
+}
+
 /** How many of a diagram's labels its brief quotes before trailing off. */
 const BRIEF_LABELS = 8;
 
@@ -127,8 +182,13 @@ function briefStub(scene: Scene, blockId: string): string {
   return `<nt-build-diagram${attr("id", blockId)}>${esc(brief)}</nt-build-diagram>`;
 }
 
-/** A stub coming back in the model's own HTML — the `at` names the picture. */
-const DRAWN_STUB = /<nt-diagram\b[^>]*\bat="([^"]+)"[^>]*>\s*<\/nt-diagram\s*>/gi;
+/**
+ * A stub coming back in the model's own HTML — the `at` names the picture.
+ * Anything written INSIDE it is shapes to add: the stub stands for the whole
+ * diagram as it is, so this is how a screen is added to a board without the
+ * board's every shape crossing the model's context on the way back.
+ */
+const DRAWN_STUB = /<nt-diagram\b[^>]*\bat="([^"]+)"[^>]*>([\s\S]*?)<\/nt-diagram\s*>/gi;
 
 /** The album's own, keyed on the block id its `at` carries. */
 const ALBUM_STUB = /<nt-album\b[^>]*\bat="([^"]+)"[^>]*>\s*<\/nt-album\s*>/gi;
@@ -183,25 +243,47 @@ export function redeemDrawnStubs(
   blocks: AnyBlock[],
 ): { html: string; missing: string[] } {
   const missing: string[] = [];
-  const out = redeemAlbumStubs(html, blocks, missing).replace(DRAWN_STUB, (whole, at: string) => {
-    const colon = at.lastIndexOf(":");
-    const shot = colon >= 0 ? Number(at.slice(colon + 1)) : NaN;
-    const blockId = Number.isInteger(shot) ? at.slice(0, colon) : at;
-    const block = findBlock(blocks, blockId);
-    if (block?.type === "storyboard" && Number.isInteger(shot)) {
-      const scene = parseStoryboard(String(block.props.data ?? "")).shots[shot]?.scene;
-      if (scene) return scene;
-    } else if (block?.type === "canvas" && !Number.isInteger(shot)) {
-      return serializeScene({
-        ...migrateLegacyCanvas(String(block.props.data ?? "")),
-        id: block.id,
-      });
-    }
-    missing.push(at);
-    return whole;
-  });
+  const out = redeemAlbumStubs(html, blocks, missing).replace(
+    DRAWN_STUB,
+    (whole, at: string, body: string) => {
+      const scene = storedScene(blocks, at);
+      if (!scene) {
+        missing.push(at);
+        return whole;
+      }
+      // Set at the scene's own indent, whatever the model's was: the parser
+      // does not care, but the mirror this becomes is read by people too.
+      const lines = body.split("\n").filter((line) => line.trim());
+      if (!lines.length) return scene;
+      const common = Math.min(...lines.map((line) => /^ */.exec(line)![0].length));
+      const added = lines.map((line) => `  ${line.slice(common)}`).join("\n");
+      return scene.replace(/\n?<\/nt-diagram>$/, `\n${added}\n</nt-diagram>`);
+    },
+  );
   return { html: out, missing };
 }
+
+/**
+ * The scene a stub address names, from the live document: a canvas block's
+ * own, or one shot of a storyboard's.
+ */
+function storedScene(blocks: AnyBlock[], at: string): string | null {
+  const colon = at.lastIndexOf(":");
+  const shot = colon >= 0 ? Number(at.slice(colon + 1)) : NaN;
+  const blockId = Number.isInteger(shot) ? at.slice(0, colon) : at;
+  const block = findBlock(blocks, blockId);
+  if (block?.type === "storyboard" && Number.isInteger(shot)) {
+    return parseStoryboard(String(block.props.data ?? "")).shots[shot]?.scene ?? null;
+  }
+  if (block?.type === "canvas" && !Number.isInteger(shot)) {
+    return serializeScene({
+      ...migrateLegacyCanvas(String(block.props.data ?? "")),
+      id: block.id,
+    });
+  }
+  return null;
+}
+
 
 /**
  * Album stubs back to the pictures they stand for. Attributes the model may
@@ -376,10 +458,7 @@ function blockToHtml(block: AnyBlock, opts: SerializeOptions): string {
       const parsed = migrateLegacyCanvas(String(block.props.data ?? ""));
       if (opts.diagramsAsBriefs) return briefStub(parsed, block.id);
       const scene = serializeScene({ ...parsed, id: block.id });
-      if (opts.collapseDrawn && !opts.expandDrawn?.has(block.id) && isDrawn(scene)) {
-        return drawnStub(scene, block.id, block.id);
-      }
-      return scene;
+      return diagramRead(scene, block.id, block.id, block.id, opts);
     }
     case "album":
       // As with the diagram above: the block stores this grammar, so only its
@@ -402,18 +481,23 @@ function blockToHtml(block: AnyBlock, opts: SerializeOptions): string {
       // none, because a shot is addressed by its position — it is shot three,
       // and it stays shot three however it is written down.
       const board = parseStoryboard(String(block.props.data ?? ""));
-      const shots =
-        opts.collapseDrawn && !opts.expandDrawn?.has(block.id)
-          ? board.shots.map((shot, i) =>
-              shot.scene && isDrawn(shot.scene)
-                ? { ...shot, scene: drawnStub(shot.scene, "", `${block.id}:${i}`) }
-                : shot,
-            )
-          : board.shots;
+      const shots = board.shots.map((shot, i) =>
+        shot.scene
+          ? { ...shot, scene: diagramRead(shot.scene, block.id, "", `${block.id}:${i}`, opts) }
+          : shot,
+      );
       return serializeStoryboard({ ...board, shots, id: block.id });
     }
     case "paragraph":
       return `<p${id}>${inner}</p>`;
+    case "notionStub":
+      // The opaque element below, with the Notion type on it: the model sees
+      // what sat here and that it is not its to write. The parser drops
+      // `nt-block` on the way back, so the stub stays un-authorable.
+      return `<nt-block${id}${attr("type", block.type)}${attr(
+        "notion-type",
+        String(block.props.notionType ?? ""),
+      )}></nt-block>`;
     default:
       // A block type the grammar has no tag for. Emitted opaque and named
       // rather than as an empty <p>: an empty paragraph reads as a gap to fill,
@@ -659,7 +743,9 @@ export function toDocHtmlWithin(
   opts: SerializeOptions = {},
 ): { html: string; dropped: number } {
   const whole = toDocHtml(blocks, opts);
-  if (whole.length <= maxChars) return { html: whole, dropped: 0 };
+  // A block the model asked to expand is read whole whatever it costs — that
+  // is what expanding means — so an expanded read is never cut.
+  if (whole.length <= maxChars || opts.expandDrawn?.size) return { html: whole, dropped: 0 };
 
   // Length grows with the number of blocks kept, so the boundary is findable
   // without serializing every prefix.

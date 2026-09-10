@@ -37,10 +37,11 @@ export const TOOLS = {
         .array(z.string())
         .optional()
         .describe(
-          "Block ids whose DRAWN pictures should come back shape by shape " +
-            'instead of as <nt-diagram drawn="…"> stubs. Only for a block ' +
-            "whose shapes you mean to edit by hand — a drawn picture is " +
-            "large, and the stub is all you need to keep, move or replace it.",
+          "Block ids to read whole. A diagram reads as a stub carrying its " +
+            'words and an at="…" address; expanding it gives every shape, ' +
+            "style and path, however large. Expand the one you mean to match, " +
+            "copy from or edit; a stub is all you need to keep, move or " +
+            "replace it.",
         ),
     }),
   },
@@ -60,7 +61,7 @@ export const TOOLS = {
       expand: z
         .array(z.string())
         .optional()
-        .describe("As on read_page: block ids to read drawn pictures in full."),
+        .describe("As on read_page: block ids to read in full."),
     }),
   },
   edit_page: {
@@ -88,14 +89,15 @@ export const TOOLS = {
   },
   draw: {
     description:
-      "Draw one canvas — a scene, a storyboard shot, a mockup, an " +
-      "illustration. A drawing specialist holds the pen, so anything DRAWN " +
-      "should come from here rather than from your own paths. Returns a REF " +
-      'naming the drawing, which you place by writing <nt-diagram ref="THAT ' +
-      'REF"></nt-diagram> in your edit_page HTML — never the drawing itself, ' +
-      "which you are not shown and do not need. Nothing touches the page " +
-      "until you place it. You may call this several times in parallel — one " +
-      "call per storyboard shot.",
+      "Draw ONE STORYBOARD SHOT. A drawing specialist holds the pen, and for " +
+      "now the pen is only for storyboards: a screen, a mockup, a diagram or " +
+      "a standalone illustration is not drawn here — a screen or a diagram " +
+      "you write in the canvas grammar with edit_page, shape by shape. " +
+      "Returns a REF naming the drawing, which you place by writing " +
+      '<nt-diagram ref="THAT REF"></nt-diagram> inside the shot in your ' +
+      "edit_page HTML — never the drawing itself, which you are not shown " +
+      "and do not need. Nothing touches the page until you place it. Call " +
+      "this several times in parallel — one call per shot.",
     inputSchema: z.object({
       brief: z
         .string()
@@ -109,34 +111,10 @@ export const TOOLS = {
         ),
       ratio: z
         .enum(["16:9", "2.39:1", "1.85:1", "4:3", "1:1", "9:16"])
-        .optional()
         .describe(
-          "For a STORYBOARD SHOT: the board's own ratio, copied from its " +
-            '<nt-storyboard ratio="…"> — and nothing else. The shot\'s frame ' +
-            "is worked out from it, so a shot never needs w or h. Getting " +
+          "The board's own ratio, copied from its <nt-storyboard " +
+            'ratio="…">. The shot\'s frame is worked out from it. Getting ' +
             "this wrong is what makes a picture too big for its shot.",
-        ),
-      w: z
-        .number()
-        .int()
-        .optional()
-        .describe(
-          "Frame width, with h: the drawing fills this box edge to edge. Only " +
-            "for a drawing that is NOT a storyboard shot and needs a " +
-            "particular size; a shot passes ratio instead. Leave all three " +
-            "out for a standalone drawing — it takes a document-sized frame.",
-        ),
-      h: z.number().int().optional().describe("Frame height, with w."),
-      kind: z
-        .enum(["scene", "diagram"])
-        .optional()
-        .describe(
-          "scene (the default): a picture — a storyboard shot, a landscape, a " +
-            "figure, an illustration; drawn by a vector artist, so expect art, " +
-            "not labels. diagram: anything whose WORDS matter — a mockup with " +
-            "readable UI text, a labelled figure — where text must land as " +
-            "editable text. Never diagram for a storyboard shot: a title " +
-            "card's lettering is part of the picture.",
         ),
     }),
   },

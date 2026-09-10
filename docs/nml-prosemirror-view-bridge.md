@@ -1,0 +1,777 @@
+# NML ProseMirror View Bridge
+
+Status: steps 6–9 read-only projection, isolated plain-text/rich editing, durable selection,
+awareness, IME, structure, and custom-domain adapters implemented; runtime adoption,
+canonical canvas interaction, and history remain proposed.
+
+## Implemented read-only, plain-text, rich-editing, selection, and IME slices
+
+`app/lib/nml/view/` exports the adapter registry, projection, stable-ID position index,
+and `ReadOnlyNmlBridge`. Step 7 adds `PlainTextNmlBridge`, its editable browser mount, and
+`NmlPlainTextView`. Step 8 adds durable NML selections, awareness serialization, and
+composition handling. Step 9 adds `EditableNmlBridge`/`NmlEditableView`, semantic
+before/after projection translation, and domain-editing portals. The canonical
+`app/lib/nml` entry point stays free of PM/DOM imports.
+React portals preserve application provider context for domain renderers. Callers supply
+an authorized Y.Doc and retain its lifetime. No production route mounts either host.
+
+Every v1 adapter preserves semantic AST content and IDs. Identity-free wrappers and list
+ordinals are view-only. Columns remain table metadata, while rows/cells/math rows and
+inline embeds have PM node IDs. Canvas atoms contain only block identity/props; reverse
+projection resolves the scene from the canonical snapshot. Unsupported adapters retain
+complete blocks as inert atoms. Newer/malformed data remains in the caller's Y.Doc, with a
+visible unavailable/stale preview notice. Legacy domain markup is never inserted into DOM.
+
+Unchanged PM nodes and relative subtree indexes are cached. Canonical changes use minimal
+PM replacements with selection mapping; canvas-only updates notify domain views without
+PM transactions. The full editor routes CodeMirror and MathLive changes through code/math
+commands, and routes album/storyboard/location/media controls through validated domain or
+property commands. Canvas rendering consumes derived owner serialization and stays
+read-only; direct scene subscriptions/gestures remain step 10. Storage media needs an
+authorized host URL resolver, otherwise an unavailable notice preserves its identity.
+Toggle expansion is local view state. The read-only host blocks every content transaction
+even with forged bridge metadata. The compatibility plain-text host still accepts only
+one-block unmarked paragraph, heading, or quote replacements; the full host enables the
+step-9 action set.
+
+Drift checks are explicit idle/development work: canonical round-trip and index parity,
+one rebuild, then freeze. Renderer errors retain content and freeze the preview. Diagnostics
+contain only codes and optional IDs. Destruction removes subscriptions, not the source.
+
+Step 7 gives the supported typing path a local stable-ID shared-type index, incremental
+observer snapshots, character-level Y.XmlText commands, minimal canonical-to-PM text diffs,
+and a Fenwick-backed position index. A normal keystroke touches its text node and top-level
+PM shard without a full decode, validation pass, projection, serialization, or document
+scan. Size limits, state/node preconditions, authorization, atomic batches, and idempotency
+still apply. Structural and complex-inline commands use the validated full path. Step 9
+replaces the older whole-fragment mixed-mark path with range-level shared-text operations.
+
+Optimistic PM transactions carry bridge/request metadata. Canonical transactions with the
+matching request ID acknowledge without echo or apply the smallest reconcile diff;
+rejected/unauthorized/stale requests roll back to the latest canonical projection.
+Receipt-driven selection restoration is epoch-guarded, so a late receipt cannot replace a
+newer selection made by the user.
+Selection-only, metadata-only, and semantic no-op transactions remain local. Text
+selections persist as node IDs plus Yjs relative positions and affinity; stable node sides
+cover node, gap, all-document, table-cell, and custom-domain boundaries. Canonical changes
+restore the selection from that durable form, and deleted targets fall back by prior
+document order. Awareness broadcasts a validated JSON-safe form without PM integer
+positions and preserves other local presence fields. Semantic observation compares sibling
+order after excluding insertions/deletions, avoiding false move reports from index shifts.
+
+Real browser composition events bracket provisional plain or rich-text changes. Interim
+changes stay out of canonical Yjs and PM history, then composition end submits one command.
+Non-intersecting remote changes continue to project, intersecting text is buffered until
+the relative selection resolves, and remotely moved targets reconcile before commit. A
+deleted target preserves only its unfinished local insertion in a copyable recovery panel;
+diagnostics remain content-free. The full host preserves active marks, link formatting, and
+inline-atom offsets through rich composition.
+
+Verification uses Node 22.22.1, `npm test`, `npx tsc --noEmit`, and `npm run lint`. The
+standalone browser comparison uses existing esbuild/Tailwind tooling and an
+operator-installed Puppeteer, without adding repository dependencies:
+
+```sh
+NML_PUPPETEER_MODULE=/absolute/path/to/puppeteer/lib/puppeteer/puppeteer.js node tests/nml-view.browser.mjs
+```
+
+The runner builds a temporary static site and mounts current read-only BlockNote alongside
+the bridge, then mounts the isolated plain-text and full editors. It checks desktop/mobile
+fixtures, real typing/selection/delete/Unicode and composition events, durable awareness
+wire data, intersecting remote composition, deleted-target recovery, optimistic
+acknowledgement/rollback, a reconnect race, remote-caret mapping, rich marks and partial
+links, inline math/references, split/list/move/paste/drop actions, table/code/math/media and
+storyboard edits, remote text/canvas updates, drift/newer-version fallback, and cleanup. External
+HTTP is intercepted and Convex uses an inert fixture WebSocket; no backend, paid API, keys,
+or user data is needed. Screenshots go to the temporary path printed on success.
+`NML_CHROME_PATH` can select an installed browser. The sections below describe the bridge
+contract, including later canvas/history/migration stages.
+
+Implementation sequencing is tracked in
+[`nml-prosemirror-refactor-plan.md`](nml-prosemirror-refactor-plan.md). Binding v1 choices
+for previously open foundational questions are in
+[`nml-foundational-decisions.md`](nml-foundational-decisions.md); those choices supersede
+question-form language retained below for design context.
+
+The **ProseMirror View Bridge** (PVB) presents a canonical NML-shaped Yjs document through
+ProseMirror without making ProseMirror state canonical. ProseMirror supplies mature browser
+editing behavior—selection, input, IME, clipboard, tables, accessibility, and transaction
+mapping—while NML remains the only persisted semantic document model.
+
+“View Bridge” is deliberate: this is not a general two-master synchronization layer.
+NML/Yjs is the sole source of truth. ProseMirror is an incrementally maintained editable
+projection.
+
+## High-level relationship
+
+```mermaid
+flowchart LR
+    subgraph Sources[Command sources]
+      HUMAN[Human input]
+      MCP[MCP / model tools]
+      IMPORT[Importers and migrations]
+    end
+
+    subgraph Canonical[Canonical document layer]
+      COMMANDS[NML semantic commands]
+      VALIDATE[NML validation]
+      YDOC[NML-shaped Y.Doc]
+      HISTORY[Attribution, audit, versions]
+      STORE[Convex snapshots and updates]
+    end
+
+    subgraph Bridge[ProseMirror View Bridge]
+      INDEX[ID and position index]
+      N2P[NML changes to PM transactions]
+      P2N[PM transactions to NML commands]
+      SELECTION[Selection mapping]
+    end
+
+    subgraph Browser[Derived browser editor]
+      PMSTATE[ProseMirror state]
+      PMVIEW[ProseMirror view]
+      RENDER[Nootles node views]
+      CANVAS[Atomic canvas node view]
+    end
+
+    subgraph Canvas[Canvas domain]
+      CCMD[Canvas NML commands]
+      CSCENE[Canonical scene subscription]
+    end
+
+    HUMAN --> PMVIEW
+    PMVIEW --> PMSTATE
+    PMSTATE --> P2N
+    P2N --> COMMANDS
+    MCP --> COMMANDS
+    IMPORT --> COMMANDS
+    COMMANDS --> VALIDATE --> YDOC
+    YDOC <--> STORE
+    YDOC --> HISTORY
+    YDOC --> INDEX
+    YDOC --> N2P --> PMSTATE
+    INDEX <--> P2N
+    INDEX <--> N2P
+    INDEX <--> SELECTION
+    SELECTION <--> PMSTATE
+    PMSTATE --> RENDER --> PMVIEW
+    PMSTATE --> CANVAS
+    HUMAN --> CANVAS
+    CANVAS --> CCMD --> VALIDATE
+    YDOC --> CSCENE --> CANVAS
+```
+
+The canvas block and its complete scene are canonical NML/Yjs data. ProseMirror represents
+the block as one atomic node; its node view subscribes directly to the scene beneath that
+block. Shape and edge edits bypass ProseMirror while remaining canonical NML commands.
+
+## Design principles
+
+1. **One source of truth.** The NML Y.Doc is authoritative. ProseMirror never persists its
+   JSON or Yjs layout as a second document.
+2. **One command language.** MCP, slash commands, menus, and translated ProseMirror input
+   converge on NML semantic commands.
+3. **Stable identity before positions.** NML node IDs are durable; ProseMirror integer
+   positions are ephemeral view coordinates.
+4. **Incremental projection.** Remote changes become the smallest correct ProseMirror
+   transaction, not a full editor rebuild.
+5. **No echo loops.** A change translated from one side is recognized on the other and
+   never translated back as a new edit.
+6. **Preserve local interaction.** Remote updates must map selection, composition, scroll,
+   stored marks, and plugin state rather than reset them.
+7. **Deterministic normalization.** NML validation owns semantic normalization. The bridge
+   must not allow ProseMirror normalization to become an undocumented second schema.
+8. **Fail closed, recover content.** An untranslatable change makes the affected view
+   read-only and reports diagnostics; it never silently drops content.
+9. **Headless canonical core.** The NML schema, commands, validation, and Yjs encoding have
+   no DOM dependency. Only the ProseMirror view side is browser-specific.
+10. **Measured compatibility.** Every supported NML construct has explicit bidirectional
+    fixtures; “renders approximately” is insufficient.
+11. **Atomic domain projection.** A canonical custom domain may project as one ProseMirror
+    node. ProseMirror does not need to represent or transact over its internal AST nodes.
+
+## Responsibilities
+
+The bridge owns:
+
+- NML AST/Yjs node to ProseMirror node conversion.
+- ProseMirror transaction to NML semantic-command conversion.
+- Incremental node-ID and offset/position indexes.
+- Local and remote selection mapping.
+- transaction-origin suppression and acknowledgements.
+- composition buffering and reconciliation.
+- bridge diagnostics and safe degraded states.
+
+The bridge does not own:
+
+- authorization,
+- persistence,
+- the canonical NML schema,
+- semantic command validation,
+- audit/history policy,
+- model tool definitions,
+- visual node rendering,
+- canvas rendering, geometry, and gesture semantics. Those belong to the canvas engine,
+  while the bridge owns the atomic block boundary and lifecycle.
+
+## Component boundaries
+
+```text
+@nootles/nml-core
+  AST, schemas, normalization, serialization, semantic commands
+
+@nootles/nml-yjs
+  canonical shared-type encoding, transactions, relative positions
+
+@nootles/prosemirror-view-bridge
+  PM schema adapter, indexes, translation, selection, composition
+
+@nootles/editor-web
+  ProseMirror view, node views, menus, keyboard UI, accessibility
+```
+
+These names describe boundaries, not a required package split during the first
+implementation.
+
+## Input shapes
+
+### Bridge construction
+
+```ts
+type CreateBridgeInput = {
+  document: NmlYDocument;
+  pmSchema: ProseMirrorSchema;
+  nodeAdapters: NodeAdapterRegistry;
+  actor: ViewActor;
+  awareness?: AwarenessAdapter;
+  diagnostics: DiagnosticSink;
+  policy: BridgePolicy;
+};
+
+type ViewActor = {
+  userId: string;
+  clientInstanceId: string;
+  displayName: string;
+  color: string;
+};
+
+type BridgePolicy = {
+  unsupportedNode: "readOnlyNode" | "readOnlyDocument";
+  compositionConflict: "bufferRemote" | "cancelComposition";
+  normalization: "nmlOnly";
+};
+```
+
+### Canonical change input
+
+```ts
+type NmlChangeSet = {
+  transactionId: string;
+  origin: NmlTransactionOrigin;
+  beforeStateVector: Uint8Array;
+  afterStateVector: Uint8Array;
+  changes: NmlChange[];
+};
+
+type NmlChange =
+  | { kind: "text"; nodeId: string; delta: TextDelta[] }
+  | { kind: "props"; nodeId: string; keys: string[] }
+  | { kind: "insert"; parentId: string | null; nodeIds: string[] }
+  | { kind: "remove"; parentId: string | null; nodeIds: string[] }
+  | { kind: "move"; nodeId: string; from: NmlLocation; to: NmlLocation }
+  | { kind: "replaceDomain"; nodeId: string; domain: string };
+```
+
+The Yjs adapter should produce semantic change sets while observing transactions so the
+bridge does not infer everything from before/after full trees.
+
+### ProseMirror transaction input
+
+```ts
+type PmTransactionInput = {
+  transaction: Transaction;
+  stateBefore: EditorState;
+  stateAfter: EditorState;
+  viewContext: {
+    composing: boolean;
+    inputType?: string;
+    paste?: boolean;
+    drop?: boolean;
+  };
+};
+```
+
+## Output shapes
+
+### NML to ProseMirror
+
+```ts
+type PmProjectionResult = {
+  transaction: Transaction | null;
+  mappedSelection: Selection;
+  changedNodeIds: string[];
+  diagnostics: BridgeDiagnostic[];
+};
+```
+
+`null` means the canonical change affects metadata or a domain rendered outside the
+ProseMirror document and no PM transaction is needed. In particular, an internal canvas
+shape or edge change returns `null`; the canvas node view observes the canonical scene
+directly.
+
+### ProseMirror to NML
+
+```ts
+type NmlCommandResult = {
+  commands: NmlCommand[];
+  selectionIntent: NmlSelection;
+  grouping: {
+    undoGroupId: string;
+    closeGroup: boolean;
+  };
+  diagnostics: BridgeDiagnostic[];
+};
+```
+
+The bridge returns commands; the canonical executor validates and commits them. It never
+returns raw Yjs mutations.
+
+### Bridge API
+
+```ts
+interface ProseMirrorViewBridge {
+  initialState(config?: EditorStateConfig): EditorState;
+  applyProseMirrorTransaction(input: PmTransactionInput): Promise<BridgeCommitResult>;
+  applyNmlChangeSet(change: NmlChangeSet): PmProjectionResult;
+  toNmlSelection(selection: Selection): NmlSelection;
+  toPmSelection(selection: NmlSelection): Selection;
+  status(): BridgeStatus;
+  destroy(): void;
+}
+```
+
+## Node adapter contract
+
+Every NML block type registers exactly one adapter:
+
+```ts
+interface NodeAdapter<N extends NmlBlock = NmlBlock> {
+  nmlType: N["type"];
+  pmNodeType: string;
+
+  toPmNode(node: N, context: ProjectionContext): ProseMirrorNode;
+  fromPmNode(node: ProseMirrorNode, context: TranslationContext): NmlNodeDraft;
+
+  translatePmStep?(step: Step, context: StepContext): NmlCommand[] | null;
+  translateNmlChange?(change: NmlChange, context: ChangeContext): Transaction | null;
+
+  validateProjection(nml: N, pm: ProseMirrorNode): BridgeDiagnostic[];
+
+  domainView?: {
+    mount(nodeId: string, host: HTMLElement, context: DomainViewContext): DomainView;
+  };
+}
+```
+
+Rules:
+
+- IDs are stored in a required ProseMirror node attribute but are assigned only by NML.
+- A ProseMirror split proposes a new NML node with a temporary ID; the canonical executor
+  mints the durable ID, and the acknowledgement patches the projection.
+- Node views may render React/DOM components but cannot mutate canonical state except by
+  dispatching a semantic command.
+- Unsupported NML nodes project as atomic, selectable, read-only placeholders preserving
+  their ID and canonical serialized content.
+- Adapters must be deterministic and pure except for explicit context services.
+- The canvas adapter projects only block identity and block-level presentation metadata
+  into ProseMirror. Its `domainView` subscribes to `canvas.scene` in the canonical Y.Doc.
+- A domain view dispatches semantic NML commands; it cannot write shared types directly.
+
+## Position and identity index
+
+The bridge maintains both directions incrementally:
+
+```ts
+type NodePositionEntry = {
+  nodeId: string;
+  pmStart: number;
+  pmEnd: number;
+  contentStart?: number;
+  parentId: string | null;
+  path: number[];
+};
+
+type PositionIndex = {
+  byId: Map<string, NodePositionEntry>;
+  nodeAt(position: number): NodePositionEntry | null;
+};
+```
+
+Requirements:
+
+- Recompute only affected subtrees after a transaction.
+- Never persist ProseMirror positions.
+- Translate text offsets through the inline adapter, not by assuming PM offsets equal
+  UTF-16 NML offsets.
+- Represent durable NML selections using node IDs plus Yjs relative text positions.
+- Detect a mismatched index before translating a mutation and rebuild the projection or
+  enter a safe read-only state.
+
+## Selection model
+
+```ts
+type NmlPoint =
+  | { kind: "text"; nodeId: string; relative: Uint8Array; affinity: "before" | "after" }
+  | { kind: "node"; nodeId: string; side: "before" | "on" | "after" };
+
+type NmlSelection = {
+  anchor: NmlPoint;
+  head: NmlPoint;
+};
+```
+
+- ProseMirror selections are converted to NML selections before canonical mutation.
+- Remote canonical updates resolve relative positions, then map them back into the new PM
+  document.
+- If the selected node is deleted, selection moves to the closest surviving editable
+  neighbor using affinity and document order.
+- Awareness broadcasts NML selections, never ProseMirror integer positions.
+- Node views may define custom selection domains, but entry and exit points must map to an
+  NML node selection.
+
+## Human transaction flow
+
+1. The browser dispatches a ProseMirror transaction.
+2. The bridge classifies it as content, selection-only, metadata-only, or bridge-originated.
+3. Selection-only transactions remain local and update awareness.
+4. Bridge-originated transactions are applied locally without echoing to NML.
+5. Content transactions are translated into semantic NML commands.
+6. The canonical executor validates authorization, schema, IDs, and preconditions.
+7. Commands commit as one Yjs transaction with origin metadata.
+8. The Yjs observer emits a change set.
+9. The originating bridge recognizes the transaction ID as its acknowledgement.
+10. It reconciles any canonical normalization or minted IDs and maps the selection.
+
+The initial PM transaction must not become durable before canonical acceptance. The UI may
+optimistically display it, but it must be able to roll back to the canonical projection if
+validation fails.
+
+## Remote/MCP transaction flow
+
+1. MCP authenticates as a user and submits semantic NML commands.
+2. The backend validates and applies one canonical Yjs transaction.
+3. Connected clients receive the Yjs update and semantic change set.
+4. Each bridge converts the change set into the smallest correct PM transaction.
+5. The transaction carries bridge-origin metadata and is excluded from PM-to-NML
+   translation.
+6. ProseMirror maps selection, stored marks, decorations, and plugin state.
+7. Node views rerender affected nodes.
+
+## ProseMirror schema policy
+
+- The PM schema is a projection schema generated from the NML schema and adapter registry.
+- It may contain view-only wrapper nodes required for editing, such as list containers.
+  Those wrappers have no NML identity and cannot leak into canonical commands.
+- Every persisted PM attribute maps to a documented NML field. View-only attributes are
+  prefixed or held in plugin state.
+- ProseMirror content expressions may be stricter for editability but never semantically
+  broader than NML.
+- ProseMirror automatic normalization must translate into an explicit NML command or be
+  disabled. Invisible projection-only rewrites are acceptable only when they serialize
+  back to the same NML AST.
+
+## Inline translation
+
+Inline editing is the highest-frequency path and uses a specialized adapter:
+
+- PM text insert/delete becomes a character-level mutation in the node's shared text.
+- PM marks map to the canonical NML mark set.
+- Links and page references map to inline semantic nodes.
+- Composition events are grouped into one logical undo unit.
+- A simple keystroke must not diff or serialize the entire block or page.
+- Translation must preserve grapheme clusters and define offsets in one coordinate system.
+- Stored marks are view state; they affect future insertions but are not persisted alone.
+
+The implemented adapter computes grapheme-aware prefix/suffix ranges, emits mark-only and
+link-only formatting commands where possible, and reserves structural replacement for the
+small changed inline span. Link formatting carries an internal run key so adjacent equal-URL
+links remain distinct while partial unlink/relink does not clone collaborative suffix text.
+Projection-only link wrapper tokens are translated out of durable NML offsets.
+
+## Composition and IME
+
+The step-8 policy buffers remote changes that intersect the active composition range until
+`compositionend`, while applying non-intersecting changes normally. Interim composition
+transactions are local and composition end commits one canonical command.
+
+Required behavior:
+
+- Never interrupt composition merely because an unrelated remote edit arrives.
+- If the composed node is deleted remotely, cancel safely, retain composed text in a
+  recovery buffer, and notify the user.
+- Test CJK, Korean, Indic input, dead keys, emoji, autocorrect, and mobile composition.
+- Do not infer composition solely from keyboard events; use browser composition state and
+  ProseMirror transaction metadata.
+
+## Undo and history
+
+- Canonical Yjs transactions are the durable undo units.
+- ProseMirror's native history must not independently undo canonical content.
+- Use `Y.UndoManager` or an NML command inverse layer scoped by transaction origins.
+- Typing transactions group by time, selection continuity, and command kind.
+- An MCP tool call is one undo group unless it explicitly returns independent hunks.
+- Undo is itself a new canonical transaction and propagates through every bridge.
+- View-only transactions may use local PM/plugin history where they cannot alter content.
+
+## Tables and complex structures
+
+- Table rows and cells map by stable IDs.
+- ProseMirror table wrapper nodes may be projection-only.
+- Supported row/column insertion and deletion actions translate to table semantic commands,
+  never a generic subtree replacement.
+- Cell selection maps to an NML table-range selection for commands but remains local view
+  state for awareness unless collaborative table selection is explicitly designed.
+- Each stored cell is associated with its stable column ID. Concurrent row/column insertion
+  derives a deterministic empty intersection cell, which is materialized on first edit;
+  concurrent column deletion hides cells attached to the removed column.
+- Column resizing is not part of the supported step-9 action set.
+
+## Custom blocks
+
+- Atomic blocks use ProseMirror atom nodes with Nootles node views.
+- Editable text inside a custom block must either join the canonical inline model or be a
+  separately declared NML/Yjs domain; it cannot hide mutable state only in React.
+- Code and math editors dispatch range/stable-row NML commands and receive canonical updates
+  through their domain adapters. Album, storyboard, and location edits use their owner
+  parsers and atomic `replaceDomain`; audio/video controls update typed media properties and
+  may switch the canonical media block type.
+- The complete canvas scene remains inside the canonical NML AST. ProseMirror sees one
+  atomic canvas node and never materializes shapes or edges in its document tree.
+- The canvas node view subscribes directly to the owning block's canonical scene maps.
+  Shape changes rerender the canvas without creating a ProseMirror transaction.
+- Canvas gestures dispatch canvas-domain NML commands into the same canonical executor,
+  validation, attribution, persistence, and undo infrastructure as document commands.
+- Inserting, moving, selecting as a block, and deleting a canvas involve ProseMirror;
+  dragging, resizing, styling, grouping, connecting, and editing shapes do not.
+- `<nt-diagram>` is import/export/model serialization derived from the scene, never the
+  node view's storage or synchronization channel.
+- Album, storyboard, and location adapters must state whether their internals are atomic or
+  fine-grained in each schema version. Schema v1 uses atomic validated replacements.
+
+## Loop prevention and acknowledgement
+
+Every projected transaction carries metadata:
+
+```ts
+type BridgeTransactionMeta = {
+  bridgeId: string;
+  direction: "nml-to-pm" | "pm-optimistic" | "pm-reconcile";
+  canonicalTransactionId?: string;
+  requestId?: string;
+};
+```
+
+- `nml-to-pm` transactions never translate back to NML.
+- An optimistic PM transaction records a local request ID.
+- Its canonical acknowledgement records the resulting transaction ID and normalized
+  commands.
+- If acknowledgement differs from the optimistic projection, the bridge applies a minimal
+  reconcile transaction.
+- Duplicate acknowledgements are idempotent.
+
+## Failure modes
+
+### Unsupported schema version
+
+Render the document read-only and request a compatible client. Do not normalize or write.
+
+### Unknown node type
+
+Render an atomic read-only placeholder containing a safe label and retain canonical data.
+
+### Translation failure
+
+Reject the local mutation before canonical commit. For a remote mutation, rebuild the
+derived PM document from canonical NML; if rebuilding fails, enter document read-only mode
+and emit diagnostics.
+
+### Projection drift
+
+Periodically or in development, compare `pmToNml(pmState.doc)` with the canonical AST.
+On mismatch, report the smallest differing node. Production may rebuild the affected
+subtree once; repeated drift freezes editing rather than oscillating.
+
+### Mid-flight disconnect
+
+Canonical commits remain valid. Optimistic local transactions without acknowledgement are
+reconciled against the canonical Y.Doc on reconnect using their request IDs.
+
+### Concurrent structural conflict
+
+The NML layer resolves it. The bridge renders the resolved tree and surfaces conflict
+metadata; it must not invent a second resolution.
+
+## Performance budgets
+
+- Ordinary text input: no full-document traversal, serialization, or reconstruction.
+- Remote text update: touch the affected text node and position-index suffix only.
+- Structural update: rebuild at most the smallest affected common ancestor where possible.
+- Canvas scene update: notify only the owning canvas node view; do not transact against or
+  re-index the ProseMirror document.
+- Initial projection may be O(document size).
+- Index lookup by node ID should be O(1); position lookup O(log n) or better.
+- Rendering subscriptions should be scoped to affected node views.
+- Development equivalence checks may be expensive; production checks are sampled or
+  subtree-scoped.
+
+## Observability
+
+Record without document content:
+
+- translation direction and command kind,
+- changed-node count,
+- projection and commit latency,
+- rebuild count and cause,
+- drift detections,
+- validation failures,
+- composition conflicts,
+- optimistic reconciliation rate,
+- schema-version mismatch,
+- undo grouping anomalies.
+
+Never log user text, NML payloads, Yjs updates, credentials, or storage URLs by default.
+
+## Verification matrix
+
+Step 9 closes every applicable item below. Canvas and undo remain assigned to steps 10 and
+11 respectively.
+
+- Every NML node adapter: AST -> PM -> AST semantic equality.
+- Every supported PM step: PM -> commands -> NML -> PM equality.
+- Local typing with remote insertion before, inside, and after the selection.
+- Split/join concurrent with edit, move, and delete.
+- Mark changes concurrent with text changes.
+- Nested-list indentation and outdent under concurrent moves.
+- Table row/column operations from multiple clients.
+- IME composition intersecting and non-intersecting remote changes.
+- Undo across local human, remote human, MCP, and system repair origins.
+- Canvas shape/edge edits from local, remote, and MCP actors without ProseMirror document
+  changes, selection loss, or mirror drift.
+- Reconnect after optimistic local input and before acknowledgement.
+- Unknown node and newer schema behavior.
+- Large pages and chunked Yjs updates.
+- Browser parity across supported engines and mobile input paths.
+
+## Implementation stages
+
+1. **Read-only projection — complete:** build NML AST -> PM projection and node/position index.
+2. **Parity harness — complete:** compare current editor output with canonical NML fixtures.
+3. **Plain text round trip — complete:** translate paragraph/heading/quote PM transactions to NML.
+4. **Remote collaboration — complete for the isolated bridge:** project canonical changes into active selections.
+5. **Structure — complete for the supported action set:** lists, split/join, moves, plain-text paste/drop.
+6. **Rich inline — complete:** marks, links, math, references, and rich IME.
+7. **Tables and custom blocks — complete except canvas gestures:** semantic table/code/math/media/domain adapters.
+8. **Undo, review, and checkpoints:** canonical transaction grouping and restoration.
+9. **Migration:** switch persisted source of truth for a gated document cohort.
+10. **Retirement:** remove the ProseMirror-shaped persisted Yjs root after compatibility and
+    rollback windows close.
+
+## Design-question inventory
+
+The foundational items in this inventory are decided for v1 by
+[`nml-foundational-decisions.md`](nml-foundational-decisions.md). Unanswered implementation,
+product, migration, and operational details close at the gated plan stage that needs them.
+
+### Canonical/view boundary
+
+- Which ProseMirror wrapper nodes exist only for editing, and how are their positions
+  mapped without fabricated NML IDs?
+- Can the PM schema be generated mechanically from NML definitions, or must adapters own
+  handwritten content expressions?
+- Which PM normalizations are unavoidable, and can every one be proven semantically
+  invisible or expressed as an NML command?
+
+### Translation
+
+- Step 9 translates semantic before/after projection differences into the smallest supported
+  command set instead of depending on plugin-private step shapes; unsupported normalization,
+  row/column reordering, and cross-domain block conversion reject before canonical commit.
+- Canonical command offsets are UTF-16 code units accepted only at grapheme boundaries.
+  Temporary IDs are minted in the
+  optimistic projection and mapped by the canonical receipt before selection restoration.
+
+### Concurrency
+
+- What exact single-parent move representation will canonical NML use?
+- How should a local optimistic edit reconcile when a remote deletion invalidates its
+  target before commit?
+- How are concurrent schema repairs prevented from producing repair loops?
+- What conflict information is user-visible versus audit-only?
+
+### Selection and composition
+
+- Steps 8–9 address plain/rich text and inline-embed boundaries with Yjs relative positions
+  and stable node-side points.
+- A remotely deleted composition target exposes the unfinished insertion in a local,
+  copyable recovery panel.
+- Gap, node, all-document, table-cell, and atomic custom-domain boundaries use stable node
+  IDs and sides rather than PM offsets.
+- Internal canvas selection and canvas/text awareness transitions remain part of the
+  canonical-canvas stage.
+
+### Undo and review
+
+- Should canonical undo use `Y.UndoManager`, inverse semantic commands, or both for
+  different histories?
+- How are typing groups closed consistently across browser clients?
+- Can AI per-hunk accept/reject operate directly on canonical command groups without
+  replaying against a full checkpoint?
+- How does rewind preserve unrelated concurrent collaborator edits?
+
+### Custom domains
+
+- Code and math use nested editors with direct semantic commands; album, storyboard, and
+  location use owner parsing plus atomic schema-v1 domain commands.
+- How does canvas text selection enter and leave the atomic ProseMirror node while canvas
+  owns the internal selection and both surfaces share canonical undo grouping?
+- Which block-level canvas properties must be copied into the PM atom for layout, and which
+  should the node view read directly from the canonical scene?
+- How are a canvas block deletion and concurrent internal shape edit resolved without
+  silently losing recoverable work?
+- How are storage-backed media references represented without exposing bearer URLs in
+  canonical NML?
+
+### Lifecycle and migration
+
+- How are existing ProseMirror Yjs documents and canvas map/HTML-mirror pairs dual-read or
+  mirrored into canonical NML during migration?
+- What proves equivalence strongly enough to switch a document's source of truth?
+- What is the rollback mechanism after an NML document receives edits that the old schema
+  cannot represent?
+- How long must mixed-version clients interoperate?
+
+### Operations
+
+- Does the backend emit semantic change sets alongside Yjs updates, or must clients derive
+  them locally?
+- How are large offline update bursts translated without replaying thousands of PM
+  transactions?
+- Which bridge metrics are safe and useful without capturing document content?
+- What limits prevent adversarial documents or updates from causing projection work
+  amplification?
+
+## Acceptance criteria
+
+The bridge is ready to become authoritative for a document cohort only when:
+
+- NML is the sole persisted semantic tree for that cohort.
+- Browser and backend decode the same AST from the same Y.Doc.
+- All supported human actions commit canonical NML commands.
+- MCP commands appear in an open editor without rebuilding it or losing selection.
+- Concurrent edit matrices pass without silent content loss.
+- Undo is coherent and attributed across humans and models.
+- Unsupported content remains recoverable and read-only.
+- Existing documents migrate with verified semantic equivalence and a tested rollback.
+
+See [`nml-canonical-ast.md`](nml-canonical-ast.md) for the canonical model and resolution
+rules this bridge must implement rather than redefine.

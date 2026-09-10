@@ -50,6 +50,7 @@ export const BLOCK_TYPES = [
   "audio",
   "location",
   "file",
+  "notionStub",
 ] as const;
 export const blockType = z.enum(BLOCK_TYPES);
 export type BlockType = z.infer<typeof blockType>;

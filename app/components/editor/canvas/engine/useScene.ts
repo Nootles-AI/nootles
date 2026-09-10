@@ -12,6 +12,7 @@ import {
   type Scene,
   type SceneNode,
   type SceneOp,
+  type NodeFrame,
 } from "../scene/types";
 
 /**
@@ -247,6 +248,35 @@ export class SceneStore {
         track("canvas_edge_connected", {});
       }
     }
+  };
+
+  /**
+   * Sizes the browser measured for auto-sized text, written back into `w`/`h`.
+   *
+   * Not an edit: nobody did anything, so there is no history entry and no op
+   * in the bug log. Persisted all the same, because hit-testing, the layers
+   * panel and every other client read the box from the model — and a text
+   * whose box only the DOM knows is a text nothing else can find.
+   */
+  measure = (frames: NodeFrame[]): void => {
+    const before = this.scene;
+    const next = applyOps(before, [{ type: "resize", frames }]);
+    if (next === before) return;
+    this.setScene(next, true);
+  };
+
+  /**
+   * Ops that change how the scene is STORED, not what it shows — a picture
+   * moved from inline bytes to a storage URL. Not an edit, on the same terms
+   * as `measure`: no history entry and no op in the bug log, because nobody
+   * did anything and there is nothing to undo; persisted, because the whole
+   * point is what the document holds.
+   */
+  amend = (ops: readonly SceneOp[]): void => {
+    const before = this.scene;
+    const next = applyOps(before, ops);
+    if (next === before) return;
+    this.setScene(next, true);
   };
 
   /** Open a gesture: everything until the matching `commit` is one entry. */

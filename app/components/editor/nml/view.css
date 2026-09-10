@@ -1,0 +1,30 @@
+.nt-editor .nt-nml-view {
+  font-family: inherit;
+  font-size: var(--text-body, 15px);
+  line-height: var(--leading-body, 1.7);
+  outline: none;
+  overflow-wrap: anywhere;
+}
+.nt-nml-view > * { margin-block: 3px; }
+.nt-nml-view p { margin: 0; }
+.nt-nml-view [data-content-type$="ListItem"] { position: relative; }
+.nt-nml-view [data-content-type$="ListItem"] > [data-nml-wrapper="inline"], .nt-nml-toggle-content > [data-nml-wrapper="inline"] { padding: 3px 0 3px 24px; line-height: 1.5; }
+.nt-nml-view [data-content-type$="ListItem"]::before { position: absolute; left: 0; top: 0; }
+.nt-nml-view [data-content-type="bulletListItem"]::before { content: "•"; }
+.nt-nml-view [data-content-type="numberedListItem"]::before { content: attr(data-start); }
+.nt-nml-view [data-content-type="checkListItem"]::before { content: "☐"; }
+.nt-nml-view [data-content-type="checkListItem"][data-checked="true"]::before { content: "☑"; }
+.nt-nml-view [data-content-type="checkListItem"][data-checked="true"] > [data-nml-wrapper="inline"] { text-decoration: line-through; }
+.nt-nml-view [data-content-type="checkListItem"]::before { color: #aaa; }
+.nt-nml-view [data-content-type="toggleListItem"][data-open="false"] > .nt-nml-toggle-content > [data-nml-wrapper="children"] { display: none; }
+.nt-nml-toggle { position: absolute; inset: 0 auto auto 0; width: 20px; padding-top: 3px; color: inherit; border: 0; background: transparent; cursor: pointer; }
+.nt-nml-view table { border-collapse: collapse; width: 100%; }
+.nt-nml-view td, .nt-nml-view th { border: 1px solid var(--line, #ddd); padding: 6px 10px; text-align: left; }
+.nt-nml-view figure { margin: 0; }
+.nt-nml-view-notice, .nt-nml-view [data-nml-unsupported] { padding: 12px; border: 1px solid var(--line, #ddd); border-radius: 6px; }
+.nt-nml-composition-recovery { margin-top: 12px; padding: 12px; border: 1px solid var(--line, #ddd); border-radius: 6px; background: var(--surface, #fff); }
+.nt-nml-composition-recovery p { margin: 0 0 8px; }
+.nt-nml-composition-recovery textarea { display: block; width: 100%; min-height: 72px; resize: vertical; padding: 8px; border: 1px solid var(--line, #ddd); border-radius: 4px; color: inherit; background: transparent; font: inherit; }
+.nt-nml-composition-recovery button { margin-top: 8px; padding: 5px 10px; border: 1px solid var(--line, #ddd); border-radius: 4px; color: inherit; background: transparent; font: inherit; cursor: pointer; }
+.nt-nml-view a { color: inherit; text-decoration: underline; }
+.nt-nml-view .nt-ref { cursor: default; }

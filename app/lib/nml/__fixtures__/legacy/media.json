@@ -1,0 +1,10 @@
+{
+  "documentId": "doc-media",
+  "blocks": [
+    { "id": "img1", "type": "image", "props": { "url": "https://example.com/pic.png", "caption": "A picture", "name": "pic.png", "previewWidth": 512, "showPreview": true, "backgroundColor": "default", "textColor": "default" }, "children": [] },
+    { "id": "vid1", "type": "video", "props": { "url": "https://example.com/clip.mp4", "name": "clip.mp4", "caption": "" }, "children": [] },
+    { "id": "aud1", "type": "audio", "props": { "url": "https://example.com/song.mp3", "name": "", "caption": "A song — An artist" }, "children": [] },
+    { "id": "file1", "type": "file", "props": { "url": "https://example.com/notes.pdf", "name": "notes.pdf", "caption": "" }, "children": [] },
+    { "id": "img-empty", "type": "image", "props": { "url": "", "caption": "", "name": "" }, "children": [] }
+  ]
+}

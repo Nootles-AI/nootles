@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ModelMessage } from "ai";
-import { expandRefs } from "./clientTools";
+import { expandRefs, refsOutsideShots } from "./clientTools";
 import { stripDrawings } from "./transcript";
 
 /**
@@ -63,6 +63,26 @@ describe("expandRefs", () => {
     const { html } = expandRefs(`${code}<nt-diagram ref="d4a91c"></nt-diagram>`, drawings);
     expect(html).toContain(code);
     expect(html).toContain('<nt-rect id="a"');
+  });
+});
+
+describe("refsOutsideShots", () => {
+  it("lets a ref inside a shot through", () => {
+    expect(
+      refsOutsideShots(
+        `<nt-storyboard ratio="16:9"><nt-shot><nt-diagram ref="d1"></nt-diagram><nt-note>One</nt-note></nt-shot></nt-storyboard>`,
+      ),
+    ).toEqual([]);
+  });
+
+  it("names a ref standing on its own — a mockup, an illustration in prose", () => {
+    expect(
+      refsOutsideShots(
+        `<p>Here it is:</p><nt-diagram ref="d2"></nt-diagram>` +
+          `<nt-storyboard ratio="16:9"><nt-shot><nt-diagram ref="d1"></nt-diagram><nt-note>One</nt-note></nt-shot></nt-storyboard>` +
+          `<nt-diagram ref="d3"></nt-diagram>`,
+      ),
+    ).toEqual(["d2", "d3"]);
   });
 });
 

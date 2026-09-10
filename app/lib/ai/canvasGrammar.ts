@@ -32,15 +32,27 @@ and never put colour or borders in attributes.
   rot        clockwise degrees, only when rotated.
   sides      required on <nt-polygon>. 4 is a diamond, 3 a triangle, 6 a hexagon.
   d          required on <nt-path>. SVG path data.
+  op         on <nt-group>: union | subtract | intersect | exclude. The group then draws ONE
+             shape cut from its children and paints it with its own style (fill, stroke);
+             the children are operands, not drawn. subtract takes the rest from the first.
 
 Every shape needs a unique id.
 
 LABELS BELONG TO THE SHAPE
-A shape's label is its OWN text content, plain, no tags inside it:
+A shape's label is its OWN text content:
   <nt-rect id="s1" x="40" y="40" w="200" h="56" style="...">Order received</nt-rect>
-The one element a label may carry is a page reference — a chip linking to another page in
-the project: <nt-rect id="s1" ...>See <nt-ref page="pageId">Page title</nt-ref></nt-rect>.
-Use a real page id; anything else inside a label is flattened to its text.
+Inside a label, ordinary HTML says how the words look, and only these tags are read:
+  <b> <i> <u> <s>                       weight, slant, underline, strike
+  <a href="https://…">                  a link
+  <span style="font-size: 24px; color: #b45309; font-family: 'Inter'">  a styled run
+  <p style="margin-bottom: 8px; text-indent: 16px">  a paragraph; margin-bottom is the
+                                        spacing after it, text-indent its first-line indent
+  <ul>/<ol> holding <li>                a list
+  <nt-ref page="pageId">Page title</nt-ref>   a chip linking to another page — use a real id
+A label with one plain paragraph needs no <p>. Line breaks inside a paragraph are literal
+newlines. Anything else inside a label is flattened to its text.
+The shape's own style sets the defaults for all of its words — font-size, font-family,
+color, text-align — so a run needs a span only where it differs.
 Never draw an empty shape and lay an <nt-text> over it to label it. That is two objects
 pretending to be one: dragging the shape leaves the label behind, the label gets its own
 row in the layers panel, and an edge to the shape ignores it. Centre a label inside its own

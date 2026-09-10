@@ -1,0 +1,28 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`legacy conversion > has a golden conversion of a representative rich-text document 1`] = `
+"<nt-document id="doc-rich-text" schema-version="1">
+  <p id="p1">Plain and <strong><em>bold italic</em></strong> then <code>code</code> <a href="https://nootles.ai"><u>a link</u></a><nt-math id="mint-0">x^2 + y^2</nt-math><nt-ref id="mint-1" page-id="page-42">Other page</nt-ref></p>
+  <p id="p-colored">Colored text keeps its words</p>
+  <h1 id="h1">A heading</h1>
+  <blockquote id="q1">A quote</blockquote>
+  <ul>
+    <li id="b1">Top bullet
+      <ul>
+        <li id="b1a">Nested bullet</li>
+      </ul>
+    </li>
+  </ul>
+  <ol start="3">
+    <li id="n1">Third</li>
+  </ol>
+  <ul data-kind="check">
+    <li id="c1" checked="true">Done</li>
+  </ul>
+  <details id="t1"><summary>Toggle summary</summary>
+    <p id="t1p">Inside the toggle</p>
+  </details>
+  <hr id="div1">
+</nt-document>
+"
+`;

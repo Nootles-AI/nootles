@@ -1,0 +1,14 @@
+{
+  "documentId": "doc-edge-cases",
+  "blocks": [
+    { "id": "stub1", "type": "notionStub", "props": { "notionType": "database" }, "children": [{ "id": "stub-child", "type": "paragraph", "props": {}, "content": [{ "type": "text", "text": "Hoisted out of an unsupported parent", "styles": {} }], "children": [] }] },
+    {
+      "id": "para-with-children",
+      "type": "paragraph",
+      "props": {},
+      "content": [{ "type": "text", "text": "Parent paragraph", "styles": {} }],
+      "children": [{ "id": "para-child", "type": "paragraph", "props": {}, "content": [{ "type": "text", "text": "Flattened child", "styles": {} }], "children": [] }]
+    },
+    { "id": "ws", "type": "paragraph", "props": {}, "content": [{ "type": "text", "text": "collapse   these\t\tspaces", "styles": {} }], "children": [] }
+  ]
+}

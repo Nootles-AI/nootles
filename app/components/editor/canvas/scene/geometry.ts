@@ -34,6 +34,7 @@ import {
   type SceneNode,
   isContainer,
   nodePath,
+  isBoolean,
 } from "./types";
 
 const RAD = Math.PI / 180;
@@ -585,7 +586,8 @@ function hitChain(
     if (isContainer(node)) {
       out.push(node);
       if (hitChain(node.children, local, opts, tol, out)) return true;
-      if (hitsShape(node, local, tol) && isFilled(node)) return true;
+      // A boolean group's box is its drawing's, painted by the group itself.
+      if (hitsShape(node, local, tol) && (isFilled(node) || isBoolean(node))) return true;
       out.pop();
       continue;
     }

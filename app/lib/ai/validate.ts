@@ -51,6 +51,7 @@ const CONTENTLESS = new Set([
   "audio",
   "location",
   "file",
+  "notionStub",
 ]);
 
 function typeHasContent(type: string): boolean {

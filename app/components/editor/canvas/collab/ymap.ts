@@ -2,6 +2,7 @@ import * as Y from "yjs";
 import {
   isContainer,
   walk,
+  type BooleanOp,
   type NodeId,
   type Scene,
   type SceneEdge,
@@ -54,6 +55,7 @@ type ShapeFields = {
   d?: string;
   sides?: number;
   arc?: { start?: number; sweep?: number; inner?: number };
+  op?: BooleanOp;
 };
 
 /** Present iff the diagram lives in the CRDT — the migration flag. */
@@ -85,6 +87,7 @@ function fieldsOf(
   if (node.kind === "image") fields.src = node.src;
   if (node.kind === "path") fields.d = node.d;
   if (node.kind === "polygon") fields.sides = node.sides;
+  if (node.kind === "group" && node.op) fields.op = node.op;
   if (
     node.kind === "ellipse" &&
     (node.start !== undefined ||
@@ -223,7 +226,7 @@ export function materializeCanvas(root: Y.Map<unknown>): Scene {
       };
       switch (fields.kind) {
         case "group":
-          return { ...base, kind: "group", children: build(id) };
+          return { ...base, kind: "group", children: build(id), ...(fields.op ? { op: fields.op } : {}) };
         case "image":
           return { ...base, kind: "image", src: fields.src ?? "" };
         case "path":
@@ -305,6 +308,7 @@ function readShape(entry: Y.Map<unknown>): ShapeFields {
     d: entry.get("d") as string | undefined,
     sides: entry.get("sides") as number | undefined,
     arc: entry.get("arc") as ShapeFields["arc"],
+    op: entry.get("op") as BooleanOp | undefined,
   };
 }
 
@@ -417,6 +421,7 @@ export function applySceneDiff(
       "d",
       "sides",
       "arc",
+      "op",
       "name",
       "locked",
       "hidden",
