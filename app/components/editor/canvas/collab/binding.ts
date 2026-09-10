@@ -12,7 +12,7 @@ import type { Scene } from "../scene/types";
  * the tag is identity, not data.
  */
 let tagged = false;
-function ensureMintTag() {
+export function ensureCollaborativeCanvasMintTag() {
   if (tagged) return;
   tagged = true;
   setMintTag(Math.random().toString(36).slice(2, 4));
@@ -88,7 +88,7 @@ export class CanvasCollab {
    * than colliding (see ymap.ts).
    */
   attach(doc: Y.Doc, propSource: string) {
-    ensureMintTag();
+    ensureCollaborativeCanvasMintTag();
     this.detach();
     this.doc = doc;
     this.root = doc.getMap<unknown>(canvasMapName(this.blockId));

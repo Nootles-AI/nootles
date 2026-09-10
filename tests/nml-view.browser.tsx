@@ -44,6 +44,7 @@ let requests: BridgeRequestUpdate[] = [];
 let diagnostics: BridgeDiagnostic[] = [];
 let authorization: "allow" | "deny" | "defer" = "allow";
 let resolveAuthorization: ((allowed: boolean) => void) | undefined;
+let pmDocumentTransactions = 0;
 
 function mount(name: string) {
   root?.unmount();
@@ -57,6 +58,7 @@ function mount(name: string) {
   ydoc = createNmlYDoc(converted.document);
   initial = Y.encodeStateAsUpdate(ydoc);
   updates = 0;
+  pmDocumentTransactions = 0;
   ydoc.on("update", () => updates++);
   bridge = new ReadOnlyNmlBridge(ydoc);
   const editor = BlockNoteEditor.create({ schema, initialContent: fixture.blocks as never });
@@ -87,6 +89,7 @@ function mountEditable() {
   awareness.setLocalStateField("user", { name: "Browser fixture", color: "#777777" });
   initial = Y.encodeStateAsUpdate(ydoc);
   updates = 0;
+  pmDocumentTransactions = 0;
   requests = [];
   diagnostics = [];
   authorization = "allow";
@@ -112,7 +115,9 @@ function mountRichEditable() {
   bridge?.destroy();
   ydoc?.destroy();
   const convertedDomains = convertLegacyDocument(domains, { createId: (() => { let id = 0; return () => `rich-domain-${++id}`; })() });
+  const convertedCanvas = convertLegacyDocument(canvas);
   if (!convertedDomains.document) throw new Error("Invalid domain fixture");
+  if (!convertedCanvas.document) throw new Error("Invalid canvas fixture");
   const richDocument: NmlDocument = {
     schemaVersion: 1,
     documentId: "browser-rich-editing",
@@ -127,6 +132,7 @@ function mountRichEditable() {
       { id: "code-rich", type: "codeBlock", props: { language: "typescript" }, children: [], code: "const value = 1" },
       { id: "math-rich", type: "mathBlock", props: {}, children: [], rows: [{ id: "math-row", latex: "x" }] },
       { id: "audio-rich", type: "audio", props: {}, children: [] },
+      ...convertedCanvas.document.blocks,
       ...convertedDomains.document.blocks,
     ],
   };
@@ -135,6 +141,7 @@ function mountRichEditable() {
   awareness.setLocalStateField("user", { name: "Browser fixture", color: "#777777" });
   initial = Y.encodeStateAsUpdate(ydoc);
   updates = 0;
+  pmDocumentTransactions = 0;
   requests = [];
   diagnostics = [];
   authorization = "allow";
@@ -142,11 +149,18 @@ function mountRichEditable() {
   ydoc.on("update", () => updates++);
   bridge = new EditableNmlBridge(ydoc, {
     actor: { userId: "browser", kind: "human" },
-    authorize: () => true,
+    authorize: () => {
+      if (authorization === "allow") return true;
+      if (authorization === "deny") return false;
+      return new Promise<boolean>((resolve) => { resolveAuthorization = resolve; });
+    },
     createRequestId: () => `browser-request-${++sequence}`,
     awareness,
   }, (entry) => diagnostics.push(entry));
-  bridge.subscribe((event) => { if (event.request) requests.push(event.request); });
+  bridge.subscribe((event) => {
+    if (event.request) requests.push(event.request);
+    if (event.transaction?.docChanged) pmDocumentTransactions++;
+  });
   root = createRoot(document.getElementById("app")!);
   root.render(<StrictMode><ConvexProvider client={convex}>
     <section><h2>NML rich editor</h2><div id="bridge"><NmlEditableView bridge={bridge as EditableNmlBridge} /></div></section>
@@ -162,7 +176,21 @@ const harness = {
   mount,
   mountEditable,
   mountRichEditable,
-  inspect: () => ({ status: bridge.status(), parity: bridge.checkDrift(), updates, unchanged: initial.toString() === Y.encodeStateAsUpdate(ydoc).toString(), ast: decodeNmlDocument(ydoc), pm: bridge.state.doc.toJSON(), requests, diagnostics, performance: bridge.performance(), recovery: bridge.compositionRecovery(), awareness: awareness?.getLocalState()?.nmlSelection }),
+  inspect: () => ({
+    status: bridge.status(),
+    parity: bridge.checkDrift(),
+    updates,
+    unchanged: initial.toString() === Y.encodeStateAsUpdate(ydoc).toString(),
+    ast: decodeNmlDocument(ydoc),
+    pm: bridge.state.doc.toJSON(),
+    pmDocumentTransactions,
+    requests,
+    diagnostics,
+    performance: bridge.performance(),
+    recovery: bridge.compositionRecovery(),
+    awareness: awareness?.getLocalState()?.nmlSelection,
+    canvasAwareness: awareness?.getLocalState()?.canvas,
+  }),
   tryEdit: () => bridge.dispatch(bridge.state.tr.insertText("UNAUTHORIZED", 1).setMeta("nmlBridge", { direction: "nml-to-pm" })),
   remoteText: async () => {
     const replica = new Y.Doc();

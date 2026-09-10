@@ -1,17 +1,18 @@
 # NML ProseMirror View Bridge
 
-Status: steps 6–9 read-only projection, isolated plain-text/rich editing, durable selection,
-awareness, IME, structure, and custom-domain adapters implemented; runtime adoption,
-canonical canvas interaction, and history remain proposed.
+Status: steps 6–10 read-only projection, isolated plain-text/rich/canvas editing, durable
+selection, awareness, IME, structure, and custom-domain adapters implemented; runtime
+adoption and canonical history remain proposed.
 
-## Implemented read-only, plain-text, rich-editing, selection, and IME slices
+## Implemented read-only, plain-text, rich, canvas, selection, and IME slices
 
 `app/lib/nml/view/` exports the adapter registry, projection, stable-ID position index,
 and `ReadOnlyNmlBridge`. Step 7 adds `PlainTextNmlBridge`, its editable browser mount, and
 `NmlPlainTextView`. Step 8 adds durable NML selections, awareness serialization, and
 composition handling. Step 9 adds `EditableNmlBridge`/`NmlEditableView`, semantic
-before/after projection translation, and domain-editing portals. The canonical
-`app/lib/nml` entry point stays free of PM/DOM imports.
+before/after projection translation, and domain-editing portals. Step 10 makes the canvas
+portal editable through canonical scene commands and a direct shared-map subscription. The
+canonical `app/lib/nml` entry point stays free of PM/DOM imports.
 React portals preserve application provider context for domain renderers. Callers supply
 an authorized Y.Doc and retain its lifetime. No production route mounts either host.
 
@@ -26,9 +27,12 @@ Unchanged PM nodes and relative subtree indexes are cached. Canonical changes us
 PM replacements with selection mapping; canvas-only updates notify domain views without
 PM transactions. The full editor routes CodeMirror and MathLive changes through code/math
 commands, and routes album/storyboard/location/media controls through validated domain or
-property commands. Canvas rendering consumes derived owner serialization and stays
-read-only; direct scene subscriptions/gestures remain step 10. Storage media needs an
-authorized host URL resolver, otherwise an unavailable notice preserves its identity.
+property commands. Its canvas surface diffs committed scenes into stable-ID metadata,
+shape, hierarchy, grapheme-safe label, edge, and ordering commands. The node view observes
+the canonical scene map directly; `<nt-diagram>` is derived for rendering/parity, and
+canvas-internal changes never create a PM document transaction. Viewport, tools, hover,
+selection, caret, and in-flight frames remain ephemeral or awareness-only. Storage media
+needs an authorized host URL resolver, otherwise an unavailable notice preserves its identity.
 Toggle expansion is local view state. The read-only host blocks every content transaction
 even with forged bridge metadata. The compatibility plain-text host still accepts only
 one-block unmarked paragraph, heading, or quote replacements; the full host enables the
@@ -81,7 +85,8 @@ fixtures, real typing/selection/delete/Unicode and composition events, durable a
 wire data, intersecting remote composition, deleted-target recovery, optimistic
 acknowledgement/rollback, a reconnect race, remote-caret mapping, rich marks and partial
 links, inline math/references, split/list/move/paste/drop actions, table/code/math/media and
-storyboard edits, remote text/canvas updates, drift/newer-version fallback, and cleanup. External
+storyboard edits, canonical canvas move/label/create/delete, remote scene adoption,
+canvas awareness and authorization rollback, drift/newer-version fallback, and cleanup. External
 HTTP is intercepted and Convex uses an inert fixture WebSocket; no backend, paid API, keys,
 or user data is needed. Screenshots go to the temporary path printed on success.
 `NML_CHROME_PATH` can select an installed browser. The sections below describe the bridge

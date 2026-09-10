@@ -263,13 +263,29 @@ concurrent moves, and same/orthogonal table-dimension merges. The standalone Chr
 exercises seven editable workflows on desktop/mobile with all external traffic intercepted,
 zero browser errors, and zero paid requests.
 
-## 10. Move canvas onto canonical NML
+## 10. Move canvas onto canonical NML — complete
 
 - Use one atomic PM node whose view subscribes directly to canonical scene maps.
 - Route shape/edge gestures through domain commands; keep transient state ephemeral.
 - Derive `<nt-diagram>` while retaining/comparing the mirror until every reader migrates.
 
 **Gate:** scene edits require no PM document transaction and preserve AST/Yjs/HTML parity.
+
+Implemented in the opt-in `EditableNmlBridge`/`NmlEditableView`. The canvas remains one
+atomic ProseMirror node whose React surface observes its canonical scene `Y.Map` directly.
+Committed `SceneOp` results compile to stable-ID canvas metadata, shape, hierarchy, label,
+edge, and ordering commands; viewport, tool, hover, selection, caret, and in-flight drag
+frames remain local or awareness-only. Canvas focus selects only the PM atom. Authorization
+rejection restores the latest canonical scene without applying a PM document transaction.
+
+`<nt-diagram>` is deterministically derived from the canonical scene. The legacy production
+mirror remains unchanged until the later reader/cohort migration stages, while three-way
+AST/Yjs/HTML tests enforce parity. The gate covers the complete current scene-operation
+vocabulary, exact shape/edge order, grapheme-safe collaborative labels, stale-gesture
+preservation of unseen fields/shapes/edges, malformed/atomic rollback, and real Chromium
+move, label, create/delete, remote-adoption, awareness, and rejection flows on desktop and
+mobile. The standalone run now exercises eight workflows with intercepted networking,
+zero browser errors, and zero paid requests.
 
 ## 11. Establish canonical history, review, and recovery
 

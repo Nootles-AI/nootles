@@ -4,6 +4,7 @@ import {
   keyForIndex,
 } from "@/app/components/editor/canvas/collab/order";
 import type {
+  Scene,
   SceneEdge,
   SceneNode,
 } from "@/app/components/editor/canvas/scene/types";
@@ -130,6 +131,16 @@ export type NmlCommand =
   | { type: "removeMathRows"; nodeId: string; rowIds: string[] }
   | { type: "replaceDomain"; nodeId: string; domain: unknown }
   | {
+      type: "updateCanvas";
+      canvasId: string;
+      patch: {
+        w?: number;
+        h?: number;
+        style?: Scene["style"];
+        attrs?: Scene["attrs"];
+      };
+    }
+  | {
       type: "insertShapes";
       canvasId: string;
       shapes: SceneNode[];
@@ -145,6 +156,13 @@ export type NmlCommand =
       }>;
     }
   | {
+      type: "replaceShapeLabel";
+      canvasId: string;
+      shapeId: string;
+      range: NmlRange;
+      text: string;
+    }
+  | {
       type: "moveShapes";
       canvasId: string;
       placements: Array<{
@@ -153,12 +171,30 @@ export type NmlCommand =
         anchor?: NmlAnchor;
       }>;
     }
-  | { type: "removeShapes"; canvasId: string; shapeIds: string[] }
+  | {
+      type: "removeShapes";
+      canvasId: string;
+      shapeIds: string[];
+      /** Preserve and hoist descendants absent from the caller's local view. */
+      preserveUnlistedDescendants?: boolean;
+    }
   | { type: "insertEdges"; canvasId: string; edges: SceneEdge[] }
   | {
       type: "updateEdges";
       canvasId: string;
       patches: Array<{ id: string; patch: Partial<Omit<SceneEdge, "id">> }>;
+    }
+  | {
+      type: "replaceEdgeLabel";
+      canvasId: string;
+      edgeId: string;
+      range: NmlRange;
+      text: string;
+    }
+  | {
+      type: "moveEdges";
+      canvasId: string;
+      placements: Array<{ id: string; anchor?: NmlAnchor }>;
     }
   | { type: "removeEdges"; canvasId: string; edgeIds: string[] };
 
@@ -815,11 +851,14 @@ function orderAt(
   parentId: string | null,
   anchor?: NmlAnchor,
 ): string {
+  assertAnchor(anchor);
   const list = ordered(map, parentId);
   let index = list.length;
   if (anchor) {
     const id = anchor.beforeId ?? anchor.afterId;
     const found = list.findIndex((row) => row.id === id);
+    if (found < 0)
+      conflict("invalid_anchor", `Canvas anchor ${id} is not a sibling.`);
     if (found >= 0) index = anchor.afterId ? found + 1 : found;
   }
   return keyBetween(list[index - 1]?.order ?? null, list[index]?.order ?? null);
@@ -871,6 +910,26 @@ function encodeEdge(edge: SceneEdge, orderKey: string): Y.Map<unknown> {
   text.insert(0, label);
   value.set("label", text);
   return value;
+}
+
+function replaceCanvasText(
+  text: unknown,
+  range: NmlRange,
+  inserted: string,
+  subject: string,
+): void {
+  if (!(text instanceof Y.Text))
+    conflict("incompatible_node", `${subject} has no collaborative label.`);
+  const current = text.toString();
+  assertRange(range, current.length);
+  if (
+    !isGraphemeBoundary(current, range.from) ||
+    !isGraphemeBoundary(current, range.to)
+  ) {
+    conflict("invalid_range", `${subject} label ranges cannot split a grapheme cluster.`);
+  }
+  text.delete(range.from, range.to - range.from);
+  if (inserted) text.insert(range.from, inserted);
 }
 
 function tagTableCellColumns(
@@ -1268,17 +1327,41 @@ function apply(doc: Y.Doc, command: NmlCommand): void {
       ref.set("domain", nmlYSharedValue(command.domain));
       return;
     }
+    case "updateCanvas": {
+      const { scene } = canvas(doc, command.canvasId);
+      for (const [key, next] of Object.entries(command.patch)) {
+        if (!["w", "h", "style", "attrs"].includes(key))
+          conflict("invalid_command", `Canvas field ${key} is not patchable.`);
+        if (key === "style" || key === "attrs") {
+          if (!next || typeof next !== "object" || Array.isArray(next))
+            conflict("invalid_command", `Canvas ${key} must be an object.`);
+          scene.set(key, nmlYMapOf(next as Record<string, unknown>));
+        } else {
+          scene.set(key, next);
+        }
+      }
+      return;
+    }
     case "insertShapes": {
       const { shapes } = canvas(doc, command.canvasId);
-      const add = (nodes: SceneNode[], parent: string | null) =>
+      const add = (
+        nodes: SceneNode[],
+        parent: string | null,
+        anchor?: NmlAnchor,
+      ) =>
         nodes.forEach((node) => {
           if (shapes.has(node.id))
             conflict("duplicate_id", `Shape ${node.id} exists.`);
-          const order = orderAt(shapes, parent, command.anchor);
+          const order = orderAt(shapes, parent, anchor);
           shapes.set(node.id, encodeShape(node, parent, order));
           if (node.kind === "group") add(node.children, node.id);
         });
-      add(command.shapes, command.parentId ?? null);
+      const parentId = command.parentId ?? null;
+      if (
+        parentId !== null &&
+        (!shapes.has(parentId) || shapes.get(parentId)?.get("kind") !== "group")
+      ) conflict("invalid_parent", "Shape parent must be a group.");
+      add(command.shapes, parentId, command.anchor);
       return;
     }
     case "updateShapes": {
@@ -1286,22 +1369,41 @@ function apply(doc: Y.Doc, command: NmlCommand): void {
       command.patches.forEach(({ id, patch }) => {
         const value = shapes.get(id);
         if (!value) conflict("missing_node", `Shape ${id} does not exist.`);
+        const geometry = value.get("geometry");
+        if (!(geometry instanceof Y.Map))
+          conflict("incompatible_node", `Shape ${id} has no geometry.`);
+        const nextGeometry = Object.fromEntries(geometry.entries());
+        let geometryChanged = false;
         for (const [key, next] of Object.entries(patch)) {
           if (["id", "kind", "children", "parentId", "orderKey"].includes(key))
             conflict("invalid_command", `Shape field ${key} is not patchable.`);
           if (key === "label") {
-            const text = value.get("label") as Y.Text;
+            const text = value.get("label");
+            if (!(text instanceof Y.Text))
+              conflict("incompatible_node", `Shape ${id} has no collaborative label.`);
             text.delete(0, text.length);
-            text.insert(0, String(next ?? ""));
+            if (next !== undefined && String(next)) text.insert(0, String(next));
           } else if (["x", "y", "w", "h", "rot"].includes(key)) {
-            const old = value.get("geometry") as Y.Map<unknown>;
-            const data = Object.fromEntries(old.entries());
-            data[key] = next;
-            value.set("geometry", nmlYMapOf(data));
+            nextGeometry[key] = next;
+            geometryChanged = true;
           } else if (next === undefined) value.delete(key);
           else value.set(key, nmlYSharedValue(next));
         }
+        if (geometryChanged) value.set("geometry", nmlYMapOf(nextGeometry));
       });
+      return;
+    }
+    case "replaceShapeLabel": {
+      const { shapes } = canvas(doc, command.canvasId);
+      const value = shapes.get(command.shapeId);
+      if (!value)
+        conflict("missing_node", `Shape ${command.shapeId} does not exist.`);
+      replaceCanvasText(
+        value.get("label"),
+        command.range,
+        command.text,
+        `Shape ${command.shapeId}`,
+      );
       return;
     }
     case "moveShapes": {
@@ -1324,21 +1426,30 @@ function apply(doc: Y.Doc, command: NmlCommand): void {
     case "removeShapes": {
       const { shapes, edges } = canvas(doc, command.canvasId);
       const remove = new Set(command.shapeIds);
-      let grew = true;
-      while (grew) {
-        grew = false;
-        shapes.forEach((value, id) => {
-          if (remove.has(String(value.get("parentId"))) && !remove.has(id)) {
-            remove.add(id);
-            grew = true;
-          }
-        });
+      if (!command.preserveUnlistedDescendants) {
+        let grew = true;
+        while (grew) {
+          grew = false;
+          shapes.forEach((value, id) => {
+            if (remove.has(String(value.get("parentId"))) && !remove.has(id)) {
+              remove.add(id);
+              grew = true;
+            }
+          });
+        }
       }
       remove.forEach((id) => {
         if (!shapes.has(id))
           conflict("missing_node", `Shape ${id} does not exist.`);
-        shapes.delete(id);
       });
+      if (command.preserveUnlistedDescendants) {
+        shapes.forEach((value, id) => {
+          if (!remove.has(id) && remove.has(String(value.get("parentId")))) {
+            value.set("parentId", null);
+          }
+        });
+      }
+      remove.forEach((id) => shapes.delete(id));
       edges.forEach((edge, id) => {
         if (
           remove.has(String(edge.get("from"))) ||
@@ -1377,14 +1488,41 @@ function apply(doc: Y.Doc, command: NmlCommand): void {
         const value = edges.get(id);
         if (!value) conflict("missing_node", `Edge ${id} does not exist.`);
         for (const [key, next] of Object.entries(patch)) {
+          if (["id", "orderKey", "parentId"].includes(key))
+            conflict("invalid_command", `Edge field ${key} is not patchable.`);
           if ((key === "from" || key === "to") && !shapes.has(String(next)))
             conflict("dangling_edge", `Edge ${id} has a missing endpoint.`);
           if (key === "label") {
-            const text = value.get("label") as Y.Text;
+            const text = value.get("label");
+            if (!(text instanceof Y.Text))
+              conflict("incompatible_node", `Edge ${id} has no collaborative label.`);
             text.delete(0, text.length);
-            text.insert(0, String(next));
+            if (String(next)) text.insert(0, String(next));
           } else value.set(key, nmlYSharedValue(next));
         }
+      });
+      return;
+    }
+    case "replaceEdgeLabel": {
+      const { edges } = canvas(doc, command.canvasId);
+      const value = edges.get(command.edgeId);
+      if (!value)
+        conflict("missing_node", `Edge ${command.edgeId} does not exist.`);
+      replaceCanvasText(
+        value.get("label"),
+        command.range,
+        command.text,
+        `Edge ${command.edgeId}`,
+      );
+      return;
+    }
+    case "moveEdges": {
+      const { edges } = canvas(doc, command.canvasId);
+      command.placements.forEach((placement) => {
+        const value = edges.get(placement.id);
+        if (!value)
+          conflict("missing_node", `Edge ${placement.id} does not exist.`);
+        value.set("orderKey", orderAt(edges, null, placement.anchor));
       });
       return;
     }

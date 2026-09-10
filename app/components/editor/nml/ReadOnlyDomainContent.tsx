@@ -1,14 +1,26 @@
 "use client";
 
+import { useCallback, useEffect, useRef } from "react";
 import type { NmlBlock } from "@/app/lib/nml/schema";
 import { isSafeUrl } from "@/app/lib/nml/validate";
-import type { EditableNmlBridge } from "@/app/lib/nml/view";
+import {
+  deriveCanvasMirror,
+  type EditableNmlBridge,
+} from "@/app/lib/nml/view";
 import { CodeSurface } from "../codemirror/CodeSurface";
 import { languageLabel } from "../codemirror/languages";
 import { MathField } from "../math/MathField";
 import { Katex } from "../math/katex";
-import { CanvasSurface } from "../canvas/render/CanvasSurface";
+import {
+  CanvasSurface,
+  type CanvasApi,
+} from "../canvas/render/CanvasSurface";
 import { serializeScene } from "../canvas/scene/serialize";
+import { ensureCollaborativeCanvasMintTag } from "../canvas/collab/binding";
+import {
+  broadcastCanvasPresence,
+  paintCanvasPresence,
+} from "../canvas/collab/presence";
 import { AlbumSurface } from "../album/AlbumSurface";
 import { parseAlbum } from "../album/parse";
 import { serializeAlbum } from "../album/serialize";
@@ -87,6 +99,104 @@ function updateDomain(bridge: EditableNmlBridge, block: NmlBlock, domain: unknow
   bridge.dispatchCommands([{ type: "replaceDomain", nodeId: block.id, domain }], [block.id]);
 }
 
+function EditableCanvas({ block, bridge }: {
+  block: Extract<NmlBlock, { type: "canvas" }>;
+  bridge: EditableNmlBridge;
+}) {
+  const api = useRef<CanvasApi | null>(null);
+  const known = useRef(block.scene);
+  const detachApi = useRef<() => void>(() => {});
+  const stopBroadcast = useRef<() => void>(() => {});
+  const awareness = bridge.canvasAwareness();
+
+  const reconcile = useCallback((target = api.current) => {
+    if (!target) return;
+    const current = bridge.getBlock(block.id);
+    if (current?.type !== "canvas") return;
+    const source = deriveCanvasMirror(current.scene);
+    if (deriveCanvasMirror(target.store.getScene()) !== source) {
+      target.store.adoptRemote(source);
+    }
+    // `adoptRemote` deliberately defers while a gesture is open. Diff the
+    // gesture against what the local store actually showed at its start, not
+    // against a collaborator state waiting to be adopted at commit.
+    known.current = target.store.getScene();
+  }, [block.id, bridge]);
+
+  const setApi = useCallback((next: CanvasApi | null) => {
+    if (api.current === next) return;
+    stopBroadcast.current();
+    stopBroadcast.current = () => {};
+    detachApi.current();
+    detachApi.current = () => {};
+    api.current = next;
+    if (!next) return;
+
+    ensureCollaborativeCanvasMintTag();
+    known.current = next.store.getScene();
+    next.store.setLiveWriter((scene) => {
+      const before = known.current;
+      known.current = scene;
+      // Keep the SceneStore's source cursor aligned with its optimistic scene;
+      // the canonical observer below owns reconciliation and persistence.
+      next.store.flush();
+      if (!bridge.dispatchCanvasScene(block.id, before, scene)) reconcile(next);
+    });
+    const stopPaint = awareness
+      ? paintCanvasPresence(awareness, awareness.clientID, block.id, next)
+      : () => {};
+    detachApi.current = () => {
+      next.store.setLiveWriter(null);
+      stopPaint();
+    };
+    reconcile(next);
+  }, [awareness, block.id, bridge, reconcile]);
+
+  useEffect(() => {
+    const stopScene = bridge.subscribeCanvas(block.id, reconcile);
+    const stopRequests = bridge.subscribe((update) => {
+      if (update.request?.status === "rejected") reconcile();
+    });
+    return () => {
+      stopScene();
+      stopRequests();
+    };
+  }, [block.id, bridge, reconcile]);
+
+  useEffect(() => {
+    reconcile();
+  }, [block.scene, reconcile]);
+
+  useEffect(() => () => {
+    stopBroadcast.current();
+    detachApi.current();
+  }, []);
+
+  const beginPresence = () => {
+    bridge.selectAtomicNode(block.id);
+    if (!awareness || !api.current) return;
+    stopBroadcast.current();
+    stopBroadcast.current = broadcastCanvasPresence(
+      awareness,
+      block.id,
+      api.current,
+    );
+  };
+  const endPresence = (event: React.FocusEvent<HTMLDivElement>) => {
+    if (event.relatedTarget && event.currentTarget.contains(event.relatedTarget)) return;
+    stopBroadcast.current();
+    stopBroadcast.current = () => {};
+  };
+
+  return <div onFocusCapture={beginPresence} onBlurCapture={endPresence}>
+    <CanvasSurface
+      source={deriveCanvasMirror(block.scene)}
+      onChange={noChange}
+      onApi={setApi}
+    />
+  </div>;
+}
+
 export default function ReadOnlyDomainContent({ block, editableBridge, resolveStorageUrl }: {
   block: NmlBlock;
   editableBridge?: EditableNmlBridge;
@@ -99,7 +209,9 @@ export default function ReadOnlyDomainContent({ block, editableBridge, resolveSt
     case "mathBlock": return editableBridge
       ? <EditableMath block={block} bridge={editableBridge} />
       : <div className="nt-mathblock">{block.rows.map((row) => <div key={row.id} data-nml-id={row.id} className="nt-mathblock-row"><Katex latex={row.latex} /></div>)}</div>;
-    case "canvas": return <CanvasSurface source={serializeScene(block.scene)} onChange={noChange} readOnly />;
+    case "canvas": return editableBridge
+      ? <EditableCanvas block={block} bridge={editableBridge} />
+      : <CanvasSurface source={serializeScene(block.scene)} onChange={noChange} readOnly />;
     case "album": return <AlbumSurface source={serializeAlbum(block.domain)} onChange={editableBridge ? (source) => updateDomain(editableBridge, block, parseAlbum(source)) : noChange} />;
     case "storyboard": return <StoryboardSurface blockId={block.id} source={serializeStoryboard(block.domain)} onChange={editableBridge ? (source) => updateDomain(editableBridge, block, parseStoryboard(source)) : noChange} readOnly={!editableBridge} />;
     case "location": return <LocationSurface blockId={block.id} source={serializeLocation(block.domain)} onChange={editableBridge ? (source) => updateDomain(editableBridge, block, parseLocation(source)) : noChange} />;

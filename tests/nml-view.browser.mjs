@@ -324,9 +324,14 @@ try {
   }, {}, requestCount);
   assert.equal(await page.evaluate(() => window.nmlHarness.selectInline("list-two", 3)), true);
   requestCount = await page.evaluate(() => window.nmlHarness.inspect().requests.length);
-  await page.keyboard.down("Shift");
-  await page.keyboard.press("Tab");
-  await page.keyboard.up("Shift");
+  const outdentNotCancelled = await page.$eval("#bridge .nt-nml-view", (element) => element.dispatchEvent(new KeyboardEvent("keydown", {
+    bubbles: true,
+    cancelable: true,
+    key: "Tab",
+    code: "Tab",
+    shiftKey: true,
+  })));
+  assert.equal(outdentNotCancelled, false);
   await page.waitForFunction(() => window.nmlHarness.inspect().ast.blocks.some((block) => block.id === "list-two"));
   await page.waitForFunction((count) => {
     const requests = window.nmlHarness.inspect().requests;
@@ -410,6 +415,122 @@ try {
   assert.ok(richEditing.requests.some((request) => request.status === "acknowledged"));
   await page.screenshot({ path: path.join(output, "rich-editing-desktop.png"), fullPage: true });
 
+  // Step 10: the real canvas surface writes canonical scene maps directly.
+  const canvasRoot = '#bridge [data-nml-id="canvas1"]';
+  const canvasViewport = `${canvasRoot} .nt-canvas-viewport`;
+  const shapeOne = `${canvasRoot} .nt-node[data-id="s1"]`;
+  await page.waitForSelector(canvasViewport);
+  await page.waitForSelector(shapeOne);
+  await page.$eval(canvasViewport, (element) => element.scrollIntoView({ block: "center" }));
+  const beforeCanvas = await page.evaluate(() => window.nmlHarness.inspect());
+  const beforeCanvasPm = structuredClone(beforeCanvas.pm);
+  const beforeCanvasPmTransactions = beforeCanvas.pmDocumentTransactions;
+  const beforeCanvasUpdates = beforeCanvas.updates;
+  const shapeBox = await (await page.$(shapeOne)).boundingBox();
+  assert.ok(shapeBox);
+  await page.mouse.move(shapeBox.x + shapeBox.width / 2, shapeBox.y + shapeBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(shapeBox.x + shapeBox.width / 2 + 70, shapeBox.y + shapeBox.height / 2 + 35, { steps: 8 });
+  await page.mouse.up();
+  await page.waitForFunction(() => {
+    const canvas = window.nmlHarness.inspect().ast.blocks.find((block) => block.id === "canvas1");
+    return canvas?.scene.nodes.find((node) => node.id === "s1")?.x > 40;
+  });
+  let canvasState = await page.evaluate(() => window.nmlHarness.inspect());
+  let canvasBlock = canvasState.ast.blocks.find((block) => block.id === "canvas1");
+  assert.ok(canvasBlock.scene.nodes.find((node) => node.id === "s1").y > 24);
+  assert.equal(canvasState.canvasAwareness.b, "canvas1");
+  assert.deepEqual(canvasState.canvasAwareness.ids, ["s1"]);
+  assert.match(JSON.stringify(canvasState.awareness), /canvas1/);
+  assert.deepEqual(canvasState.pm, beforeCanvasPm);
+  assert.equal(canvasState.pmDocumentTransactions, beforeCanvasPmTransactions);
+  assert.ok(canvasState.updates > beforeCanvasUpdates);
+  assert.equal(/selection|viewport|canvasAwareness/.test(JSON.stringify(canvasBlock)), false);
+
+  await page.$eval(shapeOne, (element) => {
+    const rect = element.getBoundingClientRect();
+    element.dispatchEvent(new MouseEvent("dblclick", {
+      bubbles: true,
+      cancelable: true,
+      clientX: rect.left + rect.width / 2,
+      clientY: rect.top + rect.height / 2,
+    }));
+  });
+  await page.waitForSelector(`${shapeOne} .nt-edit`);
+  await page.click(`${shapeOne} .nt-edit`);
+  await page.keyboard.down("Control");
+  await page.keyboard.press("a");
+  await page.keyboard.up("Control");
+  await page.keyboard.type("Canonical label");
+  await page.waitForFunction(() => window.nmlHarness.inspect().canvasAwareness?.edit?.id === "s1");
+  await page.keyboard.press("Escape");
+  await page.waitForFunction(() => {
+    const canvas = window.nmlHarness.inspect().ast.blocks.find((block) => block.id === "canvas1");
+    return canvas?.scene.nodes.find((node) => node.id === "s1")?.label === "Canonical label";
+  });
+
+  const countBeforeDraw = await page.evaluate(() => window.nmlHarness.inspect().ast.blocks.find((block) => block.id === "canvas1").scene.nodes.length);
+  const viewportBox = await (await page.$(canvasViewport)).boundingBox();
+  assert.ok(viewportBox);
+  await page.click(canvasViewport);
+  await page.keyboard.press("r");
+  const drawX = viewportBox.x + viewportBox.width * 0.72;
+  const drawY = viewportBox.y + viewportBox.height * 0.72;
+  await page.mouse.move(drawX, drawY);
+  await page.mouse.down();
+  await page.mouse.move(drawX + 72, drawY + 44, { steps: 7 });
+  await page.mouse.up();
+  await page.waitForFunction((count) => window.nmlHarness.inspect().ast.blocks.find((block) => block.id === "canvas1").scene.nodes.length === count + 1, {}, countBeforeDraw);
+  canvasState = await page.evaluate(() => window.nmlHarness.inspect());
+  assert.equal(canvasState.canvasAwareness.ids.length, 1);
+  const drawnId = canvasState.canvasAwareness.ids[0];
+  assert.ok(canvasState.ast.blocks.find((block) => block.id === "canvas1").scene.nodes.some((node) => node.id === drawnId));
+  await page.keyboard.press("Delete");
+  await page.waitForFunction((count) => window.nmlHarness.inspect().ast.blocks.find((block) => block.id === "canvas1").scene.nodes.length === count, {}, countBeforeDraw);
+
+  // A canonical remote change adopts into the surface without disturbing its
+  // internal stable-ID selection or producing a PM document transaction.
+  await page.click(`${canvasRoot} .nt-node[data-id="s2"]`);
+  await page.waitForFunction(() => window.nmlHarness.inspect().canvasAwareness?.ids?.[0] === "s2");
+  canvasState = await page.evaluate(() => window.nmlHarness.inspect());
+  canvasBlock = canvasState.ast.blocks.find((block) => block.id === "canvas1");
+  const remoteX = canvasBlock.scene.nodes.find((node) => node.id === "s2").x + 30;
+  await page.evaluate(({ x }) => window.nmlHarness.command([{
+    type: "updateShapes",
+    canvasId: "canvas1",
+    patches: [{ id: "s2", patch: { x, label: "Remote canonical" } }],
+  }]), { x: remoteX });
+  await page.waitForFunction((x) => {
+    const canvas = window.nmlHarness.inspect().ast.blocks.find((block) => block.id === "canvas1");
+    return canvas?.scene.nodes.find((node) => node.id === "s2")?.x === x &&
+      document.querySelector('#bridge [data-nml-id="canvas1"] .nt-node[data-id="s2"]')?.textContent.includes("Remote canonical");
+  }, {}, remoteX);
+  canvasState = await page.evaluate(() => window.nmlHarness.inspect());
+  assert.deepEqual(canvasState.canvasAwareness.ids, ["s2"]);
+  assert.deepEqual(canvasState.pm, beforeCanvasPm);
+  assert.equal(canvasState.pmDocumentTransactions, beforeCanvasPmTransactions);
+
+  // A denied gesture is visibly rolled back to canonical state.
+  const requestBeforeDenial = canvasState.requests.length;
+  await page.evaluate(() => window.nmlHarness.setAuthorization("deny"));
+  const deniedShapeBox = await (await page.$(`${canvasRoot} .nt-node[data-id="s2"]`)).boundingBox();
+  await page.mouse.move(deniedShapeBox.x + deniedShapeBox.width / 2, deniedShapeBox.y + deniedShapeBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(deniedShapeBox.x + deniedShapeBox.width / 2 + 55, deniedShapeBox.y + deniedShapeBox.height / 2, { steps: 6 });
+  await page.mouse.up();
+  await page.waitForFunction((count) => {
+    const requests = window.nmlHarness.inspect().requests;
+    return requests.length > count && requests.at(-1)?.status === "rejected";
+  }, {}, requestBeforeDenial);
+  await page.waitForFunction((x) => window.nmlHarness.inspect().ast.blocks.find((block) => block.id === "canvas1").scene.nodes.find((node) => node.id === "s2").x === x, {}, remoteX);
+  canvasState = await page.evaluate(() => window.nmlHarness.inspect());
+  assert.equal(canvasState.ast.blocks.find((block) => block.id === "canvas1").scene.nodes.find((node) => node.id === "s2").x, remoteX);
+  assert.ok(canvasState.diagnostics.some((entry) => entry.code === "commit_rejected" && entry.nodeId === "canvas1"));
+  assert.deepEqual(canvasState.pm, beforeCanvasPm);
+  assert.equal(canvasState.pmDocumentTransactions, beforeCanvasPmTransactions);
+  await page.evaluate(() => window.nmlHarness.setAuthorization("allow"));
+  await page.screenshot({ path: path.join(output, "canonical-canvas-desktop.png"), fullPage: true });
+
   await page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true });
   await page.evaluate(() => window.nmlHarness.mountEditable());
   await page.waitForSelector('#bridge .nt-nml-view[contenteditable="true"]');
@@ -438,5 +559,5 @@ try {
   await page.evaluate(() => window.nmlHarness.destroy());
   assert.deepEqual(errors, []);
   assert.deepEqual(paidRequests, []);
-  console.log(JSON.stringify({ result: "passed", fixtures: 8, editableWorkflows: 7, desktop: "1440x1100", mobile: "390x844", screenshots: output, browserErrors: errors.length, paidRequests: paidRequests.length }, null, 2));
+  console.log(JSON.stringify({ result: "passed", fixtures: 8, editableWorkflows: 8, desktop: "1440x1100", mobile: "390x844", screenshots: output, browserErrors: errors.length, paidRequests: paidRequests.length }, null, 2));
 } finally { await browser?.close(); await new Promise((resolve) => server.close(resolve)); }
