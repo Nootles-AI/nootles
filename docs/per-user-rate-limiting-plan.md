@@ -1,8 +1,10 @@
 # Per-user rate limiting (NT-16)
 
-Status: proposed. This document selects Path 2, a Convex-backed application limiter. No
-dependency, component, runtime gate, schema, deployment, or production configuration has
-been changed.
+Status: commit 1 of five has landed; nothing is enforced anywhere. This document selects
+Path 2, a Convex-backed application limiter. `@convex-dev/rate-limiter` is installed and
+mounted, and `convex/requestLimits.ts` holds the policy table, the admission authority and
+the `RATE_LIMIT_MODE` setting. No route, client, or Convex function calls it, no schema
+changed, and no production configuration has been set.
 
 ## Decision
 
@@ -47,9 +49,10 @@ indexing, feedback helpers, Places, and media search can reach external services
 an application rate check.
 
 Upload URL creation is already centralized in `convex/uploads.ts`, whose contract names
-rate limits as a future hardening point. `convex/convex.config.ts` currently mounts only the
-ProseMirror Sync and Stripe components. `aiCalls` records requests after model execution,
-so it can establish normal request rates but cannot itself enforce a concurrent limit.
+rate limits as a future hardening point. `convex/convex.config.ts` mounted only the
+ProseMirror Sync and Stripe components before this work. `aiCalls` records requests after
+model execution, so it can establish normal request rates but cannot itself enforce a
+concurrent limit.
 
 ## Proposed request flow
 
@@ -93,6 +96,14 @@ only for genuinely discrete actions such as upload grants. Do not freeze numeric
 from intuition: derive an initial high-water mark from per-user `aiCalls`, UI debounce
 settings, provider quotas, and manual multi-tab traces. Launch with deliberately generous
 safety ceilings, then tighten from observed percentiles.
+
+As built in commit 1, a lane's global bucket bounds that LANE rather than one vendor's
+key: `agentGeneration` reaches both the chat model and Gemini for diagrams and album
+indexing, and `ambientTransform` reaches that same Gemini key again. Which vendor pays is
+decided at the wire in `app/lib/ai/providers.ts` and is not known to a caller that names
+only a bucket, so per-key ceilings wait for the route wiring and for real account quotas
+at deployment gate B. The initial fleet numbers are one caller's ceiling times a hundred —
+a stated placeholder, not a measurement.
 
 Special cases:
 

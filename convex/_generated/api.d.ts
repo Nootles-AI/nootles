@@ -58,6 +58,7 @@ import type * as presence from "../presence.js";
 import type * as profiles from "../profiles.js";
 import type * as projects from "../projects.js";
 import type * as prosemirror from "../prosemirror.js";
+import type * as requestLimits from "../requestLimits.js";
 import type * as share from "../share.js";
 import type * as surveys from "../surveys.js";
 import type * as tickets from "../tickets.js";
@@ -124,6 +125,7 @@ declare const fullApi: ApiFromModules<{
   profiles: typeof profiles;
   projects: typeof projects;
   prosemirror: typeof prosemirror;
+  requestLimits: typeof requestLimits;
   share: typeof share;
   surveys: typeof surveys;
   tickets: typeof tickets;
@@ -162,5 +164,6 @@ export declare const internal: FilterApi<
 
 export declare const components: {
   prosemirrorSync: import("@convex-dev/prosemirror-sync/_generated/component.js").ComponentApi<"prosemirrorSync">;
+  rateLimiter: import("@convex-dev/rate-limiter/_generated/component.js").ComponentApi<"rateLimiter">;
   stripe: import("@convex-dev/stripe/_generated/component.js").ComponentApi<"stripe">;
 };
