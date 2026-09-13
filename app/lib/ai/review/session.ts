@@ -6,7 +6,7 @@ import type { Doc, Id } from "@/convex/_generated/dataModel";
 import type { Batch, Operation } from "@/convex/ai/operations";
 import type { LiveEditor } from "@/app/components/editor/EditorRegistry";
 import { applyBatch, type OpTrace } from "../apply";
-import type { AnyBlock } from "../projection";
+import { flattenBlocks, type AnyBlock } from "../projection";
 import { AI } from "../aiConfig";
 import { track } from "@/app/lib/telemetry";
 import { broadcastFimFlash } from "@/app/lib/sync/fimFlash";
@@ -284,6 +284,10 @@ export class ReviewSession {
           throw new Error("That page did not finish loading, so the change was left as it is.");
         }
         restoreDocument(editor, before);
+        // The shared doc never heard this turn, so it already reads as the
+        // checkpoint: the fork goes whole. Only an answer ever ended one, and
+        // left open it went on taking everything typed afterwards with it.
+        mergeFork(editor, "discarded");
         this.edited.delete(key(chatPromptId, pageId));
         const status = Object.fromEntries(
           page.hunks.map((h) => [h.id, "rejected" as HunkStatus]),
@@ -389,7 +393,7 @@ export class ReviewSession {
       // discarded whole, restore and staging alike.
       for (const page of live.pages) {
         const editor = await this.deps.editorFor(page.pageId).catch(() => null);
-        if (editor && isForked(editor)) mergeFork(editor, false);
+        if (editor && isForked(editor)) mergeFork(editor, "discarded");
       }
       await this.commit({ ...live, status: "rejected" });
       return;
@@ -862,7 +866,7 @@ export class ReviewSession {
             .catch(() => null)
         : null;
       if (row) broadcastFimFlash(row.docId, kept);
-      mergeFork(editor, true);
+      mergeFork(editor, undoable(page, before) ? "kept" : "landed");
     }
 
     await this.commit(this.turnWith(turn, { ...page, before, logged: page.logged || log }));
@@ -1075,6 +1079,28 @@ function gone(ids: string[]): string {
  */
 function convexSafe<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
+}
+
+/**
+ * Whether a settled page's answer can be one step on the person's ⌘Z timeline.
+ *
+ * Only if it kept something: discarded whole, what still has to land is their
+ * own typing and the discards' churn — a step that looks like nothing, and a
+ * ⌘Z spent on nothing. And only if ⌘Z could take all of it back. A diagram's
+ * truth is its maps, which the canvas block writes to the shared doc even while
+ * the page is forked (it finds its doc through the sync state, whose `doc` a
+ * fork's plugin swap leaves naming the shared one), so a kept change to one
+ * carries only the diagram's mirror — and taking that back alone would leave
+ * the block saying one diagram and its maps another.
+ */
+function undoable(page: PageReview, before: AnyBlock[]): boolean {
+  const kept = page.hunks.filter((h) => page.status[h.id] !== "rejected");
+  const diagrams = new Set(
+    flattenBlocks(before)
+      .filter((block) => block.type === "canvas")
+      .map((block) => block.id),
+  );
+  return kept.length > 0 && !kept.some((h) => h.changed.some((id) => diagrams.has(id)));
 }
 
 /**
