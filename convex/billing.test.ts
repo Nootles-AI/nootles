@@ -178,3 +178,53 @@ describe("which subscription speaks for an account", () => {
     expect(entitlement?.plan).toBe("free");
   });
 });
+
+/**
+ * Stripe does not order its deliveries, and retries a failed one for days. So
+ * the `customer.subscription.updated` taken when somebody asked to cancel at
+ * period end can land after the `deleted` that ended it, and the component
+ * writes that snapshot's `active` back over `canceled`.
+ */
+async function replayScheduledCancel(t: TestConvex<typeof schema>, id: string) {
+  await t.run(async (ctx) => {
+    const [row] = (
+      await ctx.runQuery(components.stripe.public.listSubscriptionsByUserId, {
+        userId: ME.subject,
+      })
+    ).filter((r) => r.stripeSubscriptionId === id);
+    await ctx.runMutation(components.stripe.private.handleSubscriptionUpdated, {
+      stripeSubscriptionId: id,
+      status: "active",
+      currentPeriodEnd: row.currentPeriodEnd,
+      cancelAtPeriodEnd: true,
+    });
+  });
+}
+
+describe("a cancellation undone by an older event landing after it", () => {
+  test("runs on only while Stripe could still be delivering the renewal", async () => {
+    const t = harness();
+    await subscribe(t, "sub_monthly", MONTHLY, -1 / 24);
+    await cancel(t, "sub_monthly");
+    await replayScheduledCancel(t, "sub_monthly");
+
+    const { subscription, entitlement } = await mirror(t);
+    expect(subscription?.status).toBe("active");
+    expect(entitlement).toMatchObject({
+      plan: "pro",
+      expiresAt: subscription!.currentPeriodEnd * 1000,
+      cancelAtPeriodEnd: true,
+    });
+  });
+
+  test("is free once three days have passed since the period ended", async () => {
+    const t = harness();
+    await subscribe(t, "sub_monthly", MONTHLY, -(3 + 1 / 24));
+    await cancel(t, "sub_monthly");
+    await replayScheduledCancel(t, "sub_monthly");
+
+    const { subscription, entitlement } = await mirror(t);
+    expect(subscription?.status).toBe("active");
+    expect(entitlement).toMatchObject({ plan: "free", source: "none" });
+  });
+});

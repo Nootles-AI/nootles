@@ -932,7 +932,10 @@ export default defineSchema({
         /** Stripe's own status word, stored verbatim — see `entitlements.ts`. */
         status: v.string(),
         interval: v.union(v.literal("month"), v.literal("year")),
-        /** Paid through this instant; a cancellation still runs to here. */
+        /**
+         * Paid through this instant — in seconds, as Stripe sends it. A
+         * cancellation still runs to here.
+         */
         currentPeriodEnd: v.number(),
         cancelAtPeriodEnd: v.boolean(),
         priceId: v.string(),

@@ -50,11 +50,12 @@ async function account(
   });
 }
 
+/** The mirror holds Stripe's period end as Stripe sends it, in seconds. */
 function subscription(status: string, endsIn = HOUR) {
   return {
     status,
     interval: "month" as const,
-    currentPeriodEnd: Date.now() + endsIn,
+    currentPeriodEnd: Math.floor((Date.now() + endsIn) / 1000),
     cancelAtPeriodEnd: false,
     priceId: "price_test",
     subscriptionId: "sub_test",
@@ -187,6 +188,41 @@ describe("entitlementOf", () => {
       cancelAtPeriodEnd: true,
     });
   });
+
+  test("a subscription's end is reported in milliseconds, like every other instant", async () => {
+    const t = convexTest(schema, modules);
+    const sub = subscription("active");
+    await account(t, { subscription: sub });
+    expect(await resolve(t)).toMatchObject({
+      plan: "pro",
+      source: "subscription",
+      expiresAt: sub.currentPeriodEnd * 1000,
+    });
+  });
+
+  // A renewal's own webhook can be late — Stripe retries a failed delivery for
+  // up to three days — and a paying customer must not be locked out meanwhile.
+  test.each(["active", "trialing", "past_due"])(
+    "a %s subscription two days past its period end is still pro",
+    async (status) => {
+      const t = convexTest(schema, modules);
+      await account(t, { subscription: subscription(status, -2 * 24 * HOUR) });
+      expect(await resolve(t)).toMatchObject({ plan: "pro", source: "subscription" });
+    },
+  );
+
+  // Past that, the renewal is not coming, and a row still reading live is one
+  // whose ending never reached the mirror.
+  test.each(["active", "trialing", "past_due"])(
+    "a %s subscription more than three days past its period end is free",
+    async (status) => {
+      const t = convexTest(schema, modules);
+      await account(t, {
+        subscription: subscription(status, -(3 * 24 * HOUR + HOUR)),
+      });
+      expect(await resolve(t)).toMatchObject({ plan: "free", source: "none" });
+    },
+  );
 
   test("a saturated meter reads zero left, never a negative", async () => {
     const t = convexTest(schema, modules);

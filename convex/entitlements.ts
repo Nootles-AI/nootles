@@ -18,7 +18,8 @@ import {
  *
  *   1. the operator's VIP flag — a complete pass, outranking even a lapsed card
  *   2. a redeemed access code that has not lapsed
- *   3. a live Stripe subscription, as the webhook last mirrored it
+ *   3. a live Stripe subscription, as the webhook last mirrored it, not long
+ *      past the end of its period
  *   4. otherwise free, with what is left of the one-time allowance
  *
  * The payment provider is deliberately just one of those four and the last that
@@ -70,6 +71,20 @@ const LIVE_STATUSES = new Set(["active", "trialing", "past_due"]);
 export function isLiveStatus(status: string): boolean {
   return LIVE_STATUSES.has(status);
 }
+
+/**
+ * How long a live subscription is still believed once its period has ended.
+ *
+ * The mirror is only as fresh as the last webhook to land, and Stripe neither
+ * orders deliveries nor gives up on one quickly: a failed delivery is retried
+ * for up to three days. A renewal can therefore arrive late, which must not
+ * lock out someone who has paid. An older event can also land after a
+ * cancellation and put `active` back, or the cancellation may never land.
+ * Three days after the period ends, the renewal's own event has had every
+ * retry Stripe gives it. A subscription that still reads live at that point
+ * has only not been told it is over.
+ */
+const WEBHOOK_RETRY_WINDOW = 3 * 24 * 60 * 60 * 1000;
 
 /** The error every gate throws, shaped so the client can draw the right wall. */
 export type QuotaRefusal = { code: "quota"; meter: Meter; limit: number };
@@ -169,10 +184,14 @@ export async function entitlementOf(
 
   const sub = account?.subscription;
   if (sub && isLiveStatus(sub.status)) {
-    return pro("subscription", {
-      expiresAt: sub.currentPeriodEnd,
-      cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
-    });
+    // The mirror copies Stripe's period end verbatim, and Stripe counts seconds.
+    const paidThrough = sub.currentPeriodEnd * 1000;
+    if (paidThrough + WEBHOOK_RETRY_WINDOW > now) {
+      return pro("subscription", {
+        expiresAt: paidThrough,
+        cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
+      });
+    }
   }
 
   const used: Record<Meter, number> = {
