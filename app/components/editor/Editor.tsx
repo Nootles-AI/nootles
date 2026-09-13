@@ -639,27 +639,11 @@ function EditorSurface({
     enabled: !readOnly,
   });
 
-  /**
-   * A drag THROUGH prose is ProseMirror's own text selection, and the moment
-   * it crosses a block boundary what was drawn is a range of blocks. Promoting
-   * it here is what makes block selection reachable by the gesture people
-   * actually perform; the band covers only the other half, starting out in the
-   * margin where there is no text to drag through.
-   *
-   * On the next frame, because the DOM selection settles after mouseup and
-   * reading it in the handler reads the previous one.
-   */
-  const promoteSpanned = () => {
-    if (!selected) return;
-    requestAnimationFrame(() => selected.selectSpannedBlocks());
-  };
-
   return (
     <PageTitleProvider value={title}>
       <div
         ref={marqueeSurface}
         className="nt-marquee-surface"
-        onMouseUp={promoteSpanned}
         {...undoScope}
       >
         <BlockNoteView

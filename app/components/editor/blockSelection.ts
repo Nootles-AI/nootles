@@ -75,7 +75,6 @@ export interface BlockSelectionEditor {
   readonly prosemirrorView?: EditorView;
   /** Top-level blocks, in document order. */
   readonly document: readonly { readonly id: string }[];
-  getSelection(): { blocks: readonly { readonly id: string }[] } | undefined;
   removeBlocks(ids: string[]): unknown;
   replaceBlocks(ids: string[], blocks: { type: "paragraph" }[]): unknown;
 }
@@ -397,11 +396,6 @@ export interface BlockSelectionStore {
   /** Every top-level block — the second press of ⌘A. */
   selectAll(): void;
   /**
-   * Take the whole blocks the caret's TEXT selection spans, turning a drag
-   * through prose into a block selection. False when nothing is spanned.
-   */
-  selectSpannedBlocks(): boolean;
-  /**
    * Delete the selected blocks as one undo step. Emptying the document leaves
    * an empty paragraph behind rather than an invalid one. False when nothing
    * was selected.
@@ -503,16 +497,6 @@ class BlockSelectionStoreImpl implements BlockSelectionStore {
     this.select(this.editor.document.map((block) => block.id));
   };
 
-  selectSpannedBlocks = () => {
-    const blocks = this.editor.getSelection()?.blocks;
-    // More than one, strictly: a drag inside a single block is someone
-    // selecting words, and promoting that would take the whole paragraph away
-    // from them mid-sentence.
-    if (!blocks || blocks.length < 2) return false;
-    this.select(blocks.map((block) => block.id));
-    return true;
-  };
-
   removeSelected = () => {
     const view = this.view();
     if (!view) return false;
@@ -560,9 +544,11 @@ export function blockSelection(editor: BlockSelectionEditor): BlockSelectionStor
 
 /**
  * ⌘A, the way every editor with blocks does it: the first press takes the
- * block you are writing in, the second takes the page. An empty block, or a
- * caret that is not in text at all, has nothing to take first — so it
- * escalates immediately rather than pressing twice for nothing.
+ * block you are writing in, the second takes the page. An empty block, a caret
+ * that is not in text at all, or a text selection that already runs into
+ * another block has nothing smaller to take first — so it escalates
+ * immediately, rather than pressing twice for nothing or shrinking a selection
+ * back into the block it started in.
  */
 function selectAllEscalating(editor: BlockSelectionEditor): boolean {
   const view = editor.prosemirrorView;
@@ -571,8 +557,8 @@ function selectAllEscalating(editor: BlockSelectionEditor): boolean {
   const { selection, doc } = view.state;
 
   if (!(selection instanceof BlockRangeSelection)) {
-    const $from = selection.$from;
-    if ($from.parent.inlineContent && $from.parent.content.size > 0) {
+    const { $from, $to } = selection;
+    if ($from.sameParent($to) && $from.parent.inlineContent && $from.parent.content.size > 0) {
       const start = $from.start();
       const end = $from.end();
       if (selection.from > start || selection.to < end) {

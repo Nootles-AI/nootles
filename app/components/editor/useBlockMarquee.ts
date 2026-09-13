@@ -1,8 +1,9 @@
 "use client";
 
 /**
- * Box selection: press anywhere in the document that is not text and band
- * across whole blocks, the way Finder takes files and the sidebar takes pages.
+ * Box selection: press anywhere in the document that is not a block of text and
+ * band across whole blocks, the way Finder takes files and the sidebar takes
+ * pages.
  *
  * ## Where the press is heard
  *
@@ -10,8 +11,8 @@
  * gutter and the room below the last block, so "can a band start here" is not a
  * question about any box's extent; and it stops there, so the application's
  * chrome is not this gesture's business. Within the pane the question is a rule
- * asked of the point itself: is there text under it, a control, a block that
- * owns its own interior, or a layer floating over the page.
+ * asked of the point itself: is it inside a block of text, on a control, inside
+ * a block that owns its own interior, or on a layer floating over the page.
  *
  * ## What it takes from the press, and how narrowly
  *
@@ -24,14 +25,12 @@
  * So nothing is taken from the `pointerdown` at all. What ProseMirror listens
  * for is the `mousedown`, and off the blocks exactly that one event is swallowed
  * — on the PANE, once, for this press. Inside a block even that is left alone
- * until the gesture proves itself a drag, or a click would stop placing a caret.
+ * until the gesture proves itself a drag, or a click would stop selecting what
+ * it landed on.
  *
- * `pressIsOnText` is that rule, and it asks the browser rather than guessing
- * from element boxes: a block runs the full width of the column, so its element
- * says nothing about whether there is anything at the point. The caret the
- * browser would place is the honest answer — vertically first, because asked
- * about a point below the last line it answers with the nearest caret it has,
- * up on that line.
+ * A block of text is not banded from at all, anywhere across its width: the
+ * browser starts its own text selection there, and a band beside it only fights
+ * that selection — `inTextBlock` is that rule, and what text selection is owed.
  *
  * ## What it inherits, and what it adds
  *
@@ -98,54 +97,26 @@ const OWNS_ITS_INTERIOR = new Set([
   "mathBlock",
 ]);
 
-/** How far past the last character before the press counts as empty space. */
-const PAST_TEXT = 8;
-
-/** The caret the browser would put at this point, however it spells it. */
-function caretRectAt(x: number, y: number): DOMRect | null {
-  const doc = document as Document & {
-    caretRangeFromPoint?: (x: number, y: number) => Range | null;
-    caretPositionFromPoint?: (
-      x: number,
-      y: number,
-    ) => { offsetNode: Node; offset: number } | null;
-  };
-  let range: Range | null = null;
-  if (typeof doc.caretRangeFromPoint === "function") {
-    range = doc.caretRangeFromPoint(x, y);
-  } else if (typeof doc.caretPositionFromPoint === "function") {
-    const position = doc.caretPositionFromPoint(x, y);
-    if (position) {
-      range = document.createRange();
-      range.setStart(position.offsetNode, position.offset);
-      range.collapse(true);
-    }
-  }
-  if (!range) return null;
-  const rect = range.getBoundingClientRect();
-  return rect.width === 0 && rect.height === 0 ? null : rect;
-}
-
 /**
- * Whether a press inside a block landed on its TEXT rather than the empty
- * space beside it.
+ * Whether the press landed in a block that holds text — anywhere in it, the
+ * room to the right of a short line included.
  *
- * A block runs the full width of the column, so "inside a block" says nothing
- * about whether there is anything there: the room to the right of a short line
- * is as empty as the margin, and it is where a hand reaches to start a box.
- * The browser's own caret is the honest answer — placed at the end of the line
- * when the point is past it, so a press well right of that caret is a press on
- * nothing.
+ * That room only looks empty. The block's editable content runs the full width
+ * of the column, so the browser answers a press there with a caret at the end
+ * of the line and a drag from it with a text selection, whatever this hook
+ * does. A band started there did not replace that selection; it ran beside it,
+ * each overwriting the other as the pointer moved, and the gesture ended as
+ * whichever wrote last (NT-18). So text owns the whole block, and a band starts
+ * where the document has nothing to select: the gutter, the page below the last
+ * block, and beside a block with no text of its own.
+ *
+ * Asked of the block element rather than the target, because a press in a
+ * block's padding lands on the block itself. A nested block answers for itself.
  */
-function pressIsOnText(x: number, y: number): boolean {
-  const caret = caretRectAt(x, y);
-  if (!caret) return false;
-  // Vertically first. Asked about a point below the last line, the browser
-  // answers with the nearest caret it has — up on that line — so comparing x
-  // alone reads the empty page under a document as text and refuses the band
-  // the whole way down.
-  if (y < caret.top || y > caret.bottom) return false;
-  return x <= caret.right + PAST_TEXT;
+function inTextBlock(target: Element): boolean {
+  const outer = target.closest(".bn-block-outer");
+  const content = outer?.querySelector(":scope > .bn-block > .bn-block-content");
+  return !!content?.querySelector(".bn-inline-content");
 }
 
 type Viewport = { top: number; bottom: number; left: number; right: number };
@@ -279,10 +250,9 @@ export function useBlockMarquee({
       const type = content?.getAttribute("data-content-type");
       if (type && OWNS_ITS_INTERIOR.has(type)) return;
 
-      // Inside a block, only its text owns the press; the room to the right of
-      // a short line is as good a place to start a box as the margin is.
+      // A block of text owns every press inside it — see `inTextBlock`.
       const inBlock = !!target.closest(".bn-block-outer");
-      if (inBlock && pressIsOnText(event.clientX, event.clientY)) return;
+      if (inBlock && inTextBlock(target)) return;
 
       const scroller = paneOf(surface);
 
@@ -303,9 +273,8 @@ export function useBlockMarquee({
       // suppression reaches ProseMirror and nothing else.
       //
       // Inside a block the press is left alone regardless, or a plain click
-      // would stop placing the caret at the end of the line, which is what a
-      // click there is for; the drag takes the default when it proves itself
-      // one, in `begin`.
+      // would stop selecting what it landed on; the drag takes the default
+      // when it proves itself one, in `begin`.
       if (!inBlock) {
         scroller.addEventListener("mousedown", swallow, {
           capture: true,
