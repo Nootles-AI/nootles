@@ -490,6 +490,97 @@ function peerType(prefix: string, value: string) {
   throw new Error(`no text in ${prefix}`);
 }
 
+/** A cell as a run list: plain text, or runs carrying their marks. */
+type Cell = string | { type: "text"; text: string; marks?: Mark[] }[];
+
+const runs = (cell: Cell) => (typeof cell === "string" ? (cell ? [text(cell)] : []) : cell);
+
+/** The same cell in BlockNote's own shape, which is how a page holds one before any agent touched it. */
+const styled = (cell: Cell) =>
+  runs(cell).map((run) => ({
+    type: "text" as const,
+    text: run.text,
+    styles: Object.fromEntries((run.marks ?? []).map((mark) => [mark, true])),
+  }));
+
+/** A day of the reporter's itinerary: a heading, a line, and the table under them. */
+function seedTable(rows: Cell[][]) {
+  return seed([
+    { type: "heading", props: { level: 2 }, content: "Thursday — Vancouver to Lynnwood" },
+    { type: "paragraph", content: "Drive: ~2.5 hrs (subject to border wait)" },
+    { type: "table", content: { type: "tableContent", headerRows: 1, rows: rows.map((cells) => ({ cells: cells.map(styled) })) } },
+    { type: "paragraph", content: "" },
+  ]);
+}
+
+const tables = () => editor.document.filter((block) => block.type === "table");
+
+/** The table rewritten as `edit_page` rewrites one, whatever it changed: every cell at once. */
+function agentTable(rows: Cell[][]) {
+  return stageTurn([{ kind: "setTableRows", blockId: tables()[0].id, rows: rows.map((cells) => cells.map(runs)), headerRows: 1 }], []);
+}
+
+/** A table the page did not have, written under its last block. */
+function agentNewTable(rows: Cell[][]) {
+  const last = editor.document[editor.document.length - 1];
+  return stageTurn(
+    [{ kind: "insertBlocks", at: { at: "after", ref: last.id }, blocks: [{ tempId: "t1", type: "table", rows: rows.map((cells) => cells.map(runs)), headerRows: 1 }] }],
+    [],
+  );
+}
+
+/** The line under the heading, rewritten. */
+function agentLine(value: string) {
+  return stageTurn([{ kind: "setBlockContent", blockId: idsWith("Drive:")[0], content: [text(value)] }], []);
+}
+
+/** The `index`th table's cells as text, row by row. */
+function tableRows(index = 0) {
+  const content = tables()[index]?.content as { rows: { cells: { content: { text?: string }[] }[] }[] } | undefined;
+  return content?.rows.map((row) => row.cells.map((cell) => cell.content.map((part) => part.text ?? "").join(""))) ?? null;
+}
+
+/**
+ * What the review draws on a block, as a reader meets it: the mark on the block
+ * itself and the wash that paints, the words marked inside it, and — for a
+ * table — which cells hold any of them, as `row:column`.
+ */
+function drawn(id: string | undefined) {
+  const el = document.querySelector<HTMLElement>(`[data-id="${id}"] [data-content-type]`);
+  if (!el) return null;
+  return {
+    tone: [...el.classList].find((name) => name.startsWith("nt-diff-"))?.slice("nt-diff-".length) ?? null,
+    wash: getComputedStyle(el).backgroundColor,
+    ins: [...el.querySelectorAll(".nt-diff-ins")].map((node) => node.textContent),
+    del: [...el.querySelectorAll(".nt-diff-del")].map((node) => node.textContent),
+    cells: [...el.querySelectorAll("tr")].flatMap((row, r) =>
+      [...row.children].flatMap((cell, c) => (cell.querySelector(".nt-diff-ins, .nt-diff-del") ? [`${r}:${c}`] : [])),
+    ),
+  };
+}
+
+/** Viewport point at the end of a table cell's own words, past any struck-out ones drawn in it. */
+function cellEnd(row: number, column: number) {
+  const table = document.querySelector(`[data-id="${tables()[0]?.id}"] [data-content-type="table"]`);
+  const paragraph = table?.querySelectorAll("tr")[row]?.children[column]?.querySelector("p");
+  if (!paragraph) return null;
+  const words: Node[] = [];
+  const walker = document.createTreeWalker(paragraph, NodeFilter.SHOW_TEXT);
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    if (!node.parentElement?.closest(".nt-diff-del")) words.push(node);
+  }
+  const last = words[words.length - 1];
+  if (!last) {
+    const rect = paragraph.getBoundingClientRect();
+    return { x: rect.left + 2, y: rect.top + rect.height / 2 };
+  }
+  const range = document.createRange();
+  range.setStart(last, last.textContent!.length);
+  range.collapse(true);
+  const rect = range.getClientRects()[0] ?? range.getBoundingClientRect();
+  return { x: rect.left, y: rect.top + rect.height / 2 };
+}
+
 const forkState = () =>
   (editor.getExtension("yForkDoc") as unknown as { store: { state: { isForked: boolean } } }).store.state.isForked;
 
@@ -508,6 +599,14 @@ const harness = {
   peerDraws,
   shapePoint,
   peerType,
+  seedTable,
+  agentTable,
+  agentNewTable,
+  agentLine,
+  tableRows,
+  drawnTable: (index = 0) => drawn(tables()[index]?.id),
+  drawnLine: (prefix: string) => drawn(idsWith(prefix)[0]),
+  cellEnd,
   forked: forkState,
   open: () => session.getSnapshot().filter((turn) => session.isOpen(turn)).length,
   status: (chatPromptId: string) => session.getSnapshot().find((turn) => turn.chatPromptId === chatPromptId)?.status ?? null,

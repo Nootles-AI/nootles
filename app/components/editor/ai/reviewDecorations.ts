@@ -2,7 +2,7 @@ import { Plugin, PluginKey } from "prosemirror-state";
 import type { Node } from "prosemirror-model";
 import { Decoration, DecorationSet, type EditorView } from "prosemirror-view";
 import type { HunkKind } from "@/app/lib/ai/review/hunks";
-import { tokenDiff } from "@/app/lib/ai/review/textDiff";
+import { align, tokenDiff } from "@/app/lib/ai/review/textDiff";
 import { anchorFor, seats, type Anchor, type Seat, type Where } from "@/app/lib/ai/review/undo";
 import type { AnyBlock } from "@/app/lib/ai/projection";
 import { runsToHtml } from "@/app/lib/ai/html/serialize";
@@ -164,7 +164,7 @@ export function reviewDecorations(doc: Node, spec: NonNullable<ReviewSpec>): Dec
       // would be the change said twice, and the second time less precisely.
       // Whole-block is the fallback for the ones with no words to mark: a
       // rewritten diagram, a recompiled code block, a heading that changed
-      // level.
+      // level, a table that lost a row.
       decos.push(blockMark(seat, hunk.kept ? "kept" : inline.length ? "edit" : "whole"));
       decos.push(...inline);
       claim(seat.pos);
@@ -302,11 +302,94 @@ function textOf(content: unknown): string {
 
 function inlineDiff(seat: Seated, before: AnyBlock): Decoration[] {
   const content = seat.node.firstChild!;
+  if (content.type.name === "table") return tableDiff(content, seat.pos + 1, before) ?? [];
   if (!content.type.spec.content?.includes("inline")) return [];
+  return wordDiff(charMap(content, seat.pos + 2), textOf(before.content)) ?? [];
+}
 
-  const live = charMap(content, seat.pos + 2);
-  const parts = tokenDiff(textOf(before.content), live.text);
-  if (!parts?.length) return [];
+type CheckpointTable = {
+  headerRows?: number;
+  rows?: Array<{ cells?: Array<unknown[] | { content?: unknown }> }>;
+};
+
+/**
+ * A table's words, cell by cell. However little an agent changes in a table,
+ * it writes every cell back, so the grid on screen is diffed against the
+ * checkpoint's: rows aligned first — a row added above others must not read as
+ * every row under it rewritten — then each cell against the one it replaced.
+ *
+ * `null` where marking words would understate the change: a row taken out, a
+ * row of a different width, a header row toggled, a cell too rewritten to diff.
+ * What left the grid cannot be drawn inside it, so the table is washed whole.
+ */
+function tableDiff(table: Node, pos: number, before: AnyBlock): Decoration[] | null {
+  const checkpoint = before.content as CheckpointTable | undefined;
+  const was = (checkpoint?.rows ?? []).map((row) =>
+    (row.cells ?? []).map((cell) => textOf(Array.isArray(cell) ? cell : cell.content)),
+  );
+
+  const now: CharMap[][] = [];
+  let headers = 0;
+  let merging = false;
+  table.forEach((row, rowOffset) => {
+    const cells: CharMap[] = [];
+    let header = true;
+    row.forEach((cell, cellOffset) => {
+      header &&= cell.type.name === "tableHeader";
+      // A cell holds one paragraph, except for the moment a merge of cells
+      // has concatenated theirs.
+      if (cell.childCount !== 1) merging = true;
+      // Into the row, the cell and its paragraph: three openings past the table's own.
+      cells.push(charMap(cell.firstChild!, pos + rowOffset + cellOffset + 4));
+    });
+    if (header) headers++;
+    now.push(cells);
+  });
+  if (merging || headers !== (checkpoint?.headerRows ?? 0)) return null;
+
+  const key = (cells: string[]) => JSON.stringify(cells);
+  const steps = align(was.map(key), now.map((cells) => key(cells.map((cell) => cell.text))));
+  if (!steps) return null;
+
+  const decos: Decoration[] = [];
+  // `i` into the checkpoint's rows, `j` into the rows on screen. Between rows
+  // both have, a run only one of them has is rows added, or rows rewritten one
+  // for one; any other run took a row out.
+  let i = 0;
+  let j = 0;
+  for (let k = 0; k < steps.length; ) {
+    if (steps[k].kind === "same") {
+      i++;
+      j++;
+      k++;
+      continue;
+    }
+    let gone = 0;
+    let added = 0;
+    for (; k < steps.length && steps[k].kind !== "same"; k++) {
+      if (steps[k].kind === "del") gone++;
+      else added++;
+    }
+    if (gone && gone !== added) return null;
+    for (let n = 0; n < added; n++) {
+      const old = gone ? was[i + n] : null;
+      if (old && old.length !== now[j + n].length) return null;
+      for (const [c, live] of now[j + n].entries()) {
+        const marks = wordDiff(live, old?.[c] ?? "");
+        if (!marks) return null;
+        decos.push(...marks);
+      }
+    }
+    i += gone;
+    j += added;
+  }
+  return decos;
+}
+
+/** `null` when the two texts are too far apart for marking words to mean anything. */
+function wordDiff(live: CharMap, before: string): Decoration[] | null {
+  const parts = tokenDiff(before, live.text);
+  if (!parts) return null;
 
   const decos: Decoration[] = [];
   for (const part of parts) {
