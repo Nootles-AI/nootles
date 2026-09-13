@@ -2,6 +2,7 @@ import { AI } from "@/app/lib/ai/aiConfig";
 import { describeSheet } from "@/app/lib/ai/albumIndex";
 import { recordAiCall } from "@/app/lib/ai/recordCall";
 import { asUser } from "@/app/lib/convexServer";
+import { refuseIfLimited } from "@/app/lib/requestLimitGate";
 import { sessionToken } from "@/app/lib/session";
 
 /**
@@ -46,13 +47,20 @@ export async function POST(req: Request) {
     return new Response("`handles` must be a non-empty array of strings", { status: 400 });
   }
 
+  // One sheet is one `agentGeneration` — the same bucket chat and diagram spend,
+  // because the same key pays for it. Refused, `albumRead` keeps the colour tier
+  // and simply goes without captions, the same as any other failed describe.
+  const convex = asUser(token);
+  const limited = await refuseIfLimited(convex, "agentGeneration");
+  if (limited) return limited;
+
   const started = Date.now();
   try {
     const { described, usage } = await describeSheet(
       { dataUri, handles: handles as string[] },
       req.signal,
     );
-    recordAiCall(asUser(token), {
+    recordAiCall(convex, {
       feature: "album",
       model: AI.album.model,
       ...usage,
@@ -62,7 +70,7 @@ export async function POST(req: Request) {
     return Response.json({ described });
   } catch (e) {
     if ((e as Error).name === "AbortError") return new Response(null, { status: 204 });
-    recordAiCall(asUser(token), {
+    recordAiCall(convex, {
       feature: "album",
       model: AI.album.model,
       latencyMs: Date.now() - started,

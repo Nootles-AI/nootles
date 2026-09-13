@@ -32,6 +32,7 @@ import type { AbMessage } from "@/app/lib/ai/chat/types";
 import { recordAiCall } from "@/app/lib/ai/recordCall";
 import { asSession } from "@/app/lib/convexServer";
 import { quotaResponse } from "@/app/lib/entitlementGate";
+import { refuseIfLimited } from "@/app/lib/requestLimitGate";
 import { isQuotaRefusal } from "@/convex/entitlements";
 import { session } from "@/app/lib/session";
 
@@ -110,6 +111,15 @@ export async function POST(req: Request) {
   // ledger row at the end — and a drawing stored after a slow artist — must
   // still be written as the user. See `asSession`.
   const convex = asSession(caller);
+
+  // Every request that will reach the model spends one `agentGeneration` — and
+  // a turn is several such requests as client tools are answered, which is why
+  // the bucket's burst capacity is sized well above one turn's step ceiling: a
+  // valid turn, however long, cannot throttle itself. Ahead of `beginChat`, so
+  // a throttled turn spends neither the provider key nor the permanent chat
+  // allowance, and the `429` stays distinct from that `402`.
+  const limited = await refuseIfLimited(convex, "agentGeneration");
+  if (limited) return limited;
 
   // Charges the conversation against the free allowance, once, and refuses when
   // there is none left. Idempotent, which matters here: one turn is several

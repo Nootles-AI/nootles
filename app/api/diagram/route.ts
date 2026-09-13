@@ -2,6 +2,7 @@ import { AI } from "@/app/lib/ai/aiConfig";
 import { streamDiagram } from "@/app/lib/ai/diagram";
 import { recordAiCall } from "@/app/lib/ai/recordCall";
 import { asUser } from "@/app/lib/convexServer";
+import { refuseIfLimited } from "@/app/lib/requestLimitGate";
 import { sessionToken } from "@/app/lib/session";
 
 /**
@@ -34,6 +35,12 @@ export async function POST(req: Request) {
     return new Response("`brief` must be a non-empty string", { status: 400 });
   }
 
+  // Before the model, after the body is known to be worth sending: a diagram is
+  // one `agentGeneration`, and a burst of them spends the key as fast as chat.
+  const convex = asUser(token);
+  const limited = await refuseIfLimited(convex, "agentGeneration");
+  if (limited) return limited;
+
   try {
     return streamDiagram(
       brief,
@@ -41,7 +48,7 @@ export async function POST(req: Request) {
       typeof title === "string" ? title : "",
       req.signal,
       ({ usage, latencyMs }) =>
-        recordAiCall(asUser(token), {
+        recordAiCall(convex, {
           feature: "diagram",
           model: AI.diagram.model,
           promptTokens: usage.inputTokens,
