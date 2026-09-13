@@ -297,10 +297,10 @@ function boxStyle(
     // attribute: the attribute then holds what the browser measured.
     ...(isAutoSize(node.style.width)
       ? { width: node.style.width }
-      : { width: flow === "stretch-x" ? "auto" : `${node.w}px` }),
+      : { width: flow === "stretch-x" && (!node.style["align-self"] || node.style["align-self"] === "stretch" || node.style["align-self"] === "auto") ? "auto" : `${node.w}px` }),
     ...(isAutoSize(node.style.height)
       ? { height: node.style.height }
-      : { height: flow === "stretch-y" ? "auto" : `${node.h}px` }),
+      : { height: flow === "stretch-y" && (!node.style["align-self"] || node.style["align-self"] === "stretch" || node.style["align-self"] === "auto") ? "auto" : `${node.h}px` }),
     ...(flow ? { flex: "none" } : null),
     ...(node.hidden ? { visibility: "hidden" as const } : null),
     ...(node.locked ? { pointerEvents: "none" as const } : null),

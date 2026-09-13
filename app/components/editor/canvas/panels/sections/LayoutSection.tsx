@@ -232,6 +232,11 @@ export function LayoutSection({ selection, patch }: SectionProps) {
         </div>
 
         <div className="nt-ctl-grid">
+          {layout.mode === "flex" && (
+            <SelectField label="Wrap" value={differs("flex-wrap") ? "" : groups[0].style["flex-wrap"] ?? "nowrap"}
+              options={[{ value: "nowrap", label: "No wrap" }, { value: "wrap", label: "Wrap" }, { value: "wrap-reverse", label: "Wrap reverse" }]}
+              onChange={(value) => write({ "flex-wrap": value === "nowrap" ? undefined : value })} />
+          )}
           <NumberField
             label={<Gap />}
             name="Gap between items"

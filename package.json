@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
+    "test:canvas:browser": "node tests/canvas-workbench.browser.mjs",
     "figma:build": "node figma-plugin/build.mjs"
   },
   "dependencies": {
@@ -71,6 +72,7 @@
     "convex-test": "^0.0.55",
     "eslint": "^9",
     "eslint-config-next": "16.2.11",
+    "playwright": "1.62.1",
     "tailwindcss": "^4",
     "typescript": "^5",
     "vitest": "^4.1.10"

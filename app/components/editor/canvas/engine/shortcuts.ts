@@ -61,6 +61,7 @@ import { booleanOps, flattenOps, loadClipper } from "../scene/boolean";
 import { mintEdgeIds, mintIds } from "../scene/ops";
 import { parseScene } from "../scene/parse";
 import { serializeScene } from "../scene/serialize";
+import { clipboardStyles, localizeClipboardStyles } from "../scene/clipboardStyles";
 import {
   findNode,
   isContainer,
@@ -704,7 +705,7 @@ function clipboardHtml(scene: Scene, ids: readonly NodeId[]): string | null {
   return serializeScene({
     w: scene.w,
     h: scene.h,
-    style: {},
+    style: clipboardStyles(scene.style),
     nodes: flattened,
     edges,
     attrs: {},
@@ -824,7 +825,7 @@ export function useCanvasShortcuts({
 
     /** Paste canvas HTML at `offset` from where it was copied. */
     const paste = (html: string, inPlace: boolean): void => {
-      const fragment = parseScene(html);
+      const fragment = localizeClipboardStyles(parseScene(html));
       if (fragment.nodes.length === 0) return;
       const nodes = fragment.nodes;
 
@@ -1269,6 +1270,7 @@ export function useCanvasShortcuts({
       if (!html) return;
       internalClipboard = html;
       e.clipboardData?.setData("text/plain", html);
+      e.clipboardData?.setData("text/html", html);
       e.preventDefault();
       e.stopPropagation();
     };
@@ -1290,7 +1292,8 @@ export function useCanvasShortcuts({
       e.preventDefault();
       e.stopPropagation();
       const text = e.clipboardData?.getData("text/plain") ?? "";
-      const html = isCanvasHtml(text) ? text : internalClipboard;
+      const rich = e.clipboardData?.getData("text/html") ?? "";
+      const html = isCanvasHtml(text) ? text : isCanvasHtml(rich) ? rich : e.clipboardData ? null : internalClipboard;
       const inPlace = pasteInPlace;
       pasteInPlace = false;
       if (html) paste(html, inPlace);

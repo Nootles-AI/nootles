@@ -74,12 +74,14 @@ import {
   type SelectionStore,
 } from "../engine/useSelection";
 import { useViewport, type ViewportController } from "../engine/useViewport";
+import { createPresentation, type CanvasPresentation } from "../engine/presentation";
 import type { DiagramPatch } from "../panels/StylePanel";
 import { undoScope } from "@/app/lib/history/useWorkspaceHistory";
 import {
   absoluteBounds,
   absoluteSelectionBounds,
   hitTestPath,
+  hitTestAll,
   normalizeRect,
   type RotatedRect,
 } from "../scene/geometry";
@@ -321,6 +323,7 @@ export interface CanvasApi {
   selection: SelectionStore;
   viewport: ViewportController;
   tools: ToolControl;
+  presentation: CanvasPresentation;
   setTool(tool: CanvasTool): void;
   /** The diagram's own fields — `StylePanel`'s `onDiagramChange`. */
   setDiagram(patch: DiagramPatch): void;
@@ -465,6 +468,11 @@ export function CanvasSurface({
   const { containerRef, sceneRef } = viewport;
 
   const wrap = useRef<HTMLDivElement>(null);
+  const [presentation] = useState(createPresentation);
+  useEffect(() => {
+    presentation.attach(wrap.current, viewport);
+    return () => presentation.destroy();
+  }, [presentation, viewport]);
   const overlay = useRef<OverlayApi>(null);
 
   /**
@@ -812,6 +820,7 @@ export function CanvasSurface({
       selection,
       viewport,
       tools: toolControl,
+      presentation,
       setTool: changeTool,
       setDiagram,
       reveal,
@@ -823,6 +832,7 @@ export function CanvasSurface({
       selection,
       viewport,
       toolControl,
+      presentation,
       changeTool,
       reveal,
       setDiagram,
@@ -1024,7 +1034,7 @@ export function CanvasSurface({
       return;
     }
 
-    const mods: ClickMods = { shift: event.shiftKey, deep: event.altKey };
+    const mods: ClickMods = { shift: event.shiftKey, deep: event.metaKey || event.ctrlKey || event.altKey };
     const hit = selection.probe(point, mods);
     const bounds = sel.selectionBounds;
     const onSelection =
@@ -1094,7 +1104,7 @@ export function CanvasSurface({
       clientY: event.clientY,
       // Deep read-only for the same reason the click is: the ring has to
       // promise what the click will actually take.
-      deep: readOnly || event.altKey,
+      deep: readOnly || event.metaKey || event.ctrlKey || event.altKey,
     };
     if (hoverFrame.current) return;
     hoverFrame.current = requestAnimationFrame(() => {
@@ -1142,7 +1152,7 @@ export function CanvasSurface({
     if (!chain.some((node) => selection.isSelected(node.id))) {
       selection.click(point);
     }
-    openMenu(event);
+    openMenu(event, hitTestAll(laid, point, { tolerance: 3 / viewport.get().zoom }).map((node) => node.id));
   };
 
   /**

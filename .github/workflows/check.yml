@@ -1,8 +1,6 @@
 name: check
 
-# The project's stated quality gates, enforced. There is no test suite, so this
-# is the whole automated bar — which is also why an agent-filed PR must clear it
-# before anyone reads it.
+# Static, semantic and isolated real-browser canvas gates. No deployment or AI keys.
 on:
   pull_request:
   push:
@@ -21,3 +19,8 @@ jobs:
       # convex/_generated is committed, so typechecking needs no deployment.
       - run: npx tsc --noEmit
       - run: npm run lint
+      - run: npm test
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:canvas:browser
+        env:
+          CANVAS_BROWSER_CHANNEL: chromium
