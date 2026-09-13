@@ -33,7 +33,12 @@ import { byOrder, keyBetween, keyForIndex } from "./order";
  * binding owns transactions and origins.
  */
 
-export const canvasMapName = (blockId: string) => `canvas:${blockId}`;
+const CANVAS_MAP = "canvas:";
+
+export const canvasMapName = (blockId: string) => `${CANVAS_MAP}${blockId}`;
+
+/** Whether a root type of the page's Y.Doc is a diagram's. */
+export const isCanvasMapName = (name: string) => name.startsWith(CANVAS_MAP);
 
 /** Transaction origins, so observers can tell who is talking. */
 export const CANVAS_LOCAL = "canvas-local";

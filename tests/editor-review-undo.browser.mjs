@@ -20,6 +20,12 @@
  * rewind is pressed through the chat transcript's own Rewind menu, wired to the
  * session as `ChatPanel` wires it.
  *
+ * NT-43: an agent's diagram edit reached collaborators' maps while it was
+ * still under review, and Discard, Revert and the rewind put back only the
+ * block's `<nt-diagram>` mirror. Every reader of the diagram — the block prop,
+ * both docs' maps, the collaborator's copy of the mirror, the review's fork and
+ * the surface — is checked on its own, and a shape is dragged with the pointer.
+ *
  * Uses the existing esbuild dependency and an operator-installed Puppeteer. No
  * app server, no Convex, no API keys — and every non-local request fails the
  * run, so no AI lane can be spent in here.
@@ -93,7 +99,10 @@ await build({
   } }],
   loader: { ".woff": "file", ".woff2": "file", ".ttf": "file" }, logLevel: "warning",
 });
-await writeFile(path.join(output, "index.html"), `<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="/editor-review-undo.browser.css"><style>html,body{margin:0;height:100%;overflow:hidden;font-family:Arial,sans-serif}</style></head><body><div id="app"></div><script type="module" src="/editor-review-undo.browser.js"></script></body></html>`);
+// Tailwind is not in the bundle; the canvas block's wrapper leans on two of its
+// utilities, without which a diagram lays out zero pixels wide and no shape on
+// it can be pressed.
+await writeFile(path.join(output, "index.html"), `<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="/editor-review-undo.browser.css"><style>html,body{margin:0;height:100%;overflow:hidden;font-family:Arial,sans-serif}.relative{position:relative}.w-full{width:100%}</style></head><body><div id="app"></div><script type="module" src="/editor-review-undo.browser.js"></script></body></html>`);
 
 const server = createServer(async (request, response) => {
   try {
@@ -373,31 +382,45 @@ try {
   check("the next ⌘Z reaches the person's own typing", await texts(), [...HEAD, ...NOTES.slice(0, 2), "paragraph:"]);
 
   console.log("a kept diagram change, then ⌘Z");
-  const shapes = () => h(() => window.reviewHarness.diagram());
+  const shapes = (at = false) => h((a) => window.reviewHarness.diagram(a), at);
+  const privately = (at = false) => h((a) => window.reviewHarness.diagramPrivacy(a), at);
   const everywhere = (ids) => ({ prop: ids, maps: ids, peer: ids, shown: ids });
-  await h(() => window.reviewHarness.mount());
-  await page.waitForSelector(".bn-editor");
-  await h(() => window.reviewHarness.seedDiagram());
-  await page.waitForFunction(() => window.reviewHarness.diagram()?.shown != null, { timeout: 10000 });
-  await page.waitForFunction(() => window.reviewHarness.stacks() !== null);
-  await sleep(300);
+  /** What a collaborator can read of the diagram: the shared doc's maps, their own, and their copy of the mirror. */
+  const seenByOthers = async (at = false) => {
+    const { maps, peer } = await shapes(at);
+    return { maps, peer, mirror: (await privately(at)).peerMirror };
+  };
+  const freshDiagram = async () => {
+    await h(() => window.reviewHarness.mount());
+    await page.waitForSelector(".bn-editor");
+    await h(() => window.reviewHarness.seedDiagram());
+    await page.waitForFunction(() => window.reviewHarness.diagram()?.shown != null, { timeout: 10000 });
+    await page.waitForFunction(() => window.reviewHarness.stacks() !== null);
+    await sleep(300);
+  };
+  await freshDiagram();
   check("the diagram starts with one shape", await shapes(), everywhere(["a"]));
   await turn("agentDiagram");
   await sleep(300);
   check("under review, the surface shows the proposal", (await shapes()).shown, ["a", "b"]);
+  check("…from the review's fork", (await privately()).fork, ["a", "b"]);
+  check("…and nothing a collaborator can read has it yet", await seenByOthers(), { maps: ["a"], peer: ["a"], mirror: ["a"] });
   await press("Keep all");
   await settled();
   await sleep(300);
   check("kept: the prop, the maps, the collaborator and the surface all hold both shapes", await shapes(), everywhere(["a", "b"]));
-  // A diagram's maps reach the shared doc outside the fork, so its kept change
-  // stays off the timeline rather than letting ⌘Z take back only the mirror.
+  // A kept diagram change is one step: its maps travel in the fork with its
+  // mirror, and ⌘Z takes both back together.
   await clickText(0, 3);
   await undo();
   await sleep(300);
-  check("⌘Z does not split the diagram from its mirror", await shapes(), everywhere(["a", "b"]));
+  check("⌘Z takes the kept shape back from every reader", await shapes(), everywhere(["a"]));
+  await redo();
+  await sleep(300);
+  check("⌘⇧Z puts it back everywhere", await shapes(), everywhere(["a", "b"]));
   // Past the mirror's trail, which writes the surface back onto the prop.
   await sleep(5600);
-  check("…nor does the mirror once it has trailed", await shapes(), everywhere(["a", "b"]));
+  check("…and the mirror's trail agrees", await shapes(), everywhere(["a", "b"]));
 
   console.log("Revert, then typing");
   await fresh();
@@ -546,6 +569,112 @@ try {
   await clickEnd(0);
   await undo();
   check("⌘Z still reaches the person's own typing", await texts(), [...HEAD, ...NOTES.slice(0, 2), "paragraph:"]);
+
+  /** A shape dragged across the diagram by the pointer, the way a person moves one. */
+  const dragShape = async (id, dx, dy) => {
+    const from = await h((i) => window.reviewHarness.shapePoint(i), id);
+    if (!from) throw new Error(`no shape ${id} on the surface`);
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    for (let step = 1; step <= 8; step++) {
+      await page.mouse.move(from.x + (dx * step) / 8, from.y + (dy * step) / 8);
+      await sleep(16);
+    }
+    await page.mouse.up();
+    await sleep(100);
+  };
+  const sharedAndShown = async (at = false) => {
+    const { maps, peer, shown } = await shapes(at);
+    return { maps, peer, shown };
+  };
+
+  console.log("NT-43: a diagram change under review, then Discard all");
+  await freshDiagram();
+  await turn("agentDiagram");
+  await sleep(300);
+  check("the proposal is on the surface, from the review's fork", [(await shapes()).shown, (await privately()).fork], [["a", "b"], ["a", "b"]]);
+  check("…and nothing a collaborator can read has it", await seenByOthers(), { maps: ["a"], peer: ["a"], mirror: ["a"] });
+  await press("Discard all");
+  await settled();
+  await sleep(300);
+  check("Discard all takes the shape back from every reader", await shapes(), everywhere(["a"]));
+  check("…the collaborator's copy of the mirror included", (await privately()).peerMirror, ["a"]);
+  // Past the mirror's trail, which writes the surface back onto the prop.
+  await sleep(5600);
+  check("…and the mirror's trail does not bring it back", await shapes(), everywhere(["a"]));
+  await clickText(0, 3);
+  await undo();
+  await sleep(300);
+  check("⌘Z after the discard does not bring it back either", await shapes(), everywhere(["a"]));
+
+  console.log("NT-43: a diagram change's own Discard button");
+  await freshDiagram();
+  await turn("agentDiagram");
+  await sleep(300);
+  check("one change, one Discard button", await pressHunk("Discard this change"), 1);
+  await settled();
+  await sleep(300);
+  check("discarding it takes the shape back from every reader", await shapes(), everywhere(["a"]));
+
+  console.log("NT-43: a diagram change under review, then Revert");
+  await freshDiagram();
+  await turn("agentDiagram");
+  await sleep(300);
+  await press("Revert");
+  await page.waitForFunction(() => window.reviewHarness.open() === 0 && !window.reviewHarness.forked(), { timeout: 5000 });
+  await sleep(300);
+  check("Revert takes the shape back from every reader", await shapes(), everywhere(["a"]));
+  check("…and the collaborator's copy of the mirror never had it", (await privately()).peerMirror, ["a"]);
+
+  console.log("NT-43: a collaborator draws while a diagram change is under review, then Keep all");
+  await freshDiagram();
+  await turn("agentDiagram");
+  await sleep(300);
+  await h(() => window.reviewHarness.peerDraws("c"));
+  await sleep(300);
+  check("the collaborator's shape reaches the shared doc, and the proposal does not", await seenByOthers(), { maps: ["a", "c"], peer: ["a", "c"], mirror: ["a"] });
+  await press("Keep all");
+  await settled();
+  await sleep(300);
+  check("kept: both people's shapes are in every map and on the surface", await sharedAndShown(), { maps: ["a", "b", "c"], peer: ["a", "b", "c"], shown: ["a", "b", "c"] });
+
+  console.log("NT-43: moving a shape while a diagram change is under review, then Keep all");
+  await freshDiagram();
+  await turn("agentDiagram");
+  await sleep(300);
+  const unmoved = (await shapes(true)).shown;
+  await dragShape("a", 80, 0);
+  // Past the store's flush into the maps; well inside the mirror's trail.
+  await sleep(800);
+  const moved = (await shapes(true)).shown;
+  check("the drag moved the shape", moved.length === 2 && moved[0] !== unmoved[0], true);
+  check("…in the review's fork", (await privately(true)).fork, moved);
+  check("…and nothing a collaborator can read has the move or the proposal", await seenByOthers(true), { maps: ["a@0"], peer: ["a@0"], mirror: ["a@0"] });
+  await press("Keep all");
+  await settled();
+  await sleep(300);
+  check("kept: the move and the new shape reach every map", await sharedAndShown(true), { maps: moved, peer: moved, shown: moved });
+  await sleep(5600);
+  check("…and the mirror follows them", await shapes(true), everywhere(moved));
+
+  console.log("NT-43: Keep a diagram change, then Rewind › Notes only");
+  await freshDiagram();
+  await turn("agentDiagram");
+  await sleep(300);
+  await press("Keep all");
+  await settled();
+  await sleep(300);
+  await rewindTo("Notes only");
+  await sleep(300);
+  check("the rewind takes the shape back from every reader", await shapes(), everywhere(["a"]));
+
+  console.log("NT-43: Rewind › Notes only while a diagram change is under review");
+  await freshDiagram();
+  await turn("agentDiagram");
+  await sleep(300);
+  await rewindTo("Notes only");
+  await sleep(300);
+  check("the rewind takes the shape back from every reader, and ends the fork", [await shapes(), await forked()], [everywhere(["a"]), false]);
 } finally {
   await browser?.close();
   server.close();

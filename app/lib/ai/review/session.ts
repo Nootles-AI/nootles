@@ -6,7 +6,7 @@ import type { Doc, Id } from "@/convex/_generated/dataModel";
 import type { Batch, Operation } from "@/convex/ai/operations";
 import type { LiveEditor } from "@/app/components/editor/EditorRegistry";
 import { applyBatch, type OpTrace } from "../apply";
-import { flattenBlocks, type AnyBlock } from "../projection";
+import type { AnyBlock } from "../projection";
 import { AI } from "../aiConfig";
 import { track } from "@/app/lib/telemetry";
 import { broadcastFimFlash } from "@/app/lib/sync/fimFlash";
@@ -866,7 +866,7 @@ export class ReviewSession {
             .catch(() => null)
         : null;
       if (row) broadcastFimFlash(row.docId, kept);
-      mergeFork(editor, undoable(page, before) ? "kept" : "landed");
+      mergeFork(editor, undoable(page) ? "kept" : "landed");
     }
 
     await this.commit(this.turnWith(turn, { ...page, before, logged: page.logged || log }));
@@ -1086,21 +1086,12 @@ function convexSafe<T>(value: T): T {
  *
  * Only if it kept something: discarded whole, what still has to land is their
  * own typing and the discards' churn — a step that looks like nothing, and a
- * ⌘Z spent on nothing. And only if ⌘Z could take all of it back. A diagram's
- * truth is its maps, which the canvas block writes to the shared doc even while
- * the page is forked (it finds its doc through the sync state, whose `doc` a
- * fork's plugin swap leaves naming the shared one), so a kept change to one
- * carries only the diagram's mirror — and taking that back alone would leave
- * the block saying one diagram and its maps another.
+ * ⌘Z spent on nothing. A kept diagram change is a step like any other: its
+ * maps are in the fork with its mirror, and the text domain takes both back
+ * together (see history/textDomain.ts).
  */
-function undoable(page: PageReview, before: AnyBlock[]): boolean {
-  const kept = page.hunks.filter((h) => page.status[h.id] !== "rejected");
-  const diagrams = new Set(
-    flattenBlocks(before)
-      .filter((block) => block.type === "canvas")
-      .map((block) => block.id),
-  );
-  return kept.length > 0 && !kept.some((h) => h.changed.some((id) => diagrams.has(id)));
+function undoable(page: PageReview): boolean {
+  return page.hunks.some((h) => page.status[h.id] !== "rejected");
 }
 
 /**

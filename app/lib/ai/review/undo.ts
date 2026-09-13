@@ -1,10 +1,11 @@
 import type { PartialBlock } from "@blocknote/core";
 import type { Transaction } from "prosemirror-state";
 import type { LiveEditor } from "@/app/components/editor/EditorRegistry";
+import { settleDiagrams } from "@/app/components/editor/canvas/collab/binding";
 import { endTextHistory } from "@/app/lib/history/textDomain";
 import type { AnyBlock } from "../projection";
 import { asReview } from "./attribution";
-import { isForked } from "./fork";
+import { boundDoc, isForked } from "./fork";
 import type { Change } from "./hunks";
 
 /**
@@ -150,7 +151,12 @@ export function restoreDocument(editor: LiveEditor, before: AnyBlock[]) {
       if (named.length) editor.replaceBlocks(named, before as AnyPartialBlock[]);
     }),
   );
-  if (shared) endTextHistory(editor);
+  if (!shared) return;
+  // Its diagrams' maps hear the rewrite now, not a render later — when a shared
+  // doc's canvas would take the checkpoint's diagram, a state its maps have
+  // already been in, for a collaborator's lagging mirror and keep the newer one.
+  settleDiagrams(boundDoc(editor));
+  endTextHistory(editor);
 }
 
 function put(editor: LiveEditor, block: AnyBlock, anchor: Anchor) {

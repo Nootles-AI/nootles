@@ -13,7 +13,7 @@ import { canonicalPathOps } from "../canvas/scene/canonicalPaths";
 import { shapeIdsIn } from "../canvas/scene/reveal";
 import { hoistOps, inlinePictures } from "../canvas/scene/inlineImages";
 import { CanvasAiContext } from "../canvas/canvasAi";
-import { CanvasCollab } from "../canvas/collab/binding";
+import { CanvasCollab, onDiagramSettle } from "../canvas/collab/binding";
 import {
   broadcastCanvasPresence,
   paintCanvasPresence,
@@ -49,23 +49,35 @@ const CONTEXT_BLOCKS = 4;
  */
 const MIRROR_MS = 5000;
 
-/** The one editor member this block needs beyond what the spec hands over. */
+/** The editor members this block needs beyond what the spec hands over. */
 type HostEditor = {
   prosemirrorState: unknown;
   getExtension: (key: string) => unknown;
+  getBlock: (id: string) => { props?: unknown } | undefined;
 };
+
+type ForkStore = {
+  state?: { isForked?: boolean };
+  subscribe?: (cb: () => void) => () => void;
+};
+
+const forkStore = (editor: HostEditor) =>
+  (editor.getExtension("yForkDoc") as { store?: ForkStore } | undefined)?.store;
 
 /**
  * The Y.Doc this editor is currently bound to — the fork's while a review is
  * open, the shared one otherwise — or null on the legacy pipeline, where the
- * block prop remains the whole story.
+ * block prop remains the whole story. Read off the binding: ProseMirror keeps a
+ * plugin's state field across the fork's plugin swap, so the sync state's own
+ * `doc` names the shared doc throughout, and a canvas bound through it wrote a
+ * review's preview where every collaborator could see it (NT-43).
  */
 function currentYDoc(editor: HostEditor): Y.Doc | null {
   try {
     const state = ySyncPluginKey.getState(
       editor.prosemirrorState as Parameters<typeof ySyncPluginKey.getState>[0],
-    ) as { doc?: Y.Doc; type?: { doc?: Y.Doc | null } } | undefined;
-    return state?.doc ?? state?.type?.doc ?? null;
+    ) as { binding?: { doc?: Y.Doc } } | undefined;
+    return state?.binding?.doc ?? null;
   } catch {
     return null;
   }
@@ -98,14 +110,12 @@ function CanvasBlockView({
   const collab = useMemo(() => new CanvasCollab(blockId), [blockId]);
   const [forkNonce, setForkNonce] = useState(0);
   useEffect(() => {
-    const fork = editor.getExtension("yForkDoc") as
-      | { store?: { subscribe: (cb: () => void) => () => void } }
-      | undefined;
-    if (!fork?.store?.subscribe) return;
-    return fork.store.subscribe(() => setForkNonce((n) => n + 1));
+    const store = forkStore(editor);
+    if (!store?.subscribe) return;
+    return store.subscribe(() => setForkNonce((n) => n + 1));
   }, [editor]);
-  const yDoc = useMemo(
-    () => currentYDoc(editor),
+  const [yDoc, forked] = useMemo(
+    () => [currentYDoc(editor), forkStore(editor)?.state?.isForked === true] as const,
     // The nonce is the re-derive trigger: a fork swap replaces the plugins
     // underneath the same editor object.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -126,30 +136,30 @@ function CanvasBlockView({
     return source;
   });
 
-  const sourceRef = useRef(source);
   const onChangeRef = useRef(onChange);
   useEffect(() => {
-    sourceRef.current = source;
     onChangeRef.current = onChange;
   });
-
-  useEffect(() => {
-    if (!yDoc) return;
-    collab.attach(yDoc, sourceRef.current);
-    return () => collab.detach();
-  }, [collab, yDoc]);
 
   /** The mirror waiting to be written, and the timer that will write it. */
   const mirror = useRef<{
     html: string;
     timer: ReturnType<typeof setTimeout>;
   } | null>(null);
+  /**
+   * The mirror last written, until a render carries it. A flush landing in
+   * between moves `lastMirrored` on, and on a fork, where every other prop
+   * change is an author, our own write read back late would be adopted over
+   * the newer edit.
+   */
+  const written = useRef<string | null>(null);
 
   const writeMirror = useCallback(() => {
     const held = mirror.current;
     if (!held) return;
     clearTimeout(held.timer);
     mirror.current = null;
+    written.current = held.html;
     try {
       onChangeRef.current(held.html);
     } catch {
@@ -163,6 +173,19 @@ function CanvasBlockView({
     clearTimeout(mirror.current.timer);
     mirror.current = null;
   }, []);
+
+  /** The prop as this block last reconciled it — what a rebind hands the new doc. */
+  const seen = useRef(source);
+
+  useEffect(() => {
+    if (!yDoc) return;
+    // Leaving a fork with a mirror still waiting means the fork was dropped —
+    // one that lands writes its mirror first (below) — and the mirror
+    // describes a diagram that went with it.
+    if (!forked) dropMirror();
+    collab.attach(yDoc, seen.current, forked);
+    return () => collab.detach();
+  }, [collab, yDoc, forked, dropMirror]);
 
   // What arrived from outside this canvas was not placed by the user, so the
   // user is not looking at it: the shapes an outside edit added are brought
@@ -178,18 +201,46 @@ function CanvasBlockView({
     [],
   );
 
-  // A prop change nobody here mirrored: a collaborator's mirror (a no-op once
-  // their map writes arrived) or the AI writing a whole diagram. Ours in
-  // waiting predates theirs, and writing it after would put the diagram back.
+  /**
+   * A prop this block has not reconciled yet. Unless it is our own mirror, it
+   * is a collaborator's mirror (a no-op once their map writes arrived), the AI
+   * writing a whole diagram, or a review answering. Ours in waiting predates
+   * theirs, and writing it after would put the diagram back.
+   */
+  const reconcile = useCallback(
+    (next: string, authored?: boolean) => {
+      seen.current = next;
+      const ours = next === collab.lastMirrored || next === written.current;
+      written.current = null;
+      if (ours) return;
+      dropMirror();
+      const before = outsideSeen.current;
+      outsideSeen.current = next;
+      collab.adoptExternal(next, authored);
+      revealAdded(before, next);
+    },
+    [collab, dropMirror, revealAdded],
+  );
+
   useEffect(() => {
-    if (!yDoc || !collab.attached) return;
-    if (source === collab.lastMirrored) return;
-    dropMirror();
-    const before = outsideSeen.current;
-    outsideSeen.current = source;
-    collab.adoptExternal(source);
-    revealAdded(before, source);
-  }, [collab, yDoc, source, dropMirror, revealAdded]);
+    if (!yDoc || !collab.attached || source === seen.current) return;
+    reconcile(source);
+  }, [collab, yDoc, source, reconcile]);
+
+  // Asked for by a review that writes the page and, in the same task, lands its
+  // fork or ends the doc's history — both ahead of the render that would run
+  // the effect above. This block's own work goes onto the prop to travel with
+  // it, and a prop it has not reconciled yet is the review's, adopted as such.
+  useEffect(() => {
+    if (!yDoc) return;
+    return onDiagramSettle(yDoc, () => {
+      api.current?.store.flush();
+      const props = editor.getBlock(blockId)?.props as { data?: unknown } | undefined;
+      if (typeof props?.data !== "string") return;
+      if (props.data === seen.current) writeMirror();
+      else reconcile(props.data, true);
+    });
+  }, [yDoc, editor, blockId, writeMirror, reconcile]);
 
   // The legacy pipeline's equivalent: the prop is the document, and a change
   // this block did not write is one from outside.

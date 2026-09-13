@@ -74,6 +74,12 @@ export class CanvasCollab {
    * every committed edit is the edit paying the arrival's bill.
    */
   private recent: { scene: Scene; html: string | null }[] = [];
+  /**
+   * Whether the doc is a review's private fork. Nobody else writes there, so no
+   * prop change is a collaborator's lagging mirror — and none is the person's
+   * own edit either: it is the agent proposing, or the review answering.
+   */
+  private forked = false;
 
   constructor(private blockId: string) {}
 
@@ -82,15 +88,19 @@ export class CanvasCollab {
   }
 
   /**
-   * Bind to (or rebind after a fork swap onto) a document. If the diagram has
-   * never been in the CRDT, the block prop's HTML populates it —
-   * deterministically, so a second client doing the same converges rather
-   * than colliding (see ymap.ts).
+   * Bind to (or rebind after a fork swap onto) a document. `propSource` is the
+   * block prop as the block last reconciled it: at mount, the prop itself; on a
+   * rebind, not whatever the prop has become, because the task that swapped the
+   * doc may already have written into it — a review forks the editor and
+   * writes its proposal in one go. If the diagram has never been in the CRDT,
+   * that HTML populates it — deterministically, so a second client doing the
+   * same converges rather than colliding (see ymap.ts).
    */
-  attach(doc: Y.Doc, propSource: string) {
+  attach(doc: Y.Doc, propSource: string, forked = false) {
     ensureCollaborativeCanvasMintTag();
     this.detach();
     this.doc = doc;
+    this.forked = forked;
     this.root = doc.getMap<unknown>(canvasMapName(this.blockId));
     if (!hasCanvasState(this.root) && propSource.trim()) {
       const scene = migrateLegacyCanvas(propSource);
@@ -180,11 +190,19 @@ export class CanvasCollab {
    * mirror (whose map writes have already arrived, so the diff is empty and
    * nothing happens) or a genuine external author — the AI. The latter lands
    * in the maps AND in the store as a normal, undoable adoption.
+   *
+   * An `authored` change is the review writing: a proposal or its answer on a
+   * review's fork, where nobody else writes, or a rewind on the shared doc.
+   * Neither is an echo, though either can be a prop the maps have already been
+   * — a discard writes back the diagram a proposal replaced. Nor is either the
+   * person's edit: it is adopted off their undo, as the review's text writes
+   * are, or ⌘Z would take back a proposal the review is still asking about, or
+   * bring back one it was told to discard.
    */
-  adoptExternal(html: string) {
+  adoptExternal(html: string, authored = this.forked) {
     if (!this.root || !this.doc) return;
     this.lastMirrored = html;
-    if (this.echoes(html)) return; // a mirror echo, however lagged
+    if (!authored && this.echoes(html)) return; // a mirror echo, however lagged
     const before = serializeScene(materializeCanvas(this.root));
     if (html === before) return;
     const next = migrateLegacyCanvas(html);
@@ -195,7 +213,9 @@ export class CanvasCollab {
     const merged = materializeCanvas(this.root);
     const after = serializeScene(merged);
     this.known = merged;
-    if (after !== before) this.store?.setSource(after);
+    if (after === before || !this.store) return;
+    if (authored) this.store.adoptRemote(after);
+    else this.store.setSource(after);
   }
 
   /** Anything not ours: a collaborator, an undo replay, a fork merging. */
@@ -225,4 +245,30 @@ export class CanvasCollab {
       this.store.adoptRemote(html);
     }
   }
+}
+
+const settles = new WeakMap<Y.Doc, Set<() => void>>();
+
+/**
+ * Brings every diagram bound to `doc` in line with its block prop, now.
+ *
+ * A block reconciles its maps with its prop from an effect, a render after the
+ * prop changes. The review writes a page and then, in the same task, lands the
+ * fork it wrote into or ends the doc's history. Without this a fork lands with
+ * the maps as the answer found them — a discarded shape reaching everyone while
+ * its block says it is gone — and a rewind's diagram arrives a render late,
+ * where it reads as a collaborator's lagging mirror and is ignored.
+ */
+export function settleDiagrams(doc: Y.Doc) {
+  for (const settle of [...(settles.get(doc) ?? [])]) settle();
+}
+
+/** How a diagram's block takes part in {@link settleDiagrams}; returns how to stop. */
+export function onDiagramSettle(doc: Y.Doc, settle: () => void): () => void {
+  const held = settles.get(doc) ?? new Set<() => void>();
+  settles.set(doc, held);
+  held.add(settle);
+  return () => {
+    held.delete(settle);
+  };
 }

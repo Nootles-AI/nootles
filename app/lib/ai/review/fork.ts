@@ -2,6 +2,7 @@ import { TextSelection } from "prosemirror-state";
 import type { EditorView } from "prosemirror-view";
 import { ySyncPluginKey } from "y-prosemirror";
 import * as Y from "yjs";
+import { settleDiagrams } from "@/app/components/editor/canvas/collab/binding";
 import type { LiveEditor } from "@/app/components/editor/EditorRegistry";
 
 /**
@@ -70,23 +71,26 @@ export function ensureForked(editor: LiveEditor) {
 
 /**
  * How a fork ends. `kept` carries its changes into the shared doc as one step
- * of the person's history; `landed` carries them in off it, for an answer the
- * timeline could not wholly take back (see `undoable` in session.ts);
- * `discarded` drops them wholesale (a rewind or a revert of a turn nobody else
- * ever saw).
+ * of the person's history; `landed` carries them in off it, for an answer that
+ * kept nothing but whose fork still holds the person's own typing (see
+ * `undoable` in session.ts); `discarded` drops them wholesale (a rewind or a
+ * revert of a turn nobody else ever saw).
  */
 export type ForkEnd = "kept" | "landed" | "discarded";
 
 export function mergeFork(editor: LiveEditor, end: ForkEnd) {
   const fork = forkApi(editor);
   if (!fork?.store.state.isForked) return;
+  const forked = boundDoc(editor);
+  // An answer writes the page and lands in the same task; what lands has to
+  // be what the page now says, diagrams included (see settleDiagrams).
+  if (end !== "discarded") settleDiagrams(forked);
   if (end !== "kept") {
     fork.merge({ keepChanges: end === "landed" });
     return;
   }
   // BlockNote's `keepChanges` merge with the landing done here, so that it
   // carries an origin: the same update, onto the same doc, after the same swap.
-  const forked = boundDoc(editor);
   fork.merge({ keepChanges: false });
   const shared = boundDoc(editor);
   Y.applyUpdate(shared, Y.encodeStateAsUpdate(forked, Y.encodeStateVector(shared)), KEPT_CHANGE);
@@ -97,7 +101,7 @@ export function mergeFork(editor: LiveEditor, end: ForkEnd) {
  * the binding, because the sync state's own `doc` names the shared doc
  * throughout: ProseMirror keeps a plugin's state field across the swap.
  */
-function boundDoc(editor: LiveEditor): Y.Doc {
+export function boundDoc(editor: LiveEditor): Y.Doc {
   return (ySyncPluginKey.getState(editor.prosemirrorState) as { binding: { doc: Y.Doc } })
     .binding.doc;
 }
