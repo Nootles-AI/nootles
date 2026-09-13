@@ -3,7 +3,7 @@ import StripeSDK from "stripe";
 import { StripeSubscriptions } from "@convex-dev/stripe";
 import { api, components, internal } from "./_generated/api";
 import { action, internalMutation, query } from "./_generated/server";
-import { ensureAccount, type Entitlement } from "./entitlements";
+import { ensureAccount, isLiveStatus, type Entitlement } from "./entitlements";
 
 /**
  * Paying, and stopping paying.
@@ -177,14 +177,19 @@ export const mirrorSubscription = internalMutation({
       components.stripe.public.listSubscriptionsByUserId,
       { userId: args.userId },
     );
-    // The one that decides the answer: furthest-reaching period end. An account
-    // that resubscribed after cancelling has two rows, and the dead one must
-    // not be the one that speaks.
-    const best = rows.reduce<(typeof rows)[number] | null>(
-      (winner, row) =>
-        !winner || row.currentPeriodEnd > winner.currentPeriodEnd ? row : winner,
-      null,
-    );
+    // The one that decides the answer. An account that resubscribed after
+    // cancelling has two rows, and the dead one must not be the one that speaks
+    // — even when its period reaches further, as it does whenever an annual
+    // plan ended early: Stripe leaves a subscription cancelled outright, or
+    // ended by failed renewals, holding the period it died in. So any live row
+    // outranks every dead one, and the furthest-reaching period end only
+    // decides between rows that are alike in that.
+    const best = rows.reduce<(typeof rows)[number] | null>((winner, row) => {
+      if (!winner) return row;
+      const live = isLiveStatus(row.status);
+      if (live !== isLiveStatus(winner.status)) return live ? row : winner;
+      return row.currentPeriodEnd > winner.currentPeriodEnd ? row : winner;
+    }, null);
 
     const account = await ensureAccount(ctx, args.userId);
     await ctx.db.patch(account._id, {

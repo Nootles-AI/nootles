@@ -67,6 +67,10 @@ export type Entitlement = {
  */
 const LIVE_STATUSES = new Set(["active", "trialing", "past_due"]);
 
+export function isLiveStatus(status: string): boolean {
+  return LIVE_STATUSES.has(status);
+}
+
 /** The error every gate throws, shaped so the client can draw the right wall. */
 export type QuotaRefusal = { code: "quota"; meter: Meter; limit: number };
 
@@ -164,7 +168,7 @@ export async function entitlementOf(
   if (code) return pro("code", code);
 
   const sub = account?.subscription;
-  if (sub && LIVE_STATUSES.has(sub.status)) {
+  if (sub && isLiveStatus(sub.status)) {
     return pro("subscription", {
       expiresAt: sub.currentPeriodEnd,
       cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
