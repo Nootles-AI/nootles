@@ -4,6 +4,7 @@ import {
   defaultInlineContentSpecs,
 } from "@blocknote/core";
 import { codeBlockSpec } from "./blocks/CodeBlock";
+import { keepListItems } from "./blocks/listSafe";
 import { mathBlockSpec } from "./blocks/MathBlock";
 import { canvasBlockSpec } from "./blocks/CanvasBlock";
 import { albumBlockSpec } from "./blocks/AlbumBlock";
@@ -26,6 +27,10 @@ const {
 export const schema = BlockNoteSchema.create({
   blockSpecs: {
     ...rest,
+    // BlockNote's own heading and quote, less the one thing their markdown
+    // prefixes were never meant to do — see `keepListItems`.
+    heading: keepListItems(defaultBlockSpecs.heading),
+    quote: keepListItems(defaultBlockSpecs.quote),
     codeBlock: codeBlockSpec,
     mathBlock: mathBlockSpec,
     canvas: canvasBlockSpec,
