@@ -1,19 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import {
   defaultDeleteFilter,
   defaultProtectedNodes,
   ySyncPluginKey,
 } from "y-prosemirror";
 import * as Y from "yjs";
+import { KEPT_CHANGE } from "@/app/lib/ai/review/fork";
 import type { DomainStep, WorkspaceHistory } from "./spine";
 
 /**
  * The document's side of the spine: its own Y.UndoManager over the shared
- * doc's "prosemirror" fragment, configured exactly as y-prosemirror's would
- * be — same tracked origin (the ySync binding), same delete filter, same
- * `addToHistory` gate — but owned HERE, per Y.Doc, for the doc's lifetime.
+ * doc's "prosemirror" fragment, configured as y-prosemirror's would be — the
+ * ySync binding's writes, same delete filter, same `addToHistory` gate — but
+ * owned HERE, per Y.Doc, for the doc's lifetime.
  *
  * Deliberately not the yUndoPlugin's own manager. That one dies with the
  * ProseMirror view (`destroy()` on unmount), which StrictMode's double-mount
@@ -32,7 +33,9 @@ import type { DomainStep, WorkspaceHistory } from "./spine";
  * While a review fork is open the editor runs on a private doc; the domain
  * reports itself blocked — the review bar is the undo affordance for that
  * stretch, and undoing shared history UNDER a private fork would revert
- * things the user cannot currently see.
+ * things the user cannot currently see. Once the person keeps the change it
+ * lands here as one entry of theirs (`KEPT_CHANGE`, see review/fork.ts), and
+ * ⌘Z takes it back like anything else they wrote.
  */
 
 type UM = Y.UndoManager;
@@ -45,12 +48,18 @@ function managerFor(fragment: Y.XmlFragment): UM | null {
   if (!doc) return null;
   let manager = managers.get(doc);
   if (!manager) {
-    manager = new Y.UndoManager(fragment, {
-      trackedOrigins: new Set([ySyncPluginKey]),
+    const created = new Y.UndoManager(fragment, {
+      trackedOrigins: new Set([ySyncPluginKey, KEPT_CHANGE]),
       deleteFilter: (item) => defaultDeleteFilter(item, defaultProtectedNodes),
       captureTransaction: (tr) => tr.meta.get("addToHistory") !== false,
     });
-    managers.set(doc, manager);
+    // An answer is a step of its own; typing straight after it must not
+    // fold into it.
+    created.on("stack-item-added", (event) => {
+      if (event.origin === KEPT_CHANGE) created.stopCapturing();
+    });
+    managers.set(doc, created);
+    manager = created;
   }
   return manager;
 }
@@ -62,7 +71,11 @@ export type UndoHostEditor = {
   onChange?: (cb: () => void) => (() => void) | undefined;
 };
 
-/** The fragment the live editor is bound to — the fork's while forked. */
+/**
+ * The shared fragment, fork or no fork: a fork swaps the sync plugin, and
+ * ProseMirror keeps the state field its key already had. So the domain stays
+ * wired to the shared doc throughout, which is where a kept change lands.
+ */
 function fragmentOf(editor: UndoHostEditor): Y.XmlFragment | null {
   try {
     const state = ySyncPluginKey.getState(
@@ -84,17 +97,6 @@ export function useTextUndoDomain(
   docId: string,
   pageId: string | undefined,
 ): void {
-  // A fork swap replaces the plugins under the same editor object; the nonce
-  // re-runs the wiring against whichever doc is now bound.
-  const [forkNonce, setForkNonce] = useState(0);
-  useEffect(() => {
-    const fork = editor.getExtension("yForkDoc") as
-      | { store?: { subscribe: (cb: () => void) => () => void } }
-      | undefined;
-    if (!fork?.store?.subscribe) return;
-    return fork.store.subscribe(() => setForkNonce((n) => n + 1));
-  }, [editor]);
-
   useEffect(() => {
     if (!spine || !pageId) return;
     const id = textDomainId(docId);
@@ -106,16 +108,6 @@ export function useTextUndoDomain(
         | undefined;
       return fork?.store?.state?.isForked ?? false;
     };
-    // While forked the domain stands registered but blocked — vanishing would
-    // read as death and the spine would start tombstoning live tokens.
-    if (forked()) {
-      return spine.register(
-        id,
-        { undo: () => "blocked", redo: () => "blocked" },
-        pageId,
-      );
-    }
-
     const fragment = fragmentOf(editor);
     const manager = fragment && managerFor(fragment);
     if (!manager) return;
@@ -167,7 +159,5 @@ export function useTextUndoDomain(
       manager.off("stack-item-added", onAdded);
       manager.off("stack-cleared", onCleared);
     };
-    // forkNonce is a real dependency: it re-runs this against the doc the
-    // fork swap just bound.
-  }, [spine, editor, docId, pageId, forkNonce]);
+  }, [spine, editor, docId, pageId]);
 }
