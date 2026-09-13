@@ -152,6 +152,16 @@ try {
     await page.mouse.click(point.x, point.y);
     await sleep(100);
   };
+  /** A band drawn down the gutter, from beside block `from` to beside block `to`. */
+  const band = async (from, to) => {
+    const a = await h((i) => window.scrollHarness.blockRect(i), from);
+    const b = await h((i) => window.scrollHarness.blockRect(i), to);
+    await page.mouse.move(a.left - 28, (a.top + a.bottom) / 2);
+    await page.mouse.down();
+    await page.mouse.move(b.left - 28, (b.top + b.bottom) / 2, { steps: 8 });
+    await page.mouse.up();
+    await sleep(150);
+  };
   /**
    * Small wheel steps over the page, the way a trackpad scrolls. With `peer`,
    * the collaborator lands a keystroke between every step — someone typing
@@ -204,7 +214,17 @@ try {
   await fresh();
   await place(6, 300);
   await drag([6, 10], [8, 20]);
-  check("setup: a drag across blocks is a block selection", (await h(() => window.scrollHarness.selection())).kind.includes("BlockRangeSelection"), true);
+  const spanning = await h(() => window.scrollHarness.selection());
+  check("setup: a drag across blocks is a text selection", [spanning.kind.includes("TextSelection"), spanning.empty], [true, false]);
+  before = await top();
+  await scrollBy(500, { peer: true });
+  check("a text selection across blocks scrolls away while a peer types", (await top()) - before, 500);
+  check("…with no scroll from the editor", await editorScrolls(), 0);
+
+  await fresh();
+  await place(6, 300);
+  await band(6, 8);
+  check("setup: a band down the gutter is a block selection", (await h(() => window.scrollHarness.selection())).kind.includes("BlockRangeSelection"), true);
   before = await top();
   await scrollBy(500, { peer: true });
   check("a block selection scrolls away while a peer types", (await top()) - before, 500);

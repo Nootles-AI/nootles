@@ -51,11 +51,7 @@ function Surface({ editor }: { editor: Editor }) {
   return (
     <main id="pane" className="nt-pane" style={{ height: "100vh", overflow: "auto", display: "flex", flexDirection: "column" }}>
       <div style={{ maxWidth: 760, width: "100%", padding: "80px 56px", flex: 1, display: "flex", flexDirection: "column", boxSizing: "border-box" }}>
-        <div
-          ref={surface}
-          className="nt-marquee-surface"
-          onMouseUp={() => requestAnimationFrame(() => selected.selectSpannedBlocks())}
-        >
+        <div ref={surface} className="nt-marquee-surface">
           <BlockNoteView editor={editor} theme="light" className="nt-editor" sideMenu={false} slashMenu={false} formattingToolbar={false}>
             <FormattingToolbarController />
           </BlockNoteView>
@@ -191,7 +187,7 @@ const harness = {
   blockRect: (index: number) => {
     const id = editor.document[index]?.id;
     const r = document.querySelector(`[data-id="${id}"]`)!.getBoundingClientRect();
-    return { top: r.top, bottom: r.bottom };
+    return { top: r.top, bottom: r.bottom, left: r.left };
   },
   headRect: () => {
     const r = view().coordsAtPos(view().state.selection.head);
