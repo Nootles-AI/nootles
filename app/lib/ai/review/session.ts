@@ -358,7 +358,7 @@ export class ReviewSession {
     // written down together — the two id arrays on the row are parallel by
     // construction, which is a thing to rely on only when there is no
     // alternative.
-    const pages = ((row.trace ?? {}) as StoredTrace).pages ?? [];
+    const pages = (await unpackTurn<StoredTrace>(row.trace ?? {})).pages ?? [];
     const points: ReturnPoint[] = [];
     for (const { pageId, checkpointId } of pages) {
       const before = await this.checkpointDoc(checkpointId);

@@ -1,8 +1,10 @@
 import type { PartialBlock } from "@blocknote/core";
 import type { Transaction } from "prosemirror-state";
 import type { LiveEditor } from "@/app/components/editor/EditorRegistry";
+import { endTextHistory } from "@/app/lib/history/textDomain";
 import type { AnyBlock } from "../projection";
 import { asReview } from "./attribution";
+import { isForked } from "./fork";
 import type { Change } from "./hunks";
 
 /**
@@ -127,8 +129,15 @@ export function undoHunks(editor: LiveEditor, hunks: Change[], before: AnyBlock[
   );
 }
 
-/** Restores the page to the checkpoint wholesale, manual edits and all. */
+/**
+ * Restores the page to the checkpoint wholesale, manual edits and all.
+ *
+ * Off the history, so where the write reaches the shared doc it is the end of
+ * that history: ⌘Z of a kept change over this rewrite garbles the page (NT-44).
+ * A forked page's write lands in the fork, which the shared doc never hears.
+ */
 export function restoreDocument(editor: LiveEditor, before: AnyBlock[]) {
+  const shared = !isForked(editor);
   asReview(() =>
     editor.transact((tr) => {
       tr.setMeta("addToHistory", false);
@@ -141,6 +150,7 @@ export function restoreDocument(editor: LiveEditor, before: AnyBlock[]) {
       if (named.length) editor.replaceBlocks(named, before as AnyPartialBlock[]);
     }),
   );
+  if (shared) endTextHistory(editor);
 }
 
 function put(editor: LiveEditor, block: AnyBlock, anchor: Anchor) {
