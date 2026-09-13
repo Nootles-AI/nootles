@@ -23,6 +23,7 @@ import { Menu, MenuItem } from "@/app/components/Menu";
 import type { PendingApproval } from "@/app/lib/ai/chat/BrowserChat";
 import type { AbMessage } from "@/app/lib/ai/chat/types";
 import type { DrawChoice } from "@/app/lib/ai/drawStyles";
+import { retryNotice } from "@/app/lib/ai/chat/retryNotice";
 import { DrawStylePicker } from "./DrawStylePicker";
 import { Markdown } from "./Markdown";
 
@@ -168,7 +169,9 @@ export function ChatTranscript({
           </div>
         )
       )}
-      {error && <div className="nt-turn-error">{error.message}</div>}
+      {error && (
+        <div className="nt-turn-error">{retryNotice(error.message) ?? error.message}</div>
+      )}
       <div ref={endRef} />
     </div>
   );
