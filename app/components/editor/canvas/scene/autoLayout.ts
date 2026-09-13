@@ -133,8 +133,8 @@ const JUSTIFY_CONTENT: Record<string, JustifyContent> = {
  * A group's `gap`.
  *
  * A two-value `gap` names a row gap and a column gap; {@link GroupLayout} holds
- * one number, so the row gap wins and the original declaration stays in `style`
- * to round-trip. This is the simplification the contract sanctions, not a loss.
+ * one number for its legacy control. Placement reads both axes through
+ * `layoutGaps`; the original declaration stays in `style` to round-trip.
  */
 function parseGap(style: StyleMap): number {
   const value = decl(style, LAYOUT_STYLE_PROPS.gap);
@@ -273,65 +273,87 @@ function inlineOffset(
 export const isPinned = (node: SceneNode): boolean =>
   keyword(node.style, "position") === "absolute";
 
+/** CSS row/column gaps, including longhand overrides. */
+export function layoutGaps(style: StyleMap): { row: number; column: number } {
+  const parts = decl(style, "gap")?.split(/\s+/) ?? [];
+  return {
+    row: Math.max(0, length(decl(style, "row-gap"), length(parts[0], 0))),
+    column: Math.max(0, length(decl(style, "column-gap"), length(parts[1] ?? parts[0], 0))),
+  };
+}
+
 function flexRects(group: GroupNode, layout: GroupLayout): Map<NodeId, Rect> {
   const rects = new Map<NodeId, Rect>();
-  const { padding: pad, gap, alignItems } = layout;
+  const { padding: pad, alignItems } = layout;
   const horizontal = isRow(layout.flexDirection);
+  const reverse = isReverse(layout.flexDirection);
+  const gaps = layoutGaps(group.style);
+  const gap = horizontal ? gaps.column : gaps.row;
+  const crossGap = horizontal ? gaps.row : gaps.column;
   const flowing = group.children.filter((child) => {
+    if (child.style.display === "none") return false;
     if (!isPinned(child)) return true;
     rects.set(child.id, { x: child.x, y: child.y, w: child.w, h: child.h });
     return false;
   });
-  const order = isReverse(layout.flexDirection) ? [...flowing].reverse() : flowing;
-
-  const mainSize = (n: SceneNode) => (horizontal ? n.w : n.h);
-  const crossSize = (n: SceneNode) => (horizontal ? n.h : n.w);
-  const mainExtent = horizontal
-    ? group.w - pad.left - pad.right
-    : group.h - pad.top - pad.bottom;
-  const crossExtent = horizontal
-    ? group.h - pad.top - pad.bottom
-    : group.w - pad.left - pad.right;
-
-  let content = gap * Math.max(0, order.length - 1);
-  for (const child of order) content += mainSize(child);
-
-  const { start, between } = mainOffsets(
-    layout.justifyContent,
-    mainExtent - content,
-    gap,
-    order.length,
-  );
-
-  let cursor = start;
-  for (const child of order) {
-    const cross = alignItems === "stretch" ? crossExtent : crossSize(child);
-    const offset = crossOffset(alignItems, crossExtent, cross);
-    rects.set(
-      child.id,
-      horizontal
-        ? {
-            x: pad.left + cursor,
-            y: pad.top + offset,
-            w: child.w,
-            h: cross,
-          }
-        : {
-            x: pad.left + offset,
-            y: pad.top + cursor,
-            w: cross,
-            h: child.h,
-          },
-    );
-    cursor += mainSize(child) + between;
+  const mainSize = (n: SceneNode) => horizontal ? n.w : n.h;
+  const crossSize = (n: SceneNode) => horizontal ? n.h : n.w;
+  const mainExtent = Math.max(0, horizontal ? group.w - pad.left - pad.right : group.h - pad.top - pad.bottom);
+  const crossExtent = Math.max(0, horizontal ? group.h - pad.top - pad.bottom : group.w - pad.left - pad.right);
+  const wrap = keyword(group.style, "flex-wrap") ?? "nowrap";
+  const lines: SceneNode[][] = [[]];
+  let used = 0;
+  for (const child of flowing) {
+    let line = lines[lines.length - 1];
+    if (wrap !== "nowrap" && line.length && used + gap + mainSize(child) > mainExtent) {
+      line = []; lines.push(line); used = 0;
+    }
+    used += (line.length ? gap : 0) + mainSize(child);
+    line.push(child);
   }
+  const heights = lines.map((line) => line.reduce((max, child) => Math.max(max, crossSize(child)), 0));
+  const total = heights.reduce((a, b) => a + b, 0) + crossGap * Math.max(0, lines.length - 1);
+  const alignContent = keyword(group.style, "align-content") ?? "stretch";
+  if (wrap === "nowrap") heights[0] = crossExtent;
+  else if ((alignContent === "stretch" || alignContent === "normal") && crossExtent > total) {
+    for (let i = 0; i < heights.length; i++) heights[i] += (crossExtent - total) / heights.length;
+  }
+  const crossOffsets = mainOffsets(JUSTIFY_CONTENT[alignContent] ?? "flex-start", crossExtent - heights.reduce((a, b) => a + b, 0) - crossGap * Math.max(0, lines.length - 1), crossGap, lines.length);
+  let lineStart = wrap === "nowrap" ? 0 : crossOffsets.start;
+  lines.forEach((line, index) => {
+    const height = heights[index];
+    const content = line.reduce((sum, child) => sum + mainSize(child), 0) + gap * Math.max(0, line.length - 1);
+    const { start, between } = mainOffsets(layout.justifyContent, mainExtent - content, gap, line.length);
+    let cursor = start;
+    for (const child of line) {
+      const align = ALIGN_ITEMS[keyword(child.style, "align-self") ?? ""] ?? alignItems;
+      const cross = align === "stretch" && alignItems === "stretch" ? height : crossSize(child);
+      let offset = lineStart + crossOffset(align, height, cross);
+      if (wrap === "wrap-reverse") offset = crossExtent - offset - cross;
+      const main = reverse ? mainExtent - cursor - mainSize(child) : cursor;
+      rects.set(child.id, horizontal
+        ? { x: pad.left + main, y: pad.top + offset, w: child.w, h: cross }
+        : { x: pad.left + offset, y: pad.top + main, w: cross, h: child.h });
+      cursor += mainSize(child) + between;
+    }
+    lineStart += height + crossOffsets.between;
+  });
   return rects;
 }
-
 function flexSize(group: GroupNode, layout: GroupLayout): { w: number; h: number } {
-  const { padding: pad, gap } = layout;
+  const { padding: pad } = layout;
   const horizontal = isRow(layout.flexDirection);
-  const flowing = group.children.filter((child) => !isPinned(child));
+  const gaps = layoutGaps(group.style);
+  const gap = horizontal ? gaps.column : gaps.row;
+  const flowing = group.children.filter((child) => !isPinned(child) && child.style.display !== "none");
+  if (group.style["flex-wrap"] && group.style["flex-wrap"] !== "nowrap" && !(horizontal ? hugsOf(group).w : hugsOf(group).h)) {
+    const rects = flexRects({ ...group, style: { ...group.style, "align-content": "flex-start", "flex-wrap": "wrap" } }, { ...layout, alignItems: "flex-start" });
+    const max = (key: "x" | "y", size: "w" | "h") => flowing.reduce((out, child) => {
+      const rect = rects.get(child.id);
+      return Math.max(out, rect ? rect[key] + rect[size] : 0);
+    }, 0);
+    return { w: max("x", "w") + pad.right, h: max("y", "h") + pad.bottom };
+  }
   let main = gap * Math.max(0, flowing.length - 1);
   let cross = 0;
   for (const child of flowing) {

@@ -44,6 +44,10 @@ import {
 import type { ToolControl } from "./render/CanvasSurface";
 import { useViewportZoom, type ViewportController } from "./engine/useViewport";
 import { absoluteSelectionBounds } from "./scene/geometry";
+import { laidOutScene } from "./scene/autoLayout";
+import { FullscreenButton } from "./FullscreenButton";
+import { ExportMenu } from "./ExportMenu";
+import type { CanvasPresentation } from "./engine/presentation";
 import "./canvas.css";
 
 const svg = {
@@ -296,13 +300,15 @@ export function Button({
 }
 
 export interface ToolbarProps {
+  presentation?: CanvasPresentation;
   store: SceneStore;
   viewport: ViewportController;
   /** Subscribed to rather than passed as a value: see {@link ToolControl}. */
   tools: ToolControl;
 }
 
-export function Toolbar({ store, viewport, tools }: ToolbarProps) {
+export function Toolbar({ store, viewport, tools, presentation }: ToolbarProps) {
+  const expanded = useSyncExternalStore(presentation?.subscribe ?? neverChanges, presentation?.get ?? notApple, notApple);
   const tool = useSyncExternalStore(tools.subscribe, tools.get, tools.get);
   // The scalar, not the whole viewport: `commit()` allocates a fresh object on
   // every pan frame, and this pill only shows the zoom.
@@ -331,7 +337,7 @@ export function Toolbar({ store, viewport, tools }: ToolbarProps) {
   const hint = (id: ShortcutId) => shortcutHint(id, apple);
 
   const fit = () => {
-    const scene = store.getScene();
+    const scene = laidOutScene(store.getScene());
     const bounds = scene.nodes.length
       ? absoluteSelectionBounds(
           scene,
@@ -462,6 +468,11 @@ export function Toolbar({ store, viewport, tools }: ToolbarProps) {
             </MenuItem>
           )}
         </Menu>
+        <FullscreenButton />
+        <ExportMenu store={store} viewport={viewport} />
+        {presentation && <Button label={expanded ? "Return to document" : "Expand canvas"} hint={expanded ? "Esc" : ""} pressed={expanded} onClick={presentation.toggle}>
+          <svg {...svg}><path d={expanded ? "M9 3v6H3m12 12v-6h6" : "M3 9V3h6m12 12v6h-6M3 3l6 6m12 12-6-6"} /></svg>
+        </Button>}
       </div>
     </div>
   );

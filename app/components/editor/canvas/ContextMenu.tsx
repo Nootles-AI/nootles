@@ -45,7 +45,7 @@ const MENU_Z = "var(--z-modal)";
 export interface MenuAction {
   label: string;
   /** Its row in the keymap — the source of both the binding and the hint. */
-  shortcut: ShortcutId;
+  shortcut?: ShortcutId;
   disabled: boolean;
   danger?: boolean;
   run(): void;
@@ -236,7 +236,7 @@ export function ContextMenu({
     const previous = document.activeElement;
     el.focus();
     return () => {
-      if (previous instanceof HTMLElement) previous.focus();
+      if (previous instanceof HTMLElement && previous.isConnected) previous.focus({ preventScroll: true });
     };
   }, [at]);
 
@@ -297,7 +297,7 @@ export function ContextMenu({
               >
                 {action.label}
                 <span className="nt-ctx-key">
-                  {shortcutHint(action.shortcut)}
+                  {action.shortcut ? shortcutHint(action.shortcut) : null}
                 </span>
               </button>
             ))}
@@ -310,10 +310,10 @@ export function ContextMenu({
 
 /** The menu, its state and the handler that opens it — one call per host. */
 export function useContextMenu(store: SceneStore, selection: SelectionStore) {
-  const [at, setAt] = useState<Point | null>(null);
+  const [at, setAt] = useState<(Point & { layers: readonly NodeId[] }) | null>(null);
   const open = useCallback(
-    (event: { clientX: number; clientY: number }) =>
-      setAt({ x: event.clientX, y: event.clientY }),
+    (event: { clientX: number; clientY: number }, layers: readonly NodeId[] = []) =>
+      setAt({ x: event.clientX, y: event.clientY, layers }),
     [],
   );
   const close = useCallback(() => setAt(null), []);
@@ -322,7 +322,17 @@ export function useContextMenu(store: SceneStore, selection: SelectionStore) {
     menu: at && (
       <ContextMenu
         at={at}
-        actions={buildActions(store, selection)}
+        actions={[
+          ...(at.layers.length > 1 ? [at.layers.map((id): MenuAction => {
+            const node = findNode(store.getScene(), id);
+            return {
+              label: `Select ${node?.name || node?.label.replace(/<[^>]*>/g, "").slice(0, 60) || node?.kind || id} · ${id}`,
+              disabled: !node,
+              run: () => selection.select([id]),
+            };
+          })] : []),
+          ...buildActions(store, selection),
+        ]}
         onClose={close}
       />
     ),

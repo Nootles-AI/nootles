@@ -11,6 +11,25 @@
   --nt-select: #0d99ff;
 }
 
+.nt-fullscreen-error {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  right: 0;
+  width: min(300px, 80vw);
+  padding: 10px 12px;
+  background: var(--background);
+  color: var(--foreground);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  font-size: var(--text-ui);
+}
+
+.nt-screen-picker { border-top: 1px solid var(--border); padding-top: 8px; }
+.nt-toolbar-dock { z-index: var(--z-sticky); }
+.nt-screen-picker .nt-ctl-note { white-space: normal; margin: 4px 0; }
+.nt-ctx[role="menu"] { max-height: calc(100dvh - 16px); overflow-y: auto; max-width: min(420px, calc(100vw - 16px)); }
+.nt-ctx .nt-menu-item { overflow-wrap: anywhere; }
+
 .nt-canvas {
   position: relative;
   width: 100%;
@@ -20,6 +39,17 @@
      field this large it reads as grey paper rather than as an empty surface. */
   background: oklch(0.974 0.002 90);
 }
+
+.nt-canvas.is-expanded {
+  position: fixed;
+  inset: 8px var(--nt-focus-right, 8px) 8px var(--nt-focus-left, 8px);
+  width: auto !important;
+  height: auto !important;
+  margin: 0;
+  z-index: var(--z-dropdown);
+}
+.nt-canvas.is-expanded > .nt-canvas-grip,
+.nt-canvas.is-expanded > .nt-canvas-grip-x { display: none; }
 .nt-editor .ProseMirror-selectednode .nt-canvas {
   box-shadow: inset 0 0 0 1px var(--border-strong);
 }

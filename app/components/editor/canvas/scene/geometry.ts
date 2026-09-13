@@ -2,7 +2,7 @@
  * Scene geometry — the maths the canvas's feel rests on.
  *
  * Pure functions over the {@link SceneNode} model: no React, no DOM, no state,
- * no imports beyond the model itself. Everything here runs inside a pointer
+ * shared outline/paint helpers, with no DOM access. Everything here runs inside a pointer
  * gesture, so it allocates as little as it can and never walks the tree more
  * than once per call.
  *
@@ -25,6 +25,7 @@
  * y-down coordinate system.
  */
 
+import { paintedHit, visiblePaint } from "./paintedHit";
 import {
   type NodeId,
   type Point,
@@ -437,6 +438,18 @@ export interface HitTestOptions {
 }
 
 const PAINT_PROPS = ["background", "background-color", "background-image"];
+const paintOrders = new WeakMap<readonly SceneNode[], readonly SceneNode[]>();
+
+/** Each rendered node is a stacking context; numeric z-index sorts before DOM order. */
+function paintOrder(nodes: readonly SceneNode[]): readonly SceneNode[] {
+  const cached = paintOrders.get(nodes);
+  if (cached) return cached;
+  const order = nodes.some((node) => node.style["z-index"] !== undefined)
+    ? [...nodes].sort((a, b) => (Number(a.style["z-index"]) || 0) - (Number(b.style["z-index"]) || 0))
+    : nodes;
+  paintOrders.set(nodes, order);
+  return order;
+}
 
 /**
  * A regular N-gon's vertices, normalised to 0…1 on each axis so that it fills
@@ -484,91 +497,20 @@ export function unitPolygon(sides: number): readonly Point[] {
   return unit;
 }
 
-/** Distance from `p` to the segment `a → b`. */
-function segmentDistance(
-  p: Point,
-  ax: number,
-  ay: number,
-  bx: number,
-  by: number,
-): number {
-  const dx = bx - ax;
-  const dy = by - ay;
-  const len = dx * dx + dy * dy;
-  const t =
-    len === 0
-      ? 0
-      : Math.min(1, Math.max(0, ((p.x - ax) * dx + (p.y - ay) * dy) / len));
-  return Math.hypot(ax + t * dx - p.x, ay + t * dy - p.y);
-}
-
-/** Ray casting, widened by `tol` so a hairline edge is still grabbable. */
-function hitsPolygon(
-  unit: readonly Point[],
-  w: number,
-  h: number,
-  point: Point,
-  tol: number,
-): boolean {
-  let inside = false;
-  let near = Infinity;
-  for (let i = 0, j = unit.length - 1; i < unit.length; j = i++) {
-    const ax = unit[i].x * w;
-    const ay = unit[i].y * h;
-    const bx = unit[j].x * w;
-    const by = unit[j].y * h;
-    if (
-      ay > point.y !== by > point.y &&
-      point.x < ((bx - ax) * (point.y - ay)) / (by - ay) + ax
-    ) {
-      inside = !inside;
-    }
-    if (tol > 0) near = Math.min(near, segmentDistance(point, ax, ay, bx, by));
-  }
-  return inside || near <= tol;
-}
-
-/**
- * Whether a group's own box should catch a click. A plain group is a bag of
- * children and its empty space is click-through; an auto-layout container with
- * a fill behaves like a frame, and clicking its padding must select it.
- */
+/** Shared visible-paint policy for frames and ordinary shapes. */
 function isFilled(node: SceneNode): boolean {
-  for (const prop of PAINT_PROPS) {
-    const v = node.style[prop];
-    if (v !== undefined && v !== "" && v !== "none" && v !== "transparent") {
-      return true;
-    }
-  }
-  return false;
+  return PAINT_PROPS.some((prop) => visiblePaint(node.style[prop]));
 }
 
-/**
- * `point` is already in `node`'s local space.
- *
- * A kind whose form is not its box is tested against that form, not against the
- * box: half of a triangle's box is empty canvas, and a press there catching the
- * shape is what makes grabbing the selection frame's edge drag the triangle
- * instead of resizing it.
- */
 function hitsShape(node: SceneNode, point: Point, tol: number): boolean {
-  if (node.kind === "polygon") {
-    return hitsPolygon(unitPolygon(node.sides), node.w, node.h, point, tol);
-  }
-  if (node.kind === "ellipse") {
-    const rx = node.w / 2 + tol;
-    const ry = node.h / 2 + tol;
-    if (rx <= 0 || ry <= 0) return false;
-    const dx = (point.x - node.w / 2) / rx;
-    const dy = (point.y - node.h / 2) / ry;
-    return dx * dx + dy * dy <= 1;
-  }
-  return (
-    point.x >= -tol &&
-    point.x <= node.w + tol &&
-    point.y >= -tol &&
-    point.y <= node.h + tol
-  );
+  return paintedHit(node, point, tol);
+}
+
+function clipped(node: SceneNode, point: Point): boolean {
+  const style = node.style;
+  const clipX = /^(hidden|clip|scroll|auto)$/.test(style["overflow-x"] ?? style.overflow ?? "");
+  const clipY = /^(hidden|clip|scroll|auto)$/.test(style["overflow-y"] ?? style.overflow ?? "");
+  return (clipX && (point.x < 0 || point.x > node.w)) || (clipY && (point.y < 0 || point.y > node.h));
 }
 
 function hitChain(
@@ -578,16 +520,17 @@ function hitChain(
   tol: number,
   out: SceneNode[],
 ): boolean {
+  list = paintOrder(list);
   for (let i = list.length - 1; i >= 0; i--) {
     const node = list[i];
-    if (node.hidden) continue;
+    if (node.hidden || node.style.display === "none" || node.style.visibility === "hidden" || (node.style.opacity !== undefined && Number(node.style.opacity) === 0)) continue;
     if (node.locked && !opts.includeLocked) continue;
     const local = toLocal(point, node);
     if (isContainer(node)) {
+      if (isBoolean(node) && !hitsShape(node, local, tol)) continue;
       out.push(node);
-      if (hitChain(node.children, local, opts, tol, out)) return true;
-      // A boolean group's box is its drawing's, painted by the group itself.
-      if (hitsShape(node, local, tol) && (isFilled(node) || isBoolean(node))) return true;
+      if (!clipped(node, local) && hitChain(node.children, local, opts, tol, out)) return true;
+      if (hitsShape(node, local, tol)) return true;
       out.pop();
       continue;
     }
@@ -615,6 +558,25 @@ export function hitTestPath(
   const out: SceneNode[] = [];
   const tol = opts.tolerance ?? 0;
   return hitChain(rootNodes(scene), point, opts, tol, out) ? out : [];
+}
+
+/** Every selectable layer under a point, front to back, children before parents. */
+export function hitTestAll(scene: SceneLike, point: Point, opts: HitTestOptions = {}): SceneNode[] {
+  const result: SceneNode[] = [];
+  const visit = (nodes: readonly SceneNode[], at: Point) => {
+    nodes = paintOrder(nodes);
+    for (let i = nodes.length - 1; i >= 0; i--) {
+      const node = nodes[i];
+      if (node.hidden || (node.locked && !opts.includeLocked) || node.style.display === "none" || node.style.visibility === "hidden" || (node.style.opacity !== undefined && Number(node.style.opacity) === 0)) continue;
+      const local = toLocal(at, node);
+      if (isBoolean(node) && !hitsShape(node, local, opts.tolerance ?? 0)) continue;
+      const before = result.length;
+      if (isContainer(node) && !clipped(node, local)) visit(node.children, local);
+      if (result.length > before || hitsShape(node, local, opts.tolerance ?? 0)) result.push(node);
+    }
+  };
+  visit(rootNodes(scene), point);
+  return result;
 }
 
 /**

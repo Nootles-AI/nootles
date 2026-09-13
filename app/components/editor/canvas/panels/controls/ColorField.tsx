@@ -17,6 +17,7 @@ import {
 } from "../colorVariables";
 import { useLiveEdit } from "./live";
 import { Popover } from "./Popover";
+import { ScreenColorPicker } from "./ScreenColorPicker";
 import { track } from "./track";
 import {
   displayColor,
@@ -244,6 +245,7 @@ function Body({
             : onChange(css)
         }
       />
+      <ScreenColorPicker onChange={(css) => target ? target.api.setStyle(declareVariable(target.name, css)) : onChange(css)} />
       {api && (
         <Variables api={api} bound={bound} literal={literal} onPick={onChange} />
       )}
