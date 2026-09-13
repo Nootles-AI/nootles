@@ -31,9 +31,33 @@ export function tokenDiff(
 ): DiffPart[] | null {
   if (before === after) return [];
 
-  const a = tokenise(before);
-  const b = tokenise(after);
+  const steps = align(tokenise(before), tokenise(after), limit);
+  if (!steps) return null;
 
+  const parts: DiffPart[] = [];
+  // Offsets into `after`, which is the text the positions are read against. A
+  // deletion has no width there, so it reports the point it sat at.
+  let at = 0;
+  for (const { kind, text } of steps) {
+    const last = parts[parts.length - 1];
+    if (last?.kind === kind) {
+      last.text += text;
+      if (kind !== "del") last.end = at + text.length;
+    } else {
+      parts.push({ kind, text, at, end: kind === "del" ? at : at + text.length });
+    }
+    if (kind !== "del") at += text.length;
+  }
+  return parts;
+}
+
+export type Step = { kind: "same" | "add" | "del"; text: string };
+
+/**
+ * One sequence walked into another, a step per item: kept, added, or gone.
+ * `null` when what differs is longer than `limit` on either side.
+ */
+export function align(a: string[], b: string[], limit = 400): Step[] | null {
   // Common ends first. A one-word change in a long paragraph is then a diff of
   // one token against one, and the table never gets built.
   let head = 0;
@@ -51,30 +75,13 @@ export function tokenDiff(
   const midB = b.slice(head, b.length - tail);
   if (midA.length > limit || midB.length > limit) return null;
 
-  const parts: DiffPart[] = [];
-  // Offsets into `after`, which is the text the positions are read against. A
-  // deletion has no width there, so it reports the point it sat at.
-  let at = 0;
-  const emit = (kind: DiffPart["kind"], text: string) => {
-    if (!text) return;
-    const last = parts[parts.length - 1];
-    if (last?.kind === kind) {
-      last.text += text;
-      if (kind !== "del") last.end = at + text.length;
-    } else {
-      parts.push({ kind, text, at, end: kind === "del" ? at : at + text.length });
-    }
-    if (kind !== "del") at += text.length;
-  };
-
-  emit("same", b.slice(0, head).join(""));
-  for (const step of lcsWalk(midA, midB)) emit(step.kind, step.text);
-  emit("same", tail ? b.slice(b.length - tail).join("") : "");
-
-  return parts;
+  const same = (text: string): Step => ({ kind: "same", text });
+  return [
+    ...b.slice(0, head).map(same),
+    ...lcsWalk(midA, midB),
+    ...b.slice(b.length - tail).map(same),
+  ];
 }
-
-type Step = { kind: "same" | "add" | "del"; text: string };
 
 /** Longest common subsequence, walked back into same/add/del runs. */
 function* lcsWalk(a: string[], b: string[]): Generator<Step> {

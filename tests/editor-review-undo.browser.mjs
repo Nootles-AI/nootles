@@ -26,6 +26,11 @@
  * both docs' maps, the collaborator's copy of the mirror, the review's fork and
  * the surface — is checked on its own, and a shape is dragged with the pointer.
  *
+ * NT-39: an agent that changed a few words of a table had the whole table
+ * washed green, as if all of it were new. Every table edit reaches the review
+ * as one whole-table `setTableRows`, so the checks read what a reader meets:
+ * the block's own mark, and which cells have words marked in them.
+ *
  * Uses the existing esbuild dependency and an operator-installed Puppeteer. No
  * app server, no Convex, no API keys — and every non-local request fails the
  * run, so no AI lane can be spent in here.
@@ -101,8 +106,9 @@ await build({
 });
 // Tailwind is not in the bundle; the canvas block's wrapper leans on two of its
 // utilities, without which a diagram lays out zero pixels wide and no shape on
-// it can be pressed.
-await writeFile(path.join(output, "index.html"), `<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="/editor-review-undo.browser.css"><style>html,body{margin:0;height:100%;overflow:hidden;font-family:Arial,sans-serif}.relative{position:relative}.w-full{width:100%}</style></head><body><div id="app"></div><script type="module" src="/editor-review-undo.browser.js"></script></body></html>`);
+// it can be pressed. `globals.css` imports Tailwind too, so the review's diff
+// colours are copied from it: without them a wash paints nothing to check.
+await writeFile(path.join(output, "index.html"), `<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="/editor-review-undo.browser.css"><style>html,body{margin:0;height:100%;overflow:hidden;font-family:Arial,sans-serif}.relative{position:relative}.w-full{width:100%}:root{--diff-add-bg:oklch(0.962 0.024 148);--diff-add-line:oklch(0.63 0.105 148);--diff-del:oklch(0.548 0.115 25);--diff-del-bg:oklch(0.958 0.019 25)}</style></head><body><div id="app"></div><script type="module" src="/editor-review-undo.browser.js"></script></body></html>`);
 
 const server = createServer(async (request, response) => {
   try {
@@ -222,13 +228,13 @@ try {
   };
   const settled = () => page.waitForFunction(() => window.reviewHarness.open() === 0 && !window.reviewHarness.forked(), { timeout: 5000 }).then(() => sleep(250));
   /** The question typed into the chat composer, then the agent's answer staged. */
-  const turn = async (kind = "agentReplace") => {
+  const turn = async (kind = "agentReplace", ...args) => {
     const composer = await page.$("#composer");
     const box = await composer.boundingBox();
     await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
     await page.keyboard.type("turn my notes into a storyboard", { delay: 2 });
     await sleep(100);
-    const id = await h((name) => window.reviewHarness[name](), kind);
+    const id = await h((name, rest) => window.reviewHarness[name](...rest), kind, args);
     await page.waitForSelector("#bar button");
     await sleep(150);
     return id;
@@ -675,6 +681,135 @@ try {
   await rewindTo("Notes only");
   await sleep(300);
   check("the rewind takes the shape back from every reader, and ends the fork", [await shapes(), await forked()], [everywhere(["a"]), false]);
+
+  // NT-39: one day of the reporter's itinerary, with a bold run in a cell so a
+  // marked word has to land past a mark boundary.
+  const plain = (value) => ({ type: "text", text: value });
+  const bold = (value) => ({ type: "text", text: value, marks: ["bold"] });
+  const ITINERARY = [
+    ["Time", "Activity", "Notes"],
+    ["2:00 PM", [plain("Depart "), bold("Vancouver")], "Head south early to clear the border."],
+    ["4:30 PM", "Dinner in Lynnwood", "Quick, popular stop for a road-trip kick-off dinner."],
+    ["6:30 PM", "Check in at Embassy Suites", "Unwind, settle in, and enjoy the pool."],
+  ];
+  const cellText = (cell) => (typeof cell === "string" ? cell : cell.map((run) => run.text).join(""));
+  const asText = (rows) => rows.map((cells) => cells.map(cellText));
+  const withCell = (rows, r, c, cell) => rows.map((cells, i) => (i === r ? cells.map((old, j) => (j === c ? cell : old)) : cells));
+  const MEAL = "Quick, popular stop for a road-trip kick-off meal.";
+  /** Two cells rewritten in part: words added after the bold run, and one word swapped. */
+  const PARTIAL = withCell(withCell(ITINERARY, 1, 1, [plain("Depart "), bold("Vancouver"), plain(" at noon")]), 2, 2, MEAL);
+  const TRANSPARENT = "rgba(0, 0, 0, 0)";
+  const NOTHING = { tone: null, ins: [], del: [], cells: [] };
+
+  const table = (index = 0) => h((i) => window.reviewHarness.drawnTable(i), index);
+  const tableRows = (index = 0) => h((i) => window.reviewHarness.tableRows(i), index);
+  const underReview = () => h(() => window.reviewHarness.open());
+  /** The marks and where they sit — `drawn` without the computed colour. */
+  const marks = ({ tone, ins, del, cells }) => ({ tone, ins, del, cells });
+  const freshTable = async () => {
+    await h(() => window.reviewHarness.mount());
+    await page.waitForSelector(".bn-editor");
+    await h((rows) => window.reviewHarness.seedTable(rows), ITINERARY);
+    await page.waitForFunction(() => window.reviewHarness.cellEnd(1, 1) !== null);
+    await page.waitForFunction(() => window.reviewHarness.stacks() !== null);
+    await sleep(100);
+  };
+
+  console.log("NT-39: an agent rewrites a few words of a table");
+  await freshTable();
+  await turn("agentTable", PARTIAL);
+  check("the rewrite is on the page, under review", [await tableRows(), await underReview()], [asText(PARTIAL), 1]);
+  const partial = await table();
+  check("…the table is not washed as if all of it were new", [partial.tone, partial.wash], ["edit", TRANSPARENT]);
+  check("…the words it wrote are marked, the word it replaced is struck, and no other cell is touched", marks(partial), {
+    tone: "edit",
+    ins: [" at noon", "meal."],
+    del: ["dinner."],
+    cells: ["1:1", "2:2"],
+  });
+  await clickEnd(0);
+  await page.keyboard.type(" (day one)", { delay: 5 });
+  await sleep(300);
+  check("typing above the table leaves the marks on the same words", marks(await table()), marks(partial));
+  check("one change, one Keep button", await pressHunk("Keep this change"), 1);
+  await settled();
+  check("keeping it keeps the rewrite", await tableRows(), asText(PARTIAL));
+  check("…and nothing is drawn on the table any more", marks(await table()), NOTHING);
+
+  console.log("NT-39: Discard all on a partly rewritten table");
+  await freshTable();
+  await turn("agentTable", PARTIAL);
+  await press("Discard all");
+  await settled();
+  check("Discard all puts the table's words back", await tableRows(), asText(ITINERARY));
+  check("…and nothing is drawn on it", marks(await table()), NOTHING);
+
+  console.log("NT-39: typing into a rewritten cell while it is under review");
+  await freshTable();
+  await turn("agentTable", PARTIAL);
+  const cellEnd = await h(() => window.reviewHarness.cellEnd(2, 2));
+  await page.mouse.click(cellEnd.x, cellEnd.y);
+  await sleep(80);
+  await page.keyboard.type(" Cheap.", { delay: 5 });
+  await sleep(300);
+  check("the typing lands in that cell", await tableRows(), asText(withCell(PARTIAL, 2, 2, `${MEAL} Cheap.`)));
+  check("…and the change is theirs now: nothing marked, no Discard", [marks(await table()), (await page.$$('button[aria-label="Discard this change"]')).length], [{ ...NOTHING, tone: "kept" }, 0]);
+
+  console.log("NT-39: an agent empties a cell");
+  await freshTable();
+  await turn("agentTable", withCell(ITINERARY, 3, 2, ""));
+  check("the words it took out are struck in the empty cell, and nowhere else", marks(await table()), {
+    tone: "edit",
+    ins: [],
+    del: ["Unwind, settle in, and enjoy the pool."],
+    cells: ["3:2"],
+  });
+
+  console.log("NT-39: an agent adds a row at the end");
+  await freshTable();
+  await turn("agentTable", [...ITINERARY, ["8:00 PM", "Swim", ""]]);
+  check("only the new row's words are marked", marks(await table()), { tone: "edit", ins: ["8:00 PM", "Swim"], del: [], cells: ["4:0", "4:1"] });
+
+  console.log("NT-39: an agent adds a row in the middle");
+  await freshTable();
+  await turn("agentTable", [ITINERARY[0], ["1:00 PM", "Lunch at the border", ""], ...ITINERARY.slice(1)]);
+  check("only the new row's words are marked, not the rows it pushed down", marks(await table()), {
+    tone: "edit",
+    ins: ["1:00 PM", "Lunch at the border"],
+    del: [],
+    cells: ["1:0", "1:1"],
+  });
+
+  console.log("NT-39: an agent rewrites a cell and adds a row");
+  await freshTable();
+  await turn("agentTable", [...withCell(ITINERARY, 2, 2, MEAL), ["8:00 PM", "Swim", "Hotel pool"]]);
+  check("the rewritten words and the new row are marked, and nothing else", marks(await table()), {
+    tone: "edit",
+    ins: ["meal.", "8:00 PM", "Swim", "Hotel pool"],
+    del: ["dinner."],
+    cells: ["2:2", "4:0", "4:1", "4:2"],
+  });
+
+  console.log("NT-39: an agent takes a row out, or adds a column");
+  await freshTable();
+  await turn("agentTable", ITINERARY.slice(0, 3));
+  const cut = await table();
+  check("a row taken out cannot be drawn inside the grid, so the table is washed whole", [marks(cut), cut.wash !== TRANSPARENT], [{ ...NOTHING, tone: "whole" }, true]);
+  await freshTable();
+  await turn("agentTable", ITINERARY.map((cells, i) => [...cells, i ? "" : "Cost"]));
+  check("a column added reshapes every row, so the table is washed whole", marks(await table()), { ...NOTHING, tone: "whole" });
+
+  console.log("NT-39 controls: a table written from nothing, and a rewritten line");
+  await freshTable();
+  await turn("agentNewTable", ITINERARY.slice(0, 2));
+  const added = await table(1);
+  check("a table the agent wrote from nothing is washed whole", [marks(added), added.wash !== TRANSPARENT], [{ ...NOTHING, tone: "add" }, true]);
+  check("…and the table already there is left alone", marks(await table(0)), NOTHING);
+  await freshTable();
+  await turn("agentLine", "Drive: ~3 hrs (subject to border wait)");
+  const line = await h(() => window.reviewHarness.drawnLine("Drive:"));
+  check("a rewritten line has its words marked, and no wash", [marks(line), line.wash], [{ tone: "edit", ins: ["~3"], del: ["~2.5"], cells: [] }, TRANSPARENT]);
+  check("nothing reported a failure", await h(() => window.reviewHarness.failure()), null);
 } finally {
   await browser?.close();
   server.close();
