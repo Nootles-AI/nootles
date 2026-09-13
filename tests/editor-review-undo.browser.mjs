@@ -14,6 +14,12 @@
  * against an in-memory stand-in for Convex; only the model is replaced, by a
  * scripted batch resolved exactly as `edit_page` resolves one.
  *
+ * NT-44: the chat's rewind ("Notes only", "Notes and conversation") restored
+ * nothing once turn rows were stored packed, and restoring them for real
+ * rewrote the page under a ⌘Z timeline that still named what it replaced. The
+ * rewind is pressed through the chat transcript's own Rewind menu, wired to the
+ * session as `ChatPanel` wires it.
+ *
  * Uses the existing esbuild dependency and an operator-installed Puppeteer. No
  * app server, no Convex, no API keys — and every non-local request fails the
  * run, so no AI lane can be spent in here.
@@ -54,6 +60,23 @@ export function useReviewFailure() {
 }
 `;
 
+// The transcript learns which questions changed a page — and so which offer to
+// rewind the notes — from `useQuery`; the fixture answers that one query from
+// its in-memory turn rows, and leaves every other query loading.
+const CHAT_CONVEX = `
+export * from "convex/react";
+import { useSyncExternalStore } from "react";
+import { getFunctionName } from "convex/server";
+const never = () => () => {};
+const loading = () => undefined;
+export function useQuery(query, args) {
+  const turns = globalThis.reviewHarnessTurns;
+  const wanted = args !== "skip" && getFunctionName(query) === "chat/turns:restorable";
+  return useSyncExternalStore(wanted ? turns.subscribe : never, wanted ? turns.restorable : loading);
+}
+`;
+const TRANSCRIPT = path.join("app", "components", "chat", "ChatTranscript.tsx");
+
 await build({
   absWorkingDir: repo, entryPoints: ["tests/editor-review-undo.browser.tsx"], bundle: true, splitting: true,
   format: "esm", outdir: output, platform: "browser", conditions: ["browser", "import", "style"],
@@ -63,6 +86,8 @@ await build({
   plugins: [{ name: "fixture", setup(builder) {
     builder.onResolve({ filter: /^next\/dist\/compiled\/gzip-size$/ }, () => ({ path: "server-only", namespace: "fixture" }));
     builder.onResolve({ filter: /(^|\/)ReviewContext$/ }, () => ({ path: "review-context", namespace: "fixture" }));
+    builder.onResolve({ filter: /^convex\/react$/ }, (args) => (args.importer.endsWith(TRANSCRIPT) ? { path: "chat-convex", namespace: "fixture" } : undefined));
+    builder.onLoad({ filter: /^chat-convex$/, namespace: "fixture" }, () => ({ contents: CHAT_CONVEX, loader: "js", resolveDir: repo }));
     builder.onLoad({ filter: /^server-only$/, namespace: "fixture" }, () => ({ contents: 'exports.sync = () => { throw new Error("Next server-only gzip diagnostics reached in browser") };' }));
     builder.onLoad({ filter: /^review-context$/, namespace: "fixture" }, () => ({ contents: REVIEW_CONTEXT, loader: "js", resolveDir: repo }));
   } }],
@@ -121,6 +146,8 @@ try {
   const page = await browser.newPage();
   await page.setViewport(VIEWPORT);
   page.on("pageerror", (error) => failures.push(`page error: ${error.message}`));
+  // A renderer crash otherwise surfaces only as the next call's "detached Frame".
+  page.on("error", (error) => console.log(`page crashed: ${error.message}`));
   page.on("console", (message) => {
     if (message.type() !== "error" && message.type() !== "warning") return;
     failures.push(`console ${message.type()}: ${message.text()}`);
@@ -385,6 +412,140 @@ try {
   await page.keyboard.type(" v2", { delay: 5 });
   await sleep(BETWEEN_NOTES);
   check("typing after Revert reaches the shared doc", (await h(() => window.reviewHarness.peerTexts()))[0], "heading:Enactus intro reel v2");
+
+  const clickOn = async (handle) => {
+    const box = await handle.boundingBox();
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  };
+  /** Until the session has nothing queued — a rewind is several awaits long. */
+  const idle = () => h(() => window.reviewHarness.idle()).then(() => sleep(250));
+  const status = (id) => h((i) => window.reviewHarness.status(i), id);
+  const open = () => h(() => window.reviewHarness.open());
+  const conversation = () => h(() => window.reviewHarness.messages());
+  /** The question's Rewind menu in the chat rail, and one of its options. */
+  const rewindTo = async (option) => {
+    // The menu form of the button, which only a question that changed a page has.
+    const trigger = await page.waitForSelector('#chat .nt-turn.is-user button.nt-rewind[aria-haspopup="menu"]', { timeout: 5000 });
+    await clickOn(trigger);
+    const [item] = await page.$$(`xpath/.//div[@role="menu"]//button[@role="menuitem"][.//span[normalize-space()="${option}"]]`);
+    if (!item) throw new Error(`no "${option}" in the Rewind menu`);
+    await clickOn(item);
+    await idle();
+  };
+  const DRAFT = 'textarea[aria-label="Edit this message and rewind to it"]';
+  const drafting = async () => (await page.$(DRAFT)) !== null;
+  const rewindAction = async (label) => {
+    const [button] = await page.$$(`xpath/.//div[contains(@class,"nt-rewind-actions")]//button[normalize-space()="${label}"]`);
+    if (!button) throw new Error(`no ${label} button on the rewind`);
+    await clickOn(button);
+    await idle();
+  };
+  /** Empties the question — "put it back and ask nothing" — and confirms. */
+  const confirmRewind = async () => {
+    // Backspaced away from its end: headless Chromium on macOS does not run
+    // ⌘A's select-all for synthesized keys.
+    await clickOn(await page.$(DRAFT));
+    await page.keyboard.press("End");
+    const length = await page.$eval(DRAFT, (el) => el.value.length);
+    for (let i = 0; i < length; i++) await page.keyboard.press("Backspace");
+    await sleep(80);
+    await rewindAction("Rewind");
+  };
+  const typeAtTitle = async (value) => {
+    await clickEnd(0);
+    await page.keyboard.type(value, { delay: 5 });
+    await sleep(BETWEEN_NOTES);
+  };
+
+  console.log("NT-44: Keep all, then Rewind › Notes only, then ⌘Z");
+  await fresh();
+  await typeNotes();
+  const keptThenRewound = await turn();
+  await press("Keep all");
+  await settled();
+  await rewindTo("Notes only");
+  check("the rewind puts the notes back", await texts(), [...HEAD, ...NOTES]);
+  check("…for the collaborator too", await peer(), [...HEAD, ...NOTES]);
+  check("…the kept turn is answered no", await status(keptThenRewound), "rejected");
+  check("…and the conversation stays", await conversation(), 2);
+  await clickEnd(0);
+  await undo();
+  check("⌘Z after the rewind leaves the page whole", await texts(), [...HEAD, ...NOTES]);
+  check("…on the collaborator's side too", await peer(), [...HEAD, ...NOTES]);
+  await redo();
+  check("…and so does ⌘⇧Z", [await texts(), await peer()], [[...HEAD, ...NOTES], [...HEAD, ...NOTES]]);
+  await typeAtTitle(" v2");
+  check("typing after the rewind is written", await texts(), ["heading:Enactus intro reel v2", HEAD[1], ...NOTES]);
+  await undo();
+  check("⌘Z takes back that typing and nothing else", await texts(), [...HEAD, ...NOTES]);
+  check("nothing reported a failure", await h(() => window.reviewHarness.failure()), null);
+
+  console.log("NT-44: Rewind › Notes only, while the change is still under review");
+  await fresh();
+  await typeNotes();
+  const pendingThenRewound = await turn();
+  await rewindTo("Notes only");
+  check("the rewind puts the notes back", await texts(), [...HEAD, ...NOTES]);
+  check("…ends the review and its fork", [await open(), await forked()], [0, false]);
+  check("…the collaborator never saw the change", await peer(), [...HEAD, ...NOTES]);
+  check("…the turn is answered no", await status(pendingThenRewound), "rejected");
+  check("…and the conversation stays", await conversation(), 2);
+  await clickEnd(0);
+  await undo();
+  check("⌘Z still reaches the person's own typing", await texts(), [...HEAD, ...NOTES.slice(0, 2), "paragraph:"]);
+
+  console.log("NT-44: Keep all, then Rewind › Notes and conversation");
+  await fresh();
+  await typeNotes();
+  const keptThenBoth = await turn();
+  await press("Keep all");
+  await settled();
+  await rewindTo("Notes and conversation");
+  check("the rewind is shown before it is agreed to", [await texts(), await drafting()], [[...HEAD, ...NOTES], true]);
+  await confirmRewind();
+  check("confirmed, the notes stay back", await texts(), [...HEAD, ...NOTES]);
+  check("…for the collaborator too", await peer(), [...HEAD, ...NOTES]);
+  check("…the exchange is gone", await conversation(), 0);
+  check("…and the turn is answered no", await status(keptThenBoth), "rejected");
+  await clickEnd(0);
+  await undo();
+  check("⌘Z after the rewind leaves the page whole", [await texts(), await peer()], [[...HEAD, ...NOTES], [...HEAD, ...NOTES]]);
+
+  console.log("NT-44: Keep all, then Rewind › Notes and conversation, then Cancel");
+  await fresh();
+  await typeNotes();
+  const keptThenCancelled = await turn();
+  await press("Keep all");
+  await settled();
+  await rewindTo("Notes and conversation");
+  check("the rewind is shown", await texts(), [...HEAD, ...NOTES]);
+  await rewindAction("Cancel");
+  check("Cancel puts the kept change back", await texts(), [...HEAD, ...SCENE]);
+  check("…for the collaborator too", await peer(), [...HEAD, ...SCENE]);
+  check("…the exchange stays", await conversation(), 2);
+  check("…and the turn stays kept", await status(keptThenCancelled), "accepted");
+  await clickEnd(0);
+  await undo();
+  check("⌘Z after the cancelled rewind leaves the page whole", [await texts(), await peer()], [[...HEAD, ...SCENE], [...HEAD, ...SCENE]]);
+
+  console.log("NT-44: Rewind › Notes and conversation, while the change is still under review");
+  await fresh();
+  await typeNotes();
+  const pendingThenBoth = await turn();
+  await rewindTo("Notes and conversation");
+  check("the rewind is shown inside the review's fork", [await texts(), await forked(), await peer()], [[...HEAD, ...NOTES], true, [...HEAD, ...NOTES]]);
+  await rewindAction("Cancel");
+  check("Cancel gives the change back to its review", [await texts(), await open(), await forked()], [[...HEAD, ...SCENE], 1, true]);
+  check("…which the collaborator still has not seen", await peer(), [...HEAD, ...NOTES]);
+  await rewindTo("Notes and conversation");
+  await confirmRewind();
+  check("confirmed, the notes are back and the fork is gone", [await texts(), await open(), await forked()], [[...HEAD, ...NOTES], 0, false]);
+  check("…the collaborator never saw the change", await peer(), [...HEAD, ...NOTES]);
+  check("…the exchange is gone", await conversation(), 0);
+  check("…and the turn is answered no", await status(pendingThenBoth), "rejected");
+  await clickEnd(0);
+  await undo();
+  check("⌘Z still reaches the person's own typing", await texts(), [...HEAD, ...NOTES.slice(0, 2), "paragraph:"]);
 } finally {
   await browser?.close();
   server.close();

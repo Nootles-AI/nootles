@@ -87,6 +87,18 @@ function fragmentOf(editor: UndoHostEditor): Y.XmlFragment | null {
   }
 }
 
+/**
+ * Ends a doc's text history, for a write that rewrote the page off the
+ * timeline. Every entry still on it names Yjs items that write replaced or
+ * reused, and ⌘Z over them resurrects and deletes items into a garbled page:
+ * a rewind of a kept change came back with notes lost and duplicated (NT-44).
+ * The spine hears the clear and tombstones the doc's tokens.
+ */
+export function endTextHistory(editor: UndoHostEditor) {
+  const doc = fragmentOf(editor)?.doc;
+  if (doc) managers.get(doc)?.clear();
+}
+
 export function textDomainId(docId: string): string {
   return `text:${docId}`;
 }

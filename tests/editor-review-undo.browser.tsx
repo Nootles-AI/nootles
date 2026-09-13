@@ -1,3 +1,4 @@
+import { useState, useSyncExternalStore } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import * as Y from "yjs";
 import { Awareness } from "y-protocols/awareness";
@@ -23,7 +24,9 @@ import type { LiveEditor } from "../app/components/editor/EditorRegistry";
 import { ReviewBar } from "../app/components/ReviewBar";
 import type { AnyBlock } from "../app/lib/ai/projection";
 import { project } from "../app/lib/ai/projection";
-import { ReviewSession } from "../app/lib/ai/review/session";
+import { ChatTranscript, type RewindScope } from "../app/components/chat/ChatTranscript";
+import type { AbMessage } from "../app/lib/ai/chat/types";
+import { ReviewSession, type ReturnPoint } from "../app/lib/ai/review/session";
 import { resolveBatch } from "../app/lib/ai/validate";
 import { useTextUndoDomain, type UndoHostEditor } from "../app/lib/history/textDomain";
 import {
@@ -69,9 +72,19 @@ function memoryConvex() {
   const rows = new Map<string, Record<string, unknown>>();
   const log: unknown[] = [];
   const name = (ref: unknown) => getFunctionName(ref as FunctionReference<"query">);
+  // `chat/turns:restorable`, the subscription the transcript's Rewind reads.
+  let restorable: { chatPromptId: string; pageCount: number; status: string }[] = [];
+  const listeners = new Set<() => void>();
   return {
     log,
     rows,
+    restorable: () => restorable,
+    subscribe: (listener: () => void) => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
     mutation: async (ref: unknown, args: Record<string, unknown>) => {
       switch (name(ref)) {
         case "ai/checkpoints:create": {
@@ -81,6 +94,14 @@ function memoryConvex() {
         }
         case "chat/turns:save":
           rows.set(args.chatPromptId as string, { ...args });
+          restorable = [...rows.values()]
+            .filter((row) => (row.checkpointIds as string[]).length)
+            .map((row) => ({
+              chatPromptId: row.chatPromptId as string,
+              pageCount: (row.pageIds as string[]).length,
+              status: row.status as string,
+            }));
+          for (const listener of listeners) listener();
           return null;
         case "ai/opLog:appendBatch":
           log.push(args);
@@ -125,8 +146,79 @@ function Page({ editor }: { editor: Editor }) {
       </div>
       {/* The chat composer: outside the undo scope, as ChatPanel's is. */}
       <textarea id="composer" style={{ position: "fixed", right: 24, top: 24, width: 320, height: 60 }} />
+      <ChatRail />
       <output id="spine" data-undo={String(canUndo)} data-redo={String(canRedo)} />
     </main>
+  );
+}
+
+/** The conversation, as the chat store holds it: each staged turn's question and answer. */
+let messages: AbMessage[] = [];
+const chatListeners = new Set<() => void>();
+
+function setMessages(next: AbMessage[]) {
+  messages = next;
+  for (const listener of chatListeners) listener();
+}
+
+function subscribeChat(listener: () => void) {
+  chatListeners.add(listener);
+  return () => {
+    chatListeners.delete(listener);
+  };
+}
+
+/**
+ * The chat rail: the real transcript, its rewind wired to the session exactly
+ * as `ChatPanel` wires it (`startRewind`, `cancelRewind`, `commitRewind`).
+ * Truncating the conversation is the store's half of `useProjectChat.rewind`;
+ * a question typed into the rewind is never sent.
+ */
+function ChatRail() {
+  const list = useSyncExternalStore(subscribeChat, () => messages);
+  const [rewind, setRewind] = useState<{ uiId: string; scope: RewindScope; points: ReturnPoint[] } | null>(null);
+
+  const startRewind = async (message: AbMessage, scope: RewindScope) => {
+    const promptId = message.metadata?.chatPromptId;
+    if (scope === "notes") {
+      if (promptId) void session.restoreCheckpoint(promptId);
+      return;
+    }
+    const points = scope === "both" && promptId ? await session.previewRestore(promptId) : [];
+    setRewind({ uiId: message.id, scope, points });
+  };
+
+  const cancelRewind = async () => {
+    if (!rewind) return;
+    setRewind(null);
+    if (rewind.points.length) await session.cancelRestore(rewind.points);
+  };
+
+  const commitRewind = async () => {
+    if (!rewind) return;
+    const index = messages.findIndex((m) => m.id === rewind.uiId);
+    const promptId = messages[index]?.metadata?.chatPromptId;
+    setRewind(null);
+    if (rewind.scope === "both" && promptId) await session.settleRestore(promptId);
+    if (index >= 0) setMessages(messages.slice(0, index));
+  };
+
+  return (
+    <aside id="chat" style={{ position: "fixed", right: 24, top: 100, bottom: 90, width: 340, overflow: "auto", display: "flex", flexDirection: "column" }}>
+      <ChatTranscript
+        messages={list}
+        busy={false}
+        approvals={[]}
+        projectId={"project" as Id<"projects">}
+        threadId={"thread" as Id<"chatThreads">}
+        onAnswerApproval={() => {}}
+        onAnswerDraws={() => {}}
+        rewinding={rewind?.uiId ?? null}
+        onRewind={(message, what) => void startRewind(message, what)}
+        onRewindCancel={() => void cancelRewind()}
+        onRewindCommit={() => void commitRewind()}
+      />
+    </aside>
   );
 }
 
@@ -157,6 +249,8 @@ function mount() {
     } as never),
   ) as unknown as Editor;
   convex = memoryConvex();
+  (globalThis as Record<string, unknown>).reviewHarnessTurns = { subscribe: convex.subscribe, restorable: convex.restorable };
+  setMessages([]);
   // As `ReviewProvider` builds it; the one open page is the only page.
   session = new ReviewSession({
     convex: convex as never,
@@ -245,6 +339,11 @@ const text = (value: string, marks?: Mark[]) => ({ type: "text" as const, text: 
  */
 async function stageTurn(ops: Operation[], replacing: string[]) {
   const chatPromptId = `turn-${++turns}`;
+  setMessages([
+    ...messages,
+    { id: `question-${turns}`, role: "user", parts: [{ type: "text", text: "turn my notes into a storyboard" }], metadata: { chatPromptId } },
+    { id: `answer-${turns}`, role: "assistant", parts: [{ type: "text", text: "Your notes are a storyboard now." }] },
+  ]);
   session.beginTurn({ threadId: "thread" as Id<"chatThreads">, projectId: "project" as Id<"projects">, chatPromptId });
   const index = project(editor.document as unknown as AnyBlock[]).index;
   const resolved = resolveBatch({ pageId: PAGE, chatPromptId, ops }, index);
@@ -365,6 +464,16 @@ const harness = {
     return { undo: el.dataset.undo === "true", redo: el.dataset.redo === "true" };
   },
   opLog: () => convex.log.length,
+  messages: () => messages.length,
+  /** Resolves once the session's one-at-a-time queue has drained. */
+  idle: async () => {
+    const queued = () => (session as unknown as { queue: Promise<unknown> }).queue;
+    for (let last = queued(); ; last = queued()) {
+      await last;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      if (last === queued()) return;
+    }
+  },
 };
 
 declare global {
