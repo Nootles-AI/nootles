@@ -14,6 +14,7 @@ import { arrivalFlashExtension } from "@/app/components/editor/arrivalFlash";
 import { watchFimFlash } from "@/app/lib/sync/fimFlash";
 import { collabColor } from "@/app/lib/sync/colors";
 import { createRemoteCarets } from "@/app/lib/sync/remoteCarets";
+import { remoteScrollExtension } from "@/app/lib/sync/remoteScroll";
 import { YConvexProvider } from "@/app/lib/sync/YConvexProvider";
 import "@/app/components/editor/editor.css";
 
@@ -98,7 +99,7 @@ function Client({
     const editor = BlockNoteEditor.create(
       withCollaboration({
         schema,
-        extensions: [arrivalFlashExtension],
+        extensions: [arrivalFlashExtension, remoteScrollExtension],
         collaboration: {
           fragment: provider.doc.getXmlFragment("prosemirror"),
           user: { name: label, color },
