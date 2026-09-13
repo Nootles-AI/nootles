@@ -15,12 +15,14 @@ import { hintExtension } from "../app/components/editor/ai/hintText";
 import { reviewExtension } from "../app/components/editor/ai/reviewExtension";
 import { ReviewOverlay } from "../app/components/editor/ai/ReviewOverlay";
 import { arrivalFlashExtension } from "../app/components/editor/arrivalFlash";
-import { canvasMapName, hasCanvasState, materializeCanvas } from "../app/components/editor/canvas/collab/ymap";
+import { ySyncPluginKey } from "y-prosemirror";
+import { applySceneDiff, CANVAS_LOCAL, canvasMapName, hasCanvasState, materializeCanvas } from "../app/components/editor/canvas/collab/ymap";
 import { peekSceneStore } from "../app/components/editor/canvas/engine/useScene";
-import { shapeIdsIn } from "../app/components/editor/canvas/scene/reveal";
-import { serializeScene } from "../app/components/editor/canvas/scene/serialize";
+import { migrateLegacyCanvas } from "../app/components/editor/canvas/scene/migrate";
+import { walk, type Scene } from "../app/components/editor/canvas/scene/types";
 import { blockSelectionExtension } from "../app/components/editor/blockSelection";
 import type { LiveEditor } from "../app/components/editor/EditorRegistry";
+import { CurrentPageProvider } from "../app/components/OpenPageContext";
 import { ReviewBar } from "../app/components/ReviewBar";
 import type { AnyBlock } from "../app/lib/ai/projection";
 import { project } from "../app/lib/ai/projection";
@@ -39,6 +41,8 @@ import { createRemoteCarets } from "../app/lib/sync/remoteCarets";
 import { remoteScrollExtension } from "../app/lib/sync/remoteScroll";
 import "@blocknote/mantine/style.css";
 import "../app/components/editor/editor.css";
+// The workspace loads it with the canvas toolbar, which this page has no room for.
+import "../app/components/editor/canvas/canvas.css";
 
 // The production list, from `Editor.tsx`.
 const EXTENSIONS = [
@@ -259,11 +263,15 @@ function mount() {
   });
   (globalThis as Record<string, unknown>).reviewHarnessSession = session;
   root = createRoot(document.getElementById("app")!);
-  // A fresh project per mount, so no spine outlives the doc it recorded.
+  // A fresh project per mount, so no spine outlives the doc it recorded. The
+  // page context is `PageSurface`'s: without it a diagram registers no undo
+  // domain, and its ⌘Z never reaches the spine.
   root.render(
     <ConvexProvider client={convexReact}>
       <WorkspaceHistoryProvider projectId={`project-${++mounts}`}>
-        <Page editor={editor} />
+        <CurrentPageProvider pageId={PAGE}>
+          <Page editor={editor} />
+        </CurrentPageProvider>
       </WorkspaceHistoryProvider>
     </ConvexProvider>,
   );
@@ -405,22 +413,68 @@ function agentDiagram() {
   return stageTurn([{ kind: "updateBlockProps", blockId: block.id, props: { data: DIAGRAM_WITH_B } }], []);
 }
 
-/** The diagram's shape ids as each reader sees them: the block prop, both docs' maps, and the surface. */
-function diagram() {
-  const block = editor.document.find((b) => b.type === "canvas");
+const canvasBlock = () => editor.document.find((b) => b.type === "canvas");
+
+/** A scene's shapes, sorted — as `id`, or as `id@x` where a check follows a move. */
+function shapeList(scene: Scene, at: boolean) {
+  const out: string[] = [];
+  walk(scene.nodes, (node) => void out.push(at ? `${node.id}@${Math.round(node.x)}` : node.id));
+  return out.sort();
+}
+
+function mapShapes(doc: Y.Doc, blockId: string, at: boolean) {
+  const root = doc.getMap<unknown>(canvasMapName(blockId));
+  return hasCanvasState(root) ? shapeList(materializeCanvas(root), at) : [];
+}
+
+/** The diagram as each reader sees it: the block prop, both docs' maps, and the surface. */
+function diagram(at = false) {
+  const block = canvasBlock();
   if (!block) return null;
-  const ids = (html: string) => [...shapeIdsIn(html)].sort();
-  const maps = (doc: Y.Doc) => {
-    const root = doc.getMap<unknown>(canvasMapName(block.id));
-    return hasCanvasState(root) ? ids(serializeScene(materializeCanvas(root))) : [];
-  };
   const store = peekSceneStore(`canvas:${block.id}`);
   return {
-    prop: ids((block.props as { data: string }).data),
-    maps: maps(local),
-    peer: maps(peer),
-    shown: store ? ids(serializeScene(store.getScene())) : null,
+    prop: shapeList(migrateLegacyCanvas((block.props as { data: string }).data), at),
+    maps: mapShapes(local, block.id, at),
+    peer: mapShapes(peer, block.id, at),
+    shown: store ? shapeList(store.getScene(), at) : null,
   };
+}
+
+/**
+ * What a review keeps to itself: the maps in the doc the editor is bound to
+ * (null unless that is a fork), and the block prop as the collaborator's doc
+ * holds it — the mirror they would read.
+ */
+function diagramPrivacy(at = false) {
+  const block = canvasBlock();
+  if (!block) return null;
+  const bound = (ySyncPluginKey.getState(editor.prosemirrorState) as { binding: { doc: Y.Doc } }).binding.doc;
+  const group = peer.getXmlFragment("prosemirror").get(0) as Y.XmlElement;
+  const container = group.toArray().find((el) => (el as Y.XmlElement).getAttribute("id") === block.id) as Y.XmlElement | undefined;
+  const data = (container?.get(0) as Y.XmlElement | undefined)?.getAttribute("data");
+  return {
+    fork: bound === local ? null : mapShapes(bound, block.id, at),
+    peerMirror: typeof data === "string" ? shapeList(migrateLegacyCanvas(data), at) : null,
+  };
+}
+
+/** A collaborator drawing a shape, written into their maps as their canvas binding writes one. */
+function peerDraws(id: string) {
+  const block = canvasBlock()!;
+  const root = peer.getMap<unknown>(canvasMapName(block.id));
+  const before = materializeCanvas(root);
+  const [shape] = migrateLegacyCanvas(
+    `<nt-diagram w="400" h="300"><nt-rect id="${id}" x="20" y="220" w="60" h="40" style="background: #0a0"></nt-rect></nt-diagram>`,
+  ).nodes;
+  peer.transact(() => applySceneDiff(root, before, { ...before, nodes: [...before.nodes, shape] }), CANVAS_LOCAL);
+}
+
+/** Viewport centre of a shape drawn on the diagram's surface. */
+function shapePoint(id: string) {
+  const el = [...document.querySelectorAll(`.nt-editor [data-id="${CSS.escape(id)}"]`)].find((node) => node.getBoundingClientRect().width > 0);
+  if (!el) return null;
+  const rect = el.getBoundingClientRect();
+  return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
 }
 
 /** A collaborator appending to the block that starts with `prefix`. */
@@ -450,6 +504,9 @@ const harness = {
   seedDiagram,
   agentDiagram,
   diagram,
+  diagramPrivacy,
+  peerDraws,
+  shapePoint,
   peerType,
   forked: forkState,
   open: () => session.getSnapshot().filter((turn) => session.isOpen(turn)).length,

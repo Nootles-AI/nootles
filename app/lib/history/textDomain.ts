@@ -8,6 +8,7 @@ import {
 } from "y-prosemirror";
 import * as Y from "yjs";
 import { KEPT_CHANGE } from "@/app/lib/ai/review/fork";
+import { isCanvasMapName } from "@/app/components/editor/canvas/collab/ymap";
 import type { DomainStep, WorkspaceHistory } from "./spine";
 
 /**
@@ -57,6 +58,18 @@ function managerFor(fragment: Y.XmlFragment): UM | null {
     // fold into it.
     created.on("stack-item-added", (event) => {
       if (event.origin === KEPT_CHANGE) created.stopCapturing();
+    });
+    // A kept change can carry diagrams, whose truth is their maps rather than
+    // the fragment, and ⌘Z has to take a diagram back whole or its block would
+    // say one diagram and its maps another. Scoped as each change lands: no
+    // other origin this manager tracks writes to a diagram's maps. A diagram
+    // the change itself created has no maps here yet; ⌘Z takes its block away
+    // and leaves them with nothing reading them.
+    doc.on("beforeTransaction", (transaction: Y.Transaction) => {
+      if (transaction.origin !== KEPT_CHANGE) return;
+      created.addToScope(
+        [...doc.share.keys()].filter(isCanvasMapName).map((name) => doc.getMap(name)),
+      );
     });
     managers.set(doc, created);
     manager = created;
