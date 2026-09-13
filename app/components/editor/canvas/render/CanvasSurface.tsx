@@ -510,7 +510,8 @@ export function CanvasSurface({
   // The same tool, as the external store the shell reads it through. Written
   // before the listeners are told, so a subscriber woken by the notification
   // reads the new value in the render that notification schedules — an effect
-  // would land after it.
+  // would land after it. So `changeTool` is the only way to switch: a bare
+  // `setTool` moves the surface and leaves the toolbar and the keymap behind.
   const toolRef = useRef<CanvasTool>("move");
   const toolListeners = useRef(new Set<() => void>());
   const [editing, setEditing] = useState<NodeId | null>(null);
@@ -955,7 +956,7 @@ export function CanvasSurface({
   const select = (id: NodeId, kind: DrawKind) => {
     selection.select([id]);
     if (kind === "text") setEditing(id);
-    setTool("move");
+    changeTool("move");
   };
 
   /**
@@ -1206,19 +1207,18 @@ export function CanvasSurface({
     (id: NodeId) => {
       selection.select([id]);
       setEditing(id);
-      setTool("move");
+      changeTool("move");
     },
-    [selection],
+    [selection, changeTool],
   );
 
   /** Escape, Enter, or a press on empty canvas: out of the points, onto the path. */
   const onPenFinish = useCallback(
     (id: NodeId | null) => {
-      setOpenPath(null);
-      setTool("move");
+      changeTool("move");
       if (id) selection.select([id]);
     },
-    [selection],
+    [selection, changeTool],
   );
 
   const height = sceneBlockHeight(scene);
