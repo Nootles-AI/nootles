@@ -296,15 +296,18 @@ export function Eye({ off, ...props }: Props & { off?: boolean }) {
 
 /* ---- Colour pick (COLOR) -------------------------------------------------- */
 
-/** The canvas eyedropper: a pipette's barrel meeting a picked drop, matching
- *  the cursor drawn in `canvas.css` for `data-mode="color-pick"` — same
- *  silhouette, two places. */
+/** The canvas eyedropper: a round bulb, an angled tube, a wedge nib — the
+ *  pipette silhouette every design tool draws for this, matching the cursor
+ *  drawn in `canvas.css` for `data-mode="color-pick"` at 1.5×, same shape,
+ *  two places. The previous version's tube-plus-tick-mark near the tip read
+ *  as a pencil's own written line, not a dropper; this one doesn't have one. */
 export function Dropper(props: Props) {
   return (
     <Line {...props}>
-      <path d="M10.3 2.3a2 2 0 0 1 2.8 2.8l-1.2 1.2-2.8-2.8Z" />
-      <path d="M9.9 3.7 4.4 9.2l-1 3.9 3.9-1L12.8 6.6" />
-      <path d="M3.4 12.6l-.6.6" />
+      <circle cx="11.3" cy="3.3" r="1.9" />
+      <path d="M9.9 4.7 4.6 10Z" />
+      <path d="M9.9 4.7 5.9 8.7" />
+      <path d="M4.6 10 3.2 13.4a.5.5 0 0 0 .65.65L7 12.7Z" fill="currentColor" stroke="none" />
     </Line>
   );
 }

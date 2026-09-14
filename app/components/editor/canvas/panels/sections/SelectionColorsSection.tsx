@@ -44,7 +44,12 @@ export function SelectionColorsSection({
   return (
     <PanelSection title="Selection colours">
       {shown.map((color) => (
-        <div className="nt-ctl-row" key={color.key}>
+        // Keyed on `color.id`, not `color.key` — the latter IS the colour's
+        // current value, so keying on it remounts the row (and closes
+        // whatever popover is open on it) on every tick of the very drag
+        // editing it. `id` is a structural identity that survives the value
+        // changing; see its doc comment in `selectionColors.ts`.
+        <div className="nt-ctl-row" key={color.id}>
           <ColorField
             value={color.authored}
             onChange={(value) => run(recolorOps(scene, selection, color.key, value))}

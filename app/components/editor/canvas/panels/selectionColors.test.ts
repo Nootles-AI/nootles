@@ -74,6 +74,33 @@ describe("collectSelectionColors", () => {
     const colors = collectSelectionColors(scene([parent]), [parent]);
     expect(colors.map((c) => c.authored)).toEqual(["#abcdef"]);
   });
+
+  it("id survives the entry's own value changing — the row a live drag is editing must not remount", () => {
+    // Reproduces the bug directly: SelectionColorsSection.tsx keys its rows on
+    // `id`, not `key` (the colour's current value). Before this existed, every
+    // tick of a drag inside the row's own open colour picker changed `key`,
+    // React saw a new list item, and unmounted the popover out from under the
+    // hand still dragging in it.
+    const nodes = [rect("a", { background: "#123456" }), rect("b", { background: "#123456" })];
+    const before = collectSelectionColors(scene(nodes), nodes)[0];
+    const dragged = nodes.map((n) => ({ ...n, style: { background: "#654321" } }));
+    const after = collectSelectionColors(scene(dragged), dragged)[0];
+    expect(after.key).not.toBe(before.key); // the value really did change...
+    expect(after.id).toBe(before.id); // ...but the row's own identity did not.
+  });
+
+  it("id changes only when membership itself changes (two rows coalescing)", () => {
+    const nodes = [rect("a", { background: "#111111" }), rect("b", { background: "#222222" })];
+    const before = collectSelectionColors(scene(nodes), nodes);
+    const idA = before.find((c) => c.authored === "#111111")!.id;
+    // Recolour b to match a: they are now one entry, and that entry's id is
+    // the union of both slots — genuinely a different row, correctly remounted.
+    const merged = [nodes[0], { ...nodes[1], style: { background: "#111111" } }];
+    const after = collectSelectionColors(scene(merged), merged);
+    expect(after).toHaveLength(1);
+    expect(after[0].uses).toBe(2);
+    expect(after[0].id).not.toBe(idA);
+  });
 });
 
 describe("recolorOps", () => {

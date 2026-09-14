@@ -22,8 +22,20 @@ import { formatColor, parseColor } from "./controls/color";
 
 export interface SelectionColor {
   /** Grouping key: `var:--name` for a whole-value reference, else the
-   *  canonical `formatColor(rgba)` of a literal. */
+   *  canonical `formatColor(rgba)` of a literal. Recomputed from the live
+   *  value every render, so it changes mid-drag — never use this as a React
+   *  list key, or the row being edited remounts on its own edit. Use {@link id}. */
   key: string;
+  /**
+   * A React key that survives the value it names changing. The comma-joined
+   * traversal positions of every token this entry currently groups — stable
+   * across a pure recolour (same nodes, same properties, same slots, only the
+   * text in them changes) because it is assigned from document structure, not
+   * from any colour. It moves only when membership itself changes: two rows
+   * coalescing because a drag made them equal, or one splitting apart — cases
+   * where a fresh mount is the right call, not a bug.
+   */
+  id: string;
   /** The first authored spelling seen, in document order — what the field shows. */
   authored: string;
   /** Distinct (nodeId, property) uses; a gradient with two stops of one colour counts once per stop. */
@@ -100,19 +112,32 @@ export function collectSelectionColors(scene: Scene, nodes: readonly SceneNode[]
   void scene;
   const order: string[] = [];
   const byKey = new Map<string, SelectionColor>();
+  const membersByKey = new Map<string, number[]>();
+  // Assigned purely by traversal order — `STYLE_PROPS`, the node walk, and a
+  // label's own block/run order are all independent of what colour a slot
+  // currently holds — so the same edit that changes a value never reassigns
+  // this, and `id` below stays put while a drag runs through it.
+  let position = 0;
 
   forEachToken(nodes, ({ token }) => {
+    const slot = position++;
     const { key, bound } = keyOf(token.text);
     const existing = byKey.get(key);
     if (existing) {
       existing.uses++;
+      membersByKey.get(key)!.push(slot);
       return;
     }
-    byKey.set(key, { key, authored: token.text, uses: 1, bound });
+    byKey.set(key, { key, id: "", authored: token.text, uses: 1, bound });
+    membersByKey.set(key, [slot]);
     order.push(key);
   });
 
-  return order.map((key) => byKey.get(key)!);
+  return order.map((key) => {
+    const entry = byKey.get(key)!;
+    entry.id = membersByKey.get(key)!.join(",");
+    return entry;
+  });
 }
 
 /**
