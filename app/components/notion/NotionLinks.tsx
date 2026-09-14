@@ -207,7 +207,11 @@ export function useNotionLinks({
       ...(page.folderId ? { folderId: page.folderId } : {}),
       notionPageId: target.notionPageId,
       title: target.label,
-      onProgress: setRunning,
+      // A follow the reader closed can go on reading for minutes, and by the
+      // time it reports, the menu may be showing a different link's follow.
+      onProgress: (step) => {
+        if (!controller.signal.aborted) setRunning(step);
+      },
       signal: controller.signal,
     });
     if (controller.signal.aborted) return;

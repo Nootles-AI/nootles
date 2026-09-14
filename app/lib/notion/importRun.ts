@@ -355,6 +355,10 @@ async function fillPage(
     report();
   }
 
+  // The last point at which a stop can still mean nothing lands. Reading a
+  // large page takes minutes, and a run stopped while Notion was being read
+  // would otherwise write out the page it was stopped from importing.
+  stopIfAborted(signal);
   entry.state = "writing";
   report();
 
