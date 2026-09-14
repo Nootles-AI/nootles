@@ -402,39 +402,70 @@ async function forgetTurns(ctx: MutationCtx, page: Doc<"pages">) {
   ).flat();
 
   for (const turn of turns) {
-    const at = turn.pageIds.indexOf(page._id);
-    if (at === -1) continue;
-    const pageIds = turn.pageIds.filter((_, i) => i !== at);
-    if (!pageIds.length) {
-      await ctx.db.delete(turn._id);
-      continue;
+    if (turn.pageIds.includes(page._id)) {
+      await forgetPagesIn(ctx, turn, new Set([page._id]));
     }
-    await ctx.db.patch(turn._id, {
-      pageIds,
-      checkpointIds: turn.checkpointIds.filter((_, i) => i !== at),
-      trace: withoutPage(turn.trace, page._id),
-      hunks: withoutPage(turn.hunks, page._id),
-    });
   }
 }
 
 /**
- * A turn's `trace` or `hunks` without one page's entry, in the form it was
- * stored in.
- *
- * Rows written since turns were packed hold gzip bytes (`app/lib/ai/review/pack.ts`);
- * older rows hold the plain object. The default runtime has no
- * `DecompressionStream`, so the bytes are opened with fflate, which writes back
- * the same gzip the client's `unpackTurn` reads.
+ * Takes these pages out of one turn: out of its id lists and out of both
+ * blobs. A turn left with no page is deleted, since nothing in it can be
+ * answered or undone any more. Writes nothing when the turn holds none of them.
  */
-function withoutPage(stored: unknown, pageId: Id<"pages">): unknown {
-  const packed = stored instanceof ArrayBuffer;
-  const held = (
-    packed ? JSON.parse(new TextDecoder().decode(gunzipSync(new Uint8Array(stored)))) : stored
-  ) as { pages?: Array<{ pageId: Id<"pages"> }> } | null | undefined;
-  if (!held?.pages) return stored;
-  const kept = { ...held, pages: held.pages.filter((p) => p.pageId !== pageId) };
-  if (!packed) return kept;
+export async function forgetPagesIn(
+  ctx: MutationCtx,
+  turn: Doc<"chatTurns">,
+  gone: ReadonlySet<string>,
+): Promise<"deleted" | "patched" | "unchanged"> {
+  const keep = turn.pageIds.map((id) => !gone.has(id));
+  const pageIds = turn.pageIds.filter((_, i) => keep[i]);
+  if (!pageIds.length) {
+    await ctx.db.delete(turn._id);
+    return "deleted";
+  }
+  const trace = withoutPages(turn.trace, gone);
+  const hunks = withoutPages(turn.hunks, gone);
+  if (pageIds.length === turn.pageIds.length && trace === turn.trace && hunks === turn.hunks) {
+    return "unchanged";
+  }
+  await ctx.db.patch(turn._id, {
+    pageIds,
+    checkpointIds: turn.checkpointIds.filter((_, i) => keep[i]),
+    trace,
+    hunks,
+  });
+  return "patched";
+}
+
+/** The pages a turn's `trace` or `hunks` holds an entry for. */
+export function pagesInBlob(stored: unknown): string[] {
+  return (openBlob(stored)?.pages ?? []).map((p) => p.pageId);
+}
+
+/**
+ * A turn's `trace` or `hunks` without these pages' entries, in the form it was
+ * stored in — the very same value when it holds none of them.
+ */
+function withoutPages(stored: unknown, gone: ReadonlySet<string>): unknown {
+  const held = openBlob(stored);
+  if (!held?.pages?.some((p) => gone.has(p.pageId))) return stored;
+  const kept = { ...held, pages: held.pages.filter((p) => !gone.has(p.pageId)) };
+  if (!(stored instanceof ArrayBuffer)) return kept;
   const bytes = gzipSync(new TextEncoder().encode(JSON.stringify(kept)));
   return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+}
+
+/**
+ * Rows written since turns were packed hold gzip bytes (`app/lib/ai/review/pack.ts`);
+ * older rows hold the plain object. The default runtime has no
+ * `DecompressionStream`, so the bytes are opened with fflate, which also writes
+ * back the same gzip the client's `unpackTurn` reads.
+ */
+function openBlob(stored: unknown) {
+  const held =
+    stored instanceof ArrayBuffer
+      ? JSON.parse(new TextDecoder().decode(gunzipSync(new Uint8Array(stored))))
+      : stored;
+  return held as { pages?: Array<{ pageId: string }> } | null | undefined;
 }

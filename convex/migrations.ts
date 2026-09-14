@@ -1,7 +1,9 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
-import { internalMutation, internalQuery } from "./_generated/server";
+import type { Doc } from "./_generated/dataModel";
+import { internalMutation, internalQuery, type QueryCtx } from "./_generated/server";
 import { raiseTo, TICKET } from "./counters";
+import { forgetPagesIn, pagesInBlob } from "./pages";
 
 /**
  * One-off backfills, run by hand with `npx convex run`. Internal: none of this
@@ -204,6 +206,115 @@ export const grandfatherChatThreads = internalMutation({
     return {
       seen: batch.page.length,
       stamped,
+      done: batch.isDone,
+      cursor: batch.isDone ? null : batch.continueCursor,
+    };
+  },
+});
+
+/**
+ * Chat turns per transaction. Capped in bytes as well as rows: a packed turn
+ * can approach the 1MiB value ceiling, so a count alone would not keep a batch
+ * inside the read limit.
+ */
+const TURN_BATCH = { numItems: 25, maximumBytesRead: 4 * 1024 * 1024 };
+
+/**
+ * The pages a chat turn names that no longer exist, wherever it names them: the
+ * id lists, and the entries inside `trace` and `hunks`. A page in the trash
+ * still exists, and is left to the purge.
+ */
+async function deletedPagesOf(ctx: QueryCtx, turn: Doc<"chatTurns">): Promise<Set<string>> {
+  const named = new Set<string>([
+    ...turn.pageIds,
+    ...pagesInBlob(turn.trace),
+    ...pagesInBlob(turn.hunks),
+  ]);
+  const gone = new Set<string>();
+  for (const raw of named) {
+    const id = ctx.db.normalizeId("pages", raw);
+    if (!id || !(await ctx.db.get(id))) gone.add(raw);
+  }
+  return gone;
+}
+
+/**
+ * What {@link forgetDeletedTurnPages} would change, one batch of turns at a
+ * time: every turn naming a page that is gone, and whether the turn goes too.
+ */
+export const forgetDeletedTurnPagesPreview = internalQuery({
+  args: { cursor: v.optional(v.string()) },
+  handler: async (ctx, args) => {
+    const batch = await ctx.db
+      .query("chatTurns")
+      .paginate({ ...TURN_BATCH, cursor: args.cursor ?? null });
+
+    const affected: Array<{
+      chatPromptId: string;
+      status: Doc<"chatTurns">["status"];
+      createdAt: string;
+      pages: number;
+      gone: number;
+      deletesTurn: boolean;
+    }> = [];
+    for (const turn of batch.page) {
+      const gone = await deletedPagesOf(ctx, turn);
+      if (!gone.size) continue;
+      affected.push({
+        chatPromptId: turn.chatPromptId,
+        status: turn.status,
+        createdAt: new Date(turn.createdAt).toISOString(),
+        pages: turn.pageIds.length,
+        gone: gone.size,
+        deletesTurn: turn.pageIds.every((id) => gone.has(id)),
+      });
+    }
+
+    return {
+      seen: batch.page.length,
+      affected,
+      done: batch.isDone,
+      cursor: batch.isDone ? null : batch.continueCursor,
+    };
+  },
+});
+
+/**
+ * Takes pages that no longer exist out of the chat turns still naming them.
+ *
+ * The purge once left a purged page inside a multi-page turn's packed `trace`
+ * and `hunks`, and answering that turn wrote the page's ids back into its id
+ * lists. Either way a reload offered a change on a page nobody could open, and
+ * answering it failed the turn. Each turn is cleaned the way the purge now
+ * cleans one ({@link forgetPagesIn}); a turn left with no page is deleted.
+ *
+ * Run again with the returned cursor until `done`. Idempotent: a second pass
+ * finds nothing gone and writes nothing.
+ */
+export const forgetDeletedTurnPages = internalMutation({
+  args: { cursor: v.optional(v.string()) },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ seen: number; patched: number; deleted: number; done: boolean; cursor: string | null }> => {
+    const batch = await ctx.db
+      .query("chatTurns")
+      .paginate({ ...TURN_BATCH, cursor: args.cursor ?? null });
+
+    let patched = 0;
+    let deleted = 0;
+    for (const turn of batch.page) {
+      const gone = await deletedPagesOf(ctx, turn);
+      if (!gone.size) continue;
+      const result = await forgetPagesIn(ctx, turn, gone);
+      if (result === "patched") patched += 1;
+      else if (result === "deleted") deleted += 1;
+    }
+
+    return {
+      seen: batch.page.length,
+      patched,
+      deleted,
       done: batch.isDone,
       cursor: batch.isDone ? null : batch.continueCursor,
     };
