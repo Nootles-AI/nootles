@@ -12,9 +12,16 @@ import type { StyleMap } from "./types";
  * the same way a swatch would show it — and a pure module cannot import a
  * `"use client"` React file to get it. `panels/colorVariables.ts` re-exports
  * `resolveVars` and `ColorVariable` so its own callers (the style panel,
- * `ColorField`, `GradientField`) see no difference; `refName` and everything
- * that touches `ColorVariablesContext` stays in the panel, because it has no
- * meaning outside a React tree.
+ * `ColorField`, `GradientField`) see no difference; everything that touches
+ * `ColorVariablesContext` stays in the panel, because it has no meaning
+ * outside a React tree.
+ *
+ * `refName` joined it here (TOOLS, build-plan Conflict 1 / OQ-1): `get_styles`
+ * (`app/lib/ai/canvas/styles.ts`) needs to say whether a shape's colour is a
+ * bare `var(--x)` reference or a literal value, which is exactly what
+ * `refName` answers, and that reporter is as pure as `resolveVars` — no
+ * React, no context. `panels/colorVariables.ts` re-exports it unchanged, so
+ * its own callers see no difference.
  */
 
 /** `name` includes its leading `--`, exactly as the declaration spells it. */
@@ -87,4 +94,13 @@ export function customProperties(style: StyleMap): ColorVariable[] {
   return Object.keys(style)
     .filter((name) => name.startsWith("--"))
     .map((name) => ({ name, value: style[name] }));
+}
+
+/** The whole value is one reference — the only shape a plain colour field
+ *  ever writes, and what `get_styles` calls a shape's colour "a token" rather
+ *  than a value that merely contains one. */
+export function refName(css: string): string | null {
+  const s = css.trim();
+  const ref = findVar(s, 0);
+  return ref && ref.start === 0 && ref.end === s.length ? ref.name : null;
 }

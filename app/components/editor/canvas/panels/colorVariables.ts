@@ -12,17 +12,18 @@
 
 import { createContext, useContext } from "react";
 import type { StyleMap, StylePatch } from "../scene/types";
-import { findVar, resolveVars, type ColorVariable } from "../scene/vars";
+import { refName, resolveVars, type ColorVariable } from "../scene/vars";
 import { parseColor } from "./controls/color";
 
 /**
- * `resolveVars` and `ColorVariable` moved to `scene/vars.ts` (COMPILE,
- * build-plan Conflict 1 / OQ-1) — the pure half of this file, and the half
- * `app/lib/ai/html/toHtml.ts` needs without pulling in a `"use client"`
- * React module. Re-exported here so this panel's own callers (`ColorField`,
- * `GradientField`, `StylePanel`) see no difference.
+ * `resolveVars`/`ColorVariable` moved to `scene/vars.ts` (COMPILE, build-plan
+ * Conflict 1 / OQ-1); `refName` joined them there (TOOLS, same conflict) —
+ * both the pure half of this file, needed where a `"use client"` React
+ * module cannot go (`app/lib/ai/html/toHtml.ts`, `app/lib/ai/canvas/styles.ts`).
+ * Re-exported here so this panel's own callers (`ColorField`, `GradientField`,
+ * `StylePanel`) see no difference.
  */
-export { resolveVars };
+export { resolveVars, refName };
 export type { ColorVariable };
 
 export type ColorVariablesApi = {
@@ -53,13 +54,6 @@ export const varRef = (name: string) => `var(${name})`;
 
 /** What the sidebar shows in place of a hex code. */
 export const varLabel = (name: string) => name.replace(/^--/, "");
-
-/** The whole value is one reference — the only shape the panel ever writes. */
-export function refName(css: string): string | null {
-  const s = css.trim();
-  const ref = findVar(s, 0);
-  return ref && ref.start === 0 && ref.end === s.length ? ref.name : null;
-}
 
 export const declareVariable = (name: string, value: string): StylePatch => ({
   [name]: value,

@@ -205,6 +205,26 @@ export const AI = {
       maxBytes: 3_500_000,
       maxTextChars: 60_000,
     },
+    /**
+     * The node-level diagram tools (`get_geometry`, `get_styles`, `get_html`,
+     * `write_nodes`, `update_styles`, and the thin verbs) — bounds on a single
+     * report, so one enormous board cannot eat the window the way `maxPageChars`
+     * already stops a page from doing.
+     */
+    canvas: {
+      /** `get_geometry`'s node cap, past which it stops and reports `omitted`. */
+      maxGeometryNodes: 800,
+      /** `get_styles`'s node cap — smaller, because each row carries two style
+       *  maps (authored and resolved) rather than one geometry row. */
+      maxStyleNodes: 400,
+      /** `get_html`'s output cap in characters, cut at the last newline before
+       *  it with a warning — ask for fewer `ids` past this. */
+      maxHtmlChars: 60_000,
+      /** Nodes listed in a write tool's geometry tail — enough to see where
+       *  hug reflow and auto-layout actually placed what was just written,
+       *  without repeating a whole-board `get_geometry`. */
+      reportNodes: 40,
+    },
   },
 
   /**

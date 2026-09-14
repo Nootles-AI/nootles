@@ -85,6 +85,7 @@ import {
   type StylePatch,
   type ZTarget,
   isBoolean,
+  isReservedAttr,
   type BooleanOp,
 } from "./types";
 
@@ -108,6 +109,8 @@ export function applyOp(scene: Scene, op: SceneOp): Scene {
       return setStyle(scene, op.ids, op.decls);
     case "setLabel":
       return setLabel(scene, op.id, op.label);
+    case "setAttrs":
+      return setAttrs(scene, op.id, op.attrs);
     case "setSrc":
       return setSrc(scene, op.id, op.src);
     case "setName":
@@ -502,6 +505,33 @@ export function setName(
         return next;
       }
       return node.name === name ? node : patch(node, { name });
+    }),
+  );
+}
+
+/**
+ * Merge into a node's `attrs`, the same shape {@link mergeStyle} gives
+ * `style` — `undefined` removes a key. A key that {@link isReservedAttr} for
+ * this node's kind is dropped from the patch rather than merged: `attrs` is
+ * defined as "everything outside the reserved/kind vocabulary", so writing
+ * `x` or `sides` through here would create a second, silently-ignored copy of
+ * a field the node already models explicitly.
+ */
+export function setAttrs(
+  scene: Scene,
+  id: NodeId,
+  attrs: Record<string, string | undefined>,
+): Scene {
+  if (!Object.keys(attrs).length) return scene;
+  return withNodes(
+    scene,
+    mapTree(scene.nodes, new Set([id]), (node) => {
+      const patch: StylePatch = {};
+      for (const [key, value] of Object.entries(attrs)) {
+        if (!isReservedAttr(key, node.kind)) patch[key] = value;
+      }
+      const next = mergeStyle(node.attrs, patch);
+      return next === node.attrs ? node : { ...node, attrs: next };
     }),
   );
 }

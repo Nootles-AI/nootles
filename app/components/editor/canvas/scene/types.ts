@@ -627,6 +627,16 @@ export type SceneOp =
   | { type: "setShape"; ids: NodeId[]; params: ShapeParams }
   | { type: "setLabel"; id: NodeId; label: string }
   /**
+   * Merge into a node's carried-through `attrs` (§SceneNodeBase.attrs) —
+   * anything outside {@link RESERVED_ATTRS}/`KIND_ATTRS`, like `data-icon`.
+   * `undefined` removes a key, the same as {@link mergeStyle}. The one op the
+   * AI bridge (`write_nodes`) needs that the panels never do: a human never
+   * hand-edits an attribute this model does not know the name of, but a model
+   * echoing a diagram back verbatim — with one `data-icon` swapped — has to
+   * land that as a typed op rather than as an unreachable no-op.
+   */
+  | { type: "setAttrs"; id: NodeId; attrs: Record<string, string | undefined> }
+  /**
    * An image's picture, re-addressed. The one writer is the hoist that moves
    * an inline `data:` picture into storage (see scene/inlineImages.ts): the
    * string of record holds a URL, never bytes.
