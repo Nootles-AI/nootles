@@ -41,8 +41,9 @@ import {
   type CanvasTool,
   type ShortcutId,
 } from "./engine/shortcuts";
+import type { ScreenControl } from "./engine/screen";
 import type { ToolControl } from "./render/CanvasSurface";
-import { useViewportZoom, type ViewportController } from "./engine/useViewport";
+import { useViewportZoom, ZOOM_STEP, type ViewportController } from "./engine/useViewport";
 import { absoluteSelectionBounds } from "./scene/geometry";
 import "./canvas.css";
 
@@ -87,6 +88,16 @@ export const TOOLS: readonly { tool: CanvasTool; id: ShortcutId; icon: ReactNode
     icon: (
       <svg {...svg}>
         <path d="M9 13V5.5a1.5 1.5 0 0 1 3 0V11m0-.5V4.5a1.5 1.5 0 0 1 3 0V11m0-.5V6.5a1.5 1.5 0 0 1 3 0V14a6 6 0 0 1-6 6h-1a6 6 0 0 1-5-2.7l-2-3a1.6 1.6 0 0 1 2.6-1.8L9 15" />
+      </svg>
+    ),
+  },
+  {
+    tool: "zoom",
+    id: "tool.zoom",
+    icon: (
+      <svg {...svg}>
+        <circle cx="11" cy="11" r="6.5" />
+        <path d="m20 20-4.2-4.2M8.5 11h5M11 8.5v5" />
       </svg>
     ),
   },
@@ -174,8 +185,6 @@ const GEAR = (
     <circle cx="12" cy="12" r="2.6" />
   </svg>
 );
-
-const ZOOM_STEP = 1.25;
 
 const neverChanges = () => () => {};
 const notApple = () => false;
@@ -300,9 +309,10 @@ export interface ToolbarProps {
   viewport: ViewportController;
   /** Subscribed to rather than passed as a value: see {@link ToolControl}. */
   tools: ToolControl;
+  screen: ScreenControl;
 }
 
-export function Toolbar({ store, viewport, tools }: ToolbarProps) {
+export function Toolbar({ store, viewport, tools, screen }: ToolbarProps) {
   const tool = useSyncExternalStore(tools.subscribe, tools.get, tools.get);
   // The scalar, not the whole viewport: `commit()` allocates a fresh object on
   // every pan frame, and this pill only shows the zoom.
@@ -327,6 +337,11 @@ export function Toolbar({ store, viewport, tools }: ToolbarProps) {
   // Read from the module rather than mirrored in state: anything else that ever
   // toggles snapping would leave a mirrored copy showing the wrong answer.
   const snap = useSyncExternalStore(subscribeSnap, isSnapEnabled, () => true);
+
+  // Same reasoning as `tools`/`snap` above: the menu's checkboxes have to
+  // redraw when the mode changes, whether that came from this menu, the
+  // keyboard, or the browser leaving fullscreen on its own.
+  const screenState = useSyncExternalStore(screen.subscribe, screen.get, screen.get);
 
   const hint = (id: ShortcutId) => shortcutHint(id, apple);
 
@@ -408,12 +423,50 @@ export function Toolbar({ store, viewport, tools }: ToolbarProps) {
                 </span>
               </MenuItem>
             );
+            // Unlike `item` above, always closes — stage/minimal/fullscreen
+            // each move or hide the trigger this menu is anchored to (a
+            // resized stage, an unmounted toolbar), so there is no position
+            // left to leave the menu open over. `restoreFocus: false`: the
+            // screen host is what lands focus here (the viewport, on stage
+            // entry), and the menu's own default restore-to-trigger would
+            // fight that the moment the trigger itself moved or vanished.
+            const toggle = (id: ShortcutId, checked: boolean, fn: () => void) => (
+              <MenuItem
+                onClick={() => {
+                  fn();
+                  close({ restoreFocus: false });
+                }}
+              >
+                <span
+                  aria-hidden
+                  className={`flex size-3.5 shrink-0 items-center justify-center rounded-[var(--radius-sm)] border transition-colors ${
+                    checked
+                      ? "border-[var(--foreground)] bg-[var(--foreground)] text-[var(--background)]"
+                      : "border-[var(--border-strong)]"
+                  }`}
+                >
+                  {checked && <Check width={10} height={10} />}
+                </span>
+                {SHORTCUTS_BY_ID[id].label}
+                <span className="sr-only">{checked ? "On" : "Off"}</span>
+                <span className="ml-auto pl-4 font-mono text-[11px] text-[var(--muted)]">
+                  {hint(id)}
+                </span>
+              </MenuItem>
+            );
             return (
               <>
                 {item("view.zoomIn", () => viewport.zoomBy(ZOOM_STEP))}
                 {item("view.zoomOut", () => viewport.zoomBy(1 / ZOOM_STEP))}
                 {item("view.zoomReset", viewport.resetZoom)}
                 {item("view.zoomFit", fit)}
+                <div className="nt-menu-sep" aria-hidden />
+                {toggle("view.stage", screenState.stage, () => screen.toggle("stage"))}
+                {toggle("view.minimal", screenState.minimal, () => screen.toggle("minimal"))}
+                {screen.canFullscreen() &&
+                  toggle("view.fullscreen", screenState.fullscreen, () =>
+                    screen.toggle("fullscreen"),
+                  )}
               </>
             );
           }}

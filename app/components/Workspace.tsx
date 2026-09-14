@@ -7,6 +7,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type CSSProperties,
 } from "react";
 import { useQuery } from "convex/react";
@@ -67,6 +68,9 @@ const VARS = { left: "--nt-left", right: "--nt-right", aside: "--nt-aside" };
    part of this page, and can then stand in the column's room rather than over
    the whole window, leaving the rails beside it standing. */
 const STAGE = { left: "--nt-stage-l", right: "--nt-stage-r" };
+/** A canvas with no `screen` (none claimed) never changes, so this subscribe
+ *  is a stable identity `useSyncExternalStore` can hold onto across renders. */
+const NEVER_CHANGES = () => () => {};
 const LEFT_W = `var(${VARS.left})`;
 const RIGHT_W = `var(${VARS.right})`;
 const DRAWER_W = "288px";
@@ -258,6 +262,19 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
   // A selected place card takes the right rail the same way, and yields to a
   // diagram: editing one is a whole mode, choosing what a card shows is not.
   const placePanel = compact || canvas ? null : place;
+
+  // Minimal UI (STAGE): both rails and the toolbar/review slot unmount while
+  // a claimed canvas has asked for it — a pure view-state read, no scene
+  // store involved. `chrome` is false only for a minimal, claimed canvas;
+  // every other combination (no canvas, or a canvas not in minimal) keeps
+  // its chrome exactly as before.
+  const screen = canvas?.api.screen;
+  const minimal = useSyncExternalStore(
+    screen?.subscribe ?? NEVER_CHANGES,
+    () => screen?.get().minimal ?? false,
+    () => false,
+  );
+  const chrome = !(canvas && minimal);
 
   // Restore persisted layout on the client. Defaults render first (so SSR and
   // the first client render match — no hydration mismatch), then we sync from
@@ -543,7 +560,7 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
           } as CSSProperties
         }
       >
-        {canvasPanels ? (
+        {!chrome ? null : canvasPanels ? (
           <>
             <aside
               className="nt-panel nt-rail-l"
@@ -617,7 +634,7 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
 
         {/* Viewers have no chat: their AI would need the pen. No rail, no
             edge tab — absence, not a locked door. */}
-        {canvasPanels ? (
+        {!chrome ? null : canvasPanels ? (
           <CanvasStylePanel api={canvasPanels.api} />
         ) : placePanel ? (
           <LocationPanel active={placePanel} />
@@ -644,11 +661,12 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
           {/* A storyboard shot claims the shell for the panels but carries its
               own vertical bar beside the board, so the floating pill stands
               down for it the way it does for a review. */}
-          {canvas && !canvas.api.board ? (
+          {!chrome ? null : canvas && !canvas.api.board ? (
             <Toolbar
               store={canvas.api.store}
               viewport={canvas.api.viewport}
               tools={canvas.api.tools}
+              screen={canvas.api.screen}
             />
           ) : (
             // Here rather than under the editor: the changes it answers for can

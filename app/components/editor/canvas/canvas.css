@@ -11,6 +11,14 @@
   --nt-select: #0d99ff;
 }
 
+/* The ground both the wrapper and the fixed stage viewport paint — one token
+   so the two never drift apart when the stage swaps which element is showing
+   it (§3.1 of STAGE: the viewport's own background still wins for an authored
+   diagram background, this is only the surface underneath it). */
+:root {
+  --nt-canvas-ground: oklch(0.974 0.002 90);
+}
+
 .nt-canvas {
   position: relative;
   width: 100%;
@@ -18,7 +26,7 @@
   border-radius: var(--radius-lg);
   /* A shade above `--sunken`: that tone is tuned for a small well, and over a
      field this large it reads as grey paper rather than as an empty surface. */
-  background: oklch(0.974 0.002 90);
+  background: var(--nt-canvas-ground);
 }
 .nt-editor .ProseMirror-selectednode .nt-canvas {
   box-shadow: inset 0 0 0 1px var(--border-strong);
@@ -71,6 +79,39 @@
    `useViewport` owns the same property for space-pan and leaves it empty. */
 .nt-canvas-viewport.is-grabbing {
   cursor: grabbing;
+}
+/* The zoom tool (STAGE): native cursors, so it reads correctly at any DPR with
+   no asset of its own. Alt held toggles in on `data-zoom-out`, set imperatively
+   for the life of the tool — see `CanvasSurface`'s own effect. */
+.nt-canvas-viewport[data-tool="zoom"] {
+  cursor: zoom-in;
+}
+.nt-canvas-viewport[data-tool="zoom"][data-zoom-out] {
+  cursor: zoom-out;
+}
+
+/* ===== Screen modes (STAGE) ===============================================
+   The expanded stage: `.nt-canvas-viewport` — never the `.nt-canvas` wrapper,
+   which stays in flow as the block's own room in the document — becomes
+   fixed, filling the document column between the rails Workspace publishes
+   on `:root`. Minimal UI widens the same box to the full window by simply
+   letting `--nt-stage-l/r` go undefined there. Neither introduces a new
+   accent: `--nt-select` stays the canvas's only one. */
+.nt-canvas[data-stage] > .nt-canvas-viewport {
+  position: fixed;
+  inset: 0 var(--nt-stage-r, 0px) 0 var(--nt-stage-l, 0px);
+  z-index: var(--z-overlay);
+  border-radius: 0;
+  /* The diagram's own inline background (`surface`/`toCss`) still wins —
+     this only shows through where the scene has none. */
+  background: var(--nt-canvas-ground);
+}
+.nt-canvas[data-stage] > .nt-canvas-grip,
+.nt-canvas[data-stage] > .nt-canvas-grip-x {
+  display: none;
+}
+.nt-canvas[data-stage] .nt-canvas-hint {
+  display: none;
 }
 
 /* ===== Colour pick (COLOR) ================================================

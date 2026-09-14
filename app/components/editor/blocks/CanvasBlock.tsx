@@ -275,6 +275,13 @@ function CanvasBlockView({
   useEffect(() => {
     if (!mine) writeMirror();
   }, [mine, writeMirror]);
+  // One stage per screen falls out of "one claimed canvas": claiming another
+  // block unclaims this one, and losing the shell resets its screen modes —
+  // pure view state, no scene write, so this costs nothing when `mine` never
+  // goes false for the life of the page.
+  useEffect(() => {
+    if (!mine) api.current?.screen.reset();
+  }, [mine]);
   useEffect(() => {
     const onHide = () => {
       if (document.visibilityState === "hidden") writeMirror();

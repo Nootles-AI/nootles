@@ -82,8 +82,10 @@ import {
   isBoolean,
   type BooleanOp,
 } from "../scene/types";
+import type { ScreenControl } from "./screen";
 import type { SceneStore } from "./useScene";
 import type { SelectionStore } from "./useSelection";
+import { ZOOM_STEP } from "./useViewport";
 import type { ViewportController } from "./useViewport";
 
 // ---------------------------------------------------------------------------
@@ -110,7 +112,8 @@ export type CanvasTool =
   | "diamond"
   | "text"
   | "pen"
-  | "connector";
+  | "connector"
+  | "zoom";
 
 /** The slice of tool state the keymap needs. */
 export interface ToolController {
@@ -162,6 +165,7 @@ export type ShortcutId =
   | "tool.pen"
   | "tool.connector"
   | "tool.hand"
+  | "tool.zoom"
   | "edit.undo"
   | "edit.redo"
   | "edit.duplicate"
@@ -195,6 +199,9 @@ export type ShortcutId =
   | "view.zoomFit"
   | "view.zoomSelection"
   | "view.pan"
+  | "view.stage"
+  | "view.minimal"
+  | "view.fullscreen"
   | "toggle.hidden"
   | "toggle.locked"
   | "align.left"
@@ -215,6 +222,13 @@ export interface Shortcut {
   keys: readonly string[];
   /** Shown instead of the formatted `keys[0]` where a set of keys reads better. */
   display?: string;
+  /**
+   * Bindings on non-Apple platforms when they differ from `keys` — a `Ctrl`
+   * token in `keys` is the spare modifier on Apple (⌃) and has no off-Apple
+   * meaning, so a row that needs one supplies the real off-Apple key here
+   * (`view.fullscreen`'s `f11`).
+   */
+  other?: readonly string[];
 }
 
 export const SHORTCUTS: readonly Shortcut[] = [
@@ -228,6 +242,7 @@ export const SHORTCUTS: readonly Shortcut[] = [
   { id: "tool.pen", label: "Pen", group: "Tools", keys: ["p"] },
   { id: "tool.connector", label: "Connector", group: "Tools", keys: ["c"] },
   { id: "tool.hand", label: "Hand", group: "Tools", keys: ["h"] },
+  { id: "tool.zoom", label: "Zoom", group: "Tools", keys: ["z"] },
 
   { id: "edit.undo", label: "Undo", group: "Edit", keys: ["Mod+z"] },
   {
@@ -356,6 +371,20 @@ export const SHORTCUTS: readonly Shortcut[] = [
     keys: ["Mod+2", "Shift+2"],
   },
   { id: "view.pan", label: "Pan", group: "View", keys: ["space"], display: "Space (hold)" },
+  { id: "view.stage", label: "Expanded stage", group: "View", keys: ["Mod+Shift+f"] },
+  {
+    id: "view.minimal",
+    label: "Hide UI",
+    group: "View",
+    keys: ["Mod+.", "Mod+\\"],
+  },
+  {
+    id: "view.fullscreen",
+    label: "Browser fullscreen",
+    group: "View",
+    keys: ["Mod+Ctrl+f"],
+    other: ["f11"],
+  },
 
   {
     id: "toggle.hidden",
@@ -401,6 +430,10 @@ export const SHORTCUTS_BY_ID: Readonly<Record<ShortcutId, Shortcut>> =
 interface Binding {
   /** ⌘ on Apple platforms, Ctrl elsewhere. */
   mod: boolean;
+  /** The modifier that is NOT `mod` on this platform — ⌃ on Apple. Off-Apple
+   *  this would be the OS key, so a row needing it supplies `other` instead
+   *  of ever setting this from a real off-Apple binding. */
+  ctrl: boolean;
   alt: boolean;
   shift: boolean;
   /** Lowercase character, or a name: `arrowleft`, `escape`, `space`, … */
@@ -411,9 +444,10 @@ function parseBinding(spec: string): Binding {
   const parts = spec.split("+");
   // A trailing empty part is the `+` key written literally, as in "Mod++".
   const key = (parts.pop() || "+").toLowerCase();
-  const binding: Binding = { mod: false, alt: false, shift: false, key };
+  const binding: Binding = { mod: false, ctrl: false, alt: false, shift: false, key };
   for (const part of parts) {
     if (part === "Mod") binding.mod = true;
+    else if (part === "Ctrl") binding.ctrl = true;
     else if (part === "Alt") binding.alt = true;
     else if (part === "Shift") binding.shift = true;
   }
@@ -485,18 +519,38 @@ export function isApplePlatform(): boolean {
 function matches(binding: Binding, e: KeyboardEvent, apple: boolean): boolean {
   const mod = apple ? e.metaKey : e.ctrlKey;
   const spare = apple ? e.ctrlKey : e.metaKey;
-  if (spare || mod !== binding.mod) return false;
+  if (mod !== binding.mod || spare !== binding.ctrl) return false;
   if (e.altKey !== binding.alt || e.shiftKey !== binding.shift) return false;
   return eventKey(e) === binding.key || codeKey(e.code) === binding.key;
 }
 
-const BINDINGS: readonly (Binding & { id: ShortcutId })[] = SHORTCUTS.flatMap(
-  (shortcut) =>
-    shortcut.keys.map((spec) => ({ ...parseBinding(spec), id: shortcut.id })),
-);
+/** `keys` on Apple, `other ?? keys` everywhere else — the one place that
+ *  decides which of a row's two binding lists is live on this platform. */
+function specsFor(shortcut: Shortcut, apple: boolean): readonly string[] {
+  return apple ? shortcut.keys : (shortcut.other ?? shortcut.keys);
+}
 
-function match(e: KeyboardEvent, apple: boolean): ShortcutId | null {
-  for (const binding of BINDINGS) {
+const bindingsCache = new Map<boolean, readonly (Binding & { id: ShortcutId })[]>();
+
+/** Memoised per platform: `isApplePlatform()` never changes within a session,
+ *  so this is computed at most twice for the life of the page. */
+function bindingsFor(apple: boolean): readonly (Binding & { id: ShortcutId })[] {
+  let cached = bindingsCache.get(apple);
+  if (!cached) {
+    cached = SHORTCUTS.flatMap((shortcut) =>
+      specsFor(shortcut, apple).map((spec) => ({
+        ...parseBinding(spec),
+        id: shortcut.id,
+      })),
+    );
+    bindingsCache.set(apple, cached);
+  }
+  return cached;
+}
+
+/** The shortcut a keydown fires, if any — on `apple`'s binding table. */
+export function matchShortcut(e: KeyboardEvent, apple: boolean): ShortcutId | null {
+  for (const binding of bindingsFor(apple)) {
     if (matches(binding, e, apple)) return binding.id;
   }
   return null;
@@ -516,6 +570,7 @@ const KEY_GLYPHS: Readonly<Record<string, string>> = {
   enter: "Enter",
   tab: "Tab",
   "=": "+",
+  f11: "F11",
 };
 
 function keyGlyph(key: string, apple: boolean): string {
@@ -531,6 +586,7 @@ export function formatShortcut(spec: string, apple = isApplePlatform()): string 
   const b = parseBinding(spec);
   const parts: string[] = [];
   if (b.mod) parts.push(apple ? "⌘" : "Ctrl");
+  if (b.ctrl) parts.push(apple ? "⌃" : "Ctrl");
   if (b.alt) parts.push(apple ? "⌥" : "Alt");
   if (b.shift) parts.push(apple ? "⇧" : "Shift");
   parts.push(keyGlyph(b.key, apple));
@@ -544,7 +600,8 @@ export function formatShortcut(spec: string, apple = isApplePlatform()): string 
  */
 export function shortcutHint(id: ShortcutId, apple = isApplePlatform()): string {
   const shortcut = SHORTCUTS_BY_ID[id];
-  return shortcut.display ?? formatShortcut(shortcut.keys[0], apple);
+  const specs = specsFor(shortcut, apple);
+  return shortcut.display ?? (specs.length ? formatShortcut(specs[0], apple) : "");
 }
 
 // ---------------------------------------------------------------------------
@@ -725,8 +782,6 @@ function clipboardHtml(scene: Scene, ids: readonly NodeId[]): string | null {
 /** How far ⌘D and a plain ⌘V offset a copy, matching Figma. */
 const DUPLICATE_OFFSET = 10;
 
-const ZOOM_STEP = 1.25;
-
 const NUDGE: Readonly<Record<string, Point>> = {
   arrowleft: { x: -1, y: 0 },
   arrowright: { x: 1, y: 0 },
@@ -754,6 +809,8 @@ export interface CanvasShortcutOptions {
   tool: ToolController;
   /** Omitted where the surface has no vector edit mode to enter. */
   pathEdit?: PathEditController;
+  /** Omitted where the surface has no screen modes (a storyboard shot). */
+  screen?: ScreenControl;
   /** Off for a read-only block. Default true. */
   enabled?: boolean;
 }
@@ -1003,6 +1060,7 @@ export function useCanvasShortcuts({
       "tool.pen": () => setTool("pen"),
       "tool.connector": () => setTool("connector"),
       "tool.hand": () => setTool("hand"),
+      "tool.zoom": () => setTool("zoom"),
 
       "edit.undo": () => {
         latest.current.scene.undo();
@@ -1180,12 +1238,17 @@ export function useCanvasShortcuts({
         }
         const before = latest.current.selection.getSnapshot();
         latest.current.selection.escape();
-        // Escape with nothing to leave belongs to whoever is around us — it is
-        // how the user gets out of the canvas and back to the document.
-        return (
-          before.ids.length > 0 ||
-          before.enteredPath.length > 0
-        );
+        if (before.ids.length > 0 || before.enteredPath.length > 0) return true;
+        // Nothing left to step out of or deselect: the stage is the next rung
+        // down, taking fullscreen with it (the reducer clears it). Below this,
+        // Escape belongs to whoever is around us — how the user gets out of
+        // the canvas and back to the document.
+        const screen = latest.current.screen;
+        if (screen?.get().stage) {
+          screen.set({ stage: false });
+          return true;
+        }
+        return false;
       },
 
       "arrange.forward": () => reorder("forward"),
@@ -1226,6 +1289,23 @@ export function useCanvasShortcuts({
       // reports `panState()`. Listed only so it appears in the cheat sheet.
       "view.pan": () => false,
 
+      "view.stage": () => {
+        latest.current.screen?.toggle("stage");
+        return !!latest.current.screen;
+      },
+      "view.minimal": () => {
+        latest.current.screen?.toggle("minimal");
+        return !!latest.current.screen;
+      },
+      "view.fullscreen": () => {
+        const screen = latest.current.screen;
+        // Unsupported (or no screen at all): decline so the browser's own
+        // F11/⌃⌘F still runs rather than us eating the key for nothing.
+        if (!screen?.canFullscreen()) return false;
+        screen.toggle("fullscreen");
+        return true;
+      },
+
       "toggle.hidden": () => toggleFlag("hidden"),
       "toggle.locked": () => toggleFlag("locked"),
 
@@ -1241,7 +1321,7 @@ export function useCanvasShortcuts({
 
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.isComposing || isTextEntry()) return;
-      const id = match(e, apple);
+      const id = matchShortcut(e, apple);
       if (!id) return;
       // Anything but another nudge closes an open run first — so an unrelated
       // edit is never folded into it, and ⌘Z is not refused for the depth we
