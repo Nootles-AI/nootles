@@ -4,7 +4,8 @@ import { v } from "convex/values";
 import { action } from "../_generated/server";
 import { requireOwner } from "../auth";
 import { withToken } from "./account";
-import { NotionError, json } from "./rest";
+import { pacer, type Paced } from "./pacing";
+import { json } from "./rest";
 
 /**
  * Reading a Notion workspace: the page tree first, then one page's blocks.
@@ -17,8 +18,6 @@ import { NotionError, json } from "./rest";
  * picker feel instant.
  */
 
-/** Notion's published average. Staying under it is cheaper than being throttled. */
-const MIN_REQUEST_GAP_MS = 350;
 /** A page nested deeper than this is pathological; NML flattens past 4 anyway. */
 const MAX_BLOCK_DEPTH = 12;
 
@@ -57,6 +56,7 @@ export const listPages = action({
   args: {},
   handler: async (ctx): Promise<PageNode[]> => {
     const ownerId = await requireOwner(ctx);
+    const paced = pacer(ctx, ownerId);
     return await withToken(ctx, ownerId, async (token) => {
       const pages: SearchPage[] = [];
       let cursor: string | undefined;
@@ -94,13 +94,14 @@ export const fetchBlocks = action({
   args: { pageId: v.string() },
   handler: async (ctx, args): Promise<unknown[]> => {
     const ownerId = await requireOwner(ctx);
-    return await withToken(ctx, ownerId, (token) => children(token, args.pageId, 0));
+    const paced = pacer(ctx, ownerId);
+    return await withToken(ctx, ownerId, (token) => children(paced, token, args.pageId, 0));
   },
 });
 
 type Block = { id: string; type: string; has_children?: boolean; children?: Block[] };
 
-async function children(token: string, blockId: string, depth: number): Promise<Block[]> {
+async function children(paced: Paced, token: string, blockId: string, depth: number): Promise<Block[]> {
   if (depth >= MAX_BLOCK_DEPTH) return [];
   const out: Block[] = [];
   let cursor: string | undefined;
@@ -118,7 +119,7 @@ async function children(token: string, blockId: string, depth: number): Promise<
       // page it becomes, not inlined into its parent. The converter only needs
       // to know it was there in order to link to it.
       if (block.has_children && block.type !== "child_page") {
-        block.children = await children(token, block.id, depth + 1);
+        block.children = await children(paced, token, block.id, depth + 1);
       }
       out.push(block);
     }
@@ -126,33 +127,6 @@ async function children(token: string, blockId: string, depth: number): Promise<
   } while (cursor);
   return out;
 }
-
-/**
- * One request, spaced and retried once when Notion says to wait.
- *
- * A 429 is not a failure worth surfacing: Notion tells us how long to wait and
- * the only correct response is to wait that long. Anything past one retry is a
- * real problem and travels up as a `NotionError` the UI can show.
- */
-let lastRequestAt = 0;
-async function paced<T>(call: () => Promise<T>): Promise<T> {
-  const wait = Math.max(0, MIN_REQUEST_GAP_MS - (Date.now() - lastRequestAt));
-  if (wait) await sleep(wait);
-  lastRequestAt = Date.now();
-  try {
-    return await call();
-  } catch (error) {
-    if (error instanceof NotionError && error.status === 429) {
-      // Notion says how long to wait; guessing shorter just earns another 429.
-      await sleep((error.retryAfter ?? 5) * 1000);
-      lastRequestAt = Date.now();
-      return await call();
-    }
-    throw error;
-  }
-}
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** The title property, whatever the workspace happens to have called it. */
 function titleOf(page: SearchPage): string {
