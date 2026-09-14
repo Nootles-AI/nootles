@@ -178,6 +178,8 @@ export type ShortcutId =
   | "edit.cut"
   | "edit.paste"
   | "edit.pasteInPlace"
+  | "edit.copyHtml"
+  | "edit.copyJsx"
   | "edit.selectAll"
   | "edit.vector"
   | "edit.deselect"
@@ -264,6 +266,11 @@ export const SHORTCUTS: readonly Shortcut[] = [
     group: "Edit",
     keys: ["Mod+Shift+v"],
   },
+  // Menu-only (COMPILE): a fragment as standard HTML/CSS or JSX, for pasting
+  // outside Nootles. No default key binding — `display: ""` keeps
+  // `shortcutHint` from reading `keys[0]`, which is empty on purpose.
+  { id: "edit.copyHtml", label: "Copy as HTML", group: "Edit", keys: [], display: "" },
+  { id: "edit.copyJsx", label: "Copy as React", group: "Edit", keys: [], display: "" },
   { id: "edit.selectAll", label: "Select all", group: "Edit", keys: ["Mod+a"] },
   {
     id: "edit.vector",
@@ -1144,6 +1151,10 @@ export function useCanvasShortcuts({
         pasteInPlace = true;
         return false;
       },
+
+      // Menu-only, no keyboard binding — see the table row's own comment.
+      "edit.copyHtml": () => false,
+      "edit.copyJsx": () => false,
 
       "edit.selectAll": () => {
         latest.current.selection.selectAll();

@@ -20,7 +20,9 @@ import {
 import { shortcutHint, type ShortcutId } from "./engine/shortcuts";
 import type { SceneStore } from "./engine/useScene";
 import type { SelectionStore } from "./engine/useSelection";
+import { laidOutScene } from "./scene/autoLayout";
 import { booleanOps, canBoolean, flattenOps, loadClipper } from "./scene/boolean";
+import { compileSelection } from "@/app/lib/ai/html/toHtml";
 import { duplicateNodes, mintId } from "./scene/ops";
 import {
   findNode,
@@ -28,8 +30,10 @@ import {
   isContainer,
   isGroup,
   selectedNodes,
+  walk,
   type NodeId,
   type Point,
+  type Scene,
   isBoolean,
   type BooleanOp,
 } from "./scene/types";
@@ -85,6 +89,49 @@ function duplicate(
   selection.select(copies);
 }
 
+/**
+ * A selection's outermost nodes, however deep the ids run — the same
+ * question `compileSelection` asks of its own `ids` argument internally, but
+ * this one only needs a yes/no on "does the clipper have to be in before we
+ * copy" (COMPILE, §2.5), so it walks every SELECTED node's own subtree rather
+ * than re-deriving `compileSelection`'s outermost-wins reduction.
+ */
+function selectionHasBoolean(scene: Scene, ids: readonly NodeId[]): boolean {
+  let found = false;
+  for (const node of selectedNodes(scene, ids)) {
+    walk([node], (n) => {
+      if (isBoolean(n)) found = true;
+    });
+  }
+  return found;
+}
+
+/**
+ * "Copy as HTML" / "Copy as React" (COMPILE, §2.5): the selection, compiled
+ * to standard markup and put on the system clipboard — a second, independent
+ * write path from ⌘C, which stays canvas HTML (`engine/shortcuts.ts`'s own
+ * `onCopy`). Silent on success, matching ⌘C's own silence; a rejected
+ * `navigator.clipboard.write` (denied permission, insecure context, a host
+ * that refuses a `text/html` `ClipboardItem`) is caught and logged, not
+ * surfaced — the canvas has no toast primitive to show it in today.
+ */
+async function copyAs(store: SceneStore, ids: readonly NodeId[], flavour: "html" | "jsx"): Promise<void> {
+  try {
+    const laid = laidOutScene(store.getScene());
+    if (selectionHasBoolean(laid, ids)) await loadClipper();
+    const out = compileSelection(laid, ids, { flavour });
+    if (!out) return;
+    await navigator.clipboard.write([
+      new ClipboardItem({
+        "text/html": new Blob([out.code], { type: "text/html" }),
+        "text/plain": new Blob([out.code], { type: "text/plain" }),
+      }),
+    ]);
+  } catch (err) {
+    console.warn(`Copy as ${flavour === "jsx" ? "React" : "HTML"} failed`, err);
+  }
+}
+
 /** Figma's boolean submenu, flat: four operations and the flatten. */
 const BOOLEANS: { label: string; shortcut: ShortcutId; op: BooleanOp }[] = [
   { label: "Union", shortcut: "edit.union", op: "union" },
@@ -117,6 +164,20 @@ function buildActions(
   });
 
   return [
+    [
+      {
+        label: "Copy as HTML",
+        shortcut: "edit.copyHtml",
+        disabled: none,
+        run: () => void copyAs(store, ids, "html"),
+      },
+      {
+        label: "Copy as React",
+        shortcut: "edit.copyJsx",
+        disabled: none,
+        run: () => void copyAs(store, ids, "jsx"),
+      },
+    ],
     [
       {
         label: "Group",

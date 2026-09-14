@@ -1,0 +1,41 @@
+/* The compile-parity fixture's own shell — the app-provided reset (`--edge-
+   line`, `--background`, `--foreground`, `--radius-sm`, …) comes from
+   `app.css` in `canvas-compile.browser.mjs`'s build, pinned to the same
+   values `toHtml.ts` hard-codes so a token drift fails `boxes agree`, not
+   silently. */
+html,
+body {
+  margin: 24px;
+  height: auto;
+  font-family: Arial, sans-serif;
+  font-size: 15px;
+  line-height: 1.7;
+  color: oklch(0.25 0.005 90);
+  background: #fff;
+}
+
+#app {
+  display: block;
+}
+
+.compile-harness-row {
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
+}
+
+/* No border: a box measurement on the pane itself must land exactly on
+   `[data-id]`/`[data-nt-id]`'s own origin, with nothing between them. */
+.compile-harness-row > div {
+  position: relative;
+  overflow: visible;
+}
+
+/* `.nt-canvas`'s own app styling (border-radius, shadow, margin) would offset
+   the left pane's box measurements away from `.nt-canvas-viewport`'s origin;
+   this fixture wants a bare, unshifted box the same way the right pane is. */
+#left.nt-canvas {
+  margin: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
