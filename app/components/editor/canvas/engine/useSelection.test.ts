@@ -154,6 +154,33 @@ describe("deep click sets the level to the leaf's own ancestry", () => {
     expect(s.click(K_FILL_PT, { deep: true })).toBe("K");
     expect(s.getSnapshot().enteredPath).toEqual(["F", "G"]);
   });
+
+  it("double-click on a selected boolean group steps into its frontmost operand, exactly as enterSelected() does", () => {
+    // Live bug: PICK's walk never emits a boolean group's own operands as hit
+    // candidates (they paint nothing of their own), so `enter()`'s chain-depth
+    // `descends` check saw a boolean group's one-node chain as having nothing
+    // deeper — a double-click on one fell through to a plain click, and
+    // `enterSelected()` (Enter key) was the only way in. K1/K2 are never
+    // painted individually, so this cannot be point-resolved; it steps to the
+    // frontmost operand (K2, the "IconHole" cut) the same way Enter does.
+    const s = store();
+    expect(s.click(K_FILL_PT, { deep: true })).toBe("K");
+    expect(s.getSnapshot().enteredPath).toEqual(["F", "G"]);
+    s.enter(K_FILL_PT);
+    expect(s.getSnapshot().ids).toEqual(["K2"]);
+    expect(s.getSnapshot().enteredPath).toEqual(["F", "G", "K"]);
+  });
+
+  it("a second double-click at the same point, already inside the boolean group, does not re-enter it", () => {
+    const s = store();
+    s.click(K_FILL_PT, { deep: true });
+    s.enter(K_FILL_PT);
+    expect(s.getSnapshot().enteredPath).toEqual(["F", "G", "K"]);
+    s.enter(K_FILL_PT);
+    // Falls to a plain click at the now-entered level (K's own operand list,
+    // none of them independently painted) — not a second, deeper "enter".
+    expect(s.getSnapshot().enteredPath).not.toEqual(["F", "G", "K", "K2"]);
+  });
 });
 
 // ---------------------------------------------------------------------------

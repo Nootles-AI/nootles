@@ -630,6 +630,23 @@ export function createSelectionStore(initialScene: SceneLike): SelectionStore {
       if (chain.length === 0) return;
       const entered = idsOf(resolveLevel(scene, snapshot.enteredPath).path);
       if (!descends(entered, chain)) {
+        // A boolean group's own operands never appear in the chain — PICK's
+        // walk never descends into them, since they paint nothing of their
+        // own — so `descends` reads a double-click on one exactly like a
+        // click on a leaf, and steps into it, `enterSelected()` already
+        // does. Mirror that here: the chain's own leaf, one step, its
+        // frontmost child, unless we are already inside this exact leaf
+        // (agreeDepth having consumed the whole chain means the last
+        // double-click already entered it and there is nothing deeper).
+        const leaf = chain[chain.length - 1];
+        const alreadyIn = agreeDepth(entered, chain) === chain.length;
+        if (!alreadyIn && isBoolean(leaf) && !leaf.hidden) {
+          const child = firstChild(leaf);
+          if (child) {
+            commit([child.id], idsOf(nodePath(scene, leaf.id)), snapshot.hoverId);
+            return;
+          }
+        }
         // Nothing left to enter — a double-click on a leaf is just a click.
         click(point, { tolerance: opts.tolerance });
         return;
