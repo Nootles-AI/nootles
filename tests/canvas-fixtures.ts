@@ -704,19 +704,13 @@ export const PICKING_PROBES: readonly Probe[] = [
     where: { x: 400, y: 600 },
     action: "cmdClick",
     expect: ["esc"],
-    today: ["clip"],
-    xfail: "SELECT",
-    note: "the chain is already [clip, esc] once PICK lands; ⌘→deep is what SELECT still has to wire",
-  },
-  {
-    id: "clip.inside.alt",
-    fixture: "pick-all",
-    where: { x: 400, y: 600 },
-    action: "altClick",
-    expect: ["esc"],
     today: ["esc"],
-    note: "documents Alt = deep on main; delete this probe when SELECT releases Alt",
+    note: "⌘→deep, wired by SELECT: the chain [clip, esc] resolves to its leaf",
   },
+  // `clip.inside.alt` documented Alt = deep on main; deleted here, per its own
+  // note, now that SELECT has released Alt to duplicate-on-drag only (C12:
+  // Alt+click reads as a plain click — see `select.deep.alt-click-is-plain`
+  // in `tests/canvas-select.browser.mjs`).
 
   // -- rotated-group --------------------------------------------------------
   {
@@ -734,9 +728,8 @@ export const PICKING_PROBES: readonly Probe[] = [
     where: centre("ra"),
     action: "cmdClick",
     expect: ["ra"],
-    today: ["rg"],
-    xfail: "SELECT",
-    note: "the chain is already [rg, ra]; ⌘→deep is what SELECT still has to wire",
+    today: ["ra"],
+    note: "⌘→deep, wired by SELECT: the chain [rg, ra] resolves to its leaf",
   },
   {
     id: "rot.gap.click",
@@ -801,9 +794,12 @@ export const PICKING_PROBES: readonly Probe[] = [
     fixture: "pick-all",
     where: { x: 110, y: 810 },
     action: "cmdClick",
-    expect: ["card"],
-    today: ["card"],
-    note: "deepest painted node under the point is the group",
+    expect: [],
+    today: [],
+    note:
+      "SELECT's marqueeThroughTarget (Q6): a Mod-press on a painted, non-boolean container's own padding arms a " +
+      "marquee-through-the-frame gesture on pointerdown, before any click/select decision — released with zero " +
+      "movement, that is a marquee with an empty rect (commit([], [card])), not a deep-select of the container",
   },
   {
     id: "card.c2.click",
@@ -819,9 +815,8 @@ export const PICKING_PROBES: readonly Probe[] = [
     where: centre("c2"),
     action: "cmdClick",
     expect: ["c2"],
-    today: ["card"],
-    xfail: "SELECT",
-    note: "the chain is already [card, c2]; ⌘→deep is what SELECT still has to wire",
+    today: ["c2"],
+    note: "⌘→deep, wired by SELECT: the chain [card, c2] resolves to its leaf",
   },
   {
     id: "card.c2.candidates",
@@ -886,8 +881,7 @@ export const PICKING_PROBES: readonly Probe[] = [
     where: { x: 1150, y: 1000 },
     action: "layerMenu",
     expect: ["L3", "L2", "L1"],
-    today: "n/a",
-    xfail: "SELECT",
+    today: ["L3", "L2", "L1"],
     note: "\"Select layer ▸\", via ⌘+right-click",
   },
   {
@@ -897,8 +891,7 @@ export const PICKING_PROBES: readonly Probe[] = [
     action: "layerMenuPick",
     pick: 2,
     expect: ["L1"],
-    today: "n/a",
-    xfail: "SELECT",
+    today: ["L1"],
     note: "select-behind, via ⌘+right-click",
   },
   {
@@ -979,9 +972,8 @@ export const PICKING_PROBES: readonly Probe[] = [
     where: { x: 1240, y: 370 },
     action: "layerMenu",
     expect: ["d2", "d1"],
-    today: "n/a",
-    xfail: "SELECT",
-    note: "both nodes named \"Rectangle\"; disambiguated (by id suffix or however SELECT spells it), not [\"Rectangle\",\"Rectangle\"]",
+    today: ["d2", "d1"],
+    note: "both nodes named \"Rectangle\"; disambiguated by id suffix, not [\"Rectangle\",\"Rectangle\"]",
   },
 
   // -- read-only mode -----------------------------------------------------

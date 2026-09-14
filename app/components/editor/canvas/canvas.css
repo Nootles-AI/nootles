@@ -279,6 +279,46 @@
   background: transparent;
 }
 
+/* "Select layer ▸" submenu (SELECT). Neutral chrome only — no --nt-select
+   here; the canvas ring (.nt-ov-hover) is the accent that answers a hover. */
+.nt-ctx-sub {
+  max-height: min(60vh, 480px);
+  overflow-y: auto;
+  min-width: 220px;
+}
+.nt-ctx-sub-row {
+  gap: 8px;
+}
+.nt-ctx-glyph {
+  flex: none;
+  color: var(--muted);
+}
+.nt-ctx-sub-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nt-ctx-hint {
+  margin-left: auto;
+  padding-left: 12px;
+  font-size: var(--text-meta);
+  color: var(--muted);
+  white-space: nowrap;
+}
+.nt-ctx-chevron {
+  margin-left: auto;
+  color: var(--muted);
+}
+.nt-menu-item[aria-expanded="true"] {
+  background: var(--hover);
+}
+/* A row marking the node already selected: resting state, neutral — the
+   canvas ring is the answer. */
+.nt-ctx-sub-row[aria-current="true"] .nt-ctx-sub-name {
+  font-weight: 500;
+}
+
 /* ===== Toolbar ===========================================================
    Floats over the canvas it serves rather than sitting in the block, which is
    600px of a document column. Two elements on purpose: the dock is placed by

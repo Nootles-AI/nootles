@@ -1000,6 +1000,26 @@ export function selectedNodes(
   return out;
 }
 
+/**
+ * The selected nodes that are live and not inside another selected node.
+ *
+ * A node and its ancestor both being addressed would move, duplicate or copy the
+ * inner one twice; the ops layer drops them for the same reason. `enterSelected()`
+ * (`engine/useSelection.ts`) and `edit.vector`'s command (`engine/shortcuts.ts`)
+ * both need "exactly one thing is addressed" to mean the same thing, which is
+ * why this lives beside {@link selectedNodes} rather than privately in one
+ * caller.
+ */
+export function topSelection(scene: SceneLike, ids: readonly NodeId[]): SceneNode[] {
+  const wanted = new Set(ids);
+  return selectedNodes(scene, ids).filter(
+    (node) =>
+      !nodePath(scene, node.id)
+        .slice(0, -1)
+        .some((ancestor) => wanted.has(ancestor.id)),
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Edge reads
 // ---------------------------------------------------------------------------

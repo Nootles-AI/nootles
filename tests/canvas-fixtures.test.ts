@@ -157,13 +157,32 @@ function pointsOf(probe: Probe): readonly ProbeAnchor[] {
 
 describe("fixtures.pickAll.geometry", () => {
   const CLICK_LIKE: readonly ProbeAction[] = ["click", "cmdClick", "altClick", "hover"];
+  // `card.padding.cmd`'s real outcome is no longer a direct function of raw
+  // `hitTestPath` geometry: SELECT's `marqueeThroughTarget` (engine/
+  // useSelection.ts) intercepts a Mod-press on a painted, non-boolean
+  // container's own padding *before* any click decision, and a zero-movement
+  // release resolves it as an empty marquee (SELECT.md's own Q6) rather than
+  // a deep-select of the chain `hitTestPath` reports. This re-derivation is
+  // for probes whose selection follows directly from the paint chain; this
+  // one doesn't, by design — its own probe carries the real end-to-end
+  // answer and its reasoning in `note` instead.
+  const NOT_REDUCIBLE_TO_GEOMETRY = new Set(["card.padding.cmd"]);
   for (const probe of PICKING_PROBES) {
-    if (probe.xfail || probe.today === "n/a" || !CLICK_LIKE.includes(probe.action)) continue;
+    if (
+      probe.xfail ||
+      probe.today === "n/a" ||
+      !CLICK_LIKE.includes(probe.action) ||
+      NOT_REDUCIBLE_TO_GEOMETRY.has(probe.id)
+    ) {
+      continue;
+    }
     it(probe.id, () => {
       const laid = laidOutScene(FIXTURES[probe.fixture].scene);
       // Real `hitTestPath` on main, exactly as `SelectionStore.click`/`hover`
       // call it today — no tolerance argument is ever passed pre-PICK.
-      const deep = (probe.readOnly ?? false) || probe.action === "altClick";
+      // `cmdClick` means deep now that SELECT has wired ⌘/Ctrl to `isModKey`
+      // (`engine/shortcuts.ts`).
+      const deep = (probe.readOnly ?? false) || probe.action === "altClick" || probe.action === "cmdClick";
       const point = resolvePoint(pointsOf(probe)[0], laid);
       const chain = hitTestPath(laid, point, { deep });
       const got = chain.length ? [deep ? chain[chain.length - 1].id : chain[0].id] : [];
@@ -365,6 +384,15 @@ describe("fixtures.pickAll.xfailReasons", () => {
 
 describe("fixtures.pickAll.xfailReasons — intermediate PICK-alone re-derivation", () => {
   const MENU_ACTIONS: readonly ProbeAction[] = ["layerMenu", "layerMenuPick"];
+
+  // Both PICK ("Wave 1") and SELECT ("Wave 4") have now landed and removed
+  // every `xfail` tag they resolved — this is the Wave-5 "assert zero
+  // remaining" flip (build-plan §5 item 1), always present so the suite is
+  // never empty once the last tag comes off.
+  it("no probe carries a leftover xfail tag", () => {
+    expect(PICKING_PROBES.filter((p) => p.xfail).map((p) => p.id)).toEqual([]);
+  });
+
   for (const probe of PICKING_PROBES) {
     if (!probe.xfail) continue;
     it(`${probe.id} (${probe.xfail})`, () => {

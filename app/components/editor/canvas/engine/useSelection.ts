@@ -63,12 +63,16 @@ import {
   toLocal,
   type RotatedRect,
 } from "../scene/geometry";
-import { hitTestAll, hitTestPath, hitTestRect, type Candidate } from "../scene/picking";
+import { hitTestAll, hitTestRect, type Candidate } from "../scene/picking";
 import {
+  findNode,
+  findParent,
+  isBoolean,
   isContainer,
   nodePath,
   selectedEdges as selectedEdgesOf,
   selectedNodes,
+  topSelection,
   walk,
   type EdgeId,
   type NodeId,
@@ -112,7 +116,7 @@ export interface SelectionSnapshot {
 export interface ClickMods {
   /** Toggle the hit node in or out of the selection. */
   shift?: boolean;
-  /** Address the deepest node instead of the outermost group — alt/option. */
+  /** Address the deepest painted node instead of the outermost group — ⌘ on Apple, Ctrl elsewhere. */
   deep?: boolean;
   /**
    * Scene px, widening stroke bands only (`scene/picking.ts` §4.6). Every
@@ -122,6 +126,27 @@ export interface ClickMods {
    * each command below.
    */
   tolerance?: number;
+}
+
+/**
+ * What a point resolved against — the full candidate walk behind `probe`,
+ * `click` and `hover`, exposed so a caller deciding a gesture (Mod-drag
+ * through a frame) can read it once rather than paying for a second
+ * `hitTestAll` pass at the same pixel.
+ */
+export interface Resolved {
+  /** Every painted candidate, front to back. Empty on bare canvas. */
+  candidates: readonly Candidate[];
+  /** The frontmost candidate's chain, outermost first. Empty when none. */
+  chain: readonly SceneNode[];
+  /**
+   * The node a click takes: `chain[depth]` normally; the leaf under `deep`.
+   * `null` when the chain ran out inside the entered path (the entered
+   * container's own paint, which a click there deselects).
+   */
+  target: SceneNode | null;
+  /** The entered path a click at this point leaves us at. */
+  level: readonly NodeId[];
 }
 
 export interface SelectionStore {
@@ -168,15 +193,25 @@ export interface SelectionStore {
    * selection it is about to move.
    */
   probe(point: Point, mods?: ClickMods): NodeId | null;
+  /**
+   * The private resolution behind `probe`/`click`, exposed for a caller that
+   * needs the candidate list a press resolved against — today only the
+   * surface's Mod-drag-through-frame check. Prefer `probe`/`click`/`hover`/
+   * `candidates` elsewhere. `resolveAt(p, m).target?.id === probe(p, m)`.
+   */
+  resolveAt(point: Point, mods?: ClickMods): Resolved;
   /** Double-click: enter the group under the point and select the child. */
   enter(point: Point, opts?: { tolerance?: number }): void;
   /** Escape: step out one level and select the group left behind, else clear. */
   escape(): void;
   /**
    * Marquee, by **intersection** — Figma's rule, and the one that lets you
-   * rubber-band a row without enclosing it. Selects within the entered group.
+   * rubber-band a row without enclosing it. Selects within the entered
+   * group, unless `within` names a container — the ⌘-drag-through-a-frame
+   * marquee — in which case it scopes to that container's children and sets
+   * the level to it.
    */
-  marquee(rect: Rect, mods?: { shift?: boolean }): void;
+  marquee(rect: Rect, mods?: { shift?: boolean; within?: NodeId }): void;
   /** Report what is under the pointer; `null` clears it. */
   hover(point: Point | null, mods?: { deep?: boolean; tolerance?: number }): NodeId | null;
   /**
@@ -184,7 +219,32 @@ export interface SelectionStore {
    * entered level — for the layer menu (SELECT-MENU, §9 of PICK). No
    * selection change, no notify: `hitTestAll(scene, point, opts)` directly.
    */
-  candidates(point: Point, opts?: { tolerance?: number; includeLocked?: boolean }): Candidate[];
+  candidates(point: Point, opts?: { tolerance?: number; includeLocked?: boolean }): readonly Candidate[];
+  /** Ring this node, no hit test — a menu row is pointing at it. `null` clears. Never recorded. */
+  hoverNode(id: NodeId | null): void;
+  /**
+   * Enter (exactly one top-level container selected): step into it and select
+   * its first (frontmost, unlocked, visible) child. Returns `false` when it
+   * did nothing — not exactly one top-level node selected, not a container,
+   * or no eligible child. Boolean groups count as containers here.
+   */
+  enterSelected(): boolean;
+  /**
+   * Shift+Enter: select the parent of the selection (all selected must share
+   * it), leaving the level at the parent's ancestors. With nothing selected
+   * but a level entered, behaves as `escape()`. Returns `false` when it did
+   * nothing (top-level selection, mixed parents, nothing at all).
+   */
+  selectParent(): boolean;
+  /**
+   * Tab / Shift+Tab at the entered level. `"next"` walks toward the BACK
+   * (down the layers panel), `"previous"` toward the front, both wrapping.
+   * Level unchanged. Returns `false` when there is no eligible node
+   * **already selected** at this level to anchor the direction from — an
+   * empty level, or nothing/only ineligible siblings selected — so Tab with
+   * nothing selected is never consumed (no keyboard trap).
+   */
+  selectSibling(direction: "next" | "previous"): boolean;
 
   /** Select these connectors outright, clearing any node selection. */
   selectEdges(ids: readonly EdgeId[]): void;
@@ -257,7 +317,7 @@ function agreeDepth(
  * group and selects the shape, the second opens its label.
  *
  * `entered` is a resolved {@link ResolvedSelection.enteredPath} and `chain` is
- * {@link hitTestPath}'s — taken against `laidOutScene(scene)`, which is what
+ * {@link Resolved.chain} — taken against `laidOutScene(scene)`, which is what
  * the store hit-tests, or the two can disagree inside an auto-layout group.
  * This is exactly the depth {@link SelectionStore.enter} resolves the click at,
  * asked one step earlier, so a surface can route the click before the selection
@@ -268,6 +328,42 @@ export function descends(
   chain: readonly SceneNode[],
 ): boolean {
   return chain.length > agreeDepth(entered, chain) + 1;
+}
+
+/**
+ * Whether a Mod-drag press at this resolved point should marquee through a
+ * container instead of selecting or moving it — Figma's "hold the modifier
+ * and drag the marquee across the objects" rule. Requires `deep` (Shift is
+ * reserved for additive marquee/toggle, never a through-drag). Returns the
+ * container's id when the *frontmost* candidate is a non-boolean container's
+ * own paint (nothing else is painted over it at this pixel); `null`
+ * otherwise — including when the frontmost candidate is a boolean group.
+ *
+ * A boolean group is excluded on purpose: it paints as one compound shape and
+ * its operands never appear as their own hit candidates (PICK's contract), so
+ * there is nothing distinct under the pointer to marquee "through". A
+ * Mod-drag on its fill moves the compound exactly as a plain drag would;
+ * `enterSelected()` can still step inside it for point editing (a deliberate
+ * mode switch on Enter, not a guess about what a drag meant).
+ */
+export function marqueeThroughTarget(
+  resolved: Resolved,
+  mods: { deep: boolean; shift: boolean },
+): NodeId | null {
+  if (!mods.deep || mods.shift) return null;
+  const top = resolved.candidates[0];
+  return top && isContainer(top.node) && !isBoolean(top.node) ? top.node.id : null;
+}
+
+/** The frontmost (last), unlocked, visible child of a container — the child
+ *  Enter steps into. `null` when there is none. */
+function firstChild(node: SceneNode): SceneNode | null {
+  if (!isContainer(node)) return null;
+  for (let i = node.children.length - 1; i >= 0; i--) {
+    const child = node.children[i];
+    if (!child.hidden && !child.locked) return child;
+  }
+  return null;
 }
 
 function idsOf(nodes: readonly SceneNode[]): NodeId[] {
@@ -404,53 +500,66 @@ export function createSelectionStore(initialScene: SceneLike): SelectionStore {
       ? snapshot.ids.filter((other) => other !== id)
       : orderIds(scene, [...snapshot.ids, id]);
 
-  const probe: SelectionStore["probe"] = (point, mods = {}) => {
-    const chain = hitTestPath(scene, point, { tolerance: mods.tolerance });
-    if (chain.length === 0) return null;
-    if (mods.deep) return chain[chain.length - 1].id;
+  /**
+   * The one candidate walk behind `probe`, `click` and `hover` — see
+   * {@link Resolved}. `deep` addresses the frontmost candidate's leaf, its
+   * ancestry becoming the level a click there leaves us at (Figma: once
+   * inside a nested layer, subsequent clicks pick among its siblings). Not
+   * deep resolves against the currently entered level, exactly as before.
+   */
+  const resolve = (point: Point, mods: ClickMods): Resolved => {
+    const candidates = hitTestAll(scene, point, { tolerance: mods.tolerance ?? 0 });
+    const chain = candidates[0]?.chain ?? [];
+    if (mods.deep) {
+      const target = chain.length ? chain[chain.length - 1] : null;
+      return { candidates, chain, target, level: idsOf(chain.slice(0, -1)) };
+    }
     const entered = idsOf(resolveLevel(scene, snapshot.enteredPath).path);
-    return chain[agreeDepth(entered, chain)]?.id ?? null;
+    const depth = agreeDepth(entered, chain);
+    return { candidates, chain, target: chain[depth] ?? null, level: entered.slice(0, depth) };
   };
 
-  const click: SelectionStore["click"] = (point, mods = {}) => {
-    const chain = hitTestPath(scene, point, { tolerance: mods.tolerance });
+  const probe: SelectionStore["probe"] = (point, mods = {}) =>
+    resolve(point, mods).target?.id ?? null;
 
-    if (chain.length === 0) {
+  const click: SelectionStore["click"] = (point, mods = {}) => {
+    const resolved = resolve(point, mods);
+
+    if (resolved.chain.length === 0) {
       // Clicking empty canvas leaves the group as well as the selection.
       if (!mods.shift) commit(NO_IDS, NO_IDS, snapshot.hoverId);
       return null;
     }
 
-    if (mods.deep) {
-      const leaf = chain[chain.length - 1];
-      commit(
-        mods.shift ? toggled(leaf.id) : [leaf.id],
-        snapshot.enteredPath,
-        snapshot.hoverId,
-      );
-      return leaf.id;
-    }
-
-    const entered = idsOf(resolveLevel(scene, snapshot.enteredPath).path);
-    const depth = agreeDepth(entered, chain);
-    // A click outside the entered group drops us to the level it shares with
-    // what we hit; a click inside keeps the level it already had.
-    const level = entered.slice(0, depth);
-    const target = chain[depth];
-
-    // The chain ran out inside the path: this is an entered container's own
-    // fill, which deselects without leaving it.
-    if (!target) {
-      commit(mods.shift ? snapshot.ids : NO_IDS, level, snapshot.hoverId);
+    if (resolved.target === null) {
+      // The chain ran out inside the path: this is an entered container's own
+      // fill, which deselects without leaving it.
+      commit(mods.shift ? snapshot.ids : NO_IDS, resolved.level, snapshot.hoverId);
       return null;
     }
 
+    const target = resolved.target;
     commit(
       mods.shift ? toggled(target.id) : [target.id],
-      level,
+      // Shift keeps the current level — a toggle across groups has no single
+      // ancestry. Non-shift takes the resolved level, which for `deep` is
+      // the leaf's own ancestry: once inside, subsequent clicks pick among
+      // its siblings.
+      mods.shift ? snapshot.enteredPath : resolved.level,
       snapshot.hoverId,
     );
     return target.id;
+  };
+
+  /** Escape's own logic, shared with `selectParent()`'s zero-selection branch. */
+  const escapeOnce = (): void => {
+    const { path } = resolveLevel(scene, snapshot.enteredPath);
+    if (path.length === 0) {
+      commit(NO_IDS, NO_IDS, snapshot.hoverId);
+      return;
+    }
+    const leaving = path[path.length - 1];
+    commit([leaving.id], idsOf(path.slice(0, -1)), snapshot.hoverId);
   };
 
   return {
@@ -517,7 +626,7 @@ export function createSelectionStore(initialScene: SceneLike): SelectionStore {
     probe,
 
     enter(point, opts = {}) {
-      const chain = hitTestPath(scene, point, { tolerance: opts.tolerance });
+      const chain = resolve(point, { tolerance: opts.tolerance }).chain;
       if (chain.length === 0) return;
       const entered = idsOf(resolveLevel(scene, snapshot.enteredPath).path);
       if (!descends(entered, chain)) {
@@ -532,18 +641,24 @@ export function createSelectionStore(initialScene: SceneLike): SelectionStore {
     },
 
     escape() {
-      const { path } = resolveLevel(scene, snapshot.enteredPath);
-      if (path.length === 0) {
-        commit(NO_IDS, NO_IDS, snapshot.hoverId);
-        return;
-      }
-      const leaving = path[path.length - 1];
-      commit([leaving.id], idsOf(path.slice(0, -1)), snapshot.hoverId);
+      escapeOnce();
     },
 
     marquee(rect, mods = {}) {
-      const { path, nodes } = resolveLevel(scene, snapshot.enteredPath);
-      const container = path[path.length - 1];
+      const withinNode = mods.within ? findNode(scene, mods.within) : null;
+      let path: SceneNode[];
+      let nodes: readonly SceneNode[];
+      let container: SceneNode | undefined;
+      if (withinNode && isContainer(withinNode) && !withinNode.hidden) {
+        path = nodePath(scene, withinNode.id);
+        nodes = withinNode.children;
+        container = withinNode;
+      } else {
+        const level = resolveLevel(scene, snapshot.enteredPath);
+        path = level.path;
+        nodes = level.nodes;
+        container = path[path.length - 1];
+      }
       const hits = container
         ? hitTestRect(nodes, rectInLocalSpace(scene, container, rect))
         : hitTestRect(scene, rect);
@@ -560,25 +675,67 @@ export function createSelectionStore(initialScene: SceneLike): SelectionStore {
         commitHover(null);
         return null;
       }
-      const chain = hitTestPath(scene, point, { tolerance: mods.tolerance });
-      if (chain.length === 0) {
-        commitHover(null);
-        return null;
-      }
-      let node: SceneNode;
-      if (mods.deep) {
-        node = chain[chain.length - 1];
-      } else {
-        const entered = idsOf(resolveLevel(scene, snapshot.enteredPath).path);
-        const depth = agreeDepth(entered, chain);
-        node = chain[depth] ?? chain[chain.length - 1];
-      }
-      commitHover(node.id);
-      return node.id;
+      const target = resolve(point, mods).target;
+      commitHover(target?.id ?? null);
+      return target?.id ?? null;
+    },
+
+    resolveAt(point, mods = {}) {
+      return resolve(point, mods);
     },
 
     candidates(point, opts = {}) {
       return hitTestAll(scene, point, opts);
+    },
+
+    hoverNode(id) {
+      commitHover(id);
+    },
+
+    enterSelected() {
+      const nodes = topSelection(scene, snapshot.ids);
+      if (nodes.length !== 1) return false;
+      const node = nodes[0];
+      if (!isContainer(node) || node.hidden) return false;
+      const child = firstChild(node);
+      if (!child) return false;
+      commit([child.id], idsOf(nodePath(scene, node.id)), snapshot.hoverId);
+      return true;
+    },
+
+    selectParent() {
+      const nodes = topSelection(scene, snapshot.ids);
+      if (nodes.length === 0) {
+        const { path } = resolveLevel(scene, snapshot.enteredPath);
+        if (path.length === 0) return false;
+        escapeOnce();
+        return true;
+      }
+      const parents = new Set(nodes.map((n) => findParent(scene, n.id)?.id ?? null));
+      if (parents.size !== 1) return false;
+      const [parentId] = parents;
+      if (parentId === null) return false;
+      commit([parentId], idsOf(nodePath(scene, parentId).slice(0, -1)), snapshot.hoverId);
+      return true;
+    },
+
+    selectSibling(direction) {
+      const { path, nodes: level } = resolveLevel(scene, snapshot.enteredPath);
+      const eligible = level.filter((n) => !n.hidden && !n.locked);
+      if (eligible.length === 0) return false;
+      let leadId: NodeId | null = null;
+      for (let i = snapshot.ids.length - 1; i >= 0; i--) {
+        if (eligible.some((n) => n.id === snapshot.ids[i])) {
+          leadId = snapshot.ids[i];
+          break;
+        }
+      }
+      if (leadId === null) return false;
+      const i = eligible.findIndex((n) => n.id === leadId);
+      const n = eligible.length;
+      const pick = direction === "next" ? eligible[(i - 1 + n) % n] : eligible[(i + 1) % n];
+      commit([pick.id], idsOf(path), snapshot.hoverId);
+      return true;
     },
   };
 }

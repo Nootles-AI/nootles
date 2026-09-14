@@ -63,7 +63,7 @@ import { prepareBooleans, reflowBooleans, type LiveBooleans } from "./liveBoolea
 import { useTransformGesture,
   type LiveFrame,
 } from "../engine/gestures";
-import { useCanvasShortcuts, type CanvasTool } from "../engine/shortcuts";
+import { isModKey, useCanvasShortcuts, type CanvasTool } from "../engine/shortcuts";
 import { createScreenControl, recentre, type ScreenControl, type ScreenHost } from "../engine/screen";
 import type { SnapGuide } from "../engine/snapping";
 import { createSurfaceModes, type SurfaceModeContext, type SurfaceModes } from "../engine/surfaceMode";
@@ -71,6 +71,7 @@ import { useScene, useSceneSnapshot, type SceneStore } from "../engine/useScene"
 import { ZOOM_DRAG_MIN, zoomToolResult } from "../engine/zoomTool";
 import {
   descends,
+  marqueeThroughTarget,
   useSelection,
   useSelectionStore,
   type ClickMods,
@@ -957,12 +958,19 @@ export function CanvasSurface({
 
   const pathControl = useMemo(() => ({ set: setOpenPath }), []);
 
+  /** Enter on a text-bearing leaf: open its label, same as a double-click
+   *  would once inside its group — `setEditing` alone is enough (`ShapeView`
+   *  renders `LabelEdit` for `editingId === node.id`) and the keymap has
+   *  already confirmed the node is selected. */
+  const labelControl = useMemo(() => ({ open: (id: NodeId) => setEditing(id) }), []);
+
   useCanvasShortcuts({
     scene: store,
     selection,
     viewport,
     tool: toolControl,
     pathEdit: pathControl,
+    labelEdit: labelControl,
     screen,
     enabled: !readOnly,
   });
@@ -1078,10 +1086,13 @@ export function CanvasSurface({
   const scenePoint = (event: { clientX: number; clientY: number }) =>
     viewport.clientToScene({ x: event.clientX, y: event.clientY });
 
-  /** Scene-px grab slop at the current zoom — `scene/picking.ts`'s shared
-   *  helper (§2.1/§9 of PICK), so a click, a hover and the context menu never
-   *  disagree about what counts as "on" a thin stroke at the same pixel. */
-  const slop = () => slopFor(viewport.get().zoom);
+  /** Scene-px grab slop at the current zoom, packaged for a store call —
+   *  PICK's shared `slopFor` (§2.1/§9), so a click, a hover, a double-click
+   *  and the context menu never disagree about what counts as "on" a thin
+   *  stroke at the same pixel. Every pointer-anchored call below spreads
+   *  this rather than deriving its own tolerance (SELECT §1.4 — this *is*
+   *  that one shared helper, not a second tolerance closure). */
+  const pickOpts = () => ({ tolerance: slopFor(viewport.get().zoom) });
 
   const startPan = (from: { x: number; y: number }) => {
     const el = viewport.containerRef.current;
@@ -1100,12 +1111,16 @@ export function CanvasSurface({
     );
   };
 
-  const startMarquee = (origin: { x: number; y: number }, shift: boolean) => {
+  const startMarquee = (
+    origin: { x: number; y: number },
+    shift: boolean,
+    within?: NodeId,
+  ) => {
     drag(
       (event) => {
         const rect = normalizeRect(origin, scenePoint(event));
         overlay.current?.marquee(rect);
-        selection.marquee(rect, { shift });
+        selection.marquee(rect, { shift, within });
       },
       () => {
         busy.current = false;
@@ -1329,13 +1344,32 @@ export function CanvasSurface({
     // multi-selection; no drag; and an empty click clears rather than starting
     // a marquee.
     if (readOnly) {
-      selection.click(point, { deep: true, tolerance: slop() });
+      selection.click(point, { deep: true, ...pickOpts() });
       busy.current = false;
       return;
     }
 
-    const mods: ClickMods = { shift: event.shiftKey, deep: event.altKey, tolerance: slop() };
-    const hit = selection.probe(point, mods);
+    // Deep select is the platform's Mod (⌘ on Apple, Ctrl elsewhere) — Alt is
+    // fully released to duplicate-on-drag only (`gestures.ts`'s own
+    // `mods.alt`, untouched here).
+    const deep = isModKey(event);
+    const mods: ClickMods = { shift: event.shiftKey, deep, ...pickOpts() };
+    const resolved = selection.resolveAt(point, mods);
+    const hit = resolved.target?.id ?? null;
+
+    // ⌘-drag through a frame: decided from the same walk `probe` would have
+    // done (one `hitTestAll`, not two — `resolveAt` hands back the candidate
+    // list `marqueeThroughTarget` reads), and evaluated BEFORE any selection
+    // change or move-vs-marquee branching below — independent of whether the
+    // frame is already selected. Figma's Cmd/Ctrl-drag unconditionally means
+    // "select within, don't move the container".
+    const through = marqueeThroughTarget(resolved, { deep, shift: event.shiftKey });
+    if (through) {
+      event.preventDefault();
+      startMarquee(point, false, through);
+      return;
+    }
+
     const bounds = sel.selectionBounds;
     const onSelection =
       hit !== null
@@ -1407,14 +1441,15 @@ export function CanvasSurface({
       clientX: event.clientX,
       clientY: event.clientY,
       // Deep read-only for the same reason the click is: the ring has to
-      // promise what the click will actually take.
-      deep: readOnly || event.altKey,
+      // promise what the click will actually take. Mod, not Alt — Alt is
+      // released to duplicate-on-drag only.
+      deep: readOnly || isModKey(event),
     };
     if (hoverFrame.current) return;
     hoverFrame.current = requestAnimationFrame(() => {
       hoverFrame.current = 0;
       const at = hoverAt.current;
-      if (at) selection.hover(scenePoint(at), { deep: at.deep, tolerance: slop() });
+      if (at) selection.hover(scenePoint(at), { deep: at.deep, ...pickOpts() });
     });
   };
 
@@ -1431,11 +1466,11 @@ export function CanvasSurface({
     const wanted = asked.current;
     asked.current = null;
     const point = scenePoint(event);
-    const tolerance = slop();
-    const chain = hitTestPath(laid, point, { tolerance });
+    const opts = pickOpts();
+    const chain = hitTestPath(laid, point, opts);
     if (chain.length === 0) return;
     const descending = descends(sel.enteredPath, chain);
-    selection.enter(point, { tolerance });
+    selection.enter(point, opts);
     if (descending) return;
     const ids = selection.getSnapshot().ids;
     if (ids.length !== 1) return;
@@ -1452,17 +1487,22 @@ export function CanvasSurface({
     if (activeMode) return;
     viewport.containerRef.current?.focus({ preventScroll: true });
     const point = scenePoint(event);
-    const chain = hitTestPath(laid, point, { tolerance: slop() });
+    const layers = selection.candidates(point, pickOpts());
     // Nothing under the pointer: every entry would be dead, so this is a
     // deselect rather than a menu.
-    if (chain.length === 0) {
+    if (layers.length === 0) {
       selection.clear();
       return;
     }
-    if (!chain.some((node) => selection.isSelected(node.id))) {
-      selection.click(point);
+    const layersOnly = isModKey(event);
+    // Frontmost candidate only: a selected shape occluded behind the one the
+    // user visibly clicked must not suppress the pre-select — a left-click
+    // at the same point would select the frontmost shape, and right-click
+    // must agree.
+    if (!layersOnly && !(layers[0]?.chain.some((n) => selection.isSelected(n.id)) ?? false)) {
+      selection.click(point, pickOpts());
     }
-    openMenu(event);
+    openMenu(event, { layers, layersOnly });
   };
 
   /**

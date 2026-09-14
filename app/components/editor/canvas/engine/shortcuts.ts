@@ -63,10 +63,11 @@ import { parseScene } from "../scene/parse";
 import { serializeScene } from "../scene/serialize";
 import {
   findNode,
+  hasText,
   isContainer,
   isGroup,
   nodePath,
-  selectedNodes,
+  topSelection,
   walk,
   SCENE_TAG,
   TAG_BY_KIND,
@@ -137,6 +138,7 @@ export interface PathEditController {
 export type ShortcutGroup =
   | "Tools"
   | "Edit"
+  | "Select"
   | "Arrange"
   | "Move"
   | "View"
@@ -147,6 +149,7 @@ export type ShortcutGroup =
 export const SHORTCUT_GROUPS = [
   "Tools",
   "Edit",
+  "Select",
   "Arrange",
   "Move",
   "View",
@@ -187,6 +190,12 @@ export type ShortcutId =
   | "edit.selectAll"
   | "edit.vector"
   | "edit.deselect"
+  | "select.parent"
+  | "select.next"
+  | "select.previous"
+  | "select.deep"
+  | "select.layers"
+  | "select.through"
   | "arrange.forward"
   | "arrange.backward"
   | "arrange.front"
@@ -220,8 +229,13 @@ export interface Shortcut {
    * platforms and Ctrl everywhere else. The first is the one the UI shows.
    */
   keys: readonly string[];
-  /** Shown instead of the formatted `keys[0]` where a set of keys reads better. */
-  display?: string;
+  /**
+   * Shown instead of the formatted `keys[0]` where a set of keys reads
+   * better. A function is resolved with `isApplePlatform()` — for a
+   * display-only row (`keys: []`) whose hint names the platform's modifier
+   * glyph, such as ⌘-click.
+   */
+  display?: string | ((apple: boolean) => string);
   /**
    * Bindings on non-Apple platforms when they differ from `keys` — a `Ctrl`
    * token in `keys` is the spare modifier on Apple (⌃) and has no off-Apple
@@ -229,6 +243,17 @@ export interface Shortcut {
    * (`view.fullscreen`'s `f11`).
    */
   other?: readonly string[];
+}
+
+/** ⌘ on Apple, `Ctrl+` everywhere else — the prefix for a display-only pointer
+ *  hint (`select.deep`/`select.layers`/`select.through`); the trailing space
+ *  differs because ⌘ reads as a standalone glyph and `Ctrl+` doesn't. */
+function modGlyph(apple: boolean): string {
+  return apple ? "⌘ " : "Ctrl+";
+}
+
+function modHint(apple: boolean, word: string): string {
+  return `${modGlyph(apple)}${word}`;
 }
 
 export const SHORTCUTS: readonly Shortcut[] = [
@@ -289,16 +314,49 @@ export const SHORTCUTS: readonly Shortcut[] = [
   { id: "edit.selectAll", label: "Select all", group: "Edit", keys: ["Mod+a"] },
   {
     id: "edit.vector",
-    label: "Edit vector path",
-    group: "Edit",
+    label: "Enter group / edit",
+    group: "Select",
     // Only Enter is bound here. Escape leaves, but the pen overlay claims that
     // key in the capture phase before this keymap ever sees it, so it is
     // spelled out in `display` rather than bound — where a second `escape` row
     // would shadow `edit.deselect` for every other selection there is.
     keys: ["enter"],
-    display: "Enter · Esc to leave",
+    display: "Enter",
   },
   { id: "edit.deselect", label: "Deselect / step out", group: "Edit", keys: ["escape"] },
+
+  { id: "select.parent", label: "Select parent", group: "Select", keys: ["Shift+enter"] },
+  { id: "select.next", label: "Select next sibling", group: "Select", keys: ["tab"] },
+  {
+    id: "select.previous",
+    label: "Select previous sibling",
+    group: "Select",
+    keys: ["Shift+tab"],
+  },
+  // Display-only: `keys: []` binds nothing (a pointer gesture, not a key),
+  // so `shortcutHint` must read `display` — never `formatShortcut(keys[0])`,
+  // which is unreachable here on purpose.
+  {
+    id: "select.deep",
+    label: "Select deepest (click)",
+    group: "Select",
+    keys: [],
+    display: (apple) => modHint(apple, "click"),
+  },
+  {
+    id: "select.layers",
+    label: "Select layer…",
+    group: "Select",
+    keys: [],
+    display: (apple) => modHint(apple, "right-click"),
+  },
+  {
+    id: "select.through",
+    label: "Marquee through frame",
+    group: "Select",
+    keys: [],
+    display: (apple) => modHint(apple, "drag"),
+  },
 
   {
     id: "arrange.forward",
@@ -600,8 +658,19 @@ export function formatShortcut(spec: string, apple = isApplePlatform()): string 
  */
 export function shortcutHint(id: ShortcutId, apple = isApplePlatform()): string {
   const shortcut = SHORTCUTS_BY_ID[id];
+  const d = typeof shortcut.display === "function" ? shortcut.display(apple) : shortcut.display;
+  if (d !== undefined) return d;
   const specs = specsFor(shortcut, apple);
-  return shortcut.display ?? (specs.length ? formatShortcut(specs[0], apple) : "");
+  return specs.length ? formatShortcut(specs[0], apple) : "";
+}
+
+/**
+ * Whether this pointer or key event carries the platform's command modifier:
+ * ⌘ on Apple, Ctrl elsewhere. On a Mac, Ctrl+click is the OS's right-click
+ * and must never read as deep select.
+ */
+export function isModKey(e: { metaKey: boolean; ctrlKey: boolean }): boolean {
+  return isApplePlatform() ? e.metaKey : e.ctrlKey;
 }
 
 // ---------------------------------------------------------------------------
@@ -615,22 +684,6 @@ function isTextEntry(): boolean {
   if (el.isContentEditable) return true;
   const tag = el.tagName;
   return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
-}
-
-/**
- * The selected nodes that are live and not inside another selected node.
- *
- * A node and its ancestor both being addressed would move, duplicate or copy the
- * inner one twice; the ops layer drops them for the same reason.
- */
-function topSelection(scene: Scene, ids: readonly NodeId[]): SceneNode[] {
-  const wanted = new Set(ids);
-  return selectedNodes(scene, ids).filter(
-    (node) =>
-      !nodePath(scene, node.id)
-        .slice(0, -1)
-        .some((ancestor) => wanted.has(ancestor.id)),
-  );
 }
 
 function countNodes(nodes: readonly SceneNode[]): number {
@@ -809,6 +862,8 @@ export interface CanvasShortcutOptions {
   tool: ToolController;
   /** Omitted where the surface has no vector edit mode to enter. */
   pathEdit?: PathEditController;
+  /** Opens a shape's label for editing — Enter on a text-bearing node. Omitted where labels cannot be edited. */
+  labelEdit?: { open(id: NodeId): void };
   /** Omitted where the surface has no screen modes (a storyboard shot). */
   screen?: ScreenControl;
   /** Off for a read-only block. Default true. */
@@ -1219,17 +1274,54 @@ export function useCanvasShortcuts({
         return true;
       },
 
-      // Figma's Enter: open the selected vector for point editing. Anything
-      // else keeps the key, so Enter still belongs to the document around us.
+      // Figma's Enter, resolved by kind rather than a single hardcoded
+      // action: a group (incl. boolean) steps in and selects its first
+      // child, a path opens for vector editing, a text-bearing leaf opens
+      // its label, an image is a consumed no-op. Anything selected (or only
+      // an edge selected) claims the key so it can never leak Enter to the
+      // document under a selected shape; nothing at all selected leaves it
+      // for the document around us, as before.
       "edit.vector": () => {
-        const pathEdit = latest.current.pathEdit;
+        const sel = latest.current.selection;
+        const snapshot = sel.getSnapshot();
         const ids = targetIds();
-        if (!pathEdit || ids.length !== 1) return false;
+        if (ids.length === 0) return snapshot.edgeIds.length > 0;
+        if (ids.length !== 1) return true;
         const node = findNode(scene(), ids[0]);
-        if (node?.kind !== "path") return false;
-        pathEdit.set(node.id);
-        return true;
+        if (!node || node.locked) return true;
+        // `enterSelected()`'s own precondition is `topSelection(scene,
+        // snapshot.ids).length === 1` — the same computation `targetIds()`
+        // just made — so this always succeeds when we get here.
+        if (isContainer(node)) {
+          sel.enterSelected();
+          return true;
+        }
+        if (node.kind === "path") {
+          latest.current.pathEdit?.set(node.id);
+          return true;
+        }
+        if (hasText(node)) {
+          latest.current.labelEdit?.open(node.id);
+          return true;
+        }
+        return true; // image
       },
+
+      "select.parent": () => {
+        const before = latest.current.selection.getSnapshot();
+        latest.current.selection.selectParent();
+        return before.ids.length > 0 || before.enteredPath.length > 0 || before.edgeIds.length > 0;
+      },
+      "select.next": () =>
+        latest.current.selection.selectSibling("next") ||
+        latest.current.selection.getSnapshot().edgeIds.length > 0,
+      "select.previous": () =>
+        latest.current.selection.selectSibling("previous") ||
+        latest.current.selection.getSnapshot().edgeIds.length > 0,
+      // Display-only, no key binding — see the table rows' own comment.
+      "select.deep": () => false,
+      "select.layers": () => false,
+      "select.through": () => false,
 
       "edit.deselect": () => {
         if (latest.current.tool.get() !== "move") {
