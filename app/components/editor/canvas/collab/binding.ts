@@ -29,6 +29,26 @@ import {
 } from "./ymap";
 
 /**
+ * The root key a client marks its block-prop mirror with, just before writing
+ * it. Written in the same task as the prop, so the two leave in one sync flush,
+ * and when two people's mirrors cross, both keys settle on the same writer.
+ */
+const MIRROR = "mirror";
+
+/** How many recent stamps still identify a mirror (see `stamps`). */
+const STAMPS = 8;
+
+/** A mark of the mirror rather than a copy of it: its length and FNV-1a. */
+function mirrorStamp(html: string): string {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < html.length; i++) {
+    hash ^= html.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return `${html.length}:${(hash >>> 0).toString(36)}`;
+}
+
+/**
  * One diagram's bridge between the SceneStore and its CRDT maps.
  *
  * The store keeps speaking the language it always has — canvas HTML in, canvas
@@ -44,10 +64,10 @@ import {
  * unchanged. The mirror is display-grade, and trails on a cadence of its own
  * (see `blocks/CanvasBlock.tsx`) rather than on the store's flush: it is a
  * whole diagram per write where the maps are a shape per write. The maps are
- * the truth. An incoming prop change that does not
- * match the current maps is an EXTERNAL author — the AI writing a whole
- * diagram — and diffs in like anything else, which is what upgrades even
- * whole-HTML writes to per-shape merges.
+ * the truth. A prop change no client marked as its mirror is an EXTERNAL
+ * author — a whole diagram written without the maps — and diffs in like
+ * anything else, which is what upgrades even whole-HTML writes to per-shape
+ * merges.
  */
 export class CanvasCollab {
   private root: Y.Map<unknown> | null = null;
@@ -63,11 +83,24 @@ export class CanvasCollab {
   /** The last HTML this client wrote to the block prop (or saw at attach). */
   lastMirrored: string | null = null;
   /**
-   * Recent map states. A peer's block-prop mirror is a LAGGING projection —
-   * written on their flush cadence while their map writes stream ahead — so
-   * "differs from the maps now" cannot mean "external author". Anything
-   * matching a recent state is a mirror echo and is ignored; only content the
-   * maps have NEVER said (the AI writing a whole diagram) adopts.
+   * Mirror stamps the maps have carried lately, this client's own among them.
+   * A prop bearing one is somebody's mirror, however far it trails and
+   * whatever changed since it was flushed: its writer's map writes went first,
+   * so diffing it in could only take edits back. Several rather than the
+   * current one, because the prop a render hands over can be a beat behind a
+   * stamp that has already moved on.
+   */
+  private stamps: string[] = [];
+  /** The mirror this client last put on the block, and its stamp. */
+  private mirrored: { html: string; stamp: string } | null = null;
+  private staleMirror: ((html: string) => void) | null = null;
+  /**
+   * Recent map states, for a mirror that arrives without a stamp — from a
+   * client that predates them. A peer's mirror is a LAGGING projection, so
+   * "differs from the maps now" cannot mean "external author": anything
+   * matching a recent state is taken for an echo. What this cannot recognise
+   * is a mirror flushed while someone else was editing too, which describes a
+   * state no other replica was ever in; the stamp is what does.
    *
    * Held as the scenes they were, and serialized only when a block-prop change
    * actually arrives to be compared against: preparing for that arrival on
@@ -102,6 +135,9 @@ export class CanvasCollab {
     this.doc = doc;
     this.forked = forked;
     this.root = doc.getMap<unknown>(canvasMapName(this.blockId));
+    this.stamps = [];
+    this.mirrored = null;
+    this.noteStamp();
     if (!hasCanvasState(this.root) && propSource.trim()) {
       const scene = migrateLegacyCanvas(propSource);
       doc.transact(() => populateCanvas(this.root!, scene), CANVAS_MIGRATE);
@@ -149,6 +185,34 @@ export class CanvasCollab {
     return propSource;
   }
 
+  /**
+   * The mirror to write onto the block now, marked as this client's; the block
+   * writes it straight after, in the same task. It is the maps as they stand,
+   * not the flush that asked for it (`pending`): a collaborator's edit can have
+   * arrived in between, and a mirror without it would keep the block short of
+   * that edit for as long as the mirror stands.
+   */
+  stampMirror(pending: string): string {
+    if (!this.root || !this.doc) return pending;
+    const html = hasCanvasState(this.root)
+      ? serializeScene(materializeCanvas(this.root))
+      : pending;
+    const stamp = mirrorStamp(html);
+    this.mirrored = { html, stamp };
+    if (this.root.get(MIRROR) !== stamp) {
+      this.doc.transact(() => this.root!.set(MIRROR, stamp), CANVAS_LOCAL);
+    }
+    this.noteStamp();
+    return html;
+  }
+
+  private noteStamp() {
+    const stamp = this.root?.get(MIRROR);
+    if (typeof stamp !== "string" || this.stamps.includes(stamp)) return;
+    this.stamps.push(stamp);
+    if (this.stamps.length > STAMPS) this.stamps.shift();
+  }
+
   private note(scene: Scene, html: string | null = null) {
     if (this.recent[this.recent.length - 1]?.scene === scene) return;
     this.recent.push({ scene, html });
@@ -187,9 +251,9 @@ export class CanvasCollab {
 
   /**
    * A block-prop change this client did not mirror: either a collaborator's
-   * mirror (whose map writes have already arrived, so the diff is empty and
-   * nothing happens) or a genuine external author — the AI. The latter lands
-   * in the maps AND in the store as a normal, undoable adoption.
+   * mirror (stamped, or matching a state the maps have been in, and ignored)
+   * or a genuine external author. The latter lands in the maps AND in the
+   * store as a normal, undoable adoption.
    *
    * An `authored` change is the review writing: a proposal or its answer on a
    * review's fork, where nobody else writes, or a rewind on the shared doc.
@@ -202,7 +266,9 @@ export class CanvasCollab {
   adoptExternal(html: string, authored = this.forked) {
     if (!this.root || !this.doc) return;
     this.lastMirrored = html;
-    if (!authored && this.echoes(html)) return; // a mirror echo, however lagged
+    if (!authored && (this.stamps.includes(mirrorStamp(html)) || this.echoes(html))) {
+      return; // a collaborator's mirror, however lagged
+    }
     const before = serializeScene(materializeCanvas(this.root));
     if (html === before) return;
     const next = migrateLegacyCanvas(html);
@@ -219,7 +285,10 @@ export class CanvasCollab {
   }
 
   /** Anything not ours: a collaborator, an undo replay, a fork merging. */
-  private onDeep = (_events: unknown, transaction: Y.Transaction) => {
+  private onDeep = (
+    events: Y.YEvent<Y.AbstractType<unknown>>[],
+    transaction: Y.Transaction,
+  ) => {
     if (
       transaction.origin === CANVAS_LOCAL ||
       transaction.origin === CANVAS_EXTERNAL ||
@@ -227,8 +296,26 @@ export class CanvasCollab {
     ) {
       return;
     }
-    this.pushToStore();
+    this.noteStamp();
+    // Someone marking their mirror moved no shape.
+    const stampOnly = events.every(
+      (event) =>
+        event.target === this.root &&
+        [...(event as Y.YMapEvent<unknown>).keysChanged].every((key) => key === MIRROR),
+    );
+    if (!stampOnly) this.pushToStore();
   };
+
+  /**
+   * How the block learns that the mirror on it has fallen behind the maps and
+   * is this client's to write again; returns how to stop.
+   */
+  onStaleMirror(listener: (html: string) => void): () => void {
+    this.staleMirror = listener;
+    return () => {
+      if (this.staleMirror === listener) this.staleMirror = null;
+    };
+  }
 
   private pushToStore() {
     if (!this.root || !hasCanvasState(this.root)) return;
@@ -241,6 +328,16 @@ export class CanvasCollab {
     // history for an "arrival" that is just the store's own unflushed work.
     const html = serializeScene(merged);
     this.note(merged, html);
+    // While the block still carries this client's mirror, nobody else will
+    // bring it up to date: every reader of the prop — the AI's projection
+    // among them — would go on reading the diagram without what just arrived.
+    if (
+      this.mirrored &&
+      this.mirrored.html !== html &&
+      this.root.get(MIRROR) === this.mirrored.stamp
+    ) {
+      this.staleMirror?.(html);
+    }
     if (serializeScene(this.store.getScene()) !== html) {
       this.store.adoptRemote(html);
     }

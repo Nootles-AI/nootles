@@ -19,6 +19,7 @@ import { byOrder, keyBetween, keyForIndex } from "./order";
  *   "meta"   — the surface's own fields (size, style, id, attrs)
  *   "shapes" — NodeId → Y.Map of per-shape fields
  *   "edges"  — EdgeId → Y.Map of per-edge fields
+ *   "mirror" — a stamp of the HTML last mirrored onto the block (binding.ts)
  *
  * Granularity is the whole design. `frame` is ONE value ({x,y,w,h}): two
  * concurrent drags converge on a position somebody chose, never on one

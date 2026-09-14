@@ -159,20 +159,29 @@ function CanvasBlockView({
     if (!held) return;
     clearTimeout(held.timer);
     mirror.current = null;
-    written.current = held.html;
+    // Marked in the same task, so a collaborator can tell this mirror from an
+    // outside author however far behind the maps it lands; and taken from the
+    // maps as they are now, not as they were when it was asked for.
+    const html = collab.stampMirror(held.html);
+    written.current = html;
     try {
-      onChangeRef.current(held.html);
+      onChangeRef.current(html);
     } catch {
       // The block can be gone by the time the mirror lands — a delete, or the
       // page it was on being closed. The maps still hold the diagram.
     }
-  }, []);
+  }, [collab]);
 
   const dropMirror = useCallback(() => {
     if (!mirror.current) return;
     clearTimeout(mirror.current.timer);
     mirror.current = null;
   }, []);
+
+  // Ahead of the binding's effect below, and the order is load-bearing: an
+  // unmount runs cleanups in declaration order, and the last mirror has to be
+  // marked while the binding is still attached to the doc it is going into.
+  useEffect(() => () => writeMirror(), [writeMirror]);
 
   /** The prop as this block last reconciled it — what a rebind hands the new doc. */
   const seen = useRef(source);
@@ -260,15 +269,28 @@ function CanvasBlockView({
     revealAdded(before, source);
   }, [yDoc, source, revealAdded]);
 
+  /** The prop mirror, written once the diagram has been quiet for MIRROR_MS. */
+  const scheduleMirror = useCallback(
+    (html: string) => {
+      if (mirror.current) clearTimeout(mirror.current.timer);
+      mirror.current = { html, timer: setTimeout(writeMirror, MIRROR_MS) };
+    },
+    [writeMirror],
+  );
+
   /** Local flushes go to the maps at once; the prop mirror follows behind. */
   const collabChange = useCallback(
     (html: string, scene: Scene) => {
       collab.writeLocal(html, scene);
-      if (mirror.current) clearTimeout(mirror.current.timer);
-      mirror.current = { html, timer: setTimeout(writeMirror, MIRROR_MS) };
+      scheduleMirror(html);
     },
-    [collab, writeMirror],
+    [collab, scheduleMirror],
   );
+
+  // A collaborator's edit that lands after this client's mirror went onto the
+  // block leaves the block behind the maps, and this client is the one to bring
+  // it up to date, on the same cadence as its own edits.
+  useEffect(() => collab.onStaleMirror(scheduleMirror), [collab, scheduleMirror]);
 
   // Letting the diagram go, hiding the tab, and unmounting are all moments a
   // reader of the prop — a thumbnail, `read_page`, a copy — may come next.
@@ -282,7 +304,6 @@ function CanvasBlockView({
     document.addEventListener("visibilitychange", onHide);
     return () => document.removeEventListener("visibilitychange", onHide);
   }, [writeMirror]);
-  useEffect(() => () => writeMirror(), [writeMirror]);
 
   // Everyone paints co-presence (leaves, selections, live drags); a forked
   // doc has no provider, so a review's private canvas shows nobody and tells
