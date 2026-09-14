@@ -176,6 +176,27 @@ describe("deep click sets the level to the leaf's own ancestry", () => {
     expect(s.getSnapshot().enteredPath).toEqual(["F", "G", "K"]);
   });
 
+  it("a plain click (and so a press-to-drag) on the selected operand's own geometry resolves to it, not a deselect", () => {
+    // Live bug: once entered into a boolean group, PICK's walk still never
+    // offers an operand as its own candidate, so the chain ran out exactly
+    // at the group and `resolve()` read that as "click on the entered
+    // container's own empty fill" — the deselect case `click()` documents
+    // for a plain (non-boolean) group's padding. But a boolean group's own
+    // paint is never empty of any operand (every op's derived region is by
+    // construction some operand's own geometry), so this always had a real
+    // answer. Concretely: `CanvasSurface`'s pointerdown asks `isSelected`
+    // for whatever `resolve()` names here to decide "press-and-drag moves
+    // the selection" versus "start a marquee" — a `null` target read a
+    // press on the very operand just double-clicked into as a press on
+    // nothing, so it drew a marquee instead of moving the shape.
+    const s = store();
+    s.click(K_FILL_PT, { deep: true });
+    s.enter(K_FILL_PT); // selects K1 (the fix above)
+    expect(s.getSnapshot()).toMatchObject({ ids: ["K1"], enteredPath: ["F", "G", "K"] });
+    expect(s.click(K_FILL_PT)).toBe("K1");
+    expect(s.getSnapshot()).toMatchObject({ ids: ["K1"], enteredPath: ["F", "G", "K"] });
+  });
+
   it("a second double-click at the same point, already inside the boolean group, does not re-enter it", () => {
     const s = store();
     s.click(K_FILL_PT, { deep: true });

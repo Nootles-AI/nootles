@@ -539,7 +539,22 @@ export function createSelectionStore(initialScene: SceneLike): SelectionStore {
     }
     const entered = idsOf(resolveLevel(scene, snapshot.enteredPath).path);
     const depth = agreeDepth(entered, chain);
-    return { candidates, chain, target: chain[depth] ?? null, level: entered.slice(0, depth) };
+    let target: SceneNode | null = chain[depth] ?? null;
+    if (target === null && depth > 0 && depth === chain.length && isBoolean(chain[depth - 1])) {
+      // The chain ran out exactly at a boolean group we are entered into.
+      // PICK never offers its operands as their own candidates, but a point
+      // that reached this far is on the group's own painted (derived) area,
+      // which every boolean op guarantees is also some operand's own real
+      // geometry — so there is a genuine answer here, not "click on
+      // nothing, deselect". Without this, a press on the very shape a
+      // double-click just selected read as a press on empty canvas, and
+      // fell through to a marquee instead of moving it.
+      const group = chain[depth - 1];
+      let local: Point = point;
+      for (const ancestor of chain) local = toLocal(local, ancestor);
+      target = operandAt(group, local);
+    }
+    return { candidates, chain, target, level: entered.slice(0, depth) };
   };
 
   const probe: SelectionStore["probe"] = (point, mods = {}) =>
