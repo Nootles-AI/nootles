@@ -164,7 +164,18 @@ export async function roleForProject(
       q.eq("projectId", project._id).eq("granteeId", me),
     )
     .unique();
-  if (!claim) return null;
+  return claim ? claimRole(project, claim) : null;
+}
+
+/**
+ * What a claim grants on its project now — `roleForProject` for someone other
+ * than the caller, so the owner's list of who has access gives the same answer
+ * each claimant's own session gets.
+ */
+export function claimRole(
+  project: Doc<"projects">,
+  claim: Doc<"shareClaims">,
+): "editor" | "viewer" | null {
   if (!project.shareToken && !project.editShareToken) return null;
   if (claim.grantedRole === "editor") return "editor";
   if (claim.role === "editor" && project.editShareToken) return "editor";

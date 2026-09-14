@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import {
+  claimRole,
   isTrashed,
   ownerId,
   readOwned,
@@ -190,39 +191,43 @@ export const claim = mutation({
 });
 
 /**
- * Who has claimed this project, for the share dialog's access list. Owner only,
- * and read-only in v1 — removing someone means revoking the link they came by.
+ * Who holds a role in this project through a claim, for the share dialog's
+ * access list. Owner only, and read-only in v1 — removing someone means
+ * revoking the link they came by.
  */
 /** Reads, so `readOwned` — see `links` above. */
 export const collaborators = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
-    if (!(await readOwned(ctx, "projects", args.projectId))) {
-      throw new Error("Not found");
-    }
+    const project = await readOwned(ctx, "projects", args.projectId);
+    if (!project) throw new Error("Not found");
     const claims = await ctx.db
       .query("shareClaims")
       .withIndex("by_project_and_grantee", (q) =>
         q.eq("projectId", args.projectId),
       )
       .collect();
-    return await Promise.all(
+    const people = await Promise.all(
       claims.map(async (claim) => {
+        // What they are, not what let them in: the claim outlives the links,
+        // so a revoked link has to take its people off this list too, the
+        // same as it takes away their access.
+        const role = claimRole(project, claim);
+        if (!role) return null;
         const profile = await ctx.db
           .query("profiles")
           .withIndex("by_owner", (q) => q.eq("ownerId", claim.granteeId))
           .unique();
         return {
           granteeId: claim.granteeId,
-          // What they are, not what let them in: someone granted the pen by
-          // name reads as an editor here even while the editor link is off.
-          role: claim.grantedRole ?? claim.role,
+          role,
           name: profile?.name ?? null,
           email: profile?.email ?? null,
           imageUrl: profile?.imageUrl ?? null,
         };
       }),
     );
+    return people.filter((person) => person !== null);
   },
 });
 
