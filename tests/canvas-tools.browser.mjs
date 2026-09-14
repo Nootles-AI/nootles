@@ -216,23 +216,43 @@ try {
     await sleep(200);
   };
 
+  // NT-43 (rebased in ahead of this file) makes a diagram private for as
+  // long as its review is unanswered — the change is real on screen, but it
+  // is not on anyone's ⌘Z timeline, canvas-local or shared, until the person
+  // answers (the review IS the undo affordance while pending, exactly as it
+  // already was for a text hunk). Once answered, a KEPT diagram change lands
+  // as one entry on the SHARED spine — the text domain's Y.UndoManager taking
+  // the page's canvas maps into its scope as the change lands (see
+  // history/textDomain.ts) — not as a push on the canvas block's own local
+  // history, which a review-authored write deliberately bypasses (it calls
+  // `store.adoptRemote`, which clears that local stack rather than growing
+  // it; see `CanvasCollab.adoptExternal`). `tests/editor-review-undo.browser
+  // .mjs`'s "a kept diagram change, then ⌘Z" case is the reference for this
+  // shape: stage, then explicitly answer, then check the shared spine.
+  const accept = () => h(async () => {
+    await window.canvasTools.acceptAll();
+    await window.canvasTools.idle();
+  });
+
   lastLabel = "write_nodes: one hunk, one undo entry, undoes cleanly";
   console.log("write_nodes: one hunk, one undo entry, undoes cleanly");
   await fresh();
   const id = await blockId();
   const baseline = (await diagram()).shown.length; // F1: s1, s2, g1, c1, c2, p1
   await watchHistory();
-  const before = await canUndo();
   const result = await run("write_nodes", { pageId: "page", blockId: id, html: '<nt-rect x="0" y="0" w="20" h="20"></nt-rect>' });
   checkTrue("write_nodes reports a shape added", /1 shape.* added/.test(result));
   const snap1 = await snapshot();
   check("one review hunk, kind update", [snap1.at(-1).pages[0].hunks.length, snap1.at(-1).pages[0].hunks[0].kind], [1, "update"]);
-  check("one canvas history push", await pushCount(), 1);
-  checkTrue("canUndo flips false → true", before === false && (await canUndo()) === true);
-  check("one spine edit token, undoable", (await spine()).undo, true);
+  check("a pending review write pushes no canvas-local history entry", await pushCount(), 0);
+  check("not yet on anyone's ⌘Z timeline while the review is pending", (await spine()).undo, false);
 
   const shownAfterWrite = (await diagram()).shown;
   check("shown has one more shape than the baseline", shownAfterWrite.length, baseline + 1);
+
+  await accept();
+  check("still no canvas-local push — the kept step lives on the shared spine", await pushCount(), 0);
+  check("one spine edit token, undoable", (await spine()).undo, true);
   // No click needed first: the spine's undo/redo key handler is a global,
   // capture-phase `document` listener (`useWorkspaceHistory.tsx`) that only
   // backs off for an ACTIVE text-entry element outside the undo scope, and
@@ -243,8 +263,8 @@ try {
   await redo();
   check("⌘⇧Z brings it back", (await diagram()).shown.length, baseline + 1);
 
-  lastLabel = "the maps and the peer see the new shape (past the mirror)";
-  console.log("the maps and the peer see the new shape (past the mirror)");
+  lastLabel = "the maps and the peer see the kept shape (past the mirror)";
+  console.log("the maps and the peer see the kept shape (past the mirror)");
   await sleep(MIRROR_MS + 500);
   const settled = await diagram();
   check("the maps hold the new shape", settled.maps.length, baseline + 1);
@@ -261,9 +281,11 @@ try {
     patches: [{ ids: ["s1", "s2", "c1"], style: { background: "#111827" } }],
   });
   checkTrue("update_styles reports the count", /3 shapes restyled/.test(restyled));
-  check("one push for the whole restyle", await pushCount(), 1);
+  check("a pending restyle pushes no canvas-local history entry", await pushCount(), 0);
   const s1Bg = await h(() => document.querySelector('[data-id="s1"]')?.style.background ?? "");
   checkTrue("s1's DOM reflects the new colour", s1Bg.includes("17, 24, 39") || s1Bg.includes("#111827"));
+  await accept();
+  check("one push for the whole restyle — one shared spine entry once kept", (await spine()).undo, true);
 
   lastLabel = "set_text lands as one entry and renders";
   console.log("set_text lands as one entry and renders");
@@ -271,9 +293,11 @@ try {
   const id3 = await blockId();
   await watchHistory();
   await run("set_text", { pageId: "page", blockId: id3, id: "s1", text: "Confirmed" });
-  check("one push for set_text", await pushCount(), 1);
+  check("a pending set_text pushes no canvas-local history entry", await pushCount(), 0);
   const label = await h(() => document.querySelector('[data-id="s1"]')?.textContent ?? "");
   checkTrue("the shape renders the new text", label.includes("Confirmed"));
+  await accept();
+  check("one push for set_text — one shared spine entry once kept", (await spine()).undo, true);
 
   lastLabel = "camera is untouched by an on-screen write";
   console.log("camera is untouched by an on-screen write");

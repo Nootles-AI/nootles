@@ -30,6 +30,7 @@ import {
   WorkspaceHistoryProvider,
 } from "../app/lib/history/useWorkspaceHistory";
 import { useCanvasUndoDomain } from "../app/lib/history/canvasDomain";
+import { useTextUndoDomain, type UndoHostEditor } from "../app/lib/history/textDomain";
 import { createRemoteCarets } from "../app/lib/sync/remoteCarets";
 import { remoteScrollExtension } from "../app/lib/sync/remoteScroll";
 import "@blocknote/mantine/style.css";
@@ -57,6 +58,7 @@ type Editor = typeof schema.BlockNoteEditor;
 
 const PROVIDER = { provider: true };
 const PAGE = "page" as Id<"pages">;
+const DOC_ID = "doc";
 
 let root: Root | undefined;
 let editor: Editor;
@@ -129,6 +131,11 @@ const convexReact = new ConvexReactClient("https://canvas-tools-test.invalid", {
 
 function Page({ editor }: { editor: Editor }) {
   const spine = useWorkspaceHistory();
+  // The document's own undo domain (as `Editor.tsx` wires it) — a kept
+  // review answer, diagram included, lands here as one KEPT_CHANGE step
+  // (see history/textDomain.ts); it is not the canvas block's own local
+  // domain below, which a review-authored write deliberately bypasses.
+  useTextUndoDomain(spine, editor as unknown as UndoHostEditor, DOC_ID, PAGE);
   const blockId = useSyncExternalStore(subscribeBlockId, () => blockIdValue);
   // `peekSceneStore` is a plain Map read, not a subscription: the canvas
   // block's own `useScene()` creates its `SceneStore` a render or two after
@@ -380,6 +387,7 @@ const harness = {
   canUndo: () => store()?.canUndo() ?? false,
   watchHistory,
   pushCount: () => pushEvents,
+  acceptAll: () => session.acceptAll(),
   rejectAll: () => session.rejectAll(),
   idle: async () => {
     const queued = () => (session as unknown as { queue: Promise<unknown> }).queue;
