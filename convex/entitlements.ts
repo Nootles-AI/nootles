@@ -86,6 +86,19 @@ export function isLiveStatus(status: string): boolean {
  */
 const WEBHOOK_RETRY_WINDOW = 3 * 24 * 60 * 60 * 1000;
 
+/**
+ * The instant a mirrored subscription is paid through, in milliseconds.
+ *
+ * The mirror keeps Stripe's period end verbatim, and Stripe counts seconds.
+ * Every reader converts through here, so no screen is handed the one instant
+ * in the codebase that is not milliseconds.
+ */
+export function paidThrough(
+  sub: Pick<NonNullable<Doc<"billingAccounts">["subscription"]>, "currentPeriodEnd">,
+): number {
+  return sub.currentPeriodEnd * 1000;
+}
+
 /** The error every gate throws, shaped so the client can draw the right wall. */
 export type QuotaRefusal = { code: "quota"; meter: Meter; limit: number };
 
@@ -184,11 +197,10 @@ export async function entitlementOf(
 
   const sub = account?.subscription;
   if (sub && isLiveStatus(sub.status)) {
-    // The mirror copies Stripe's period end verbatim, and Stripe counts seconds.
-    const paidThrough = sub.currentPeriodEnd * 1000;
-    if (paidThrough + WEBHOOK_RETRY_WINDOW > now) {
+    const until = paidThrough(sub);
+    if (until + WEBHOOK_RETRY_WINDOW > now) {
       return pro("subscription", {
-        expiresAt: paidThrough,
+        expiresAt: until,
         cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
       });
     }

@@ -228,3 +228,37 @@ describe("a cancellation undone by an older event landing after it", () => {
     expect(entitlement).toMatchObject({ plan: "free", source: "none" });
   });
 });
+
+/**
+ * The mirror holds Stripe's seconds, and the plan screen converts them. Ops is
+ * a second reader of the same row, and was handed the seconds raw — which its
+ * millisecond formatter put in January 1970.
+ */
+describe("the period end as ops reads it", () => {
+  test("is the instant the plan screen shows, in milliseconds", async () => {
+    const t = harness();
+    await subscribe(t, "sub_monthly", MONTHLY, 30);
+    const { subscription, entitlement } = await mirror(t);
+    // Still seconds on the row: converting there as well would count twice.
+    expect(subscription!.currentPeriodEnd).toBeLessThanOrEqual(now() + 30 * DAY);
+    expect(subscription!.currentPeriodEnd).toBeGreaterThan(now() + 29 * DAY);
+    const paidThrough = subscription!.currentPeriodEnd * 1000;
+    expect(entitlement?.expiresAt).toBe(paidThrough);
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("adminSessions", {
+        token: "admin-token",
+        createdAt: 1,
+        expiresAt: Date.now() + DAY * 1000,
+      });
+    });
+    const account = await t.query(api.adminBilling.accountFor, {
+      token: "admin-token",
+      ownerId: ME.subject,
+    });
+    expect(account.subscription?.currentPeriodEnd).toBe(paidThrough);
+    expect(account.entitlement.expiresAt).toBe(paidThrough);
+    const roster = await t.query(internal.adminBilling.billingRoster, {});
+    expect(roster).toMatchObject([{ ownerId: ME.subject, currentPeriodEnd: paidThrough }]);
+  });
+});

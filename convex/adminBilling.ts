@@ -5,7 +5,12 @@ import { action, internalQuery, mutation, query } from "./_generated/server";
 import type { QueryCtx } from "./_generated/server";
 import { requireAdmin } from "./admin";
 import { normalizeCode } from "./accessCodes";
-import { entitlementOf, ensureAccount, type Entitlement } from "./entitlements";
+import {
+  entitlementOf,
+  ensureAccount,
+  paidThrough,
+  type Entitlement,
+} from "./entitlements";
 
 /**
  * Billing as the operator sees it: who is paying, who was let in for free, and
@@ -211,7 +216,9 @@ export const accountFor = query({
       vipNote: account?.vipNote ?? null,
       vipSetAt: account?.vipSetAt ?? null,
       stripeCustomerId: account?.stripeCustomerId ?? null,
-      subscription: account?.subscription ?? null,
+      subscription: account?.subscription
+        ? { ...account.subscription, currentPeriodEnd: paidThrough(account.subscription) }
+        : null,
       // Where this person met the paywall and whether they went as far as
       // Stripe — the two facts that turn "they are on free" into a reason.
       walls: account?.walls ?? null,
@@ -274,6 +281,7 @@ export type BillingRosterRow = {
   priceId: string | null;
   interval: "month" | "year" | null;
   status: string | null;
+  /** Milliseconds, as ops reads every instant — not the mirror's seconds. */
   currentPeriodEnd: number | null;
   cancelAtPeriodEnd: boolean;
   stripeCustomerId: string | null;
@@ -315,7 +323,7 @@ export const billingRoster = internalQuery({
           priceId: account?.subscription?.priceId ?? null,
           interval: account?.subscription?.interval ?? null,
           status: account?.subscription?.status ?? null,
-          currentPeriodEnd: account?.subscription?.currentPeriodEnd ?? null,
+          currentPeriodEnd: account?.subscription ? paidThrough(account.subscription) : null,
           cancelAtPeriodEnd: account?.subscription?.cancelAtPeriodEnd ?? false,
           stripeCustomerId: account?.stripeCustomerId ?? null,
           walls: account?.walls ?? null,
