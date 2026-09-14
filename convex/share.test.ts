@@ -270,3 +270,79 @@ describe("claim", () => {
     ).toBe("viewer");
   });
 });
+
+describe("collaborators", () => {
+  const turnOff = (t: TestConvex<typeof schema>, projectId: Id<"projects">, role: "viewer" | "editor") =>
+    t.withIdentity(OWNER).mutation(api.share.setLink, { projectId, role, enabled: false });
+  const listed = async (t: TestConvex<typeof schema>, projectId: Id<"projects">) =>
+    (await t.withIdentity(OWNER).query(api.share.collaborators, { projectId })).map(
+      ({ granteeId, role }) => [granteeId, role],
+    );
+
+  test("unsharing entirely empties the list, and sharing again refills it", async () => {
+    const t = convexTest(schema, modules);
+    const projectId = await world(t, { shareToken: "v", editShareToken: "e" });
+    await claim(t, projectId, GUEST.subject, "editor");
+    await claim(t, projectId, STRANGER.subject, "viewer");
+    expect(await listed(t, projectId)).toEqual([
+      [GUEST.subject, "editor"],
+      [STRANGER.subject, "viewer"],
+    ]);
+
+    await turnOff(t, projectId, "editor");
+    await turnOff(t, projectId, "viewer");
+    expect(await listed(t, projectId)).toEqual([]);
+
+    await t
+      .withIdentity(OWNER)
+      .mutation(api.share.setLink, { projectId, role: "viewer", enabled: true });
+    expect(await listed(t, projectId)).toEqual([
+      [GUEST.subject, "viewer"],
+      [STRANGER.subject, "viewer"],
+    ]);
+  });
+
+  test("the editor link going off reads its claimants as the viewers they now are", async () => {
+    const t = convexTest(schema, modules);
+    const projectId = await world(t, { shareToken: "v", editShareToken: "e" });
+    await claim(t, projectId, GUEST.subject, "editor");
+
+    await turnOff(t, projectId, "editor");
+    expect(await listed(t, projectId)).toEqual([[GUEST.subject, "viewer"]]);
+  });
+
+  test("every claimant is listed exactly as their own session sees them", async () => {
+    const kinds = [
+      { who: "user_via_viewer", role: "viewer" },
+      { who: "user_via_editor", role: "editor" },
+      { who: "user_viewer_granted", role: "viewer", grantedRole: "editor" },
+      { who: "user_editor_granted", role: "editor", grantedRole: "editor" },
+    ] as const;
+    const states = [
+      { shareToken: "v", editShareToken: "e" },
+      { shareToken: "v" },
+      { editShareToken: "e" },
+      {},
+    ];
+    for (const links of states) {
+      const t = convexTest(schema, modules);
+      const projectId = await world(t, links);
+      await t.run(async (ctx) => {
+        for (const kind of kinds) {
+          const { who, ...row } = kind;
+          await ctx.db.insert("shareClaims", { projectId, granteeId: who, ...row, createdAt: 1 });
+        }
+      });
+
+      // In the index's order, by grantee.
+      const expected = [];
+      for (const { who } of [...kinds].sort((a, b) => a.who.localeCompare(b.who))) {
+        const role = await t
+          .withIdentity({ subject: who })
+          .query(api.projects.myRole, { projectId });
+        if (role) expected.push([who, role]);
+      }
+      expect({ links, listed: await listed(t, projectId) }).toEqual({ links, listed: expected });
+    }
+  });
+});
