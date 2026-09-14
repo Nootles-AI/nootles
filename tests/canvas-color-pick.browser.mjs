@@ -204,6 +204,12 @@ async function main() {
     c.check("mode-gate-before-readonly: the mode's own handler ran", gate.modeRan, true);
     c.check("mode-gate-before-readonly: readOnly's selection.click did not fire", gate.selectionChanged, false);
 
+    // -- mode-gate-before-zoom-tool (build-plan OQ-6, confirmed) --------------
+    await page.evaluate(() => window.pick.mount());
+    const zoomGate = await page.evaluate(() => window.pick.modeGateBeforeZoomTool());
+    c.check("mode-gate-before-zoom-tool: the mode's own handler ran", zoomGate.modeRan, true);
+    c.check("mode-gate-before-zoom-tool: the zoom tool's click-to-zoom did not fire", zoomGate.zoomChanged, false);
+
     // -- screen source (a stubbed EyeDropper) ---------------------------------
     await page.evaluate(() => window.pick.mount());
     await page.evaluate(() => window.pick.resetCounters());

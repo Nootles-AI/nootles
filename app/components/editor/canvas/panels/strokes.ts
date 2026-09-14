@@ -75,7 +75,18 @@ export function readStroke(node: SceneNode): Stroke | null {
   // `border` and `outline` are the same shorthand grammar, so the catalogue's
   // border parser reads either one.
   const parts = parseComposite("border", source).values;
-  const width = Number.parseFloat(parts["border-width"] ?? "");
+  // CSS's own initial `border-style`/`outline-style` is `none`, which paints
+  // nothing regardless of any width or colour also authored — `border: 2px
+  // #111` has no visible border in a real browser. Cross-checked against
+  // `scene/paint.ts`'s `edgeBands`, which already models this the same way
+  // (build-plan Conflict 5 / Wave-5 close-out).
+  const lineStyle = parts["border-style"];
+  if (lineStyle === undefined || lineStyle === "none" || lineStyle === "hidden") return null;
+  // A width omitted from the shorthand is CSS's own initial `medium` (3px),
+  // not "no border" — `border: solid red` paints a real, ~3px line. Matches
+  // `scene/paint.ts`'s `EDGE_WIDTH_KEYWORDS.medium`.
+  const width =
+    parts["border-width"] === undefined ? 3 : Number.parseFloat(parts["border-width"]);
   // A zero-weight stroke is still a stroke: it keeps its colour, and the field
   // it was scrubbed down to zero in is the one that scrubs it back up. Only
   // the remove button takes it away.
