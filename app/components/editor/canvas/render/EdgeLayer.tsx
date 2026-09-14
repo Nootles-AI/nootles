@@ -8,6 +8,7 @@ import {
   polylineMidpoint,
   sceneObstacles,
 } from "../scene/edgePath";
+import { ARROW_MARKER } from "../scene/edgeMarker";
 import type { ViewportController } from "../engine/useViewport";
 import type { EdgeId, Scene } from "../scene/types";
 import { toCss } from "./ShapeView";
@@ -102,15 +103,15 @@ export const EdgeLayer = memo(function EdgeLayer({
         <defs>
           <marker
             id={ARROW}
-            viewBox="0 0 10 10"
-            refX="9"
-            refY="5"
-            markerWidth="7"
-            markerHeight="7"
+            viewBox={ARROW_MARKER.viewBox}
+            refX={ARROW_MARKER.refX}
+            refY={ARROW_MARKER.refY}
+            markerWidth={ARROW_MARKER.markerWidth}
+            markerHeight={ARROW_MARKER.markerHeight}
             orient="auto-start-reverse"
             markerUnits="userSpaceOnUse"
           >
-            <path d="M0 0.5 10 5 0 9.5Z" fill="context-stroke" />
+            <path d={ARROW_MARKER.d} fill="context-stroke" />
           </marker>
         </defs>
 

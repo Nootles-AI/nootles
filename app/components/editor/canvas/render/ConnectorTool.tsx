@@ -44,8 +44,9 @@ import {
   sideNearest,
 } from "../scene/edgePath";
 import { laidOutScene } from "../scene/autoLayout";
-import { absoluteBounds, hitTest } from "../scene/geometry";
+import { absoluteBounds } from "../scene/geometry";
 import { mintEdgeId } from "../scene/ops";
+import { HIT_SLOP_PX, hitTest } from "../scene/picking";
 import {
   findNode,
   isContainer,
@@ -170,7 +171,7 @@ export function ConnectorTool({ store, viewport, selection }: ConnectorToolProps
     }
     if (best) return { id: best.id, side: best.side };
 
-    const hit = hitTest(scene, at);
+    const hit = hitTest(scene, at, { tolerance: HIT_SLOP_PX * k });
     const onShape = hit && boxes.has(hit.id) ? hit.id : null;
     if (onShape) {
       return { id: onShape, side: sideNearest(boxes.get(onShape)!, at) };
@@ -268,15 +269,20 @@ export function ConnectorTool({ store, viewport, selection }: ConnectorToolProps
    *  "which plug" has actually changed. */
   const frame = () => {
     const at = viewport.clientToScene(clientRef.current);
+    // Computed once, above both branches below, so it covers the hover-resolve
+    // call inside `!current` and the drag-branch `hitTest` after it — the
+    // latter has no zoom-derived variable of its own in scope otherwise (PICK
+    // §1.2/§5.3, review issue #2).
+    const k = 1 / viewport.get().zoom;
     const current = dragRef.current;
     if (!current) {
-      const found = resolve(at, 1 / viewport.get().zoom);
+      const found = resolve(at, k);
       setHover((prev) =>
         prev?.id === found?.id && prev?.side === found?.side ? prev : found,
       );
       return;
     }
-    const hit = hitTest(scene, at);
+    const hit = hitTest(scene, at, { tolerance: HIT_SLOP_PX * k });
     // Any node is a legal end except the one we started from — a connector from
     // a thing to itself has no route and nothing to say.
     current.at = at;

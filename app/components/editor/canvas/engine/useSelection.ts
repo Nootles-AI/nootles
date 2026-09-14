@@ -60,11 +60,10 @@ import {
   absoluteRect,
   absoluteRotation,
   absoluteSelectionBounds,
-  hitTestPath,
-  hitTestRect,
   toLocal,
   type RotatedRect,
 } from "../scene/geometry";
+import { hitTestAll, hitTestPath, hitTestRect, type Candidate } from "../scene/picking";
 import {
   isContainer,
   nodePath,
@@ -115,6 +114,14 @@ export interface ClickMods {
   shift?: boolean;
   /** Address the deepest node instead of the outermost group — alt/option. */
   deep?: boolean;
+  /**
+   * Scene px, widening stroke bands only (`scene/picking.ts` §4.6). Every
+   * pointer-anchored caller passes `slopFor(viewport.get().zoom)` so a click,
+   * a hover and the context menu agree on what counts as "on" a thin stroke
+   * at the same pixel (PICK §0/§9) — added here rather than re-derived by
+   * each command below.
+   */
+  tolerance?: number;
 }
 
 export interface SelectionStore {
@@ -162,7 +169,7 @@ export interface SelectionStore {
    */
   probe(point: Point, mods?: ClickMods): NodeId | null;
   /** Double-click: enter the group under the point and select the child. */
-  enter(point: Point): void;
+  enter(point: Point, opts?: { tolerance?: number }): void;
   /** Escape: step out one level and select the group left behind, else clear. */
   escape(): void;
   /**
@@ -171,7 +178,13 @@ export interface SelectionStore {
    */
   marquee(rect: Rect, mods?: { shift?: boolean }): void;
   /** Report what is under the pointer; `null` clears it. */
-  hover(point: Point | null, mods?: { deep?: boolean }): NodeId | null;
+  hover(point: Point | null, mods?: { deep?: boolean; tolerance?: number }): NodeId | null;
+  /**
+   * Every painted node under the point, front to back, independent of the
+   * entered level — for the layer menu (SELECT-MENU, §9 of PICK). No
+   * selection change, no notify: `hitTestAll(scene, point, opts)` directly.
+   */
+  candidates(point: Point, opts?: { tolerance?: number; includeLocked?: boolean }): Candidate[];
 
   /** Select these connectors outright, clearing any node selection. */
   selectEdges(ids: readonly EdgeId[]): void;
@@ -392,7 +405,7 @@ export function createSelectionStore(initialScene: SceneLike): SelectionStore {
       : orderIds(scene, [...snapshot.ids, id]);
 
   const probe: SelectionStore["probe"] = (point, mods = {}) => {
-    const chain = hitTestPath(scene, point);
+    const chain = hitTestPath(scene, point, { tolerance: mods.tolerance });
     if (chain.length === 0) return null;
     if (mods.deep) return chain[chain.length - 1].id;
     const entered = idsOf(resolveLevel(scene, snapshot.enteredPath).path);
@@ -400,7 +413,7 @@ export function createSelectionStore(initialScene: SceneLike): SelectionStore {
   };
 
   const click: SelectionStore["click"] = (point, mods = {}) => {
-    const chain = hitTestPath(scene, point);
+    const chain = hitTestPath(scene, point, { tolerance: mods.tolerance });
 
     if (chain.length === 0) {
       // Clicking empty canvas leaves the group as well as the selection.
@@ -503,13 +516,13 @@ export function createSelectionStore(initialScene: SceneLike): SelectionStore {
 
     probe,
 
-    enter(point) {
-      const chain = hitTestPath(scene, point);
+    enter(point, opts = {}) {
+      const chain = hitTestPath(scene, point, { tolerance: opts.tolerance });
       if (chain.length === 0) return;
       const entered = idsOf(resolveLevel(scene, snapshot.enteredPath).path);
       if (!descends(entered, chain)) {
         // Nothing left to enter — a double-click on a leaf is just a click.
-        click(point);
+        click(point, { tolerance: opts.tolerance });
         return;
       }
       // Exactly one level, however deep the chain goes: the child of the group
@@ -547,7 +560,7 @@ export function createSelectionStore(initialScene: SceneLike): SelectionStore {
         commitHover(null);
         return null;
       }
-      const chain = hitTestPath(scene, point);
+      const chain = hitTestPath(scene, point, { tolerance: mods.tolerance });
       if (chain.length === 0) {
         commitHover(null);
         return null;
@@ -562,6 +575,10 @@ export function createSelectionStore(initialScene: SceneLike): SelectionStore {
       }
       commitHover(node.id);
       return node.id;
+    },
+
+    candidates(point, opts = {}) {
+      return hitTestAll(scene, point, opts);
     },
   };
 }

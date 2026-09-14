@@ -79,10 +79,10 @@ import { undoScope } from "@/app/lib/history/useWorkspaceHistory";
 import {
   absoluteBounds,
   absoluteSelectionBounds,
-  hitTestPath,
   normalizeRect,
   type RotatedRect,
 } from "../scene/geometry";
+import { hitTestPath, slopFor } from "../scene/picking";
 import { laidOutScene } from "../scene/autoLayout";
 import { revealBounds } from "../scene/reveal";
 import { mintId } from "../scene/ops";
@@ -843,6 +843,11 @@ export function CanvasSurface({
   const scenePoint = (event: { clientX: number; clientY: number }) =>
     viewport.clientToScene({ x: event.clientX, y: event.clientY });
 
+  /** Scene-px grab slop at the current zoom — `scene/picking.ts`'s shared
+   *  helper (§2.1/§9 of PICK), so a click, a hover and the context menu never
+   *  disagree about what counts as "on" a thin stroke at the same pixel. */
+  const slop = () => slopFor(viewport.get().zoom);
+
   const startPan = (from: { x: number; y: number }) => {
     const el = viewport.containerRef.current;
     el?.classList.add("is-grabbing");
@@ -1020,12 +1025,12 @@ export function CanvasSurface({
     // multi-selection; no drag; and an empty click clears rather than starting
     // a marquee.
     if (readOnly) {
-      selection.click(point, { deep: true });
+      selection.click(point, { deep: true, tolerance: slop() });
       busy.current = false;
       return;
     }
 
-    const mods: ClickMods = { shift: event.shiftKey, deep: event.altKey };
+    const mods: ClickMods = { shift: event.shiftKey, deep: event.altKey, tolerance: slop() };
     const hit = selection.probe(point, mods);
     const bounds = sel.selectionBounds;
     const onSelection =
@@ -1101,7 +1106,7 @@ export function CanvasSurface({
     hoverFrame.current = requestAnimationFrame(() => {
       hoverFrame.current = 0;
       const at = hoverAt.current;
-      if (at) selection.hover(scenePoint(at), { deep: at.deep });
+      if (at) selection.hover(scenePoint(at), { deep: at.deep, tolerance: slop() });
     });
   };
 
@@ -1117,10 +1122,11 @@ export function CanvasSurface({
     const wanted = asked.current;
     asked.current = null;
     const point = scenePoint(event);
-    const chain = hitTestPath(laid, point);
+    const tolerance = slop();
+    const chain = hitTestPath(laid, point, { tolerance });
     if (chain.length === 0) return;
     const descending = descends(sel.enteredPath, chain);
-    selection.enter(point);
+    selection.enter(point, { tolerance });
     if (descending) return;
     const ids = selection.getSnapshot().ids;
     if (ids.length !== 1) return;
@@ -1133,7 +1139,7 @@ export function CanvasSurface({
     event.preventDefault();
     viewport.containerRef.current?.focus({ preventScroll: true });
     const point = scenePoint(event);
-    const chain = hitTestPath(laid, point);
+    const chain = hitTestPath(laid, point, { tolerance: slop() });
     // Nothing under the pointer: every entry would be dead, so this is a
     // deselect rather than a menu.
     if (chain.length === 0) {

@@ -23,18 +23,27 @@
  *
  * Angles are **degrees, clockwise**, matching `rot` and CSS `rotate()` in a
  * y-down coordinate system.
+ *
+ * ## Hit testing lives in `./picking`
+ *
+ * What paint is under a point — the box/drawn paint policy, tolerance, and the
+ * ancestor-chain walk — is a different question from the maths above, and
+ * needs `./outline`, `./boolean` and `./paint` to answer it, which this module
+ * cannot import without a cycle (both of those import `./geometry` for
+ * `unitPolygon`/`rectCentre`/`rotateAround`). So `scene/picking.ts` is the
+ * service; this file keeps only the primitives it and every other caller
+ * build on — `unitPolygon`, `segmentDistance`, `quadIntersectsRect`, and the
+ * local⇄parent⇄scene transform helpers (`Xform`, `IDENTITY`, `localXform`,
+ * `compose`, `applyX`) — exported so `picking.ts` never re-derives them.
  */
 
 import {
   type NodeId,
   type Point,
   type Rect,
-  type Scene,
   type SceneLike,
   type SceneNode,
-  isContainer,
   nodePath,
-  isBoolean,
 } from "./types";
 
 const RAD = Math.PI / 180;
@@ -43,10 +52,6 @@ const RAD = Math.PI / 180;
 export type RotatedRect = Rect & { rot: number };
 
 const EMPTY_RECT: Rect = { x: 0, y: 0, w: 0, h: 0 };
-
-function rootNodes(scene: SceneLike): readonly SceneNode[] {
-  return Array.isArray(scene) ? scene : (scene as Scene).nodes;
-}
 
 // ---------------------------------------------------------------------------
 // Rect primitives
@@ -298,8 +303,13 @@ export function toWorld(point: Point, node: RotatedRect): Point {
 /**
  * A rigid transform `p → R(rot)·p + (tx, ty)`, mapping a node's local space to
  * some ancestor's. `cos`/`sin` are carried so composing a chain costs no trig.
+ *
+ * Exported for `scene/picking.ts`'s `hitTestRect`, which composes the same
+ * chain of per-level transforms this module already builds for
+ * {@link absoluteRect} and friends — one implementation of "where is this
+ * node's box in an ancestor's space", not two.
  */
-interface Xform {
+export interface Xform {
   cos: number;
   sin: number;
   rot: number;
@@ -307,10 +317,10 @@ interface Xform {
   ty: number;
 }
 
-const IDENTITY: Xform = { cos: 1, sin: 0, rot: 0, tx: 0, ty: 0 };
+export const IDENTITY: Xform = { cos: 1, sin: 0, rot: 0, tx: 0, ty: 0 };
 
 /** The node's local space → its parent's local space. */
-function localXform(node: RotatedRect): Xform {
+export function localXform(node: RotatedRect): Xform {
   const r = node.rot * RAD;
   const cos = node.rot === 0 ? 1 : Math.cos(r);
   const sin = node.rot === 0 ? 0 : Math.sin(r);
@@ -325,7 +335,7 @@ function localXform(node: RotatedRect): Xform {
   };
 }
 
-function compose(outer: Xform, inner: Xform): Xform {
+export function compose(outer: Xform, inner: Xform): Xform {
   return {
     cos: outer.cos * inner.cos - outer.sin * inner.sin,
     sin: outer.sin * inner.cos + outer.cos * inner.sin,
@@ -335,7 +345,7 @@ function compose(outer: Xform, inner: Xform): Xform {
   };
 }
 
-function applyX(x: Xform, px: number, py: number): Point {
+export function applyX(x: Xform, px: number, py: number): Point {
   return {
     x: x.cos * px - x.sin * py + x.tx,
     y: x.sin * px + x.cos * py + x.ty,
@@ -424,19 +434,8 @@ export function absoluteSelectionBounds(
 }
 
 // ---------------------------------------------------------------------------
-// Hit testing
+// Hit-testing primitives — the maths `scene/picking.ts` builds on
 // ---------------------------------------------------------------------------
-
-export interface HitTestOptions {
-  /** Return the deepest node rather than the outermost group — double-click. */
-  deep?: boolean;
-  /** Scene-px slop around a shape, for thin paths and hairline strokes. */
-  tolerance?: number;
-  /** Locked nodes are click-through by default, as in Figma. */
-  includeLocked?: boolean;
-}
-
-const PAINT_PROPS = ["background", "background-color", "background-image"];
 
 /**
  * A regular N-gon's vertices, normalised to 0…1 on each axis so that it fills
@@ -485,7 +484,7 @@ export function unitPolygon(sides: number): readonly Point[] {
 }
 
 /** Distance from `p` to the segment `a → b`. */
-function segmentDistance(
+export function segmentDistance(
   p: Point,
   ax: number,
   ay: number,
@@ -502,138 +501,13 @@ function segmentDistance(
   return Math.hypot(ax + t * dx - p.x, ay + t * dy - p.y);
 }
 
-/** Ray casting, widened by `tol` so a hairline edge is still grabbable. */
-function hitsPolygon(
-  unit: readonly Point[],
-  w: number,
-  h: number,
-  point: Point,
-  tol: number,
-): boolean {
-  let inside = false;
-  let near = Infinity;
-  for (let i = 0, j = unit.length - 1; i < unit.length; j = i++) {
-    const ax = unit[i].x * w;
-    const ay = unit[i].y * h;
-    const bx = unit[j].x * w;
-    const by = unit[j].y * h;
-    if (
-      ay > point.y !== by > point.y &&
-      point.x < ((bx - ax) * (point.y - ay)) / (by - ay) + ax
-    ) {
-      inside = !inside;
-    }
-    if (tol > 0) near = Math.min(near, segmentDistance(point, ax, ay, bx, by));
-  }
-  return inside || near <= tol;
-}
-
-/**
- * Whether a group's own box should catch a click. A plain group is a bag of
- * children and its empty space is click-through; an auto-layout container with
- * a fill behaves like a frame, and clicking its padding must select it.
- */
-function isFilled(node: SceneNode): boolean {
-  for (const prop of PAINT_PROPS) {
-    const v = node.style[prop];
-    if (v !== undefined && v !== "" && v !== "none" && v !== "transparent") {
-      return true;
-    }
-  }
-  return false;
-}
-
-/**
- * `point` is already in `node`'s local space.
+/** Separating-axis test between a convex quad and an axis-aligned rect.
  *
- * A kind whose form is not its box is tested against that form, not against the
- * box: half of a triangle's box is empty canvas, and a press there catching the
- * shape is what makes grabbing the selection frame's edge drag the triangle
- * instead of resizing it.
- */
-function hitsShape(node: SceneNode, point: Point, tol: number): boolean {
-  if (node.kind === "polygon") {
-    return hitsPolygon(unitPolygon(node.sides), node.w, node.h, point, tol);
-  }
-  if (node.kind === "ellipse") {
-    const rx = node.w / 2 + tol;
-    const ry = node.h / 2 + tol;
-    if (rx <= 0 || ry <= 0) return false;
-    const dx = (point.x - node.w / 2) / rx;
-    const dy = (point.y - node.h / 2) / ry;
-    return dx * dx + dy * dy <= 1;
-  }
-  return (
-    point.x >= -tol &&
-    point.x <= node.w + tol &&
-    point.y >= -tol &&
-    point.y <= node.h + tol
-  );
-}
-
-function hitChain(
-  list: readonly SceneNode[],
-  point: Point,
-  opts: HitTestOptions,
-  tol: number,
-  out: SceneNode[],
-): boolean {
-  for (let i = list.length - 1; i >= 0; i--) {
-    const node = list[i];
-    if (node.hidden) continue;
-    if (node.locked && !opts.includeLocked) continue;
-    const local = toLocal(point, node);
-    if (isContainer(node)) {
-      out.push(node);
-      if (hitChain(node.children, local, opts, tol, out)) return true;
-      // A boolean group's box is its drawing's, painted by the group itself.
-      if (hitsShape(node, local, tol) && (isFilled(node) || isBoolean(node))) return true;
-      out.pop();
-      continue;
-    }
-    if (hitsShape(node, local, tol)) {
-      out.push(node);
-      return true;
-    }
-  }
-  return false;
-}
-
-/**
- * The ancestor chain of the topmost node under a scene-space point, outermost
- * first and including the leaf. Empty when nothing is hit.
- *
- * This is the full answer; {@link hitTest} picks an end off it. The gesture
- * layer wants the chain when a group has been entered, so it can select the
- * chain's child of that group rather than the outermost or the deepest.
- */
-export function hitTestPath(
-  scene: SceneLike,
-  point: Point,
-  opts: HitTestOptions = {},
-): SceneNode[] {
-  const out: SceneNode[] = [];
-  const tol = opts.tolerance ?? 0;
-  return hitChain(rootNodes(scene), point, opts, tol, out) ? out : [];
-}
-
-/**
- * The node a click at `point` (scene space) selects: the outermost group by
- * default, the leaf under `opts.deep` — double-click-to-enter. Hidden nodes are
- * never hit; locked nodes are click-through unless `opts.includeLocked`.
- */
-export function hitTest(
-  scene: SceneLike,
-  point: Point,
-  opts: HitTestOptions = {},
-): SceneNode | null {
-  const path = hitTestPath(scene, point, opts);
-  if (path.length === 0) return null;
-  return opts.deep ? path[path.length - 1] : path[0];
-}
-
-/** Separating-axis test between a convex quad and an axis-aligned rect. */
-function quadIntersectsRect(quad: readonly Point[], rect: Rect): boolean {
+ * Exported for `scene/picking.ts`'s `hitTestRect` — the marquee's rotated-quad
+ * intersection test is generic rectangle/polygon maths, not a hit-testing
+ * policy, so it stays here with the other primitives rather than being
+ * re-derived in the module that decides which nodes a marquee catches. */
+export function quadIntersectsRect(quad: readonly Point[], rect: Rect): boolean {
   const rx1 = rect.x;
   const rx2 = rect.x + rect.w;
   const ry1 = rect.y;
@@ -683,45 +557,6 @@ function quadIntersectsRect(quad: readonly Point[], rect: Rect): boolean {
     if (qmax < cmin || qmin > cmax) return false;
   }
   return true;
-}
-
-function quadOf(node: SceneNode, x: Xform): Point[] {
-  return [
-    applyX(x, 0, 0),
-    applyX(x, node.w, 0),
-    applyX(x, node.w, node.h),
-    applyX(x, 0, node.h),
-  ];
-}
-
-function marqueeHits(node: SceneNode, parent: Xform, rect: Rect): boolean {
-  const x = compose(parent, localXform(node));
-  if (isContainer(node)) {
-    for (const child of node.children) {
-      if (child.hidden) continue;
-      if (marqueeHits(child, x, rect)) return true;
-    }
-    return isFilled(node) && quadIntersectsRect(quadOf(node, x), rect);
-  }
-  return quadIntersectsRect(quadOf(node, x), rect);
-}
-
-/**
- * Marquee selection: every top-level node whose geometry **intersects** the
- * rect, not only those it fully contains — Figma's rule, and the one that lets
- * you rubber-band a row of shapes without enclosing all of them.
- *
- * Rotation-aware (each node is tested as its rotated quad) and group-aware (a
- * group is caught when any of its descendants is). Returns document order, so
- * the result can go straight into a {@link Selection}.
- */
-export function hitTestRect(scene: SceneLike, rect: Rect): SceneNode[] {
-  const out: SceneNode[] = [];
-  for (const node of rootNodes(scene)) {
-    if (node.hidden || node.locked) continue;
-    if (marqueeHits(node, IDENTITY, rect)) out.push(node);
-  }
-  return out;
 }
 
 // ---------------------------------------------------------------------------
