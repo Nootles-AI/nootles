@@ -36,6 +36,7 @@ import { EffectsSection } from "./sections/EffectsSection";
 import { FillSection } from "./sections/FillSection";
 import { LayoutSection } from "./sections/LayoutSection";
 import { PositionSection } from "./sections/PositionSection";
+import { SelectionColorsSection } from "./sections/SelectionColorsSection";
 import { hasShapeParams, ShapeSection } from "./sections/ShapeSection";
 import { StrokeSection } from "./sections/StrokeSection";
 import { TypographySection } from "./sections/TypographySection";
@@ -200,6 +201,7 @@ export function StylePanel({
               {canBoolean(nodes) && (
                 <BooleanRow selection={nodes} scene={scene} run={run} select={onSelect} />
               )}
+              <SelectionColorsSection selection={nodes} scene={scene} run={run} />
               <PositionSection {...props} />
               {nodes.some(hasShapeParams) && <ShapeSection {...props} />}
               {nodes.some((node) => isGroup(node) && !isBoolean(node)) && <LayoutSection {...props} />}
@@ -252,6 +254,10 @@ function DiagramFields({
         <ColorField
           label="Background"
           value={scene.style.background ?? ""}
+          // A raw `background` value already supports an authored gradient
+          // (F20 in COLOR's own fixtures), so a Shift-pick may take the whole
+          // paint here, unlike a plain stroke/effect colour field.
+          accepts="paint"
           onChange={(background) =>
             onChange({ style: { background: background || undefined } })
           }

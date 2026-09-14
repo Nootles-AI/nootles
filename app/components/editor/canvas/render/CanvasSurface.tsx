@@ -65,6 +65,7 @@ import { useTransformGesture,
 } from "../engine/gestures";
 import { useCanvasShortcuts, type CanvasTool } from "../engine/shortcuts";
 import type { SnapGuide } from "../engine/snapping";
+import { createSurfaceModes, type SurfaceModeContext, type SurfaceModes } from "../engine/surfaceMode";
 import { useScene, useSceneSnapshot, type SceneStore } from "../engine/useScene";
 import {
   descends,
@@ -320,6 +321,13 @@ export interface CanvasApi {
   store: SceneStore;
   selection: SelectionStore;
   viewport: ViewportController;
+  /**
+   * The exclusive pointer-mode slot (COLOR, shared with SELECT/STAGE) — see
+   * `engine/surfaceMode.ts`. A colour pick, a future layer-menu pick, or a
+   * zoom-tool drag registers a mode here instead of adding a parallel branch
+   * to this component's own pointer handlers.
+   */
+  modes: SurfaceModes;
   tools: ToolControl;
   setTool(tool: CanvasTool): void;
   /** The diagram's own fields — `StylePanel`'s `onDiagramChange`. */
@@ -463,6 +471,35 @@ export function CanvasSurface({
   // The two elements the viewport owns: the one that clips and takes input,
   // and the one that carries the transform.
   const { containerRef, sceneRef } = viewport;
+
+  /**
+   * The exclusive pointer-mode slot (`CanvasApi.modes`). `modeCtx` is what
+   * every mode handler receives — built fresh on each call so a mode always
+   * sees the live scene/viewport rather than a stale render's closure — and
+   * is also what drives the registry's own Escape/document-keydown routing.
+   * `store`/`selection`/`viewport` are each created once per canvas (their
+   * own hooks' `useState` initializers), so this stays one registry for the
+   * life of the component.
+   */
+  const modeCtx = useCallback(
+    (): SurfaceModeContext => ({
+      store,
+      selection,
+      viewport,
+      container: () => containerRef.current,
+      scenePoint: (e) => viewport.clientToScene({ x: e.clientX, y: e.clientY }),
+      laid: () => laidOutScene(store.getScene()),
+    }),
+    [store, selection, viewport, containerRef],
+  );
+  const modes = useMemo(() => createSurfaceModes(modeCtx), [modeCtx]);
+  // Whatever a slice's mode is doing owns `data-mode` for its own CSS (the
+  // colour-pick cursor, `canvas.css`'s two-attribute selector) — a plain
+  // `useSyncExternalStore` snapshot, never a value this component computes.
+  const activeMode = useSyncExternalStore(modes.subscribe, modes.get, () => null);
+  // A mode left running past its canvas's own lifetime would leak listeners
+  // and, worse, keep answering pointer events nothing can see any more.
+  useEffect(() => () => modes.exit("unmounted"), [modes]);
 
   const wrap = useRef<HTMLDivElement>(null);
   const overlay = useRef<OverlayApi>(null);
@@ -812,6 +849,7 @@ export function CanvasSurface({
       store,
       selection,
       viewport,
+      modes,
       tools: toolControl,
       setTool: changeTool,
       setDiagram,
@@ -823,6 +861,7 @@ export function CanvasSurface({
       store,
       selection,
       viewport,
+      modes,
       toolControl,
       changeTool,
       reveal,
@@ -983,6 +1022,18 @@ export function CanvasSurface({
 
   const onPointerDown = (event: ReactPointerEvent) => {
     if (event.button !== 0 || viewport.panState() !== "idle") return;
+    // A held mode (the eyedropper, today) sees every pointer event on the
+    // viewport before anything else here does — no focus, no selection, no
+    // gesture, no marquee, no draw. Checked before `readOnly` too: a mode
+    // does not know or care whether the canvas is read-only, by construction
+    // (§2.1 of COLOR — a colour is a colour either way; the only mode that
+    // exists today, the eyedropper, is never offered on a read-only canvas
+    // because its own trigger requires a mutable destination).
+    const mode = activeMode;
+    if (mode) {
+      mode.onPointerDown?.(event.nativeEvent, modeCtx());
+      return;
+    }
     // Every branch below either captures the pointer or suppresses the default
     // drag, both of which would otherwise cost the canvas its focus — and with
     // it the keymap and the clipboard.
@@ -1094,6 +1145,10 @@ export function CanvasSurface({
   useEffect(() => dropHover, [dropHover]);
 
   const onPointerMove = (event: ReactPointerEvent) => {
+    if (activeMode) {
+      activeMode.onPointerMove?.(event.nativeEvent, modeCtx());
+      return;
+    }
     if (busy.current || !picking || editPath || gesture.isActive()) return;
     hoverAt.current = {
       clientX: event.clientX,
@@ -1118,6 +1173,7 @@ export function CanvasSurface({
    * nothing at all; shapes come from the toolbar.
    */
   const onDoubleClick = (event: ReactMouseEvent) => {
+    if (activeMode) return;
     if (!picking || editPath) return;
     const wanted = asked.current;
     asked.current = null;
@@ -1137,6 +1193,10 @@ export function CanvasSurface({
 
   const onContextMenu = (event: ReactMouseEvent) => {
     event.preventDefault();
+    // The menu (and the right-click pre-select it would otherwise do) is
+    // suppressed for the whole session — a colour pick's own pointerdown
+    // handler already ignores anything but the left button.
+    if (activeMode) return;
     viewport.containerRef.current?.focus({ preventScroll: true });
     const point = scenePoint(event);
     const chain = hitTestPath(laid, point, { tolerance: slop() });
@@ -1319,11 +1379,16 @@ export function CanvasSurface({
         className="nt-canvas-viewport"
         style={surface}
         data-tool={tool}
+        data-mode={activeMode?.id}
         tabIndex={0}
         onFocus={publish}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerLeave={() => {
+          if (activeMode) {
+            activeMode.onPointerLeave?.(modeCtx());
+            return;
+          }
           dropHover();
           selection.hover(null);
         }}
@@ -1377,11 +1442,17 @@ export function CanvasSurface({
             in runs, and re-picking the tool for each one would make the run
             the expensive part. The new edge is selected as it lands, and
             Escape is the way back to the move tool. */}
-        {tool === "connector" && (
+        {/* Neither overlay is offered while a mode (the eyedropper, today)
+            owns the pointer — both cover the whole viewport with their own
+            handlers, and a pick click landing on one would add an anchor or
+            start an edge instead of resolving the pick. Not rendering them
+            at all is simpler and more certain than teaching either overlay
+            about `data-mode` itself. */}
+        {!activeMode && tool === "connector" && (
           <ConnectorTool store={store} viewport={viewport} selection={selection} />
         )}
 
-        {(tool === "pen" || editPath) && (
+        {!activeMode && (tool === "pen" || editPath) && (
           <PenTool
             // The anchor list is read from the node once, on mount, so a change
             // of subject is a change of component.

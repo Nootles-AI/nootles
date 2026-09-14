@@ -14,30 +14,23 @@ import { GradientField } from "../controls/GradientField";
 import { NumberField } from "../controls/NumberField";
 import { PanelSection } from "../controls/PanelSection";
 import { SelectField } from "../controls/SelectField";
-import { formatColor, parseColor } from "../controls/color";
-import { formatGradient, parseGradient, type Gradient } from "../controls/gradient";
-import { parseLayers, serializeLayers, type Layer } from "../cssCatalog";
-import { refName } from "../colorVariables";
+import {
+  DEFAULT_PAINT,
+  POSITION,
+  SIZE,
+  convert,
+  isBound,
+  opacityOf,
+  readFills,
+  withOpacity,
+  writeFills,
+  type Fill,
+  type FillType,
+} from "../fills";
+import { parseGradient } from "../controls/gradient";
 import type { SectionProps } from "../StylePanel";
 
 type Patch = SectionProps["patch"];
-
-type FillType = "solid" | "linear" | "radial" | "image";
-
-/**
- * One entry of the `background` stack as the panel edits it. `paint` is a
- * colour, a gradient or a `url()` according to `type`; `layer` carries the rest
- * of that layer's declarations — position, size, repeat, anything unrecognised
- * — so editing the paint never drops them.
- */
-type Fill = { type: FillType; paint: string; layer: Layer };
-
-const IMAGE = "background-image";
-const COLOR = "background-color";
-const POSITION = "background-position";
-const SIZE = "background-size";
-const REPEAT = "background-repeat";
-const DEFAULT_PAINT = "#d4d4d8";
 
 const TYPES = [
   { value: "solid", label: "Solid" },
@@ -52,116 +45,8 @@ const SIZES = [
   { value: "auto", label: "Auto" },
 ];
 
-const isFlat = (g: Gradient) =>
-  g.stops.length === 2 && g.stops[0].color === g.stops[1].color;
-
-/** A paint with no alpha to set — `var(--brand)`, `currentColor` — is returned
- *  as it stands rather than resolved to a colour, because resolving it is what
- *  would silently break the binding. */
-const withAlpha = (css: string, a: number) => {
-  const rgb = parseColor(css);
-  return rgb ? formatColor({ ...rgb, a }) : css;
-};
-
-/** Bound to a colour variable, so its alpha is the variable's to give. */
-const isBound = (fill: Fill): boolean =>
-  fill.type === "solid"
-    ? refName(fill.paint) !== null
-    : fill.type !== "image" &&
-      (parseGradient(fill.paint)?.stops.some((s) => refName(s.color) !== null) ??
-        false);
-
 const srcOf = (paint: string) => paint.replace(/^url\(\s*["']?|["']?\s*\)$/g, "");
 const toUrl = (src: string) => `url("${src.replace(/"/g, "%22")}")`;
-
-function readFill(layer: Layer): Fill {
-  const image = layer.values[IMAGE];
-  if (image && image !== "none") {
-    if (/^(url|image-set)\(/i.test(image))
-      return { type: "image", paint: image, layer };
-    const g = parseGradient(image);
-    // A two-stop gradient of one colour is how a solid rides above another
-    // layer (see toLayer); read it back as the solid it is.
-    if (g && isFlat(g)) return { type: "solid", paint: g.stops[0].color, layer };
-    return {
-      type: g?.kind === "radial" ? "radial" : "linear",
-      paint: image,
-      layer,
-    };
-  }
-  return { type: "solid", paint: layer.values[COLOR] ?? "", layer };
-}
-
-/**
- * Fills serialize front-first, which is CSS's own layer order. CSS keeps its
- * one `background-color` behind every image though, so only the backmost fill
- * can be a bare colour; a solid above one is written as a two-stop gradient of
- * itself, which {@link readFill} reads back as that same solid.
- */
-function toLayer({ type, paint, layer }: Fill, last: boolean): Layer {
-  const values = { ...layer.values };
-  delete values[IMAGE];
-  if (!last) delete values[COLOR];
-  if (type !== "solid") values[IMAGE] = paint;
-  else if (last) values[COLOR] = paint;
-  else values[IMAGE] = `linear-gradient(${paint}, ${paint})`;
-  return { ...layer, values };
-}
-
-/** CSS has no per-layer opacity, so a fill's opacity is its paint's alpha —
- *  and hiding a fill is that alpha at zero, which keeps the colour. An image
- *  has no alpha to set, so it has neither control. */
-function opacityOf({ type, paint }: Fill): number {
-  if (type === "image") return 1;
-  const colour =
-    type === "solid" ? paint : (parseGradient(paint)?.stops[0].color ?? "");
-  return parseColor(colour)?.a ?? 1;
-}
-
-function withOpacity(fill: Fill, a: number): Fill {
-  if (fill.type === "image") return fill;
-  if (fill.type === "solid") return { ...fill, paint: withAlpha(fill.paint, a) };
-  const g = parseGradient(fill.paint);
-  if (!g) return fill;
-  const stops = g.stops.map((s) => ({ ...s, color: withAlpha(s.color, a) }));
-  return { ...fill, paint: formatGradient({ ...g, stops }) };
-}
-
-function convert(fill: Fill, type: FillType): Fill {
-  const values = fill.layer.values;
-  if (type === "image")
-    return {
-      type,
-      paint: 'url("")',
-      layer: {
-        ...fill.layer,
-        values: {
-          ...values,
-          [POSITION]: values[POSITION] ?? "center",
-          [SIZE]: values[SIZE] ?? "cover",
-          [REPEAT]: values[REPEAT] ?? "no-repeat",
-        },
-      },
-    };
-  const g =
-    fill.type === "linear" || fill.type === "radial"
-      ? parseGradient(fill.paint)
-      : null;
-  const colour =
-    (g ? g.stops[0].color : fill.type === "solid" ? fill.paint : "") ||
-    DEFAULT_PAINT;
-  if (type === "solid") return { ...fill, type, paint: colour };
-  const stops = g?.stops ?? [
-    { color: colour, pos: 0 },
-    // A reference has no alpha of its own to fade, so the fade is CSS's.
-    { color: refName(colour) ? "transparent" : withAlpha(colour, 0), pos: 1 },
-  ];
-  return {
-    ...fill,
-    type,
-    paint: formatGradient({ kind: type, angle: g?.angle ?? 135, stops }),
-  };
-}
 
 function setProp(
   patch: Patch,
@@ -177,15 +62,6 @@ function setProp(
     return { style };
   });
 }
-
-const readFills = (background: string | undefined): Fill[] =>
-  parseLayers("background", background).map(readFill);
-
-const writeFills = (fills: Fill[]): string | undefined =>
-  serializeLayers(
-    "background",
-    fills.map((fill, i) => toLayer(fill, i === fills.length - 1)),
-  ) || undefined;
 
 export function FillSection({ selection, patch }: SectionProps) {
   const boxes = selection.filter((node) => node.kind !== "path" && !isBoolean(node));
@@ -284,7 +160,14 @@ function FillRow({
         {fill.type === "solid" ? (
           <ColorField
             value={fill.paint}
-            onChange={(paint) => onChange({ ...fill, paint })}
+            accepts="paint"
+            onChange={(paint) => {
+              // A Shift-pick can hand this field a whole gradient (`accepts`
+              // says it may) — that converts the row to that gradient kind
+              // rather than trying to store a gradient string as a solid.
+              const g = parseGradient(paint);
+              onChange(g ? { ...fill, type: g.kind, paint } : { ...fill, paint });
+            }}
           />
         ) : image ? (
           <ImagePicker src={srcOf(fill.paint)} onPick={(src) => onChange({ ...fill, paint: toUrl(src) })} />

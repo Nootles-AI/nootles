@@ -73,6 +73,47 @@
   cursor: grabbing;
 }
 
+/* ===== Colour pick (COLOR) ================================================
+   The eyedropper's own cursor and hover pill. Neutral chrome throughout —
+   `--nt-select` stays the canvas's one sanctioned accent and is never used
+   here, even though a pick is itself an "answer to an input": the pill and
+   ring already say that by following the pointer, and the selection outline
+   they might land beside keeps its own, separate meaning. */
+
+/* Two attributes, deliberately: `data-tool` is unconditionally present
+   (`CanvasSurface.tsx` always renders it), so this selector's specificity —
+   class + two attributes — beats every `[data-tool="…"]` rule above
+   regardless of source order, whichever tool is still selected underneath a
+   pick session. */
+.nt-canvas-viewport[data-tool][data-mode="color-pick"] {
+  cursor:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='17' height='17' viewBox='0 0 24 24'%3E%3Cline x1='22' y1='2' x2='11' y2='13' stroke='%23fff' stroke-width='5' stroke-linecap='round'/%3E%3Cline x1='22' y1='2' x2='11' y2='13' stroke='%231a1a1a' stroke-width='3' stroke-linecap='round'/%3E%3Ccircle cx='8' cy='16' r='5' fill='%231a1a1a' stroke='%23fff' stroke-width='1.5'/%3E%3C/svg%3E")
+      1 16,
+    crosshair;
+}
+
+/* Screen space, a child of the viewport (never the transformed scene layer),
+   so it never rotates or scales with the diagram and costs no re-render of
+   anything under it. */
+.nt-pick-pill {
+  position: absolute;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+  background: var(--background);
+  box-shadow: 0 1px 3px oklch(0.25 0.005 90 / 0.18);
+  font:
+    12px/1 ui-monospace,
+    monospace;
+  color: var(--foreground);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
 /* The one transformed element. Every shape is absolutely positioned inside it,
    so pan and zoom are a single composited transform. */
 .nt-canvas-scene {

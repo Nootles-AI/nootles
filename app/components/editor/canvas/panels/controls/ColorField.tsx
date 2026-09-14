@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check, Plus, X } from "@/app/components/Icons";
 import {
   declareVariable,
@@ -15,6 +15,9 @@ import {
   type ColorVariable,
   type ColorVariablesApi,
 } from "../colorVariables";
+import { useCanvasShell } from "../../shell";
+import { canSampleScreen, colorPick, useColorPick, type PickDestination, type PickResult, type PickSource } from "./colorPick";
+import { Dropper, Sampler } from "./glyphs";
 import { useLiveEdit } from "./live";
 import { Popover } from "./Popover";
 import { track } from "./track";
@@ -24,8 +27,10 @@ import {
   hsvToRgb,
   parseColor,
   parseColorText,
+  readColor,
   rgbToHsv,
   toHex,
+  writeColor,
   type RGBA,
 } from "./color";
 import "./controls.css";
@@ -36,12 +41,24 @@ const NO_VARS: readonly ColorVariable[] = [];
 /** How long the first click waits to see whether a second one is coming. */
 const DOUBLE_MS = 220;
 
+/** `.nt-ctl-tag` shown after the swatch text for a value authored in a
+ *  gamut wider than sRGB — the reader's cue that the hex shown is not the
+ *  whole story. */
+function wideGamutTag(value: string): string | null {
+  const read = readColor(value);
+  if (!read) return null;
+  if (read.form === "display-p3") return "P3";
+  if (read.form === "oklch" || read.form === "oklab") return "OKLCH";
+  return null;
+}
+
 export function ColorField({
   label,
   value,
   onChange,
   onPreview,
   mixed,
+  accepts = "color",
 }: {
   /** The mark drawn inside the control, as on every other field. */
   label?: string;
@@ -56,6 +73,14 @@ export function ColorField({
    */
   onPreview?: (value: string) => void;
   mixed?: boolean;
+  /**
+   * `"paint"` also accepts a whole gradient — Shift-pick on a gradient hit
+   * converts this field's row to that gradient. Only the box-fill solid row
+   * and the diagram background field pass `"paint"`; every other colour
+   * field (stroke, effects, typography, a gradient stop, a path's SVG fill)
+   * stays `"color"`, the default (COLOR §2.4a).
+   */
+  accepts?: "color" | "paint";
 }) {
   const api = useColorVariables();
   const vars = api?.variables ?? NO_VARS;
@@ -132,6 +157,11 @@ export function ColorField({
           <span className="nt-ctl-swatch-text">
             {mixed ? "Mixed" : bound ? varLabel(bound) : displayColor(value)}
           </span>
+          {!mixed && !bound && wideGamutTag(value) && (
+            <span className="nt-ctl-tag" title={value}>
+              {wideGamutTag(value)}
+            </span>
+          )}
         </button>
       )}
     >
@@ -142,6 +172,7 @@ export function ColorField({
           api={api}
           onChange={onChange}
           onPreview={onPreview}
+          accepts={accepts}
         />
       )}
     </Popover>
@@ -202,6 +233,7 @@ function Body({
   api,
   onChange,
   onPreview,
+  accepts,
 }: {
   /** Already resolved: the literal colour behind the field. */
   value: string;
@@ -209,19 +241,77 @@ function Body({
   api: ColorVariablesApi | null;
   onChange: (value: string) => void;
   onPreview?: (value: string) => void;
+  accepts: "color" | "paint";
 }) {
   const rgba = parseColor(value) ?? BLACK;
   const literal = formatColor(rgba);
   const live = useLiveEdit();
+  const shell = useCanvasShell();
+  const pick = useColorPick();
   // A bound field edits the variable's own declaration — the shape keeps its
-  // reference, and every other shape on it follows.
-  const target =
-    bound !== null && api !== null && api.variables.some((v) => v.name === bound)
-      ? { api, name: bound }
-      : null;
+  // reference, and every other shape on it follows. Memoised so it has a
+  // stable identity across renders that don't actually change it, which is
+  // what keeps `applyPick`/`startPick` below from rebuilding every render.
+  const target = useMemo(
+    () =>
+      bound !== null && api !== null && api.variables.some((v) => v.name === bound)
+        ? { api, name: bound }
+        : null,
+    [bound, api],
+  );
+
+  /**
+   * Exactly once per successful pick — the field's own `onChange` path,
+   * **except**: a `var()` result landing on an already-bound field rebinds
+   * (the same call `Variables`' row `onClick` makes) rather than editing the
+   * bound variable's own declaration. Picking a `var(--brand)` onto a field
+   * bound to `--accent` must leave `--accent`'s own declaration — and every
+   * other shape that references it — untouched.
+   */
+  const applyPick = useCallback(
+    (picked: string, result: PickResult) => {
+      if (result.kind === "authored" && refName(picked) !== null) {
+        onChange(picked);
+      } else if (target) {
+        target.api.setStyle(declareVariable(target.name, picked));
+      } else {
+        onChange(picked);
+      }
+    },
+    [onChange, target],
+  );
+
+  const startPick = useCallback(
+    (source: PickSource) => {
+      const host = shell.active?.api ?? null;
+      const dest: PickDestination = {
+        accepts,
+        current: value,
+        apply: applyPick,
+        preview: target === null ? onPreview : undefined,
+      };
+      colorPick.start(dest, source, host);
+    },
+    [shell, accepts, value, applyPick, target, onPreview],
+  );
+
+  const canScreen = canSampleScreen();
 
   return (
-    <>
+    // `display: contents`: this wrapper exists only to catch the `I` key
+    // while the popover is open — it must not become a second flex box
+    // inside `.nt-ctl-pop`, which lays its DIRECT children out with `gap`.
+    <div
+      style={{ display: "contents" }}
+      onKeyDown={(e) => {
+        if (e.key.toLowerCase() !== "i") return;
+        const el = e.target as HTMLElement;
+        if (el.tagName === "INPUT" || el.tagName === "TEXTAREA") return;
+        e.preventDefault();
+        e.stopPropagation();
+        startPick(e.shiftKey && canScreen ? "screen" : "canvas");
+      }}
+    >
       {bound !== null && (
         <div className="nt-ctl-row">
           <span className="nt-ctl-note min-w-0 flex-1 truncate">
@@ -234,6 +324,7 @@ function Body({
       )}
       <Picker
         value={rgba}
+        base={value}
         // A variable's declaration is the diagram's own style: writing it
         // re-serializes the whole canvas, which is too much to do per frame.
         live={live !== null && target === null}
@@ -244,10 +335,41 @@ function Body({
             : onChange(css)
         }
       />
+      <div className="nt-ctl-row">
+        <button
+          type="button"
+          className="nt-icon-btn is-sm"
+          aria-label="Pick from canvas"
+          title="Pick from canvas (I)"
+          disabled={!shell.active}
+          // Matches `Refit`'s own rule in `CanvasSurface.tsx`: a pointerdown
+          // on a panel button must not blur — and so end — a label mid-edit
+          // before the pick session even starts.
+          onPointerDown={(e) => e.preventDefault()}
+          onClick={() => startPick("canvas")}
+        >
+          <Dropper width={15} height={15} />
+        </button>
+        {canScreen && (
+          <button
+            type="button"
+            className="nt-icon-btn is-sm"
+            aria-label="Sample screen"
+            title="Sample screen (Shift+I)"
+            onPointerDown={(e) => e.preventDefault()}
+            onClick={() => startPick("screen")}
+          >
+            <Sampler width={15} height={15} />
+          </button>
+        )}
+        <span className="nt-ctl-note min-w-0 flex-1 truncate">
+          {pick.active ? "Click on the canvas…" : "Pick a colour"}
+        </span>
+      </div>
       {api && (
         <Variables api={api} bound={bound} literal={literal} onPick={onChange} />
       )}
-    </>
+    </div>
   );
 }
 
@@ -358,11 +480,21 @@ function TextButton({ label, onClick }: { label: string; onClick: () => void }) 
 
 function Picker({
   value,
+  base,
   live,
   onPreview,
   onChange,
 }: {
   value: RGBA;
+  /**
+   * The field's own value **as authored**, before this drag — `writeColor`'s
+   * `prev`, so scrubbing hue/saturation/alpha on an `oklch()`/`color(
+   * display-p3 …)` fill keeps writing that same form instead of collapsing
+   * every edit to hex/rgba (COLOR §5.2). The hex text input below stays on
+   * `formatColor` regardless — typing a hex is an intent to leave the wide
+   * form, per the same section.
+   */
+  base: string;
   /** Emit every frame of a drag rather than only its last, so the canvas
    *  previews it. The panel's own bracket keeps that one undo entry. */
   live: boolean;
@@ -391,7 +523,7 @@ function Picker({
     setDraft(next);
     const emit = live ? onChange : onPreview;
     if (!emit) return;
-    const css = formatColor(next);
+    const css = writeColor(base, next);
     if (css === sent.current) return;
     sent.current = css;
     emit(css);
@@ -402,7 +534,7 @@ function Picker({
     held.current = null;
     sent.current = null;
     setDraft(null);
-    if (next && !live) onChange(formatColor(next));
+    if (next && !live) onChange(writeColor(base, next));
   };
   const withHsv = (h: number, s: number, v: number) => ({
     ...hsvToRgb(h, s, v),
