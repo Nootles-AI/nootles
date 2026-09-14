@@ -24,7 +24,7 @@ import type { CSSProperties, ReactElement } from "react";
 import { toCss } from "../scene/boxModel";
 import { unitPolygon } from "../scene/geometry";
 import { DRAWN_INK, DRAWN_STROKE_WIDTH, paintOf } from "../scene/paint";
-import { pathPaintDecls, shadowFilterOf, shapeGeometry } from "../scene/shapePaint";
+import { clipsToShape, pathPaintDecls, shadowFilterOf, shapeGeometry } from "../scene/shapePaint";
 import { roundedPolygon, scaled, straight, vertexRadius } from "../scene/outline";
 import type { SceneNode, StyleMap } from "../scene/types";
 
@@ -110,7 +110,7 @@ export function shapeOf(node: SceneNode): Shape | null {
   const paint = paintOf(node.style);
   const css = paint.fill === null;
   return {
-    clip: css ? geometry.clip : null,
+    clip: clipsToShape(node.style, css) ? geometry.clip : null,
     drop: css ? dropStroke : dropPaint,
     child: (
       <svg

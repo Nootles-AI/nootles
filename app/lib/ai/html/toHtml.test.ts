@@ -55,6 +55,19 @@ describe("compileScene: goldens (html)", () => {
     );
   });
 
+  it("diamond-backdrop-blur", () => {
+    // A plain SVG-painted fill needs no clip to look like a diamond — the
+    // `<path>` behind the box already draws it. `backdrop-filter` still
+    // forces the clip: unlike `box-shadow`, it samples what is behind the
+    // box's full rectangle regardless of the box's own paint, so without the
+    // clip the blur would read as a square past the diamond's corners.
+    expect(compileScene(fixture("diamond-backdrop-blur")).code).toBe(
+      '<div style="position: relative; isolation: isolate; width: 200px; height: 140px">\n' +
+        '  <div data-nt-id="d1" style="box-sizing: border-box; white-space: pre-wrap; overflow-wrap: break-word; isolation: isolate; backdrop-filter: blur(8px); clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%); padding: 24px 35px; position: absolute; left: 20px; top: 20px; width: 140px; height: 96px"><svg style="position: absolute; inset: 0; z-index: -1; overflow: visible; pointer-events: none" viewBox="0 0 140 96" preserveAspectRatio="none" aria-hidden="true"><path d="M 70 0 L 140 48 L 70 96 L 0 48 Z" fill-rule="evenodd" fill="#e8e8e6" vector-effect="non-scaling-stroke"/></svg></div>\n' +
+        "</div>",
+    );
+  });
+
   it("path-bare", () => {
     expect(compileScene(fixture("path-bare")).code).toBe(
       '<div style="position: relative; isolation: isolate; width: 100px; height: 60px">\n' +

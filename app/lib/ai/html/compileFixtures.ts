@@ -23,6 +23,15 @@ export const COMPILE_FIXTURES: Record<string, string> = {
   <nt-polygon id="d1" x="20" y="20" w="140" h="96" sides="4" style="background: linear-gradient(90deg, #000, #fff); border: 2px solid #111; display: flex; align-items: center; justify-content: center">Yes?</nt-polygon>
 </nt-diagram>`,
 
+  // A plain (SVG-painted) fill needs no clip to look right — the `<path>`
+  // behind the box already draws exactly the diamond. `backdrop-filter` is
+  // the exception: it samples what is behind the box's full rectangle
+  // regardless of the box's own paint, so it still needs the box clipped to
+  // the diamond or the blur reads as a square past every corner.
+  "diamond-backdrop-blur": `<nt-diagram w="200" h="140">
+  <nt-polygon id="d1" x="20" y="20" w="140" h="96" sides="4" style="background: #e8e8e6; backdrop-filter: blur(8px)"></nt-polygon>
+</nt-diagram>`,
+
   "path-bare": `<nt-diagram w="100" h="60">
   <nt-path id="p1" x="10" y="10" w="80" h="40" d="M 0 0 C 20 40 60 40 80 0"></nt-path>
 </nt-diagram>`,

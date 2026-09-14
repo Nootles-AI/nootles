@@ -47,6 +47,7 @@ import {
 import { paintOf } from "@/app/components/editor/canvas/scene/paint";
 import { parseScene, type ParseHtml } from "@/app/components/editor/canvas/scene/parse";
 import {
+  clipsToShape,
   dropPaint,
   dropStroke,
   paintsBox,
@@ -595,7 +596,7 @@ function renderPolygonArc(ctx: Ctx, node: SceneNode, flow: Flow | undefined, geo
   const decls = boxDecls(node, flow, {
     drop: cssOnly ? dropStroke : dropPaint,
     isolation: true,
-    clipPath: cssOnly ? geo.clip : null,
+    clipPath: clipsToShape(node.style, cssOnly) ? geo.clip : null,
     shadowCast: true,
   });
   const w = node.w || 1;

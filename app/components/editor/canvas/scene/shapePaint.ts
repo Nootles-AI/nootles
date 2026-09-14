@@ -159,6 +159,26 @@ export type ShapeGeometry = { d: string; clip: string };
 const pct = (n: number) => `${Math.round(n * 100000) / 1000}%`;
 
 /**
+ * Whether the box itself must be cut to the shape's outline, on top of the
+ * geometry already drawn by the SVG child.
+ *
+ * True when a CSS-only fill (a gradient, a picture) stayed on the box: with
+ * no `<path>` to paint it, the fill has to be clipped to look like the shape
+ * at all. Also true whenever `backdrop-filter` is set, for a reason that has
+ * nothing to do with fill: unlike `box-shadow` (already recast, for a shaped
+ * node, as a `drop-shadow()` that follows the SVG's real silhouette), a
+ * backdrop filter samples what is behind the element's full rectangular
+ * border box, independent of whatever the box paints there. Left unclipped,
+ * a diamond's blur reads as a square — visible past every corner the shape
+ * doesn't cover.
+ */
+export function clipsToShape(style: StyleMap, cssOnlyFill: boolean): boolean {
+  if (cssOnlyFill) return true;
+  const backdrop = style["backdrop-filter"];
+  return !!backdrop && backdrop.trim() !== "none";
+}
+
+/**
  * `svgShape.geometryOf`, unchanged: polygon (rounded → `path()`, else
  * `polygon()` in %), arc → `path()`; `null` for every other kind, which the
  * browser can draw from the box alone.
