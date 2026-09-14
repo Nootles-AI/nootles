@@ -361,6 +361,49 @@ function drawnPaintedAt(
   return null;
 }
 
+/**
+ * Whether `local` (already in `node`'s own space) falls inside its
+ * silhouette — geometry alone, ignoring `style` entirely. `paintedAt`'s fill
+ * test only counts a filled interior when the node's own `fillVisible` says
+ * so, which is right for "is this painted" but wrong for a different
+ * question: which operand of a boolean group does this interior point
+ * belong to. An operand is routinely left unstyled — its fill and stroke are
+ * the derived shape's business, not its own — and `fillVisible` would then
+ * see no fill at all, leaving only a hairline band around the outline for a
+ * fill test to ever land on.
+ */
+export function containsPoint(node: SceneNode, local: Point): boolean {
+  switch (node.kind) {
+    case "text":
+    case "image":
+      return insideBox(local, node.w, node.h, 0);
+    case "rect":
+      return insideRounded(local, node.w, node.h, cornerRadius(node.style["border-radius"], node.w, node.h), 0);
+    case "group":
+      return isBoolean(node)
+        ? flatContains(node, local)
+        : insideRounded(local, node.w, node.h, cornerRadius(node.style["border-radius"], node.w, node.h), 0);
+    case "ellipse": {
+      // `node` is already `EllipseNode` here, so `isArc`'s own return type
+      // (`node is EllipseNode`) narrows nothing new — its false branch would
+      // collapse `node` to `never`. Called through a plain-boolean type
+      // strips the predicate rather than the check itself.
+      const arc: (n: SceneNode) => boolean = isArc;
+      return arc(node) ? flatContains(node, local) : insideEllipse(local, node.w, node.h, 0);
+    }
+    case "polygon":
+    case "path":
+      return flatContains(node, local);
+    default:
+      return false;
+  }
+}
+
+function flatContains(node: SceneNode, local: Point): boolean {
+  const flat = flatOf(node);
+  return flat !== null && inRegion(local, flat.polylines, flat.rule);
+}
+
 // ---------------------------------------------------------------------------
 // paintedAt (§2.1) — dispatch, one reader per kind
 // ---------------------------------------------------------------------------

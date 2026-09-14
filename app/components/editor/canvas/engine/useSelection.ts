@@ -63,7 +63,7 @@ import {
   toLocal,
   type RotatedRect,
 } from "../scene/geometry";
-import { hitTestAll, hitTestRect, type Candidate } from "../scene/picking";
+import { containsPoint, hitTestAll, hitTestRect, type Candidate } from "../scene/picking";
 import {
   findNode,
   findParent,
@@ -366,6 +366,29 @@ function firstChild(node: SceneNode): SceneNode | null {
   return null;
 }
 
+/**
+ * The operand a double-click on a boolean group actually lands on — `point`
+ * already in the group's own local frame — frontmost first, so an operand
+ * that covers another wins the same way it would if PICK offered operands as
+ * candidates at all. Geometry only (`containsPoint`, not `paintedAt`): an
+ * operand is routinely left unstyled, so testing its own paint would answer
+ * for a hairline stroke band at best. A double-click has a point to test
+ * against, unlike `enterSelected()`'s Enter key, which has none and so has
+ * nothing better than `firstChild` to fall back on — which is also this
+ * function's own fallback, for a subtract/intersect/exclude corner where the
+ * derived shape and no single operand's own outline agree at this exact
+ * point.
+ */
+function operandAt(group: SceneNode, point: Point): SceneNode | null {
+  if (!isContainer(group)) return null;
+  for (let i = group.children.length - 1; i >= 0; i--) {
+    const child = group.children[i];
+    if (child.hidden || child.locked) continue;
+    if (containsPoint(child, toLocal(point, child))) return child;
+  }
+  return firstChild(group);
+}
+
 function idsOf(nodes: readonly SceneNode[]): NodeId[] {
   return nodes.map((n) => n.id);
 }
@@ -634,14 +657,19 @@ export function createSelectionStore(initialScene: SceneLike): SelectionStore {
         // walk never descends into them, since they paint nothing of their
         // own — so `descends` reads a double-click on one exactly like a
         // click on a leaf, and steps into it, `enterSelected()` already
-        // does. Mirror that here: the chain's own leaf, one step, its
-        // frontmost child, unless we are already inside this exact leaf
-        // (agreeDepth having consumed the whole chain means the last
-        // double-click already entered it and there is nothing deeper).
+        // does. Mirror that here: the chain's own leaf, one step in — but
+        // unlike Enter, a double-click has a point, and `firstChild` alone
+        // would always land on the frontmost operand even when the pointer
+        // is squarely over a different one's own exposed area. Unless we
+        // are already inside this exact leaf (agreeDepth having consumed
+        // the whole chain means the last double-click already entered it
+        // and there is nothing deeper).
         const leaf = chain[chain.length - 1];
         const alreadyIn = agreeDepth(entered, chain) === chain.length;
         if (!alreadyIn && isBoolean(leaf) && !leaf.hidden) {
-          const child = firstChild(leaf);
+          let local: Point = point;
+          for (const ancestor of chain) local = toLocal(local, ancestor);
+          const child = operandAt(leaf, local);
           if (child) {
             commit([child.id], idsOf(nodePath(scene, leaf.id)), snapshot.hoverId);
             return;
