@@ -1,5 +1,6 @@
 import { mutation, query, type MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
+import { gunzipSync, gzipSync } from "fflate";
 import { components } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { isTrashed, readVisible, requireEditable } from "./auth";
@@ -400,12 +401,6 @@ async function forgetTurns(ctx: MutationCtx, page: Doc<"pages">) {
     )
   ).flat();
 
-  const without = (blob: unknown) => {
-    const held = blob as { pages?: Array<{ pageId: Id<"pages"> }> } | null | undefined;
-    if (!held?.pages) return blob;
-    return { ...held, pages: held.pages.filter((p) => p.pageId !== page._id) };
-  };
-
   for (const turn of turns) {
     const at = turn.pageIds.indexOf(page._id);
     if (at === -1) continue;
@@ -417,8 +412,29 @@ async function forgetTurns(ctx: MutationCtx, page: Doc<"pages">) {
     await ctx.db.patch(turn._id, {
       pageIds,
       checkpointIds: turn.checkpointIds.filter((_, i) => i !== at),
-      trace: without(turn.trace),
-      hunks: without(turn.hunks),
+      trace: withoutPage(turn.trace, page._id),
+      hunks: withoutPage(turn.hunks, page._id),
     });
   }
+}
+
+/**
+ * A turn's `trace` or `hunks` without one page's entry, in the form it was
+ * stored in.
+ *
+ * Rows written since turns were packed hold gzip bytes (`app/lib/ai/review/pack.ts`);
+ * older rows hold the plain object. The default runtime has no
+ * `DecompressionStream`, so the bytes are opened with fflate, which writes back
+ * the same gzip the client's `unpackTurn` reads.
+ */
+function withoutPage(stored: unknown, pageId: Id<"pages">): unknown {
+  const packed = stored instanceof ArrayBuffer;
+  const held = (
+    packed ? JSON.parse(new TextDecoder().decode(gunzipSync(new Uint8Array(stored)))) : stored
+  ) as { pages?: Array<{ pageId: Id<"pages"> }> } | null | undefined;
+  if (!held?.pages) return stored;
+  const kept = { ...held, pages: held.pages.filter((p) => p.pageId !== pageId) };
+  if (!packed) return kept;
+  const bytes = gzipSync(new TextEncoder().encode(JSON.stringify(kept)));
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
 }
