@@ -155,7 +155,16 @@ function drag(
     if (!frame) frame = requestAnimationFrame(flush);
   };
   const up = (event: PointerEvent) => {
-    if (frame) cancelAnimationFrame(frame);
+    if (frame) {
+      // A pointerup that lands before the scheduled frame paints (a fast
+      // flick-release) must not just drop it — every caller reads its own
+      // state (the drawn box, the marquee rect, the pan offset) from what
+      // `onMove` last wrote, and skipping the flush leaves that state one
+      // frame stale, short of wherever the pointer actually ended up.
+      cancelAnimationFrame(frame);
+      frame = 0;
+      if (latest) onMove(latest);
+    }
     window.removeEventListener("pointermove", move);
     window.removeEventListener("pointerup", up);
     window.removeEventListener("pointercancel", up);
