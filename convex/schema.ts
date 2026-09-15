@@ -407,6 +407,61 @@ export default defineSchema({
     data: v.bytes(),
   }).index("by_doc_and_gen_and_part", ["docId", "gen", "part"]),
 
+  // ---- NML persistence & cohort migration (step 12) -----------------------
+  // The elected migrator writes the canonical NML root into a page's Y.Doc
+  // beside its ProseMirror root; these tables record that it happened, gate
+  // which docs are eligible, and keep the NML content recoverable across a
+  // rollback. The legacy root stays the served truth until step 13, so a
+  // rollback here is authority + audit only — the NML root is never removed
+  // (Yjs roots are permanent), which is exactly what keeps NML-only edits the
+  // legacy tree cannot represent from being lost.
+
+  /**
+   * One row per document that has had its NML root written. Its presence is the
+   * election record — the first writer inserts it, and a second migrator sees
+   * it and stands down rather than racing a duplicate root.
+   */
+  nmlDocState: defineTable({
+    docId: v.string(),
+    /**
+     * "migrated": the NML root exists and its migrator's checks passed.
+     * "rolledBack": authority was returned to legacy; the root still exists.
+     */
+    status: v.union(v.literal("migrated"), v.literal("rolledBack")),
+    /** Canonical AST schema version the root declares (for mixed-version reads). */
+    nmlSchemaVersion: v.number(),
+    /** Yjs encoding version the root declares (for mixed-version reads). */
+    nmlEncodingVersion: v.number(),
+    /** The append seq that introduced the NML root, for audit. */
+    nmlSeq: v.number(),
+    /** The migrator's equivalence verdict over structure, IDs, inline, canvas. */
+    equivalenceOk: v.boolean(),
+    /** Understood, acceptable mismatch classes (e.g. an unsupported-block gap). */
+    mismatchClasses: v.array(v.string()),
+    /** Whether the document was within the four v1 size limits. */
+    limitOk: v.boolean(),
+    migratedAt: v.number(),
+    /** Clerk subject of the elected migrator, or "anonymous" for a link editor. */
+    migratedBy: v.string(),
+    rolledBackAt: v.optional(v.number()),
+    rollbackReason: v.optional(v.string()),
+    /** True when rollback found NML-only edits the legacy tree cannot reproduce. */
+    rolledBackDiverged: v.optional(v.boolean()),
+  }).index("by_doc", ["docId"]),
+
+  /**
+   * The migration cohort: which documents are eligible to be migrated. Scoped
+   * by project (opt a whole project in, owner-gated) or by single doc (writer-
+   * gated). The migrator refuses any document not covered by a row here.
+   */
+  nmlCohorts: defineTable({
+    scope: v.union(v.literal("project"), v.literal("doc")),
+    /** A projectId or docId as a string, by scope. */
+    key: v.string(),
+    addedAt: v.number(),
+    addedBy: v.string(),
+  }).index("by_scope_and_key", ["scope", "key"]),
+
   /**
    * Who is on a document right now — one row per open session, carrying the
    * encoded y-protocols awareness state (cursor positions, selections) plus
