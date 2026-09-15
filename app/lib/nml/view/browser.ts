@@ -124,6 +124,13 @@ function mountNmlView(host: HTMLElement, bridge: NmlViewBridge, renderDomain?: D
     dispatchTransaction: (transaction) => { if (!bridge.dispatch(transaction)) view.updateState(bridge.state); },
     handleKeyDown: (_view, event) => {
       if (!bridge.isEditable()) return false;
+      // Canonical undo/redo — before the rich-editing gate, since plain-text
+      // hosts undo too. This host binds them locally; production routes them
+      // through the workspace spine (a later stage).
+      if ((event.metaKey || event.ctrlKey) && !event.altKey && event.key.toLowerCase() === "z") {
+        return event.shiftKey ? bridge.redo() : bridge.undo();
+      }
+      if ((event.metaKey || event.ctrlKey) && !event.altKey && event.key.toLowerCase() === "y") return bridge.redo();
       if (event.key === "Enter" && bridge.supportsRichEditing()) return bridge.splitSelection();
       if (event.key === "Backspace" && bridge.supportsRichEditing()) return bridge.joinBackward();
       if (event.key === "Tab" && bridge.supportsRichEditing()) return bridge.indentSelection(event.shiftKey);
