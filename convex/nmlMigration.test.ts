@@ -1,8 +1,8 @@
 /// <reference types="vite/client" />
 import { convexTest, type TestConvex } from "convex-test";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import * as Y from "yjs";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
 import { joinUpdateRows, splitUpdate } from "./yshape";
@@ -11,7 +11,9 @@ import {
   decodeNmlDocument,
   migrateStoredDocument,
   NML_YJS_ROOT,
+  writeNmlDocument,
   type LegacyBlock,
+  type NmlBlock,
 } from "@/app/lib/nml";
 
 /**
@@ -329,5 +331,140 @@ describe("rollback", () => {
     await expect(as.mutation(api.nmlMigration.rollback, { docId, reason: "x", diverged: false })).rejects.toThrow(
       /no active migration/,
     );
+  });
+});
+
+/** Elect the well-formed migration the browser engine produces. */
+async function electGood(as: ReturnType<TestConvex<typeof schema>["withIdentity"]>, docId: string, base: ArrayBuffer) {
+  const result = nmlDelta(docId, base);
+  await as.mutation(api.nmlMigration.electMigration, {
+    docId,
+    chunks: splitUpdate(result.update),
+    nmlSchemaVersion: result.schemaVersion,
+    nmlEncodingVersion: result.encodingVersion,
+    equivalenceOk: true,
+    mismatchClasses: [],
+    limitOk: true,
+  });
+}
+
+/**
+ * The delta a *dishonest* client could produce: a structurally valid NML root
+ * that decodes fine but holds 10,001 blocks, past the v1 count limit. It is
+ * built with the real `writeNmlDocument` (which runs only the structural schema,
+ * not the count limit), so `migrateStoredDocument` would have rejected it but
+ * this hand-built update sidesteps that and is what the server must re-catch.
+ */
+function oversizedNmlDelta(docId: string, base: ArrayBuffer): Uint8Array {
+  const doc = new Y.Doc();
+  Y.applyUpdate(doc, new Uint8Array(base));
+  const before = Y.encodeStateVector(doc);
+  const blocks: NmlBlock[] = Array.from({ length: 10_001 }, (_, i) => ({
+    id: `p${i}`,
+    type: "paragraph",
+    props: {},
+    content: [{ type: "text", text: "x", marks: [] }],
+    children: [],
+  }));
+  writeNmlDocument(doc, { schemaVersion: 1, documentId: docId, blocks });
+  const delta = Y.encodeStateAsUpdate(doc, before);
+  doc.destroy();
+  return delta;
+}
+
+describe("server authority — step 13", () => {
+  test("a well-formed root, verified server-side, is granted authority", async () => {
+    const t = harness();
+    const { docId, base, as } = await ready(t);
+    await electGood(as, docId, base);
+
+    await t.action(internal.nmlVerify.run, { docId });
+
+    const authority = await as.query(api.nmlMigration.nmlAuthority, { docId });
+    expect(authority).toEqual({ serve: true, reason: "verified", schemaVersion: 1, encodingVersion: 1 });
+    expect(await as.query(api.nmlMigration.nmlState, { docId })).toMatchObject({
+      serverVerified: true,
+      serverSchemaVersion: 1,
+      serverEncodingVersion: 1,
+    });
+  });
+
+  test("authority is withheld until the server verification has run", async () => {
+    const t = harness();
+    const { docId, base, as } = await ready(t);
+    await electGood(as, docId, base);
+    // electMigration only *schedules* the check; nothing has verified yet.
+    const authority = await as.query(api.nmlMigration.nmlAuthority, { docId });
+    expect(authority).toMatchObject({ serve: false, reason: "pending-verification" });
+  });
+
+  test("electMigration schedules the verification, which then grants authority", async () => {
+    const t = harness();
+    vi.useFakeTimers();
+    try {
+      const { docId, base, as } = await ready(t);
+      await electGood(as, docId, base);
+      // Run the function electMigration scheduled — no manual verify call.
+      await t.finishAllScheduledFunctions(vi.runAllTimers);
+      const authority = await as.query(api.nmlMigration.nmlAuthority, { docId });
+      expect(authority.serve).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("a lying client cannot get an over-limit root served: the server re-checks limits", async () => {
+    const t = harness();
+    const { docId, base, as } = await ready(t);
+    // The client claims equivalence and limits are fine while shipping a root
+    // that is not — exactly the trust electMigration extends and step 13 closes.
+    const elected = await as.mutation(api.nmlMigration.electMigration, {
+      docId,
+      chunks: splitUpdate(oversizedNmlDelta(docId, base)),
+      nmlSchemaVersion: 1,
+      nmlEncodingVersion: 1,
+      equivalenceOk: true,
+      mismatchClasses: [],
+      limitOk: true,
+    });
+    expect(elected.elected).toBe(true); // stored on the client's word...
+
+    await t.action(internal.nmlVerify.run, { docId });
+
+    // ...but the independent server check refuses to serve it.
+    const authority = await as.query(api.nmlMigration.nmlAuthority, { docId });
+    expect(authority).toMatchObject({ serve: false, reason: "limit-exceeded" });
+    expect(await as.query(api.nmlMigration.nmlState, { docId })).toMatchObject({
+      serverVerified: false,
+      serverVerifyError: "limit-exceeded",
+    });
+  });
+
+  test("rollback withholds authority even after a passing verification", async () => {
+    const t = harness();
+    const { docId, base, as } = await ready(t);
+    await electGood(as, docId, base);
+    await t.action(internal.nmlVerify.run, { docId });
+    expect((await as.query(api.nmlMigration.nmlAuthority, { docId })).serve).toBe(true);
+
+    await as.mutation(api.nmlMigration.rollback, { docId, reason: "policy", diverged: false });
+    expect(await as.query(api.nmlMigration.nmlAuthority, { docId })).toMatchObject({
+      serve: false,
+      reason: "rolled-back",
+    });
+  });
+
+  test("a verified doc dropped from the cohort is no longer served", async () => {
+    const t = harness();
+    const { docId, base, as } = await ready(t);
+    await electGood(as, docId, base);
+    await t.action(internal.nmlVerify.run, { docId });
+    expect((await as.query(api.nmlMigration.nmlAuthority, { docId })).serve).toBe(true);
+
+    await as.mutation(api.nmlMigration.removeFromCohort, { scope: "doc", key: docId });
+    expect(await as.query(api.nmlMigration.nmlAuthority, { docId })).toMatchObject({
+      serve: false,
+      reason: "not-in-cohort",
+    });
   });
 });

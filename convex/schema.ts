@@ -443,6 +443,21 @@ export default defineSchema({
     migratedAt: v.number(),
     /** Clerk subject of the elected migrator, or "anonymous" for a link editor. */
     migratedBy: v.string(),
+    /**
+     * Step 13's independent server-side re-assertion of the persisted root,
+     * distinct from the client's `equivalenceOk`/`limitOk` claim above. The
+     * backend decodes the stored `nml` root and re-runs `validateDocument`;
+     * authority moves to NML only once `serverVerified` is true. Optional so
+     * rows written before verification (or before this field existed) read as
+     * "not yet verified". All content-free.
+     */
+    serverVerified: v.optional(v.boolean()),
+    serverVerifiedAt: v.optional(v.number()),
+    /** Declared versions the server actually decoded (may differ from the claim). */
+    serverSchemaVersion: v.optional(v.number()),
+    serverEncodingVersion: v.optional(v.number()),
+    /** Content-free failure classification when `serverVerified` is false. */
+    serverVerifyError: v.optional(v.string()),
     rolledBackAt: v.optional(v.number()),
     rollbackReason: v.optional(v.string()),
     /** True when rollback found NML-only edits the legacy tree cannot reproduce. */
