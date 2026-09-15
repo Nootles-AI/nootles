@@ -13,7 +13,21 @@ import { reason } from "@/app/lib/github";
 import { findSongs } from "@/app/lib/songs";
 import { configured as placesConfigured, search as findPlaces } from "@/app/lib/places";
 import { searchModel } from "./provider";
-import { noSuchPage, TOOLS } from "./tools";
+import { CANVAS_TOOLS, noSuchPage, TOOLS, type CanvasToolName } from "./tools";
+
+/**
+ * A no-`execute` stub for each name — see `CLIENT_TOOLS` in `./tools`: a tool
+ * with no `execute` ends the step and streams the call to the browser, which
+ * is what every one of the 13 canvas tools needs, the same way `read_page`
+ * and `edit_page` already do above. One helper rather than 13 repeated
+ * `name: tool(TOOLS.name)` lines.
+ */
+function clientStubs(names: readonly CanvasToolName[]): Record<CanvasToolName, ReturnType<typeof tool>> {
+  return Object.fromEntries(names.map((name) => [name, tool(TOOLS[name])])) as Record<
+    CanvasToolName,
+    ReturnType<typeof tool>
+  >;
+}
 
 /**
  * The agent's tool set as the route declares it.
@@ -73,6 +87,10 @@ export function chatTools(
     read_open_page: tool(TOOLS.read_open_page),
     edit_page: tool(TOOLS.edit_page),
     album_edit: tool(TOOLS.album_edit),
+    // The 13 node-level diagram tools (TOOLS.md §5) — client-side like
+    // `edit_page`, for the same reason: each acts on the live `SceneStore` or
+    // the live editor, neither of which this route has.
+    ...clientStubs(CANVAS_TOOLS),
 
     look_at: tool({
       ...TOOLS.look_at,

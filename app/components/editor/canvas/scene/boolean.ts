@@ -17,8 +17,8 @@
 import type { MultiPolygon, Ring } from "polygon-clipping";
 import { rectCentre, rotateAround } from "./geometry";
 import { mintId } from "./ops";
-import { outlineOf } from "./outline";
-import { parseSubpaths, scalePath, type Path } from "./path";
+import { flattenPath, outlineOf } from "./outline";
+import { scalePath } from "./path";
 import {
   findNode,
   isBoolean,
@@ -26,7 +26,6 @@ import {
   type BooleanOp,
   type GroupNode,
   type NodeId,
-  type Point,
   type Scene,
   type SceneNode,
   type SceneOp,
@@ -63,69 +62,20 @@ export function subscribeClipper(listen: () => void): () => void {
 // Flattening
 // ---------------------------------------------------------------------------
 
-/** How far a chord may sit from its curve, in scene px. */
-const TOLERANCE = 0.1;
-const MAX_DEPTH = 14;
-
+/**
+ * A `d` string's rings, for the clipper. The flattening itself — adaptive
+ * subdivision to within a pixel of the curve — moved to `scene/outline.ts`'s
+ * `flattenPath`, which `scene/picking.ts` also measures stroke distance
+ * against; this is the one place both agree on. An open subpath is closed by
+ * its fill anyway (SVG's own rule, and `filled` below relies on it), so a
+ * degenerate ring (under 3 points, however it flattened) is dropped here —
+ * `flattenPath` itself makes no such judgment, since a 1- or 2-point open
+ * polyline is a perfectly good thing for a stroke hit test to measure.
+ */
 function rings(d: string): Ring[] {
-  return parseSubpaths(d)
-    .map(ringOf)
+  return flattenPath(d)
+    .map((polyline) => polyline.points.map(({ x, y }): [number, number] => [x, y]))
     .filter((ring) => ring.length >= 3);
-}
-
-/** A subpath as a closed ring: an open one is closed by its fill anyway. */
-function ringOf(path: Path): Ring {
-  const out: Ring = [];
-  const n = path.anchors.length;
-  if (n === 0) return out;
-  const first = path.anchors[0].point;
-  out.push([first.x, first.y]);
-  const segments = path.closed ? n : n - 1;
-  for (let i = 0; i < segments; i++) {
-    const a = path.anchors[i];
-    const b = path.anchors[(i + 1) % n];
-    cubic(
-      a.point,
-      { x: a.point.x + a.handleOut.x, y: a.point.y + a.handleOut.y },
-      { x: b.point.x + b.handleIn.x, y: b.point.y + b.handleIn.y },
-      b.point,
-      out,
-      0,
-    );
-  }
-  // The closing segment lands back on the first point; a ring implies it.
-  const last = out[out.length - 1];
-  if (out.length > 1 && last[0] === out[0][0] && last[1] === out[0][1]) out.pop();
-  return out;
-}
-
-/** Adaptive subdivision: split until both control points sit on the chord. */
-function cubic(p0: Point, p1: Point, p2: Point, p3: Point, out: Ring, depth: number): void {
-  if (depth >= MAX_DEPTH || flat(p0, p1, p2, p3)) {
-    out.push([p3.x, p3.y]);
-    return;
-  }
-  const p01 = mid(p0, p1);
-  const p12 = mid(p1, p2);
-  const p23 = mid(p2, p3);
-  const p012 = mid(p01, p12);
-  const p123 = mid(p12, p23);
-  const m = mid(p012, p123);
-  cubic(p0, p01, p012, m, out, depth + 1);
-  cubic(m, p123, p23, p3, out, depth + 1);
-}
-
-const mid = (a: Point, b: Point): Point => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
-
-function flat(p0: Point, p1: Point, p2: Point, p3: Point): boolean {
-  const dx = p3.x - p0.x;
-  const dy = p3.y - p0.y;
-  const len = Math.hypot(dx, dy);
-  const off = (p: Point) =>
-    len < 1e-9
-      ? Math.hypot(p.x - p0.x, p.y - p0.y)
-      : Math.abs((p.x - p0.x) * dy - (p.y - p0.y) * dx) / len;
-  return off(p1) <= TOLERANCE && off(p2) <= TOLERANCE;
 }
 
 // ---------------------------------------------------------------------------

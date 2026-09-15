@@ -31,6 +31,10 @@
 # nobody can act on.
 /.ntcheck/
 
+# canvas browser-test artifacts (screenshots, recorded frame samples) — one
+# run's evidence, not something a diff should ever carry.
+/tests/.artifacts/
+
 # debug
 npm-debug.log*
 yarn-debug.log*

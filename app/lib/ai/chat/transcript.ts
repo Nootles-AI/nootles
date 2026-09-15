@@ -38,6 +38,17 @@ const PAGE_SNAPSHOTS: ReadonlySet<string> = new Set([
   // way: a reorder renames nothing, but a re-cut picture takes a new handle
   // and a removed one leaves a handle that answers to nothing.
   "album_edit",
+  // The 5 report-shaped canvas tools are page copies too, in exactly the same
+  // sense: a diagram's own geometry/styles/HTML read stops being true the
+  // moment ANY later call — the model's own write_nodes, another turn's edit,
+  // a human dragging a shape — touches that diagram. The 8 thin verbs are not
+  // listed: each returns one line, not a page-sized snapshot, so there is
+  // nothing there worth shortening.
+  "get_geometry",
+  "get_styles",
+  "get_html",
+  "write_nodes",
+  "update_styles",
 ]);
 
 /**

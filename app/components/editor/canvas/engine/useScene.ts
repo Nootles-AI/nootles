@@ -538,6 +538,21 @@ export interface UseSceneOptions {
   cacheKey?: string;
 }
 
+/**
+ * The `cacheKey`/`storeKey` a canvas block's own diagram is warmed under.
+ *
+ * One spelling, exported, so `CanvasBlock.tsx` (which mounts the store and
+ * reads it back for the workspace history spine) and `app/lib/ai/canvas/`
+ * (which reads the same warm store when a tool call lands on a MOUNTED
+ * diagram — `chatHost.ts`'s `readScene`) can never drift into two different
+ * strings for the same block. `canvasDomain.ts`'s `canvasDomainId` composes a
+ * shot suffix onto this for a storyboard shot; the plain (no-`shotId`) case is
+ * this function, not a second literal.
+ */
+export function sceneStoreKey(blockId: string): string {
+  return `canvas:${blockId}`;
+}
+
 /** Stores kept warm for closed pages, bounded like the doc cache is. */
 const WARM_MAX = 16;
 const warm = new Map<string, SceneStore>();

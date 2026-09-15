@@ -7,7 +7,22 @@ import { z } from "zod";
  * `execute` to the tools it can answer itself, and the browser dispatches the
  * rest, so this module has to stay loadable by both — nothing server-only,
  * nothing that reaches for the DOM.
+ *
+ * Every entry also carries `side`, `mutates` and `surfaces` — metadata the
+ * tool table itself can be queried for, rather than something re-derived at
+ * each call site. `CLIENT_TOOLS` is now DERIVED from `side` instead of a
+ * hand-kept parallel list, so a new client tool can never forget to add
+ * itself there. `surfaces` is what lets an MCP adapter (later) offer a
+ * filtered subset of this same table without a second tool definition —
+ * `CANVAS_TOOLS`, the 13 node-level diagram tools, are the first ones that
+ * carry `"mcp"`.
  */
+const pageIdArg = z.string().optional().describe("A page id from list_pages. The open page if left out.");
+const blockIdArg = z
+  .string()
+  .describe(
+    'The diagram\'s block id — the `at` on its <nt-diagram> stub, or its id in an expanded read.',
+  );
 /** Said once, because all three repo tools ask for the same two things. */
 const repoArg = z
   .string()
@@ -22,11 +37,17 @@ const refArg = z
 
 export const TOOLS = {
   list_pages: {
+    side: "server",
+    mutates: false,
+    surfaces: ["chat"],
     description:
       "List the pages in this project. Returns each page's id, title and position.",
     inputSchema: z.object({}),
   },
   read_page: {
+    side: "client",
+    mutates: false,
+    surfaces: ["chat"],
     description:
       "Read a page. Returns the page as Nootles HTML, one element per block, " +
       "each carrying that block's id. For the page that is open, prefer " +
@@ -46,6 +67,9 @@ export const TOOLS = {
     }),
   },
   open_page: {
+    side: "client",
+    mutates: false,
+    surfaces: ["chat"],
     description:
       "Put a page on screen and wait for its document to load. Do this before " +
       "working on a page; it is what makes that page the open one.",
@@ -54,6 +78,9 @@ export const TOOLS = {
     }),
   },
   read_open_page: {
+    side: "client",
+    mutates: false,
+    surfaces: ["chat"],
     description:
       "Read the page that is open, as it stands right now — including anything " +
       "typed or changed since it was last saved. Returns Nootles HTML.",
@@ -65,6 +92,9 @@ export const TOOLS = {
     }),
   },
   edit_page: {
+    side: "client",
+    mutates: true,
+    surfaces: ["chat"],
     description:
       "Change what a page says. Send Nootles HTML for the blocks you are " +
       "writing: an element WITH an id rewrites that block, an element WITHOUT " +
@@ -88,6 +118,9 @@ export const TOOLS = {
     }),
   },
   draw: {
+    side: "server",
+    mutates: true,
+    surfaces: ["chat"],
     description:
       "Draw ONE STORYBOARD SHOT. A drawing specialist holds the pen, and for " +
       "now the pen is only for storyboards: a screen, a mockup, a diagram or " +
@@ -119,6 +152,9 @@ export const TOOLS = {
     }),
   },
   album_edit: {
+    side: "client",
+    mutates: true,
+    surfaces: ["chat"],
     description:
       "Change an album — reorder it, drop pictures, make one bigger, set its " +
       "columns, add pictures found with find_images. Pictures are named by the " +
@@ -205,6 +241,9 @@ export const TOOLS = {
     }),
   },
   find_images: {
+    side: "server",
+    mutates: false,
+    surfaces: ["chat"],
     description:
       "Find photographs on the web to put in an album. Returns a REF per " +
       "picture, with its shape, its dominant colour and what it shows; you add " +
@@ -231,6 +270,9 @@ export const TOOLS = {
     }),
   },
   look_at: {
+    side: "client",
+    mutates: false,
+    surfaces: ["chat"],
     description:
       "Look at up to four of an album's pictures at full size. Almost never " +
       "needed: the album index read_page gives you already says what each " +
@@ -248,6 +290,9 @@ export const TOOLS = {
     }),
   },
   find_places: {
+    side: "server",
+    mutates: false,
+    surfaces: ["chat"],
     description:
       "Look up real places on Google Maps — cafes, restaurants, hotels, " +
       "anything with an address. Returns each place's name, address, " +
@@ -273,6 +318,9 @@ export const TOOLS = {
     }),
   },
   find_songs: {
+    side: "server",
+    mutates: false,
+    surfaces: ["chat"],
     description:
       "Look a song up on Spotify or Apple Music. Returns each track's exact " +
       "page URL, title, artist and length. This is the ONLY source of a song's " +
@@ -296,6 +344,9 @@ export const TOOLS = {
     }),
   },
   search_web: {
+    side: "server",
+    mutates: false,
+    surfaces: ["chat"],
     description:
       "Search the web for something the project does not already say. Returns a " +
       "written answer and the pages it came from.",
@@ -305,6 +356,9 @@ export const TOOLS = {
     }),
   },
   list_repo_files: {
+    side: "server",
+    mutates: false,
+    surfaces: ["chat"],
     description:
       "List what is in one of the project's linked GitHub repositories, at a " +
       "path. Leave the path out for the top level. Returns each entry's full " +
@@ -320,6 +374,9 @@ export const TOOLS = {
     }),
   },
   read_repo_file: {
+    side: "server",
+    mutates: false,
+    surfaces: ["chat"],
     description:
       "Read a file from one of the project's linked GitHub repositories. " +
       "Returns its text; a very large file comes back truncated and says so, " +
@@ -333,6 +390,9 @@ export const TOOLS = {
     }),
   },
   search_repo_code: {
+    side: "server",
+    mutates: false,
+    surfaces: ["chat"],
     description:
       "Search the code in this project's linked repositories for a symbol or " +
       "phrase — the fastest way to find where something lives. Returns file " +
@@ -351,6 +411,9 @@ export const TOOLS = {
     }),
   },
   read_context_file: {
+    side: "server",
+    mutates: false,
+    surfaces: ["chat"],
     description:
       "Read a file the user has added to this project's context — the whole " +
       "extracted text, where the prompt carries only the head. A PDF or Word " +
@@ -366,6 +429,9 @@ export const TOOLS = {
     }),
   },
   create_page: {
+    side: "server",
+    mutates: true,
+    surfaces: ["chat"],
     description:
       "Add a page to this project. It starts empty — this makes the page, it " +
       "does not write anything on it. Returns the new page's id.",
@@ -380,6 +446,9 @@ export const TOOLS = {
     }),
   },
   rename_page: {
+    side: "server",
+    mutates: true,
+    surfaces: ["chat"],
     description:
       "Retitle a page. A title is not part of the page's HTML, so this is the " +
       "only way to change one.",
@@ -389,6 +458,9 @@ export const TOOLS = {
     }),
   },
   delete_page: {
+    side: "server",
+    mutates: true,
+    surfaces: ["chat"],
     description:
       "Delete a page, and with it every diagram, checkpoint and edit ever made " +
       "on it. This cannot be undone, so ask for it only when the user has asked " +
@@ -398,7 +470,311 @@ export const TOOLS = {
       pageId: z.string().describe("A page id from list_pages."),
     }),
   },
-} satisfies Record<string, { description: string; inputSchema: z.ZodType }>;
+
+  // -------------------------------------------------------------------
+  // The node-level diagram tools (TOOLS.md §5). All 13 act on the diagram's
+  // block id — the `at` on its <nt-diagram> stub — on the open page unless
+  // `pageId` says otherwise. Every one goes through the same validate+apply
+  // gate `edit_page` does and lands as one reviewable change; the shared
+  // executor lives in `app/lib/ai/canvas/execute.ts`.
+  // -------------------------------------------------------------------
+  get_geometry: {
+    side: "client",
+    mutates: false,
+    surfaces: ["chat", "mcp"],
+    description:
+      "Where everything on a diagram is: every shape's box in canvas pixels " +
+      "after layout — x, y, w, h from the top-left, rot in degrees — with its " +
+      "kind, name, parent and depth, and the points each connector runs " +
+      "through. This is the one place to learn positions: the x/y in the HTML " +
+      "are relative to the parent, and inside a flex or grid group they are " +
+      "not written at all. Ask before you place, align or measure anything.",
+    inputSchema: z.object({
+      pageId: pageIdArg,
+      blockId: blockIdArg,
+      ids: z
+        .array(z.string())
+        .optional()
+        .describe("Only these nodes and their descendants. Everything if left out."),
+      depth: z
+        .number()
+        .int()
+        .min(0)
+        .optional()
+        .describe("How many levels under a top-level shape to list. All if left out."),
+    }),
+  },
+
+  get_styles: {
+    side: "client",
+    mutates: false,
+    surfaces: ["chat", "mcp"],
+    description:
+      "What everything on a diagram looks like: each shape's CSS exactly as " +
+      "authored, and beside it the same declarations with every var() " +
+      "resolved, so you can match a colour without guessing what a token " +
+      "stands for. Also the diagram's own tokens — its --custom properties — " +
+      "and for a drawn kind the fill and stroke it actually paints with. Use " +
+      "it to match a look; use update_styles to change one.",
+    inputSchema: z.object({
+      pageId: pageIdArg,
+      blockId: blockIdArg,
+      ids: z.array(z.string()).optional(),
+    }),
+  },
+
+  get_html: {
+    side: "client",
+    mutates: false,
+    surfaces: ["chat", "mcp"],
+    description:
+      "The diagram as standard HTML and CSS — divs, inline svg and real flex " +
+      "or grid — that pastes into a web page and looks the same; with jsx it " +
+      "comes back as a React component. Read-only: it is how a drawing leaves " +
+      "for a codebase, not how it is edited. Ask for a few ids to get just " +
+      "those shapes.",
+    inputSchema: z.object({
+      pageId: pageIdArg,
+      blockId: blockIdArg,
+      ids: z.array(z.string()).optional(),
+      jsx: z.boolean().optional(),
+    }),
+  },
+
+  write_nodes: {
+    side: "client",
+    mutates: true,
+    surfaces: ["chat", "mcp"],
+    description:
+      "Change a few shapes on a diagram without rewriting it. Send <nt-…> " +
+      "elements in the canvas grammar. An element WITH an id the diagram has " +
+      "rewrites that shape in place — its box, rotation, style, label, and " +
+      "for a group the children you list (children you leave out stay). An " +
+      "element WITHOUT an id is a new shape, placed after the previous " +
+      "element you sent, or where `at` says. An id the diagram does not have " +
+      "is a new shape under that id, which is how an <nt-edge> can name one " +
+      "you are adding. Delete by listing ids in `removing`. Blocks of prose, " +
+      "other diagrams and drawings are not written here — that is edit_page. " +
+      "The change is applied and shown to the user, who can keep or discard it.",
+    inputSchema: z.object({
+      pageId: pageIdArg,
+      blockId: blockIdArg,
+      html: z
+        .string()
+        .describe(
+          "The elements as they should read, in the order they should read. " +
+            "Full elements — a shape you rewrite carries its whole box and " +
+            "style as the read gave it.",
+        ),
+      removing: z
+        .array(z.string())
+        .optional()
+        .describe(
+          "Shape and connector ids to delete. Deleting a group deletes what " +
+            "is inside it; connectors into a deleted shape go with it.",
+        ),
+      at: z
+        .union([
+          z.object({ after: z.string() }),
+          z.object({ before: z.string() }),
+          z.object({ inside: z.string().nullable() }),
+        ])
+        .optional()
+        .describe(
+          "Where new elements go: after or before a shape, inside a group " +
+            "(null for the canvas itself). Left out, they go in front of " +
+            "everything, at the top level.",
+        ),
+    }),
+  },
+
+  update_styles: {
+    side: "client",
+    mutates: true,
+    surfaces: ["chat", "mcp"],
+    description:
+      'Restyle many shapes at once — the cheapest way to say "make these all ' +
+      'blue" or "round every card". Each patch names ids and the declarations ' +
+      "to set; null removes a declaration. Ids may be shapes, connectors, or " +
+      '"diagram" for the surface itself, which is where a token like --brand ' +
+      "lives. Geometry is not style: to move or resize, use move or write_nodes.",
+    inputSchema: z.object({
+      pageId: pageIdArg,
+      blockId: blockIdArg,
+      patches: z
+        .array(
+          z.object({
+            ids: z.array(z.string()).min(1),
+            style: z.record(z.string(), z.string().nullable()),
+          }),
+        )
+        .min(1),
+    }),
+  },
+
+  set_text: {
+    side: "client",
+    mutates: true,
+    surfaces: ["chat", "mcp"],
+    description:
+      "The words on one shape or connector, replaced. Plain text; with markup " +
+      "the text is read as a label in the canvas grammar (<b>, <span style>, " +
+      "<p>, lists, <nt-ref>). A path, image or group holds no words.",
+    inputSchema: z.object({
+      pageId: pageIdArg,
+      blockId: blockIdArg,
+      id: z.string(),
+      text: z.string(),
+      markup: z.boolean().optional(),
+    }),
+  },
+
+  rename: {
+    side: "client",
+    mutates: true,
+    surfaces: ["chat", "mcp"],
+    description:
+      "A shape's layers-panel name. Null clears it, so the name follows the " +
+      "label again. Never changes what the shape shows.",
+    inputSchema: z.object({
+      pageId: pageIdArg,
+      blockId: blockIdArg,
+      id: z.string(),
+      name: z.string().nullable(),
+    }),
+  },
+
+  duplicate: {
+    side: "client",
+    mutates: true,
+    surfaces: ["chat", "mcp"],
+    description:
+      "Copies of shapes, offset 10px like Figma, landed in front of their " +
+      "originals — placed by its group's layout instead, inside a flex or " +
+      "grid group. Returns the new ids.",
+    inputSchema: z.object({
+      pageId: pageIdArg,
+      blockId: blockIdArg,
+      ids: z.array(z.string()).min(1),
+      offset: z.number().optional(),
+    }),
+  },
+
+  move: {
+    side: "client",
+    mutates: true,
+    surfaces: ["chat", "mcp"],
+    description:
+      "Move shapes by a distance, or put one at a position. Positions are in " +
+      "the PARENT's space, as x/y in the HTML are. A child of a flex or grid " +
+      "group cannot be moved — its group places it; reorder it instead.",
+    inputSchema: z.object({
+      pageId: pageIdArg,
+      blockId: blockIdArg,
+      ids: z.array(z.string()).min(1),
+      dx: z.number().optional(),
+      dy: z.number().optional(),
+      x: z.number().optional(),
+      y: z.number().optional(),
+    }),
+  },
+
+  delete: {
+    side: "client",
+    mutates: true,
+    surfaces: ["chat", "mcp"],
+    description:
+      "Remove shapes and connectors from a diagram. A group goes with " +
+      "everything in it; connectors into a removed shape go too.",
+    inputSchema: z.object({
+      pageId: pageIdArg,
+      blockId: blockIdArg,
+      ids: z.array(z.string()).min(1),
+    }),
+  },
+
+  reorder: {
+    side: "client",
+    mutates: true,
+    surfaces: ["chat", "mcp"],
+    description:
+      "Change what is in front: front, back, forward, backward — within the " +
+      "shape's own group, as in Figma — or a place in a group: parent (null " +
+      "for the canvas) and index counting from the back, 0 being furthest " +
+      "back. Putting a shape in another group keeps it where it is on screen " +
+      "— unless that group has a layout (flex or grid), which places it by " +
+      "flow instead; result.notes says so when it happens.",
+    inputSchema: z.object({
+      pageId: pageIdArg,
+      blockId: blockIdArg,
+      ids: z.array(z.string()).min(1),
+      to: z.union([
+        z.enum(["front", "back", "forward", "backward"]),
+        z.object({ parent: z.string().nullable(), index: z.number().int().min(0) }),
+      ]),
+    }),
+  },
+
+  group: {
+    side: "client",
+    mutates: true,
+    surfaces: ["chat", "mcp"],
+    description:
+      "Wrap shapes in a new group, keeping every one where it is on screen. " +
+      "An empty, unlabelled, unrotated rectangle that is the ONLY member " +
+      "enclosing every other member becomes the group's own box and paint " +
+      "instead of a child, like Figma's frame selection — a labelled rect, a " +
+      "rotated one, or two candidates that both qualify all fall back to " +
+      "plain grouping, with the candidate(s) kept as ordinary children. With " +
+      "op the group is a boolean: union, subtract, intersect, exclude. " +
+      "Returns the group's id.",
+    inputSchema: z.object({
+      pageId: pageIdArg,
+      blockId: blockIdArg,
+      ids: z.array(z.string()).min(1),
+      name: z.string().optional(),
+      op: z.enum(["union", "subtract", "intersect", "exclude"]).optional(),
+    }),
+  },
+
+  ungroup: {
+    side: "client",
+    mutates: true,
+    surfaces: ["chat", "mcp"],
+    description:
+      "Dissolve groups, splicing their children into their place with " +
+      "positions preserved.",
+    inputSchema: z.object({
+      pageId: pageIdArg,
+      blockId: blockIdArg,
+      ids: z.array(z.string()).min(1),
+    }),
+  },
+} satisfies Record<
+  string,
+  {
+    description: string;
+    inputSchema: z.ZodType;
+    side: "server" | "client";
+    mutates: boolean;
+    surfaces: readonly ToolSurface[];
+  }
+>;
+
+/** In the chat deployment: "server" answers inside the route, "client" ends
+ *  the step and runs in the browser. */
+export type ToolSurface = "chat" | "mcp";
+
+export type ToolSpec = {
+  description: string;
+  inputSchema: z.ZodType;
+  side: "server" | "client";
+  /** Changes the document or the project. A read tool is always false. */
+  mutates: boolean;
+  /** Agent surfaces allowed to offer it — an MCP adapter loops `TOOLS`
+   *  filtered by `"mcp"`. */
+  surfaces: readonly ToolSurface[];
+};
 
 export type ToolName = keyof typeof TOOLS;
 
@@ -407,7 +783,7 @@ export const noSuchPage = (pageId: string) =>
   `There is no page with id "${pageId}" in this project. Call list_pages for the ids that exist.`;
 
 /**
- * Tools the browser runs.
+ * Tools the browser runs — every entry whose `side` is `"client"`.
  *
  * `read_page` has to turn the stored ProseMirror document back into BlockNote
  * blocks, which needs BlockNote's schema — and our block specs are client
@@ -416,23 +792,49 @@ export const noSuchPage = (pageId: string) =>
  * properties of undefined (reading 'node')"). The browser already holds the
  * editor, so the read happens where the write will.
  *
- * The other three could only ever run here: two move or read what is on screen,
- * and `edit_page` runs the applier, which needs the live editor — there is one
- * applier and it is the one a human edit goes through.
+ * `edit_page`, `album_edit` and `look_at` could only ever run here too: two
+ * move or read what is on screen, and `edit_page` runs the applier, which
+ * needs the live editor — there is one applier and it is the one a human
+ * edit goes through. The 13 node-level diagram tools join them for the same
+ * reason `edit_page` is client-side: they act on the live `SceneStore` or the
+ * live editor, neither of which a route handler has.
+ *
+ * Derived from `side` rather than hand-kept, so a tool's own table entry is
+ * the only place that decides which side it runs on.
  */
-export const CLIENT_TOOLS = [
-  "read_page",
-  "open_page",
-  "read_open_page",
-  "edit_page",
-  // Both for the same reason as `edit_page`: an album's pictures are in the
-  // live document, and its pixels are only reachable from a browser at all —
-  // a storage URL is a bearer the server has no session to derive.
-  "album_edit",
-  "look_at",
-] as const satisfies readonly ToolName[];
+export type ClientToolName = {
+  [K in ToolName]: (typeof TOOLS)[K]["side"] extends "client" ? K : never;
+}[ToolName];
 
-export function isClientTool(name: string): name is (typeof CLIENT_TOOLS)[number] {
+export const CLIENT_TOOLS: readonly ClientToolName[] = (Object.keys(TOOLS) as ToolName[]).filter(
+  (name) => TOOLS[name].side === "client",
+) as ClientToolName[];
+
+export function isClientTool(name: string): name is ClientToolName {
   return (CLIENT_TOOLS as readonly string[]).includes(name);
 }
+
+/**
+ * The 13 node-level diagram tools (TOOLS.md §5) — every `write_nodes`-and-
+ * beyond tool that acts on a diagram by shape id rather than rewriting the
+ * whole block. `app/lib/ai/canvas/execute.ts`'s `runCanvasTool` is the one
+ * executor behind all 13; `clientTools.ts` registers each name against it.
+ */
+export const CANVAS_TOOLS = [
+  "get_geometry",
+  "get_styles",
+  "get_html",
+  "write_nodes",
+  "update_styles",
+  "set_text",
+  "rename",
+  "duplicate",
+  "move",
+  "delete",
+  "reorder",
+  "group",
+  "ungroup",
+] as const satisfies readonly ClientToolName[];
+
+export type CanvasToolName = (typeof CANVAS_TOOLS)[number];
 

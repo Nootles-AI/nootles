@@ -147,6 +147,27 @@ in the read, so find each one before writing the row. Build a row you add as a g
 display: flex; align-items: center; gap, holding the copied icon and a text — alignment is
 then layout, not arithmetic, and nothing sits a few pixels off.
 
+THE DIAGRAM TOOLS
+edit_page rewrites a diagram whole, and that is still how a NEW board is drawn. On a board that
+exists, work at the shape, by its id from an expanded read:
+  get_geometry — where everything is: every shape's absolute box and rotation after layout, and
+    where each connector runs. Ask before you place, align or measure; the x/y you read in the
+    HTML are parent-relative and, inside a flex or grid group, not written at all.
+  get_styles — what everything looks like: each shape's CSS as authored, every var() resolved
+    beside it, and the diagram's tokens (--brand and friends).
+  get_html — the diagram as standard HTML/CSS, or JSX. Read-only, for handing to a codebase.
+  write_nodes — a few shapes, not the board. Send <nt-…> elements: one WITH an id the diagram
+    has rewrites that shape (box, style, label, and for a group the children you list — unlisted
+    children stay); one WITHOUT an id is new, placed after the previous element or where "at"
+    says. Delete by naming ids in "removing". An id you write on a new shape is kept, which is how
+    an <nt-edge> can name it.
+  update_styles — recolour or restyle many shapes at once: ids and declarations, null to remove
+    one. "Make these all blue" is one call.
+  set_text, rename, duplicate, move, delete, reorder, group, ungroup — one verb, one thing.
+Each call is one change the user keeps or discards, as an edit_page is; say what you did. They
+act on the diagram's block id — the at="…" on its stub — on the open page unless you pass pageId.
+Positions you write are in the parent's space; ask get_geometry for canvas coordinates.
+
 THE STORYBOARD
 What goes inside an <nt-storyboard>. It is the canvas again, once per shot, so everything
 above still holds — this only says how the shots are held together.

@@ -63,10 +63,11 @@ import { parseScene } from "../scene/parse";
 import { serializeScene } from "../scene/serialize";
 import {
   findNode,
+  hasText,
   isContainer,
   isGroup,
   nodePath,
-  selectedNodes,
+  topSelection,
   walk,
   SCENE_TAG,
   TAG_BY_KIND,
@@ -82,8 +83,10 @@ import {
   isBoolean,
   type BooleanOp,
 } from "../scene/types";
+import type { ScreenControl } from "./screen";
 import type { SceneStore } from "./useScene";
 import type { SelectionStore } from "./useSelection";
+import { ZOOM_STEP } from "./useViewport";
 import type { ViewportController } from "./useViewport";
 
 // ---------------------------------------------------------------------------
@@ -110,7 +113,8 @@ export type CanvasTool =
   | "diamond"
   | "text"
   | "pen"
-  | "connector";
+  | "connector"
+  | "zoom";
 
 /** The slice of tool state the keymap needs. */
 export interface ToolController {
@@ -134,6 +138,7 @@ export interface PathEditController {
 export type ShortcutGroup =
   | "Tools"
   | "Edit"
+  | "Select"
   | "Arrange"
   | "Move"
   | "View"
@@ -144,6 +149,7 @@ export type ShortcutGroup =
 export const SHORTCUT_GROUPS = [
   "Tools",
   "Edit",
+  "Select",
   "Arrange",
   "Move",
   "View",
@@ -162,6 +168,7 @@ export type ShortcutId =
   | "tool.pen"
   | "tool.connector"
   | "tool.hand"
+  | "tool.zoom"
   | "edit.undo"
   | "edit.redo"
   | "edit.duplicate"
@@ -178,9 +185,17 @@ export type ShortcutId =
   | "edit.cut"
   | "edit.paste"
   | "edit.pasteInPlace"
+  | "edit.copyHtml"
+  | "edit.copyJsx"
   | "edit.selectAll"
   | "edit.vector"
   | "edit.deselect"
+  | "select.parent"
+  | "select.next"
+  | "select.previous"
+  | "select.deep"
+  | "select.layers"
+  | "select.through"
   | "arrange.forward"
   | "arrange.backward"
   | "arrange.front"
@@ -193,6 +208,9 @@ export type ShortcutId =
   | "view.zoomFit"
   | "view.zoomSelection"
   | "view.pan"
+  | "view.stage"
+  | "view.minimal"
+  | "view.fullscreen"
   | "toggle.hidden"
   | "toggle.locked"
   | "align.left"
@@ -211,8 +229,31 @@ export interface Shortcut {
    * platforms and Ctrl everywhere else. The first is the one the UI shows.
    */
   keys: readonly string[];
-  /** Shown instead of the formatted `keys[0]` where a set of keys reads better. */
-  display?: string;
+  /**
+   * Shown instead of the formatted `keys[0]` where a set of keys reads
+   * better. A function is resolved with `isApplePlatform()` — for a
+   * display-only row (`keys: []`) whose hint names the platform's modifier
+   * glyph, such as ⌘-click.
+   */
+  display?: string | ((apple: boolean) => string);
+  /**
+   * Bindings on non-Apple platforms when they differ from `keys` — a `Ctrl`
+   * token in `keys` is the spare modifier on Apple (⌃) and has no off-Apple
+   * meaning, so a row that needs one supplies the real off-Apple key here
+   * (`view.fullscreen`'s `f11`).
+   */
+  other?: readonly string[];
+}
+
+/** ⌘ on Apple, `Ctrl+` everywhere else — the prefix for a display-only pointer
+ *  hint (`select.deep`/`select.layers`/`select.through`); the trailing space
+ *  differs because ⌘ reads as a standalone glyph and `Ctrl+` doesn't. */
+function modGlyph(apple: boolean): string {
+  return apple ? "⌘ " : "Ctrl+";
+}
+
+function modHint(apple: boolean, word: string): string {
+  return `${modGlyph(apple)}${word}`;
 }
 
 export const SHORTCUTS: readonly Shortcut[] = [
@@ -226,6 +267,7 @@ export const SHORTCUTS: readonly Shortcut[] = [
   { id: "tool.pen", label: "Pen", group: "Tools", keys: ["p"] },
   { id: "tool.connector", label: "Connector", group: "Tools", keys: ["c"] },
   { id: "tool.hand", label: "Hand", group: "Tools", keys: ["h"] },
+  { id: "tool.zoom", label: "Zoom", group: "Tools", keys: ["z"] },
 
   { id: "edit.undo", label: "Undo", group: "Edit", keys: ["Mod+z"] },
   {
@@ -264,19 +306,57 @@ export const SHORTCUTS: readonly Shortcut[] = [
     group: "Edit",
     keys: ["Mod+Shift+v"],
   },
+  // Menu-only (COMPILE): a fragment as standard HTML/CSS or JSX, for pasting
+  // outside Nootles. No default key binding — `display: ""` keeps
+  // `shortcutHint` from reading `keys[0]`, which is empty on purpose.
+  { id: "edit.copyHtml", label: "Copy as HTML", group: "Edit", keys: [], display: "" },
+  { id: "edit.copyJsx", label: "Copy as React", group: "Edit", keys: [], display: "" },
   { id: "edit.selectAll", label: "Select all", group: "Edit", keys: ["Mod+a"] },
   {
     id: "edit.vector",
-    label: "Edit vector path",
-    group: "Edit",
+    label: "Enter group / edit",
+    group: "Select",
     // Only Enter is bound here. Escape leaves, but the pen overlay claims that
     // key in the capture phase before this keymap ever sees it, so it is
     // spelled out in `display` rather than bound — where a second `escape` row
     // would shadow `edit.deselect` for every other selection there is.
     keys: ["enter"],
-    display: "Enter · Esc to leave",
+    display: "Enter",
   },
   { id: "edit.deselect", label: "Deselect / step out", group: "Edit", keys: ["escape"] },
+
+  { id: "select.parent", label: "Select parent", group: "Select", keys: ["Shift+enter"] },
+  { id: "select.next", label: "Select next sibling", group: "Select", keys: ["tab"] },
+  {
+    id: "select.previous",
+    label: "Select previous sibling",
+    group: "Select",
+    keys: ["Shift+tab"],
+  },
+  // Display-only: `keys: []` binds nothing (a pointer gesture, not a key),
+  // so `shortcutHint` must read `display` — never `formatShortcut(keys[0])`,
+  // which is unreachable here on purpose.
+  {
+    id: "select.deep",
+    label: "Select deepest (click)",
+    group: "Select",
+    keys: [],
+    display: (apple) => modHint(apple, "click"),
+  },
+  {
+    id: "select.layers",
+    label: "Select layer…",
+    group: "Select",
+    keys: [],
+    display: (apple) => modHint(apple, "right-click"),
+  },
+  {
+    id: "select.through",
+    label: "Marquee through frame",
+    group: "Select",
+    keys: [],
+    display: (apple) => modHint(apple, "drag"),
+  },
 
   {
     id: "arrange.forward",
@@ -349,6 +429,20 @@ export const SHORTCUTS: readonly Shortcut[] = [
     keys: ["Mod+2", "Shift+2"],
   },
   { id: "view.pan", label: "Pan", group: "View", keys: ["space"], display: "Space (hold)" },
+  { id: "view.stage", label: "Expanded stage", group: "View", keys: ["Mod+Shift+f"] },
+  {
+    id: "view.minimal",
+    label: "Hide UI",
+    group: "View",
+    keys: ["Mod+.", "Mod+\\"],
+  },
+  {
+    id: "view.fullscreen",
+    label: "Browser fullscreen",
+    group: "View",
+    keys: ["Mod+Ctrl+f"],
+    other: ["f11"],
+  },
 
   {
     id: "toggle.hidden",
@@ -394,6 +488,10 @@ export const SHORTCUTS_BY_ID: Readonly<Record<ShortcutId, Shortcut>> =
 interface Binding {
   /** ⌘ on Apple platforms, Ctrl elsewhere. */
   mod: boolean;
+  /** The modifier that is NOT `mod` on this platform — ⌃ on Apple. Off-Apple
+   *  this would be the OS key, so a row needing it supplies `other` instead
+   *  of ever setting this from a real off-Apple binding. */
+  ctrl: boolean;
   alt: boolean;
   shift: boolean;
   /** Lowercase character, or a name: `arrowleft`, `escape`, `space`, … */
@@ -404,9 +502,10 @@ function parseBinding(spec: string): Binding {
   const parts = spec.split("+");
   // A trailing empty part is the `+` key written literally, as in "Mod++".
   const key = (parts.pop() || "+").toLowerCase();
-  const binding: Binding = { mod: false, alt: false, shift: false, key };
+  const binding: Binding = { mod: false, ctrl: false, alt: false, shift: false, key };
   for (const part of parts) {
     if (part === "Mod") binding.mod = true;
+    else if (part === "Ctrl") binding.ctrl = true;
     else if (part === "Alt") binding.alt = true;
     else if (part === "Shift") binding.shift = true;
   }
@@ -478,18 +577,38 @@ export function isApplePlatform(): boolean {
 function matches(binding: Binding, e: KeyboardEvent, apple: boolean): boolean {
   const mod = apple ? e.metaKey : e.ctrlKey;
   const spare = apple ? e.ctrlKey : e.metaKey;
-  if (spare || mod !== binding.mod) return false;
+  if (mod !== binding.mod || spare !== binding.ctrl) return false;
   if (e.altKey !== binding.alt || e.shiftKey !== binding.shift) return false;
   return eventKey(e) === binding.key || codeKey(e.code) === binding.key;
 }
 
-const BINDINGS: readonly (Binding & { id: ShortcutId })[] = SHORTCUTS.flatMap(
-  (shortcut) =>
-    shortcut.keys.map((spec) => ({ ...parseBinding(spec), id: shortcut.id })),
-);
+/** `keys` on Apple, `other ?? keys` everywhere else — the one place that
+ *  decides which of a row's two binding lists is live on this platform. */
+function specsFor(shortcut: Shortcut, apple: boolean): readonly string[] {
+  return apple ? shortcut.keys : (shortcut.other ?? shortcut.keys);
+}
 
-function match(e: KeyboardEvent, apple: boolean): ShortcutId | null {
-  for (const binding of BINDINGS) {
+const bindingsCache = new Map<boolean, readonly (Binding & { id: ShortcutId })[]>();
+
+/** Memoised per platform: `isApplePlatform()` never changes within a session,
+ *  so this is computed at most twice for the life of the page. */
+function bindingsFor(apple: boolean): readonly (Binding & { id: ShortcutId })[] {
+  let cached = bindingsCache.get(apple);
+  if (!cached) {
+    cached = SHORTCUTS.flatMap((shortcut) =>
+      specsFor(shortcut, apple).map((spec) => ({
+        ...parseBinding(spec),
+        id: shortcut.id,
+      })),
+    );
+    bindingsCache.set(apple, cached);
+  }
+  return cached;
+}
+
+/** The shortcut a keydown fires, if any — on `apple`'s binding table. */
+export function matchShortcut(e: KeyboardEvent, apple: boolean): ShortcutId | null {
+  for (const binding of bindingsFor(apple)) {
     if (matches(binding, e, apple)) return binding.id;
   }
   return null;
@@ -509,6 +628,7 @@ const KEY_GLYPHS: Readonly<Record<string, string>> = {
   enter: "Enter",
   tab: "Tab",
   "=": "+",
+  f11: "F11",
 };
 
 function keyGlyph(key: string, apple: boolean): string {
@@ -524,6 +644,7 @@ export function formatShortcut(spec: string, apple = isApplePlatform()): string 
   const b = parseBinding(spec);
   const parts: string[] = [];
   if (b.mod) parts.push(apple ? "⌘" : "Ctrl");
+  if (b.ctrl) parts.push(apple ? "⌃" : "Ctrl");
   if (b.alt) parts.push(apple ? "⌥" : "Alt");
   if (b.shift) parts.push(apple ? "⇧" : "Shift");
   parts.push(keyGlyph(b.key, apple));
@@ -537,7 +658,19 @@ export function formatShortcut(spec: string, apple = isApplePlatform()): string 
  */
 export function shortcutHint(id: ShortcutId, apple = isApplePlatform()): string {
   const shortcut = SHORTCUTS_BY_ID[id];
-  return shortcut.display ?? formatShortcut(shortcut.keys[0], apple);
+  const d = typeof shortcut.display === "function" ? shortcut.display(apple) : shortcut.display;
+  if (d !== undefined) return d;
+  const specs = specsFor(shortcut, apple);
+  return specs.length ? formatShortcut(specs[0], apple) : "";
+}
+
+/**
+ * Whether this pointer or key event carries the platform's command modifier:
+ * ⌘ on Apple, Ctrl elsewhere. On a Mac, Ctrl+click is the OS's right-click
+ * and must never read as deep select.
+ */
+export function isModKey(e: { metaKey: boolean; ctrlKey: boolean }): boolean {
+  return isApplePlatform() ? e.metaKey : e.ctrlKey;
 }
 
 // ---------------------------------------------------------------------------
@@ -551,22 +684,6 @@ function isTextEntry(): boolean {
   if (el.isContentEditable) return true;
   const tag = el.tagName;
   return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
-}
-
-/**
- * The selected nodes that are live and not inside another selected node.
- *
- * A node and its ancestor both being addressed would move, duplicate or copy the
- * inner one twice; the ops layer drops them for the same reason.
- */
-function topSelection(scene: Scene, ids: readonly NodeId[]): SceneNode[] {
-  const wanted = new Set(ids);
-  return selectedNodes(scene, ids).filter(
-    (node) =>
-      !nodePath(scene, node.id)
-        .slice(0, -1)
-        .some((ancestor) => wanted.has(ancestor.id)),
-  );
 }
 
 function countNodes(nodes: readonly SceneNode[]): number {
@@ -718,8 +835,6 @@ function clipboardHtml(scene: Scene, ids: readonly NodeId[]): string | null {
 /** How far ⌘D and a plain ⌘V offset a copy, matching Figma. */
 const DUPLICATE_OFFSET = 10;
 
-const ZOOM_STEP = 1.25;
-
 const NUDGE: Readonly<Record<string, Point>> = {
   arrowleft: { x: -1, y: 0 },
   arrowright: { x: 1, y: 0 },
@@ -747,6 +862,10 @@ export interface CanvasShortcutOptions {
   tool: ToolController;
   /** Omitted where the surface has no vector edit mode to enter. */
   pathEdit?: PathEditController;
+  /** Opens a shape's label for editing — Enter on a text-bearing node. Omitted where labels cannot be edited. */
+  labelEdit?: { open(id: NodeId): void };
+  /** Omitted where the surface has no screen modes (a storyboard shot). */
+  screen?: ScreenControl;
   /** Off for a read-only block. Default true. */
   enabled?: boolean;
 }
@@ -996,6 +1115,7 @@ export function useCanvasShortcuts({
       "tool.pen": () => setTool("pen"),
       "tool.connector": () => setTool("connector"),
       "tool.hand": () => setTool("hand"),
+      "tool.zoom": () => setTool("zoom"),
 
       "edit.undo": () => {
         latest.current.scene.undo();
@@ -1145,22 +1265,63 @@ export function useCanvasShortcuts({
         return false;
       },
 
+      // Menu-only, no keyboard binding — see the table row's own comment.
+      "edit.copyHtml": () => false,
+      "edit.copyJsx": () => false,
+
       "edit.selectAll": () => {
         latest.current.selection.selectAll();
         return true;
       },
 
-      // Figma's Enter: open the selected vector for point editing. Anything
-      // else keeps the key, so Enter still belongs to the document around us.
+      // Figma's Enter, resolved by kind rather than a single hardcoded
+      // action: a group (incl. boolean) steps in and selects its first
+      // child, a path opens for vector editing, a text-bearing leaf opens
+      // its label, an image is a consumed no-op. Anything selected (or only
+      // an edge selected) claims the key so it can never leak Enter to the
+      // document under a selected shape; nothing at all selected leaves it
+      // for the document around us, as before.
       "edit.vector": () => {
-        const pathEdit = latest.current.pathEdit;
+        const sel = latest.current.selection;
+        const snapshot = sel.getSnapshot();
         const ids = targetIds();
-        if (!pathEdit || ids.length !== 1) return false;
+        if (ids.length === 0) return snapshot.edgeIds.length > 0;
+        if (ids.length !== 1) return true;
         const node = findNode(scene(), ids[0]);
-        if (node?.kind !== "path") return false;
-        pathEdit.set(node.id);
-        return true;
+        if (!node || node.locked) return true;
+        // `enterSelected()`'s own precondition is `topSelection(scene,
+        // snapshot.ids).length === 1` — the same computation `targetIds()`
+        // just made — so this always succeeds when we get here.
+        if (isContainer(node)) {
+          sel.enterSelected();
+          return true;
+        }
+        if (node.kind === "path") {
+          latest.current.pathEdit?.set(node.id);
+          return true;
+        }
+        if (hasText(node)) {
+          latest.current.labelEdit?.open(node.id);
+          return true;
+        }
+        return true; // image
       },
+
+      "select.parent": () => {
+        const before = latest.current.selection.getSnapshot();
+        latest.current.selection.selectParent();
+        return before.ids.length > 0 || before.enteredPath.length > 0 || before.edgeIds.length > 0;
+      },
+      "select.next": () =>
+        latest.current.selection.selectSibling("next") ||
+        latest.current.selection.getSnapshot().edgeIds.length > 0,
+      "select.previous": () =>
+        latest.current.selection.selectSibling("previous") ||
+        latest.current.selection.getSnapshot().edgeIds.length > 0,
+      // Display-only, no key binding — see the table rows' own comment.
+      "select.deep": () => false,
+      "select.layers": () => false,
+      "select.through": () => false,
 
       "edit.deselect": () => {
         if (latest.current.tool.get() !== "move") {
@@ -1169,12 +1330,17 @@ export function useCanvasShortcuts({
         }
         const before = latest.current.selection.getSnapshot();
         latest.current.selection.escape();
-        // Escape with nothing to leave belongs to whoever is around us — it is
-        // how the user gets out of the canvas and back to the document.
-        return (
-          before.ids.length > 0 ||
-          before.enteredPath.length > 0
-        );
+        if (before.ids.length > 0 || before.enteredPath.length > 0) return true;
+        // Nothing left to step out of or deselect: the stage is the next rung
+        // down, taking fullscreen with it (the reducer clears it). Below this,
+        // Escape belongs to whoever is around us — how the user gets out of
+        // the canvas and back to the document.
+        const screen = latest.current.screen;
+        if (screen?.get().stage) {
+          screen.set({ stage: false });
+          return true;
+        }
+        return false;
       },
 
       "arrange.forward": () => reorder("forward"),
@@ -1215,6 +1381,23 @@ export function useCanvasShortcuts({
       // reports `panState()`. Listed only so it appears in the cheat sheet.
       "view.pan": () => false,
 
+      "view.stage": () => {
+        latest.current.screen?.toggle("stage");
+        return !!latest.current.screen;
+      },
+      "view.minimal": () => {
+        latest.current.screen?.toggle("minimal");
+        return !!latest.current.screen;
+      },
+      "view.fullscreen": () => {
+        const screen = latest.current.screen;
+        // Unsupported (or no screen at all): decline so the browser's own
+        // F11/⌃⌘F still runs rather than us eating the key for nothing.
+        if (!screen?.canFullscreen()) return false;
+        screen.toggle("fullscreen");
+        return true;
+      },
+
       "toggle.hidden": () => toggleFlag("hidden"),
       "toggle.locked": () => toggleFlag("locked"),
 
@@ -1230,7 +1413,7 @@ export function useCanvasShortcuts({
 
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.isComposing || isTextEntry()) return;
-      const id = match(e, apple);
+      const id = matchShortcut(e, apple);
       if (!id) return;
       // Anything but another nudge closes an open run first — so an unrelated
       // edit is never folded into it, and ⌘Z is not refused for the depth we

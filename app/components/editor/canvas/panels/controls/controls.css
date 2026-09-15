@@ -330,6 +330,22 @@
   inset: 0;
 }
 
+/* A value authored wider than sRGB (`oklch()`, `color(display-p3 …)`) —
+   the reader's cue that the hex the swatch shows is not the whole story.
+   Neutral, like every other piece of panel chrome; the authored string is
+   the tooltip. */
+.nt-ctl-tag {
+  flex: none;
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+  background: var(--sunken);
+  cursor: help;
+}
+
 /* ---- Inline text --------------------------------------------------------
    The hex box, an image URL, a variable name. Sits in a field's slot, so it
    wears the field's own resting fill and takes the app's focus ring. */
@@ -420,6 +436,14 @@
     inset 0 0 0 2px oklch(1 0 90),
     0 0 0 1px oklch(0.25 0.005 90 / 0.4),
     0 1px 3px oklch(0.25 0.005 90 / 0.25);
+}
+
+/* A popover's own scrim, inert while a colour-pick session (COLOR) is up —
+   otherwise the very first click meant to resolve the pick would land on
+   this instead and read as "close the popover". The popover itself stays
+   open (Figma keeps the picker open with the eyedropper up too). */
+.nt-ctl-scrim.is-picking {
+  pointer-events: none;
 }
 
 /* ---- Pickers ------------------------------------------------------------- */

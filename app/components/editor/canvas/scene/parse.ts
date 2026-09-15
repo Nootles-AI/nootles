@@ -490,14 +490,61 @@ function findRoot(el: Element): Element | null {
 }
 
 /**
- * Parses a canvas document. A fragment of bare shapes with no surface element
+ * The dialect `write_nodes` echoes back at the model when it reads a stub —
+ * `at`/`holds`/`text` from `drawnStub`/`textStub` (`app/lib/ai/html/serialize.ts`),
+ * the literal `drawn="…"` attribute, and `ref`, the named-drawing placement
+ * `clientTools.ts` checks separately. None of the five are reserved by
+ * {@link RESERVED_ATTRS} — a real diagram is free to carry its own `text` or
+ * `at` custom attribute — so stripping them project-wide (by adding them
+ * there) would drop a genuinely-authored one off an ordinary shape. Instead
+ * {@link parseFragment} strips them, and only them, off the FRAGMENT ROOT
+ * alone: the one place a model echoing a stub literally back would otherwise
+ * leak stub vocabulary into `rootAttrs` (W17 in TOOLS.md).
+ */
+export const STUB_ATTRS = ["at", "holds", "text", "drawn", "ref"] as const;
+
+function omit(
+  attrs: Record<string, string>,
+  keys: readonly string[],
+): Record<string, string> {
+  const out = { ...attrs };
+  for (const key of keys) delete out[key];
+  return out;
+}
+
+/**
+ * A parsed fragment — {@link parseScene}'s scene, plus the bookkeeping
+ * `write_nodes` needs to classify what it was handed: which ids the model
+ * actually wrote (as opposed to ones {@link idFor} minted), and the wrapping
+ * `<nt-diagram>`'s own attributes with stub vocabulary held back so an echoed
+ * stub can never leak into a diagram's real `attrs`.
+ */
+export type Fragment = {
+  scene: Scene;
+  /** Ids written on an element in the fragment — shape or edge. Anything else
+   *  in `scene`/`edges` was minted by this parse. */
+  authored: ReadonlySet<string>;
+  /** The wrapper's own attributes, minus {@link RESERVED_ATTRS} (already
+   *  excluded by `attrsOf`) and minus {@link STUB_ATTRS}. Empty for bare
+   *  shapes, where there is no wrapper (`root === doc.body`). */
+  rootAttrs: Record<string, string>;
+  /** True when the wrapper stated BOTH a width and a height — `parseScene`
+   *  itself returns 0 for either one left off, so this is the only way to
+   *  tell "sized 0×0 on purpose" from "no size given at all". */
+  rootSized: boolean;
+};
+
+/**
+ * Parses a canvas document into a {@link Fragment}. Shared body for
+ * {@link parseScene}, which is now literally `parseFragment(html, p).scene` —
+ * one walk, read two ways. A fragment of bare shapes with no surface element
  * around it is accepted too — that is what a paste and a model's partial edit
  * look like — and yields a scene sized 0×0 for the caller to place.
  */
-export function parseScene(
+export function parseFragment(
   html: string,
   parseHtml: ParseHtml = defaultParseHtml,
-): Scene {
+): Fragment {
   // Wrap explicitly: given a bare fragment, DOM implementations disagree about
   // whether content lands in <body> or at the document root.
   const doc = parseHtml(`<!DOCTYPE html><html><body>${html}</body></html>`);
@@ -506,13 +553,38 @@ export function parseScene(
   collectIds(root, taken);
   const mint: Mint = { taken, used: new Set(), n: 0 };
   const id = root.getAttribute("id")?.trim();
-  return {
+  const wrapped = root !== doc.body;
+  const scene: Scene = {
     w: num(root, ["w", "width"]),
     h: num(root, ["h", "height"]),
     style: parseStyleAttr(root.getAttribute("style") ?? ""),
     nodes: childNodes(root, mint),
     edges: collectEdges(root, mint, []),
     ...(id ? { id } : {}),
-    attrs: root === doc.body ? {} : attrsOf(root),
+    attrs: wrapped ? attrsOf(root) : {},
   };
+  return {
+    scene,
+    // `taken` is never mutated after this — `idFor` only ever adds to
+    // `mint.used` — so it stands for exactly the ids the fragment's own
+    // elements carried, before any minting.
+    authored: taken,
+    rootAttrs: wrapped ? omit(attrsOf(root), STUB_ATTRS) : {},
+    rootSized:
+      wrapped &&
+      (root.hasAttribute("w") || root.hasAttribute("width")) &&
+      (root.hasAttribute("h") || root.hasAttribute("height")),
+  };
+}
+
+/**
+ * Parses a canvas document. A fragment of bare shapes with no surface element
+ * around it is accepted too — that is what a paste and a model's partial edit
+ * look like — and yields a scene sized 0×0 for the caller to place.
+ */
+export function parseScene(
+  html: string,
+  parseHtml: ParseHtml = defaultParseHtml,
+): Scene {
+  return parseFragment(html, parseHtml).scene;
 }
