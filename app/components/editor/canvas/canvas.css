@@ -213,6 +213,46 @@
   color: var(--foreground);
 }
 
+/* Expand/collapse to the stage — the storyboard's own per-shot chrome
+   (`.nt-sb-chrome`), reused here: top right, hidden until the pointer is
+   over the canvas, a small pill so it never competes with the drawing. */
+.nt-canvas-expand {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--elevated);
+  color: var(--muted);
+  opacity: 0;
+  box-shadow:
+    0 1px 2px oklch(0.25 0.005 90 / 0.05),
+    0 4px 12px oklch(0.25 0.005 90 / 0.08);
+  transition:
+    opacity var(--dur-fast) var(--ease),
+    background var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
+}
+.nt-canvas-viewport:hover .nt-canvas-expand,
+.nt-canvas-expand[aria-pressed="true"] {
+  opacity: 1;
+}
+.nt-canvas-expand:hover {
+  background: var(--hover);
+  color: var(--foreground);
+}
+/* Staged, the button rides the fixed viewport at its own new edge rather
+   than the block's — same reason `.nt-canvas-refit` and the grips do. */
+.nt-canvas[data-stage] .nt-canvas-expand {
+  top: 14px;
+  right: 14px;
+}
+
 /* Bottom edge: drag to set an explicit height, double-click to fit again. */
 .nt-canvas-grip {
   position: absolute;

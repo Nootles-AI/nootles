@@ -273,6 +273,41 @@ const FIT_ICON = (
   </svg>
 );
 
+/** Four corner brackets, straight — the un-rounded `FIT_ICON` family, at the
+ *  true corners rather than the content's. */
+const EXPAND_ICON = (
+  <svg
+    width="13"
+    height="13"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.9"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden
+  >
+    <path d="M3 9V3h6M15 3h6v6M21 15v6h-6M9 21H3v-6" />
+  </svg>
+);
+
+/** {@link EXPAND_ICON}'s own corners, drawn inset — the frame pulled back in. */
+const COLLAPSE_ICON = (
+  <svg
+    width="13"
+    height="13"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.9"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden
+  >
+    <path d="M7 11V7h4M13 7h4v4M17 13v4h-4M11 17H7v-4" />
+  </svg>
+);
+
 const NEVER = () => false;
 
 /**
@@ -326,6 +361,55 @@ function Refit({
       {/* Not "zoom to fit": this only appears when the diagram is off screen,
           and what the user wants back is the content, not a zoom level. */}
       Show content
+    </button>
+  );
+}
+
+/**
+ * A storyboard shot has its own "open full screen" chrome; a plain diagram
+ * had only the settings menu's "Stage" checkbox, which nobody finds by
+ * looking at the canvas. Same corner, same hover-reveal, same toggle
+ * `screen.toggle("stage")` already backs from the menu — this is just a
+ * second, visible door to it.
+ *
+ * Its own component, subscribed to `screen` on its own — not read in
+ * `CanvasSurface`'s own render — for the same reason {@link Refit} is: a
+ * `useSyncExternalStore` there would re-render the whole surface (and every
+ * memoised shape under it) on every stage toggle, not just this button. The
+ * canvas-stage gate's own zero-write assertions on leaving the stage are
+ * exactly what caught that the first time.
+ */
+function ExpandButton({
+  screen,
+  frameContent,
+}: {
+  screen: ScreenControl;
+  frameContent: () => void;
+}) {
+  const stage = useSyncExternalStore(
+    screen.subscribe,
+    () => screen.get().stage,
+    () => false,
+  );
+  return (
+    <button
+      type="button"
+      className="nt-canvas-expand"
+      aria-label={stage ? "Collapse canvas" : "Expand canvas"}
+      aria-pressed={stage}
+      onPointerDown={(event) => event.stopPropagation()}
+      onClick={() => {
+        const entering = !screen.get().stage;
+        screen.toggle("stage");
+        // `screen.toggle` itself keeps the settings menu's exact contract
+        // (the same scene point stays centred entering, and leaving
+        // restores the exact camera) — the fit-to-content this button adds
+        // is a separate step, after the toggle has already forced the
+        // container's layout to settle at its new size.
+        if (entering) frameContent();
+      }}
+    >
+      {stage ? COLLAPSE_ICON : EXPAND_ICON}
     </button>
   );
 }
@@ -1784,6 +1868,8 @@ export function CanvasSurface({
             stays behind it — its own `stopPropagation` keeps a press on it
             from also reading as a click on the surface underneath. */}
         <Refit viewport={viewport} bounds={contentBounds} onFrame={frameContent} />
+
+        {!readOnly && !frame && <ExpandButton screen={screen} frameContent={frameContent} />}
       </div>
 
       {!readOnly && !frame && (
