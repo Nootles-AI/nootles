@@ -21,5 +21,9 @@
     "noEmit": true
   },
   "include": ["./**/*"],
-  "exclude": ["./_generated"]
+  // Test files are not deployed functions and may import app code through the
+  // "@/" alias, which this function-only config does not resolve; the root
+  // tsconfig (and vitest) typecheck them. Convex already omits them from the
+  // deploy bundle, so keeping them out of this typecheck matches what ships.
+  "exclude": ["./_generated", "./**/*.test.ts"]
 }
