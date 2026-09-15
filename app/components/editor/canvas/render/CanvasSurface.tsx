@@ -84,6 +84,7 @@ import {
   absoluteBounds,
   absoluteSelectionBounds,
   normalizeRect,
+  toLocal,
   type RotatedRect,
 } from "../scene/geometry";
 import { hitTestPath, slopFor } from "../scene/picking";
@@ -216,6 +217,19 @@ function overlapArea(a: Rect, b: Rect): number {
   const w = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
   const h = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y);
   return w > 0 && h > 0 ? w * h : 0;
+}
+
+/**
+ * Whether `point` (scene space) falls inside `box` — the selection's own
+ * frame, rotation included, never just its paint. A single selected node's
+ * own geometry (a boolean operand left with nothing painted anywhere, once
+ * the operation is done with it, is the case this exists for) still has a
+ * real box the overlay draws handles on, and a press there has to mean "move
+ * this" the same way a press on a multi-selection's empty span already does.
+ */
+function withinSelectionBounds(point: Point, box: RotatedRect): boolean {
+  const local = toLocal(point, box);
+  return local.x >= 0 && local.x <= box.w && local.y >= 0 && local.y <= box.h;
 }
 
 /**
@@ -1379,20 +1393,15 @@ export function CanvasSurface({
       return;
     }
 
-    const bounds = sel.selectionBounds;
     const onSelection =
       hit !== null
         ? selection.isSelected(hit)
-        : sel.ids.length > 1 &&
-          point.x >= bounds.x &&
-          point.x <= bounds.x + bounds.w &&
-          point.y >= bounds.y &&
-          point.y <= bounds.y + bounds.h;
+        : sel.ids.length > 0 && withinSelectionBounds(point, sel.selectionBounds);
 
-    // Figma's rule: a press anywhere on the selection — a selected shape, or
-    // the empty span of a multi-selection's box — drags all of it. What the
-    // click *means* for the selection (collapse to the hit, shift-toggle it
-    // out, deselect) waits for release, and only happens if no drag started.
+    // Figma's rule: a press anywhere on the selection's own box — painted or
+    // not, one shape or several — drags all of it. What the click *means*
+    // for the selection (collapse to the hit, shift-toggle it out, deselect)
+    // waits for release, and only happens if no drag started.
     if (onSelection) {
       busy.current = false;
       clickOnRelease(point, mods);
