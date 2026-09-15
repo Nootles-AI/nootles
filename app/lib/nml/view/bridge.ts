@@ -22,6 +22,7 @@ import type { NmlBlock, NmlDocument } from "../schema";
 import type { NmlInlineContent, NmlMark } from "../schema";
 import { normalizeInline } from "../normalize";
 import { serializeDocument } from "../serialize";
+import { nmlHistoryFor, nmlReviewHistoryFor, type NmlHistory, type NmlReviewHistory } from "./history";
 import {
   NML_LIST_TYPES,
   NmlProjection,
@@ -235,6 +236,9 @@ export abstract class NmlViewBridge {
   private mode: BridgeStatus = "ready";
   private stop: () => void = () => {};
   private stopAwareness: () => void = () => {};
+  /** Canonical undo/redo (local human) and model/system rewind; only when editing. */
+  private history: NmlHistory | null = null;
+  private review: NmlReviewHistory | null = null;
   private driftCount = 0;
   private listeners = new Set<(update: BridgeUpdate) => void>();
   private permitted = new WeakSet<Transaction>();
@@ -303,6 +307,15 @@ export abstract class NmlViewBridge {
         onFullDecode: () => { this.counters.fullObserverDecodes++; },
       });
     }
+    // Canonical history: the local human's own edits are linearly undoable; a
+    // model/system batch is separately rewindable. Undo/rewind mutate the doc,
+    // so `observeNmlChanges` above reconciles them into this view like any other
+    // canonical change — no dedicated apply path. Per-doc, so it outlives this
+    // bridge instance across remounts (see history.ts).
+    if (editing) {
+      this.history = nmlHistoryFor(doc, { localUserId: editing.actor.userId });
+      this.review = nmlReviewHistoryFor(doc);
+    }
   }
 
   get state(): EditorState { return this.current; }
@@ -317,6 +330,22 @@ export abstract class NmlViewBridge {
     return block ? structuredClone(block) : undefined;
   }
   snapshot(): NmlDocument | null { return this.source ? structuredClone(this.source) : null; }
+
+  // Canonical history (step 11). Undo/redo take back the local human's own
+  // edits; rewind/reapply move a model/system batch. Each is a new canonical
+  // transaction, so it flows back into this view through the same observer that
+  // handles remote edits. A pending optimistic request holds them off until it
+  // settles, so an undo can never race an unacknowledged edit.
+  canUndo(): boolean { return this.isEditable() && !this.pending.size && !!this.history?.canUndo(); }
+  canRedo(): boolean { return this.isEditable() && !this.pending.size && !!this.history?.canRedo(); }
+  undo(): boolean { return this.canUndo() && !!this.history?.undo(); }
+  redo(): boolean { return this.canRedo() && !!this.history?.redo(); }
+  canRewind(): boolean { return this.isEditable() && !this.pending.size && !!this.review?.canRewind(); }
+  rewind(): boolean { return this.canRewind() && !!this.review?.rewind(); }
+  reapply(): boolean { return this.isEditable() && !this.pending.size && !!this.review?.reapply(); }
+  /** End the current typing group so the next edit is a separate undo step. */
+  breakUndoGroup(): void { this.history?.breakGroup(); }
+
   private temporaryId(kind: string): string {
     return `$nml-${kind}-${this.doc.clientID}-${++this.temporarySequence}`;
   }

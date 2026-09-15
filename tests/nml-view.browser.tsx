@@ -176,6 +176,27 @@ const harness = {
   mount,
   mountEditable,
   mountRichEditable,
+  history: {
+    can: () => ({ undo: bridge.canUndo(), redo: bridge.canRedo(), rewind: bridge.canRewind() }),
+    undo: () => bridge.undo(),
+    redo: () => bridge.redo(),
+    rewind: () => bridge.rewind(),
+    /** A local human edit, attributed to this host's own actor so it is undoable. */
+    humanEdit: async (commands: NmlCommand[]) => {
+      const id = `hist-human-${++sequence}`;
+      await executeNmlCommands({ doc: ydoc, documentId: decodeNmlDocument(ydoc).documentId, commands, idempotencyKey: id, origin: { version: 1, transactionId: id, actor: { userId: "browser", kind: "human" }, command: "plain-text-edit" }, authorize: () => true });
+    },
+    /** A model batch, attributed to an AI actor so it is rewindable but view-only to undo. */
+    modelEdit: async (commands: NmlCommand[]) => {
+      const id = `hist-model-${++sequence}`;
+      await executeNmlCommands({ doc: ydoc, documentId: decodeNmlDocument(ydoc).documentId, commands, idempotencyKey: id, origin: { version: 1, transactionId: id, actor: { userId: "ai", kind: "model" }, command: "domain-edit" }, authorize: () => true });
+    },
+    blockIds: () => decodeNmlDocument(ydoc).blocks.map((b) => b.id),
+    blockText: (id: string) => {
+      const block = decodeNmlDocument(ydoc).blocks.find((b) => b.id === id);
+      return block && "content" in block ? block.content.map((n) => (n.type === "text" ? n.text : "")).join("") : "";
+    },
+  },
   inspect: () => ({
     status: bridge.status(),
     parity: bridge.checkDrift(),

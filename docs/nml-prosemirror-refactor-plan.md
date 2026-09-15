@@ -1,6 +1,7 @@
 # NML / ProseMirror refactor plan
 
-Status: in progress; steps 1–10 and 12 complete (step 11 pending).
+Status: in progress; steps 1–12 complete, plus step 13's server-side verification prerequisite.
+Remaining: step 13's editor-serve rollout, then steps 14–15.
 
 ProseMirror remains the browser editing engine. Canonical ownership moves from a
 ProseMirror-shaped Yjs root to a typed, versioned NML AST stored directly in Yjs. Existing
@@ -287,13 +288,45 @@ move, label, create/delete, remote-adoption, awareness, and rejection flows on d
 mobile. The standalone run now exercises eight workflows with intercepted networking,
 zero browser errors, and zero paid requests.
 
-## 11. Establish canonical history, review, and recovery
+## 11. Establish canonical history, review, and recovery — complete
 
 - Implement origin-aware undo grouping across actors and document/canvas commands.
 - Integrate AI hunks, checkpoints, rewind, and recoverable orphan/conflict UI.
 - Disable independent PM content history; retain view-only local history.
 
 **Gate:** undo/recovery matrices preserve unrelated concurrent work.
+
+Implemented in `app/lib/nml/view/history.ts`, wired into the opt-in editable bridge/host. The
+durable undo unit is a canonical Yjs transaction. `NmlHistory` wraps a `Y.UndoManager` over the
+whole canonical `Y.Doc`, gated on the attributed `NmlTransactionOrigin` every command carries:
+only the local human's own edits are linearly undoable, so a collaborator's edits (which arrive
+through the provider, not as an NML origin) and model/system batches stay *view-only* — which is
+exactly what makes undo preserve unrelated concurrent work (the gate). It scopes the doc rather
+than the `nml` root, because NML edits mutate deeply-nested shared types whose parents, not the
+root, appear in `changedParentTypes`; `captureTransaction` is the precise gate. Typing (the
+`plain-text-edit` command) coalesces within the frozen 750ms window; every other command
+(splits, moves, marks, paste, canvas gestures, domain edits) and IME (already one committed
+transaction) is a discrete step. An undo/redo is itself a new canonical transaction, so it
+reconciles into every bridge through the same `observeNmlChanges` path a remote edit uses — undo
+propagates to every view and client with no dedicated apply path. ProseMirror's own content
+history stays disabled (bridge transactions already carry `addToHistory: false`).
+
+`NmlReviewHistory` gives model/system batches a separate rewind timeline (each batch is one
+committed transaction, so one rewind unit). Rewind is a CRDT-level reversal, **not** a semantic
+re-issue of inverse commands: it re-adds a batch's exact deleted structs, which is what lets it
+*restore content a batch deleted* (the structure layer's deletion tombstones refuse re-inserting
+a removed id) while Yjs rebasing keeps an unrelated collaborator's concurrent edits intact.
+`nmlCheckpoint`/`checkpointBlock` capture a content-free snapshot for the recovery affordance;
+the existing composition-recovery panel remains the copyable orphan surface (CRDT undo/rewind add
+no new silent-drop path — an orphaned child recovers at the document root per step 4). The gate
+is covered by `app/lib/nml/view/history.test.ts` (grouping windows, view-only model/other-human
+edits, undo/redo/rewind as canonical transactions, deleted-content restoration, and the
+two-`Y.Doc` concurrent-preservation matrix for both timelines) and a real Chromium workflow in
+`tests/nml-view.browser.mjs` (human undo/redo + model rewind each preserving the other, zero
+browser errors, zero paid requests). The full AI hunk review — arbitrary non-newest hunk
+reject/accept and semantic restore of a snapshot — rides with step 14, where the AI actually
+produces NML; step 11 establishes the machinery it plugs into. No production route mounts the
+host yet.
 
 ## 12. Prepare persistence and cohort migration — complete
 

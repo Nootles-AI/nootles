@@ -545,6 +545,31 @@ try {
   assert.equal((await page.evaluate(() => window.nmlHarness.inspect())).parity, true);
   await page.screenshot({ path: path.join(output, "plain-text-editing-mobile.png"), fullPage: true });
 
+  // Step 11 — canonical history. A local human edit is linearly undoable; a
+  // model batch is separately rewindable; each preserves the other.
+  await page.setViewport({ width: 1440, height: 1100 });
+  await page.evaluate(() => window.nmlHarness.mountRichEditable());
+  await page.waitForSelector("#bridge .nt-nml-view");
+  await page.evaluate(() => window.nmlHarness.history.humanEdit([{ type: "replaceInline", nodeId: "rich-full", range: { from: 0, to: 0 }, content: [{ type: "text", text: "ZZ ", marks: [] }] }]));
+  await page.waitForFunction(() => window.nmlHarness.history.blockText("rich-full").startsWith("ZZ "));
+  assert.equal((await page.evaluate(() => window.nmlHarness.history.can())).undo, true, "human edit is undoable");
+  assert.equal(await page.evaluate(() => window.nmlHarness.history.undo()), true, "undo runs");
+  await page.waitForFunction(() => window.nmlHarness.history.blockText("rich-full") === "Rich text");
+  assert.equal((await page.evaluate(() => window.nmlHarness.history.can())).redo, true, "undo is redoable");
+  assert.equal(await page.evaluate(() => window.nmlHarness.history.redo()), true, "redo runs");
+  await page.waitForFunction(() => window.nmlHarness.history.blockText("rich-full").startsWith("ZZ "));
+
+  await page.evaluate(() => window.nmlHarness.history.modelEdit([{ type: "removeNodes", nodeIds: ["list-two"] }]));
+  await page.waitForFunction(() => !window.nmlHarness.history.blockIds().includes("list-two"));
+  assert.equal((await page.evaluate(() => window.nmlHarness.history.can())).rewind, true, "model batch is rewindable");
+  assert.equal(await page.evaluate(() => window.nmlHarness.history.rewind()), true, "rewind runs");
+  await page.waitForFunction(() => window.nmlHarness.history.blockIds().includes("list-two"), {}, "model deletion restored by rewind");
+  // The rewind left the human undo entry intact.
+  assert.equal((await page.evaluate(() => window.nmlHarness.history.can())).undo, true, "human undo survives an unrelated rewind");
+  await page.evaluate(() => window.nmlHarness.history.undo());
+  await page.waitForFunction(() => window.nmlHarness.history.blockText("rich-full") === "Rich text");
+  await page.screenshot({ path: path.join(output, "canonical-history-desktop.png"), fullPage: true });
+
   await page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true });
   await page.evaluate(() => window.nmlHarness.mount("rich"));
   await page.waitForSelector("#bridge .nt-nml-view");
@@ -559,5 +584,5 @@ try {
   await page.evaluate(() => window.nmlHarness.destroy());
   assert.deepEqual(errors, []);
   assert.deepEqual(paidRequests, []);
-  console.log(JSON.stringify({ result: "passed", fixtures: 8, editableWorkflows: 8, desktop: "1440x1100", mobile: "390x844", screenshots: output, browserErrors: errors.length, paidRequests: paidRequests.length }, null, 2));
+  console.log(JSON.stringify({ result: "passed", fixtures: 8, editableWorkflows: 9, canonicalHistory: true, desktop: "1440x1100", mobile: "390x844", screenshots: output, browserErrors: errors.length, paidRequests: paidRequests.length }, null, 2));
 } finally { await browser?.close(); await new Promise((resolve) => server.close(resolve)); }
