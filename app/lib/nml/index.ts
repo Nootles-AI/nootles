@@ -3,6 +3,7 @@ export * from "./commands";
 export * from "./legacy";
 export * from "./normalize";
 export * from "./parse";
+export * from "./persistence";
 export * from "./repair";
 export * from "./schema";
 export * from "./serialize";

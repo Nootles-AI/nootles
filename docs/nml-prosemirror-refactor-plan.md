@@ -1,6 +1,6 @@
 # NML / ProseMirror refactor plan
 
-Status: in progress; steps 1–9 complete.
+Status: in progress; steps 1–10 and 12 complete (step 11 pending).
 
 ProseMirror remains the browser editing engine. Canonical ownership moves from a
 ProseMirror-shaped Yjs root to a typed, versioned NML AST stored directly in Yjs. Existing
@@ -295,7 +295,7 @@ zero browser errors, and zero paid requests.
 
 **Gate:** undo/recovery matrices preserve unrelated concurrent work.
 
-## 12. Prepare persistence and cohort migration
+## 12. Prepare persistence and cohort migration — complete
 
 - Use the protected schema/migration process for version and migration metadata.
 - Build the elected migrator, mixed-version readers, cohort gates, equivalence reports,
@@ -303,11 +303,55 @@ zero browser errors, and zero paid requests.
 
 **Gate:** a test cohort migrates, collaborates, reloads, downgrades by policy, and rolls back.
 
+Implemented as the headless engine `app/lib/nml/persistence.ts` plus the Convex surface
+`convex/nmlMigration.ts` and two schema tables (`nmlDocState`, `nmlCohorts`). The engine
+converts a stored page — BlockNote blocks plus its live canvas maps, both already carried by
+the page's Y.Doc — into the canonical NML root and returns the single Yjs update that *adds*
+that root beside the existing `prosemirror` root and `canvas:*` maps. Nothing changes which
+root the editor reads; the legacy ProseMirror root stays the served truth until step 13. The
+NML root rides the same chunked update log, snapshot/compaction, and provider as ordinary
+edits — the migration append reuses the extracted `ydoc.appendYUpdate`, so there is no second
+sync channel.
+
+Migration is gated: it re-derives structure, IDs, inline semantics, and materialized canvas
+scenes from the raw legacy tree (`compareLegacyToNml`), checks per-shape-map vs converted-scene
+parity, and enforces the four v1 size limits through `validateDocument`; any failure rejects
+and writes nothing. The Convex `electMigration` mutation is the elected writer — first writer
+per document wins and a second migrator stands down, so browsers may all preview but never
+race a duplicate root — and refuses a root that failed equivalence or limits. Cohort gates
+scope eligibility by project (owner-opted) or single document (writer-opted). `nmlState`
+exposes the declared schema/encoding versions so a mixed-version reader falls back to
+read-only on a newer root rather than downgrade-writing it, and the decoder fails closed on
+an unsupported version. Rollback returns authority to legacy and records whether the root had
+diverged; because the NML root is permanent (Yjs roots never disappear), a rollback loses no
+NML-only edit the legacy tree cannot represent — the downgrade is explicit, never silently
+lossy, and `detectNmlDivergence` classifies the case.
+
+The gate is covered by `app/lib/nml/persistence.test.ts` (delta-only root addition, ProseMirror
+root byte-stability, idempotent re-migration, block-count and depth limit rejection,
+mixed-version read and newer-version read-only, canvas map/scene parity and drift rejection,
+and rollback divergence), `convex/nmlMigration.test.ts` under real auth (cohort gate,
+owner-vs-guest cohort management, first-writer-wins election, equivalence/limit refusal,
+`nmlState` versions, two-editor collaboration then reload with both roots intact, and rollback
+metadata), and a standalone Chromium run `tests/nml-migration.browser.mjs` exercising migration,
+native-DOMParser canvas parity, real two-Y.Doc collaboration and reload, newer-version
+read-only, and rollback divergence with zero browser errors and zero paid requests. No
+production route, provider, AI, backend, or MCP path serves the NML root yet.
+
 ## 13. Switch progressively to NML authority
 
 Roll out through synthetic internal, internal real, new, simple existing, structured,
 canvas-heavy, then general documents. Gate cohorts on equivalence, telemetry thresholds,
 collaboration tests, rollback exercises, and an older-client compatibility window.
+
+- **Before serving any migrated root, verify the migrator's claim server-side.** Step 12's
+  `electMigration` trusts the elected client's `equivalenceOk`/`limitOk` and the update bytes,
+  because the DOM-dependent conversion cannot run inside Convex. That is acceptable while the
+  NML root is not served, but before authority moves to it a backend check must confirm the
+  persisted root is well-formed and within limits independently of the client. Decoding an
+  NML root and running `validateDocument` are DOM-free, so the backend can reconstruct the
+  document from the stored `nml` root and re-assert schema, encoding version, and the four v1
+  limits before a cohort is allowed to read it. (Carried over from the step-12 review.)
 
 **Gate:** all supported human edits commit NML commands; NML is the cohort's sole tree.
 

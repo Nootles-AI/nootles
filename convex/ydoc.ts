@@ -181,60 +181,76 @@ export const append = mutation({
   returns: v.number(),
   handler: async (ctx, args) => {
     await checkWrite(ctx, args.docId);
-    const row = await ydocRow(ctx, args.docId);
-    if (!row) throw new Error("Not a Yjs document");
     const chunks =
       args.chunks ?? (args.update !== undefined ? [args.update] : []);
-    if (!chunks.length) throw new Error("Nothing to append");
-    const seq = row.seq + 1;
-    for (let part = 0; part < chunks.length; part++) {
-      await ctx.db.insert("yUpdates", {
-        docId: args.docId,
-        seq,
-        update: chunks[part],
-        ...(chunks.length > 1 ? { part, parts: chunks.length } : {}),
-      });
-    }
-    const now = Date.now();
-    await ctx.db.patch(row._id, { seq, updatedAt: now });
-
-    // The same coarse edited-stamp the legacy pipeline hung on snapshots, plus
-    // the pipeline flag `state` reads — stamped here rather than in `init`
-    // because docs that migrated before the flag existed would never get it.
-    const page = await pageForDoc(ctx, args.docId);
-    if (page) {
-      const touched = now - (page.updatedAt ?? 0) > TOUCH_EVERY_MS;
-      if (touched || !page.yjs) {
-        await ctx.db.patch(page._id, {
-          ...(touched ? { updatedAt: now } : {}),
-          ...(page.yjs ? {} : { yjs: true }),
-        });
-      }
-      if (touched) await stampProject(ctx, page.projectId, now);
-    }
-
-    // Modulo rather than >=, so one threshold crossing schedules one compact
-    // even while further appends land before it runs.
-    const pending = seq - row.snapshotSeq;
-    if (pending > 0 && pending % COMPACT_EVERY === 0) {
-      if ((row.snapshotBytes ?? 0) >= READ_BUDGET) {
-        // `compact` would read the whole snapshot only to find it too heavy to
-        // fold. Said here instead, where the doc is still being written to, so
-        // a document growing past what the fold can carry is visible rather
-        // than silently accumulating log forever.
-        console.warn(
-          `ydoc: ${args.docId} holds a ${row.snapshotBytes}-byte snapshot; its log no longer folds`,
-        );
-      } else {
-        await ctx.scheduler.runAfter(0, internal.ydoc.compact, {
-          docId: args.docId,
-          targetSeq: seq,
-        });
-      }
-    }
-    return seq;
+    return await appendYUpdate(ctx, args.docId, chunks);
   },
 });
+
+/**
+ * The append itself, after authorization: one merged update (already split
+ * into row-sized chunks) landed at the next dense seq, with the page-stamp and
+ * compaction bookkeeping. Factored out so the step-12 elected migrator writes
+ * the canonical NML root through the exact same wire path an ordinary flush
+ * uses — the NML root then rides the same snapshot/compaction/provider
+ * machinery with no second sync channel. Callers own authorization first.
+ */
+export async function appendYUpdate(
+  ctx: MutationCtx,
+  docId: string,
+  chunks: ArrayBuffer[],
+): Promise<number> {
+  const row = await ydocRow(ctx, docId);
+  if (!row) throw new Error("Not a Yjs document");
+  if (!chunks.length) throw new Error("Nothing to append");
+  const seq = row.seq + 1;
+  for (let part = 0; part < chunks.length; part++) {
+    await ctx.db.insert("yUpdates", {
+      docId,
+      seq,
+      update: chunks[part],
+      ...(chunks.length > 1 ? { part, parts: chunks.length } : {}),
+    });
+  }
+  const now = Date.now();
+  await ctx.db.patch(row._id, { seq, updatedAt: now });
+
+  // The same coarse edited-stamp the legacy pipeline hung on snapshots, plus
+  // the pipeline flag `state` reads — stamped here rather than in `init`
+  // because docs that migrated before the flag existed would never get it.
+  const page = await pageForDoc(ctx, docId);
+  if (page) {
+    const touched = now - (page.updatedAt ?? 0) > TOUCH_EVERY_MS;
+    if (touched || !page.yjs) {
+      await ctx.db.patch(page._id, {
+        ...(touched ? { updatedAt: now } : {}),
+        ...(page.yjs ? {} : { yjs: true }),
+      });
+    }
+    if (touched) await stampProject(ctx, page.projectId, now);
+  }
+
+  // Modulo rather than >=, so one threshold crossing schedules one compact
+  // even while further appends land before it runs.
+  const pending = seq - row.snapshotSeq;
+  if (pending > 0 && pending % COMPACT_EVERY === 0) {
+    if ((row.snapshotBytes ?? 0) >= READ_BUDGET) {
+      // `compact` would read the whole snapshot only to find it too heavy to
+      // fold. Said here instead, where the doc is still being written to, so
+      // a document growing past what the fold can carry is visible rather
+      // than silently accumulating log forever.
+      console.warn(
+        `ydoc: ${docId} holds a ${row.snapshotBytes}-byte snapshot; its log no longer folds`,
+      );
+    } else {
+      await ctx.scheduler.runAfter(0, internal.ydoc.compact, {
+        docId,
+        targetSeq: seq,
+      });
+    }
+  }
+  return seq;
+}
 
 /**
  * Makes a doc Yjs-native, first writer wins: the row's existence is the whole
