@@ -7,6 +7,11 @@
     /* These settings are not required by Convex and can be modified. */
     "allowJs": true,
     "strict": true,
+    /* Deployed functions resolve the app's "@/" alias so the DOM-free NML core
+     * (decode + validate, step 13) can be imported server-side. It resolves to
+     * the repo root, one level up from convex/. */
+    "baseUrl": ".",
+    "paths": { "@/*": ["../*"] },
     "moduleResolution": "Bundler",
     "jsx": "react-jsx",
     "skipLibCheck": true,
@@ -21,9 +26,8 @@
     "noEmit": true
   },
   "include": ["./**/*"],
-  // Test files are not deployed functions and may import app code through the
-  // "@/" alias, which this function-only config does not resolve; the root
-  // tsconfig (and vitest) typecheck them. Convex already omits them from the
-  // deploy bundle, so keeping them out of this typecheck matches what ships.
+  // Test files are not deployed functions; the root tsconfig (and vitest)
+  // typecheck them. Convex already omits them from the deploy bundle, so keeping
+  // them out of this typecheck matches what ships.
   "exclude": ["./_generated", "./**/*.test.ts"]
 }

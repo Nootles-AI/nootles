@@ -10,6 +10,7 @@ import {
   type LegacyMismatch,
 } from "./legacy";
 import { NML_SCHEMA_VERSION, type NmlDocument, type NmlIssue } from "./schema";
+import { partitionDiagnostics } from "./verify";
 import {
   decodeNmlDocument,
   NML_YJS_ENCODING_VERSION,
@@ -34,14 +35,6 @@ import {
  * DOM is injected (linkedom in Node, the platform parser in the browser) so the
  * core stays runtime-neutral, exactly like the step-5 converter it builds on.
  */
-
-/** Diagnostic codes emitted by `validateDocument` for the four v1 size limits. */
-export const NML_LIMIT_CODES: ReadonlySet<string> = new Set([
-  "block_depth_limit",
-  "block_count_limit",
-  "inline_size_limit",
-  "domain_size_limit",
-]);
 
 export type MigrationInput = {
   /** All stored updates for the page (snapshot chunks and log updates, any order). */
@@ -134,20 +127,6 @@ export function readStoredNml(updates: readonly Uint8Array[]): StoredNmlRead {
   } finally {
     doc.destroy();
   }
-}
-
-function partitionDiagnostics(diagnostics: readonly NmlIssue[]): {
-  limitViolations: NmlIssue[];
-  conversionErrors: NmlIssue[];
-} {
-  const limitViolations: NmlIssue[] = [];
-  const conversionErrors: NmlIssue[] = [];
-  for (const issue of diagnostics) {
-    if (issue.severity !== "error") continue;
-    if (NML_LIMIT_CODES.has(issue.code)) limitViolations.push(issue);
-    else conversionErrors.push(issue);
-  }
-  return { limitViolations, conversionErrors };
 }
 
 /**

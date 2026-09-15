@@ -338,20 +338,37 @@ native-DOMParser canvas parity, real two-Y.Doc collaboration and reload, newer-v
 read-only, and rollback divergence with zero browser errors and zero paid requests. No
 production route, provider, AI, backend, or MCP path serves the NML root yet.
 
-## 13. Switch progressively to NML authority
+## 13. Switch progressively to NML authority — server-side verification prerequisite complete
 
 Roll out through synthetic internal, internal real, new, simple existing, structured,
 canvas-heavy, then general documents. Gate cohorts on equivalence, telemetry thresholds,
 collaboration tests, rollback exercises, and an older-client compatibility window.
 
-- **Before serving any migrated root, verify the migrator's claim server-side.** Step 12's
+- **Before serving any migrated root, verify the migrator's claim server-side — done.** Step 12's
   `electMigration` trusts the elected client's `equivalenceOk`/`limitOk` and the update bytes,
-  because the DOM-dependent conversion cannot run inside Convex. That is acceptable while the
-  NML root is not served, but before authority moves to it a backend check must confirm the
-  persisted root is well-formed and within limits independently of the client. Decoding an
-  NML root and running `validateDocument` are DOM-free, so the backend can reconstruct the
-  document from the stored `nml` root and re-assert schema, encoding version, and the four v1
-  limits before a cohort is allowed to read it. (Carried over from the step-12 review.)
+  because the DOM-dependent conversion cannot run inside Convex. Before authority moves to the
+  root, the backend now re-asserts it independently. `verifyStoredNmlRoot` (`app/lib/nml/verify.ts`)
+  reconstructs the document from the stored `nml` root and re-runs decode + `validateDocument`,
+  re-checking schema version, encoding version, and the four v1 limits — all DOM-free. It is split
+  out of `persistence.ts` so it imports only the decoder/validator/schema, keeping `linkedom` and
+  the BlockNote converter out of the Convex bundle (proven by a real self-hosted push and an
+  esbuild dependency check).
+
+  It runs in a **Node action** (`convex/nmlVerify.ts`), not a mutation: reconstructing and
+  decoding a document near the v1 size limits costs well over a hundred megabytes of heap, which
+  a query/mutation isolate cannot hold — a max-size document OOM'd the isolate during the browser
+  e2e. A cheap isolate query (`verifyMaterial`) hands the raw update bytes to the action; the
+  action records the verdict through `recordVerification`. `electMigration` schedules it
+  automatically, and the new `nmlAuthority` query grants "serve NML" only when a document is
+  migrated, in the cohort, server-verified, and at versions this deployment understands; a
+  pending or failed check, a rollback, a cohort drop, or a newer root all keep authority with
+  legacy. Covered by `verify.test.ts`, new `nmlMigration.test.ts` authority cases (including a
+  dishonest over-limit client refused server-side), and a full local-backend browser e2e
+  (`tests/nml-authority.browser.mjs`).
+
+- **Remaining:** switch the production editor to mount the NML tree for a verified cohort doc and
+  stop writing the legacy root — the progressive per-cohort rollout, which touches the paid AI
+  hot paths and is its own gated change.
 
 **Gate:** all supported human edits commit NML commands; NML is the cohort's sole tree.
 

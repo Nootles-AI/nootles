@@ -48,6 +48,7 @@ import type * as impersonationMint from "../impersonationMint.js";
 import type * as limits from "../limits.js";
 import type * as migrations from "../migrations.js";
 import type * as nmlMigration from "../nmlMigration.js";
+import type * as nmlVerify from "../nmlVerify.js";
 import type * as notion_account from "../notion/account.js";
 import type * as notion_assets from "../notion/assets.js";
 import type * as notion_pacing from "../notion/pacing.js";
@@ -117,6 +118,7 @@ declare const fullApi: ApiFromModules<{
   limits: typeof limits;
   migrations: typeof migrations;
   nmlMigration: typeof nmlMigration;
+  nmlVerify: typeof nmlVerify;
   "notion/account": typeof notion_account;
   "notion/assets": typeof notion_assets;
   "notion/pacing": typeof notion_pacing;
