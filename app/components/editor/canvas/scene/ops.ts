@@ -48,6 +48,7 @@ import { pathStyleOf } from "./paint";
 import {
   absoluteRect,
   absoluteRotation,
+  intersectBounds,
   nodeBounds,
   normalizeAngle,
   rotateAround,
@@ -781,9 +782,22 @@ export function groupNodes(
   // A boolean's members are all operands: the rect that encloses the rest is
   // the very shape the others cut, not a frame to absorb.
   const frame = op ? null : frameOf(members, bounds);
+  const unrotated = members.map((node) => ({ ...bounds.get(node.id)!, rot: 0 }));
+  // The box is the operation's own — never wider than what it can actually
+  // paint. `union`/`exclude` can show area from any operand, so their box is
+  // still the plain union; `subtract` can only ever remove area from its
+  // first (bottom) operand — `combine()`'s own `first` — never show more of
+  // a later one; `intersect` can only paint where every operand's own box
+  // already overlaps. Without this, a subtractor larger than the shape it
+  // cuts stretched the group's own selection outline — drawn from this box,
+  // before it is entered — well past the one shape actually left visible.
   const box = frame
     ? bounds.get(frame.id)!
-    : unionBounds(members.map((node) => ({ ...bounds.get(node.id)!, rot: 0 })));
+    : op === "subtract"
+      ? unrotated[0]
+      : op === "intersect"
+        ? intersectBounds(unrotated)
+        : unionBounds(unrotated);
 
   const siblings = parentId === null ? scene.nodes : childrenOf(scene, parentId);
   const at = siblings.indexOf(front);

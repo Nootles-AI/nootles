@@ -240,6 +240,30 @@ export function unionBounds(nodes: readonly RotatedRect[]): Rect {
 }
 
 /**
+ * The intersection of {@link nodeBounds} over nodes **sharing one coordinate
+ * space** — a boolean intersect's own paint can never reach past it, whatever
+ * the operands' own shapes, since a point outside any one operand's box is
+ * outside that operand entirely. An empty or non-overlapping list gives a
+ * zero rect at the first node's origin (never negative width/height).
+ */
+export function intersectBounds(nodes: readonly RotatedRect[]): Rect {
+  if (nodes.length === 0) return { ...EMPTY_RECT };
+  let x0 = -Infinity;
+  let y0 = -Infinity;
+  let x1 = Infinity;
+  let y1 = Infinity;
+  for (const node of nodes) {
+    const b = nodeBounds(node);
+    if (b.x > x0) x0 = b.x;
+    if (b.y > y0) y0 = b.y;
+    if (b.x + b.w < x1) x1 = b.x + b.w;
+    if (b.y + b.h < y1) y1 = b.y + b.h;
+  }
+  if (x1 < x0 || y1 < y0) return { x: x0, y: y0, w: 0, h: 0 };
+  return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+}
+
+/**
  * The box the selection overlay draws, in the nodes' shared space.
  *
  * A single node returns its own **unrotated** box: the overlay carries the

@@ -172,3 +172,39 @@ describe("the op through the grammar", () => {
     expect(booleanOps(scene, [scene.nodes[0]], "union")).toBeNull();
   });
 });
+
+describe("a boolean group's own box — never wider than what the operation can paint", () => {
+  it("subtract: the box is the bottom operand's alone, however far the subtractor reaches past it", () => {
+    // `b` (the subtractor) sticks out well past `a` on every side. Only `a`'s
+    // own area can ever remain after subtracting, so the group's box must
+    // stay exactly `a`'s — a naive union would balloon it out to `b`'s reach,
+    // stretching the group's own (pre-entry) selection outline past the one
+    // shape actually left visible.
+    const scene = parse(
+      '<nt-diagram w="600" h="600">\n  <nt-rect id="a" x="0" y="0" w="200" h="200"></nt-rect>\n  <nt-rect id="b" x="-100" y="-100" w="400" h="400"></nt-rect>\n</nt-diagram>',
+    );
+    const made = booleanOps(scene, scene.nodes, "subtract")!;
+    const g = findNode(applyOps(scene, made.ops), made.select[0]) as GroupNode;
+    expect(g).toMatchObject({ x: 0, y: 0, w: 200, h: 200 });
+  });
+
+  it("intersect: the box is the overlap of every operand's own box, never their union", () => {
+    const scene = parse(
+      '<nt-diagram w="600" h="600">\n  <nt-rect id="a" x="0" y="0" w="200" h="200"></nt-rect>\n  <nt-rect id="b" x="100" y="100" w="200" h="200"></nt-rect>\n</nt-diagram>',
+    );
+    const made = booleanOps(scene, scene.nodes, "intersect")!;
+    const g = findNode(applyOps(scene, made.ops), made.select[0]) as GroupNode;
+    expect(g).toMatchObject({ x: 100, y: 100, w: 100, h: 100 });
+  });
+
+  it("union and exclude keep the plain union of every operand's own box", () => {
+    const scene = parse(
+      '<nt-diagram w="600" h="600">\n  <nt-rect id="a" x="0" y="0" w="200" h="200"></nt-rect>\n  <nt-rect id="b" x="100" y="100" w="200" h="200"></nt-rect>\n</nt-diagram>',
+    );
+    for (const op of ["union", "exclude"] as const) {
+      const made = booleanOps(scene, scene.nodes, op)!;
+      const g = findNode(applyOps(scene, made.ops), made.select[0]) as GroupNode;
+      expect(g).toMatchObject({ x: 0, y: 0, w: 300, h: 300 });
+    }
+  });
+});
