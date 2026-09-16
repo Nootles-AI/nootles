@@ -21,7 +21,9 @@ import { project, type AnyBlock, type DocIndex } from "../projection";
 import type { ReviewSession } from "../review/session";
 import { blocksFromSnapshot, yReader } from "../snapshot";
 import { resolveBatch, warnRejected } from "../validate";
-import { noSuchPage, TOOLS } from "./tools";
+import { toCanvasHost } from "../canvas/chatHost";
+import { runCanvasTool } from "../canvas/execute";
+import { CANVAS_TOOLS, noSuchPage, TOOLS, type CanvasToolName, type ClientToolName } from "./tools";
 
 /** The surface the agent acts on: the page on screen, and its live editor. */
 export type ToolContext = {
@@ -92,9 +94,54 @@ export function expandRefs(html: string, drawings: ReadonlyMap<string, string>):
   return { html: out, missing };
 }
 
+/** One tool's browser-side body: parse `input`, do the work. */
+type Executor = (input: unknown, ctx: ToolContext) => Promise<unknown>;
+
 /**
- * The browser's half of the tool set.
+ * The browser's half of the tool set, one entry per {@link ClientToolName} —
+ * a registry rather than a `switch`, so `T3`'s completeness check
+ * (`app/lib/ai/canvas/tools.test.ts`) is a type error, not a runtime one, the
+ * moment a name is added to `CLIENT_TOOLS` without an executor here.
  *
+ * The 13 canvas tools share one shape: parse nothing themselves (their own
+ * zod schema is `TOOLS[name].inputSchema`, and `runCanvasTool` parses it),
+ * build a {@link CanvasHost} from this same `ctx`, and hand both to the one
+ * executor behind all of them (`app/lib/ai/canvas/execute.ts`).
+ */
+const CLIENT_EXECUTORS: Record<ClientToolName, Executor> = {
+  read_page: async (input, ctx) => {
+    const { pageId, expand } = TOOLS.read_page.inputSchema.parse(input);
+    return await readPage(ctx, pageId as Id<"pages">, expand);
+  },
+  open_page: async (input, ctx) => {
+    const { pageId } = TOOLS.open_page.inputSchema.parse(input);
+    return await openPage(ctx, pageId as Id<"pages">);
+  },
+  read_open_page: async (input, ctx) => {
+    const { expand } = TOOLS.read_open_page.inputSchema.parse(input ?? {});
+    return await readOpenPage(ctx, expand);
+  },
+  edit_page: async (input, ctx) => {
+    const { pageId, html, replacing } = TOOLS.edit_page.inputSchema.parse(input);
+    return await editPage(ctx, pageId as Id<"pages">, html, replacing);
+  },
+  album_edit: async (input, ctx) => {
+    const { pageId, blockId, ops } = TOOLS.album_edit.inputSchema.parse(input);
+    return await albumEdit(ctx, pageId as Id<"pages">, blockId, ops);
+  },
+  look_at: async (input, ctx) => {
+    const { blockId, items } = TOOLS.look_at.inputSchema.parse(input);
+    return await lookAt(ctx, blockId, items);
+  },
+  ...(Object.fromEntries(
+    CANVAS_TOOLS.map((name) => [
+      name,
+      (input: unknown, ctx: ToolContext) => runCanvasTool(name, input, toCanvasHost(ctx)),
+    ]),
+  ) as Record<CanvasToolName, Executor>),
+};
+
+/**
  * Inputs are re-validated here rather than trusted: the model's arguments have
  * only been checked against the schema the provider was given, and this side is
  * about to hand them to Convex.
@@ -104,34 +151,9 @@ export async function runClientTool(
   input: unknown,
   ctx: ToolContext,
 ): Promise<unknown> {
-  switch (name) {
-    case "read_page": {
-      const { pageId, expand } = TOOLS.read_page.inputSchema.parse(input);
-      return await readPage(ctx, pageId as Id<"pages">, expand);
-    }
-    case "open_page": {
-      const { pageId } = TOOLS.open_page.inputSchema.parse(input);
-      return await openPage(ctx, pageId as Id<"pages">);
-    }
-    case "read_open_page": {
-      const { expand } = TOOLS.read_open_page.inputSchema.parse(input ?? {});
-      return await readOpenPage(ctx, expand);
-    }
-    case "edit_page": {
-      const { pageId, html, replacing } = TOOLS.edit_page.inputSchema.parse(input);
-      return await editPage(ctx, pageId as Id<"pages">, html, replacing);
-    }
-    case "album_edit": {
-      const { pageId, blockId, ops } = TOOLS.album_edit.inputSchema.parse(input);
-      return await albumEdit(ctx, pageId as Id<"pages">, blockId, ops);
-    }
-    case "look_at": {
-      const { blockId, items } = TOOLS.look_at.inputSchema.parse(input);
-      return await lookAt(ctx, blockId, items);
-    }
-    default:
-      throw new Error(`No client tool named ${name}`);
-  }
+  const executor = (CLIENT_EXECUTORS as Record<string, Executor | undefined>)[name];
+  if (!executor) throw new Error(`No client tool named ${name}`);
+  return await executor(input, ctx);
 }
 
 /**
@@ -468,7 +490,7 @@ async function editPage(
  * translate, and only the ones the page actually has. Everything else becomes an
  * honest no, because a remedy that does not exist is worse than none.
  */
-function notApplied(errors: string[], index: DocIndex): string {
+export function notApplied(errors: string[], index: DocIndex): string {
   const known = new Set([...index.blocks.keys(), ...index.shapes.keys(), ...index.edges.keys()]);
   const named = [
     ...new Set(errors.flatMap((e) => [...e.matchAll(/⟦([^⟧]+)⟧/g)].map((m) => m[1]))),
@@ -569,7 +591,7 @@ async function readPage(
  * at version 743, document at 752). On the Yjs side it is snapshot chunks
  * plus the update tail, where order and overlap cannot matter.
  */
-async function storedBlocks(ctx: ToolContext, docId: string): Promise<AnyBlock[]> {
+export async function storedBlocks(ctx: ToolContext, docId: string): Promise<AnyBlock[]> {
   const state =
     process.env.NEXT_PUBLIC_YJS === "1"
       ? await ctx.convex.query(api.ydoc.state, { docId })
@@ -601,7 +623,7 @@ async function storedBlocks(ctx: ToolContext, docId: string): Promise<AnyBlock[]
  * outage rather than as the typo it is. An id from another project is the same
  * mistake with a different cause, and there is one way out of all of them.
  */
-async function fetchPage(ctx: ToolContext, pageId: Id<"pages">) {
+export async function fetchPage(ctx: ToolContext, pageId: Id<"pages">) {
   const page = await ctx.convex.query(api.pages.get, { pageId }).catch(() => null);
   if (!page || page.projectId !== ctx.projectId) throw new Error(noSuchPage(pageId));
   return page;

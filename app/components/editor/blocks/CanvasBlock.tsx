@@ -28,7 +28,7 @@ import { useCanvasUndoDomain } from "@/app/lib/history/canvasDomain";
 import { registerSurface } from "@/app/lib/history/surfaceRegistry";
 import { useWorkspaceHistory } from "@/app/lib/history/useWorkspaceHistory";
 import { useCurrentPage } from "@/app/components/OpenPageContext";
-import { peekSceneStore } from "../canvas/engine/useScene";
+import { peekSceneStore, sceneStoreKey } from "../canvas/engine/useScene";
 import { serializeScene } from "../canvas/scene/serialize";
 import type { Scene } from "../canvas/scene/types";
 import { CanvasSurface, type CanvasApi } from "../canvas/render/CanvasSurface";
@@ -127,7 +127,7 @@ function CanvasBlockView({
   // else the maps when they hold the diagram, else the prop. Pure read;
   // StrictMode may run it twice, harmlessly.
   const [seed] = useState(() => {
-    const held = peekSceneStore(`canvas:${blockId}`);
+    const held = peekSceneStore(sceneStoreKey(blockId));
     if (held) return held.seedSource();
     if (yDoc) {
       const root = yDoc.getMap<unknown>(canvasMapName(blockId));
@@ -297,6 +297,13 @@ function CanvasBlockView({
   useEffect(() => {
     if (!mine) writeMirror();
   }, [mine, writeMirror]);
+  // One stage per screen falls out of "one claimed canvas": claiming another
+  // block unclaims this one, and losing the shell resets its screen modes —
+  // pure view state, no scene write, so this costs nothing when `mine` never
+  // goes false for the life of the page.
+  useEffect(() => {
+    if (!mine) api.current?.screen.reset();
+  }, [mine]);
   useEffect(() => {
     const onHide = () => {
       if (document.visibilityState === "hidden") writeMirror();
@@ -439,7 +446,7 @@ function CanvasBlockView({
           <CanvasSurface
             source={surfaceSource}
             onChange={() => {}}
-            storeKey={`canvas:${blockId}`}
+            storeKey={sceneStoreKey(blockId)}
             readOnly
             // Captured so remote edits flow in and co-presence paints; a
             // viewer never claims the shell, so they never broadcast.
@@ -463,7 +470,7 @@ function CanvasBlockView({
         <CanvasSurface
           source={surfaceSource}
           onChange={surfaceChange}
-          storeKey={`canvas:${blockId}`}
+          storeKey={sceneStoreKey(blockId)}
           // Published once and withdrawn on unmount; either way it speaks for
           // this block only while this block holds the shell.
           onApi={(next) => {

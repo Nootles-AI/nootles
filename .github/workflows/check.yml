@@ -21,3 +21,32 @@ jobs:
       # convex/_generated is committed, so typechecking needs no deployment.
       - run: npx tsc --noEmit
       - run: npm run lint
+      - run: npm test # vitest run — now includes tests/canvas-fixtures.test.ts
+
+  # Correctness-only: zero scene notifications, identical DOM, layout
+  # agreement, xfail truthfulness, network guards. Timing is a local,
+  # per-machine gate (tests/canvas-camera.browser.mjs's own baseline file) —
+  # a shared CI runner's numbers are noise, not signal, so this job runs with
+  # the perf gate off and only uploads the artifact for trend-reading.
+  canvas-browser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:canvas:browser
+        env:
+          CANVAS_PERF_GATE: "off"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: canvas-browser-artifacts
+          path: tests/.artifacts/

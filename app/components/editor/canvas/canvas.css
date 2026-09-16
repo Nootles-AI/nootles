@@ -11,6 +11,14 @@
   --nt-select: #0d99ff;
 }
 
+/* The ground both the wrapper and the fixed stage viewport paint — one token
+   so the two never drift apart when the stage swaps which element is showing
+   it (§3.1 of STAGE: the viewport's own background still wins for an authored
+   diagram background, this is only the surface underneath it). */
+:root {
+  --nt-canvas-ground: oklch(0.974 0.002 90);
+}
+
 .nt-canvas {
   position: relative;
   width: 100%;
@@ -18,7 +26,7 @@
   border-radius: var(--radius-lg);
   /* A shade above `--sunken`: that tone is tuned for a small well, and over a
      field this large it reads as grey paper rather than as an empty surface. */
-  background: oklch(0.974 0.002 90);
+  background: var(--nt-canvas-ground);
 }
 .nt-editor .ProseMirror-selectednode .nt-canvas {
   box-shadow: inset 0 0 0 1px var(--border-strong);
@@ -72,6 +80,87 @@
 .nt-canvas-viewport.is-grabbing {
   cursor: grabbing;
 }
+/* The zoom tool (STAGE): native cursors, so it reads correctly at any DPR with
+   no asset of its own. Alt held toggles in on `data-zoom-out`, set imperatively
+   for the life of the tool — see `CanvasSurface`'s own effect. */
+.nt-canvas-viewport[data-tool="zoom"] {
+  cursor: zoom-in;
+}
+.nt-canvas-viewport[data-tool="zoom"][data-zoom-out] {
+  cursor: zoom-out;
+}
+
+/* ===== Screen modes (STAGE) ===============================================
+   The expanded stage: `.nt-canvas-viewport` — never the `.nt-canvas` wrapper,
+   which stays in flow as the block's own room in the document — becomes
+   fixed, filling the document column between the rails Workspace publishes
+   on `:root`. Minimal UI widens the same box to the full window by simply
+   letting `--nt-stage-l/r` go undefined there. Neither introduces a new
+   accent: `--nt-select` stays the canvas's only one. */
+.nt-canvas[data-stage] > .nt-canvas-viewport {
+  position: fixed;
+  inset: 0 var(--nt-stage-r, 0px) 0 var(--nt-stage-l, 0px);
+  z-index: var(--z-overlay);
+  border-radius: 0;
+  /* The diagram's own inline background (`surface`/`toCss`) still wins —
+     this only shows through where the scene has none. */
+  background: var(--nt-canvas-ground);
+}
+.nt-canvas[data-stage] > .nt-canvas-grip,
+.nt-canvas[data-stage] > .nt-canvas-grip-x {
+  display: none;
+}
+.nt-canvas[data-stage] .nt-canvas-hint {
+  display: none;
+}
+
+/* ===== Colour pick (COLOR) ================================================
+   The eyedropper's own cursor and hover pill. Neutral chrome throughout —
+   `--nt-select` stays the canvas's one sanctioned accent and is never used
+   here, even though a pick is itself an "answer to an input": the pill and
+   ring already say that by following the pointer, and the selection outline
+   they might land beside keeps its own, separate meaning. */
+
+/* Two attributes, deliberately: `data-tool` is unconditionally present
+   (`CanvasSurface.tsx` always renders it), so this selector's specificity —
+   class + two attributes — beats every `[data-tool="…"]` rule above
+   regardless of source order, whichever tool is still selected underneath a
+   pick session. */
+/* `panels/controls/glyphs.tsx`'s `Dropper`, scaled 1.5× (its 16×16 grid into
+   this cursor's 24×24 one) and drawn twice per stroke — a wide white pass
+   behind, the dark silhouette on top — so the pipette reads over a dark shape
+   the same way it does over a light one. The hotspot (3, 14 in the rendered
+   17×17 image) sits at the wedge nib's own point, the part that touches down;
+   the previous cursor's hotspot (1, 16) named a pixel outside the drawing
+   entirely, so the pick point and the pointer tip visibly disagreed. */
+.nt-canvas-viewport[data-tool][data-mode="color-pick"] {
+  cursor:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='17' height='17' viewBox='0 0 24 24'%3E%3Cpath d='M14.85 7.05 6.9 15' stroke='%23fff' stroke-width='4.5' stroke-linecap='round'/%3E%3Cpath d='M14.85 7.05 8.85 13.05' stroke='%23fff' stroke-width='4.5' stroke-linecap='round'/%3E%3Ccircle cx='16.95' cy='4.95' r='2.85' fill='%23fff' stroke='%23fff' stroke-width='2'/%3E%3Cpath d='M14.85 7.05 6.9 15' stroke='%231a1a1a' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round' fill='none'/%3E%3Cpath d='M14.85 7.05 8.85 13.05' stroke='%231a1a1a' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round' fill='none'/%3E%3Ccircle cx='16.95' cy='4.95' r='2.85' fill='none' stroke='%231a1a1a' stroke-width='1.6'/%3E%3Cpath d='M6.9 15 4.8 20.1a.75.75 0 0 0 .975.975L10.5 19.05Z' fill='%231a1a1a' stroke='%23fff' stroke-width='1.5' stroke-linejoin='round'/%3E%3C/svg%3E")
+      3 14,
+    crosshair;
+}
+
+/* Screen space, a child of the viewport (never the transformed scene layer),
+   so it never rotates or scales with the diagram and costs no re-render of
+   anything under it. */
+.nt-pick-pill {
+  position: absolute;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+  background: var(--background);
+  box-shadow: 0 1px 3px oklch(0.25 0.005 90 / 0.18);
+  font:
+    12px/1 ui-monospace,
+    monospace;
+  color: var(--foreground);
+  pointer-events: none;
+  white-space: nowrap;
+}
 
 /* The one transformed element. Every shape is absolutely positioned inside it,
    so pan and zoom are a single composited transform. */
@@ -122,6 +211,46 @@
 .nt-canvas-refit:hover {
   background: var(--hover);
   color: var(--foreground);
+}
+
+/* Expand/collapse to the stage — the storyboard's own per-shot chrome
+   (`.nt-sb-chrome`), reused here: top right, hidden until the pointer is
+   over the canvas, a small pill so it never competes with the drawing. */
+.nt-canvas-expand {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--elevated);
+  color: var(--muted);
+  opacity: 0;
+  box-shadow:
+    0 1px 2px oklch(0.25 0.005 90 / 0.05),
+    0 4px 12px oklch(0.25 0.005 90 / 0.08);
+  transition:
+    opacity var(--dur-fast) var(--ease),
+    background var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
+}
+.nt-canvas-viewport:hover .nt-canvas-expand,
+.nt-canvas-expand[aria-pressed="true"] {
+  opacity: 1;
+}
+.nt-canvas-expand:hover {
+  background: var(--hover);
+  color: var(--foreground);
+}
+/* Staged, the button rides the fixed viewport at its own new edge rather
+   than the block's — same reason `.nt-canvas-refit` and the grips do. */
+.nt-canvas[data-stage] .nt-canvas-expand {
+  top: 14px;
+  right: 14px;
 }
 
 /* Bottom edge: drag to set an explicit height, double-click to fit again. */
@@ -195,6 +324,46 @@
 }
 .nt-ctx .nt-menu-item:disabled:hover {
   background: transparent;
+}
+
+/* "Select layer ▸" submenu (SELECT). Neutral chrome only — no --nt-select
+   here; the canvas ring (.nt-ov-hover) is the accent that answers a hover. */
+.nt-ctx-sub {
+  max-height: min(60vh, 480px);
+  overflow-y: auto;
+  min-width: 220px;
+}
+.nt-ctx-sub-row {
+  gap: 8px;
+}
+.nt-ctx-glyph {
+  flex: none;
+  color: var(--muted);
+}
+.nt-ctx-sub-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nt-ctx-hint {
+  margin-left: auto;
+  padding-left: 12px;
+  font-size: var(--text-meta);
+  color: var(--muted);
+  white-space: nowrap;
+}
+.nt-ctx-chevron {
+  margin-left: auto;
+  color: var(--muted);
+}
+.nt-menu-item[aria-expanded="true"] {
+  background: var(--hover);
+}
+/* A row marking the node already selected: resting state, neutral — the
+   canvas ring is the answer. */
+.nt-ctx-sub-row[aria-current="true"] .nt-ctx-sub-name {
+  font-weight: 500;
 }
 
 /* ===== Toolbar ===========================================================

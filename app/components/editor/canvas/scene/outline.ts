@@ -6,10 +6,19 @@
  * operation does, since it has to clip one shape against another whatever
  * kind either of them is. The arc and polygon writers live here so the two
  * agree to the digit: what the renderer draws is what the boolean cuts.
+ *
+ * `flattenPath` (below) answers a different question over the same `d`
+ * strings — not "what is the outline" but "as straight segments, within a
+ * pixel of the curve" — needed by both `scene/boolean.ts` (a clipper only
+ * knows polygons) and `scene/picking.ts` (a hit test measures distance to a
+ * segment, not to a Bézier). It lives here rather than in either caller so
+ * the flattening the boolean's rings use and the flattening picking measures
+ * against are the same function, not two that could quietly drift.
  */
 
 import { unitPolygon } from "./geometry";
-import { arcOf, isArc, type Point, type SceneNode } from "./types";
+import { parseSubpaths, type Path } from "./path";
+import { arcOf, isArc, type Point, type SceneNode, type StyleMap } from "./types";
 
 const round = (n: number) => Math.round(n * 1000) / 1000;
 
@@ -20,7 +29,7 @@ const round = (n: number) => Math.round(n * 1000) / 1000;
 export function outlineOf(node: SceneNode): string | null {
   switch (node.kind) {
     case "rect":
-      return roundedRect(node.w, node.h, cornerRadius(node.style["border-radius"], node.w, node.h));
+      return boxOutline(node.w, node.h, node.style);
     case "ellipse": {
       const { w, h } = node;
       return isArc(node) ? arcPath(w, h, arcOf(node)) : whole([w / 2, h / 2], [w / 2, h / 2]);
@@ -48,11 +57,15 @@ export const straight = (points: readonly Point[]): string =>
 // ---------------------------------------------------------------------------
 
 /**
- * The one radius a boolean reads off a rect's `border-radius`: the shorthand's
- * first value, a percentage against the shorter side, capped where the two
- * arcs on a side would meet. Per-corner values are the box's affair.
+ * The one radius a box reads off its `border-radius`: the shorthand's first
+ * value, a percentage against the shorter side, capped where the two arcs on
+ * a side would meet. Per-corner values are the box's affair — `outlineOf` and
+ * `scene/picking.ts`'s rounded-box containment test (§4.1) both read only
+ * this one number, so a click and the boolean cutter agree on where a corner
+ * actually is (R5: a per-corner `border-radius` is approximated by its first
+ * value everywhere in this file).
  */
-function cornerRadius(value: string | undefined, w: number, h: number): number {
+export function cornerRadius(value: string | undefined, w: number, h: number): number {
   return Math.min(vertexRadius(value, w, h), w / 2, h / 2);
 }
 
@@ -61,6 +74,16 @@ function roundedRect(w: number, h: number, r: number): string {
   const rr = round(r);
   const arc = (x: number, y: number) => `A ${rr} ${rr} 0 0 1 ${round(x)} ${round(y)}`;
   return `M ${rr} 0 L ${round(w - r)} 0 ${arc(w, r)} L ${round(w)} ${round(h - r)} ${arc(w - r, h)} L ${rr} ${round(h)} ${arc(0, h - r)} L 0 ${rr} ${arc(r, 0)} Z`;
+}
+
+/**
+ * A box's outline **and** what `scene/picking.ts` clips a `overflow:hidden`
+ * group's children to — the rect a rect or a painted/clipping group draws,
+ * `cornerRadius` and all, in one place so the two never compute the radius
+ * two different ways.
+ */
+export function boxOutline(w: number, h: number, style: StyleMap): string {
+  return roundedRect(w, h, cornerRadius(style["border-radius"], w, h));
 }
 
 // ---------------------------------------------------------------------------
@@ -194,4 +217,96 @@ export function arcPath(
     return `M ${round(c[0])} ${round(c[1])} L ${polar(c, r, start)} ${outer} Z`;
   }
   return `M ${polar(c, r, start)} ${outer} L ${polar(c, hole, end)} A ${round(hole[0])} ${round(hole[1])} 0 ${large} ${1 - cw} ${polar(c, hole, start)} Z`;
+}
+
+// ---------------------------------------------------------------------------
+// Flattening — straight segments within a pixel of the curve
+// ---------------------------------------------------------------------------
+
+/** One subpath, flattened. `closed` is `parseSubpaths`'s own flag, carried
+ *  through rather than re-derived — a stroke on an open path has no closing
+ *  segment, and only the subpath itself knows whether it has one. */
+export type Polyline = { points: Point[]; closed: boolean };
+
+/** How far a chord may sit from its curve, in scene px — a boolean's clip and
+ *  a stroke hit test both read "the curve" through this, so one tolerance. */
+const FLATTEN_TOLERANCE = 0.1;
+const FLATTEN_MAX_DEPTH = 14;
+
+const midpoint = (a: Point, b: Point): Point => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+
+/** Whether the cubic's control points already sit within tolerance of the
+ *  chord `p0 → p3` — the stopping rule for the subdivision below. */
+function isFlatEnough(p0: Point, p1: Point, p2: Point, p3: Point): boolean {
+  const dx = p3.x - p0.x;
+  const dy = p3.y - p0.y;
+  const len = Math.hypot(dx, dy);
+  const off = (p: Point) =>
+    len < 1e-9
+      ? Math.hypot(p.x - p0.x, p.y - p0.y)
+      : Math.abs((p.x - p0.x) * dy - (p.y - p0.y) * dx) / len;
+  return off(p1) <= FLATTEN_TOLERANCE && off(p2) <= FLATTEN_TOLERANCE;
+}
+
+/** Adaptive de Casteljau subdivision: split until both control points sit on
+ *  the chord, or the depth budget runs out on a genuinely tight curve. */
+function subdivideCubic(p0: Point, p1: Point, p2: Point, p3: Point, out: Point[], depth: number): void {
+  if (depth >= FLATTEN_MAX_DEPTH || isFlatEnough(p0, p1, p2, p3)) {
+    out.push(p3);
+    return;
+  }
+  const p01 = midpoint(p0, p1);
+  const p12 = midpoint(p1, p2);
+  const p23 = midpoint(p2, p3);
+  const p012 = midpoint(p01, p12);
+  const p123 = midpoint(p12, p23);
+  const m = midpoint(p012, p123);
+  subdivideCubic(p0, p01, p012, m, out, depth + 1);
+  subdivideCubic(m, p123, p23, p3, out, depth + 1);
+}
+
+/** One subpath's anchors, flattened to points. A closed subpath's last
+ *  segment wraps from the final anchor back to the first; an open one stops
+ *  at the last anchor, with no segment back to the start. */
+function polylineOf(path: Path): Polyline {
+  const n = path.anchors.length;
+  if (n === 0) return { points: [], closed: path.closed };
+  const first = path.anchors[0].point;
+  const points: Point[] = [{ x: first.x, y: first.y }];
+  const segments = path.closed ? n : n - 1;
+  for (let i = 0; i < segments; i++) {
+    const a = path.anchors[i];
+    const b = path.anchors[(i + 1) % n];
+    subdivideCubic(
+      a.point,
+      { x: a.point.x + a.handleOut.x, y: a.point.y + a.handleOut.y },
+      { x: b.point.x + b.handleIn.x, y: b.point.y + b.handleIn.y },
+      b.point,
+      points,
+      0,
+    );
+  }
+  // A closed subpath's flattening lands back on the first point; the segment
+  // list implies the closure, so the duplicate is dropped.
+  const last = points[points.length - 1];
+  if (points.length > 1 && last.x === points[0].x && last.y === points[0].y) points.pop();
+  return { points, closed: path.closed };
+}
+
+/**
+ * Every subpath of `d`, flattened to straight segments within
+ * {@link FLATTEN_TOLERANCE} scene px of the curve they replace. Identical
+ * point output to `scene/boolean.ts`'s rings for a closed subpath — that
+ * module derives its `Ring`s from this — and, for an open one, the same
+ * points without the closing segment back to the start, so a stroke hit test
+ * never measures a segment the renderer never draws.
+ *
+ * A degenerate (0-anchor) subpath is dropped; a 1-anchor one yields a single
+ * point (`{points: [p], closed}`) — plausible input from a pen stroke of one
+ * click, and a caller measuring distance-to-a-point handles it for free.
+ */
+export function flattenPath(d: string): Polyline[] {
+  return parseSubpaths(d)
+    .map(polylineOf)
+    .filter((polyline) => polyline.points.length > 0);
 }

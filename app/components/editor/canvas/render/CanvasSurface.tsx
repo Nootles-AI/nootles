@@ -63,26 +63,31 @@ import { prepareBooleans, reflowBooleans, type LiveBooleans } from "./liveBoolea
 import { useTransformGesture,
   type LiveFrame,
 } from "../engine/gestures";
-import { useCanvasShortcuts, type CanvasTool } from "../engine/shortcuts";
+import { isModKey, useCanvasShortcuts, type CanvasTool } from "../engine/shortcuts";
+import { createScreenControl, recentre, type ScreenControl, type ScreenHost } from "../engine/screen";
 import type { SnapGuide } from "../engine/snapping";
+import { createSurfaceModes, type SurfaceModeContext, type SurfaceModes } from "../engine/surfaceMode";
 import { useScene, useSceneSnapshot, type SceneStore } from "../engine/useScene";
+import { ZOOM_DRAG_MIN, zoomToolResult } from "../engine/zoomTool";
 import {
   descends,
+  marqueeThroughTarget,
   useSelection,
   useSelectionStore,
   type ClickMods,
   type SelectionStore,
 } from "../engine/useSelection";
-import { useViewport, type ViewportController } from "../engine/useViewport";
+import { MAX_ZOOM, useViewport, type ViewportController } from "../engine/useViewport";
 import type { DiagramPatch } from "../panels/StylePanel";
 import { undoScope } from "@/app/lib/history/useWorkspaceHistory";
 import {
   absoluteBounds,
   absoluteSelectionBounds,
-  hitTestPath,
   normalizeRect,
+  toLocal,
   type RotatedRect,
 } from "../scene/geometry";
+import { hitTestPath, slopFor } from "../scene/picking";
 import { laidOutScene } from "../scene/autoLayout";
 import { revealBounds } from "../scene/reveal";
 import { mintId } from "../scene/ops";
@@ -151,7 +156,16 @@ function drag(
     if (!frame) frame = requestAnimationFrame(flush);
   };
   const up = (event: PointerEvent) => {
-    if (frame) cancelAnimationFrame(frame);
+    if (frame) {
+      // A pointerup that lands before the scheduled frame paints (a fast
+      // flick-release) must not just drop it — every caller reads its own
+      // state (the drawn box, the marquee rect, the pan offset) from what
+      // `onMove` last wrote, and skipping the flush leaves that state one
+      // frame stale, short of wherever the pointer actually ended up.
+      cancelAnimationFrame(frame);
+      frame = 0;
+      if (latest) onMove(latest);
+    }
     window.removeEventListener("pointermove", move);
     window.removeEventListener("pointerup", up);
     window.removeEventListener("pointercancel", up);
@@ -206,6 +220,19 @@ function overlapArea(a: Rect, b: Rect): number {
 }
 
 /**
+ * Whether `point` (scene space) falls inside `box` — the selection's own
+ * frame, rotation included, never just its paint. A single selected node's
+ * own geometry (a boolean operand left with nothing painted anywhere, once
+ * the operation is done with it, is the case this exists for) still has a
+ * real box the overlay draws handles on, and a press there has to mean "move
+ * this" the same way a press on a multi-selection's empty span already does.
+ */
+function withinSelectionBounds(point: Point, box: RotatedRect): boolean {
+  const local = toLocal(point, box);
+  return local.x >= 0 && local.x <= box.w && local.y >= 0 && local.y <= box.h;
+}
+
+/**
  * Every visible shape, unioned — the box the fit frames, and the same box the
  * wheel asks about before it decides a pan has nothing left to reveal.
  */
@@ -243,6 +270,41 @@ const FIT_ICON = (
     aria-hidden
   >
     <path d="M4 9V6a2 2 0 0 1 2-2h3M15 4h3a2 2 0 0 1 2 2v3M20 15v3a2 2 0 0 1-2 2h-3M9 20H6a2 2 0 0 1-2-2v-3" />
+  </svg>
+);
+
+/** Four corner brackets, straight — the un-rounded `FIT_ICON` family, at the
+ *  true corners rather than the content's. */
+const EXPAND_ICON = (
+  <svg
+    width="13"
+    height="13"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.9"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden
+  >
+    <path d="M3 9V3h6M15 3h6v6M21 15v6h-6M9 21H3v-6" />
+  </svg>
+);
+
+/** {@link EXPAND_ICON}'s own corners, drawn inset — the frame pulled back in. */
+const COLLAPSE_ICON = (
+  <svg
+    width="13"
+    height="13"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.9"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden
+  >
+    <path d="M7 11V7h4M13 7h4v4M17 13v4h-4M11 17H7v-4" />
   </svg>
 );
 
@@ -286,13 +348,68 @@ function Refit({
       type="button"
       className="nt-canvas-refit"
       // The canvas keeps its focus, and with it the keymap and the clipboard.
-      onPointerDown={(event) => event.preventDefault()}
+      onPointerDown={(event) => {
+        event.preventDefault();
+        // Now a child of `.nt-canvas-viewport` (so it stays visible over the
+        // stage's fixed viewport rather than the in-flow wrapper) — without
+        // this the press would also read as a click on the surface behind it.
+        event.stopPropagation();
+      }}
       onClick={onFrame}
     >
       {FIT_ICON}
       {/* Not "zoom to fit": this only appears when the diagram is off screen,
           and what the user wants back is the content, not a zoom level. */}
       Show content
+    </button>
+  );
+}
+
+/**
+ * A storyboard shot has its own "open full screen" chrome; a plain diagram
+ * had only the settings menu's "Stage" checkbox, which nobody finds by
+ * looking at the canvas. Same corner, same hover-reveal, same toggle
+ * `screen.toggle("stage")` already backs from the menu — this is just a
+ * second, visible door to it.
+ *
+ * Its own component, subscribed to `screen` on its own — not read in
+ * `CanvasSurface`'s own render — for the same reason {@link Refit} is: a
+ * `useSyncExternalStore` there would re-render the whole surface (and every
+ * memoised shape under it) on every stage toggle, not just this button. The
+ * canvas-stage gate's own zero-write assertions on leaving the stage are
+ * exactly what caught that the first time.
+ */
+function ExpandButton({
+  screen,
+  frameContent,
+}: {
+  screen: ScreenControl;
+  frameContent: () => void;
+}) {
+  const stage = useSyncExternalStore(
+    screen.subscribe,
+    () => screen.get().stage,
+    () => false,
+  );
+  return (
+    <button
+      type="button"
+      className="nt-canvas-expand"
+      aria-label={stage ? "Collapse canvas" : "Expand canvas"}
+      aria-pressed={stage}
+      onPointerDown={(event) => event.stopPropagation()}
+      onClick={() => {
+        const entering = !screen.get().stage;
+        screen.toggle("stage");
+        // `screen.toggle` itself keeps the settings menu's exact contract
+        // (the same scene point stays centred entering, and leaving
+        // restores the exact camera) — the fit-to-content this button adds
+        // is a separate step, after the toggle has already forced the
+        // container's layout to settle at its new size.
+        if (entering) frameContent();
+      }}
+    >
+      {stage ? COLLAPSE_ICON : EXPAND_ICON}
     </button>
   );
 }
@@ -320,6 +437,16 @@ export interface CanvasApi {
   store: SceneStore;
   selection: SelectionStore;
   viewport: ViewportController;
+  /**
+   * The exclusive pointer-mode slot (COLOR, shared with SELECT/STAGE) — see
+   * `engine/surfaceMode.ts`. A colour pick, a future layer-menu pick, or a
+   * zoom-tool drag registers a mode here instead of adding a parallel branch
+   * to this component's own pointer handlers.
+   */
+  modes: SurfaceModes;
+  /** Screen modes for this canvas (STAGE). `set` is a no-op on a read-only or
+   *  framed surface. */
+  screen: ScreenControl;
   tools: ToolControl;
   setTool(tool: CanvasTool): void;
   /** The diagram's own fields — `StylePanel`'s `onDiagramChange`. */
@@ -464,8 +591,200 @@ export function CanvasSurface({
   // and the one that carries the transform.
   const { containerRef, sceneRef } = viewport;
 
+  /**
+   * The exclusive pointer-mode slot (`CanvasApi.modes`). `modeCtx` is what
+   * every mode handler receives — built fresh on each call so a mode always
+   * sees the live scene/viewport rather than a stale render's closure — and
+   * is also what drives the registry's own Escape/document-keydown routing.
+   * `store`/`selection`/`viewport` are each created once per canvas (their
+   * own hooks' `useState` initializers), so this stays one registry for the
+   * life of the component.
+   */
+  const modeCtx = useCallback(
+    (): SurfaceModeContext => ({
+      store,
+      selection,
+      viewport,
+      container: () => containerRef.current,
+      scenePoint: (e) => viewport.clientToScene({ x: e.clientX, y: e.clientY }),
+      laid: () => laidOutScene(store.getScene()),
+    }),
+    [store, selection, viewport, containerRef],
+  );
+  const modes = useMemo(() => createSurfaceModes(modeCtx), [modeCtx]);
+  // Whatever a slice's mode is doing owns `data-mode` for its own CSS (the
+  // colour-pick cursor, `canvas.css`'s two-attribute selector) — a plain
+  // `useSyncExternalStore` snapshot, never a value this component computes.
+  const activeMode = useSyncExternalStore(modes.subscribe, modes.get, () => null);
+  // A mode left running past its canvas's own lifetime would leak listeners
+  // and, worse, keep answering pointer events nothing can see any more.
+  useEffect(() => () => modes.exit("unmounted"), [modes]);
+
   const wrap = useRef<HTMLDivElement>(null);
   const overlay = useRef<OverlayApi>(null);
+
+  // ---------------------------------------------------------------------
+  // Screen modes (STAGE): expanded stage, minimal UI, browser fullscreen.
+  // Pure view state — no scene op, no React state on the camera path. The
+  // host below is the only thing that touches the DOM for it; `wrap` and
+  // `containerRef` are refs, so its callbacks always read the live element
+  // even though the host object itself is built exactly once.
+  // ---------------------------------------------------------------------
+  const stageResize = useRef<ResizeObserver | null>(null);
+  const stageLastSize = useRef<{ w: number; h: number } | null>(null);
+  const stageWheelSwallow = useRef<((e: WheelEvent) => void) | null>(null);
+
+  const [screenHost] = useState<ScreenHost>(() => ({
+    // A storyboard shot's viewport is locked to its frame and a read-only
+    // surface has no toolbar to reach any of this from — both read here once,
+    // like `useViewport`'s own `locked` option, since neither ever flips for
+    // a mounted canvas.
+    enabled: !readOnly && !frame,
+    applyStage(on) {
+      const el = containerRef.current;
+      const wrapEl = wrap.current;
+      if (!el || !wrapEl) return;
+      const before = { w: el.clientWidth, h: el.clientHeight };
+      wrapEl.toggleAttribute("data-stage", on);
+      // The one forced layout per toggle: the attribute above just changed
+      // `.nt-canvas-viewport`'s `position`, and the container's own box only
+      // reflects that once the browser has recomputed it.
+      const after = { w: el.clientWidth, h: el.clientHeight };
+      viewport.set(recentre(viewport.get(), before, after));
+
+      stageResize.current?.disconnect();
+      stageResize.current = null;
+      if (stageWheelSwallow.current) {
+        wrapEl.removeEventListener("wheel", stageWheelSwallow.current);
+        stageWheelSwallow.current = null;
+      }
+
+      if (!on) {
+        // A real, reproducible Chromium quirk on exactly this transition
+        // (`position:fixed` → `position:absolute` via an ancestor attribute,
+        // confirmed by this canvas's own browser tests): the forced layout
+        // read above can still serve a stale containing-block size for `el`
+        // — `position` updates immediately but the resolved inset can lag by
+        // one rule generation, self-correcting only once something later
+        // gives the browser a further opportunity to settle. Entering gets
+        // that opportunity for free from the resize observer's own mandatory
+        // initial notification (below), which is why only leaving needs this:
+        // verify the real settled size shortly after, and issue one
+        // corrective `recentre` only if it actually differs. A browser that
+        // never hits the quirk pays one comparison and no extra `viewport.set`.
+        requestAnimationFrame(() => setTimeout(() => {
+          const real = { w: el.clientWidth, h: el.clientHeight };
+          if (real.w !== after.w || real.h !== after.h) {
+            viewport.set(recentre(viewport.get(), after, real));
+          }
+        }, 50));
+        return;
+      }
+
+      stageLastSize.current = after;
+      const observer = new ResizeObserver(() => {
+        const now = { w: el.clientWidth, h: el.clientHeight };
+        const last = stageLastSize.current ?? now;
+        viewport.set(recentre(viewport.get(), last, now));
+        stageLastSize.current = now;
+      });
+      observer.observe(el);
+      stageResize.current = observer;
+
+      // Whatever the viewport's own wheel handler declined (nothing left to
+      // reveal) must not fall through to the page scrolling under the stage.
+      const onWheel = (e: WheelEvent) => {
+        if (!e.defaultPrevented) e.preventDefault();
+      };
+      wrapEl.addEventListener("wheel", onWheel, { passive: false });
+      stageWheelSwallow.current = onWheel;
+
+      // A label being edited keeps its caret; otherwise the stage takes focus
+      // so the keymap and the clipboard are live the instant it opens.
+      if (!wrapEl.contains(document.activeElement)) {
+        el.focus({ preventScroll: true });
+      }
+
+      if (process.env.NODE_ENV !== "production") {
+        // A frame, then a short real delay — not a bare `requestAnimationFrame`.
+        // This is a dev-only diagnostic (never runs in production, and nobody
+        // times a devtools warning to the millisecond), so it can afford to
+        // wait out a compositor that has vsync decoupled from real display
+        // refresh — headless Chromium launched with `--disable-frame-rate-limit`,
+        // as this canvas's own browser test suite does — where a bare rAF can
+        // still fire a frame ahead of the layout this toggle just asked for.
+        // A genuine regression stays wrong regardless of how long this waits;
+        // only the false positive goes away.
+        requestAnimationFrame(() => setTimeout(() => {
+          const rect = el.getBoundingClientRect();
+          const style = getComputedStyle(document.documentElement);
+          const left = parseFloat(style.getPropertyValue("--nt-stage-l")) || 0;
+          const right = parseFloat(style.getPropertyValue("--nt-stage-r")) || 0;
+          const expected = {
+            top: 0,
+            left,
+            right: window.innerWidth - right,
+            bottom: window.innerHeight,
+          };
+          const within = (a: number, b: number) => Math.abs(a - b) <= 1;
+          if (
+            !within(rect.top, expected.top) ||
+            !within(rect.left, expected.left) ||
+            !within(rect.right, expected.right) ||
+            !within(rect.bottom, expected.bottom)
+          ) {
+            // Never throw — a layout regression elsewhere must not take the
+            // canvas down with it. This is the automated backstop for the
+            // layering proof in canvas.css's "Screen modes" section.
+            console.error(
+              "[stage] viewport rect does not match the fixed-position contract",
+              { rect, expected },
+            );
+          }
+        }, 50));
+      }
+    },
+    canFullscreen() {
+      return (
+        typeof document !== "undefined" &&
+        document.fullscreenEnabled === true &&
+        typeof document.documentElement.requestFullscreen === "function"
+      );
+    },
+    requestFullscreen() {
+      return document.documentElement.requestFullscreen();
+    },
+    exitFullscreen() {
+      return document.fullscreenElement ? document.exitFullscreen() : Promise.resolve();
+    },
+  }));
+  const [screen] = useState<ScreenControl>(() => createScreenControl(screenHost));
+
+  // The browser already left fullscreen (Esc, F11, a native chrome control):
+  // record it without asking the host to exit again — it already has.
+  useEffect(() => {
+    const onChange = () => {
+      if (screen.get().fullscreen && document.fullscreenElement === null) {
+        screen.sync({ fullscreen: false });
+      }
+    };
+    document.addEventListener("fullscreenchange", onChange);
+    // Captured once per mount, not read fresh in the cleanup below: the
+    // wrapper element does not change identity for the life of this canvas.
+    const wrapEl = wrap.current;
+    return () => {
+      document.removeEventListener("fullscreenchange", onChange);
+      // A canvas unmounting (another page opened) must not leave the whole
+      // window stuck in fullscreen for whatever replaces it.
+      if (screen.get().fullscreen && document.fullscreenElement) {
+        void document.exitFullscreen();
+      }
+      stageResize.current?.disconnect();
+      if (stageWheelSwallow.current) {
+        wrapEl?.removeEventListener("wheel", stageWheelSwallow.current);
+      }
+    };
+  }, [screen]);
 
   /**
    * The connector under the pointer. Local rather than in the selection store:
@@ -721,7 +1040,7 @@ export function CanvasSurface({
       // to its frame, and a connector joins nodes of a diagram — a storyboard's
       // relations are its shot order, not arrows. Refused here rather than in
       // the bar so the keymap's `h` and `c` cannot reach them either.
-      if (inFrame && (next === "hand" || next === "connector")) return;
+      if (inFrame && (next === "hand" || next === "connector" || next === "zoom")) return;
       setOpenPath(null);
       toolRef.current = next;
       setTool(next);
@@ -746,14 +1065,41 @@ export function CanvasSurface({
 
   const pathControl = useMemo(() => ({ set: setOpenPath }), []);
 
+  /** Enter on a text-bearing leaf: open its label, same as a double-click
+   *  would once inside its group — `setEditing` alone is enough (`ShapeView`
+   *  renders `LabelEdit` for `editingId === node.id`) and the keymap has
+   *  already confirmed the node is selected. */
+  const labelControl = useMemo(() => ({ open: (id: NodeId) => setEditing(id) }), []);
+
   useCanvasShortcuts({
     scene: store,
     selection,
     viewport,
     tool: toolControl,
     pathEdit: pathControl,
+    labelEdit: labelControl,
+    screen,
     enabled: !readOnly,
   });
+
+  // The Alt cursor for the zoom tool — imperative, so holding Alt costs no
+  // render. Armed only while the tool is actually selected.
+  useEffect(() => {
+    if (tool !== "zoom") return;
+    const el = viewport.containerRef.current;
+    if (!el) return;
+    const onKey = (e: KeyboardEvent) => el.toggleAttribute("data-zoom-out", e.altKey);
+    const onBlur = () => el.removeAttribute("data-zoom-out");
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("keyup", onKey);
+    window.addEventListener("blur", onBlur);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("keyup", onKey);
+      window.removeEventListener("blur", onBlur);
+      el.removeAttribute("data-zoom-out");
+    };
+  }, [tool, viewport]);
 
   const { open: openMenu, menu } = useContextMenu(store, selection);
 
@@ -812,6 +1158,8 @@ export function CanvasSurface({
       store,
       selection,
       viewport,
+      modes,
+      screen,
       tools: toolControl,
       setTool: changeTool,
       setDiagram,
@@ -823,6 +1171,8 @@ export function CanvasSurface({
       store,
       selection,
       viewport,
+      modes,
+      screen,
       toolControl,
       changeTool,
       reveal,
@@ -843,6 +1193,14 @@ export function CanvasSurface({
   const scenePoint = (event: { clientX: number; clientY: number }) =>
     viewport.clientToScene({ x: event.clientX, y: event.clientY });
 
+  /** Scene-px grab slop at the current zoom, packaged for a store call —
+   *  PICK's shared `slopFor` (§2.1/§9), so a click, a hover, a double-click
+   *  and the context menu never disagree about what counts as "on" a thin
+   *  stroke at the same pixel. Every pointer-anchored call below spreads
+   *  this rather than deriving its own tolerance (SELECT §1.4 — this *is*
+   *  that one shared helper, not a second tolerance closure). */
+  const pickOpts = () => ({ tolerance: slopFor(viewport.get().zoom) });
+
   const startPan = (from: { x: number; y: number }) => {
     const el = viewport.containerRef.current;
     el?.classList.add("is-grabbing");
@@ -860,16 +1218,67 @@ export function CanvasSurface({
     );
   };
 
-  const startMarquee = (origin: { x: number; y: number }, shift: boolean) => {
+  const startMarquee = (
+    origin: { x: number; y: number },
+    shift: boolean,
+    within?: NodeId,
+  ) => {
     drag(
       (event) => {
         const rect = normalizeRect(origin, scenePoint(event));
         overlay.current?.marquee(rect);
-        selection.marquee(rect, { shift });
+        selection.marquee(rect, { shift, within });
       },
       () => {
         busy.current = false;
         overlay.current?.marquee(null);
+      },
+    );
+  };
+
+  /** The container-relative (viewport px) point a pointer event landed at —
+   *  what `zoomToolResult`'s `down`/`up` want, distinct from the scene point
+   *  `scenePoint` gives every other gesture here. */
+  const viewportPoint = (event: { clientX: number; clientY: number }): Point => {
+    const rect = viewport.containerRef.current?.getBoundingClientRect();
+    return rect
+      ? { x: event.clientX - rect.left, y: event.clientY - rect.top }
+      : { x: event.clientX, y: event.clientY };
+  };
+
+  /**
+   * The zoom tool (Z): click zooms in about the press, Alt-click zooms out,
+   * a drag zooms to the region. `picking` is false for `"zoom"`, so hover,
+   * double-click and marquee-select are already off — this is the only
+   * pointer behaviour the tool has.
+   */
+  const startZoom = (event: ReactPointerEvent) => {
+    const down = viewportPoint(event);
+    const fromScene = scenePoint(event);
+    let toScene = fromScene;
+
+    drag(
+      (move) => {
+        toScene = scenePoint(move);
+        const travel = Math.hypot(move.clientX - event.clientX, move.clientY - event.clientY);
+        overlay.current?.marquee(
+          travel >= ZOOM_DRAG_MIN ? normalizeRect(fromScene, toScene) : null,
+        );
+      },
+      (up) => {
+        busy.current = false;
+        overlay.current?.marquee(null);
+        const result = zoomToolResult({
+          down,
+          up: viewportPoint(up),
+          fromScene,
+          toScene,
+          alt: up.altKey,
+        });
+        if (result.kind === "by") viewport.zoomBy(result.factor, result.anchor);
+        else if (result.kind === "fit") {
+          viewport.zoomToFit(result.rect, { padding: 0, maxZoom: MAX_ZOOM });
+        }
       },
     );
   };
@@ -978,6 +1387,18 @@ export function CanvasSurface({
 
   const onPointerDown = (event: ReactPointerEvent) => {
     if (event.button !== 0 || viewport.panState() !== "idle") return;
+    // A held mode (the eyedropper, today) sees every pointer event on the
+    // viewport before anything else here does — no focus, no selection, no
+    // gesture, no marquee, no draw. Checked before `readOnly` too: a mode
+    // does not know or care whether the canvas is read-only, by construction
+    // (§2.1 of COLOR — a colour is a colour either way; the only mode that
+    // exists today, the eyedropper, is never offered on a read-only canvas
+    // because its own trigger requires a mutable destination).
+    const mode = activeMode;
+    if (mode) {
+      mode.onPointerDown?.(event.nativeEvent, modeCtx());
+      return;
+    }
     // Every branch below either captures the pointer or suppresses the default
     // drag, both of which would otherwise cost the canvas its focus — and with
     // it the keymap and the clipboard.
@@ -988,6 +1409,16 @@ export function CanvasSurface({
     if (tool === "hand") {
       event.preventDefault();
       startPan({ x: event.clientX, y: event.clientY });
+      return;
+    }
+
+    // A colour-pick session (COLOR) already returned above, before this
+    // branch — a mode wins over the zoom tool while it is active, which is
+    // this file's one documented case of that ordering (build-plan OQ-6):
+    // you cannot sensibly draw a zoom-marquee while the eyedropper is up.
+    if (tool === "zoom") {
+      event.preventDefault();
+      startZoom(event);
       return;
     }
 
@@ -1020,27 +1451,41 @@ export function CanvasSurface({
     // multi-selection; no drag; and an empty click clears rather than starting
     // a marquee.
     if (readOnly) {
-      selection.click(point, { deep: true });
+      selection.click(point, { deep: true, ...pickOpts() });
       busy.current = false;
       return;
     }
 
-    const mods: ClickMods = { shift: event.shiftKey, deep: event.altKey };
-    const hit = selection.probe(point, mods);
-    const bounds = sel.selectionBounds;
+    // Deep select is the platform's Mod (⌘ on Apple, Ctrl elsewhere) — Alt is
+    // fully released to duplicate-on-drag only (`gestures.ts`'s own
+    // `mods.alt`, untouched here).
+    const deep = isModKey(event);
+    const mods: ClickMods = { shift: event.shiftKey, deep, ...pickOpts() };
+    const resolved = selection.resolveAt(point, mods);
+    const hit = resolved.target?.id ?? null;
+
+    // ⌘-drag through a frame: decided from the same walk `probe` would have
+    // done (one `hitTestAll`, not two — `resolveAt` hands back the candidate
+    // list `marqueeThroughTarget` reads), and evaluated BEFORE any selection
+    // change or move-vs-marquee branching below — independent of whether the
+    // frame is already selected. Figma's Cmd/Ctrl-drag unconditionally means
+    // "select within, don't move the container".
+    const through = marqueeThroughTarget(resolved, { deep, shift: event.shiftKey });
+    if (through) {
+      event.preventDefault();
+      startMarquee(point, false, through);
+      return;
+    }
+
     const onSelection =
       hit !== null
         ? selection.isSelected(hit)
-        : sel.ids.length > 1 &&
-          point.x >= bounds.x &&
-          point.x <= bounds.x + bounds.w &&
-          point.y >= bounds.y &&
-          point.y <= bounds.y + bounds.h;
+        : sel.ids.length > 0 && withinSelectionBounds(point, sel.selectionBounds);
 
-    // Figma's rule: a press anywhere on the selection — a selected shape, or
-    // the empty span of a multi-selection's box — drags all of it. What the
-    // click *means* for the selection (collapse to the hit, shift-toggle it
-    // out, deselect) waits for release, and only happens if no drag started.
+    // Figma's rule: a press anywhere on the selection's own box — painted or
+    // not, one shape or several — drags all of it. What the click *means*
+    // for the selection (collapse to the hit, shift-toggle it out, deselect)
+    // waits for release, and only happens if no drag started.
     if (onSelection) {
       busy.current = false;
       clickOnRelease(point, mods);
@@ -1089,19 +1534,24 @@ export function CanvasSurface({
   useEffect(() => dropHover, [dropHover]);
 
   const onPointerMove = (event: ReactPointerEvent) => {
+    if (activeMode) {
+      activeMode.onPointerMove?.(event.nativeEvent, modeCtx());
+      return;
+    }
     if (busy.current || !picking || editPath || gesture.isActive()) return;
     hoverAt.current = {
       clientX: event.clientX,
       clientY: event.clientY,
       // Deep read-only for the same reason the click is: the ring has to
-      // promise what the click will actually take.
-      deep: readOnly || event.altKey,
+      // promise what the click will actually take. Mod, not Alt — Alt is
+      // released to duplicate-on-drag only.
+      deep: readOnly || isModKey(event),
     };
     if (hoverFrame.current) return;
     hoverFrame.current = requestAnimationFrame(() => {
       hoverFrame.current = 0;
       const at = hoverAt.current;
-      if (at) selection.hover(scenePoint(at), { deep: at.deep });
+      if (at) selection.hover(scenePoint(at), { deep: at.deep, ...pickOpts() });
     });
   };
 
@@ -1113,14 +1563,16 @@ export function CanvasSurface({
    * nothing at all; shapes come from the toolbar.
    */
   const onDoubleClick = (event: ReactMouseEvent) => {
+    if (activeMode) return;
     if (!picking || editPath) return;
     const wanted = asked.current;
     asked.current = null;
     const point = scenePoint(event);
-    const chain = hitTestPath(laid, point);
+    const opts = pickOpts();
+    const chain = hitTestPath(laid, point, opts);
     if (chain.length === 0) return;
     const descending = descends(sel.enteredPath, chain);
-    selection.enter(point);
+    selection.enter(point, opts);
     if (descending) return;
     const ids = selection.getSnapshot().ids;
     if (ids.length !== 1) return;
@@ -1131,19 +1583,28 @@ export function CanvasSurface({
 
   const onContextMenu = (event: ReactMouseEvent) => {
     event.preventDefault();
+    // The menu (and the right-click pre-select it would otherwise do) is
+    // suppressed for the whole session — a colour pick's own pointerdown
+    // handler already ignores anything but the left button.
+    if (activeMode) return;
     viewport.containerRef.current?.focus({ preventScroll: true });
     const point = scenePoint(event);
-    const chain = hitTestPath(laid, point);
+    const layers = selection.candidates(point, pickOpts());
     // Nothing under the pointer: every entry would be dead, so this is a
     // deselect rather than a menu.
-    if (chain.length === 0) {
+    if (layers.length === 0) {
       selection.clear();
       return;
     }
-    if (!chain.some((node) => selection.isSelected(node.id))) {
-      selection.click(point);
+    const layersOnly = isModKey(event);
+    // Frontmost candidate only: a selected shape occluded behind the one the
+    // user visibly clicked must not suppress the pre-select — a left-click
+    // at the same point would select the frontmost shape, and right-click
+    // must agree.
+    if (!layersOnly && !(layers[0]?.chain.some((n) => selection.isSelected(n.id)) ?? false)) {
+      selection.click(point, pickOpts());
     }
-    openMenu(event);
+    openMenu(event, { layers, layersOnly });
   };
 
   /**
@@ -1313,11 +1774,16 @@ export function CanvasSurface({
         className="nt-canvas-viewport"
         style={surface}
         data-tool={tool}
+        data-mode={activeMode?.id}
         tabIndex={0}
         onFocus={publish}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerLeave={() => {
+          if (activeMode) {
+            activeMode.onPointerLeave?.(modeCtx());
+            return;
+          }
           dropHover();
           selection.hover(null);
         }}
@@ -1371,11 +1837,17 @@ export function CanvasSurface({
             in runs, and re-picking the tool for each one would make the run
             the expensive part. The new edge is selected as it lands, and
             Escape is the way back to the move tool. */}
-        {tool === "connector" && (
+        {/* Neither overlay is offered while a mode (the eyedropper, today)
+            owns the pointer — both cover the whole viewport with their own
+            handlers, and a pick click landing on one would add an anchor or
+            start an edge instead of resolving the pick. Not rendering them
+            at all is simpler and more certain than teaching either overlay
+            about `data-mode` itself. */}
+        {!activeMode && tool === "connector" && (
           <ConnectorTool store={store} viewport={viewport} selection={selection} />
         )}
 
-        {(tool === "pen" || editPath) && (
+        {!activeMode && (tool === "pen" || editPath) && (
           <PenTool
             // The anchor list is read from the node once, on mount, so a change
             // of subject is a change of component.
@@ -1390,6 +1862,14 @@ export function CanvasSurface({
         {scene.nodes.length === 0 && !readOnly && !frame && (
           <p className="nt-canvas-hint">Pick a shape from the toolbar</p>
         )}
+
+        {/* Inside the viewport (not the wrapper), so it stays visible over
+            the stage's fixed viewport rather than the in-flow wrapper that
+            stays behind it — its own `stopPropagation` keeps a press on it
+            from also reading as a click on the surface underneath. */}
+        <Refit viewport={viewport} bounds={contentBounds} onFrame={frameContent} />
+
+        {!readOnly && !frame && <ExpandButton screen={screen} frameContent={frameContent} />}
       </div>
 
       {!readOnly && !frame && (
@@ -1412,8 +1892,6 @@ export function CanvasSurface({
           />
         </>
       )}
-
-      <Refit viewport={viewport} bounds={contentBounds} onFrame={frameContent} />
 
       {menu}
     </div>

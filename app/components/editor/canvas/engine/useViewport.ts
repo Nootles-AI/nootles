@@ -82,6 +82,11 @@ import type { Point, Rect, Viewport } from "../scene/types";
 export const MIN_ZOOM = 0.1;
 export const MAX_ZOOM = 8;
 
+/** How far ⌘+/− and the zoom menu's in/out step, per press. Shared with the
+ *  zoom tool's own, larger `ZOOM_TOOL_FACTOR` (`engine/zoomTool.ts`) — a tool
+ *  is for jumping, the key is for stepping. */
+export const ZOOM_STEP = 1.25;
+
 /** Screen px left around the content by {@link ViewportController.zoomToFit}. */
 const FIT_PADDING = 32;
 

@@ -48,6 +48,7 @@ import { pathStyleOf } from "./paint";
 import {
   absoluteRect,
   absoluteRotation,
+  intersectBounds,
   nodeBounds,
   normalizeAngle,
   rotateAround,
@@ -85,6 +86,7 @@ import {
   type StylePatch,
   type ZTarget,
   isBoolean,
+  isReservedAttr,
   type BooleanOp,
 } from "./types";
 
@@ -108,6 +110,8 @@ export function applyOp(scene: Scene, op: SceneOp): Scene {
       return setStyle(scene, op.ids, op.decls);
     case "setLabel":
       return setLabel(scene, op.id, op.label);
+    case "setAttrs":
+      return setAttrs(scene, op.id, op.attrs);
     case "setSrc":
       return setSrc(scene, op.id, op.src);
     case "setName":
@@ -506,6 +510,33 @@ export function setName(
   );
 }
 
+/**
+ * Merge into a node's `attrs`, the same shape {@link mergeStyle} gives
+ * `style` — `undefined` removes a key. A key that {@link isReservedAttr} for
+ * this node's kind is dropped from the patch rather than merged: `attrs` is
+ * defined as "everything outside the reserved/kind vocabulary", so writing
+ * `x` or `sides` through here would create a second, silently-ignored copy of
+ * a field the node already models explicitly.
+ */
+export function setAttrs(
+  scene: Scene,
+  id: NodeId,
+  attrs: Record<string, string | undefined>,
+): Scene {
+  if (!Object.keys(attrs).length) return scene;
+  return withNodes(
+    scene,
+    mapTree(scene.nodes, new Set([id]), (node) => {
+      const patch: StylePatch = {};
+      for (const [key, value] of Object.entries(attrs)) {
+        if (!isReservedAttr(key, node.kind)) patch[key] = value;
+      }
+      const next = mergeStyle(node.attrs, patch);
+      return next === node.attrs ? node : { ...node, attrs: next };
+    }),
+  );
+}
+
 export function setLocked(
   scene: Scene,
   ids: readonly NodeId[],
@@ -751,9 +782,22 @@ export function groupNodes(
   // A boolean's members are all operands: the rect that encloses the rest is
   // the very shape the others cut, not a frame to absorb.
   const frame = op ? null : frameOf(members, bounds);
+  const unrotated = members.map((node) => ({ ...bounds.get(node.id)!, rot: 0 }));
+  // The box is the operation's own — never wider than what it can actually
+  // paint. `union`/`exclude` can show area from any operand, so their box is
+  // still the plain union; `subtract` can only ever remove area from its
+  // first (bottom) operand — `combine()`'s own `first` — never show more of
+  // a later one; `intersect` can only paint where every operand's own box
+  // already overlaps. Without this, a subtractor larger than the shape it
+  // cuts stretched the group's own selection outline — drawn from this box,
+  // before it is entered — well past the one shape actually left visible.
   const box = frame
     ? bounds.get(frame.id)!
-    : unionBounds(members.map((node) => ({ ...bounds.get(node.id)!, rot: 0 })));
+    : op === "subtract"
+      ? unrotated[0]
+      : op === "intersect"
+        ? intersectBounds(unrotated)
+        : unionBounds(unrotated);
 
   const siblings = parentId === null ? scene.nodes : childrenOf(scene, parentId);
   const at = siblings.indexOf(front);

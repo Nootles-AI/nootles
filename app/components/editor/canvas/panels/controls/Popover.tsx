@@ -8,6 +8,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { useColorPick } from "./colorPick";
 
 /**
  * An anchored panel whose contents are a widget rather than a list of commands.
@@ -21,6 +22,15 @@ export function Popover({
   children,
   label,
   width,
+  /**
+   * Whether this popover's scrim goes inert (`pointer-events: none`) while a
+   * colour-pick session (COLOR) is active, so a click on the canvas resolves
+   * the pick instead of the scrim reading it as "close" first. Default
+   * `true` — a `ColorField`/`GradientField` popover needs this; a popover
+   * with nothing to do with colour can pass `false` to skip subscribing to
+   * the pick-session store at all.
+   */
+  shield = true,
 }: {
   trigger: (props: {
     ref: React.Ref<HTMLButtonElement>;
@@ -31,6 +41,7 @@ export function Popover({
   children: (close: () => void) => ReactNode;
   label: string;
   width: number;
+  shield?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -76,11 +87,7 @@ export function Popover({
       })}
       {open && (
         <>
-          <div
-            className="fixed inset-0"
-            style={{ zIndex: "var(--z-dropdown)" }}
-            onMouseDown={close}
-          />
+          {shield ? <ShieldedScrim onClose={close} /> : <div className="fixed inset-0" style={{ zIndex: "var(--z-dropdown)" }} onMouseDown={close} />}
           <div
             ref={panelRef}
             role="dialog"
@@ -99,5 +106,23 @@ export function Popover({
         </>
       )}
     </>
+  );
+}
+
+/**
+ * The scrim, for a popover that cares whether a colour-pick session is up.
+ * Split into its own component so a `shield={false}` popover never mounts
+ * `useColorPick`'s subscription at all — most of the panel's popovers (a
+ * number field's stepper, a select) have nothing to do with picking and
+ * should not re-render every time one starts or ends elsewhere.
+ */
+function ShieldedScrim({ onClose }: { onClose: () => void }) {
+  const pick = useColorPick();
+  return (
+    <div
+      className={`fixed inset-0 nt-ctl-scrim${pick.active ? " is-picking" : ""}`}
+      style={{ zIndex: "var(--z-dropdown)" }}
+      onMouseDown={pick.active ? undefined : onClose}
+    />
   );
 }

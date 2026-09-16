@@ -294,6 +294,37 @@ export function Eye({ off, ...props }: Props & { off?: boolean }) {
   );
 }
 
+/* ---- Colour pick (COLOR) -------------------------------------------------- */
+
+/** The canvas eyedropper: a round bulb, an angled tube, a wedge nib — the
+ *  pipette silhouette every design tool draws for this, matching the cursor
+ *  drawn in `canvas.css` for `data-mode="color-pick"` at 1.5×, same shape,
+ *  two places. The previous version's tube-plus-tick-mark near the tip read
+ *  as a pencil's own written line, not a dropper; this one doesn't have one. */
+export function Dropper(props: Props) {
+  return (
+    <Line {...props}>
+      <circle cx="11.3" cy="3.3" r="1.9" />
+      <path d="M9.9 4.7 4.6 10Z" />
+      <path d="M9.9 4.7 5.9 8.7" />
+      <path d="M4.6 10 3.2 13.4a.5.5 0 0 0 .65.65L7 12.7Z" fill="currentColor" stroke="none" />
+    </Line>
+  );
+}
+
+/** Screen sample (`EyeDropper.open()`): a small display with the sampled
+ *  pixel marked — deliberately distinct from {@link Dropper}'s pipette so the
+ *  two buttons never look like the same action. */
+export function Sampler(props: Props) {
+  return (
+    <Line {...props}>
+      <rect x="2.2" y="3" width="11.6" height="8.2" rx="1.2" />
+      <path d="M6 13.6h4" />
+      <circle cx="8" cy="7.1" r="1.3" fill="currentColor" stroke="none" />
+    </Line>
+  );
+}
+
 /* ---- Stroke ------------------------------------------------------------- */
 
 /** Not a "W": that letter is already Width, two sections up. */

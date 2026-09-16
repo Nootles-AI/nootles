@@ -221,7 +221,10 @@ function albumStub(block: AnyBlock): string {
   )}${attr("w", album.w)}></nt-album>`;
 }
 
-function findBlock(blocks: AnyBlock[], id: string): AnyBlock | null {
+/** Exported for `app/lib/ai/canvas/chatHost.ts`'s `readScene` — the tools'
+ *  own tree-walker for "the block with this id", reused rather than
+ *  reinvented (build-plan review finding #2). */
+export function findBlock(blocks: AnyBlock[], id: string): AnyBlock | null {
   for (const b of blocks) {
     if (b.id === id) return b;
     const hit = b.children?.length ? findBlock(b.children, id) : null;

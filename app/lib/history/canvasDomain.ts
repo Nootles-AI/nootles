@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import type { SceneStore } from "@/app/components/editor/canvas/engine/useScene";
+import { sceneStoreKey, type SceneStore } from "@/app/components/editor/canvas/engine/useScene";
 import type { DomainStep, WorkspaceHistory } from "./spine";
 
 /**
@@ -16,7 +16,7 @@ import type { DomainStep, WorkspaceHistory } from "./spine";
  * redo refuse while a gesture bracket is open, which is exactly "blocked".
  */
 export function canvasDomainId(blockId: string, shotId?: string): string {
-  return shotId ? `canvas:${blockId}:${shotId}` : `canvas:${blockId}`;
+  return shotId ? `canvas:${blockId}:${shotId}` : sceneStoreKey(blockId);
 }
 
 export function useCanvasUndoDomain(

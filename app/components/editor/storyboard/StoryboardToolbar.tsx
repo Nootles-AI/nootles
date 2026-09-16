@@ -35,9 +35,11 @@ import { RATIOS, type Ratio } from "./types";
  * own two verbs.
  */
 
-/** The pill's tools, minus the two a shot has no use for. */
+/** The pill's tools, minus the ones a shot has no use for: hand and connector
+ *  (a board's relations are its shot order, not arrows), and zoom (a shot is
+ *  a fixed frame at the size its column gives it — nothing to zoom into). */
 const SHOT_TOOLS = TOOLS.filter(
-  ({ tool }) => tool !== "hand" && tool !== "connector",
+  ({ tool }) => tool !== "hand" && tool !== "connector" && tool !== "zoom",
 );
 
 /** Three panels and a plus: another shot. Drawn at the tools' weight. */

@@ -670,7 +670,14 @@ function startRadiusDrag(
 
   const end = (cancelled: boolean) => {
     detach();
-    if (raf) cancelAnimationFrame(raf);
+    if (raf) {
+      // Same race as the transform gesture's `finish`: a pointerup that beats
+      // the scheduled frame must not drop it, or the commit below reads the
+      // second-to-last position instead of where the pointer actually is.
+      cancelAnimationFrame(raf);
+      raf = 0;
+      if (!cancelled) paint();
+    }
     // Put the inline write back: `border-radius` may not be among the style
     // props React renders, in which case nothing else would ever clear it.
     el.style.borderRadius = restore;
@@ -1529,7 +1536,16 @@ function finish(
   o: TransformGestureOptions,
   cancelled: boolean,
 ) {
-  if (session.raf) cancelAnimationFrame(session.raf);
+  if (session.raf) {
+    // A pointerup that lands before the scheduled frame paints (a fast
+    // flick-release, or a main thread busy enough to miss a vsync) must not
+    // just drop that frame — `runFrame` is what flips `session.active` once
+    // the drag threshold is crossed, and skipping it here reads a genuine
+    // drag as a no-op click, silently discarding the whole gesture.
+    cancelAnimationFrame(session.raf);
+    session.raf = 0;
+    if (!cancelled) runFrame(session, o);
+  }
   session.detach();
   removeGhosts(session);
 

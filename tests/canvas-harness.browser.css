@@ -1,0 +1,36 @@
+/* The harness page's own shell — everything a runner needs that
+   `CanvasSurface` itself has no reason to provide.
+
+   `#app` fills the window with a 40px top gutter: several picking probes
+   reset hover by moving the pointer to a point that is provably off the
+   canvas (§3.2.2's between-probes protocol), and (20, 20) only qualifies
+   because the viewport starts below it. */
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #fff;
+}
+#app {
+  position: absolute;
+  top: 40px;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  overflow: hidden;
+}
+
+/* `mount()` asks for an exact width/height regardless of what the mounted
+   fixture would otherwise size itself to — `CanvasSurface` derives its own
+   height from the scene (`sceneBlockHeight`) and its width from 100% of its
+   parent. An `!important` rule is the only way to win against the
+   component's own inline `style={{height}}` without touching its source;
+   the CSS cascade gives a stylesheet's `!important` declaration priority
+   over ANY non-important inline style, so this holds across every re-render. */
+.nt-harness-sized .nt-canvas {
+  width: var(--nt-harness-w) !important;
+  height: var(--nt-harness-h) !important;
+  margin: 0 !important;
+  border-radius: 0 !important;
+}
