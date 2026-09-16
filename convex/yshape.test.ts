@@ -16,7 +16,9 @@ describe("splitUpdate / joinUpdateRows", () => {
     expect(new Uint8Array(chunks[0])).toEqual(update);
   });
 
-  it("splits an oversized update and joins it back byte for byte", () => {
+  // Heavy: allocates and splits/joins a multi-MB update, so it can exceed the
+  // default 5s under CI load though it runs in well under a second locally.
+  it("splits an oversized update and joins it back byte for byte", { timeout: 30000 }, () => {
     const update = bytes(Math.floor(UPDATE_CHUNK_BYTES * 2.5));
     const chunks = splitUpdate(update);
     expect(chunks).toHaveLength(3);

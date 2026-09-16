@@ -464,12 +464,18 @@ type EditorProps = {
 const YJS_ON = process.env.NEXT_PUBLIC_YJS === "1";
 
 /**
- * Step 13 — serve the canonical NML tree in the editor. Off in production, so
- * the `nmlAuthority` query is never even issued and this file behaves exactly as
- * before. When on, only a migrated, server-verified, in-cohort document is
- * served NML; everything else stays on the legacy editor.
+ * Step 13 — serve the canonical NML tree in the editor. The master switch lives
+ * in Convex (`nmlServeEnabled`, flipped by `setNmlServe`), not a `NEXT_PUBLIC_*`
+ * build flag, so an operator turns serving on/off live in prod with no Vercel
+ * change or rebuild — and off remounts every served editor back onto legacy on
+ * the next query tick. Off by default: while it is off the per-doc `nmlAuthority`
+ * query is never issued and this file behaves exactly as before. When on, only a
+ * migrated, server-verified, in-cohort document is served; everything else stays
+ * on the legacy editor.
  */
-const NML_SERVE = process.env.NEXT_PUBLIC_NML_SERVE === "1";
+function useServeEnabled(): boolean {
+  return useQuery(api.nmlMigration.nmlServeEnabled, YJS_ON ? {} : "skip") ?? false;
+}
 
 const EXTENSIONS = [
   completionExtension,
@@ -520,13 +526,14 @@ export function Editor(props: EditorProps) {
   // Whether the canonical NML root is cleared to be served (migrated, in-cohort,
   // and server-verified). Only asked when the flag is on, so production issues
   // no extra query and the branch below is never taken.
+  const serveEnabled = useServeEnabled();
   const authority = useQuery(
     api.nmlMigration.nmlAuthority,
-    NML_SERVE && YJS_ON ? { docId: props.docId } : "skip",
+    serveEnabled ? { docId: props.docId } : "skip",
   );
   if (!YJS_ON) return <LegacyEditor {...props} />;
   if (meta === undefined) return placeholder;
-  if (NML_SERVE && authority?.serve) {
+  if (serveEnabled && authority?.serve) {
     return <NmlServedEditor docId={props.docId} pageId={props.pageId} />;
   }
   if (meta !== null) return <YjsEditor {...props} />;
@@ -575,7 +582,7 @@ function YjsEditor({ docId, pageId, title = "", mode = "create" }: EditorProps) 
     () => (editor ? (editor.document as unknown as LegacyBlock[]) : null),
     [editor],
   );
-  useNmlMigration(NML_SERVE, docId, getBlocks);
+  useNmlMigration(useServeEnabled(), docId, getBlocks);
   if (!editor) return placeholder;
   return (
     <EditorSurface

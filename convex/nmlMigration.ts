@@ -100,7 +100,24 @@ async function collectStoredUpdates(
   return { updates };
 }
 
-/** Whether a document is covered by the migration cohort (by doc or by project). */
+/**
+ * Is this Clerk subject on the internal-owner allowlist? A listed subject's
+ * documents are all migration-eligible (owned-only), current and future.
+ * `.first()`, not `.unique()`: a benign concurrent double-add can leave two rows
+ * for one subject, and eligibility must not throw on that.
+ */
+async function isInternalOwner(ctx: QueryCtx, subject: string): Promise<boolean> {
+  const row = await ctx.db
+    .query("internalOwners")
+    .withIndex("by_subject", (q) => q.eq("subject", subject))
+    .first();
+  return row !== null;
+}
+
+/**
+ * Whether a document is eligible to migrate — covered by the cohort (by doc or
+ * by project) or owned by an internal subject.
+ */
 async function eligible(ctx: QueryCtx, docId: string): Promise<boolean> {
   // `.first()`, not `.unique()`: a benign concurrent double-add can leave two
   // rows for one key, and eligibility must not throw on that.
@@ -111,6 +128,11 @@ async function eligible(ctx: QueryCtx, docId: string): Promise<boolean> {
   if (byDoc) return true;
   const page = await pageForDoc(ctx, docId);
   if (!page) return false;
+  // The internal-owner allowlist: any document OWNED by an internal subject is
+  // eligible, so the founding team's docs (current and future) migrate without
+  // per-project enrollment. Owned-only by construction — this keys on the page's
+  // own owner, so a doc a member can merely edit but does not own is not theirs.
+  if (await isInternalOwner(ctx, page.ownerId)) return true;
   const byProject = await ctx.db
     .query("nmlCohorts")
     .withIndex("by_scope_and_key", (q) => q.eq("scope", "project").eq("key", page.projectId))
@@ -179,6 +201,109 @@ export const removeFromCohort = mutation({
       .first();
     if (existing) await ctx.db.delete(existing._id);
     return null;
+  },
+});
+
+/**
+ * Enroll a Clerk subject as an internal owner, making all of their documents
+ * migration-eligible (and, later, MCP-reachable). Internal by design: an
+ * operator runs this through `convex run` under deploy auth — the allowlist is
+ * an infrastructure control that widens the agent's reach, so nothing an end
+ * user can call touches it. Idempotent: re-adding a listed subject inserts no
+ * duplicate and reports `added: false`.
+ */
+export const addInternalOwner = internalMutation({
+  args: { subject: v.string(), note: v.optional(v.string()) },
+  returns: v.object({ added: v.boolean() }),
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("internalOwners")
+      .withIndex("by_subject", (q) => q.eq("subject", args.subject))
+      .first();
+    if (existing) return { added: false };
+    await ctx.db.insert("internalOwners", {
+      subject: args.subject,
+      ...(args.note !== undefined ? { note: args.note } : {}),
+      addedAt: Date.now(),
+    });
+    return { added: true };
+  },
+});
+
+/**
+ * Remove a subject from the internal-owner allowlist. Eligibility is recomputed
+ * on every `nmlAuthority` read, so this takes effect immediately: a doc that was
+ * eligible only through the allowlist becomes ineligible, and a migrated one
+ * falls back to legacy authority with its NML root left in place and recoverable
+ * — exactly as a cohort drop or `rollback`, and nothing is lost. That makes the
+ * allowlist a real kill switch, not merely a stop on future migrations. Deletes
+ * every row for the subject so a benign double-add leaves no lingering
+ * membership. Internal, like `addInternalOwner`.
+ */
+export const removeInternalOwner = internalMutation({
+  args: { subject: v.string() },
+  returns: v.object({ removed: v.number() }),
+  handler: async (ctx, args) => {
+    const rows = await ctx.db
+      .query("internalOwners")
+      .withIndex("by_subject", (q) => q.eq("subject", args.subject))
+      .collect();
+    for (const row of rows) await ctx.db.delete(row._id);
+    return { removed: rows.length };
+  },
+});
+
+/** Whether the app is cleared to serve NML at all — the master switch. */
+async function serveEnabled(ctx: QueryCtx): Promise<boolean> {
+  const row = await ctx.db.query("nmlServeState").first();
+  return row?.enabled ?? false;
+}
+
+/**
+ * The master serve switch, read by the editor to decide whether to attempt NML
+ * at all. Reactive — flipping it with `setNmlServe` remounts open editors on the
+ * next tick, which is what makes it an instant kill switch. Global and
+ * content-free, so it needs no per-doc authorization. This is deliberately
+ * separate from the per-doc `nmlAuthority`: this says "serving is on", that says
+ * "this doc is individually migrated, verified, and in-cohort"; the editor (and,
+ * later, MCP) require both.
+ */
+export const nmlServeEnabled = query({
+  args: {},
+  returns: v.boolean(),
+  handler: async (ctx) => serveEnabled(ctx),
+});
+
+/**
+ * Flip the master serve switch. Internal — an operator runs it via `convex run`,
+ * the same class of control as `addInternalOwner`; it is the app-wide enable and
+ * kill switch, never something an end user can touch. Idempotent upsert of the
+ * single row.
+ */
+export const setNmlServe = internalMutation({
+  args: { enabled: v.boolean() },
+  returns: v.object({ enabled: v.boolean() }),
+  handler: async (ctx, args) => {
+    const row = await ctx.db.query("nmlServeState").first();
+    if (row) await ctx.db.patch(row._id, { enabled: args.enabled, updatedAt: Date.now() });
+    else await ctx.db.insert("nmlServeState", { enabled: args.enabled, updatedAt: Date.now() });
+    return { enabled: args.enabled };
+  },
+});
+
+/** The current internal-owner allowlist. Internal — operator/ops visibility. */
+export const listInternalOwners = internalQuery({
+  args: {},
+  returns: v.array(
+    v.object({ subject: v.string(), note: v.optional(v.string()), addedAt: v.number() }),
+  ),
+  handler: async (ctx) => {
+    const rows = await ctx.db.query("internalOwners").collect();
+    return rows.map((r) => ({
+      subject: r.subject,
+      ...(r.note !== undefined ? { note: r.note } : {}),
+      addedAt: r.addedAt,
+    }));
   },
 });
 
@@ -385,6 +510,91 @@ export const nmlState = query({
       ...(row.rolledBackAt !== undefined ? { rolledBackAt: row.rolledBackAt } : {}),
       ...(row.rollbackReason !== undefined ? { rollbackReason: row.rollbackReason } : {}),
       ...(row.rolledBackDiverged !== undefined ? { rolledBackDiverged: row.rolledBackDiverged } : {}),
+    };
+  },
+});
+
+/**
+ * Fleet health of the NML migration, for the Phase-2 dogfood soak: how many
+ * documents migrated, how the independent server verification is going, and why
+ * any failed. This is the queryable half of the soak signal ("migration success,
+ * serverVerified pass rate") — the client-side signals (edit/conflict rate,
+ * bridge drift, undo correctness, convergence) are watched through the editor
+ * and existing logging, not here. Internal — an operator reads it via
+ * `convex run`, like `listInternalOwners`.
+ *
+ * `serving` counts rows the deployment could serve (migrated, server-verified,
+ * versions understood); it deliberately does NOT re-run the per-document cohort/
+ * eligibility check, so a doc an operator has dropped from the cohort still
+ * counts here — that is a health metric of the migrate→verify pipeline, not the
+ * live serve gate (`nmlAuthority` remains the authority per doc).
+ *
+ * Cohort-scale: `nmlDocState` holds one row per migrated document and the
+ * internal cohort is a handful of people, so a full scan is cheap. A far larger
+ * cohort would want an index on `status` and pagination.
+ */
+export const nmlMigrationStats = internalQuery({
+  args: {},
+  returns: v.object({
+    total: v.number(),
+    migrated: v.number(),
+    rolledBack: v.number(),
+    verifyPending: v.number(),
+    verifyPass: v.number(),
+    verifyFail: v.number(),
+    unsupportedVersion: v.number(),
+    serving: v.number(),
+    errorClasses: v.array(v.object({ reason: v.string(), count: v.number() })),
+  }),
+  handler: async (ctx) => {
+    const rows = await ctx.db.query("nmlDocState").collect();
+    let migrated = 0;
+    let rolledBack = 0;
+    let verifyPending = 0;
+    let verifyPass = 0;
+    let verifyFail = 0;
+    let unsupportedVersion = 0;
+    let serving = 0;
+    const errors = new Map<string, number>();
+    for (const row of rows) {
+      if (row.status === "rolledBack") {
+        rolledBack++;
+        continue;
+      }
+      migrated++;
+      if (row.serverVerified === undefined) {
+        verifyPending++;
+        continue;
+      }
+      if (row.serverVerified === false) {
+        verifyFail++;
+        const reason = row.serverVerifyError ?? "invalid";
+        errors.set(reason, (errors.get(reason) ?? 0) + 1);
+        continue;
+      }
+      verifyPass++;
+      if (
+        row.serverSchemaVersion === NML_SCHEMA_VERSION &&
+        row.serverEncodingVersion === NML_YJS_ENCODING_VERSION
+      ) {
+        serving++;
+      } else {
+        unsupportedVersion++;
+      }
+    }
+    const errorClasses = [...errors.entries()]
+      .map(([reason, count]) => ({ reason, count }))
+      .sort((a, b) => b.count - a.count || a.reason.localeCompare(b.reason));
+    return {
+      total: rows.length,
+      migrated,
+      rolledBack,
+      verifyPending,
+      verifyPass,
+      verifyFail,
+      unsupportedVersion,
+      serving,
+      errorClasses,
     };
   },
 });
