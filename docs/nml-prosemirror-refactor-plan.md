@@ -1,7 +1,8 @@
 # NML / ProseMirror refactor plan
 
-Status: in progress; steps 1–12 complete, plus step 13's server-side verification prerequisite.
-Remaining: step 13's editor-serve rollout, then steps 14–15.
+Status: in progress; steps 1–13 complete (step 13's editor-serve ships behind the
+`NEXT_PUBLIC_NML_SERVE` flag, dormant until a cohort is enrolled). Remaining: the per-cohort
+rollout, then steps 14–15 (AI/MCP consumers, legacy retirement).
 
 ProseMirror remains the browser editing engine. Canonical ownership moves from a
 ProseMirror-shaped Yjs root to a typed, versioned NML AST stored directly in Yjs. Existing
@@ -399,9 +400,23 @@ collaboration tests, rollback exercises, and an older-client compatibility windo
   dishonest over-limit client refused server-side), and a full local-backend browser e2e
   (`tests/nml-authority.browser.mjs`).
 
-- **Remaining:** switch the production editor to mount the NML tree for a verified cohort doc and
-  stop writing the legacy root — the progressive per-cohort rollout, which touches the paid AI
-  hot paths and is its own gated change.
+- **Editor-serve — landed behind a flag.** `Editor.tsx` now asks `nmlAuthority(docId)` and, when
+  it says serve, mounts `NmlServedEditor` (the NML view bridge on the page's shared `Y.Doc` via
+  the ordinary provider) instead of the BlockNote `YjsEditor`. Because BlockNote is not mounted
+  on that path, the legacy `prosemirror` root is never written again — NML is the sole tree for
+  the document's edits (`app/lib/nml/serve.test.ts` pins the byte-stability). The client half of
+  the elected migrator (`useNmlMigration`) converts a cohort document's live blocks + stored
+  updates and calls `electMigration`; once the server verifies, the router remounts onto the NML
+  editor. Undo joins the one workspace spine through `useNmlUndoDomain` (peer of `textDomain.ts`),
+  so ⌘Z is unchanged for the user. The whole path is gated by `NEXT_PUBLIC_NML_SERVE` **and**
+  cohort membership: with the flag off (production default) the `nmlAuthority` query is never
+  issued and `Editor.tsx` behaves exactly as before, so it is dormant until a cohort is
+  deliberately enrolled. The served editor's editing UX (typing, marks, undo/redo, rewind, canvas,
+  IME) is exercised in Chromium by `tests/nml-view.browser.mjs`, which mounts the same
+  `NmlEditableView`. The AI surfaces are deliberately not carried onto the NML editor here — that
+  is step 14.
+- **Remaining for the rollout:** a full assembled-mount e2e under `next dev`, then the progressive
+  per-cohort enrollment (synthetic-internal first), gated on telemetry and an older-client window.
 
 **Gate:** all supported human edits commit NML commands; NML is the cohort's sole tree.
 
