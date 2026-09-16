@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useRef, type ReactElement } from "react";
+import { useCallback, useEffect, useRef, type ReactElement } from "react";
 import { BlockNoteView } from "@blocknote/mantine";
 import "@blocknote/mantine/style.css";
 import {
@@ -34,6 +34,9 @@ import { armBlock, SERVICES } from "./media/search";
 import { usePages, type PageRef } from "../PagesContext";
 import { pageTitle } from "./inline/PageMention";
 import { useRegisterEditor } from "./EditorRegistry";
+import { NmlServedEditor } from "./nml/NmlServedEditor";
+import { useNmlMigration } from "./nml/useNmlMigration";
+import type { LegacyBlock } from "@/app/lib/nml/legacy";
 import { BlockSideMenu } from "./BlockSideMenu";
 import { PageTitleProvider } from "./PageTitleContext";
 import { InlineCodeButton } from "./InlineCodeButton";
@@ -460,6 +463,14 @@ type EditorProps = {
 /** The flag the Yjs cutover ships behind; off means the app you had. */
 const YJS_ON = process.env.NEXT_PUBLIC_YJS === "1";
 
+/**
+ * Step 13 — serve the canonical NML tree in the editor. Off in production, so
+ * the `nmlAuthority` query is never even issued and this file behaves exactly as
+ * before. When on, only a migrated, server-verified, in-cohort document is
+ * served NML; everything else stays on the legacy editor.
+ */
+const NML_SERVE = process.env.NEXT_PUBLIC_NML_SERVE === "1";
+
 const EXTENSIONS = [
   completionExtension,
   reviewExtension,
@@ -506,8 +517,18 @@ export function Editor(props: EditorProps) {
     api.ydoc.state,
     YJS_ON && meta === null ? { docId: props.docId } : "skip",
   );
+  // Whether the canonical NML root is cleared to be served (migrated, in-cohort,
+  // and server-verified). Only asked when the flag is on, so production issues
+  // no extra query and the branch below is never taken.
+  const authority = useQuery(
+    api.nmlMigration.nmlAuthority,
+    NML_SERVE && YJS_ON ? { docId: props.docId } : "skip",
+  );
   if (!YJS_ON) return <LegacyEditor {...props} />;
   if (meta === undefined) return placeholder;
+  if (NML_SERVE && authority?.serve) {
+    return <NmlServedEditor docId={props.docId} pageId={props.pageId} />;
+  }
   if (meta !== null) return <YjsEditor {...props} />;
   // No `ydocs` row: legacy or never-written, and only `state` tells them apart.
   if (state === undefined) return placeholder;
@@ -546,6 +567,15 @@ function YjsEditor({ docId, pageId, title = "", mode = "create" }: EditorProps) 
     },
     editorOptions: { schema, extensions: EXTENSIONS, links: { onClick: notionLinkClick } },
   });
+  // Step 13: if this doc is in the migration cohort and not yet migrated, elect
+  // its canonical NML root from here (the DOM-dependent conversion). Once the
+  // server verifies it, the router above remounts onto NmlServedEditor. Dormant
+  // unless the flag is on and a cohort is enrolled.
+  const getBlocks = useCallback(
+    () => (editor ? (editor.document as unknown as LegacyBlock[]) : null),
+    [editor],
+  );
+  useNmlMigration(NML_SERVE, docId, getBlocks);
   if (!editor) return placeholder;
   return (
     <EditorSurface
