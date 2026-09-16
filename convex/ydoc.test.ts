@@ -182,7 +182,9 @@ describe("append", () => {
     expect(tail.map((u) => u.seq)).toEqual([3, 4]);
   });
 
-  test("a chunked append lands as one seq and reads back as one update", async () => {
+  // Heavy: allocates and splits/joins a multi-MB update, so it can exceed the
+  // default 5s under CI load though it runs in ~1s locally.
+  test("a chunked append lands as one seq and reads back as one update", { timeout: 30000 }, async () => {
     const t = harness();
     const { docId } = await world(t);
     const as = t.withIdentity(OWNER);
