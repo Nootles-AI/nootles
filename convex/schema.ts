@@ -478,6 +478,29 @@ export default defineSchema({
   }).index("by_scope_and_key", ["scope", "key"]),
 
   /**
+   * The internal-owner allowlist: Clerk subjects whose documents are eligible to
+   * migrate to NML — the "internal docs" class the founding team dogfoods, and
+   * (later) the set an agent may reach over MCP. Membership makes ALL of a
+   * subject's documents eligible, current and future, without per-project or
+   * per-doc enrollment in `nmlCohorts` — an additional eligibility source beside
+   * it, not a replacement.
+   *
+   * Eligibility keyed here is OWNED-ONLY: a document counts as internal iff its
+   * page owner is listed, never because a listed member can edit someone else's
+   * shared doc. This is an infrastructure control, not a user-facing feature —
+   * an operator manages it through the internal `addInternalOwner` /
+   * `removeInternalOwner` functions (deploy-authenticated, never a public
+   * mutation), so nothing an end user can call widens the agent's reach.
+   */
+  internalOwners: defineTable({
+    /** The internal owner's Clerk subject. */
+    subject: v.string(),
+    /** Who this is / why they're internal — operator-facing, free text. */
+    note: v.optional(v.string()),
+    addedAt: v.number(),
+  }).index("by_subject", ["subject"]),
+
+  /**
    * Who is on a document right now — one row per open session, carrying the
    * encoded y-protocols awareness state (cursor positions, selections) plus
    * the little the facepile needs denormalized so it never decodes Yjs.

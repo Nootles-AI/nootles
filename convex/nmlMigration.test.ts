@@ -31,6 +31,7 @@ const componentModules = import.meta.glob(
 
 const OWNER = { subject: "user_owner" };
 const GUEST = { subject: "user_guest" };
+const INTERNAL = { subject: "user_internal" };
 
 const BLOCKS: LegacyBlock[] = [
   { id: "p1", type: "paragraph", content: [{ type: "text", text: "hello", styles: {} }] },
@@ -52,6 +53,16 @@ async function world(t: TestConvex<typeof schema>) {
     const projectId = await ctx.db.insert("projects", { ownerId: OWNER.subject, title: "P", createdAt: 1, editShareToken: "edit-tok" });
     const docId = crypto.randomUUID();
     await ctx.db.insert("pages", { ownerId: OWNER.subject, projectId, title: "", order: 0, docId, createdAt: 1 });
+    return { projectId, docId };
+  });
+}
+
+/** A project + page owned by an arbitrary subject — for owner-scoped eligibility. */
+async function docOwnedBy(t: TestConvex<typeof schema>, subject: string) {
+  return await t.run(async (ctx) => {
+    const projectId = await ctx.db.insert("projects", { ownerId: subject, title: "P", createdAt: 1 });
+    const docId = crypto.randomUUID();
+    await ctx.db.insert("pages", { ownerId: subject, projectId, title: "", order: 0, docId, createdAt: 1 });
     return { projectId, docId };
   });
 }
@@ -466,5 +477,198 @@ describe("server authority — step 13", () => {
       serve: false,
       reason: "not-in-cohort",
     });
+  });
+});
+
+describe("internal-owner allowlist — phase 1", () => {
+  test("a doc owned by an internal subject is eligible without cohort enrollment", async () => {
+    const t = harness();
+    const { docId } = await docOwnedBy(t, INTERNAL.subject);
+    // Not eligible before enrollment — the allowlist is the only source here.
+    expect(await t.withIdentity(INTERNAL).query(api.nmlMigration.inCohort, { docId })).toBe(false);
+    await t.mutation(internal.nmlMigration.addInternalOwner, { subject: INTERNAL.subject, note: "founder" });
+    // Eligible now, with no `nmlCohorts` row anywhere.
+    expect(await t.withIdentity(INTERNAL).query(api.nmlMigration.inCohort, { docId })).toBe(true);
+  });
+
+  test("a doc owned by a non-listed subject stays ineligible", async () => {
+    const t = harness();
+    await t.mutation(internal.nmlMigration.addInternalOwner, { subject: INTERNAL.subject });
+    const { docId } = await docOwnedBy(t, OWNER.subject);
+    expect(await t.withIdentity(OWNER).query(api.nmlMigration.inCohort, { docId })).toBe(false);
+  });
+
+  test("owned-only: a doc an internal member can edit but does not own is not eligible", async () => {
+    const t = harness();
+    await t.mutation(internal.nmlMigration.addInternalOwner, { subject: INTERNAL.subject });
+    // Owned by OWNER (not internal), shared to the internal member as an editor.
+    // The edit link must be live for the claim to grant access (see `auth.ts`).
+    const { projectId, docId } = await docOwnedBy(t, OWNER.subject);
+    await t.run(async (ctx) => {
+      await ctx.db.patch(projectId, { editShareToken: "edit-tok" });
+      await ctx.db.insert("shareClaims", {
+        projectId,
+        granteeId: INTERNAL.subject,
+        role: "editor",
+        grantedRole: "editor",
+        createdAt: 1,
+      });
+    });
+    // The internal member can READ it (editor), so `inCohort` resolves rather
+    // than throwing — but eligibility is owned-only and the owner is not internal.
+    expect(await t.withIdentity(INTERNAL).query(api.nmlMigration.inCohort, { docId })).toBe(false);
+  });
+
+  test("removing an internal owner makes their docs ineligible again (kill switch)", async () => {
+    const t = harness();
+    const { docId } = await docOwnedBy(t, INTERNAL.subject);
+    await t.mutation(internal.nmlMigration.addInternalOwner, { subject: INTERNAL.subject });
+    expect(await t.withIdentity(INTERNAL).query(api.nmlMigration.inCohort, { docId })).toBe(true);
+    const removed = await t.mutation(internal.nmlMigration.removeInternalOwner, { subject: INTERNAL.subject });
+    expect(removed).toEqual({ removed: 1 });
+    expect(await t.withIdentity(INTERNAL).query(api.nmlMigration.inCohort, { docId })).toBe(false);
+  });
+
+  test("addInternalOwner is idempotent and listInternalOwners reflects membership", async () => {
+    const t = harness();
+    const first = await t.mutation(internal.nmlMigration.addInternalOwner, { subject: INTERNAL.subject, note: "founder" });
+    const second = await t.mutation(internal.nmlMigration.addInternalOwner, { subject: INTERNAL.subject });
+    expect(first).toEqual({ added: true });
+    expect(second).toEqual({ added: false });
+    const list = await t.query(internal.nmlMigration.listInternalOwners, {});
+    expect(list).toHaveLength(1);
+    expect(list[0]).toMatchObject({ subject: INTERNAL.subject, note: "founder" });
+  });
+
+  test("allowlist eligibility alone lets a doc migrate and gain server authority", async () => {
+    const t = harness();
+    vi.useFakeTimers();
+    try {
+      const { docId } = await docOwnedBy(t, INTERNAL.subject);
+      const as = t.withIdentity(INTERNAL);
+      const base = encodedBase();
+      await as.mutation(api.ydoc.init, { docId, update: base });
+      // Eligibility comes ONLY from the allowlist — no addToCohort call.
+      await t.mutation(internal.nmlMigration.addInternalOwner, { subject: INTERNAL.subject });
+      const result = nmlDelta(docId, base);
+      const elected = await as.mutation(api.nmlMigration.electMigration, {
+        docId,
+        chunks: splitUpdate(result.update),
+        nmlSchemaVersion: result.schemaVersion,
+        nmlEncodingVersion: result.encodingVersion,
+        equivalenceOk: true,
+        mismatchClasses: [],
+        limitOk: true,
+      });
+      expect(elected.elected).toBe(true);
+      await t.finishAllScheduledFunctions(vi.runAllTimers);
+      expect((await as.query(api.nmlMigration.nmlAuthority, { docId })).serve).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("migration stats & rollback rehearsal — phase 2", () => {
+  test("nmlMigrationStats aggregates fleet health across every state", async () => {
+    const t = harness();
+
+    // Two docs migrated + server-verified → serving.
+    for (let i = 0; i < 2; i++) {
+      const { docId, base, as } = await ready(t);
+      await electGood(as, docId, base);
+      await t.action(internal.nmlVerify.run, { docId });
+    }
+    // One migrated, verification still pending.
+    {
+      const { docId, base, as } = await ready(t);
+      await electGood(as, docId, base);
+    }
+    // One migrated then rolled back.
+    {
+      const { docId, base, as } = await ready(t);
+      await electGood(as, docId, base);
+      await as.mutation(api.nmlMigration.rollback, { docId, reason: "policy", diverged: false });
+    }
+    // One elected on a dishonest over-limit root → server verification fails.
+    {
+      const { docId, base, as } = await ready(t);
+      await as.mutation(api.nmlMigration.electMigration, {
+        docId,
+        chunks: splitUpdate(oversizedNmlDelta(docId, base)),
+        nmlSchemaVersion: 1,
+        nmlEncodingVersion: 1,
+        equivalenceOk: true,
+        mismatchClasses: [],
+        limitOk: true,
+      });
+      await t.action(internal.nmlVerify.run, { docId });
+    }
+
+    const stats = await t.query(internal.nmlMigration.nmlMigrationStats, {});
+    expect(stats).toEqual({
+      total: 5,
+      migrated: 4,
+      rolledBack: 1,
+      verifyPending: 1,
+      verifyPass: 2,
+      verifyFail: 1,
+      unsupportedVersion: 0,
+      serving: 2,
+      errorClasses: [{ reason: "limit-exceeded", count: 1 }],
+    });
+  });
+
+  test("empty deployment reports all zeros", async () => {
+    const t = harness();
+    const stats = await t.query(internal.nmlMigration.nmlMigrationStats, {});
+    expect(stats).toEqual({
+      total: 0,
+      migrated: 0,
+      rolledBack: 0,
+      verifyPending: 0,
+      verifyPass: 0,
+      verifyFail: 0,
+      unsupportedVersion: 0,
+      serving: 0,
+      errorClasses: [],
+    });
+  });
+
+  test("removeInternalOwner un-serves a verified doc at the authority gate (allowlist kill switch)", async () => {
+    const t = harness();
+    vi.useFakeTimers();
+    try {
+      const { docId } = await docOwnedBy(t, INTERNAL.subject);
+      const as = t.withIdentity(INTERNAL);
+      const base = encodedBase();
+      await as.mutation(api.ydoc.init, { docId, update: base });
+      await t.mutation(internal.nmlMigration.addInternalOwner, { subject: INTERNAL.subject });
+      const result = nmlDelta(docId, base);
+      await as.mutation(api.nmlMigration.electMigration, {
+        docId,
+        chunks: splitUpdate(result.update),
+        nmlSchemaVersion: result.schemaVersion,
+        nmlEncodingVersion: result.encodingVersion,
+        equivalenceOk: true,
+        mismatchClasses: [],
+        limitOk: true,
+      });
+      await t.finishAllScheduledFunctions(vi.runAllTimers);
+      expect((await as.query(api.nmlMigration.nmlAuthority, { docId })).serve).toBe(true);
+
+      // Pull the owner off the allowlist — eligibility is recomputed per read,
+      // so the doc immediately falls back to legacy authority (root retained).
+      await t.mutation(internal.nmlMigration.removeInternalOwner, { subject: INTERNAL.subject });
+      expect(await as.query(api.nmlMigration.nmlAuthority, { docId })).toMatchObject({
+        serve: false,
+        reason: "not-in-cohort",
+      });
+      // The NML root is left in place — the fall-back is authority only, lossless.
+      const state = await as.query(api.nmlMigration.nmlState, { docId });
+      expect(state).toMatchObject({ status: "migrated", serverVerified: true });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
