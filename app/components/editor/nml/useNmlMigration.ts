@@ -16,8 +16,9 @@ import { readYDocUpdates } from "@/app/lib/sync/ydocRead";
  * through `electMigration`; the server then verifies it independently and, once
  * `nmlAuthority` flips, `Editor.tsx` remounts onto `NmlServedEditor`.
  *
- * Gated by `enabled` (the `NEXT_PUBLIC_NML_SERVE` flag) and cohort membership,
- * so it is dormant until a cohort is deliberately enrolled. First-writer-wins on
+ * Gated by `enabled` (the reactive `nmlServeEnabled` master switch) and cohort
+ * membership, so it is dormant until serving is turned on and a cohort is
+ * enrolled. First-writer-wins on
  * the server means several open clients may all attempt this; only one lands.
  */
 

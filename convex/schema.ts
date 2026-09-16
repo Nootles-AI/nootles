@@ -501,6 +501,20 @@ export default defineSchema({
   }).index("by_subject", ["subject"]),
 
   /**
+   * The master serve switch: whether the app may serve the canonical NML tree at
+   * all. A single-row table rather than a `NEXT_PUBLIC_*` build flag, so an
+   * operator flips it live in prod with `setNmlServe` (`convex run`) — reactively,
+   * with no Vercel change or rebuild — which makes it a real instant kill switch:
+   * turning it off remounts every served editor back onto legacy on the next
+   * query tick. Off (an absent row) by default. Peer of the per-doc `nmlDocState`:
+   * this says "serving is on", that says "this doc is individually cleared".
+   */
+  nmlServeState: defineTable({
+    enabled: v.boolean(),
+    updatedAt: v.number(),
+  }),
+
+  /**
    * Who is on a document right now — one row per open session, carrying the
    * encoded y-protocols awareness state (cursor positions, selections) plus
    * the little the facepile needs denormalized so it never decodes Yjs.

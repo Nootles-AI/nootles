@@ -88,6 +88,8 @@ async function run(fn, args) {
   await execFileP("npx", ["convex", "run", fn, JSON.stringify(args)], { cwd: repo, env });
 }
 await run("nmlMigration:addInternalOwner", { subject: OWNER, note: "e2e" });
+// Turn on the master serve switch (a Convex row, not a build flag).
+await run("nmlMigration:setNmlServe", { enabled: true });
 
 // ── Seed a legacy page owned by the internal owner (over the real wire) ───────
 const seed = new ConvexHttpClient(CONVEX_URL);
@@ -155,7 +157,6 @@ await build({
   define: {
     "process.env.NODE_ENV": '"development"',
     "process.env.NEXT_PUBLIC_YJS": '"1"',
-    "process.env.NEXT_PUBLIC_NML_SERVE": '"1"',
   },
   banner: { js: 'globalThis.process ??= { env: { NODE_ENV: "development" }, browser: true };' },
   plugins: [stubPlugin],

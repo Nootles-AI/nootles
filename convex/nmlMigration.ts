@@ -253,6 +253,44 @@ export const removeInternalOwner = internalMutation({
   },
 });
 
+/** Whether the app is cleared to serve NML at all — the master switch. */
+async function serveEnabled(ctx: QueryCtx): Promise<boolean> {
+  const row = await ctx.db.query("nmlServeState").first();
+  return row?.enabled ?? false;
+}
+
+/**
+ * The master serve switch, read by the editor to decide whether to attempt NML
+ * at all. Reactive — flipping it with `setNmlServe` remounts open editors on the
+ * next tick, which is what makes it an instant kill switch. Global and
+ * content-free, so it needs no per-doc authorization. This is deliberately
+ * separate from the per-doc `nmlAuthority`: this says "serving is on", that says
+ * "this doc is individually migrated, verified, and in-cohort"; the editor (and,
+ * later, MCP) require both.
+ */
+export const nmlServeEnabled = query({
+  args: {},
+  returns: v.boolean(),
+  handler: async (ctx) => serveEnabled(ctx),
+});
+
+/**
+ * Flip the master serve switch. Internal — an operator runs it via `convex run`,
+ * the same class of control as `addInternalOwner`; it is the app-wide enable and
+ * kill switch, never something an end user can touch. Idempotent upsert of the
+ * single row.
+ */
+export const setNmlServe = internalMutation({
+  args: { enabled: v.boolean() },
+  returns: v.object({ enabled: v.boolean() }),
+  handler: async (ctx, args) => {
+    const row = await ctx.db.query("nmlServeState").first();
+    if (row) await ctx.db.patch(row._id, { enabled: args.enabled, updatedAt: Date.now() });
+    else await ctx.db.insert("nmlServeState", { enabled: args.enabled, updatedAt: Date.now() });
+    return { enabled: args.enabled };
+  },
+});
+
 /** The current internal-owner allowlist. Internal — operator/ops visibility. */
 export const listInternalOwners = internalQuery({
   args: {},

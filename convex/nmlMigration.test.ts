@@ -569,6 +569,21 @@ describe("internal-owner allowlist — phase 1", () => {
   });
 });
 
+describe("master serve switch — phase 2", () => {
+  test("nmlServeEnabled defaults off and setNmlServe flips it both ways", async () => {
+    const t = harness();
+    expect(await t.query(api.nmlMigration.nmlServeEnabled, {})).toBe(false);
+    expect(await t.mutation(internal.nmlMigration.setNmlServe, { enabled: true })).toEqual({ enabled: true });
+    expect(await t.query(api.nmlMigration.nmlServeEnabled, {})).toBe(true);
+    // Idempotent-ish upsert of the single row, and a real off switch.
+    expect(await t.mutation(internal.nmlMigration.setNmlServe, { enabled: false })).toEqual({ enabled: false });
+    expect(await t.query(api.nmlMigration.nmlServeEnabled, {})).toBe(false);
+    // Still one row after repeated flips.
+    const rows = await t.run((ctx) => ctx.db.query("nmlServeState").collect());
+    expect(rows).toHaveLength(1);
+  });
+});
+
 describe("migration stats & rollback rehearsal — phase 2", () => {
   test("nmlMigrationStats aggregates fleet health across every state", async () => {
     const t = harness();
