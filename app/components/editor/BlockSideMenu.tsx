@@ -16,7 +16,7 @@ import {
   type Middleware,
   type MiddlewareState,
 } from "@floating-ui/react";
-import type { SVGProps } from "react";
+import { useEffect, useState, type SVGProps } from "react";
 
 import { Plus } from "../Icons";
 
@@ -359,17 +359,46 @@ function SideMenuBody() {
   );
 }
 
+/**
+ * A standalone `.bn-mantine`/`.bn-root` host, appended to `document.body` —
+ * escapes the document column's `isolate` boundary (Workspace.tsx), which
+ * atomizes the column's whole subtree at ONE stacking rank, so no z-index
+ * inside it (not even this cluster's 19) can ever outrank a sibling like the
+ * sidebar's resize handle (z-10).
+ *
+ * A plain `document.body` target isn't enough: BlockNote's own CSS scopes
+ * `--bn-colors-*` to a `.bn-root` ancestor and gates `.bn-menu-dropdown`'s
+ * background on a `.bn-mantine` ancestor specifically — losing them is what
+ * made the dropdown and its color submenu render with transparent
+ * containers the first time this was tried. Replicating both classes (and
+ * the color-scheme attributes they key off) on the host restores that scope
+ * without re-nesting inside the isolate column. Nootles is light-mode only
+ * (see CLAUDE.md), so the scheme is hardcoded rather than read live.
+ */
+function usePortalHost(): HTMLElement | undefined {
+  const [host] = useState<HTMLElement | undefined>(() => {
+    if (typeof document === "undefined") return undefined;
+    const el = document.createElement("div");
+    el.className = "bn-root bn-container bn-mantine light";
+    el.setAttribute("data-color-scheme", "light");
+    el.setAttribute("data-mantine-color-scheme", "light");
+    return el;
+  });
+  useEffect(() => {
+    if (!host) return;
+    document.body.appendChild(host);
+    return () => host.remove();
+  }, [host]);
+  return host;
+}
+
 export function BlockSideMenu() {
+  const portalHost = usePortalHost();
   return (
     <SideMenuController
       sideMenu={SideMenuBody}
       floatingUIOptions={floatingUIOptions}
-      // Escapes the document column's `isolate` boundary (Workspace.tsx):
-      // that boundary atomizes the column's whole subtree at ONE stacking
-      // rank, so no z-index inside it — not even this cluster's 19 — can
-      // ever outrank a sibling like the sidebar's resize handle (z-10).
-      // `undefined` during SSR falls back to BlockNote's own default.
-      portalElement={typeof document !== "undefined" ? document.body : undefined}
+      portalElement={portalHost}
     />
   );
 }
