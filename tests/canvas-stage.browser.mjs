@@ -354,6 +354,39 @@ async function main() {
       shapeMutations: 0,
     });
 
+    // -- stage.expandButton.doesNotStealFocus --------------------------------
+    // Real bug, reported after ship: the expand button lives inside the very
+    // element `applyStage` re-focuses on entry, and its own focus check reads
+    // "something inside the canvas already has focus" as good enough — which
+    // was true whenever the trigger was the settings menu (outside the
+    // canvas) or a keyboard chord (no element focus change at all), but not
+    // once the trigger became a `<button>` living inside the canvas itself.
+    // Left focused, a native button reactivates on the very next Enter or
+    // Space the user meant for the newly-staged canvas, toggling stage
+    // straight back off — reported as "enters full screen and then exits on
+    // its own after a second". `page.click`/`page.keyboard.press`, not the
+    // in-page synthetic dispatchers above: default focus-on-click and
+    // activate-on-Enter are both real browser default actions a trusted
+    // event needs to trigger at all.
+    await evalMount();
+    await H(() => window.stageHarness.focus());
+    await H(() => window.stageHarness.resetCounters());
+    await page.click(".nt-canvas-expand");
+    await settle();
+    c.check("stage.expandButton.doesNotStealFocus: entered stage", await H(() => window.stageHarness.dataStage()), true);
+    const canvasFocused = await H(
+      () => document.activeElement === window.stageHarness.api().viewport.containerRef.current,
+    );
+    c.check("stage.expandButton.doesNotStealFocus: the canvas, not the button, is focused", canvasFocused, true);
+    await page.keyboard.press("Enter");
+    await settle();
+    c.check(
+      "stage.expandButton.doesNotStealFocus: an Enter meant for the canvas does not re-toggle the button",
+      await H(() => window.stageHarness.dataStage()),
+      true,
+    );
+    await H(() => window.stageHarness.pressEscape());
+
     c.check("no request left the fixture", guards.requests(), []);
     c.check("no console error", guards.errors(), []);
 

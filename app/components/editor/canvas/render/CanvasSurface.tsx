@@ -397,7 +397,17 @@ function ExpandButton({
       className="nt-canvas-expand"
       aria-label={stage ? "Collapse canvas" : "Expand canvas"}
       aria-pressed={stage}
-      onPointerDown={(event) => event.stopPropagation()}
+      // Both calls, exactly as `Refit`'s own: `preventDefault` keeps the
+      // browser from giving this button focus on click at all — a native
+      // `<button>` a Space or Enter reactivates, and if it kept focus, the
+      // very next keystroke meant for the newly-staged canvas would toggle
+      // this button again instead, entering and immediately leaving stage.
+      // `stopPropagation` keeps the press from also reading as a click on
+      // the surface behind it.
+      onPointerDown={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+      }}
       onClick={() => {
         const entering = !screen.get().stage;
         screen.toggle("stage");
