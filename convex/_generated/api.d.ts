@@ -29,6 +29,7 @@ import type * as chat_threads from "../chat/threads.js";
 import type * as chat_turns from "../chat/turns.js";
 import type * as counters from "../counters.js";
 import type * as crons from "../crons.js";
+import type * as demoSeed from "../demoSeed.js";
 import type * as devSeed from "../devSeed.js";
 import type * as entitlements from "../entitlements.js";
 import type * as feedback from "../feedback.js";
@@ -99,6 +100,7 @@ declare const fullApi: ApiFromModules<{
   "chat/turns": typeof chat_turns;
   counters: typeof counters;
   crons: typeof crons;
+  demoSeed: typeof demoSeed;
   devSeed: typeof devSeed;
   entitlements: typeof entitlements;
   feedback: typeof feedback;
