@@ -9,6 +9,7 @@ import {
   type ReactNode,
   type Ref,
 } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 
 type Align = "start" | "end";
@@ -19,7 +20,11 @@ type Side = "top" | "bottom";
  * arrows move, Home/End jump, Tab closes, and focus returns to the trigger.
  *
  * Positioned `fixed` from the trigger's measured rect rather than absolutely
- * inside it, so a panel with `overflow: auto` can never clip it.
+ * inside it, so a panel with `overflow: auto` can never clip it. Portaled to
+ * `document.body`: `fixed` alone still leaves it inside whatever stacking
+ * context its trigger lives in (e.g. the sidebar's `.nt-panel`, which caps
+ * every descendant at its own z-index), so a sibling like the sidebar's
+ * resize handle could otherwise paint over it despite `--z-dropdown`.
  */
 export function Menu({
   trigger,
@@ -149,27 +154,29 @@ export function Menu({
         "aria-haspopup": "menu",
         "aria-expanded": open,
       })}
-      {open && (
-        <>
-          {/* Pointer-only dismissal; keyboard users get Escape and Tab. */}
-          <div
-            className="fixed inset-0"
-            style={{ zIndex: "var(--z-dropdown)" }}
-            onMouseDown={() => close()}
-          />
-          <div
-            ref={menuRef}
-            role="menu"
-            aria-label={label}
-            tabIndex={-1}
-            onKeyDown={onKeyDown}
-            className="nt-menu fixed"
-            style={{ top: pos.top, left: pos.left, minWidth: pos.width }}
-          >
-            {children(close)}
-          </div>
-        </>
-      )}
+      {open &&
+        createPortal(
+          <>
+            {/* Pointer-only dismissal; keyboard users get Escape and Tab. */}
+            <div
+              className="fixed inset-0"
+              style={{ zIndex: "var(--z-dropdown)" }}
+              onMouseDown={() => close()}
+            />
+            <div
+              ref={menuRef}
+              role="menu"
+              aria-label={label}
+              tabIndex={-1}
+              onKeyDown={onKeyDown}
+              className="nt-menu fixed"
+              style={{ top: pos.top, left: pos.left, minWidth: pos.width }}
+            >
+              {children(close)}
+            </div>
+          </>,
+          document.body,
+        )}
     </>
   );
 }

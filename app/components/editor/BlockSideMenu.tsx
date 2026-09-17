@@ -364,6 +364,12 @@ export function BlockSideMenu() {
     <SideMenuController
       sideMenu={SideMenuBody}
       floatingUIOptions={floatingUIOptions}
+      // Escapes the document column's `isolate` boundary (Workspace.tsx):
+      // that boundary atomizes the column's whole subtree at ONE stacking
+      // rank, so no z-index inside it — not even this cluster's 19 — can
+      // ever outrank a sibling like the sidebar's resize handle (z-10).
+      // `undefined` during SSR falls back to BlockNote's own default.
+      portalElement={typeof document !== "undefined" ? document.body : undefined}
     />
   );
 }

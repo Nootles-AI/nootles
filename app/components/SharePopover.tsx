@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import { useUser } from "@clerk/nextjs";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
@@ -113,7 +114,10 @@ function SharePopoverBody({
   );
 
   // Fixed from the trigger's measured rect, like every anchored surface here,
-  // so the sidebar's overflow can never clip it.
+  // so the sidebar's overflow can never clip it. Portaled to body below: the
+  // sidebar's `.nt-panel` sets its own z-index, which caps every descendant's
+  // stacking regardless of `fixed` position — a mount-in-place popover here
+  // would still render under the sidebar's resize handle.
   const popRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   useLayoutEffect(() => {
@@ -179,7 +183,7 @@ function SharePopoverBody({
 
   const token = links ? links[role] : null;
 
-  return (
+  return createPortal(
     <>
       {/* Pointer-only dismissal; keyboard users get Escape and Tab-out. */}
       <div
@@ -399,6 +403,7 @@ function SharePopoverBody({
           </div>
         )}
       </div>
-    </>
+    </>,
+    document.body,
   );
 }
