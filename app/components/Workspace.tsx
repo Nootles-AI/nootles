@@ -591,8 +591,17 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
 
         {/* Keep editor-local floating UI inside the document's paint layer.
             BlockNote's table handles carry their own z-index; without this
-            boundary a hovered handle can outrank the sibling chat rail. */}
-        <div ref={columnRef} className="relative isolate flex min-w-0 flex-1">
+            boundary a hovered handle can outrank the sibling chat rail.
+            `isolate` alone leaves this at z-index:auto, which always loses to
+            the sidebar's explicit `--z-base` — so a clamped block handle
+            floated UNDER it. Tying the z-index lets DOM order (this column
+            comes after the sidebar) settle it, the way the handle is meant
+            to float over a narrow sidebar gutter. */}
+        <div
+          ref={columnRef}
+          className="relative isolate flex min-w-0 flex-1"
+          style={{ zIndex: "var(--z-base)" }}
+        >
           {/* The workspace has no top bar, so presence floats where a top
               bar's corner would be — over the focused document. */}
           <div
