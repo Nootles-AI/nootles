@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { DOMParser } from "linkedom";
 import * as Y from "yjs";
 import { describe, expect, it } from "vitest";
 import { canvasMapName, populateCanvas } from "@/app/components/editor/canvas/collab/ymap";
@@ -17,6 +18,8 @@ import {
   type LegacyBlock,
   type LegacyDocumentInput,
 } from ".";
+
+(globalThis as unknown as { DOMParser: typeof DOMParser }).DOMParser = DOMParser;
 
 const fixturesDir = fileURLToPath(new URL("./__fixtures__/legacy", import.meta.url));
 const loadFixture = (name: string): LegacyDocumentInput =>

@@ -66,6 +66,7 @@ const allBlocks: NmlDocument = {
     { id: "album-1", type: "album", props: {}, domain: { id: "album-1", items: [{ kind: "image", src: "/one.jpg", w: 3, h: 2 }] }, legacyMarkup: '<gallery source="old">kept & safe</gallery>', children: [] },
     { id: "story-1", type: "storyboard", props: {}, domain: { id: "story-1", ratio: "16:9", shots: [{ scene: "", note: "First shot" }] }, children: [] },
     { id: "location-1", type: "location", props: {}, domain: { id: "location-1", name: "Somewhere", images: [], off: [] }, children: [] },
+    { id: "notion-1", type: "notionStub", props: { notionType: "database", notionId: "notion-db", href: "https://notion.so/notion-db", raw: "opaque source" }, children: [] },
   ],
 };
 

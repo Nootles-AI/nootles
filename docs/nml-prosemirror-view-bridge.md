@@ -1,8 +1,9 @@
 # NML ProseMirror View Bridge
 
-Status: steps 6–10 read-only projection, isolated plain-text/rich/canvas editing, durable
-selection, awareness, IME, structure, and custom-domain adapters implemented; runtime
-adoption and canonical history remain proposed.
+Status: steps 6–11 are implemented, including isolated read-only/plain-text/rich/canvas editing,
+durable selection, awareness, IME, structure, custom-domain adapters, and canonical history. Phase
+2.5 production adoption uses the complete BlockNote surface as a live compatibility projection over
+canonical NML; the native hosts remain regression/debug surfaces.
 
 ## Implemented read-only, plain-text, rich, canvas, selection, and IME slices
 
@@ -14,7 +15,8 @@ before/after projection translation, and domain-editing portals. Step 10 makes t
 portal editable through canonical scene commands and a direct shared-map subscription. The
 canonical `app/lib/nml` entry point stays free of PM/DOM imports.
 React portals preserve application provider context for domain renderers. Callers supply
-an authorized Y.Doc and retain its lifetime. No production route mounts either host.
+an authorized Y.Doc and retain its lifetime. No production route mounts either native host; production
+serving uses `NmlLegacyMirror` around the existing `EditorSurface` for exact product parity.
 
 Every v1 adapter preserves semantic AST content and IDs. Identity-free wrappers and list
 ordinals are view-only. Columns remain table metadata, while rows/cells/math rows and

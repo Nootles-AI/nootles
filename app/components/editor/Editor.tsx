@@ -34,8 +34,8 @@ import { armBlock, SERVICES } from "./media/search";
 import { usePages, type PageRef } from "../PagesContext";
 import { pageTitle } from "./inline/PageMention";
 import { useRegisterEditor } from "./EditorRegistry";
-import { NmlServedEditor } from "./nml/NmlServedEditor";
 import { useNmlMigration } from "./nml/useNmlMigration";
+import { useNmlLegacyMirror } from "@/app/lib/nml/useNmlLegacyMirror";
 import type { LegacyBlock } from "@/app/lib/nml/legacy";
 import { BlockSideMenu } from "./BlockSideMenu";
 import { PageTitleProvider } from "./PageTitleContext";
@@ -535,7 +535,7 @@ export function Editor(props: EditorProps) {
   if (!YJS_ON) return <LegacyEditor {...props} />;
   if (meta === undefined) return placeholder;
   if (serveEnabled && authority?.serve) {
-    return <NmlServedEditor docId={props.docId} pageId={props.pageId} />;
+    return <YjsEditor {...props} served />;
   }
   if (meta !== null) return <YjsEditor {...props} />;
   // No `ydocs` row: legacy or never-written, and only `state` tells them apart.
@@ -564,9 +564,15 @@ function BecomeYjs({ docId, state }: { docId: string; state: "legacy" | "empty" 
   return placeholder;
 }
 
-function YjsEditor({ docId, pageId, title = "", mode = "create" }: EditorProps) {
+function YjsEditor({
+  docId,
+  pageId,
+  title = "",
+  mode = "create",
+  served = false,
+}: EditorProps & { served?: boolean }) {
   const { user } = useUser();
-  const { editor } = useYjsEditor<EditorInstance>({
+  const { editor, provider } = useYjsEditor<EditorInstance>({
     docId,
     user: {
       name: user?.fullName ?? user?.primaryEmailAddress?.emailAddress ?? "Someone",
@@ -577,14 +583,21 @@ function YjsEditor({ docId, pageId, title = "", mode = "create" }: EditorProps) 
   });
   // Step 13: if this doc is in the migration cohort and not yet migrated, elect
   // its canonical NML root from here (the DOM-dependent conversion). Once the
-  // server verifies it, the router above remounts onto NmlServedEditor. Dormant
+  // server verifies it, the router above remounts this same complete editor
+  // surface with NML authority and the live compatibility mirror. Dormant
   // unless the flag is on and a cohort is enrolled.
   const getBlocks = useCallback(
     () => (editor ? (editor.document as unknown as LegacyBlock[]) : null),
     [editor],
   );
-  useNmlMigration(useServeEnabled(), docId, getBlocks);
-  if (!editor) return placeholder;
+  useNmlMigration(useServeEnabled() && !served, docId, getBlocks);
+  const mirrorReady = useNmlLegacyMirror(
+    served,
+    editor,
+    provider,
+    user?.id ?? "anonymous",
+  );
+  if (!editor || !mirrorReady) return placeholder;
   return (
     <EditorSurface
       editor={editor}
@@ -593,6 +606,7 @@ function YjsEditor({ docId, pageId, title = "", mode = "create" }: EditorProps) 
       pageId={pageId}
       title={title}
       mode={mode}
+      served={served}
     />
   );
 }
@@ -637,6 +651,7 @@ function EditorSurface({
   pageId,
   title,
   mode,
+  served = false,
 }: {
   editor: EditorInstance;
   docId: string;
@@ -644,6 +659,8 @@ function EditorSurface({
   pageId?: Id<"pages">;
   title: string;
   mode: PageMode;
+  /** Canonical NML is authoritative; BlockNote is its live compatibility view. */
+  served?: boolean;
 }) {
   const pages = usePages();
   // A viewer-role workspace: same document, none of the authoring. The context
@@ -682,6 +699,7 @@ function EditorSurface({
       <div
         ref={marqueeSurface}
         className="nt-marquee-surface"
+        data-nml-served={served || undefined}
         {...undoScope}
       >
         <BlockNoteView

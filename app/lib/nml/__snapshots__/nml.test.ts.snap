@@ -55,6 +55,7 @@ exports[`canonical NML > has a golden serialization covering every v1 block and 
     </nt-shot>
   </nt-storyboard>
   <nt-location id="location-1" name="Somewhere"></nt-location>
+  <nt-notion-stub id="notion-1" notion-type="database" notion-id="notion-db" href="https://notion.so/notion-db">opaque source</nt-notion-stub>
 </nt-document>
 "
 `;

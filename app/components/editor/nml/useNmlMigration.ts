@@ -14,7 +14,8 @@ import { readYDocUpdates } from "@/app/lib/sync/ydocRead";
  * live BlockNote blocks plus the page's stored Yjs updates into the canonical
  * NML root (the DOM-dependent work that cannot run on the server) and elects it
  * through `electMigration`; the server then verifies it independently and, once
- * `nmlAuthority` flips, `Editor.tsx` remounts onto `NmlServedEditor`.
+ * `nmlAuthority` flips, `Editor.tsx` remounts the complete surface with NML
+ * authority and the compatibility mirror.
  *
  * Gated by `enabled` (the reactive `nmlServeEnabled` master switch) and cohort
  * membership, so it is dormant until serving is turned on and a cohort is

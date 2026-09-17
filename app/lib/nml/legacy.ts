@@ -1,4 +1,3 @@
-import { parseHTML } from "linkedom";
 import * as Y from "yjs";
 import { parseAlbum } from "@/app/components/editor/album/parse";
 import { parseLocation } from "@/app/components/editor/location/parse";
@@ -70,8 +69,12 @@ export type LegacyConversion = {
   diagnostics: NmlIssue[];
 };
 
-const defaultParseHtml = (html: string): Document =>
-  parseHTML(html).document as unknown as Document;
+const defaultParseHtml = (html: string): Document => {
+  if (typeof DOMParser === "undefined") {
+    throw new Error("Legacy domain conversion requires a browser DOMParser or options.parseHtml.");
+  }
+  return new DOMParser().parseFromString(html, "text/html");
+};
 
 const defaultCreateId = () => {
   const id = globalThis.crypto?.randomUUID?.();
@@ -261,6 +264,18 @@ function convertBlock(block: LegacyBlock, path: Array<string | number>, ctx: Ctx
       return { id, type: "storyboard", props: {}, domain: parseStoryboard(str(props.data), ctx.parseHtml), children: [] };
     case "location":
       return { id, type: "location", props: {}, domain: parseLocation(str(props.data), ctx.parseHtml), children: [] };
+    case "notionStub":
+      return {
+        id,
+        type: "notionStub",
+        props: {
+          notionType: str(props.notionType),
+          notionId: str(props.notionId),
+          href: str(props.href),
+          raw: str(props.raw),
+        },
+        children: [],
+      };
     default:
       ctx.report("legacy_unsupported_block", "warning", path, `Block type <${block.type}> has no canonical NML v1 representation and was omitted from the shadow.`, id);
       return null;
@@ -475,6 +490,7 @@ const NML_BLOCK_TYPES = new Set([
   "album",
   "storyboard",
   "location",
+  "notionStub",
 ]);
 
 /**

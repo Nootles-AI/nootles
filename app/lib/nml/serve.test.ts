@@ -6,13 +6,12 @@ import { decodeNmlDocument, NML_YJS_ROOT } from "./yjs";
 import type { LegacyBlock } from "./legacy";
 
 /**
- * Step 13 — serving NML. The one property the served editor must hold that the
- * migration alone does not: once authority moves to the NML root, human edits
- * commit NML commands against that root and the legacy `prosemirror` root is
- * never written again (NML is the cohort's sole tree). In production this is
- * structural — `NmlServedEditor` mounts the NML view, not BlockNote, so nothing
- * touches the ProseMirror fragment — and at the data layer it holds because the
- * command executor writes only the `nml` root. This pins that.
+ * Step 13 — serving NML. The semantic command executor is deliberately isolated
+ * from the derived BlockNote compatibility view: applying a command changes only
+ * canonical NML. The production mirror subsequently projects that canonical
+ * transaction into `prosemirror` for the full editor surface and stale clients.
+ * This test pins the executor boundary; mirror convergence is covered separately
+ * in `mirror.test.ts` and `mirrorBlockNote.test.ts`.
  */
 const authorize = () => true;
 
@@ -28,7 +27,7 @@ function legacyDoc() {
   return doc;
 }
 
-describe("serving NML — the legacy root is never written again", () => {
+describe("serving NML — semantic executor boundary", () => {
   it("keeps the ProseMirror root byte-stable across a post-migration NML edit", async () => {
     // A legacy page, migrated to carry a canonical NML root beside it.
     const base = legacyDoc();
@@ -63,7 +62,7 @@ describe("serving NML — the legacy root is never written again", () => {
     const text = "content" in block ? block.content.map((n) => (n.type === "text" ? n.text : "")).join("") : "";
     expect(text).toBe("edited hello");
     expect(doc.getMap(NML_YJS_ROOT).size).toBeGreaterThan(0);
-    // …and the legacy ProseMirror root did not move.
+    // …and the executor itself did not mutate the derived ProseMirror view.
     expect(doc.getXmlFragment("prosemirror").toString()).toBe(proseMirrorBefore);
     doc.destroy();
   });

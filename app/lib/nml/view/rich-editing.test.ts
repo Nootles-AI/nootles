@@ -216,6 +216,49 @@ describe("rich and structural NML editing bridge", () => {
     bridge.destroy(); ydoc.destroy();
   });
 
+  it("applies markdown shortcuts through canonical block-type commands", async () => {
+    const shortcuts = [
+      { marker: "##", type: "heading", props: { level: 2 } },
+      { marker: ">", type: "quote", props: {} },
+      { marker: "-", type: "bulletListItem", props: {} },
+      { marker: "3.", type: "numberedListItem", props: { start: 3 } },
+      { marker: "[x]", type: "checkListItem", props: { checked: true } },
+      { marker: "```", type: "codeBlock", props: { language: "" } },
+    ] as const;
+    for (const shortcut of shortcuts) {
+      const ydoc = createNmlYDoc(document([paragraph("p", shortcut.marker, ["bold"])]));
+      const bridge = editable(ydoc);
+      const end = bridge.index.get("p")!.contentStart! + shortcut.marker.length;
+      bridge.dispatch(bridge.state.tr.setSelection(TextSelection.create(bridge.state.doc, end)));
+      expect(bridge.applyMarkdownShortcut()).toBe(true);
+      await flush();
+      const block = decodeNmlDocument(ydoc).blocks[0];
+      expect(block).toMatchObject({ id: "p", type: shortcut.type, props: shortcut.props });
+      if (block.type === "codeBlock") expect(block.code).toBe("");
+      else if ("content" in block) expect(block.content).toEqual([]);
+      else throw new Error("Markdown shortcut produced a non-text block");
+      expect(bridge.checkDrift()).toBe(true);
+      bridge.destroy(); ydoc.destroy();
+    }
+  });
+
+  it("preserves rich inline content when changing between inline block types", async () => {
+    const linked: NmlBlock = {
+      id: "p", type: "paragraph", props: {}, children: [],
+      content: [{
+        type: "link", href: "https://example.com",
+        content: [{ type: "text", text: "linked", marks: ["bold", "italic"] }],
+      }, { type: "math", id: "math", latex: "x^2" }],
+    };
+    const ydoc = createNmlYDoc(document([linked]));
+    const bridge = editable(ydoc);
+    expect(bridge.setSelectedBlockType("heading", { level: 3 })).toBe(true);
+    await flush();
+    expect(decodeNmlDocument(ydoc).blocks[0]).toEqual({ ...linked, type: "heading", props: { level: 3 } });
+    expect(bridge.checkDrift()).toBe(true);
+    bridge.destroy(); ydoc.destroy();
+  });
+
   it("does not let a late receipt overwrite a newer user selection", async () => {
     const ydoc = createNmlYDoc(document([paragraph("p", "alpha"), paragraph("q", "bravo")]));
     const bridge = editable(ydoc);

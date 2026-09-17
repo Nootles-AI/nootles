@@ -3,7 +3,7 @@ import { NML_MARKS, type NmlBlock, type NmlDocument, type NmlInlineContent, type
 import { normalizeDocument, normalizeInline } from "../normalize";
 import { validateDocument } from "../validate";
 
-export const BLOCK_TYPES = ["paragraph", "heading", "quote", "bulletListItem", "numberedListItem", "checkListItem", "toggleListItem", "table", "codeBlock", "mathBlock", "divider", "image", "video", "audio", "file", "canvas", "album", "storyboard", "location"] as const satisfies readonly NmlBlock["type"][];
+export const BLOCK_TYPES = ["paragraph", "heading", "quote", "bulletListItem", "numberedListItem", "checkListItem", "toggleListItem", "table", "codeBlock", "mathBlock", "divider", "image", "video", "audio", "file", "canvas", "album", "storyboard", "location", "notionStub"] as const satisfies readonly NmlBlock["type"][];
 const _coverage: Exclude<NmlBlock["type"], typeof BLOCK_TYPES[number]> extends never ? true : never = true;
 void _coverage;
 export const NML_LIST_TYPES = new Set<string>(["bulletListItem", "numberedListItem", "checkListItem", "toggleListItem"]);

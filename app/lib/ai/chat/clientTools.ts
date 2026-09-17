@@ -600,7 +600,19 @@ export async function storedBlocks(ctx: ToolContext, docId: string): Promise<Any
     const reader = yReader();
     try {
       reader.apply(await readYDocUpdates(ctx.convex, docId));
-      return reader.blocks();
+      const serveEnabled = await ctx.convex.query(api.nmlMigration.nmlServeEnabled, {});
+      const authority = serveEnabled
+        ? await ctx.convex.query(api.nmlMigration.nmlAuthority, { docId })
+        : null;
+      if (!authority?.serve) return reader.blocks("legacy");
+      const ids = reader.nmlStorageIds();
+      const urls = new Map(await Promise.all(ids.map(async (storageId) => [
+        storageId,
+        await ctx.convex.query(api.albums.url, { storageId: storageId as Id<"_storage"> }),
+      ] as const)));
+      return reader.blocks("nml", {
+        resolveStorageUrl: (storageId) => urls.get(storageId) ?? undefined,
+      });
     } finally {
       reader.destroy();
     }

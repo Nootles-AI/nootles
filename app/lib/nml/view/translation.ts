@@ -331,12 +331,19 @@ export function compileProjectionChange(before: NmlDocument, after: NmlDocument)
     if (!current) continue;
     if (prior.block.type !== current.block.type) {
       const mediaTypes = new Set(["image", "video", "audio", "file"]);
-      if (NML_INLINE_BLOCK_TYPES.has(prior.block.type) && NML_INLINE_BLOCK_TYPES.has(current.block.type)) {
+      const textTypes = new Set([...NML_INLINE_BLOCK_TYPES, "codeBlock"]);
+      if (textTypes.has(prior.block.type) && textTypes.has(current.block.type)) {
+        const text = current.block.type === "codeBlock"
+          ? current.block.code
+          : "content" in current.block
+            ? current.block.content.map((node) => node.type === "text" ? node.text : node.type === "link" ? node.content.map((part) => part.text).join("") : "").join("")
+            : "";
         commands.push({
           type: "setTextBlockType",
           nodeId: id,
           blockType: current.block.type as Extract<NmlCommand, { type: "setTextBlockType" }>["blockType"],
           props: structuredClone(current.block.props),
+          text,
         });
       } else if (mediaTypes.has(prior.block.type) && mediaTypes.has(current.block.type)) {
         commands.push({

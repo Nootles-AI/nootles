@@ -1,5 +1,6 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { DOMParser } from "linkedom";
 import * as Y from "yjs";
 import { describe, expect, it } from "vitest";
 import { canvasMapName, populateCanvas } from "@/app/components/editor/canvas/collab/ymap";
@@ -22,6 +23,8 @@ import {
   type NmlTableBlock,
   type NmlTextBlock,
 } from ".";
+
+(globalThis as unknown as { DOMParser: typeof DOMParser }).DOMParser = DOMParser;
 
 /** Deterministic ID minter so conversions are reproducible in tests. */
 const counter = () => {
@@ -96,12 +99,15 @@ describe("legacy conversion", () => {
     expect(emptyImage.props.source).toBeUndefined();
   });
 
-  it("omits blocks NML v1 cannot represent and hoists their children rather than dropping them", () => {
+  it("preserves Notion stubs and hoists their non-nestable children", () => {
     const { document, diagnostics } = convertLegacyDocument(loadFixture("edge-cases.json"), { createId: counter() });
-    expect(document.blocks.some((b) => b.id === "stub1")).toBe(false);
+    expect(document.blocks.find((b) => b.id === "stub1")).toMatchObject({
+      type: "notionStub",
+      props: { notionType: "database", notionId: "", href: "", raw: "" },
+    });
     expect(document.blocks.map((b) => b.id)).toContain("stub-child");
     expect(document.blocks.map((b) => b.id)).toContain("para-child");
-    expect(diagnostics.some((d) => d.code === "legacy_unsupported_block")).toBe(true);
+    expect(diagnostics.some((d) => d.code === "legacy_unsupported_block")).toBe(false);
     expect(diagnostics.some((d) => d.code === "legacy_flattened_children")).toBe(true);
     const ws = document.blocks.find((b) => b.id === "ws") as NmlTextBlock;
     expect(ws.content[0].type === "text" && ws.content[0].text).toBe("collapse these spaces");
@@ -179,7 +185,10 @@ describe("legacy ↔ NML comparison gate", () => {
   });
 
   it("classifies the unsupported-block gap as understood", () => {
-    const input = loadFixture("edge-cases.json");
+    const input = {
+      documentId: "unknown-block",
+      blocks: [{ id: "unknown", type: "mystery", props: {}, children: [] }],
+    };
     const { document } = convertLegacyDocument(input, { createId: counter() });
     const comparison = compareLegacyToNml(input, document);
     expect(comparison.mismatches.some((m) => m.class === "unsupported-block" && m.understood)).toBe(true);

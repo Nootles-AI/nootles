@@ -9,11 +9,12 @@
  *
  *  1. `<Editor>` mounts the legacy BlockNote editor for a not-yet-migrated doc;
  *  2. `useNmlMigration` converts it, the backend verifies the root on its own,
- *     `nmlAuthority.serve` flips, and `<Editor>` remounts onto `NmlServedEditor`;
- *  3. an edit typed into the served NML view lands on the canonical NML root.
+ *     and `nmlAuthority.serve` remounts the full surface with NML authority;
+ *  3. an edit typed into the served BlockNote compatibility view lands on the
+ *     canonical NML root.
  *
  * No paid API is ever touched (the launcher blocks the lanes, and the served
- * editor carries no ambient AI extensions).
+ * launcher intercepts every paid lane).
  */
 import { StrictMode } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -37,29 +38,17 @@ let currentDocId = "";
 /** Which editor is currently mounted, plus its visible text. */
 function probe() {
   const host = document.getElementById("editor-host");
-  // `NmlServedEditor` renders the NML view bridge (class `nt-nml-view`).
-  const nmlView = host?.querySelector(".nt-nml-view") ?? null;
-  // BlockNote's own editable ProseMirror surface — the definitive legacy marker.
+  // Served documents intentionally keep the complete BlockNote surface; the
+  // wrapper marker distinguishes its NML-authoritative compatibility view.
+  const servedSurface = host?.querySelector('[data-nml-served="true"]') ?? null;
   const blockNote = host?.querySelector(".bn-editor") ?? null;
-  // The step-8 composition-recovery affordance is ALWAYS in the view's DOM but
-  // `hidden` unless a block a composition was in got deleted. `hidden` respects
-  // that; `textContent` does not, so measure document text with the panel's
-  // (usually hidden) chrome stripped out.
-  const recoveryEl = host?.querySelector(".nt-nml-composition-recovery") ?? null;
-  const recoveryShown = !!recoveryEl && !(recoveryEl as HTMLElement).hidden;
-  let text = "";
-  if (host) {
-    const clone = host.cloneNode(true) as HTMLElement;
-    clone.querySelectorAll(".nt-nml-composition-recovery").forEach((n) => n.remove());
-    text = (clone.textContent ?? "").trim();
-  }
+  const text = (blockNote?.textContent ?? host?.textContent ?? "").trim();
   return {
-    served: !!nmlView,
-    legacy: !!blockNote,
+    served: !!servedSurface && !!blockNote,
+    legacy: !!blockNote && !servedSurface,
     text,
-    recoveryShown,
     detail: {
-      nmlViews: host?.querySelectorAll(".nt-nml-view").length ?? 0,
+      servedSurfaces: host?.querySelectorAll('[data-nml-served="true"]').length ?? 0,
       bnEditors: host?.querySelectorAll(".bn-editor").length ?? 0,
     },
   };
@@ -92,9 +81,11 @@ function mount(cfg: Config) {
 const harness = {
   mount,
   probe,
-  /** Focus the served NML view so puppeteer keystrokes land in it. */
+  /** Focus the served compatibility view so puppeteer keystrokes land in it. */
   focusServed() {
-    const view = document.querySelector<HTMLElement>("#editor-host .nt-nml-view");
+    const view = document.querySelector<HTMLElement>(
+      '#editor-host [data-nml-served="true"] .bn-editor',
+    );
     if (!view) return false;
     view.focus();
     return document.activeElement === view || view.contains(document.activeElement);
