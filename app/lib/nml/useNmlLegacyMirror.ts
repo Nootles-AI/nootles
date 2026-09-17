@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useConvex } from "convex/react";
 import type {
   BlockNoteEditor,
@@ -32,6 +32,11 @@ export function useNmlLegacyMirror<
 ): boolean {
   const convex = useConvex();
   const [ready, setReady] = useState(!enabled);
+  const userIdRef = useRef(userId);
+  useEffect(() => {
+    userIdRef.current = userId;
+  }, [userId]);
+
   /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (!enabled) {
@@ -48,10 +53,14 @@ export function useNmlLegacyMirror<
       provider.doc,
       blockNoteNmlMirrorHost(editor, provider.doc),
       {
-        actor: { kind: "human", userId, clientId: String(provider.doc.clientID) },
+        actor: {
+          kind: "human",
+          userId: userIdRef.current,
+          clientId: String(provider.doc.clientID),
+        },
         actorForChange: () => ({
           kind: isApplyingAi() ? "model" : "human",
-          userId,
+          userId: userIdRef.current,
           clientId: String(provider.doc.clientID),
         }),
         authorize: () => true,
@@ -73,7 +82,7 @@ export function useNmlLegacyMirror<
       active = false;
       mirror.stop();
     };
-  }, [convex, enabled, editor, provider, userId]);
+  }, [convex, enabled, editor, provider]);
   /* eslint-enable react-hooks/set-state-in-effect */
   return ready;
 }
