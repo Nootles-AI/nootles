@@ -53,6 +53,9 @@ import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { buildHarness, checker, launch, openPage, repo, writeArtifact } from "./canvas-harness.mjs";
 
+const MAC_UA =
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+
 const VIEWPORT = { width: 1280, height: 900 };
 // The canvas itself is forced to exactly this size regardless of the page's
 // own viewport (`canvas-harness.browser.css`'s `!important` rule) — §3.2.2's
@@ -300,6 +303,14 @@ async function main() {
 
   try {
     const { page, guards } = await openPage(browser, built.origin, { viewport: VIEWPORT, aiReach: built.aiReach });
+    // Mac UA so `isApplePlatform()` reads `Mod` as ⌘ — `cmdClick` below only
+    // ever holds "Meta", so on a real non-Mac runner (CI's `ubuntu-latest`)
+    // `isModKey` would read `ctrlKey` instead and see it unheld, reading every
+    // cmd-click as a plain one. Same fix `canvas-stage.browser.mjs` already
+    // carries for its own ⌘-chords.
+    await page.addInitScript((ua) => {
+      Object.defineProperty(navigator, "userAgent", { value: ua, configurable: true });
+    }, MAC_UA);
     await page.goto(built.origin, { waitUntil: "networkidle" });
 
     await runLayoutAgreement(page);
