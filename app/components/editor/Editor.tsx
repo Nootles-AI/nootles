@@ -37,7 +37,7 @@ import { useRegisterEditor } from "./EditorRegistry";
 import { useNmlMigration } from "./nml/useNmlMigration";
 import { useNmlLegacyMirror } from "@/app/lib/nml/useNmlLegacyMirror";
 import type { LegacyBlock } from "@/app/lib/nml/legacy";
-import { BlockSideMenu } from "./BlockSideMenu";
+import { BlockSideMenu, editorPortalElements } from "./BlockSideMenu";
 import { PageTitleProvider } from "./PageTitleContext";
 import { InlineCodeButton } from "./InlineCodeButton";
 import { completionExtension } from "./ai/completionExtension";
@@ -710,6 +710,7 @@ function EditorSurface({
           sideMenu={false}
           slashMenu={false}
           formattingToolbar={false}
+          portalElements={editorPortalElements}
         >
           {!readOnly && (
             <>

@@ -8,6 +8,7 @@ import {
   useComponentsContext,
   useExtension,
   useExtensionState,
+  type PortalElementsMap,
 } from "@blocknote/react";
 import { SideMenuExtension, SuggestionMenu } from "@blocknote/core/extensions";
 import {
@@ -16,7 +17,7 @@ import {
   type Middleware,
   type MiddlewareState,
 } from "@floating-ui/react";
-import { useEffect, useState, type SVGProps } from "react";
+import type { SVGProps } from "react";
 
 import { Plus } from "../Icons";
 
@@ -360,45 +361,21 @@ function SideMenuBody() {
 }
 
 /**
- * A standalone `.bn-mantine`/`.bn-root` host, appended to `document.body` —
- * escapes the document column's `isolate` boundary (Workspace.tsx), which
- * atomizes the column's whole subtree at ONE stacking rank, so no z-index
- * inside it (not even this cluster's 19) can ever outrank a sibling like the
- * sidebar's resize handle (z-10).
- *
- * A plain `document.body` target isn't enough: BlockNote's own CSS scopes
- * `--bn-colors-*` to a `.bn-root` ancestor and gates `.bn-menu-dropdown`'s
- * background on a `.bn-mantine` ancestor specifically — losing them is what
- * made the dropdown and its color submenu render with transparent
- * containers the first time this was tried. Replicating both classes (and
- * the color-scheme attributes they key off) on the host restores that scope
- * without re-nesting inside the isolate column. Nootles is light-mode only
- * (see CLAUDE.md), so the scheme is hardcoded rather than read live.
+ * Mount BlockNote's OWN portal container at body level. This keeps every
+ * floating control outside Workspace's isolated document column while
+ * retaining the `.bn-root`/`.bn-mantine` theme scope BlockNote applies to that
+ * container. More importantly, `editor.isWithinEditor()` recognizes this
+ * exact element. A separate lookalike host does not belong to the editor, so a
+ * drag beginning on its gutter grip is treated as an external paste and its
+ * stable block ID is replaced (NT-55).
  */
-function usePortalHost(): HTMLElement | undefined {
-  const [host] = useState<HTMLElement | undefined>(() => {
-    if (typeof document === "undefined") return undefined;
-    const el = document.createElement("div");
-    el.className = "bn-root bn-container bn-mantine light";
-    el.setAttribute("data-color-scheme", "light");
-    el.setAttribute("data-mantine-color-scheme", "light");
-    return el;
-  });
-  useEffect(() => {
-    if (!host) return;
-    document.body.appendChild(host);
-    return () => host.remove();
-  }, [host]);
-  return host;
-}
+export const editorPortalElements: PortalElementsMap = { default: null };
 
 export function BlockSideMenu() {
-  const portalHost = usePortalHost();
   return (
     <SideMenuController
       sideMenu={SideMenuBody}
       floatingUIOptions={floatingUIOptions}
-      portalElement={portalHost}
     />
   );
 }
