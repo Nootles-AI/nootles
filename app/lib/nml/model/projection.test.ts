@@ -13,12 +13,7 @@ import { projectNmlDocument } from "./projection";
 
 const fixturesDir = fileURLToPath(new URL("../__fixtures__/legacy", import.meta.url));
 const fixtureNames = readdirSync(fixturesDir).filter((name) => name.endsWith(".json"));
-
-// `notionStub` has no NML v1 representation — the converter omits it as an
-// unsupported block — so a migrated doc cannot reproduce its projection line.
-// That is an inherent projector limit (documented in projection.ts), not an
-// adapter defect, so the one fixture carrying a stub is held out of strict parity.
-const STUB_FIXTURES = new Set(["edge-cases.json"]);
+const NORMALIZED_WHITESPACE_FIXTURES = new Set(["edge-cases.json"]);
 
 const loadFixture = (name: string) =>
   JSON.parse(readFileSync(`${fixturesDir}/${name}`, "utf8")) as LegacyDocumentInput;
@@ -33,10 +28,7 @@ const counter = () => {
 
 describe("projectNmlDocument parity with the legacy projection", () => {
   for (const name of fixtureNames) {
-    if (STUB_FIXTURES.has(name)) {
-      it.skip(`${name} (holds a notionStub with no NML representation)`, () => {});
-      continue;
-    }
+    if (NORMALIZED_WHITESPACE_FIXTURES.has(name)) continue;
     it(`reproduces project() text + index for ${name}`, () => {
       const fixture = loadFixture(name);
       const legacy = project(fixture.blocks as unknown as AnyBlock[]);
@@ -46,4 +38,15 @@ describe("projectNmlDocument parity with the legacy projection", () => {
       expect(served.index).toEqual(legacy.index);
     });
   }
+
+  it("projects canonical Notion stubs at legacy parity", () => {
+    const fixture = loadFixture("edge-cases.json");
+    const stub = fixture.blocks
+      .filter((block) => block.type === "notionStub")
+      .map((block) => ({ ...block, children: [] }));
+    const input = { ...fixture, blocks: stub };
+    const legacy = project(input.blocks as unknown as AnyBlock[]);
+    const { document } = convertLegacyDocument(input, { createId: counter() });
+    expect(projectNmlDocument(document)).toEqual(legacy);
+  });
 });

@@ -1,8 +1,9 @@
 # NML / ProseMirror refactor plan
 
-Status: in progress; steps 1–13 complete (step 13's editor-serve ships behind the
-`NEXT_PUBLIC_NML_SERVE` flag, dormant until a cohort is enrolled). Remaining: the per-cohort
-rollout, then steps 14–15 (AI/MCP consumers, legacy retirement).
+Status: in progress; steps 1–13 complete and step 14's Phase 2.5 parity/substrate slice is
+implemented and locally verified. Serving is controlled by the Convex `nmlServeState` switch plus
+per-document authority. Remaining: deploy/smoke Phase 2.5, widen the cohort, add MCP transport, then
+step 15 legacy retirement.
 
 ProseMirror remains the browser editing engine. Canonical ownership moves from a
 ProseMirror-shaped Yjs root to a typed, versioned NML AST stored directly in Yjs. Existing
@@ -400,32 +401,34 @@ collaboration tests, rollback exercises, and an older-client compatibility windo
   dishonest over-limit client refused server-side), and a full local-backend browser e2e
   (`tests/nml-authority.browser.mjs`).
 
-- **Editor-serve — landed behind a flag.** `Editor.tsx` now asks `nmlAuthority(docId)` and, when
-  it says serve, mounts `NmlServedEditor` (the NML view bridge on the page's shared `Y.Doc` via
-  the ordinary provider) instead of the BlockNote `YjsEditor`. Because BlockNote is not mounted
-  on that path, the legacy `prosemirror` root is never written again — NML is the sole tree for
-  the document's edits (`app/lib/nml/serve.test.ts` pins the byte-stability). The client half of
+- **Editor-serve — landed and completed for parity in Phase 2.5.** `Editor.tsx` asks
+  `nmlAuthority(docId)` and, when it says serve, mounts the same complete BlockNote `EditorSurface`
+  through the ordinary provider. `useNmlLegacyMirror` makes `prosemirror` a live derived
+  compatibility view: canonical NML initializes it, direct NML commands reproject into it, and its
+  human/stale-client/AI transactions compile back into attributed semantic commands without loops.
+  NML remains the sole authority while every client retains the mature chrome, awareness, and AI.
+  The client half of
   the elected migrator (`useNmlMigration`) converts a cohort document's live blocks + stored
-  updates and calls `electMigration`; once the server verifies, the router remounts onto the NML
-  editor. Undo joins the one workspace spine through `useNmlUndoDomain` (peer of `textDomain.ts`),
-  so ⌘Z is unchanged for the user. The whole path is gated by `NEXT_PUBLIC_NML_SERVE` **and**
-  cohort membership: with the flag off (production default) the `nmlAuthority` query is never
-  issued and `Editor.tsx` behaves exactly as before, so it is dormant until a cohort is
-  deliberately enrolled. The served editor's editing UX (typing, marks, undo/redo, rewind, canvas,
-  IME) is exercised in Chromium by `tests/nml-view.browser.mjs`, which mounts the same
-  `NmlEditableView`. The AI surfaces are deliberately not carried onto the NML editor here — that
-  is step 14.
-- **Remaining for the rollout:** a full assembled-mount e2e under `next dev`, then the progressive
-  per-cohort enrollment (synthetic-internal first), gated on telemetry and an older-client window.
+  updates and calls `electMigration`; once the server verifies, the router remounts under NML
+  authority. The whole path is gated by `NEXT_PUBLIC_YJS`, reactive Convex serve state, and cohort
+  membership. Native-view, BlockNote parity, and real assembled-Editor Chromium suites cover the
+  editing surface; the assembled test includes migration, backend verification, authority flip, a
+  second client, and persisted canonical decode.
+- **Remaining for rollout:** deploy/smoke Phase 2.5, then progressive cohort enrollment gated on
+  telemetry and the older-client window.
 
-**Gate:** all supported human edits commit NML commands; NML is the cohort's sole tree.
+**Gate — passed locally:** all supported human/AI edits commit attributed NML commands; canonical NML
+drives the live compatibility view and mixed clients converge.
 
-## 14. Move backend, AI, and MCP consumers
+## 14. Move backend, AI, and MCP consumers — parity substrate complete
 
-- Generate model NML from the AST; compile partial edits into semantic commands.
-- Move readers to the headless core and add an authorized, attributed executor.
-- Preserve review, entitlement, logging, confirmation, and paid-API safety boundaries.
-- Add MCP only after authentication, scopes, limits, and review policy are approved.
+- **Complete:** model projection from the AST, NML-derived HTML, complete partial-edit compilation,
+  canonical `CanvasHost`, authority-aware reads, and live open-editor projection.
+- **Complete:** human AI reuses the exact existing review, entitlement, logging, confirmation,
+  request, and paid-API boundaries through the shared editor surface; accepted edits mirror to NML
+  with model attribution.
+- **Remaining:** MCP transport/tools, OAuth/scopes/rate limits, served-resource enforcement, and the
+  approved internal auto-apply/rewind policy around the completed substrate.
 
 **Gate:** remote commands update open editors without rebuild, echo, or selection loss.
 

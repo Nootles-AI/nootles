@@ -38,7 +38,7 @@ export class NmlParseError extends Error {
   }
 }
 
-const blockTags = new Set(["p", "blockquote", "ul", "ol", "details", "table", "hr", "nt-code-block", "nt-math-block", "img", "video", "audio", "nt-file", "nt-diagram", "nt-album", "nt-storyboard", "nt-location"]);
+const blockTags = new Set(["p", "blockquote", "ul", "ol", "details", "table", "hr", "nt-code-block", "nt-math-block", "img", "video", "audio", "nt-file", "nt-diagram", "nt-album", "nt-storyboard", "nt-location", "nt-notion-stub"]);
 const aliases: Record<string, string> = { paragraph: "p", quote: "blockquote", code: "nt-code-block", math: "nt-math-block", diagram: "nt-diagram", canvas: "nt-diagram", album: "nt-album", gallery: "nt-album", storyboard: "nt-storyboard", location: "nt-location", place: "nt-location" };
 const markForTag: Record<string, NmlMark> = { code: "code", strong: "bold", b: "bold", em: "italic", i: "italic", s: "strike", strike: "strike", u: "underline" };
 
@@ -196,6 +196,17 @@ export function parseDocument(source: string, options: NmlParseOptions = {}): Nm
       const domain = parseLocation(el.outerHTML, parseHtml);
       return { id: id(), type: "location", props: {}, domain, ...importedLegacy(el, serializeLocation(domain), path), ...legacyMarkup(el), children: [] };
     }
+    if (tag === "nt-notion-stub") return {
+      id: id(),
+      type: "notionStub",
+      props: {
+        notionType: attr(el, "notion-type") ?? "",
+        notionId: attr(el, "notion-id") ?? "",
+        href: attr(el, "href") ?? "",
+        raw: el.textContent ?? "",
+      },
+      children: [],
+    };
     keep(el, path, `Unsupported block element <${originalTag}>.`);
   };
   const parseBlocks = (input: Element[], path: Array<string | number>): NmlBlock[] => input.flatMap((el, index) => {

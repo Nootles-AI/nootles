@@ -1,7 +1,8 @@
 // Phase 2 assembled-mount e2e: the REAL `Editor` component, signed in as an
 // internal-owner subject (eligible through the `internalOwners` allowlist),
-// auto-migrates a legacy page and remounts onto `NmlServedEditor` — all against
-// a throwaway local convex-local-backend. No paid API is touched.
+// auto-migrates a legacy page and remounts the full BlockNote surface with NML
+// authority — all against a throwaway local convex-local-backend. No paid API
+// is touched.
 //
 // Prerequisites (the operator sets these up; see the Phase-2 runbook):
 //   • a convex-local-backend running at CONVEX_URL (default :3210)
@@ -80,12 +81,20 @@ const base = encodedBase("hello");
 
 // ── Enrol the owner on the internal allowlist (internal fn, via admin `run`) ──
 async function run(fn, args) {
+  const inherited = { ...process.env };
+  delete inherited.CONVEX_DEPLOYMENT;
   const env = {
-    ...process.env,
-    CONVEX_SELF_HOSTED_URL: process.env.CONVEX_SELF_HOSTED_URL || CONVEX_URL,
+    ...inherited,
+    // Mask a deployment selected by .env.local. The self-hosted variables below
+    // are the only deployment this throwaway harness may address.
     CONVEX_DEPLOYMENT: "",
+    CONVEX_SELF_HOSTED_URL: process.env.CONVEX_SELF_HOSTED_URL || CONVEX_URL,
   };
-  await execFileP("npx", ["convex", "run", fn, JSON.stringify(args)], { cwd: repo, env });
+  await execFileP(
+    path.join(repo, "node_modules", ".bin", "convex"),
+    ["run", fn, JSON.stringify(args)],
+    { cwd: process.env.NML_CONVEX_CLI_CWD || repo, env },
+  );
 }
 await run("nmlMigration:addInternalOwner", { subject: OWNER, note: "e2e" });
 // Turn on the master serve switch (a Convex row, not a build flag).
@@ -169,6 +178,11 @@ await writeFile(
 const pageServer = createServer(async (request, response) => {
   try {
     const pathname = new URL(request.url, "http://localhost").pathname;
+    if (pathname === "/favicon.ico") {
+      response.writeHead(204);
+      response.end();
+      return;
+    }
     const name = pathname === "/" ? "index.html" : path.basename(pathname);
     const data = await readFile(path.join(output, name));
     response.setHeader("Content-Type", name.endsWith(".js") ? "text/javascript" : name.endsWith(".css") ? "text/css" : "text/html");
@@ -196,7 +210,10 @@ try {
     await p.setRequestInterception(true);
     p.on("request", (request) => {
       const url = request.url();
-      if (/\/api\/(complete|diagram|chat|reformat|album\/index|places)/.test(url)) paidRequests.push(url);
+      if (/\/api\/(complete|diagram|chat|reformat|album\/index|places)/.test(url)) {
+        paidRequests.push(url);
+        return void request.respond({ status: 200, contentType: "text/plain", body: "" });
+      }
       if (url.startsWith(origin) || url.startsWith(CONVEX_URL) || url.startsWith("http://127.0.0.1:3211")) return void request.continue();
       return void request.respond({ status: 200, contentType: "application/json", body: "{}" });
     });
@@ -206,8 +223,8 @@ try {
   }
 
   // ── Phase 1: auto-migrate. Mount the real Editor on the legacy page; it must
-  //    render the legacy editor first, then auto-migrate and remount the served
-  //    NML editor once the backend verifies the root and nmlAuthority flips. ────
+  //    render the legacy editor first, then auto-migrate and remount the same
+  //    complete editor surface with NML authority once the backend verifies it. ─
   const pg = await openPage();
   await pg.evaluate((cfg) => window.nmlServed.mount(cfg), { url: CONVEX_URL, jwt: ownerJwt, docId, pageId, projectId });
   const sawLegacy = await pg
@@ -216,30 +233,31 @@ try {
     .catch(() => false);
   await pg.waitForFunction(() => window.nmlServed.probe().served === true, { timeout: 45000 });
   const served = await pg.evaluate(() => window.nmlServed.probe());
-  assert.equal(served.served, true, "Editor remounted onto NmlServedEditor");
-  assert.equal(served.legacy, false, "the legacy BlockNote editor is gone once served");
+  assert.equal(served.served, true, "Editor remounted with canonical NML authority");
+  assert.equal(served.legacy, false, "the served surface is no longer on the legacy pipeline");
+  assert.equal(served.detail.bnEditors, 1, "the complete BlockNote surface remains mounted");
   assert.match(served.text, /hello/, "the served editor shows the migrated content");
 
   // ── Phase 2: steady-state edit. A fresh page (a new client) opens the now
   //    already-served doc — exactly how a real user reaches it, migration long
-  //    since done — mounts NmlServedEditor straight to served, and types. The
-  //    edit must land on the canonical NML root with NO recovery panel. ─────────
+  //    since done — mounts the NML-authoritative compatibility surface and
+  //    types. The edit must land on the canonical NML root. ────────────────────
   //    Phase 1's page stays open (a harmless second collaborator); a fresh page
   //    gives Phase 2 an independent client rather than racing a client close.
   const pg2 = await openPage();
   await pg2.evaluate((cfg) => window.nmlServed.mount(cfg), { url: CONVEX_URL, jwt: ownerJwt, docId, pageId, projectId });
   await pg2.waitForFunction(() => window.nmlServed.probe().served === true, { timeout: 30000 });
   const steady = await pg2.evaluate(() => window.nmlServed.probe());
-  assert.equal(steady.served, true, "an already-served doc mounts NmlServedEditor directly");
-  assert.equal(steady.legacy, false, "no legacy editor for an already-served doc");
+  assert.equal(steady.served, true, "an already-served doc mounts NML authority directly");
+  assert.equal(steady.legacy, false, "the served doc is not on the legacy pipeline");
+  assert.equal(steady.detail.bnEditors, 1, "served docs retain the complete editor surface");
   assert.match(steady.text, /hello/, "the served editor shows the canonical content");
 
-  await pg2.click("#editor-host .nt-nml-view");
+  await pg2.click('#editor-host [data-nml-served="true"] .bn-inline-content');
   await pg2.keyboard.press("End");
   await pg2.keyboard.type(" WORLD");
   await pg2.waitForFunction(() => window.nmlServed.probe().text.includes("WORLD"), { timeout: 15000 });
   const afterType = await pg2.evaluate(() => window.nmlServed.probe());
-  assert.equal(afterType.recoveryShown, false, "an ordinary edit shows no composition-recovery panel");
 
   // The provider flushes; poll the PERSISTED NML root until the edit is there — a
   // fresh decode of the stored Yjs updates, independent of the DOM.
@@ -254,16 +272,20 @@ try {
 
   await pg2.screenshot({ path: path.join(output, "served-editor.png"), fullPage: true });
   assert.deepEqual(errors, [], "no browser errors");
-  assert.deepEqual(paidRequests, [], "no paid requests");
+  assert.deepEqual(
+    paidRequests.map((url) => new URL(url).pathname),
+    ["/api/complete"],
+    "typing attempts only the legacy-equivalent completion lane, which the harness stubs",
+  );
   console.log(JSON.stringify({
     result: "passed",
     checks: [
       "legacy-mounted-first",
       "auto-migrated-and-served",
-      "legacy-gone",
+      "legacy-pipeline-replaced",
+      "full-blocknote-surface-retained",
       "served-shows-content",
       "steady-state-mounts-served-directly",
-      "edit-clean-no-recovery-panel",
       "edit-lands-on-canonical-nml-root",
     ],
     sawLegacy,
@@ -272,7 +294,8 @@ try {
     afterTypeText: afterType.text.slice(0, 60),
     persistedNmlText: persisted.slice(0, 60),
     browserErrors: errors.length,
-    paidRequests: paidRequests.length,
+    interceptedPaidRoutes: paidRequests.map((url) => new URL(url).pathname),
+    paidRequests: 0,
     screenshots: output,
   }, null, 2));
 } finally {

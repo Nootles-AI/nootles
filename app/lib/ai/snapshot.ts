@@ -7,6 +7,12 @@ import type { Node } from "prosemirror-model";
 import * as Y from "yjs";
 import { readerSchema } from "./readerSchema";
 import type { AnyBlock } from "./projection";
+import { decodeNmlDocument } from "@/app/lib/nml/yjs";
+import {
+  nmlToAnyBlocks,
+  type NmlBlockAdapterOptions,
+} from "@/app/lib/nml/model/projection";
+import type { NmlBlock } from "@/app/lib/nml/schema";
 
 /**
  * A stored page, back as BlockNote blocks — from either pipeline.
@@ -69,11 +75,27 @@ export function yReader() {
     apply(updates: readonly Uint8Array[]) {
       for (const update of updates) Y.applyUpdate(doc, update);
     },
-    blocks(): AnyBlock[] {
+    blocks(
+      source: "legacy" | "nml" = "legacy",
+      options: NmlBlockAdapterOptions = {},
+    ): AnyBlock[] {
+      if (source === "nml") return nmlToAnyBlocks(decodeNmlDocument(doc), options);
       return yXmlFragmentToBlocks(
         headlessEditor(),
         doc.getXmlFragment("prosemirror"),
       ) as unknown as AnyBlock[];
+    },
+    nmlStorageIds(): string[] {
+      const ids = new Set<string>();
+      const visit = (blocks: NmlBlock[]) => blocks.forEach((block) => {
+        if (
+          (block.type === "image" || block.type === "video" || block.type === "audio" || block.type === "file") &&
+          block.props.source?.kind === "storage"
+        ) ids.add(block.props.source.storageId);
+        visit(block.children);
+      });
+      visit(decodeNmlDocument(doc).blocks);
+      return [...ids].sort();
     },
     destroy() {
       doc.destroy();

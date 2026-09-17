@@ -12,6 +12,7 @@ import {
 } from "react";
 import { useConvex, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
 import { joinUpdateRows } from "@/convex/yshape";
 import { parseAlbum } from "@/app/components/editor/album/parse";
 import { parseLocation } from "./editor/location/parse";
@@ -165,6 +166,14 @@ function PreviewReader({ docId }: { docId: string | null }) {
     YJS_ON && near && docId ? { docId } : "skip",
   );
   const yjs = YJS_ON && meta != null;
+  const serveEnabled = useQuery(
+    api.nmlMigration.nmlServeEnabled,
+    yjs ? {} : "skip",
+  );
+  const authority = useQuery(
+    api.nmlMigration.nmlAuthority,
+    yjs && serveEnabled && docId ? { docId } : "skip",
+  );
   // Undefined is "not answered yet", null is "answered: not a Yjs doc".
   const legacy = !YJS_ON || meta === null;
   const snapshot = useQuery(
@@ -232,6 +241,7 @@ function PreviewReader({ docId }: { docId: string | null }) {
 
   useEffect(() => {
     if (!yjs || !docId || !meta) return;
+    if (serveEnabled === undefined || (serveEnabled && authority === undefined)) return;
     let cancelled = false;
     const cancel = spacedRead(lastRead, () => {
       void (async () => {
@@ -299,7 +309,21 @@ function PreviewReader({ docId }: { docId: string | null }) {
             card.reader.apply(joined.map((row) => row.update));
             card.cursor = joined.reduce((n, row) => Math.max(n, row.seq), card.cursor);
           }
-          setBlocks(card.reader.blocks());
+          if (serveEnabled && authority?.serve) {
+            const ids = card.reader.nmlStorageIds();
+            const urls = new Map(await Promise.all(ids.map(async (storageId) => [
+              storageId,
+              await convex.query(api.albums.url, {
+                storageId: storageId as Id<"_storage">,
+              }),
+            ] as const)));
+            if (cancelled) return;
+            setBlocks(card.reader.blocks("nml", {
+              resolveStorageUrl: (storageId) => urls.get(storageId) ?? undefined,
+            }));
+          } else {
+            setBlocks(card.reader.blocks("legacy"));
+          }
         } catch {
           if (!cancelled) setBlocks([]);
         }
@@ -309,7 +333,7 @@ function PreviewReader({ docId }: { docId: string | null }) {
       cancelled = true;
       cancel();
     };
-  }, [yjs, docId, meta, convex]);
+  }, [yjs, docId, meta, convex, serveEnabled, authority]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
   const [scale, setScale] = useState(0);

@@ -1,6 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import {
   DefaultChatTransport,
   lastAssistantMessageIsCompleteWithApprovalResponses,
@@ -14,9 +20,15 @@ import { track } from "@/app/lib/telemetry";
 import { useOpenPage } from "@/app/components/OpenPageContext";
 import { useReview } from "@/app/components/ReviewContext";
 import { useEditorRegistry } from "@/app/components/editor/EditorRegistry";
-import { BrowserChat, ChatStore, isAnswered, type PendingApproval } from "./BrowserChat";
+import {
+  BrowserChat,
+  ChatStore,
+  isAnswered,
+  type PendingApproval,
+} from "./BrowserChat";
 import { withAttachmentUrls, type ReadyAttachment } from "./attachments";
 import { runClientTool, type ToolContext } from "./clientTools";
+import { duplicateMutationResult, isRepeatedMutation } from "./toolReplay";
 import type { DrawChoice } from "../drawStyles";
 import { resolveMentions, type MentionPick } from "./mentions";
 import type { MentionData } from "./parts";
@@ -68,7 +80,9 @@ export function useProjectChat({
   const registry = useEditorRegistry();
   const review = useReview();
 
-  const [built, setBuilt] = useState<{ key: string; chat: BrowserChat } | null>(null);
+  const [built, setBuilt] = useState<{ key: string; chat: BrowserChat } | null>(
+    null,
+  );
 
   // The style the user last confirmed for drawings, carried on every later
   // request body. A ref rather than state: nothing renders from it — the
@@ -224,7 +238,10 @@ export function useProjectChat({
 
   const store = chat?.store;
   const snapshot = useSyncExternalStore(
-    useCallback((listener: () => void) => store?.subscribe(listener) ?? noop, [store]),
+    useCallback(
+      (listener: () => void) => store?.subscribe(listener) ?? noop,
+      [store],
+    ),
     () => store?.getSnapshot() ?? EMPTY,
     () => EMPTY,
   );
@@ -253,7 +270,8 @@ export function useProjectChat({
       const { threadId: id, projectId: pid, pageId: page } = latest.current;
       // Never into a turn that is still running: the loop hands a tool result to
       // whatever message is last, and that would now be this one.
-      if (!chat || !id || !hasContent(draft) || chat.store.getSnapshot().busy) return;
+      if (!chat || !id || !hasContent(draft) || chat.store.getSnapshot().busy)
+        return;
 
       // Read here, before anything is written down: a mention means the page as
       // it stands at the moment the user asked, and the agent is about to start
@@ -285,7 +303,11 @@ export function useProjectChat({
       });
 
       turn.current = { chatPromptId, started: false };
-      void latest.current.review.beginTurn({ threadId: id, projectId: pid, chatPromptId });
+      void latest.current.review.beginTurn({
+        threadId: id,
+        projectId: pid,
+        chatPromptId,
+      });
       track("chat_prompt_sent", { attachments: attachments.length });
       await chat.sendMessage(message);
     },
@@ -418,10 +440,18 @@ function userParts(
   for (const file of draft.attachments) {
     const { filename, mediaType } = file;
     if (file.kind === "image") {
-      attachments.push({ storageId: file.storageId, partIndex: parts.length, mediaType, filename });
+      attachments.push({
+        storageId: file.storageId,
+        partIndex: parts.length,
+        mediaType,
+        filename,
+      });
       parts.push({ type: "file", mediaType, filename, url: file.url });
     } else {
-      parts.push({ type: "data-attachment", data: { filename, mediaType, text: file.text } });
+      parts.push({
+        type: "data-attachment",
+        data: { filename, mediaType, text: file.text },
+      });
     }
   }
   for (const data of mentions) parts.push({ type: "data-mention", data });
@@ -474,7 +504,7 @@ function answer(
   return async () => {
     try {
       if (chat.turn !== turn) return;
-      const output = await toolOutput(toolCall, ctx);
+      const output = await toolOutput(toolCall, ctx, chat.messages);
       // The turn was abandoned while the tool ran. Handing the result back would
       // start a fresh request for a conversation nobody is watching.
       if (chat.turn !== turn) return;
@@ -491,10 +521,17 @@ function answer(
 async function toolOutput(
   toolCall: ToolCall,
   ctx: ToolContext,
+  messages: AbMessage[],
 ): Promise<ToolOutput> {
   const call = { tool: toolCall.toolName, toolCallId: toolCall.toolCallId };
+  if (isRepeatedMutation(messages, toolCall)) {
+    return { ...call, output: duplicateMutationResult(toolCall.toolName) };
+  }
   try {
-    return { ...call, output: await runClientTool(toolCall.toolName, toolCall.input, ctx) };
+    return {
+      ...call,
+      output: await runClientTool(toolCall.toolName, toolCall.input, ctx),
+    };
   } catch (e) {
     // A model recovers from a tool that failed; it cannot recover from one that
     // never answered, which leaves the turn hanging forever.

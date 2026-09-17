@@ -7,7 +7,7 @@ import { FILE_DOC_PATHS } from "@/app/components/Icons";
 
 export type DomainMount = { update: (block: NmlBlock) => void; destroy: () => void };
 export type DomainRenderer = (host: HTMLElement, block: NmlBlock) => DomainMount;
-export const DOMAIN_TYPES = new Set(["codeBlock", "mathBlock", "canvas", "album", "storyboard", "location", "image", "video", "audio", "file"]);
+export const DOMAIN_TYPES = new Set(["codeBlock", "mathBlock", "canvas", "album", "storyboard", "location", "image", "video", "audio", "file", "notionStub"]);
 
 function mountNmlView(host: HTMLElement, bridge: NmlViewBridge, renderDomain?: DomainRenderer): { view: EditorView; destroy: () => void } {
   const domainViews = new Map<string, DomainMount>();
@@ -122,6 +122,7 @@ function mountNmlView(host: HTMLElement, bridge: NmlViewBridge, renderDomain?: D
       ...(bridge.isEditable() ? { "aria-multiline": "true" } : {}),
     },
     dispatchTransaction: (transaction) => { if (!bridge.dispatch(transaction)) view.updateState(bridge.state); },
+    handleTextInput: (_view, _from, _to, text) => text === " " && bridge.supportsRichEditing() && bridge.applyMarkdownShortcut(),
     handleKeyDown: (_view, event) => {
       if (!bridge.isEditable()) return false;
       // Canonical undo/redo — before the rich-editing gate, since plain-text

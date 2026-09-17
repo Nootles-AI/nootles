@@ -24,10 +24,8 @@ import type { NmlBlock, NmlDocument, NmlInlineContent, NmlMark } from "../schema
  * serializers so canvas/album/storyboard/location read back through the same
  * parsers the legacy projection uses.
  *
- * Two limits are inherent to the projector, not this adapter, and are therefore
- * NOT closed here (matching legacy behaviour exactly is the parity goal):
- *   - `notionStub` has no NML representation, so a migrated doc has none to
- *     project (import artifact; would need schema support to carry through).
+ * One limit is inherent to the projector, not this adapter, and is therefore
+ * not changed here (matching legacy behaviour exactly is the parity goal):
  *   - `project()` does not emit table-cell text for any document, legacy or
  *     NML, so a table projects as a bare id tag on both paths.
  */
@@ -58,16 +56,27 @@ function inlineContent(content: NmlInlineContent): unknown[] {
   });
 }
 
-function mediaUrl(source: { kind: "url"; url: string } | { kind: "storage"; storageId: string } | undefined): string {
-  // `project()` reads `props.url` only. A storage-kind source has no synchronous
-  // URL here (the resolver lives in the view), so it projects as empty — matching
-  // an unresolved media block. Migration never produces storage-kind sources.
-  return source?.kind === "url" ? source.url : "";
+export type NmlBlockAdapterOptions = {
+  resolveStorageUrl?: (storageId: string) => string | undefined;
+};
+
+function mediaUrl(
+  source: { kind: "url"; url: string } | { kind: "storage"; storageId: string } | undefined,
+  options: NmlBlockAdapterOptions,
+): string {
+  return source?.kind === "url"
+    ? source.url
+    : source?.kind === "storage"
+      ? options.resolveStorageUrl?.(source.storageId) ?? ""
+      : "";
 }
 
 /** One NML block → the denormalized `AnyBlock` `project()` consumes. */
-export function nmlBlockToAnyBlock(block: NmlBlock): AnyBlock {
-  const children = block.children.map(nmlBlockToAnyBlock);
+export function nmlBlockToAnyBlock(
+  block: NmlBlock,
+  options: NmlBlockAdapterOptions = {},
+): AnyBlock {
+  const children = block.children.map((child) => nmlBlockToAnyBlock(child, options));
   switch (block.type) {
     case "paragraph":
     case "quote":
@@ -80,9 +89,23 @@ export function nmlBlockToAnyBlock(block: NmlBlock): AnyBlock {
     case "toggleListItem":
       return { id: block.id, type: block.type, props: { ...block.props }, content: inlineContent(block.content), children };
     case "table":
-      // `project()` has no table case; it falls to the default and reads
-      // `block.content`, which is absent here — a bare id tag, same as legacy.
-      return { id: block.id, type: "table", props: { headerRows: block.props.headerRows }, children };
+      return {
+        id: block.id,
+        type: "table",
+        props: {},
+        content: {
+          type: "tableContent",
+          headerRows: block.props.headerRows,
+          columnWidths: block.columns.map(() => undefined),
+          rows: block.rows.map((row) => ({
+            cells: row.cells.map((cell) => ({
+              type: "tableCell",
+              content: inlineContent(cell.content),
+            })),
+          })),
+        },
+        children,
+      };
     case "codeBlock":
       // BlockNote carries an (empty) inline content array on code/math blocks, so
       // the legacy index reports `hasContent: true` for them; mirror that here.
@@ -98,7 +121,7 @@ export function nmlBlockToAnyBlock(block: NmlBlock): AnyBlock {
       return {
         id: block.id,
         type: block.type,
-        props: { url: mediaUrl(block.props.source), caption: block.props.caption ?? "", name: block.props.name ?? "" },
+        props: { url: mediaUrl(block.props.source, options), caption: block.props.caption ?? "", name: block.props.name ?? "" },
         children,
       };
     case "canvas":
@@ -109,12 +132,17 @@ export function nmlBlockToAnyBlock(block: NmlBlock): AnyBlock {
       return { id: block.id, type: "storyboard", props: { data: serializeStoryboard(block.domain) }, children };
     case "location":
       return { id: block.id, type: "location", props: { data: serializeLocation(block.domain) }, children };
+    case "notionStub":
+      return { id: block.id, type: "notionStub", props: { ...block.props }, children };
   }
 }
 
 /** Adapt a whole NML document to the `AnyBlock[]` tree `project()` consumes. */
-export function nmlToAnyBlocks(doc: NmlDocument): AnyBlock[] {
-  return doc.blocks.map(nmlBlockToAnyBlock);
+export function nmlToAnyBlocks(
+  doc: NmlDocument,
+  options: NmlBlockAdapterOptions = {},
+): AnyBlock[] {
+  return doc.blocks.map((block) => nmlBlockToAnyBlock(block, options));
 }
 
 /**

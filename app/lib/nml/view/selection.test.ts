@@ -1,6 +1,7 @@
 import { AllSelection, NodeSelection, TextSelection } from "prosemirror-state";
 import { applyAwarenessUpdate, Awareness, encodeAwarenessUpdate } from "y-protocols/awareness";
 import { describe, expect, it } from "vitest";
+import { DOMParser } from "linkedom";
 import * as Y from "yjs";
 import {
   createNmlYDoc,
@@ -17,6 +18,8 @@ import {
   parseAwarenessSelection,
   type NmlSelection,
 } from ".";
+
+(globalThis as unknown as { DOMParser: typeof DOMParser }).DOMParser = DOMParser;
 
 const actor = { userId: "selection-test", kind: "human" } as const;
 const paragraph = (id: string, text: string): NmlBlock => ({

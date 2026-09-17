@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { TextSelection } from "prosemirror-state";
 import { DOMSerializer } from "prosemirror-model";
-import { parseHTML } from "linkedom";
+import { DOMParser, parseHTML } from "linkedom";
 import * as Y from "yjs";
 import { createNmlYDoc, decodeNmlDocument, executeNmlCommands, type NmlBlock, type NmlDocument, type NmlCommand } from "..";
 import { convertLegacyDocument, type LegacyDocumentInput } from "../legacy";
@@ -14,6 +14,8 @@ import domains from "../__fixtures__/legacy/domains.json";
 import canvas from "../__fixtures__/legacy/canvas-html.json";
 import oldCanvas from "../__fixtures__/legacy/canvas-legacy-json.json";
 import edges from "../__fixtures__/legacy/edge-cases.json";
+
+(globalThis as unknown as { DOMParser: typeof DOMParser }).DOMParser = DOMParser;
 
 const paragraph = (id: string, text = "hello"): NmlBlock => ({ id, type: "paragraph", props: {}, children: [], content: [{ type: "text", text, marks: [] }] });
 const doc = (blocks: NmlBlock[] = [paragraph("p1"), paragraph("p2")]): NmlDocument => ({ schemaVersion: 1, documentId: "view-test", blocks });

@@ -1,141 +1,142 @@
-# Phase 2.5 — FULL PARITY on served docs: implementation handoff
+# Phase 2.5 — full parity on served documents
 
-**Status:** IN PROGRESS. Substrate piece **B1 (model read projection) is complete and verified**; the
-rest is planned and broken into tasks below. This doc is self-contained — you do not need the wiki to
-continue — but the authoritative narrative plan lives at
-`agent-wiki/architecture/nml-internal-mcp-plan.md` → *Phase 2.5* (note: `agent-wiki` is **not** a git
-repo; it is plain files in the workspace).
+**Status:** implemented and verified locally on `nml-phase-2.5-full-parity` (2026-09-17).
+The structural NML parity gates pass. The repeated chat mutation found by the separately approved
+live-provider smoke is now suppressed at the client execution boundary; the Recraft lane remains
+blocked by account credit. Production deployment and serve-wave expansion are separate operator
+actions.
 
-Branch: `nml-phase-2.5-full-parity`.
+The phase is complete by making the mature editor the served editor instead of rebuilding a
+second product surface. When `nmlAuthority.serve` is true, `Editor.tsx` mounts the same BlockNote
+schema, extensions, `EditorSurface`, chrome, AI/review integration, awareness, and role handling as
+the normal Yjs path. `useNmlLegacyMirror` makes its `prosemirror` fragment a live compatibility view
+over canonical NML.
 
----
+This choice gives the served path parity by construction:
 
-## The mandate
+- slash and `@` menus, block side menu and drag/reorder, formatting toolbar, links, hints, markdown
+  rules, rich paste/drop, inline math/page references, code/image/media controls, all custom blocks,
+  IME, selection, keyboard behavior, and read-only roles are the existing production implementation;
+- completion, reformat, chat edits, review/accept/reject, checkpoints, undo, entitlements, logging,
+  and request boundaries are the same hooks and extensions, rather than a parallel NML rewrite;
+- every client uses y-prosemirror awareness positions, so remote selections and cursors require no
+  cross-format translator;
+- the canonical `nml` root remains authoritative. BlockNote is a derived view, not a second source of
+  truth.
 
-When a document is *served* (`nmlAuthority.serve === true`), `NmlServedEditor` mounts the NML ProseMirror
-view bridge instead of the legacy BlockNote editor. The bar for this phase is **total parity**: on a
-served doc, **nothing a user, a collaborator, or a reader can observe may differ from the legacy path** —
-same chrome, triggers, outputs, rendering, presence, review/undo, and latency — with **zero net-new paid
-API calls**. Anything observable is a defect, not a follow-up.
+The implementation was first verified without providers. A later, explicitly approved and bounded
+live-provider smoke is recorded under [Verification](#verification); it made no production writes.
 
-This is step 14 of `nml-prosemirror-refactor-plan.md` ("move backend, AI, and MCP consumers"), executed
-for the internal cohort, widened to every surface (not just AI) and — per an explicit operator decision
-(2026-09-17: "everything, incl. multi-client") — including cross-client presence and the
-NML→ProseMirror live mirror that the plan previously deferred as external-grade.
+## Canonical compatibility mirror
 
-## Hard constraints (read before writing code)
+`app/lib/nml/mirror.ts`, `mirrorBlockNote.ts`, and `useNmlLegacyMirror.ts` provide the live bridge.
 
-- **Paid-API rule (see `CLAUDE.md`, overriding).** Do not cause a live call to any paid model endpoint
-  (anything under `app/lib/ai/**` or the `app/api/**` wrappers) without explicit, per-run operator
-  approval in the conversation. You may **write** the AI lanes and verify them statically (tsc / lint /
-  unit); **live** verification of completion/reformat/chat/draw needs approval. Say so and stop at the
-  approved count.
-- **Quality bar.** No half-finished slices. `tsc --noEmit` and ESLint must stay green. Verify UI changes
-  in-browser before claiming done.
-- **Node 22 is required for the toolchain** (see Verification below). Node 20 fails to even boot vitest.
+- On mount, canonical NML is projected into the BlockNote fragment before the editor is shown.
+- BlockNote transactions are converted back to NML and compiled into semantic commands. They land as
+  one authorized, attributed canonical batch; transactions made inside an AI apply boundary retain
+  `actor.kind: "model"`.
+- Canonical human/model/system commands immediately reproject into the open BlockNote editor and into
+  stale clients bound to `prosemirror`.
+- Hidden NML identities for inline atoms, table rows/columns/cells, and math rows survive round trips.
+- Storage-backed media resolves through Convex while retaining its canonical storage identity.
+- Mirror-origin transactions are ignored, preventing feedback loops. Queued writes drain after an
+  authority flip/unmount, and the continuously current compatibility root makes rollback show the
+  latest content instead of the migration snapshot.
+- Canvas block props and the existing per-shape canvas maps continue to use their mature collaboration
+  adapter. Canonical scene projection and legacy canvas adoption remain deterministic.
 
-## What the audit actually found (verified, with corrections)
+The previous native `NmlServedEditor` remains as a low-level bridge/debug surface and retains its own
+editing tests, but it is no longer the production parity mount.
 
-A four-track code audit of `NmlServedEditor` vs. legacy produced the gap list. **Two audit claims were
-wrong on inspection — do not act on them:**
+## MCP/AI substrate delivered by this phase
 
-- ❌ "All custom domain blocks are read-only on served docs." **False.** `ReadOnlyDomainContent.tsx`
-  wires fully editable `EditableCode`, `EditableMath`, `EditableCanvas`, and album/storyboard/location/
-  video/audio surfaces through the editable bridge. Code text, math, canvas gestures, and those domains
-  **are editable**.
-- ❌ "Uploaded media renders 'unavailable' — a live regression." **Not live for migrated docs.** Legacy
-  `MediaBlock` stores only `url`; `legacy.ts` (`:225–233`) emits only `{ kind: "url" }`, so migration
-  never produces `storage`-kind media. The `resolveStorageUrl` resolver is genuinely unwired in
-  `NmlServedEditor`, but has no trigger for a migrated doc — thread it for forward-compat, low priority.
+The parity surface does not depend on these adapters, but MCP phases 3–4 can use them directly without
+touching BlockNote:
 
-**Confirmed-live single-user gaps** (you'd see these solo on a served doc): no slash / `@` / side menus,
-no formatting toolbar, no markdown input rules, no empty-block hints; inline math + page mentions are
-read-only (page-mention click doesn't navigate); image + code-language editing missing; paste/drop is
-plain-text only; thumbnails / `read_page` / AI projection read the migration-frozen legacy root; AI is
-entirely absent.
+- `app/lib/nml/model/projection.ts`: canonical NML to the existing model `project()` grammar, including
+  table content, domains, canvas scenes, media, and Notion stubs.
+- `app/lib/nml/model/html.ts`: NML-derived Nootles HTML through the canonical legacy serializer, with
+  storage URL resolution.
+- `app/lib/nml/model/apply.ts`: the complete `convex/ai/operations.ts` vocabulary compiled to semantic
+  NML commands, including stable temporary IDs, tables, math, media, special domains, and canvas
+  scene diffs.
+- `app/lib/nml/model/canvasHost.ts`: a `CanvasHost` over canonical scenes, so all 13 existing diagram
+  planners can run unchanged.
 
-**Multi-client gaps** (bite at wave 2 / a second legacy client): remote cursors break across NML↔legacy;
-legacy clients see the frozen `prosemirror` root; rollback reverts visible content to the migration
-snapshot.
+Authority-aware readers now prefer NML in `PagePreview`, `clientTools.storedBlocks`, and AI snapshots.
+The live mirror also keeps compatibility readers that still consume BlockNote/HTML current.
 
-**Confirmed NOT to differ** (regression-pin only, don't rebuild): code/math/canvas/album/storyboard/
-location/video/audio editing, tables, lists, toggles, dividers, split/join/indent/move, keyboard marks,
-links, durable selection, IME.
+NML v1 now carries `notionStub` as a real typed block (`notionType`, `notionId`, `href`, `raw`) through
+legacy conversion, parse/serialize, Yjs, model projection, HTML, the applier, and both view paths. The
+earlier “unsupported stub” exception is closed.
 
-## Task breakdown (the plan of record)
+The comments/annotations audit found no document-comment product feature to migrate. “Threads” in this
+repository are AI chat threads; BlockNote exposes dependency-level comment APIs, but the app neither
+configures nor persists them.
 
-| # | Track | Piece | Paid-API to *test*? | Notes |
-|---|---|---|---|---|
-| B1 | Substrate | **Model read projection** | No | **DONE — see below** |
-| D1 | Substrate | NML applier + `CanvasHost` over served scene | No | Compile `convex/ai/operations.ts` → `executeNmlCommands`; implement `CanvasHost` (`app/lib/ai/canvas/host.ts`) so the 13 canvas planners port unchanged. Pairs with B1; both reused by AI + MCP. **Do next.** |
-| B2/B3 | Consumers | NML→HTML serialization + route non-editor readers | No | Route `PagePreview`/`ThumbDiagram`, `read_page` (`clientTools.storedBlocks`), `projection.ts`, `html/serialize.ts`, `albumRead`, `chatHost` through the NML projection, gated on `nmlAuthority.serve`. Blocked by B1 (now unblocked). |
-| A2 | Editor | Inline atoms — math + page-mention edit/navigation | No | `browser.ts` `nodeViews.math`/`pageRef` are `contentEditable=false`, no handlers. Needs step-9 inline temp-ID minting. Page-mention click-to-open is the small first slice. |
-| A3/A4 | Editor | Image+code editing, rich paste/drop, storage-URL | No | Image source/caption + code language selector as NML commands; rich HTML/file/block paste+drop (`browser.ts` reads only `text/plain`); thread `resolveStorageUrl` (low priority, not a live bug). |
-| A5 | Editor | Markdown input rules | No | None exist in `app/lib/nml/view/`. Add PM input rules → NML type/insert commands. Rule→command mapping is unit-testable. |
-| A6 | Editor | Chrome: slash/`@` menu, side menu, toolbar, hints | No | Rebuild the BlockNote UI on the bridge; every action → NML command. Largest editor slice. Browser-verified. |
-| D2–D6 | AI | AI lanes on NML | **Yes (live)** | completion/reformat on `NmlEditableView`; chat + review overlay on `NmlReviewHistory`; draw + 13 canvas AI tools via `CanvasHost`; categorize + feedback-complete; context spine. Re-establish entitlement/log/paid-API boundaries. Blocked by B1+D1. |
-| C1 | Multi-client | Bidirectional awareness-selection translator | No | Translate `NmlAwarenessSelection` (`selection.ts`) ↔ legacy PM-position awareness (`remoteCarets.ts`). Pure translation is unit-testable. |
-| C2 | Multi-client | NML→ProseMirror live mirror | No | **Largest piece.** Two-way CRDT bridge so legacy/stale clients read AND write a served doc. Plus queue-draining on `nmlAuthority` flip + rollback snapshot handling. |
-| C4 | Multi-client | Verify comments feature; migrate if present | No | Audit *inferred* comments exist — **unverified**. If real, add an NML mark + migration; if not, strike from plan. |
-| Z | Gate | Full-parity verification harness | mixed | Surface-by-surface: unit/golden + `next dev` e2e per lane and per chrome affordance + two-client NML↔legacy presence + mirror-convergence test. |
+## Native bridge improvements retained
 
-Suggested order: **D1 → B2/B3 → C1 → A5 → A2 → A3/A4 → A6 → D2–D6 (approval) → C2 → C4 → Z.** (Substrate
-and pure/unit-testable pieces first; the mirror C2 and AI live-tests last.)
+Although production parity uses the compatibility surface, the native bridge was also completed for
+the concrete gaps found during the audit:
 
----
+- headings, quote, bullet, numbered, checkbox, and fenced-code markdown shortcuts;
+- inline-to-inline block type changes preserve rich marks, links, and atoms;
+- inline/code translation in both directions;
+- storage-backed media resolution and Notion-stub rendering.
 
-## DONE: B1 — model read projection
+## Verification
 
-**Files:**
-- `app/lib/nml/model/projection.ts` — `projectNmlDocument(doc, opts)` and the `nmlToAnyBlocks` /
-  `nmlBlockToAnyBlock` adapters.
-- `app/lib/nml/model/projection.test.ts` — fixture parity test.
+The phase is covered at four levels:
 
-**Approach (parity by construction, not a fork):** an NML AST node carries exactly the facts
-`app/lib/ai/projection.ts` reads off a BlockNote block, so the adapter maps the AST into the same
-denormalized `AnyBlock` shape and hands it to the **one canonical `project()`**. This guarantees the
-served read is byte-identical to the legacy read (every ⟦id⟧ tag, every line, the reverse `DocIndex`),
-and it is the projection-relevant inverse of `legacy.ts`. It reuses the existing domain serializers
-(`serializeScene`/`serializeAlbum`/`serializeStoryboard`/`serializeLocation`) so canvas/album/storyboard/
-location read back through the same parsers the legacy projection uses.
+1. Unit/golden tests cover operation compilation, `CanvasHost`, model projection, NML-derived HTML,
+   every markdown shortcut, rich inline preservation, Notion stubs, storage media, mirror convergence,
+   stable hidden IDs, attribution, queue drain, and direct canonical/legacy interleavings.
+2. `tests/nml-parity-mirror.browser.mjs` uses a real BlockNote editor and Y.XmlFragment to exercise
+   typing → NML, markdown, inline atoms, code/image properties, rich HTML paste, and direct canonical
+   commands → the live surface.
+3. `tests/nml-served-editor.browser.mjs` mounts the real `Editor` against a throwaway local Convex
+   backend. It observes legacy first mount, client migration, server verification, reactive authority
+   flip, the full served BlockNote surface, a second client, and a typed edit persisted in canonical
+   NML. All AI routes are intercepted; the normal completion attempt is stubbed with an empty stream.
+4. `tests/nml-ai-live-provider.mjs` is an explicit-opt-in provider smoke (`NML_ALLOW_PAID_AI=1`) with
+   a cumulative fetch ceiling and resumable ledger. It feeds the same generated operation through the
+   legacy and NML canvas hosts, applies document edits to canonical NML with model attribution, and
+   retains sanitized artifacts. `tests/nml-ai-live-visual.browser.mjs` then mounts the saved canvases
+   in the real renderer with all non-origin network disabled.
 
-**Consumed by:** the AI read lanes (Track D) and the stale non-editor consumers (B2/B3) — one projection,
-both consume. When MCP lands, this is Phase 3's `read_doc`.
+### Bounded live-provider result (2026-09-17)
 
-**Verified:** `projection.test.ts` asserts `projectNmlDocument(convert(fixture))` equals
-`project(fixture.blocks)` (text + `DocIndex`) for every fixture in `__fixtures__/legacy/`: rich-text,
-table, code-math, media, canvas-html, canvas-legacy-json, domains. `tsc --noEmit` clean, ESLint clean.
+The approved ceiling was ten provider HTTP attempts: at most one Mistral, eight OpenRouter (including
+tool-loop steps/retries), and one Recraft. The run used synthetic text and a locally generated two-tile
+contact sheet, touched no production system, and consumed exactly that envelope: Mistral 1,
+OpenRouter 8, Recraft 1.
 
-**Two inherent parity limits — documented in the module, NOT bugs to "fix" in the projection:**
-1. `notionStub` has no NML v1 representation (the converter omits it as an unsupported block), so a
-   migrated doc has no stub to project. `edge-cases.json` (the only stub fixture) is held out of strict
-   parity. Carrying stubs through would need NML schema support — out of scope for a pure projection.
-2. `project()` emits no table-cell text on *either* path, so a table projects as a bare id tag on both.
-   Improving table projection is a separate enhancement (would change legacy output too).
+- **Completion passed:** Codestral streamed `release manager approval`; the exact bytes were applied
+  to canonical NML and the transaction retained `actor.kind: "model"`.
+- **Reformat passed:** Gemini returned a table and bullet-list candidate; the table compiled through
+  the unchanged HTML operation compiler and changed the canonical paragraph to a table.
+- **Diagram passed:** Muse produced a canonical two-node Draft → Approved scene with one labelled
+  edge. Parse/serialize round-trip, NML insertion, real-Chromium paint, labels, and connector passed.
+- **Chat document/canvas application passed:** with the production system prompt and tool schemas,
+  Muse called `read_open_page`, `edit_page`, `set_text`, and `move`. The document edit compiled into
+  NML; the canvas calls produced byte-identical legacy-host and NML-host scenes; model attribution,
+  label, and +20/+10 geometry passed. The provider then emitted an additional `move` call instead of
+  settling. This happens above the unchanged legacy/NML appliers, so it is not evidence of refactor
+  divergence. A follow-up guard in `chat/toolReplay.ts` now recognizes an exact completed mutation
+  in the current user turn from the persisted transcript and returns a no-change result before the
+  duplicate reaches `runClientTool`. Reads, different arguments, later user turns, failed calls, and
+  `edit_page`'s explicit same-content transient retry remain allowed. This deterministic fix is unit-
+  and browser-regression-tested; the paid provider was not called again.
+- **Album indexing passed:** Gemini returned both required handles with bounded non-empty alt text;
+  the descriptions matched the two visible synthetic tiles.
+- **Vector generation was not exercised end to end:** the single Recraft request returned
+  `400 not_enough_credits` before an SVG existed. The SVG importer/canonical path remains covered by
+  offline tests, but the live vector lane is not certified by this run.
 
----
+No second Recraft attempt or provider call beyond the approved cumulative ceiling was made.
 
-## Verification recipe (do not skip — Node 20 will waste your time)
-
-```sh
-# Node 22 is required; v20 cannot boot vitest ("styleText" not exported from node:util).
-export PATH="$HOME/.nvm/versions/node/v22.22.1/bin:$PATH"   # any v22 works
-node -v   # expect v22.x
-
-# Unit tests (vitest runs in edge-runtime — NO DOM). Tests that touch canvas/album/
-# storyboard/location markup must set a DOMParser global from linkedom; see
-# app/lib/nml/model/projection.test.ts for the one-liner.
-npx vitest run app/lib/nml/model/projection.test.ts
-
-# Quality gates (project-wide):
-npx tsc --noEmit
-npx eslint app/lib/nml/model/projection.ts app/lib/nml/model/projection.test.ts
-```
-
-Gotchas already hit and handled:
-- **Node 20 → toolchain crash.** Use v22.
-- **edge-runtime has no `DOMParser`.** Inject linkedom's in the test (top-of-file global assign). The
-  domain *parsers* also accept an injectable `parseHtml`, but `projection.ts` uses the global.
-- **zsh has no `PIPESTATUS`** — don't rely on it to read a piped command's exit; grep the output instead.
-- Browser/e2e harnesses (for the editor-UI tracks A*, C1/C2) need Node 22 + Puppeteer + a throwaway
-  local `convex-local-backend`; see the memory notes and existing `tests/*.browser.mjs`.
+The existing real-Chromium native-view and BlockNote markdown suites remain green. Final branch results:
+109 Vitest files / 1,481 tests passed (one intentional file/test skip), `tsc --noEmit` clean, ESLint
+zero errors (six pre-existing warnings), webpack production build successful, and `git diff --check`
+clean. A default Turbopack build attempt held its lock without output or source/network activity for
+more than four minutes and was interrupted; it is inconclusive, not counted as a successful gate.

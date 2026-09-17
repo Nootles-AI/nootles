@@ -62,8 +62,11 @@ export type NmlCommand =
         | "bulletListItem"
         | "numberedListItem"
         | "checkListItem"
-        | "toggleListItem";
+        | "toggleListItem"
+        | "codeBlock";
       props: Record<string, unknown>;
+      /** Text carried across an inline↔code conversion. */
+      text?: string;
     }
   | {
       type: "setMediaBlockType";
@@ -1066,8 +1069,23 @@ function apply(doc: Y.Doc, command: NmlCommand): void {
       const ref = needBlock(doc, command.nodeId).map;
       const current = String(ref.get("type"));
       const inlineTypes = ["paragraph", "heading", "quote", "bulletListItem", "numberedListItem", "checkListItem", "toggleListItem"];
-      if (!inlineTypes.includes(current) || !(ref.get("content") instanceof Y.XmlFragment)) {
-        conflict("incompatible_node", "Only inline text blocks can change text block type.");
+      const currentInline = inlineTypes.includes(current) && ref.get("content") instanceof Y.XmlFragment;
+      const currentCode = current === "codeBlock" && ref.get("code") instanceof Y.Text;
+      if (!currentInline && !currentCode) {
+        conflict("incompatible_node", "Only inline text and code blocks can change text block type.");
+      }
+      if (command.blockType === "codeBlock") {
+        if (!currentCode || command.text !== undefined) {
+          const carried = command.text ?? inlineText(inlineBlock(doc, command.nodeId).content);
+          ref.delete("content");
+          const code = new Y.Text();
+          if (carried) code.insert(0, carried);
+          ref.set("code", code);
+        }
+      } else if (currentCode) {
+        const carried = command.text ?? String((ref.get("code") as Y.Text).toString());
+        ref.delete("code");
+        ref.set("content", nmlInlineToY(carried ? [{ type: "text", text: carried, marks: [] }] : []));
       }
       ref.set("type", command.blockType);
       ref.set("props", nmlYMapOf(command.props));

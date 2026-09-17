@@ -215,6 +215,11 @@ export default function ReadOnlyDomainContent({ block, editableBridge, resolveSt
     case "album": return <AlbumSurface source={serializeAlbum(block.domain)} onChange={editableBridge ? (source) => updateDomain(editableBridge, block, parseAlbum(source)) : noChange} />;
     case "storyboard": return <StoryboardSurface blockId={block.id} source={serializeStoryboard(block.domain)} onChange={editableBridge ? (source) => updateDomain(editableBridge, block, parseStoryboard(source)) : noChange} readOnly={!editableBridge} />;
     case "location": return <LocationSurface blockId={block.id} source={serializeLocation(block.domain)} onChange={editableBridge ? (source) => updateDomain(editableBridge, block, parseLocation(source)) : noChange} />;
+    case "notionStub": return <a
+      href={isSafeUrl(block.props.href) ? block.props.href : undefined}
+      rel="noopener noreferrer"
+      target="_blank"
+    >{block.props.notionType || "Notion content"} (not imported)</a>;
     case "image":
     case "video":
     case "audio":

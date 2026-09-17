@@ -110,6 +110,8 @@ function blockHtml(block: NmlBlock, depth: number): string {
       return indent(withLegacyMarkup(serializeStoryboard({ ...block.domain, id: block.id }), "nt-storyboard", block.legacyMarkup), depth);
     case "location":
       return indent(withLegacyMarkup(serializeLocation({ ...block.domain, id: block.id }), "nt-location", block.legacyMarkup), depth);
+    case "notionStub":
+      return `${pad}<nt-notion-stub${attr("id", block.id)}${attr("notion-type", block.props.notionType)}${attr("notion-id", block.props.notionId)}${attr("href", block.props.href)}>${escText(block.props.raw)}</nt-notion-stub>`;
   }
 }
 

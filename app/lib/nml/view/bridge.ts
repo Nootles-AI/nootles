@@ -637,7 +637,7 @@ export abstract class NmlViewBridge {
     );
   }
   setSelectedBlockType(
-    blockType: Extract<NmlCommand, { type: "setTextBlockType" }>["blockType"],
+    blockType: Exclude<Extract<NmlCommand, { type: "setTextBlockType" }>["blockType"], "codeBlock">,
     props?: Record<string, unknown>,
   ): boolean {
     if (this.editingScope !== "full") return false;
@@ -656,6 +656,51 @@ export abstract class NmlViewBridge {
       "set-block-type",
       [],
       { nodeId: target.nodeId, anchor: target.from, head: target.from },
+    );
+  }
+  applyMarkdownShortcut(): boolean {
+    if (this.editingScope !== "full") return false;
+    const target = this.selectedInlineBlock();
+    if (!target || target.from !== target.to || target.block.children.length || !this.source) return false;
+    const text = inlineText(target.block.content);
+    if (target.from !== text.length) return false;
+    let blockType: Extract<NmlCommand, { type: "setTextBlockType" }>["blockType"];
+    let props: Record<string, unknown> = {};
+    if (/^#{1,6}$/.test(text)) {
+      blockType = "heading";
+      props = { level: text.length };
+    } else if (text === ">") blockType = "quote";
+    else if (text === "-" || text === "*") blockType = "bulletListItem";
+    else if (/^\d+\.$/.test(text)) {
+      blockType = "numberedListItem";
+      props = { start: Math.max(1, Number(text.slice(0, -1))) };
+    } else if (text === "[]" || text === "[ ]" || text.toLowerCase() === "[x]") {
+      blockType = "checkListItem";
+      props = { checked: text.toLowerCase() === "[x]" };
+    } else if (text === "```") {
+      blockType = "codeBlock";
+      props = { language: "" };
+    } else return false;
+
+    const desired = structuredClone(this.source);
+    const found = mutableBlock(desired, target.nodeId);
+    if (!found || !("content" in found)) return false;
+    const next = blockType === "codeBlock"
+      ? { id: found.id, type: "codeBlock" as const, props: { language: "" }, code: "", children: [] }
+      : { ...found, type: blockType, props, content: [] } as NmlBlock;
+    const location = mutableSiblings(desired, target.nodeId);
+    if (!location) return false;
+    location.siblings[location.index] = next;
+    return this.commitDocument(
+      desired,
+      [
+        { type: "replaceInline", nodeId: target.nodeId, range: { from: 0, to: text.length }, content: [] },
+        { type: "setTextBlockType", nodeId: target.nodeId, blockType, props, text: "" },
+      ],
+      [target.nodeId],
+      "markdown-shortcut",
+      [],
+      blockType === "codeBlock" ? undefined : { nodeId: target.nodeId, anchor: 0, head: 0 },
     );
   }
   pasteText(text: string): boolean {

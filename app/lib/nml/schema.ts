@@ -93,6 +93,12 @@ export type NmlLocationBlock = Base<"location", Record<string, never>> & {
   domain: Location;
   legacyMarkup?: string;
 };
+export type NmlNotionStubBlock = Base<"notionStub", {
+  notionType: string;
+  notionId: string;
+  href: string;
+  raw: string;
+}>;
 
 export type NmlBlock =
   | NmlTextBlock
@@ -106,7 +112,8 @@ export type NmlBlock =
   | NmlCanvasBlock
   | NmlAlbumBlock
   | NmlStoryboardBlock
-  | NmlLocationBlock;
+  | NmlLocationBlock
+  | NmlNotionStubBlock;
 
 const emptyProps = z.object({}).strict();
 const leafBase = { id: idSchema, children: z.array(z.never()).max(0) };
@@ -173,6 +180,11 @@ const blockSchemaImpl: z.ZodType<NmlBlock> = z.lazy(() =>
     z.object({ ...leafBase, type: z.literal("album"), props: emptyProps, domain: albumSchema, legacyMarkup: z.string().optional() }).strict(),
     z.object({ ...leafBase, type: z.literal("storyboard"), props: emptyProps, domain: storyboardSchema, legacyMarkup: z.string().optional() }).strict(),
     z.object({ ...leafBase, type: z.literal("location"), props: emptyProps, domain: locationSchema, legacyMarkup: z.string().optional() }).strict(),
+    z.object({
+      ...leafBase,
+      type: z.literal("notionStub"),
+      props: z.object({ notionType: z.string(), notionId: z.string(), href: z.string(), raw: z.string() }).strict(),
+    }).strict(),
   ] as never),
 );
 

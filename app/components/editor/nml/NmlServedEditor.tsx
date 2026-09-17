@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
-import { useConvex } from "convex/react";
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useConvex, useQueries } from "convex/react";
 import { useUser } from "@clerk/nextjs";
+import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { acquireProvider, releaseProvider, type YConvexProvider } from "@/app/lib/sync/YConvexProvider";
 import { collabColor } from "@/app/lib/sync/colors";
@@ -13,16 +14,11 @@ import { NmlEditableView, NmlReadOnlyView } from "./NmlReadOnlyView";
 import { useReadOnly } from "../readOnly";
 
 /**
- * Step 13 — the production editor for a document whose canonical NML root has
- * been migrated and *server-verified* (the `nmlAuthority` gate in
- * `Editor.tsx`). It mounts the NML view bridge on the SAME `Y.Doc` the legacy
- * editor would have used (acquired from the shared provider), so NML command
- * transactions ride the ordinary flush path and sync with no extra wiring — and
- * because the BlockNote editor is not mounted here, the legacy `prosemirror`
- * root is never written: NML is the sole tree for this document's edits.
- *
- * This whole path is reached only behind the `NEXT_PUBLIC_NML_SERVE` flag AND a
- * cohort membership, so it is dormant until a cohort is deliberately enrolled.
+ * Steps 9–13 native NML view host. It mounts the native bridge on the same
+ * provider/Y.Doc used by production and remains useful for bridge regression and
+ * debugging. Phase 2.5 production serving uses the complete BlockNote
+ * `EditorSurface` plus `useNmlLegacyMirror` for product parity; this component is
+ * no longer selected by `Editor.tsx`.
  */
 export function NmlServedEditor({
   docId,
@@ -84,6 +80,37 @@ export function NmlServedEditor({
     });
   }, [provider, synced, readOnly, user?.id]);
 
+  const bridgeState = useSyncExternalStore(
+    (onChange) => bridge?.subscribe(() => onChange()) ?? (() => {}),
+    () => bridge?.state ?? null,
+    () => null,
+  );
+  const storageIds = useMemo(() => {
+    // The external-store snapshot invalidates this derivation after each bridge update.
+    void bridgeState;
+    const ids = new Set<string>();
+    const visit = (blocks: NonNullable<ReturnType<NmlViewBridge["snapshot"]>>["blocks"]) => {
+      for (const block of blocks) {
+        if (
+          (block.type === "image" || block.type === "video" || block.type === "audio" || block.type === "file") &&
+          block.props.source?.kind === "storage"
+        ) ids.add(block.props.source.storageId);
+        visit(block.children);
+      }
+    };
+    const document = bridge?.snapshot();
+    if (document) visit(document.blocks);
+    return [...ids].sort();
+  }, [bridge, bridgeState]);
+  const storageUrls = useQueries(Object.fromEntries(storageIds.map((storageId) => [
+    storageId,
+    { query: api.albums.url, args: { storageId: storageId as Id<"_storage"> } },
+  ])));
+  const resolveStorageUrl = useCallback((storageId: string) => {
+    const result = storageUrls[storageId];
+    return typeof result === "string" ? result : undefined;
+  }, [storageUrls]);
+
   useEffect(() => () => bridge?.destroy(), [bridge]);
 
   useNmlUndoDomain(
@@ -99,9 +126,9 @@ export function NmlServedEditor({
     <div className="nt-marquee-surface" {...undoScope}>
       <div className="nt-editor">
         {bridge instanceof EditableNmlBridge ? (
-          <NmlEditableView bridge={bridge} />
+          <NmlEditableView bridge={bridge} resolveStorageUrl={resolveStorageUrl} />
         ) : (
-          <NmlReadOnlyView bridge={bridge as ReadOnlyNmlBridge} />
+          <NmlReadOnlyView bridge={bridge as ReadOnlyNmlBridge} resolveStorageUrl={resolveStorageUrl} />
         )}
       </div>
     </div>
