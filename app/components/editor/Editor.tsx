@@ -50,6 +50,7 @@ import { emptyStoryboard } from "./storyboard/types";
 import { useTabCompletion, type PageMode } from "./ai/useTabCompletion";
 import { PlanWall } from "../billing/PlanWall";
 import { useReformat } from "./ai/useReformat";
+import { StageDirector } from "./ai/StageDirector";
 import { notionLinkClick, useNotionLinks } from "@/app/components/notion/NotionLinks";
 import { ReformatBar } from "./ai/ReformatBar";
 import { arrivalFlashExtension } from "./arrivalFlash";
@@ -694,6 +695,7 @@ function EditorSurface({
         >
           {!readOnly && (
             <>
+              <StageDirector editor={editor} />
               <BlockSideMenu />
               <FormattingToolbarController formattingToolbar={Toolbar} />
               <SuggestionMenuController

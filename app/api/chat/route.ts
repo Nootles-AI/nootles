@@ -22,6 +22,7 @@ import {
   projectNote,
 } from "@/app/lib/ai/chat/prompt";
 import { chatTools } from "@/app/lib/ai/chat/serverTools";
+import { stageTurn } from "@/app/lib/ai/staged/stage";
 import {
   cached,
   markCachePoints,
@@ -118,18 +119,33 @@ export async function POST(req: Request) {
   // valid turn, however long, cannot throttle itself. Ahead of `beginChat`, so
   // a throttled turn spends neither the provider key nor the permanent chat
   // allowance, and the `429` stays distinct from that `402`.
-  const limited = await refuseIfLimited(convex, "agentGeneration");
-  if (limited) return limited;
+  // The demo seam. Null unless this project is staged AND the wording matches a
+  // script we are confident about — and null is the fallthrough, so everything
+  // below this line is the ordinary path. A staged model is still a model:
+  // `streamText` runs the tool loop, the client tools mutate the document, the
+  // turn is persisted, and the next turn reads all of it back as history.
+  const staged = await stageTurn({
+    messages,
+    projectId,
+    pageId,
+    convex,
+    userId: caller.userId,
+  });
 
-  // Charges the conversation against the free allowance, once, and refuses when
-  // there is none left. Idempotent, which matters here: one turn is several
-  // requests as client tools are answered, and only the first is a new
-  // conversation. Ahead of the model, so a refusal costs nothing.
-  try {
-    await convex.mutation(api.entitlements.beginChat, { threadId });
-  } catch (e) {
-    if (isQuotaRefusal(e)) return quotaResponse("chats");
-    throw e;
+  if (!staged) {
+    const limited = await refuseIfLimited(convex, "agentGeneration");
+    if (limited) return limited;
+
+    // Charges the conversation against the free allowance, once, and refuses when
+    // there is none left. Idempotent, which matters here: one turn is several
+    // requests as client tools are answered, and only the first is a new
+    // conversation. Ahead of the model, so a refusal costs nothing.
+    try {
+      await convex.mutation(api.entitlements.beginChat, { threadId });
+    } catch (e) {
+      if (isQuotaRefusal(e)) return quotaResponse("chats");
+      throw e;
+    }
   }
 
   // What the user said this project is. Read per request rather than per turn
@@ -155,7 +171,7 @@ export async function POST(req: Request) {
   // Taken apart rather than spread: this call's tool typing is what the step
   // budget and `activeTools` are checked against, and spreading a bundle that
   // declares an optional `tools` would widen it.
-  const { model, providerOptions } = chatModel();
+  const { model, providerOptions } = staged ?? chatModel();
 
   const result = streamText({
     model,
@@ -187,7 +203,9 @@ export async function POST(req: Request) {
       const details = totalUsage.inputTokenDetails;
       recordAiCall(convex, {
         feature: "chat",
-        model: AI.chat.model,
+        // A staged turn is still a row. It costs nothing, and ops should be able
+        // to tell demo traffic from unexplained free traffic.
+        model: staged ? `staged/${staged.stagedId}` : AI.chat.model,
         promptTokens: totalUsage.inputTokens,
         completionTokens: totalUsage.outputTokens,
         cacheReadTokens: details.cacheReadTokens,

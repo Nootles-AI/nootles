@@ -25,8 +25,13 @@ export async function sessionToken(): Promise<string | null> {
  * would go the same way. With the session id, `asSession` in `convexServer`
  * can mint a fresh token whenever the one it holds is too old.
  */
-export async function session(): Promise<{ token: string; sessionId: string } | null> {
-  const { getToken, sessionId } = await auth();
+export async function session(): Promise<{
+  token: string;
+  sessionId: string;
+  /** The Clerk user id — the same string Convex reads as `identity.subject`. */
+  userId: string | null;
+} | null> {
+  const { getToken, sessionId, userId } = await auth();
   const token = await getToken();
-  return token && sessionId ? { token, sessionId } : null;
+  return token && sessionId ? { token, sessionId, userId: userId ?? null } : null;
 }
