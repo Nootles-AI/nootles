@@ -7,6 +7,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
 
 const GAP = 8;
 const EDGE = 8;
@@ -93,25 +94,29 @@ export function Tooltip({
       onBlurCapture={hide}
     >
       {children}
-      {open && (
-        <div
-          ref={bubble}
-          aria-hidden
-          className="pointer-events-none fixed flex items-center gap-2 px-[9px] py-1.5 text-[12px] leading-none whitespace-nowrap"
-          style={{
-            top: pos.top,
-            left: pos.left,
-            zIndex: "var(--z-tooltip)",
-            borderRadius: "var(--radius)",
-            background: "var(--foreground)",
-            color: "var(--background)",
-            animation: "nt-menu-in var(--dur-fast) var(--ease)",
-          }}
-        >
-          {label}
-          {hint && <span className="font-mono text-[11px] opacity-60">{hint}</span>}
-        </div>
-      )}
+      {open &&
+        createPortal(
+          <div
+            ref={bubble}
+            aria-hidden
+            className="pointer-events-none fixed flex items-center gap-2 px-[9px] py-1.5 text-[12px] leading-none whitespace-nowrap"
+            style={{
+              top: pos.top,
+              left: pos.left,
+              zIndex: "var(--z-tooltip)",
+              borderRadius: "var(--radius)",
+              background: "var(--foreground)",
+              color: "var(--background)",
+              animation: "nt-menu-in var(--dur-fast) var(--ease)",
+            }}
+          >
+            {label}
+            {hint && (
+              <span className="font-mono text-[11px] opacity-60">{hint}</span>
+            )}
+          </div>,
+          document.body,
+        )}
     </span>
   );
 }

@@ -7,6 +7,7 @@ import {
   type CSSProperties,
   type FormEvent,
 } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
@@ -485,7 +486,10 @@ export function PaywallSheet({
 
   if (mode === "page") return sheet;
 
-  return (
+  // To the body: the sheet is mounted from inside a panel or the editor
+  // column, and an in-place overlay is capped at that ancestor's stacking
+  // rank no matter its own z-index.
+  return createPortal(
     <>
       <button
         aria-label="Close"
@@ -496,7 +500,8 @@ export function PaywallSheet({
       <div className="nt-pw-holder" style={{ zIndex: "var(--z-modal)" }}>
         {sheet}
       </div>
-    </>
+    </>,
+    document.body,
   );
 }
 
