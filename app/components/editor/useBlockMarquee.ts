@@ -66,6 +66,10 @@ const MAX_STEP = 20;
 /** Controls own their press outright — a band never starts on one. */
 const CONTROLS =
   "button, a, input, textarea, select, [role='button'], [role='menuitem']," +
+  // BlockNote's fallback writing row owns its click. Normally the real
+  // trailing paragraph invariant makes this decoration unnecessary, but it
+  // can exist for one mount microtask while an old document is repaired.
+  ".bn-trailing-block," +
   // The width/height grips, which live inside their block but are dragged.
   ".nt-canvas-grip, .nt-canvas-grip-x, .nt-sb-grip, .nt-album-grip";
 

@@ -219,6 +219,40 @@ describe("NML model operation applier", () => {
       },
     });
   });
+
+  it("keeps document-end and explicit after-tail inserts before the trailing paragraph", async () => {
+    const tail = { ...paragraph("tail", ""), content: [] } as NmlBlock;
+    const doc = createNmlYDoc({
+      schemaVersion: 1,
+      documentId: "served-doc",
+      blocks: [paragraph("body", "Body"), tail],
+    });
+    const applied = await applyNmlBatch({
+      ...options(doc),
+      batch: {
+        ops: [
+          {
+            kind: "insertBlocks",
+            at: { at: "docEnd" },
+            blocks: [{ tempId: "$end", type: "paragraph", content: [{ type: "text", text: "At end" }] }],
+          },
+          {
+            kind: "insertBlocks",
+            at: { at: "after", ref: "tail" },
+            blocks: [{ tempId: "$after", type: "paragraph", content: [{ type: "text", text: "After tail" }] }],
+          },
+        ],
+      },
+    });
+
+    expect(decodeNmlDocument(doc).blocks.map((block) => block.id)).toEqual([
+      "body",
+      applied.receipt.temporaryIds.$end,
+      applied.receipt.temporaryIds.$after,
+      "tail",
+    ]);
+    expect(decodeNmlDocument(doc).blocks.at(-1)).toEqual(tail);
+  });
 });
 
 describe("canonical NML CanvasHost", () => {

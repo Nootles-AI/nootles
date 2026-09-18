@@ -9,6 +9,7 @@ import type {
 } from "@/convex/ai/operations";
 import type { AnyBlock } from "./projection";
 import { duringAiApply, pushAiOp, type OpFeature } from "@/app/lib/debugRing";
+import { isEmptyParagraphBlock } from "@/app/lib/documentTail";
 
 /**
  * The applier: turns a validated op batch into the EXACT same BlockNote editor
@@ -207,9 +208,11 @@ function applyBatchInner(editor: Editor, batch: Batch): ApplyResult {
   };
 
   const firstId = () => editor.document[0].id as string;
-  const lastId = () => {
-    const d = editor.document;
-    return d[d.length - 1].id as string;
+  const positionAfter = (id: string) => {
+    const last = editor.document.at(-1) as AnyBlock | undefined;
+    return last?.id === id && isEmptyParagraphBlock(last)
+      ? { ref: id, placement: "before" as const }
+      : { ref: id, placement: "after" as const };
   };
 
   const resolvePosition = (
@@ -217,13 +220,13 @@ function applyBatchInner(editor: Editor, batch: Batch): ApplyResult {
   ): { ref: string; placement: "before" | "after" } => {
     switch (pos.at) {
       case "after":
-        return { ref: rBlock(pos.ref), placement: "after" };
+        return positionAfter(rBlock(pos.ref));
       case "before":
         return { ref: rBlock(pos.ref), placement: "before" };
       case "docStart":
         return { ref: firstId(), placement: "before" };
       case "docEnd":
-        return { ref: lastId(), placement: "after" };
+        return positionAfter(editor.document.at(-1)!.id as string);
     }
   };
 

@@ -25,6 +25,7 @@ import type {
 } from "../schema";
 import { decodeNmlDocument } from "../yjs";
 import { compileCanvasSceneChange } from "../view/canvas";
+import { isEmptyParagraphBlock } from "@/app/lib/documentTail";
 
 /** A model batch was valid at the public operation layer but cannot exist in NML v1. */
 export class NmlBatchCompileError extends Error {
@@ -303,13 +304,30 @@ export function compileNmlBatch(
     }
     if (position.at === "docEnd") {
       const last = working.blocks.at(-1);
-      return { parentId: null, ...(last ? { anchor: { afterId: last.id } } : {}) };
+      return {
+        parentId: null,
+        ...(last
+          ? {
+              anchor: isEmptyParagraphBlock(last)
+                ? { beforeId: last.id }
+                : { afterId: last.id },
+            }
+          : {}),
+      };
     }
     const reference = locate(working, position.ref);
     if (!reference) throw new NmlBatchCompileError(`Unknown position reference ${position.ref}.`);
+    const isProtectedTail =
+      position.at === "after" &&
+      reference.parentId === null &&
+      working.blocks.at(-1)?.id === reference.block.id &&
+      isEmptyParagraphBlock(reference.block);
     return {
       parentId: reference.parentId,
-      anchor: position.at === "before" ? { beforeId: position.ref } : { afterId: position.ref },
+      anchor:
+        position.at === "before" || isProtectedTail
+          ? { beforeId: position.ref }
+          : { afterId: position.ref },
     };
   };
 
