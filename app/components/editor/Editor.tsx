@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useRef, type ReactElement } from "react";
+import { useCallback, useEffect, useMemo, useRef, type ReactElement } from "react";
 import { BlockNoteView } from "@blocknote/mantine";
 import "@blocknote/mantine/style.css";
 import {
@@ -59,6 +59,7 @@ import { useBlockMarquee } from "./useBlockMarquee";
 import { SlashMenu } from "./SlashMenu";
 import * as Icon from "../Icons";
 import { useReadOnly } from "./readOnly";
+import { trailingParagraphExtension } from "./trailingParagraph";
 import "./editor.css";
 
 type EditorInstance = typeof schema.BlockNoteEditor;
@@ -571,7 +572,15 @@ function YjsEditor({
   mode = "create",
   served = false,
 }: EditorProps & { served?: boolean }) {
+  const readOnly = useReadOnly();
   const { user } = useUser();
+  const extensions = useMemo(
+    () => [
+      ...EXTENSIONS,
+      trailingParagraphExtension({ enabled: () => !readOnly }),
+    ],
+    [readOnly],
+  );
   const { editor, provider } = useYjsEditor<EditorInstance>({
     docId,
     user: {
@@ -579,7 +588,7 @@ function YjsEditor({
       color: collabColor(user?.id ?? "anonymous"),
       ...(user?.imageUrl ? { imageUrl: user.imageUrl } : {}),
     },
-    editorOptions: { schema, extensions: EXTENSIONS, links: { onClick: notionLinkClick } },
+    editorOptions: { schema, extensions, links: { onClick: notionLinkClick } },
   });
   // Step 13: if this doc is in the migration cohort and not yet migrated, elect
   // its canonical NML root from here (the DOM-dependent conversion). Once the
@@ -613,8 +622,15 @@ function YjsEditor({
 
 function LegacyEditor({ docId, pageId, title = "", mode = "create" }: EditorProps) {
   const readOnly = useReadOnly();
+  const extensions = useMemo(
+    () => [
+      ...EXTENSIONS,
+      trailingParagraphExtension({ enabled: () => !readOnly }),
+    ],
+    [readOnly],
+  );
   const sync = useBlockNoteSync<EditorInstance>(api.prosemirror, docId, {
-    editorOptions: { schema, extensions: EXTENSIONS, links: { onClick: notionLinkClick } },
+    editorOptions: { schema, extensions, links: { onClick: notionLinkClick } },
   });
 
   // First open of a page has no document yet — create an empty one seamlessly.

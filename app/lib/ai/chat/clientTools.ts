@@ -24,6 +24,7 @@ import { resolveBatch, warnRejected } from "../validate";
 import { toCanvasHost } from "../canvas/chatHost";
 import { runCanvasTool } from "../canvas/execute";
 import { CANVAS_TOOLS, noSuchPage, TOOLS, type CanvasToolName, type ClientToolName } from "./tools";
+import { lastContentBlock } from "@/app/lib/documentTail";
 
 /** The surface the agent acts on: the page on screen, and its live editor. */
 export type ToolContext = {
@@ -431,7 +432,7 @@ async function editPage(
     // Only a fallback, for a page with nothing on it the model kept: without a
     // single tagged block, and nothing being replaced, there is no surrounding
     // structure to place against.
-    anchorBlockId: document[document.length - 1]?.id,
+    anchorBlockId: lastContentBlock(document)?.id,
     ...(replacing?.length ? { replacing } : {}),
   });
   if (!batch.ops.length) return "Nothing to do — the page already reads that way.";
