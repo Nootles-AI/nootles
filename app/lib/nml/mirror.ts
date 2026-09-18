@@ -32,6 +32,14 @@ export type NmlLegacyMirrorOptions = {
   onError?: (error: unknown) => void;
 };
 
+type PendingLegacyProjection = {
+  actor: NmlTransactionOrigin["actor"];
+  before: NmlDocument;
+  blocks: LegacyBlock[];
+};
+
+let mirrorInstanceSequence = 0;
+
 function atomKey(node: NmlInlineContent[number]): string {
   return node.type === "math"
     ? `math:${node.latex}`
@@ -158,6 +166,9 @@ export class NmlLegacyMirror {
   private stopHost: (() => void) | null = null;
   private stopped = false;
   private queue: Promise<void> = Promise.resolve();
+  private pendingLegacyProjection: PendingLegacyProjection | null = null;
+  private legacyDrainScheduled = false;
+  private readonly fallbackRequestPrefix = `${this.doc.clientID}-${++mirrorInstanceSequence}`;
   private request = 0;
   private storageUrls = new Map<string, string>();
   private storageJobs = new Map<string, Promise<void>>();
@@ -225,43 +236,99 @@ export class NmlLegacyMirror {
 
   private enqueueLegacyProjection(actor: NmlTransactionOrigin["actor"]): void {
     try {
-      const before = decodeNmlDocument(this.doc);
-      const converted = convertLegacyDocument(
-        { documentId: before.documentId, blocks: this.host.readBlocks() },
-        this.options.createId ? { createId: this.options.createId } : {},
-      );
-      const fatal = converted.diagnostics.find((issue) => issue.severity === "error");
-      if (fatal) throw new Error(`Legacy mirror conversion failed: ${fatal.message}`);
-      const desired = preserveLegacyOnlyIdentities(
-        before,
-        converted.document,
-        (storageId) => this.storageUrls.get(storageId),
-      );
-      const translation = compileProjectionChange(before, desired);
-      if (!translation.commands.length) return;
-      const requestId = this.options.createRequestId?.() ?? `legacy-mirror-${++this.request}`;
-      const run = async () => { await executeNmlCommands({
-        doc: this.doc,
-        documentId: before.documentId,
-        commands: translation.commands,
-        temporaryIds: translation.temporaryIds,
-        idempotencyKey: requestId,
-        createId: this.options.createId ? () => this.options.createId!() : undefined,
-        origin: {
-          version: 1,
-          transactionId: requestId,
-          actor,
-          command: "legacy-mirror",
-          requestId,
-        },
-        authorize: () => this.options.authorize?.() ?? true,
-      }); };
-      this.queue = this.queue.then(run, run).catch((error) => {
-        this.options.onError?.(error);
-      });
+      this.pendingLegacyProjection = {
+        actor,
+        before: decodeNmlDocument(this.doc),
+        blocks: structuredClone(this.host.readBlocks()),
+      };
+      this.scheduleLegacyDrain();
     } catch (error) {
       this.options.onError?.(error);
     }
+  }
+
+  private scheduleLegacyDrain(): void {
+    if (this.legacyDrainScheduled) return;
+    this.legacyDrainScheduled = true;
+    const run = async () => {
+      try {
+        await this.drainLegacyProjections();
+      } catch (error) {
+        this.options.onError?.(error);
+      } finally {
+        this.legacyDrainScheduled = false;
+        if (this.pendingLegacyProjection) this.scheduleLegacyDrain();
+      }
+    };
+    this.queue = this.queue.then(run, run);
+  }
+
+  private async drainLegacyProjections(): Promise<void> {
+    while (this.pendingLegacyProjection) {
+      let allowed: boolean;
+      try {
+        const authorization = this.options.authorize?.() ?? true;
+        allowed = typeof authorization === "object" && authorization !== null && "then" in authorization
+          ? await authorization
+          : authorization;
+      } catch (error) {
+        this.pendingLegacyProjection = null;
+        this.options.onError?.(error);
+        continue;
+      }
+
+      // Authorization may be asynchronous. Select the newest complete legacy
+      // snapshot only after it resolves, then compile and execute without
+      // another asynchronous authorization gap. Every event observed while a
+      // write is waiting therefore replaces its stale intermediate snapshot.
+      const pending = this.pendingLegacyProjection;
+      this.pendingLegacyProjection = null;
+      try {
+        await this.applyLegacyProjection(pending, allowed);
+      } catch (error) {
+        this.options.onError?.(error);
+      }
+    }
+  }
+
+  private async applyLegacyProjection(
+    { actor, before, blocks }: PendingLegacyProjection,
+    allowed: boolean,
+  ): Promise<void> {
+    const converted = convertLegacyDocument(
+      { documentId: before.documentId, blocks },
+      this.options.createId ? { createId: this.options.createId } : {},
+    );
+    const fatal = converted.diagnostics.find((issue) => issue.severity === "error");
+    if (fatal) throw new Error(`Legacy mirror conversion failed: ${fatal.message}`);
+    const desired = preserveLegacyOnlyIdentities(
+      before,
+      converted.document,
+      (storageId) => this.storageUrls.get(storageId),
+    );
+    const translation = compileProjectionChange(before, desired);
+    if (!translation.commands.length) return;
+    const requestId = this.options.createRequestId?.() ??
+      `legacy-mirror-${this.fallbackRequestPrefix}-${++this.request}`;
+    await executeNmlCommands({
+      doc: this.doc,
+      documentId: before.documentId,
+      commands: translation.commands,
+      temporaryIds: translation.temporaryIds,
+      idempotencyKey: requestId,
+      createId: this.options.createId ? () => this.options.createId!() : undefined,
+      origin: {
+        version: 1,
+        transactionId: requestId,
+        actor,
+        command: "legacy-mirror",
+        requestId,
+      },
+      // The possibly-asynchronous check already completed immediately before
+      // compilation. Keeping this callback synchronous makes the compile and
+      // apply phases one event-loop turn.
+      authorize: () => allowed,
+    });
   }
 
   /** Resolves after every legacy edit observed before this call has landed. */
