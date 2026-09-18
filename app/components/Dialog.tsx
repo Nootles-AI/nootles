@@ -10,6 +10,7 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
+import { createPortal } from "react-dom";
 
 /**
  * The modal contract, extracted from the two dialogs that each carried a
@@ -63,7 +64,11 @@ export function Dialog({
   const keepFocus = useModalFocus(ref);
 
   const El = as;
-  return (
+  // To the body, not in place: an in-place dialog inherits its opener's
+  // stacking context (a panel's, say) and paints under the rest of the shell
+  // however high its own z-index — and its scrim's backdrop blur samples only
+  // that ancestor's pixels instead of the page.
+  return createPortal(
     <>
       <button
         aria-label={scrimLabel}
@@ -86,7 +91,8 @@ export function Dialog({
       >
         {typeof children === "function" ? children(close) : children}
       </El>
-    </>
+    </>,
+    document.body,
   );
 }
 
@@ -119,7 +125,7 @@ export function DialogBox({
 
   const keepFocus = useModalFocus(ref);
 
-  return (
+  return createPortal(
     <>
       <button
         aria-label="Close"
@@ -139,7 +145,8 @@ export function DialogBox({
       >
         {children}
       </div>
-    </>
+    </>,
+    document.body,
   );
 }
 

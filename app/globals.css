@@ -224,9 +224,12 @@ body {
    The sidebar and chat panel are the same object with different contents, so
    they share these. Alignment lives here, once. */
 
+/* No z-index on purpose: a z-indexed panel becomes a stacking context, and
+   every fixed overlay born inside it is then capped at the panel's own rank —
+   menus and dialogs sank under the document column (NT-52). Overlays portal
+   to the body instead; the panel is plain in-flow chrome. */
 .nt-panel {
   position: relative;
-  z-index: var(--z-base);
   display: flex;
   height: 100%;
   flex-shrink: 0;
@@ -577,8 +580,11 @@ body {
 }
 
 /* ---- Menus --------------------------------------------------------------
-   Rendered with position:fixed via a portal-free anchor so they can never be
-   clipped by a panel's overflow. */
+   Positioned `fixed` from a measured rect AND portaled to the body. Both are
+   required: `fixed` escapes a panel's overflow clipping, but only the portal
+   escapes its stacking context — paint order still follows DOM ancestry, so
+   an in-place menu is capped at whatever rank an ancestor stacking context
+   holds, no matter this z-index (NT-52). */
 .nt-menu {
   z-index: var(--z-dropdown);
   min-width: 200px;

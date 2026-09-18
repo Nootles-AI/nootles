@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 
 /**
  * A menu anchored where the pointer was, in the shell's menu vocabulary.
@@ -84,7 +85,7 @@ export function ContextMenu({
     }
   };
 
-  return (
+  return createPortal(
     <>
       {/* A second right-click moves the menu rather than opening the browser's
           own on top of it. */}
@@ -108,6 +109,7 @@ export function ContextMenu({
       >
         {children}
       </div>
-    </>
+    </>,
+    document.body,
   );
 }

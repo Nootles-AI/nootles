@@ -9,6 +9,7 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
@@ -1045,45 +1046,47 @@ export function Sidebar({
         />
       )}
 
-      {iconTarget && (
-        <div
-          className="nt-iconpicker-anchor"
-          /* Opened where the menu was, clamped so it cannot hang off the
-             bottom of a short window. */
-          /* Clamped on BOTH axes against the picker's real size, so a menu
-             opened near an edge does not push it off screen. */
-          style={{
-            left: Math.max(8, Math.min(iconTarget.x, window.innerWidth - 336)),
-            top: Math.max(8, Math.min(iconTarget.y, window.innerHeight - 372)),
-          }}
-        >
-          <IconPicker
-            icon={iconOf(iconTarget.target)}
-            onPick={(next) => {
-              const icon = next ?? undefined;
-              const t = iconTarget.target;
-              const before = iconOf(t) ?? undefined;
-              if (t.kind === "folder") {
-                const folderId = t.id;
-                void setFolderIcon({ folderId, icon });
-                recordChrome({
-                  undo: () => setFolderIcon({ folderId, icon: before }),
-                  redo: () => setFolderIcon({ folderId, icon }),
-                });
-              } else if (t.kind === "page") {
-                const pageId = t.id;
-                void setPageIcon({ pageId, icon });
-                recordChrome({
-                  undo: () => setPageIcon({ pageId, icon: before }),
-                  redo: () => setPageIcon({ pageId, icon }),
-                });
-              }
-              setIconTarget(null);
+      {iconTarget &&
+        createPortal(
+          <div
+            className="nt-iconpicker-anchor"
+            /* Opened where the menu was, clamped so it cannot hang off the
+               bottom of a short window. */
+            /* Clamped on BOTH axes against the picker's real size, so a menu
+               opened near an edge does not push it off screen. */
+            style={{
+              left: Math.max(8, Math.min(iconTarget.x, window.innerWidth - 336)),
+              top: Math.max(8, Math.min(iconTarget.y, window.innerHeight - 372)),
             }}
-            onClose={() => setIconTarget(null)}
-          />
-        </div>
-      )}
+          >
+            <IconPicker
+              icon={iconOf(iconTarget.target)}
+              onPick={(next) => {
+                const icon = next ?? undefined;
+                const t = iconTarget.target;
+                const before = iconOf(t) ?? undefined;
+                if (t.kind === "folder") {
+                  const folderId = t.id;
+                  void setFolderIcon({ folderId, icon });
+                  recordChrome({
+                    undo: () => setFolderIcon({ folderId, icon: before }),
+                    redo: () => setFolderIcon({ folderId, icon }),
+                  });
+                } else if (t.kind === "page") {
+                  const pageId = t.id;
+                  void setPageIcon({ pageId, icon });
+                  recordChrome({
+                    undo: () => setPageIcon({ pageId, icon: before }),
+                    redo: () => setPageIcon({ pageId, icon }),
+                  });
+                }
+                setIconTarget(null);
+              }}
+              onClose={() => setIconTarget(null)}
+            />
+          </div>,
+          document.body,
+        )}
 
       {showingContext && (
         <ContextDialog

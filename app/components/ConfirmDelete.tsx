@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { createPortal } from "react-dom";
 
 /**
  * What is about to be lost, and the two ways out.
@@ -76,7 +77,7 @@ export function ConfirmDeleteDialog({
     return () => document.removeEventListener("keydown", onKey);
   }, [onCancel]);
 
-  return (
+  return createPortal(
     <>
       <button
         aria-label="Cancel"
@@ -98,6 +99,7 @@ export function ConfirmDeleteDialog({
           onConfirm={onConfirm}
         />
       </div>
-    </>
+    </>,
+    document.body,
   );
 }
