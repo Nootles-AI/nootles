@@ -43,6 +43,7 @@ const YJS_ON = process.env.NEXT_PUBLIC_YJS === "1";
  */
 
 export type HunkStatus = "pending" | "accepted" | "rejected";
+export type ReviewVerdict = Exclude<HunkStatus, "pending">;
 export type TurnStatus = Doc<"chatTurns">["status"];
 
 export type PageReview = {
@@ -82,7 +83,7 @@ export type TurnReview = {
  * still outstanding.
  */
 export function pendingHunks(page: PageReview): Hunk[] {
-  return page.hunks.filter((hunk) => (page.status[hunk.id] ?? "pending") === "pending");
+  return page.hunks.filter((hunk) => hunkStatus(page, hunk.id) === "pending");
 }
 
 /** Where a page stood before a rewind was previewed, so Cancel can return to it. */
@@ -120,6 +121,8 @@ export class ReviewSession {
    * there is one place on screen to report either of them failing.
    */
   private failure: string | null = null;
+  /** Answers already clicked but still waiting for their durable writes. */
+  private answering = new Map<string, ReviewVerdict>();
   /**
    * Blocks the user has rewritten by hand since a turn staged them, per turn and
    * page. Deliberately outside `TurnReview`: it is written on keystrokes, and
@@ -152,6 +155,10 @@ export class ReviewSession {
   getSnapshot = (): readonly TurnReview[] => this.turns;
 
   getFailure = (): string | null => this.failure;
+
+  answeringAs(hunkId: string): ReviewVerdict | null {
+    return this.answering.get(hunkId) ?? null;
+  }
 
   /** Gives an answer, and holds on to why if it could not be given. */
   answer(work: Promise<unknown>) {
@@ -198,9 +205,7 @@ export class ReviewSession {
   isOpen(turn: TurnReview): boolean {
     return (
       (turn.status === "pending" || turn.status === "streaming") &&
-      turn.pages.some((p) =>
-        p.hunks.some((h) => (p.status[h.id] ?? "pending") === "pending"),
-      )
+      turn.pages.some((p) => pendingHunks(p).length > 0)
     );
   }
 
@@ -441,8 +446,7 @@ export class ReviewSession {
       const page = turn.pages.find((p) => p.pageId === pageId);
       if (!page) continue;
       const open = new Set(
-        page.hunks
-          .filter((h) => (page.status[h.id] ?? "pending") === "pending")
+        pendingHunks(page)
           .flatMap((h) => [...h.added, ...h.changed, ...h.moved]),
       );
       const mine = blockIds.filter((id) => open.has(id));
@@ -730,15 +734,16 @@ export class ReviewSession {
     return { ...turn, pages, status: statusOf({ status: existing?.status ?? "streaming", pages }) };
   }
 
-  private settle(hunkId: string, to: HunkStatus) {
+  private settle(hunkId: string, to: ReviewVerdict) {
+    const target = this.answerable(hunkId);
+    if (!target || this.answering.has(hunkId)) return Promise.resolve();
+    this.startAnswering([hunkId], to);
     return this.enqueue(async () => {
-      const turn = this.turns.find((t) =>
-        t.pages.some((p) => p.status[hunkId] === "pending"),
-      );
-      const page = turn?.pages.find((p) => p.status[hunkId] === "pending");
+      const current = this.answerable(hunkId);
       // Nothing is answerable while the turn is still writing: a hunk it is
       // still growing can be regrouped, and regrouped it has a different id.
-      if (!turn || !page || this.isWriting(turn.chatPromptId)) return;
+      if (!current) return;
+      const { turn, page } = current;
       const hunk = page.hunks.find((h) => h.id === hunkId);
       const undo =
         to === "rejected" && hunk && !this.isKept(turn.chatPromptId, page.pageId, hunk)
@@ -748,10 +753,21 @@ export class ReviewSession {
       // pressed: their text stands, and there is nothing left to take back.
       const answer: HunkStatus = undo.length || to === "accepted" ? to : "accepted";
       await this.resolvePage(turn, { ...page, status: { ...page.status, [hunkId]: answer } }, undo);
-    });
+    }).finally(() => this.finishAnswering([hunkId]));
   }
 
-  private settleAll(to: HunkStatus, chatPromptId?: string) {
+  private settleAll(to: ReviewVerdict, chatPromptId?: string) {
+    const hunkIds = this.turns
+      .filter(
+        (turn) =>
+          !this.isWriting(turn.chatPromptId) &&
+          (!chatPromptId || turn.chatPromptId === chatPromptId),
+      )
+      .flatMap((turn) => turn.pages.flatMap(pendingHunks))
+      .map((hunk) => hunk.id)
+      .filter((id) => !this.answering.has(id));
+    if (!hunkIds.length) return Promise.resolve();
+    this.startAnswering(hunkIds, to);
     return this.enqueue(async () => {
       const wanted = this.turns
         .filter(
@@ -762,7 +778,7 @@ export class ReviewSession {
         .map((t) => ({
           chatPromptId: t.chatPromptId,
           pageIds: t.pages
-            .filter((p) => Object.values(p.status).includes("pending"))
+            .filter((p) => pendingHunks(p).length > 0)
             .map((p) => p.pageId),
         }));
 
@@ -773,7 +789,7 @@ export class ReviewSession {
           const turn = this.find(id);
           const page = turn?.pages.find((p) => p.pageId === pageId);
           if (!turn || !page) continue;
-          const open = page.hunks.filter((h) => page.status[h.id] === "pending");
+          const open = pendingHunks(page);
           const undo =
             to === "rejected"
               ? open.filter((h) => !this.isKept(id, pageId, h))
@@ -794,7 +810,31 @@ export class ReviewSession {
         }
       }
       if (failed.length) throw new Error([...new Set(failed)].join(" "));
-    });
+    }).finally(() => this.finishAnswering(hunkIds));
+  }
+
+  private answerable(hunkId: string): { turn: TurnReview; page: PageReview } | null {
+    for (const turn of this.turns) {
+      if (this.isWriting(turn.chatPromptId)) continue;
+      const page = turn.pages.find((candidate) =>
+        candidate.hunks.some(
+          (hunk) => hunk.id === hunkId && hunkStatus(candidate, hunk.id) === "pending",
+        ),
+      );
+      if (page) return { turn, page };
+    }
+    return null;
+  }
+
+  private startAnswering(hunkIds: readonly string[], verdict: ReviewVerdict) {
+    for (const id of hunkIds) this.answering.set(id, verdict);
+    this.emit([...this.turns]);
+  }
+
+  private finishAnswering(hunkIds: readonly string[]) {
+    let changed = false;
+    for (const id of hunkIds) changed = this.answering.delete(id) || changed;
+    if (changed) this.emit([...this.turns]);
   }
 
   /** Brings the document in line with a page's answers, then records them. */
@@ -808,7 +848,7 @@ export class ReviewSession {
       return;
     }
 
-    const settled = !page.hunks.some((h) => (page.status[h.id] ?? "pending") === "pending");
+    const settled = pendingHunks(page).length === 0;
 
     // Rejection always needs the live page to write the undo into; under Yjs
     // so does settling, because settling is when the fork merges and the fork
@@ -833,7 +873,7 @@ export class ReviewSession {
     const log = settled && !page.logged;
     if (log) {
       const keep = new Set(
-        page.hunks.filter((h) => page.status[h.id] !== "rejected").map((h) => h.id),
+        page.hunks.filter((h) => hunkStatus(page, h.id) !== "rejected").map((h) => h.id),
       );
       const ops = planReplay({ ops: page.ops, trace: page.trace, hunks: page.hunks, keep, before });
       if (ops.length) {
@@ -856,7 +896,7 @@ export class ReviewSession {
       const kept = [
         ...new Set(
           page.hunks
-            .filter((h) => page.status[h.id] !== "rejected")
+            .filter((h) => hunkStatus(page, h.id) !== "rejected")
             .flatMap((h) => [...h.added, ...h.changed]),
         ),
       ];
@@ -893,9 +933,7 @@ export class ReviewSession {
     before: AnyBlock[],
   ) {
     if (!YJS_ON) return;
-    const surviving = page.hunks.filter(
-      (h) => (page.status[h.id] ?? "pending") !== "rejected",
-    );
+    const surviving = page.hunks.filter((h) => hunkStatus(page, h.id) !== "rejected");
     const expected = surviving.flatMap((h) => h.added);
     if (expected.length) {
       if (expected.some((id) => editor.getBlock(id))) return;
@@ -1091,7 +1129,7 @@ function convexSafe<T>(value: T): T {
  * together (see history/textDomain.ts).
  */
 function undoable(page: PageReview): boolean {
-  return page.hunks.some((h) => page.status[h.id] !== "rejected");
+  return page.hunks.some((h) => hunkStatus(page, h.id) !== "rejected");
 }
 
 /**
@@ -1101,9 +1139,13 @@ function undoable(page: PageReview): boolean {
  */
 function statusOf(turn: { status: TurnStatus; pages: PageReview[] }): TurnStatus {
   if (turn.status === "streaming" || turn.status === "failed") return turn.status;
-  const answers = turn.pages.flatMap((p) => p.hunks.map((h) => p.status[h.id] ?? "pending"));
+  const answers = turn.pages.flatMap((p) => p.hunks.map((h) => hunkStatus(p, h.id)));
   if (!answers.length || answers.includes("pending")) return "pending";
   return answers.includes("accepted") ? "accepted" : "rejected";
+}
+
+function hunkStatus(page: PageReview, hunkId: string): HunkStatus {
+  return page.status[hunkId] ?? "pending";
 }
 
 /**

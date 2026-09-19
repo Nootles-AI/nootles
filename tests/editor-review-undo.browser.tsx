@@ -76,12 +76,25 @@ function memoryConvex() {
   const rows = new Map<string, Record<string, unknown>>();
   const log: unknown[] = [];
   const name = (ref: unknown) => getFunctionName(ref as FunctionReference<"query">);
+  const gates = new Map<
+    string,
+    { promise: Promise<void>; release: () => void; entered: boolean }
+  >();
   // `chat/turns:restorable`, the subscription the transcript's Rewind reads.
   let restorable: { chatPromptId: string; pageCount: number; status: string }[] = [];
   const listeners = new Set<() => void>();
   return {
     log,
     rows,
+    holdMutation: (functionName: string) => {
+      let release!: () => void;
+      const promise = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      gates.set(functionName, { promise, release, entered: false });
+    },
+    releaseMutation: (functionName: string) => gates.get(functionName)?.release(),
+    mutationBlocked: (functionName: string) => gates.get(functionName)?.entered ?? false,
     restorable: () => restorable,
     subscribe: (listener: () => void) => {
       listeners.add(listener);
@@ -90,7 +103,14 @@ function memoryConvex() {
       };
     },
     mutation: async (ref: unknown, args: Record<string, unknown>) => {
-      switch (name(ref)) {
+      const functionName = name(ref);
+      const gate = gates.get(functionName);
+      if (gate) {
+        gate.entered = true;
+        await gate.promise;
+        gates.delete(functionName);
+      }
+      switch (functionName) {
         case "ai/checkpoints:create": {
           const id = `checkpoint-${checkpoints.size}`;
           checkpoints.set(id, { _id: id, ...args });
@@ -113,7 +133,7 @@ function memoryConvex() {
         case "chat/turns:markRewound":
           return null;
       }
-      throw new Error(`unexpected mutation ${name(ref)}`);
+      throw new Error(`unexpected mutation ${functionName}`);
     },
     query: async (ref: unknown, args: Record<string, unknown>) => {
       switch (name(ref)) {
@@ -620,6 +640,14 @@ const harness = {
     return { undo: el.dataset.undo === "true", redo: el.dataset.redo === "true" };
   },
   opLog: () => convex.log.length,
+  answering: () =>
+    session
+      .getSnapshot()
+      .flatMap((turn) => turn.pages.flatMap((page) => page.hunks))
+      .map((hunk) => ({ id: hunk.id, verdict: session.answeringAs(hunk.id) })),
+  holdMutation: (name: string) => convex.holdMutation(name),
+  releaseMutation: (name: string) => convex.releaseMutation(name),
+  mutationBlocked: (name: string) => convex.mutationBlocked(name),
   messages: () => messages.length,
   /** Resolves once the session's one-at-a-time queue has drained. */
   idle: async () => {

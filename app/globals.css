@@ -1734,6 +1734,14 @@ a.nt-chip:hover {
   background: var(--hover);
   color: var(--foreground);
 }
+.nt-chat-review-btn:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+.nt-chat-review-btn:disabled:hover {
+  background: transparent;
+  color: var(--muted);
+}
 /* Keeping is the ordinary answer, so it is the one that reads as the default. */
 .nt-chat-review-btn.is-keep {
   color: var(--foreground);
@@ -2150,6 +2158,13 @@ body:has(.nt-review-bar) .nt-reformat-switcher {
 }
 .nt-review-action:hover {
   background: var(--hover);
+}
+.nt-review-action:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+.nt-review-action:disabled:hover {
+  background: transparent;
 }
 /* Revert throws away work the user may have done since. It stays reachable and
    stops asking for attention. */

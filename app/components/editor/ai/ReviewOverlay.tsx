@@ -7,6 +7,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { useOpenReviews, useReview } from "@/app/components/ReviewContext";
 import type { LiveEditor } from "@/app/components/editor/EditorRegistry";
 import { isReviewWriting } from "@/app/lib/ai/review/attribution";
+import { pendingHunks } from "@/app/lib/ai/review/session";
 import { setReview, type ReviewHunk, type ReviewSpec } from "./reviewDecorations";
 
 /**
@@ -59,8 +60,7 @@ export function ReviewOverlay({
       const before = page?.before;
       if (!page || !before) return [];
       const was = new Map(descend(before).map((b) => [b.id, b]));
-      return page.hunks
-        .filter((hunk) => (page.status[hunk.id] ?? "pending") === "pending")
+      return pendingHunks(page)
         .map(
           (hunk): ReviewHunk => ({
             id: hunk.id,
@@ -74,6 +74,7 @@ export function ReviewOverlay({
             removed: hunk.removed,
             before,
             kept: session.isKept(turn.chatPromptId, pageId, hunk),
+            answering: session.answeringAs(hunk.id),
           }),
         );
     });

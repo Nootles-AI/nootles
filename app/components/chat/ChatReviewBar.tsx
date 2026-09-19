@@ -32,6 +32,10 @@ export function ChatReviewBar({ threadId }: { threadId: Id<"chatThreads"> | null
     ),
   ).size;
   const writing = mine.some((turn) => session.isWriting(turn.chatPromptId));
+  const answering = new Set(
+    hunks.map((hunk) => session.answeringAs(hunk.id)).filter((answer) => answer !== null),
+  );
+  const busy = answering.size > 0;
 
   // Turn at a time, in order, rather than one call with a thread filter: each
   // settle re-reads the turns it is about to rewrite, so they have to land one
@@ -48,7 +52,7 @@ export function ChatReviewBar({ threadId }: { threadId: Id<"chatThreads"> | null
     );
 
   return (
-    <div className="nt-chat-review">
+    <div className="nt-chat-review" aria-busy={busy}>
       <div className="nt-chat-review-row">
         <span className="nt-chat-review-count">
           {hunks.length} change{hunks.length === 1 ? "" : "s"}
@@ -60,14 +64,19 @@ export function ChatReviewBar({ threadId }: { threadId: Id<"chatThreads"> | null
           <span className="nt-chat-review-count">still writing…</span>
         ) : (
           <div className="nt-chat-review-actions">
-            <button className="nt-chat-review-btn" onClick={() => answerAll("rejected")}>
-              Discard
+            <button
+              className="nt-chat-review-btn"
+              disabled={busy}
+              onClick={() => answerAll("rejected")}
+            >
+              {answering.has("rejected") ? "Discarding…" : "Discard"}
             </button>
             <button
               className="nt-chat-review-btn is-keep"
+              disabled={busy}
               onClick={() => answerAll("accepted")}
             >
-              Keep
+              {answering.has("accepted") ? "Keeping…" : "Keep"}
             </button>
           </div>
         )}

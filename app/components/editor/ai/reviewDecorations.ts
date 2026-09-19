@@ -12,6 +12,7 @@ import {
   previewOf,
   renderInline,
 } from "./previewWidgets";
+import type { ReviewVerdict } from "@/app/lib/ai/review/session";
 
 /**
  * The pending change, drawn in the document.
@@ -45,6 +46,8 @@ export type ReviewHunk = {
   before: AnyBlock[];
   /** The user has since rewritten part of it, so it can no longer be taken back. */
   kept: boolean;
+  /** The durable answer is in flight; the hunk remains visible until it lands. */
+  answering: ReviewVerdict | null;
 };
 
 export type ReviewSpec = {
@@ -204,7 +207,7 @@ export function reviewDecorations(doc: Node, spec: NonNullable<ReviewSpec>): Dec
       decos.push(
         Decoration.widget(controls, () => actionsWidget(hunk, spec), {
           side: -2,
-          key: `nt-review-act-${hunk.id}-${hunk.kept ? "kept" : "open"}`,
+          key: `nt-review-act-${hunk.id}-${hunk.answering ?? (hunk.kept ? "kept" : "open")}`,
           ...INERT,
         }),
       );
@@ -494,6 +497,7 @@ function removedWidget(run: AnyBlock[]): HTMLElement {
 const ICON = {
   keep: "M20 6 9 17l-5-5",
   discard: "M18 6 6 18M6 6l12 12",
+  waiting: "M21 12a9 9 0 1 1-6.22-8.56",
 };
 
 function icon(path: string): SVGElement {
@@ -529,16 +533,36 @@ function actionsWidget(hunk: ReviewHunk, spec: NonNullable<ReviewSpec>): HTMLEle
     label: string,
     path: string,
     tip: string,
+    waiting = false,
   ) => {
     const el = document.createElement("button");
     el.type = "button";
-    el.className = `nt-diff-btn is-${answer === "accepted" ? "keep" : "discard"}`;
+    el.className = `nt-diff-btn is-${answer === "accepted" ? "keep" : "discard"}${waiting ? " is-answering" : ""}`;
     el.title = tip;
     el.setAttribute("aria-label", label);
+    if (waiting) {
+      el.disabled = true;
+      el.setAttribute("aria-busy", "true");
+    }
     el.appendChild(icon(path));
-    el.addEventListener("click", () => spec.answer(hunk.id, answer));
+    if (!waiting) el.addEventListener("click", () => spec.answer(hunk.id, answer));
     return el;
   };
+
+  if (hunk.answering) {
+    const keeping = hunk.answering === "accepted";
+    inner.appendChild(
+      button(
+        hunk.answering,
+        keeping ? "Keeping this change" : "Discarding this change",
+        ICON.waiting,
+        keeping ? "Keeping…" : "Discarding…",
+        true,
+      ),
+    );
+    wrap.appendChild(inner);
+    return wrap;
+  }
 
   inner.appendChild(
     button(

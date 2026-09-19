@@ -862,6 +862,24 @@
   color: var(--diff-del);
   border-color: var(--diff-del-line);
 }
+.nt-diff-btn.is-answering {
+  cursor: wait;
+  opacity: 1;
+}
+.nt-diff-btn.is-answering svg {
+  animation: nt-review-spin 0.8s linear infinite;
+  transform-origin: center;
+}
+@keyframes nt-review-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nt-diff-btn.is-answering svg {
+    animation: none;
+  }
+}
 
 /* BlockNote draws a vertical guide beside every nested block. On a checklist
    that is one rule per level of indent, which reads as table chrome rather than
