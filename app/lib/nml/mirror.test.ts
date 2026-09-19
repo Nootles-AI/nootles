@@ -47,6 +47,229 @@ class MemoryHost implements NmlLegacyMirrorHost {
 }
 
 describe("NML ↔ legacy live mirror", () => {
+  it("coalesces a queued legacy burst before compiling it into canonical commands", async () => {
+    const document = fixture();
+    const paragraph = document.blocks[0];
+    if (!("content" in paragraph)) throw new Error("Fixture mismatch");
+    paragraph.content = [{ type: "text", text: "Start", marks: [] }];
+    const doc = createNmlYDoc(document);
+    const host = new MemoryHost();
+    const errors = vi.fn();
+    const mirror = new NmlLegacyMirror(doc, host, { actor, onError: errors }).start();
+    const mirrorTransactions: unknown[] = [];
+    doc.on("afterTransaction", (transaction) => {
+      if (transaction.origin && typeof transaction.origin === "object" &&
+          (transaction.origin as { command?: string }).command === "legacy-mirror") {
+        mirrorTransactions.push(transaction.origin);
+      }
+    });
+
+    host.blocks[0].content = [{ type: "text", text: "Start a", styles: {} }];
+    host.emit();
+    host.blocks[0].content = [{ type: "text", text: "Start ab", styles: {} }];
+    host.emit();
+    await mirror.settle();
+
+    expect(decodeNmlDocument(doc).blocks[0]).toMatchObject({
+      content: [{ type: "text", text: "Start ab", marks: [] }],
+    });
+    expect(mirrorTransactions).toHaveLength(1);
+    expect(errors).not.toHaveBeenCalled();
+    mirror.stop(); doc.destroy();
+  });
+
+  it("keeps coalescing while asynchronous authorization is pending", async () => {
+    const document = fixture();
+    const paragraph = document.blocks[0];
+    if (!("content" in paragraph)) throw new Error("Fixture mismatch");
+    paragraph.content = [{ type: "text", text: "Start", marks: [] }];
+    const doc = createNmlYDoc(document);
+    const host = new MemoryHost();
+    let releaseAuthorization!: (allowed: boolean) => void;
+    const authorization = new Promise<boolean>((resolve) => { releaseAuthorization = resolve; });
+    const authorize = vi.fn(() => authorization);
+    const createRequestId = vi.fn(() => "coalesced-request");
+    const mirror = new NmlLegacyMirror(doc, host, {
+      actor,
+      authorize,
+      createRequestId,
+    }).start();
+
+    host.blocks[0].content = [{ type: "text", text: "Start a", styles: {} }];
+    host.emit();
+    await Promise.resolve();
+    expect(authorize).toHaveBeenCalledTimes(1);
+    host.blocks[0].content = [{ type: "text", text: "Start ab", styles: {} }];
+    host.emit();
+    host.blocks[0].content = [{ type: "text", text: "Start abc", styles: {} }];
+    host.emit();
+    releaseAuthorization(true);
+    await mirror.settle();
+
+    expect(decodeNmlDocument(doc).blocks[0]).toMatchObject({
+      content: [{ type: "text", text: "Start abc", marks: [] }],
+    });
+    expect(authorize).toHaveBeenCalledTimes(1);
+    expect(createRequestId).toHaveBeenCalledTimes(1);
+    mirror.stop(); doc.destroy();
+  });
+
+  it("preserves an interleaved canonical write while coalescing a legacy burst", async () => {
+    const document = fixture();
+    const paragraph = document.blocks[0];
+    if (!("content" in paragraph)) throw new Error("Fixture mismatch");
+    paragraph.content = [{ type: "text", text: "Start", marks: [] }];
+    const doc = createNmlYDoc(document);
+    const host = new MemoryHost();
+    const mirror = new NmlLegacyMirror(doc, host, { actor }).start();
+
+    host.blocks[0].content = [{ type: "text", text: "Start a", styles: {} }];
+    host.emit();
+    host.blocks[0].content = [{ type: "text", text: "Start ab", styles: {} }];
+    host.emit();
+    await executeNmlCommands({
+      doc,
+      documentId: "mirror-doc",
+      commands: [{ type: "setCode", nodeId: "code", range: { from: 0, to: 11 }, text: "direct code" }],
+      idempotencyKey: "direct-during-burst",
+      origin: { version: 1, transactionId: "direct-during-burst", actor, command: "test" },
+      authorize: () => true,
+    });
+    await mirror.settle();
+
+    const canonical = decodeNmlDocument(doc);
+    expect(canonical.blocks[0]).toMatchObject({
+      content: [{ type: "text", text: "Start ab", marks: [] }],
+    });
+    expect(canonical.blocks[1]).toMatchObject({ type: "codeBlock", code: "direct code" });
+    mirror.stop(); doc.destroy();
+  });
+
+  it("preserves a same-block canonical insertion beside the latest legacy edit", async () => {
+    const document = fixture();
+    const paragraph = document.blocks[0];
+    if (!("content" in paragraph)) throw new Error("Fixture mismatch");
+    paragraph.content = [{ type: "text", text: "Start", marks: [] }];
+    const doc = createNmlYDoc(document);
+    const host = new MemoryHost();
+    const mirror = new NmlLegacyMirror(doc, host, { actor }).start();
+
+    host.blocks[0].content = [{ type: "text", text: "Start legacy", styles: {} }];
+    host.emit();
+    await executeNmlCommands({
+      doc,
+      documentId: "mirror-doc",
+      commands: [{
+        type: "replaceInline",
+        nodeId: "p",
+        range: { from: 5, to: 5 },
+        content: [{ type: "text", text: " canonical", marks: [] }],
+      }],
+      idempotencyKey: "same-block-canonical",
+      origin: { version: 1, transactionId: "same-block-canonical", actor, command: "test" },
+      authorize: () => true,
+    });
+    await mirror.settle();
+
+    const canonical = JSON.stringify(decodeNmlDocument(doc).blocks[0]);
+    expect(canonical.match(/legacy/g)).toHaveLength(1);
+    expect(canonical.match(/canonical/g)).toHaveLength(1);
+    mirror.stop(); doc.destroy();
+  });
+
+  it("coalesces structural snapshots without inserting the same node twice", async () => {
+    const doc = createNmlYDoc(fixture());
+    const host = new MemoryHost();
+    const errors = vi.fn();
+    const mirror = new NmlLegacyMirror(doc, host, { actor, onError: errors }).start();
+    host.blocks.push({
+      id: "new-paragraph",
+      type: "paragraph",
+      content: [{ type: "text", text: "draft", styles: {} }],
+    });
+    host.emit();
+    host.blocks[3].content = [{ type: "text", text: "final", styles: {} }];
+    host.emit();
+    await mirror.settle();
+
+    const inserted = decodeNmlDocument(doc).blocks.filter((block) => block.id === "new-paragraph");
+    expect(inserted).toHaveLength(1);
+    expect(inserted[0]).toMatchObject({
+      content: [{ type: "text", text: "final", marks: [] }],
+    });
+    expect(errors).not.toHaveBeenCalled();
+    mirror.stop(); doc.destroy();
+  });
+
+  it("projects coalesced bursts through multiple mirrors without drift", async () => {
+    const document = fixture();
+    const paragraph = document.blocks[0];
+    if (!("content" in paragraph)) throw new Error("Fixture mismatch");
+    paragraph.content = [{ type: "text", text: "Start", marks: [] }];
+    const doc = createNmlYDoc(document);
+    const left = new MemoryHost();
+    const right = new MemoryHost();
+    const leftErrors = vi.fn();
+    const rightErrors = vi.fn();
+    const leftMirror = new NmlLegacyMirror(doc, left, { actor, onError: leftErrors }).start();
+    const rightMirror = new NmlLegacyMirror(doc, right, { actor, onError: rightErrors }).start();
+
+    left.blocks[0].content = [{ type: "text", text: "Start a", styles: {} }];
+    left.emit();
+    left.blocks[0].content = [{ type: "text", text: "Start ab", styles: {} }];
+    left.emit();
+    await Promise.all([leftMirror.settle(), rightMirror.settle()]);
+    expect(left.blocks).toEqual(right.blocks);
+    expect(decodeNmlDocument(doc).blocks[0]).toMatchObject({
+      content: [{ type: "text", text: "Start ab", marks: [] }],
+    });
+
+    right.blocks[0].content = [{ type: "text", text: "Start abc", styles: {} }];
+    right.emit();
+    right.blocks[0].content = [{ type: "text", text: "Start abcd", styles: {} }];
+    right.emit();
+    await Promise.all([leftMirror.settle(), rightMirror.settle()]);
+    expect(decodeNmlDocument(doc).blocks[0]).toMatchObject({
+      content: [{ type: "text", text: "Start abcd", marks: [] }],
+    });
+    expect(leftErrors).not.toHaveBeenCalled();
+    expect(rightErrors).not.toHaveBeenCalled();
+    expect(left.blocks).toEqual(right.blocks);
+    leftMirror.stop(); rightMirror.stop(); doc.destroy();
+  });
+
+  it("merges simultaneous coalesced bursts from multiple mirrors", async () => {
+    const document = fixture();
+    const paragraph = document.blocks[0];
+    if (!("content" in paragraph)) throw new Error("Fixture mismatch");
+    paragraph.content = [{ type: "text", text: "Start", marks: [] }];
+    const doc = createNmlYDoc(document);
+    const left = new MemoryHost();
+    const right = new MemoryHost();
+    const leftErrors = vi.fn();
+    const rightErrors = vi.fn();
+    const leftMirror = new NmlLegacyMirror(doc, left, { actor, onError: leftErrors }).start();
+    const rightMirror = new NmlLegacyMirror(doc, right, { actor, onError: rightErrors }).start();
+
+    left.blocks[0].content = [{ type: "text", text: "Start left", styles: {} }];
+    left.emit();
+    left.blocks[0].content = [{ type: "text", text: "Start LEFT", styles: {} }];
+    left.emit();
+    right.blocks[0].content = [{ type: "text", text: "Start right", styles: {} }];
+    right.emit();
+    right.blocks[0].content = [{ type: "text", text: "Start RIGHT", styles: {} }];
+    right.emit();
+    await Promise.all([leftMirror.settle(), rightMirror.settle()]);
+
+    const canonical = JSON.stringify(decodeNmlDocument(doc).blocks[0]);
+    expect(canonical.match(/LEFT/g)).toHaveLength(1);
+    expect(canonical.match(/RIGHT/g)).toHaveLength(1);
+    expect(left.blocks).toEqual(right.blocks);
+    expect(leftErrors).not.toHaveBeenCalled();
+    expect(rightErrors).not.toHaveBeenCalled();
+    leftMirror.stop(); rightMirror.stop(); doc.destroy();
+  });
+
   it("initializes from canonical NML and compiles legacy edits back to commands", async () => {
     const doc = createNmlYDoc(fixture());
     const host = new MemoryHost();
