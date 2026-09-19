@@ -6,6 +6,7 @@ import type {
   FunctionReturnType,
   OptionalRestArgs,
 } from "convex/server";
+import { requireConvexDeploymentUrl } from "./convexDeploymentUrl";
 
 /**
  * A Convex client that reads and writes AS the caller.
@@ -15,8 +16,7 @@ import type {
  * as the user, never as the server.
  */
 export function asUser(token: string): ConvexHttpClient {
-  const url = process.env.NEXT_PUBLIC_CONVEX_URL;
-  if (!url) throw new Error("NEXT_PUBLIC_CONVEX_URL is not set");
+  const url = requireConvexDeploymentUrl(process.env.NEXT_PUBLIC_CONVEX_URL);
   const convex = new ConvexHttpClient(url);
   convex.setAuth(token);
   return convex;
@@ -53,8 +53,7 @@ class SessionClient extends ConvexHttpClient {
     token: string,
     private readonly sessionId: string,
   ) {
-    const url = process.env.NEXT_PUBLIC_CONVEX_URL;
-    if (!url) throw new Error("NEXT_PUBLIC_CONVEX_URL is not set");
+    const url = requireConvexDeploymentUrl(process.env.NEXT_PUBLIC_CONVEX_URL);
     super(url);
     this.setAuth(token);
   }

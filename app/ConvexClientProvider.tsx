@@ -4,8 +4,11 @@ import { ReactNode, useCallback, useMemo, useState } from "react";
 import { ConvexReactClient, ConvexProviderWithAuth } from "convex/react";
 import { useAuth } from "@clerk/nextjs";
 import { impersonationToken } from "./lib/impersonation";
+import { requireConvexDeploymentUrl } from "./lib/convexDeploymentUrl";
 
-const convex = new ConvexReactClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
+const convex = new ConvexReactClient(
+  requireConvexDeploymentUrl(process.env.NEXT_PUBLIC_CONVEX_URL),
+);
 
 /**
  * Which identity this tab speaks to Convex as.

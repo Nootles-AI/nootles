@@ -31,6 +31,17 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 
 ## Deploy on Vercel
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+`vercel.json` runs the frontend build through `convex deploy`. Configure
+`CONVEX_DEPLOY_KEY` in Vercel before deploying:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- use a Convex production deploy key scoped only to **Production**;
+- use a Convex preview deploy key scoped only to **Preview**.
+
+The Convex CLI then creates or selects the right backend and injects
+`NEXT_PUBLIC_CONVEX_URL` into `npm run build`. Do not copy a development URL
+into every preview: preview keys keep branch data and functions isolated from
+development and production.
+
+Preview authentication also needs the Clerk development instance's
+`NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` and `CLERK_SECRET_KEY`; its issuer must
+match `CLERK_JWT_ISSUER_DOMAIN` in the preview Convex deployment.
