@@ -1,6 +1,11 @@
 import { TextSelection } from "prosemirror-state";
 import type { EditorView } from "prosemirror-view";
-import { ySyncPluginKey } from "y-prosemirror";
+import {
+  getRelativeSelection,
+  relativePositionToAbsolutePosition,
+  ySyncPluginKey,
+  type ProsemirrorBinding,
+} from "y-prosemirror";
 import * as Y from "yjs";
 import { settleDiagrams } from "@/app/components/editor/canvas/collab/binding";
 import type { LiveEditor } from "@/app/components/editor/EditorRegistry";
@@ -82,11 +87,13 @@ export function mergeFork(editor: LiveEditor, end: ForkEnd) {
   const fork = forkApi(editor);
   if (!fork?.store.state.isForked) return;
   const forked = boundDoc(editor);
+  const selection = parkSelection(editor);
   // An answer writes the page and lands in the same task; what lands has to
   // be what the page now says, diagrams included (see settleDiagrams).
   if (end !== "discarded") settleDiagrams(forked);
   if (end !== "kept") {
     fork.merge({ keepChanges: end === "landed" });
+    restoreSelection(editor, selection);
     return;
   }
   // BlockNote's `keepChanges` merge with the landing done here, so that it
@@ -94,6 +101,7 @@ export function mergeFork(editor: LiveEditor, end: ForkEnd) {
   fork.merge({ keepChanges: false });
   const shared = boundDoc(editor);
   Y.applyUpdate(shared, Y.encodeStateAsUpdate(forked, Y.encodeStateVector(shared)), KEPT_CHANGE);
+  restoreSelection(editor, selection);
 }
 
 /**
@@ -102,6 +110,53 @@ export function mergeFork(editor: LiveEditor, end: ForkEnd) {
  * throughout: ProseMirror keeps a plugin's state field across the swap.
  */
 export function boundDoc(editor: LiveEditor): Y.Doc {
-  return (ySyncPluginKey.getState(editor.prosemirrorState) as { binding: { doc: Y.Doc } })
-    .binding.doc;
+  return bindingOf(editor).doc;
+}
+
+type ParkedSelection = {
+  view: EditorView;
+  relative: ReturnType<typeof getRelativeSelection>;
+} | null;
+
+/** The fork can be longer than shared truth, so its absolute caret cannot cross the swap. */
+function parkSelection(editor: LiveEditor): ParkedSelection {
+  const view = (editor as unknown as { prosemirrorView?: EditorView }).prosemirrorView;
+  if (!view || !(view.state.selection instanceof TextSelection)) return null;
+  const relative = getRelativeSelection(bindingOf(editor), view.state);
+  view.dispatch(
+    view.state.tr
+      .setSelection(TextSelection.atStart(view.state.doc))
+      .setMeta("addToHistory", false),
+  );
+  return { view, relative };
+}
+
+function restoreSelection(editor: LiveEditor, parked: ParkedSelection) {
+  if (!parked) return;
+  const binding = bindingOf(editor);
+  const { doc } = parked.view.state;
+  const anchor = relativePositionToAbsolutePosition(
+    binding.doc,
+    binding.type,
+    parked.relative.anchor,
+    binding.mapping,
+  );
+  const head = relativePositionToAbsolutePosition(
+    binding.doc,
+    binding.type,
+    parked.relative.head,
+    binding.mapping,
+  );
+  if (anchor === null || head === null) return;
+  parked.view.dispatch(
+    parked.view.state.tr
+      .setSelection(TextSelection.between(doc.resolve(anchor), doc.resolve(head)))
+      .setMeta("addToHistory", false),
+  );
+}
+
+function bindingOf(editor: LiveEditor): ProsemirrorBinding {
+  return (ySyncPluginKey.getState(editor.prosemirrorState) as {
+    binding: ProsemirrorBinding;
+  }).binding;
 }

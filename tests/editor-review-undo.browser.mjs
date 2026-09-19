@@ -356,6 +356,45 @@ try {
   await redo();
   check("⌘⇧Z puts both back", await texts(), [...TITLED, ...SCENE]);
 
+  console.log("NT-36: Keep gives immediate feedback while Convex is reconnecting");
+  await fresh();
+  await typeNotes();
+  await turn();
+  await h(() => window.reviewHarness.holdMutation("ai/opLog:appendBatch"));
+  check("one change is ready to keep", await pressHunk("Keep this change"), 1);
+  await page.waitForFunction(
+    () => window.reviewHarness.mutationBlocked("ai/opLog:appendBatch"),
+    { timeout: 5000 },
+  );
+  check(
+    "the hunk and whole-review controls say the answer is being saved",
+    await h(() => ({
+      inline: [...document.querySelectorAll('button[aria-label="Keeping this change"]')].map(
+        (button) => ({ disabled: button.disabled, busy: button.getAttribute("aria-busy") }),
+      ),
+      bar: [...document.querySelectorAll("#bar button")].map((button) => ({
+        text: button.textContent.trim(),
+        disabled: button.disabled,
+      })),
+      answering: window.reviewHarness.answering().map(({ verdict }) => verdict),
+      open: window.reviewHarness.open(),
+    })),
+    {
+      inline: [{ disabled: true, busy: "true" }],
+      bar: [
+        { text: "Keeping…", disabled: true },
+        { text: "Discard all", disabled: true },
+        { text: "Revert", disabled: true },
+      ],
+      answering: ["accepted"],
+      open: 1,
+    },
+  );
+  await h(() => window.reviewHarness.releaseMutation("ai/opLog:appendBatch"));
+  await settled();
+  check("the delayed Keep lands once, without another click", await texts(), [...HEAD, ...SCENE]);
+  check("the accepted ops are logged once", await h(() => window.reviewHarness.opLog()), 1);
+
   console.log("the change's own Keep button, then ⌘Z");
   await fresh();
   await typeNotes();

@@ -31,6 +31,10 @@ export function ReviewBar() {
       turn.pages.filter((page) => pendingHunks(page).length).map((page) => page.pageId),
     ),
   ).size;
+  const answering = new Set(
+    hunks.map((hunk) => session.answeringAs(hunk.id)).filter((answer) => answer !== null),
+  );
+  const busy = answering.size > 0;
   const oldest = open[0];
   // Up from the first change rather than at the end of the turn. The edits are
   // applied for real as they are made, so withholding the bar until the agent
@@ -39,7 +43,12 @@ export function ReviewBar() {
   const writing = open.some((turn) => session.isWriting(turn.chatPromptId));
 
   return (
-    <div className="nt-review-bar" style={{ zIndex: "var(--z-sticky)" }} role="status">
+    <div
+      className="nt-review-bar"
+      style={{ zIndex: "var(--z-sticky)" }}
+      role="status"
+      aria-busy={busy}
+    >
       <span className="nt-review-count">
         {hunks.length} change{hunks.length === 1 ? "" : "s"}
         {pages > 1 ? ` · ${pages} pages` : ""}
@@ -55,18 +64,21 @@ export function ReviewBar() {
         <>
           <button
             className="nt-review-action"
+            disabled={busy}
             onClick={() => session.answer(session.acceptAll())}
           >
-            Keep all
+            {answering.has("accepted") ? "Keeping…" : "Keep all"}
           </button>
           <button
             className="nt-review-action"
+            disabled={busy}
             onClick={() => session.answer(session.rejectAll())}
           >
-            Discard all
+            {answering.has("rejected") ? "Discarding…" : "Discard all"}
           </button>
           <button
             className="nt-review-action is-quiet"
+            disabled={busy}
             onClick={() => session.answer(session.revertTurn(oldest.chatPromptId))}
             title="Put the page back exactly as it was, including anything you have typed since"
           >
