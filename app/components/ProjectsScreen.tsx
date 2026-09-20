@@ -220,7 +220,7 @@ export function ProjectsScreen() {
           </h1>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="nt-tools flex flex-wrap items-center gap-2">
           {/* A button dressed as a field: search here is the palette, and this
               is both the way in and where its shortcut is written down. */}
           <button onClick={() => setFinding(true)} className="nt-find" aria-label="Search projects">

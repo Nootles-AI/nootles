@@ -2556,26 +2556,50 @@ body:has(.nt-review-bar) .nt-reformat-switcher {
 /* The glyph toggle, with a thumb that travels instead of fills that swap. Only
    for segments of equal width — the worded toggle keeps its fills, because its
    segments are not. `data-at` is the index of the one that is on. */
+/* Everything in the projects header stands `--control` tall: the search, this
+   toggle, New project and the account circle are one row of controls, and a row
+   of controls at three heights reads as three rows. */
 .nt-mode.is-slide {
   position: relative;
+  height: var(--control);
+  border-radius: 8px;
+}
+.nt-mode.is-slide .nt-mode-btn.is-icon {
+  width: 30px;
+  height: 28px;
+  border-radius: var(--radius);
 }
 .nt-mode.is-slide::before {
   content: "";
   position: absolute;
   top: 2px;
   left: 2px;
-  width: 26px;
-  height: 22px;
-  border-radius: var(--radius-sm);
+  width: 30px;
+  height: 28px;
+  border-radius: var(--radius);
   background: var(--background);
   box-shadow: 0 1px 2px oklch(0.25 0.005 90 / 0.1);
   transition: transform 420ms var(--spring);
 }
 .nt-mode.is-slide[data-at="1"]::before {
-  transform: translateX(27px);
+  transform: translateX(31px);
 }
 .nt-mode.is-slide[data-at="2"]::before {
-  transform: translateX(54px);
+  transform: translateX(62px);
+}
+/* The account circle is drawn at the size of its hit area here. In the sidebar
+   it stays a 20px glyph inside a row; in this header it is a control among
+   controls. */
+.nt-tools .nt-monogram {
+  width: var(--control);
+  height: var(--control);
+  font-size: var(--text-meta-lg);
+}
+.nt-tools .nt-icon-btn:has(.nt-monogram) {
+  border-radius: 50%;
+}
+.nt-tools .nt-icon-btn:has(.nt-monogram):hover {
+  background: none;
 }
 .nt-mode.is-slide .nt-mode-btn {
   position: relative;
@@ -2589,8 +2613,9 @@ body:has(.nt-review-bar) .nt-reformat-switcher {
    the header still reads as having one way to begin; the caret is where the
    rarer doors are kept. */
 .nt-split {
+  --r: 8px;
   display: inline-flex;
-  border-radius: var(--radius);
+  border-radius: var(--r);
   background: var(--foreground);
   color: var(--background);
   font-size: var(--text-ui);
@@ -2605,20 +2630,20 @@ body:has(.nt-review-bar) .nt-reformat-switcher {
   gap: 6px;
   height: var(--control);
   padding: 0 10px 0 12px;
-  border-radius: var(--radius) 0 0 var(--radius);
+  border-radius: var(--r) 0 0 var(--r);
   font-weight: 500;
   transition: background var(--dur-fast) var(--ease);
 }
 .nt-split-main:only-child {
   padding-right: 12px;
-  border-radius: var(--radius);
+  border-radius: var(--r);
 }
 .nt-split-caret {
   display: grid;
   width: 26px;
   height: var(--control);
   place-items: center;
-  border-radius: 0 var(--radius) var(--radius) 0;
+  border-radius: 0 var(--r) var(--r) 0;
   box-shadow: inset 1px 0 0 oklch(1 0 0 / 0.16);
   transition: background var(--dur-fast) var(--ease);
 }
