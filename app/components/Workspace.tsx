@@ -533,14 +533,26 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
     />
   );
 
-  const chat = (
-    <ChatPanel
-      width={compact ? DRAWER_W : RIGHT_W}
-      projectId={projectId}
-      pageId={effectivePageId}
-      onCollapse={() => (compact ? setDrawer(null) : setRightOpen(false))}
-    />
-  );
+  const chatAsDrawer = compact && openDrawer === "right";
+  const chatProps = {
+    width: compact ? DRAWER_W : RIGHT_W,
+    projectId,
+    pageId: effectivePageId,
+    onCollapse: () => (compact ? setDrawer(null) : setRightOpen(false)),
+    ...(chatAsDrawer
+      ? {
+          className: "fixed inset-y-0 right-0 shadow-2xl",
+          style: { zIndex: "var(--z-modal)" },
+        }
+      : {}),
+  };
+  // Inspector panels replace the rail visually, but must not unmount ChatPanel:
+  // its hook owns the BrowserChat and its abort signal. `hidden` keeps it out
+  // of both layout and the accessibility tree while a canvas/location claims
+  // the slot (or while the rail is collapsed), without mistaking that for Stop.
+  const chatHidden = compact
+    ? !chatAsDrawer
+    : !chrome || !!canvasPanels || !!placePanel || !showRight;
 
   return (
     <CanvasShellContext value={shell}>
@@ -643,10 +655,7 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
         ) : placePanel ? (
           <LocationPanel active={placePanel} />
         ) : viewer ? null : showRight ? (
-          <>
-            <ResizeHandle onResize={onResizeRight} ariaLabel="Resize chat" />
-            {chat}
-          </>
+          <ResizeHandle onResize={onResizeRight} ariaLabel="Resize chat" />
         ) : (
           <EdgeRail
             side="right"
@@ -655,6 +664,11 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
             expanded={openDrawer === "right"}
           />
         )}
+
+        {/* Inspector swaps, rail collapse and compact-drawer dismissal only hide
+            this panel. The one mounted instance keeps an active response alive
+            wherever the chat happens to be shown. */}
+        {!viewer && <ChatPanel {...chatProps} hidden={chatHidden} />}
 
         {/* One bar, one corner. The tool palette is transient and the review is a
             standing question, so while a diagram is being edited the palette has
@@ -687,14 +701,14 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
               className="fixed inset-0 bg-foreground/15"
               style={{ zIndex: "var(--z-overlay)" }}
             />
-            <div
-              className={`fixed inset-y-0 ${
-                openDrawer === "left" ? "left-0" : "right-0"
-              } shadow-2xl`}
-              style={{ zIndex: "var(--z-modal)" }}
-            >
-              {openDrawer === "left" ? sidebar : chat}
-            </div>
+            {openDrawer === "left" && (
+              <div
+                className="fixed inset-y-0 left-0 shadow-2xl"
+                style={{ zIndex: "var(--z-modal)" }}
+              >
+                {sidebar}
+              </div>
+            )}
           </>
         )}
 

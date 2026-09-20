@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -22,12 +22,24 @@ export function ChatPanel({
   projectId,
   pageId,
   onCollapse,
+  hidden = false,
+  className = "",
+  style,
 }: {
   /** A CSS width — the shell holds the rail's live one in a custom property. */
   width: string;
   projectId: Id<"projects">;
   pageId: Id<"pages"> | null;
   onCollapse: () => void;
+  /**
+   * The canvas and location inspectors borrow this rail. Keep the chat mounted
+   * while they are visible: its BrowserChat owns the active transport, so
+   * unmounting it would turn a panel swap into a Stop.
+   */
+  hidden?: boolean;
+  /** Lets Workspace use this one mounted rail as its compact drawer, too. */
+  className?: string;
+  style?: CSSProperties;
 }) {
   const threads = useQuery(api.chat.threads.list, { projectId });
   const review = useReview();
@@ -152,7 +164,12 @@ export function ChatPanel({
   };
 
   return (
-    <aside style={{ width }} className="nt-panel relative nt-rail-r" aria-label="Chat">
+    <aside
+      hidden={hidden}
+      style={{ width, ...style }}
+      className={`nt-panel relative nt-rail-r ${hidden ? "hidden" : ""} ${className}`}
+      aria-label="Chat"
+    >
       <div className="nt-panel-head">
         <button
           className="nt-row min-w-0 flex-1"
