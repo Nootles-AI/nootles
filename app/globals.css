@@ -3518,7 +3518,6 @@ body:has(.nt-review-bar) .nt-reformat-switcher {
   flex-direction: column;
   gap: 9px;
   padding: 16px 14px;
-  animation: nt-pal-opening-wait 1.2s var(--ease) 250ms infinite alternate backwards;
 }
 .nt-pal-reading-sheet::after {
   content: none;
@@ -3527,6 +3526,7 @@ body:has(.nt-review-bar) .nt-reformat-switcher {
   height: 3px;
   border-radius: 999px;
   background: var(--border);
+  animation: nt-pal-opening-wait 1.2s var(--ease) 250ms infinite alternate backwards;
 }
 .nt-pal-reading-sheet span:nth-child(1) {
   width: 46%;
@@ -3552,7 +3552,7 @@ body:has(.nt-review-bar) .nt-reformat-switcher {
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .nt-pal-reading-sheet {
+  .nt-pal-reading-sheet span {
     animation: none;
   }
 }
