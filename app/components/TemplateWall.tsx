@@ -16,6 +16,8 @@ import type { ReactNode } from "react";
  */
 
 const W = 150;
+/** Every page is one sheet: A-series proportions, 1 : √2. */
+const H = 212;
 /** Pages are drawn at `W` and shown smaller, so the gaps between them carry
  *  more of the wall. */
 const SHOWN = 0.86;
@@ -27,12 +29,30 @@ const FILL_EDGE = "#cdd5e5";
 const MINT = "#e9f2ef";
 const MINT_EDGE = "#c6dad3";
 
+const RUN = [122, 116, 124, 108, 118, 96, 120, 112];
+
+/**
+ * One sheet. `h` is where the page's own content ends; whatever is left of the
+ * sheet below it is written in — paragraphs of prose, the last line of each
+ * short — so a page with a small figure is a full page with a small figure on
+ * it, not a shorter page.
+ */
 function Page({ h, title, children }: { h: number; title: number; children: ReactNode }) {
+  const lines: ReactNode[] = [];
+  let y = h - 4;
+  for (let i = 0; y <= H - 14; i++, y += 7) {
+    const last = i % 5 === 4 || y + 7 > H - 14;
+    lines.push(
+      <rect key={i} x={12} y={y} width={last ? RUN[i % RUN.length] * 0.55 : RUN[i % RUN.length]} height={2.5} rx={1.25} fill={SOFT} />,
+    );
+    if (i % 5 === 4) y += 6;
+  }
   return (
-    <svg viewBox={`0 0 ${W} ${h}`} width={W * SHOWN} height={h * SHOWN} className="nt-wall-tile">
-      <rect width={W} height={h} fill="var(--background)" />
+    <svg viewBox={`0 0 ${W} ${H}`} width={W * SHOWN} height={H * SHOWN} className="nt-wall-tile">
+      <rect width={W} height={H} fill="var(--background)" />
       <rect x={12} y={13} width={title} height={5} rx={1.5} fill={INK} />
       {children}
+      {lines}
     </svg>
   );
 }
@@ -318,12 +338,12 @@ function Outline() {
   );
 }
 
-/** Three courses, each starting at a different height — which is what makes it
- *  brick — and every page on the wall a different one. */
+/** Three courses of identical sheets, each starting a third of a sheet from its
+ *  neighbour — which is what makes it brick — and every page a different one. */
 const COURSES: { lift: number; pages: ReactNode[] }[] = [
-  { lift: -40, pages: [<Table key="t" />, <Mockup key="m" />, <Maths key="x" />, <Storyboard key="s" />] },
-  { lift: -84, pages: [<Notes key="n" />, <Code key="c" />, <Album key="a" />, <Flowchart key="f" />] },
-  { lift: -16, pages: [<Graph key="g" />, <Place key="p" />, <Checklist key="k" />, <Outline key="o" />] },
+  { lift: -30, pages: [<Table key="t" />, <Mockup key="m" />, <Maths key="x" />, <Storyboard key="s" />] },
+  { lift: -164, pages: [<Notes key="n" />, <Code key="c" />, <Album key="a" />, <Flowchart key="f" />] },
+  { lift: -97, pages: [<Graph key="g" />, <Place key="p" />, <Checklist key="k" />, <Outline key="o" />] },
 ];
 
 export function TemplateWall() {
