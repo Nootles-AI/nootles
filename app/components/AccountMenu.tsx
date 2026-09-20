@@ -19,7 +19,7 @@ function initial(name: string | null | undefined, email: string | undefined) {
  * "who is that caret" faster than an initial. You, to yourself, stay a
  * monogram.
  */
-export function AccountMenu() {
+export function AccountMenu({ align = "end" }: { align?: "start" | "end" } = {}) {
   const { user, isLoaded } = useUser();
   const { signOut } = useClerk();
   const { entitlement: plan } = usePlan();
@@ -38,7 +38,7 @@ export function AccountMenu() {
     <Menu
       label="Account"
       side="bottom"
-      align="end"
+      align={align}
       trigger={(t) => (
         <button {...t} aria-label={`Account — ${label}`} className="nt-icon-btn">
           <span className="nt-monogram">{initial(user.fullName, email)}</span>

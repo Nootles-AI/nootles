@@ -103,3 +103,83 @@ describe("sharedWithMe", () => {
     expect(rows).toEqual([]);
   });
 });
+
+describe("create from a seed", () => {
+  const bytes = (n: number) => new Uint8Array([n, n, n]).buffer;
+  const SEED = [
+    { kind: "page" as const, title: "Overview", update: bytes(1) },
+    {
+      kind: "folder" as const,
+      title: "Spec",
+      pages: [
+        { title: "Requirements", update: bytes(2) },
+        { title: "Open questions", update: bytes(3) },
+      ],
+    },
+  ];
+
+  test("the sidebar arrives as seeded: a page, then a folder holding two", async () => {
+    const t = convexTest(schema, modules);
+    const projectId = await t
+      .withIdentity(OWNER)
+      .mutation(api.projects.create, { title: "Spec", seed: SEED });
+
+    const { folders, pages } = await t.run(async (ctx) => ({
+      folders: await ctx.db
+        .query("folders")
+        .withIndex("by_project", (q) => q.eq("projectId", projectId))
+        .collect(),
+      pages: await ctx.db
+        .query("pages")
+        .withIndex("by_project", (q) => q.eq("projectId", projectId))
+        .collect(),
+    }));
+
+    expect(folders.map((f) => [f.title, f.order])).toEqual([["Spec", 1]]);
+    const inSpec = (title: string) =>
+      pages.find((p) => p.title === title)?.folderId === folders[0]._id;
+    expect(pages.find((p) => p.title === "Overview")).toMatchObject({ order: 0, yjs: true });
+    expect(pages.find((p) => p.title === "Overview")?.folderId).toBeUndefined();
+    expect([inSpec("Requirements"), inSpec("Open questions")]).toEqual([true, true]);
+    expect(
+      pages.filter((p) => p.folderId).map((p) => [p.title, p.order]),
+    ).toEqual([
+      ["Requirements", 0],
+      ["Open questions", 1],
+    ]);
+  });
+
+  test("every seeded page is born with its document", async () => {
+    const t = convexTest(schema, modules);
+    const projectId = await t
+      .withIdentity(OWNER)
+      .mutation(api.projects.create, { title: "Spec", seed: SEED });
+    const born = await t.run(async (ctx) => {
+      const pages = await ctx.db
+        .query("pages")
+        .withIndex("by_project", (q) => q.eq("projectId", projectId))
+        .collect();
+      return Promise.all(
+        pages.map((p) =>
+          ctx.db
+            .query("yUpdates")
+            .filter((q) => q.eq(q.field("docId"), p.docId))
+            .collect(),
+        ),
+      );
+    });
+    expect(born.map((updates) => updates.length)).toEqual([1, 1, 1]);
+  });
+
+  test("no seed is still one blank, untitled page", async () => {
+    const t = convexTest(schema, modules);
+    const projectId = await t.withIdentity(OWNER).mutation(api.projects.create, { title: "Plain" });
+    const pages = await t.run((ctx) =>
+      ctx.db
+        .query("pages")
+        .withIndex("by_project", (q) => q.eq("projectId", projectId))
+        .collect(),
+    );
+    expect(pages.map((p) => [p.title, p.order])).toEqual([["", 0]]);
+  });
+});

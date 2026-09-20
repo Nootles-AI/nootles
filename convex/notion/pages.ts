@@ -101,6 +101,58 @@ export const fetchBlocks = action({
 
 type Block = { id: string; type: string; has_children?: boolean; children?: Block[] };
 
+/** As much of a page as a thumbnail shows above its crop. */
+const OPENING_BLOCKS = 30;
+/** Requests one preview may take from the connection's queue, the first included. */
+const OPENING_REQUESTS = 4;
+/**
+ * The blocks that are nothing without their children: a table's rows are its
+ * children, and a column's content is. A list item or a toggle draws as
+ * itself, so its children are not worth a turn in the queue.
+ */
+const HOLLOW = new Set(["table", "column_list", "column", "synced_block"]);
+
+/**
+ * The opening of a page, for a picture of it before it is imported.
+ *
+ * `fetchBlocks` reads a page to the end, which is minutes on a large one and
+ * every turn of it taken from the queue an import is waiting in. A preview
+ * wants the first screenful and wants it now, so this reads one short list and
+ * then spends what is left of a small, fixed number of requests filling in the
+ * blocks that would otherwise draw empty. The shape is `fetchBlocks`'s own, so
+ * the same converter reads it.
+ */
+export const fetchOpening = action({
+  args: { pageId: v.string() },
+  handler: async (ctx, args): Promise<unknown[]> => {
+    const ownerId = await requireOwner(ctx);
+    const paced = pacer(ctx, ownerId);
+    return await withToken(ctx, ownerId, async (token) => {
+      let left = OPENING_REQUESTS;
+      const read = async (blockId: string): Promise<Block[]> => {
+        if (left <= 0) return [];
+        left--;
+        const page = await paced(() =>
+          json<{ results: Block[] }>(token, `/blocks/${blockId}/children`, {
+            query: { page_size: OPENING_BLOCKS },
+          }),
+        );
+        return page?.results ?? [];
+      };
+      const fill = async (blocks: Block[], depth: number) => {
+        for (const block of blocks) {
+          if (!block.has_children || !HOLLOW.has(block.type) || depth >= 3) continue;
+          block.children = await read(block.id);
+          await fill(block.children, depth + 1);
+        }
+      };
+      const blocks = await read(args.pageId);
+      await fill(blocks, 1);
+      return blocks;
+    });
+  },
+});
+
 async function children(paced: Paced, token: string, blockId: string, depth: number): Promise<Block[]> {
   if (depth >= MAX_BLOCK_DEPTH) return [];
   const out: Block[] = [];

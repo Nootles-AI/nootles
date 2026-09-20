@@ -21,6 +21,8 @@ import {
   type ImportProgress,
   type PageProgress,
 } from "@/app/lib/notion/importRun";
+import { NotionConnect } from "./NotionConnect";
+import { PickSide } from "./PickSide";
 import { PageStep, ProgressBar } from "./Progress";
 import "./notion.css";
 
@@ -48,7 +50,7 @@ export function NotionImport({
 }) {
   return (
     <Dialog labelledBy={TITLE_ID} onClose={onClose}>
-      {(close) => <Body target={target} close={close} />}
+      {(close) => <NotionImportBody target={target} close={close} />}
     </Dialog>
   );
 }
@@ -56,13 +58,40 @@ export function NotionImport({
 /** The shell's title names the dialog, so the name changes as the state does. */
 const TITLE_ID = "nt-notion-title";
 
-function Body({
+/**
+ * The import itself, in whichever frame holds it.
+ *
+ * One state machine for both: the dialog the sidebar opens to import into a
+ * project, and the projects screen's palette, where it is the last page of
+ * "New project". The frames differ in dress and in what leaving means — in the
+ * palette, giving up is a step back to the ways to start, while finishing closes
+ * the palette — so `back` and `close` are separate, and the same in the dialog.
+ */
+export function NotionImportBody({
   target,
   close,
+  back = close,
+  frame = "dialog",
+  search,
+  onSearchable,
 }: {
   target?: { projectId: Id<"projects">; folderId?: Id<"folders">; projectTitle: string };
+  /** Finished: leave the whole surface. */
   close: () => void;
+  /** Given up: in the palette, the page before this one. */
+  back?: () => void;
+  frame?: "dialog" | "palette";
+  /**
+   * The query, when the host has a search field of its own — the palette's top
+   * field. Given, the pick state draws no field and filters by this instead.
+   */
+  search?: string;
+  /** Whether there is a list to search right now, so the host can offer its field. */
+  onSearchable?: (searchable: boolean) => void;
 }) {
+  const inPalette = frame === "palette";
+  const Frame = inPalette ? PaletteShell : Shell;
+  const leave = inPalette ? "Back" : "Cancel";
   const client = useConvex();
   const status = useQuery(api.notion.account.status, {});
   const listPages = useAction(api.notion.pages.listPages);
@@ -70,9 +99,12 @@ function Body({
   const [roots, setRoots] = useState<NotionPageNode[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [selection, setSelection] = useState<ReadonlySet<string>>(new Set());
-  const [query, setQuery] = useState("");
+  const [typed, setQuery] = useState("");
+  const query = search ?? typed;
   const [progress, setProgress] = useState<ImportProgress | null>(null);
   const [stopped, setStopped] = useState(false);
+  // The page under the palette's highlight, which its side pane describes.
+  const [current, setCurrent] = useState<string | null>(null);
   const abort = useRef<AbortController | null>(null);
 
   const connected = !!status?.account && !status.account.invalidAt;
@@ -98,6 +130,10 @@ function Body({
   /* eslint-enable react-hooks/set-state-in-effect */
 
   useEffect(() => () => abort.current?.abort(), []);
+
+  // Only the pick state, with pages in it, has anything to search.
+  const searchable = connected && !progress && !!roots?.length;
+  useEffect(() => onSearchable?.(searchable), [onSearchable, searchable]);
 
   const count = selection.size;
   const running = progress?.phase === "creating" || progress?.phase === "importing";
@@ -136,7 +172,37 @@ function Body({
     setStopped(true);
   };
 
+  // ---- Asking ------------------------------------------------------------
+  // The palette waits for the answer before drawing anything. Falling through
+  // to the pick state's "Reading your Notion pages" for the beat before the
+  // status arrives would promise a list to someone who has not connected.
+  // What it draws meanwhile is the same bar the page list loads behind, so one
+  // wait reads as one wait — but it only names the pages once it knows of any.
+  const reading = (said: string) => (
+    <PaletteShell said={said} title="" foot={<LeaveButton label={leave} onClick={back} />}>
+      <div className="nt-pal-reading">
+        <div className="nt-pal-reading-bar">
+          <ProgressBar label={READING} />
+          {said && <p aria-hidden>Fetching Notion pages…</p>}
+        </div>
+      </div>
+    </PaletteShell>
+  );
+  if (inPalette && !status) return reading("");
+
   // ---- Connect ------------------------------------------------------------
+  if (status && !connected && inPalette) {
+    return (
+      <PaletteShell said="" title="" foot={<LeaveButton label={leave} onClick={back} />}>
+        <NotionConnect
+          titleId={TITLE_ID}
+          stale={!!status.account?.invalidAt}
+          blocker={status.ready ? null : (status.blocker ?? null)}
+          href={`/api/notion/connect?returnTo=${encodeURIComponent(returnHere())}`}
+        />
+      </PaletteShell>
+    );
+  }
   if (status && !connected) {
     return (
       <Shell
@@ -175,7 +241,7 @@ function Body({
     const landed = progress.pages.filter((p) => p.state === "done").length;
     const note = summarise(progress);
     return (
-      <Shell
+      <Frame
         said={note}
         title={
           progress.phase === "failed" ? "Import stopped" : landed ? "Imported" : "Nothing imported"
@@ -193,7 +259,7 @@ function Body({
         }
       >
         <Report progress={progress} />
-      </Shell>
+      </Frame>
     );
   }
 
@@ -208,7 +274,7 @@ function Body({
         ? `Creating ${total} ${pages}`
         : `${done} of ${total} ${pages}`;
     return (
-      <Shell
+      <Frame
         said={tally}
         title="Importing"
         note="Keep this tab open — pages are written from here."
@@ -234,21 +300,88 @@ function Body({
             <RunRow key={page.notionId} page={page} />
           ))}
         </ol>
-      </Shell>
+      </Frame>
     );
   }
 
   // ---- Pick ---------------------------------------------------------------
   const workspace = status?.account?.workspaceName ?? "Notion";
   const loading = !roots && !loadError;
+  const lands =
+    count && !target ? `Lands in a new project called “${derivedTitle}”.` : null;
+
+  if (inPalette && loading) return reading(READING);
+
+  // In the palette the list and its side pane are the palette's own two panes,
+  // and what the dialog says in a sentence under its title is said there.
+  if (inPalette && roots && roots.length > 0) {
+    const at = current ? locate(roots, current) : null;
+    return (
+      <PaletteShell
+        said=""
+        title={target ? `Import into ${target.projectTitle}` : ""}
+        flush
+        foot={
+          <>
+            <a
+              href={`/api/notion/connect?returnTo=${encodeURIComponent(returnHere())}`}
+              className="nt-row px-2.5 mr-auto"
+            >
+              Grant more pages
+            </a>
+            <LeaveButton label={leave} onClick={back} />
+            <button
+              type="button"
+              onClick={start}
+              disabled={!count}
+              className="nt-row nt-solid px-3 font-medium"
+            >
+              {count ? `Import ${count} ${count === 1 ? "page" : "pages"}` : "Import"}
+            </button>
+          </>
+        }
+      >
+        <div className="nt-pal-panes">
+          <div className="nt-pal-list nt-pal-picklist">
+            <div className="nt-pal-group">Shared from {workspace}</div>
+            <Tree
+              nodes={shown}
+              selection={selection}
+              setSelection={setSelection}
+              forceOpen={!!query}
+              palette
+              onCurrent={setCurrent}
+            />
+          </div>
+          <PickSide
+            node={at?.node ?? null}
+            path={at?.path ?? []}
+            state={
+              !at
+                ? "off"
+                : selection.has(at.node.id)
+                  ? "on"
+                  : ids(at.node).some((id) => selection.has(id))
+                    ? "partial"
+                    : "off"
+            }
+            count={count}
+            lands={lands}
+          />
+        </div>
+      </PaletteShell>
+    );
+  }
+
   return (
-    <Shell
+    <Frame
       said={loading ? READING : ""}
-      title={target ? `Import into ${target.projectTitle}` : "Import from Notion"}
+      // The palette's crumbs already read "Import from Notion".
+      title={target ? `Import into ${target.projectTitle}` : inPalette ? "" : "Import from Notion"}
       note={
         roots && roots.length
-          ? count && !target
-            ? `Lands in a new project called “${derivedTitle}”.`
+          ? lands
+            ? lands
             : `Pages shared with Nootles from ${workspace}. Missing one? Grant it in Notion.`
           : undefined
       }
@@ -260,9 +393,7 @@ function Body({
           >
             Grant more pages
           </a>
-          <button type="button" onClick={close} className="nt-row px-2.5">
-            Cancel
-          </button>
+          <LeaveButton label={leave} onClick={back} />
           <button
             type="button"
             onClick={start}
@@ -274,7 +405,7 @@ function Body({
         </>
       }
     >
-      {!!roots?.length && (
+      {!!roots?.length && search === undefined && (
         <div className="nt-notion-search">
           <Search className="nt-notion-search-icon" aria-hidden />
           <input
@@ -319,9 +450,15 @@ function Body({
           forceOpen={!!query}
         />
       )}
-    </Shell>
+    </Frame>
   );
 }
+
+const LeaveButton = ({ label, onClick }: { label: string; onClick: () => void }) => (
+  <button type="button" onClick={onClick} className="nt-row px-2.5">
+    {label}
+  </button>
+);
 
 const READING = "Reading your Notion pages";
 
@@ -343,6 +480,8 @@ function Shell({
 }: {
   said: string;
   title: string;
+  /** The palette's alone; the dialog's body always keeps its padding. */
+  flush?: boolean;
   note?: string;
   /** A progress bar, kept in the head so it reads as part of the title's claim. */
   bar?: ReactNode;
@@ -364,6 +503,62 @@ function Shell({
       <div className="nt-notion-body">{children}</div>
       <div className="nt-dialog-foot">{foot}</div>
     </>
+  );
+}
+
+/**
+ * The same frame in the palette's dress: no box of its own, a head that is only
+ * there when a state has something to say, and the palette's footer. It keeps
+ * `Shell`'s one promise — the status region stays mounted across every state.
+ */
+function PaletteShell({
+  said,
+  title,
+  note,
+  bar,
+  flush,
+  children,
+  foot,
+}: {
+  said: string;
+  title: string;
+  /** Children run to the edges: they are panes, not a padded body. */
+  flush?: boolean;
+  note?: string;
+  bar?: ReactNode;
+  children?: ReactNode;
+  foot: ReactNode;
+}) {
+  // Stepping onto this page unmounts the palette's field, and with it whatever
+  // had focus. A state with nothing of its own to focus — asking, reading —
+  // would leave the keyboard on the document, where Escape closes the palette
+  // instead of stepping back. The page itself takes it until something better
+  // arrives.
+  const root = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = root.current;
+    if (el && !el.contains(document.activeElement)) el.focus({ preventScroll: true });
+  }, []);
+
+  return (
+    <div ref={root} tabIndex={-1} className="nt-pal-form nt-pal-notion outline-none">
+      <p className="sr-only" role="status">
+        {said}
+      </p>
+      {(title || note || bar) && (
+        <div className="nt-pal-nhead">
+          {title && (
+            <h2 id={TITLE_ID} className="nt-pal-ntitle">
+              {title}
+            </h2>
+          )}
+          {note && <p className="nt-pal-nnote">{note}</p>}
+          {bar}
+        </div>
+      )}
+      <div className={`nt-notion-body nt-pal-nbody${flush ? " is-flush" : ""}`}>{children}</div>
+      <div className="nt-pal-foot">{foot}</div>
+    </div>
   );
 }
 
@@ -405,13 +600,25 @@ function Tree({
   selection,
   setSelection,
   forceOpen,
+  palette,
+  onCurrent,
 }: {
   nodes: NotionPageNode[];
   selection: ReadonlySet<string>;
   setSelection: (next: ReadonlySet<string>) => void;
   forceOpen: boolean;
+  /** Draws the palette's travelling highlight instead of lighting each row. */
+  palette?: boolean;
+  /** The row the pointer or the keyboard is on. */
+  onCurrent?: (id: string | null) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const box = useRef<HTMLDivElement>(null);
+  const [lit, setLit] = useState<string | null>(null);
+  const light = (id: string) => {
+    setLit(id);
+    onCurrent?.(id);
+  };
   const [toggled, setToggled] = useState<ReadonlySet<string>>(new Set());
   const [focused, setFocused] = useState<string | null>(null);
   const rows = useMemo(
@@ -421,6 +628,18 @@ function Tree({
   // One row carries the tab stop; when a search hides the one that had it,
   // the first row takes over rather than nothing.
   const tabbable = rows.some((row) => row.node.id === focused) ? focused : rows[0]?.node.id;
+
+  // One highlight that travels, placed from the lit row's measured box — the
+  // palette's own list does the same. A row that a collapse or a search took
+  // away leaves nothing lit.
+  const litIndex = rows.findIndex((row) => row.node.id === lit);
+  useEffect(() => {
+    const host = box.current;
+    const row = host?.querySelector<HTMLElement>('[data-lit="true"]');
+    if (!host || !row) return;
+    host.style.setProperty("--hl-y", `${row.offsetTop}px`);
+    host.style.setProperty("--hl-h", `${row.offsetHeight}px`);
+  }, [litIndex, rows.length]);
 
   const flip = (id: string) => {
     const next = new Set(toggled);
@@ -469,7 +688,8 @@ function Tree({
   };
 
   return (
-    <div className="nt-notion-tree">
+    <div ref={box} className="nt-notion-tree">
+      {palette && <span className="nt-pal-hl" aria-hidden="true" data-none={litIndex < 0} />}
       {rows.length === 0 && (
         <p role="status" className="nt-notion-nomatch">
           No page here is called that.
@@ -483,7 +703,12 @@ function Tree({
             selection={selection}
             setSelection={setSelection}
             tabbable={row.node.id === tabbable}
-            onFocus={() => setFocused(row.node.id)}
+            lit={row.node.id === lit}
+            onLight={() => light(row.node.id)}
+            onFocus={() => {
+              setFocused(row.node.id);
+              light(row.node.id);
+            }}
             onKeyDown={(e) => onKeyDown(e, index)}
             onTwist={() => flip(row.node.id)}
           />
@@ -498,6 +723,8 @@ function TreeRow({
   selection,
   setSelection,
   tabbable,
+  lit,
+  onLight,
   onFocus,
   onKeyDown,
   onTwist,
@@ -506,6 +733,8 @@ function TreeRow({
   selection: ReadonlySet<string>;
   setSelection: (next: ReadonlySet<string>) => void;
   tabbable: boolean;
+  lit: boolean;
+  onLight: () => void;
   onFocus: () => void;
   onKeyDown: (e: KeyboardEvent) => void;
   onTwist: () => void;
@@ -528,7 +757,14 @@ function TreeRow({
   };
 
   return (
-    <div className="nt-notion-row" style={{ paddingLeft: `${depth * 18}px` }}>
+    <div
+      className="nt-notion-row"
+      data-lit={lit}
+      style={{ paddingLeft: `${depth * 18}px` }}
+      onPointerMove={() => {
+        if (!lit) onLight();
+      }}
+    >
       {node.children.length ? (
         <button
           type="button"
@@ -761,6 +997,20 @@ function topmostSelected(
     if (inside) return inside;
   }
   return undefined;
+}
+
+/** A page and the titles of the pages it sits inside, outermost first. */
+function locate(
+  nodes: NotionPageNode[],
+  id: string,
+  path: string[] = [],
+): { node: NotionPageNode; path: string[] } | null {
+  for (const node of nodes) {
+    if (node.id === id) return { node, path };
+    const inside = locate(node.children, id, [...path, node.title]);
+    if (inside) return inside;
+  }
+  return null;
 }
 
 function ids(node: NotionPageNode): string[] {

@@ -336,16 +336,7 @@ function PreviewReader({ docId }: { docId: string | null }) {
   }, [yjs, docId, meta, convex, serveEnabled, authority]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
-  const [scale, setScale] = useState(0);
-  useLayoutEffect(() => {
-    const el = box.current;
-    if (!el) return;
-    const measure = () => setScale(el.clientWidth / DOC_WIDTH);
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
+  const scale = useFit(box);
 
   // One element for all three states, rather than one each: it is what the
   // viewport gate observes and what the width is measured off, so it has to
@@ -380,6 +371,44 @@ function PreviewReader({ docId }: { docId: string | null }) {
       ) : (
         <span className="nt-thumb-blank" />
       )}
+    </div>
+  );
+}
+
+/** How far a page laid out at `DOC_WIDTH` has to shrink to fit its box. */
+function useFit(box: RefObject<HTMLDivElement | null>) {
+  const [scale, setScale] = useState(0);
+  useLayoutEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    const measure = () => setScale(el.clientWidth / DOC_WIDTH);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [box]);
+  return scale;
+}
+
+/**
+ * The thumbnail, from blocks already in hand rather than read from a document:
+ * a page that does not exist yet, drawn the way it will look once it does.
+ */
+export function BlocksThumb({ blocks }: { blocks: readonly AnyBlock[] }) {
+  const box = useRef<HTMLDivElement>(null);
+  const scale = useFit(box);
+  return (
+    <div ref={box} aria-hidden="true" className="nt-thumb">
+      <div
+        className="nt-thumb-page"
+        style={{
+          width: DOC_WIDTH,
+          transform: `scale(${scale})`,
+          visibility: scale ? "visible" : "hidden",
+        }}
+      >
+        <PreviewBlocks blocks={blocks.slice(0, MAX_BLOCKS)} />
+      </div>
     </div>
   );
 }

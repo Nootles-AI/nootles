@@ -1,57 +1,49 @@
 "use client";
 
 import { memo, useCallback, useEffect, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
+import { findTemplate } from "@/app/lib/templates";
 import { track } from "@/app/lib/telemetry";
-import { GridView, ListView, MoreHorizontal, Plus } from "./Icons";
+import { pages, when } from "@/app/lib/projectMeta";
+import { BoardView, GridView, ListView, Plus, Search } from "./Icons";
 import { AccountMenu } from "./AccountMenu";
 import { PlanWall } from "./billing/PlanWall";
 import { usePlan } from "@/app/lib/usePlan";
 import { useResumeIntent } from "@/app/lib/billing/useResumeIntent";
-import { Brandmark } from "./Brand";
 import { ConfirmDeleteDialog } from "./ConfirmDelete";
+import { CreateProject } from "./CreateProject";
 import { ContextMenu } from "./ContextMenu";
-import { Editable } from "./Editable";
 import { Feedback } from "./feedback/Feedback";
 import { FixedToast } from "./feedback/FixedToast";
-import { Menu, MenuItem } from "./Menu";
-import { NewProjectDialog, type NewProject } from "./NewProjectDialog";
+import type { NewProject } from "./newProjectDraft";
 import { useNotionAvailable } from "./notion/NotionAvailable";
-import { NotionImport } from "./notion/NotionImport";
+import { ProjectPalette, useModKey, type Page as PalettePage } from "./ProjectPalette";
+import { ProjectsBoard } from "./ProjectsBoard";
 import {
   describeOutcome,
   useNotionOutcome,
   type OutcomeLine,
 } from "@/app/lib/notion/outcome";
 import { PagePreview } from "./PagePreview";
+import {
+  NameField,
+  OpenProject,
+  RowMenu,
+  ProjectActions,
+  roleLabel,
+  type Project,
+  type SharedProject,
+} from "./projectParts";
 import { useStandIn } from "./StandIn";
 import { AccessRequests } from "./share/AccessRequests";
 
-type View = "grid" | "list";
-type Project = NonNullable<
-  ReturnType<typeof useQuery<typeof api.projects.listForScreen>>
->[number];
-type SharedProject = NonNullable<
-  ReturnType<typeof useQuery<typeof api.projects.sharedWithMe>>
->[number];
-
-/** "2d ago" / "Jul 12" — coarse enough that it never needs to re-render. */
-function when(ms: number): string {
-  const days = Math.floor((Date.now() - ms) / 86_400_000);
-  if (days < 1) return "today";
-  if (days === 1) return "yesterday";
-  if (days < 7) return `${days}d ago`;
-  return new Date(ms).toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-  });
-}
-
-const pages = (n: number) => `${n} ${n === 1 ? "page" : "pages"}`;
+type View = "grid" | "list" | "board";
+const VIEWS: View[] = ["grid", "list", "board"];
+/** A list item's place in its list, which is what staggers its entrance. */
+const nth = (i: number) => ({ "--i": i }) as React.CSSProperties;
 
 export function ProjectsScreen() {
   const router = useRouter();
@@ -68,16 +60,21 @@ export function ProjectsScreen() {
   const [ctx, setCtx] = useState<{ project: Project; x: number; y: number } | null>(
     null,
   );
-  const [naming, setNaming] = useState(false);
-  // Back from Notion's consent screen, which the import dialog sent them to:
-  // a grant reopens the dialog they left, and anything else is said in the
-  // notice line. Initial state rather than an effect — the outcome is known
-  // before the first render and is not derived from anything that changes.
+  // Back from Notion's consent screen, which the palette's import page sent
+  // them to: a grant reopens the palette on the page they left, and anything
+  // else is said in the notice line. Initial state rather than an effect — the
+  // outcome is known before the first render and is not derived from anything
+  // that changes.
   const notion = useNotionOutcome();
+  // The palette, and the page it opens on: search opens it at the root, each of
+  // the header's ways to start opens it on that way's page.
+  const [finding, setFinding] = useState<PalettePage | null>(
+    notion.outcome === "connected" ? "notion" : null,
+  );
+  const mod = useModKey();
   // Absent, not disabled, on a deployment without the integration: a door
   // that opens onto "set this env var" is not a door.
   const notionAvailable = useNotionAvailable();
-  const [importing, setImporting] = useState(notion.outcome === "connected");
   const [walled, setWalled] = useState(false);
   const [notice, setNotice] = useState<OutcomeLine | null>(
     notion.outcome && notion.outcome !== "connected"
@@ -91,13 +88,52 @@ export function ProjectsScreen() {
   // and the first client render agree; set-state-in-effect is correct here.
   /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
-    if (localStorage.getItem("nt:projectsView") === "list") setView("list");
+    const saved = localStorage.getItem("nt:projectsView") as View | null;
+    if (saved && saved !== "grid" && VIEWS.includes(saved)) setView(saved);
   }, []);
   /* eslint-enable react-hooks/set-state-in-effect */
 
   useEffect(() => {
     localStorage.setItem("nt:projectsView", view);
   }, [view]);
+
+  /**
+   * Making a project happens in the palette, whichever door was used — the
+   * header, its menu, the empty state, a shortcut, coming back from the wall.
+   * Every door goes through the same gate first, so the plan's limit stands in
+   * front of all of them alike, and each opens the palette on its own page.
+   */
+  const hasRoom = room("projects");
+  const start = useCallback(
+    (page: PalettePage) => (hasRoom ? setFinding(page) : setWalled(true)),
+    [hasRoom],
+  );
+
+  // ⌘K from anywhere on the screen, a rename field included — it is a chord, so
+  // it cannot be mistaken for typing. N starts a project, and being a bare key
+  // it stands down wherever one could be typing. ⌘N is accepted too, but a
+  // browser tab keeps that for "new window" and never delivers it, so N is the
+  // one the button advertises. Neither while another dialog is up: the palette
+  // would open over a form that is in the middle of being filled in.
+  const busy = walled || confirming !== null;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (busy || e.altKey) return;
+      const key = e.key.toLowerCase();
+      const mod = e.metaKey || e.ctrlKey;
+      if (key === "k" && mod) {
+        e.preventDefault();
+        setFinding((f) => (f ? null : "root"));
+      } else if (key === "n" && !standIn && !finding) {
+        const typing = (e.target as HTMLElement).closest("input, textarea, [contenteditable]");
+        if (!mod && typing) return;
+        e.preventDefault();
+        start("create");
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [busy, finding, standIn, start]);
 
   // Stable so the memoized cards and rows sit out this screen's re-renders —
   // every one of them carries a live PagePreview, and a rename keystroke was
@@ -109,6 +145,10 @@ export function ProjectsScreen() {
   const startRename = useCallback((p: Project) => setEditingId(p._id), []);
   const cancelRename = useCallback(() => setEditingId(null), []);
   const askDelete = useCallback((p: Project) => setConfirming(p), []);
+  const askContext = useCallback(
+    (project: Project, x: number, y: number) => setCtx({ project, x, y }),
+    [],
+  );
 
   /**
    * An empty name is not a rename, and silently restoring the old one looks
@@ -129,33 +169,26 @@ export function ProjectsScreen() {
     [renameProject, setFailure],
   );
 
-  /**
-   * A project is made from what the dialog collected and then opened, rather
-   * than appearing on this screen as another card to find and click. It already
-   * has a name, and its first page is the only place there is to go.
-   */
-  const openNaming = useCallback(() => setNaming(true), []);
+  const openCreate = useCallback(() => setFinding("create"), []);
 
-  // Paid for mid-thought and came back: the dialog they were reaching for opens
+  // Paid for mid-thought and came back: what they were reaching for opens
   // itself, so the wall reads as a pause in making the project rather than as a
   // detour they have to retrace.
-  useResumeIntent("newProject", true, openNaming);
+  useResumeIntent("newProject", true, openCreate);
 
   const create = async (project: NewProject) => {
+    // A template's pages become documents here, in the browser, at the moment
+    // one is used — the builder brings the editor with it, so it is not part of
+    // this screen's bundle.
+    const template = project.template ? findTemplate(project.template) : undefined;
+    const seed = template
+      ? (await import("@/app/lib/templates/seed")).seedOf(template)
+      : undefined;
     const id = await createProject({
       title: project.title,
       ...(project.description ? { description: project.description } : {}),
       ...(project.context ? { context: project.context } : {}),
-      ...(project.repos.length
-        ? {
-            repos: project.repos.map((repo) => ({
-              fullName: repo.fullName,
-              defaultBranch: repo.defaultBranch,
-              ...(repo.description ? { description: repo.description } : {}),
-              private: repo.private,
-            })),
-          }
-        : {}),
+      ...(seed ? { seed } : {}),
     });
     track("project_created", {});
     router.push(`/p/${id}`);
@@ -175,26 +208,26 @@ export function ProjectsScreen() {
       className="mx-auto w-full px-6 py-12 sm:px-8 sm:py-16"
       style={{ maxWidth: "76rem" }}
     >
-      {/* The mark sits with the title rather than in a bar of its own: this is
-          the app's front door, and it is the one screen in the product with a
-          corner free to say whose software this is. Inside a project the
-          sidebar already spends that corner on the way back out. */}
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <Brandmark
-            role="img"
-            aria-label="Nootles"
-            width={20}
-            height={24}
-            className="text-brand"
-          />
-          <h1 className="text-[length:var(--text-title)] font-semibold tracking-[-0.02em]">
-            Projects
-          </h1>
-        </div>
+      {/* Three parts on one line: what you look and move with on the left, whose
+          place this is in the middle, and the one thing that makes something
+          new alone on the right — the filled control has a side to itself, so
+          nothing competes with it for "start here". */}
+      {/* On the board the header lies over the canvas rather than above it, so
+          it is lifted onto its own layer — see `.nt-board-host`. */}
+      <header className={`nt-front-head${view === "board" ? " nt-board-host" : ""}`}>
+        <div className="nt-tools">
+          {/* Held at its size while the account loads: it is first in the row
+              now, and a circle arriving late would push everything after it. */}
+          <span className="nt-tools-me">
+            <AccountMenu align="start" />
+          </span>
 
-        <div className="flex items-center gap-2">
-          <div className="nt-mode" role="group" aria-label="View">
+          <div
+            className="nt-mode is-slide"
+            role="group"
+            aria-label="View"
+            data-at={VIEWS.indexOf(view)}
+          >
             <button
               onClick={() => setView("grid")}
               aria-pressed={view === "grid"}
@@ -211,35 +244,46 @@ export function ProjectsScreen() {
             >
               <ListView width={14} height={14} />
             </button>
+            <button
+              onClick={() => setView("board")}
+              aria-pressed={view === "board"}
+              aria-label="Board view"
+              className={`nt-mode-btn is-icon${view === "board" ? " is-on" : ""}`}
+            >
+              <BoardView width={14} height={14} />
+            </button>
           </div>
 
+          {/* A button dressed as a field: search here is the palette, and this
+              is both the way in and where its shortcut is written down. */}
+          <button onClick={() => setFinding("root")} className="nt-find" aria-label="Search projects">
+            <Search width={14} height={14} />
+            <span>Search projects</span>
+            <kbd className="nt-kbd">{mod}K</kbd>
+          </button>
+        </div>
+
+        <h1 className="nt-front-title">My Nootles</h1>
+
+        <div className="nt-front-new">
           {/* Nothing here belongs to a project, so no role gates it — an
               operator standing in would be offered a button the server is
               about to refuse. */}
           {/* The button never disappears when the free projects are gone — it
               opens the wall instead. An affordance that vanishes reads as a
               bug; one that explains itself reads as a limit. */}
-          {/* Quiet beside New project on purpose: importing is the rarer
-              door, and a second filled button would make the header read as
-              two equal choices when one of them is how you start. */}
-          {!standIn && notionAvailable && (
-            <button
-              onClick={() => (room("projects") ? setImporting(true) : setWalled(true))}
-              className="nt-row px-2.5"
-            >
-              Import from Notion
-            </button>
-          )}
+          {/* One filled control with the rarer doors inside it: a blank project
+              is one click, and importing is a part of creating rather than a
+              second button competing with it. */}
           {!standIn && (
-            <button
-              onClick={() => (room("projects") ? openNaming() : setWalled(true))}
-              className="nt-row gap-1.5 bg-sunken px-3 font-medium"
-            >
-              <Plus width={14} height={14} />
-              New project
-            </button>
+            <CreateProject
+              notion={notionAvailable === true}
+              onNew={() => start("create")}
+              onBlank={() => start("details")}
+              onTemplate={() => start("template")}
+              onNotion={() => start("notion")}
+            />
           )}
-          <AccountMenu />
         </div>
       </header>
 
@@ -249,7 +293,9 @@ export function ProjectsScreen() {
       {notice && (
         <p
           role={notice.problem ? "alert" : "status"}
-          className={`mt-3 text-[13px] ${notice.problem ? "text-danger" : "text-muted"}`}
+          className={`mt-3 text-[13px] ${notice.problem ? "text-danger" : "text-muted"}${
+            view === "board" ? " nt-board-host" : ""
+          }`}
         >
           {notice.text}
         </p>
@@ -259,12 +305,42 @@ export function ProjectsScreen() {
         {projects === undefined ? (
           <Skeletons view={view} />
         ) : projects.length === 0 ? (
-          <Empty onCreate={() => setNaming(true)} />
+          <Empty onCreate={() => start("create")} />
+        ) : view === "board" ? (
+          <ProjectsBoard
+            projects={projects}
+            shared={shared ?? []}
+            editingId={editingId}
+            onOpen={open}
+            onRename={startRename}
+            onCommit={commitRename}
+            onCancel={cancelRename}
+            onDelete={askDelete}
+            onContext={askContext}
+          />
         ) : view === "grid" ? (
+          <>
+          <div
+            onContextMenu={(e) => {
+              e.preventDefault();
+              setCtx({ project: projects[0], x: e.clientX, y: e.clientY });
+            }}
+          >
+            <Lead
+              project={projects[0]}
+              editing={editingId === projects[0]._id}
+              onOpen={open}
+              onRename={startRename}
+              onCommit={commitRename}
+              onCancel={cancelRename}
+              onDelete={askDelete}
+            />
+          </div>
           <ul className="nt-grid">
-            {projects.map((p) => (
+            {projects.slice(1).map((p, i) => (
               <li
                 key={p._id}
+                style={nth(i)}
                 onContextMenu={(e) => {
                   e.preventDefault();
                   setCtx({ project: p, x: e.clientX, y: e.clientY });
@@ -282,6 +358,7 @@ export function ProjectsScreen() {
               </li>
             ))}
           </ul>
+          </>
         ) : (
           <div>
             <div className="nt-list-head" aria-hidden="true">
@@ -291,9 +368,10 @@ export function ProjectsScreen() {
               <span className="nt-col-actions" />
             </div>
             <ul className="mt-1">
-              {projects.map((p) => (
+              {projects.map((p, i) => (
                 <li
                   key={p._id}
+                  style={nth(i)}
                   className="nt-list-row group"
                   onContextMenu={(e) => {
                     e.preventDefault();
@@ -320,7 +398,7 @@ export function ProjectsScreen() {
           never mixed in: whose project it is is the fact that orders the page.
           Absent entirely until the first claim, so the front door of a
           one-person account never mentions a feature it isn't using. */}
-      {shared && shared.length > 0 && (
+      {view !== "board" && shared && shared.length > 0 && (
         <section className="mt-12" aria-labelledby="shared-with-me">
           {/* The same voice as PAGES and LAYERS — the mono label is how this
               app says "a section of items", and it leaves the project names
@@ -334,16 +412,16 @@ export function ProjectsScreen() {
           </h2>
           {view === "grid" ? (
             <ul className="nt-grid mt-2">
-              {shared.map((p) => (
-                <li key={p._id}>
+              {shared.map((p, i) => (
+                <li key={p._id} style={nth(i)}>
                   <SharedCard project={p} />
                 </li>
               ))}
             </ul>
           ) : (
             <ul className="mt-1">
-              {shared.map((p) => (
-                <li key={p._id} className="nt-list-row">
+              {shared.map((p, i) => (
+                <li key={p._id} style={nth(i)} className="nt-list-row">
                   <SharedRow project={p} />
                 </li>
               ))}
@@ -368,10 +446,19 @@ export function ProjectsScreen() {
         </ContextMenu>
       )}
 
-      {importing && <NotionImport onClose={() => setImporting(false)} />}
-
-      {naming && (
-        <NewProjectDialog onCancel={() => setNaming(false)} onCreate={create} />
+      {finding && (
+        <ProjectPalette
+          start={finding}
+          projects={projects ?? []}
+          shared={shared ?? []}
+          canCreate={!standIn}
+          room={hasRoom}
+          notion={notionAvailable === true}
+          onOpen={open}
+          onWall={() => setWalled(true)}
+          onCreate={create}
+          onClose={() => setFinding(null)}
+        />
       )}
 
       {walled && (
@@ -381,7 +468,7 @@ export function ProjectsScreen() {
           onClose={() => setWalled(false)}
           onResume={() => {
             setWalled(false);
-            openNaming();
+            openCreate();
           }}
         />
       )}
@@ -411,182 +498,61 @@ export function ProjectsScreen() {
 }
 
 /**
- * The link that opens a project, in both views.
- *
- * A real anchor, so ⌘-click opens a project in its own tab — and so its hit
- * area can be stretched over the whole card or row (`nt-card-link`,
- * `nt-row-open`) without nesting the ⋯ menu inside it.
- *
- * The hover fetches the workspace route ahead of the click. That route carries
- * the editor, which is the heaviest bundle in the app, and paying for it while
- * the cursor is still travelling is most of what makes opening a project feel
- * immediate. Link's own prefetch is off because it fires on VIEWPORT entry:
- * a shelf of sixty cards would open sixty requests to warm sixty routes nobody
- * asked for. Hovering one is the closest thing to intent there is.
+ * The project touched last, wide enough to say what it is. Everything a card
+ * does it does too — open, rename in place, the ⋯ menu — so being first in the
+ * list costs a project none of its verbs.
  */
-function OpenProject({
-  id,
-  className,
-  children,
-}: {
-  id: Id<"projects">;
-  className: string;
-  children: React.ReactNode;
-}) {
-  const router = useRouter();
-  const href = `/p/${id}`;
-  return (
-    <Link
-      href={href}
-      prefetch={false}
-      onPointerEnter={() => router.prefetch(href)}
-      className={className}
-    >
-      {children}
-    </Link>
-  );
-}
-
-/** The actions every view offers, so the two never drift apart. */
-function RowMenu({
+const Lead = memo(function Lead({
   project,
+  editing,
   onOpen,
   onRename,
-  onDelete,
-  className,
-}: {
-  project: Project;
-  onOpen: () => void;
-  onRename: () => void;
-  onDelete: () => void;
-  className?: string;
-}) {
-  const name = project.title || "Untitled project";
-  return (
-    <Menu
-      label={`Actions for ${name}`}
-      side="bottom"
-      align="end"
-      trigger={(t) => (
-        <button
-          {...t}
-          aria-label={`Actions for ${name}`}
-          className={`nt-icon-btn ${className ?? ""}`}
-        >
-          <MoreHorizontal />
-        </button>
-      )}
-    >
-      {(close) => (
-        <ProjectActions
-          close={close}
-          onOpen={onOpen}
-          onRename={onRename}
-          onDelete={onDelete}
-        />
-      )}
-    </Menu>
-  );
-}
-
-/**
- * The three things you can do to a project, written once so the ⋯ menu and the
- * right-click menu cannot drift apart.
- *
- * Rename and delete both close with `restoreFocus: false`, because both hand
- * focus to something of their own — the rename field, the confirm dialog — and
- * a menu that insists on taking focus back afterwards undoes them.
- */
-function ProjectActions({
-  close,
-  onOpen,
-  onRename,
-  onDelete,
-}: {
-  close: (opts?: { restoreFocus?: boolean }) => void;
-  onOpen: () => void;
-  onRename: () => void;
-  onDelete: () => void;
-}) {
-  // An operator standing in keeps Open — looking is the whole point — and
-  // loses the two verbs the server would refuse.
-  const standIn = useStandIn();
-  return (
-    <>
-      <MenuItem
-        onClick={() => {
-          onOpen();
-          close();
-        }}
-      >
-        Open
-      </MenuItem>
-      {!standIn && (
-        <>
-          <MenuItem
-            onClick={() => {
-              onRename();
-              close({ restoreFocus: false });
-            }}
-          >
-            Rename
-          </MenuItem>
-          <div className="nt-menu-sep" />
-          <MenuItem
-            danger
-            onClick={() => {
-              onDelete();
-              close({ restoreFocus: false });
-            }}
-          >
-            Delete…
-          </MenuItem>
-        </>
-      )}
-    </>
-  );
-}
-
-/**
- * The rename field, identical in both views so the interaction is one thing.
- *
- * It owns the draft. Held one level up it was screen state, and every keystroke
- * re-rendered every other card on the screen — thumbnails, maths and diagrams
- * included — to type into this one.
- */
-function NameField({
-  initial,
   onCommit,
   onCancel,
-  className,
+  onDelete,
 }: {
-  initial: string;
-  onCommit: (name: string) => void;
+  project: Project;
+  editing: boolean;
+  onOpen: (id: Id<"projects">) => void;
+  onRename: (project: Project) => void;
+  onCommit: (id: Id<"projects">, name: string) => void;
   onCancel: () => void;
-  className: string;
+  onDelete: (project: Project) => void;
 }) {
-  const [draft, setDraft] = useState(initial);
   return (
-    <Editable
-      autoFocus
-      value={draft}
-      label="Project name"
-      onInput={setDraft}
-      onBlur={() => onCommit(draft)}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") {
-          e.preventDefault();
-          onCommit(draft);
-        }
-        if (e.key === "Escape") {
-          e.preventDefault();
-          onCancel();
-        }
-      }}
-      className={className}
-    />
+    <div className="nt-lead">
+      <span className="nt-lead-well">
+        <PagePreview docId={project.firstPageDocId} />
+      </span>
+      <div className="nt-lead-text">
+        {editing ? (
+          <NameField
+            initial={project.title}
+            onCommit={(text) => onCommit(project._id, text)}
+            onCancel={onCancel}
+            className="nt-lead-name relative block w-full"
+          />
+        ) : (
+          <OpenProject id={project._id} className="nt-lead-name nt-card-link">
+            {project.title || "Untitled project"}
+          </OpenProject>
+        )}
+        {project.description && <p className="nt-lead-line">{project.description}</p>}
+        <p className="nt-card-meta">
+          <span>{pages(project.pageCount)}</span>
+          <span aria-hidden="true">·</span>
+          <span>edited {when(project.updatedAt)}</span>
+        </p>
+      </div>
+      <RowMenu
+        project={project}
+        onOpen={() => onOpen(project._id)}
+        onRename={() => onRename(project)}
+        onDelete={() => onDelete(project)}
+      />
+    </div>
   );
-}
+});
 
 /** Memoized for the same reason `SharedCard` is: a live PagePreview each. */
 const Card = memo(function Card({
@@ -610,7 +576,9 @@ const Card = memo(function Card({
   const open = () => onOpen(project._id);
   return (
     <div className="nt-card group">
-      <PagePreview docId={project.firstPageDocId} />
+      <span className="nt-card-well">
+        <PagePreview docId={project.firstPageDocId} />
+      </span>
 
       <div className="nt-card-foot">
         <div className="min-w-0 flex-1">
@@ -706,10 +674,6 @@ const Row = memo(function Row({
   );
 });
 
-/** Your standing in someone else's project, in the words Docs taught. */
-const roleLabel = (p: SharedProject) =>
-  p.role === "editor" ? "can edit" : "view only";
-
 /**
  * A project someone else shared: the same card, none of the owner's verbs — no
  * rename, no delete, no ⋯ menu. Opening it is the whole affordance.
@@ -732,7 +696,9 @@ const SharedCard = memo(function SharedCard({
   const name = project.title || "Untitled project";
   return (
     <div className="nt-card">
-      <PagePreview docId={project.firstPageDocId} />
+      <span className="nt-card-well">
+        <PagePreview docId={project.firstPageDocId} />
+      </span>
       <div className="nt-card-foot">
         <div className="min-w-0 flex-1">
           <OpenProject id={project._id} className="nt-card-name nt-card-link">
@@ -793,6 +759,8 @@ const SharedRow = memo(function SharedRow({
  * without the page rearranging under the cursor.
  */
 function Skeletons({ view }: { view: View }) {
+  // The board has no resting shape to hold: frames land on it as they arrive.
+  if (view === "board") return null;
   if (view === "list") {
     return (
       <ul aria-busy="true" aria-label="Loading projects">
@@ -815,10 +783,12 @@ function Skeletons({ view }: { view: View }) {
       {[0, 1, 2, 3, 4, 5].map((i) => (
         <li key={i}>
           <div className="nt-card">
-            <span
-              className="nt-skeleton block aspect-[4/3] rounded-none"
-              style={{ animationDelay: `${i * 90}ms` }}
-            />
+            <span className="nt-card-well">
+              <span
+                className="nt-skeleton block aspect-[4/3] rounded-b-none"
+                style={{ animationDelay: `${i * 90}ms` }}
+              />
+            </span>
             <div className="nt-card-foot">
               <span className="nt-skeleton h-3.5 flex-1" style={{ maxWidth: "60%" }} />
             </div>

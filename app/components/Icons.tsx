@@ -115,6 +115,28 @@ export function ListView(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+/** Frames set down on a surface at their own positions: the board. */
+export function BoardView(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <rect x="3" y="4" width="9" height="7" rx="1.5" />
+      <rect x="14" y="8" width="7" height="6" rx="1.5" />
+      <rect x="6" y="14" width="7" height="6" rx="1.5" />
+    </svg>
+  );
+}
+
+/** A page already divided up: a template. */
+export function Template(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <rect x="3" y="3" width="18" height="7" rx="1.5" />
+      <rect x="3" y="14" width="9" height="7" rx="1.5" />
+      <rect x="16" y="14" width="5" height="7" rx="1.5" />
+    </svg>
+  );
+}
+
 export function ArrowLeft(props: SVGProps<SVGSVGElement>) {
   return (
     <svg {...base} {...props}>
