@@ -577,6 +577,53 @@ button.nt-notion-twist:hover {
   text-align: left;
 }
 
+/* Waiting on Notion: nothing to list yet, so the pane holds one bar at its
+   centre. Here the shared bar's dashed stand-in gives way to a segment that
+   travels — the pane is otherwise empty, and a still line in it reads as a
+   rule, not a wait. It arrives late, so a quick answer never shows it. */
+.nt-pal-reading {
+  flex: 1 1 auto;
+  display: grid;
+  place-items: center;
+  animation: nt-pal-reading-in var(--dur-slow) var(--ease) 160ms backwards;
+}
+.nt-pal-reading .nt-progress {
+  width: 168px;
+  height: 3px;
+  margin: 0;
+  border-radius: 2px;
+  background: var(--border);
+}
+.nt-pal-reading .nt-progress-fill {
+  border-radius: inherit;
+  transition: none;
+  animation: nt-pal-reading-run 1.15s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+}
+@keyframes nt-pal-reading-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes nt-pal-reading-run {
+  from {
+    transform: translateX(-40%) scaleX(0.4);
+  }
+  to {
+    transform: translateX(100%) scaleX(0.4);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nt-pal-reading {
+    animation: none;
+  }
+  .nt-pal-reading .nt-progress {
+    background: repeating-linear-gradient(90deg, var(--foreground) 0 8px, transparent 8px 16px);
+  }
+  .nt-pal-reading .nt-progress-fill {
+    animation: none;
+  }
+}
+
 /* The rest of the states at the palette's proportions: its 40px rows and its
    icon tile for the running list and the report, and no well around the
    sentence that stands in for an empty list. */

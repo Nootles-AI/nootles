@@ -176,9 +176,16 @@ export function NotionImportBody({
   // The palette waits for the answer before drawing anything. Falling through
   // to the pick state's "Reading your Notion pages" for the beat before the
   // status arrives would promise a list to someone who has not connected.
-  if (inPalette && !status) {
-    return <PaletteShell said="" title="" foot={<LeaveButton label={leave} onClick={back} />} />;
-  }
+  // What it draws meanwhile is the same bar the page list loads behind, so one
+  // wait reads as one wait — but it only names the pages once it knows of any.
+  const reading = (said: string) => (
+    <PaletteShell said={said} title="" foot={<LeaveButton label={leave} onClick={back} />}>
+      <div className="nt-pal-reading">
+        <ProgressBar label={READING} />
+      </div>
+    </PaletteShell>
+  );
+  if (inPalette && !status) return reading("");
 
   // ---- Connect ------------------------------------------------------------
   if (status && !connected && inPalette) {
@@ -299,6 +306,8 @@ export function NotionImportBody({
   const loading = !roots && !loadError;
   const lands =
     count && !target ? `Lands in a new project called “${derivedTitle}”.` : null;
+
+  if (inPalette && loading) return reading(READING);
 
   // In the palette the list and its side pane are the palette's own two panes,
   // and what the dialog says in a sentence under its title is said there.
