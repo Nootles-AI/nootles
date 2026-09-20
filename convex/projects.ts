@@ -16,7 +16,7 @@ import { ABOUT, BACKGROUND } from "./ai/questions";
 import { requireQuota } from "./entitlements";
 import { add as addRepos } from "./github/repos";
 import { repoRef } from "./schema";
-import { findTemplate } from "./templates";
+import { findTemplate, openingPages } from "./templates";
 
 /**
  * The page facts the projects screen draws — how many, which one to preview,
@@ -262,8 +262,7 @@ export const create = mutation({
     // The template's pages, or one blank page so a new project is immediately
     // usable. Empty title so the doc shows its placeholder; the sidebar renders
     // an "Untitled" fallback.
-    const pages = template?.pages.length ? template.pages : [{ title: "" }];
-    for (const [order, page] of pages.entries()) {
+    for (const [order, page] of openingPages(template).entries()) {
       await ctx.db.insert("pages", {
         ownerId,
         projectId,

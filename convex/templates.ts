@@ -31,9 +31,22 @@ export const TEMPLATES: Template[] = [
 
 export const findTemplate = (id: string) => TEMPLATES.find((t) => t.id === id);
 
+/**
+ * The pages a project opens with — a template's own, or the one blank page
+ * every project gets. One function, so what the picker previews and what
+ * `projects.create` makes cannot come apart.
+ */
+export const openingPages = (template: Template | null) =>
+  template?.pages.length ? template.pages : [{ title: "" }];
+
 /** What the picker draws. Nothing here is per-account, so nothing is checked. */
 export const list = query({
   args: {},
   handler: async () =>
-    TEMPLATES.map(({ id, name, description }) => ({ id, name, description })),
+    TEMPLATES.map((template) => ({
+      id: template.id,
+      name: template.name,
+      description: template.description,
+      pages: openingPages(template),
+    })),
 });

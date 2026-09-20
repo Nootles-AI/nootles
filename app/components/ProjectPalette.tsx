@@ -38,6 +38,8 @@ type Row = {
   /** Wears the New project button's ink, so the two read as the same thing. */
   ink?: boolean;
   project?: Project | SharedProject;
+  /** A template's opening pages, which the side pane previews. */
+  pages?: { title: string }[];
   run: () => void;
 };
 
@@ -254,6 +256,7 @@ function Palette({
     name: t.name,
     line: t.description,
     icon: <Template />,
+    pages: t.pages,
     drill: true,
     run: () => {
       setTemplate({ id: t.id, name: t.name });
@@ -459,6 +462,8 @@ function Palette({
                     </div>
                   </dl>
                 </div>
+              ) : current?.pages ? (
+                <TemplatePreview key={current.id} pages={current.pages} />
               ) : (
                 !currentProject &&
                 current && (
@@ -491,6 +496,39 @@ function Palette({
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+/**
+ * What a template makes: one of its pages on top, all of them listed below.
+ * Resting on a file shows that page. Pointer only — the pane is a preview and
+ * hidden from assistive tech, like the project preview it sits in place of; the
+ * list it describes is reached by choosing the template.
+ */
+function TemplatePreview({ pages }: { pages: { title: string }[] }) {
+  const [at, setAt] = useState(0);
+  const page = pages[at] ?? pages[0];
+  return (
+    <div className="nt-pal-card nt-pal-tpl">
+      <div className="nt-pal-sheet" key={at}>
+        <p className="nt-pal-sheet-title">{page.title || "Untitled"}</p>
+        <span className="nt-thumb-blank" />
+      </div>
+      <div className="nt-pal-group">Pages</div>
+      <ul>
+        {pages.map((p, i) => (
+          <li
+            key={i}
+            className="nt-pal-file"
+            data-on={i === at}
+            onPointerEnter={() => setAt(i)}
+          >
+            <FileDoc width={14} height={14} />
+            <span>{p.title || "Untitled"}</span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

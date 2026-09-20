@@ -3685,6 +3685,57 @@ body:has(.nt-review-bar) .nt-reformat-switcher {
     0 2px 4px oklch(0.25 0.005 90 / 0.05),
     0 18px 36px -16px oklch(0.25 0.005 90 / 0.3);
 }
+/* A template's preview: a page on top, the pages it makes below. The sheet is
+   drawn like the project thumbnail it stands in for, at the same 4:3. */
+.nt-pal-sheet {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  aspect-ratio: 4 / 3;
+  padding: 18px 20px;
+  overflow: hidden;
+  border-radius: 6px;
+  background: var(--background);
+  box-shadow:
+    0 0 0 1px var(--border),
+    0 2px 4px oklch(0.25 0.005 90 / 0.05),
+    0 18px 36px -16px oklch(0.25 0.005 90 / 0.3);
+  animation: nt-fade-in var(--dur) var(--ease);
+}
+.nt-pal-sheet-title {
+  overflow: hidden;
+  font-size: var(--text-body);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nt-pal-tpl > .nt-pal-group {
+  padding: 18px 0 4px;
+}
+.nt-pal-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  margin-inline: -8px;
+  padding-inline: 8px;
+  border-radius: var(--radius);
+  color: var(--muted);
+  font-size: var(--text-ui);
+  transition:
+    background var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
+}
+.nt-pal-file > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nt-pal-file[data-on="true"] {
+  background: var(--selected);
+  color: var(--foreground);
+}
 .nt-pal-card-name {
   margin-top: 16px;
   font-size: 16px;

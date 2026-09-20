@@ -113,10 +113,15 @@ describe("create from a template", () => {
         .collect(),
     );
 
-  test("the picker lists PRD", async () => {
+  test("the picker lists PRD, with the pages a project made from it opens with", async () => {
     const t = convexTest(schema, modules);
     expect(await t.query(api.templates.list, {})).toEqual([
-      { id: "prd", name: "PRD", description: "A product requirements document" },
+      {
+        id: "prd",
+        name: "PRD",
+        description: "A product requirements document",
+        pages: [{ title: "" }],
+      },
     ]);
   });
 
