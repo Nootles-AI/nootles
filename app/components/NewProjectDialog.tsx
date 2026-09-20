@@ -3,6 +3,7 @@
 import { FormEvent, KeyboardEvent, useState } from "react";
 import type { Listed } from "@/convex/github/repos";
 import { Dialog } from "./Dialog";
+import { X } from "./Icons";
 import { GitHubRepos } from "./context/GitHubRepos";
 
 export type NewProject = {
@@ -74,17 +75,26 @@ export function NewProjectDialog({
       label="New project"
       scrimLabel="Cancel"
       as="form"
+      className="is-slim"
       onSubmit={submit}
       onClose={onCancel}
     >
       {(close) => (
         <>
           <div className="nt-dialog-head">
-            <p className="text-sm font-medium">New project</p>
-            <p className="mt-1.5 text-[13px] text-muted">
+            <p className="nt-dialog-title">New project</p>
+            <p className="nt-dialog-lede">
               Whatever you say here is what the assistant knows about the
               project. You can change it later.
             </p>
+            <button
+              type="button"
+              onClick={close}
+              aria-label="Cancel"
+              className="nt-icon-btn nt-dialog-close"
+            >
+              <X width={14} height={14} />
+            </button>
           </div>
 
           <div className="nt-dialog-body">

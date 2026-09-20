@@ -27,6 +27,14 @@ export function ChevronRight(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+export function ChevronDown(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <path d="m6 9 6 6 6-6" />
+    </svg>
+  );
+}
+
 export function ChevronsUpDown(props: SVGProps<SVGSVGElement>) {
   return (
     <svg {...base} {...props}>
@@ -111,6 +119,17 @@ export function ListView(props: SVGProps<SVGSVGElement>) {
   return (
     <svg {...base} {...props}>
       <path d="M4 6h16M4 12h16M4 18h16" />
+    </svg>
+  );
+}
+
+/** Frames set down on a surface at their own positions: the board. */
+export function BoardView(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <rect x="3" y="4" width="9" height="7" rx="1.5" />
+      <rect x="14" y="8" width="7" height="6" rx="1.5" />
+      <rect x="6" y="14" width="7" height="6" rx="1.5" />
     </svg>
   );
 }

@@ -134,6 +134,15 @@
 
   /* Motion. Product UI: state feedback, not choreography. */
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  /* A well-damped spring: fast off the mark, one overshoot of under 3%, then
+     home. On a menu scaling from 0.94 that is a fifth of a percent of size —
+     felt as a surface settling, never seen as a bounce. For things that arrive
+     (menus, dialogs, a toggle's thumb) — never for colour, which has no mass to
+     overshoot with. */
+  --spring: linear(
+    0, 0.012 1.2%, 0.19 5.6%, 0.49 10.6%, 0.75 16.2%, 0.92 22.2%, 1.005 28.6%,
+    1.028 35.4%, 1.024 42.8%, 1.008 56%, 1
+  );
   --dur-fast: 110ms;
   --dur: 170ms;
   --dur-slow: 320ms;
@@ -596,9 +605,38 @@ body {
     0 1px 2px oklch(0.25 0.005 90 / 0.05),
     0 4px 12px oklch(0.25 0.005 90 / 0.07),
     0 16px 40px oklch(0.25 0.005 90 / 0.1);
-  animation: nt-menu-in var(--dur) var(--ease);
+  /* It grows out of whatever raised it: `Menu` sets the origin to the corner
+     nearest its trigger, and a context menu's default is the pointer's. */
+  transform-origin: var(--origin, top left);
+  animation: nt-menu-in var(--dur-slow) var(--spring);
 }
+.nt-menu.is-closing {
+  pointer-events: none;
+  animation: nt-menu-out var(--dur-fast) cubic-bezier(0.7, 0, 0.84, 0) forwards;
+}
+/* The blur clears as it lands, which is what makes the spring read as a surface
+   settling rather than a box bouncing. */
 @keyframes nt-menu-in {
+  from {
+    opacity: 0;
+    filter: blur(5px);
+    transform: scale(0.94);
+  }
+}
+@keyframes nt-menu-out {
+  to {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+}
+/* Menus raised by typing sit beside the caret and can remount between
+   keystrokes. They keep the short, flat entrance: a spring under the text you
+   are writing is a distraction, and a blur there is a flicker. */
+.nt-menu.nt-slash,
+.nt-menu.nt-mention-menu {
+  animation: nt-menu-quick var(--dur) var(--ease);
+}
+@keyframes nt-menu-quick {
   from {
     opacity: 0;
     transform: translateY(4px) scale(0.98);
@@ -764,23 +802,26 @@ textarea.nt-input {
     0 1px 2px oklch(0.25 0.005 90 / 0.04),
     0 8px 24px oklch(0.25 0.005 90 / 0.07),
     0 24px 64px oklch(0.25 0.005 90 / 0.11);
-  animation: nt-dialog-in var(--dur-slow) var(--ease);
+  animation: nt-dialog-in 480ms var(--spring);
 }
 .nt-dialog.is-closing {
-  animation: nt-dialog-out var(--dur) var(--ease) forwards;
+  animation: nt-dialog-out var(--dur) cubic-bezier(0.7, 0, 0.84, 0) forwards;
 }
-/* Rising the last few pixels into place, barely under size. Small numbers on
-   purpose: at this width anything more is a box being thrown at the screen. */
+/* Rising into place a little under size and out of focus, on the spring: it
+   overshoots by a pixel or two and settles, which reads as weight. Still small
+   numbers — at this width anything more is a box being thrown at the screen. */
 @keyframes nt-dialog-in {
   from {
     opacity: 0;
-    transform: translateY(10px) scale(0.985);
+    filter: blur(6px);
+    transform: translateY(14px) scale(0.96);
   }
 }
 @keyframes nt-dialog-out {
   to {
     opacity: 0;
-    transform: translateY(6px) scale(0.99);
+    filter: blur(3px);
+    transform: translateY(6px) scale(0.98);
   }
 }
 @keyframes nt-fade-out {
@@ -792,6 +833,71 @@ textarea.nt-input {
 .nt-dialog-head {
   padding: 18px 18px 0;
 }
+
+/* ---- Slim dialog ---------------------------------------------------------
+   The dialog for one short form: a single column you read down once, narrow
+   enough that the title field is the first thing the eye lands on. The fields
+   arrive in order, a beat behind the box, so the form is read top to bottom
+   before anyone has decided to. `backwards`, not `both` — a fill that outlives
+   the animation keeps each field a stacking context, and the repository picker
+   would open underneath the field below it. */
+.nt-dialog.is-slim {
+  width: 35rem;
+  border-radius: 14px;
+}
+.nt-dialog.is-slim .nt-dialog-head {
+  position: relative;
+  padding: 20px 52px 0 22px;
+}
+.nt-dialog-title {
+  font-size: var(--text-body);
+  font-weight: 600;
+  letter-spacing: -0.005em;
+}
+.nt-dialog-lede {
+  max-width: 46ch;
+  margin-top: 5px;
+  font-size: var(--text-ui);
+  line-height: 1.5;
+  color: var(--muted);
+  text-wrap: pretty;
+}
+.nt-dialog-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+}
+.nt-dialog.is-slim .nt-dialog-body {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  padding: 18px 22px 4px;
+}
+.nt-dialog.is-slim .nt-field-fill textarea.nt-input {
+  min-height: 6.5rem;
+}
+.nt-dialog.is-slim .nt-dialog-foot {
+  gap: 8px;
+  padding: 16px 22px 20px;
+}
+.nt-dialog.is-slim .nt-dialog-foot .nt-row {
+  transition:
+    transform var(--dur) var(--ease),
+    background var(--dur-fast) var(--ease),
+    opacity var(--dur-fast) var(--ease);
+}
+.nt-dialog.is-slim .nt-dialog-foot .nt-row:active:not(:disabled) {
+  transform: scale(0.96);
+}
+.nt-dialog.is-slim:not(.is-closing) .nt-dialog-body > :first-child > *,
+.nt-dialog.is-slim:not(.is-closing) .nt-dialog-body > :last-child {
+  animation: nt-rise 450ms var(--ease) backwards;
+}
+.nt-dialog.is-slim .nt-dialog-body > :first-child > :nth-child(1) { animation-delay: 110ms; }
+.nt-dialog.is-slim .nt-dialog-body > :first-child > :nth-child(2) { animation-delay: 140ms; }
+.nt-dialog.is-slim .nt-dialog-body > :first-child > :nth-child(3) { animation-delay: 170ms; }
+.nt-dialog.is-slim .nt-dialog-body > :first-child > :nth-child(4) { animation-delay: 200ms; }
+.nt-dialog.is-slim .nt-dialog-body > :first-child > :nth-child(n + 5) { animation-delay: 230ms; }
+.nt-dialog.is-slim .nt-dialog-body > :last-child { animation-delay: 270ms; }
 /* Two columns: the short fields stack in the first, the freeform one takes the
    second whole and is stretched to the height they set between them. The one
    part that scrolls, on a window too short to hold it. */
@@ -2194,31 +2300,65 @@ body:has(.nt-review-bar) .nt-reformat-switcher {
   /* Fluid without breakpoints. 232px is the width below which the thumbnail
      stops resolving into a page and becomes grey noise. */
   grid-template-columns: repeat(auto-fill, minmax(232px, 1fr));
-  gap: 20px 16px;
+  gap: 20px;
 }
 
-/* The card is a link to a project, so the whole of it takes the press. The
-   border is the only thing separating it from the page: no shadow at rest,
-   because twenty resting shadows is a texture, not a hierarchy. */
+/* Everything on this screen arrives the same way: up a few pixels, in order.
+   `--i` is the item's place in its list, capped so the fortieth card is not
+   still waiting a second after the first has landed. */
+@keyframes nt-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+
+/* The card is a page lying on a surface, not a framed picture: the first page
+   sits in a well, cropped by the chin, and lifts toward the pointer. No border
+   and no shadow on the card itself at rest — the surface value separates it,
+   and the only shadow belongs to the sheet, which is the thing with height. */
 .nt-card {
   position: relative;
   display: flex;
   flex-direction: column;
   width: 100%;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--background);
-  overflow: hidden;
+  border-radius: 12px;
+  background: var(--surface);
   text-align: left;
+  animation: nt-rise 550ms var(--ease) both;
+  animation-delay: calc(min(var(--i, 0), 14) * 28ms + 60ms);
+  transition: transform var(--dur-fast) var(--ease);
+}
+.nt-card:has(.nt-card-link:active) {
+  transform: scale(0.985);
+}
+.nt-card-well {
+  display: block;
+  height: 148px;
+  padding: 20px 22px 0;
+  overflow: hidden;
+  border-radius: 12px 12px 0 0;
+}
+.nt-card-well .nt-thumb,
+.nt-lead-well .nt-thumb {
+  border-radius: 6px 6px 0 0;
+  box-shadow:
+    0 0 0 1px var(--border),
+    0 1px 2px oklch(0.25 0.005 90 / 0.05),
+    0 10px 24px -10px oklch(0.25 0.005 90 / 0.2);
   transition:
-    border-color var(--dur-fast) var(--ease),
-    background var(--dur-fast) var(--ease);
+    transform 500ms var(--ease),
+    box-shadow 500ms var(--ease);
 }
-.nt-card:hover {
-  border-color: var(--border-strong);
-}
-.nt-card:active {
-  background: var(--hover);
+.nt-card:hover .nt-thumb,
+.nt-lead:hover .nt-thumb,
+.nt-card:has(.nt-card-link:focus-visible) .nt-thumb,
+.nt-lead:has(.nt-card-link:focus-visible) .nt-thumb {
+  transform: translateY(-5px);
+  box-shadow:
+    0 0 0 1px var(--border-strong),
+    0 2px 4px oklch(0.25 0.005 90 / 0.06),
+    0 22px 36px -14px oklch(0.25 0.005 90 / 0.3);
 }
 /* One target, the whole card. The name is the link; its hit area reaches back
    over the thumbnail and the rest of the chin, so there is no dead strip under
@@ -2231,29 +2371,29 @@ body:has(.nt-review-bar) .nt-reformat-switcher {
   content: "";
   position: absolute;
   inset: 0;
+  border-radius: 12px;
 }
-.nt-card-foot .nt-icon-btn {
+.nt-card-foot .nt-icon-btn,
+.nt-lead > .nt-icon-btn {
   position: relative;
 }
-/* The card clips its thumbnail, which would clip an outset focus ring with it.
-   Drawn inside instead, so keyboard focus is visible at all — and drawn on the
-   card rather than on the few words of the name, because the card is what the
-   ring is naming. */
+/* Drawn on the card rather than on the few words of the name, because the card
+   is what the ring is naming. */
 .nt-card-link:focus-visible {
   outline: none;
 }
-.nt-card:has(.nt-card-link:focus-visible) {
+.nt-card:has(.nt-card-link:focus-visible),
+.nt-lead:has(.nt-card-link:focus-visible) {
   outline: 2px solid var(--accent);
-  outline-offset: -2px;
+  outline-offset: 2px;
 }
 
 .nt-card-foot {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 8px 8px 12px;
+  padding: 11px 8px 11px 16px;
   border-top: 1px solid var(--border);
-  background: var(--surface);
 }
 .nt-card-name {
   flex: 1 1 auto;
@@ -2275,6 +2415,295 @@ body:has(.nt-review-bar) .nt-reformat-switcher {
   text-transform: uppercase;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
+}
+/* Where there is a pointer the ⋯ waits for it; where there is not, it has to be
+   there already, because there is no hover to summon it with. */
+@media (hover: hover) {
+  .nt-card .nt-icon-btn,
+  .nt-lead > .nt-icon-btn {
+    opacity: 0;
+    transition:
+      opacity var(--dur) var(--ease),
+      background var(--dur-fast) var(--ease),
+      color var(--dur-fast) var(--ease);
+  }
+  .nt-card:hover .nt-icon-btn,
+  .nt-lead:hover > .nt-icon-btn,
+  .nt-card .nt-icon-btn:focus-visible,
+  .nt-lead > .nt-icon-btn:focus-visible,
+  .nt-card .nt-icon-btn[aria-expanded="true"],
+  .nt-lead > .nt-icon-btn[aria-expanded="true"] {
+    opacity: 1;
+  }
+}
+
+/* ---- The lead -----------------------------------------------------------
+   The project touched last, at reading size: it is the one most likely to be
+   the reason this screen was opened, so it gets the width to show its page and
+   say what it is. Grid view only — the list is for scanning, and has no lead. */
+.nt-lead {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 420px) minmax(0, 1fr);
+  margin-bottom: 20px;
+  border-radius: 14px;
+  background: var(--surface);
+  animation: nt-rise 600ms var(--ease) both;
+  transition: transform var(--dur-fast) var(--ease);
+}
+.nt-lead:has(.nt-card-link:active) {
+  transform: scale(0.992);
+}
+.nt-lead .nt-card-link::after {
+  border-radius: 14px;
+}
+.nt-lead-well {
+  height: 220px;
+  padding: 28px 0 0 36px;
+  overflow: hidden;
+}
+.nt-lead-text {
+  display: grid;
+  align-content: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 28px 64px 28px 40px;
+}
+.nt-lead-name {
+  overflow: hidden;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nt-lead-line {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: var(--text-body);
+  line-height: 1.5;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.nt-lead-text .nt-card-meta {
+  margin-top: 8px;
+}
+.nt-lead > .nt-icon-btn {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+}
+@media (max-width: 44rem) {
+  .nt-lead {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .nt-lead-well {
+    height: 170px;
+    padding: 20px 24px 0;
+  }
+  .nt-lead-text {
+    padding: 18px 56px 22px 24px;
+  }
+}
+
+/* ---- Header tools ------------------------------------------------------- */
+
+/* Looks like a field and is a button: search on this screen is the palette, so
+   the thing in the header is only the way in — and the place the shortcut is
+   written down. */
+.nt-find {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 220px;
+  height: var(--control);
+  padding-inline: 10px 6px;
+  border-radius: 8px;
+  background: var(--sunken);
+  color: var(--muted);
+  font-size: var(--text-ui);
+  text-align: left;
+  transition:
+    background var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
+}
+.nt-find:hover {
+  color: var(--foreground);
+}
+.nt-find:active {
+  background: var(--border);
+}
+.nt-find > span {
+  flex: 1;
+}
+.nt-kbd {
+  display: inline-grid;
+  min-width: 20px;
+  height: 20px;
+  padding-inline: 5px;
+  place-items: center;
+  border-radius: 5px;
+  background: var(--background);
+  box-shadow:
+    0 0 0 1px var(--border),
+    0 1px 0 var(--border-strong);
+  color: var(--muted);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--text-meta);
+}
+
+/* The glyph toggle, with a thumb that travels instead of fills that swap. Only
+   for segments of equal width — the worded toggle keeps its fills, because its
+   segments are not. `data-at` is the index of the one that is on. */
+.nt-mode.is-slide {
+  position: relative;
+}
+.nt-mode.is-slide::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 26px;
+  height: 22px;
+  border-radius: var(--radius-sm);
+  background: var(--background);
+  box-shadow: 0 1px 2px oklch(0.25 0.005 90 / 0.1);
+  transition: transform 420ms var(--spring);
+}
+.nt-mode.is-slide[data-at="1"]::before {
+  transform: translateX(27px);
+}
+.nt-mode.is-slide[data-at="2"]::before {
+  transform: translateX(54px);
+}
+.nt-mode.is-slide .nt-mode-btn {
+  position: relative;
+}
+.nt-mode.is-slide .nt-mode-btn.is-on {
+  background: none;
+  box-shadow: none;
+}
+
+/* New project, and beside it the other ways to start. One filled control, so
+   the header still reads as having one way to begin; the caret is where the
+   rarer doors are kept. */
+.nt-split {
+  display: inline-flex;
+  border-radius: var(--radius);
+  background: var(--foreground);
+  color: var(--background);
+  font-size: var(--text-ui);
+  transition: transform var(--dur) var(--ease);
+}
+.nt-split:has(.nt-split-main:active) {
+  transform: scale(0.975);
+}
+.nt-split-main {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--control);
+  padding: 0 10px 0 12px;
+  border-radius: var(--radius) 0 0 var(--radius);
+  font-weight: 500;
+  transition: background var(--dur-fast) var(--ease);
+}
+.nt-split-main:only-child {
+  padding-right: 12px;
+  border-radius: var(--radius);
+}
+.nt-split-caret {
+  display: grid;
+  width: 26px;
+  height: var(--control);
+  place-items: center;
+  border-radius: 0 var(--radius) var(--radius) 0;
+  box-shadow: inset 1px 0 0 oklch(1 0 0 / 0.16);
+  transition: background var(--dur-fast) var(--ease);
+}
+.nt-split-main:hover,
+.nt-split-caret:hover,
+.nt-split-caret[aria-expanded="true"] {
+  background: oklch(1 0 0 / 0.12);
+}
+.nt-split-caret svg {
+  transition: transform 450ms var(--spring);
+}
+.nt-split-caret[aria-expanded="true"] svg {
+  transform: rotate(180deg);
+}
+.nt-split :focus-visible {
+  outline-offset: 3px;
+}
+
+/* The create menu: two-line items with a tile for the glyph, because these are
+   choices someone reads rather than commands they already know. */
+.nt-menu-create {
+  width: 288px;
+  padding: 5px;
+}
+.nt-menu-create > * {
+  animation: nt-item-in 340ms var(--ease) both;
+}
+.nt-menu-create > :nth-child(2) { animation-delay: 25ms; }
+.nt-menu-create > :nth-child(3) { animation-delay: 50ms; }
+.nt-menu-create > :nth-child(4) { animation-delay: 75ms; }
+.nt-menu-create > :nth-child(n + 5) { animation-delay: 100ms; }
+.nt-menu-create.is-closing > * {
+  animation: none;
+}
+@keyframes nt-item-in {
+  from {
+    opacity: 0;
+    transform: translateY(-5px);
+  }
+}
+.nt-menu-item.is-rich {
+  height: auto;
+  gap: 10px;
+  padding: 7px 8px;
+  border-radius: var(--radius);
+}
+.nt-menu-tile {
+  display: grid;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: 7px;
+  background: var(--surface);
+  transition:
+    transform 400ms var(--spring),
+    background var(--dur-fast) var(--ease),
+    box-shadow var(--dur-fast) var(--ease);
+}
+.nt-menu-item.is-rich:hover .nt-menu-tile,
+.nt-menu-item.is-rich:focus-visible .nt-menu-tile {
+  background: var(--background);
+  box-shadow: 0 0 0 1px var(--border);
+  transform: scale(1.08);
+}
+.nt-menu-two {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+.nt-menu-two > :first-child {
+  font-weight: 500;
+}
+.nt-menu-two > :last-child {
+  color: var(--muted);
+  font-size: var(--text-meta-lg);
+}
+.nt-menu-label {
+  padding: 6px 8px 3px;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--text-meta);
+  font-weight: 500;
+  letter-spacing: var(--tracking-meta);
+  text-transform: uppercase;
+  color: var(--muted);
 }
 
 /* ---- The miniature ------------------------------------------------------
@@ -2557,6 +2986,521 @@ body:has(.nt-review-bar) .nt-reformat-switcher {
 .nt-col-actions {
   flex: none;
   width: var(--control);
+}
+.nt-list-row {
+  animation: nt-rise 450ms var(--ease) both;
+  animation-delay: calc(min(var(--i, 0), 20) * 18ms);
+}
+
+/* ---- Board view ----------------------------------------------------------
+   The third view: the screen as a canvas, because the canvas is what this
+   product is. It lies under the header rather than below it — the header keeps
+   its place across all three views, and the surface runs to every edge the way
+   a canvas does. Frames sit where they were left.
+
+   Position is `translate` and everything else that moves a frame (its entrance,
+   its lift while held) is `transform` or `scale`, so the three never fight over
+   one property and a drag can write the first without cancelling the others. */
+.nt-board {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  background-color: var(--surface);
+  background-image: radial-gradient(circle, oklch(0.25 0.005 90 / 0.16) 1px, transparent 1.4px);
+  background-position: var(--pan, 0 0);
+  background-size: 24px 24px;
+  cursor: grab;
+  touch-action: none;
+  overscroll-behavior: none;
+  user-select: none;
+  animation: nt-fade-in var(--dur-slow) var(--ease);
+}
+.nt-board[data-panning="true"] {
+  cursor: grabbing;
+}
+/* The header's words sit straight on the surface; a frame passing under them
+   fades out rather than colliding with them. */
+.nt-board::after {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 132px;
+  background: linear-gradient(var(--surface) 45%, transparent);
+  pointer-events: none;
+}
+.nt-board-host {
+  position: relative;
+  z-index: var(--z-base);
+}
+/* The board's origin is the page's left gutter, so switching views keeps the
+   first project under the title instead of jumping to the window's edge. */
+.nt-board-stage {
+  position: absolute;
+  top: 148px;
+  left: max(2rem, calc((100vw - 76rem) / 2 + 2rem));
+  will-change: translate;
+}
+.nt-board-region {
+  position: absolute;
+  padding-left: 0;
+  white-space: nowrap;
+  animation: nt-fade-in 800ms var(--ease) 400ms backwards;
+}
+.nt-board-frame {
+  position: absolute;
+  width: 240px;
+  cursor: grab;
+  animation: nt-board-place 650ms var(--spring) backwards;
+  animation-delay: calc(min(var(--i, 0), 14) * 45ms + 80ms);
+  transition: scale 300ms var(--spring);
+}
+/* Set down from slightly above and slightly large: placed, not faded in. */
+@keyframes nt-board-place {
+  from {
+    opacity: 0;
+    transform: translateY(-16px) scale(1.05);
+  }
+}
+/* Above every frame that has been put down, whatever its place in the stack:
+   the one in the hand is on top, and stays there once it lands. */
+.nt-board-frame[data-dragging] {
+  z-index: 9999 !important;
+}
+.nt-board-frame[data-dragging="true"] {
+  scale: 1.03;
+  cursor: grabbing;
+}
+.nt-board-frame[data-dragging="true"] .nt-card-link {
+  cursor: grabbing;
+}
+.nt-board-frame[data-dragging="settling"] {
+  transition:
+    translate 300ms var(--spring),
+    scale 300ms var(--spring);
+}
+.nt-board-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  font-size: var(--text-meta-lg);
+  color: var(--muted);
+}
+.nt-board-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: color var(--dur) var(--ease);
+}
+.nt-board-frame .nt-card-link::after {
+  border-radius: 3px;
+}
+.nt-board-meta {
+  flex: 1 0 auto;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--text-meta);
+  opacity: 0;
+  transform: translateX(-6px);
+  transition:
+    opacity var(--dur) var(--ease),
+    transform 400ms var(--ease);
+}
+.nt-board-label .nt-icon-btn {
+  position: relative;
+  flex: none;
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease);
+}
+.nt-board-page {
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--background);
+  box-shadow:
+    0 0 0 1px var(--shape-line),
+    0 1px 2px oklch(0.25 0.005 90 / 0.05);
+  transition:
+    box-shadow 350ms var(--ease),
+    transform 500ms var(--spring);
+}
+.nt-board-frame:hover .nt-board-name,
+.nt-board-frame:focus-within .nt-board-name,
+.nt-board-frame[data-dragging] .nt-board-name {
+  color: var(--foreground);
+}
+.nt-board-frame:hover .nt-board-meta,
+.nt-board-frame:focus-within .nt-board-meta {
+  opacity: 1;
+  transform: none;
+}
+.nt-board-frame:hover .nt-icon-btn,
+.nt-board-frame:focus-within .nt-icon-btn,
+.nt-board-label .nt-icon-btn[aria-expanded="true"] {
+  opacity: 1;
+}
+@media (hover: none) {
+  .nt-board-meta,
+  .nt-board-label .nt-icon-btn {
+    opacity: 1;
+    transform: none;
+  }
+}
+.nt-board-frame:hover .nt-board-page,
+.nt-board-frame:has(.nt-card-link:focus-visible) .nt-board-page {
+  box-shadow:
+    0 0 0 1.5px var(--shape-line-active),
+    0 14px 30px -12px oklch(0.25 0.005 90 / 0.35);
+  transform: translateY(-3px);
+}
+.nt-board-frame[data-dragging="true"] .nt-board-page {
+  box-shadow:
+    0 0 0 1.5px var(--shape-line-active),
+    0 30px 50px -18px oklch(0.25 0.005 90 / 0.45);
+  transform: translateY(-3px);
+}
+.nt-board-frame:has(.nt-card-link:focus-visible) .nt-board-page {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* The minimap, and the way back to the arrangement the board would choose. */
+.nt-board-map {
+  position: absolute;
+  right: 20px;
+  bottom: 20px;
+  display: grid;
+  justify-items: end;
+  gap: 6px;
+  cursor: default;
+  animation: nt-rise 600ms var(--ease) 300ms backwards;
+}
+.nt-board-tidy {
+  height: var(--control-sm);
+  padding-inline: 8px;
+  border-radius: var(--radius-sm);
+  background: var(--elevated);
+  box-shadow: 0 0 0 1px var(--border);
+  color: var(--muted);
+  font-size: var(--text-meta-lg);
+}
+.nt-board-mini {
+  position: relative;
+  box-sizing: content-box;
+  overflow: hidden;
+  border: 6px solid var(--elevated);
+  border-radius: var(--radius-lg);
+  background: var(--elevated);
+  box-shadow:
+    0 0 0 1px var(--border),
+    0 8px 24px -8px oklch(0.25 0.005 90 / 0.2);
+}
+.nt-board-mini i,
+.nt-board-mini b {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: block;
+}
+.nt-board-mini i {
+  border-radius: 1px;
+  background: var(--border-strong);
+}
+.nt-board-mini b {
+  border-radius: 2px;
+  box-shadow: 0 0 0 1.5px var(--foreground);
+}
+@media (max-width: 44rem) {
+  .nt-board-map {
+    display: none;
+  }
+  .nt-board-stage {
+    left: 1.5rem;
+  }
+}
+
+/* ---- Project palette -----------------------------------------------------
+   ⌘K, and what the header's search opens. One field over a list the arrow keys
+   drive, with the selected project's first page beside it. A `Dialog`, so the
+   scrim, focus and the way out are the modal contract's — this only changes
+   where the box sits and what is in it.
+
+   One highlight travels between rows rather than each row lighting itself:
+   `--hl-y` and `--hl-h` are written from the selected row's measured box. */
+.nt-dialog.nt-palette {
+  width: 58rem;
+  margin-block: min(13vh, 7rem) auto;
+  overflow: hidden;
+  border-radius: 14px;
+  transform-origin: 50% 0;
+}
+.nt-pal-field {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 10px;
+  height: 60px;
+  padding-inline: 20px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.nt-pal-field input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  background: none;
+  font-size: 18px;
+  letter-spacing: -0.01em;
+  outline: none;
+}
+.nt-pal-field input::placeholder {
+  color: var(--muted);
+}
+.nt-pal-crumb {
+  flex: none;
+  padding: 4px 9px;
+  border-radius: var(--radius);
+  background: var(--foreground);
+  color: var(--background);
+  font-size: var(--text-ui);
+  font-weight: 500;
+  animation: nt-pal-crumb 400ms var(--spring) both;
+}
+@keyframes nt-pal-crumb {
+  from {
+    opacity: 0;
+    transform: translateX(-10px) scale(0.9);
+  }
+}
+.nt-pal-panes {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 21rem;
+  min-height: 0;
+  height: min(60vh, 34rem);
+}
+.nt-pal-list {
+  position: relative;
+  padding: 4px 0 10px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+  animation: nt-pal-from-left 400ms var(--ease) both;
+}
+.nt-pal-list[data-page="create"] {
+  animation-name: nt-pal-from-right;
+}
+@keyframes nt-pal-from-right {
+  from {
+    opacity: 0;
+    transform: translateX(32px);
+  }
+}
+@keyframes nt-pal-from-left {
+  from {
+    opacity: 0;
+    transform: translateX(-32px);
+  }
+}
+.nt-pal-hl {
+  position: absolute;
+  top: 0;
+  right: 8px;
+  left: 8px;
+  height: var(--hl-h, 48px);
+  border-radius: var(--radius-lg);
+  background: var(--selected);
+  transform: translateY(var(--hl-y, 0));
+  transition: transform 320ms var(--spring);
+}
+.nt-pal-hl[data-none="true"] {
+  opacity: 0;
+}
+.nt-pal-group {
+  padding: 12px 20px 6px;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--text-meta);
+  font-weight: 500;
+  letter-spacing: var(--tracking-meta);
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.nt-pal-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 48px;
+  margin-inline: 8px;
+  padding-inline: 12px;
+  border-radius: var(--radius-lg);
+  font-size: var(--text-ui);
+  cursor: pointer;
+}
+.nt-pal-icon {
+  display: grid;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: 7px;
+  color: var(--muted);
+  transition:
+    transform 400ms var(--spring),
+    background var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease),
+    box-shadow var(--dur-fast) var(--ease);
+}
+.nt-pal-row[aria-selected="true"] .nt-pal-icon {
+  background: var(--background);
+  box-shadow: 0 0 0 1px var(--border);
+  color: var(--foreground);
+  transform: scale(1.08);
+}
+.nt-pal-text {
+  display: flex;
+  flex: 1;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+.nt-pal-name {
+  flex: none;
+  max-width: 70%;
+  overflow: hidden;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nt-pal-line {
+  overflow: hidden;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nt-pal-chev {
+  flex: none;
+  color: var(--muted);
+  transition: transform 350ms var(--spring);
+}
+.nt-pal-row[aria-selected="true"] .nt-pal-chev {
+  color: var(--foreground);
+  transform: translateX(3px);
+}
+.nt-pal-none {
+  padding: 28px 20px;
+  color: var(--muted);
+  font-size: var(--text-ui);
+}
+.nt-pal-side {
+  display: grid;
+  min-width: 0;
+  padding: 20px;
+  border-left: 1px solid var(--border);
+  background: linear-gradient(var(--surface), var(--elevated) 70%);
+  perspective: 900px;
+}
+.nt-pal-card {
+  align-self: start;
+  min-width: 0;
+  transform-origin: 50% 0;
+  animation: nt-pal-turn 450ms var(--ease) both;
+}
+@keyframes nt-pal-turn {
+  from {
+    opacity: 0;
+    filter: blur(4px);
+    transform: translateY(10px) rotateX(10deg) scale(0.97);
+  }
+}
+.nt-pal-card .nt-thumb {
+  border-radius: 6px;
+  box-shadow:
+    0 0 0 1px var(--border),
+    0 2px 4px oklch(0.25 0.005 90 / 0.05),
+    0 18px 36px -16px oklch(0.25 0.005 90 / 0.3);
+}
+.nt-pal-card-name {
+  margin-top: 16px;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+}
+.nt-pal-card-line {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: var(--text-ui);
+  line-height: 1.5;
+}
+.nt-pal-facts {
+  margin-top: 14px;
+}
+.nt-pal-facts > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 32px;
+  border-top: 1px solid var(--border);
+  font-size: var(--text-ui);
+}
+.nt-pal-facts dt {
+  color: var(--muted);
+}
+.nt-pal-card.is-action {
+  display: grid;
+  align-self: center;
+  justify-items: center;
+  text-align: center;
+}
+.nt-pal-big {
+  display: grid;
+  width: 64px;
+  height: 64px;
+  place-items: center;
+  border-radius: 18px;
+  background: var(--background);
+  box-shadow:
+    0 0 0 1px var(--border),
+    0 14px 28px -14px oklch(0.25 0.005 90 / 0.3);
+}
+.nt-pal-big svg {
+  width: 24px;
+  height: 24px;
+}
+.nt-pal-foot {
+  display: flex;
+  flex: none;
+  gap: 16px;
+  padding: 9px 16px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: var(--text-meta-lg);
+}
+.nt-pal-foot span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+@media (max-width: 48rem) {
+  .nt-dialog.nt-palette {
+    margin-block: 1rem auto;
+  }
+  .nt-pal-panes {
+    grid-template-columns: minmax(0, 1fr);
+    height: min(66vh, 30rem);
+  }
+  .nt-pal-side,
+  .nt-pal-line,
+  .nt-pal-foot {
+    display: none;
+  }
+  .nt-find {
+    width: auto;
+  }
+  .nt-find > span,
+  .nt-find .nt-kbd {
+    display: none;
+  }
 }
 }
 

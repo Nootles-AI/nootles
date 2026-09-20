@@ -32,6 +32,7 @@ export function Menu({
   side = "top",
   align = "start",
   label,
+  className,
 }: {
   trigger: (props: {
     ref: React.Ref<HTMLButtonElement>;
@@ -43,15 +44,17 @@ export function Menu({
   side?: Side;
   align?: Align;
   label: string;
+  /** Added to the surface, for a menu whose items are not the stock row. */
+  className?: string;
 }) {
   const [open, setOpen] = useState(false);
+  // The menu outlives `open` by its exit animation. Everything that means
+  // "open" — the click-catcher, focus, placement — still follows `open`, so a
+  // menu on its way out can never swallow a click or hold focus.
+  const [leaving, setLeaving] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState<{ top: number; left: number; width: number }>({
-    top: 0,
-    left: 0,
-    width: 0,
-  });
+  const [pos, setPos] = useState({ top: 0, left: 0, width: 0, origin: "top left" });
 
   // `close` is handed to the children render prop, so it must not touch a ref
   // during render. It only flips state; focus goes back to the trigger from an
@@ -67,6 +70,7 @@ export function Menu({
   const close = useCallback((opts?: { restoreFocus?: boolean }) => {
     setRestore(opts?.restoreFocus !== false);
     setOpen(false);
+    setLeaving(true);
   }, []);
   const wasOpen = useRef(false);
   useEffect(() => {
@@ -93,7 +97,10 @@ export function Menu({
     if (top + h > window.innerHeight - 8) top = Math.max(8, r.top - h - gap);
     let left = align === "start" ? r.left : r.right - w;
     left = Math.min(Math.max(8, left), window.innerWidth - w - 8);
-    setPos({ top, left, width: r.width });
+    // Where it ended up, not where it was asked to go: the entrance grows from
+    // the corner that actually touches the trigger.
+    const origin = `${top < r.top ? "bottom" : "top"} ${align === "start" ? "left" : "right"}`;
+    setPos({ top, left, width: r.width, origin });
   }, [side, align]);
 
   useLayoutEffect(() => {
@@ -150,27 +157,43 @@ export function Menu({
         ref: triggerRef,
         // Through `close` rather than a bare toggle, so every path that shuts
         // the menu also resets whether focus comes back.
-        onClick: () => (open ? close() : setOpen(true)),
+        onClick: () => {
+          if (open) return close();
+          setLeaving(false);
+          setOpen(true);
+        },
         "aria-haspopup": "menu",
         "aria-expanded": open,
       })}
-      {open &&
+      {(open || leaving) &&
         createPortal(
           <>
             {/* Pointer-only dismissal; keyboard users get Escape and Tab. */}
-            <div
-              className="fixed inset-0"
-              style={{ zIndex: "var(--z-dropdown)" }}
-              onMouseDown={() => close()}
-            />
+            {open && (
+              <div
+                className="fixed inset-0"
+                style={{ zIndex: "var(--z-dropdown)" }}
+                onMouseDown={() => close()}
+              />
+            )}
             <div
               ref={menuRef}
               role="menu"
               aria-label={label}
               tabIndex={-1}
               onKeyDown={onKeyDown}
-              className="nt-menu fixed"
-              style={{ top: pos.top, left: pos.left, minWidth: pos.width }}
+              onAnimationEnd={(e) => {
+                if (!open && e.target === e.currentTarget) setLeaving(false);
+              }}
+              className={`nt-menu fixed${open ? "" : " is-closing"}${className ? ` ${className}` : ""}`}
+              style={
+                {
+                  top: pos.top,
+                  left: pos.left,
+                  minWidth: pos.width,
+                  "--origin": pos.origin,
+                } as React.CSSProperties
+              }
             >
               {children(close)}
             </div>
@@ -185,11 +208,13 @@ export function MenuItem({
   onClick,
   children,
   danger,
+  className,
   ref,
 }: {
   onClick: () => void;
   children: ReactNode;
   danger?: boolean;
+  className?: string;
   /** For a menu that has to move focus between its own items itself. */
   ref?: Ref<HTMLButtonElement>;
 }) {
@@ -198,7 +223,7 @@ export function MenuItem({
       ref={ref}
       role="menuitem"
       onClick={onClick}
-      className={`nt-menu-item${danger ? " is-danger" : ""}`}
+      className={`nt-menu-item${danger ? " is-danger" : ""}${className ? ` ${className}` : ""}`}
     >
       {children}
     </button>

@@ -2,6 +2,7 @@
 
 import {
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type AnimationEvent,
@@ -11,6 +12,23 @@ import {
   type RefObject,
 } from "react";
 import { createPortal } from "react-dom";
+
+/**
+ * Where the last press landed, so a dialog can grow out of whatever raised it.
+ * A keystroke forgets it: a dialog opened from the keyboard was not raised from
+ * anywhere, and grows from its own centre like before.
+ */
+let pressed: { x: number; y: number } | null = null;
+if (typeof document !== "undefined") {
+  document.addEventListener(
+    "pointerdown",
+    (e) => {
+      pressed = { x: e.clientX, y: e.clientY };
+    },
+    true,
+  );
+  document.addEventListener("keydown", () => (pressed = null), true);
+}
 
 /**
  * The modal contract, extracted from the two dialogs that each carried a
@@ -28,11 +46,14 @@ export function Dialog({
   labelledBy,
   scrimLabel = "Close",
   as = "div",
+  className,
   onSubmit,
   onClose,
   children,
 }: {
   label?: string;
+  /** Added to the box, for a dialog that is not the stock two-column form. */
+  className?: string;
   /** The id of a heading inside, when the dialog's name is one that changes. */
   labelledBy?: string;
   /** What clicking the scrim means — "Cancel" when the dialog is a form. */
@@ -63,6 +84,15 @@ export function Dialog({
 
   const keepFocus = useModalFocus(ref);
 
+  // Before the first paint, so the entrance already scales from the press. The
+  // offsets are layout values — the box as placed, not as the entrance is
+  // currently transforming it.
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el || !pressed) return;
+    el.style.transformOrigin = `${pressed.x - el.offsetLeft}px ${pressed.y - el.offsetTop}px`;
+  }, []);
+
   const El = as;
   // To the body, not in place: an in-place dialog inherits its opener's
   // stacking context (a panel's, say) and paints under the rest of the shell
@@ -86,7 +116,7 @@ export function Dialog({
         aria-label={label}
         aria-labelledby={labelledBy}
         tabIndex={-1}
-        className={`nt-dialog${closing ? " is-closing" : ""}`}
+        className={`nt-dialog${className ? ` ${className}` : ""}${closing ? " is-closing" : ""}`}
         style={{ zIndex: "var(--z-modal)" }}
       >
         {typeof children === "function" ? children(close) : children}
