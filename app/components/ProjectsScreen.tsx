@@ -7,20 +7,19 @@ import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import { track } from "@/app/lib/telemetry";
 import { pages, when } from "@/app/lib/projectMeta";
-import { BoardView, ChevronDown, FileDoc, GridView, ListView, Plus, Search } from "./Icons";
+import { BoardView, GridView, ListView, Plus, Search } from "./Icons";
 import { AccountMenu } from "./AccountMenu";
 import { PlanWall } from "./billing/PlanWall";
 import { usePlan } from "@/app/lib/usePlan";
 import { useResumeIntent } from "@/app/lib/billing/useResumeIntent";
 import { ConfirmDeleteDialog } from "./ConfirmDelete";
+import { CreateProject } from "./CreateProject";
 import { ContextMenu } from "./ContextMenu";
 import { Feedback } from "./feedback/Feedback";
 import { FixedToast } from "./feedback/FixedToast";
-import { Menu, MenuItem } from "./Menu";
 import { NewProjectDialog, type NewProject } from "./NewProjectDialog";
 import { useNotionAvailable } from "./notion/NotionAvailable";
 import { NotionImport } from "./notion/NotionImport";
-import { NotionMark } from "./NotionMark";
 import { ProjectPalette, useModKey } from "./ProjectPalette";
 import { ProjectsBoard } from "./ProjectsBoard";
 import {
@@ -259,55 +258,16 @@ export function ProjectsScreen() {
           {/* The button never disappears when the free projects are gone — it
               opens the wall instead. An affordance that vanishes reads as a
               bug; one that explains itself reads as a limit. */}
-          {/* One filled control with the rarer doors behind its caret: a blank
-              project is one click, and importing is a part of creating rather
-              than a second button competing with it. The caret is absent, not
+          {/* One filled control with the rarer doors inside it: a blank project
+              is one click, and importing is a part of creating rather than a
+              second button competing with it. The caret is absent, not
               disabled, on a deployment without an integration to offer. */}
           {!standIn && (
-            <div className="nt-split">
-              <button onClick={startBlank} className="nt-split-main">
-                <Plus width={14} height={14} />
-                New project
-              </button>
-              {notionAvailable && (
-                <Menu
-                  label="Ways to start a project"
-                  side="bottom"
-                  align="end"
-                  className="nt-menu-create"
-                  trigger={(t) => (
-                    <button {...t} aria-label="More ways to start" className="nt-split-caret">
-                      <ChevronDown width={14} height={14} />
-                    </button>
-                  )}
-                >
-                  {(close) => (
-                    <>
-                      <StartItem
-                        icon={<FileDoc />}
-                        name="Blank project"
-                        hint="A title and an empty first page"
-                        onClick={() => {
-                          close({ restoreFocus: false });
-                          startBlank();
-                        }}
-                      />
-                      <div className="nt-menu-sep" />
-                      <div className="nt-menu-label">Import from</div>
-                      <StartItem
-                        icon={<NotionMark />}
-                        name="Notion"
-                        hint="Choose which pages come across"
-                        onClick={() => {
-                          close({ restoreFocus: false });
-                          startImport();
-                        }}
-                      />
-                    </>
-                  )}
-                </Menu>
-              )}
-            </div>
+            <CreateProject
+              notion={notionAvailable === true}
+              onBlank={startBlank}
+              onNotion={startImport}
+            />
           )}
         </div>
       </header>
@@ -523,29 +483,6 @@ export function ProjectsScreen() {
           too, not only inside whichever project they happen to open. */}
       <AccessRequests />
     </main>
-  );
-}
-
-/** A way to start a project: a glyph, what it is, and what you get. */
-function StartItem({
-  icon,
-  name,
-  hint,
-  onClick,
-}: {
-  icon: React.ReactNode;
-  name: string;
-  hint: string;
-  onClick: () => void;
-}) {
-  return (
-    <MenuItem onClick={onClick} className="is-rich">
-      <span className="nt-menu-tile">{icon}</span>
-      <span className="nt-menu-two">
-        <span>{name}</span>
-        <span>{hint}</span>
-      </span>
-    </MenuItem>
   );
 }
 

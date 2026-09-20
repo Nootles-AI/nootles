@@ -32,7 +32,6 @@ export function Menu({
   side = "top",
   align = "start",
   label,
-  className,
 }: {
   trigger: (props: {
     ref: React.Ref<HTMLButtonElement>;
@@ -44,8 +43,6 @@ export function Menu({
   side?: Side;
   align?: Align;
   label: string;
-  /** Added to the surface, for a menu whose items are not the stock row. */
-  className?: string;
 }) {
   const [open, setOpen] = useState(false);
   // The menu outlives `open` by its exit animation. Everything that means
@@ -185,7 +182,7 @@ export function Menu({
               onAnimationEnd={(e) => {
                 if (!open && e.target === e.currentTarget) setLeaving(false);
               }}
-              className={`nt-menu fixed${open ? "" : " is-closing"}${className ? ` ${className}` : ""}`}
+              className={`nt-menu fixed${open ? "" : " is-closing"}`}
               style={
                 {
                   top: pos.top,
@@ -208,13 +205,11 @@ export function MenuItem({
   onClick,
   children,
   danger,
-  className,
   ref,
 }: {
   onClick: () => void;
   children: ReactNode;
   danger?: boolean;
-  className?: string;
   /** For a menu that has to move focus between its own items itself. */
   ref?: Ref<HTMLButtonElement>;
 }) {
@@ -223,7 +218,7 @@ export function MenuItem({
       ref={ref}
       role="menuitem"
       onClick={onClick}
-      className={`nt-menu-item${danger ? " is-danger" : ""}${className ? ` ${className}` : ""}`}
+      className={`nt-menu-item${danger ? " is-danger" : ""}`}
     >
       {children}
     </button>

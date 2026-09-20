@@ -2665,126 +2665,201 @@ body:has(.nt-review-bar) .nt-reformat-switcher {
   box-shadow: none;
 }
 
-/* New project, and beside it the other ways to start. One filled control, so
-   the header still reads as having one way to begin; the caret is where the
-   rarer doors are kept. */
-.nt-split {
-  --r: 8px;
-  display: inline-flex;
-  border-radius: var(--r);
-  background: var(--foreground);
-  color: var(--background);
+/* ---- New project ---------------------------------------------------------
+   One ink surface that is a button when closed and the create menu when open.
+   See `CreateProject.tsx` for why it is built this way and why it is not
+   portaled.
+
+   `.nt-create` holds the button's footprint in the header. The surface is the
+   whole menu, anchored to that footprint's top-right corner and clipped to it;
+   `--w` is the closed width, measured from the label. Only `clip-path`,
+   `transform`, `opacity` and `filter` move, so opening costs no layout.
+
+   Out is quicker than in and has no spring: the base rule is the way back, the
+   open rule is the way there. */
+.nt-create {
+  --open-w: 288px;
+  position: relative;
+  width: var(--w, 148px);
+  height: var(--control);
   font-size: var(--text-ui);
-  transition: transform var(--dur) var(--ease);
+  color: var(--background);
 }
-.nt-split:has(.nt-split-main:active) {
-  transform: scale(0.975);
+/* The shadow lives a level above the clip — a shadow on the clipped element
+   would be clipped with it. */
+.nt-create-lift {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: var(--z-dropdown);
+  width: var(--open-w);
+  filter: drop-shadow(0 12px 20px oklch(0.25 0.005 90 / 0));
+  transition: filter 240ms var(--ease);
 }
-.nt-split-main {
+.nt-create[data-open="true"] .nt-create-lift {
+  filter: drop-shadow(0 18px 28px oklch(0.25 0.005 90 / 0.32));
+  transition: filter 460ms var(--ease);
+}
+.nt-create-surface {
+  background: var(--foreground);
+  clip-path: inset(0 0 calc(100% - var(--control)) calc(100% - var(--w, 148px)) round 8px);
+  transition: clip-path 240ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+.nt-create[data-open="true"] .nt-create-surface {
+  clip-path: inset(0 round 12px);
+  transition: clip-path 460ms var(--spring);
+}
+.nt-create-bar {
+  display: flex;
+  justify-content: flex-end;
+  height: var(--control);
+}
+.nt-create-main {
   display: flex;
   align-items: center;
   gap: 6px;
-  height: var(--control);
   padding: 0 10px 0 12px;
-  border-radius: var(--r) 0 0 var(--r);
   font-weight: 500;
-  transition: background var(--dur-fast) var(--ease);
+  white-space: nowrap;
+  transition:
+    transform 240ms cubic-bezier(0.4, 0, 0.2, 1),
+    background var(--dur-fast) var(--ease);
 }
-.nt-split-main:only-child {
+.nt-create-main:only-child {
   padding-right: 12px;
-  border-radius: var(--r);
 }
-.nt-split-caret {
+/* To the panel's left edge: its own width, plus the caret's, short of the
+   panel's. */
+.nt-create[data-open="true"] .nt-create-main {
+  transform: translateX(calc(100% + 26px - var(--open-w)));
+  transition:
+    transform 460ms var(--spring),
+    background var(--dur-fast) var(--ease);
+}
+.nt-create-caret {
   display: grid;
+  flex: none;
   width: 26px;
-  height: var(--control);
   place-items: center;
-  border-radius: 0 var(--r) var(--r) 0;
   box-shadow: inset 1px 0 0 oklch(1 0 0 / 0.16);
-  transition: background var(--dur-fast) var(--ease);
+  transition:
+    box-shadow var(--dur) var(--ease),
+    background var(--dur-fast) var(--ease);
 }
-.nt-split-main:hover,
-.nt-split-caret:hover,
-.nt-split-caret[aria-expanded="true"] {
-  background: oklch(1 0 0 / 0.12);
+.nt-create[data-open="true"] .nt-create-caret {
+  box-shadow: inset 1px 0 0 oklch(1 0 0 / 0);
 }
-.nt-split-caret svg {
-  transition: transform 450ms var(--spring);
+.nt-create-main:hover,
+.nt-create-caret:hover {
+  background: var(--hover-on-dark);
 }
-.nt-split-caret[aria-expanded="true"] svg {
-  transform: rotate(180deg);
+.nt-create-main:active,
+.nt-create-caret:active {
+  background: var(--active-on-dark);
 }
-.nt-split :focus-visible {
-  outline-offset: 3px;
-}
-
-/* The create menu: two-line items with a tile for the glyph, because these are
-   choices someone reads rather than commands they already know. */
-.nt-menu-create {
-  width: 288px;
-  padding: 5px;
-}
-.nt-menu-create > * {
-  animation: nt-item-in 340ms var(--ease) both;
-}
-.nt-menu-create > :nth-child(2) { animation-delay: 25ms; }
-.nt-menu-create > :nth-child(3) { animation-delay: 50ms; }
-.nt-menu-create > :nth-child(4) { animation-delay: 75ms; }
-.nt-menu-create > :nth-child(n + 5) { animation-delay: 100ms; }
-.nt-menu-create.is-closing > * {
-  animation: none;
-}
-@keyframes nt-item-in {
-  from {
-    opacity: 0;
-    transform: translateY(-5px);
-  }
-}
-.nt-menu-item.is-rich {
-  height: auto;
-  gap: 10px;
-  padding: 7px 8px;
+/* Inside the clip, or the closed button would cut its own ring off. */
+.nt-create :focus-visible {
+  outline-offset: -3px;
   border-radius: var(--radius);
 }
-.nt-menu-tile {
+.nt-create-glyph path {
+  transform-origin: 12px 12px;
+  transition: transform 460ms var(--spring);
+}
+.nt-create-glyph path:first-child {
+  transform: translateY(2.5px) rotate(45deg);
+}
+.nt-create-glyph path:last-child {
+  transform: translateY(2.5px) rotate(-45deg);
+}
+.nt-create[data-open="true"] .nt-create-glyph path {
+  transform: none;
+}
+
+.nt-create-items {
+  padding: 5px;
+  border-top: 1px solid oklch(1 0 0 / 0.12);
+}
+.nt-create-items > * {
+  opacity: 0;
+  transform: translateY(-6px);
+  transition:
+    opacity 120ms var(--ease),
+    transform 120ms var(--ease);
+}
+.nt-create[data-open="true"] .nt-create-items > * {
+  opacity: 1;
+  transform: none;
+  transition:
+    opacity 300ms var(--ease) calc(70ms + var(--n, 0) * 35ms),
+    transform 440ms var(--ease) calc(70ms + var(--n, 0) * 35ms);
+}
+.nt-create-items > :nth-child(2) { --n: 1; }
+.nt-create-items > :nth-child(3) { --n: 2; }
+.nt-create-items > :nth-child(4) { --n: 3; }
+.nt-create-way {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 8px;
+  border-radius: var(--radius);
+  text-align: left;
+}
+.nt-create-way:hover,
+.nt-create-way:focus-visible {
+  background: var(--hover-on-dark);
+}
+.nt-create-way:active {
+  background: var(--active-on-dark);
+}
+.nt-create-tile {
   display: grid;
   flex: none;
   width: 28px;
   height: 28px;
   place-items: center;
   border-radius: 7px;
-  background: var(--surface);
+  background: oklch(1 0 0 / 0.1);
   transition:
-    transform 400ms var(--spring),
+    scale 400ms var(--spring),
     background var(--dur-fast) var(--ease),
-    box-shadow var(--dur-fast) var(--ease);
+    color var(--dur-fast) var(--ease);
 }
-.nt-menu-item.is-rich:hover .nt-menu-tile,
-.nt-menu-item.is-rich:focus-visible .nt-menu-tile {
+.nt-create-way:hover .nt-create-tile,
+.nt-create-way:focus-visible .nt-create-tile {
   background: var(--background);
-  box-shadow: 0 0 0 1px var(--border);
-  transform: scale(1.08);
+  color: var(--foreground);
+  scale: 1.08;
 }
-.nt-menu-two {
+.nt-create-two {
   display: grid;
   gap: 1px;
   min-width: 0;
 }
-.nt-menu-two > :first-child {
+.nt-create-two > :first-child {
   font-weight: 500;
 }
-.nt-menu-two > :last-child {
-  color: var(--muted);
+/* 7.9:1 on the ink. */
+.nt-create-two > :last-child,
+.nt-create-label {
+  color: oklch(0.78 0.004 90);
+}
+.nt-create-two > :last-child {
   font-size: var(--text-meta-lg);
 }
-.nt-menu-label {
+.nt-create-sep {
+  height: 1px;
+  margin: 5px 8px;
+  background: oklch(1 0 0 / 0.12);
+}
+.nt-create-label {
   padding: 6px 8px 3px;
   font-family: var(--font-mono), ui-monospace, monospace;
   font-size: var(--text-meta);
   font-weight: 500;
   letter-spacing: var(--tracking-meta);
   text-transform: uppercase;
-  color: var(--muted);
 }
 
 /* ---- The miniature ------------------------------------------------------

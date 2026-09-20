@@ -27,14 +27,6 @@ export function ChevronRight(props: SVGProps<SVGSVGElement>) {
   );
 }
 
-export function ChevronDown(props: SVGProps<SVGSVGElement>) {
-  return (
-    <svg {...base} {...props}>
-      <path d="m6 9 6 6 6-6" />
-    </svg>
-  );
-}
-
 export function ChevronsUpDown(props: SVGProps<SVGSVGElement>) {
   return (
     <svg {...base} {...props}>
