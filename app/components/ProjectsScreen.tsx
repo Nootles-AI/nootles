@@ -12,7 +12,6 @@ import { AccountMenu } from "./AccountMenu";
 import { PlanWall } from "./billing/PlanWall";
 import { usePlan } from "@/app/lib/usePlan";
 import { useResumeIntent } from "@/app/lib/billing/useResumeIntent";
-import { Brandmark } from "./Brand";
 import { ConfirmDeleteDialog } from "./ConfirmDelete";
 import { ContextMenu } from "./ContextMenu";
 import { Feedback } from "./feedback/Feedback";
@@ -196,38 +195,19 @@ export function ProjectsScreen() {
       className="mx-auto w-full px-6 py-12 sm:px-8 sm:py-16"
       style={{ maxWidth: "76rem" }}
     >
-      {/* The mark sits with the title rather than in a bar of its own: this is
-          the app's front door, and it is the one screen in the product with a
-          corner free to say whose software this is. Inside a project the
-          sidebar already spends that corner on the way back out. */}
+      {/* Three parts on one line: what you look and move with on the left, whose
+          place this is in the middle, and the one thing that makes something
+          new alone on the right — the filled control has a side to itself, so
+          nothing competes with it for "start here". */}
       {/* On the board the header lies over the canvas rather than above it, so
           it is lifted onto its own layer — see `.nt-board-host`. */}
-      <header
-        className={`flex flex-wrap items-center justify-between gap-3${
-          view === "board" ? " nt-board-host" : ""
-        }`}
-      >
-        <div className="flex items-center gap-3">
-          <Brandmark
-            role="img"
-            aria-label="Nootles"
-            width={20}
-            height={24}
-            className="text-brand"
-          />
-          <h1 className="text-[length:var(--text-title)] font-semibold tracking-[-0.02em]">
-            Projects
-          </h1>
-        </div>
-
-        <div className="nt-tools flex flex-wrap items-center gap-2">
-          {/* A button dressed as a field: search here is the palette, and this
-              is both the way in and where its shortcut is written down. */}
-          <button onClick={() => setFinding(true)} className="nt-find" aria-label="Search projects">
-            <Search width={14} height={14} />
-            <span>Search projects</span>
-            <kbd className="nt-kbd">{mod}K</kbd>
-          </button>
+      <header className={`nt-front-head${view === "board" ? " nt-board-host" : ""}`}>
+        <div className="nt-tools">
+          {/* Held at its size while the account loads: it is first in the row
+              now, and a circle arriving late would push everything after it. */}
+          <span className="nt-tools-me">
+            <AccountMenu align="start" />
+          </span>
 
           <div
             className="nt-mode is-slide"
@@ -261,6 +241,18 @@ export function ProjectsScreen() {
             </button>
           </div>
 
+          {/* A button dressed as a field: search here is the palette, and this
+              is both the way in and where its shortcut is written down. */}
+          <button onClick={() => setFinding(true)} className="nt-find" aria-label="Search projects">
+            <Search width={14} height={14} />
+            <span>Search projects</span>
+            <kbd className="nt-kbd">{mod}K</kbd>
+          </button>
+        </div>
+
+        <h1 className="nt-front-title">My Nootles</h1>
+
+        <div className="nt-front-new">
           {/* Nothing here belongs to a project, so no role gates it — an
               operator standing in would be offered a button the server is
               about to refuse. */}
@@ -317,7 +309,6 @@ export function ProjectsScreen() {
               )}
             </div>
           )}
-          <AccountMenu />
         </div>
       </header>
 

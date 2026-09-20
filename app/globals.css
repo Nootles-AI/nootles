@@ -2509,6 +2509,62 @@ body:has(.nt-review-bar) .nt-reformat-switcher {
 
 /* ---- Header tools ------------------------------------------------------- */
 
+/* Equal outer columns, so the title is centred on the page rather than in
+   whatever room the two sides happen to leave it. */
+.nt-front-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+}
+.nt-front-title {
+  font-size: var(--text-title);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: var(--control);
+  text-align: center;
+  white-space: nowrap;
+}
+.nt-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.nt-tools-me {
+  flex: none;
+  width: var(--control);
+  height: var(--control);
+}
+.nt-front-new {
+  display: flex;
+  justify-content: flex-end;
+}
+/* Below this the title and the full search field cannot share a line with
+   equal columns, so search folds to its glyph — the palette is one key away. */
+@media (max-width: 64rem) {
+  .nt-find {
+    width: var(--control);
+    padding-inline: 0;
+    justify-content: center;
+  }
+  .nt-find > span,
+  .nt-find .nt-kbd {
+    display: none;
+  }
+}
+/* And below this the title takes a line of its own, above the controls. */
+@media (max-width: 36rem) {
+  .nt-front-head {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .nt-front-title {
+    grid-column: 1 / -1;
+    grid-row: 1;
+    text-align: left;
+  }
+}
+
 /* Looks like a field and is a button: search on this screen is the palette, so
    the thing in the header is only the way in — and the place the shortcut is
    written down. */
@@ -3058,7 +3114,8 @@ body:has(.nt-review-bar) .nt-reformat-switcher {
   z-index: var(--z-base);
 }
 /* The board's origin is the page's left gutter, so switching views keeps the
-   first project under the title instead of jumping to the window's edge. */
+   first project under the header's left edge instead of jumping to the
+   window's. */
 .nt-board-stage {
   position: absolute;
   top: 148px;
@@ -3517,13 +3574,6 @@ body:has(.nt-review-bar) .nt-reformat-switcher {
   .nt-pal-side,
   .nt-pal-line,
   .nt-pal-foot {
-    display: none;
-  }
-  .nt-find {
-    width: auto;
-  }
-  .nt-find > span,
-  .nt-find .nt-kbd {
     display: none;
   }
 }
