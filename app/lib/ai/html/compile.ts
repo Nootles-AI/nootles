@@ -52,6 +52,7 @@ function runsToInline(runs: Run[]): InlineRun[] {
     if (r.type === "pageRef") {
       return { type: "pageRef", pageId: r.pageId, title: r.title };
     }
+    if (r.type === "checkbox") return { type: "checkbox", checked: r.checked };
     if (r.type === "link") {
       return { type: "link", href: r.href, content: r.content.map(textToInline) };
     }

@@ -45,7 +45,15 @@ function atomKey(node: NmlInlineContent[number]): string {
     ? `math:${node.latex}`
     : node.type === "pageRef"
       ? `page:${node.pageId}:${node.fallbackTitle}`
-      : "";
+      : node.type === "checkbox"
+        ? `check:${node.checked}`
+        : "";
+}
+
+/** Inline entities carrying an NML-only stable ID that BlockNote has no field for. */
+type InlineEntity = Extract<NmlInlineContent[number], { id: string }>;
+function isInlineEntity(node: NmlInlineContent[number]): node is InlineEntity {
+  return node.type === "math" || node.type === "pageRef" || node.type === "checkbox";
 }
 
 /**
@@ -55,11 +63,11 @@ function atomKey(node: NmlInlineContent[number]): string {
  * remaining entities pair by order for ordinary in-place edits.
  */
 function preserveInlineIds(before: NmlInlineContent, after: NmlInlineContent): void {
-  const prior = before.filter((node) => node.type === "math" || node.type === "pageRef");
-  const next = after.filter((node) => node.type === "math" || node.type === "pageRef");
+  const prior = before.filter(isInlineEntity);
+  const next = after.filter(isInlineEntity);
   const used = new Set<number>();
   next.forEach((node, index) => {
-    if (node.type !== "math" && node.type !== "pageRef") return;
+    if (!isInlineEntity(node)) return;
     let found = prior.findIndex((candidate, candidateIndex) =>
       !used.has(candidateIndex) && candidate.type === node.type && atomKey(candidate) === atomKey(node));
     if (found < 0) found = prior.findIndex((candidate, candidateIndex) =>

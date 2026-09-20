@@ -27,6 +27,7 @@ type BNInline =
   | BNText
   | { type: "math"; props: { latex: string } }
   | { type: "pageMention"; props: { pageId: string; title: string } }
+  | { type: "checkbox"; props: { checked: boolean } }
   | { type: "link"; href: string; content: BNText[] };
 
 // BlockNote's block type is invariant in its schema; the applier makes the same
@@ -47,6 +48,7 @@ function inline(content: NmlInlineContent): BNInline[] {
     if (node.type === "pageRef") {
       return { type: "pageMention", props: { pageId: node.pageId, title: node.fallbackTitle } };
     }
+    if (node.type === "checkbox") return { type: "checkbox", props: { checked: node.checked } };
     return {
       type: "link",
       href: node.href,

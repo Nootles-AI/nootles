@@ -91,6 +91,12 @@ are what place it:
   with a line of your own prose between them saying why they are there.
 Inline: <code>maxRetries</code>, <strong>bold</strong>, <em>italic</em>, <nt-math>x^2</nt-math>,
   <a href="https://example.com">a link</a> — and keep the ones already in a block you rewrite.
+Tick boxes: <nt-check></nt-check> is an empty box the reader can tick, <nt-check checked></nt-check>
+  a ticked one. Valid anywhere inline content is, which is what makes it the ONLY box a table
+  cell can hold — a <ul><li><input type="checkbox"> is a whole line and does not fit in one.
+  So a tracker, a checklist with columns, or any grid whose cells are things to tick is a
+  <table> of <nt-check>, never <ul>, and never a ☐/☑ character: a glyph looks right and ticks
+  never. A box on its own line is still the to-do list's job.
 References: <nt-ref page="pageId">Page title</nt-ref> renders as a chip — a small page glyph and
   the page's live title — and clicking it opens that page. Whenever your text names another page
   of this project, write it as an nt-ref rather than plain words: the chip stays correct when the

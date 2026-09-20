@@ -321,6 +321,26 @@
   cursor: default;
 }
 
+/* ---- Inline checkbox ------------------------------------------------
+   A tick box in the run of the text (NT-41) — the only kind a table cell can
+   hold, since a cell holds inline content and no blocks at all.
+
+   Deliberately unstyled: it is the same bare `input[type=checkbox]` the to-do
+   list draws as its marker, and nothing in the app styles that one either, so
+   one document has one checkbox. All that is added is the thing the list never
+   needed — where a box sits in a line of words, rather than in the gutter in
+   front of them. */
+.nt-check {
+  display: inline-block;
+  line-height: 1;
+}
+.nt-check-box {
+  margin: 0;
+  /* On the x-height rather than the baseline, so the box reads as centred
+     against lower-case and does not ride up out of a cell's single line. */
+  vertical-align: -0.14em;
+}
+
 /* ---- Inline math (KaTeX render + MathLive edit) ---------------------- */
 .nt-math-inline {
   cursor: pointer;

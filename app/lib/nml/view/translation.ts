@@ -302,7 +302,7 @@ function tableCommands(before: NmlTableBlock, after: NmlTableBlock): NmlCommand[
 function collectIds(document: NmlDocument): Set<string> {
   const result = new Set<string>();
   const inline = (content: NmlInlineContent) => content.forEach((node) => {
-    if (node.type === "math" || node.type === "pageRef") result.add(node.id);
+    if (node.type === "math" || node.type === "pageRef" || node.type === "checkbox") result.add(node.id);
   });
   const visit = (block: NmlBlock) => {
     result.add(block.id);

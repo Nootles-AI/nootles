@@ -624,6 +624,16 @@ function Inline({ content }: { content: unknown }) {
         if (item.type === "math") {
           return <ThumbMath key={i} latex={String(item.props?.latex ?? "")} />;
         }
+        // A box is its state, so at this size the state is the whole of it: a
+        // glyph, not an `<input>`. Nothing on a thumbnail is pressable, and a
+        // real control shrunk past reading reads as a smudge.
+        if (item.type === "checkbox") {
+          return (
+            <span key={i} className="nt-thumb-check">
+              {item.props?.checked ? "☑" : "☐"}
+            </span>
+          );
+        }
         if (typeof item.text !== "string") return null;
         const s = item.styles ?? {};
         return (

@@ -99,6 +99,16 @@ import { safeHref } from "@/app/lib/safeHref";
 
 export { safeHref };
 
+/**
+ * A checkbox's state. Presence is true, the HTML way — and `checked="false"`
+ * is false, because a model that spells the attribute out means what it says.
+ */
+function isChecked(el: Element): boolean {
+  if (!el.hasAttribute("checked")) return false;
+  const value = (el.getAttribute("checked") ?? "").trim().toLowerCase();
+  return value !== "false" && value !== "0";
+}
+
 /** Inline children → typed runs, accumulating marks down the tree. */
 function runsOf(node: Node, marks: Mark[] = []): Run[] {
   const out: Run[] = [];
@@ -123,7 +133,22 @@ function runsOf(node: Node, marks: Mark[] = []): Run[] {
       else out.push(...runsOf(el, marks));
       return;
     }
-    if (tag === "input") return; // checkbox marker, handled by the list item
+    if (canonicalTag(tag) === "nt-check") {
+      out.push({ type: "checkbox", checked: isChecked(el) });
+      return;
+    }
+    if (tag === "input") {
+      // A box that is an `<li>`'s own direct child is that item's marker, read
+      // off the item to decide its type — not a box in its words. Anywhere
+      // else, a bare `<input type="checkbox">` is the box a model reached for
+      // without knowing about `<nt-check>`, and reading it as one is the whole
+      // of "liberal in what we read".
+      const marker =
+        el.parentElement?.tagName.toLowerCase() === "li" ||
+        (el.getAttribute("type") ?? "checkbox").toLowerCase() !== "checkbox";
+      if (!marker) out.push({ type: "checkbox", checked: isChecked(el) });
+      return;
+    }
     // A nested list is structure, not text — it becomes children, so it must not
     // bleed into the parent item's content.
     if (tag === "ul" || tag === "ol") return;

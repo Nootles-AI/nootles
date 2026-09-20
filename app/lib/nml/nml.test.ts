@@ -30,6 +30,8 @@ const allBlocks: NmlDocument = {
       { type: "link", href: "https://example.com?a=1&b=2", content: [{ type: "text", text: " linked", marks: ["italic"] }] },
       { type: "math", id: "im-1", latex: "x < y" },
       { type: "pageRef", id: "ref-1", pageId: "page-2", fallbackTitle: "Other & page" },
+      { type: "checkbox", id: "check-1", checked: true },
+      { type: "checkbox", id: "check-2", checked: false },
     ] },
     { id: "h-1", type: "heading", props: { level: 2 }, children: [], content: text("Heading") },
     { id: "q-1", type: "quote", ...leaf, content: text("Quote") },
@@ -44,7 +46,7 @@ const allBlocks: NmlDocument = {
     ] },
     { id: "table-1", type: "table", props: { headerRows: 1 }, columns: [{ id: "col-1" }, { id: "col-2" }], rows: [
       { id: "row-1", cells: [{ id: "cell-1", content: text("A") }, { id: "cell-2", content: text("B") }] },
-      { id: "row-2", cells: [{ id: "cell-3", content: text("1") }, { id: "cell-4", content: text("2") }] },
+      { id: "row-2", cells: [{ id: "cell-3", content: text("1") }, { id: "cell-4", content: [{ type: "checkbox", id: "check-3", checked: false }] }] },
     ], children: [] },
     { id: "code-1", type: "codeBlock", props: { language: "typescript" }, code: "if (a < b) {\n  x && y;\n}", children: [] },
     { id: "math-1", type: "mathBlock", props: {}, rows: [{ id: "mr-1", latex: "a & b" }, { id: "mr-2", latex: "c < d" }], children: [] },

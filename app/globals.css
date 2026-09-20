@@ -2938,6 +2938,13 @@ body:has(.nt-review-bar) .nt-reformat-switcher {
   overflow: hidden;
   max-height: 132px;
 }
+/* A tick box at thumbnail size: the glyph the box would draw, in the muted grey
+   everything unpressable on a thumbnail wears. */
+.nt-thumb-check {
+  color: var(--muted);
+  padding-right: 0.15em;
+}
+
 /* Set maths, not its source. A row per line, the way the block stacks them —
    `\frac{a+d}{2}` reads as a formula once it is set and as a syntax error
    until it is, which is not a smaller version of the same thing. */

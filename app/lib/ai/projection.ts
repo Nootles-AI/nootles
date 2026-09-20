@@ -37,6 +37,15 @@ type InlineItem =
 
 export type FlatBlock = { id: string; type: string; text: string };
 
+/**
+ * A tick box as words. `[x]`/`[ ]` rather than a glyph, because the projection
+ * is what the model reads a page back as: these are the two shapes it already
+ * associates with a box and its state, and they survive any encoding.
+ */
+function checkboxText(props: unknown): string {
+  return (props as { checked?: boolean } | undefined)?.checked ? "[x]" : "[ ]";
+}
+
 /** Plain text of a run list, links included — their words are the block's words. */
 function runsText(content: unknown): string {
   if (!Array.isArray(content)) return '';
@@ -49,6 +58,7 @@ function runsText(content: unknown): string {
       if (i.type === 'pageMention') {
         return String((i.props as { title?: string } | undefined)?.title ?? '');
       }
+      if (i.type === 'checkbox') return checkboxText(i.props);
       if (i.type === 'link') return runsText(i.content);
       return '';
     })
@@ -121,6 +131,9 @@ function inlineToText(content: unknown): string {
       if (item.type === "pageMention") {
         const title = (item as { props?: { title?: string } }).props?.title ?? "";
         return `@${title}`;
+      }
+      if (item.type === "checkbox") {
+        return checkboxText((item as { props?: { checked?: boolean } }).props);
       }
       return "";
     })

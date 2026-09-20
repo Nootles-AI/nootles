@@ -57,6 +57,11 @@ export const TAG_ALIASES: Record<string, string> = {
   ref: "nt-ref",
   "page-ref": "nt-ref",
   mention: "nt-ref",
+  check: "nt-check",
+  checkbox: "nt-check",
+  "nt-checkbox": "nt-check",
+  todo: "nt-check",
+  "nt-todo": "nt-check",
 };
 
 /** Canonical tag name for an element, resolving accepted aliases. */
@@ -93,7 +98,19 @@ export type Run =
    * degrades an `nt-ref` with no attribute it knows to plain words, which is
    * exactly how an old client should read a kind from the future.
    */
-  | { type: "pageRef"; pageId: string; title: string };
+  | { type: "pageRef"; pageId: string; title: string }
+  /**
+   * `<nt-check>` / `<nt-check checked>` — a tick box in the run of the text.
+   *
+   * An `nt-` element rather than the `<input type="checkbox">` it renders as,
+   * because that element already means something else in this grammar: it is
+   * the to-do list item's own marker, read off `<li>` to decide the item's
+   * type. Two constructs on one tag, distinguished only by where they sit,
+   * would make a box in a cell and a box before a line the same thing to read.
+   * The parser still ACCEPTS a bare `<input type="checkbox">` anywhere it is
+   * not an `<li>`'s marker, because that is what a model reaches for first.
+   */
+  | { type: "checkbox"; checked: boolean };
 
 export type DocNode =
   | {

@@ -219,7 +219,7 @@ function tidyBadge(badge?: string): string | undefined {
  * own items had no icon at all while eighteen stock ones did, and the menu read
  * as two menus stacked.
  */
-function slashItems(editor: EditorInstance): DefaultReactSuggestionItem[] {
+export function slashItems(editor: EditorInstance): DefaultReactSuggestionItem[] {
   const d = editor.dictionary.slash_menu;
   const stock = new Map(
     getDefaultReactSlashMenuItems(editor).map((i) => [i.title, i] as const),
@@ -273,6 +273,22 @@ function slashItems(editor: EditorInstance): DefaultReactSuggestionItem[] {
       title: "Toggle list",
       subtext: "A list that folds away",
     }),
+    {
+      // After the to-do list on purpose: both answer to "todo" and "check", and
+      // a tie goes to the earlier item, so "/todo" still reaches the list.
+      title: "Checkbox",
+      subtext: "One tick box, inside a line or a table cell",
+      aliases: ["checkbox", "check", "tick", "tickbox", "box", "todo", "task", "done"],
+      group: ORGANISE,
+      icon: <Icon.Checkbox />,
+      onItemClick: () => {
+        editor.insertInlineContent([
+          { type: "checkbox", props: { checked: false } },
+          " ",
+        ]);
+        track("block_created", { type: "inline-checkbox" });
+      },
+    },
     ...restyle(d.table.title, ORGANISE, <Icon.Table />, {
       subtext: "Rows and columns",
     }),

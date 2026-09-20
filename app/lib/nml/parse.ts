@@ -110,6 +110,8 @@ export function parseDocument(source: string, options: NmlParseOptions = {}): Nm
         out.push({ type: "math", id: idOf(el, here), latex: el.textContent ?? "" });
       } else if (tag === "nt-ref") {
         out.push({ type: "pageRef", id: idOf(el, here), pageId: attr(el, "page-id") ?? "", fallbackTitle: el.textContent ?? "" });
+      } else if (tag === "nt-check") {
+        out.push({ type: "checkbox", id: idOf(el, here), checked: attr(el, "checked") === "true" });
       } else if (tag === "br") {
         out.push({ type: "text", text: " ", marks: inherited });
         report("normalized_hard_break", here, "Hard break normalized to a space.", "repair");

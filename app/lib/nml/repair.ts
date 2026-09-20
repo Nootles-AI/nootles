@@ -1,5 +1,5 @@
 import { normalizeDocument } from "./normalize";
-import { nmlDocumentSchema, type NmlBlock, type NmlDocument, type NmlIssue } from "./schema";
+import { nmlDocumentSchema, type NmlBlock, type NmlDocument, type NmlInlineContent, type NmlIssue } from "./schema";
 import { validateDocument } from "./validate";
 
 export type NmlRepairResult = { document?: NmlDocument; issues: NmlIssue[]; changed: boolean };
@@ -45,18 +45,26 @@ export function repairDocument(input: unknown): NmlRepairResult {
       proposedRepair: "retain-first-reid-later",
     });
   };
+  /** Inline entities own an ID of their own; text and links do not. */
+  const claimInline = (content: NmlInlineContent, path: Array<string | number>) => {
+    content.forEach((node, index) => {
+      if (node.type === "math" || node.type === "pageRef" || node.type === "checkbox") claim(node, [...path, index]);
+    });
+  };
   const visit = (block: NmlBlock, path: Array<string | number>) => {
     claim(block, path);
-    if ("content" in block) {
-      block.content.forEach((node, index) => {
-        if (node.type === "math" || node.type === "pageRef") claim(node, [...path, "content", index]);
-      });
-    }
+    if ("content" in block) claimInline(block.content, [...path, "content"]);
     if (block.type === "table") {
       block.columns.forEach((column, index) => claim(column, [...path, "columns", index]));
       block.rows.forEach((row, rowIndex) => {
         claim(row, [...path, "rows", rowIndex]);
-        row.cells.forEach((cell, cellIndex) => claim(cell, [...path, "rows", rowIndex, "cells", cellIndex]));
+        row.cells.forEach((cell, cellIndex) => {
+          claim(cell, [...path, "rows", rowIndex, "cells", cellIndex]);
+          // A cell's own inline entities. Reached only now that a cell can hold
+          // one: a tick box in a cell is the common case for NT-41, and an
+          // unclaimed duplicate ID there is one the mirror would pair wrongly.
+          claimInline(cell.content, [...path, "rows", rowIndex, "cells", cellIndex, "content"]);
+        });
       });
     }
     if (block.type === "mathBlock") block.rows.forEach((row, index) => claim(row, [...path, "rows", index]));

@@ -114,6 +114,7 @@ export function createProjectionSchema(registry = new NodeAdapterRegistry()): Sc
     link: { inline: true, group: "inline", content: "text*", attrs: { href: {} }, toDOM: (node) => ["a", { href: node.attrs.href, rel: "noopener noreferrer" }, 0] },
     math: { inline: true, group: "inline", atom: true, attrs: { nmlId: { default: null }, latex: {} }, toDOM: (node) => ["span", { "data-nml-id": node.attrs.nmlId, class: "nt-math-inline", contenteditable: "false" }, node.attrs.latex] },
     pageRef: { inline: true, group: "inline", atom: true, attrs: { nmlId: { default: null }, pageId: {}, fallbackTitle: {} }, toDOM: (node) => ["span", { "data-nml-id": node.attrs.nmlId, "data-page-id": node.attrs.pageId, class: "nt-ref", contenteditable: "false" }, node.attrs.fallbackTitle] },
+    checkbox: { inline: true, group: "inline", atom: true, attrs: { nmlId: { default: null }, checked: { default: false } }, toDOM: (node) => ["span", { "data-nml-id": node.attrs.nmlId, class: "nt-check", contenteditable: "false" }, ["input", { type: "checkbox", class: "nt-check-box", ...(node.attrs.checked ? { checked: "checked" } : {}) }]] },
     table_row: { content: "table_cell*", attrs: { nmlId: { default: null } }, toDOM: (node) => ["tr", { "data-nml-id": node.attrs.nmlId }, 0] },
     table_cell: { content: "inline*", attrs: { nmlId: { default: null }, viewHeader: { default: false } }, toDOM: (node) => [node.attrs.viewHeader ? "th" : "td", { "data-nml-id": node.attrs.nmlId }, 0] },
     math_row: { content: "text*", marks: "", attrs: { nmlId: { default: null } }, toDOM: (node) => ["div", { "data-nml-id": node.attrs.nmlId, class: "nt-mathblock-row" }, 0] },
@@ -143,6 +144,7 @@ export function inlineFromPm(node: PmNode): NmlInlineContent {
     else if (child.type.name === "link") result.push({ type: "link", href: child.attrs.href, content: inlineFromPm(child) as Extract<NmlInlineContent[number], { type: "text" }>[] });
     else if (child.type.name === "math") result.push({ type: "math", id: child.attrs.nmlId, latex: child.attrs.latex });
     else if (child.type.name === "pageRef") result.push({ type: "pageRef", id: child.attrs.nmlId, pageId: child.attrs.pageId, fallbackTitle: child.attrs.fallbackTitle });
+    else if (child.type.name === "checkbox") result.push({ type: "checkbox", id: child.attrs.nmlId, checked: child.attrs.checked === true });
     else throw new Error("Unsupported inline projection");
   });
   return normalizeInline(result);

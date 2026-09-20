@@ -33,6 +33,12 @@ function inlineHtml(content: NmlInlineContent): string {
       if (node.type === "pageRef") {
         return `<nt-ref${attr("id", node.id)}${attr("page-id", node.pageId)}>${escText(node.fallbackTitle)}</nt-ref>`;
       }
+      // Always spelled out, never an HTML boolean attribute: the canonical form
+      // has to round-trip byte for byte, and "absent" and "false" must not be
+      // two ways of writing one state.
+      if (node.type === "checkbox") {
+        return `<nt-check${attr("id", node.id)}${attr("checked", node.checked ? "true" : "false")}></nt-check>`;
+      }
       const text = node.type === "link" ? inlineHtml(node.content) : escText(node.text);
       const marked =
         node.type === "link"

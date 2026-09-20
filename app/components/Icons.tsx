@@ -508,6 +508,17 @@ export function TodoList(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+/** TodoList's bare mark — one box, ticked. The inline form of the to-do list:
+ *  a box that sits in a line of words rather than in the gutter before one. */
+export function Checkbox(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <rect x="4" y="4" width="16" height="16" rx="3" />
+      <path d="m8 12.2 2.9 2.9 5.1-5.6" />
+    </svg>
+  );
+}
+
 /** Closed disclosure, with the one line it would reveal indented beneath. */
 export function ToggleList(props: SVGProps<SVGSVGElement>) {
   return (

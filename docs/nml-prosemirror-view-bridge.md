@@ -86,7 +86,7 @@ the bridge, then mounts the isolated plain-text and full editors. It checks desk
 fixtures, real typing/selection/delete/Unicode and composition events, durable awareness
 wire data, intersecting remote composition, deleted-target recovery, optimistic
 acknowledgement/rollback, a reconnect race, remote-caret mapping, rich marks and partial
-links, inline math/references, split/list/move/paste/drop actions, table/code/math/media and
+links, inline math/references/checkboxes, split/list/move/paste/drop actions, table/code/math/media and
 storyboard edits, canonical canvas move/label/create/delete, remote scene adoption,
 canvas awareness and authorization rollback, drift/newer-version fallback, and cleanup. External
 HTTP is intercepted and Convex uses an inert fixture WebSocket; no backend, paid API, keys,
