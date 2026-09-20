@@ -1,3 +1,4 @@
+import { api } from "./_generated/api";
 import { mutation, query } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -16,7 +17,6 @@ import { ABOUT, BACKGROUND } from "./ai/questions";
 import { requireQuota } from "./entitlements";
 import { add as addRepos } from "./github/repos";
 import { repoRef } from "./schema";
-import { findTemplate, openingPages } from "./templates";
 
 /**
  * The page facts the projects screen draws — how many, which one to preview,
@@ -202,6 +202,12 @@ export const sharedWithMe = query({
   },
 });
 
+const seedPageArg = v.object({ title: v.string(), update: v.bytes() });
+const seedRow = v.union(
+  v.object({ kind: v.literal("page"), title: v.string(), update: v.bytes() }),
+  v.object({ kind: v.literal("folder"), title: v.string(), pages: v.array(seedPageArg) }),
+);
+
 export const create = mutation({
   args: {
     title: v.string(),
@@ -210,15 +216,17 @@ export const create = mutation({
     context: v.optional(v.string()),
     /** Repositories chosen in the dialog, before there was a project to hang them on. */
     repos: v.optional(v.array(repoRef)),
-    /** A `templates.ts` id. Absent means blank. */
-    template: v.optional(v.string()),
+    /**
+     * The sidebar a project made from a template opens with, top to bottom:
+     * pages, and one level of folders holding pages. Each `update` is the Yjs
+     * update the page's document is born from, built on the client where the
+     * editor's schema lives (`app/lib/templates/seed.ts`) — the server never
+     * learns what a template is. Absent or empty means one blank page.
+     */
+    seed: v.optional(v.array(seedRow)),
   },
   handler: async (ctx, args) => {
     const ownerId = await requireOwner(ctx);
-    // Before anything is written: an id nobody defined is a client out of step
-    // with the server, and a blank project in its place would hide that.
-    const template = args.template === undefined ? null : findTemplate(args.template);
-    if (template === undefined) throw new Error(`Unknown template: ${args.template}`);
     // The free plan's project limit. Deliberately not in `onboarding.ts`: the
     // tutorial's seeded project is the one project everybody gets regardless,
     // and metering it would mean a new account walked into a wall on arrival.
@@ -259,15 +267,53 @@ export const create = mutation({
       await addRepos(ctx, ownerId, projectId, args.repos);
     }
 
-    // The template's pages, or one blank page so a new project is immediately
-    // usable. Empty title so the doc shows its placeholder; the sidebar renders
-    // an "Untitled" fallback.
-    for (const [order, page] of openingPages(template).entries()) {
+    // A page and its document together, the way first run seeds them: the row
+    // first, because `ydoc.init` authorizes through it.
+    const seedPage = async (
+      page: { title: string; update: ArrayBuffer },
+      order: number,
+      folderId?: Id<"folders">,
+    ) => {
+      const docId = crypto.randomUUID();
       await ctx.db.insert("pages", {
         ownerId,
         projectId,
         title: page.title,
+        folderId,
         order,
+        docId,
+        yjs: true,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.runMutation(api.ydoc.init, { docId, update: page.update });
+    };
+
+    if (args.seed?.length) {
+      // One order line per level, folders and pages alike.
+      for (const [order, row] of args.seed.entries()) {
+        if (row.kind === "page") {
+          await seedPage(row, order);
+          continue;
+        }
+        const folderId = await ctx.db.insert("folders", {
+          ownerId,
+          projectId,
+          title: row.title,
+          order,
+          createdAt: now,
+        });
+        for (const [at, page] of row.pages.entries()) await seedPage(page, at, folderId);
+      }
+    } else {
+      // One blank page so a new project is immediately usable. Empty title so
+      // the doc shows its placeholder; the sidebar renders an "Untitled"
+      // fallback.
+      await ctx.db.insert("pages", {
+        ownerId,
+        projectId,
+        title: "",
+        order: 0,
         docId: crypto.randomUUID(),
         createdAt: now,
       });

@@ -15,10 +15,11 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { pages, when } from "@/app/lib/projectMeta";
 import { Dialog } from "./Dialog";
+import { PROJECT_TEMPLATES, pagePicture, type ProjectTemplate } from "@/app/lib/templates";
 import { ChevronRight, FileDoc, Folder, Plus, Template } from "./Icons";
 import { useNewProjectDraft, type NewProject } from "./NewProjectDialog";
 import { NotionMark } from "./NotionMark";
-import { PagePreview } from "./PagePreview";
+import { BlocksThumb, PagePreview } from "./PagePreview";
 
 type Project = NonNullable<
   ReturnType<typeof useQuery<typeof api.projects.listForScreen>>
@@ -38,8 +39,8 @@ type Row = {
   /** Wears the New project button's ink, so the two read as the same thing. */
   ink?: boolean;
   project?: Project | SharedProject;
-  /** A template's opening pages, which the side pane previews. */
-  pages?: { title: string }[];
+  /** What the side pane previews in place of a project. */
+  template?: ProjectTemplate;
   run: () => void;
 };
 
@@ -153,7 +154,6 @@ function Palette({
   onNotion: () => void;
 }) {
   const router = useRouter();
-  const templates = useQuery(api.templates.list);
   const [page, setPage] = useState<Page>(start);
   // What the details page is making: a template, or null for blank.
   const [template, setTemplate] = useState<{ id: string; name: string } | null>(null);
@@ -250,13 +250,13 @@ function Palette({
       : []),
   ];
 
-  const choices: Row[] = (templates ?? []).map((t) => ({
+  const choices: Row[] = PROJECT_TEMPLATES.map((t) => ({
     id: t.id,
     group: "Templates",
     name: t.name,
     line: t.description,
     icon: <Template />,
-    pages: t.pages,
+    template: t,
     drill: true,
     run: () => {
       setTemplate({ id: t.id, name: t.name });
@@ -462,8 +462,8 @@ function Palette({
                     </div>
                   </dl>
                 </div>
-              ) : current?.pages ? (
-                <TemplatePreview key={current.id} pages={current.pages} />
+              ) : current?.template ? (
+                <TemplatePreview key={current.id} template={current.template} />
               ) : (
                 !currentProject &&
                 current && (
@@ -501,33 +501,48 @@ function Palette({
 }
 
 /**
- * What a template makes: one of its pages on top, all of them listed below.
- * Resting on a file shows that page. Pointer only — the pane is a preview and
- * hidden from assistive tech, like the project preview it sits in place of; the
- * list it describes is reached by choosing the template.
+ * What a template makes: one of its pages on top, drawn as it will look, and
+ * the sidebar it opens with below. Resting on a file shows that page.
+ *
+ * Pointer only — the pane is a preview and hidden from assistive tech, like
+ * the project preview it sits in place of; what it describes is reached by
+ * choosing the template.
  */
-function TemplatePreview({ pages }: { pages: { title: string }[] }) {
-  const [at, setAt] = useState(0);
-  const page = pages[at] ?? pages[0];
+function TemplatePreview({ template }: { template: ProjectTemplate }) {
+  const first = template.rows.flatMap((row) => (row.kind === "page" ? [row] : row.pages))[0];
+  const [shown, setShown] = useState(first);
+
+  const file = (page: typeof first, nested: boolean) => (
+    <li
+      key={page.title}
+      className={`nt-pal-file${nested ? " is-nested" : ""}`}
+      data-on={page === shown}
+      onPointerEnter={() => setShown(page)}
+    >
+      <FileDoc width={14} height={14} />
+      <span>{page.title}</span>
+    </li>
+  );
+
   return (
     <div className="nt-pal-card nt-pal-tpl">
-      <div className="nt-pal-sheet" key={at}>
-        <p className="nt-pal-sheet-title">{page.title || "Untitled"}</p>
-        <span className="nt-thumb-blank" />
+      <div className="nt-pal-sheet" key={shown.title}>
+        <BlocksThumb blocks={pagePicture(shown)} />
       </div>
-      <div className="nt-pal-group">Pages</div>
-      <ul>
-        {pages.map((p, i) => (
-          <li
-            key={i}
-            className="nt-pal-file"
-            data-on={i === at}
-            onPointerEnter={() => setAt(i)}
-          >
-            <FileDoc width={14} height={14} />
-            <span>{p.title || "Untitled"}</span>
-          </li>
-        ))}
+      <ul className="nt-pal-files">
+        {template.rows.map((row) =>
+          row.kind === "page" ? (
+            file(row, false)
+          ) : (
+            <li key={row.title}>
+              <div className="nt-pal-file is-folder">
+                <Folder width={14} height={14} />
+                <span>{row.title}</span>
+              </div>
+              <ul>{row.pages.map((page) => file(page, true))}</ul>
+            </li>
+          )
+        )}
       </ul>
     </div>
   );

@@ -3685,33 +3685,33 @@ body:has(.nt-review-bar) .nt-reformat-switcher {
     0 2px 4px oklch(0.25 0.005 90 / 0.05),
     0 18px 36px -16px oklch(0.25 0.005 90 / 0.3);
 }
-/* A template's preview: a page on top, the pages it makes below. The sheet is
-   drawn like the project thumbnail it stands in for, at the same 4:3. */
-.nt-pal-sheet {
+/* A template's preview: a page on top, the sidebar it opens with below. The
+   sheet is the project thumbnail's own frame, so a template looks like the
+   project it is about to be. */
+/* The page takes all the height the pane has left above the file list, rather
+   than the thumbnail's 4:3 — here it is the thing being chosen, and more of the
+   page is more of the answer. The thumbnail's own fade handles the crop. */
+.nt-pal-side {
+  grid-template-rows: minmax(0, 1fr);
+}
+.nt-pal-card.nt-pal-tpl {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  aspect-ratio: 4 / 3;
-  padding: 18px 20px;
-  overflow: hidden;
-  border-radius: 6px;
-  background: var(--background);
-  box-shadow:
-    0 0 0 1px var(--border),
-    0 2px 4px oklch(0.25 0.005 90 / 0.05),
-    0 18px 36px -16px oklch(0.25 0.005 90 / 0.3);
+  align-self: stretch;
+  min-height: 0;
+}
+.nt-pal-sheet {
+  flex: 1 1 auto;
+  min-height: 0;
   animation: nt-fade-in var(--dur) var(--ease);
 }
-.nt-pal-sheet-title {
-  overflow: hidden;
-  font-size: var(--text-body);
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.nt-pal-sheet .nt-thumb {
+  height: 100%;
+  aspect-ratio: auto;
 }
-.nt-pal-tpl > .nt-pal-group {
-  padding: 18px 0 4px;
+.nt-pal-files {
+  flex: none;
+  margin-top: 16px;
 }
 .nt-pal-file {
   display: flex;
@@ -3727,10 +3727,22 @@ body:has(.nt-review-bar) .nt-reformat-switcher {
     background var(--dur-fast) var(--ease),
     color var(--dur-fast) var(--ease);
 }
+.nt-pal-file > svg {
+  flex: none;
+}
 .nt-pal-file > span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* A folder is structure, not a page: it names what is under it and shows
+   nothing of its own, so it neither highlights nor takes the pointer. */
+.nt-pal-file.is-folder {
+  color: var(--foreground);
+  font-weight: 500;
+}
+.nt-pal-file.is-nested {
+  margin-left: 14px;
 }
 .nt-pal-file[data-on="true"] {
   background: var(--selected);

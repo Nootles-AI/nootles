@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
+import { findTemplate } from "@/app/lib/templates";
 import { track } from "@/app/lib/telemetry";
 import { pages, when } from "@/app/lib/projectMeta";
 import { BoardView, GridView, ListView, Plus, Search } from "./Icons";
@@ -163,11 +164,18 @@ export function ProjectsScreen() {
   useResumeIntent("newProject", true, openNaming);
 
   const create = async (project: NewProject) => {
+    // A template's pages become documents here, in the browser, at the moment
+    // one is used — the builder brings the editor with it, so it is not part of
+    // this screen's bundle.
+    const template = project.template ? findTemplate(project.template) : undefined;
+    const seed = template
+      ? (await import("@/app/lib/templates/seed")).seedOf(template)
+      : undefined;
     const id = await createProject({
       title: project.title,
       ...(project.description ? { description: project.description } : {}),
       ...(project.context ? { context: project.context } : {}),
-      ...(project.template ? { template: project.template } : {}),
+      ...(seed ? { seed } : {}),
       ...(project.repos.length
         ? {
             repos: project.repos.map((repo) => ({

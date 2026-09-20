@@ -52,7 +52,7 @@ export function seedDiagramInvite(template: Template): string {
  * template stays legible to whoever edits it; the renderer wants the inline
  * array a real document holds.
  */
-function toAny(block: SeedBlock, i: number): AnyBlock {
+export function toAny(block: SeedBlock, i: number): AnyBlock {
   return {
     id: block.id ?? `seed-${i}`,
     type: String(block.type ?? "paragraph"),

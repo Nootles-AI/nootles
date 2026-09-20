@@ -11,7 +11,7 @@ export type NewProject = {
   description: string;
   context: string;
   repos: Listed[];
-  /** A `convex/templates.ts` id; absent means blank. */
+  /** An `app/lib/templates` id; absent means blank. */
   template?: string;
 };
 
