@@ -64,3 +64,81 @@ export function keepListItems<
     ),
   };
 }
+
+type Editor = Parameters<NonNullable<Extension["keyboardShortcuts"]>[string]>[0]["editor"];
+
+/**
+ * BlockNote's own Enter, whose first rule is "removes a level of nesting if the
+ * block is empty & indented, while the selection is also empty & at the start
+ * of the block" (`KeyboardShortcutsExtension`). Every condition it reads is
+ * read here, because declining a key BlockNote turns out not to want lands on
+ * ProseMirror's plain Enter instead of on the outdent.
+ */
+function blockNoteWillStepOut(editor: Editor, type: string): boolean {
+  const state = editor.prosemirrorState;
+  const info = getBlockInfoFromSelection(state);
+  if (!info.isBlockContainer || info.blockNoteType !== type) return false;
+  return (
+    info.blockContent.node.childCount === 0 &&
+    state.selection.anchor === state.selection.head &&
+    state.selection.$anchor.parentOffset === 0 &&
+    state.doc.resolve(info.bnBlock.beforePos).depth > 1
+  );
+}
+
+/**
+ * A list item that steps out of an empty item rather than ending the list where
+ * it stands.
+ *
+ * BlockNote's Enter already outdents an empty indented block — that is the
+ * first rule it tries, and it is why an empty paragraph or heading one level in
+ * comes back out a level when you press Enter on it. The four list items never
+ * reach that rule: each registers its own Enter, whose first branch turns an
+ * empty item into a paragraph wherever it sits, and a block spec's keymap runs
+ * ahead of the editor's.
+ *
+ * One level in, that paragraph is neither the way out nor anything anyone asked
+ * for. The item becomes a paragraph still nested under its parent, so leaving a
+ * two-deep list takes two Enters, and an empty item in the middle of a run
+ * leaves a paragraph between its siblings — which breaks the run in two and
+ * restarts the numbering after it, the same damage `keepListItems` exists to
+ * prevent (NT-65).
+ *
+ * So the item's own Enter declines exactly the case BlockNote already answers,
+ * and the answer is the one Shift+Tab gives: the item steps out one level and
+ * stays the kind of item it is, carrying its children and adopting the siblings
+ * below it. A top-level item has no level to step out to and never declines, so
+ * BlockNote's paragraph remains the way out of a list.
+ *
+ * Nothing else moves: a non-empty item still splits, a selection that spans
+ * characters is still BlockNote's, and every other shortcut is untouched.
+ */
+export function stepOutOfEmptyItems<
+  Spec extends {
+    config: { type: string };
+    extensions?: (Extension | ExtensionFactoryInstance)[];
+  },
+>(spec: Spec): Spec {
+  const deferWhenIndented = (extension: Extension): Extension => {
+    const enter = extension.keyboardShortcuts?.Enter;
+    if (!enter) return extension;
+    return {
+      ...extension,
+      keyboardShortcuts: {
+        ...extension.keyboardShortcuts,
+        Enter: (context) =>
+          blockNoteWillStepOut(context.editor, spec.config.type)
+            ? false
+            : enter(context),
+      },
+    };
+  };
+  return {
+    ...spec,
+    extensions: spec.extensions?.map((extension) =>
+      typeof extension === "function"
+        ? (context) => deferWhenIndented(extension(context))
+        : deferWhenIndented(extension),
+    ),
+  };
+}

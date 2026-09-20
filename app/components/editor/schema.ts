@@ -4,7 +4,7 @@ import {
   defaultInlineContentSpecs,
 } from "@blocknote/core";
 import { codeBlockSpec } from "./blocks/CodeBlock";
-import { keepListItems } from "./blocks/listSafe";
+import { keepListItems, stepOutOfEmptyItems } from "./blocks/listSafe";
 import { mathBlockSpec } from "./blocks/MathBlock";
 import { canvasBlockSpec } from "./blocks/CanvasBlock";
 import { albumBlockSpec } from "./blocks/AlbumBlock";
@@ -31,6 +31,12 @@ export const schema = BlockNoteSchema.create({
     // prefixes were never meant to do — see `keepListItems`.
     heading: keepListItems(defaultBlockSpecs.heading),
     quote: keepListItems(defaultBlockSpecs.quote),
+    // BlockNote's own list items, less the one thing Enter on an empty one was
+    // never meant to do — see `stepOutOfEmptyItems`.
+    bulletListItem: stepOutOfEmptyItems(defaultBlockSpecs.bulletListItem),
+    numberedListItem: stepOutOfEmptyItems(defaultBlockSpecs.numberedListItem),
+    checkListItem: stepOutOfEmptyItems(defaultBlockSpecs.checkListItem),
+    toggleListItem: stepOutOfEmptyItems(defaultBlockSpecs.toggleListItem),
     codeBlock: codeBlockSpec,
     mathBlock: mathBlockSpec,
     canvas: canvasBlockSpec,
