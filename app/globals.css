@@ -3523,6 +3523,15 @@ body:has(.nt-review-bar) .nt-reformat-switcher {
   color: var(--foreground);
   transform: scale(1.08);
 }
+/* The create action wears the New project button's ink, selected or not: it is
+   the same control reached another way, and should look like it. */
+.nt-pal-row .nt-pal-icon.is-ink,
+.nt-pal-row[aria-selected="true"] .nt-pal-icon.is-ink,
+.nt-pal-big.is-ink {
+  background: var(--foreground);
+  box-shadow: none;
+  color: var(--background);
+}
 .nt-pal-text {
   display: flex;
   flex: 1;

@@ -33,6 +33,8 @@ type Row = {
   icon: ReactNode;
   /** Opens a second page of the palette rather than doing something. */
   drill?: boolean;
+  /** Wears the New project button's ink, so the two read as the same thing. */
+  ink?: boolean;
   project?: Project | SharedProject;
   run: () => void;
 };
@@ -143,6 +145,7 @@ function Palette({
             name: "New project",
             line: notion ? "Blank, or imported" : "A title and an empty first page",
             icon: <Plus />,
+            ink: true,
             drill: notion,
             run: notion ? () => go("create") : onBlank,
           },
@@ -297,7 +300,7 @@ function Palette({
                 }}
                 onClick={r.run}
               >
-                <span className="nt-pal-icon">{r.icon}</span>
+                <span className={`nt-pal-icon${r.ink ? " is-ink" : ""}`}>{r.icon}</span>
                 <span className="nt-pal-text">
                   <span className="nt-pal-name">{r.name}</span>
                   <span className="nt-pal-line">{r.line}</span>
@@ -336,7 +339,7 @@ function Palette({
             !currentProject &&
             current && (
               <div className="nt-pal-card is-action" key={current.id}>
-                <span className="nt-pal-big">{current.icon}</span>
+                <span className={`nt-pal-big${current.ink ? " is-ink" : ""}`}>{current.icon}</span>
                 <p className="nt-pal-card-name">{current.name}</p>
                 <p className="nt-pal-card-line">{current.line}</p>
               </div>
