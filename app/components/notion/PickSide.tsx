@@ -1,5 +1,6 @@
-import { FileDoc } from "@/app/components/Icons";
+import { BlocksThumb } from "@/app/components/PagePreview";
 import type { NotionPageNode } from "@/app/lib/notion/plan";
+import { useOpening } from "./useOpening";
 
 /**
  * The palette's side pane while choosing pages: the page under the highlight on
@@ -11,7 +12,9 @@ import type { NotionPageNode } from "@/app/lib/notion/plan";
  * in view the whole time rather than appearing in a sentence once something is
  * ticked.
  *
- * The top half is where a preview of the page itself would go.
+ * On top of both is the page itself: its opening, read from Notion once the
+ * highlight rests, and drawn by the project thumbnail's renderer from the
+ * blocks the import would write — so it is a picture of what arrives.
  */
 export function PickSide({
   node,
@@ -34,11 +37,10 @@ export function PickSide({
   return (
     <aside className="nt-pal-side nt-pal-pickside" aria-hidden="true">
       {node ? (
-        <div className="nt-pal-card" key={node.id}>
-          <span className="nt-pal-big">
-            {node.emoji ? <span className="nt-pal-big-emoji">{node.emoji}</span> : <FileDoc />}
-          </span>
-          <p className="nt-pal-card-name">{node.title}</p>
+        <div className="nt-pal-card nt-pal-tpl">
+          <div className="nt-pal-sheet" key={node.id}>
+            <Opening node={node} />
+          </div>
           <p className="nt-pal-card-line">{path.length ? path.join(" › ") : "Top level"}</p>
           <dl className="nt-pal-facts">
             <div>
@@ -68,6 +70,26 @@ export function PickSide({
         </p>
       </div>
     </aside>
+  );
+}
+
+/**
+ * The page's opening under its own title, the way Notion heads a page. While it
+ * is being read the sheet holds the title over a few ruled lines; a page that
+ * cannot be read keeps the title alone, which is still the right page.
+ */
+function Opening({ node }: { node: NotionPageNode }) {
+  const blocks = useOpening(node.id);
+  const title = {
+    id: `${node.id}.title`,
+    type: "heading",
+    props: { level: 1 },
+    content: [{ type: "text", text: `${node.emoji ? `${node.emoji} ` : ""}${node.title}`, styles: {} }],
+  };
+  return (
+    <div className="nt-pal-opening" data-reading={blocks === undefined || undefined}>
+      <BlocksThumb blocks={[title, ...(blocks ?? [])]} />
+    </div>
   );
 }
 

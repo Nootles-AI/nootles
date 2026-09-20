@@ -3528,6 +3528,45 @@ body:has(.nt-review-bar) .nt-reformat-switcher {
   font-size: 26px;
   line-height: 1;
 }
+/* The page under the highlight. The sheet already carries its title, so what
+   follows it is only where the page lives. While Notion is being asked, a few
+   ruled lines stand under the title where the words will be — late enough that
+   a quick answer never shows them. */
+.nt-pal-pickside .nt-pal-card-line {
+  margin-top: 12px;
+}
+.nt-pal-pickside .nt-pal-facts {
+  margin-top: 10px;
+}
+.nt-pal-opening {
+  position: relative;
+  height: 100%;
+}
+.nt-pal-opening[data-reading]::before {
+  content: "";
+  position: absolute;
+  z-index: 1;
+  top: 56px;
+  left: 12px;
+  width: 62%;
+  height: 58px;
+  background: repeating-linear-gradient(to bottom, var(--border) 0 3px, transparent 3px 14px);
+  border-radius: 2px;
+  animation: nt-pal-opening-wait 1.4s var(--ease) 300ms infinite alternate backwards;
+}
+@keyframes nt-pal-opening-wait {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nt-pal-opening[data-reading]::before {
+    animation: none;
+  }
+}
 .nt-pal-pickhint {
   color: var(--muted);
   font-size: var(--text-ui);
