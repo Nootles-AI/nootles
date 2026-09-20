@@ -438,9 +438,11 @@ export function ProjectsScreen() {
           projects={projects ?? []}
           shared={shared ?? []}
           canCreate={!standIn}
+          room={room("projects")}
           notion={notionAvailable === true}
           onOpen={open}
-          onBlank={startBlank}
+          onWall={() => setWalled(true)}
+          onCreate={create}
           onNotion={startImport}
           onClose={() => setFinding(false)}
         />

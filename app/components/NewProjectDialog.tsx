@@ -25,14 +25,11 @@ export type NewProject = {
  * perfectly good project, and asking for more before letting someone start
  * would be a form standing between them and a blank page.
  */
-export function NewProjectDialog({
-  onCancel,
-  onCreate,
-}: {
-  onCancel: () => void;
-  /** Resolves once the project exists; the caller closes this and opens it. */
-  onCreate: (project: NewProject) => Promise<void>;
-}) {
+/**
+ * The draft, and the one way it is sent. Shared by the dialog and the palette's
+ * form page, so a project made from either is made the same way.
+ */
+export function useNewProjectDraft(onCreate: (project: NewProject) => Promise<void>) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [context, setContext] = useState("");
@@ -69,6 +66,29 @@ export function NewProjectDialog({
     e.preventDefault();
     e.currentTarget.form?.requestSubmit();
   };
+
+  const addRepo = (repo: Listed) => setRepos((chosen) => [...chosen, repo]);
+  const removeRepo = (key: string) =>
+    setRepos((chosen) => chosen.filter((r) => r.fullName !== key));
+
+  return {
+    title, setTitle, description, setDescription, context, setContext,
+    repos, addRepo, removeRepo, busy, failure, named, submit, sendOnModEnter,
+  };
+}
+
+export function NewProjectDialog({
+  onCancel,
+  onCreate,
+}: {
+  onCancel: () => void;
+  /** Resolves once the project exists; the caller closes this and opens it. */
+  onCreate: (project: NewProject) => Promise<void>;
+}) {
+  const {
+    title, setTitle, description, setDescription, context, setContext,
+    repos, addRepo, removeRepo, busy, failure, named, submit, sendOnModEnter,
+  } = useNewProjectDraft(onCreate);
 
   return (
     <Dialog
@@ -133,12 +153,8 @@ export function NewProjectDialog({
                     description: repo.description,
                     private: repo.private,
                   }))}
-                  onAdd={(repo) => setRepos((chosen) => [...chosen, repo])}
-                  onRemove={(key) =>
-                    setRepos((chosen) =>
-                      chosen.filter((r) => r.fullName !== key),
-                    )
-                  }
+                  onAdd={addRepo}
+                  onRemove={removeRepo}
                 />
               </div>
             </div>
