@@ -14,7 +14,6 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { pages, when } from "@/app/lib/projectMeta";
 import { Dialog } from "./Dialog";
-import { GitHubRepos } from "./context/GitHubRepos";
 import { ChevronRight, FileDoc, Folder, Plus, Template } from "./Icons";
 import { useNewProjectDraft, type NewProject } from "./NewProjectDialog";
 import { NotionMark } from "./NotionMark";
@@ -434,9 +433,8 @@ function Palette({
 }
 
 /**
- * The New project dialog's fields, on the palette's third page. Same questions
- * in the same order, same draft and the same send; only the dress is the
- * palette's — group labels, hairlines, type at the field's size.
+ * The New project dialog's fields, on the palette's third page — all but the
+ * repositories. Same draft and the same send; only the dress is the palette's.
  */
 function BlankForm({
   onCreate,
@@ -445,9 +443,11 @@ function BlankForm({
   onCreate: (project: NewProject) => Promise<void>;
   onBack: () => void;
 }) {
+  // Repositories are left to the dialog for now; a project made here links
+  // none, and can link them from the sidebar once it exists.
   const {
     title, setTitle, description, setDescription, context, setContext,
-    repos, addRepo, removeRepo, busy, failure, named, submit, sendOnModEnter,
+    busy, failure, named, submit, sendOnModEnter,
   } = useNewProjectDraft(onCreate);
 
   return (
@@ -483,22 +483,6 @@ function BlankForm({
             onChange={(e) => setDescription(e.target.value)}
           />
         </label>
-        <div className="nt-pal-fld">
-          <span className="nt-pal-key">Repositories</span>
-          <div className="min-w-0">
-            <GitHubRepos
-              bare
-              repos={repos.map((repo) => ({
-                key: repo.fullName,
-                fullName: repo.fullName,
-                description: repo.description,
-                private: repo.private,
-              }))}
-              onAdd={addRepo}
-              onRemove={removeRepo}
-            />
-          </div>
-        </div>
         <label className="nt-pal-fld">
           <span className="nt-pal-key">Context</span>
           <textarea

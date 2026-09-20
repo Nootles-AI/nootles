@@ -3526,17 +3526,6 @@ body:has(.nt-review-bar) .nt-reformat-switcher {
 .nt-pal-input::placeholder {
   color: var(--muted);
 }
-/* The repos block inside its answer column: its rows and note at the answer
-   column's left edge, at the row's own rhythm. */
-.nt-pal-fld .nt-row {
-  margin-inline: calc(var(--inset) * -1);
-}
-.nt-pal-fld .nt-repo {
-  margin-inline: calc(var(--inset) * -1);
-}
-.nt-pal-fld .nt-note {
-  margin-top: 4px;
-}
 .nt-pal-form .nt-pal-foot {
   align-items: center;
 }
