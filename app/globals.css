@@ -3478,20 +3478,10 @@ body:has(.nt-review-bar) .nt-reformat-switcher {
 }
 .nt-pal-fields {
   max-height: min(56vh, 30rem);
-  padding: 4px 20px 14px;
+  padding: 8px 20px 14px;
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: var(--border-strong) transparent;
-}
-.nt-pal-fields > .nt-pal-group {
-  padding-inline: 0;
-}
-.nt-pal-group em {
-  margin-left: 8px;
-  font-style: normal;
-  font-weight: 400;
-  letter-spacing: 0;
-  text-transform: none;
 }
 .nt-pal-fld {
   display: grid;

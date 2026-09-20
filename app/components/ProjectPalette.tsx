@@ -467,12 +467,8 @@ function BlankForm({
       </label>
 
       {/* The rest is one thing — what the assistant is told — and reads as one
-          group: a heading in the palette's section voice, then keys down the
-          left and answers down the right. */}
+          group: keys down the left, answers down the right. */}
       <div className="nt-pal-fields">
-        <div className="nt-pal-group">
-          For the assistant <em>All optional</em>
-        </div>
         <label className="nt-pal-fld">
           <span className="nt-pal-key">Description</span>
           <input
