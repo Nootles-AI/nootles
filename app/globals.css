@@ -3855,6 +3855,185 @@ body:has(.nt-review-bar) .nt-reformat-switcher {
   }
 }
 
+/* ---- The port from Notion ----
+   Notion's page picker, a wire, and a Nootles sidebar the chosen pages arrive
+   in. One nine-second loop: each of the three chosen pages is ticked, sends a
+   pulse down the wire, and lands — `--n` is its turn, and every part is the
+   same keyframes started `--n` turns late. `backwards`, so a part waiting for
+   its turn waits in its first frame rather than its resting one.
+
+   The colours inside `.nt-port-notion` are Notion's own, on purpose: it is a
+   picture of their screen. Nothing outside that card borrows them. */
+.nt-port {
+  --turn: 1.3s;
+  position: absolute;
+  inset: 0;
+  animation: nt-fade-in var(--dur-slow) var(--ease);
+}
+.nt-port-notion {
+  position: absolute;
+  top: 24px;
+  left: 20px;
+  width: 15.5rem;
+  padding: 8px;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow:
+    0 0 0 1px rgb(15 15 15 / 0.06),
+    0 3px 6px rgb(15 15 15 / 0.06),
+    0 14px 28px -10px rgb(15 15 15 / 0.2);
+  color: #37352f;
+  font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  font-size: 13px;
+  animation: nt-rise 600ms var(--ease) backwards;
+}
+.nt-port-notion-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 6px 8px;
+  color: rgb(55 53 47 / 0.65);
+  font-size: 12px;
+  font-weight: 500;
+}
+.nt-port-nrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  padding-inline: 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+.nt-port-emoji {
+  width: 18px;
+  font-size: 14px;
+  text-align: center;
+}
+.nt-port-box {
+  display: grid;
+  flex: none;
+  width: 14px;
+  height: 14px;
+  place-items: center;
+  border-radius: 3px;
+  box-shadow: inset 0 0 0 1.5px rgb(55 53 47 / 0.35);
+  color: #fff;
+}
+.nt-port-nrow.is-taken {
+  animation: nt-port-row 9s linear calc(var(--n) * var(--turn) + 0.4s) infinite backwards;
+}
+.nt-port-nrow.is-taken .nt-port-box {
+  animation: nt-port-tick 9s var(--ease) calc(var(--n) * var(--turn) + 0.4s) infinite backwards;
+}
+@keyframes nt-port-tick {
+  0% { background: transparent; box-shadow: inset 0 0 0 1.5px rgb(55 53 47 / 0.35); transform: scale(1); }
+  1.5% { background: #2383e2; box-shadow: inset 0 0 0 1.5px #2383e2; transform: scale(1.18); }
+  4%, 84% { background: #2383e2; box-shadow: inset 0 0 0 1.5px #2383e2; transform: scale(1); }
+  90%, 100% { background: transparent; box-shadow: inset 0 0 0 1.5px rgb(55 53 47 / 0.35); transform: scale(1); }
+}
+@keyframes nt-port-row {
+  0% { background: transparent; }
+  2%, 84% { background: rgb(35 131 226 / 0.08); }
+  90%, 100% { background: transparent; }
+}
+
+.nt-port-wire {
+  position: absolute;
+  top: 214px;
+  left: 34px;
+  overflow: visible;
+}
+.nt-port-wire path {
+  stroke: var(--border-strong);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+}
+.nt-port-wire .nt-port-pulse {
+  stroke: var(--foreground);
+  stroke-width: 2;
+  stroke-dasharray: 12 100;
+  animation: nt-port-pulse 9s linear calc(var(--n) * var(--turn) + 0.6s) infinite backwards;
+}
+@keyframes nt-port-pulse {
+  0% { stroke-dashoffset: 12; opacity: 1; }
+  7% { stroke-dashoffset: -100; opacity: 1; }
+  7.1%, 100% { stroke-dashoffset: -100; opacity: 0; }
+}
+
+.nt-port-ours {
+  position: absolute;
+  top: 238px;
+  left: 94px;
+  width: 20rem;
+  height: 24rem;
+  padding: 12px;
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow:
+    0 0 0 1px var(--border),
+    0 2px 4px oklch(0.25 0.005 90 / 0.05),
+    0 24px 48px -20px oklch(0.25 0.005 90 / 0.3);
+  font-size: var(--text-ui);
+  animation: nt-rise 600ms var(--ease) 120ms backwards;
+}
+.nt-port-ours-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px 12px;
+  font-weight: 600;
+}
+.nt-port-ours-head svg {
+  color: var(--brand);
+}
+.nt-port-label {
+  padding: 0 6px 4px;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--text-meta);
+  font-weight: 500;
+  letter-spacing: var(--tracking-meta);
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.nt-port-orow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  padding-inline: 6px;
+  white-space: nowrap;
+  animation: nt-port-land 9s var(--ease) calc(var(--n) * var(--turn) + 1.2s) infinite backwards;
+}
+.nt-port-orow svg {
+  flex: none;
+  color: var(--muted);
+}
+@keyframes nt-port-land {
+  0% { opacity: 0; transform: translateX(-10px); }
+  5%, 84% { opacity: 1; transform: none; }
+  90%, 100% { opacity: 0; transform: none; }
+}
+/* Still, it shows the outcome: the three chosen, and the three arrived. */
+@media (prefers-reduced-motion: reduce) {
+  .nt-port-nrow.is-taken,
+  .nt-port-nrow.is-taken .nt-port-box,
+  .nt-port-orow,
+  .nt-port-wire .nt-port-pulse {
+    animation: none;
+  }
+  .nt-port-nrow.is-taken {
+    background: rgb(35 131 226 / 0.08);
+  }
+  .nt-port-nrow.is-taken .nt-port-box {
+    background: #2383e2;
+    box-shadow: inset 0 0 0 1.5px #2383e2;
+  }
+  .nt-port-wire .nt-port-pulse {
+    opacity: 0;
+  }
+}
+
 /* The page takes all the height the pane has left above the file list, rather
    than the thumbnail's 4:3 — here it is the thing being chosen, and more of the
    page is more of the answer. The thumbnail's own fade handles the crop. */

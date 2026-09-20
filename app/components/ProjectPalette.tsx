@@ -19,6 +19,7 @@ import { PROJECT_TEMPLATES, pagePicture, type ProjectTemplate } from "@/app/lib/
 import { ChevronRight, FileDoc, Folder, Plus, Template } from "./Icons";
 import { useNewProjectDraft, type NewProject } from "./NewProjectDialog";
 import { NotionMark } from "./NotionMark";
+import { NotionPort } from "./NotionPort";
 import { BlankStart } from "./BlankStart";
 import { BlocksThumb, PagePreview } from "./PagePreview";
 import { TemplateWall } from "./TemplateWall";
@@ -44,7 +45,7 @@ type Row = {
   /** What the side pane previews in place of a project. */
   template?: ProjectTemplate;
   /** A picture in the side pane, rather than a card about the row. */
-  picture?: "wall" | "blank";
+  picture?: "wall" | "blank" | "notion";
   run: () => void;
 };
 
@@ -250,6 +251,7 @@ function Palette({
             name: "Notion",
             line: "Choose which pages come across",
             icon: <NotionMark />,
+            picture: "notion" as const,
             run: onNotion,
           },
         ]
@@ -472,6 +474,8 @@ function Palette({
                 <TemplateWall />
               ) : current?.picture === "blank" ? (
                 <BlankStart />
+              ) : current?.picture === "notion" ? (
+                <NotionPort />
               ) : current?.template ? (
                 <TemplatePreview key={current.id} template={current.template} />
               ) : (
