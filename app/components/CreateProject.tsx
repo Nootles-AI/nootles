@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
-import { FileDoc, Plus } from "./Icons";
+import { FileDoc, Plus, Template } from "./Icons";
 import { NotionMark } from "./NotionMark";
 
 /**
@@ -22,11 +22,13 @@ import { NotionMark } from "./NotionMark";
 export function CreateProject({
   notion,
   onBlank,
+  onTemplate,
   onNotion,
 }: {
-  /** Whether there is anything besides a blank project to offer. */
+  /** Whether importing from Notion is on offer on this deployment. */
   notion: boolean;
   onBlank: () => void;
+  onTemplate: () => void;
   onNotion: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -49,7 +51,7 @@ export function CreateProject({
     const watch = new ResizeObserver(measure);
     watch.observe(el);
     return () => watch.disconnect();
-  }, [notion]);
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -114,42 +116,47 @@ export function CreateProject({
               <Plus width={14} height={14} className="nt-create-plus" />
               <span className="nt-create-title">New project</span>
             </button>
-            {notion && (
-              <button
-                ref={caret}
-                onClick={() => setOpen((o) => !o)}
-                aria-haspopup="menu"
-                aria-expanded={open}
-                aria-label={open ? "Close" : "More ways to start"}
-                className="nt-create-caret"
-              >
-                <CaretToMinus />
-              </button>
-            )}
+            <button
+              ref={caret}
+              onClick={() => setOpen((o) => !o)}
+              aria-haspopup="menu"
+              aria-expanded={open}
+              aria-label={open ? "Close" : "More ways to start"}
+              className="nt-create-caret"
+            >
+              <CaretToMinus />
+            </button>
           </div>
 
-          {notion && (
-            <div
-              ref={items}
-              role="menu"
-              aria-label="Ways to start a project"
-              inert={!open}
-              className="nt-create-items"
-            >
-              <Way
-                icon={<FileDoc />}
-                name="Blank project"
-                hint="A title and an empty first page"
-                onClick={() => choose(onBlank)}
-              />
+          <div
+            ref={items}
+            role="menu"
+            aria-label="Ways to start a project"
+            inert={!open}
+            className="nt-create-items"
+          >
+            <Way
+              icon={<FileDoc />}
+              name="Blank project"
+              hint="A title and an empty first page"
+              onClick={() => choose(onBlank)}
+            />
+            <Way
+              icon={<Template />}
+              name="Start from template"
+              hint="Pages already laid out for a kind of work"
+              onClick={() => choose(onTemplate)}
+            />
+            {/* Absent, not disabled, on a deployment without the integration. */}
+            {notion && (
               <Way
                 icon={<NotionMark />}
                 name="Import from Notion"
                 hint="Choose which pages come across"
                 onClick={() => choose(onNotion)}
               />
-            </div>
-          )}
+            )}
+          </div>
         </div>
       </div>
     </div>

@@ -126,6 +126,17 @@ export function BoardView(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+/** A page already divided up: a template. */
+export function Template(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <rect x="3" y="3" width="18" height="7" rx="1.5" />
+      <rect x="3" y="14" width="9" height="7" rx="1.5" />
+      <rect x="16" y="14" width="5" height="7" rx="1.5" />
+    </svg>
+  );
+}
+
 export function ArrowLeft(props: SVGProps<SVGSVGElement>) {
   return (
     <svg {...base} {...props}>

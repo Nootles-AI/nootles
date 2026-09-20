@@ -2732,9 +2732,6 @@ body:has(.nt-review-bar) .nt-reformat-switcher {
   white-space: nowrap;
   transition: background var(--dur-fast) var(--ease);
 }
-.nt-create-main:only-child {
-  padding-right: 12px;
-}
 /* Open, the label is the panel's title, not a control. */
 .nt-create[data-open="true"] .nt-create-main {
   pointer-events: none;
@@ -2825,6 +2822,7 @@ body:has(.nt-review-bar) .nt-reformat-switcher {
     transform 440ms var(--ease) calc(70ms + var(--n, 0) * 35ms);
 }
 .nt-create-items > :nth-child(2) { --n: 1; }
+.nt-create-items > :nth-child(3) { --n: 2; }
 .nt-create-way {
   display: flex;
   align-items: center;

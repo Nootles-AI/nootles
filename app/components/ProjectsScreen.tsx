@@ -260,12 +260,14 @@ export function ProjectsScreen() {
               bug; one that explains itself reads as a limit. */}
           {/* One filled control with the rarer doors inside it: a blank project
               is one click, and importing is a part of creating rather than a
-              second button competing with it. The caret is absent, not
-              disabled, on a deployment without an integration to offer. */}
+              second button competing with it. */}
           {!standIn && (
             <CreateProject
               notion={notionAvailable === true}
               onBlank={startBlank}
+              // No templates exist yet: the door is in place and opens onto a
+              // blank project until there is something behind it.
+              onTemplate={startBlank}
               onNotion={startImport}
             />
           )}
