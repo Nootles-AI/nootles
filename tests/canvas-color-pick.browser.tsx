@@ -313,6 +313,24 @@ async function openFillPopoverSlow(): Promise<void> {
   await sleep(260); // past ColorField's DOUBLE_MS guard
 }
 
+/** Choose a fill kind through the real portalled menu. The pointerdown is
+ * deliberately separate from the click: CanvasSurface's document-capture
+ * listener runs on that first event, before MenuItem can apply the choice. */
+async function chooseFillType(type: string): Promise<boolean> {
+  const trigger = appEl().querySelector<HTMLButtonElement>('button[aria-label="Fill type"]');
+  trigger?.click();
+  await nextFrame();
+  const item = [...document.querySelectorAll<HTMLButtonElement>('.nt-menu [role="menuitem"]')].find(
+    (el) => el.textContent?.trim() === type,
+  );
+  if (!item) return false;
+  item.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true, button: 0 }));
+  await nextFrame();
+  item.click();
+  await nextFrame();
+  return true;
+}
+
 function selectionColourRows(): { text: string; uses: string | null }[] {
   const section = findByText(".nt-ctl-title", "Selection colours")?.closest(".nt-ctl-section");
   if (!section) return [];
@@ -424,6 +442,7 @@ const harness = {
   openFillHexInput,
   openSelectionColourHexInput,
   openFillPopoverSlow,
+  chooseFillType,
   selectionColourRows,
   modeGateBeforeReadOnly,
   modeGateBeforeZoomTool,
