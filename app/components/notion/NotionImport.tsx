@@ -181,7 +181,10 @@ export function NotionImportBody({
   const reading = (said: string) => (
     <PaletteShell said={said} title="" foot={<LeaveButton label={leave} onClick={back} />}>
       <div className="nt-pal-reading">
-        <ProgressBar label={READING} />
+        <div className="nt-pal-reading-bar">
+          <ProgressBar label={READING} />
+          {said && <p aria-hidden>Fetching Notion pages…</p>}
+        </div>
       </div>
     </PaletteShell>
   );

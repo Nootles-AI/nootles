@@ -587,6 +587,22 @@ button.nt-notion-twist:hover {
   place-items: center;
   animation: nt-pal-reading-in var(--dur-slow) var(--ease) 160ms backwards;
 }
+/* The words hang below the bar rather than sharing the centre with it, so
+   the bar stays put when they arrive. */
+.nt-pal-reading-bar {
+  position: relative;
+}
+.nt-pal-reading-bar p {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  translate: -50% 0;
+  margin-top: 14px;
+  white-space: nowrap;
+  font-size: var(--text-meta-lg);
+  color: var(--muted);
+  animation: nt-pal-reading-in var(--dur-slow) var(--ease) backwards;
+}
 .nt-pal-reading .nt-progress {
   width: 168px;
   height: 3px;
@@ -613,7 +629,8 @@ button.nt-notion-twist:hover {
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .nt-pal-reading {
+  .nt-pal-reading,
+  .nt-pal-reading-bar p {
     animation: none;
   }
   .nt-pal-reading .nt-progress {
