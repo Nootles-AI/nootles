@@ -22,6 +22,7 @@ import {
   type PageProgress,
 } from "@/app/lib/notion/importRun";
 import { NotionConnect } from "./NotionConnect";
+import { PickSide } from "./PickSide";
 import { PageStep, ProgressBar } from "./Progress";
 import "./notion.css";
 
@@ -102,6 +103,8 @@ export function NotionImportBody({
   const query = search ?? typed;
   const [progress, setProgress] = useState<ImportProgress | null>(null);
   const [stopped, setStopped] = useState(false);
+  // The page under the palette's highlight, which its side pane describes.
+  const [current, setCurrent] = useState<string | null>(null);
   const abort = useRef<AbortController | null>(null);
 
   const connected = !!status?.account && !status.account.invalidAt;
@@ -294,6 +297,70 @@ export function NotionImportBody({
   // ---- Pick ---------------------------------------------------------------
   const workspace = status?.account?.workspaceName ?? "Notion";
   const loading = !roots && !loadError;
+  const lands =
+    count && !target ? `Lands in a new project called “${derivedTitle}”.` : null;
+
+  // In the palette the list and its side pane are the palette's own two panes,
+  // and what the dialog says in a sentence under its title is said there.
+  if (inPalette && roots && roots.length > 0) {
+    const at = current ? locate(roots, current) : null;
+    return (
+      <PaletteShell
+        said=""
+        title={target ? `Import into ${target.projectTitle}` : ""}
+        flush
+        foot={
+          <>
+            <a
+              href={`/api/notion/connect?returnTo=${encodeURIComponent(returnHere())}`}
+              className="nt-row px-2.5 mr-auto"
+            >
+              Grant more pages
+            </a>
+            <LeaveButton label={leave} onClick={back} />
+            <button
+              type="button"
+              onClick={start}
+              disabled={!count}
+              className="nt-row nt-solid px-3 font-medium"
+            >
+              {count ? `Import ${count} ${count === 1 ? "page" : "pages"}` : "Import"}
+            </button>
+          </>
+        }
+      >
+        <div className="nt-pal-panes">
+          <div className="nt-pal-list nt-pal-picklist">
+            <div className="nt-pal-group">Shared from {workspace}</div>
+            <Tree
+              nodes={shown}
+              selection={selection}
+              setSelection={setSelection}
+              forceOpen={!!query}
+              palette
+              onCurrent={setCurrent}
+            />
+          </div>
+          <PickSide
+            node={at?.node ?? null}
+            path={at?.path ?? []}
+            state={
+              !at
+                ? "off"
+                : selection.has(at.node.id)
+                  ? "on"
+                  : ids(at.node).some((id) => selection.has(id))
+                    ? "partial"
+                    : "off"
+            }
+            count={count}
+            lands={lands}
+          />
+        </div>
+      </PaletteShell>
+    );
+  }
+
   return (
     <Frame
       said={loading ? READING : ""}
@@ -301,8 +368,8 @@ export function NotionImportBody({
       title={target ? `Import into ${target.projectTitle}` : inPalette ? "" : "Import from Notion"}
       note={
         roots && roots.length
-          ? count && !target
-            ? `Lands in a new project called “${derivedTitle}”.`
+          ? lands
+            ? lands
             : `Pages shared with Nootles from ${workspace}. Missing one? Grant it in Notion.`
           : undefined
       }
@@ -401,6 +468,8 @@ function Shell({
 }: {
   said: string;
   title: string;
+  /** The palette's alone; the dialog's body always keeps its padding. */
+  flush?: boolean;
   note?: string;
   /** A progress bar, kept in the head so it reads as part of the title's claim. */
   bar?: ReactNode;
@@ -435,11 +504,14 @@ function PaletteShell({
   title,
   note,
   bar,
+  flush,
   children,
   foot,
 }: {
   said: string;
   title: string;
+  /** Children run to the edges: they are panes, not a padded body. */
+  flush?: boolean;
   note?: string;
   bar?: ReactNode;
   children?: ReactNode;
@@ -472,7 +544,7 @@ function PaletteShell({
           {bar}
         </div>
       )}
-      <div className="nt-notion-body nt-pal-nbody">{children}</div>
+      <div className={`nt-notion-body nt-pal-nbody${flush ? " is-flush" : ""}`}>{children}</div>
       <div className="nt-pal-foot">{foot}</div>
     </div>
   );
@@ -516,13 +588,25 @@ function Tree({
   selection,
   setSelection,
   forceOpen,
+  palette,
+  onCurrent,
 }: {
   nodes: NotionPageNode[];
   selection: ReadonlySet<string>;
   setSelection: (next: ReadonlySet<string>) => void;
   forceOpen: boolean;
+  /** Draws the palette's travelling highlight instead of lighting each row. */
+  palette?: boolean;
+  /** The row the pointer or the keyboard is on. */
+  onCurrent?: (id: string | null) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const box = useRef<HTMLDivElement>(null);
+  const [lit, setLit] = useState<string | null>(null);
+  const light = (id: string) => {
+    setLit(id);
+    onCurrent?.(id);
+  };
   const [toggled, setToggled] = useState<ReadonlySet<string>>(new Set());
   const [focused, setFocused] = useState<string | null>(null);
   const rows = useMemo(
@@ -532,6 +616,18 @@ function Tree({
   // One row carries the tab stop; when a search hides the one that had it,
   // the first row takes over rather than nothing.
   const tabbable = rows.some((row) => row.node.id === focused) ? focused : rows[0]?.node.id;
+
+  // One highlight that travels, placed from the lit row's measured box — the
+  // palette's own list does the same. A row that a collapse or a search took
+  // away leaves nothing lit.
+  const litIndex = rows.findIndex((row) => row.node.id === lit);
+  useEffect(() => {
+    const host = box.current;
+    const row = host?.querySelector<HTMLElement>('[data-lit="true"]');
+    if (!host || !row) return;
+    host.style.setProperty("--hl-y", `${row.offsetTop}px`);
+    host.style.setProperty("--hl-h", `${row.offsetHeight}px`);
+  }, [litIndex, rows.length]);
 
   const flip = (id: string) => {
     const next = new Set(toggled);
@@ -580,7 +676,8 @@ function Tree({
   };
 
   return (
-    <div className="nt-notion-tree">
+    <div ref={box} className="nt-notion-tree">
+      {palette && <span className="nt-pal-hl" aria-hidden="true" data-none={litIndex < 0} />}
       {rows.length === 0 && (
         <p role="status" className="nt-notion-nomatch">
           No page here is called that.
@@ -594,7 +691,12 @@ function Tree({
             selection={selection}
             setSelection={setSelection}
             tabbable={row.node.id === tabbable}
-            onFocus={() => setFocused(row.node.id)}
+            lit={row.node.id === lit}
+            onLight={() => light(row.node.id)}
+            onFocus={() => {
+              setFocused(row.node.id);
+              light(row.node.id);
+            }}
             onKeyDown={(e) => onKeyDown(e, index)}
             onTwist={() => flip(row.node.id)}
           />
@@ -609,6 +711,8 @@ function TreeRow({
   selection,
   setSelection,
   tabbable,
+  lit,
+  onLight,
   onFocus,
   onKeyDown,
   onTwist,
@@ -617,6 +721,8 @@ function TreeRow({
   selection: ReadonlySet<string>;
   setSelection: (next: ReadonlySet<string>) => void;
   tabbable: boolean;
+  lit: boolean;
+  onLight: () => void;
   onFocus: () => void;
   onKeyDown: (e: KeyboardEvent) => void;
   onTwist: () => void;
@@ -639,7 +745,14 @@ function TreeRow({
   };
 
   return (
-    <div className="nt-notion-row" style={{ paddingLeft: `${depth * 18}px` }}>
+    <div
+      className="nt-notion-row"
+      data-lit={lit}
+      style={{ paddingLeft: `${depth * 18}px` }}
+      onPointerMove={() => {
+        if (!lit) onLight();
+      }}
+    >
       {node.children.length ? (
         <button
           type="button"
@@ -872,6 +985,20 @@ function topmostSelected(
     if (inside) return inside;
   }
   return undefined;
+}
+
+/** A page and the titles of the pages it sits inside, outermost first. */
+function locate(
+  nodes: NotionPageNode[],
+  id: string,
+  path: string[] = [],
+): { node: NotionPageNode; path: string[] } | null {
+  for (const node of nodes) {
+    if (node.id === id) return { node, path };
+    const inside = locate(node.children, id, [...path, node.title]);
+    if (inside) return inside;
+  }
+  return null;
 }
 
 function ids(node: NotionPageNode): string[] {

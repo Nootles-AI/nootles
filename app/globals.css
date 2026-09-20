@@ -3511,11 +3511,165 @@ body:has(.nt-review-bar) .nt-reformat-switcher {
   scrollbar-width: thin;
   scrollbar-color: var(--border-strong) transparent;
 }
-/* No well: in the palette the list is the page, not a field inside one. */
-.nt-pal-notion .nt-notion-tree {
+/* ---- Choosing pages ----
+   The palette's two panes again: the tree on the left in the palette's row
+   dress — its height, its icon tile, its one travelling highlight — and a side
+   pane that says where the lit page lives and what the import will do. The
+   tree's behaviour is the dialog's; only what it wears is set here. */
+.nt-pal-nbody.is-flush {
   padding: 0;
+}
+.nt-pal-notion .nt-pal-panes {
+  flex: 1 1 auto;
+  height: auto;
+  min-height: 0;
+}
+.nt-pal-picklist {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding-bottom: 0;
+  overflow: visible;
+}
+.nt-pal-notion .nt-notion-tree {
+  position: relative;
+  padding: 0 0 10px;
   border: 0;
   background: none;
+}
+.nt-pal-notion .nt-notion-row {
+  position: relative;
+  height: 40px;
+  margin-inline: 8px;
+  padding-right: 4px;
+}
+.nt-pal-notion .nt-notion-pick {
+  height: 100%;
+  gap: 10px;
+  padding-inline: 4px 8px;
+  border-radius: var(--radius-lg);
+}
+/* The highlight is the hover, and the focus: one thing says "here". */
+.nt-pal-notion .nt-notion-pick:hover {
+  background: none;
+}
+.nt-pal-notion .nt-notion-pick:focus-visible {
+  outline: none;
+}
+.nt-pal-notion .nt-notion-twist,
+.nt-pal-notion .nt-notion-twist-gap {
+  position: relative;
+  width: 22px;
+  height: 22px;
+}
+.nt-pal-notion .nt-notion-twist svg {
+  transition: transform 350ms var(--spring);
+}
+/* The tick, redrawn: rounder, and it arrives. The svg is only in the tree while
+   the page is ticked, so its entrance is simply its animation. */
+.nt-pal-notion .nt-notion-box {
+  width: 16px;
+  height: 16px;
+  border: 0;
+  border-radius: 5px;
+  box-shadow: inset 0 0 0 1.5px var(--border-strong);
+  transition:
+    background var(--dur-fast) var(--ease),
+    box-shadow var(--dur-fast) var(--ease);
+}
+.nt-pal-notion .nt-notion-box[data-state="on"] {
+  box-shadow: inset 0 0 0 1.5px var(--foreground);
+}
+.nt-pal-notion .nt-notion-box svg {
+  animation: nt-pal-tick 360ms var(--spring);
+}
+@keyframes nt-pal-tick {
+  from {
+    opacity: 0;
+    transform: scale(0.3);
+  }
+}
+.nt-pal-notion .nt-notion-box[data-state="partial"]::after {
+  background: var(--foreground);
+}
+/* The same tile the palette's other rows carry, lifting under the highlight. */
+.nt-pal-notion .nt-notion-glyph {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  transition:
+    transform 400ms var(--spring),
+    background var(--dur-fast) var(--ease),
+    box-shadow var(--dur-fast) var(--ease);
+}
+.nt-pal-notion .nt-notion-row[data-lit="true"] .nt-notion-glyph {
+  background: var(--background);
+  box-shadow: 0 0 0 1px var(--border);
+  transform: scale(1.08);
+}
+.nt-pal-notion .nt-notion-emoji {
+  font-size: 15px;
+}
+.nt-pal-notion [aria-level="1"] .nt-notion-title {
+  font-weight: 500;
+}
+.nt-pal-notion .nt-notion-nomatch {
+  padding: 28px 20px;
+  text-align: left;
+}
+
+.nt-pal-pickside {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 20px;
+}
+.nt-pal-pickside .nt-pal-card {
+  align-self: stretch;
+}
+.nt-pal-pickside .nt-pal-big {
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+}
+.nt-pal-big-emoji {
+  font-size: 26px;
+  line-height: 1;
+}
+.nt-pal-pickhint {
+  color: var(--muted);
+  font-size: var(--text-ui);
+  line-height: 1.6;
+  text-wrap: pretty;
+}
+/* What the import amounts to, kept in view: the count, large, and under it
+   where the pages go. Faint until there is something to count. */
+.nt-pal-tally {
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+.nt-pal-tally-n {
+  font-size: 34px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--faint);
+  transition: color var(--dur) var(--ease);
+}
+.nt-pal-tally[data-on="true"] .nt-pal-tally-n {
+  color: var(--foreground);
+}
+.nt-pal-tally-line {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: var(--text-ui);
+  line-height: 1.5;
+}
+.nt-pal-tally-line span {
+  display: block;
+  margin-top: 2px;
+  color: var(--foreground);
 }
 .nt-pal-notion .nt-pal-foot {
   gap: 4px;
