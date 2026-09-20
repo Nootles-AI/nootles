@@ -262,6 +262,18 @@ async function main() {
       1,
     );
 
+    // -- ui: a portalled inspector menu remains part of the canvas ----------
+    await page.evaluate(() => window.pick.mount());
+    await page.evaluate(() => window.pick.select(["var-rect"]));
+    await page.evaluate(() => window.pick.nextFrame());
+    c.check("ui: Fill type menu offers Linear", await page.evaluate(() => window.pick.chooseFillType("Linear")), true);
+    c.check("ui: choosing Fill type keeps the shape selected", await page.evaluate(() => [...window.pick.api().selection.getSnapshot().ids]), ["var-rect"]);
+    c.check(
+      "ui: choosing Fill type applies the portalled menu item",
+      await page.evaluate(() => window.pick.styleOf("var-rect", "background")?.startsWith("linear-gradient")),
+      true,
+    );
+
     // -- no-accent-added ------------------------------------------------------
     await page.evaluate(() => window.pick.startPick("var-rect", "background", "canvas"));
     await page.evaluate(() => window.pick.moveAt(100, 80));

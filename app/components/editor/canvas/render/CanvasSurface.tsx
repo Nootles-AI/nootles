@@ -125,9 +125,9 @@ import "../canvas.css";
 const CANVAS_GUTTER = 32;
 
 /** The screen's canvas chrome. A press in it is not a press outside the canvas.
- *  The mention menu is portalled to the body but speaks for a label being
- *  edited here, so a press on it is part of the edit, not a press outside. */
-const CANVAS_CHROME = ".nt-lyr, .nt-style-panel, .nt-toolbar, .nt-ctx, .nt-mention-anchor";
+ *  The mention and inspector menus are portalled to the body but speak for a
+ *  label or control being edited here, so a press on either remains inside. */
+const CANVAS_CHROME = ".nt-lyr, .nt-style-panel, .nt-toolbar, .nt-ctx, .nt-mention-anchor, .nt-menu";
 
 /** Scene px below which a drag was a click, and the shape takes its own size. */
 const DRAWN_MIN = 2;
