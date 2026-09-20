@@ -3510,49 +3510,38 @@ body:has(.nt-review-bar) .nt-reformat-switcher {
   overflow: visible;
 }
 
-.nt-pal-pickside {
+/* The page under the highlight, while Notion is being asked for it: a heavier
+   line where a title goes and three where words do, and nothing that could be
+   mistaken for the page. Late, so a quick answer never shows them. */
+.nt-pal-reading-sheet {
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
-  gap: 20px;
+  gap: 9px;
+  padding: 16px 14px;
+  animation: nt-pal-opening-wait 1.2s var(--ease) 250ms infinite alternate backwards;
 }
-.nt-pal-pickside .nt-pal-card {
-  align-self: stretch;
+.nt-pal-reading-sheet::after {
+  content: none;
 }
-.nt-pal-pickside .nt-pal-big {
-  width: 56px;
-  height: 56px;
-  border-radius: 16px;
+.nt-pal-reading-sheet span {
+  height: 3px;
+  border-radius: 999px;
+  background: var(--border);
 }
-.nt-pal-big-emoji {
-  font-size: 26px;
-  line-height: 1;
+.nt-pal-reading-sheet span:nth-child(1) {
+  width: 46%;
+  height: 7px;
+  margin-bottom: 5px;
+  background: var(--border-strong);
 }
-/* The page under the highlight. The sheet already carries its title, so what
-   follows it is only where the page lives. While Notion is being asked, a few
-   ruled lines stand under the title where the words will be — late enough that
-   a quick answer never shows them. */
-.nt-pal-pickside .nt-pal-card-line {
-  margin-top: 12px;
+.nt-pal-reading-sheet span:nth-child(2) {
+  width: 88%;
 }
-.nt-pal-pickside .nt-pal-facts {
-  margin-top: 10px;
+.nt-pal-reading-sheet span:nth-child(3) {
+  width: 94%;
 }
-.nt-pal-opening {
-  position: relative;
-  height: 100%;
-}
-.nt-pal-opening[data-reading]::before {
-  content: "";
-  position: absolute;
-  z-index: 1;
-  top: 56px;
-  left: 12px;
-  width: 62%;
-  height: 58px;
-  background: repeating-linear-gradient(to bottom, var(--border) 0 3px, transparent 3px 14px);
-  border-radius: 2px;
-  animation: nt-pal-opening-wait 1.4s var(--ease) 300ms infinite alternate backwards;
+.nt-pal-reading-sheet span:nth-child(4) {
+  width: 58%;
 }
 @keyframes nt-pal-opening-wait {
   from {
@@ -3563,44 +3552,30 @@ body:has(.nt-review-bar) .nt-reformat-switcher {
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .nt-pal-opening[data-reading]::before {
+  .nt-pal-reading-sheet {
     animation: none;
   }
 }
 .nt-pal-pickhint {
+  flex: 1 1 auto;
   color: var(--muted);
   font-size: var(--text-ui);
   line-height: 1.6;
   text-wrap: pretty;
 }
-/* What the import amounts to, kept in view: the count, large, and under it
-   where the pages go. Faint until there is something to count. */
-.nt-pal-tally {
-  padding-top: 16px;
-  border-top: 1px solid var(--border);
-}
-.nt-pal-tally-n {
-  font-size: 34px;
-  font-weight: 600;
-  letter-spacing: -0.03em;
-  line-height: 1;
-  font-variant-numeric: tabular-nums;
-  color: var(--faint);
-  transition: color var(--dur) var(--ease);
-}
-.nt-pal-tally[data-on="true"] .nt-pal-tally-n {
+/* The rows under the page are the template pane's, with two differences: a row
+   that is true of the import reads in ink, and the running count is set off
+   from the rows about this one page. */
+.nt-pal-file[data-lit="true"] {
   color: var(--foreground);
 }
-.nt-pal-tally-line {
+.nt-pal-file.is-sum {
   margin-top: 6px;
-  color: var(--muted);
-  font-size: var(--text-ui);
-  line-height: 1.5;
-}
-.nt-pal-tally-line span {
-  display: block;
-  margin-top: 2px;
-  color: var(--foreground);
+  padding-top: 6px;
+  height: 34px;
+  border-top: 1px solid var(--border);
+  border-radius: 0;
+  font-weight: 500;
 }
 .nt-pal-notion .nt-pal-foot {
   gap: 4px;

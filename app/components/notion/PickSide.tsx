@@ -1,3 +1,4 @@
+import { Check, FileDoc, Folder } from "@/app/components/Icons";
 import { BlocksThumb } from "@/app/components/PagePreview";
 import type { NotionPageNode } from "@/app/lib/notion/plan";
 import { useOpening } from "./useOpening";
@@ -34,40 +35,53 @@ export function PickSide({
   lands: string | null;
 }) {
   const inside = node ? size(node) - 1 : 0;
+  const importing =
+    state === "on" ? (inside ? "Importing all of it" : "Importing") : state === "partial" ? "Importing part of it" : "Not chosen";
   return (
-    <aside className="nt-pal-side nt-pal-pickside" aria-hidden="true">
-      {node ? (
-        <div className="nt-pal-card nt-pal-tpl">
+    <aside className="nt-pal-side" aria-hidden="true">
+      {/* The template pane's own arrangement: the page on top, taking what
+          height there is, and what is known about it in rows underneath. */}
+      <div className="nt-pal-card nt-pal-tpl">
+        {node ? (
           <div className="nt-pal-sheet" key={node.id}>
             <Opening node={node} />
           </div>
-          <p className="nt-pal-card-line">{path.length ? path.join(" › ") : "Top level"}</p>
-          <dl className="nt-pal-facts">
-            <div>
-              <dt>Pages inside</dt>
-              <dd className="nt-meta">{inside}</dd>
-            </div>
-            <div>
-              <dt>Importing</dt>
-              <dd className="nt-meta">
-                {state === "on" ? (inside ? "All of it" : "Yes") : state === "partial" ? "Part of it" : "No"}
-              </dd>
-            </div>
-          </dl>
-        </div>
-      ) : (
-        <p className="nt-pal-pickhint">
-          Ticking a page takes everything inside it. The arrow keys move through the list, and
-          Space ticks.
-        </p>
-      )}
-
-      <div className="nt-pal-tally" data-on={count > 0}>
-        <p className="nt-pal-tally-n">{count}</p>
-        <p className="nt-pal-tally-line">
-          {count === 1 ? "page" : "pages"} chosen
-          {lands && <span>{lands}</span>}
-        </p>
+        ) : (
+          <p className="nt-pal-pickhint">
+            Ticking a page takes everything inside it. The arrow keys move through the list, and
+            Space ticks.
+          </p>
+        )}
+        <ul className="nt-pal-files">
+          {node && (
+            <>
+              <li className="nt-pal-file">
+                <Folder width={14} height={14} />
+                <span>{path.length ? path.join(" › ") : "Top level"}</span>
+              </li>
+              <li className="nt-pal-file">
+                <FileDoc width={14} height={14} />
+                <span>
+                  {inside} {inside === 1 ? "page" : "pages"} inside
+                </span>
+              </li>
+              <li className="nt-pal-file" data-lit={state !== "off"}>
+                <Check width={14} height={14} />
+                <span>{importing}</span>
+              </li>
+            </>
+          )}
+          <li className="nt-pal-file is-sum" data-lit={count > 0}>
+            <span>
+              {count} {count === 1 ? "page" : "pages"} chosen
+            </span>
+          </li>
+          {lands && (
+            <li className="nt-pal-file">
+              <span>{lands}</span>
+            </li>
+          )}
+        </ul>
       </div>
     </aside>
   );
@@ -75,8 +89,8 @@ export function PickSide({
 
 /**
  * The page's opening under its own title, the way Notion heads a page. While it
- * is being read the sheet holds the title over a few ruled lines; a page that
- * cannot be read keeps the title alone, which is still the right page.
+ * is being read the sheet holds only ruled lines; a page that cannot be read
+ * keeps the title alone, which is still the right page.
  */
 function Opening({ node }: { node: NotionPageNode }) {
   const blocks = useOpening(node.id);
@@ -86,11 +100,19 @@ function Opening({ node }: { node: NotionPageNode }) {
     props: { level: 1 },
     content: [{ type: "text", text: `${node.emoji ? `${node.emoji} ` : ""}${node.title}`, styles: {} }],
   };
-  return (
-    <div className="nt-pal-opening" data-reading={blocks === undefined || undefined}>
-      <BlocksThumb blocks={[title, ...(blocks ?? [])]} />
-    </div>
-  );
+  // No title while it is being read: a title over nothing is a picture of an
+  // empty page, which is a claim about this one.
+  if (blocks === undefined) {
+    return (
+      <div className="nt-thumb nt-pal-reading-sheet">
+        <span />
+        <span />
+        <span />
+        <span />
+      </div>
+    );
+  }
+  return <BlocksThumb blocks={[title, ...(blocks ?? [])]} />;
 }
 
 const size = (node: NotionPageNode): number =>
