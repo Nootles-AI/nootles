@@ -174,6 +174,28 @@ const harness = {
     const r = blockRect(index);
     return { x: r.left - 28, y: (r.top + r.bottom) / 2 };
   },
+  /** The page: the marquee surface's box — the column and both its gutters. */
+  pageRect: () => {
+    const r = document.querySelector(".nt-marquee-surface")!.getBoundingClientRect();
+    return { top: r.top, bottom: r.bottom, left: r.left, right: r.right };
+  },
+  /** The document's pane. Anchored left, so it is much wider than the page. */
+  paneRect: () => {
+    const r = document.getElementById("pane")!.getBoundingClientRect();
+    return { top: r.top, bottom: r.bottom, left: r.left, right: r.right };
+  },
+  /** `by` px out past the page's right edge, level with block `index`. */
+  besidePage: (index: number, by: number) => {
+    const r = blockRect(index);
+    const page = document.querySelector(".nt-marquee-surface")!.getBoundingClientRect();
+    return { x: page.right + by, y: (r.top + r.bottom) / 2 };
+  },
+  /** How far right block `index` actually draws, overflow included. */
+  blockReach: (index: number) => {
+    const id = flat()[index]?.id;
+    const el = document.querySelector<HTMLElement>(`[data-id="${id}"]`)!;
+    return el.getBoundingClientRect().left + el.scrollWidth;
+  },
   /** In the empty room to the right of the last line of block `index`. */
   pastLineEnd: (index: number, by: number) => {
     const content = contentOf(index)!;

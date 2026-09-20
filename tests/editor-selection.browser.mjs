@@ -13,6 +13,13 @@
  * same press, and the gesture ended as whichever wrote last. A block of text
  * now owns every press across its width (`useBlockMarquee`'s `inTextBlock`).
  *
+ * NT-63: the band hit-tested by vertical overlap alone, inherited from the
+ * sidebar, where a band and its rows share one narrow column. The document's
+ * pane is not its page — the column is anchored left and the room beside it is
+ * most of the window — so a band drawn out there plated whatever block happened
+ * to be level with it, and no drag in that room could come to nothing. A band
+ * now has to reach the page before vertical overlap means anything.
+ *
  * The editor is composed the way `useYjsEditor` composes it, inside the
  * wrapper `EditorSurface` renders, with the band gesture mounted.
  *
@@ -95,6 +102,18 @@ const DOC = [
   { type: "divider" },
   { type: "paragraph", content: "Source: CRA, What are SR&ED tax incentives?" },
   { type: "paragraph", content: "Short last line." },
+];
+/**
+ * A page holding one block drawn wider than the column it sits in — six 200px
+ * columns against a 600px measure. A diagram widened by its side grip does the
+ * same thing; a table needs no canvas to do it.
+ */
+const WIDE_CELL = (text) => ({ type: "tableCell", content: [{ type: "text", text, styles: {} }] });
+const WIDE_ROW = (n) => ({ cells: ["a", "b", "c", "d", "e", "f"].map((c) => WIDE_CELL(`r${n}${c}`)) });
+const WIDE_DOC = [
+  { type: "paragraph", content: "Above the table." },
+  { type: "table", content: { type: "tableContent", columnWidths: [200, 200, 200, 200, 200, 200], rows: [WIDE_ROW(1), WIDE_ROW(2)] } },
+  { type: "paragraph", content: "Below the table." },
 ];
 // Indexes into the page in reading order, children after their parent; 7 is the
 // divider, which nothing needs by name.
@@ -350,6 +369,114 @@ try {
   await drag([INTRO, 4], [STEP1, 20]);
   await chord("KeyA");
   check("Mod-A on a text selection across blocks takes every block at once", [(await selection()).blockRange, (await selectedIds()).length], [true, TOP_LEVEL]);
+
+  // ---------------------------------------------------------------- NT-63 ---
+  console.log("\nNT-63 — a band selects only where it reaches the page");
+
+  await fresh();
+  {
+    const box = await h(() => window.selectionHarness.pageRect());
+    const pane = await h(() => window.selectionHarness.paneRect());
+    // Every check below is drawn in that room. If the window ever stopped
+    // leaving any, they would pass by having nowhere to fail.
+    check("the pane leaves room beside the page to draw a band in", pane.right - box.right > 300, true);
+  }
+  /** `by` px out past the page's right edge — room the document does not occupy. */
+  const beside = (index, by) => h((i, b) => window.selectionHarness.besidePage(i, b), index, by);
+  const shiftDragBetween = async (a, b) => {
+    await page.keyboard.down("Shift");
+    await dragBetween(a, b);
+    await page.keyboard.up("Shift");
+    await sleep(100);
+  };
+
+  await fresh();
+  {
+    const at = await beside(INTRO, 400);
+    await dragBetween({ x: at.x, y: at.y - 8 }, { x: at.x, y: at.y + 8 });
+  }
+  s = await selection();
+  check("a band beside the page, level with a block, selects nothing", [s.blockRange, await selectedIds(), await plates()], [false, [], 0]);
+
+  await fresh();
+  {
+    // Level with the heading down to the second-last paragraph — seven blocks'
+    // worth of the page, none of it touched. Started INSIDE the page's own
+    // vertical range, or the press would be declined for being above it and
+    // this would pass without a band ever being drawn.
+    const head = await h((i) => window.selectionHarness.blockRect(i), HEADING);
+    const at = await beside(SOURCE, 400);
+    await dragBetween({ x: at.x, y: (head.top + head.bottom) / 2 }, { x: at.x, y: at.y });
+  }
+  check("…however far down that room it is drawn", [await selectedIds(), await plates()], [[], 0]);
+
+  await fresh();
+  {
+    const at = await beside(INTRO, 300);
+    await dragBetween({ x: at.x, y: at.y }, { x: at.x + 200, y: at.y + 6 });
+  }
+  check("…and when it is drawn away from the page rather than down it", await selectedIds(), []);
+
+  await fresh();
+  {
+    const at = await beside(INTRO, 400);
+    await dragBetween({ x: at.x, y: at.y }, { x: at.x, y: at.y + 8 });
+  }
+  check("…and puts no caret out there either", [(await selection()).kind, (await selection()).empty], ["text", true]);
+
+  await fresh();
+  ids = await h(() => window.selectionHarness.ids());
+  {
+    const from = await beside(HEADING, 400);
+    const into = await h((i) => window.selectionHarness.blockRect(i), STEP1);
+    await dragBetween({ x: from.x, y: from.y }, { x: into.left + 100, y: (into.top + into.bottom) / 2 });
+  }
+  check("a band reaching in from that room selects what it spans",
+    [(await selection()).blockRange, await selectedIds()],
+    [true, [ids[HEADING], ids[INTRO], ids[STEP1]]]);
+
+  await fresh();
+  ids = await h(() => window.selectionHarness.ids());
+  {
+    const last = await h((i) => window.selectionHarness.blockRect(i), LAST);
+    const out = await beside(SOURCE, 400);
+    await dragBetween({ x: last.left + 40, y: last.bottom + 80 }, { x: out.x, y: out.y });
+  }
+  check("a band that starts on the page keeps selecting as it leaves it",
+    [(await selection()).blockRange, await selectedIds()], [true, [ids[SOURCE], ids[LAST]]]);
+
+  await fresh();
+  ids = await h(() => window.selectionHarness.ids());
+  await dragBetween(await h((i) => window.selectionHarness.gutterPoint(i), INTRO), await h((i) => window.selectionHarness.gutterPoint(i), STEP1));
+  {
+    const at = await beside(SOURCE, 400);
+    await shiftDragBetween({ x: at.x, y: at.y - 8 }, { x: at.x, y: at.y + 8 });
+  }
+  check("a shift-band out in that room adds nothing to what is selected", await selectedIds(), [ids[INTRO], ids[STEP1]]);
+
+  // A block CAN reach into that room: a table's columns and a diagram's side
+  // grip both grow right while the left edge stays on the column. The band is
+  // owed those where they are actually drawn, which the block's own box does
+  // not say — it stays the column's and the block overflows it.
+  console.log("\n…except where a block is drawn out into it");
+
+  await h(() => window.selectionHarness.mount());
+  await page.waitForSelector(".bn-editor");
+  await h((blocks) => window.selectionHarness.seed(blocks), WIDE_DOC);
+  await page.waitForFunction(() => window.selectionHarness.count() === 3, {});
+  await sleep(150);
+  {
+    const wide = await h(() => window.selectionHarness.ids());
+    const box = await h((i) => window.selectionHarness.blockRect(i), 1);
+    const reach = await h((i) => window.selectionHarness.blockReach(i), 1);
+    check("the table is drawn past the column it is measured at", [reach > box.right + 300, box.right < reach], [true, true]);
+    // Down the margin the table reaches into, from below it to above it: level
+    // with all three blocks, but only one of them is out here.
+    const x = (box.right + reach) / 2;
+    await dragBetween({ x, y: box.bottom + 20 }, { x, y: box.top - 20 });
+    check("a band down that margin takes the block drawn there", await selectedIds(), [wide[1]]);
+    check("…and not the paragraphs it is level with", await plates(), 1);
+  }
 } finally {
   await browser?.close();
   server.close();

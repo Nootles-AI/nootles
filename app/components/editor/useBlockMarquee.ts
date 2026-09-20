@@ -35,12 +35,30 @@
  * ## What it inherits, and what it adds
  *
  * From `sidebarMarquee`, because it is the same gesture: a distance gate before
- * a press becomes a drag, so a click stays a click, and hit-testing by VERTICAL
- * OVERLAP alone, because a full-width row carries no horizontal information.
+ * a press becomes a drag, so a click stays a click, and VERTICAL OVERLAP as the
+ * test for which rows a band covers, because a row that spans the column
+ * carries no horizontal information.
+ *
  * What a document adds: the surface is `contenteditable`, so native text
  * selection has to be held off for the whole gesture — cleared and then
- * suppressed once the drag starts, never by cancelling the press — and a page
- * is taller than the window, so the band scrolls when it reaches an edge.
+ * suppressed once the drag starts, never by cancelling the press — a page is
+ * taller than the window, so the band scrolls when it reaches an edge, and the
+ * band has to REACH THE PAGE before vertical overlap means anything.
+ *
+ * That last one is where the sidebar's rule stops carrying. Its band and its
+ * rows live in the same narrow column, so a band is always beside a row and
+ * "which rows" is the only question there is. The document's pane is not its
+ * column: the page is 712px of a window that can be twice that, anchored left
+ * rather than centred, so most of what this gesture hears is room the document
+ * does not occupy at all. Vertical overlap alone answered a band drawn out
+ * there by plating whatever block happened to be level with it — a page's worth
+ * of dead space in which no drag could stay empty (NT-63). So a block is under
+ * the band when the band overlaps it vertically AND reaches the page
+ * horizontally, the page being this surface's own box: the column and the
+ * gutters it reaches back over, widened by any block drawn wider than them.
+ * Pressing in that dead space and dragging into the page still selects, which
+ * is the reach-in gesture Finder has; standing out there and dragging no longer
+ * does.
  *
  * Blocks are measured ONCE when the gesture starts and held in the scroller's
  * own coordinates: they do not move while a band is drawn over them, and
@@ -318,10 +336,24 @@ export function useBlockMarquee({
        * band feel heavy on a long page. Blocks do not move while a band is
        * drawn over them, so one pass is all it takes.
        */
-      type Row = { el: HTMLElement; id: string; top: number; bottom: number };
+      type Row = {
+        el: HTMLElement;
+        id: string;
+        top: number;
+        bottom: number;
+        left: number;
+        right: number;
+      };
       let rows: Row[] = [];
       const measure = () => {
-        const offset = scroller.scrollTop;
+        const down = scroller.scrollTop;
+        const across = scroller.scrollLeft;
+        // The page: this surface reaches back over the gutters the drag handle
+        // floats in, so its box is the whole width a band may be drawn down,
+        // and every block claims it however narrow its own line is.
+        const page = surface.getBoundingClientRect();
+        const pageLeft = page.left + across;
+        const pageRight = page.right + across;
         rows = [];
         for (const el of surface.querySelectorAll<HTMLElement>(
           ".bn-block-outer[data-id]",
@@ -332,27 +364,54 @@ export function useBlockMarquee({
           rows.push({
             el,
             id,
-            top: rect.top + offset,
-            bottom: rect.bottom + offset,
+            top: rect.top + down,
+            bottom: rect.bottom + down,
+            left: Math.min(rect.left + across, pageLeft),
+            // ...and past the page for a block that draws past it. A diagram
+            // widened by its side grip keeps its left edge on the column and
+            // grows into the right margin, on its own inline width — the box
+            // measured here stays the column's and the diagram OVERFLOWS it,
+            // which is why `scrollWidth` is asked as well as the rect. For a
+            // block that fits, the two agree to the pixel.
+            right: Math.max(
+              rect.right + across,
+              rect.left + across + el.scrollWidth,
+              pageRight,
+            ),
           });
         }
       };
 
       /**
-       * The blocks a band covers, by vertical overlap alone — a block spans the
-       * column, so where the band is horizontally says nothing about what it
-       * means. A block inside one already covered is left out: taking a parent
-       * takes its children with it.
+       * The blocks a band covers. Vertical overlap says WHICH — a block spans
+       * the column, so how far across the band sits says nothing about which
+       * ones it means — and touching the block's width says WHETHER, which off
+       * the side of the page is the whole question (NT-63). Touching counts:
+       * a band drawn straight down has no width, and the one drawn down the
+       * page's own edge is as much on the page as any other.
+       *
+       * A block inside one already covered is left out: taking a parent takes
+       * its children with it. A parent is at least as wide as its children, so
+       * rejecting one on width rejects them too, and the walk stays in order.
        */
-      const idsInBand = (top: number, bottom: number): string[] => {
-        const offset = scroller.scrollTop;
-        const docTop = top + offset;
-        const docBottom = bottom + offset;
+      const idsInBand = (
+        top: number,
+        bottom: number,
+        left: number,
+        right: number,
+      ): string[] => {
+        const down = scroller.scrollTop;
+        const across = scroller.scrollLeft;
+        const docTop = top + down;
+        const docBottom = bottom + down;
+        const docLeft = left + across;
+        const docRight = right + across;
         const ids: string[] = [];
         let covered: HTMLElement | null = null;
         for (const row of rows) {
           if (covered?.contains(row.el)) continue;
           if (row.bottom <= docTop || row.top >= docBottom) continue;
+          if (row.right < docLeft || row.left > docRight) continue;
           covered = row.el;
           ids.push(row.id);
         }
@@ -376,6 +435,8 @@ export function useBlockMarquee({
         const y0 = anchorY + rect.top;
         const top = Math.min(y0, pointerY);
         const bottom = Math.max(y0, pointerY);
+        const left = Math.min(x0, pointerX);
+        const right = Math.max(x0, pointerX);
 
         if (band) {
           // Clamped to what the scroller shows, so a band dragged sideways
@@ -383,8 +444,8 @@ export function useBlockMarquee({
           const view = viewportOf(scroller);
           const t = Math.max(top, view.top);
           const b = Math.min(bottom, view.bottom);
-          const l = Math.max(Math.min(x0, pointerX), view.left);
-          const r = Math.min(Math.max(x0, pointerX), view.right);
+          const l = Math.max(left, view.left);
+          const r = Math.min(right, view.right);
           band.style.top = `${t}px`;
           band.style.left = `${l}px`;
           band.style.width = `${Math.max(0, r - l)}px`;
@@ -393,7 +454,7 @@ export function useBlockMarquee({
 
         // The band decides by its FULL extent, not its clamped one: a block
         // scrolled just past the edge is still under the band.
-        const covered = idsInBand(top, bottom);
+        const covered = idsInBand(top, bottom, left, right);
         const next = additive ? [...base, ...covered] : covered;
         if (sameIds(next, applied)) return;
         applied = next;
