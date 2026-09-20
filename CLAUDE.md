@@ -147,6 +147,21 @@ so they don't collide (that's why the canvas layout helper is `autoLayout.ts`).
 Before declaring work done: `tsc --noEmit` clean and ESLint clean. Both are currently green —
 keep them that way.
 
+### Reading CI on a PR
+
+`.github/workflows/check.yml` has two jobs, and only one is a gate:
+
+- **`check`** — `tsc --noEmit`, `npm run lint`, `npm test`. **This is the bar.** It must be
+  green, and it is what to fix if it is not.
+- **`canvas-browser`** — `npm run test:canvas:browser` under Playwright on a shared runner.
+  **Always fails, on every PR and on `main` too.** Not your change.
+- **Vercel** (preview deployment, not this workflow) — **always fails on every PR.**
+
+So a PR whose only red marks are Vercel and `canvas-browser` has passed. Confirm rather than
+assume: compare against the latest `main` run (`gh run list --branch main`) and check that the
+`check` job itself is the one that is green. Never chase either known-red check, and never
+report a PR as failing on their account.
+
 ## Roadmap pointer
 
 Phase 0 (foundations) and Phase 1 (delightful editor) are done. Next is **Phase 2 — the AI
