@@ -20,6 +20,7 @@ import { ChevronRight, FileDoc, Folder, Plus, Template } from "./Icons";
 import { useNewProjectDraft, type NewProject } from "./NewProjectDialog";
 import { NotionMark } from "./NotionMark";
 import { BlocksThumb, PagePreview } from "./PagePreview";
+import { TemplateWall } from "./TemplateWall";
 
 type Project = NonNullable<
   ReturnType<typeof useQuery<typeof api.projects.listForScreen>>
@@ -41,6 +42,8 @@ type Row = {
   project?: Project | SharedProject;
   /** What the side pane previews in place of a project. */
   template?: ProjectTemplate;
+  /** Shows the wall of example pages rather than a card about the row. */
+  wall?: boolean;
   run: () => void;
 };
 
@@ -234,6 +237,7 @@ function Palette({
       line: "Pages already laid out for a kind of work",
       icon: <Template />,
       drill: true,
+      wall: true,
       run: () => (room ? go("template") : onWall()),
     },
     ...(notion
@@ -462,6 +466,8 @@ function Palette({
                     </div>
                   </dl>
                 </div>
+              ) : current?.wall ? (
+                <TemplateWall />
               ) : current?.template ? (
                 <TemplatePreview key={current.id} template={current.template} />
               ) : (

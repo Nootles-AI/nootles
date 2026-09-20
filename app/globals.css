@@ -3688,6 +3688,62 @@ body:has(.nt-review-bar) .nt-reformat-switcher {
 /* A template's preview: a page on top, the sidebar it opens with below. The
    sheet is the project thumbnail's own frame, so a template looks like the
    project it is about to be. */
+/* ---- The wall ----
+   Example pages laid like brick behind "Start from template", filling the pane
+   and running off every edge of it. Wider than the pane and tilted, so no edge
+   of the wall is ever in view — it reads as a piece of something larger. The
+   pane clips it; the courses drift a few pixels against each other, slowly
+   enough to be noticed only as the wall not being a picture. */
+.nt-pal-side {
+  position: relative;
+  overflow: hidden;
+}
+.nt-wall {
+  position: absolute;
+  inset: 0;
+  animation: nt-fade-in var(--dur-slow) var(--ease);
+}
+.nt-wall-courses {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  display: flex;
+  gap: 12px;
+  transform: translateX(-50%) rotate(-6deg);
+  transform-origin: 50% 40%;
+}
+.nt-wall-course {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 12px;
+  animation: nt-wall-drift 22s ease-in-out infinite alternate;
+}
+.nt-wall-course[data-dir="down"] {
+  animation-direction: alternate-reverse;
+}
+@keyframes nt-wall-drift {
+  from {
+    transform: translateY(-10px);
+  }
+  to {
+    transform: translateY(10px);
+  }
+}
+.nt-wall-brick {
+  overflow: hidden;
+  border-radius: 6px;
+  box-shadow:
+    0 0 0 1px var(--border),
+    0 1px 2px oklch(0.25 0.005 90 / 0.05),
+    0 10px 22px -12px oklch(0.25 0.005 90 / 0.28);
+  animation: nt-rise 600ms var(--ease) backwards;
+  animation-delay: calc(var(--i, 0) * 35ms);
+}
+.nt-wall-tile {
+  display: block;
+}
+
 /* The page takes all the height the pane has left above the file list, rather
    than the thumbnail's 4:3 — here it is the thing being chosen, and more of the
    page is more of the answer. The thumbnail's own fade handles the crop. */
