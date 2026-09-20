@@ -10,9 +10,9 @@ import { NotionMark } from "./NotionMark";
  * The button does not open a menu; it becomes it. The whole menu is always laid
  * out, anchored to the button's top-right corner and clipped down to the
  * button's rectangle. Opening animates the clip, so nothing is measured or
- * resized on the way and the header never moves. The label travels to the
- * panel's left edge as it grows, and the caret settles into a minus, which is
- * the way back.
+ * resized on the way and the header never moves. The plus turns away, the
+ * label travels to the middle to become the panel's title, and the caret
+ * settles into a minus, which is the way back.
  *
  * Deliberately NOT portaled, unlike every other overlay (see NT-52): the morph
  * requires the button and the menu to be one element. That is safe here and
@@ -102,9 +102,17 @@ export function CreateProject({
       <div className="nt-create-lift">
         <div className="nt-create-surface">
           <div className="nt-create-bar">
-            <button ref={main} onClick={() => choose(onBlank)} className="nt-create-main">
-              <Plus width={14} height={14} />
-              New project
+            {/* Open, this is the panel's title rather than a control: it stops
+                taking the pointer and leaves the tab order, and "Blank project"
+                below is the way to do what it did. */}
+            <button
+              ref={main}
+              onClick={() => choose(onBlank)}
+              tabIndex={open ? -1 : undefined}
+              className="nt-create-main"
+            >
+              <Plus width={14} height={14} className="nt-create-plus" />
+              <span className="nt-create-title">New project</span>
             </button>
             {notion && (
               <button

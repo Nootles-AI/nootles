@@ -2723,20 +2723,41 @@ body:has(.nt-review-bar) .nt-reformat-switcher {
   padding: 0 10px 0 12px;
   font-weight: 500;
   white-space: nowrap;
-  transition:
-    transform 240ms cubic-bezier(0.4, 0, 0.2, 1),
-    background var(--dur-fast) var(--ease);
+  transition: background var(--dur-fast) var(--ease);
 }
 .nt-create-main:only-child {
   padding-right: 12px;
 }
-/* To the panel's left edge: its own width, plus the caret's, short of the
-   panel's. */
+/* Open, the label is the panel's title, not a control. */
 .nt-create[data-open="true"] .nt-create-main {
-  transform: translateX(calc(100% + 26px - var(--open-w)));
+  pointer-events: none;
+}
+.nt-create-title {
+  display: inline-block;
+  transition: transform 240ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+/* To the middle of the panel. Closed, the words end 36px short of the panel's
+   right edge (the caret's 26 and the button's 10 of padding), so their centre
+   is half their own width left of that; the rest is the way to half the panel.
+   In its own width, so no label is ever measured. */
+.nt-create[data-open="true"] .nt-create-title {
+  transform: translateX(calc(50% + 36px - var(--open-w) / 2));
+  transition: transform 460ms var(--spring);
+}
+/* The plus leaves rather than riding along: a title has no glyph, and "new"
+   is already what the panel is. It turns as it goes, the way it would if the
+   caret's motion had caught it. */
+.nt-create-plus {
   transition:
-    transform 460ms var(--spring),
-    background var(--dur-fast) var(--ease);
+    opacity 200ms var(--ease) 60ms,
+    transform 240ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+.nt-create[data-open="true"] .nt-create-plus {
+  opacity: 0;
+  transform: rotate(90deg) scale(0.3);
+  transition:
+    opacity 160ms var(--ease),
+    transform 320ms var(--ease);
 }
 .nt-create-caret {
   display: grid;
