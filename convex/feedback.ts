@@ -2,7 +2,7 @@ import { mutation, query } from "./_generated/server";
 import { feedbackCategory } from "./schema";
 import { v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
-import { ownerId as currentOwner, requireOwned, requireOwner } from "./auth";
+import { ownerId as currentOwner, requireEditable, requireOwner } from "./auth";
 import { uploadUrl } from "./uploads";
 import { next as nextCounter, TICKET } from "./counters";
 
@@ -39,8 +39,12 @@ export const submit = mutation({
     // Off the verified identity, not an argument: a reporter cannot claim to
     // be someone else, and a reply address is the point of keeping it.
     const email = (await ctx.auth.getUserIdentity())?.email;
-    if (args.pageId) await requireOwned(ctx, "pages", args.pageId);
-    if (args.projectId) await requireOwned(ctx, "projects", args.projectId);
+    // A workspace always supplies its current page and project. Editors may
+    // write there, so feedback follows the same owner-or-editor gate as the
+    // editing actions themselves; the feedback row still belongs to its
+    // reporter (`ownerId` above), not to the workspace owner.
+    if (args.pageId) await requireEditable(ctx, "pages", args.pageId);
+    if (args.projectId) await requireEditable(ctx, "projects", args.projectId);
     return await ctx.db.insert("feedback", {
       number: await nextCounter(ctx, TICKET),
       ownerId,
