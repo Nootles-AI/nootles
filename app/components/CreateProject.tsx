@@ -142,13 +142,9 @@ export function CreateProject({
                 hint="A title and an empty first page"
                 onClick={() => choose(onBlank)}
               />
-              <div className="nt-create-sep" role="separator" />
-              <div className="nt-create-label" role="presentation">
-                Import from
-              </div>
               <Way
                 icon={<NotionMark />}
-                name="Notion"
+                name="Import from Notion"
                 hint="Choose which pages come across"
                 onClick={() => choose(onNotion)}
               />

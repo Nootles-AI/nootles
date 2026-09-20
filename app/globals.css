@@ -2825,8 +2825,6 @@ body:has(.nt-review-bar) .nt-reformat-switcher {
     transform 440ms var(--ease) calc(70ms + var(--n, 0) * 35ms);
 }
 .nt-create-items > :nth-child(2) { --n: 1; }
-.nt-create-items > :nth-child(3) { --n: 2; }
-.nt-create-items > :nth-child(4) { --n: 3; }
 .nt-create-way {
   display: flex;
   align-items: center;
@@ -2871,25 +2869,9 @@ body:has(.nt-review-bar) .nt-reformat-switcher {
   font-weight: 500;
 }
 /* 7.9:1 on the ink. */
-.nt-create-two > :last-child,
-.nt-create-label {
-  color: oklch(0.78 0.004 90);
-}
 .nt-create-two > :last-child {
+  color: oklch(0.78 0.004 90);
   font-size: var(--text-meta-lg);
-}
-.nt-create-sep {
-  height: 1px;
-  margin: 5px 8px;
-  background: oklch(1 0 0 / 0.12);
-}
-.nt-create-label {
-  padding: 6px 8px 3px;
-  font-family: var(--font-mono), ui-monospace, monospace;
-  font-size: var(--text-meta);
-  font-weight: 500;
-  letter-spacing: var(--tracking-meta);
-  text-transform: uppercase;
 }
 
 /* ---- The miniature ------------------------------------------------------
