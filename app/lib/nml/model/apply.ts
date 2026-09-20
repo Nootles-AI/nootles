@@ -152,6 +152,8 @@ export function compileNmlBatch(
             pageId: run.pageId,
             fallbackTitle: run.title,
           };
+        case "checkbox":
+          return { type: "checkbox" as const, id: temporary("checkbox"), checked: run.checked };
       }
     });
 

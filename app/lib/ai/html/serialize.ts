@@ -355,6 +355,10 @@ export function runsToHtml(content: unknown): string {
         const props = item.props as { pageId?: string; title?: string } | undefined;
         return `<nt-ref${attr("page", props?.pageId)}>${esc(props?.title ?? "")}</nt-ref>`;
       }
+      if (item.type === "checkbox") {
+        const checked = (item.props as { checked?: boolean } | undefined)?.checked;
+        return checked ? "<nt-check checked></nt-check>" : "<nt-check></nt-check>";
+      }
       if (item.type === "link") {
         const href = String(item.href ?? "");
         return `<a${attr("href", href)}>${runsToHtml(item.content)}</a>`;
@@ -369,6 +373,9 @@ export function runsToHtmlFromRuns(runs: Run[]): string {
   return runs
     .map((r) => {
       if (r.type === "math") return `<nt-math>${r.latex}</nt-math>`;
+      if (r.type === "checkbox") {
+        return r.checked ? "<nt-check checked></nt-check>" : "<nt-check></nt-check>";
+      }
       if (r.type === "pageRef") {
         return `<nt-ref${attr("page", r.pageId)}>${esc(r.title)}</nt-ref>`;
       }

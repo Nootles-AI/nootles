@@ -47,6 +47,7 @@ type BNInline =
   | BNText
   | { type: "math"; props: { latex: string } }
   | { type: "pageMention"; props: { pageId: string; title: string } }
+  | { type: "checkbox"; props: { checked: boolean } }
   | { type: "link"; href: string; content: BNText[] };
 
 const styled = (r: { text: string; marks?: Mark[] }): BNText => ({
@@ -63,6 +64,9 @@ function compileInline(runs: InlineRun[]): BNInline[] {
         type: "pageMention" as const,
         props: { pageId: r.pageId, title: r.title },
       };
+    }
+    if (r.type === "checkbox") {
+      return { type: "checkbox" as const, props: { checked: r.checked } };
     }
     if (r.type === "link") {
       return { type: "link" as const, href: r.href, content: r.content.map(styled) };

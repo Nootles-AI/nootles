@@ -157,6 +157,12 @@ function convertInline(content: unknown, path: Array<string | number>, ctx: Ctx)
         out.push({ type: "pageRef", id, pageId: str(record(item.props).pageId), fallbackTitle: str(record(item.props).title) });
         break;
       }
+      case "checkbox": {
+        const id = ctx.createId();
+        ctx.report("legacy_minted_id", "repair", here, `Inline checkbox had no stable ID; minted "${id}".`, id);
+        out.push({ type: "checkbox", id, checked: record(item.props).checked === true });
+        break;
+      }
       default:
         ctx.report("legacy_dropped_inline", "warning", here, `Unsupported inline node <${str(item.type) || "unknown"}> was dropped.`);
     }
@@ -463,6 +469,7 @@ function comparableInline(content: NmlInlineContent): string {
     normalizeInline(content).map((node: NmlInline) => {
       if (node.type === "math") return { k: "math", latex: node.latex };
       if (node.type === "pageRef") return { k: "ref", pageId: node.pageId, title: node.fallbackTitle };
+      if (node.type === "checkbox") return { k: "check", checked: node.checked };
       if (node.type === "link") return { k: "link", href: node.href, content: node.content.map((t: NmlText) => ({ text: t.text, marks: t.marks })) };
       return { k: "text", text: node.text, marks: node.marks };
     }),
@@ -600,6 +607,7 @@ function convertInlineExpectation(content: unknown): NmlInlineContent {
       out.push({ type: "link", href: str(item.href), content: linked });
     } else if (item.type === "math") out.push({ type: "math", id: "_", latex: str(record(item.props).latex) });
     else if (item.type === "pageMention") out.push({ type: "pageRef", id: "_", pageId: str(record(item.props).pageId), fallbackTitle: str(record(item.props).title) });
+    else if (item.type === "checkbox") out.push({ type: "checkbox", id: "_", checked: record(item.props).checked === true });
   }
   return out;
 }

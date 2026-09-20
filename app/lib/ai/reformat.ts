@@ -62,6 +62,8 @@ The document is HTML with a few custom elements:
   <table><tr><th>A</th></tr><tr><td>b</td></tr></table>
   <ul><li><input type="checkbox">todo</li></ul>   checklist
   <ul><li>item</li></ul>            bullet list
+  <nt-check></nt-check>             a tick box inside a line — the only kind a
+                                    table cell can hold; <nt-check checked> is ticked
 
 Code blocks must name their language:
   plaintext typescript tsx javascript jsx python java json html css markdown sql rust

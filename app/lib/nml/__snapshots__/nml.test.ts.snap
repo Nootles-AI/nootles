@@ -2,7 +2,7 @@
 
 exports[`canonical NML > has a golden serialization covering every v1 block and inline node 1`] = `
 "<nt-document id="doc-1" schema-version="1">
-  <p id="p-1"><code><strong><em><s><u>Every mark</u></s></em></strong></code><a href="https://example.com?a=1&amp;b=2"><em> linked</em></a><nt-math id="im-1">x &lt; y</nt-math><nt-ref id="ref-1" page-id="page-2">Other &amp; page</nt-ref></p>
+  <p id="p-1"><code><strong><em><s><u>Every mark</u></s></em></strong></code><a href="https://example.com?a=1&amp;b=2"><em> linked</em></a><nt-math id="im-1">x &lt; y</nt-math><nt-ref id="ref-1" page-id="page-2">Other &amp; page</nt-ref><nt-check id="check-1" checked="true"></nt-check><nt-check id="check-2" checked="false"></nt-check></p>
   <h2 id="h-1">Heading</h2>
   <blockquote id="q-1">Quote</blockquote>
   <ul>
@@ -25,7 +25,7 @@ exports[`canonical NML > has a golden serialization covering every v1 block and 
   <table id="table-1" header-rows="1">
     <colgroup><col id="col-1"><col id="col-2"></colgroup>
     <tr id="row-1"><th id="cell-1">A</th><th id="cell-2">B</th></tr>
-    <tr id="row-2"><td id="cell-3">1</td><td id="cell-4">2</td></tr>
+    <tr id="row-2"><td id="cell-3">1</td><td id="cell-4"><nt-check id="check-3" checked="false"></nt-check></td></tr>
   </table>
   <nt-code-block id="code-1" language="typescript">if (a &lt; b) {
   x &amp;&amp; y;

@@ -85,6 +85,7 @@ export const readerSchema = BlockNoteSchema.create({
   },
   inlineContentSpecs: {
     ...defaultInlineContentSpecs,
+    checkbox: inlineStandIn("checkbox", { checked: { default: false } }),
     math: inlineStandIn("math", { latex: { default: "" } }),
     pageMention: inlineStandIn("pageMention", {
       pageId: { default: "" },

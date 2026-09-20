@@ -47,7 +47,13 @@ function inspectInline(
       length += inspectInline(node.content, [...here, "content"], ids, issues);
     } else {
       addId(node.id, here, ids, issues);
-      length += node.type === "math" ? node.latex.length : node.fallbackTitle.length;
+      // A checkbox is its state and nothing else, so it spends no inline budget.
+      length +=
+        node.type === "math"
+          ? node.latex.length
+          : node.type === "pageRef"
+            ? node.fallbackTitle.length
+            : 0;
     }
   });
   return length;

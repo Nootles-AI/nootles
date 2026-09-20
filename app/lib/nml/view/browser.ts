@@ -56,6 +56,39 @@ function mountNmlView(host: HTMLElement, bridge: NmlViewBridge, renderDomain?: D
     render(node);
     return { dom, update: (next) => { if (next.type !== node.type || next.attrs.nmlId !== node.attrs.nmlId) return false; render(next); return true; }, ignoreMutation: () => true, destroy: () => { generation++; } };
   };
+  nodeViews.checkbox = (node) => {
+    const dom = host.ownerDocument.createElement("span");
+    dom.dataset.nmlId = node.attrs.nmlId;
+    dom.className = "nt-check";
+    dom.contentEditable = "false";
+    const box = host.ownerDocument.createElement("input");
+    box.type = "checkbox";
+    box.className = "nt-check-box";
+    const render = (next: PmNode) => {
+      box.checked = next.attrs.checked === true;
+      box.disabled = !bridge.supportsRichEditing();
+    };
+    // The press goes through the bridge, not the DOM: the box on screen is a
+    // projection and its state lives in the canonical tree. A refused command
+    // leaves the document where it was, so the input goes back there too rather
+    // than sitting ticked over an unticked document.
+    box.onchange = () => {
+      const wanted = box.checked;
+      if (!bridge.setCheckboxChecked(node.attrs.nmlId as string, wanted)) box.checked = !wanted;
+    };
+    render(node);
+    dom.append(box);
+    return {
+      dom,
+      update: (next) => {
+        if (next.type !== node.type || next.attrs.nmlId !== node.attrs.nmlId) return false;
+        render(next);
+        return true;
+      },
+      stopEvent: (event) => box.contains(event.target as globalThis.Node),
+      ignoreMutation: () => true,
+    };
+  };
   nodeViews.pageRef = (node) => {
     const dom = host.ownerDocument.createElement("span");
     dom.dataset.nmlId = node.attrs.nmlId;

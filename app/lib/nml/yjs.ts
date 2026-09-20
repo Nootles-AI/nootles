@@ -132,6 +132,9 @@ function inlineNodesToY(content: NmlInlineContent): Array<Y.XmlText | Y.XmlEleme
     } else if (inline.type === "math") {
       element.setAttribute("id", inline.id);
       element.setAttribute("latex", inline.latex);
+    } else if (inline.type === "checkbox") {
+      element.setAttribute("id", inline.id);
+      element.setAttribute("checked", inline.checked ? "true" : "false");
     } else {
       element.setAttribute("id", inline.id);
       element.setAttribute("pageId", inline.pageId);
@@ -226,6 +229,16 @@ function inlineFromY(value: unknown, path: Array<string | number>): NmlInlineCon
       assertAttributes(node, ["id", "latex"], [...path, index]);
       if (node.length) throw decodeFailure([...path, index], "Inline math cannot have children.");
       result.push({ type: "math", id: stringAttr(node, "id", path), latex: stringAttr(node, "latex", path) });
+      return;
+    }
+    if (node.nodeName === "checkbox") {
+      assertAttributes(node, ["id", "checked"], [...path, index]);
+      if (node.length) throw decodeFailure([...path, index], "Checkboxes cannot have children.");
+      const checked = stringAttr(node, "checked", path);
+      if (checked !== "true" && checked !== "false") {
+        throw decodeFailure([...path, index, "checked"], "Expected checked to be \"true\" or \"false\".");
+      }
+      result.push({ type: "checkbox", id: stringAttr(node, "id", path), checked: checked === "true" });
       return;
     }
     if (node.nodeName === "pageRef") {
@@ -583,12 +596,19 @@ export function writeNmlDocument(doc: Y.Doc, document: NmlDocument, origin?: Nml
 
 const PLAIN_TEXT_BLOCKS = new Set(["paragraph", "heading", "quote"]);
 
+/** Inline nodes that hold a position but contribute no characters of their own. */
+const ATOM_NODES = new Set(["math", "pageRef", "checkbox"]);
+
 function inlineUnits(content: NmlInlineContent): number {
   return content.reduce((total, node) => total + (node.type === "text"
     ? node.text.length
     : node.type === "link"
       ? inlineUnits(node.content)
-      : node.type === "math" ? node.latex.length : node.fallbackTitle.length), 0);
+      : node.type === "math"
+        ? node.latex.length
+        : node.type === "checkbox"
+          ? 1
+          : node.fallbackTitle.length), 0);
 }
 
 function documentInlineUnits(document: NmlDocument): number {
@@ -786,7 +806,7 @@ export class NmlYjsIndex {
           textNodes.push(child);
           text += visibleText(child);
         } else if (child instanceof Y.XmlElement && child.nodeName === "link") visit(child);
-        else if (child instanceof Y.XmlElement && (child.nodeName === "math" || child.nodeName === "pageRef")) text += "\uFFFC";
+        else if (child instanceof Y.XmlElement && ATOM_NODES.has(child.nodeName)) text += "\uFFFC";
       }
     };
     visit(owner.shared);

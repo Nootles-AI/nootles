@@ -282,7 +282,8 @@ type InlineNode =
   | { type: "text"; text: string; marks: Mark[] }
   | { type: "link"; href: string; content: TextInline[] }
   | { type: "math"; id: NodeId; latex: string }
-  | { type: "pageRef"; id: NodeId; pageId: string; fallbackTitle: string };
+  | { type: "pageRef"; id: NodeId; pageId: string; fallbackTitle: string }
+  | { type: "checkbox"; id: NodeId; checked: boolean };
 
 type TextInline = { type: "text"; text: string; marks: Mark[] };
 ```
@@ -297,6 +298,17 @@ Resolution rules:
 - Unsafe URL schemes are rejected, not rewritten.
 - A page reference stores its page ID and fallback title. Rendering may resolve a newer
   live title without mutating the document.
+- A checkbox is a tick box in the run of the text — the only kind a table cell can hold,
+  a cell having inline content and no blocks (NT-41). `checked` is required and has exactly
+  two states: the canonical form always spells it out (`<nt-check id="…" checked="false">`)
+  and the Yjs decoder rejects any other value, so "absent" and "false" are never two ways of
+  writing one state. A box carries an ID like the other embeds, so a tick is an edit to one
+  box rather than a rewrite of the cell around it.
+- Adding `checkbox` to the v1 inline union is additive rather than a v2 migration because
+  no document has ever been served under NML: `nmlServeEnabled` defaults off and only a
+  migrated, in-cohort, server-verified document reads the root. There is therefore no stored
+  v1 tree for a v2 reader to migrate and no older client to keep a reader for. Once serving
+  is turned on for any cohort, this window closes and the next inline node is a v2.
 - Inline embeds have stable IDs so concurrent deletion/update can resolve by identity.
 - Newlines in prose become explicit hard-break inline nodes if the product supports hard
   breaks; until then they normalize to spaces. Code and LaTeX preserve newlines exactly.

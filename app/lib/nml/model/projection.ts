@@ -52,6 +52,8 @@ function inlineContent(content: NmlInlineContent): unknown[] {
         return { type: "math" as const, props: { latex: node.latex } };
       case "pageRef":
         return { type: "pageMention" as const, props: { pageId: node.pageId, title: node.fallbackTitle } };
+      case "checkbox":
+        return { type: "checkbox" as const, props: { checked: node.checked } };
     }
   });
 }

@@ -29,7 +29,14 @@ export type NmlPageRef = {
   pageId: string;
   fallbackTitle: string;
 };
-export type NmlInline = NmlText | NmlLink | NmlMath | NmlPageRef;
+/**
+ * A tick box in the run of the text — the only kind a table cell can hold, a
+ * cell having inline content and no blocks (NT-41). Carries an ID like the
+ * other inline entities so a toggle is an edit to one box rather than a rewrite
+ * of the cell around it.
+ */
+export type NmlCheckbox = { type: "checkbox"; id: string; checked: boolean };
+export type NmlInline = NmlText | NmlLink | NmlMath | NmlPageRef | NmlCheckbox;
 export type NmlInlineContent = NmlInline[];
 
 const idSchema = z.string().min(1);
@@ -48,6 +55,7 @@ export const nmlInlineSchema: z.ZodType<NmlInline> = z.discriminatedUnion("type"
       fallbackTitle: z.string(),
     })
     .strict(),
+  z.object({ type: z.literal("checkbox"), id: idSchema, checked: z.boolean() }).strict(),
 ]);
 export const nmlInlineContentSchema = z.array(nmlInlineSchema);
 

@@ -91,6 +91,11 @@ export const inlineRun = z.discriminatedUnion("type", [
     pageId: z.string(),
     title: z.string(),
   }),
+  // A tick box in the run of the text. A run rather than a block because a
+  // table cell holds inline content and no blocks, which is exactly where the
+  // to-do list could not reach (NT-41). `checked` is required: a box whose
+  // state the model left unsaid is a box it did not mean to write.
+  z.object({ type: z.literal("checkbox"), checked: z.boolean() }),
 ]);
 export type InlineRun = z.infer<typeof inlineRun>;
 

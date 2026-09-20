@@ -530,6 +530,29 @@ export abstract class NmlViewBridge {
       this.projection.schema.nodes.pageRef.createChecked({ nmlId: id, pageId, fallbackTitle }),
     ));
   }
+  insertCheckbox(checked = false): boolean {
+    if (this.editingScope !== "full") return false;
+    const id = this.temporaryId("checkbox");
+    return this.dispatch(this.current.tr.replaceSelectionWith(
+      this.projection.schema.nodes.checkbox.createChecked({ nmlId: id, checked }),
+    ));
+  }
+  /**
+   * Tick or untick one box by its ID, which is the only edit a box has. Named
+   * by node rather than by selection because the gesture is a press ON the box,
+   * not a command aimed at wherever the caret happens to be.
+   */
+  setCheckboxChecked(nodeId: string, checked: boolean): boolean {
+    if (this.editingScope !== "full") return false;
+    const entry = this.index.get(nodeId);
+    if (!entry) return false;
+    const node = this.current.doc.nodeAt(entry.pmStart);
+    if (node?.type !== this.projection.schema.nodes.checkbox) return false;
+    if (node.attrs.checked === checked) return false;
+    return this.dispatch(
+      this.current.tr.setNodeMarkup(entry.pmStart, undefined, { ...node.attrs, checked }),
+    );
+  }
   splitSelection(): boolean {
     if (this.editingScope !== "full") return false;
     const target = this.selectedInlineBlock();
