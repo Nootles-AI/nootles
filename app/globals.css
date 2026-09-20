@@ -834,70 +834,6 @@ textarea.nt-input {
   padding: 18px 18px 0;
 }
 
-/* ---- Slim dialog ---------------------------------------------------------
-   The dialog for one short form: a single column you read down once, narrow
-   enough that the title field is the first thing the eye lands on. The fields
-   arrive in order, a beat behind the box, so the form is read top to bottom
-   before anyone has decided to. `backwards`, not `both` — a fill that outlives
-   the animation keeps each field a stacking context, and the repository picker
-   would open underneath the field below it. */
-.nt-dialog.is-slim {
-  width: 35rem;
-  border-radius: 14px;
-}
-.nt-dialog.is-slim .nt-dialog-head {
-  position: relative;
-  padding: 20px 52px 0 22px;
-}
-.nt-dialog-title {
-  font-size: var(--text-body);
-  font-weight: 600;
-  letter-spacing: -0.005em;
-}
-.nt-dialog-lede {
-  max-width: 46ch;
-  margin-top: 5px;
-  font-size: var(--text-ui);
-  line-height: 1.5;
-  color: var(--muted);
-  text-wrap: pretty;
-}
-.nt-dialog-close {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-}
-.nt-dialog.is-slim .nt-dialog-body {
-  grid-template-columns: minmax(0, 1fr);
-  gap: 16px;
-  padding: 18px 22px 4px;
-}
-.nt-dialog.is-slim .nt-field-fill textarea.nt-input {
-  min-height: 6.5rem;
-}
-.nt-dialog.is-slim .nt-dialog-foot {
-  gap: 8px;
-  padding: 16px 22px 20px;
-}
-.nt-dialog.is-slim .nt-dialog-foot .nt-row {
-  transition:
-    transform var(--dur) var(--ease),
-    background var(--dur-fast) var(--ease),
-    opacity var(--dur-fast) var(--ease);
-}
-.nt-dialog.is-slim .nt-dialog-foot .nt-row:active:not(:disabled) {
-  transform: scale(0.96);
-}
-.nt-dialog.is-slim:not(.is-closing) .nt-dialog-body > :first-child > *,
-.nt-dialog.is-slim:not(.is-closing) .nt-dialog-body > :last-child {
-  animation: nt-rise 450ms var(--ease) backwards;
-}
-.nt-dialog.is-slim .nt-dialog-body > :first-child > :nth-child(1) { animation-delay: 110ms; }
-.nt-dialog.is-slim .nt-dialog-body > :first-child > :nth-child(2) { animation-delay: 140ms; }
-.nt-dialog.is-slim .nt-dialog-body > :first-child > :nth-child(3) { animation-delay: 170ms; }
-.nt-dialog.is-slim .nt-dialog-body > :first-child > :nth-child(4) { animation-delay: 200ms; }
-.nt-dialog.is-slim .nt-dialog-body > :first-child > :nth-child(n + 5) { animation-delay: 230ms; }
-.nt-dialog.is-slim .nt-dialog-body > :last-child { animation-delay: 270ms; }
 /* Two columns: the short fields stack in the first, the freeform one takes the
    second whole and is stretched to the height they set between them. The one
    part that scrolls, on a window too short to hold it. */
@@ -2740,12 +2676,13 @@ body:has(.nt-review-bar) .nt-reformat-switcher {
   display: inline-block;
   transition: transform 240ms cubic-bezier(0.4, 0, 0.2, 1);
 }
-/* To the middle of the panel. Closed, the words end 36px short of the panel's
-   right edge (the caret's 26 and the button's 10 of padding), so their centre
-   is half their own width left of that; the rest is the way to half the panel.
-   In its own width, so no label is ever measured. */
+/* To the middle of the panel. Closed, the words end 60px short of the panel's
+   right edge (the caret's 26, the button's 10 of padding, the key's 18 and the
+   6 before it), so their centre is half their own width left of that; the rest
+   is the way to half the panel. In its own width, so no label is ever
+   measured — which is why the key beside it has a fixed one. */
 .nt-create[data-open="true"] .nt-create-title {
-  transform: translateX(calc(50% + 36px - var(--open-w) / 2));
+  transform: translateX(calc(50% + 60px - var(--open-w) / 2));
   transition: transform 460ms var(--spring);
 }
 /* The plus leaves rather than riding along: a title has no glyph, and "new"
@@ -2755,6 +2692,24 @@ body:has(.nt-review-bar) .nt-reformat-switcher {
   transition:
     opacity 200ms var(--ease) 60ms,
     transform 240ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+/* The shortcut, worn on the button. It leaves with the plus: open, this is a
+   title, and a title has no shortcut. */
+.nt-create-kbd {
+  display: grid;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  border-radius: 4px;
+  background: oklch(1 0 0 / 0.14);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--text-meta);
+  transition: opacity 200ms var(--ease) 60ms;
+}
+.nt-create[data-open="true"] .nt-create-kbd {
+  opacity: 0;
+  transition: opacity 120ms var(--ease);
 }
 .nt-create[data-open="true"] .nt-create-plus {
   opacity: 0;
@@ -3518,6 +3473,11 @@ body:has(.nt-review-bar) .nt-reformat-switcher {
 }
 .nt-pal-form .nt-pal-foot {
   align-items: center;
+}
+/* A page with nothing on it yet keeps the palette's height, so stepping into it
+   does not collapse the box under the pointer. */
+.nt-pal-blank {
+  height: min(60vh, 34rem);
 }
 @media (max-width: 48rem) {
   .nt-pal-fld {

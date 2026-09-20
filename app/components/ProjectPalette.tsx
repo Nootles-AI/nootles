@@ -17,7 +17,7 @@ import { pages, when } from "@/app/lib/projectMeta";
 import { Dialog } from "./Dialog";
 import { PROJECT_TEMPLATES, pagePicture, type ProjectTemplate } from "@/app/lib/templates";
 import { ChevronRight, FileDoc, Folder, Plus, Template } from "./Icons";
-import { useNewProjectDraft, type NewProject } from "./NewProjectDialog";
+import { useNewProjectDraft, type NewProject } from "./newProjectDraft";
 import { NotionMark } from "./NotionMark";
 import { NotionPort } from "./NotionPort";
 import { BlankStart } from "./BlankStart";
@@ -133,7 +133,7 @@ export function ProjectPalette({
 }
 
 /** Each page's way back, which is also what Escape and the crumbs follow. */
-export type Page = "root" | "create" | "template" | "details";
+export type Page = "root" | "create" | "template" | "details" | "notion";
 
 function Palette({
   start,
@@ -183,7 +183,11 @@ function Palette({
     create: "root",
     template: "create",
     details: template ? "template" : "create",
+    notion: "create",
   };
+  // Pages that are not a list: no query field, and the keys belong to whatever
+  // is on them.
+  const listless = page === "details" || page === "notion";
 
   const root: Row[] = [
     ...(canCreate
@@ -252,7 +256,8 @@ function Palette({
             line: "Choose which pages come across",
             icon: <NotionMark />,
             picture: "notion" as const,
-            run: onNotion,
+            drill: true,
+            run: () => (room ? go("notion") : onWall()),
           },
         ]
       : []),
@@ -307,7 +312,7 @@ function Palette({
     // The form page has fields; arrows and Enter are theirs. Escape still backs
     // out one page rather than closing the palette.
     const prior = back[page];
-    if (page === "details") {
+    if (listless) {
       if (e.key === "Escape" && prior) {
         e.preventDefault();
         e.nativeEvent.stopImmediatePropagation();
@@ -353,6 +358,7 @@ function Palette({
                   : { label: "Blank project", to: "create" as Page },
               ]
             : []),
+          ...(page === "notion" ? [{ label: "Import from Notion", to: "create" as Page }] : []),
         ];
 
   return (
@@ -368,7 +374,7 @@ function Palette({
             </button>
           </Fragment>
         ))}
-        {page === "details" ? (
+        {listless ? (
           <span className="flex-1" />
         ) : (
           <input
@@ -399,7 +405,29 @@ function Palette({
         <kbd className="nt-kbd">esc</kbd>
       </div>
 
-      {page === "details" ? (
+      {page === "notion" ? (
+        // Blank on purpose: the import's own pages — connect, choose, progress —
+        // have not moved into the palette yet. Until they do, this page's one
+        // job is to not strand anyone, so it opens the dialog that works.
+        <div className="nt-pal-form">
+          <div className="nt-pal-blank" />
+          <div className="nt-pal-foot">
+            <span className="ml-auto flex gap-1">
+              <button type="button" onClick={() => go("create")} className="nt-row px-2.5">
+                Back
+              </button>
+              <button
+                type="button"
+                autoFocus
+                onClick={onNotion}
+                className="nt-row nt-solid px-3 font-medium"
+              >
+                Open Notion import
+              </button>
+            </span>
+          </div>
+        </div>
+      ) : page === "details" ? (
         <DetailsForm
           key={template?.id ?? "blank"}
           template={template}
@@ -563,9 +591,8 @@ function TemplatePreview({ template }: { template: ProjectTemplate }) {
 }
 
 /**
- * The New project dialog's fields, on the palette's last page — all but the
- * repositories. Same draft and the same send; only the dress is the palette's.
- * What it makes is decided on the pages before it.
+ * The project's details, on the palette's last page. What it makes — blank, or
+ * a template — is decided on the pages before it.
  */
 function DetailsForm({
   template,
@@ -576,8 +603,8 @@ function DetailsForm({
   onCreate: (project: NewProject) => Promise<void>;
   onBack: () => void;
 }) {
-  // Repositories are left to the dialog for now; a project made here links
-  // none, and can link them from the sidebar once it exists.
+  // No repositories for now: a project made here links none, and can link them
+  // from its sidebar once it exists.
   const {
     title, setTitle, description, setDescription, context, setContext,
     busy, failure, named, submit, sendOnModEnter,

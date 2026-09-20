@@ -18,7 +18,7 @@ import { CreateProject } from "./CreateProject";
 import { ContextMenu } from "./ContextMenu";
 import { Feedback } from "./feedback/Feedback";
 import { FixedToast } from "./feedback/FixedToast";
-import { NewProjectDialog, type NewProject } from "./NewProjectDialog";
+import type { NewProject } from "./newProjectDraft";
 import { useNotionAvailable } from "./notion/NotionAvailable";
 import { NotionImport } from "./notion/NotionImport";
 import { ProjectPalette, useModKey, type Page as PalettePage } from "./ProjectPalette";
@@ -61,7 +61,6 @@ export function ProjectsScreen() {
   const [ctx, setCtx] = useState<{ project: Project; x: number; y: number } | null>(
     null,
   );
-  const [naming, setNaming] = useState(false);
   // The palette, and the page it opens on: search opens it at the root, the
   // header's "Start from template" opens it on the templates.
   const [finding, setFinding] = useState<PalettePage | null>(null);
@@ -97,20 +96,43 @@ export function ProjectsScreen() {
     localStorage.setItem("nt:projectsView", view);
   }, [view]);
 
+  /**
+   * Making a project happens in the palette, whichever door was used — the
+   * header, its menu, the empty state, a shortcut, coming back from the wall.
+   * Every door goes through the same gate first, so the plan's limit stands in
+   * front of all of them alike, and each opens the palette on its own page.
+   */
+  const hasRoom = room("projects");
+  const start = useCallback(
+    (page: PalettePage) => (hasRoom ? setFinding(page) : setWalled(true)),
+    [hasRoom],
+  );
+
   // ⌘K from anywhere on the screen, a rename field included — it is a chord, so
-  // it cannot be mistaken for typing. Not while another dialog is up: the
-  // palette would open over a form that is in the middle of being filled in.
-  const busy = naming || importing || walled || confirming !== null;
+  // it cannot be mistaken for typing. N starts a project, and being a bare key
+  // it stands down wherever one could be typing. ⌘N is accepted too, but a
+  // browser tab keeps that for "new window" and never delivers it, so N is the
+  // one the button advertises. Neither while another dialog is up: the palette
+  // would open over a form that is in the middle of being filled in.
+  const busy = importing || walled || confirming !== null;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key.toLowerCase() !== "k" || !(e.metaKey || e.ctrlKey) || e.altKey) return;
-      if (busy) return;
-      e.preventDefault();
-      setFinding((f) => (f ? null : "root"));
+      if (busy || e.altKey) return;
+      const key = e.key.toLowerCase();
+      const mod = e.metaKey || e.ctrlKey;
+      if (key === "k" && mod) {
+        e.preventDefault();
+        setFinding((f) => (f ? null : "root"));
+      } else if (key === "n" && !standIn && !finding) {
+        const typing = (e.target as HTMLElement).closest("input, textarea, [contenteditable]");
+        if (!mod && typing) return;
+        e.preventDefault();
+        start("create");
+      }
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [busy]);
+  }, [busy, finding, standIn, start]);
 
   // Stable so the memoized cards and rows sit out this screen's re-renders —
   // every one of them carries a live PagePreview, and a rename keystroke was
@@ -146,22 +168,12 @@ export function ProjectsScreen() {
     [renameProject, setFailure],
   );
 
-  /**
-   * A project is made from what the dialog collected and then opened, rather
-   * than appearing on this screen as another card to find and click. It already
-   * has a name, and its first page is the only place there is to go.
-   */
-  const openNaming = useCallback(() => setNaming(true), []);
+  const openCreate = useCallback(() => setFinding("create"), []);
 
-  // Every way of starting a project goes through the same gate, so the wall
-  // stands in front of the palette's rows exactly as it does the header's.
-  const startBlank = () => (room("projects") ? openNaming() : setWalled(true));
-  const startImport = () => (room("projects") ? setImporting(true) : setWalled(true));
-
-  // Paid for mid-thought and came back: the dialog they were reaching for opens
+  // Paid for mid-thought and came back: what they were reaching for opens
   // itself, so the wall reads as a pause in making the project rather than as a
   // detour they have to retrace.
-  useResumeIntent("newProject", true, openNaming);
+  useResumeIntent("newProject", true, openCreate);
 
   const create = async (project: NewProject) => {
     // A template's pages become documents here, in the browser, at the moment
@@ -176,16 +188,6 @@ export function ProjectsScreen() {
       ...(project.description ? { description: project.description } : {}),
       ...(project.context ? { context: project.context } : {}),
       ...(seed ? { seed } : {}),
-      ...(project.repos.length
-        ? {
-            repos: project.repos.map((repo) => ({
-              fullName: repo.fullName,
-              defaultBranch: repo.defaultBranch,
-              ...(repo.description ? { description: repo.description } : {}),
-              private: repo.private,
-            })),
-          }
-        : {}),
     });
     track("project_created", {});
     router.push(`/p/${id}`);
@@ -275,11 +277,10 @@ export function ProjectsScreen() {
           {!standIn && (
             <CreateProject
               notion={notionAvailable === true}
-              onBlank={startBlank}
-              // Choosing a template is a list, and the palette is where this
-              // screen keeps its lists — so it opens there, on that page.
-              onTemplate={() => (room("projects") ? setFinding("template") : setWalled(true))}
-              onNotion={startImport}
+              onNew={() => start("create")}
+              onBlank={() => start("details")}
+              onTemplate={() => start("template")}
+              onNotion={() => start("notion")}
             />
           )}
         </div>
@@ -303,7 +304,7 @@ export function ProjectsScreen() {
         {projects === undefined ? (
           <Skeletons view={view} />
         ) : projects.length === 0 ? (
-          <Empty onCreate={() => setNaming(true)} />
+          <Empty onCreate={() => start("create")} />
         ) : view === "board" ? (
           <ProjectsBoard
             projects={projects}
@@ -450,21 +451,17 @@ export function ProjectsScreen() {
           projects={projects ?? []}
           shared={shared ?? []}
           canCreate={!standIn}
-          room={room("projects")}
+          room={hasRoom}
           notion={notionAvailable === true}
           onOpen={open}
           onWall={() => setWalled(true)}
           onCreate={create}
-          onNotion={startImport}
+          onNotion={() => setImporting(true)}
           onClose={() => setFinding(null)}
         />
       )}
 
       {importing && <NotionImport onClose={() => setImporting(false)} />}
-
-      {naming && (
-        <NewProjectDialog onCancel={() => setNaming(false)} onCreate={create} />
-      )}
 
       {walled && (
         <PlanWall
@@ -473,7 +470,7 @@ export function ProjectsScreen() {
           onClose={() => setWalled(false)}
           onResume={() => {
             setWalled(false);
-            openNaming();
+            openCreate();
           }}
         />
       )}

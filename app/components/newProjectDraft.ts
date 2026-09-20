@@ -1,0 +1,66 @@
+"use client";
+
+import { useState, type FormEvent, type KeyboardEvent } from "react";
+
+export type NewProject = {
+  title: string;
+  description: string;
+  context: string;
+  /** An `app/lib/templates` id; absent means blank. */
+  template?: string;
+};
+
+/**
+ * What a project is, asked before it exists.
+ *
+ * None of this is filing: everything typed here becomes the project's Context
+ * Sheet, which is what primes every request the agent makes inside it. So the
+ * fields are asked in the order they are worth — the title, the sentence, then
+ * the room to say the things that have nowhere else to go.
+ *
+ * Only the title is required. A project with a title and nothing else is a
+ * perfectly good project, and asking for more before letting someone start
+ * would be a form standing between them and a blank page.
+ */
+export function useNewProjectDraft(
+  onCreate: (project: NewProject) => Promise<void>,
+  template?: string,
+) {
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [context, setContext] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
+
+  const named = title.trim();
+
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    if (!named || busy) return;
+    setBusy(true);
+    setFailure(null);
+    // Left busy on the way out: the caller opens the project next, and a button
+    // that comes back to life during the navigation invites a second project.
+    onCreate({
+      title: named,
+      description: description.trim(),
+      context: context.trim(),
+      template,
+    }).catch(() => {
+      setFailure("Couldn’t create that project.");
+      setBusy(false);
+    });
+  };
+
+  /** Enter sends a one-line field; a box you can write paragraphs in needs the modifier. */
+  const sendOnModEnter = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key !== "Enter" || !(e.metaKey || e.ctrlKey)) return;
+    e.preventDefault();
+    e.currentTarget.form?.requestSubmit();
+  };
+
+  return {
+    title, setTitle, description, setDescription, context, setContext,
+    busy, failure, named, submit, sendOnModEnter,
+  };
+}

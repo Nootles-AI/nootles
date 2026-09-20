@@ -21,12 +21,15 @@ import { NotionMark } from "./NotionMark";
  */
 export function CreateProject({
   notion,
+  onNew,
   onBlank,
   onTemplate,
   onNotion,
 }: {
   /** Whether importing from Notion is on offer on this deployment. */
   notion: boolean;
+  /** The button itself: every way to start, undecided. */
+  onNew: () => void;
   onBlank: () => void;
   onTemplate: () => void;
   onNotion: () => void;
@@ -105,16 +108,18 @@ export function CreateProject({
         <div className="nt-create-surface">
           <div className="nt-create-bar">
             {/* Open, this is the panel's title rather than a control: it stops
-                taking the pointer and leaves the tab order, and "Blank project"
-                below is the way to do what it did. */}
+                taking the pointer and leaves the tab order, and the items below
+                are the decided versions of what it did. */}
             <button
               ref={main}
-              onClick={() => choose(onBlank)}
+              onClick={() => choose(onNew)}
               tabIndex={open ? -1 : undefined}
+              aria-keyshortcuts="N"
               className="nt-create-main"
             >
               <Plus width={14} height={14} className="nt-create-plus" />
               <span className="nt-create-title">New project</span>
+              <kbd className="nt-create-kbd">N</kbd>
             </button>
             <button
               ref={caret}
