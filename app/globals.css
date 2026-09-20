@@ -2700,8 +2700,15 @@ body:has(.nt-review-bar) .nt-reformat-switcher {
   filter: drop-shadow(0 18px 28px oklch(0.25 0.005 90 / 0.32));
   transition: filter 460ms var(--ease);
 }
+/* The spring carries the clip a few pixels past the box on the way in — about
+   3% of the distance travelled, so ~4px at the left and bottom. The rounded
+   corner is the clip's, and out there it has nothing to cut: the background
+   stops at the box, whose own corners are square, and that is what showed. The
+   spread is ink beyond the box for the clip to round. At rest the clip sits on
+   the box edge and hides all of it. */
 .nt-create-surface {
   background: var(--foreground);
+  box-shadow: 0 0 0 12px var(--foreground);
   clip-path: inset(0 0 calc(100% - var(--control)) calc(100% - var(--w, 148px)) round 8px);
   transition: clip-path 240ms cubic-bezier(0.4, 0, 0.2, 1);
 }
