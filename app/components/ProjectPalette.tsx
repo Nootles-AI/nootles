@@ -19,6 +19,7 @@ import { PROJECT_TEMPLATES, pagePicture, type ProjectTemplate } from "@/app/lib/
 import { ChevronRight, FileDoc, Folder, Plus, Template } from "./Icons";
 import { useNewProjectDraft, type NewProject } from "./NewProjectDialog";
 import { NotionMark } from "./NotionMark";
+import { BlankStart } from "./BlankStart";
 import { BlocksThumb, PagePreview } from "./PagePreview";
 import { TemplateWall } from "./TemplateWall";
 
@@ -42,8 +43,8 @@ type Row = {
   project?: Project | SharedProject;
   /** What the side pane previews in place of a project. */
   template?: ProjectTemplate;
-  /** Shows the wall of example pages rather than a card about the row. */
-  wall?: boolean;
+  /** A picture in the side pane, rather than a card about the row. */
+  picture?: "wall" | "blank";
   run: () => void;
 };
 
@@ -228,6 +229,7 @@ function Palette({
       line: "A title and an empty first page",
       icon: <FileDoc />,
       drill: true,
+      picture: "blank",
       run: startBlank,
     },
     {
@@ -237,7 +239,7 @@ function Palette({
       line: "Pages already laid out for a kind of work",
       icon: <Template />,
       drill: true,
-      wall: true,
+      picture: "wall",
       run: () => (room ? go("template") : onWall()),
     },
     ...(notion
@@ -466,8 +468,10 @@ function Palette({
                     </div>
                   </dl>
                 </div>
-              ) : current?.wall ? (
+              ) : current?.picture === "wall" ? (
                 <TemplateWall />
+              ) : current?.picture === "blank" ? (
+                <BlankStart />
               ) : current?.template ? (
                 <TemplatePreview key={current.id} template={current.template} />
               ) : (
