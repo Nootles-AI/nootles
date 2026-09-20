@@ -452,22 +452,29 @@ function BlankForm({
 
   return (
     <form className="nt-pal-form" onSubmit={submit}>
+      {/* The name leads, at the query field's size and with no label: it is
+          the one thing a project needs, and the thing you came to type. */}
+      <label className="nt-pal-name-row">
+        <span className="sr-only">Title</span>
+        <input
+          autoFocus
+          autoComplete="off"
+          className="nt-pal-name-input"
+          placeholder="Project title"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+        />
+      </label>
+
+      {/* The rest is one thing — what the assistant is told — and reads as one
+          group: a heading in the palette's section voice, then keys down the
+          left and answers down the right. */}
       <div className="nt-pal-fields">
+        <div className="nt-pal-group">
+          For the assistant <em>All optional</em>
+        </div>
         <label className="nt-pal-fld">
-          <span className="nt-pal-group">Title</span>
-          <input
-            autoFocus
-            autoComplete="off"
-            className="nt-pal-input"
-            placeholder="Project title"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-          />
-        </label>
-        <label className="nt-pal-fld">
-          <span className="nt-pal-group">
-            Description <em>Optional</em>
-          </span>
+          <span className="nt-pal-key">Description</span>
           <input
             autoComplete="off"
             className="nt-pal-input"
@@ -477,21 +484,23 @@ function BlankForm({
           />
         </label>
         <div className="nt-pal-fld">
-          <GitHubRepos
-            repos={repos.map((repo) => ({
-              key: repo.fullName,
-              fullName: repo.fullName,
-              description: repo.description,
-              private: repo.private,
-            }))}
-            onAdd={addRepo}
-            onRemove={removeRepo}
-          />
+          <span className="nt-pal-key">Repositories</span>
+          <div className="min-w-0">
+            <GitHubRepos
+              bare
+              repos={repos.map((repo) => ({
+                key: repo.fullName,
+                fullName: repo.fullName,
+                description: repo.description,
+                private: repo.private,
+              }))}
+              onAdd={addRepo}
+              onRemove={removeRepo}
+            />
+          </div>
         </div>
         <label className="nt-pal-fld">
-          <span className="nt-pal-group">
-            Context <em>Optional</em>
-          </span>
+          <span className="nt-pal-key">Context</span>
           <textarea
             className="nt-pal-input"
             rows={4}

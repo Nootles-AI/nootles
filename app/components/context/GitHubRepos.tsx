@@ -33,10 +33,13 @@ export function GitHubRepos({
   repos,
   onAdd,
   onRemove,
+  bare,
 }: {
   repos: Chosen[];
   onAdd: (repo: Listed) => void;
   onRemove: (key: string) => void;
+  /** Without its own label, for a host that names the field itself. */
+  bare?: boolean;
 }) {
   const status = useQuery(api.github.account.status);
   const [picking, setPicking] = useState(false);
@@ -45,10 +48,12 @@ export function GitHubRepos({
 
   return (
     <div>
-      <div className="nt-field-label">
-        Repositories
-        <span className="nt-field-note">Optional</span>
-      </div>
+      {!bare && (
+        <div className="nt-field-label">
+          Repositories
+          <span className="nt-field-note">Optional</span>
+        </div>
+      )}
 
       {repos.length > 0 && (
         <ul className="mb-1">

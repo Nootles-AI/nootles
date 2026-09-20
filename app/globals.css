@@ -3444,47 +3444,80 @@ body:has(.nt-review-bar) .nt-reformat-switcher {
   color: var(--muted);
 }
 
-/* ---- The form page ---- */
+/* ---- The form page ----
+   Two levels. The name is the primary — set like the query field it replaces,
+   with nothing labelling it — and everything else is one secondary group under
+   a heading, laid out as keys down the left and answers down the right so the
+   eye can run the keys without reading the answers. Generous between the two,
+   tight within the group. */
 .nt-pal-form {
   display: flex;
   flex-direction: column;
   min-height: 0;
 }
+.nt-pal-name-row {
+  display: block;
+  flex: none;
+  padding: 14px 20px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.nt-pal-name-input {
+  width: 100%;
+  padding: 4px 0;
+  background: none;
+  font-size: 20px;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  line-height: 1.4;
+  color: var(--foreground);
+  outline: none;
+}
+.nt-pal-name-input::placeholder {
+  color: var(--muted);
+  font-weight: 400;
+}
 .nt-pal-fields {
-  display: grid;
-  gap: 6px;
-  max-height: min(60vh, 34rem);
-  padding: 8px 20px 12px;
+  max-height: min(56vh, 30rem);
+  padding: 4px 20px 14px;
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: var(--border-strong) transparent;
 }
-.nt-pal-fld {
-  display: grid;
-  padding-block: 6px 10px;
-  border-bottom: 1px solid var(--border);
-}
-.nt-pal-fld:last-child {
-  border-bottom: 0;
-}
-.nt-pal-fld > .nt-pal-group {
-  padding: 0 0 2px;
+.nt-pal-fields > .nt-pal-group {
+  padding-inline: 0;
 }
 .nt-pal-group em {
-  margin-left: 6px;
+  margin-left: 8px;
   font-style: normal;
+  font-weight: 400;
   letter-spacing: 0;
   text-transform: none;
-  opacity: 0.8;
 }
-/* Fields at the search field's size and with its lack of a box: on this
-   surface a box would be the one framed thing. */
+.nt-pal-fld {
+  display: grid;
+  grid-template-columns: 7rem minmax(0, 1fr);
+  gap: 0 16px;
+  align-items: start;
+  padding-block: 8px;
+}
+.nt-pal-fld + .nt-pal-fld {
+  border-top: 1px solid var(--border);
+}
+/* A key sits on the answer's first line, whatever the answer's height. */
+.nt-pal-key {
+  padding-top: 5px;
+  font-size: var(--text-ui);
+  font-weight: 500;
+  line-height: 1.5;
+  color: var(--foreground);
+}
+/* Answers at reading size, without a box: on this surface a box would be the
+   one framed thing. */
 .nt-pal-input {
   width: 100%;
-  padding: 6px 0;
+  padding: 5px 0;
   background: none;
-  font-size: 16px;
-  letter-spacing: -0.005em;
+  font-size: var(--text-body);
   line-height: 1.5;
   color: var(--foreground);
   outline: none;
@@ -3493,16 +3526,28 @@ body:has(.nt-review-bar) .nt-reformat-switcher {
 .nt-pal-input::placeholder {
   color: var(--muted);
 }
-.nt-pal-fld .nt-field-label {
-  margin-bottom: 4px;
-  font-family: var(--font-mono), ui-monospace, monospace;
-  font-size: var(--text-meta);
-  letter-spacing: var(--tracking-meta);
-  text-transform: uppercase;
-  color: var(--muted);
+/* The repos block inside its answer column: its rows and note at the answer
+   column's left edge, at the row's own rhythm. */
+.nt-pal-fld .nt-row {
+  margin-inline: calc(var(--inset) * -1);
+}
+.nt-pal-fld .nt-repo {
+  margin-inline: calc(var(--inset) * -1);
+}
+.nt-pal-fld .nt-note {
+  margin-top: 4px;
 }
 .nt-pal-form .nt-pal-foot {
   align-items: center;
+}
+@media (max-width: 48rem) {
+  .nt-pal-fld {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+  }
+  .nt-pal-key {
+    padding-top: 0;
+  }
 }
 
 .nt-pal-panes {
