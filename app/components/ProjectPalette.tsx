@@ -18,6 +18,7 @@ import { Dialog } from "./Dialog";
 import { PROJECT_TEMPLATES, pagePicture, type ProjectTemplate } from "@/app/lib/templates";
 import { ChevronRight, FileDoc, Folder, Plus, Template } from "./Icons";
 import { useNewProjectDraft, type NewProject } from "./newProjectDraft";
+import { NotionImportBody } from "./notion/NotionImport";
 import { NotionMark } from "./NotionMark";
 import { NotionPort } from "./NotionPort";
 import { BlankStart } from "./BlankStart";
@@ -84,7 +85,6 @@ export function ProjectPalette({
   onOpen,
   onWall,
   onCreate,
-  onNotion,
   onClose,
   start = "root",
 }: {
@@ -100,7 +100,6 @@ export function ProjectPalette({
   onWall: () => void;
   /** Resolves once the project exists and is being opened. */
   onCreate: (project: NewProject) => Promise<void>;
-  onNotion: () => void;
   onClose: () => void;
 }) {
   return (
@@ -122,10 +121,7 @@ export function ProjectPalette({
             onWall();
           }}
           onCreate={onCreate}
-          onNotion={() => {
-            close();
-            onNotion();
-          }}
+          onDone={close}
         />
       )}
     </Dialog>
@@ -145,7 +141,7 @@ function Palette({
   onOpen,
   onWall,
   onCreate,
-  onNotion,
+  onDone,
 }: {
   start: Page;
   projects: Project[];
@@ -156,7 +152,8 @@ function Palette({
   onOpen: (id: Id<"projects">) => void;
   onWall: () => void;
   onCreate: (project: NewProject) => Promise<void>;
-  onNotion: () => void;
+  /** Closes the palette, playing its way out. */
+  onDone: () => void;
 }) {
   const router = useRouter();
   const [page, setPage] = useState<Page>(start);
@@ -185,9 +182,12 @@ function Palette({
     details: template ? "template" : "create",
     notion: "create",
   };
-  // Pages that are not a list: no query field, and the keys belong to whatever
-  // is on them.
+  // Pages that are not a list of rows: the keys belong to whatever is on them.
   const listless = page === "details" || page === "notion";
+  // The import's pick state is searched from this field rather than one of its
+  // own; it says when it has pages to search.
+  const [notionSearch, setNotionSearch] = useState(false);
+  const fielded = !listless || (page === "notion" && notionSearch);
 
   const root: Row[] = [
     ...(canCreate
@@ -317,6 +317,13 @@ function Palette({
         e.preventDefault();
         e.nativeEvent.stopImmediatePropagation();
         go(prior);
+      } else if (e.key === "ArrowDown" && e.target instanceof HTMLInputElement) {
+        // From the search field into what it found: the tree keeps one row in
+        // the tab order, and that is the one to land on.
+        const row = e.currentTarget.querySelector<HTMLElement>('[role="treeitem"][tabindex="0"]');
+        if (!row) return;
+        e.preventDefault();
+        row.focus();
       }
       return;
     }
@@ -374,8 +381,19 @@ function Palette({
             </button>
           </Fragment>
         ))}
-        {listless ? (
+        {!fielded ? (
           <span className="flex-1" />
+        ) : page === "notion" ? (
+          <input
+            autoFocus
+            type="search"
+            aria-label="Search Notion pages"
+            placeholder="Search your Notion pages…"
+            autoComplete="off"
+            spellCheck={false}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
         ) : (
           <input
             autoFocus
@@ -406,27 +424,13 @@ function Palette({
       </div>
 
       {page === "notion" ? (
-        // Blank on purpose: the import's own pages — connect, choose, progress —
-        // have not moved into the palette yet. Until they do, this page's one
-        // job is to not strand anyone, so it opens the dialog that works.
-        <div className="nt-pal-form">
-          <div className="nt-pal-blank" />
-          <div className="nt-pal-foot">
-            <span className="ml-auto flex gap-1">
-              <button type="button" onClick={() => go("create")} className="nt-row px-2.5">
-                Back
-              </button>
-              <button
-                type="button"
-                autoFocus
-                onClick={onNotion}
-                className="nt-row nt-solid px-3 font-medium"
-              >
-                Open Notion import
-              </button>
-            </span>
-          </div>
-        </div>
+        <NotionImportBody
+          frame="palette"
+          close={onDone}
+          back={() => go("create")}
+          search={query}
+          onSearchable={setNotionSearch}
+        />
       ) : page === "details" ? (
         <DetailsForm
           key={template?.id ?? "blank"}

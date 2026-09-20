@@ -20,7 +20,6 @@ import { Feedback } from "./feedback/Feedback";
 import { FixedToast } from "./feedback/FixedToast";
 import type { NewProject } from "./newProjectDraft";
 import { useNotionAvailable } from "./notion/NotionAvailable";
-import { NotionImport } from "./notion/NotionImport";
 import { ProjectPalette, useModKey, type Page as PalettePage } from "./ProjectPalette";
 import { ProjectsBoard } from "./ProjectsBoard";
 import {
@@ -61,19 +60,21 @@ export function ProjectsScreen() {
   const [ctx, setCtx] = useState<{ project: Project; x: number; y: number } | null>(
     null,
   );
-  // The palette, and the page it opens on: search opens it at the root, the
-  // header's "Start from template" opens it on the templates.
-  const [finding, setFinding] = useState<PalettePage | null>(null);
-  const mod = useModKey();
-  // Back from Notion's consent screen, which the import dialog sent them to:
-  // a grant reopens the dialog they left, and anything else is said in the
-  // notice line. Initial state rather than an effect — the outcome is known
-  // before the first render and is not derived from anything that changes.
+  // Back from Notion's consent screen, which the palette's import page sent
+  // them to: a grant reopens the palette on the page they left, and anything
+  // else is said in the notice line. Initial state rather than an effect — the
+  // outcome is known before the first render and is not derived from anything
+  // that changes.
   const notion = useNotionOutcome();
+  // The palette, and the page it opens on: search opens it at the root, each of
+  // the header's ways to start opens it on that way's page.
+  const [finding, setFinding] = useState<PalettePage | null>(
+    notion.outcome === "connected" ? "notion" : null,
+  );
+  const mod = useModKey();
   // Absent, not disabled, on a deployment without the integration: a door
   // that opens onto "set this env var" is not a door.
   const notionAvailable = useNotionAvailable();
-  const [importing, setImporting] = useState(notion.outcome === "connected");
   const [walled, setWalled] = useState(false);
   const [notice, setNotice] = useState<OutcomeLine | null>(
     notion.outcome && notion.outcome !== "connected"
@@ -114,7 +115,7 @@ export function ProjectsScreen() {
   // browser tab keeps that for "new window" and never delivers it, so N is the
   // one the button advertises. Neither while another dialog is up: the palette
   // would open over a form that is in the middle of being filled in.
-  const busy = importing || walled || confirming !== null;
+  const busy = walled || confirming !== null;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (busy || e.altKey) return;
@@ -456,12 +457,9 @@ export function ProjectsScreen() {
           onOpen={open}
           onWall={() => setWalled(true)}
           onCreate={create}
-          onNotion={() => setImporting(true)}
           onClose={() => setFinding(null)}
         />
       )}
-
-      {importing && <NotionImport onClose={() => setImporting(false)} />}
 
       {walled && (
         <PlanWall

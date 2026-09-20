@@ -3474,10 +3474,250 @@ body:has(.nt-review-bar) .nt-reformat-switcher {
 .nt-pal-form .nt-pal-foot {
   align-items: center;
 }
-/* A page with nothing on it yet keeps the palette's height, so stepping into it
-   does not collapse the box under the pointer. */
-.nt-pal-blank {
-  height: min(60vh, 34rem);
+/* ---- The Notion import, in the palette ----
+   `NotionImportBody` in the palette's dress. One fixed height across every
+   state — asking, connect, pick, running, report — so the box does not change
+   size under the pointer as one answer replaces another. The tree and the run
+   list take whatever the head leaves, instead of the dialog's 46vh. */
+.nt-pal-notion {
+  height: min(64vh, 37rem);
+}
+.nt-pal-nhead {
+  flex: none;
+  padding: 16px 20px 0;
+}
+.nt-pal-ntitle {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.nt-pal-nnote {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: var(--text-ui);
+  line-height: 1.5;
+}
+.nt-pal-nbody {
+  flex: 1 1 auto;
+  padding: 12px 12px 8px;
+}
+.nt-pal-notion .nt-notion-tree,
+.nt-pal-notion .nt-notion-runlist,
+.nt-pal-notion .nt-notion-report {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+/* No well: in the palette the list is the page, not a field inside one. */
+.nt-pal-notion .nt-notion-tree {
+  padding: 0;
+  border: 0;
+  background: none;
+}
+.nt-pal-notion .nt-pal-foot {
+  gap: 4px;
+  justify-content: flex-end;
+}
+
+/* ---- Not connected ----
+   Two marks and what passes between them. Pages leave Notion's tile, cross a
+   line that fades out at both ends, and are taken in by ours, which answers
+   each arrival with a nod. Three pages, a third of a cycle apart; the nod's
+   period is a third of theirs, so one keyframe serves all three arrivals.
+
+   Behind it, the board's own dot grid, fading out from the middle: the place
+   the pages are going. */
+.nt-nc {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  padding: 8px 24px 20px;
+  text-align: center;
+}
+/* The grid is its own layer, because a mask takes an element's children with
+   it: on `.nt-nc` itself it would fade the words and the button too. */
+.nt-nc::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background-image: radial-gradient(circle, oklch(0.25 0.005 90 / 0.13) 1px, transparent 1.4px);
+  background-position: center 40%;
+  background-size: 22px 22px;
+  mask-image: radial-gradient(ellipse 60% 62% at 50% 38%, #000 20%, transparent 72%);
+}
+.nt-nc-art {
+  --cross: 3.3s;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 30px;
+}
+.nt-nc-tile {
+  display: grid;
+  width: 76px;
+  height: 76px;
+  place-items: center;
+  border-radius: 20px;
+  background: var(--background);
+  box-shadow:
+    0 0 0 1px var(--border),
+    0 2px 4px oklch(0.25 0.005 90 / 0.05),
+    0 18px 36px -14px oklch(0.25 0.005 90 / 0.3);
+  color: var(--foreground);
+  animation: nt-rise 650ms var(--ease) backwards;
+}
+.nt-nc-tile.is-ours {
+  color: var(--brand);
+  animation:
+    nt-rise 650ms var(--ease) 140ms backwards,
+    nt-nc-nod calc(var(--cross) / 3) var(--ease) calc(var(--cross) * 0.86) infinite;
+}
+@keyframes nt-nc-nod {
+  0% { scale: 1; }
+  14% { scale: 1.045; }
+  42%, 100% { scale: 1; }
+}
+.nt-nc-track {
+  position: relative;
+  width: 168px;
+  height: 22px;
+  background: linear-gradient(90deg, transparent, var(--border-strong) 22%, var(--border-strong) 78%, transparent)
+    center / 100% 1.5px no-repeat;
+  transform-origin: 0 50%;
+  animation: nt-nc-draw 700ms var(--ease) 220ms backwards;
+}
+@keyframes nt-nc-draw {
+  from {
+    opacity: 0;
+    transform: scaleX(0);
+  }
+}
+/* A page, at the size a page is from here: a sheet and two lines of writing. */
+.nt-nc-page {
+  position: absolute;
+  top: 0;
+  left: -8px;
+  width: 17px;
+  height: 22px;
+  border-radius: 3.5px;
+  background:
+    linear-gradient(var(--border-strong), var(--border-strong)) 4px 6px / 9px 1.5px no-repeat,
+    linear-gradient(var(--border-strong), var(--border-strong)) 4px 10px / 6px 1.5px no-repeat,
+    var(--background);
+  box-shadow:
+    0 0 0 1px var(--border-strong),
+    0 4px 8px -3px oklch(0.25 0.005 90 / 0.3);
+  opacity: 0;
+  animation: nt-nc-cross var(--cross) cubic-bezier(0.45, 0, 0.55, 1) calc(var(--n) * var(--cross) / 3 + 700ms)
+    infinite;
+}
+@keyframes nt-nc-cross {
+  0% { opacity: 0; transform: translateX(0) scale(0.6); }
+  12% { opacity: 1; transform: translateX(14px) scale(1); }
+  82% { opacity: 1; transform: translateX(150px) scale(1); }
+  96%, 100% { opacity: 0; transform: translateX(176px) scale(0.5); }
+}
+.nt-nc-title {
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  text-wrap: balance;
+  animation: nt-rise 600ms var(--ease) 260ms backwards;
+}
+.nt-nc-note {
+  max-width: 44ch;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: var(--text-ui);
+  line-height: 1.55;
+  text-wrap: pretty;
+  animation: nt-rise 600ms var(--ease) 300ms backwards;
+}
+/* What is about to happen, in order. The first is the button below. */
+.nt-nc-steps {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 18px;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--text-meta);
+  letter-spacing: var(--tracking-meta);
+  text-transform: uppercase;
+  color: var(--muted);
+  animation: nt-rise 600ms var(--ease) 340ms backwards;
+}
+.nt-nc-steps li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.nt-nc-steps li + li::before {
+  content: "";
+  width: 18px;
+  height: 1px;
+  background: var(--border-strong);
+}
+.nt-nc-steps li[data-on="true"] {
+  color: var(--foreground);
+}
+.nt-nc-go {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  height: 40px;
+  margin-top: 22px;
+  padding-inline: 18px 20px;
+  border-radius: 10px;
+  background: var(--foreground);
+  box-shadow: 0 10px 22px -10px oklch(0.25 0.005 90 / 0.55);
+  color: var(--background);
+  font-size: 14px;
+  font-weight: 500;
+  animation: nt-rise 600ms var(--ease) 400ms backwards;
+  transition:
+    transform var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease);
+}
+.nt-nc-go:hover {
+  box-shadow: 0 16px 28px -12px oklch(0.25 0.005 90 / 0.6);
+  transform: translateY(-1px);
+}
+.nt-nc-go:active {
+  transform: translateY(0) scale(0.98);
+}
+.nt-nc-go:focus-visible {
+  outline-offset: 3px;
+  border-radius: 10px;
+}
+.nt-nc-fine {
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: var(--text-meta-lg);
+  animation: nt-rise 600ms var(--ease) 440ms backwards;
+}
+.nt-nc-blocker {
+  max-width: 44ch;
+  margin-top: 20px;
+}
+/* Still, it shows the crossing mid-way: three pages on the line. */
+@media (prefers-reduced-motion: reduce) {
+  .nt-nc-tile.is-ours {
+    animation: none;
+  }
+  .nt-nc-page {
+    opacity: 1;
+    animation: none;
+    transform: translateX(calc(30px + var(--n) * 52px));
+  }
 }
 @media (max-width: 48rem) {
   .nt-pal-fld {

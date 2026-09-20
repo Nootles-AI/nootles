@@ -21,6 +21,7 @@ import {
   type ImportProgress,
   type PageProgress,
 } from "@/app/lib/notion/importRun";
+import { NotionConnect } from "./NotionConnect";
 import { PageStep, ProgressBar } from "./Progress";
 import "./notion.css";
 
@@ -48,7 +49,7 @@ export function NotionImport({
 }) {
   return (
     <Dialog labelledBy={TITLE_ID} onClose={onClose}>
-      {(close) => <Body target={target} close={close} />}
+      {(close) => <NotionImportBody target={target} close={close} />}
     </Dialog>
   );
 }
@@ -56,13 +57,40 @@ export function NotionImport({
 /** The shell's title names the dialog, so the name changes as the state does. */
 const TITLE_ID = "nt-notion-title";
 
-function Body({
+/**
+ * The import itself, in whichever frame holds it.
+ *
+ * One state machine for both: the dialog the sidebar opens to import into a
+ * project, and the projects screen's palette, where it is the last page of
+ * "New project". The frames differ in dress and in what leaving means — in the
+ * palette, giving up is a step back to the ways to start, while finishing closes
+ * the palette — so `back` and `close` are separate, and the same in the dialog.
+ */
+export function NotionImportBody({
   target,
   close,
+  back = close,
+  frame = "dialog",
+  search,
+  onSearchable,
 }: {
   target?: { projectId: Id<"projects">; folderId?: Id<"folders">; projectTitle: string };
+  /** Finished: leave the whole surface. */
   close: () => void;
+  /** Given up: in the palette, the page before this one. */
+  back?: () => void;
+  frame?: "dialog" | "palette";
+  /**
+   * The query, when the host has a search field of its own — the palette's top
+   * field. Given, the pick state draws no field and filters by this instead.
+   */
+  search?: string;
+  /** Whether there is a list to search right now, so the host can offer its field. */
+  onSearchable?: (searchable: boolean) => void;
 }) {
+  const inPalette = frame === "palette";
+  const Frame = inPalette ? PaletteShell : Shell;
+  const leave = inPalette ? "Back" : "Cancel";
   const client = useConvex();
   const status = useQuery(api.notion.account.status, {});
   const listPages = useAction(api.notion.pages.listPages);
@@ -70,7 +98,8 @@ function Body({
   const [roots, setRoots] = useState<NotionPageNode[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [selection, setSelection] = useState<ReadonlySet<string>>(new Set());
-  const [query, setQuery] = useState("");
+  const [typed, setQuery] = useState("");
+  const query = search ?? typed;
   const [progress, setProgress] = useState<ImportProgress | null>(null);
   const [stopped, setStopped] = useState(false);
   const abort = useRef<AbortController | null>(null);
@@ -98,6 +127,10 @@ function Body({
   /* eslint-enable react-hooks/set-state-in-effect */
 
   useEffect(() => () => abort.current?.abort(), []);
+
+  // Only the pick state, with pages in it, has anything to search.
+  const searchable = connected && !progress && !!roots?.length;
+  useEffect(() => onSearchable?.(searchable), [onSearchable, searchable]);
 
   const count = selection.size;
   const running = progress?.phase === "creating" || progress?.phase === "importing";
@@ -136,7 +169,27 @@ function Body({
     setStopped(true);
   };
 
+  // ---- Asking ------------------------------------------------------------
+  // The palette waits for the answer before drawing anything. Falling through
+  // to the pick state's "Reading your Notion pages" for the beat before the
+  // status arrives would promise a list to someone who has not connected.
+  if (inPalette && !status) {
+    return <PaletteShell said="" title="" foot={<LeaveButton label={leave} onClick={back} />} />;
+  }
+
   // ---- Connect ------------------------------------------------------------
+  if (status && !connected && inPalette) {
+    return (
+      <PaletteShell said="" title="" foot={<LeaveButton label={leave} onClick={back} />}>
+        <NotionConnect
+          titleId={TITLE_ID}
+          stale={!!status.account?.invalidAt}
+          blocker={status.ready ? null : (status.blocker ?? null)}
+          href={`/api/notion/connect?returnTo=${encodeURIComponent(returnHere())}`}
+        />
+      </PaletteShell>
+    );
+  }
   if (status && !connected) {
     return (
       <Shell
@@ -175,7 +228,7 @@ function Body({
     const landed = progress.pages.filter((p) => p.state === "done").length;
     const note = summarise(progress);
     return (
-      <Shell
+      <Frame
         said={note}
         title={
           progress.phase === "failed" ? "Import stopped" : landed ? "Imported" : "Nothing imported"
@@ -193,7 +246,7 @@ function Body({
         }
       >
         <Report progress={progress} />
-      </Shell>
+      </Frame>
     );
   }
 
@@ -208,7 +261,7 @@ function Body({
         ? `Creating ${total} ${pages}`
         : `${done} of ${total} ${pages}`;
     return (
-      <Shell
+      <Frame
         said={tally}
         title="Importing"
         note="Keep this tab open — pages are written from here."
@@ -234,7 +287,7 @@ function Body({
             <RunRow key={page.notionId} page={page} />
           ))}
         </ol>
-      </Shell>
+      </Frame>
     );
   }
 
@@ -242,9 +295,10 @@ function Body({
   const workspace = status?.account?.workspaceName ?? "Notion";
   const loading = !roots && !loadError;
   return (
-    <Shell
+    <Frame
       said={loading ? READING : ""}
-      title={target ? `Import into ${target.projectTitle}` : "Import from Notion"}
+      // The palette's crumbs already read "Import from Notion".
+      title={target ? `Import into ${target.projectTitle}` : inPalette ? "" : "Import from Notion"}
       note={
         roots && roots.length
           ? count && !target
@@ -260,9 +314,7 @@ function Body({
           >
             Grant more pages
           </a>
-          <button type="button" onClick={close} className="nt-row px-2.5">
-            Cancel
-          </button>
+          <LeaveButton label={leave} onClick={back} />
           <button
             type="button"
             onClick={start}
@@ -274,7 +326,7 @@ function Body({
         </>
       }
     >
-      {!!roots?.length && (
+      {!!roots?.length && search === undefined && (
         <div className="nt-notion-search">
           <Search className="nt-notion-search-icon" aria-hidden />
           <input
@@ -319,9 +371,15 @@ function Body({
           forceOpen={!!query}
         />
       )}
-    </Shell>
+    </Frame>
   );
 }
+
+const LeaveButton = ({ label, onClick }: { label: string; onClick: () => void }) => (
+  <button type="button" onClick={onClick} className="nt-row px-2.5">
+    {label}
+  </button>
+);
 
 const READING = "Reading your Notion pages";
 
@@ -364,6 +422,59 @@ function Shell({
       <div className="nt-notion-body">{children}</div>
       <div className="nt-dialog-foot">{foot}</div>
     </>
+  );
+}
+
+/**
+ * The same frame in the palette's dress: no box of its own, a head that is only
+ * there when a state has something to say, and the palette's footer. It keeps
+ * `Shell`'s one promise — the status region stays mounted across every state.
+ */
+function PaletteShell({
+  said,
+  title,
+  note,
+  bar,
+  children,
+  foot,
+}: {
+  said: string;
+  title: string;
+  note?: string;
+  bar?: ReactNode;
+  children?: ReactNode;
+  foot: ReactNode;
+}) {
+  // Stepping onto this page unmounts the palette's field, and with it whatever
+  // had focus. A state with nothing of its own to focus — asking, reading —
+  // would leave the keyboard on the document, where Escape closes the palette
+  // instead of stepping back. The page itself takes it until something better
+  // arrives.
+  const root = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = root.current;
+    if (el && !el.contains(document.activeElement)) el.focus({ preventScroll: true });
+  }, []);
+
+  return (
+    <div ref={root} tabIndex={-1} className="nt-pal-form nt-pal-notion outline-none">
+      <p className="sr-only" role="status">
+        {said}
+      </p>
+      {(title || note || bar) && (
+        <div className="nt-pal-nhead">
+          {title && (
+            <h2 id={TITLE_ID} className="nt-pal-ntitle">
+              {title}
+            </h2>
+          )}
+          {note && <p className="nt-pal-nnote">{note}</p>}
+          {bar}
+        </div>
+      )}
+      <div className="nt-notion-body nt-pal-nbody">{children}</div>
+      <div className="nt-pal-foot">{foot}</div>
+    </div>
   );
 }
 
