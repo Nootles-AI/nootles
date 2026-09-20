@@ -3689,11 +3689,12 @@ body:has(.nt-review-bar) .nt-reformat-switcher {
    sheet is the project thumbnail's own frame, so a template looks like the
    project it is about to be. */
 /* ---- The wall ----
-   Example pages laid like brick behind "Start from template", filling the pane
-   and running off every edge of it. Wider than the pane and tilted, so no edge
-   of the wall is ever in view — it reads as a piece of something larger. The
-   pane clips it; the courses drift a few pixels against each other, slowly
-   enough to be noticed only as the wall not being a picture. */
+   Example pages laid like brick behind "Start from template", square to the
+   pane, filling it and running off its edges: wider than the pane, so the
+   outer courses are cut by its sides, and taller, so the top and bottom rows
+   are cut too — it reads as a piece of something larger. The pane clips it;
+   the courses drift a few pixels against each other, slowly enough to be
+   noticed only as the wall not being a picture. */
 .nt-pal-side {
   position: relative;
   overflow: hidden;
@@ -3708,15 +3709,14 @@ body:has(.nt-review-bar) .nt-reformat-switcher {
   top: 0;
   left: 50%;
   display: flex;
-  gap: 12px;
-  transform: translateX(-50%) rotate(-6deg);
-  transform-origin: 50% 40%;
+  gap: 20px;
+  transform: translateX(-50%);
 }
 .nt-wall-course {
   display: flex;
   flex: none;
   flex-direction: column;
-  gap: 12px;
+  gap: 20px;
   animation: nt-wall-drift 22s ease-in-out infinite alternate;
 }
 .nt-wall-course[data-dir="down"] {

@@ -3,8 +3,8 @@ import type { ReactNode } from "react";
 /**
  * What a Nootles page can hold, as a wall of pages: code, a flowchart, a table,
  * maths, a mockup, an album, a map, a storyboard — laid like brick, three
- * courses wide, and running off every edge of the pane so it reads as a piece
- * of something larger.
+ * courses wide, square to the pane and running off its edges so it reads as a
+ * piece of something larger.
  *
  * Drawn, not rendered. The thumbnail renderer lays a page out at 600px and
  * shrinks it; at a tile's width that is 4px type, and it has no picture of a
@@ -16,6 +16,9 @@ import type { ReactNode } from "react";
  */
 
 const W = 150;
+/** Pages are drawn at `W` and shown smaller, so the gaps between them carry
+ *  more of the wall. */
+const SHOWN = 0.86;
 const INK = "var(--foreground)";
 const SOFT = "oklch(0.9 0.003 90)";
 const RULE = "oklch(0.8 0.004 90)";
@@ -26,7 +29,7 @@ const MINT_EDGE = "#c6dad3";
 
 function Page({ h, title, children }: { h: number; title: number; children: ReactNode }) {
   return (
-    <svg viewBox={`0 0 ${W} ${h}`} width={W} height={h} className="nt-wall-tile">
+    <svg viewBox={`0 0 ${W} ${h}`} width={W * SHOWN} height={h * SHOWN} className="nt-wall-tile">
       <rect width={W} height={h} fill="var(--background)" />
       <rect x={12} y={13} width={title} height={5} rx={1.5} fill={INK} />
       {children}
@@ -318,9 +321,9 @@ function Outline() {
 /** Three courses, each starting at a different height — which is what makes it
  *  brick — and every page on the wall a different one. */
 const COURSES: { lift: number; pages: ReactNode[] }[] = [
-  { lift: -46, pages: [<Table key="t" />, <Mockup key="m" />, <Maths key="x" />, <Storyboard key="s" />] },
-  { lift: -118, pages: [<Notes key="n" />, <Code key="c" />, <Album key="a" />, <Flowchart key="f" />] },
-  { lift: -22, pages: [<Graph key="g" />, <Place key="p" />, <Checklist key="k" />, <Outline key="o" />] },
+  { lift: -40, pages: [<Table key="t" />, <Mockup key="m" />, <Maths key="x" />, <Storyboard key="s" />] },
+  { lift: -84, pages: [<Notes key="n" />, <Code key="c" />, <Album key="a" />, <Flowchart key="f" />] },
+  { lift: -16, pages: [<Graph key="g" />, <Place key="p" />, <Checklist key="k" />, <Outline key="o" />] },
 ];
 
 export function TemplateWall() {
