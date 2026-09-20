@@ -2705,8 +2705,10 @@ body:has(.nt-review-bar) .nt-reformat-switcher {
   clip-path: inset(0 0 calc(100% - var(--control)) calc(100% - var(--w, 148px)) round 8px);
   transition: clip-path 240ms cubic-bezier(0.4, 0, 0.2, 1);
 }
+/* The same corner open as closed: it is one object growing, and an object that
+   also changes its corners on the way reads as two. */
 .nt-create[data-open="true"] .nt-create-surface {
-  clip-path: inset(0 round 12px);
+  clip-path: inset(0 round 8px);
   transition: clip-path 460ms var(--spring);
 }
 .nt-create-bar {
