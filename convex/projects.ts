@@ -16,6 +16,7 @@ import { ABOUT, BACKGROUND } from "./ai/questions";
 import { requireQuota } from "./entitlements";
 import { add as addRepos } from "./github/repos";
 import { repoRef } from "./schema";
+import { findTemplate } from "./templates";
 
 /**
  * The page facts the projects screen draws — how many, which one to preview,
@@ -209,9 +210,15 @@ export const create = mutation({
     context: v.optional(v.string()),
     /** Repositories chosen in the dialog, before there was a project to hang them on. */
     repos: v.optional(v.array(repoRef)),
+    /** A `templates.ts` id. Absent means blank. */
+    template: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const ownerId = await requireOwner(ctx);
+    // Before anything is written: an id nobody defined is a client out of step
+    // with the server, and a blank project in its place would hide that.
+    const template = args.template === undefined ? null : findTemplate(args.template);
+    if (template === undefined) throw new Error(`Unknown template: ${args.template}`);
     // The free plan's project limit. Deliberately not in `onboarding.ts`: the
     // tutorial's seeded project is the one project everybody gets regardless,
     // and metering it would mean a new account walked into a wall on arrival.
@@ -252,16 +259,20 @@ export const create = mutation({
       await addRepos(ctx, ownerId, projectId, args.repos);
     }
 
-    // Seed one page so a new project is immediately usable. Empty title so the
-    // doc shows its placeholder; the sidebar renders an "Untitled" fallback.
-    await ctx.db.insert("pages", {
-      ownerId,
-      projectId,
-      title: "",
-      order: 0,
-      docId: crypto.randomUUID(),
-      createdAt: now,
-    });
+    // The template's pages, or one blank page so a new project is immediately
+    // usable. Empty title so the doc shows its placeholder; the sidebar renders
+    // an "Untitled" fallback.
+    const pages = template?.pages.length ? template.pages : [{ title: "" }];
+    for (const [order, page] of pages.entries()) {
+      await ctx.db.insert("pages", {
+        ownerId,
+        projectId,
+        title: page.title,
+        order,
+        docId: crypto.randomUUID(),
+        createdAt: now,
+      });
+    }
     await refreshPageSummary(ctx, projectId);
     return projectId;
   },

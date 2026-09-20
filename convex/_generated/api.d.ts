@@ -65,6 +65,7 @@ import type * as prosemirror from "../prosemirror.js";
 import type * as requestLimits from "../requestLimits.js";
 import type * as share from "../share.js";
 import type * as surveys from "../surveys.js";
+import type * as templates from "../templates.js";
 import type * as tickets from "../tickets.js";
 import type * as trash from "../trash.js";
 import type * as tree from "../tree.js";
@@ -136,6 +137,7 @@ declare const fullApi: ApiFromModules<{
   requestLimits: typeof requestLimits;
   share: typeof share;
   surveys: typeof surveys;
+  templates: typeof templates;
   tickets: typeof tickets;
   trash: typeof trash;
   tree: typeof tree;

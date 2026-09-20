@@ -11,6 +11,8 @@ export type NewProject = {
   description: string;
   context: string;
   repos: Listed[];
+  /** A `convex/templates.ts` id; absent means blank. */
+  template?: string;
 };
 
 /**
@@ -29,7 +31,10 @@ export type NewProject = {
  * The draft, and the one way it is sent. Shared by the dialog and the palette's
  * form page, so a project made from either is made the same way.
  */
-export function useNewProjectDraft(onCreate: (project: NewProject) => Promise<void>) {
+export function useNewProjectDraft(
+  onCreate: (project: NewProject) => Promise<void>,
+  template?: string,
+) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [context, setContext] = useState("");
@@ -54,6 +59,7 @@ export function useNewProjectDraft(onCreate: (project: NewProject) => Promise<vo
       description: description.trim(),
       context: context.trim(),
       repos,
+      template,
     }).catch(() => {
       setFailure("Couldn’t create that project.");
       setBusy(false);

@@ -103,3 +103,37 @@ describe("sharedWithMe", () => {
     expect(rows).toEqual([]);
   });
 });
+
+describe("create from a template", () => {
+  const pagesOf = (t: TestConvex<typeof schema>, projectId: Id<"projects">) =>
+    t.run((ctx) =>
+      ctx.db
+        .query("pages")
+        .withIndex("by_project", (q) => q.eq("projectId", projectId))
+        .collect(),
+    );
+
+  test("the picker lists PRD", async () => {
+    const t = convexTest(schema, modules);
+    expect(await t.query(api.templates.list, {})).toEqual([
+      { id: "prd", name: "PRD", description: "A product requirements document" },
+    ]);
+  });
+
+  test("PRD is blank for now: one untitled page, like any new project", async () => {
+    const t = convexTest(schema, modules);
+    const projectId = await t
+      .withIdentity(OWNER)
+      .mutation(api.projects.create, { title: "Spec", template: "prd" });
+    const pages = await pagesOf(t, projectId);
+    expect(pages.map((p) => [p.title, p.order])).toEqual([["", 0]]);
+  });
+
+  test("an id nobody defined is refused, and nothing is made", async () => {
+    const t = convexTest(schema, modules);
+    await expect(
+      t.withIdentity(OWNER).mutation(api.projects.create, { title: "Spec", template: "nope" }),
+    ).rejects.toThrow("Unknown template");
+    expect(await t.run((ctx) => ctx.db.query("projects").collect())).toEqual([]);
+  });
+});

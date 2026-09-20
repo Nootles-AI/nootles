@@ -20,7 +20,7 @@ import { FixedToast } from "./feedback/FixedToast";
 import { NewProjectDialog, type NewProject } from "./NewProjectDialog";
 import { useNotionAvailable } from "./notion/NotionAvailable";
 import { NotionImport } from "./notion/NotionImport";
-import { ProjectPalette, useModKey } from "./ProjectPalette";
+import { ProjectPalette, useModKey, type Page as PalettePage } from "./ProjectPalette";
 import { ProjectsBoard } from "./ProjectsBoard";
 import {
   describeOutcome,
@@ -61,7 +61,9 @@ export function ProjectsScreen() {
     null,
   );
   const [naming, setNaming] = useState(false);
-  const [finding, setFinding] = useState(false);
+  // The palette, and the page it opens on: search opens it at the root, the
+  // header's "Start from template" opens it on the templates.
+  const [finding, setFinding] = useState<PalettePage | null>(null);
   const mod = useModKey();
   // Back from Notion's consent screen, which the import dialog sent them to:
   // a grant reopens the dialog they left, and anything else is said in the
@@ -103,7 +105,7 @@ export function ProjectsScreen() {
       if (e.key.toLowerCase() !== "k" || !(e.metaKey || e.ctrlKey) || e.altKey) return;
       if (busy) return;
       e.preventDefault();
-      setFinding((f) => !f);
+      setFinding((f) => (f ? null : "root"));
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
@@ -165,6 +167,7 @@ export function ProjectsScreen() {
       title: project.title,
       ...(project.description ? { description: project.description } : {}),
       ...(project.context ? { context: project.context } : {}),
+      ...(project.template ? { template: project.template } : {}),
       ...(project.repos.length
         ? {
             repos: project.repos.map((repo) => ({
@@ -242,7 +245,7 @@ export function ProjectsScreen() {
 
           {/* A button dressed as a field: search here is the palette, and this
               is both the way in and where its shortcut is written down. */}
-          <button onClick={() => setFinding(true)} className="nt-find" aria-label="Search projects">
+          <button onClick={() => setFinding("root")} className="nt-find" aria-label="Search projects">
             <Search width={14} height={14} />
             <span>Search projects</span>
             <kbd className="nt-kbd">{mod}K</kbd>
@@ -265,9 +268,9 @@ export function ProjectsScreen() {
             <CreateProject
               notion={notionAvailable === true}
               onBlank={startBlank}
-              // No templates exist yet: the door is in place and opens onto a
-              // blank project until there is something behind it.
-              onTemplate={startBlank}
+              // Choosing a template is a list, and the palette is where this
+              // screen keeps its lists — so it opens there, on that page.
+              onTemplate={() => (room("projects") ? setFinding("template") : setWalled(true))}
               onNotion={startImport}
             />
           )}
@@ -435,6 +438,7 @@ export function ProjectsScreen() {
 
       {finding && (
         <ProjectPalette
+          start={finding}
           projects={projects ?? []}
           shared={shared ?? []}
           canCreate={!standIn}
@@ -444,7 +448,7 @@ export function ProjectsScreen() {
           onWall={() => setWalled(true)}
           onCreate={create}
           onNotion={startImport}
-          onClose={() => setFinding(false)}
+          onClose={() => setFinding(null)}
         />
       )}
 

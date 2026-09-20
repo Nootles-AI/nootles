@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Fragment,
   useEffect,
   useRef,
   useState,
@@ -59,9 +60,9 @@ export function useModKey(): string {
  * Starting one is a row like any other, and it drills into a second page of the
  * same list — blank, from a template, or imported — so the ways to begin live
  * in one place and importing is a part of creating rather than a button beside
- * it. A blank project is made here, on a third page: the same fields the
- * dialog asks, in the palette's own dress, under the crumbs that say where you
- * are.
+ * it. The project is made here too: "From template" is a page of templates,
+ * and both it and "Blank project" end on the details page — the fields the
+ * dialog asks, in the palette's own dress, under crumbs that say where you are.
  *
  * It decides little itself. Opening, the plan wall, the import dialog and the
  * making of the project belong to the screen; this reports and closes.
@@ -77,7 +78,10 @@ export function ProjectPalette({
   onCreate,
   onNotion,
   onClose,
+  start = "root",
 }: {
+  /** The page to open on — the header's template item opens on "template". */
+  start?: Page;
   projects: Project[];
   shared: SharedProject[];
   canCreate: boolean;
@@ -95,6 +99,7 @@ export function ProjectPalette({
     <Dialog label="Search projects" className="nt-palette" onClose={onClose}>
       {(close) => (
         <Palette
+          start={start}
           projects={projects}
           shared={shared}
           canCreate={canCreate}
@@ -119,9 +124,11 @@ export function ProjectPalette({
   );
 }
 
-type Page = "root" | "create" | "blank";
+/** Each page's way back, which is also what Escape and the crumbs follow. */
+export type Page = "root" | "create" | "template" | "details";
 
 function Palette({
+  start,
   projects,
   shared,
   canCreate,
@@ -132,6 +139,7 @@ function Palette({
   onCreate,
   onNotion,
 }: {
+  start: Page;
   projects: Project[];
   shared: SharedProject[];
   canCreate: boolean;
@@ -143,7 +151,10 @@ function Palette({
   onNotion: () => void;
 }) {
   const router = useRouter();
-  const [page, setPage] = useState<Page>("root");
+  const templates = useQuery(api.templates.list);
+  const [page, setPage] = useState<Page>(start);
+  // What the details page is making: a template, or null for blank.
+  const [template, setTemplate] = useState<{ id: string; name: string } | null>(null);
   const [query, setQuery] = useState("");
   const [index, setIndex] = useState(0);
   const list = useRef<HTMLDivElement>(null);
@@ -153,8 +164,19 @@ function Palette({
     setQuery("");
     setIndex(0);
   };
-  // The wall stands in front of the form exactly as it does the header's button.
-  const startBlank = () => (room ? go("blank") : onWall());
+  // The wall stands in front of making a project exactly as it does the
+  // header's button — before the first page that is only about making one.
+  const startBlank = () => {
+    if (!room) return onWall();
+    setTemplate(null);
+    go("details");
+  };
+  const back: Record<Page, Page | null> = {
+    root: null,
+    create: "root",
+    template: "create",
+    details: template ? "template" : "create",
+  };
 
   const root: Row[] = [
     ...(canCreate
@@ -210,8 +232,7 @@ function Palette({
       line: "Pages already laid out for a kind of work",
       icon: <Template />,
       drill: true,
-      // No templates exist yet — the same placeholder as the header's menu.
-      run: startBlank,
+      run: () => (room ? go("template") : onWall()),
     },
     ...(notion
       ? [
@@ -227,8 +248,21 @@ function Palette({
       : []),
   ];
 
+  const choices: Row[] = (templates ?? []).map((t) => ({
+    id: t.id,
+    group: "Templates",
+    name: t.name,
+    line: t.description,
+    icon: <Template />,
+    drill: true,
+    run: () => {
+      setTemplate({ id: t.id, name: t.name });
+      go("details");
+    },
+  }));
+
   const q = query.trim().toLowerCase();
-  const rows = (page === "root" ? root : create).filter(
+  const rows = (page === "root" ? root : page === "create" ? create : choices).filter(
     (r) => !q || r.name.toLowerCase().includes(q),
   );
   const at = Math.min(index, Math.max(rows.length - 1, 0));
@@ -261,11 +295,12 @@ function Palette({
   const onKeyDown = (e: KeyboardEvent) => {
     // The form page has fields; arrows and Enter are theirs. Escape still backs
     // out one page rather than closing the palette.
-    if (page === "blank") {
-      if (e.key === "Escape") {
+    const prior = back[page];
+    if (page === "details") {
+      if (e.key === "Escape" && prior) {
         e.preventDefault();
         e.nativeEvent.stopImmediatePropagation();
-        go("create");
+        go(prior);
       }
       return;
     }
@@ -279,7 +314,7 @@ function Palette({
       e.preventDefault();
       current?.run();
     } else if (
-      page === "create" &&
+      prior &&
       (e.key === "Escape" || ((e.key === "Backspace" || e.key === "ArrowLeft") && !query))
     ) {
       // Escape backs out of the second page before it closes the palette. The
@@ -287,27 +322,42 @@ function Palette({
       // stopping propagation is not enough to keep it from closing.
       e.preventDefault();
       e.nativeEvent.stopImmediatePropagation();
-      go("root");
+      go(prior);
     }
   };
+
+  // The trail to here. Every crumb but the last is a way back to its page.
+  const trail: { label: string; to: Page }[] =
+    page === "root"
+      ? []
+      : [
+          { label: "New project", to: "root" },
+          ...(page === "template" || (page === "details" && template)
+            ? [{ label: "From template", to: "create" as Page }]
+            : []),
+          ...(page === "details"
+            ? [
+                template
+                  ? { label: "Project details", to: "template" as Page }
+                  : { label: "Blank project", to: "create" as Page },
+              ]
+            : []),
+        ];
 
   return (
     <div className="flex min-h-0 flex-col" onKeyDown={onKeyDown}>
       <div className="nt-pal-field">
-        {page !== "root" && (
-          <button type="button" className="nt-pal-crumb" onClick={() => go("root")}>
-            New project
-          </button>
-        )}
-        {page === "blank" && (
-          <>
-            <ChevronRight width={14} height={14} className="nt-pal-crumb-sep" aria-hidden="true" />
-            <button type="button" className="nt-pal-crumb" onClick={() => go("create")}>
-              Blank project
+        {trail.map((crumb, i) => (
+          <Fragment key={crumb.label}>
+            {i > 0 && (
+              <ChevronRight width={14} height={14} className="nt-pal-crumb-sep" aria-hidden="true" />
+            )}
+            <button type="button" className="nt-pal-crumb" onClick={() => go(crumb.to)}>
+              {crumb.label}
             </button>
-          </>
-        )}
-        {page === "blank" ? (
+          </Fragment>
+        ))}
+        {page === "details" ? (
           <span className="flex-1" />
         ) : (
           <input
@@ -316,8 +366,16 @@ function Palette({
             aria-expanded="true"
             aria-controls="nt-pal-list"
             aria-activedescendant={current ? `nt-pal-${current.id}` : undefined}
-            aria-label={page === "root" ? "Search projects" : "How to start"}
-            placeholder={page === "root" ? "Open a project, or start one…" : "How do you want to start?"}
+            aria-label={
+              page === "root" ? "Search projects" : page === "create" ? "How to start" : "Choose a template"
+            }
+            placeholder={
+              page === "root"
+                ? "Open a project, or start one…"
+                : page === "create"
+                  ? "How do you want to start?"
+                  : "Choose a template…"
+            }
             autoComplete="off"
             spellCheck={false}
             value={query}
@@ -330,8 +388,13 @@ function Palette({
         <kbd className="nt-kbd">esc</kbd>
       </div>
 
-      {page === "blank" ? (
-        <BlankForm onCreate={onCreate} onBack={() => go("create")} />
+      {page === "details" ? (
+        <DetailsForm
+          key={template?.id ?? "blank"}
+          template={template}
+          onCreate={onCreate}
+          onBack={() => go(template ? "template" : "create")}
+        />
       ) : (
         <>
           <div className="nt-pal-panes">
@@ -339,7 +402,7 @@ function Palette({
               ref={list}
               id="nt-pal-list"
               role="listbox"
-              aria-label={page === "root" ? "Projects" : "Ways to start"}
+              aria-label={page === "root" ? "Projects" : page === "create" ? "Ways to start" : "Templates"}
               className="nt-pal-list"
               data-page={page}
               key={page}
@@ -419,7 +482,7 @@ function Palette({
               <kbd className="nt-kbd">↓</kbd>
               Move
             </span>
-            {page === "create" && (
+            {page !== "root" && (
               <span>
                 <kbd className="nt-kbd">⌫</kbd>
                 Back
@@ -433,13 +496,16 @@ function Palette({
 }
 
 /**
- * The New project dialog's fields, on the palette's third page — all but the
+ * The New project dialog's fields, on the palette's last page — all but the
  * repositories. Same draft and the same send; only the dress is the palette's.
+ * What it makes is decided on the pages before it.
  */
-function BlankForm({
+function DetailsForm({
+  template,
   onCreate,
   onBack,
 }: {
+  template: { id: string; name: string } | null;
   onCreate: (project: NewProject) => Promise<void>;
   onBack: () => void;
 }) {
@@ -448,7 +514,7 @@ function BlankForm({
   const {
     title, setTitle, description, setDescription, context, setContext,
     busy, failure, named, submit, sendOnModEnter,
-  } = useNewProjectDraft(onCreate);
+  } = useNewProjectDraft(onCreate, template?.id);
 
   return (
     <form className="nt-pal-form" onSubmit={submit}>
@@ -500,7 +566,7 @@ function BlankForm({
         ) : (
           <span>
             <kbd className="nt-kbd">↵</kbd>
-            Create
+            {template ? `Create from ${template.name}` : "Create"}
           </span>
         )}
         <span className="ml-auto flex gap-1">
