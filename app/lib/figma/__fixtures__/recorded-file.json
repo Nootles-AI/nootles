@@ -1,0 +1,99 @@
+{
+  "name": "Checkout prototype",
+  "role": "viewer",
+  "lastModified": "2026-09-01T12:00:00Z",
+  "thumbnailUrl": "https://figma-alpha-api.s3.us-west-2.amazonaws.com/volatile-thumbnail",
+  "editorType": "figma",
+  "linkAccess": "inherit",
+  "version": "9001",
+  "schemaVersion": 0,
+  "document": {
+    "id": "0:0",
+    "name": "Document",
+    "type": "DOCUMENT",
+    "futureDocumentField": "preserve-me",
+    "children": [
+      {
+        "id": "0:1",
+        "name": "Flows",
+        "type": "CANVAS",
+        "children": [
+          {
+            "id": "1:2",
+            "name": "Checkout",
+            "type": "FRAME",
+            "layoutMode": "VERTICAL",
+            "boundVariables": {
+              "paddingTop": { "type": "VARIABLE_ALIAS", "id": "VariableID:padding" }
+            },
+            "interactions": [
+              {
+                "trigger": { "type": "ON_CLICK" },
+                "actions": [
+                  { "type": "NODE", "navigation": "NAVIGATE", "destinationId": "2:2" }
+                ]
+              }
+            ],
+            "children": [
+              {
+                "id": "1:3",
+                "name": "Button",
+                "type": "INSTANCE",
+                "componentId": "10:1",
+                "children": []
+              },
+              {
+                "id": "1:4",
+                "name": "Photo",
+                "type": "RECTANGLE",
+                "fills": [
+                  { "type": "IMAGE", "imageRef": "image-ref-1", "scaleMode": "FILL" }
+                ]
+              },
+              {
+                "id": "1:5",
+                "name": "Logo",
+                "type": "VECTOR",
+                "fillGeometry": [
+                  { "path": "M0 0L10 10Z", "windingRule": "NONZERO" }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "2:2",
+            "name": "Confirmation",
+            "type": "FRAME",
+            "children": []
+          }
+        ]
+      }
+    ]
+  },
+  "components": {
+    "10:1": {
+      "key": "component-key",
+      "name": "Button",
+      "description": "Primary action",
+      "remote": false,
+      "componentSetId": "10:0"
+    }
+  },
+  "componentSets": {
+    "10:0": {
+      "key": "set-key",
+      "name": "Button",
+      "description": "Button variants",
+      "remote": false
+    }
+  },
+  "styles": {
+    "S:1": {
+      "key": "style-key",
+      "name": "Primary/Text",
+      "styleType": "TEXT",
+      "remote": false,
+      "description": ""
+    }
+  }
+}
