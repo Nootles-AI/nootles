@@ -48,7 +48,7 @@ interface Art {
 }
 
 const ART: Art = JSON.parse(readFileSync(new URL('./art.json', import.meta.url), 'utf8'));
-const D = 24;
+const D = 13.5;
 
 const find = (id: string, nodes: Node[] = ART.tree): Group => {
   for (const n of nodes) {
@@ -109,22 +109,24 @@ function shadeOnly(n: Node, keep: number[]): void {
 // ---- Time -----------------------------------------------------------------------
 
 const CUES = cueSheet(D, {
+  // Everyone at once: three walk in together as the rope comes down.
   turtleWalk: [0.4, 3.0],
   turn: [3.0, 3.4],
   write: [3.45, 8.3],
-  ropeDown: [7.8, 8.5],
-  ropeSettle: [8.5, 9.9],
-  bearLife: [8.85, 16.7],
-  bearDown: [8.9, 10.3],
-  handOver: [10.9, 11.9],
-  bearUp: [12.3, 16.3],
-  ropeUp: [16.6, 17.2],
-  elephantWalk: [13.4, 16.0],
-  paint: [16.1, 19.4],
-  alienWalk: [18.7, 20.9],
-  hammer: [21.0, 22.7],
+  ropeDown: [1.8, 2.5],
+  ropeSettle: [2.5, 3.9],
+  bearLife: [2.85, 10.7],
+  bearDown: [2.9, 4.3],
+  // The card lands just after the turtle has drawn the flowchart up to it.
+  handOver: [5.0, 6.0],
+  bearUp: [6.4, 10.4],
+  ropeUp: [10.7, 11.3],
+  elephantWalk: [0.8, 3.4],
+  paint: [3.5, 7.6],
+  alienWalk: [1.1, 3.3],
+  hammer: [3.4, 5.8],
 });
-const FADE: [number, number] = [23.1, 23.8];
+const FADE: [number, number] = [12.3, 13.0];
 
 type Key = [seconds: number, value: number, ease?: Parameters<typeof keys>[0][number][2]];
 /**
@@ -633,17 +635,18 @@ walk({
   for (const p of ['cast.turtle.armUpBob.armUp', 'cast.turtle.pencilBob.pencil']) {
     P(p).animate({ rotate: reach }).animate({ rotate: scribble }).animate({ rotate: swing(1) });
   }
-  // Header words in reading order: rows top to bottom, words left to right.
-  const words = [...DOC.header].sort((a, b) => (Math.abs(a.bb[1] - b.bb[1]) > 12 ? a.bb[1] - b.bb[1] : a.bb[0] - b.bb[0]));
-  const headerEnd = w0 + (w1 - w0) * 0.62;
-  words.forEach((w, k) => place(`Section_Header.${w.name}`, w0 + 0.1 + ((headerEnd - w0 - 0.1) * k) / words.length, 5, 0.16));
-  // The flowchart, left to right: boxes set down, arrows drawn out.
+  // The flowchart first, left to right — boxes set down, arrows drawn out —
+  // finished just before the bear's card arrives to end it.
+  const flowEnd = seconds('handOver')[0] + 0.3;
   const flow = [...DOC.flow].sort((a, b) => a.bb[0] - b.bb[0] || a.bb[1] - b.bb[1]);
   flow.forEach((f, k) => {
-    const t = headerEnd + 0.15 + ((w1 - headerEnd - 0.3) * k) / flow.length;
+    const t = w0 + 0.15 + ((flowEnd - w0 - 0.3) * k) / flow.length;
     if (f.arrow) drawOut(`Section_User_Flow.${f.name}`, t);
     else popIn(`Section_User_Flow.${f.name}`, t, 0.85);
   });
+  // Then the header, in reading order: rows top to bottom, words left to right.
+  const words = [...DOC.header].sort((a, b) => (Math.abs(a.bb[1] - b.bb[1]) > 12 ? a.bb[1] - b.bb[1] : a.bb[0] - b.bb[0]));
+  words.forEach((w, k) => place(`Section_Header.${w.name}`, flowEnd + 0.1 + ((w1 - flowEnd - 0.3) * k) / words.length, 5, 0.16));
   // Leaning into the page while writing.
   P('cast.turtle').animate({ rotate: at([[0, 0], [w0, 0, easeInOut], [w0 + 0.4, -3], [w1, -3, easeInOut], [w1 + 0.5, 0]]) });
   P('cast.turtle.armRBob.armR')
@@ -651,8 +654,8 @@ walk({
     .animate({ rotate: swing(-1) });
   // Antennae stream back on the walk and spring upright at the stop.
   const trail = at([[0, -9], [t1 - 0.1, -9, easeOut], [t1 + 0.15, 4, easeInOut], [t1 + 0.4, -1.5, easeInOut], [t1 + 0.6, 0]]);
-  P('cast.turtle.antRBob.antR').animate({ rotate: wobble(5, 17) }).animate({ rotate: trail });
-  P('cast.turtle.antLBob.antL').animate({ rotate: wobble(6, 13, 0.3) }).animate({ rotate: trail });
+  P('cast.turtle.antRBob.antR').animate({ rotate: wobble(5, 10) }).animate({ rotate: trail });
+  P('cast.turtle.antLBob.antL').animate({ rotate: wobble(6, 7, 0.3) }).animate({ rotate: trail });
 }
 
 // -- The rope and the bear. --
@@ -838,8 +841,8 @@ walk({
   for (const e of ['eyeFarBob.eyeFar', 'eyeNearBob.eyeNear']) {
     P(`cast.elephant.${e}`).animate({ x: look }).animate({ scaleY: blinks([p0 + 0.9, p0 + 2.6, p1 + 1.0]) });
   }
-  P('cast.elephant.beretBob.beret').animate({ rotate: wobble(3, 11) });
-  P('cast.elephant.antennaBob.antenna').animate({ rotate: wobble(6, 19, 0.2) });
+  P('cast.elephant.beretBob.beret').animate({ rotate: wobble(3, 6) });
+  P('cast.elephant.antennaBob.antenna').animate({ rotate: wobble(6, 11, 0.2) });
 }
 
 // -- The alien: marches in and hammers out the code, a line a blow. --
@@ -889,8 +892,8 @@ walk({
   for (const h of hits) wince.push([h - 0.02, 1, easeOut], [h + 0.05, 0.45, easeIn], [h + 0.2, 1]);
   P('cast.alien.eyesBob.eyes').animate({ scaleY: at(wince) });
   P('cast.alien.armDownBob.armDown').animate({ rotate: at([[0, 0], [a0, 0], [a1, 0, easeInOut], [k0 - 0.3, 6, easeInOut], [k1 + 0.5, 6, easeInOut], [k1 + 0.9, 0]]) });
-  P('cast.alien.antLBob.antL').animate({ rotate: wobble(7, 23) });
-  P('cast.alien.antRBob.antR').animate({ rotate: wobble(7, 19, 0.5) });
+  P('cast.alien.antLBob.antL').animate({ rotate: wobble(7, 13) });
+  P('cast.alien.antRBob.antR').animate({ rotate: wobble(7, 11, 0.5) });
 }
 
 export default team;
