@@ -109,21 +109,22 @@ function shadeOnly(n: Node, keep: number[]): void {
 // ---- Time -----------------------------------------------------------------------
 
 const CUES = cueSheet(D, {
-  // Everyone at once: three walk in together as the rope comes down.
-  turtleWalk: [0.4, 3.0],
-  turn: [3.0, 3.4],
-  write: [3.45, 8.3],
-  ropeDown: [1.8, 2.5],
-  ropeSettle: [2.5, 3.9],
-  bearLife: [2.85, 10.7],
-  bearDown: [2.9, 4.3],
+  // Everyone at once: the rope comes down first, so that the bear slides into
+  // view just as the other three step on from the sides.
+  turtleWalk: [0.8, 3.4],
+  turn: [3.4, 3.8],
+  write: [3.85, 8.3],
+  ropeDown: [0, 0.5],
+  ropeSettle: [0.5, 1.9],
+  bearLife: [0.45, 10.7],
+  bearDown: [0.5, 1.9],
   // The card lands just after the turtle has drawn the flowchart up to it.
   handOver: [5.0, 6.0],
   bearUp: [6.4, 10.4],
   ropeUp: [10.7, 11.3],
-  elephantWalk: [0.8, 3.4],
+  elephantWalk: [0.8, 3.0],
   paint: [3.5, 7.6],
-  alienWalk: [1.1, 3.3],
+  alienWalk: [0.8, 3.0],
   hammer: [3.4, 5.8],
 });
 const FADE: [number, number] = [12.3, 13.0];
@@ -135,7 +136,9 @@ type Key = [seconds: number, value: number, ease?: Parameters<typeof keys>[0][nu
  * next take begins from the same pose.
  */
 function at(list: Key[]): Channel {
-  const sorted = [...list].sort((a, b) => a[0] - b[0]);
+  // A key at the same instant as the one before it restates it; keep the later.
+  const sorted = [...list].sort((a, b) => a[0] - b[0])
+    .filter((k, i, all) => i === all.length - 1 || all[i + 1][0] !== k[0]);
   const first = sorted[0][1];
   const last = sorted[sorted.length - 1];
   if (last[1] !== first && last[0] < D) {
@@ -409,9 +412,17 @@ const bearY = (t: number) => {
   }
   return riseAt(PULLS) + (TOP - riseAt(PULLS)) * smooth(Math.min(1, (t - u1) / 0.3));
 };
+/** Hanging about until the flowchart is ready for the card: a slow sway. */
+const idle = (t: number) => {
+  const a = d1 + 0.5;
+  const b = drop - 0.3;
+  if (t <= a || t >= b) return 0;
+  const env = Math.min(1, (t - a) / 0.5, (b - t) / 0.5);
+  return 2.5 * Math.sin((2 * Math.PI * (t - a)) / 1.7) * env;
+};
 const tilt = (t: number) => {
   const sway = t >= c0 && t < u1 ? tiltAt(climbing(t).k, climbing(t).p) : 0;
-  return 90 * upright(t) + sway;
+  return 90 * upright(t) + sway + idle(t);
 };
 const shift = (t: number) => SHIFT * upright(t);
 /** Where a point drawn on the bear is at a moment. */
@@ -602,7 +613,7 @@ const section = <T extends { name: string }>(list: T[], sectionId: string): T[] 
 // -- The turtle: walks in side-on, turns to the page, writes the header and the
 // flowchart, and looks it over. --
 walk({
-  cue: 'turtleWalk', walker: 'cast.turtle', from: -720, step: 0.3, lift: 8, stance: 0.5,
+  cue: 'turtleWalk', walker: 'cast.turtle', from: -710, step: 0.3, lift: 8, stance: 0.5,
   legs: [
     { path: 'cast.turtle.legL', hip: [574, 512], foot: [572, 577], phase: 0 },
     { path: 'cast.turtle.legR', hip: [633, 508], foot: [636, 577], phase: 0.5 },
@@ -788,12 +799,12 @@ walk({
   // Pleased with itself once the card is down; screwed up with effort on the way out.
   P('cast.bearBackRide.bearEyes').animate({
     scaleY: at([[0, 1], [h1 - 0.05, 1, easeOut], [h1 + 0.1, 0.3], [h1 + 0.7, 0.3, easeInOut], [h1 + 0.9, 1], [u0 - 0.05, 1, easeInOut], [u0 + 0.15, 0.55]]),
-  });
+  }).animate({ scaleY: blinks([d1 + 0.9, d1 + 2.2, d1 + 2.5]) });
 }
 
 // -- The elephant: walks in from the right and paints both mockups. --
 walk({
-  cue: 'elephantWalk', walker: 'cast.elephant', from: 620, step: 0.32, lift: 7, stance: 0.5,
+  cue: 'elephantWalk', walker: 'cast.elephant', from: 530, step: 0.32, lift: 7, stance: 0.5,
   legs: [
     { path: 'cast.elephant.legFar', hip: [1117, 1406], foot: [1112, 1480], phase: 0 },
     { path: 'cast.elephant.legNear', hip: [1139, 1414], foot: [1140, 1489], phase: 0.5 },
