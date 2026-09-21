@@ -249,6 +249,30 @@ export function Button({
   );
 }
 
+/** ⌘, as Lucide draws it: the palette's key, and so its button. */
+const COMMAND = (
+  <svg {...svg}>
+    <path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3" />
+  </svg>
+);
+
+/**
+ * The workspace's palette — pages, rails, the keys — from the bar, for
+ * whoever reaches for the mouse rather than ⌘K. The bar's last word, after a
+ * rule of its own: it is not a tool and does nothing to the drawing.
+ */
+export function PaletteButton({ apple, onOpen }: { apple: boolean; onOpen: () => void }) {
+  return (
+    <>
+      {/* Named for the bar's morph, which otherwise pairs rules by position. */}
+      <span className="nt-toolbar-sep" data-morph="palette-rule" aria-hidden />
+      <Button label="Command palette" hint={apple ? "⌘K" : "Ctrl+K"} onClick={onOpen}>
+        {COMMAND}
+      </Button>
+    </>
+  );
+}
+
 export interface ToolbarProps {
   store: SceneStore;
   viewport: ViewportController;
@@ -259,9 +283,19 @@ export interface ToolbarProps {
   leaving?: boolean;
   /** The storyboard the canvas is a shot of, whose verbs stand in for zoom. */
   board?: BoardApi;
+  /** Opens the workspace's palette; absent where there is none to open. */
+  onPalette?: () => void;
 }
 
-export function Toolbar({ store, viewport, tools, screen, leaving, board }: ToolbarProps) {
+export function Toolbar({
+  store,
+  viewport,
+  tools,
+  screen,
+  leaving,
+  board,
+  onPalette,
+}: ToolbarProps) {
   const tool = useSyncExternalStore(tools.subscribe, tools.get, tools.get);
   // The scalar, not the whole viewport: `commit()` allocates a fresh object on
   // every pan frame, and this pill only shows the zoom.
@@ -462,6 +496,7 @@ export function Toolbar({ store, viewport, tools, screen, leaving, board }: Tool
             </>
           )}
         </Menu>
+        {onPalette && <PaletteButton apple={apple} onOpen={onPalette} />}
       </div>
     </div>
   );
