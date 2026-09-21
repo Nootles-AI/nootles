@@ -121,6 +121,28 @@ import { useSceneFonts } from "./fonts";
 import { ShapeView, toCss } from "./ShapeView";
 import "../canvas.css";
 
+/** How long the stage takes to open or close. */
+const STAGE_MS = 620;
+/**
+ * The curve for it — and the glide solves the same one, so the surface and the
+ * diagram arrive together. Not `--ease`: that curve does most of its travel in
+ * the first frames, which over a move this large reads as a cut. This one
+ * leaves gently and settles long.
+ */
+const STAGE_CURVE = [0.2, 0, 0, 1] as const;
+const STAGE_EASE = `cubic-bezier(${STAGE_CURVE.join(", ")})`;
+/** The block's own corner (`--radius-lg`), as a length a keyframe can hold. */
+const BLOCK_RADIUS = "10px";
+
+/** The clip that shows only `inner` of a box laid out at `outer`. */
+function insetFrom(outer: DOMRect, inner: DOMRect, round: string): string {
+  const top = inner.top - outer.top;
+  const right = outer.right - inner.right;
+  const bottom = outer.bottom - inner.bottom;
+  const left = inner.left - outer.left;
+  return `inset(${top}px ${right}px ${bottom}px ${left}px round ${round})`;
+}
+
 /** Kept clear either side, so a widened block cannot reach the window's edge. */
 const CANVAS_GUTTER = 32;
 
@@ -633,6 +655,8 @@ export function CanvasSurface({
   const stageResize = useRef<ResizeObserver | null>(null);
   const stageLastSize = useRef<{ w: number; h: number } | null>(null);
   const stageWheelSwallow = useRef<((e: WheelEvent) => void) | null>(null);
+  // The opening or closing in flight, so a toggle mid-way can stop it cleanly.
+  const stageMorph = useRef<{ animations: Animation[]; cancel: () => void } | null>(null);
 
   const [screenHost] = useState<ScreenHost>(() => ({
     // A storyboard shot's viewport is locked to its frame and a read-only
@@ -644,19 +668,131 @@ export function CanvasSurface({
       const el = containerRef.current;
       const wrapEl = wrap.current;
       if (!el || !wrapEl) return;
-      const before = { w: el.clientWidth, h: el.clientHeight };
-      wrapEl.toggleAttribute("data-stage", on);
-      // The one forced layout per toggle: the attribute above just changed
-      // `.nt-canvas-viewport`'s `position`, and the container's own box only
-      // reflects that once the browser has recomputed it.
-      const after = { w: el.clientWidth, h: el.clientHeight };
-      viewport.set(recentre(viewport.get(), before, after));
+      // A toggle while the last one is still moving takes over from wherever
+      // that one had got to.
+      stageMorph.current?.cancel();
+      stageMorph.current = null;
 
       stageResize.current?.disconnect();
       stageResize.current = null;
       if (stageWheelSwallow.current) {
         wrapEl.removeEventListener("wheel", stageWheelSwallow.current);
         stageWheelSwallow.current = null;
+      }
+
+      const still = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+
+      if (!on && !still && wrapEl.hasAttribute("data-stage")) {
+        // Closing plays the opening backwards while the stage is still the
+        // stage: the surface draws back in to the block's own box and the
+        // diagram glides to where it will sit in the page, and only then does
+        // the stage stand down — so the swap itself moves nothing.
+        const from = el.getBoundingClientRect();
+        const to = wrapEl.getBoundingClientRect();
+        const inView = to.bottom > 0 && to.top < window.innerHeight;
+        if (inView) {
+          const home = recentre(
+            viewport.get(),
+            { w: el.clientWidth, h: el.clientHeight },
+            { w: to.width, h: to.height },
+          );
+          viewport.glideTo(
+            { x: home.x + (to.left - from.left), y: home.y + (to.top - from.top), zoom: home.zoom },
+            STAGE_MS,
+            STAGE_CURVE,
+          );
+          const round = getComputedStyle(el).borderTopLeftRadius;
+          const clip = el.animate(
+            [
+              { clipPath: `inset(0px round ${round})` },
+              { clipPath: insetFrom(from, to, BLOCK_RADIUS) },
+            ],
+            { duration: STAGE_MS, easing: STAGE_EASE, fill: "forwards" },
+          );
+          let done = false;
+          const land = () => {
+            if (done) return;
+            done = true;
+            stageMorph.current = null;
+            wrapEl.toggleAttribute("data-stage", false);
+            document.body.toggleAttribute("data-nt-staged", false);
+            viewport.set(home);
+            clip.cancel();
+          };
+          clip.onfinish = land;
+          stageMorph.current = {
+            animations: [clip],
+            // Taken over by an opening: stop where it stands, still staged.
+            cancel: () => {
+              done = true;
+              clip.cancel();
+            },
+          };
+          return;
+        }
+      }
+
+      const from = el.getBoundingClientRect();
+      const before = { w: el.clientWidth, h: el.clientHeight };
+      wrapEl.toggleAttribute("data-stage", on);
+      // Said on the body too, for the chrome that is portalled there and so
+      // sits outside anything the stage covers — the block handles.
+      document.body.toggleAttribute("data-nt-staged", on);
+      // The one forced layout per toggle: the attribute above just changed
+      // `.nt-canvas-viewport`'s `position`, and the container's own box only
+      // reflects that once the browser has recomputed it.
+      const after = { w: el.clientWidth, h: el.clientHeight };
+      const target = recentre(viewport.get(), before, after);
+
+      if (on && !still) {
+        // Opening floods out of the block: the stage's surface starts clipped
+        // to the block's own box and opens to the whole column, the dots
+        // spread outward from where the block was, and the diagram starts
+        // exactly where it sat in the page and glides to its place on the
+        // stage — one movement, rather than a cut to a larger box.
+        const to = el.getBoundingClientRect();
+        const now = viewport.get();
+        viewport.set({ x: now.x + (from.left - to.left), y: now.y + (from.top - to.top), zoom: now.zoom });
+        viewport.glideTo(target, STAGE_MS, STAGE_CURVE);
+        // The stage's own corner: the sheet's, inside the shell, or none when
+        // the interface is hidden and the stage is the whole window.
+        const round = getComputedStyle(el).borderTopLeftRadius;
+        const animations = [
+          el.animate(
+            [
+              { clipPath: insetFrom(to, from, BLOCK_RADIUS) },
+              { clipPath: `inset(0px round ${round})` },
+            ],
+            { duration: STAGE_MS, easing: STAGE_EASE },
+          ),
+        ];
+        const grid = gridRef.current;
+        if (grid) {
+          const cx = from.left + from.width / 2 - to.left;
+          const cy = from.top + from.height / 2 - to.top;
+          // Big enough that its solid middle covers the far corner from any
+          // starting point: the ring passes out of the stage before it ends.
+          const d = 3 * Math.hypot(to.width, to.height);
+          const ring = {
+            maskImage: "radial-gradient(circle closest-side, #000 72%, transparent)",
+            maskRepeat: "no-repeat",
+          };
+          animations.push(
+            grid.animate(
+              [
+                { ...ring, maskSize: "0px 0px", maskPosition: `${cx}px ${cy}px` },
+                { ...ring, maskSize: `${d}px ${d}px`, maskPosition: `${cx - d / 2}px ${cy - d / 2}px` },
+              ],
+              { duration: STAGE_MS + 240, easing: STAGE_EASE },
+            ),
+          );
+        }
+        stageMorph.current = {
+          animations,
+          cancel: () => animations.forEach((a) => a.cancel()),
+        };
+      } else {
+        viewport.set(target);
       }
 
       if (!on) {
@@ -685,6 +821,9 @@ export function CanvasSurface({
       const observer = new ResizeObserver(() => {
         const now = { w: el.clientWidth, h: el.clientHeight };
         const last = stageLastSize.current ?? now;
+        // The observer's first notice is the size it already has. Setting the
+        // view for it would cancel the opening glide in its first frame.
+        if (now.w === last.w && now.h === last.h) return;
         viewport.set(recentre(viewport.get(), last, now));
         stageLastSize.current = now;
       });
@@ -720,11 +859,14 @@ export function CanvasSurface({
           const style = getComputedStyle(document.documentElement);
           const left = parseFloat(style.getPropertyValue("--nt-stage-l")) || 0;
           const right = parseFloat(style.getPropertyValue("--nt-stage-r")) || 0;
+          // Top and bottom are the stage's own: the sheet's margin inside the
+          // shell, nothing when the interface is hidden.
+          const own = getComputedStyle(el);
           const expected = {
-            top: 0,
+            top: parseFloat(own.top) || 0,
             left,
             right: window.innerWidth - right,
-            bottom: window.innerHeight,
+            bottom: window.innerHeight - (parseFloat(own.bottom) || 0),
           };
           const within = (a: number, b: number) => Math.abs(a - b) <= 1;
           if (
@@ -780,8 +922,14 @@ export function CanvasSurface({
         void document.exitFullscreen();
       }
       stageResize.current?.disconnect();
+      stageMorph.current?.cancel();
       if (stageWheelSwallow.current) {
         wrapEl?.removeEventListener("wheel", stageWheelSwallow.current);
+      }
+      // Only if it was this canvas that was staged: the flag hides the page's
+      // handles, and another page's would stay hidden for good.
+      if (wrapEl?.hasAttribute("data-stage")) {
+        document.body.removeAttribute("data-nt-staged");
       }
     };
   }, [screen]);

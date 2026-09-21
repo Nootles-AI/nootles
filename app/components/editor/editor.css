@@ -98,6 +98,11 @@
 /* `height: auto` is the fix for BlockNote's per-block-type heights, which the
    cluster inherits through `bn-side-menu` — kept on it only so the drag menu
    still picks up the item metrics BlockNote hangs off that class. */
+/* A staged canvas covers the page, but the handles are portalled to the body
+   and would float over it: they are the page's, so they go with it. */
+body[data-nt-staged] .nt-side-menu-anchor {
+  visibility: hidden;
+}
 .nt-side-menu-anchor .nt-block-handles {
   display: flex;
   align-items: center;
