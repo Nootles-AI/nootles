@@ -56,6 +56,10 @@
 .nt-canvas[data-live] .nt-canvas-grid {
   opacity: 1;
 }
+/* Turned off in the toolbar's settings (engine/dotGrid.ts). */
+:root[data-nt-grid="off"] .nt-canvas-grid {
+  display: none;
+}
 @media (prefers-reduced-motion: reduce) {
   .nt-canvas,
   .nt-canvas-grid {

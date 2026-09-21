@@ -30,6 +30,7 @@ import {
   setSnapEnabled,
   subscribe as subscribeSnap,
 } from "./engine/snapping";
+import { isGridShown, setGridShown, subscribeGrid } from "./engine/dotGrid";
 import {
   useSpineState,
   useWorkspaceHistory,
@@ -272,6 +273,7 @@ export function Toolbar({ store, viewport, tools, screen, leaving }: ToolbarProp
   // Read from the module rather than mirrored in state: anything else that ever
   // toggles snapping would leave a mirrored copy showing the wrong answer.
   const snap = useSyncExternalStore(subscribeSnap, isSnapEnabled, () => true);
+  const grid = useSyncExternalStore(subscribeGrid, isGridShown, () => true);
 
   // Same reasoning as `tools`/`snap` above: the menu's checkboxes have to
   // redraw when the mode changes, whether that came from this menu, the
@@ -544,29 +546,53 @@ export function Toolbar({ store, viewport, tools, screen, leaving }: ToolbarProp
           )}
         >
           {/* Left open on click: a toggle you cannot watch flip is a toggle you
-            have to reopen the menu to read. The box is drawn in both states and
-            always occupies the same square, so the row neither goes blank when
-            snapping is off nor changes width as it flips. */}
+            have to reopen the menu to read. */}
           {() => (
-            <MenuItem onClick={() => setSnapEnabled(!snap)}>
-              <span
-                aria-hidden
-                className={`flex size-3.5 shrink-0 items-center justify-center rounded-[var(--radius-sm)] border transition-colors ${
-                  snap
-                    ? "border-[var(--foreground)] bg-[var(--foreground)] text-[var(--background)]"
-                    : "border-[var(--border-strong)]"
-                }`}
-              >
-                {snap && <Check width={10} height={10} />}
-              </span>
-              Snap to guides
-              {/* The state a screen reader gets, since `MenuItem` is a plain
-                menuitem rather than a menuitemcheckbox. */}
-              <span className="sr-only">{snap ? "On" : "Off"}</span>
-            </MenuItem>
+            <>
+              <ToggleRow on={snap} onToggle={() => setSnapEnabled(!snap)}>
+                Snap to guides
+              </ToggleRow>
+              <ToggleRow on={grid} onToggle={() => setGridShown(!grid)}>
+                Dot grid
+              </ToggleRow>
+            </>
           )}
         </Menu>
       </div>
     </div>
+  );
+}
+
+/**
+ * A setting that is on or off, as a menu row. The box is drawn in both states
+ * and always occupies the same square, so the row neither goes blank when the
+ * setting is off nor changes width as it flips.
+ */
+function ToggleRow({
+  on,
+  onToggle,
+  children,
+}: {
+  on: boolean;
+  onToggle: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <MenuItem onClick={onToggle}>
+      <span
+        aria-hidden
+        className={`flex size-3.5 shrink-0 items-center justify-center rounded-[var(--radius-sm)] border transition-colors ${
+          on
+            ? "border-[var(--foreground)] bg-[var(--foreground)] text-[var(--background)]"
+            : "border-[var(--border-strong)]"
+        }`}
+      >
+        {on && <Check width={10} height={10} />}
+      </span>
+      {children}
+      {/* The state a screen reader gets, since `MenuItem` is a plain menuitem
+        rather than a menuitemcheckbox. */}
+      <span className="sr-only">{on ? "On" : "Off"}</span>
+    </MenuItem>
   );
 }
