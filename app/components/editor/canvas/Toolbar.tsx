@@ -16,8 +16,6 @@
  */
 
 import {
-  useLayoutEffect,
-  useRef,
   useSyncExternalStore,
   type CSSProperties,
   type ReactNode,
@@ -190,87 +188,6 @@ const GEAR = (
 const neverChanges = () => () => {};
 const notApple = () => false;
 
-/** Clear of the canvas's own bottom grip, which is a 10px strip. */
-const CANVAS_GAP = 14;
-/** The lowest the pill may sit in the window — where it used to be pinned. */
-const WINDOW_FLOOR = 20;
-/** Keeps it off the window edge on a canvas wider than the viewport. */
-const EDGE = 8;
-
-/**
- * Follows the canvas rather than the window.
- *
- * Three rules, in the order they bind. The pill wants to float just inside the
- * canvas's bottom edge. It may not sit lower in the window than `WINDOW_FLOOR`,
- * so on a diagram taller than the fold it stays put while the page scrolls
- * under it. And it may not rise above the canvas's own top edge, so scrolling
- * past the diagram takes the toolbar with it instead of leaving it hovering
- * over prose it has nothing to do with.
- *
- * Written straight to the element. A pill that re-rendered on every scroll
- * frame would be the most expensive thing on the page.
- *
- * `top`/`left` rather than a transform, deliberately. A transform — and
- * `will-change: transform` with it — makes the element a containing block for
- * its fixed descendants, and the zoom menu, the settings menu and every
- * tooltip in the pill are `position: fixed` and rendered inline. Under a
- * transformed dock they would anchor to the pill instead of to the window.
- */
-function useDock(viewport: ViewportController) {
-  const dock = useRef<HTMLDivElement>(null);
-
-  useLayoutEffect(() => {
-    const el = dock.current;
-    const canvas = viewport.containerRef.current;
-    if (!el || !canvas) return;
-
-    let frame = 0;
-
-    const place = () => {
-      frame = 0;
-      const r = canvas.getBoundingClientRect();
-      const w = el.offsetWidth;
-      const h = el.offsetHeight;
-
-      const left = Math.min(
-        Math.max(EDGE, r.left + (r.width - w) / 2),
-        window.innerWidth - w - EDGE,
-      );
-      const inCanvas = r.bottom - CANVAS_GAP - h;
-      const floor = window.innerHeight - WINDOW_FLOOR - h;
-      const top = Math.max(r.top + CANVAS_GAP, Math.min(inCanvas, floor));
-
-      el.style.left = `${Math.round(left)}px`;
-      el.style.top = `${Math.round(top)}px`;
-      el.style.visibility = "visible";
-    };
-
-    const schedule = () => {
-      if (frame === 0) frame = requestAnimationFrame(place);
-    };
-
-    place();
-    // Captured: the page column scrolls, not the window, and a scroll event
-    // does not bubble.
-    window.addEventListener("scroll", schedule, true);
-    window.addEventListener("resize", schedule);
-    // The canvas resizes by grip and by the rails opening; the pill's own width
-    // changes when the zoom readout gains a digit.
-    const observer = new ResizeObserver(schedule);
-    observer.observe(canvas);
-    observer.observe(el);
-
-    return () => {
-      if (frame) cancelAnimationFrame(frame);
-      window.removeEventListener("scroll", schedule, true);
-      window.removeEventListener("resize", schedule);
-      observer.disconnect();
-    };
-  }, [viewport]);
-
-  return dock;
-}
-
 export function Button({
   label,
   hint,
@@ -311,9 +228,11 @@ export interface ToolbarProps {
   /** Subscribed to rather than passed as a value: see {@link ToolControl}. */
   tools: ToolControl;
   screen: ScreenControl;
+  /** Set for the moment it is on its way out, after the diagram was let go. */
+  leaving?: boolean;
 }
 
-export function Toolbar({ store, viewport, tools, screen }: ToolbarProps) {
+export function Toolbar({ store, viewport, tools, screen, leaving }: ToolbarProps) {
   const tool = useSyncExternalStore(tools.subscribe, tools.get, tools.get);
   // The scalar, not the whole viewport: `commit()` allocates a fresh object on
   // every pan frame, and this pill only shows the zoom.
@@ -327,7 +246,6 @@ export function Toolbar({ store, viewport, tools, screen }: ToolbarProps) {
   const { canUndo, canRedo } = spine ? global : local;
   const undo = spine ? () => void spine.undo() : () => void store.undo();
   const redo = spine ? () => void spine.redo() : () => void store.redo();
-  const dock = useDock(viewport);
 
   // `navigator` does not exist on the server, and a glyph that differed between
   // the two renders would be a hydration mismatch. Read as an external value,
@@ -358,7 +276,10 @@ export function Toolbar({ store, viewport, tools, screen }: ToolbarProps) {
   };
 
   return (
-    <div ref={dock} className="nt-toolbar-dock">
+    // Docked to the foot of the page column, centred on it, by CSS alone: the
+    // shell publishes the column's edges, and nothing here has to follow a
+    // scroll. Never a transform on the dock — see `.nt-toolbar-dock`.
+    <div className="nt-toolbar-dock" data-leaving={leaving || undefined} inert={leaving}>
       <div className="nt-toolbar" role="toolbar" aria-label="Canvas">
         {/* One ink mark that travels to the tool in hand, rather than eleven
             buttons that each know how to look pressed. */}

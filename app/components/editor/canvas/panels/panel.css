@@ -17,7 +17,9 @@
   display: flex;
   flex-direction: column;
   flex: none;
-  width: 240px;
+  /* The rail it is given: it stands in the chat's place, at the chat's width,
+     so the rail does not change size under the sheet when a diagram takes it. */
+  width: 100%;
   height: 100%;
   /* No line against the page: the sheet it sits beside has an edge of its own. */
   background: var(--surface);

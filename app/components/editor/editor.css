@@ -251,7 +251,15 @@
 .bn-root.bn-mantine .bn-toolbar {
   gap: 1px;
   padding: 3px;
+  /* The menus' surface exactly — Mantine's own border and shadow would make
+     it the one floating thing in the app that is drawn differently. */
+  border: 0;
   border-radius: var(--radius-lg);
+  background: var(--elevated);
+  box-shadow:
+    0 0 0 1px oklch(0.25 0.005 90 / 0.06),
+    0 4px 12px oklch(0.25 0.005 90 / 0.07),
+    0 16px 40px oklch(0.25 0.005 90 / 0.1);
 }
 .bn-root.bn-mantine .bn-formatting-toolbar {
   transform-origin: bottom center;

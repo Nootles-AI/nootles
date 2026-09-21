@@ -89,6 +89,8 @@ type Props = {
   onCollapse: () => void;
   /** Opens the page finder, which the shell owns so ⌘K works with this shut. */
   onFind: () => void;
+  /** Opens the keyboard reference, which the shell owns for the same reason. */
+  onShowKeys: () => void;
 };
 
 export function Sidebar({
@@ -101,6 +103,7 @@ export function Sidebar({
   onOpenAside,
   onCollapse,
   onFind,
+  onShowKeys,
 }: Props) {
   const mod = useModKey();
   // Back from Notion's consent screen, which the import dialog sent them to:
@@ -690,7 +693,7 @@ export function Sidebar({
           <span className="nt-row-label">Projects</span>
         </Link>
         {owner && <SharePopover projectId={projectId} />}
-        <AccountMenu />
+        <AccountMenu align="start" onShowKeys={onShowKeys} />
         <button
           onClick={onCollapse}
           aria-label="Collapse sidebar"

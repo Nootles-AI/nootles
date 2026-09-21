@@ -82,6 +82,8 @@ const RIGHT_W = `var(${VARS.right})`;
 const DRAWER_W = "288px";
 /** How long a rail takes to close; `.nt-rail-slot` in globals.css agrees. */
 const RAIL_MS = 320;
+/** How long the tool bar takes to leave; `nt-toolbar-out` agrees. */
+const TOOLS_MS = 200;
 
 /* Below this the three fixed panels leave no usable column for the document
    (462px of chrome against a 560px viewport left 2px of text), so they stop
@@ -554,18 +556,52 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
   });
 
 
-  // A rail closes over its contents rather than vanishing with them, so what
-  // was in it stays mounted for as long as the closing takes. Opening needs no
-  // such grace: the contents are there from the first frame.
-  const leftRail = chrome && (!!canvasPanels || showLeft);
-  const leftHeld = useLinger(leftRail, RAIL_MS);
-  // The chat only closes like that when it is put away. When a diagram or a
-  // place takes the rail from it, the two would stand side by side for the
-  // length of the animation and squeeze the page between them — so that is a
-  // cut, and the incoming panel's own entrance is the movement.
+  // Each rail is one place with two faces: the pages or the layers on the
+  // left, the chat or an inspector on the right. Entering a diagram does not
+  // close one rail and open another — the place stays, and what is in it turns
+  // over. Every face stays mounted for as long as it takes to leave.
+  //
+  // The panels a claim brings need the claim's API to render, and that is gone
+  // the moment the diagram is let go; the last one is kept for the way out.
+  const [lastCanvas, setLastCanvas] = useState(canvasPanels);
+  if (canvasPanels && canvasPanels !== lastCanvas) setLastCanvas(canvasPanels);
+  const [lastPlace, setLastPlace] = useState(placePanel);
+  if (placePanel && placePanel !== lastPlace) setLastPlace(placePanel);
+
+  // The tool bar leaves the same way, a beat after the diagram is let go, and
+  // the review it shares the corner with waits until it has.
+  const [lastTools, setLastTools] = useState(canvas);
+  if (canvas && canvas !== lastTools) setLastTools(canvas);
+  const toolsOn = chrome && !!canvas && !canvas.api.board;
+  const toolsHeld = useLinger(toolsOn, TOOLS_MS) && !!lastTools;
+
+  // The diagram being edited says so on its own element: its ground shows the
+  // dots and its edge (`.nt-canvas[data-live]`). Written from here because the
+  // shell is what knows which one it is, and as an attribute rather than state
+  // so no canvas re-renders for it.
+  useEffect(() => {
+    const el = canvas?.api.viewport.containerRef.current?.closest<HTMLElement>(".nt-canvas");
+    if (!el) return;
+    el.dataset.live = "";
+    return () => {
+      delete el.dataset.live;
+    };
+  }, [canvas]);
+
+  const pagesOn = chrome && showLeft && !canvasPanels;
+  const layersOn = chrome && !!canvasPanels;
+  const leftRail = pagesOn || layersOn;
+  const pagesHeld = useLinger(pagesOn, RAIL_MS);
+  const layersHeld = useLinger(layersOn, RAIL_MS) && !!lastCanvas;
+
   const rightClaimed = !!canvasPanels || !!placePanel;
-  const rightRail = chrome && !viewer && showRight && !rightClaimed;
-  const rightHeld = useLinger(rightRail, RAIL_MS) && !rightClaimed && !compact;
+  const chatOn = chrome && !viewer && showRight && !rightClaimed;
+  const designOn = chrome && !!canvasPanels;
+  const placeOn = chrome && !!placePanel;
+  const rightRail = chatOn || designOn || placeOn;
+  const chatHeld = useLinger(chatOn, RAIL_MS) && !compact;
+  const designHeld = useLinger(designOn, RAIL_MS) && !!lastCanvas;
+  const placeHeld = useLinger(placeOn, RAIL_MS) && !!lastPlace;
 
   const sidebar = (
     <Sidebar
@@ -581,6 +617,7 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
       }}
       onCollapse={() => (compact ? setDrawer(null) : setLeftOpen(false))}
       onFind={() => setFinding(true)}
+      onShowKeys={() => setShowingKeys(true)}
     />
   );
 
@@ -601,9 +638,7 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
   // its hook owns the BrowserChat and its abort signal. `hidden` keeps it out
   // of both layout and the accessibility tree while a canvas/location claims
   // the slot (or while the rail is collapsed), without mistaking that for Stop.
-  const chatHidden = compact
-    ? !chatAsDrawer
-    : !chrome || !!canvasPanels || !!placePanel || !showRight;
+  const chatHidden = compact ? !chatAsDrawer : !chatOn && !chatHeld;
 
   return (
     <CanvasShellContext value={shell}>
@@ -624,25 +659,29 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
           } as CSSProperties
         }
       >
-        {/* The left rail's place. It closes over what it holds (see `leftHeld`),
-            so the sidebar is seen leaving rather than blinking out; layers
-            take the same place, and arrive with their own entrance. */}
+        {/* The left rail's place. It closes over what it holds when the rail is
+            put away, and turns its face over when a diagram takes it. */}
         {!compact && (
           <div className="nt-rail-slot" data-open={leftRail} style={{ "--w": LEFT_W } as CSSProperties}>
-            {canvasPanels ? (
-              <aside
-                className="nt-panel nt-rail-l"
-                style={{ width: LEFT_W }}
-                aria-label="Layers"
-                {...undoScope}
-              >
-                <LayersPanel
-                  store={canvasPanels.api.store}
-                  selection={canvasPanels.api.selection}
-                />
-              </aside>
-            ) : (
-              leftHeld && chrome && sidebar
+            {pagesHeld && (
+              <div className="nt-rail-face" data-on={pagesOn} inert={!pagesOn}>
+                {sidebar}
+              </div>
+            )}
+            {layersHeld && lastCanvas && (
+              <div className="nt-rail-face" data-on={layersOn} inert={!layersOn}>
+                <aside
+                  className="nt-panel"
+                  style={{ width: LEFT_W }}
+                  aria-label="Layers"
+                  {...undoScope}
+                >
+                  <LayersPanel
+                    store={lastCanvas.api.store}
+                    selection={lastCanvas.api.selection}
+                  />
+                </aside>
+              </div>
             )}
           </div>
         )}
@@ -664,7 +703,7 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
           ref={columnRef}
           className="nt-well relative isolate flex min-w-0 flex-1"
           data-edge-l={!leftRail || undefined}
-          data-edge-r={!(rightRail || (chrome && rightClaimed)) || undefined}
+          data-edge-r={!rightRail || undefined}
         >
           {/* The workspace has no top bar, so presence floats where a top
               bar's corner would be — over the focused document. */}
@@ -690,7 +729,7 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
                 null
               }
             />
-            {chrome && !viewer && !rightRail && !rightClaimed && (
+            {chrome && !viewer && !rightRail && (
               <button
                 onClick={() => (compact ? setDrawer("right") : setRightOpen(true))}
                 aria-label="Open chat"
@@ -728,25 +767,48 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
           )}
         </div>
 
-        {/* Viewers have no chat: their AI would need the pen. No rail, no way
-            back to one — absence, not a locked door. */}
-        {!chrome ? null : canvasPanels ? (
-          <CanvasStylePanel api={canvasPanels.api} />
-        ) : placePanel ? (
-          <LocationPanel active={placePanel} />
-        ) : rightRail ? (
-          <ResizeHandle onResize={onResizeRight} ariaLabel="Resize chat" />
-        ) : null}
-
-        {/* Inspector swaps, rail collapse and compact-drawer dismissal only hide
-            this panel. The one mounted instance keeps an active response alive
-            wherever the chat happens to be shown. Its slot closes over it the
-            way the left one does, and the panel is only hidden once it has. */}
-        {!viewer && (
-          <div className="nt-rail-slot is-right" data-open={rightRail} style={{ "--w": RIGHT_W } as CSSProperties}>
-            <ChatPanel {...chatProps} hidden={chatHidden && !rightHeld} />
-          </div>
+        {rightRail && !compact && (
+          <ResizeHandle
+            onResize={onResizeRight}
+            ariaLabel={chatOn ? "Resize chat" : "Resize panel"}
+          />
         )}
+
+        {/* The right rail's place: the chat, or what a diagram or a place card
+            brings. Viewers have no chat — their AI would need the pen — so for
+            them the place is only ever an inspector's.
+
+            The one mounted ChatPanel keeps an active response alive wherever
+            the chat happens to be shown; turning its face over, putting the
+            rail away and the narrow drawer all only hide it. */}
+        <div
+          className="nt-rail-slot is-right"
+          data-open={rightRail && !compact}
+          style={{ "--w": RIGHT_W } as CSSProperties}
+        >
+          {!viewer && (
+            // Narrow, the chat is a fixed drawer, and a face mid-turn carries a
+            // transform that would become what the drawer is fixed to — so
+            // there it is not a face at all.
+            <div
+              className={compact ? "contents" : "nt-rail-face is-right"}
+              data-on={chatOn}
+              inert={!compact && !chatOn}
+            >
+              <ChatPanel {...chatProps} hidden={chatHidden} />
+            </div>
+          )}
+          {designHeld && lastCanvas && (
+            <div className="nt-rail-face is-right" data-on={designOn} inert={!designOn}>
+              <CanvasStylePanel api={lastCanvas.api} />
+            </div>
+          )}
+          {placeHeld && lastPlace && (
+            <div className="nt-rail-face is-right" data-on={placeOn} inert={!placeOn}>
+              <LocationPanel active={lastPlace} />
+            </div>
+          )}
+        </div>
 
         {/* One bar, one corner. The tool palette is transient and the review is a
             standing question, so while a diagram is being edited the palette has
@@ -757,12 +819,14 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
           {/* A storyboard shot claims the shell for the panels but carries its
               own vertical bar beside the board, so the floating pill stands
               down for it the way it does for a review. */}
-          {!chrome ? null : canvas && !canvas.api.board ? (
+          {!chrome ? null : toolsHeld && lastTools ? (
             <Toolbar
-              store={canvas.api.store}
-              viewport={canvas.api.viewport}
-              tools={canvas.api.tools}
-              screen={canvas.api.screen}
+              key={lastTools.blockId}
+              store={lastTools.api.store}
+              viewport={lastTools.api.viewport}
+              tools={lastTools.api.tools}
+              screen={lastTools.api.screen}
+              leaving={!toolsOn}
             />
           ) : (
             // Here rather than under the editor: the changes it answers for can
