@@ -26,10 +26,6 @@
   bottom: 0;
   width: 8px;
   cursor: ew-resize;
-  /* Above the bar. When the board is dragged to the pane's limit the clamped
-     bar comes to rest over the board's right edge — exactly where this strip
-     is — and a grip underneath it would leave no way to drag the board back.
-     The strip only ever covers the pill's outer few px, where no button is. */
   z-index: 2;
 }
 .nt-sb-grip::after {
@@ -47,33 +43,6 @@
 }
 .nt-sb-wrap:hover .nt-sb-grip::after {
   opacity: 0.7;
-}
-
-/* The bar's anchor at the board's right shoulder. `left` is written by the
-   surface, which clamps it to the editor pane so the tools never leave the
-   screen however wide the board is dragged. */
-.nt-sb-bar-dock {
-  position: absolute;
-  top: 0;
-  z-index: 1;
-  visibility: hidden;
-}
-
-/* The toolbar pill, turned on end. Same chrome as the floating one — the
-   separators alone change axis with it. */
-.nt-sb-bar.nt-toolbar {
-  flex-direction: column;
-  animation: none;
-}
-.nt-sb-bar .nt-toolbar-sep {
-  width: 16px;
-  height: 1px;
-  margin-inline: 0;
-  margin-block: 4px;
-}
-.nt-sb-bar .nt-sb-ratio {
-  font-size: 10px;
-  padding: 0 4px;
 }
 
 /* The column count chip: the pin's glyph and its number, one readout. */
@@ -200,7 +169,7 @@
 
 /*
  * One shot, full size: the document blurred to a wash behind the frame, the
- * bar gone horizontal at its foot. No room colour of its own — this is the
+ * canvas bar at its foot. No room colour of its own — this is the
  * page, out of focus, which is what keeps it feeling like the same place.
  *
  * Full size means the document's room, not the window's. A shot opened this way
@@ -217,7 +186,9 @@
   flex-direction: column;
   align-items: center;
   gap: 20px;
-  padding: 48px 48px 24px;
+  /* The foot leaves the canvas bar its room: it docks where the workspace's
+     does, which this view covers. */
+  padding: 48px 48px calc(var(--inset) + 16px + 50px + 20px);
   background: color-mix(in oklch, var(--background) 55%, transparent);
   backdrop-filter: blur(14px);
   animation: nt-fade-in var(--dur) var(--ease);
@@ -255,13 +226,10 @@
   color: var(--foreground);
 }
 
-/* The same bar, laid back down: the pill's own axis, separators and all. */
-.nt-sb-bar-h .nt-sb-bar.nt-toolbar {
-  flex-direction: row;
-}
-.nt-sb-bar-h .nt-sb-bar .nt-toolbar-sep {
-  width: 1px;
-  height: 16px;
-  margin-inline: 4px;
-  margin-block: 0;
+/* The backdrop filter makes this view the containing block for the bar's
+   fixed dock, and the view already spans the column — so the dock spans the
+   view, and lands exactly where the workspace's bar sits under it. */
+.nt-sb-full .nt-toolbar-dock {
+  right: 0;
+  left: 0;
 }

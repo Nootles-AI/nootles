@@ -24,7 +24,6 @@ import {
 import { LayersPanel } from "./editor/canvas/panels/LayersPanel";
 import { Toolbar } from "./editor/canvas/Toolbar";
 import { isApplePlatform, matchShortcut } from "./editor/canvas/engine/shortcuts";
-import type { DrawKind } from "./editor/canvas/render/newShape";
 import { useEditorRegistry } from "./editor/EditorRegistry";
 import { PageToolbar, pageToolFor, usePageDraw, type PageTool } from "./PageDraw";
 import {
@@ -585,7 +584,7 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
   // the review it shares the corner with waits until it has.
   const [lastTools, setLastTools] = useState(canvas);
   if (canvas && canvas !== lastTools) setLastTools(canvas);
-  const toolsOn = chrome && !!canvas && !canvas.api.board;
+  const toolsOn = chrome && !!canvas;
   const toolsHeld = useLinger(toolsOn, TOOLS_MS) && !!lastTools;
 
   // With no diagram in hand the bar stays, holding the page's own tools: a
@@ -599,33 +598,24 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
   const canvasBarOn = toolsOn || (toolsHeld && !pageBarOn);
   const pageTool: PageTool = pageBarOn ? heldPageTool : "move";
 
-  // What a diagram just made or pressed into should be doing once it has
-  // claimed the shell: the shape drawn selected, or the tool carried in armed.
-  const arriving = useRef<{ blockId: string; tool?: DrawKind; select?: string } | null>(null);
+  // A diagram just drawn onto the page opens with what was drawn selected.
+  const arriving = useRef<{ blockId: string; select: string } | null>(null);
   useEffect(() => {
     const next = arriving.current;
     if (!canvas || next?.blockId !== canvas.blockId) return;
     arriving.current = null;
-    if (next.tool) canvas.api.tools.set(next.tool);
-    if (next.select) canvas.api.selection.select([next.select]);
+    canvas.api.selection.select([next.select]);
   }, [canvas]);
-  const enter = useCallback((blockId: string, then: { tool?: DrawKind; select?: string }) => {
-    arriving.current = { blockId, ...then };
-    void awaitSurface(blockId).then((claim) => claim?.());
-  }, []);
   usePageDraw({
     well: columnRef,
     tool: pageTool,
     registry,
     onTool: setPageTool,
-    onDrawn: useCallback((blockId: string, nodeId: string) => enter(blockId, { select: nodeId }), [enter]),
-    onIntoDiagram: useCallback(
-      (blockId: string, tool: DrawKind) => {
-        setPageTool("move");
-        enter(blockId, { tool });
-      },
-      [enter],
-    ),
+    onDrawn: useCallback((blockId: string, nodeId: string) => {
+      arriving.current = { blockId, select: nodeId };
+      void awaitSurface(blockId).then((claim) => claim?.());
+    }, []),
+    onIntoDiagram: useCallback(() => setPageTool("move"), []),
   });
 
   // ⌥⇧ and a letter, the diagram's own keys, pick the page's tools — heard in
@@ -641,6 +631,8 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
         setPageTool("move");
         return;
       }
+      // ⌥⇧ only: the tools' bare letters are the diagram's, and here they are typing.
+      if (!e.altKey || !e.shiftKey) return;
       const el = e.target as HTMLElement | null;
       if (el?.closest?.("input, textarea, math-field, [role='dialog']")) return;
       const next = pageToolFor(matchShortcut(e, apple));
@@ -893,9 +885,6 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
             the slot and the review comes back the moment the diagram is let go.
             The page's bar and the diagram's turn into one another. */}
         <BarMorph mode={toolsOn ? "canvas" : "page"}>
-          {/* A storyboard shot claims the shell for the panels but carries its
-              own vertical bar beside the board, so the floating pill stands
-              down for it the way it does for a review. */}
           {!chrome ? null : canvasBarOn && lastTools ? (
             <Toolbar
               key={lastTools.blockId}
@@ -903,6 +892,7 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
               viewport={lastTools.api.viewport}
               tools={lastTools.api.tools}
               screen={lastTools.api.screen}
+              board={lastTools.api.board}
               leaving={!toolsOn}
             />
           ) : (

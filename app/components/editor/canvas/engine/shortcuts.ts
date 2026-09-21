@@ -257,13 +257,14 @@ function modHint(apple: boolean, word: string): string {
 }
 
 /**
- * The tools answer to ⌥⇧ and a letter (Alt+Shift elsewhere) rather than to the
- * bare letter. The bar is always there now, over a page you are typing in, and
- * a bare R there would be a letter, not a rectangle. ⌥ alone is taken by the
+ * The tools answer to ⌥⇧ and a letter (Alt+Shift elsewhere) anywhere, and to
+ * the bare letter inside a diagram that has the keyboard. The bar is always
+ * there now, over a page you are typing in, where a bare R is a letter, not a
+ * rectangle — so the page listens for ⌥⇧ only. ⌥ alone is taken by the
  * alignments, ⌘ by the browser's own (⌘R, ⌘T), and ⌃ on a Mac by the text
  * fields' line editing; ⌥⇧ is free on both platforms and in the editor.
  */
-const tool = (letter: string) => [`Alt+Shift+${letter}`];
+const tool = (letter: string) => [`Alt+Shift+${letter}`, letter];
 
 export const SHORTCUTS: readonly Shortcut[] = [
   { id: "tool.move", label: "Move", group: "Tools", keys: tool("v") },
@@ -665,12 +666,14 @@ export function formatShortcut(spec: string, apple = isApplePlatform()): string 
  * it from an event handler or from a component that only ever renders on the
  * client (a canvas node view always does).
  */
-export function shortcutHint(id: ShortcutId, apple = isApplePlatform()): string {
+/** `nth` picks among a shortcut's bindings — a tool's bare letter is its second. */
+export function shortcutHint(id: ShortcutId, apple = isApplePlatform(), nth = 0): string {
   const shortcut = SHORTCUTS_BY_ID[id];
   const d = typeof shortcut.display === "function" ? shortcut.display(apple) : shortcut.display;
   if (d !== undefined) return d;
   const specs = specsFor(shortcut, apple);
-  return specs.length ? formatShortcut(specs[0], apple) : "";
+  const spec = specs[nth] ?? specs[0];
+  return spec ? formatShortcut(spec, apple) : "";
 }
 
 /**

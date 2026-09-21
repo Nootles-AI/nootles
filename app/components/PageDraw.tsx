@@ -6,6 +6,7 @@ import { useSpineState, useWorkspaceHistory } from "@/app/lib/history/useWorkspa
 import type { LiveEditor, EditorRegistry } from "./editor/EditorRegistry";
 import { Button, REDO, TOOLS, ToolRow, UNDO } from "./editor/canvas/Toolbar";
 import { isApplePlatform, shortcutHint, type CanvasTool, type ShortcutId } from "./editor/canvas/engine/shortcuts";
+import { handTool } from "./editor/canvas/engine/handedTool";
 import { defaultBox, newNode, type DrawKind } from "./editor/canvas/render/newShape";
 import { emptyScene } from "./editor/canvas/scene/migrate";
 import { mintId } from "./editor/canvas/scene/ops";
@@ -190,8 +191,8 @@ const SETTLE = "cubic-bezier(0.25, 0, 0, 1)";
 /**
  * Arms the page for drawing while a shape tool is in hand. A press over the
  * page's text or between its blocks draws; a press on a diagram that is
- * already there hands the tool to that diagram instead, since more shapes
- * belong in the one you pointed at rather than in a new one beside it.
+ * already there draws in that diagram instead, since more shapes belong in
+ * the one you pointed at rather than in a new one beside it.
  */
 export function usePageDraw({
   well,
@@ -207,8 +208,8 @@ export function usePageDraw({
   onTool: (tool: PageTool) => void;
   /** The diagram made, and the shape in it — to be opened and selected. */
   onDrawn: (blockId: string, nodeId: string) => void;
-  /** A press landed on an existing diagram: open it with this tool in hand. */
-  onIntoDiagram: (blockId: string, tool: DrawKind) => void;
+  /** A press went through to a diagram already on the page, to draw there. */
+  onIntoDiagram: () => void;
 }) {
   useEffect(() => {
     const el = well.current;
@@ -222,14 +223,16 @@ export function usePageDraw({
       const pane = target.closest<HTMLElement>(".nt-pane[data-page-id]");
       // The page's own controls — the mode switch, the corner buttons — still work.
       if (!pane || target.closest("button, a, input, textarea, select, [role='menu']")) return;
-      e.preventDefault();
-      e.stopPropagation();
-
-      const diagram = target.closest<HTMLElement>(".nt-canvas")?.closest<HTMLElement>("[data-id]");
-      if (diagram?.dataset.id) {
-        onIntoDiagram(diagram.dataset.id, kind);
+      // On a diagram — a canvas block or a storyboard's shot — the press goes
+      // through to it carrying the shape: it opens as it would for any press,
+      // and its own draw takes over from there.
+      if (target.closest(".nt-canvas")) {
+        handTool(kind);
+        onIntoDiagram();
         return;
       }
+      e.preventDefault();
+      e.stopPropagation();
 
       const pageId = pane.dataset.pageId!;
       const origin = { x: e.clientX, y: e.clientY };
