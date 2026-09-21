@@ -31,13 +31,47 @@
 .nt-connector-plug.is-live {
   fill: var(--nt-select);
 }
+/* The plugs are mounted with the tool and keyed by node and side, so this
+   plays once as the tool comes on — round each shape, a side at a time — and
+   never again for a hover or a drag. */
+.nt-connector-plug {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: nt-connector-plug-in 260ms var(--spring) backwards;
+  transition: fill var(--dur-fast) var(--ease);
+}
+.nt-connector-plug:nth-of-type(4n + 2) {
+  animation-delay: 25ms;
+}
+.nt-connector-plug:nth-of-type(4n + 3) {
+  animation-delay: 50ms;
+}
+.nt-connector-plug:nth-of-type(4n + 4) {
+  animation-delay: 75ms;
+}
+@keyframes nt-connector-plug-in {
+  from {
+    transform: scale(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nt-connector-plug {
+    animation: none;
+  }
+}
 
 /* The box a release would land on. */
+/* Only ever shown for a release that would land, so it is drawn at full
+   strength: the line, and a soft second ring outside it that says "here" from
+   across the canvas. An outline, because an SVG rect has no box-shadow to give;
+   where a browser will not draw one the line alone still answers. */
 .nt-connector-target {
   rx: calc(var(--k, 1) * 3px);
   fill: none;
   stroke: var(--nt-select);
-  stroke-width: calc(var(--k, 1) * 1.5);
+  stroke-width: calc(var(--k, 1) * 2);
+  outline: calc(var(--k, 1) * 4px) solid color-mix(in oklab, var(--nt-select) 18%, transparent);
+  outline-offset: calc(var(--k, 1) * 1px);
 }
 
 .nt-connector-preview {

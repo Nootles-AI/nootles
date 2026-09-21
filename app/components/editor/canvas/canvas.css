@@ -178,10 +178,33 @@
   color: var(--muted);
   pointer-events: none;
 }
-/* The first-touch variant sits low so it never covers the drawing it is about. */
+/* The first-touch variant: an ink pill low on the block, so it never covers
+   the drawing it is about, and only while the pointer is over the canvas —
+   which is the moment the sentence is an answer rather than a caption. It rises
+   the last few pixels on the spring, the way the toolbar it precedes does. */
 .nt-canvas-hint.is-low {
-  place-items: end center;
-  padding-bottom: 16px;
+  inset: auto auto 12px 50%;
+  display: block;
+  padding: 4px 11px;
+  border-radius: 999px;
+  background: var(--foreground);
+  font-size: var(--text-meta-lg);
+  color: var(--background);
+  white-space: nowrap;
+  opacity: 0;
+  transform: translate(-50%, 6px);
+  transition:
+    opacity var(--dur) var(--ease),
+    transform var(--dur-slow) var(--spring);
+}
+.nt-canvas:hover > .nt-canvas-hint.is-low {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+@media (prefers-reduced-motion: reduce) {
+  .nt-canvas-hint.is-low {
+    transition: opacity var(--dur-fast) var(--ease);
+  }
 }
 
 /* The way back, bottom-right, only while the diagram is off screen. Clear of
@@ -195,21 +218,21 @@
   gap: 6px;
   height: 26px;
   padding-inline: 10px;
-  border-radius: 999px;
-  border: 1px solid var(--border);
+  border-radius: 8px;
   background: var(--elevated);
   font-size: var(--text-meta-lg);
   color: var(--muted);
   box-shadow:
-    0 1px 2px oklch(0.25 0.005 90 / 0.05),
-    0 4px 12px oklch(0.25 0.005 90 / 0.08);
-  animation: nt-menu-in var(--dur) var(--ease);
+    0 0 0 1px oklch(0.25 0.005 90 / 0.07),
+    0 1px 2px oklch(0.25 0.005 90 / 0.06),
+    0 6px 16px -6px oklch(0.25 0.005 90 / 0.14);
+  animation: nt-menu-in var(--dur-slow) var(--spring);
   transition:
     background var(--dur-fast) var(--ease),
     color var(--dur-fast) var(--ease);
 }
 .nt-canvas-refit:hover {
-  background: var(--hover);
+  background: var(--surface);
   color: var(--foreground);
 }
 
@@ -223,28 +246,45 @@
   z-index: 1;
   display: grid;
   place-items: center;
-  width: 26px;
-  height: 26px;
-  border-radius: 999px;
-  border: 1px solid var(--border);
+  width: 28px;
+  height: 28px;
+  /* The toolbar's corner: it is the same family of control, one edge up. */
+  border-radius: 8px;
   background: var(--elevated);
   color: var(--muted);
   opacity: 0;
+  transform: scale(0.85);
   box-shadow:
-    0 1px 2px oklch(0.25 0.005 90 / 0.05),
-    0 4px 12px oklch(0.25 0.005 90 / 0.08);
+    0 0 0 1px oklch(0.25 0.005 90 / 0.07),
+    0 1px 2px oklch(0.25 0.005 90 / 0.06),
+    0 6px 16px -6px oklch(0.25 0.005 90 / 0.14);
   transition:
     opacity var(--dur-fast) var(--ease),
+    transform var(--dur-slow) var(--spring),
     background var(--dur-fast) var(--ease),
     color var(--dur-fast) var(--ease);
 }
 .nt-canvas-viewport:hover .nt-canvas-expand,
+.nt-canvas-expand:focus-visible,
 .nt-canvas-expand[aria-pressed="true"] {
   opacity: 1;
+  transform: none;
 }
 .nt-canvas-expand:hover {
-  background: var(--hover);
+  background: var(--surface);
   color: var(--foreground);
+}
+.nt-canvas-expand:active {
+  transform: scale(0.92);
+}
+@media (prefers-reduced-motion: reduce) {
+  .nt-canvas-expand {
+    transform: none;
+    transition:
+      opacity var(--dur-fast) var(--ease),
+      background var(--dur-fast) var(--ease),
+      color var(--dur-fast) var(--ease);
+  }
 }
 /* Staged, the button rides the fixed viewport at its own new edge rather
    than the block's — same reason `.nt-canvas-refit` and the grips do. */
@@ -307,6 +347,26 @@
   opacity: 0.7;
 }
 
+/* Under the pointer the bar darkens and lengthens — it is the handle now, and
+   says so before the press. */
+.nt-canvas-grip::after,
+.nt-canvas-grip-x::after {
+  transition:
+    opacity var(--dur) var(--ease),
+    background var(--dur-fast) var(--ease),
+    transform var(--dur-slow) var(--spring);
+}
+.nt-canvas .nt-canvas-grip:hover::after {
+  opacity: 1;
+  background: var(--muted);
+  transform: scaleX(1.4);
+}
+.nt-canvas .nt-canvas-grip-x:hover::after {
+  opacity: 1;
+  background: var(--muted);
+  transform: scaleY(1.4);
+}
+
 /* ===== Context menu ======================================================
    The app's menu pill, opened at a point. Only the shortcut column and the
    dead-entry state are its own. */
@@ -319,7 +379,7 @@
 }
 /* Matches the toolbar's disabled state, which is the same idea one bar down. */
 .nt-ctx .nt-menu-item:disabled {
-  opacity: 0.32;
+  opacity: 0.35;
   cursor: default;
 }
 .nt-ctx .nt-menu-item:disabled:hover {
@@ -392,20 +452,27 @@
   align-items: center;
   gap: 2px;
   padding: 4px;
-  border-radius: 999px;
+  /* A bar, not a pill: the corner the sheet, the menus and the composer share,
+     so the tools read as one more surface of the same app rather than as a
+     widget dropped on it. */
+  border-radius: 12px;
   background: var(--elevated);
-  border: 1px solid var(--border);
   box-shadow:
-    0 1px 2px oklch(0.25 0.005 90 / 0.05),
-    0 6px 20px oklch(0.25 0.005 90 / 0.1);
-  animation: nt-toolbar-in var(--dur) var(--ease);
+    0 0 0 1px oklch(0.25 0.005 90 / 0.06),
+    0 4px 12px oklch(0.25 0.005 90 / 0.07),
+    0 16px 40px oklch(0.25 0.005 90 / 0.1);
+  animation: nt-toolbar-in 520ms var(--spring);
 }
 
-/* Rises into place, in the direction it came from. */
+/* Rises into place, in the direction it came from, and comes into focus as it
+   lands. The blur is on the bar and never the dock, and it ends with the
+   animation: a filter left standing would make the bar the containing block
+   for anything fixed inside it. */
 @keyframes nt-toolbar-in {
   from {
     opacity: 0;
-    transform: translateY(12px) scale(0.97);
+    transform: translateY(24px) scale(0.94);
+    filter: blur(6px);
   }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -418,33 +485,40 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 999px;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
   color: var(--muted);
   transition:
     background var(--dur-fast) var(--ease),
-    color var(--dur-fast) var(--ease),
+    color var(--dur) var(--ease),
     transform var(--dur) var(--ease);
 }
 .nt-toolbar-btn:hover:not(:disabled) {
   background: var(--hover);
   color: var(--foreground);
 }
-.nt-toolbar-btn[aria-pressed="true"] {
-  background: var(--selected);
-  color: var(--foreground);
+.nt-toolbar-btn:active:not(:disabled) {
+  transform: scale(0.9);
+}
+/* Latched, a button is ink — the same answer the travelling mark gives below,
+   for a bar (the storyboard's) whose buttons latch where they stand. */
+.nt-toolbar-btn[aria-pressed="true"],
+.nt-toolbar-btn[aria-pressed="true"]:hover:not(:disabled) {
+  background: var(--foreground);
+  color: var(--background);
 }
 .nt-toolbar-btn:disabled {
-  opacity: 0.32;
+  opacity: 0.35;
   cursor: default;
 }
 
 /* The tools, and the one mark that says which is in hand. It travels on the
    spring (`--at` is the tool's place in the row), in the ink of the app's one
    filled control — neutral, so `--nt-select` stays the canvas's only accent.
-   A tool outside the row (none of them today) leaves `--at` at -1 and the mark
-   parked out of sight to the left. */
+   The pitch is a button and the gap beside it; each button sits in a tooltip's
+   inline-flex span, which adds nothing to either. A tool outside the row (none
+   of them today) leaves `--at` at -1 and the mark parked out of sight. */
 .nt-toolbar-tools {
   position: relative;
   display: flex;
@@ -454,23 +528,20 @@
   position: absolute;
   top: 0;
   left: 0;
-  width: 28px;
-  height: 28px;
-  border-radius: 999px;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
   background: var(--foreground);
-  transform: translateX(calc(var(--at, 0) * 30px));
+  transform: translateX(calc(var(--at, 0) * 34px));
   transition: transform 280ms var(--spring);
 }
 .nt-toolbar-tools .nt-toolbar-btn {
   position: relative;
 }
 .nt-toolbar-tools .nt-toolbar-btn[aria-pressed="true"],
-.nt-toolbar-tools .nt-toolbar-btn[aria-pressed="true"]:hover {
+.nt-toolbar-tools .nt-toolbar-btn[aria-pressed="true"]:hover:not(:disabled) {
   background: none;
   color: var(--background);
-}
-.nt-toolbar-tools .nt-toolbar-btn:active:not(:disabled) {
-  transform: scale(0.9);
 }
 @media (prefers-reduced-motion: reduce) {
   .nt-toolbar-mark {
@@ -480,15 +551,16 @@
 
 .nt-toolbar-sep {
   width: 1px;
-  height: 16px;
+  height: 18px;
   margin-inline: 4px;
   background: var(--border);
 }
 
 .nt-toolbar-zoom {
-  height: 24px;
-  padding: 0 8px;
-  border-radius: 999px;
+  min-width: 46px;
+  height: 32px;
+  padding: 0 6px;
+  border-radius: 8px;
   font-family: var(--font-mono), ui-monospace, monospace;
   font-size: var(--text-meta-lg);
   font-variant-numeric: tabular-nums;
@@ -497,9 +569,16 @@
     background var(--dur-fast) var(--ease),
     color var(--dur-fast) var(--ease);
 }
-.nt-toolbar-zoom:hover {
+.nt-toolbar-zoom:hover,
+.nt-toolbar-zoom[aria-expanded="true"] {
   background: var(--hover);
   color: var(--foreground);
+}
+/* The storyboard's bar stands on end, where a readout as wide as this one
+   would set the width of the whole column; there it keeps to its words. */
+.nt-sb-bar .nt-toolbar-zoom {
+  min-width: 0;
+  height: 24px;
 }
 
 /* ---- Co-presence ---------------------------------------------------------

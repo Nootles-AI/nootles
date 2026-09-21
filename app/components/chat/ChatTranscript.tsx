@@ -108,7 +108,7 @@ export function ChatTranscript({
 
   if (!messages.length) {
     return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-1.5 px-6 text-center">
+      <div className="nt-transcript-empty flex flex-1 flex-col items-center justify-center gap-1.5 px-6 text-center">
         <p className="text-sm font-medium">Ask about this project</p>
         <p className="max-w-[28ch] text-[13px] text-muted">
           Questions are answered from what the pages actually say.

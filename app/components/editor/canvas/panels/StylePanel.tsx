@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { undoScope } from "@/app/lib/history/useWorkspaceHistory";
 import { useSceneSnapshot, type SceneStore } from "../engine/useScene";
 import {
@@ -107,6 +107,14 @@ export function StylePanel({
   const { run, live } = useHistoryBracket(store);
 
   const nodes = selection.slice();
+
+  // The panel's contents come in afresh when what they describe changes, and
+  // only then. A CSS animation replays when its name does, so the two sides of
+  // `turn` are the same fade under two names — nothing is remounted, which a
+  // control in the middle of a gesture could not survive.
+  const subject = `${nodes.map((n) => n.id).join()}|${edges.map((e) => e.id).join()}`;
+  const [shown, setShown] = useState({ subject, turn: false });
+  if (shown.subject !== subject) setShown({ subject, turn: !shown.turn });
   const props: SectionProps = {
     selection: nodes,
     patch: (fn) => run(compile(nodes, fn)),
@@ -162,6 +170,7 @@ export function StylePanel({
         </div>
         <div
           className="nt-style-panel-body"
+          data-turn={shown.turn ? "b" : "a"}
           // Sections must stay the body's direct children — the rule that draws
           // the dividers says so — hence the handler here rather than a wrapper.
           // Connectors too: an edge-colour drag is as much one gesture as a

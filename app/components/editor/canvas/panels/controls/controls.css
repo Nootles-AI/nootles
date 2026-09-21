@@ -65,7 +65,7 @@
 .nt-ctl-chevron {
   flex: none;
   color: var(--muted);
-  transition: transform var(--dur-fast) var(--ease);
+  transition: transform var(--dur-slow) var(--spring);
 }
 .nt-ctl-chevron.is-open {
   transform: rotate(90deg);
@@ -116,6 +116,13 @@
   flex-direction: column;
   gap: var(--ctl-gap);
   min-width: 0;
+}
+/* A fill, a stroke, an effect that has just been added arrives; one that is
+   removed simply goes, since nothing here holds a row after it is gone. No
+   fill-mode: once it has landed the row carries no transform, which a picker
+   opened from inside it (fixed, and not portaled) depends on. */
+.nt-ctl-group {
+  animation: nt-ctl-rise 240ms var(--ease);
 }
 .nt-ctl-group + .nt-ctl-group {
   margin-top: 8px;
@@ -197,7 +204,7 @@
   min-width: 0;
   height: var(--control-sm);
   padding-inline: var(--inset);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius);
   background: var(--sunken);
   /* So the mark's compartment is cut to the field's own corner rather than
      squaring it off. */
@@ -248,15 +255,24 @@
 .nt-num.is-scrubbing::after {
   box-shadow: inset 0 0 0 1px var(--border-strong);
 }
-/* Focus lifts the field to white behind a `--muted` hairline, which clears on
-   its own the 3:1 a non-text indicator needs. The compartment beside it stays
-   put, so the field never changes shape as you tab through the column. */
+/* Focus lifts the field to white behind the canvas's own active line — the
+   tone a shape's edge takes when it is the one in hand — which clears on its
+   own the 3:1 a non-text indicator needs. Never the amber: that means the AI.
+   The compartment beside it stays put, so the field never changes shape as you
+   tab through the column. */
 .nt-num:focus-within {
   background: var(--background);
   cursor: default;
 }
-.nt-num:focus-within::after {
-  box-shadow: inset 0 0 0 1px var(--muted);
+.nt-num:focus-within::after,
+.nt-ctl-select[aria-expanded="true"]::after,
+.nt-ctl-swatch[aria-expanded="true"]::after {
+  box-shadow: inset 0 0 0 1px var(--shape-line-active);
+}
+/* A field whose list or picker is open is the field being edited. */
+.nt-ctl-select[aria-expanded="true"],
+.nt-ctl-swatch[aria-expanded="true"] {
+  background: var(--background);
 }
 
 /* The name, in its own compartment — Figma's move, and it earns its keep here
@@ -335,6 +351,35 @@
   width: 12px;
   color: var(--muted);
 }
+/* The tick lands on the value that is already chosen as the list opens. */
+.nt-ctl-check > svg {
+  animation: nt-ctl-tick var(--dur-slow) var(--spring) 120ms backwards;
+}
+@keyframes nt-ctl-tick {
+  from {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+}
+/* A select's list arrives as a list, top first. Scoped by the tick column,
+   which only a select's items have, so no other menu in the app is touched. */
+.nt-menu:has(.nt-ctl-check) > .nt-menu-item {
+  animation: nt-ctl-rise 260ms var(--ease) backwards;
+}
+.nt-menu:has(.nt-ctl-check) > .nt-menu-item:nth-child(2) { animation-delay: 16ms; }
+.nt-menu:has(.nt-ctl-check) > .nt-menu-item:nth-child(3) { animation-delay: 32ms; }
+.nt-menu:has(.nt-ctl-check) > .nt-menu-item:nth-child(4) { animation-delay: 48ms; }
+.nt-menu:has(.nt-ctl-check) > .nt-menu-item:nth-child(5) { animation-delay: 64ms; }
+.nt-menu:has(.nt-ctl-check) > .nt-menu-item:nth-child(6) { animation-delay: 80ms; }
+.nt-menu:has(.nt-ctl-check) > .nt-menu-item:nth-child(7) { animation-delay: 96ms; }
+.nt-menu:has(.nt-ctl-check) > .nt-menu-item:nth-child(8) { animation-delay: 112ms; }
+.nt-menu:has(.nt-ctl-check) > .nt-menu-item:nth-child(n + 9) { animation-delay: 128ms; }
+@keyframes nt-ctl-rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
 
 /* ---- Swatches -----------------------------------------------------------
    A checkerboard under every fill, so alpha reads as alpha rather than as a
@@ -358,6 +403,14 @@
 .nt-ctl-chip-fill {
   position: absolute;
   inset: 0;
+}
+/* The swatch leans toward the hand that is about to open it. */
+.nt-ctl-chip {
+  transition: transform var(--dur-slow) var(--spring);
+}
+.nt-ctl-swatch:hover .nt-ctl-chip,
+.nt-ctl-swatch[aria-expanded="true"] .nt-ctl-chip {
+  transform: scale(1.12);
 }
 
 /* A value authored wider than sRGB (`oklch()`, `color(display-p3 …)`) —
@@ -383,7 +436,7 @@
   height: var(--control-sm);
   min-width: 0;
   padding-inline: var(--inset);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius);
   background: var(--sunken);
   font-family: var(--font-mono), ui-monospace, monospace;
   font-size: var(--text-meta-lg);
@@ -395,7 +448,7 @@
 }
 .nt-ctl-text:focus {
   background: var(--background);
-  box-shadow: inset 0 0 0 1px var(--muted);
+  box-shadow: inset 0 0 0 1px var(--shape-line-active);
 }
 
 /* A disclosure inside a section body — one step below a section title, so it
@@ -466,6 +519,55 @@
     inset 0 0 0 2px oklch(1 0 90),
     0 0 0 1px oklch(0.25 0.005 90 / 0.4),
     0 1px 3px oklch(0.25 0.005 90 / 0.25);
+}
+
+/* The knob answers the hand before the press: a little larger under the
+   pointer, on the spring. `scale` and not `transform`, which is what centres it. */
+.nt-ctl-knob {
+  transition: scale var(--dur-slow) var(--spring);
+}
+.nt-ctl-slider:hover > .nt-ctl-knob,
+.nt-ctl-sv:hover > .nt-ctl-knob {
+  scale: 1.2;
+}
+
+/* A slider for an amount rather than a colour: a 4px track filled in ink as far
+   as the value (`--v`, 0–1), and a solid paper thumb, because there is nothing
+   behind it worth seeing through. The box keeps the row's height so the target
+   is the row, not the hairline. */
+.nt-ctl-slider.is-value {
+  height: var(--control-sm);
+  border-radius: 0;
+  box-shadow: none;
+}
+.nt-ctl-slider.is-value::before,
+.nt-ctl-slider.is-value::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 0;
+  height: 4px;
+  margin-top: -2px;
+  border-radius: 2px;
+}
+.nt-ctl-slider.is-value::before {
+  width: 100%;
+  background: var(--border);
+}
+.nt-ctl-slider.is-value::after {
+  width: calc(var(--v) * 100%);
+  background: var(--foreground);
+}
+.nt-ctl-slider.is-value > .nt-ctl-knob {
+  z-index: 1;
+  /* Runs from one end of the track to the other without hanging off either. */
+  left: calc(7px + var(--v) * (100% - 14px));
+  width: 14px;
+  height: 14px;
+  background: var(--elevated);
+  box-shadow:
+    0 0 0 1px oklch(0.25 0.005 90 / 0.18),
+    0 1px 3px oklch(0.25 0.005 90 / 0.2);
 }
 
 /* A popover's own scrim, inert while a colour-pick session (COLOR) is up —
@@ -545,6 +647,39 @@
   padding: 0;
 }
 
+/* The pressed segment's lift is one thumb that travels (`--at` of `--n`, set by
+   `IconToggle`), the way the shell's worded toggle moves. The segments share
+   the well equally, which is what lets a single thumb stand for any of them. */
+.nt-mode.is-fill {
+  position: relative;
+}
+.nt-mode.is-fill > .nt-ctl-anchor {
+  position: relative;
+  flex: 1 1 0;
+}
+.nt-mode.is-fill::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 2px;
+  width: calc((100% - 4px - (var(--n, 2) - 1) * 1px) / var(--n, 2));
+  border-radius: var(--radius-sm);
+  background: var(--background);
+  box-shadow: 0 1px 2px oklch(0.25 0.005 90 / 0.06);
+  transform: translateX(calc(var(--at, 0) * (100% + 1px)));
+  transition:
+    transform var(--dur-slow) var(--spring),
+    opacity var(--dur-fast) var(--ease);
+}
+.nt-mode.is-fill[data-none]::before {
+  opacity: 0;
+}
+.nt-mode.is-fill .nt-mode-btn.is-on {
+  background: none;
+  box-shadow: none;
+}
+
 /* ---- The 3x3 alignment picker -------------------------------------------
    Framed as a well and left at its natural square, so it reads as the box the
    children are being placed inside rather than as nine loose buttons. */
@@ -619,12 +754,19 @@
   border: 1px solid var(--border-strong);
   transition:
     background var(--dur-fast) var(--ease),
-    border-color var(--dur-fast) var(--ease);
+    border-color var(--dur-fast) var(--ease),
+    transform var(--dur-slow) var(--spring);
 }
 .nt-ctl-box.is-on {
   border-color: var(--foreground);
   background: var(--foreground);
   color: var(--background);
+}
+.nt-ctl-box > svg {
+  animation: nt-ctl-tick var(--dur-slow) var(--spring);
+}
+.nt-ctl-check-row:active > .nt-ctl-box {
+  transform: scale(0.85);
 }
 .nt-ctl-box-mixed {
   width: 6px;
@@ -722,4 +864,40 @@
   background-size: cover;
   background-position: center;
   border: 1px solid var(--border);
+}
+
+/* ---- Panel buttons --------------------------------------------------------
+   The shell's icon button, answering a little more: it gives under the press,
+   and one that cannot act steps further back than the shell's does — the align
+   strip is eight of them in a row, and at 0.4 a disabled strip still read as
+   something to try. Here rather than beside the button's own rules because
+   those are layered and this sheet is not. */
+.nt-style-panel .nt-icon-btn {
+  transition:
+    background var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease),
+    transform var(--dur) var(--ease);
+}
+.nt-style-panel .nt-icon-btn:active:not(:disabled) {
+  transform: scale(0.92);
+}
+.nt-style-panel .nt-icon-btn:disabled {
+  opacity: 0.35;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nt-ctl-chevron,
+  .nt-ctl-chip,
+  .nt-ctl-knob,
+  .nt-ctl-box,
+  .nt-mode.is-fill::before,
+  .nt-style-panel .nt-icon-btn {
+    transition: none;
+  }
+  .nt-ctl-check > svg,
+  .nt-ctl-box > svg,
+  .nt-ctl-group,
+  .nt-menu:has(.nt-ctl-check) > .nt-menu-item {
+    animation: none;
+  }
 }

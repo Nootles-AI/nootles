@@ -13,6 +13,13 @@ const GAP = 8;
 const EDGE = 8;
 /** Long enough that sweeping a toolbar does not flash one per button. */
 const DELAY = 300;
+/**
+ * Once one has shown, the next is immediate for this long: the wait is there to
+ * tell a glance from a question, and a second tooltip is the same question.
+ * Module-level because the warmth belongs to the hand, not to any one anchor.
+ */
+const WARM = 600;
+let warmUntil = 0;
 
 /**
  * A hover/focus tooltip that can style its own parts — the shortcut is set in
@@ -46,7 +53,7 @@ export function Tooltip({
   const bubble = useRef<HTMLDivElement>(null);
   const timer = useRef(0);
   const [open, setOpen] = useState(false);
-  const [pos, setPos] = useState({ top: 0, left: 0 });
+  const [pos, setPos] = useState({ top: 0, left: 0, below: false });
 
   useLayoutEffect(() => {
     const a = anchor.current;
@@ -65,14 +72,17 @@ export function Tooltip({
       Math.max(EDGE, r.left + r.width / 2 - w / 2),
       window.innerWidth - w - EDGE,
     );
-    setPos({ top, left });
+    setPos({ top, left, below: top > r.top });
   }, [open, side]);
 
   useEffect(() => () => window.clearTimeout(timer.current), []);
 
   const hide = () => {
     window.clearTimeout(timer.current);
-    setOpen(false);
+    setOpen((was) => {
+      if (was) warmUntil = performance.now() + WARM;
+      return false;
+    });
   };
 
   return (
@@ -81,6 +91,7 @@ export function Tooltip({
       className={className ?? "inline-flex"}
       onPointerEnter={() => {
         window.clearTimeout(timer.current);
+        if (performance.now() < warmUntil) return setOpen(true);
         timer.current = window.setTimeout(() => setOpen(true), DELAY);
       }}
       onPointerLeave={hide}
@@ -99,7 +110,8 @@ export function Tooltip({
           <div
             ref={bubble}
             aria-hidden
-            className="pointer-events-none fixed flex items-center gap-2 px-[9px] py-1.5 text-[12px] leading-none whitespace-nowrap"
+            data-below={pos.below || undefined}
+            className="nt-tooltip pointer-events-none fixed flex items-center gap-2 px-[9px] py-1.5 text-[12px] leading-none whitespace-nowrap"
             style={{
               top: pos.top,
               left: pos.left,
@@ -107,7 +119,6 @@ export function Tooltip({
               borderRadius: "var(--radius)",
               background: "var(--foreground)",
               color: "var(--background)",
-              animation: "nt-menu-in var(--dur-fast) var(--ease)",
             }}
           >
             {label}
