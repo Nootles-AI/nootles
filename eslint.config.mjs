@@ -16,6 +16,10 @@ const eslintConfig = defineConfig([
     "convex/_generated/**",
     // Other sessions' git worktrees checked out inside the repo.
     ".claude/worktrees/**",
+    // The Pro art scene is checked by Heron, against Heron's own conventions,
+    // through a symlink to the installed tool.
+    "scripts/pro-art/heron/**",
+    "scripts/pro-art/team.scene.ts",
   ]),
   {
     rules: {
