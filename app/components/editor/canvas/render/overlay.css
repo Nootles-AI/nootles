@@ -67,31 +67,38 @@
 }
 
 /* Corner handles only — an edge is resized by grabbing the outline itself. */
-.nt-ov-grips > circle,
+.nt-ov-grips > rect,
 .nt-ov-radii > circle {
   fill: #fff;
   stroke: var(--nt-select);
   stroke-width: var(--k, 1);
 }
+/* The resize grips are squares — the handle you pull a box by is itself a
+   little box — with a line a touch heavier than the frame's, so they read as
+   something to hold rather than as marks on the outline. The radius handles
+   stay round: they turn a corner rather than move one. */
+.nt-ov-grips > rect {
+  stroke-width: calc(var(--k, 1) * 1.5);
+}
 
 /* The grips arrive with the frame, a corner at a time. The frame group is
    switched with `display`, and a CSS animation starts when an element comes
    back from `display: none` — so this plays when a selection appears and at no
-   other time: a drag repaints these circles every frame without ever hiding
-   them. `fill-box` makes each circle scale about its own centre rather than
+   other time: a drag repaints these squares every frame without ever hiding
+   them. `fill-box` makes each square scale about its own centre rather than
    the SVG's origin. */
-.nt-ov-grips > circle {
+.nt-ov-grips > rect {
   transform-box: fill-box;
   transform-origin: center;
   animation: nt-ov-grip-in 300ms var(--spring) backwards;
 }
-.nt-ov-grips > circle:nth-child(2) {
+.nt-ov-grips > rect:nth-child(2) {
   animation-delay: 30ms;
 }
-.nt-ov-grips > circle:nth-child(3) {
+.nt-ov-grips > rect:nth-child(3) {
   animation-delay: 60ms;
 }
-.nt-ov-grips > circle:nth-child(4) {
+.nt-ov-grips > rect:nth-child(4) {
   animation-delay: 90ms;
 }
 @keyframes nt-ov-grip-in {
@@ -131,7 +138,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .nt-ov-grips > circle,
+  .nt-ov-grips > rect,
   .nt-ov-chip {
     animation: none;
   }
