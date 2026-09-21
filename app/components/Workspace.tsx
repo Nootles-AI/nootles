@@ -38,6 +38,10 @@ import { ReviewBar } from "./ReviewBar";
 import { ResizeHandle } from "./ResizeHandle";
 import { WorkspacePalette } from "./WorkspacePalette";
 import { useLinger } from "@/app/lib/useLinger";
+import dynamic from "next/dynamic";
+
+// Opened rarely, so it does not ride in the workspace's first bundle.
+const ShortcutsDialog = dynamic(() => import("./ShortcutsDialog"), { ssr: false });
 import { PanelsProvider } from "./PanelsContext";
 import { PagesProvider, type PageRef } from "./PagesContext";
 import { CompletionContextProvider } from "./editor/ai/CompletionContext";
@@ -146,6 +150,7 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
   const [rightOpen, setRightOpen] = useState(true);
   const [drawer, setDrawer] = useState<"left" | "right" | null>(null);
   const [finding, setFinding] = useState(false);
+  const [showingKeys, setShowingKeys] = useState(false);
 
   const [canvas, setCanvas] = useState<ActiveCanvas | null>(null);
   const [place, setPlace] = useState<ActiveLocation | null>(null);
@@ -261,6 +266,15 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
   // that meaning whenever there is a selection to link.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // `?` lists the keys — a bare key, so it stands down wherever one could
+      // be typing, and while another dialog has the floor.
+      if (e.key === "?" && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        const el = e.target as HTMLElement | null;
+        if (el?.closest?.("input, textarea, [contenteditable='true'], [role='dialog']")) return;
+        e.preventDefault();
+        setShowingKeys(true);
+        return;
+      }
       if (e.key.toLowerCase() !== "k" || !(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey) return;
       const typing = (e.target as HTMLElement | null)?.closest?.("[contenteditable='true']");
       if (typing && !window.getSelection()?.isCollapsed) return;
@@ -793,9 +807,11 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
             onToggleRight={() =>
               compact ? setDrawer((d) => (d === "right" ? null : "right")) : setRightOpen((o) => !o)
             }
+            onShowKeys={() => setShowingKeys(true)}
             onClose={() => setFinding(false)}
           />
         )}
+        {showingKeys && <ShortcutsDialog onClose={() => setShowingKeys(false)} />}
 
         <Feedback projectId={projectId} pageId={effectivePageId} />
         {/* The answer to what that button sent, in the corner it left from. */}
