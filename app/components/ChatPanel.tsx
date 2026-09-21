@@ -168,7 +168,10 @@ export function ChatPanel({
     <aside
       hidden={hidden}
       style={{ width, ...style }}
-      className={`nt-panel relative nt-rail-r ${hidden ? "hidden" : ""} ${className}`}
+      // No `relative` here: `.nt-panel` already is, in the components layer, so
+      // the narrow drawer's `fixed` can override it — a `relative` utility sat
+      // level with `fixed` and won, which left the drawer in the page's flow.
+      className={`nt-panel nt-rail-r ${hidden ? "hidden" : ""} ${className}`}
       aria-label="Chat"
     >
       <div className="nt-panel-head">

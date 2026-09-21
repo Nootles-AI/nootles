@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { Tooltip } from "@/app/components/Tooltip";
 import "./controls.css";
 
@@ -32,8 +32,15 @@ export function IconToggle<T extends string>({
   onChange: (value: T) => void;
   options: readonly ToggleOption<T>[];
 }) {
+  const at = options.findIndex((o) => o.value === value);
   return (
-    <div className="nt-mode is-fill">
+    // One thumb travels to the pressed segment (`--at` of `--n`); a mixed
+    // selection presses nothing, and then there is no thumb.
+    <div
+      className="nt-mode is-fill"
+      data-none={at < 0 || undefined}
+      style={{ "--n": options.length, "--at": Math.max(at, 0) } as CSSProperties}
+    >
       {/* The anchor is a flex box, not `display: contents` — the tooltip
           measures its anchor, and a box-less one reports a zero rect. */}
       {options.map((o) => (

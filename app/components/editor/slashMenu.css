@@ -5,6 +5,8 @@
    like the account menu and the mention menu, because it is them. */
 
 .nt-slash {
+  /* What the travelling highlight is placed against. */
+  position: relative;
   width: 320px;
   max-height: 380px;
   overflow-y: auto;
@@ -26,48 +28,80 @@
   background-color: var(--muted);
 }
 
-/* Sections read as structure, not as items: quiet, and carrying more air above
-   than below so a label belongs to what follows it. */
+/* Sections read as structure, not as items: the mono voice the rest of the app
+   labels a group of things in, carrying more air above than below so a label
+   belongs to what follows it. */
 .nt-slash-group {
   margin: 12px 0 2px;
   padding-inline: var(--inset);
+  font-family: var(--font-mono), ui-monospace, monospace;
   font-size: var(--text-meta);
   font-weight: 500;
-  letter-spacing: 0.06em;
+  letter-spacing: var(--tracking-meta);
   text-transform: uppercase;
   color: var(--muted);
 }
-.nt-slash > div:first-child .nt-slash-group {
+/* `first-of-type`, not `first-child`: the highlight is a span ahead of it. */
+.nt-slash > div:first-of-type .nt-slash-group {
   margin-top: 2px;
+}
+
+/* The selection, as one wash that travels on the spring rather than a fill
+   each row owns — the arrow keys move a thing, as they do in the palette.
+   `--hl-y`/`--hl-h` are the selected row's box (see `SlashMenu.tsx`). */
+.nt-slash-hl {
+  position: absolute;
+  top: 0;
+  right: 4px;
+  left: 4px;
+  height: var(--hl-h, 44px);
+  border-radius: var(--radius);
+  background: var(--hover);
+  transform: translateY(var(--hl-y, 0));
+  transition: transform 240ms var(--spring);
+  pointer-events: none;
 }
 
 /* Two lines, so the fixed control height does not apply. */
 .nt-slash-item {
+  position: relative;
   height: auto;
   gap: 10px;
-  padding-block: 6px;
+  padding-block: 5px;
+  border-radius: var(--radius);
   cursor: pointer;
 }
 /* Selection is keyboard-driven, so the row under the pointer must not compete
-   with the row the arrow keys are on. */
-.nt-slash-item:hover {
+   with the row the arrow keys are on — and the selected row's wash is the
+   highlight's, so the row itself stays clear either way. */
+.nt-slash-item:hover,
+.nt-slash-item[data-selected] {
   background: transparent;
 }
-.nt-slash-item[data-selected] {
-  background: var(--hover);
-}
 
+/* The block's glyph sits on a small sunken tile, so a column of them reads as
+   a column of things you can insert rather than a column of icons. */
 .nt-slash-icon {
   display: flex;
   flex: none;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius);
+  background: var(--sunken);
   color: var(--muted);
-  transition: color var(--dur-fast) var(--ease);
+  transition:
+    color var(--dur-fast) var(--ease),
+    background var(--dur-fast) var(--ease);
+}
+.nt-slash-icon svg {
+  width: 16px;
+  height: 16px;
 }
 .nt-slash-item[data-selected] .nt-slash-icon {
+  background: var(--elevated);
+  box-shadow: 0 0 0 1px var(--border);
   color: var(--foreground);
 }
 
@@ -96,9 +130,9 @@
 .nt-slash-badge {
   flex: none;
   margin-left: auto;
-  padding: 2px 6px;
-  border: 1px solid var(--border);
+  padding: 1px 5px;
   border-radius: var(--radius-sm);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
   font-family: var(--font-mono), ui-monospace, monospace;
   font-size: var(--text-meta);
   color: var(--muted);
@@ -114,7 +148,8 @@
   .nt-slash {
     animation: none;
   }
-  .nt-slash-icon {
+  .nt-slash-icon,
+  .nt-slash-hl {
     transition: none;
   }
 }

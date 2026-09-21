@@ -15,7 +15,6 @@ import { CanvasSurface, type CanvasApi } from "../canvas/render/CanvasSurface";
 import { useCanvasShell } from "../canvas/shell";
 import { useDebouncedPersist } from "../useDebouncedPersist";
 import { FullscreenShot } from "./FullscreenShot";
-import { StoryboardToolbar } from "./StoryboardToolbar";
 import { parseStoryboard } from "./parse";
 import { serializeStoryboard } from "./serialize";
 import {
@@ -47,10 +46,6 @@ const GAP = 16;
 const NOTE_FLUSH_MS = 400;
 /** One column and its chrome — the narrowest a board is worth being. */
 const MIN_BOARD_W = 240;
-/** Between the board's edge and its bar. */
-const BAR_GAP = 12;
-/** Keeps the bar off the pane's edge when the board runs it over. */
-const BAR_EDGE = 8;
 
 /** Arrows leaving for the corners: the shot at full size. The X's weight. */
 const EXPAND = (
@@ -341,13 +336,6 @@ export function StoryboardSurface({
     activeRef.current = active;
   });
 
-  /**
-   * The active shot's api, as STATE rather than a map lookup: the bar beside
-   * the board renders the pressed tool from it, so a tool change — which
-   * arrives as a fresh api through `onApi` — has to reach React, not a ref.
-   */
-  const [shotApi, setShotApi] = useState<CanvasApi | null>(null);
-
   const boardApi = useMemo(
     () => ({
       ratio: board.ratio,
@@ -417,7 +405,6 @@ export function StoryboardSurface({
   const claim = useCallback(
     (index: number) => {
       setActive(index);
-      setShotApi(apis.current.get(index) ?? null);
       publish(index);
     },
     [publish],
@@ -425,7 +412,6 @@ export function StoryboardSurface({
 
   const openFull = useCallback((index: number) => {
     setActive(index);
-    setShotApi(apis.current.get(index) ?? null);
     setWantFull(index);
   }, []);
 
@@ -434,7 +420,6 @@ export function StoryboardSurface({
       if (api) apis.current.set(index, api);
       else apis.current.delete(index);
       if (index !== activeRef.current || readOnly) return;
-      setShotApi(api);
       // A fresh api reaches the shell only while this board holds it — a
       // mounting shot must not take the claim from whatever is actually being
       // edited.
@@ -475,7 +460,6 @@ export function StoryboardSurface({
         boardRef.current.shots.length - 1,
       );
       setActive(next);
-      setShotApi(apis.current.get(next) ?? null);
     },
     [write],
   );
@@ -533,45 +517,6 @@ export function StoryboardSurface({
     write(({ w: _w, cols: _pinned, ...rest }) => rest);
   };
 
-  /**
-   * Keeps the bar at the board's right shoulder, and on screen.
-   *
-   * It wants to sit just past the board's edge. When the board has been
-   * widened past what the editor pane can show — the pane is the `<main>`
-   * this block lives in, and its right edge is where the side panels begin —
-   * the bar gives up following the edge and holds at the pane's, which is the
-   * sticky the width grip needs: however wide the board, its tools stay
-   * reachable. Written straight to the element; a bar that re-rendered on
-   * every grip frame would make the resize the most expensive thing on the
-   * page.
-   */
-  const barDock = useRef<HTMLDivElement>(null);
-  const hasBar = claimed && full === null && shotApi !== null;
-  useLayoutEffect(() => {
-    const el = barDock.current;
-    const host = wrap.current;
-    if (!el || !host || !hasBar) return;
-    const place = () => {
-      const pane = host.closest("main");
-      const edge =
-        (pane ? pane.getBoundingClientRect().right : window.innerWidth) - BAR_EDGE;
-      const r = host.getBoundingClientRect();
-      const left = Math.min(r.width + BAR_GAP, edge - r.left - el.offsetWidth);
-      el.style.left = `${Math.round(Math.max(0, left))}px`;
-      el.style.visibility = "visible";
-    };
-    place();
-    const observer = new ResizeObserver(place);
-    observer.observe(host);
-    const pane = host.closest("main");
-    if (pane) observer.observe(pane);
-    window.addEventListener("resize", place);
-    return () => {
-      observer.disconnect();
-      window.removeEventListener("resize", place);
-    };
-  }, [hasBar]);
-
   return (
     <div
       ref={wrap}
@@ -613,12 +558,6 @@ export function StoryboardSurface({
           onPointerDown={onGripDown}
           onDoubleClick={fitWidth}
         />
-      )}
-
-      {hasBar && shotApi && (
-        <div ref={barDock} className="nt-sb-bar-dock">
-          <StoryboardToolbar api={shotApi} board={boardApi} />
-        </div>
       )}
 
       {full !== null && (

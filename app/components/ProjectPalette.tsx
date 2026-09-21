@@ -6,7 +6,6 @@ import {
   useEffect,
   useRef,
   useState,
-  useSyncExternalStore,
   type KeyboardEvent,
   type ReactNode,
 } from "react";
@@ -17,11 +16,13 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { pages, when } from "@/app/lib/projectMeta";
 import { Dialog } from "./Dialog";
 import { PROJECT_TEMPLATES, pagePicture, type ProjectTemplate } from "@/app/lib/templates";
-import { ChevronRight, FileDoc, Folder, Plus, Template } from "./Icons";
+import { ChevronRight, FileDoc, Folder, Plus, Sparkles, Template } from "./Icons";
 import { useNewProjectDraft, type NewProject } from "./newProjectDraft";
 import { NotionMark } from "./NotionMark";
 import { NotionPort } from "./NotionPort";
 import { BlankStart } from "./BlankStart";
+import { ProLift } from "./ProLift";
+import { usePlan } from "@/app/lib/usePlan";
 import { BlocksThumb, PagePreview } from "./PagePreview";
 import { TemplateWall } from "./TemplateWall";
 
@@ -46,7 +47,7 @@ type Row = {
   /** What the side pane previews in place of a project. */
   template?: ProjectTemplate;
   /** A picture in the side pane, rather than a card about the row. */
-  picture?: "wall" | "blank" | "notion";
+  picture?: "wall" | "blank" | "notion" | "pro";
   run: () => void;
 };
 
@@ -62,17 +63,8 @@ const NotionImportBody = dynamic(() => loadNotionImport().then((m) => m.NotionIm
   ssr: false,
 });
 
-const noop = () => () => {};
-
-/** ⌘ on Apple hardware, Ctrl elsewhere — read on the client, ⌘ until then. */
-export function useModKey(): string {
-  const mac = useSyncExternalStore(
-    noop,
-    () => /Mac|iPhone|iPad/.test(navigator.platform),
-    () => true,
-  );
-  return mac ? "⌘" : "Ctrl";
-}
+// Its own module, so the workspace can name the key without importing this one.
+export { useModKey } from "@/app/lib/useModKey";
 
 /**
  * Search on the projects screen, and the keyboard's way to everything else on
@@ -105,13 +97,14 @@ export function ProjectPalette({
   projects: Project[];
   shared: SharedProject[];
   canCreate: boolean;
-  /** Whether the plan has room for another project; without it, the wall. */
+  /** Whether the plan has room for another project. Only the import asks
+   *  before starting — making one by hand meets the wall at its Create button. */
   room: boolean;
   notion: boolean;
   onOpen: (id: Id<"projects">) => void;
   onWall: () => void;
   /** Resolves once the project exists and is being opened. */
-  onCreate: (project: NewProject) => Promise<void>;
+  onCreate: (project: NewProject) => Promise<boolean | void>;
   onClose: () => void;
 }) {
   return (
@@ -163,7 +156,7 @@ function Palette({
   notion: boolean;
   onOpen: (id: Id<"projects">) => void;
   onWall: () => void;
-  onCreate: (project: NewProject) => Promise<void>;
+  onCreate: (project: NewProject) => Promise<boolean | void>;
   /** Closes the palette, playing its way out. */
   onDone: () => void;
 }) {
@@ -180,10 +173,10 @@ function Palette({
     setQuery("");
     setIndex(0);
   };
-  // The wall stands in front of making a project exactly as it does the
-  // header's button — before the first page that is only about making one.
+  // No wall in front of making a project: the whole of it — blank or template,
+  // the name, the context — is theirs to write, and the plan is asked at the
+  // Create button (`ProjectsScreen`'s `create`), with what they wrote kept.
   const startBlank = () => {
-    if (!room) return onWall();
     setTemplate(null);
     go("details");
   };
@@ -201,7 +194,27 @@ function Palette({
   const [notionSearch, setNotionSearch] = useState(false);
   const fielded = !listless || (page === "notion" && notionSearch);
 
+  // Anyone not on Pro is offered it first — once the plan has answered, so an
+  // account that has paid never sees it flash. Not to a stand-in operator,
+  // who is not the one who would be paying.
+  const { left } = usePlan();
   const root: Row[] = [
+    ...(canCreate && left
+      ? [
+          {
+            id: "upgrade",
+            group: "Pro",
+            name: "Upgrade to Pro",
+            line: "Unlimited projects, completions and conversations",
+            icon: <Sparkles />,
+            picture: "pro" as const,
+            run: () => {
+              onDone();
+              router.push("/upgrade");
+            },
+          },
+        ]
+      : []),
     ...(canCreate
       ? [
           {
@@ -257,7 +270,7 @@ function Palette({
       icon: <Template />,
       drill: true,
       picture: "wall",
-      run: () => (room ? go("template") : onWall()),
+      run: () => go("template"),
     },
     ...(notion
       ? [
@@ -526,6 +539,8 @@ function Palette({
                 <BlankStart />
               ) : current?.picture === "notion" ? (
                 <NotionPort />
+              ) : current?.picture === "pro" ? (
+                <ProLift />
               ) : current?.template ? (
                 <TemplatePreview key={current.id} template={current.template} />
               ) : (
@@ -622,7 +637,7 @@ function DetailsForm({
   onBack,
 }: {
   template: { id: string; name: string } | null;
-  onCreate: (project: NewProject) => Promise<void>;
+  onCreate: (project: NewProject) => Promise<boolean | void>;
   onBack: () => void;
 }) {
   // No repositories for now: a project made here links none, and can link them

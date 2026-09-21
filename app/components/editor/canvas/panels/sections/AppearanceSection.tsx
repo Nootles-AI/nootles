@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useRef, useState, type CSSProperties } from "react";
 import { ChevronRight } from "@/app/components/Icons";
 import type { StyleMap } from "../../scene/types";
 import { Brightness, Contrast, Grayscale, Saturation } from "../controls/glyphs";
@@ -97,13 +97,11 @@ function Slider({
 
   return (
     <div
-      className="nt-ctl-slider"
-      style={{
-        background: `linear-gradient(90deg, var(--border-strong) ${shown * 100}%, var(--sunken) ${shown * 100}%)`,
-      }}
+      className="nt-ctl-slider is-value"
+      style={{ "--v": shown } as CSSProperties}
       onPointerDown={start}
     >
-      <span className="nt-ctl-knob" style={{ left: `${shown * 100}%` }} />
+      <span className="nt-ctl-knob" />
     </div>
   );
 }

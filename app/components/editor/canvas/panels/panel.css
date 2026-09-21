@@ -17,10 +17,12 @@
   display: flex;
   flex-direction: column;
   flex: none;
-  width: 240px;
+  /* The rail it is given: it stands in the chat's place, at the chat's width,
+     so the rail does not change size under the sheet when a diagram takes it. */
+  width: 100%;
   height: 100%;
+  /* No line against the page: the sheet it sits beside has an edge of its own. */
   background: var(--surface);
-  border-left: 1px solid var(--border);
 }
 @media (prefers-reduced-motion: reduce) {
   .nt-style-panel {
@@ -58,6 +60,33 @@
    `:where()` keeps the specificity the old spelling had. */
 .nt-style-panel-body > :where(:not(:first-child)) {
   border-top: 1px solid var(--border);
+}
+
+/* What the panel describes has changed, so what it says comes in afresh. The
+   two names are one fade: an animation replays when its name changes, and
+   `StylePanel` turns `data-turn` over each time the selection's identity does.
+   Opacity only — a section holds pickers that are fixed and not portaled, and
+   a transform here would become what they are fixed to. */
+.nt-style-panel-body[data-turn="a"] > * {
+  animation: nt-panel-turn-a var(--dur) var(--ease);
+}
+.nt-style-panel-body[data-turn="b"] > * {
+  animation: nt-panel-turn-b var(--dur) var(--ease);
+}
+@keyframes nt-panel-turn-a {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes nt-panel-turn-b {
+  from {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nt-style-panel-body[data-turn] > * {
+    animation: none;
+  }
 }
 
 /* The alignment strip: the panel's one full-bleed row, and the only control

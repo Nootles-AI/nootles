@@ -287,10 +287,7 @@ async function openFillHexInput(): Promise<HTMLInputElement | null> {
 }
 
 function dropperButton(): HTMLButtonElement | null {
-  return appEl().querySelector<HTMLButtonElement>('button[aria-label="Pick from canvas"]');
-}
-function samplerButton(): HTMLButtonElement | null {
-  return appEl().querySelector<HTMLButtonElement>('button[aria-label="Sample screen"]');
+  return appEl().querySelector<HTMLButtonElement>('button[aria-label="Pick a colour"]');
 }
 
 /** Same fast-open trick as {@link openFillHexInput}, but on the Selection
@@ -438,7 +435,6 @@ const harness = {
   diagramVar,
   setEyeDropper,
   dropperButton,
-  samplerButton,
   openFillHexInput,
   openSelectionColourHexInput,
   openFillPopoverSlow,

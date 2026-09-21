@@ -15,7 +15,7 @@ import {
   type BoardApi,
   type CanvasApi,
 } from "../canvas/render/CanvasSurface";
-import { StoryboardToolbar } from "./StoryboardToolbar";
+import { Toolbar } from "../canvas/Toolbar";
 import { SHOT_W } from "./types";
 
 /**
@@ -112,10 +112,16 @@ export function FullscreenShot({
           />
         )}
       </div>
+      {/* The workspace's bar is under this view, so it brings its own, in
+          the same spot. */}
       {api && !readOnly && (
-        <div className="nt-sb-bar-h">
-          <StoryboardToolbar api={api} board={board} />
-        </div>
+        <Toolbar
+          store={api.store}
+          viewport={api.viewport}
+          tools={api.tools}
+          screen={api.screen}
+          board={board}
+        />
       )}
     </div>,
     document.body,

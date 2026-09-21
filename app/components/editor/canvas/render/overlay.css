@@ -13,7 +13,9 @@
 
   --ov-line: oklch(0.5 0.006 90);
   --ov-guide: oklch(0.42 0.006 90);
-  --ov-chip: oklch(0.28 0.005 90);
+  /* The size readout is the gesture's own answer, so it wears the one accent
+     with the frame and the grips it is reading off. */
+  --ov-chip: var(--nt-select);
 }
 
 .nt-ov-outline,
@@ -67,11 +69,44 @@
 }
 
 /* Corner handles only — an edge is resized by grabbing the outline itself. */
-.nt-ov-grips > circle,
+.nt-ov-grips > rect,
 .nt-ov-radii > circle {
   fill: #fff;
   stroke: var(--nt-select);
   stroke-width: var(--k, 1);
+}
+/* The resize grips are squares — the handle you pull a box by is itself a
+   little box — with a line a touch heavier than the frame's, so they read as
+   something to hold rather than as marks on the outline. The radius handles
+   stay round: they turn a corner rather than move one. */
+.nt-ov-grips > rect {
+  stroke-width: calc(var(--k, 1) * 1.5);
+}
+
+/* The grips arrive with the frame, a corner at a time. The frame group is
+   switched with `display`, and a CSS animation starts when an element comes
+   back from `display: none` — so this plays when a selection appears and at no
+   other time: a drag repaints these squares every frame without ever hiding
+   them. `fill-box` makes each square scale about its own centre rather than
+   the SVG's origin. */
+.nt-ov-grips > rect {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: nt-ov-grip-in 300ms var(--spring) backwards;
+}
+.nt-ov-grips > rect:nth-child(2) {
+  animation-delay: 30ms;
+}
+.nt-ov-grips > rect:nth-child(3) {
+  animation-delay: 60ms;
+}
+.nt-ov-grips > rect:nth-child(4) {
+  animation-delay: 90ms;
+}
+@keyframes nt-ov-grip-in {
+  from {
+    transform: scale(0);
+  }
 }
 
 /* Hit targets: bigger than they look, and the only thing here that takes a
@@ -88,6 +123,11 @@
   cursor: crosshair;
 }
 
+/* Shown only for the length of a gesture, by the same `display` switch — so
+   it eases in as the drag starts instead of snapping on under the hand. */
+.nt-ov-chip {
+  animation: nt-fade-in var(--dur) var(--ease);
+}
 .nt-ov-chip > rect {
   fill: var(--ov-chip);
 }
@@ -96,5 +136,15 @@
   fill: oklch(1 0 90);
   font-family: var(--font-mono), ui-monospace, monospace;
   font-size: 11px;
+  /* White on the accent is a lighter contrast than on graphite; the weight
+     carries the digits through it. */
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nt-ov-grips > rect,
+  .nt-ov-chip {
+    animation: none;
+  }
 }

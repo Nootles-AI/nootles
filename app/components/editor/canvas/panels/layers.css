@@ -8,8 +8,24 @@
   height: 100%;
   min-height: 0;
   flex-direction: column;
+  /* The panel's inset at the top too, so the header sits off the window edge
+     the way the sidebar's does — the two are faces of one rail. */
+  padding-top: var(--inset);
   background: var(--surface);
   user-select: none;
+}
+/* The header's label starts where the rows' names do, and its count stands at
+   the far end in the metadata voice. */
+.nt-lyr > .nt-section-label {
+  padding-inline: calc(var(--inset) + 10px) calc(var(--inset) + 8px);
+}
+.nt-lyr > .nt-section-label > .nt-meta {
+  font-size: var(--text-meta);
+  letter-spacing: 0;
+}
+/* Nothing to fold, so no twist column: the glyph takes the row's first place. */
+.nt-lyr-list[data-flat] .nt-lyr-twist {
+  display: none;
 }
 
 .nt-lyr-list {
@@ -31,17 +47,42 @@
 .nt-lyr-row {
   display: flex;
   align-items: center;
-  gap: 6px;
-  /* Mirrored by ROW_H in LayersPanel.tsx, which needs it as a number. */
-  height: 24px;
-  padding-right: 2px;
-  border-radius: var(--radius-sm);
+  gap: 8px;
+  /* Mirrored by ROW_H in LayersPanel.tsx, which needs it as a number. Rows
+     stand edge to edge, with no gap between them: the drop indicator is placed
+     by multiplying this number, and a gap would put it off by one per row. */
+  height: 28px;
+  padding-right: 3px;
+  padding-left: 10px;
+  border-radius: var(--radius);
   font-size: var(--text-ui);
-  color: color-mix(in srgb, var(--foreground) 82%, transparent);
+  color: var(--muted);
   cursor: default;
-  transition: background var(--dur-fast) var(--ease);
+  transition:
+    background var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease),
+    opacity var(--dur) var(--ease);
+  /* A list arrives as a list, top first. Rows are keyed by their node, so this
+     plays for a row that is new — the panel opening, a group unfolding, a shape
+     just drawn — and never for one that only moved. */
+  animation: nt-lyr-in 360ms var(--ease) calc(var(--i, 0) * 20ms) backwards;
 }
-.nt-lyr-row:hover {
+@keyframes nt-lyr-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nt-lyr-row {
+    animation: none;
+  }
+}
+/* `.is-hover` is the canvas pointing at this layer; `:hover` is the pointer on
+   the row, which makes the canvas ring it. One wash for both, since they are
+   the same question asked from either side. */
+.nt-lyr-row:hover,
+.nt-lyr-row.is-hover {
   background: var(--hover);
   color: var(--foreground);
 }
@@ -50,8 +91,9 @@
   color: var(--foreground);
 }
 /* Hidden and locked layers stay listed and stay legible — they recede. */
-.nt-lyr-row.is-dim {
-  color: var(--muted);
+.nt-lyr-row.is-dim .nt-lyr-name,
+.nt-lyr-row.is-dim .nt-lyr-icon {
+  opacity: 0.45;
 }
 .nt-lyr-row.is-moving {
   opacity: 0.4;
@@ -70,21 +112,27 @@
   flex: none;
   align-items: center;
   justify-content: center;
+  margin-right: -2px;
   color: var(--faint);
 }
 .nt-lyr-twist:hover {
   color: var(--foreground);
 }
 .nt-lyr-chevron {
-  transition: transform var(--dur-fast) var(--ease);
+  transition: transform var(--dur-slow) var(--spring);
 }
 .nt-lyr-chevron.is-open {
   transform: rotate(90deg);
 }
+@media (prefers-reduced-motion: reduce) {
+  .nt-lyr-chevron {
+    transition: none;
+  }
+}
 
 .nt-lyr-icon {
   flex: none;
-  color: var(--muted);
+  transition: opacity var(--dur) var(--ease);
 }
 
 .nt-lyr-name {
@@ -93,12 +141,22 @@
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+  transition: opacity var(--dur) var(--ease);
 }
 
+/* Being named, a row's words are on paper with a hairline round them — the
+   field every other rename in the app opens, at this list's height. */
 .nt-lyr-edit {
   flex: 1 1 auto;
   min-width: 0;
+  height: 22px;
+  margin-inline: -4px 2px;
+  padding-inline: 4px;
   overflow: hidden;
+  border-radius: var(--radius-sm);
+  background: var(--background);
+  box-shadow: 0 0 0 1px var(--border-strong);
+  line-height: 22px;
   white-space: nowrap;
   color: var(--foreground);
 }
@@ -107,23 +165,28 @@
    locked: the state has to be visible without pointing at it. */
 .nt-lyr-tog {
   display: inline-flex;
-  width: 20px;
-  height: 20px;
+  width: 22px;
+  height: 22px;
   flex: none;
   align-items: center;
   justify-content: center;
+  margin-left: -6px;
   border-radius: var(--radius-sm);
   color: var(--muted);
   opacity: 0;
-  transition: opacity var(--dur-fast) var(--ease);
+  transition:
+    opacity var(--dur-fast) var(--ease),
+    background var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
 }
 .nt-lyr-row:hover .nt-lyr-tog,
+.nt-lyr-row:focus-within .nt-lyr-tog,
 .nt-lyr-tog.is-on,
 .nt-lyr-tog:focus-visible {
   opacity: 1;
 }
 .nt-lyr-tog:hover {
-  background: var(--hover);
+  background: var(--active);
   color: var(--foreground);
 }
 
@@ -131,14 +194,26 @@
    with the rows it points between. Selection blue: it is the answer to a drag,
    the one place in this panel that is not a state of a layer.
 
-   The rule is drawn as a 1px box rather than a border, so the dot's containing
+   The rule is drawn as a box rather than a border, so the dot's containing
    block is the line itself and `top: 50%` lands on its centre. */
 .nt-lyr-line {
   position: absolute;
   right: var(--inset);
-  height: 1px;
+  height: 2px;
+  margin-top: -1px;
+  border-radius: 1px;
   background: var(--nt-select);
   pointer-events: none;
+  /* It steps between rows as the pointer crosses them; eased, the step reads as
+     the line following the hand rather than as a second line appearing. */
+  transition:
+    top 120ms var(--ease),
+    left 120ms var(--ease);
+}
+@media (prefers-reduced-motion: reduce) {
+  .nt-lyr-line {
+    transition: none;
+  }
 }
 .nt-lyr-line::before {
   content: "";

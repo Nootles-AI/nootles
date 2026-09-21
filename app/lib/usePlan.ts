@@ -2,6 +2,7 @@
 
 import { useCallback, useMemo } from "react";
 import { useQuery } from "convex/react";
+import { ConvexError } from "convex/values";
 import { api } from "@/convex/_generated/api";
 import type { Entitlement, Meter } from "@/convex/entitlements";
 
@@ -42,5 +43,20 @@ export function usePlan() {
       room,
     }),
     [entitlement, room],
+  );
+}
+
+/**
+ * Whether a Convex call was refused by the plan (`quotaRefusal` in
+ * `convex/entitlements.ts`), for the walls that are raised by the server's
+ * answer rather than drawn ahead of it. Read off the error's data here, so the
+ * browser does not import the server module that defines it.
+ */
+export function isQuotaError(error: unknown): boolean {
+  return (
+    error instanceof ConvexError &&
+    typeof error.data === "object" &&
+    error.data !== null &&
+    (error.data as { code?: unknown }).code === "quota"
   );
 }

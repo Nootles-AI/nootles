@@ -1,0 +1,88 @@
+"use client";
+
+import { Dialog } from "./Dialog";
+import {
+  SHORTCUTS,
+  SHORTCUT_GROUPS,
+  isApplePlatform,
+  shortcutHint,
+} from "./editor/canvas/engine/shortcuts";
+
+/**
+ * The keys, written down. The canvas half is not a copy: it is read off the
+ * same table the canvas binds from, so a shortcut cannot be listed here and
+ * missing there. The rest are the few the shell and the page own.
+ */
+
+const mod = (apple: boolean) => (apple ? "⌘" : "Ctrl+");
+
+const ELSEWHERE = (apple: boolean): [group: string, rows: [label: string, keys: string][]][] => [
+  [
+    "Anywhere",
+    [
+      ["Find a page", `${mod(apple)}K`],
+      ["Undo", `${mod(apple)}Z`],
+      ["Redo", apple ? "⌘⇧Z" : "Ctrl+Shift+Z"],
+      ["This list", "?"],
+    ],
+  ],
+  [
+    "Writing",
+    [
+      ["Insert a block", "/"],
+      ["Link to a page", "@"],
+      ["Accept a suggestion", "Tab"],
+      ["Next / previous reformat", apple ? "⌥→  ⌥←" : "Alt+→  Alt+←"],
+      ["Link the selection", `${mod(apple)}K`],
+    ],
+  ],
+  [
+    "Pages list",
+    [
+      ["Select all", `${mod(apple)}A`],
+      ["Cut, copy, paste", apple ? "⌘X  ⌘C  ⌘V" : "Ctrl+X  C  V"],
+      ["Clear the selection", "Esc"],
+    ],
+  ],
+];
+
+export default function ShortcutsDialog({ onClose }: { onClose: () => void }) {
+  // Only ever mounted from a key press or a click, so this is the client.
+  const apple = isApplePlatform();
+  const canvas = SHORTCUT_GROUPS.map(
+    (group) =>
+      [
+        group,
+        SHORTCUTS.filter((s) => s.group === group)
+          .map((s) => [s.label, shortcutHint(s.id, apple)] as [string, string])
+          .filter(([, keys]) => keys),
+      ] as [string, [string, string][]],
+  );
+
+  return (
+    <Dialog label="Keyboard shortcuts" className="nt-keys" onClose={onClose}>
+      <div className="nt-dialog-head">
+        <p className="text-sm font-medium">Keyboard shortcuts</p>
+      </div>
+      <div className="nt-dialog-body nt-keys-body">
+        <div className="nt-keys-cols">
+        {[...ELSEWHERE(apple), ...canvas.map(([g, rows]) => [`Canvas · ${g}`, rows] as [string, [string, string][]])].map(
+          ([group, rows]) => (
+            <section key={group} className="nt-keys-group">
+              <h3 className="nt-section-label">{group}</h3>
+              <dl>
+                {rows.map(([label, keys]) => (
+                  <div key={label} className="nt-keys-row">
+                    <dt>{label}</dt>
+                    <dd>{keys}</dd>
+                  </div>
+                ))}
+              </dl>
+            </section>
+          ),
+        )}
+        </div>
+      </div>
+    </Dialog>
+  );
+}
