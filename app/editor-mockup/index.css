@@ -1,0 +1,82 @@
+.ex {
+  width: 100%;
+  max-width: 44rem;
+  margin-inline: auto;
+  padding: 72px 24px 120px;
+  font-size: 15px;
+}
+.ex header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--brand);
+}
+.ex h1 {
+  color: var(--foreground);
+  font-size: 30px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+.ex-note {
+  max-width: 60ch;
+  margin-top: 12px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+.ex kbd {
+  padding: 1px 6px;
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+  font: 12px var(--font-geist-mono), monospace;
+}
+.ex ol {
+  margin-top: 40px;
+  border-top: 1px solid var(--border);
+}
+.ex li {
+  border-bottom: 1px solid var(--border);
+  animation: ex-in 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.ex a {
+  display: grid;
+  grid-template-columns: 40px 130px minmax(0, 1fr);
+  align-items: baseline;
+  padding: 15px 8px;
+  border-radius: 8px;
+  transition: background 0.15s;
+}
+.ex a > span {
+  transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.ex a:hover,
+.ex a:focus-visible {
+  background: var(--hover);
+}
+.ex a:hover > span,
+.ex a:focus-visible > span {
+  transform: translateX(8px);
+}
+.ex-n {
+  color: var(--muted);
+  font: 12px var(--font-geist-mono), monospace;
+}
+.ex-name {
+  font-weight: 600;
+}
+.ex-what {
+  color: var(--muted);
+}
+@keyframes ex-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+@media (max-width: 560px) {
+  .ex a {
+    grid-template-columns: 32px minmax(0, 1fr);
+  }
+  .ex-what {
+    grid-column: 2;
+  }
+}

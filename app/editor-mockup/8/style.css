@@ -1,0 +1,647 @@
+/* 08 Halo — no panels; controls come to the thing you are touching. */
+
+.h {
+  --stage-inset: 0px;
+  --ek-face-ring: var(--background);
+}
+.h-world {
+  height: 100%;
+}
+.h-page {
+  height: 100%;
+  overflow-y: auto;
+  padding-top: 32px;
+  scroll-padding-block: 140px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+/* The halo draws its own size; the frame does not need to say it twice. */
+.h .ek-ov-chip,
+.h .ek-diagram-expand {
+  display: none;
+}
+.h[data-mode="diagram"] .ek-toasts {
+  bottom: 120px;
+}
+
+/* ---- Header --------------------------------------------------------------- */
+
+@keyframes h-head-in {
+  from {
+    opacity: 0;
+    translate: 0 -10px;
+  }
+}
+.h-head {
+  position: fixed;
+  inset: 0 0 auto;
+  z-index: var(--z-sticky);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  height: 56px;
+  padding-inline: 12px 16px;
+  background: linear-gradient(var(--background) 55%, transparent);
+  transition: opacity 260ms var(--ease), translate 420ms var(--spring);
+  animation: h-head-in 600ms var(--spring) 120ms backwards;
+}
+/* Still for a while, it leaves; the pointer nearing the top edge brings it back. */
+.h-head[data-idle="true"] {
+  opacity: 0;
+  translate: 0 -8px;
+  pointer-events: none;
+  transition: opacity 600ms var(--ease), translate 600ms var(--ease);
+}
+.h-head-side {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.h-head-side.is-end {
+  justify-content: flex-end;
+  gap: 10px;
+}
+.h-title {
+  justify-self: center;
+  font-size: 15px;
+  letter-spacing: -0.01em;
+}
+.h-pages-btn {
+  max-width: 220px;
+  color: var(--muted);
+}
+.h-pages-btn:hover,
+.h-pages-btn[aria-expanded="true"] {
+  background: var(--hover);
+  color: var(--foreground);
+}
+.h-pages-caret {
+  flex: none;
+  transition: rotate var(--dur-slow) var(--spring);
+}
+.h-pages-btn[aria-expanded="true"] .h-pages-caret {
+  rotate: 180deg;
+}
+.h-pop-pages {
+  width: 272px;
+  padding: 4px 8px 8px;
+}
+.h-pop-pages > * {
+  animation: none;
+}
+
+/* ---- The halo ------------------------------------------------------------- */
+
+.h-halo {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-sticky);
+  pointer-events: none;
+}
+.h-halo[data-lost="true"] .h-halo-parts {
+  visibility: hidden;
+}
+/* Placement and arrival are two elements: one is put, the other moves. */
+.h-at {
+  position: absolute;
+  width: max-content;
+}
+.h-at.is-top {
+  top: max(52px, calc(var(--y) - 12px));
+  left: calc(var(--x) + var(--w) / 2);
+  translate: -50% -100%;
+  --from: 0 10px;
+}
+.h-at.is-bottom {
+  top: calc(var(--y) + var(--h) + 12px);
+  left: calc(var(--x) + var(--w) / 2);
+  /* Under a narrow shape it gives way to the left, leaving the arrange strip its column. */
+  margin-left: min(0px, calc(var(--w) / 2 - 100px));
+  translate: -50% 0;
+  --from: 0 -10px;
+  --delay: 40ms;
+}
+.h-at.is-right {
+  top: var(--y);
+  left: calc(var(--x) + var(--w) + 12px);
+  --from: -10px 0;
+  --delay: 80ms;
+}
+.h-at.is-left {
+  top: calc(var(--y) + var(--h) / 2);
+  left: calc(var(--x) - 12px);
+  translate: -100% -50%;
+  --from: 10px 0;
+  --delay: 120ms;
+}
+@keyframes h-strip-in {
+  from {
+    opacity: 0;
+    translate: var(--from);
+    scale: 0.86;
+    filter: blur(5px);
+  }
+}
+.h-at > * {
+  pointer-events: auto;
+  animation: h-strip-in 460ms var(--spring) var(--delay, 0ms) backwards;
+  transition: opacity var(--dur-slow), scale 460ms var(--spring), filter var(--dur-slow);
+}
+/* While the hand is moving the shape, nothing stands between it and the canvas. */
+.h:has(.ek-diagram[data-busy]) .h-at > * {
+  opacity: 0;
+  scale: 0.92;
+  filter: blur(4px);
+  pointer-events: none;
+  transition: opacity var(--dur-fast), scale var(--dur-fast), filter var(--dur-fast);
+}
+.h-strip {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  border-radius: 12px;
+  background: var(--elevated);
+  box-shadow: var(--ek-shadow-sm), 0 10px 28px -12px oklch(0.25 0.005 90 / 0.22);
+}
+.h-strip.is-col {
+  flex-direction: column;
+}
+.h-strip-sep {
+  width: 1px;
+  height: 16px;
+  margin-inline: 4px;
+  background: var(--border);
+}
+.h-strip-count {
+  padding-inline: 8px 4px;
+}
+.h-strip .ek-num {
+  width: 60px;
+  height: 24px;
+  background: none;
+}
+.h-strip .ek-num:hover {
+  background: var(--hover);
+  box-shadow: none;
+}
+.h-strip .ek-num:focus-within {
+  background: var(--sunken);
+  box-shadow: none;
+}
+.h-strip.is-size .ek-num {
+  width: 68px;
+}
+.h-strip .ek-select {
+  height: 24px;
+  color: var(--foreground);
+}
+.h-swatch {
+  position: relative;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius);
+  transition: background var(--dur-fast), scale var(--dur) var(--ease);
+}
+.h-swatch::before {
+  content: "";
+  position: absolute;
+  inset: 4px;
+  border-radius: 50%;
+  background: var(--c);
+  box-shadow: inset 0 0 0 1px oklch(0.25 0.005 90 / 0.16);
+  transition: scale var(--dur-slow) var(--spring);
+}
+/* Stroke is the same disc with its middle taken out. */
+.h-swatch[data-ring]::after {
+  content: "";
+  position: absolute;
+  inset: 8px;
+  border-radius: 50%;
+  background: var(--elevated);
+  box-shadow: 0 0 0 1px oklch(0.25 0.005 90 / 0.12);
+}
+.h-swatch:hover,
+.h-swatch[aria-expanded="true"] {
+  background: var(--hover);
+}
+.h-swatch:hover::before {
+  scale: 1.12;
+}
+.h-swatch:active {
+  scale: 0.9;
+}
+.h .h-danger:not(:disabled):hover {
+  background: oklch(0.563 0.127 35 / 0.1);
+  color: var(--danger);
+}
+.h-link {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--elevated);
+  box-shadow: var(--ek-shadow-sm);
+  color: var(--muted);
+}
+.h-link:hover {
+  color: var(--foreground);
+  scale: 1.08;
+}
+.h-link:active {
+  scale: 0.92;
+}
+.h-link svg {
+  width: 15px;
+  height: 15px;
+}
+.h-pop-inspector {
+  width: 272px;
+  max-height: min(560px, calc(100dvh - 32px));
+  padding: 4px 0 8px;
+}
+.h-pop-inspector > * {
+  animation: none;
+}
+.h-pop-inspector .ek-section-label,
+.h-pop-inspector .ek-align {
+  padding-inline: 12px 8px;
+}
+
+/* ---- Depth rail: one tick a layer, opening into the list ------------------ */
+
+.h-depth {
+  position: absolute;
+  top: calc(var(--dy) + var(--dh) / 2);
+  left: calc(var(--dx) + 6px);
+  translate: 0 -50%;
+  padding: 10px 14px 10px 4px;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity var(--dur), visibility 0s var(--dur);
+}
+.h-depth[data-on="true"] {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transition: opacity var(--dur-slow) 240ms, visibility 0s;
+}
+.h-ticks {
+  display: grid;
+  gap: 1px;
+  transition: opacity var(--dur);
+}
+.h-tick {
+  display: block;
+  width: 22px;
+  height: 7px;
+  padding: 2px 0;
+  background: var(--border-strong);
+  background-clip: content-box;
+  border-radius: 3px;
+  transform-origin: left center;
+  transition: background-color var(--dur-fast), scale var(--dur-slow) var(--spring), opacity var(--dur);
+}
+.h-tick[data-dim] {
+  opacity: 0.45;
+}
+.h-tick[data-hover] {
+  background-color: var(--shape-line-active);
+  scale: 1.25 1;
+}
+.h-tick[data-sel] {
+  background-color: var(--foreground);
+  scale: 1.4 1;
+}
+.h-depth-card {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 224px;
+  max-height: min(60vh, 420px);
+  overflow-y: auto;
+  padding: 2px 6px 8px;
+  border-radius: 14px;
+  background: var(--elevated);
+  box-shadow: var(--ek-shadow);
+  transform-origin: left center;
+  translate: -6px -50%;
+  scale: 0.9;
+  opacity: 0;
+  visibility: hidden;
+  filter: blur(6px);
+  scrollbar-width: thin;
+  transition: opacity var(--dur-fast) 140ms, scale var(--dur) var(--ek-in) 140ms, translate var(--dur) var(--ek-in) 140ms, filter var(--dur) 140ms, visibility 0s calc(var(--dur) + 140ms);
+}
+.h-depth:hover > .h-depth-card,
+.h-depth:focus-within > .h-depth-card,
+.h-depth[data-pinned="true"] > .h-depth-card,
+.h-depth:has(.ek-layers[data-dragging]) > .h-depth-card {
+  translate: 0 -50%;
+  scale: 1;
+  opacity: 1;
+  visibility: visible;
+  filter: none;
+  transition: opacity var(--dur-slow), scale 480ms var(--spring), translate 480ms var(--spring), filter var(--dur-slow), visibility 0s;
+}
+.h-depth:hover > .h-ticks,
+.h-depth:focus-within > .h-ticks,
+.h-depth[data-pinned="true"] > .h-ticks {
+  opacity: 0;
+}
+/* The hand is busy on the canvas: the rail stays a rail. */
+.h:has(.ek-diagram[data-busy]) .h-depth {
+  pointer-events: none;
+}
+
+/* ---- The wheel ------------------------------------------------------------ */
+
+.h-wheel-layer {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-overlay);
+  cursor: default;
+}
+.h-wheel-layer[data-state="closed"] {
+  pointer-events: none;
+}
+.h-wheel {
+  position: absolute;
+  width: 0;
+  height: 0;
+  --r: 84px;
+}
+@keyframes h-ring-in {
+  from {
+    opacity: 0;
+    scale: 0.5;
+    filter: blur(8px);
+  }
+}
+.h-wheel-ring,
+.h-wheel-wedge {
+  position: absolute;
+  top: -116px;
+  left: -116px;
+  width: 232px;
+  height: 232px;
+  border-radius: 50%;
+}
+.h-wheel-ring {
+  background: var(--elevated);
+  box-shadow: var(--ek-shadow), 0 30px 60px -20px oklch(0.25 0.005 90 / 0.28);
+  animation: h-ring-in 420ms var(--spring);
+  transition: opacity 150ms var(--ek-in), scale 170ms var(--ek-in);
+}
+.h-wheel[data-state="closed"] .h-wheel-ring {
+  opacity: 0;
+  scale: 0.6;
+}
+.h-wheel-wedge {
+  background: conic-gradient(from calc(var(--slice) / -2), var(--active) 0 var(--slice), transparent 0);
+  mask: radial-gradient(circle, transparent 51px, #000 52px);
+  rotate: calc(var(--hot) * var(--slice));
+  opacity: 0;
+  transition: opacity var(--dur-fast);
+}
+.h-wheel-wedge[data-on="true"] {
+  opacity: 1;
+}
+.h-wheel[data-state="closed"] .h-wheel-wedge {
+  opacity: 0;
+}
+@keyframes h-item-in {
+  from {
+    opacity: 0;
+    transform: rotate(calc(var(--a) - 70deg)) translate(0) rotate(calc(70deg - var(--a))) scale(0.3);
+  }
+}
+.h-wheel-item {
+  --a: calc(var(--i) * var(--slice) - 90deg);
+  position: absolute;
+  top: -17px;
+  left: -17px;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  color: var(--muted);
+  transform: rotate(var(--a)) translate(var(--r)) rotate(calc(-1 * var(--a))) scale(1);
+  animation: h-item-in 520ms var(--spring) calc(40ms + var(--i) * 14ms) backwards;
+  transition: transform 160ms var(--ek-in), opacity 130ms, background var(--dur-fast), color var(--dur-fast);
+}
+.h-wheel-item > span {
+  display: grid;
+  transition: scale var(--dur-slow) var(--spring);
+}
+.h-wheel-item[data-hot] {
+  color: var(--foreground);
+}
+.h-wheel-item[data-hot] > span {
+  scale: 1.22;
+}
+.h-wheel-item[data-active] {
+  background: var(--ek-ink);
+  color: var(--ek-on-ink);
+}
+/* Put away, the tools fall back into the pointer they came out of. */
+.h-wheel[data-state="closed"] .h-wheel-item {
+  opacity: 0;
+  transform: rotate(var(--a)) translate(0) rotate(calc(-1 * var(--a))) scale(0.4);
+  animation: none;
+}
+.h-wheel-hub {
+  position: absolute;
+  top: -46px;
+  left: -46px;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 3px;
+  width: 92px;
+  height: 92px;
+  border-radius: 50%;
+  background: var(--sunken);
+  animation: h-ring-in 480ms var(--spring) 40ms backwards;
+  transition: opacity 120ms;
+}
+.h-wheel-hub b {
+  font-size: 12px;
+  font-weight: 500;
+}
+.h-wheel-hub kbd {
+  color: var(--muted);
+  font: var(--text-meta) var(--font-geist-mono), monospace;
+}
+.h-wheel[data-state="closed"] .h-wheel-hub {
+  opacity: 0;
+}
+
+/* ---- The quiet toolbar, and what to try ----------------------------------- */
+
+.h-dock {
+  position: fixed;
+  bottom: 64px;
+  left: 50%;
+  z-index: var(--z-sticky);
+  opacity: 0;
+  translate: -50% 24px;
+  scale: 0.94;
+  filter: blur(6px);
+  pointer-events: none;
+  transition: all 200ms var(--ek-in);
+}
+.h-dock[data-on="true"] {
+  opacity: 0.6;
+  translate: -50% 0;
+  scale: 1;
+  filter: none;
+  pointer-events: auto;
+  transition: translate 520ms var(--spring) 120ms, scale 520ms var(--spring) 120ms, filter var(--dur-slow) 120ms, opacity var(--dur-slow);
+}
+.h-dock[data-on="true"]:hover,
+.h-dock[data-on="true"]:focus-within {
+  opacity: 1;
+}
+.h-hint {
+  position: fixed;
+  bottom: 22px;
+  left: 20px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  opacity: 0;
+  translate: 0 6px;
+  transition: opacity var(--dur), translate var(--dur) var(--ease);
+}
+.h-hint[data-on="true"] {
+  opacity: 1;
+  translate: 0 0;
+  transition: opacity var(--dur-slow) 500ms, translate 520ms var(--spring) 500ms;
+}
+.h-hint .ek-kbd:not(:first-child) {
+  margin-left: 10px;
+}
+
+/* ---- Ask: an orb, and the conversation it becomes ------------------------- */
+
+@keyframes h-orb-in {
+  from {
+    opacity: 0;
+    scale: 0.4;
+  }
+}
+.h-ask {
+  --ask-w: min(360px, calc(100vw - 32px));
+  --ask-h: min(60vh, 560px);
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: var(--z-sticky);
+  width: 56px;
+  height: 56px;
+  overflow: hidden;
+  border-radius: 28px;
+  background: var(--ek-ink);
+  box-shadow: 0 10px 30px -8px oklch(0.25 0.005 90 / 0.45);
+  color: var(--ek-on-ink);
+  animation: h-orb-in 560ms var(--spring) 500ms backwards;
+  /* Size eases rather than springs: 3% of sixty viewport-percent is a lurch. */
+  transition: width 440ms var(--ease), height 440ms var(--ease), border-radius 440ms var(--ease), background 180ms 120ms, box-shadow 300ms;
+}
+.h-ask[data-open="true"] {
+  width: var(--ask-w);
+  height: var(--ask-h);
+  border-radius: 16px;
+  background: var(--elevated);
+  box-shadow: var(--ek-shadow), 0 40px 80px -24px oklch(0.25 0.005 90 / 0.3);
+  color: var(--foreground);
+  transition: width 460ms var(--ease), height 460ms var(--ease), border-radius 460ms var(--ease), background 140ms, box-shadow 300ms;
+}
+.h-ask-orb {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  transition: opacity var(--dur) 160ms, scale 460ms var(--spring) 120ms, rotate 460ms var(--spring) 120ms;
+}
+.h-ask-orb:hover svg {
+  scale: 1.12;
+}
+.h-ask-orb svg {
+  transition: scale var(--dur-slow) var(--spring);
+}
+.h-ask-orb:active {
+  scale: 0.9;
+}
+.h-ask[data-open="true"] .h-ask-orb {
+  opacity: 0;
+  scale: 0.4;
+  rotate: 90deg;
+  pointer-events: none;
+  transition: opacity var(--dur-fast), scale var(--dur), rotate var(--dur);
+}
+.h-ask-dot {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  box-shadow: 0 0 0 2px var(--ek-ink), 0 0 10px 2px oklch(0.716 0.116 75 / 0.5);
+  animation: ek-pulse 1.1s ease-in-out infinite;
+}
+/* Always laid out at its open size and pinned to the corner the orb sits in,
+   so the surface uncovers it rather than reflowing it. */
+.h-ask-body {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  width: var(--ask-w);
+  height: var(--ask-h);
+  opacity: 0;
+  translate: 0 12px;
+  transition: opacity var(--dur-fast), translate var(--dur);
+}
+.h-ask[data-open="true"] .h-ask-body {
+  opacity: 1;
+  translate: 0 0;
+  transition: opacity var(--dur-slow) 200ms, translate 520ms var(--spring) 160ms;
+}
+/* The switcher and the toolbar keep the bottom centre; the card stays clear of them. */
+.h-ask[data-open="true"] {
+  --ek-face-ring: var(--elevated);
+}
+
+@media (max-width: 860px) {
+  .h-title,
+  .h-hint {
+    display: none;
+  }
+  .h-head {
+    grid-template-columns: minmax(0, 1fr) minmax(0, auto);
+  }
+  .h .ek-doc {
+    padding-inline: 24px;
+  }
+  .h-pages-btn {
+    max-width: 140px;
+  }
+  .h-ask {
+    bottom: 64px;
+  }
+}

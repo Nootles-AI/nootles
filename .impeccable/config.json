@@ -47,6 +47,30 @@
         ],
         "createdAt": "2026-08-30T07:40:00.000Z",
         "reason": "Claude: .nt-pw-sheet max-width is the paywall's growing-in-place gesture — one property, one element, once per stage change, and the whole point of the surface is that the wall becomes the plans rather than navigating. A transform would scale the type and the strips with it. Motion's measured layout animation was tried first and removed: it runs on the main thread, which on the projects screen belongs to a grid of rendering page previews, and the sheet stalled mid-transition."
+      },
+      {
+        "rule": "bounce-easing",
+        "value": "var(--spring)",
+        "createdAt": "2026-09-21T03:30:14.242Z",
+        "reason": "model decided: --spring is the production motion token in app/globals.css (damped, <3% overshoot, shipped in #143); the operator asked for the workspace mockups to match that page's motion"
+      },
+      {
+        "rule": "codex-grid-background",
+        "value": "*",
+        "files": [
+          "app/editor-mockup/_kit/kit.css"
+        ],
+        "createdAt": "2026-09-21T03:30:14.285Z",
+        "reason": "model decided: a dot grid is the canvas ground, a spatial reference while dragging, and the same ground production ships on the projects Board (.nt-board); throwaway /editor-mockup fixture"
+      },
+      {
+        "rule": "codex-grid-background",
+        "value": "*",
+        "files": [
+          "app/editor-mockup/2/style.css"
+        ],
+        "createdAt": "2026-09-21T03:30:14.327Z",
+        "reason": "model decided: a dot grid is the canvas ground, a spatial reference while dragging, and the same ground production ships on the projects Board (.nt-board); throwaway /editor-mockup fixture"
       }
     ]
   }

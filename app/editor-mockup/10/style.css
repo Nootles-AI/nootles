@@ -1,0 +1,665 @@
+/* 10 Inline — one line of chrome; the assistant answers in the page. */
+
+.n {
+  --stage-inset: 32px 0 0 0;
+}
+.n-world {
+  display: grid;
+  grid-template-rows: 32px minmax(0, 1fr);
+  height: 100%;
+}
+
+/* ---- The status line ----------------------------------------------------- */
+
+@keyframes n-line-in {
+  from {
+    opacity: 0;
+    translate: 0 -6px;
+  }
+}
+.n-status {
+  position: relative;
+  z-index: var(--z-sticky);
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  padding-inline: 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--background);
+  color: var(--muted);
+  font: var(--text-meta) var(--font-geist-mono), monospace;
+  letter-spacing: var(--tracking-meta);
+  text-transform: uppercase;
+  white-space: nowrap;
+  animation: n-line-in 600ms var(--ease) backwards;
+  --ek-face-ring: var(--background);
+}
+.n-status i {
+  color: var(--faint);
+  font-style: normal;
+}
+.n-crumbs {
+  display: flex;
+  flex: 1;
+  /* The right half is laid over the line, not beside it, so the two halves can
+     trade places; this keeps a long page title from running under it. */
+  max-width: calc(100% - 440px);
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+.n-crumbs > .n-seg:last-of-type {
+  min-width: 0;
+  color: var(--foreground);
+}
+.n-crumbs > .n-seg:last-of-type > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* A segment is a word you can press. Its underline is drawn, left to right. */
+.n-seg {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding-inline: 6px;
+  border-radius: var(--radius-sm);
+  letter-spacing: inherit;
+  text-transform: inherit;
+  transition: color var(--dur);
+}
+.n-seg::after {
+  content: "";
+  position: absolute;
+  right: 6px;
+  bottom: 3px;
+  left: 6px;
+  height: 1px;
+  background: currentColor;
+  scale: 0 1;
+  transform-origin: left center;
+  transition: scale 360ms var(--ease);
+}
+.n-seg:hover,
+.n-seg[aria-expanded="true"],
+.n-seg[aria-pressed="true"] {
+  color: var(--foreground);
+}
+.n-seg:hover::after,
+.n-seg[aria-expanded="true"]::after,
+.n-seg[aria-pressed="true"]::after {
+  scale: 1 1;
+}
+.n-seg:has(> .ek-kbd:only-child)::after {
+  content: none;
+}
+.n-seg svg {
+  flex: none;
+  transition: translate var(--dur-slow) var(--spring), rotate 600ms var(--spring);
+}
+a.n-seg:hover svg {
+  translate: -2px 0;
+}
+.n-seg[aria-expanded="true"] svg {
+  rotate: -90deg;
+}
+.n-status .ek-kbd {
+  min-width: 0;
+  padding: 0 4px;
+  font-size: 10px;
+  line-height: 16px;
+}
+
+/* Two right halves share one seat: the page's state, and the canvas's controls. */
+.n-state {
+  position: absolute;
+  top: 0;
+  right: 10px;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  opacity: 0;
+  visibility: hidden;
+  translate: 0 -8px;
+  filter: blur(4px);
+  transition: opacity var(--dur), translate var(--dur) var(--ek-in), filter var(--dur), visibility 0s var(--dur);
+}
+.n-state.is-canvas {
+  translate: 0 8px;
+}
+.n-state[data-on="true"] {
+  opacity: 1;
+  visibility: visible;
+  translate: 0 0;
+  filter: none;
+  transition: opacity var(--dur-slow) 100ms, translate 480ms var(--spring) 80ms, filter var(--dur-slow) 100ms, visibility 0s;
+}
+.n-fact {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding-inline: 4px;
+}
+.n-here .ek-face {
+  --size: 16px !important;
+  box-shadow: 0 0 0 1.5px var(--background);
+}
+.n-here .ek-facepile > * + * {
+  margin-left: -5px;
+}
+/* SAVED and SAVING… trade places; the word never jumps the line's width. */
+.n-saved {
+  display: inline-grid;
+  justify-items: start;
+  min-width: 7ch;
+}
+.n-saved > span {
+  grid-area: 1 / 1;
+  transition: opacity var(--dur), translate 320ms var(--spring);
+}
+.n-saved > :last-child,
+.n-saved[data-saving="true"] > :first-child {
+  opacity: 0;
+  translate: 0 5px;
+}
+.n-saved[data-saving="true"] > :last-child {
+  opacity: 1;
+  translate: 0 0;
+  color: var(--foreground);
+}
+.n-saved[data-saving="true"] > :first-child {
+  translate: 0 -5px;
+}
+.n-status .ek-account {
+  width: 24px;
+  height: 24px;
+  margin-left: 4px;
+}
+.n-status .ek-account .ek-face {
+  --size: 20px !important;
+}
+
+/* What the line opens. */
+.n-pop {
+  font: var(--text-ui) / 1.4 var(--font-geist-sans), sans-serif;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.n-pop-project {
+  display: grid;
+  gap: 2px;
+  width: 264px;
+  padding: 6px;
+}
+.n-pop-project .ek-find {
+  width: 100%;
+  margin-top: 4px;
+}
+.n-pop-pages {
+  width: 300px;
+  padding: 2px 6px 8px;
+}
+.n-pop-history {
+  width: 360px;
+  max-height: none;
+  padding: 0;
+  overflow: hidden;
+}
+.n-history {
+  display: flex;
+  flex-direction: column;
+  height: min(60vh, 520px);
+  animation: none;
+}
+
+/* ---- The page ------------------------------------------------------------ */
+
+.n-page {
+  position: relative;
+  min-height: 0;
+  overflow-y: auto;
+  scroll-padding-block: 120px;
+  background: var(--background);
+}
+.n .ek-doc {
+  padding-top: 72px;
+}
+
+/* The gutter's offer: ask here. One button for the whole page, placed beside
+   whichever block the pointer is over. */
+.n-gutter {
+  position: fixed;
+  top: var(--y, 0);
+  left: var(--x, 0);
+  z-index: var(--z-base);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: var(--control-sm);
+  padding-inline: 7px 9px;
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+  opacity: 0;
+  translate: -6px 0;
+  pointer-events: none;
+  transition: opacity var(--dur-fast), translate var(--dur) var(--ek-in), background var(--dur-fast), color var(--dur-fast), top 170ms var(--ease);
+}
+.n-gutter[data-on="true"] {
+  opacity: 1;
+  translate: 0 0;
+  pointer-events: auto;
+  transition: opacity var(--dur) 120ms, translate 420ms var(--spring) 100ms, background var(--dur-fast), color var(--dur-fast), top 170ms var(--ease);
+}
+.n-gutter:hover {
+  background: var(--hover);
+  color: var(--foreground);
+}
+.n-gutter:active {
+  scale: 0.95;
+}
+.n[data-mode="diagram"] .n-gutter {
+  display: none;
+}
+
+/* ---- The ask, in the flow ------------------------------------------------ */
+
+.n-ask {
+  font-size: var(--text-ui);
+  line-height: 1.4;
+}
+/* A fold is always laid out; what opens is the row it sits in. */
+.n-fold {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows 520ms var(--spring), opacity var(--dur-slow), filter var(--dur-slow);
+}
+.n-fold > * {
+  min-height: 0;
+  overflow: hidden;
+}
+.n-exchange[data-folded="true"] > .n-fold,
+.n-composer-fold[data-open="false"] {
+  grid-template-rows: 0fr;
+  opacity: 0;
+  filter: blur(6px);
+  transition: grid-template-rows 260ms var(--ease), opacity var(--dur), filter var(--dur);
+}
+.n-composer-fold > div {
+  /* Room for the composer's shadow inside the clip. */
+  margin: -12px;
+  padding: 12px;
+}
+
+.n-composer {
+  display: flex;
+  gap: 10px;
+  margin-block: 10px 14px;
+  padding: 10px 10px 8px 12px;
+  border-radius: 14px;
+  background: var(--elevated);
+  box-shadow: var(--ek-shadow-sm);
+  transition: box-shadow var(--dur-slow);
+}
+.n-composer:focus-within {
+  box-shadow: 0 0 0 1px var(--shape-line-active), 0 10px 28px -10px oklch(0.25 0.005 90 / 0.22);
+}
+.n-composer-mark {
+  flex: none;
+  margin-top: 3px;
+  color: var(--muted);
+  transition: color var(--dur-slow), rotate 900ms var(--spring);
+}
+.n-composer[data-busy] .n-composer-mark {
+  color: var(--accent);
+  rotate: 90deg;
+}
+.n-composer-body {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  gap: 6px;
+}
+.n-composer-body .ek-chip {
+  width: max-content;
+}
+.n-composer textarea {
+  display: block;
+  width: 100%;
+  resize: none;
+  outline: none;
+  font-size: var(--text-body);
+  line-height: 1.5;
+}
+.n-composer textarea::placeholder {
+  color: var(--muted);
+}
+.n-composer-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: -5px;
+}
+.n-hint {
+  flex: 1;
+  color: var(--muted);
+  font: var(--text-meta) var(--font-geist-mono), monospace;
+  letter-spacing: var(--tracking-meta);
+  text-transform: uppercase;
+}
+.n-hint kbd {
+  color: var(--foreground);
+  font: inherit;
+}
+.n-send {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--ek-ink);
+  color: var(--ek-on-ink);
+  transition: scale var(--dur-slow) var(--spring), background var(--dur), color var(--dur);
+}
+.n .n-send:disabled {
+  background: var(--sunken);
+  color: var(--faint);
+  opacity: 1;
+  scale: 0.86;
+}
+.n-send:not(:disabled):active {
+  scale: 0.9;
+}
+
+/* The line of record: what was asked, and what became of it. */
+@keyframes n-record-in {
+  from {
+    opacity: 0;
+    translate: 0 4px;
+  }
+}
+.n-record {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  min-height: 28px;
+  padding-block: 5px;
+  color: var(--muted);
+  font: var(--text-meta) var(--font-geist-mono), monospace;
+  letter-spacing: var(--tracking-meta);
+  text-align: left;
+  text-transform: uppercase;
+  animation: n-record-in 420ms var(--ease) backwards;
+}
+.n .n-record:disabled {
+  opacity: 1;
+  cursor: default;
+}
+.n-record b {
+  flex: none;
+  font-weight: 500;
+}
+.n-record em {
+  flex: none;
+  font-style: normal;
+  animation: n-record-in 520ms var(--ease) 120ms backwards;
+}
+.n-record-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--foreground);
+  font: 500 var(--text-body) / 1.5 var(--font-geist-sans), sans-serif;
+  letter-spacing: 0;
+  text-overflow: ellipsis;
+  text-transform: none;
+  white-space: nowrap;
+  transition: color var(--dur-slow), font-size var(--dur-slow);
+}
+.n-exchange[data-folded="true"] .n-record-text {
+  color: var(--muted);
+  font-size: var(--text-ui);
+  font-weight: 400;
+}
+.n-record:not(:disabled):hover .n-record-text,
+.n-record:not(:disabled):hover em {
+  color: var(--foreground);
+}
+.n-exchange + .n-exchange,
+.n-exchange + .n-composer-fold {
+  border-top: 1px solid var(--border);
+}
+.n-exchange:first-child {
+  margin-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.n-exchange:last-of-type[data-folded="true"] {
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* The answer: suggestion ink with one amber rule while it is being written,
+   the page's own ink once it has been. */
+.n-reply {
+  display: grid;
+  gap: 4px;
+  padding: 2px 0 14px 14px;
+  box-shadow: inset 1px 0 0 var(--border-strong);
+  transition: box-shadow 900ms;
+}
+.n-exchange[data-live="true"] .n-reply {
+  box-shadow: inset 1px 0 0 var(--accent-soft);
+}
+.n-step {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font: var(--text-meta) var(--font-geist-mono), monospace;
+  letter-spacing: var(--tracking-meta);
+  text-transform: uppercase;
+  animation: n-record-in 360ms var(--ease) backwards;
+}
+.n-step:nth-child(2) {
+  animation-delay: 60ms;
+}
+.n-step:nth-child(3) {
+  animation-delay: 120ms;
+}
+.n-answer {
+  margin-top: 2px;
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
+  text-wrap: pretty;
+  transition: color 900ms;
+}
+.n-answer[data-live="true"] {
+  color: var(--ghost);
+}
+@keyframes n-review-in {
+  from {
+    opacity: 0;
+    translate: 0 8px;
+    scale: 0.97;
+    filter: blur(4px);
+  }
+}
+.n-review {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 6px 6px 6px 12px;
+  border-radius: 12px;
+  background: var(--elevated);
+  box-shadow: var(--ek-shadow-sm);
+  animation: n-review-in 480ms var(--spring) 200ms backwards;
+}
+.n-review > span {
+  flex: 1;
+  color: var(--muted);
+}
+.n-review b {
+  color: var(--foreground);
+  font-weight: 500;
+}
+.n-review .ek-btn {
+  height: 28px;
+}
+
+/* ---- The left edge -------------------------------------------------------- */
+
+.n-edge {
+  position: fixed;
+  top: 32px;
+  bottom: 0;
+  left: 0;
+  z-index: var(--z-sticky);
+  width: 12px;
+}
+.n-edge[data-off] {
+  display: none;
+}
+.n-edge-tick {
+  position: absolute;
+  top: 50%;
+  left: 4px;
+  width: 3px;
+  height: 36px;
+  border-radius: 2px;
+  background: var(--border-strong);
+  translate: 0 -50%;
+  transition: opacity var(--dur), height var(--dur-slow) var(--spring);
+}
+.n-edge:hover > .n-edge-tick,
+.n-edge:focus-within > .n-edge-tick {
+  height: 56px;
+  opacity: 0;
+}
+.n-peek {
+  position: absolute;
+  top: 8px;
+  bottom: 64px;
+  left: 8px;
+  width: 240px;
+  overflow-y: auto;
+  padding: 2px 6px 8px;
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: var(--ek-shadow);
+  opacity: 0;
+  visibility: hidden;
+  translate: calc(-100% - 12px) 0;
+  transition: translate 260ms var(--ek-in) 160ms, opacity var(--dur) 200ms, visibility 0s 420ms;
+}
+.n-edge:hover > .n-peek,
+.n-edge:focus-within > .n-peek,
+.n-edge:has([aria-expanded="true"]) > .n-peek {
+  opacity: 1;
+  visibility: visible;
+  translate: 0 0;
+  transition: translate 520ms var(--spring), opacity var(--dur), visibility 0s;
+}
+
+/* ---- The canvas's panels, dropped from under the line --------------------- */
+
+.n-drop {
+  position: fixed;
+  top: 44px;
+  z-index: var(--z-sticky);
+  width: 260px;
+  max-height: calc(100dvh - 124px);
+  overflow-y: auto;
+  padding: 2px 6px 8px;
+  border-radius: 14px;
+  background: var(--elevated);
+  box-shadow: var(--ek-shadow);
+  opacity: 0;
+  visibility: hidden;
+  translate: 0 -14px;
+  scale: 0.97;
+  filter: blur(6px);
+  transform-origin: top center;
+  transition: opacity var(--dur-fast), translate var(--dur) var(--ek-in), scale var(--dur) var(--ek-in), filter var(--dur), visibility 0s var(--dur);
+}
+.n-drop.is-left {
+  left: 12px;
+}
+.n-drop.is-right {
+  right: 12px;
+  width: 292px;
+  padding-inline: 0;
+}
+.n-drop.is-right > .ek-inspector > .ek-section-label,
+.n-drop.is-right .ek-align {
+  padding-inline: 12px 8px;
+}
+.n-drop[data-on="true"] {
+  opacity: 1;
+  visibility: visible;
+  translate: 0 0;
+  scale: 1;
+  filter: none;
+  transition: opacity var(--dur-slow) 120ms, translate 560ms var(--spring) 100ms, scale 560ms var(--spring) 100ms, filter var(--dur-slow) 120ms, visibility 0s;
+}
+.n-drop.is-right[data-on="true"] {
+  transition-delay: 180ms, 160ms, 160ms, 180ms, 0s;
+}
+
+.n-dock {
+  position: fixed;
+  bottom: 64px;
+  left: 50%;
+  z-index: var(--z-sticky);
+  opacity: 0;
+  translate: -50% 24px;
+  scale: 0.94;
+  filter: blur(6px);
+  transition: all 200ms var(--ek-in);
+}
+.n-dock[data-on="true"] {
+  opacity: 1;
+  translate: -50% 0;
+  scale: 1;
+  filter: none;
+  transition: all 520ms var(--spring) 120ms;
+}
+
+@media (max-width: 900px) {
+  .n-crumbs {
+    max-width: calc(100% - 330px);
+  }
+  .n-state:not(.is-canvas) > .n-fact:first-child,
+  .n-state:not(.is-canvas) > .n-fact:first-child + i,
+  .n-crumbs > a.n-seg > span,
+  .n-crumbs > a.n-seg + i {
+    display: none;
+  }
+  .n .ek-doc {
+    padding-inline: 24px;
+  }
+  .n-gutter {
+    display: none;
+  }
+}
+@media (max-width: 640px) {
+  .n-here,
+  .n-here + i,
+  .n-state .n-seg > .ek-kbd:not(:only-child) {
+    display: none;
+  }
+  .n-drop {
+    width: calc(50vw - 18px);
+  }
+  .n-drop.is-right {
+    width: calc(50vw - 18px);
+  }
+}

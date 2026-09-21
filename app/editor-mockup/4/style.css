@@ -1,0 +1,439 @@
+/* 04 Margin — one sheet with tabs and a margin; the rails dissolve into the paper. */
+
+.m {
+  background: var(--surface);
+  --mw: 340px;
+  --paper: var(--background);
+  --ring: oklch(0.25 0.005 90 / 0.08);
+}
+.m-shell {
+  display: grid;
+  grid-template-rows: 56px minmax(0, 1fr);
+  height: 100%;
+}
+
+/* The projects page's header: tools left, whose place this is in the middle,
+   the one filled control alone on the right. */
+.m-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 16px;
+  padding-inline: 16px;
+  animation: ek-fade 500ms var(--ease) backwards;
+}
+.m-head-tools,
+.m-head-end {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.m-head-end {
+  justify-content: flex-end;
+  gap: 12px;
+}
+.m-head .ek-back {
+  flex: none;
+}
+.m-head .ek-find {
+  background: oklch(0.25 0.005 90 / 0.05);
+}
+.m-head .ek-find:hover {
+  background: oklch(0.25 0.005 90 / 0.085);
+}
+.m-title {
+  height: 36px;
+  padding-inline: 10px;
+  border-radius: 8px;
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: -0.018em;
+}
+
+.m-desk {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 0 12px 12px;
+}
+
+/* ---- Tabs ------------------------------------------------------------------
+   The strip sits above the sheet and over its hairline, so the open tab's
+   paper runs into the sheet's with nothing drawn between them. */
+.m-strip {
+  position: relative;
+  z-index: var(--z-base);
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  padding-left: 14px;
+}
+.m-tabs {
+  position: relative;
+  display: flex;
+  flex: 1;
+  align-items: flex-end;
+  gap: 2px;
+  min-width: 0;
+  padding: 6px 10px 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.m-tabs::-webkit-scrollbar {
+  display: none;
+}
+.m-tab-mark {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: var(--mark-w, 0);
+  height: 36px;
+  border-radius: 10px 10px 0 0;
+  background: var(--paper);
+  box-shadow: 0 -1px 0 var(--ring), -1px 0 0 var(--ring), 1px 0 0 var(--ring);
+  opacity: 0;
+  translate: var(--mark-x, 0) 0;
+  transition: translate 420ms var(--spring), width 320ms var(--ease), opacity var(--dur);
+  pointer-events: none;
+}
+[data-marked="true"] > .m-tab-mark {
+  opacity: 1;
+}
+/* The concave joins, where the tab's sides turn out into the sheet's edge. */
+.m-tab-mark::before,
+.m-tab-mark::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  width: 10px;
+  height: 10px;
+}
+.m-tab-mark::before {
+  right: 100%;
+  background: radial-gradient(circle at 0 0, transparent 9.5px, var(--ring) 9.5px, var(--ring) 10.5px, var(--paper) 10.5px);
+}
+.m-tab-mark::after {
+  left: 100%;
+  background: radial-gradient(circle at 100% 0, transparent 9.5px, var(--ring) 9.5px, var(--ring) 10.5px, var(--paper) 10.5px);
+}
+.m-tab {
+  position: relative;
+  display: flex;
+  flex: none;
+  align-items: center;
+  height: 36px;
+  max-width: 260px;
+  border-radius: 8px 8px 0 0;
+  color: var(--muted);
+  animation: ek-rise 460ms var(--ease) calc(80ms + var(--i) * 30ms) backwards;
+  transition: color var(--dur);
+}
+.m-tab[data-active="true"] {
+  color: var(--foreground);
+  font-weight: 500;
+}
+.m-tab-open {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  height: 28px;
+  margin: 0 4px;
+  padding-inline: 8px;
+  border-radius: var(--radius);
+  white-space: nowrap;
+  transition: background var(--dur-fast), color var(--dur-fast);
+}
+.m-tab-open > span:not(.ek-meta) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.m-tab-open > svg {
+  flex: none;
+  opacity: 0.8;
+}
+.m-tab:not([data-active="true"]) > button.m-tab-open:hover {
+  background: var(--hover);
+  color: var(--foreground);
+}
+.m-tab:not([data-active="true"]) > button.m-tab-open:active {
+  background: var(--active);
+}
+.m-tab-caret {
+  margin-left: -2px;
+  transition: rotate var(--dur-slow) var(--spring);
+}
+[aria-expanded="true"] > .m-tab-caret {
+  rotate: 180deg;
+}
+.m-tab-more {
+  margin: 0 6px 0 -6px;
+  animation: ek-grip-in 320ms var(--spring) 120ms backwards;
+}
+.m-tab-edit {
+  width: 150px;
+  height: 22px;
+  padding-inline: 4px;
+  border-radius: var(--radius-sm);
+  box-shadow: 0 0 0 1px var(--border-strong);
+  outline: none;
+}
+.m-tab-add {
+  align-self: center;
+  margin: 0 4px 0 6px;
+}
+.m-strip .ek-context {
+  flex: none;
+  width: auto;
+  height: 28px;
+  margin-bottom: 4px;
+}
+
+/* ---- The sheet: page and margin on one piece of paper ---------------------- */
+.m-sheet {
+  position: relative;
+  display: grid;
+  flex: 1;
+  grid-template-columns: minmax(0, 1fr) var(--mw);
+  grid-template-rows: minmax(0, 1fr);
+  min-height: 0;
+  overflow: hidden;
+  border-radius: 14px;
+  background: var(--paper);
+  box-shadow: 0 0 0 1px var(--ring), 0 1px 2px oklch(0.25 0.005 90 / 0.04), 0 16px 40px -20px oklch(0.25 0.005 90 / 0.14);
+  transition: grid-template-columns 420ms var(--ease);
+  --ek-face-ring: var(--paper);
+}
+.m-sheet[data-right="false"] {
+  --mw: 0px;
+}
+.m-main {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+}
+.m-page {
+  height: 100%;
+  overflow-y: auto;
+  scroll-padding-block: 120px;
+}
+.m-scrim {
+  display: none;
+}
+
+/* The toolbar stands upright in the sheet's left gutter, and comes in from
+   the edge it lives on. */
+.m-dock {
+  position: absolute;
+  top: 50%;
+  left: 16px;
+  z-index: var(--z-sticky);
+  opacity: 0;
+  translate: -28px -50%;
+  scale: 0.94;
+  filter: blur(6px);
+  transition: all 200ms var(--ek-in);
+}
+.m-dock[data-on="true"] {
+  opacity: 1;
+  translate: 0 -50%;
+  scale: 1;
+  filter: none;
+  transition: all 520ms var(--spring) 120ms;
+}
+.m .ek-bar[data-vertical] .ek-bar-zoom {
+  min-width: 0;
+  width: 32px;
+  padding: 0;
+  font-size: 10px;
+}
+@media (max-height: 640px) {
+  .m .ek-bar[data-vertical] .ek-bar-btn,
+  .m .ek-bar[data-vertical] .ek-bar-mark {
+    height: 28px;
+  }
+  .m .ek-bar[data-vertical] .ek-bar-mark {
+    translate: 0 calc(var(--at) * 30px);
+  }
+}
+
+.m-corner {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: var(--z-base);
+  opacity: 0;
+  scale: 0.8;
+  pointer-events: none;
+  transition: opacity var(--dur), scale var(--dur-slow) var(--spring);
+}
+.m-corner[data-on="true"] {
+  opacity: 1;
+  scale: 1;
+  pointer-events: auto;
+  transition-delay: 220ms;
+}
+
+/* ---- The margin ------------------------------------------------------------
+   Its contents keep their width while the column closes, so it leaves by the
+   sheet's right edge rather than being squeezed. */
+.m-margin {
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+}
+.m-margin-body {
+  position: absolute;
+  inset: 0 auto 0 0;
+  display: flex;
+  flex-direction: column;
+  width: 340px;
+  box-shadow: inset 1px 0 0 var(--border);
+  transition: opacity var(--dur-slow);
+}
+.m-margin[inert] .m-margin-body {
+  opacity: 0;
+}
+/* The well that chooses what the margin holds exists only in a diagram. */
+.m-margin-pick {
+  display: grid;
+  flex: none;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition: grid-template-rows 360ms var(--ease), opacity var(--dur);
+}
+.m-margin-pick > div {
+  min-height: 0;
+  overflow: hidden;
+}
+.m-margin-pick .ek-seg {
+  margin: 10px 10px 2px;
+}
+.m-margin-pick[data-on="true"] {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  transition: grid-template-rows 480ms var(--spring), opacity var(--dur-slow) 80ms;
+}
+.m-faces {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+/* Faces stand in the order of the well, and travel the way the thumb does. */
+.m-face {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity var(--dur), translate 320ms var(--ease), visibility 0s 320ms;
+}
+.m-face[data-side="before"] {
+  translate: -20px 0;
+}
+.m-face[data-side="after"] {
+  translate: 20px 0;
+}
+.m-face[data-side="on"] {
+  opacity: 1;
+  visibility: visible;
+  translate: 0 0;
+  transition: opacity var(--dur-slow) 60ms, translate 520ms var(--spring) 40ms, visibility 0s;
+}
+.m-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px 8px 80px;
+}
+.m .ek-composer {
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--border);
+}
+.m .ek-composer:focus-within {
+  background: var(--paper);
+}
+
+/* Narrow: the margin lifts off the sheet and becomes a drawer over it. */
+@media (max-width: 1100px) {
+  .m-sheet {
+    grid-template-columns: minmax(0, 1fr);
+    overflow: visible;
+  }
+  .m-main {
+    overflow: hidden;
+    border-radius: 14px;
+  }
+  .m-margin {
+    position: fixed;
+    top: 8px;
+    right: 8px;
+    bottom: 8px;
+    z-index: var(--z-sticky);
+    width: 340px;
+    max-width: calc(100vw - 16px);
+    border-radius: 14px;
+    background: var(--paper);
+    box-shadow: var(--ek-shadow), 0 40px 80px -24px oklch(0.25 0.005 90 / 0.3);
+    transition: translate 520ms var(--spring), opacity var(--dur);
+  }
+  .m-margin[inert] {
+    opacity: 0;
+    translate: calc(100% + 24px) 0;
+    transition: translate 240ms var(--ek-in), opacity 240ms;
+  }
+  .m-margin-body {
+    width: 100%;
+    box-shadow: none;
+  }
+  .m-margin[inert] .m-margin-body {
+    opacity: 1;
+  }
+  .m-scrim {
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-sticky);
+    display: block;
+    background: oklch(0.25 0.005 90 / 0.12);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--dur-slow);
+  }
+  .m-sheet[data-right="true"] > .m-scrim {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .m-strip .ek-context .ek-meta {
+    display: none;
+  }
+}
+@media (max-width: 760px) {
+  .m-head {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    padding-inline: 10px;
+  }
+  .m-head .ek-find > span,
+  .m-head .ek-back > span,
+  .m-head .ek-facepile,
+  .m-strip .ek-context {
+    display: none;
+  }
+  .m-head .ek-find {
+    width: auto;
+  }
+  .m-title {
+    justify-self: center;
+    font-size: 16px;
+  }
+  .m-desk {
+    padding: 0 6px 6px;
+  }
+  .m .ek-doc {
+    padding-inline: 24px;
+  }
+  .m-dock {
+    left: 6px;
+  }
+}

@@ -1,0 +1,200 @@
+/* 01 Quiet Rails — the sheet lies in a well; the rails are the well. */
+
+.q {
+  background: var(--surface);
+  --stage-inset: 8px calc(var(--r-now, 320px)) 8px calc(var(--l-now, 256px));
+  --l: 256px;
+  --r: 320px;
+}
+.q-shell {
+  display: grid;
+  grid-template-columns: var(--l) minmax(0, 1fr) var(--r);
+  grid-template-rows: minmax(0, 1fr);
+  height: 100%;
+  transition: grid-template-columns 420ms var(--ease);
+}
+.q-shell[data-left="false"] {
+  --l: 0px;
+}
+.q:has(.q-shell[data-left="false"]) {
+  --l-now: 8px;
+}
+.q:has(.q-shell[data-right="false"]) {
+  --r-now: 8px;
+}
+.q-shell[data-right="false"] {
+  --r: 0px;
+}
+
+/* A rail's contents keep their width while the column closes over them, so
+   nothing inside reflows on the way out. */
+.q-rail {
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+}
+.q-rail-body {
+  position: absolute;
+  inset: 0;
+  width: 256px;
+  transition: opacity var(--dur-slow), translate 420ms var(--ease);
+}
+.q-rail.is-right .q-rail-body {
+  right: 0;
+  left: auto;
+  width: 320px;
+}
+.q-rail[inert] .q-rail-body {
+  opacity: 0;
+}
+.q-rail.is-left[inert] .q-rail-body {
+  translate: -24px 0;
+}
+.q-rail.is-right[inert] .q-rail-body {
+  translate: 24px 0;
+}
+
+/* Two faces per rail. The incoming one slides in from the rail's outer edge,
+   so the swap says which side of the window it belongs to. */
+.q-face {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity var(--dur), translate 360ms var(--ease), visibility 0s 360ms;
+}
+.is-left .q-face {
+  translate: -16px 0;
+}
+.is-right .q-face {
+  translate: 16px 0;
+}
+.q-face[data-on="true"] {
+  opacity: 1;
+  visibility: visible;
+  translate: 0 0;
+  transition: opacity var(--dur-slow) 80ms, translate 520ms var(--spring) 60ms, visibility 0s;
+}
+.q-scroll {
+  display: grid;
+  flex: 1;
+  align-content: start;
+  gap: 2px;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 8px 80px;
+}
+.q-face > .q-scroll:first-child {
+  padding-top: 8px;
+}
+.q-grow {
+  flex: 1;
+}
+.q .ek-find {
+  width: 100%;
+  margin-block: 6px 8px;
+  background: oklch(0.25 0.005 90 / 0.045);
+}
+.q .ek-pages {
+  margin-top: 8px;
+}
+
+/* The sheet. */
+.q-col {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  padding: 8px 0;
+}
+.q-shell[data-left="false"] .q-col {
+  padding-left: 8px;
+}
+.q-shell[data-right="false"] .q-col {
+  padding-right: 8px;
+}
+.q .ek-diagram[data-expanded="true"] {
+  border-radius: 14px;
+}
+.q-sheet {
+  position: relative;
+  height: 100%;
+  overflow: hidden;
+  border-radius: 14px;
+  background: var(--background);
+  box-shadow: 0 0 0 1px oklch(0.25 0.005 90 / 0.07), 0 1px 2px oklch(0.25 0.005 90 / 0.04), 0 12px 32px -16px oklch(0.25 0.005 90 / 0.12);
+  --ek-face-ring: var(--background);
+}
+.q-page {
+  height: 100%;
+  overflow-y: auto;
+  scroll-padding-block: 120px;
+}
+.q-corner {
+  position: absolute;
+  top: 10px;
+  z-index: var(--z-base);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.q-corner.is-left {
+  left: 10px;
+  opacity: 0;
+  scale: 0.8;
+  pointer-events: none;
+  transition: opacity var(--dur), scale var(--dur-slow) var(--spring);
+}
+.q-corner.is-left[data-on="true"] {
+  opacity: 1;
+  scale: 1;
+  pointer-events: auto;
+  transition-delay: 200ms;
+}
+.q-corner.is-right {
+  right: 14px;
+}
+
+/* The toolbar rises under the sheet when the diagram is entered. */
+.q-dock {
+  position: absolute;
+  bottom: 64px;
+  left: 50%;
+  z-index: var(--z-sticky);
+  opacity: 0;
+  translate: -50% 24px;
+  scale: 0.94;
+  filter: blur(6px);
+  transition: all 200ms var(--ek-in);
+}
+.q-dock[data-on="true"] {
+  opacity: 1;
+  translate: -50% 0;
+  scale: 1;
+  filter: none;
+  transition: all 520ms var(--spring) 120ms;
+}
+
+@media (max-width: 1100px) {
+  .q {
+    --r: 288px;
+  }
+  .q-rail.is-right .q-rail-body {
+    width: 288px;
+  }
+}
+@media (max-width: 860px) {
+  .q-shell {
+    grid-template-columns: 0 minmax(0, 1fr) 0;
+  }
+  .q-col {
+    padding: 0;
+  }
+  .q-sheet {
+    border-radius: 0;
+  }
+  .q .ek-doc {
+    padding-inline: 24px;
+  }
+}
