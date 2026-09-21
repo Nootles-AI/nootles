@@ -435,6 +435,14 @@ function seedDiagram() {
   ]);
 }
 
+/** A change nowhere near the diagram, for a turn answered on a page that has one. */
+function agentHeading() {
+  return stageTurn(
+    [{ kind: "setBlockContent", blockId: idsWith("Storyboard")[0], content: [text("Storyboard — draft 2")] }],
+    [],
+  );
+}
+
 /** A whole-diagram write — the only way an agent edits one: a second shape. */
 function agentDiagram() {
   const block = editor.document.find((b) => b.type === "canvas")!;
@@ -516,6 +524,29 @@ function peerType(prefix: string, value: string) {
     return;
   }
   throw new Error(`no text in ${prefix}`);
+}
+
+/** A collaborator writing a NEW paragraph under the block that starts with `prefix`. */
+function peerAdd(prefix: string, value: string) {
+  const id = idsWith(prefix)[0];
+  const group = peer.getXmlFragment("prosemirror").get(0) as Y.XmlElement;
+  const blocks = group.toArray() as Y.XmlElement[];
+  const at = blocks.findIndex((el) => el.getAttribute("id") === id);
+  const sample = blocks[at];
+  peer.transact(() => {
+    // Cloned rather than built: a block container carries whatever attributes
+    // the schema gives it, and a hand-made one y-prosemirror cannot read is a
+    // fixture bug reported as a product one.
+    const block = sample.clone();
+    group.insert(at + 1, [block]);
+    block.setAttribute("id", `peer-${Math.random().toString(36).slice(2, 8)}`);
+    for (const node of block.createTreeWalker((n) => n instanceof Y.XmlText)) {
+      const words = node as Y.XmlText;
+      words.delete(0, words.length);
+      words.insert(0, value);
+      return;
+    }
+  }, "peer");
 }
 
 /** A cell as a run list: plain text, or runs carrying their marks. */
@@ -712,6 +743,8 @@ const harness = {
   peerDraws,
   shapePoint,
   peerType,
+  peerAdd,
+  agentHeading,
   seedTable,
   agentTable,
   seedList,
