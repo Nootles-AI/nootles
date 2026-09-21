@@ -1,14 +1,14 @@
 /**
  * Pro, pictured: a team of characters building one Nootles document together.
- * The turtle walks in writing the header, the bear slides down a rope with the
- * card the flowchart is missing and sets it in place, the elephant paints the
- * mockups, the alien hammers out the code — then it all fades and they build
- * it again.
+ * The turtle walks in and writes the header word by word; the bear is lowered
+ * on a rope with the card the flowchart is missing, swings out and sets it in
+ * place, and climbs away; the elephant walks in and paints the mockups; the
+ * alien marches in and hammers out the code a line a blow.
  *
- * The choreography lives in the SVG's own stylesheet (`public/pro/team-doc.svg`),
- * so this is a plain image: nothing here re-renders to drive it, and it costs
- * the palette nothing until the row is shown. Decorative, and marked so: the
- * row it sits beside says what it is.
+ * The animation is built into the SVG by `scripts/pro-art/build.mjs` (rigged
+ * limbs, eyes and antennae, keyframes on one clock), so this is a plain image:
+ * nothing here re-renders to drive it. Decorative, and marked so: the row it
+ * sits beside says what it is.
  */
 export function ProLift() {
   return (
