@@ -539,8 +539,8 @@ function Palette({
                 <BlankStart />
               ) : current?.picture === "notion" ? (
                 <NotionPort />
-              ) : current?.picture === "pro" && left ? (
-                <ProLift left={left} />
+              ) : current?.picture === "pro" ? (
+                <ProLift />
               ) : current?.template ? (
                 <TemplatePreview key={current.id} template={current.template} />
               ) : (

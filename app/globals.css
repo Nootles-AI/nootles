@@ -5166,158 +5166,25 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar) .nt-reformat-switcher {
 }
 }
 
-/* ---- Pro, lifted ----
-   Behind "Upgrade to Pro": the account's own allowance, in the paywall's
-   language — a strip of marks per meter — and then lifted. On a 7.2-second
-   loop each strip is swept by ink, row after row (`--n` is its turn), its
-   marks fused into one bar as the count turns from "N of M left" to "No
-   limit"; it holds, lets go, and begins again. The sheet sits wholly in the
-   pane, unlike its neighbours': the sweep has to be seen to reach the end. */
+/* ---- Pro ----
+   Behind "Upgrade to Pro": the team picture, a whole document on its sheet,
+   fitted into the pane rather than cut by it — the characters are at its
+   edges, and a cropped one reads as a mistake. */
 .nt-pro {
-  --loop: 7.2s;
   position: absolute;
   inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
   animation: nt-fade-in var(--dur-slow) var(--ease);
 }
-.nt-pro-sheet {
-  position: absolute;
-  top: 28px;
-  right: 28px;
-  left: 28px;
-  padding: 28px 26px 24px;
-  border-radius: 8px;
-  background: var(--background);
-  box-shadow:
-    0 0 0 1px var(--border),
-    0 2px 4px oklch(0.25 0.005 90 / 0.05),
-    0 24px 48px -20px oklch(0.25 0.005 90 / 0.3);
+.nt-pro-art {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  user-select: none;
+  filter: drop-shadow(0 18px 30px oklch(0.25 0.005 90 / 0.14));
   animation: nt-rise 600ms var(--ease) backwards;
-}
-.nt-pro-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 22px;
-  font-weight: 600;
-  letter-spacing: -0.02em;
-  color: var(--foreground);
-}
-.nt-pro-badge {
-  padding: 3px 9px;
-  border-radius: 999px;
-  background: var(--foreground);
-  color: var(--background);
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.01em;
-}
-.nt-pro-sub {
-  margin-top: 4px;
-  margin-bottom: 4px;
-  font-size: var(--text-ui);
-  color: var(--muted);
-}
-.nt-pro-row {
-  margin-top: 24px;
-  animation: nt-rise 600ms var(--ease) backwards;
-  animation-delay: calc(80ms + var(--n) * 60ms);
-}
-.nt-pro-said {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 8px;
-  font-size: var(--text-ui);
-  color: var(--foreground);
-  white-space: nowrap;
-}
-/* The two counts share one cell, so trading them never moves the row. */
-.nt-pro-count {
-  display: grid;
-  justify-items: end;
-  font-family: var(--font-mono), ui-monospace, monospace;
-  font-size: var(--text-meta);
-  letter-spacing: var(--tracking-meta);
-  color: var(--muted);
-}
-.nt-pro-count > span {
-  grid-area: 1 / 1;
-  animation: var(--loop) var(--ease) infinite;
-  animation-delay: calc(var(--n) * 220ms);
-}
-.nt-pro-count .is-free {
-  animation-name: nt-pro-free;
-}
-.nt-pro-count .is-pro {
-  color: var(--foreground);
-  opacity: 0;
-  animation-name: nt-pro-lifted;
-}
-.nt-pro-strip {
-  position: relative;
-  display: flex;
-  gap: var(--gap);
-  height: 12px;
-}
-.nt-pro-strip > span:not(.nt-pro-fill) {
-  flex: 1;
-  border-radius: 1.5px;
-  background: var(--foreground);
-  opacity: 0.78;
-}
-.nt-pro-strip > span.is-spent {
-  background: var(--border-strong);
-  opacity: 1;
-}
-/* The ink that lifts it: one solid bar over the marks, grown from the left —
-   while it holds, nothing countable shows through. */
-.nt-pro-fill {
-  position: absolute;
-  inset: -1px;
-  border-radius: 2.5px;
-  background: var(--foreground);
-  transform: scaleX(0);
-  transform-origin: left;
-  animation: nt-pro-sweep var(--loop) var(--ease) infinite;
-  animation-delay: calc(var(--n) * 220ms);
-}
-@keyframes nt-pro-sweep {
-  0%, 22% { transform: scaleX(0); opacity: 1; }
-  36%, 84% { transform: scaleX(1); opacity: 1; }
-  94% { transform: scaleX(1); opacity: 0; }
-  100% { transform: scaleX(0); opacity: 0; }
-}
-@keyframes nt-pro-free {
-  0%, 28% { opacity: 1; }
-  33%, 88% { opacity: 0; }
-  95%, 100% { opacity: 1; }
-}
-@keyframes nt-pro-lifted {
-  0%, 29% { opacity: 0; transform: translateY(3px); }
-  35%, 86% { opacity: 1; transform: none; }
-  92%, 100% { opacity: 0; transform: none; }
-}
-.nt-pro-foot {
-  margin-top: 26px;
-  font-size: var(--text-meta);
-  color: var(--faint);
-}
-/* Held still, it shows the answer: lifted. */
-@media (prefers-reduced-motion: reduce) {
-  .nt-pro-fill {
-    animation: none;
-    transform: none;
-  }
-  .nt-pro-count > span {
-    animation: none;
-  }
-  .nt-pro-count .is-free {
-    opacity: 0;
-  }
-  .nt-pro-count .is-pro {
-    opacity: 1;
-  }
 }
 
 /* ---- Feedback ------------------------------------------------------------
