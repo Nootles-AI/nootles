@@ -37,6 +37,7 @@ import { ChatPanel } from "./ChatPanel";
 import { ReviewBar } from "./ReviewBar";
 import { ResizeHandle } from "./ResizeHandle";
 import { WorkspacePalette } from "./WorkspacePalette";
+import { useLinger } from "@/app/lib/useLinger";
 import { PanelsProvider } from "./PanelsContext";
 import { PagesProvider, type PageRef } from "./PagesContext";
 import { CompletionContextProvider } from "./editor/ai/CompletionContext";
@@ -75,6 +76,8 @@ const NEVER_CHANGES = () => () => {};
 const LEFT_W = `var(${VARS.left})`;
 const RIGHT_W = `var(${VARS.right})`;
 const DRAWER_W = "288px";
+/** How long a rail takes to close; `.nt-rail-slot` in globals.css agrees. */
+const RAIL_MS = 320;
 
 /* Below this the three fixed panels leave no usable column for the document
    (462px of chrome against a 560px viewport left 2px of text), so they stop
@@ -293,6 +296,7 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
     () => false,
   );
   const chrome = !(canvas && minimal);
+
 
   // Restore persisted layout on the client. Defaults render first (so SSR and
   // the first client render match — no hydration mismatch), then we sync from
@@ -535,6 +539,20 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
     pageRef.current = effectivePageId ?? null;
   });
 
+
+  // A rail closes over its contents rather than vanishing with them, so what
+  // was in it stays mounted for as long as the closing takes. Opening needs no
+  // such grace: the contents are there from the first frame.
+  const leftRail = chrome && (!!canvasPanels || showLeft);
+  const leftHeld = useLinger(leftRail, RAIL_MS);
+  // The chat only closes like that when it is put away. When a diagram or a
+  // place takes the rail from it, the two would stand side by side for the
+  // length of the animation and squeeze the page between them — so that is a
+  // cut, and the incoming panel's own entrance is the movement.
+  const rightClaimed = !!canvasPanels || !!placePanel;
+  const rightRail = chrome && !viewer && showRight && !rightClaimed;
+  const rightHeld = useLinger(rightRail, RAIL_MS) && !rightClaimed && !compact;
+
   const sidebar = (
     <Sidebar
       width={compact ? DRAWER_W : LEFT_W}
@@ -592,32 +610,32 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
           } as CSSProperties
         }
       >
-        {!chrome ? null : canvasPanels ? (
-          <>
-            <aside
-              className="nt-panel nt-rail-l"
-              style={{ width: LEFT_W }}
-              aria-label="Layers"
-              {...undoScope}
-            >
-              <LayersPanel
-                store={canvasPanels.api.store}
-                selection={canvasPanels.api.selection}
-              />
-            </aside>
-            <ResizeHandle onResize={onResizeLeft} ariaLabel="Resize layers" />
-          </>
-        ) : showLeft ? (
-          <>
-            {sidebar}
-            <ResizeHandle onResize={onResizeLeft} ariaLabel="Resize sidebar" />
-          </>
-        ) : (
-          <EdgeRail
-            side="left"
-            onClick={() => (compact ? setDrawer("left") : setLeftOpen(true))}
-            label="Open sidebar"
-            expanded={openDrawer === "left"}
+        {/* The left rail's place. It closes over what it holds (see `leftHeld`),
+            so the sidebar is seen leaving rather than blinking out; layers
+            take the same place, and arrive with their own entrance. */}
+        {!compact && (
+          <div className="nt-rail-slot" data-open={leftRail} style={{ "--w": LEFT_W } as CSSProperties}>
+            {canvasPanels ? (
+              <aside
+                className="nt-panel nt-rail-l"
+                style={{ width: LEFT_W }}
+                aria-label="Layers"
+                {...undoScope}
+              >
+                <LayersPanel
+                  store={canvasPanels.api.store}
+                  selection={canvasPanels.api.selection}
+                />
+              </aside>
+            ) : (
+              leftHeld && chrome && sidebar
+            )}
+          </div>
+        )}
+        {leftRail && !compact && (
+          <ResizeHandle
+            onResize={onResizeLeft}
+            ariaLabel={canvasPanels ? "Resize layers" : "Resize sidebar"}
           />
         )}
 
@@ -628,19 +646,47 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
             settles the shell, and anything that must paint over the whole
             app (menus, dialogs, the block-handle cluster) portals to the
             body rather than fighting this boundary from inside. */}
-        <div ref={columnRef} className="nt-well relative isolate flex min-w-0 flex-1">
+        <div
+          ref={columnRef}
+          className="nt-well relative isolate flex min-w-0 flex-1"
+          data-edge-l={!leftRail || undefined}
+          data-edge-r={!(rightRail || (chrome && rightClaimed)) || undefined}
+        >
           {/* The workspace has no top bar, so presence floats where a top
               bar's corner would be — over the focused document. */}
-          <div
-            className="pointer-events-none absolute right-5 top-5"
-            style={{ zIndex: "var(--z-sticky)" }}
-          >
+          {/* A rail that is put away leaves its way back in the sheet's corner,
+              on the side it went to. */}
+          {chrome && !leftRail && (
+            <div className="nt-corner is-left">
+              <button
+                onClick={() => (compact ? setDrawer("left") : setLeftOpen(true))}
+                aria-label="Open sidebar"
+                aria-expanded={openDrawer === "left"}
+                title="Open sidebar"
+                className="nt-icon-btn"
+              >
+                <PanelLeft />
+              </button>
+            </div>
+          )}
+          <div className="nt-corner is-right">
             <Facepile
               docId={
                 sortedPages?.find((p) => p._id === effectivePageId)?.docId ??
                 null
               }
             />
+            {chrome && !viewer && !rightRail && !rightClaimed && (
+              <button
+                onClick={() => (compact ? setDrawer("right") : setRightOpen(true))}
+                aria-label="Open chat"
+                aria-expanded={openDrawer === "right"}
+                title="Open chat"
+                className="nt-icon-btn"
+              >
+                <PanelRight />
+              </button>
+            )}
           </div>
           {mainPageId ? (
             <PageSurface
@@ -668,27 +714,25 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
           )}
         </div>
 
-        {/* Viewers have no chat: their AI would need the pen. No rail, no
-            edge tab — absence, not a locked door. */}
+        {/* Viewers have no chat: their AI would need the pen. No rail, no way
+            back to one — absence, not a locked door. */}
         {!chrome ? null : canvasPanels ? (
           <CanvasStylePanel api={canvasPanels.api} />
         ) : placePanel ? (
           <LocationPanel active={placePanel} />
-        ) : viewer ? null : showRight ? (
+        ) : rightRail ? (
           <ResizeHandle onResize={onResizeRight} ariaLabel="Resize chat" />
-        ) : (
-          <EdgeRail
-            side="right"
-            onClick={() => (compact ? setDrawer("right") : setRightOpen(true))}
-            label="Open chat"
-            expanded={openDrawer === "right"}
-          />
-        )}
+        ) : null}
 
         {/* Inspector swaps, rail collapse and compact-drawer dismissal only hide
             this panel. The one mounted instance keeps an active response alive
-            wherever the chat happens to be shown. */}
-        {!viewer && <ChatPanel {...chatProps} hidden={chatHidden} />}
+            wherever the chat happens to be shown. Its slot closes over it the
+            way the left one does, and the panel is only hidden once it has. */}
+        {!viewer && (
+          <div className="nt-rail-slot is-right" data-open={rightRail} style={{ "--w": RIGHT_W } as CSSProperties}>
+            <ChatPanel {...chatProps} hidden={chatHidden && !rightHeld} />
+          </div>
+        )}
 
         {/* One bar, one corner. The tool palette is transient and the review is a
             standing question, so while a diagram is being edited the palette has
@@ -782,37 +826,6 @@ function EmptyWorkspace() {
       <p className="max-w-xs text-sm text-muted">
         Press + in the sidebar to start one.
       </p>
-    </div>
-  );
-}
-
-/**
- * The rail shown in place of a collapsed panel. Its padding matches the panel's
- * own `--inset`, so the toggle button keeps its size and its distance from the
- * edge whether the panel is open or closed, instead of jumping.
- */
-function EdgeRail({
-  side,
-  onClick,
-  label,
-  expanded,
-}: {
-  side: "left" | "right";
-  onClick: () => void;
-  label: string;
-  expanded: boolean;
-}) {
-  return (
-    <div className="flex h-full shrink-0 flex-col bg-surface p-2">
-      <button
-        onClick={onClick}
-        aria-label={label}
-        aria-expanded={expanded}
-        title={label}
-        className="nt-icon-btn"
-      >
-        {side === "left" ? <PanelLeft /> : <PanelRight />}
-      </button>
     </div>
   );
 }
