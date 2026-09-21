@@ -103,6 +103,13 @@ export type CompositionRecovery = {
   text: string;
 };
 
+type InlineTarget = {
+  block: Extract<NmlBlock, { content: NmlInlineContent }>;
+  nodeId: string;
+  from: number;
+  to: number;
+};
+
 const PLAIN_TEXT_TYPES = new Set<NmlBlock["type"]>(["paragraph", "heading", "quote"]);
 const INLINE_BLOCK_TYPES = new Set<NmlBlock["type"]>([
   "paragraph", "heading", "quote", "bulletListItem", "numberedListItem", "checkListItem", "toggleListItem",
@@ -375,12 +382,7 @@ export abstract class NmlViewBridge {
     replacement.setSelection(Selection.fromJSON(replacement.doc, transaction.selection.toJSON()));
     return replacement;
   }
-  private selectedInlineBlock(): {
-    block: Extract<NmlBlock, { content: NmlInlineContent }>;
-    nodeId: string;
-    from: number;
-    to: number;
-  } | null {
+  private selectedInlineBlock(): InlineTarget | null {
     if (!this.source) return null;
     const find = (position: number) => {
       let entry = this.index.nodeAt(position) ?? (position > 0 ? this.index.nodeAt(position - 1) : null);
@@ -553,10 +555,77 @@ export abstract class NmlViewBridge {
       this.current.tr.setNodeMarkup(entry.pmStart, undefined, { ...node.attrs, checked }),
     );
   }
+  /**
+   * Enter on an empty block — the keystroke that leaves a list.
+   *
+   * Splitting an empty block yields another empty block of the same type, which
+   * on a list item is the next bullet and never the way out: Enter on an empty
+   * item made empty items forever, so a list could not be left by Enter at all
+   * (NT-67). The shipped BlockNote surface answers that keystroke with two rules
+   * instead, and these are their canonical equivalents — see
+   * `app/components/editor/blocks/listSafe.ts`, which the two surfaces must keep
+   * in step with each other for as long as both exist:
+   *
+   * - An empty block with a parent steps out one level and stays the kind of
+   *   block it is. Only list items may hold children in NML v1, so "nested" and
+   *   "inside a list" are one condition, and the step out is the move Shift+Tab
+   *   already makes.
+   * - An empty top-level list item becomes a paragraph, which is how BlockNote
+   *   ends a list and stays the way out here.
+   *
+   * Either is one batch, so one keystroke is one undo. A top-level item holding
+   * children needs one command more than BlockNote does: BlockNote leaves them
+   * under the new paragraph, a shape NML cannot hold, so they are hoisted to
+   * siblings — the repair the legacy converter already makes for the same reason
+   * (`legacy_flattened_children`), which is therefore also the document a user of
+   * the shipped surface arrives at through the mirror.
+   *
+   * Returns null when the keystroke is an ordinary split.
+   */
+  private leaveEmptyBlock(target: InlineTarget): boolean | null {
+    if (!this.source || inlineLength(target.block.content)) return null;
+    const here = mutableSiblings(this.source, target.nodeId);
+    if (!here) return null;
+    if (here.parentId !== null) return this.indentSelection(true);
+    if (!NML_LIST_TYPES.has(target.block.type)) return null;
+    const desired = structuredClone(this.source);
+    const location = mutableSiblings(desired, target.nodeId);
+    const block = mutableBlock(desired, target.nodeId);
+    if (!location || !block || !("content" in block)) return null;
+    const children = block.children;
+    block.type = "paragraph";
+    block.props = {} as typeof block.props;
+    block.children = [];
+    location.siblings.splice(location.index + 1, 0, ...children);
+    // One move per child, each anchored on the one before it. `moveNodes` gives
+    // every id in a batch the same order key, so moving them together would
+    // leave their order to the id tiebreak rather than the order they were in.
+    let afterId = target.nodeId;
+    const commands: NmlCommand[] = children.map((child) => {
+      const move: NmlCommand = {
+        type: "moveNodes",
+        nodeIds: [child.id],
+        destination: { parentId: null, anchor: { afterId } },
+      };
+      afterId = child.id;
+      return move;
+    });
+    commands.push({ type: "setTextBlockType", nodeId: target.nodeId, blockType: "paragraph", props: {} });
+    return this.commitDocument(
+      desired,
+      commands,
+      [target.nodeId, ...children.map((child) => child.id)],
+      "leave-list",
+      [],
+      { nodeId: target.nodeId, anchor: 0, head: 0 },
+    );
+  }
   splitSelection(): boolean {
     if (this.editingScope !== "full") return false;
     const target = this.selectedInlineBlock();
     if (!target || target.from !== target.to || !this.source) return false;
+    const left = this.leaveEmptyBlock(target);
+    if (left !== null) return left;
     const desired = structuredClone(this.source);
     const location = mutableSiblings(desired, target.nodeId);
     const block = mutableBlock(desired, target.nodeId);

@@ -254,16 +254,21 @@ const harness = {
   resolveAuthorization: (allowed: boolean) => { const resolve = resolveAuthorization; resolveAuthorization = undefined; authorization = "allow"; resolve?.(allowed); },
   selectInline: (nodeId: string, from: number, to = from) => {
     if (!(bridge instanceof EditableNmlBridge)) return false;
+    // Focus first. Focusing the contenteditable puts the caret wherever the
+    // browser likes and ProseMirror reads that back into its state, so focusing
+    // after the dispatch threw the selection away — and the synthetic key that
+    // followed acted on whatever block the caret landed in, or on none (NT-66).
+    // A code block's CodeMirror takes focus whenever a structural edit
+    // reprojects the document, so this runs before every selection, not once.
+    (document.querySelector("#bridge .nt-nml-view") as HTMLElement | null)?.focus();
     const entry = bridge.index.get(nodeId);
     const node = entry ? bridge.state.doc.nodeAt(entry.pmStart) : null;
     if (!entry?.contentStart || !node) return false;
-    const changed = bridge.dispatch(bridge.state.tr.setSelection(TextSelection.create(
+    return bridge.dispatch(bridge.state.tr.setSelection(TextSelection.create(
       bridge.state.doc,
       entry.contentStart + nmlInlineOffsetToPm(node, from, "after"),
       entry.contentStart + nmlInlineOffsetToPm(node, to, "before"),
     )));
-    (document.querySelector("#bridge .nt-nml-view") as HTMLElement | null)?.focus();
-    return changed;
   },
   setLink: (href: string | null) => bridge instanceof EditableNmlBridge && bridge.setLink(href),
   insertInlineMath: (latex: string) => bridge instanceof EditableNmlBridge && bridge.insertInlineMath(latex),
