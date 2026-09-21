@@ -23,6 +23,10 @@ import {
 } from "@/app/lib/history/useWorkspaceHistory";
 import { LayersPanel } from "./editor/canvas/panels/LayersPanel";
 import { Toolbar } from "./editor/canvas/Toolbar";
+import { isApplePlatform, matchShortcut } from "./editor/canvas/engine/shortcuts";
+import type { DrawKind } from "./editor/canvas/render/newShape";
+import { useEditorRegistry } from "./editor/EditorRegistry";
+import { PageToolbar, pageToolFor, usePageDraw, type PageTool } from "./PageDraw";
 import {
   CanvasShellContext,
   CanvasStylePanel,
@@ -583,6 +587,68 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
   const toolsOn = chrome && !!canvas && !canvas.api.board;
   const toolsHeld = useLinger(toolsOn, TOOLS_MS) && !!lastTools;
 
+  // With no diagram in hand the bar stays, holding the page's own tools: a
+  // shape armed there draws a new diagram onto the page. The page is only ever
+  // armed while nothing is being edited, so a claim disarms it by itself.
+  const registry = useEditorRegistry();
+  const [heldPageTool, setPageTool] = useState<PageTool>("move");
+  const pageBarOn = chrome && !viewer && !compact && !toolsHeld;
+  const pageTool: PageTool = pageBarOn ? heldPageTool : "move";
+
+  // What a diagram just made or pressed into should be doing once it has
+  // claimed the shell: the shape drawn selected, or the tool carried in armed.
+  const arriving = useRef<{ blockId: string; tool?: DrawKind; select?: string } | null>(null);
+  useEffect(() => {
+    const next = arriving.current;
+    if (!canvas || next?.blockId !== canvas.blockId) return;
+    arriving.current = null;
+    if (next.tool) canvas.api.tools.set(next.tool);
+    if (next.select) canvas.api.selection.select([next.select]);
+  }, [canvas]);
+  const enter = useCallback((blockId: string, then: { tool?: DrawKind; select?: string }) => {
+    arriving.current = { blockId, ...then };
+    void awaitSurface(blockId).then((claim) => claim?.());
+  }, []);
+  usePageDraw({
+    well: columnRef,
+    tool: pageTool,
+    registry,
+    onTool: setPageTool,
+    onDrawn: useCallback((blockId: string, nodeId: string) => enter(blockId, { select: nodeId }), [enter]),
+    onIntoDiagram: useCallback(
+      (blockId: string, tool: DrawKind) => {
+        setPageTool("move");
+        enter(blockId, { tool });
+      },
+      [enter],
+    ),
+  });
+
+  // ⌥⇧ and a letter, the diagram's own keys, pick the page's tools — heard in
+  // the editor too, since the modifiers are what keep them from being typing.
+  // A diagram in hand answers them itself.
+  useEffect(() => {
+    if (!pageBarOn) return;
+    const apple = isApplePlatform();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return;
+      if (e.key === "Escape" && heldPageTool !== "move") {
+        e.preventDefault();
+        setPageTool("move");
+        return;
+      }
+      const el = e.target as HTMLElement | null;
+      if (el?.closest?.("input, textarea, math-field, [role='dialog']")) return;
+      const next = pageToolFor(matchShortcut(e, apple));
+      if (!next) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setPageTool(next);
+    };
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
+  }, [pageBarOn, heldPageTool]);
+
   // The diagram being edited says so on its own element: its ground shows the
   // dots and its edge (`.nt-canvas[data-live]`). Written from here because the
   // shell is what knows which one it is, and as an attribute rather than state
@@ -837,9 +903,12 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
               leaving={!toolsOn}
             />
           ) : (
-            // Here rather than under the editor: the changes it answers for can
-            // span pages, and the agent opens pages on its own.
-            <ReviewBar />
+            <>
+              {pageBarOn && <PageToolbar tool={pageTool} onTool={setPageTool} />}
+              {/* Here rather than under the editor: the changes it answers for
+                  can span pages, and the agent opens pages on its own. */}
+              <ReviewBar />
+            </>
           )}
         </div>
 

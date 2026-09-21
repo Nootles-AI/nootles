@@ -158,6 +158,7 @@ export function PageSurface({
         same answer. */}
     <main
       className={`nt-pane flex flex-1 flex-col overflow-auto${idle ? " is-idle" : ""}`}
+      data-page-id={pageId}
       onPointerDownCapture={() => focusPane(pane)}
       onFocusCapture={() => focusPane(pane)}
     >
