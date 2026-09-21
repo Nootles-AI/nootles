@@ -1,6 +1,6 @@
 "use client";
 
-import type { ChatDraft } from "@/app/lib/ai/chat/useProjectChat";
+import type { ChatDraft } from "@/app/lib/ai/chat/types";
 
 /**
  * What the person was about to do when money stopped them, kept across the
