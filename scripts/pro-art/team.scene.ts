@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import {
-  character, part, svgShape, mask, clipPath, linearGradient, keys, sampled, cueSheet, within,
+  character, part, svgShape, mask, clipPath, linearGradient, keys, sampled, cueSheet, within, ellipse, circle, rect,
   easeInOut, easeOut, easeIn, linear, cubicBezier,
 } from './heron/src/index.ts';
 import type { Channel, ClipRef, MaskRef, PaintRef, Vec2 } from './heron/src/index.ts';
@@ -110,12 +110,17 @@ function shadeOnly(n: Node, keep: number[]): void {
 
 const CUES = cueSheet(D, {
   turtleWalk: [0.4, 3.0],
-  write: [3.1, 8.3],
-  ropeDown: [8.1, 8.8],
-  bearDown: [8.7, 10.1],
-  handOver: [10.5, 11.7],
-  bearUp: [12.3, 13.9],
-  ropeUp: [13.8, 14.5],
+  turn: [3.0, 3.4],
+  write: [3.45, 8.3],
+  ropeDown: [7.8, 8.5],
+  ropeSettle: [8.5, 9.9],
+  bearLife: [8.85, 16.3],
+  bearDown: [8.9, 10.3],
+  cinch: [10.25, 10.85],
+  land: [10.3, 11.1],
+  handOver: [10.9, 11.9],
+  bearUp: [12.3, 15.9],
+  ropeUp: [16.0, 16.6],
   elephantWalk: [13.4, 16.0],
   paint: [16.1, 19.4],
   alienWalk: [18.7, 20.9],
@@ -227,13 +232,14 @@ function walk(opts: {
  * Builds a character's parts from index lists into its drawing, in the
  * drawing's order. `bob` wrappers ride the walk's body bob; legs do not.
  */
-type Piece = { name: string; idx: number[]; pivot?: Vec2; contact?: Vec2; leg?: boolean; shade?: [number, number[]] };
+type Piece = { name: string; idx: number[]; pivot?: Vec2; contact?: Vec2; leg?: boolean; shade?: [number, number[]]; extra?: () => void };
 function cast(name: string, id: string, bobPivot: Vec2, pieces: Piece[], nodes = kids(id)): void {
   part(name, { pivot: bobPivot, offstage: true }, () => {
     for (const p of pieces) {
       const body = () => {
         for (const i of p.idx) draw(nodes[i]);
         if (p.shade) shadeOnly(nodes[p.shade[0]], p.shade[1]);
+        p.extra?.();
       };
       if (p.leg) part(p.name, { pivot: p.pivot!, ...(p.contact ? { contact: p.contact } : {}) }, body);
       else {
@@ -314,6 +320,22 @@ function boxes(n: Node): Box[] {
 const CARD_C: Vec2 = [1202.3, 687.9];
 const SLOT_C: Vec2 = [1195.8, 618];
 const ROPE_TOP: Vec2 = [1336, 0];
+// The rope ends in a knot and a loop, hung so the loop closes round the bear's
+// waist — the hitch drawn on its back — when it arrives on the rope.
+const KNOT: Vec2 = [1336, 548];
+const LOOP_C: Vec2 = [1340, 616];
+const LOOP_R: Vec2 = [40, 66];
+// Arms as drawn: shoulder, and the middle of the paw end, for aiming at a grip.
+// The far paw's fingers are drawn apart, on the card's face; they ride the
+// far arm's end.
+const ARM_FAR = { P: [1306, 662] as Vec2, paw: [1196, 709] as Vec2 };
+const ARM_NEAR = { P: [1322, 668] as Vec2, paw: [1238, 725] as Vec2 };
+const FINGERS = { P: ARM_FAR.P, paw: [1170, 715] as Vec2 };
+const armGeom = (a: { P: Vec2; paw: Vec2 }) => {
+  const dx = a.paw[0] - a.P[0];
+  const dy = a.paw[1] - a.P[1];
+  return { L: Math.hypot(dx, dy), a0: Math.atan2(dy, dx) * 180 / Math.PI };
+};
 
 export const team = character('team', { viewBox: ART.viewBox, duration: D }, () => {
   definitions();
@@ -332,6 +354,12 @@ export const team = character('team', { viewBox: ART.viewBox, duration: D }, () 
       { name: 'antR', idx: [14, 15], pivot: [652, 430] },
       { name: 'antL', idx: [16, 17], pivot: [602, 416] },
       { name: 'body', idx: [18] },
+      // Drawn from behind, the turtle has no face; walking in profile it
+      // needs one eye, near the front of its head, in the cast's ink.
+      { name: 'eye', idx: [], pivot: [655, 468], extra: () => {
+        ellipse({ cx: 655, cy: 468, rx: 6, ry: 9, fill: '#1c2a24' });
+        circle({ cx: 657.2, cy: 464.2, r: 2.1, fill: '#ffffff' });
+      } },
     ], tt);
 
     // The bear's parts are two stacks either side of the card, with identical
@@ -339,12 +367,37 @@ export const team = character('team', { viewBox: ART.viewBox, duration: D }, () 
     const bear = kids('Character_-_Pink_Bear');
     const bearStack = (name: string, build: () => void) =>
       part(`${name}Ride`, { pivot: [1300, 640], offstage: true }, build);
-    part('rope', { pivot: ROPE_TOP, offstage: true }, () => draw(find('Rope')));
+    // An arm turns at the shoulder and shortens along its own length, so its
+    // paw can stay on a grip while the body moves; a paw drawn apart from its
+    // arm slides out along the same line instead, keeping its shape.
+    const limb = (name: string, arm: { P: Vec2; paw: Vec2 }, build: () => void, paw = false) => {
+      const { a0 } = armGeom(arm);
+      const align = () => part(`${name}Align`, { pivot: arm.P, transform: { rotate: -a0 } }, build);
+      part(name, { pivot: arm.P }, () => (paw ? part(`${name}Reach`, { pivot: arm.P }, align) : align()));
+    };
+    const ropeLength = clipPath('rope-length', () => rect({ x: 1280, y: -2000, w: 140, h: 2000 + KNOT[1], fill: '#fff' }));
+    part('ropeSwing', { pivot: ROPE_TOP, offstage: true }, () =>
+      part('ropeFall', { pivot: ROPE_TOP }, () => {
+        part('ropeCut', { clip: ropeLength }, () => draw(find('Rope')));
+        // A lasso: the rope's end tied back on itself in an open loop, the
+        // braid drawn as the rope's own bands.
+        part('loop', { pivot: KNOT }, () => {
+          ellipse({ cx: LOOP_C[0], cy: LOOP_C[1], rx: LOOP_R[0], ry: LOOP_R[1], stroke: '#ffd398', width: 17 });
+          svgShape('ellipse', {
+            cx: LOOP_C[0], cy: LOOP_C[1], rx: LOOP_R[0], ry: LOOP_R[1], fill: 'none',
+            stroke: 'rgba(0,0,0,0.22)', 'stroke-width': 17, 'stroke-dasharray': '1.5 23',
+          });
+        });
+        part('knot', () => {
+          circle({ cx: KNOT[0], cy: KNOT[1], r: 12, fill: '#ffd398' });
+          svgShape('path', { d: `M${KNOT[0] - 9},${KNOT[1] - 5} q9,6 18,0 M${KNOT[0] - 9},${KNOT[1] + 3} q9,6 18,0`, fill: 'none', stroke: 'rgba(0,0,0,0.25)', 'stroke-width': 1.5 });
+        });
+      }));
     bearStack('bearBack', () => {
-      draw(bear[0]);
-      draw(bear[1]);
+      // The rope's hitch on its back: the loop, once it has cinched.
+      part('hitchBack', () => { draw(bear[0]); draw(bear[1]); });
       part('legFar', { pivot: [1424, 640] }, () => draw(bear[2]));
-      part('armFar', { pivot: [1306, 662] }, () => draw(bear[3]));
+      limb('armFar', ARM_FAR, () => draw(bear[3]));
       part('earFar', { pivot: [1228, 618] }, () => draw(bear[4]));
       draw(bear[5]);
       part('bearEyes', { pivot: [1246, 649] }, () => { draw(bear[6]); draw(bear[7]); });
@@ -355,9 +408,10 @@ export const team = character('team', { viewBox: ART.viewBox, duration: D }, () 
       part('card', { pivot: CARD_C }, () => [10, 11, 12].forEach((i) => draw(bear[i]))));
     bearStack('bearFront', () => {
       part('earNear', { pivot: [1236, 603] }, () => draw(bear[13]));
-      part('armNear', { pivot: [1322, 668] }, () => draw(bear[14]));
-      part('thumb', { pivot: [1306, 662] }, () => draw(bear[15]));
-      [16, 17, 18, 19, 20].forEach((i) => draw(bear[i]));
+      limb('armNear', ARM_NEAR, () => draw(bear[14]));
+      limb('thumb', FINGERS, () => draw(bear[15]), true);
+      part('hitchFront', () => [16, 17, 18, 19].forEach((i) => draw(bear[i])));
+      draw(bear[20]);
     });
 
     const el = kids('Character_-_Yellow_Elephant');
@@ -427,18 +481,43 @@ function drawOut(name: string, t: number) {
 const section = <T extends { name: string }>(list: T[], sectionId: string): T[] =>
   list.map((e) => ({ ...e, name: `${sectionId}.${e.name}` }));
 
-// -- The turtle: walks in, writes the header and the flowchart, looks it over. --
+// -- The turtle: walks in side-on, turns to the page, writes the header and the
+// flowchart, and looks it over. --
 walk({
   cue: 'turtleWalk', walker: 'cast.turtle', from: -720, step: 0.3, lift: 8, stance: 0.5,
   legs: [
     { path: 'cast.turtle.legL', hip: [574, 512], foot: [572, 577], phase: 0 },
     { path: 'cast.turtle.legR', hip: [633, 508], foot: [636, 577], phase: 0.5 },
   ],
-  bob: ['pencilBob', 'armRBob', 'armUpBob', 'antRBob', 'antLBob', 'bodyBob'].map((b) => `cast.turtle.${b}`),
+  bob: ['pencilBob', 'armRBob', 'armUpBob', 'antRBob', 'antLBob', 'bodyBob', 'eyeBob'].map((b) => `cast.turtle.${b}`),
 });
 {
+  const [t0, t1] = seconds('turtleWalk');
+  const [n0, n1] = seconds('turn');
   const [w0, w1] = seconds('write');
-  // Reading order: rows top to bottom, words left to right.
+  // Side-on while walking; turning away to face the page, the eye rolls round
+  // the curve of the head and out of sight, the body narrowing as it turns.
+  P('cast.turtle.eyeBob.eye')
+    .animate({ opacity: at([[0, 1], [n0 + 0.04, 1, easeIn], [n0 + 0.26, 0]]) })
+    .animate({ x: at([[0, 0], [n0, 0, easeIn], [n0 + 0.26, 11]]) })
+    .animate({ scaleX: at([[0, 1], [n0, 1, easeIn], [n0 + 0.26, 0.2]]) });
+  P('cast.turtle').animate({
+    scaleX: at([[0, 1], [n0, 1, easeInOut], [n0 + 0.16, 0.9, easeInOut], [n0 + 0.3, 1.03, easeInOut], [n1, 1]]),
+  });
+  // Walking, the pencil hand hangs at its side and swings; at the page it
+  // comes up to write.
+  const env = (s: number) => Math.min(1, s / 0.25, Math.max(0, (t1 - t0 - s) / 0.25));
+  const swing = (sign: number) => over('turtleWalk', (s) => sign * 11 * Math.sin(2 * Math.PI * s / 0.6) * env(s), 40);
+  const HANG = -95;
+  const reach = at([[0, HANG], [n0, HANG, easeInOut], [w0 + 0.1, 0], [w1 - 0.1, 0, easeInOut], [w1 + 0.4, 14]]);
+  const scribble = over('write', (s) => {
+    const up = Math.min(1, s / 0.3) * Math.min(1, (CUES.at('write').seconds - s) / 0.3);
+    return up * (-4 * Math.sin(2 * Math.PI * s / 0.19) - 3 * Math.sin(2 * Math.PI * s / 0.53));
+  }, 60);
+  for (const p of ['cast.turtle.armUpBob.armUp', 'cast.turtle.pencilBob.pencil']) {
+    P(p).animate({ rotate: reach }).animate({ rotate: scribble }).animate({ rotate: swing(1) });
+  }
+  // Header words in reading order: rows top to bottom, words left to right.
   const words = [...DOC.header].sort((a, b) => (Math.abs(a.bb[1] - b.bb[1]) > 12 ? a.bb[1] - b.bb[1] : a.bb[0] - b.bb[0]));
   const headerEnd = w0 + (w1 - w0) * 0.62;
   words.forEach((w, k) => place(`Section_Header.${w.name}`, w0 + 0.1 + ((headerEnd - w0 - 0.1) * k) / words.length, 5, 0.16));
@@ -449,84 +528,223 @@ walk({
     if (f.arrow) drawOut(`Section_User_Flow.${f.name}`, t);
     else popIn(`Section_User_Flow.${f.name}`, t, 0.85);
   });
-  // The pencil hand: up to the page, scribbling for as long as there is writing.
-  const scribble = over('write', (s, u) => {
-    const up = Math.min(1, s / 0.3) * Math.min(1, (CUES.at('write').seconds - s) / 0.3);
-    return up * (-4 * Math.sin(2 * Math.PI * s / 0.19) - 3 * Math.sin(2 * Math.PI * s / 0.53)) + 0 * u;
-  }, 60);
-  const reach = at([[0, 16], [w0, 16, easeOut], [w0 + 0.3, 0], [w1 - 0.1, 0, easeInOut], [w1 + 0.4, 14]]);
-  for (const p of ['cast.turtle.armUpBob.armUp', 'cast.turtle.pencilBob.pencil']) {
-    P(p).animate({ rotate: reach }).animate({ rotate: scribble });
-  }
   // Leaning into the page while writing.
   P('cast.turtle').animate({ rotate: at([[0, 0], [w0, 0, easeInOut], [w0 + 0.4, -3], [w1, -3, easeInOut], [w1 + 0.5, 0]]) });
-  P('cast.turtle.armRBob.armR').animate({
-    rotate: at([[0, 0], [w1, 0, easeInOut], [w1 + 0.35, -10, easeInOut], [w1 + 0.9, 0]]),
-  });
+  P('cast.turtle.armRBob.armR')
+    .animate({ rotate: at([[0, 0], [w1, 0, easeInOut], [w1 + 0.35, -10, easeInOut], [w1 + 0.9, 0]]) })
+    .animate({ rotate: swing(-1) });
+  // Antennae stream back on the walk and spring upright at the stop.
+  const trail = at([[0, -9], [t1 - 0.1, -9, easeOut], [t1 + 0.15, 4, easeInOut], [t1 + 0.4, -1.5, easeInOut], [t1 + 0.6, 0]]);
+  P('cast.turtle.antRBob.antR').animate({ rotate: wobble(5, 17) }).animate({ rotate: trail });
+  P('cast.turtle.antLBob.antL').animate({ rotate: wobble(6, 13, 0.3) }).animate({ rotate: trail });
 }
-P('cast.turtle.antRBob.antR').animate({ rotate: wobble(5, 17) });
-P('cast.turtle.antLBob.antL').animate({ rotate: wobble(6, 13, 0.3) });
 
 // -- The rope and the bear. --
+// The rope drops with a lasso on its end and swings itself still. The bear
+// slides down it one-handed with the card in the other, into the loop, which
+// cinches round its waist; it lets the card go into the flowchart, then climbs
+// out hand over hand, each paw holding its grip on the rope while the body is
+// hauled up past it.
 {
   const [r0, r1] = seconds('ropeDown');
   const [d0, d1] = seconds('bearDown');
+  const [c0, c1] = seconds('cinch');
   const [h0, h1] = seconds('handOver');
-  const [u0, u1] = seconds('bearUp');
+  const [u0] = seconds('bearUp');
   const [q0, q1] = seconds('ropeUp');
-  P('cast.rope').animate({
-    y: at([[0, -700], [r0, -700, cubicBezier(0.3, 0, 0.3, 1)], [r1, 0], [q0, 0, easeIn], [q1, -700]]),
-  });
-  // Down the rope to just above the flowchart, settling with a bounce; then,
-  // once the card is let go, up the rest of the way hand over hand.
+  const [L0] = seconds('bearLife');
   const LIFT = -200;
-  const drop = h0 + 0.8;
-  const climb: Key[] = [];
-  const pulls = 3;
-  for (let k = 0; k < pulls; k++) {
-    const a = u0 + ((u1 - u0) * k) / pulls;
-    const b = u0 + ((u1 - u0) * (k + 0.65)) / pulls;
-    climb.push([a, LIFT + ((-820 - LIFT) * k) / pulls, cubicBezier(0.4, 0, 0.2, 1)], [b, LIFT + ((-820 - LIFT) * (k + 1)) / pulls]);
+  const TOP = -800;
+  const drop = h0 + 0.4;
+  const ROPE_X = KNOT[0];
+  const damped = (amp: number, period: number, decay: number) => (s: number) =>
+    amp * Math.exp(-decay * s) * Math.sin(2 * Math.PI * s / period);
+  const landing = damped(18, 0.42, 5.5);
+
+  // The rope: falls under gravity, stretches as it is caught, springs back.
+  const ROPE = 'cast.ropeSwing';
+  P(`${ROPE}.ropeFall`)
+    .animate({
+      y: at([[0, -900], [r0, -900, easeIn], [r1, LIFT + 18, easeInOut], [r1 + 0.14, LIFT - 8, easeInOut],
+        [r1 + 0.3, LIFT + 3, easeInOut], [r1 + 0.45, LIFT], [q0, LIFT, easeIn], [q1, -900]]),
+    })
+    .animate({ y: over('land', (s, u) => landing(s) * (1 - smooth(u)), 40) });
+  // A pendulum from its anchor, dying away; the loop, a looser weight on the
+  // end, answers a beat later and swings further.
+  const settle = CUES.at('ropeSettle').seconds;
+  const fadeOut = (s: number) => 1 - smooth(Math.max(0, (s - settle + 0.3) / 0.3));
+  P(ROPE).animate({ rotate: over('ropeSettle', (s) => damped(2.6, 0.95, 2.4)(s) * fadeOut(s), 40) });
+  const loop = P(`${ROPE}.ropeFall.loop`);
+  loop.animate({ rotate: over('ropeSettle', (s) => damped(-7, 0.95, 2.2)(Math.max(0, s - 0.14)) * fadeOut(s), 40) });
+  // Streaming up behind the fall, then carried on past the catch.
+  loop.animate({
+    scaleY: at([[0, 1], [r0, 1, easeIn], [r1, 0.88, easeOut], [r1 + 0.13, 1.2, easeInOut], [r1 + 0.3, 0.94, easeInOut], [r1 + 0.46, 1.04, easeInOut], [r1 + 0.62, 1]]),
+    scaleX: at([[0, 1], [r0, 1, easeIn], [r1, 1.08, easeOut], [r1 + 0.13, 0.86, easeInOut], [r1 + 0.3, 1.04, easeInOut], [r1 + 0.46, 0.98, easeInOut], [r1 + 0.62, 1]]),
+  });
+  // Cinching: the loop draws tight about the waist and becomes the sash.
+  loop.animate({
+    scaleX: at([[0, 1], [c0, 1, easeIn], [c0 + 0.22, 0.52, pop], [c1, 0.5]]),
+  }).animate({ rotate: at([[0, 0], [c0, 0, easeInOut], [c0 + 0.3, -10]]) })
+    .animate({ opacity: at([[0, 1], [c0 + 0.2, 1, easeIn], [c1, 0]]) });
+  for (const h of ['cast.bearBackRide.hitchBack', 'cast.bearFrontRide.hitchFront']) {
+    P(h).animate({ opacity: at([[0, 0], [c0 + 0.18, 0, easeOut], [c1 - 0.05, 1]]) });
   }
-  const descent: Key[] = [[0, -820], [d0, -820, cubicBezier(0.3, 0.1, 0.3, 1)], [d1, LIFT + 10, easeInOut], [d1 + 0.25, LIFT - 5, easeInOut], [d1 + 0.45, LIFT]];
-  const ride = at([...descent, ...climb]);
-  for (const s of ['bearBack', 'bearFront']) P(`cast.${s}Ride`).animate({ y: ride });
 
-  // Arms hold the card through the pull, fall open as they let it go, and
-  // then reach and pull on the way up.
-  const arms = at([[0, 0], [drop - 0.05, 0, easeOut], [drop + 0.2, -32, easeInOut], [u0, -8, easeInOut], ...climb.map(([t], k): Key => [t + 0.12, k % 2 ? 12 : -16, easeInOut]), [u1 + 0.3, 0]]);
-  P('cast.bearFrontRide.armNear').animate({ rotate: arms });
-  P('cast.bearFrontRide.thumb').animate({ rotate: arms });
-  P('cast.bearBackRide.armFar').animate({ rotate: arms });
-  // The far hand is drawn as its own circle on the face of the card, so it
-  // would hang in the air once the card is gone: it goes with the card.
-  P('cast.bearFrontRide.thumb').animate({ opacity: at([[0, 1], [drop - 0.02, 1, easeOut], [drop + 0.14, 0]]) });
+  // The climb, planned as grips. Each pull is made by one paw holding still on
+  // the rope while the body rises under it; the other paw lets go and reaches
+  // for a new grip as high as it can, ready to pull next.
+  const far = armGeom(ARM_FAR);
+  const near = armGeom(ARM_NEAR);
+  const PULLS = 9;
+  const [, u1] = seconds('bearUp');
+  const T = (u1 - u0) / PULLS;
+  const RISE = { far: 60, near: 66 };
+  const REACH = { far: 1.02, near: 1.2 };
+  type Side = 'far' | 'near';
+  const arms = { far: { ...ARM_FAR, ...far }, near: { ...ARM_NEAR, ...near } };
+  const puller = (k: number): Side => (k % 2 === 0 ? 'far' : 'near');
+  const riseAt = (k: number) => {
+    let y = LIFT;
+    for (let i = 0; i < k; i++) y -= RISE[puller(i)];
+    return y;
+  };
+  const surge = (p: number) => smooth(Math.min(1, Math.max(0, (p - 0.1) / 0.75)));
+  // Hauling to one side and then the other, the body sways toward the pull.
+  const tiltAt = (k: number, p: number) => (puller(k) === 'far' ? 2.5 : -2.5) * Math.sin(Math.PI * surge(p));
+  const TILT_C: Vec2 = [1300, 640];
+  const climbing = (t: number) => {
+    const k = Math.min(PULLS - 1, Math.max(0, Math.floor((t - u0) / T)));
+    return { k, p: Math.min(1, Math.max(0, (t - u0 - k * T) / T)) };
+  };
+  const bearY = (t: number) => {
+    if (t <= d0) return TOP;
+    if (t < d1) {
+      const p = (t - d0) / (d1 - d0);
+      return TOP + (LIFT - TOP) * (0.35 * p + 0.65 * p * p);
+    }
+    if (t < u0) return LIFT + (t - d1 < 1.2 ? landing(t - d1) : 0);
+    if (t < u1) {
+      const { k, p } = climbing(t);
+      return riseAt(k) - RISE[puller(k)] * surge(p);
+    }
+    return riseAt(PULLS) + (TOP - riseAt(PULLS)) * smooth(Math.min(1, (t - u1) / 0.3));
+  };
+  const tilt = (t: number) => {
+    if (t < u0 || t >= u1) return 0;
+    const { k, p } = climbing(t);
+    return tiltAt(k, p);
+  };
+  const shoulder = (side: Side, t: number): Vec2 => {
+    const a = (tilt(t) * Math.PI) / 180;
+    const [px, py] = [arms[side].P[0] - TILT_C[0], arms[side].P[1] - TILT_C[1]];
+    return [TILT_C[0] + px * Math.cos(a) - py * Math.sin(a), TILT_C[1] + px * Math.sin(a) + py * Math.cos(a) + bearY(t)];
+  };
+  /** The highest grip a paw can take on the rope from this shoulder. */
+  const topGrip = (side: Side, t: number) => {
+    const S = shoulder(side, t);
+    const reach = arms[side].L * REACH[side];
+    return S[1] - Math.sqrt(reach * reach - (ROPE_X - S[0]) ** 2);
+  };
+  // Where each paw holds, pull by pull: taken at the top of its reach at the
+  // end of the other paw's pull.
+  const grips: Record<Side, number[]> = { far: [], near: [] };
+  grips.far[0] = topGrip('far', u0);
+  for (let k = 0; k < PULLS; k++) {
+    const other: Side = puller(k) === 'far' ? 'near' : 'far';
+    grips[other][k + 1] = topGrip(other, u0 + (k + 1) * T - 1e-6);
+  }
+  /** Shoulder-relative aim at a world point: [rotation, length scale]. */
+  const aimAt = (side: Side, t: number, g: Vec2): [number, number] => {
+    const S = shoulder(side, t);
+    const dx = g[0] - S[0];
+    const dy = g[1] - S[1];
+    let th = (Math.atan2(dy, dx) * 180) / Math.PI - tilt(t);
+    while (th - arms[side].a0 > 180) th -= 360;
+    while (th - arms[side].a0 < -180) th += 360;
+    return [th, Math.min(REACH[side], Math.max(0.45, Math.hypot(dx, dy) / arms[side].L))];
+  };
+  const pawAt = (side: Side, t: number, [th, s]: [number, number]): Vec2 => {
+    const S = shoulder(side, t);
+    const a = ((th + tilt(t)) * Math.PI) / 180;
+    return [S[0] + s * arms[side].L * Math.cos(a), S[1] + s * arms[side].L * Math.sin(a)];
+  };
+  const SLIDE: [number, number] = aimAt('far', d1, [ROPE_X, topGrip('far', d1)]);
+  // Before the climb the near paw has the card, then falls open once it lets go.
+  const nearRest = (t: number): [number, number] =>
+    [near.a0 - 32 * smooth(Math.min(1, Math.max(0, (t - drop) / 0.22))), 1];
+  const pose = (side: Side, t: number): [number, number] => {
+    if (t < u0) return side === 'far' ? SLIDE : nearRest(t);
+    if (t >= u1) {
+      const end = pose(side, u1 - 1e-6);
+      const start = side === 'far' ? SLIDE : ([near.a0, 1] as [number, number]);
+      const b = smooth(Math.min(1, (t - u1) / 0.3));
+      return [end[0] + (start[0] - end[0]) * b, end[1] + (start[1] - end[1]) * b];
+    }
+    const { k, p } = climbing(t);
+    if (puller(k) === side) return aimAt(side, t, [ROPE_X, grips[side][k]]);
+    // Reaching: off the old grip, out round the body, onto the new one.
+    const from = k === 0 && side === 'near' ? pawAt('near', u0, nearRest(u0)) : [ROPE_X, grips[side][k - 1]] as Vec2;
+    const to: Vec2 = [ROPE_X, grips[side][k + 1]];
+    const e = smooth(Math.min(1, p / 0.85));
+    const out = -30 * Math.sin(Math.PI * e);
+    return aimAt(side, t, [from[0] + (to[0] - from[0]) * e + out, from[1] + (to[1] - from[1]) * e]);
+  };
 
-  // The card: carried down and up in its arms exactly as drawn, then let go —
-  // it drops down and left, turning level, into the flowchart's empty last box.
+  const life = (fn: (t: number) => number) => over('bearLife', (s) => fn(L0 + s), 30);
+  for (const s of ['bearBack', 'bearFront']) {
+    P(`cast.${s}Ride`).animate({ y: life(bearY) }).animate({ rotate: life(tilt) });
+  }
+  for (const [path, side] of [['cast.bearBackRide.armFar', 'far'], ['cast.bearFrontRide.armNear', 'near']] as const) {
+    P(path).animate({ rotate: life((t) => pose(side, t)[0]), scaleX: life((t) => pose(side, t)[1]) });
+  }
+  // The far paw is drawn apart from its arm, on the face of the card: it turns
+  // with the arm and slides out to wherever the arm's end is.
+  P('cast.bearFrontRide.thumb').animate({ rotate: life((t) => pose('far', t)[0]) });
+  const fingers = armGeom(FINGERS);
+  P('cast.bearFrontRide.thumb.thumbReach').animate({ x: life((t) => pose('far', t)[1] * far.L - fingers.L) });
+
+  // The card: carried down exactly as drawn, then let go — it drops down and
+  // left, turning level, into the flowchart's empty last box.
   const [sx, sy] = [SLOT_C[0] - CARD_C[0], SLOT_C[1] - CARD_C[1]];
+  const carried: Key[] = [[0, TOP], [d0, TOP]];
+  for (let t = d0 + 1 / 30; t < drop; t += 1 / 30) carried.push([t, bearY(t)]);
   P('cast.cardRide').animate({
-    y: at([...descent, [drop, LIFT, cubicBezier(0.55, 0, 1, 0.45)], [h1 - 0.12, sy + 6, easeOut], [h1 - 0.04, sy - 3, easeInOut], [h1 + 0.06, sy]]),
+    y: at([...carried, [drop, bearY(drop), cubicBezier(0.55, 0, 1, 0.45)], [h1 - 0.12, sy + 6, easeOut], [h1 - 0.04, sy - 3, easeInOut], [h1 + 0.06, sy]]),
   });
   P('cast.cardRide.card').animate({
     x: at([[0, 0], [drop, 0, easeInOut], [h1 - 0.12, sx]]),
   }).animate({
     rotate: at([[0, 0], [drop, 0, cubicBezier(0.3, 0, 0.3, 1)], [h1 - 0.12, -67.5]]),
   });
-  // Legs flutter on the way down and kick on the way up; ears stream.
+
+  // Legs trail and flutter on the way down; on the way up they tuck with each
+  // reach and kick as the pull comes through.
   const flutter = (amp: number, period: number, phase: number) => (s: number) =>
-    amp * Math.sin(2 * Math.PI * (s / period + phase)) * Math.min(1, s / 0.2);
-  for (const [leg, ph] of [['legNear', 0], ['legFar', 0.5]] as const) {
+    amp * Math.sin(2 * Math.PI * (s / period + phase)) * Math.min(1, s / 0.2, (CUES.at('bearDown').seconds - s) / 0.2);
+  const kick = (lag: number) => (t: number) => {
+    if (t < u0 || t >= u1) return 0;
+    const { p } = climbing(t);
+    const q = Math.min(1, Math.max(0, p - lag) / (1 - lag));
+    const fade = Math.min(1, (t - u0) / 0.2, (u1 - t) / 0.2);
+    return (q < 0.55 ? 20 * Math.sin((Math.PI * q) / 0.55) : -9 * Math.sin((Math.PI * (q - 0.55)) / 0.45)) * fade;
+  };
+  for (const [leg, ph, lag] of [['legNear', 0, 0], ['legFar', 0.5, 0.12]] as const) {
     P(`cast.bearBackRide.${leg}`)
-      .animate({ rotate: over('bearDown', flutter(10, 0.28, ph)) })
-      .animate({ rotate: over('bearUp', flutter(14, 0.4, ph)) });
+      .animate({ rotate: over('bearDown', flutter(10, 0.28, ph), 40) })
+      .animate({ rotate: life(kick(lag)) });
   }
-  const ears = at([[0, 0], [d0, 0, easeOut], [d0 + 0.4, 26], [d1, 18, cubicBezier(0.3, 1.8, 0.5, 1)], [d1 + 0.6, 0], [u0, 0, easeInOut], [u0 + 0.3, -16], [u1, -12, easeInOut], [u1 + 0.3, 0]]);
-  P('cast.bearBackRide.earFar').animate({ rotate: ears });
-  P('cast.bearFrontRide.earNear').animate({ rotate: ears });
-  // Pleased with itself once the card is down.
+  // Ears stream on the slide, and flop back with every haul.
+  const flop = (t: number) => {
+    if (t < u0 || t >= u1) return 0;
+    const { p } = climbing(t);
+    return -14 * Math.sin(Math.PI * Math.min(1, Math.max(0, (p - 0.2) / 0.8))) * Math.min(1, (u1 - t) / 0.2);
+  };
+  const ears = at([[0, 0], [d0, 0, easeOut], [d0 + 0.4, 26], [d1, 18, cubicBezier(0.3, 1.8, 0.5, 1)], [d1 + 0.6, 0]]);
+  P('cast.bearBackRide.earFar').animate({ rotate: ears }).animate({ rotate: life(flop) });
+  P('cast.bearFrontRide.earNear').animate({ rotate: ears }).animate({ rotate: life(flop) });
+  // Pleased with itself once the card is down; screwed up with effort on the way out.
   P('cast.bearBackRide.bearEyes').animate({
-    scaleY: at([[0, 1], [h1 - 0.05, 1, easeOut], [h1 + 0.1, 0.3], [h1 + 0.8, 0.3, easeInOut], [h1 + 1.0, 1], [d1 + 0.9, 1, easeIn], [d1 + 0.97, 0.1, easeOut], [d1 + 1.06, 1]]),
+    scaleY: at([[0, 1], [h1 - 0.05, 1, easeOut], [h1 + 0.1, 0.3], [h1 + 0.7, 0.3, easeInOut], [h1 + 0.9, 1], [u0 - 0.05, 1, easeInOut], [u0 + 0.15, 0.55]]),
   });
 }
 
