@@ -45,7 +45,7 @@
   inset: 0;
   background-image: radial-gradient(
     circle,
-    oklch(0.25 0.005 90 / 0.16) 1px,
+    oklch(0.25 0.005 90 / 0.09) 1px,
     transparent 1.2px
   );
   background-size: 16px 16px;
