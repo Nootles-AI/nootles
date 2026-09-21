@@ -94,13 +94,21 @@ const COMPACT = "(max-width: 1023px)";
    what "deselect" means — and the panels have to be in here, because a field in
    one takes focus off the canvas without meaning to leave it. The mention menu
    is portalled to the body but belongs to a label edit inside the canvas; the
-   storyboard's fullscreen shot is a whole canvas view portalled the same way. */
-const CANVAS_SHELL =
-  ".nt-canvas, .nt-lyr, .nt-style-panel, .nt-toolbar, .nt-mention-anchor, .nt-sb-full";
+   storyboard's fullscreen shot is a whole canvas view portalled the same way.
 
-/* The same idea for a place card: a press inside the card or its panel is
-   still about that card, and anywhere else is done with it. */
-const LOCATION_SHELL = ".nt-loc, .nt-style-panel";
+   So is every menu (`.nt-menu`): the inspector's selects, the toolbar's zoom
+   and settings, the canvas's own context menu are all portalled to the body.
+   Leaving them out made choosing from one a press "outside" — it let the
+   diagram go and the stage fall shut mid-choice. Counting any open menu is
+   safe: a menu is only open because its trigger was pressed, and a trigger
+   outside the canvas has already let the diagram go before its menu exists. */
+const CANVAS_SHELL =
+  ".nt-canvas, .nt-lyr, .nt-style-panel, .nt-toolbar, .nt-mention-anchor, .nt-sb-full, .nt-menu";
+
+/* The same idea for a place card: a press inside the card or its panel — or a
+   menu one of them opened — is still about that card, and anywhere else is
+   done with it. */
+const LOCATION_SHELL = ".nt-loc, .nt-style-panel, .nt-menu";
 
 /* Room left above a diagram too tall to centre. */
 const REVEAL_TOP = 24;
