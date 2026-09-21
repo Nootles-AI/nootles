@@ -26,7 +26,9 @@
   .ek ::selection {
     background: oklch(0.25 0.005 90 / 0.14);
   }
-  .ek :is(button, input, textarea) {
+  /* Zero specificity: a control that sets its own ink (the tick, Send, anything
+     filled) must beat this with a single class. */
+  :where(.ek) :where(button, input, textarea) {
     font: inherit;
     color: inherit;
   }
@@ -36,7 +38,7 @@
   .ek button:disabled {
     opacity: 0.35;
   }
-  .ek :is(input, textarea) {
+  :where(.ek) :where(input, textarea) {
     min-width: 0;
     background: none;
     caret-color: var(--foreground);
