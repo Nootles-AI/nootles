@@ -23,7 +23,9 @@ export type NewProject = {
  * would be a form standing between them and a blank page.
  */
 export function useNewProjectDraft(
-  onCreate: (project: NewProject) => Promise<void>,
+  /** Resolves `false` when nothing was made yet — the plan's wall stepped in —
+   *  and the form is handed back as it was, to send again. */
+  onCreate: (project: NewProject) => Promise<boolean | void>,
   template?: string,
 ) {
   const [title, setTitle] = useState("");
@@ -46,10 +48,14 @@ export function useNewProjectDraft(
       description: description.trim(),
       context: context.trim(),
       template,
-    }).catch(() => {
-      setFailure("Couldn’t create that project.");
-      setBusy(false);
-    });
+    })
+      .then((made) => {
+        if (made === false) setBusy(false);
+      })
+      .catch(() => {
+        setFailure("Couldn’t create that project.");
+        setBusy(false);
+      });
   };
 
   /** Enter sends a one-line field; a box you can write paragraphs in needs the modifier. */
