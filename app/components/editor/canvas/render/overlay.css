@@ -13,7 +13,9 @@
 
   --ov-line: oklch(0.5 0.006 90);
   --ov-guide: oklch(0.42 0.006 90);
-  --ov-chip: oklch(0.28 0.005 90);
+  /* The size readout is the gesture's own answer, so it wears the one accent
+     with the frame and the grips it is reading off. */
+  --ov-chip: var(--nt-select);
 }
 
 .nt-ov-outline,
@@ -134,6 +136,9 @@
   fill: oklch(1 0 90);
   font-family: var(--font-mono), ui-monospace, monospace;
   font-size: 11px;
+  /* White on the accent is a lighter contrast than on graphite; the weight
+     carries the digits through it. */
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
 }
 
