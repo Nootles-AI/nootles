@@ -36,6 +36,7 @@ import { PageSurface } from "./PageSurface";
 import { ChatPanel } from "./ChatPanel";
 import { ReviewBar } from "./ReviewBar";
 import { ResizeHandle } from "./ResizeHandle";
+import { WorkspacePalette } from "./WorkspacePalette";
 import { PanelsProvider } from "./PanelsContext";
 import { PagesProvider, type PageRef } from "./PagesContext";
 import { CompletionContextProvider } from "./editor/ai/CompletionContext";
@@ -141,6 +142,7 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
   const [leftOpen, setLeftOpen] = useState(true);
   const [rightOpen, setRightOpen] = useState(true);
   const [drawer, setDrawer] = useState<"left" | "right" | null>(null);
+  const [finding, setFinding] = useState(false);
 
   const [canvas, setCanvas] = useState<ActiveCanvas | null>(null);
   const [place, setPlace] = useState<ActiveLocation | null>(null);
@@ -251,6 +253,22 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
     }),
     [compact],
   );
+  // ⌘K finds a page, as it finds a project one screen up. Heard on the way
+  // down, before the editor: there ⌘K is "link this selection", and it keeps
+  // that meaning whenever there is a selection to link.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() !== "k" || !(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey) return;
+      const typing = (e.target as HTMLElement | null)?.closest?.("[contenteditable='true']");
+      if (typing && !window.getSelection()?.isCollapsed) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setFinding((f) => !f);
+    };
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
+  }, []);
+
   // Narrow: panels are overlays, and overlays start closed.
   const showLeft = leftOpen && !compact;
   const showRight = rightOpen && !compact;
@@ -530,6 +548,7 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
         setDrawer(null);
       }}
       onCollapse={() => (compact ? setDrawer(null) : setLeftOpen(false))}
+      onFind={() => setFinding(true)}
     />
   );
 
@@ -563,7 +582,8 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
      <PanelsProvider value={panels}>
       <div
         ref={shellRef}
-        className="flex h-screen w-full overflow-hidden"
+        className="nt-shell flex h-screen w-full overflow-hidden"
+        data-bare={!chrome || undefined}
         style={
           {
             [VARS.left]: `${leftWidth}px`,
@@ -608,11 +628,11 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
             settles the shell, and anything that must paint over the whole
             app (menus, dialogs, the block-handle cluster) portals to the
             body rather than fighting this boundary from inside. */}
-        <div ref={columnRef} className="relative isolate flex min-w-0 flex-1">
+        <div ref={columnRef} className="nt-well relative isolate flex min-w-0 flex-1">
           {/* The workspace has no top bar, so presence floats where a top
               bar's corner would be — over the focused document. */}
           <div
-            className="pointer-events-none absolute right-3 top-3"
+            className="pointer-events-none absolute right-5 top-5"
             style={{ zIndex: "var(--z-sticky)" }}
           >
             <Facepile
@@ -633,7 +653,7 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
           )}
           {asidePageId && (
             <>
-              <ResizeHandle onResize={onResizeAside} ariaLabel="Resize split" />
+              <ResizeHandle onResize={onResizeAside} ariaLabel="Resize split" gap />
               <div
                 className="flex min-w-0 shrink-0"
                 style={{ width: `var(${VARS.aside})` }}
@@ -710,6 +730,27 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
               </div>
             )}
           </>
+        )}
+
+        {finding && (
+          <WorkspacePalette
+            pages={sortedPages ?? []}
+            currentPageId={effectivePageId}
+            leftOpen={compact ? openDrawer === "left" : leftOpen}
+            rightOpen={compact ? openDrawer === "right" : rightOpen}
+            canChat={!viewer}
+            onOpenPage={(id) => {
+              open(id);
+              setDrawer(null);
+            }}
+            onToggleLeft={() =>
+              compact ? setDrawer((d) => (d === "left" ? null : "left")) : setLeftOpen((o) => !o)
+            }
+            onToggleRight={() =>
+              compact ? setDrawer((d) => (d === "right" ? null : "right")) : setRightOpen((o) => !o)
+            }
+            onClose={() => setFinding(false)}
+          />
         )}
 
         <Feedback projectId={projectId} pageId={effectivePageId} />

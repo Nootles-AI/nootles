@@ -19,8 +19,8 @@
   flex: none;
   width: 240px;
   height: 100%;
+  /* No line against the page: the sheet it sits beside has an edge of its own. */
   background: var(--surface);
-  border-left: 1px solid var(--border);
 }
 @media (prefers-reduced-motion: reduce) {
   .nt-style-panel {

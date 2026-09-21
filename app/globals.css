@@ -415,6 +415,39 @@ body {
   white-space: nowrap;
   text-overflow: ellipsis;
 }
+/* In the pages list the open row's wash is `.nt-pages-mark`, one element that
+   travels on the spring; the row keeps the weight and gives up the fill. A row
+   that is also swept into a selection still wears the selection's own wash. */
+.nt-pages-mark {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: var(--mark-h, var(--control));
+  border-radius: var(--radius);
+  background: var(--selected);
+  opacity: 0;
+  transform: translateY(var(--mark-y, 0));
+  transition:
+    transform 260ms var(--spring),
+    opacity var(--dur) var(--ease);
+  pointer-events: none;
+}
+.nt-pages[data-marked="true"] > .nt-pages-mark {
+  opacity: 1;
+}
+.nt-pages[data-marked="true"] .nt-row.is-current:not(.is-selected) {
+  background: transparent;
+}
+.nt-pages[data-marked="true"] .nt-row.is-current:not(.is-selected):hover {
+  background: var(--hover);
+}
+@media (prefers-reduced-motion: reduce) {
+  .nt-pages-mark {
+    transition: none;
+  }
+}
+
 /* A row being carried to a new place: still readable, clearly lifted. */
 .nt-row.is-dragging {
   opacity: 0.45;
@@ -523,6 +556,71 @@ body {
 .nt-pane {
   background: var(--background);
   transition: background var(--dur) var(--ease);
+}
+
+/* ---- The well ------------------------------------------------------------
+   The shell is one ground, the tone of the rails, and a document is a sheet
+   lying in it — the projects screen's cards at full size. So the rails need no
+   line against the page: the sheet's own edge is the line. Split, there are two
+   sheets; the one you are not in keeps its edge and gives up its paper. */
+.nt-shell {
+  background: var(--surface);
+}
+.nt-well {
+  padding-block: var(--inset);
+}
+.nt-well > .nt-pane,
+.nt-well > div > .nt-pane {
+  border-radius: 14px;
+  box-shadow:
+    0 0 0 1px oklch(0.25 0.005 90 / 0.07),
+    0 1px 2px oklch(0.25 0.005 90 / 0.04),
+    0 12px 32px -16px oklch(0.25 0.005 90 / 0.12);
+}
+/* With the interface hidden there is no well to lie in: the page is the window. */
+.nt-shell[data-bare] > .nt-well {
+  padding: 0;
+}
+.nt-shell[data-bare] .nt-pane {
+  border-radius: 0;
+  box-shadow: none;
+}
+
+/* A divider with nothing drawn at rest. It shows a hairline to a hand that has
+   found it and ink to one that is pulling it — never the amber, which is spoken
+   for. Inset from the ends so the line stops short of the sheet's corners. */
+.nt-resize {
+  position: relative;
+  z-index: 10;
+  flex: none;
+  width: 1px;
+  cursor: col-resize;
+}
+.nt-resize.is-gap {
+  width: var(--inset);
+}
+.nt-resize::before {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  inset-inline: -6px;
+}
+.nt-resize::after {
+  content: "";
+  position: absolute;
+  inset-block: 20px;
+  left: 50%;
+  width: 2px;
+  margin-left: -1px;
+  border-radius: 1px;
+  background: transparent;
+  transition: background var(--dur) var(--ease);
+}
+.nt-resize:hover::after {
+  background: var(--border-strong);
+}
+.nt-resize[data-dragging]::after {
+  background: var(--foreground);
 }
 .nt-pane.is-idle {
   background: var(--surface);
@@ -1204,6 +1302,43 @@ textarea.nt-input {
   color: var(--foreground);
   box-shadow: 0 1px 2px oklch(0.25 0.005 90 / 0.06);
 }
+/* The worded toggle, with a thumb that travels. Its words are not the same
+   length, so the segments are made the same width — every column as wide as
+   the widest — and then one thumb can stand for whichever is on (`--at` of
+   `--n`). The fill that used to swap between buttons is the thumb's now. */
+.nt-mode.is-even {
+  position: relative;
+  display: inline-grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 0;
+}
+.nt-mode.is-even::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 2px;
+  width: calc((100% - 4px) / var(--n, 2));
+  border-radius: var(--radius-sm);
+  background: var(--background);
+  box-shadow: 0 1px 2px oklch(0.25 0.005 90 / 0.06);
+  transform: translateX(calc(var(--at, 0) * 100%));
+  transition: transform 420ms var(--spring);
+}
+.nt-mode.is-even .nt-mode-btn {
+  position: relative;
+  text-align: center;
+}
+.nt-mode.is-even .nt-mode-btn.is-on {
+  background: none;
+  box-shadow: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .nt-mode.is-even::before {
+    transition: none;
+  }
+}
 /* A segment carrying a glyph instead of a word. Square, so the two read as a
    pair rather than as one wide and one narrow. */
 .nt-mode-btn.is-icon {
@@ -1390,7 +1525,7 @@ ol.nt-md-list {
 }
 .nt-turn.is-user {
   padding: 7px 10px;
-  border-radius: var(--radius);
+  border-radius: var(--radius-lg);
   background: var(--sunken);
 }
 .nt-turn.is-assistant {
@@ -1737,10 +1872,25 @@ a.nt-chip:hover {
 .nt-chat-review {
   flex: none;
   margin: 0 8px 6px;
-  padding: 5px 5px 5px 10px;
+  padding: 5px 5px 5px 12px;
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  /* The composer's corner, since it sits on the composer's shoulders. */
+  border-radius: 12px;
   background: var(--elevated);
+  box-shadow: 0 6px 16px -8px oklch(0.25 0.005 90 / 0.16);
+  animation: nt-chat-review-in 420ms var(--spring);
+}
+/* It arrives from the composer it answers to. */
+@keyframes nt-chat-review-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nt-chat-review {
+    animation: nt-fade-in var(--dur-fast) var(--ease);
+  }
 }
 .nt-chat-review-row {
   display: flex;
@@ -1786,7 +1936,18 @@ a.nt-chip:hover {
 }
 /* Keeping is the ordinary answer, so it is the one that reads as the default. */
 .nt-chat-review-btn.is-keep {
-  color: var(--foreground);
+  background: var(--foreground);
+  color: var(--background);
+}
+.nt-chat-review-btn.is-keep:hover:not(:disabled) {
+  background: oklch(0.33 0.005 90);
+  color: var(--background);
+}
+/* Busy, it keeps its ink: the rule above that clears a disabled button's hover
+   would otherwise leave paper-coloured words on nothing. */
+.nt-chat-review-btn.is-keep:disabled:hover {
+  background: var(--foreground);
+  color: var(--background);
 }
 .nt-chat-review-failure {
   margin-top: 4px;
@@ -1797,15 +1958,19 @@ a.nt-chip:hover {
 .nt-composer {
   position: relative;
   margin: 0 8px 8px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
   background: var(--elevated);
   transition:
     border-color var(--dur-fast) var(--ease),
-    background var(--dur-fast) var(--ease);
+    background var(--dur-fast) var(--ease),
+    box-shadow var(--dur) var(--ease);
 }
+/* Holding the caret it darkens its line and lifts a little off the rail — the
+   one field on this side of the window, saying it is the one being written in. */
 .nt-composer:focus-within {
-  border-color: var(--border-strong);
+  border-color: var(--shape-line-active);
+  box-shadow: 0 6px 20px -8px oklch(0.25 0.005 90 / 0.2);
 }
 /* A drop target says so by looking like a well, which is what it is about to
    become. No dashed outline: the box is already outlined. */
@@ -1933,23 +2098,32 @@ a.nt-chip:hover {
   justify-content: space-between;
   padding: 0 5px 5px;
 }
+/* The rail's one filled control, in the ink the projects screen fills New
+   project with. With nothing to send it is not a control yet, so it is not
+   filled yet: the ink arrives with the first character, on the spring. */
 .nt-composer-send {
-  height: 24px;
-  padding: 0 9px;
-  border-radius: var(--radius-sm);
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 7px;
+  background: var(--foreground);
   font-size: var(--text-meta-lg);
   font-weight: 500;
-  color: var(--muted);
+  color: var(--background);
   transition:
     background var(--dur-fast) var(--ease),
-    color var(--dur-fast) var(--ease);
+    color var(--dur-fast) var(--ease),
+    transform var(--dur-slow) var(--spring);
 }
 .nt-composer-send:hover:not(:disabled) {
-  background: var(--hover);
-  color: var(--foreground);
+  background: oklch(0.33 0.005 90);
+}
+.nt-composer-send:active:not(:disabled) {
+  transform: scale(0.95);
 }
 .nt-composer-send:disabled {
-  opacity: 0.45;
+  background: transparent;
+  color: var(--faint);
+  transform: scale(0.96);
   cursor: not-allowed;
 }
 /* Beside Send while an answer runs, and quieter than it: stopping is the rarer
@@ -3413,6 +3587,14 @@ body:has(.nt-review-bar) .nt-reformat-switcher {
   overflow: hidden;
   border-radius: 14px;
   transform-origin: 50% 0;
+}
+/* One column, for a finder with nothing to preview beside its list. */
+.nt-dialog.nt-palette.is-solo {
+  width: 36rem;
+}
+.nt-palette.is-solo .nt-pal-panes {
+  grid-template-columns: minmax(0, 1fr);
+  height: min(52vh, 26rem);
 }
 .nt-pal-field {
   display: flex;

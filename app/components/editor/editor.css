@@ -334,6 +334,14 @@
   display: inline-block;
   line-height: 1;
 }
+/* Still the bare native box, in both places — but ticked, a native box fills
+   with the browser's own blue, which is the one colour this surface does not
+   have. `accent-color` keeps the control and changes only its ink: graphite,
+   with the tick the browser picks to contrast it (paper). */
+.bn-editor input[type="checkbox"],
+.nt-check-box {
+  accent-color: var(--foreground);
+}
 .nt-check-box {
   margin: 0;
   /* On the x-height rather than the baseline, so the box reads as centred

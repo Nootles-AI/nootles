@@ -19,6 +19,7 @@ import {
   useLayoutEffect,
   useRef,
   useSyncExternalStore,
+  type CSSProperties,
   type ReactNode,
 } from "react";
 import { Check, FountainPen } from "@/app/components/Icons";
@@ -359,17 +360,25 @@ export function Toolbar({ store, viewport, tools, screen }: ToolbarProps) {
   return (
     <div ref={dock} className="nt-toolbar-dock">
       <div className="nt-toolbar" role="toolbar" aria-label="Canvas">
-        {TOOLS.map(({ tool: id, id: shortcut, icon }) => (
-          <Button
-            key={id}
-            label={SHORTCUTS_BY_ID[shortcut].label}
-            hint={hint(shortcut)}
-            pressed={tool === id}
-            onClick={() => tools.set(id)}
-          >
-            {icon}
-          </Button>
-        ))}
+        {/* One ink mark that travels to the tool in hand, rather than eleven
+            buttons that each know how to look pressed. */}
+        <div
+          className="nt-toolbar-tools"
+          style={{ "--at": TOOLS.findIndex((t) => t.tool === tool) } as CSSProperties}
+        >
+          <span className="nt-toolbar-mark" aria-hidden />
+          {TOOLS.map(({ tool: id, id: shortcut, icon }) => (
+            <Button
+              key={id}
+              label={SHORTCUTS_BY_ID[shortcut].label}
+              hint={hint(shortcut)}
+              pressed={tool === id}
+              onClick={() => tools.set(id)}
+            >
+              {icon}
+            </Button>
+          ))}
+        </div>
 
         <span className="nt-toolbar-sep" aria-hidden />
 
