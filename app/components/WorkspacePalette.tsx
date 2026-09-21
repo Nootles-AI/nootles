@@ -6,6 +6,15 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { Dialog } from "./Dialog";
 import { ArrowLeft, FileDoc, PanelLeft, PanelRight, Search } from "./Icons";
 
+/** A keyboard, in the app's 24-grid stroke. */
+function Keyboard() {
+  return (
+    <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M3 7h18v10H3zM7 11h.01M11 11h.01M15 11h.01M8 14h8" />
+    </svg>
+  );
+}
+
 /**
  * ⌘K inside a project: the projects screen's palette, pointed at pages.
  *
@@ -25,6 +34,7 @@ export function WorkspacePalette({
   onOpenPage,
   onToggleLeft,
   onToggleRight,
+  onShowKeys,
   onClose,
 }: {
   pages: { _id: Id<"pages">; title: string }[];
@@ -36,6 +46,7 @@ export function WorkspacePalette({
   onOpenPage: (id: Id<"pages">) => void;
   onToggleLeft: () => void;
   onToggleRight: () => void;
+  onShowKeys: () => void;
   onClose: () => void;
 }) {
   return (
@@ -50,6 +61,7 @@ export function WorkspacePalette({
           onOpenPage={onOpenPage}
           onToggleLeft={onToggleLeft}
           onToggleRight={onToggleRight}
+          onShowKeys={onShowKeys}
           close={close}
         />
       )}
@@ -66,6 +78,7 @@ function Body({
   onOpenPage,
   onToggleLeft,
   onToggleRight,
+  onShowKeys,
   close,
 }: Omit<Parameters<typeof WorkspacePalette>[0], "onClose"> & { close: () => void }) {
   const router = useRouter();
@@ -102,6 +115,14 @@ function Body({
           ]
         : []),
       {
+        id: "keys",
+        group: "Go",
+        name: "Keyboard shortcuts",
+        line: "?",
+        icon: <Keyboard />,
+        run: onShowKeys,
+      },
+      {
         id: "home",
         group: "Go",
         name: "All projects",
@@ -111,7 +132,7 @@ function Body({
     ];
     const q = query.trim().toLowerCase();
     return q ? all.filter((r) => r.name.toLowerCase().includes(q)) : all;
-  }, [pages, currentPageId, leftOpen, rightOpen, canChat, query, onOpenPage, onToggleLeft, onToggleRight, router]);
+  }, [pages, currentPageId, leftOpen, rightOpen, canChat, query, onOpenPage, onToggleLeft, onToggleRight, onShowKeys, router]);
 
   const at = Math.min(index, Math.max(rows.length - 1, 0));
   const current = rows.at(at);

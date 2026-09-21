@@ -3671,6 +3671,53 @@ body:has(.nt-review-bar) .nt-reformat-switcher {
   border-radius: 14px;
   transform-origin: 50% 0;
 }
+/* ---- Keyboard shortcuts ---------------------------------------------------
+   A reference, so it is set like one: columns of label and key, the keys in
+   the mono voice and tabular so a column of them lines up. */
+.nt-dialog.nt-keys {
+  width: 52rem;
+}
+/* Nothing in it takes focus, so the dialog itself does — and a reference card
+   has no use for a ring around the whole of it. */
+.nt-dialog.nt-keys:focus-visible {
+  outline: none;
+}
+/* The scroller and the columns are two boxes: a multi-column box with a height
+   grows sideways into columns nobody can reach instead of scrolling. */
+.nt-keys-body {
+  /* The dialog body is a two-column grid for forms; this one is a single cell. */
+  grid-template-columns: minmax(0, 1fr);
+  max-height: min(70vh, 40rem);
+  overflow-y: auto;
+}
+.nt-keys-cols {
+  columns: 3 14rem;
+  column-gap: 28px;
+}
+.nt-keys-group {
+  break-inside: avoid;
+  margin-bottom: 12px;
+}
+.nt-keys-group > .nt-section-label {
+  padding-left: 0;
+}
+.nt-keys-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding-block: 5px;
+  border-top: 1px solid var(--border);
+  font-size: var(--text-ui);
+}
+.nt-keys-row > dd {
+  flex: none;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--text-meta-lg);
+  color: var(--muted);
+  white-space: pre;
+}
+
 /* One column, for a finder with nothing to preview beside its list. */
 .nt-dialog.nt-palette.is-solo {
   width: 36rem;
