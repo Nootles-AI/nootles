@@ -128,10 +128,11 @@
 /* ===== Screen modes (STAGE) ===============================================
    The expanded stage: `.nt-canvas-viewport` — never the `.nt-canvas` wrapper,
    which stays in flow as the block's own room in the document — becomes
-   fixed, filling the document column between the rails Workspace publishes
-   on `:root`. Minimal UI widens the same box to the full window by simply
-   letting `--nt-stage-l/r` go undefined there. Neither introduces a new
-   accent: `--nt-select` stays the canvas's only one. */
+   fixed, filling the document column between the rails: while staged it
+   follows the column's edges (`app/lib/columnEdges.ts`) as `--nt-stage-l/r`.
+   Minimal UI widens the same box to the full window because the rails are
+   gone and the edges are 0. Neither introduces a new accent: `--nt-select`
+   stays the canvas's only one. */
 .nt-canvas[data-stage] > .nt-canvas-viewport {
   position: fixed;
   inset: 0 var(--nt-stage-r, 0px) 0 var(--nt-stage-l, 0px);
@@ -472,10 +473,10 @@
 /* ===== Toolbar ===========================================================
    Docked at the foot of the page column and centred on it, where the hand
    already is — not on the diagram, which can be taller than the window or
-   scrolled half out of it. The shell publishes the column's edges as
-   `--nt-stage-l`/`--nt-stage-r`, and keeps them current while a rail opens or
-   closes, so the bar recentres with the sheet without a line of script. With
-   no shell around it (a shared page) they are unset and it centres on the
+   scrolled half out of it. The dock follows the column's edges as
+   `--nt-stage-l`/`--nt-stage-r` (`app/lib/columnEdges.ts`), kept current
+   while a rail opens or closes, so the bar recentres with the sheet. With no
+   shell around it (a shared page) they are unset and it centres on the
    window.
 
    Two elements on purpose: the dock is placed and never moves on its own, and

@@ -25,6 +25,7 @@ import {
 import { Check, FountainPen } from "@/app/components/Icons";
 import { Menu, MenuItem } from "@/app/components/Menu";
 import { Tooltip } from "@/app/components/Tooltip";
+import { useColumnEdges } from "@/app/lib/columnEdges";
 import {
   isSnapEnabled,
   setSnapEnabled,
@@ -326,6 +327,9 @@ export function Toolbar({
   // keyboard, or the browser leaving fullscreen on its own.
   const screenState = useSyncExternalStore(screen.subscribe, screen.get, screen.get);
 
+  const dock = useRef<HTMLDivElement>(null);
+  useColumnEdges(dock);
+
   // The diagram has the keyboard while this bar is up, so its tools show the
   // bare letter they answer to there.
   const hint = (id: ShortcutId) => shortcutHint(id, apple, id.startsWith("tool.") ? 1 : 0);
@@ -342,10 +346,10 @@ export function Toolbar({
   };
 
   return (
-    // Docked to the foot of the page column, centred on it, by CSS alone: the
-    // shell publishes the column's edges, and nothing here has to follow a
-    // scroll. Never a transform on the dock — see `.nt-toolbar-dock`.
-    <div className="nt-toolbar-dock" data-leaving={leaving || undefined} inert={leaving}>
+    // Docked to the foot of the page column, centred on it: the dock follows
+    // the column's edges, and nothing here has to follow a scroll. Never a
+    // transform on the dock — see `.nt-toolbar-dock`.
+    <div ref={dock} className="nt-toolbar-dock" data-leaving={leaving || undefined} inert={leaving}>
       <div className="nt-toolbar" role="toolbar" aria-label="Canvas">
         <ToolRow
           tool={tool}

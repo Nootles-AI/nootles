@@ -42,6 +42,7 @@ import { BarMorph } from "./BarMorph";
 import { ResizeHandle } from "./ResizeHandle";
 import { WorkspacePalette } from "./WorkspacePalette";
 import { useLinger } from "@/app/lib/useLinger";
+import { publishColumnEdges } from "@/app/lib/columnEdges";
 import dynamic from "next/dynamic";
 
 // Opened rarely, so it does not ride in the workspace's first bundle.
@@ -73,11 +74,6 @@ const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n
    leave React alone until the pointer is released — the alternative is a render
    of the sidebar, both documents and the transcript per frame of a rail drag. */
 const VARS = { left: "--nt-left", right: "--nt-right", aside: "--nt-aside" };
-/* The document column's own edges, published on the root instead of the shell:
-   a surface portalled to the body — the storyboard's fullscreen shot — is still
-   part of this page, and can then stand in the column's room rather than over
-   the whole window, leaving the rails beside it standing. */
-const STAGE = { left: "--nt-stage-l", right: "--nt-stage-r" };
 /** A canvas with no `screen` (none claimed) never changes, so this subscribe
  *  is a stable identity `useSyncExternalStore` can hold onto across renders. */
 const NEVER_CHANGES = () => () => {};
@@ -472,28 +468,30 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
     shellRef.current?.style.setProperty(name, value);
   }, []);
 
-  /* Measured, not recomputed: the rails beside the column are a sidebar, a
-     layers panel, an edge tab or nothing at all depending on the moment, and
-     the column already knows what is left over. Its width changes whenever any
-     of them does, which is what the observer watches. */
+  /* The column's edges, for the boxes fixed to the window that stand in it
+     (`columnEdges.ts`) — a surface portalled to the body, like the storyboard's
+     full-size shot, included. Measured, not recomputed: the rails beside the
+     column are a sidebar, a layers panel, an edge tab or nothing at all
+     depending on the moment, and the column already knows what is left over.
+     Its width changes whenever any of them does, which is what the observer
+     watches — on every frame of a rail opening or closing. */
   useLayoutEffect(() => {
     const el = columnRef.current;
     if (!el) return;
-    const root = document.documentElement.style;
     const measure = () => {
       // Narrow, the rails are drawers summoned over the document rather than
       // chrome standing beside it, so there is nothing to leave room for.
       const box = compact ? null : el.getBoundingClientRect();
-      root.setProperty(STAGE.left, box ? `${box.left}px` : "0px");
-      root.setProperty(STAGE.right, box ? `${window.innerWidth - box.right}px` : "0px");
+      publishColumnEdges(
+        box ? { left: box.left, right: window.innerWidth - box.right } : { left: 0, right: 0 },
+      );
     };
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(el);
     return () => {
       observer.disconnect();
-      root.removeProperty(STAGE.left);
-      root.removeProperty(STAGE.right);
+      publishColumnEdges(null);
     };
   }, [compact]);
 
