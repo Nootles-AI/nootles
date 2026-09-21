@@ -22,7 +22,7 @@ type Shot = { bar: DOMRect; parts: Map<string, Part>; slot: DOMRect | null };
 
 const BAR = ".nt-toolbar-dock:not([data-leaving]) > .nt-toolbar";
 const MS = 440;
-const OUT_MS = 160;
+const OUT_MS = 110;
 /** Between one shape folding (or fanning) and the next. */
 const STAGGER = 45;
 /** One shape's fold into the slot. */
@@ -136,6 +136,11 @@ function play(root: HTMLElement | null, shot: Shot) {
     .map(([name]) => name);
   // When the last of them is in, and the slot takes them.
   const landed = FOLD + Math.max(0, folding.length - 1) * STAGGER;
+  // The shapes never travel through anything else: arriving tools wait until
+  // the fold has landed, and fanned-out shapes until departing tools are gone.
+  const arrive = folding.length ? landed - 80 : 60;
+  const departing = [...shot.parts].some(([name, part]) => !parts.has(name) && !part.shape);
+  const fanFrom = departing ? OUT_MS : 40;
 
   const seen = new Set<string>();
   for (const [name, el] of parts) {
@@ -159,7 +164,7 @@ function play(root: HTMLElement | null, shot: Shot) {
           { opacity: 1, offset: 0.15 },
           { translate: "0 0", scale: "1", opacity: 1 },
         ],
-        { duration: MS, delay: 40 + fanOrder(el) * STAGGER, easing: spring, fill: "backwards" },
+        { duration: MS, delay: fanFrom + fanOrder(el) * STAGGER, easing: spring, fill: "backwards" },
       );
     } else if (el.classList.contains("nt-toolbar-caret") && slot) {
       // The caret comes out from under the slot once the shapes are in it.
@@ -172,8 +177,8 @@ function play(root: HTMLElement | null, shot: Shot) {
       );
     } else {
       el.animate([{ opacity: 0, scale: "0.6" }, { opacity: 1, scale: "1" }], {
-        duration: MS,
-        delay: 60,
+        duration: MS * 0.7,
+        delay: arrive,
         easing: spring,
         fill: "backwards",
       });
