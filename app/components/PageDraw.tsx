@@ -10,6 +10,7 @@ import { handTool } from "./editor/canvas/engine/handedTool";
 import { defaultBox, newNode, type DrawKind } from "./editor/canvas/render/newShape";
 import { emptyScene } from "./editor/canvas/scene/migrate";
 import { mintId } from "./editor/canvas/scene/ops";
+import { canvasHeightFor, FIXED, WIDTH_ATTR } from "./editor/canvas/types";
 import { serializeScene } from "./editor/canvas/scene/serialize";
 
 /**
@@ -144,9 +145,10 @@ function normalise(a: { x: number; y: number }, b: { x: number; y: number }, squ
 /**
  * Where a diagram drawn from `y` goes: in place of an empty line it was drawn
  * on, or else before or after the top-level block it was drawn against,
- * whichever half of it the drag began in. Returns the diagram's block id.
+ * whichever half of it the drag began in. Also the column it will stand in —
+ * the text's own left edge and width, which the diagram's frame takes.
  */
-function insertAt(editor: LiveEditor, y: number, data: string): string {
+function placeAt(editor: LiveEditor, y: number) {
   const blocks = editor.document as { id: string; type: string; content?: unknown }[];
   const root = editor.domElement as HTMLElement | undefined;
   let ref = blocks[blocks.length - 1];
@@ -163,13 +165,47 @@ function insertAt(editor: LiveEditor, y: number, data: string): string {
     break;
   }
   const empty = ref.type === "paragraph" && Array.isArray(ref.content) && ref.content.length === 0;
-  if (on && empty) {
-    editor.updateBlock(ref, { type: "canvas", props: { data } });
-    return ref.id;
-  }
-  const [made] = editor.insertBlocks([{ type: "canvas", props: { data } }], ref, where);
-  return made.id;
+  const column = root
+    ?.querySelector<HTMLElement>(`[data-id="${ref.id}"] .bn-block-content`)
+    ?.getBoundingClientRect();
+  return {
+    column: column ? { left: column.left, width: column.width } : null,
+    /** Puts the diagram there. Returns its block id. */
+    insert(data: string): string {
+      if (on && empty) {
+        editor.updateBlock(ref, { type: "canvas", props: { data } });
+        return ref.id;
+      }
+      const [made] = editor.insertBlocks([{ type: "canvas", props: { data } }], ref, where);
+      return made.id;
+    },
+  };
 }
+
+/**
+ * The diagram a shape drawn on the page becomes. Across, the shape stays where
+ * it was drawn against the text's left edge — moved only if it was drawn past
+ * that edge, and the frame widened if it runs past the column's right. Down,
+ * it is centred in the height the block takes for it: the block goes between
+ * lines, so where it lands vertically is the block's to decide anyway.
+ */
+function sceneFor(kind: DrawKind, drawn: Box, column: { left: number; width: number } | null) {
+  const scene = emptyScene();
+  const nodeId = mintId(scene);
+  const w = Math.round(drawn.w);
+  const h = Math.round(drawn.h);
+  const x = column ? Math.max(0, Math.round(drawn.x - column.left)) : 0;
+  const y = Math.max(0, Math.round((canvasHeightFor([{ y: 0, height: h }]) - h) / 2));
+  scene.nodes = [newNode(kind, nodeId, { x, y, w, h })];
+  if (column && x + w > column.width) {
+    scene.w = x + w + WIDEN_PAD;
+    scene.attrs[WIDTH_ATTR] = FIXED;
+  }
+  return { scene, nodeId };
+}
+
+/** Room left past a shape that widened its frame, so it does not touch the edge. */
+const WIDEN_PAD = 24;
 
 /** Resolves with what `find` finds, polled a frame at a time, or null by `ms`. */
 function when<T>(find: () => T | null, ms: number): Promise<T | null> {
@@ -294,37 +330,52 @@ export function usePageDraw({
     const land = async (pageId: string, drawn: Box, ghost: HTMLElement) => {
       onTool("move");
       let blockId: string;
-      const scene = emptyScene();
-      const nodeId = mintId(scene);
-      scene.nodes = [newNode(kind, nodeId, { x: 0, y: 0, w: Math.round(drawn.w), h: Math.round(drawn.h) })];
+      let nodeId: string;
       try {
         const editor = await registry.editorFor(pageId);
-        blockId = insertAt(editor, drawn.y, serializeScene(scene));
+        const place = placeAt(editor, drawn.y);
+        const made = sceneFor(kind, drawn, place.column);
+        nodeId = made.nodeId;
+        blockId = place.insert(serializeScene(made.scene));
       } catch (error) {
         console.warn("[page-draw] could not place the diagram:", error);
         ghost.remove();
         return;
       }
       track("block_created", { type: "canvas" });
-      onDrawn(blockId, nodeId);
 
-      // The shape in its new home, once the canvas has drawn and framed it.
+      // The shape in its new home, once the canvas has drawn it. What was drawn
+      // carries itself there — one shape the whole way, never a copy fading
+      // out over another fading in — and the real one takes over where it
+      // lands. Only then is the diagram opened on it, so its selection comes
+      // up on a shape that has stopped moving.
       const shape = await when(
         () => document.querySelector<HTMLElement>(`[data-id="${blockId}"] .nt-canvas-scene [data-id="${nodeId}"]`),
         1500,
       );
-      if (!shape) return ghost.remove();
+      if (!shape) {
+        ghost.remove();
+        onDrawn(blockId, nodeId);
+        return;
+      }
+      shape.style.visibility = "hidden";
       await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
       const to = shape.getBoundingClientRect();
       const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-      const settle = ghost.animate(
-        [
-          { left: `${drawn.x}px`, top: `${drawn.y}px`, width: `${drawn.w}px`, height: `${drawn.h}px`, opacity: 1 },
-          { left: `${to.left}px`, top: `${to.top}px`, width: `${to.width}px`, height: `${to.height}px`, opacity: 0 },
-        ],
-        { duration: reduced ? 1 : 320, easing: SETTLE, fill: "forwards" },
-      );
-      settle.onfinish = () => ghost.remove();
+      await ghost
+        .animate(
+          [
+            { left: `${drawn.x}px`, top: `${drawn.y}px`, width: `${drawn.w}px`, height: `${drawn.h}px` },
+            { left: `${to.left}px`, top: `${to.top}px`, width: `${to.width}px`, height: `${to.height}px` },
+          ],
+          { duration: reduced ? 1 : 320, easing: SETTLE, fill: "forwards" },
+        )
+        .finished.catch(() => {});
+      shape.style.visibility = "";
+      onDrawn(blockId, nodeId);
+      // Held a beat longer, over the real shape, until the selection frame is up
+      // in the place of its own.
+      requestAnimationFrame(() => requestAnimationFrame(() => ghost.remove()));
     };
 
     el.addEventListener("pointerdown", onDown, true);

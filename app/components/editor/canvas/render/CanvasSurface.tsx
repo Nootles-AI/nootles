@@ -1296,12 +1296,23 @@ export function CanvasSurface({
   );
 
   // A diagram authored wider than the column would otherwise open cropped.
+  // One that already sits inside its frame opens where it was put: re-centring
+  // it would move every shape off the spot it was drawn on, a drawing made on
+  // the page itself included.
   const fitted = useRef(false);
   useLayoutEffect(() => {
     if (fitted.current) return;
     fitted.current = true;
+    const el = viewport.containerRef.current;
+    const scene = store.getScene();
+    if (el && scene.nodes.some((node) => !node.hidden)) {
+      const r = contentRect(scene);
+      const inside =
+        r.x >= 0 && r.y >= 0 && r.x + r.w <= el.clientWidth && r.y + r.h <= el.clientHeight;
+      if (inside) return;
+    }
     frameContent();
-  }, [frameContent]);
+  }, [frameContent, store, viewport]);
 
   const api = useMemo<CanvasApi>(
     () => ({
