@@ -8,7 +8,7 @@ import { Button, PaletteButton, REDO, TOOLS, ToolRow, UNDO } from "./editor/canv
 import { isApplePlatform, shortcutHint, type CanvasTool, type ShortcutId } from "./editor/canvas/engine/shortcuts";
 import { handTool } from "./editor/canvas/engine/handedTool";
 import { defaultBox, newNode, type DrawKind } from "./editor/canvas/render/newShape";
-import { emptyScene } from "./editor/canvas/scene/migrate";
+import { emptyScene, migrateLegacyCanvas } from "./editor/canvas/scene/migrate";
 import { mintId } from "./editor/canvas/scene/ops";
 import { canvasHeightFor, FIXED, WIDTH_ATTR } from "./editor/canvas/types";
 import { serializeScene } from "./editor/canvas/scene/serialize";
@@ -210,6 +210,65 @@ function sceneFor(kind: DrawKind, drawn: Box, column: { left: number; width: num
 /** Room left past a shape that widened its frame, so it does not touch the edge. */
 const WIDEN_PAD = 24;
 
+/**
+ * The diagram already on the page that a shape drawn beside it belongs to:
+ * one it lies to the right of, wholly between its top and bottom. Drawn there,
+ * the shape is part of that diagram's picture, not the start of another one
+ * underneath it. Diagram blocks only — a storyboard's frames are fixed.
+ */
+function besideDiagram(editor: LiveEditor, drawn: Box) {
+  const root = editor.domElement as HTMLElement | undefined;
+  for (const block of editor.document as { id: string; type: string; props: { data?: string } }[]) {
+    if (block.type !== "canvas") continue;
+    const el = root?.querySelector<HTMLElement>(`[data-id="${block.id}"] .nt-canvas`);
+    const r = el?.getBoundingClientRect();
+    if (!el || !r) continue;
+    if (drawn.x >= r.right && drawn.y >= r.top && drawn.y + drawn.h <= r.bottom) {
+      return { block, el };
+    }
+  }
+  return null;
+}
+
+/**
+ * Puts the shape into that diagram where it was drawn, widening the frame out
+ * to it. Screen to scene through the view the diagram is showing, so it lands
+ * under the pointer at whatever pan and zoom it has; written as the block's
+ * whole scene — the same write an edit from outside the canvas makes, which
+ * the diagram's own shapes merge through untouched.
+ */
+function extendDiagram(
+  editor: LiveEditor,
+  { block, el }: NonNullable<ReturnType<typeof besideDiagram>>,
+  kind: DrawKind,
+  drawn: Box,
+): string {
+  const scene = migrateLegacyCanvas(block.props.data ?? "");
+  const view = el.querySelector<HTMLElement>(".nt-canvas-viewport");
+  const layer = el.querySelector<HTMLElement>(".nt-canvas-scene");
+  const frame = el.getBoundingClientRect();
+  const origin = view?.getBoundingClientRect() ?? frame;
+  const m = new DOMMatrixReadOnly(layer ? getComputedStyle(layer).transform : "none");
+  const zoom = m.a || 1;
+  const nodeId = mintId(scene);
+  scene.nodes = [
+    ...scene.nodes,
+    newNode(kind, nodeId, {
+      x: Math.round((drawn.x - origin.left - (view?.clientLeft ?? 0) - m.e) / zoom),
+      y: Math.round((drawn.y - origin.top - (view?.clientTop ?? 0) - m.f) / zoom),
+      w: Math.round(drawn.w / zoom),
+      h: Math.round(drawn.h / zoom),
+    }),
+  ];
+  const reach = Math.ceil(drawn.x + drawn.w - frame.left + WIDEN_PAD);
+  if (reach > frame.width) {
+    scene.w = reach;
+    scene.attrs[WIDTH_ATTR] = FIXED;
+  }
+  editor.updateBlock(block, { props: { data: serializeScene(scene) } });
+  return nodeId;
+}
+
 /** Resolves with what `find` finds, polled a frame at a time, or null by `ms`. */
 function when<T>(find: () => T | null, ms: number): Promise<T | null> {
   const until = performance.now() + ms;
@@ -336,17 +395,22 @@ export function usePageDraw({
       let nodeId: string;
       try {
         const editor = await registry.editorFor(pageId);
-        const place = placeAt(editor, drawn.y);
-        const made = sceneFor(kind, drawn, place.column);
-        nodeId = made.nodeId;
-        blockId = place.insert(serializeScene(made.scene));
+        const beside = besideDiagram(editor, drawn);
+        if (beside) {
+          nodeId = extendDiagram(editor, beside, kind, drawn);
+          blockId = beside.block.id;
+        } else {
+          const place = placeAt(editor, drawn.y);
+          const made = sceneFor(kind, drawn, place.column);
+          nodeId = made.nodeId;
+          blockId = place.insert(serializeScene(made.scene));
+          track("block_created", { type: "canvas" });
+        }
       } catch (error) {
         console.warn("[page-draw] could not place the diagram:", error);
         ghost.remove();
         return;
       }
-      track("block_created", { type: "canvas" });
-
       // The shape in its new home, once the canvas has drawn it. What was drawn
       // carries itself there — one shape the whole way, never a copy fading
       // out over another fading in — and the real one takes over where it
