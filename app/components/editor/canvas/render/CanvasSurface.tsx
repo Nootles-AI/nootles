@@ -122,14 +122,15 @@ import { ShapeView, toCss } from "./ShapeView";
 import "../canvas.css";
 
 /** How long the stage takes to open or close. */
-const STAGE_MS = 420;
+const STAGE_MS = 300;
 /**
  * The curve for it — and the glide solves the same one, so the surface and the
- * diagram arrive together. Quick off the mark and settling short, so it reads
- * as a snap into place; not `--ease`, which does so much of its travel in the
- * first frames that over a move this large it looks like a cut.
+ * diagram arrive together. A snap: quick off the mark and settled in a third
+ * of a second, while still slow enough in its first frames to be seen growing
+ * out of the block — `--ease` spends so much of its travel there that over a
+ * move this large it reads as a cut.
  */
-const STAGE_CURVE = [0.3, 0, 0, 1] as const;
+const STAGE_CURVE = [0.25, 0, 0, 1] as const;
 const STAGE_EASE = `cubic-bezier(${STAGE_CURVE.join(", ")})`;
 /** The block's own corner (`--radius-lg`), as a length a keyframe can hold. */
 const BLOCK_RADIUS = "10px";
@@ -783,7 +784,7 @@ export function CanvasSurface({
                 { ...ring, maskSize: "0px 0px", maskPosition: `${cx}px ${cy}px` },
                 { ...ring, maskSize: `${d}px ${d}px`, maskPosition: `${cx - d / 2}px ${cy - d / 2}px` },
               ],
-              { duration: STAGE_MS + 120, easing: STAGE_EASE },
+              { duration: STAGE_MS + 80, easing: STAGE_EASE },
             ),
           );
         }
