@@ -20,6 +20,12 @@
  * rewind is pressed through the chat transcript's own Rewind menu, wired to the
  * session as `ChatPanel` wires it.
  *
+ * NT-45: ⌘Z after Discard all took back the whole last-typed paragraph. The
+ * discard puts the page back inside the review's fork, and landing that fork
+ * rewrote the shared doc's items with identical copies, leaving the person's
+ * undo entries naming items nobody could reach. The person's own steps after a
+ * discarded turn are checked against the same three ⌘Z with no turn at all.
+ *
  * NT-43: an agent's diagram edit reached collaborators' maps while it was
  * still under review, and Discard, Revert and the rewind put back only the
  * block's `<nt-diagram>` mirror. Every reader of the diagram — the block prop,
@@ -299,18 +305,61 @@ try {
   check("…still forked, still open", [await h(() => window.reviewHarness.open()), await forked()], [1, true]);
   check("…and the shared doc never heard the change", await h(() => window.reviewHarness.peerTexts()), [...HEAD, ...NOTES]);
 
-  console.log("Discard all, then ⌘Z");
+  console.log("NT-45: Discard all, then ⌘Z");
+  // The control first: the person's own steps with nothing but their typing
+  // behind them. A turn they discarded whole has to leave these untouched.
+  const walk = async () => {
+    const steps = [];
+    for (let i = 0; i < 3; i++) {
+      await undo();
+      steps.push(await texts());
+    }
+    return steps;
+  };
+  await fresh();
+  await typeNotes();
+  await clickEnd(0);
+  const alone = await walk();
+  check("three ⌘Z walk back through the typing", alone, [
+    [...HEAD, ...NOTES.slice(0, 2), "paragraph:"],
+    [...HEAD, ...NOTES.slice(0, 2)],
+    [...HEAD, NOTES[0], "paragraph:"],
+  ]);
+
   await fresh();
   await typeNotes();
   await turn();
   await press("Discard all");
   await settled();
   check("Discard all puts the notes back", await texts(), [...HEAD, ...NOTES]);
+  check("…and the collaborator never heard any of it", await peer(), [...HEAD, ...NOTES]);
   await clickEnd(0);
   await undo();
   check("⌘Z after a discard does not bring the change back", (await texts()).some((t) => SCENE.includes(t)), false);
   await redo();
   check("…and ⌘⇧Z gives the notes back whole", await texts(), [...HEAD, ...NOTES]);
+  // A discard puts the notes back by writing them out again, inside the fork.
+  // Landed, that rewrite replaced the very Yjs items the person's undo entries
+  // name; Yjs pops a dead entry silently and undoes an older live one instead,
+  // so ⌘Z walked past their last words and took the paragraph holding them
+  // (NT-45). A fork holding nothing of theirs is now dropped, not landed.
+  check("the person's own steps are the same as if the turn had never happened", await walk(), alone);
+
+  console.log("NT-45: typing during the review, then Discard all");
+  await fresh();
+  await typeNotes();
+  await turn();
+  await clickEnd(0);
+  await page.keyboard.type(" v2", { delay: 5 });
+  await sleep(BETWEEN_NOTES);
+  await press("Discard all");
+  await settled();
+  const RETITLED = ["heading:Enactus intro reel v2", HEAD[1]];
+  check("the notes come back and the typing stays", await texts(), [...RETITLED, ...NOTES]);
+  // What `landed` is for, and the half of it that must not regress: the fork
+  // holds the person's own words, so it is carried across rather than dropped.
+  check("…and the typing reaches the shared doc", await peer(), [...RETITLED, ...NOTES]);
+  check("…with the fork closed behind it", await forked(), false);
 
   console.log("Keep all, a collaborator writes, then ⌘Z");
   await fresh();
