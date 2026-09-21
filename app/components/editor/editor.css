@@ -730,16 +730,7 @@
 .nt-editor .nt-diff {
   position: relative;
   border-radius: var(--radius-sm);
-}
-.nt-editor .nt-diff::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: -14px;
-  width: 2px;
-  border-radius: 1px;
-  background: var(--border-strong);
+  --nt-diff-rule: var(--border-strong);
 }
 .nt-editor .nt-diff-add,
 .nt-editor .nt-diff-whole,
@@ -747,17 +738,38 @@
   background: var(--diff-add-bg);
   box-shadow: 0 0 0 3px var(--diff-add-bg);
 }
-.nt-editor .nt-diff-add::before,
-.nt-editor .nt-diff-whole::before,
-.nt-editor .nt-diff-move::before,
-.nt-editor .nt-diff-edit::before {
-  background: var(--diff-add-line);
+.nt-editor .nt-diff-add,
+.nt-editor .nt-diff-whole,
+.nt-editor .nt-diff-move,
+.nt-editor .nt-diff-edit {
+  --nt-diff-rule: var(--diff-add-line);
 }
 /* Once the user has rewritten it, the block is theirs. The rule stays so the
    change is still findable; the colour goes, because there is no longer a
    decision attached to it. */
-.nt-editor .nt-diff-kept::before {
-  background: var(--border-strong);
+.nt-editor .nt-diff-kept {
+  --nt-diff-rule: var(--border-strong);
+}
+/* The rule is drawn on `::after` because BlockNote owns `::before` on block
+   content twice over: it zeroes its height there as a Chrome selection
+   workaround (#1588), which silently flattened this rule to nothing, and a
+   bulleted or numbered item draws its MARKER on it — so taking it out of the
+   flex line to sit in the margin carried the marker along and pulled the
+   item's words 24px left (NT-47).
+   `::after` is the empty-block placeholder's, and only while the block is
+   empty, so the rule declines exactly there rather than painting over it. An
+   emptied block still under review is not empty on screen — its removed words
+   are struck in place — so this gives up the rule only on a block the person
+   has cleared themselves. */
+.nt-editor .nt-diff:where(:not(:has(.ProseMirror-trailingBreak:only-child)))::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -14px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--nt-diff-rule);
 }
 
 /* Words this change added. Ink stays --foreground: a green word is a word you

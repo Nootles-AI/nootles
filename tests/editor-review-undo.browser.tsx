@@ -333,7 +333,15 @@ function peerTexts() {
 }
 
 function idsWith(prefix: string) {
-  return editor.document.filter((block) => blockText(block).startsWith(prefix)).map((block) => block.id);
+  const out: string[] = [];
+  const visit = (blocks: { id: string; content?: unknown; children?: unknown[] }[]) => {
+    for (const block of blocks) {
+      if (blockText(block).startsWith(prefix)) out.push(block.id);
+      if (Array.isArray(block.children)) visit(block.children as never);
+    }
+  };
+  visit(editor.document as never);
+  return out;
 }
 
 /** Viewport point of character `offset` inside top-level block `index`'s text. */
@@ -554,6 +562,91 @@ function agentLine(value: string) {
   return stageTurn([{ kind: "setBlockContent", blockId: idsWith("Drive:")[0], content: [text(value)] }], []);
 }
 
+
+/** A list of each kind, at two levels, so every marker BlockNote draws is on the page. */
+function seedList() {
+  return seed([
+    { type: "heading", props: { level: 2 }, content: "Packing" },
+    { type: "bulletListItem", content: "camera body", children: [{ type: "bulletListItem", content: "spare battery" }] },
+    { type: "numberedListItem", content: "clear the border", children: [{ type: "numberedListItem", content: "buy a SIM" }] },
+    { type: "checkListItem", content: "charge the drone" },
+    { type: "paragraph", content: "" },
+  ]);
+}
+
+/** Every item on that page rewritten where it stands. */
+function agentList() {
+  const at = (prefix: string) => idsWith(prefix)[0];
+  return stageTurn(
+    [
+      { kind: "setBlockContent", blockId: at("camera body"), content: [text("camera body and lens")] },
+      { kind: "setBlockContent", blockId: at("spare battery"), content: [text("two spare batteries")] },
+      { kind: "setBlockContent", blockId: at("clear the border"), content: [text("clear the border early")] },
+      { kind: "setBlockContent", blockId: at("buy a SIM"), content: [text("buy a local SIM")] },
+      { kind: "setBlockContent", blockId: at("charge the drone"), content: [text("charge the drone twice")] },
+    ],
+    [],
+  );
+}
+
+/**
+ * A block's own content element, never one of its children's. A block whose
+ * view is a React node — a diagram, a code block — renders its own wrapper
+ * there instead of `.bn-block-content`, which is why NT-47 spared them: they
+ * were never under BlockNote's `height: 0`. The children hang off the sibling
+ * `.bn-block-group`.
+ */
+const contentOf = (id: string | undefined) =>
+  document.querySelector<HTMLElement>(`[data-node-type="blockContainer"][data-id="${id}"] > :not(.bn-block-group)`);
+
+/**
+ * The margin rule as it is painted on a block: the tone it is drawn in, and
+ * whether it runs the block's own height — which is the whole of NT-47, since
+ * a rule that resolves to 0px is unclipped, coloured, and invisible.
+ *
+ * `marker` is the pseudo-element next door, where a bulleted or numbered item
+ * draws its own. The rule shares the block with it and must leave it in the
+ * flex line: taking it out pulls the item's words 24px left.
+ */
+function marginRule(id: string | undefined) {
+  const el = contentOf(id);
+  if (!el) return null;
+  const rule = getComputedStyle(el, "::after");
+  const marker = getComputedStyle(el, "::before");
+  const words = el.querySelector(".bn-inline-content");
+  return {
+    tone: [...el.classList].find((name) => name.startsWith("nt-diff-"))?.slice("nt-diff-".length) ?? null,
+    height: Math.round(parseFloat(rule.height)) || 0,
+    block: Math.round(el.getBoundingClientRect().height),
+    width: rule.width,
+    left: rule.left,
+    colour: rule.backgroundColor,
+    marker: { glyph: marker.content, position: marker.position, width: marker.width },
+    wordsAt: words ? Math.round(words.getBoundingClientRect().left) : null,
+  };
+}
+
+/** Where the caret landed: the block it is in, and its offset in that block's text. */
+function caretAt() {
+  const { selection } = (editor as unknown as {
+    prosemirrorState: { selection: { $from: { parent: { textContent: string }; parentOffset: number }; empty: boolean } };
+  }).prosemirrorState;
+  return { empty: selection.empty, text: selection.$from.parent.textContent, offset: selection.$from.parentOffset };
+}
+
+/** The one marked block with nothing left in it, and what its `::after` is doing. */
+function emptiedBlock() {
+  const el = [...document.querySelectorAll<HTMLElement>(".nt-diff")].find((node) => node.textContent === "");
+  if (!el) return null;
+  const after = getComputedStyle(el, "::after");
+  return {
+    tone: [...el.classList].find((name) => name.startsWith("nt-diff-"))?.slice("nt-diff-".length) ?? null,
+    placeholder: after.content,
+    position: after.position,
+    colour: after.backgroundColor,
+  };
+}
+
 /** The `index`th table's cells as text, row by row. */
 function tableRows(index = 0) {
   const content = tables()[index]?.content as { rows: { cells: { content: { text?: string }[] }[] }[] } | undefined;
@@ -621,6 +714,13 @@ const harness = {
   peerType,
   seedTable,
   agentTable,
+  seedList,
+  agentList,
+  rule: (prefix: string) => marginRule(idsWith(prefix)[0]),
+  ruleOnTable: (index = 0) => marginRule(tables()[index]?.id),
+  ruleOnDiagram: () => marginRule(canvasBlock()?.id),
+  caretAt,
+  emptiedBlock,
   agentNewTable,
   agentLine,
   tableRows,

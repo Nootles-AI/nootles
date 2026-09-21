@@ -37,6 +37,14 @@
  * as one whole-table `setTableRows`, so the checks read what a reader meets:
  * the block's own mark, and which cells have words marked in them.
  *
+ * NT-47: the rule in the margin — the thing the review means you to scan for —
+ * never drew. It sizes itself off `top` and `bottom`, and BlockNote pins
+ * `height: 0` on the block-content pseudo-element it was drawn on, so it
+ * resolved to 0px everywhere, production included. That pseudo-element is also
+ * where a bulleted or numbered item draws its marker, which the rule carried
+ * into the margin with it. The checks read the rule's used height against the
+ * block's own, on every block type, and watch that nobody's words move.
+ *
  * Uses the existing esbuild dependency and an operator-installed Puppeteer. No
  * app server, no Convex, no API keys — and every non-local request fails the
  * run, so no AI lane can be spent in here.
@@ -114,7 +122,7 @@ await build({
 // utilities, without which a diagram lays out zero pixels wide and no shape on
 // it can be pressed. `globals.css` imports Tailwind too, so the review's diff
 // colours are copied from it: without them a wash paints nothing to check.
-await writeFile(path.join(output, "index.html"), `<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="/editor-review-undo.browser.css"><style>html,body{margin:0;height:100%;overflow:hidden;font-family:Arial,sans-serif}.relative{position:relative}.w-full{width:100%}:root{--diff-add-bg:oklch(0.962 0.024 148);--diff-add-line:oklch(0.63 0.105 148);--diff-del:oklch(0.548 0.115 25);--diff-del-bg:oklch(0.958 0.019 25)}</style></head><body><div id="app"></div><script type="module" src="/editor-review-undo.browser.js"></script></body></html>`);
+await writeFile(path.join(output, "index.html"), `<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="/editor-review-undo.browser.css"><style>html,body{margin:0;height:100%;overflow:hidden;font-family:Arial,sans-serif}.relative{position:relative}.w-full{width:100%}:root{--diff-add-bg:oklch(0.962 0.024 148);--diff-add-line:oklch(0.63 0.105 148);--diff-del:oklch(0.548 0.115 25);--diff-del-bg:oklch(0.958 0.019 25);--border-strong:oklch(0.875 0.004 90)}</style></head><body><div id="app"></div><script type="module" src="/editor-review-undo.browser.js"></script></body></html>`);
 
 const server = createServer(async (request, response) => {
   try {
@@ -897,6 +905,147 @@ try {
   await turn("agentLine", "Drive: ~3 hrs (subject to border wait)");
   const line = await h(() => window.reviewHarness.drawnLine("Drive:"));
   check("a rewritten line has its words marked, and no wash", [marks(line), line.wash], [{ tone: "edit", ins: ["~3"], del: ["~2.5"], cells: [] }, TRANSPARENT]);
+  check("nothing reported a failure", await h(() => window.reviewHarness.failure()), null);
+
+  // NT-47: the rule in the margin never drew. It sizes itself off `top` and
+  // `bottom`, and BlockNote pins `height: 0` on the pseudo-element it was drawn
+  // on — so it resolved to 0px, unclipped and coloured and invisible, in
+  // production too. The same pseudo-element is where a bulleted or numbered
+  // item draws its MARKER, which the rule took out of the flex line with it.
+  const GREEN = "oklch(0.63 0.105 148)";
+  const NEUTRAL = "oklch(0.875 0.004 90)";
+  const BAR = { width: "2px", left: "-14px" };
+  /** What a check asks of a rule: that it runs the block, as the right bar. */
+  const asBar = (rule) => ({
+    tone: rule.tone,
+    runsTheBlock: rule.height > 0 && rule.height === rule.block,
+    width: rule.width,
+    left: rule.left,
+    colour: rule.colour,
+  });
+  const ruleOn = (prefix) => h((p) => window.reviewHarness.rule(p), prefix);
+  const marker = (prefix) => ruleOn(prefix).then((rule) => rule.marker);
+  const wordsAt = (prefix) => ruleOn(prefix).then((rule) => rule.wordsAt);
+  const freshList = async () => {
+    await h(() => window.reviewHarness.mount());
+    await page.waitForSelector(".bn-editor");
+    await h(() => window.reviewHarness.seedList());
+    await page.waitForFunction(() => window.reviewHarness.stacks() !== null);
+    await sleep(150);
+  };
+
+  console.log("NT-47: the rule runs the height of the block it marks");
+  await fresh();
+  await typeNotes();
+  await turn();
+  await sleep(250);
+  check("a changed heading wears a rule its own height", asBar(await ruleOn("Scene 1")), { tone: "add", runsTheBlock: true, ...BAR, colour: GREEN });
+  check("…so does the paragraph under it", asBar(await ruleOn("Visual:")), { tone: "add", runsTheBlock: true, ...BAR, colour: GREEN });
+  check("…and the quote under that", asBar(await ruleOn('"What was')), { tone: "add", runsTheBlock: true, ...BAR, colour: GREEN });
+  // A two-line heading is where a rule sized off one line would show.
+  check("the heading is taller than one line", (await ruleOn("Scene 1")).block > 40, true);
+
+  console.log("NT-47: a changed list item keeps its marker, and its words stay put");
+  await freshList();
+  const beforeTheReview = {
+    bullet: await wordsAt("camera body"),
+    nested: await wordsAt("spare battery"),
+    numbered: await wordsAt("clear the border"),
+    check: await wordsAt("charge the drone"),
+  };
+  await turn("agentList");
+  await sleep(300);
+  for (const [what, prefix] of [
+    ["a bulleted item", "camera body and lens"],
+    ["a nested bulleted item", "two spare batteries"],
+    ["a numbered item", "clear the border early"],
+    ["a nested numbered item", "buy a local SIM"],
+    ["a tick-box item", "charge the drone twice"],
+  ]) {
+    check(`${what} wears a rule its own height`, asBar(await ruleOn(prefix)), { tone: "edit", runsTheBlock: true, ...BAR, colour: GREEN });
+  }
+  check("the bullet is still a bullet, in the line with the words", await marker("camera body and lens"), { glyph: '"•"', position: "static", width: "24px" });
+  check("…the nested one is still the hollow bullet", await marker("two spare batteries"), { glyph: '"◦"', position: "static", width: "24px" });
+  check("…and the numbers are still numbers", [await marker("clear the border early"), await marker("buy a local SIM")], [
+    { glyph: '"1."', position: "static", width: "24px" },
+    { glyph: '"1."', position: "static", width: "24px" },
+  ]);
+  // The rule is drawn beside the block, not in front of its words. Before the
+  // fix it took the marker's place in the flex line and every item's words
+  // jumped 24px left the moment the review opened.
+  check("the review moved nobody's words", {
+    bullet: await wordsAt("camera body and lens"),
+    nested: await wordsAt("two spare batteries"),
+    numbered: await wordsAt("clear the border early"),
+    check: await wordsAt("charge the drone twice"),
+  }, beforeTheReview);
+  // The rule is a thing you look at, so leave a way to look at it:
+  //   NT47_SHOT=/tmp/nt47 node tests/editor-review-undo.browser.mjs
+  if (process.env.NT47_SHOT) {
+    const clip = await h(() => {
+      const box = document.querySelector('[data-content-type="bulletListItem"]').closest(".bn-block-outer").getBoundingClientRect();
+      return { x: Math.round(box.x) - 40, y: Math.round(box.y) - 12, width: 440, height: 200 };
+    });
+    await page.screenshot({ path: `${process.env.NT47_SHOT}-list.png`, clip });
+    console.log(`  screenshot → ${process.env.NT47_SHOT}-list.png`);
+  }
+
+  console.log("NT-47: the rule on the blocks with no words of their own");
+  await freshTable();
+  await turn("agentTable", PARTIAL);
+  await sleep(250);
+  check("a partly rewritten table wears a rule its whole height", asBar(await h(() => window.reviewHarness.ruleOnTable())), { tone: "edit", runsTheBlock: true, ...BAR, colour: GREEN });
+  check("…and that is several rows tall", (await h(() => window.reviewHarness.ruleOnTable())).block > 100, true);
+  // A diagram's view is a React node, so it never sat under BlockNote's
+  // `height: 0` and its rule drew all along. It is here because the rule moved
+  // pseudo-element for every block type, not only the ones that were broken.
+  await freshDiagram();
+  await turn("agentDiagram");
+  await sleep(500);
+  check("a rewritten diagram still wears one", asBar(await h(() => window.reviewHarness.ruleOnDiagram())), { tone: "whole", runsTheBlock: true, ...BAR, colour: GREEN });
+  check("…the height of the canvas", (await h(() => window.reviewHarness.ruleOnDiagram())).block > 200, true);
+  if (process.env.NT47_SHOT) {
+    await page.screenshot({ path: `${process.env.NT47_SHOT}-diagram.png` });
+    console.log(`  screenshot → ${process.env.NT47_SHOT}-diagram.png`);
+  }
+
+  console.log("NT-47: pressing into a changed block puts the caret where it was pressed");
+  // The `height: 0` the rule ran into is BlockNote's workaround for a Chrome
+  // bug (#1588) where a block's `::before` moves the caret a mouse-down asks
+  // for. The rule is off that pseudo-element now; this is the bug not coming
+  // back. The control is the same press with no review open.
+  const pressInto = async (index, offset) => {
+    const at = await h((i, o) => window.reviewHarness.textPoint(i, o), index, offset);
+    await page.mouse.click(at.x, at.y);
+    await sleep(120);
+    return h(() => window.reviewHarness.caretAt());
+  };
+  await fresh();
+  await typeNotes();
+  check("control: the caret lands where it was pressed, with no review", await pressInto(4, 12), { empty: true, text: NOTES[2].slice("paragraph:".length), offset: 12 });
+  await turn();
+  await sleep(250);
+  check("under review, it still does — in the changed paragraph", await pressInto(3, 12), { empty: true, text: "Visual: A café table. Actor B leans into frame.", offset: 12 });
+  check("…and in the changed heading", await pressInto(2, 3), { empty: true, text: "Scene 1 — The Question", offset: 3 });
+
+  console.log("NT-47: a changed block the person then empties keeps its placeholder");
+  // `::after` is the empty-block placeholder's. The rule declines there rather
+  // than painting the placeholder's own box green and hanging it in the margin.
+  await fresh();
+  await typeNotes();
+  await turn();
+  await sleep(250);
+  await clickEnd(3);
+  const words = await h(() => window.reviewHarness.caretAt().text.length);
+  for (let i = 0; i < words; i++) await page.keyboard.press("Backspace");
+  await sleep(400);
+  check("emptying it makes it theirs, and the placeholder keeps its pseudo-element", await h(() => window.reviewHarness.emptiedBlock()), {
+    tone: "kept",
+    placeholder: "\"Enter text or type '/' for commands\"",
+    position: "static",
+    colour: "rgba(0, 0, 0, 0)",
+  });
+  check("…and a block they edited but did not empty keeps a neutral rule", asBar(await ruleOn('"What was')), { tone: "kept", runsTheBlock: true, ...BAR, colour: NEUTRAL });
   check("nothing reported a failure", await h(() => window.reviewHarness.failure()), null);
 } finally {
   await browser?.close();
