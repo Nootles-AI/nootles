@@ -52,6 +52,24 @@ export function isForked(editor: LiveEditor): boolean {
   return forkApi(editor)?.store.state.isForked ?? false;
 }
 
+/**
+ * What a fork said when it was made, for the one question `landed` asks.
+ *
+ * Kept per fork doc, so it goes when the fork does. A fork this never saw —
+ * one made before this ran — answers "there may be something of theirs in
+ * there", which lands: the reading that loses nothing.
+ */
+const born = new WeakMap<Y.Doc, string>();
+
+/**
+ * A fork's content with nothing of its items' identity in it. Yjs sorts
+ * attributes and marks for exactly this comparison, so the same page written
+ * twice reads the same both times.
+ */
+function contentOf(editor: LiveEditor): string {
+  return bindingOf(editor).type.toString();
+}
+
 export function ensureForked(editor: LiveEditor) {
   const fork = forkApi(editor);
   if (!fork || fork.store.state.isForked) return;
@@ -72,14 +90,16 @@ export function ensureForked(editor: LiveEditor) {
     );
     fork.fork();
   }
+  born.set(boundDoc(editor), contentOf(editor));
 }
 
 /**
  * How a fork ends. `kept` carries its changes into the shared doc as one step
- * of the person's history; `landed` carries them in off it, for an answer that
- * kept nothing but whose fork still holds the person's own typing (see
- * `undoable` in session.ts); `discarded` drops them wholesale (a rewind or a
- * revert of a turn nobody else ever saw).
+ * of the person's history; `landed` is an answer that kept nothing (see
+ * `undoable` in session.ts) — what the person typed into the fork meanwhile
+ * comes in off the history, and a fork holding nothing of theirs is dropped
+ * rather than landed; `discarded` drops them wholesale, whatever is in there
+ * (a rewind or a revert of a turn nobody else ever saw).
  */
 export type ForkEnd = "kept" | "landed" | "discarded";
 
@@ -92,7 +112,15 @@ export function mergeFork(editor: LiveEditor, end: ForkEnd) {
   // be what the page now says, diagrams included (see settleDiagrams).
   if (end !== "discarded") settleDiagrams(forked);
   if (end !== "kept") {
-    fork.merge({ keepChanges: end === "landed" });
+    // `landed` exists for the person's own typing, and carries the fork across
+    // for it. With none of it in there the fork says exactly what it was born
+    // saying, and landing it would write the whole page back as brand-new
+    // items — identical to read, and no longer the ones the person's undo
+    // entries name. Yjs pops those dead entries silently and undoes an older
+    // live one instead, so ⌘Z walked past their last words and took the
+    // paragraph they were in (NT-45). Nothing of theirs, nothing to carry.
+    const theirs = end === "landed" && contentOf(editor) !== born.get(forked);
+    fork.merge({ keepChanges: theirs });
     restoreSelection(editor, selection);
     return;
   }
