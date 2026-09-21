@@ -74,6 +74,32 @@
   stroke-width: var(--k, 1);
 }
 
+/* The grips arrive with the frame, a corner at a time. The frame group is
+   switched with `display`, and a CSS animation starts when an element comes
+   back from `display: none` — so this plays when a selection appears and at no
+   other time: a drag repaints these circles every frame without ever hiding
+   them. `fill-box` makes each circle scale about its own centre rather than
+   the SVG's origin. */
+.nt-ov-grips > circle {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: nt-ov-grip-in 300ms var(--spring) backwards;
+}
+.nt-ov-grips > circle:nth-child(2) {
+  animation-delay: 30ms;
+}
+.nt-ov-grips > circle:nth-child(3) {
+  animation-delay: 60ms;
+}
+.nt-ov-grips > circle:nth-child(4) {
+  animation-delay: 90ms;
+}
+@keyframes nt-ov-grip-in {
+  from {
+    transform: scale(0);
+  }
+}
+
 /* Hit targets: bigger than they look, and the only thing here that takes a
    pointer. `all` rather than the default, since they are painted transparent. */
 .nt-ov-edges > rect,
@@ -88,6 +114,11 @@
   cursor: crosshair;
 }
 
+/* Shown only for the length of a gesture, by the same `display` switch — so
+   it eases in as the drag starts instead of snapping on under the hand. */
+.nt-ov-chip {
+  animation: nt-fade-in var(--dur) var(--ease);
+}
 .nt-ov-chip > rect {
   fill: var(--ov-chip);
 }
@@ -97,4 +128,11 @@
   font-family: var(--font-mono), ui-monospace, monospace;
   font-size: 11px;
   font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nt-ov-grips > circle,
+  .nt-ov-chip {
+    animation: none;
+  }
 }

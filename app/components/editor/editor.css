@@ -22,6 +22,45 @@
   margin-block: 3px;
 }
 
+/* ---- A page opening ----------------------------------------------------
+   The title rises, then the body a beat behind it — two animations on two
+   containers, never one per block: ProseMirror re-creates blocks as you type,
+   and a per-block entrance would replay under the caret.
+
+   The pane is not remounted between pages, so `data-turn` flips with each page
+   (`PageSurface`) and the two names are the same keyframes twice: a changed
+   `animation-name` is what makes the browser run it again. `backwards`, so a
+   page at rest carries no transform — the expanded canvas stage inside the
+   body is `position: fixed`, and a transformed ancestor would become what it
+   is fixed to. */
+.nt-page-in[data-turn="a"] {
+  animation: nt-page-in-a 480ms var(--ease) 40ms backwards;
+}
+.nt-page-in[data-turn="b"] {
+  animation: nt-page-in-b 480ms var(--ease) 40ms backwards;
+}
+.nt-page-in.is-title {
+  animation-duration: 500ms;
+  animation-delay: 0ms;
+}
+@keyframes nt-page-in-a {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+@keyframes nt-page-in-b {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nt-page-in[data-turn] {
+    animation: none;
+  }
+}
+
 /* ---- Block handles (the + and the grip in the gutter) -----------------
    The floating anchor is BlockNote's; the cluster inside it is ours.
 
@@ -64,6 +103,17 @@
   align-items: center;
   height: auto;
   border-radius: var(--radius);
+  /* They come out of the text they belong to: the last few pixels toward the
+     gutter, as they fade in. On the cluster, because the anchor's transform is
+     the positioner's — and it fills backwards, so at rest nothing here is
+     transformed and the drag menu born inside it is fixed to the window. */
+  animation: nt-handles-in var(--dur) var(--ease) backwards;
+}
+@keyframes nt-handles-in {
+  from {
+    opacity: 0;
+    transform: translateX(4px);
+  }
 }
 
 /* A gutter too narrow to hold the cluster leaves it clamped over the first
@@ -106,9 +156,188 @@
 
 @media (prefers-reduced-motion: reduce) {
   .nt-side-menu-anchor,
-  .nt-side-menu-anchor[data-nt-slide] {
+  .nt-side-menu-anchor[data-nt-slide],
+  .nt-side-menu-anchor .nt-block-handles {
     animation: none;
     transition: none;
+  }
+}
+
+/* ---- BlockNote's own chrome -------------------------------------------
+   The formatting toolbar, the grip menu, the colour and block-type menus, the
+   link popover and the table handles are BlockNote's, drawn by Mantine. They
+   are themed rather than rebuilt: BlockNote reads every surface off a handful
+   of `--bn-*` variables, and Mantine reads its one accent off a handful more,
+   so pointing those at this app's tokens dresses all of them at once — in the
+   menu system's paper, hairline and shadow, with no blue left to find.
+   `.bn-root.bn-mantine` rather than `.bn-root`: theirs is declared on the
+   single class, and ours must win wherever the two sheets land. */
+.bn-root.bn-mantine {
+  --bn-colors-menu-text: var(--foreground);
+  --bn-colors-menu-background: var(--elevated);
+  --bn-colors-hovered-text: var(--foreground);
+  --bn-colors-hovered-background: var(--hover);
+  --bn-colors-selected-text: var(--foreground);
+  --bn-colors-selected-background: var(--selected);
+  --bn-colors-disabled-text: var(--faint);
+  --bn-colors-disabled-background: transparent;
+  --bn-colors-tooltip-text: var(--background);
+  --bn-colors-tooltip-background: var(--foreground);
+  --bn-colors-border: var(--border);
+  --bn-border-radius: var(--radius);
+  --bn-shadow-medium:
+    0 1px 2px oklch(0.25 0.005 90 / 0.05), 0 4px 12px oklch(0.25 0.005 90 / 0.07),
+    0 16px 40px oklch(0.25 0.005 90 / 0.1);
+  /* Mantine's accent is blue, and it reaches for it in places BlockNote never
+     restyles — a focus ring, a light-variant hover, a switch. Graphite. */
+  --mantine-primary-color-filled: var(--foreground);
+  --mantine-primary-color-filled-hover: oklch(0.33 0.005 90);
+  --mantine-primary-color-light: var(--selected);
+  --mantine-primary-color-light-hover: var(--hover);
+  --mantine-primary-color-light-color: var(--foreground);
+  --mantine-color-blue-light: var(--selected);
+  --mantine-color-blue-light-hover: var(--hover);
+  --mantine-color-blue-light-color: var(--foreground);
+  --mantine-color-blue-filled: var(--foreground);
+  --mantine-color-anchor: currentColor;
+}
+/* The chrome speaks in the app's face. Set on the surfaces rather than through
+   `--bn-font-family`: the document inherits that variable too, and what the
+   page is set in is not this section's to change. */
+.bn-root.bn-mantine :is(.bn-toolbar, .mantine-Menu-dropdown, .bn-menu-dropdown, .bn-form-popover) {
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+}
+/* The one ring the app has, in place of Mantine's. */
+.bn-root.bn-mantine .mantine-focus-auto:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Every Mantine dropdown in the editor is a menu, so it is `.nt-menu`'s metrics:
+   4px of padding, the large corner, rows at the control height. */
+.bn-root.bn-mantine .mantine-Menu-dropdown,
+.bn-root.bn-mantine .bn-menu-dropdown {
+  padding: 4px;
+  border-radius: var(--radius-lg);
+  animation: nt-menu-in var(--dur-slow) var(--spring);
+}
+.bn-root.bn-mantine .mantine-Menu-item {
+  min-height: var(--control);
+  padding: 0 var(--inset);
+  border-radius: var(--radius-sm);
+  background-color: transparent;
+  font-size: var(--text-ui);
+  transition: background-color var(--dur-fast) var(--ease);
+}
+.bn-root.bn-mantine .mantine-Menu-label {
+  padding: 8px var(--inset) 4px;
+  background: none;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--text-meta);
+  font-weight: 500;
+  letter-spacing: var(--tracking-meta);
+  text-transform: uppercase;
+  color: var(--muted);
+}
+/* The grip's menu opens beside the gutter, so that is the corner it grows from. */
+.nt-side-menu-anchor .bn-menu-dropdown {
+  transform-origin: top right;
+}
+
+/* The formatting toolbar: a small elevated strip over the selection. Controls
+   on the panel's 24px box, glyphs at the app's 16, and a hairline wherever the
+   row changes subject. It lands on the spring from the selection it answers —
+   on the toolbar, never its wrapper, whose transform is the positioner's. */
+.bn-root.bn-mantine .bn-toolbar {
+  gap: 1px;
+  padding: 3px;
+  border-radius: var(--radius-lg);
+}
+.bn-root.bn-mantine .bn-formatting-toolbar {
+  transform-origin: bottom center;
+  animation: nt-menu-in var(--dur-slow) var(--spring) backwards;
+}
+.bn-root.bn-mantine .bn-toolbar .mantine-ActionIcon-root,
+.bn-root.bn-mantine .bn-toolbar .mantine-Button-root {
+  --ai-size: var(--control-sm);
+  min-width: var(--control-sm);
+  min-height: var(--control-sm);
+  height: var(--control-sm);
+  border-radius: var(--radius-sm);
+  background-color: transparent;
+  color: var(--muted);
+  transition:
+    background-color var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease),
+    transform var(--dur) var(--ease);
+}
+.bn-root.bn-mantine .bn-toolbar .mantine-ActionIcon-root {
+  width: var(--control-sm);
+}
+.bn-root.bn-mantine .bn-toolbar .mantine-Button-root {
+  padding-inline: 6px;
+  font-size: var(--text-meta-lg);
+  font-weight: 400;
+}
+.bn-root.bn-mantine .bn-toolbar .mantine-ActionIcon-root svg,
+.bn-root.bn-mantine .bn-toolbar .mantine-Button-section svg {
+  width: 16px;
+  height: 16px;
+}
+.bn-root.bn-mantine .bn-toolbar .mantine-ActionIcon-root:hover,
+.bn-root.bn-mantine .bn-toolbar .mantine-Button-root:hover {
+  background-color: var(--hover);
+  color: var(--foreground);
+}
+.bn-root.bn-mantine .bn-toolbar .mantine-ActionIcon-root:active:not([data-disabled]),
+.bn-root.bn-mantine .bn-toolbar .mantine-Button-root:active:not([data-disabled]) {
+  transform: scale(0.92);
+}
+.bn-root.bn-mantine .bn-toolbar .mantine-ActionIcon-root[data-selected],
+.bn-root.bn-mantine .bn-toolbar .mantine-Button-root[data-selected],
+.bn-root.bn-mantine .bn-toolbar [aria-expanded="true"] {
+  background-color: var(--selected);
+  color: var(--foreground);
+}
+.bn-root.bn-mantine .bn-toolbar .mantine-ActionIcon-root[data-disabled] {
+  background-color: transparent;
+  color: var(--faint);
+}
+/* Where the row changes subject: type | marks | alignment | colour | nesting |
+   link. A hairline that belongs to the button after it, so a toolbar that
+   drops a group drops its rule with it. */
+.bn-root.bn-mantine .bn-formatting-toolbar > :is(
+    [data-test="bold"],
+    [data-test="alignTextLeft"],
+    [data-test="colors"],
+    [data-test="nestBlock"],
+    [data-test="createLink"]
+  ) {
+  position: relative;
+  margin-left: 7px;
+  overflow: visible;
+}
+.bn-root.bn-mantine .bn-formatting-toolbar > :is(
+    [data-test="bold"],
+    [data-test="alignTextLeft"],
+    [data-test="colors"],
+    [data-test="nestBlock"],
+    [data-test="createLink"]
+  )::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: -4px;
+  width: 1px;
+  height: 16px;
+  margin-top: -8px;
+  background: var(--border);
+}
+@media (prefers-reduced-motion: reduce) {
+  .bn-root.bn-mantine .mantine-Menu-dropdown,
+  .bn-root.bn-mantine .bn-menu-dropdown,
+  .bn-root.bn-mantine .bn-formatting-toolbar {
+    animation: nt-fade-in var(--dur-fast) var(--ease);
   }
 }
 
@@ -325,28 +554,109 @@
    A tick box in the run of the text (NT-41) — the only kind a table cell can
    hold, since a cell holds inline content and no blocks at all.
 
-   Deliberately unstyled: it is the same bare `input[type=checkbox]` the to-do
-   list draws as its marker, and nothing in the app styles that one either, so
-   one document has one checkbox. All that is added is the thing the list never
-   needed — where a box sits in a line of words, rather than in the gutter in
-   front of them. */
+   It is the same `input[type=checkbox]` the to-do list draws as its marker, and
+   the two are drawn by one rule below, so one document has one checkbox. All
+   that is added here is the thing the list never needed — where a box sits in
+   a line of words, rather than in the gutter in front of them. */
 .nt-check {
   display: inline-block;
   line-height: 1;
 }
-/* Still the bare native box, in both places — but ticked, a native box fills
-   with the browser's own blue, which is the one colour this surface does not
-   have. `accent-color` keeps the control and changes only its ink: graphite,
-   with the tick the browser picks to contrast it (paper). */
+
+/* ---- The tick box, drawn --------------------------------------------
+   Still a real checkbox — the keyboard, the label and the form semantics are
+   the browser's — but drawn here, because ticked a native box fills with the
+   browser's own blue, the one colour this surface does not have.
+
+   An empty box is a hairline. Ticked, it fills with ink and the tick is PAPER:
+   a white stroke in the image itself, not `currentColor`, so there is no state
+   and no inherited colour in which the tick can come out ink on ink. The tick
+   is always there at no size, and arrives on the spring by growing. */
 .bn-editor input[type="checkbox"],
 .nt-check-box {
-  accent-color: var(--foreground);
+  appearance: none;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  border-radius: var(--radius-sm);
+  background-color: transparent;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23fff' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E");
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 0 0;
+  box-shadow: inset 0 0 0 1.5px var(--border-strong);
+  cursor: pointer;
+  transition:
+    background-color var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease),
+    background-size var(--dur-slow) var(--spring),
+    transform var(--dur-slow) var(--spring);
+}
+.bn-editor input[type="checkbox"]:hover,
+.nt-check-box:hover {
+  box-shadow: inset 0 0 0 1.5px var(--shape-line-active);
+}
+.bn-editor input[type="checkbox"]:active,
+.nt-check-box:active {
+  transform: scale(0.82);
+}
+.bn-editor input[type="checkbox"]:checked,
+.nt-check-box:checked {
+  background-color: var(--foreground);
+  background-size: 12px 12px;
+  box-shadow: none;
+}
+.bn-editor input[type="checkbox"]:disabled,
+.nt-check-box:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+/* A user who has asked for their own colours gets their own checkbox. */
+@media (forced-colors: active) {
+  .bn-editor input[type="checkbox"],
+  .nt-check-box {
+    appearance: auto;
+    background: none;
+    box-shadow: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bn-editor input[type="checkbox"],
+  .nt-check-box {
+    transition: none;
+  }
 }
 .nt-check-box {
-  margin: 0;
   /* On the x-height rather than the baseline, so the box reads as centred
      against lower-case and does not ride up out of a cell's single line. */
-  vertical-align: -0.14em;
+  vertical-align: -0.18em;
+}
+/* The list's marker: BlockNote sizes it 12×24 in a 24px seat. The box is 16
+   square, centred on the first line whatever that line's height is. */
+.nt-editor .bn-block-content[data-content-type="checkListItem"] > div:has(> input) {
+  display: flex;
+  align-items: center;
+  height: calc(var(--leading-body) * 1em);
+}
+.nt-editor .bn-block-content[data-content-type="checkListItem"] > div > input {
+  /* Nudged onto the capitals rather than the line box, whose centre sits low
+     of where the eye puts the text's. */
+  position: relative;
+  top: -1.5px;
+  width: 16px;
+  height: 16px;
+  margin: 0 10px 0 1px;
+}
+/* Done, it steps back: muted and struck, and it gets there rather than snaps. */
+.nt-editor .bn-block-content[data-content-type="checkListItem"] .bn-inline-content {
+  transition: color var(--dur-slow) var(--ease);
+}
+.nt-editor
+  .bn-block-content[data-content-type="checkListItem"][data-checked="true"]
+  .bn-inline-content {
+  color: var(--muted);
+  text-decoration-color: var(--faint);
 }
 
 /* ---- Inline math (KaTeX render + MathLive edit) ---------------------- */
@@ -745,6 +1055,14 @@
 .nt-editor .nt-diff-move {
   background: var(--diff-add-bg);
   box-shadow: 0 0 0 3px var(--diff-add-bg);
+  /* The wash comes up under the new block; its ink is there from the start. */
+  animation: nt-diff-wash-in 500ms var(--ease) backwards;
+}
+@keyframes nt-diff-wash-in {
+  from {
+    background-color: transparent;
+    box-shadow: 0 0 0 3px transparent;
+  }
 }
 .nt-editor .nt-diff-add,
 .nt-editor .nt-diff-whole,
@@ -778,6 +1096,18 @@
   width: 2px;
   border-radius: 1px;
   background: var(--nt-diff-rule);
+  /* The rule is drawn down the margin as the change lands. On the block and
+     not on the words inside it: the block's element is the editor's and stays
+     put, while the spans around changed words are rebuilt as you type beside
+     them and would replay anything they animated. */
+  transform-origin: top;
+  animation: nt-diff-rule-in 420ms var(--ease) backwards;
+}
+@keyframes nt-diff-rule-in {
+  from {
+    opacity: 0;
+    transform: scaleY(0.2);
+  }
 }
 
 /* Words this change added. Ink stays --foreground: a green word is a word you
@@ -785,14 +1115,16 @@
 .nt-editor .nt-diff-ins {
   background: var(--diff-add-bg);
   box-shadow: 0 0 0 1px var(--diff-add-bg);
-  border-radius: 2px;
+  border-radius: 3px;
 }
 /* Words it removed, put back where they stood, struck. */
 .nt-editor .nt-diff-del {
   color: var(--diff-del);
   background: var(--diff-del-bg);
-  border-radius: 2px;
-  text-decoration-color: color-mix(in oklch, var(--diff-del) 60%, transparent);
+  border-radius: 3px;
+  /* Struck in the rule's own tone, so the line through a word and the rule in
+     the margin are visibly the same mark. */
+  text-decoration-color: var(--diff-del-line);
   white-space: pre-wrap;
   user-select: none;
 }
@@ -862,19 +1194,38 @@
   position: relative;
   height: 0;
 }
+/* One small elevated surface holding the pair, the way a menu holds its items:
+   two loose bordered squares read as two things, and this is one question. It
+   lands a beat after the change it answers for, on the menus' spring, so the
+   eye reads the words first and finds the answer second. */
 .nt-diff-actions-inner {
   position: absolute;
-  top: 1px;
+  top: -1px;
   left: 100%;
   display: flex;
   gap: 2px;
   margin-left: 10px;
-  opacity: 0.5;
-  transition: opacity var(--dur-fast) var(--ease);
+  padding: 2px;
+  border-radius: var(--radius);
+  background: var(--elevated);
+  box-shadow:
+    0 0 0 1px oklch(0.25 0.005 90 / 0.07),
+    0 1px 2px oklch(0.25 0.005 90 / 0.06),
+    0 6px 16px -6px oklch(0.25 0.005 90 / 0.14);
+  transform-origin: left center;
+  animation: nt-diff-actions-in var(--dur-slow) var(--spring) 200ms backwards;
 }
-.nt-diff-actions-inner:hover,
-.nt-diff-actions-inner:focus-within {
-  opacity: 1;
+@keyframes nt-diff-actions-in {
+  from {
+    opacity: 0;
+    filter: blur(4px);
+    transform: scale(0.9);
+  }
+}
+/* Answering replaces the pair with the one that was pressed. That is the same
+   surface changing its mind, not a new one arriving — so it does not land. */
+.nt-diff-actions-inner:has(.is-answering) {
+  animation: none;
 }
 .nt-diff-btn {
   display: inline-flex;
@@ -883,28 +1234,46 @@
   width: var(--control-sm);
   height: var(--control-sm);
   border-radius: var(--radius-sm);
-  background: var(--elevated);
-  border: 1px solid var(--border);
   color: var(--muted);
   transition:
+    background var(--dur-fast) var(--ease),
     color var(--dur-fast) var(--ease),
-    border-color var(--dur-fast) var(--ease);
+    transform var(--dur) var(--ease);
 }
 .nt-diff-btn svg {
   width: 13px;
   height: 13px;
 }
-.nt-diff-btn.is-keep:hover {
-  color: var(--diff-add);
-  border-color: var(--diff-add-line);
+.nt-diff-btn:active:not(:disabled) {
+  transform: scale(0.9);
 }
+/* Discarding is the quiet one; it takes the diff's own red only under the
+   pointer, where it is a warning about this press and not decoration. */
 .nt-diff-btn.is-discard:hover {
+  background: var(--diff-del-bg);
   color: var(--diff-del);
-  border-color: var(--diff-del-line);
+}
+/* Keeping is the ordinary answer, so it is the filled one. Ink AND paper, said
+   for every state: a filled control that sets only its fill leaves the glyph in
+   whatever ink it inherited, which on graphite is graphite. */
+.nt-diff-btn.is-keep,
+.nt-diff-btn.is-keep:hover,
+.nt-diff-btn.is-keep:disabled,
+.nt-diff-btn.is-keep:disabled:hover {
+  background: var(--foreground);
+  color: var(--background);
+}
+.nt-diff-btn.is-keep:hover:not(:disabled) {
+  background: oklch(0.33 0.005 90);
 }
 .nt-diff-btn.is-answering {
   cursor: wait;
   opacity: 1;
+}
+/* A discard in flight is not a filled control; it keeps the quiet dress. */
+.nt-diff-btn.is-discard.is-answering {
+  background: none;
+  color: var(--muted);
 }
 .nt-diff-btn.is-answering svg {
   animation: nt-review-spin 0.8s linear infinite;

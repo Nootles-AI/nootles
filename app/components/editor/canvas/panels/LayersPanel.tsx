@@ -1,6 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type CSSProperties,
+} from "react";
 import { Editable } from "@/app/components/Editable";
 import { ChevronRight } from "@/app/components/Icons";
 import { useContextMenu } from "../ContextMenu";
@@ -21,7 +27,9 @@ import {
 import "./layers.css";
 
 /** Mirrors the row height in layers.css; the drag maths needs it as a number. */
-const ROW_H = 24;
+const ROW_H = 28;
+/** Rows past this one arrive together; see `--i` on the row. */
+const STAGGER = 12;
 const INDENT = 12;
 const DRAG_SLOP = 4;
 
@@ -363,12 +371,13 @@ export function LayersPanel({
         onPointerDown={(e) => {
           if (e.target === e.currentTarget) selection.clear();
         }}
+        onPointerLeave={() => selection.hoverNode(null)}
       >
         {rows.length === 0 && (
           <div className="nt-lyr-empty">Nothing on the canvas yet.</div>
         )}
 
-        {rows.map((row) => {
+        {rows.map((row, i) => {
           const { node, depth } = row;
           const selected = snapshot.selected.has(node.id);
           const editing = renaming?.id === node.id;
@@ -385,8 +394,18 @@ export function LayersPanel({
                 node.hidden || node.locked ? " is-dim" : ""
               }${moving?.has(node.id) ? " is-moving" : ""}${
                 drop?.intoId === node.id ? " is-into" : ""
-              }`}
-              style={{ paddingLeft: 8 + depth * INDENT }}
+              }${snapshot.hoverId === node.id ? " is-hover" : ""}`}
+              // `--i` staggers the row's arrival, and stops counting at the
+              // fold: a scene of two hundred layers must not take four seconds
+              // to finish appearing.
+              style={
+                { paddingLeft: 8 + depth * INDENT, "--i": Math.min(i, STAGGER) } as CSSProperties
+              }
+              // The ring the canvas draws for a pointer over a shape, drawn
+              // for a pointer over its row — the same answer from either side.
+              onPointerEnter={() => {
+                if (!moving) selection.hoverNode(node.id);
+              }}
               onPointerDown={(e) => onRowPointerDown(e, row)}
               onPointerMove={onRowPointerMove}
               onPointerUp={onRowPointerUp}
@@ -500,7 +519,7 @@ export function LayersPanel({
             aria-label="Connectors"
             aria-multiselectable
           >
-            {scene.edges.map((edge) => {
+            {scene.edges.map((edge, i) => {
               const selected = snapshot.edgeSelected.has(edge.id);
               return (
                 <div
@@ -509,6 +528,7 @@ export function LayersPanel({
                   tabIndex={0}
                   aria-selected={selected}
                   className={`nt-lyr-row${selected ? " is-selected" : ""}`}
+                  style={{ "--i": Math.min(i, STAGGER) } as CSSProperties}
                   onPointerDown={(e) => {
                     if (e.button !== 0) return;
                     if (e.metaKey || e.ctrlKey || e.shiftKey) {

@@ -583,6 +583,13 @@ function actionsWidget(hunk: ReviewHunk, spec: NonNullable<ReviewSpec>): HTMLEle
     return wrap;
   }
 
+  // No discard once the user has rewritten it: putting the checkpoint back
+  // would throw away their words, and there is no version of this hunk that
+  // holds both. Where there is one it comes first and Keep last — the order the
+  // bars keep, so the filled answer is always the one at the end.
+  if (!hunk.kept) {
+    inner.appendChild(button("rejected", "Discard this change", ICON.discard, "Discard"));
+  }
   inner.appendChild(
     button(
       "accepted",
@@ -591,12 +598,6 @@ function actionsWidget(hunk: ReviewHunk, spec: NonNullable<ReviewSpec>): HTMLEle
       hunk.kept ? "You edited this — it stays" : "Keep",
     ),
   );
-  // No discard once the user has rewritten it: putting the checkpoint back
-  // would throw away their words, and there is no version of this hunk that
-  // holds both.
-  if (!hunk.kept) {
-    inner.appendChild(button("rejected", "Discard this change", ICON.discard, "Discard"));
-  }
 
   wrap.appendChild(inner);
   return wrap;

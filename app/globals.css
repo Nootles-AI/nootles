@@ -317,14 +317,23 @@ body {
   color: var(--muted);
   transition:
     background var(--dur-fast) var(--ease),
-    color var(--dur-fast) var(--ease);
+    color var(--dur-fast) var(--ease),
+    transform var(--dur) var(--ease);
 }
 .nt-icon-btn:hover {
   background: var(--hover);
   color: var(--foreground);
 }
+/* It gives under the finger. On the glyph's own box only, and only while
+   pressed — nothing that floats is ever born inside an icon button. */
 .nt-icon-btn:active {
   background: var(--active);
+  transform: scale(0.92);
+}
+@media (prefers-reduced-motion: reduce) {
+  .nt-icon-btn:active {
+    transform: none;
+  }
 }
 /* A latched icon button, the same grey wash the toolbar and the row selection
    use. Sites used to say this with an inline `text-[var(--foreground)]`, which
@@ -491,11 +500,60 @@ body {
   justify-content: center;
   color: var(--faint);
 }
+/* A quarter turn has mass, so it lands on the spring. */
 .nt-row-chevron {
-  transition: transform var(--dur-fast) var(--ease);
+  transition: transform var(--dur-slow) var(--spring);
 }
 .nt-row-chevron.is-open {
   transform: rotate(90deg);
+}
+
+/* A row rises into the list as it mounts — a new page, a folder's children as
+   it opens. Rows are keyed by id, so a rename, a selection or a drag frame
+   never remounts one and never replays this; and it fills backwards, so a row
+   at rest carries no transform for anything born inside it to be fixed to.
+   Only while the sidebar itself is arriving (`data-arriving`, its first beat)
+   do the rows wait their turn, top first. */
+.nt-pages > li[data-row] {
+  animation: nt-row-in 420ms var(--ease) backwards;
+}
+.nt-pages[data-arriving] > li[data-row] {
+  animation-delay: calc(60ms + var(--i, 13) * 24ms);
+}
+.nt-pages > li:nth-child(2) { --i: 0; }
+.nt-pages > li:nth-child(3) { --i: 1; }
+.nt-pages > li:nth-child(4) { --i: 2; }
+.nt-pages > li:nth-child(5) { --i: 3; }
+.nt-pages > li:nth-child(6) { --i: 4; }
+.nt-pages > li:nth-child(7) { --i: 5; }
+.nt-pages > li:nth-child(8) { --i: 6; }
+.nt-pages > li:nth-child(9) { --i: 7; }
+.nt-pages > li:nth-child(10) { --i: 8; }
+.nt-pages > li:nth-child(11) { --i: 9; }
+.nt-pages > li:nth-child(12) { --i: 10; }
+.nt-pages > li:nth-child(13) { --i: 11; }
+.nt-pages > li:nth-child(14) { --i: 12; }
+@keyframes nt-row-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+/* The way back to the project list leans the way it goes. */
+.nt-back > svg {
+  transition: transform var(--dur-slow) var(--spring);
+}
+.nt-back:hover > svg {
+  transform: translateX(-2px);
+}
+@media (prefers-reduced-motion: reduce) {
+  .nt-pages > li[data-row] {
+    animation: none;
+  }
+  .nt-row-chevron,
+  .nt-back > svg {
+    transition: none;
+  }
 }
 .nt-row-icon {
   flex: none;
@@ -840,13 +898,74 @@ body[data-resizing] .nt-rail-slot {
 .nt-menu-item:focus-visible {
   background: var(--hover);
 }
-.nt-menu-item.is-danger:hover {
+.nt-menu-item:active {
+  background: var(--active);
+}
+/* The one item that takes something away wears that before it is touched: a
+   menu is read, not explored, and the warning belongs to the reading. */
+.nt-menu-item.is-danger {
   color: var(--danger);
 }
 .nt-menu-sep {
   height: 1px;
-  margin: 4px 0;
+  margin: 4px var(--inset);
   background: var(--border);
+}
+/* The key that does the same thing, at the row's far end, in the mono voice. */
+.nt-menu-kbd {
+  flex: none;
+  margin-left: auto;
+  padding-left: 16px;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--text-meta);
+  letter-spacing: 0.02em;
+  color: var(--muted);
+}
+/* A tick that arrives rather than appears. Always in the row, so a row gaining
+   or losing it never moves its label. */
+.nt-menu-check {
+  flex: none;
+  margin-left: auto;
+  opacity: 0;
+  transform: scale(0.4);
+  transition:
+    transform var(--dur-slow) var(--spring),
+    opacity var(--dur-fast) var(--ease);
+}
+.nt-menu-check.is-on {
+  opacity: 1;
+  transform: none;
+}
+
+/* A menu arrives as a list, top first. Only a real `role="menu"`: those mount
+   their rows once. A list that re-filters as you type (the slash and mention
+   menus, the font list) would replay this on every keystroke, and a popover of
+   controls is not a list at all. */
+.nt-menu[role="menu"]:not(.is-closing) > * {
+  animation: nt-menu-item-in 260ms var(--ease) calc(var(--i, 9) * 16ms) backwards;
+}
+.nt-menu[role="menu"] > :nth-child(1) { --i: 0; }
+.nt-menu[role="menu"] > :nth-child(2) { --i: 1; }
+.nt-menu[role="menu"] > :nth-child(3) { --i: 2; }
+.nt-menu[role="menu"] > :nth-child(4) { --i: 3; }
+.nt-menu[role="menu"] > :nth-child(5) { --i: 4; }
+.nt-menu[role="menu"] > :nth-child(6) { --i: 5; }
+.nt-menu[role="menu"] > :nth-child(7) { --i: 6; }
+.nt-menu[role="menu"] > :nth-child(8) { --i: 7; }
+.nt-menu[role="menu"] > :nth-child(9) { --i: 8; }
+@keyframes nt-menu-item-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nt-menu[role="menu"] > * {
+    animation: none;
+  }
+  .nt-menu-check {
+    transition: none;
+  }
 }
 /* A line of menu that is information rather than a target — the account a menu
    belongs to. Item metrics, muted ink, no hover. */
@@ -960,7 +1079,11 @@ textarea.nt-input {
   backdrop-filter: blur(10px);
   animation: nt-fade-in var(--dur) var(--ease);
 }
+/* On its way out it is already gone as far as the pointer is concerned, the
+   way a closing menu is: a click made the moment after Escape was landing on a
+   scrim nobody could see, and going nowhere. */
 .nt-scrim.is-closing {
+  pointer-events: none;
   animation: nt-fade-out var(--dur) var(--ease) forwards;
 }
 
@@ -1051,6 +1174,58 @@ textarea.nt-input {
   font-size: var(--text-ui);
   line-height: 1.5;
   color: var(--muted);
+}
+
+/* ---- Sharing --------------------------------------------------------------
+   Two glyphs in one seat. The second takes it while its button says the thing
+   is done (`data-done`), and gives it back: a swap on the spring, so "Copied"
+   is seen to happen rather than read after the fact. */
+.nt-swap {
+  display: inline-grid;
+  flex: none;
+}
+.nt-swap > * {
+  grid-area: 1 / 1;
+  transition:
+    transform var(--dur-slow) var(--spring),
+    opacity var(--dur) var(--ease);
+}
+.nt-swap > :last-child,
+[data-done] > .nt-swap > :first-child {
+  opacity: 0;
+  transform: scale(0.4);
+}
+[data-done] > .nt-swap > :last-child {
+  opacity: 1;
+  transform: none;
+}
+/* Who has access arrives as a list, top first. */
+.nt-share-people > li {
+  animation: nt-row-in 360ms var(--ease) backwards;
+}
+.nt-share-people > li:nth-child(2) { animation-delay: 30ms; }
+.nt-share-people > li:nth-child(3) { animation-delay: 60ms; }
+.nt-share-people > li:nth-child(4) { animation-delay: 90ms; }
+.nt-share-people > li:nth-child(n + 5) { animation-delay: 120ms; }
+/* A request that has been answered leaves while the server agrees. */
+.nt-ask-row {
+  transition:
+    opacity 220ms var(--ease),
+    transform 220ms cubic-bezier(0.7, 0, 0.84, 0);
+}
+.nt-ask-row.is-leaving {
+  opacity: 0;
+  transform: scale(0.97);
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .nt-swap > *,
+  .nt-ask-row {
+    transition: none;
+  }
+  .nt-share-people > li {
+    animation: none;
+  }
 }
 .nt-mono-inline {
   padding: 1px 4px;
@@ -1482,6 +1657,33 @@ textarea.nt-input {
   transform: translateY(0);
 }
 
+/* The measured tooltip (`Tooltip.tsx`). It rises the last few pixels toward the
+   thing it names, from whichever side it ended up on. No scale and no blur: it
+   is a label arriving, not a surface. */
+.nt-tooltip {
+  animation: nt-tooltip-in var(--dur) var(--ease);
+}
+.nt-tooltip[data-below] {
+  animation-name: nt-tooltip-in-below;
+}
+@keyframes nt-tooltip-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+}
+@keyframes nt-tooltip-in-below {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nt-tooltip {
+    animation: nt-fade-in var(--dur-fast) var(--ease);
+  }
+}
+
 /* Present to assistive tech, absent from the page. */
 .sr-only {
   position: absolute;
@@ -1509,6 +1711,24 @@ textarea.nt-input {
   display: flex;
   flex-direction: column;
   gap: 14px;
+}
+/* A turn arrives once, from just below where it will rest. It is keyed by its
+   message, so tokens streaming into it and the panel re-rendering around it do
+   not replay this — only a turn that was not there before moves. */
+.nt-turn {
+  animation: nt-turn-in 420ms var(--ease) backwards;
+}
+@keyframes nt-turn-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+/* Nothing asked yet. Fades rather than rises: it is the panel at rest, not
+   something that has just been said. */
+.nt-transcript-empty {
+  animation: nt-fade-in var(--dur-slow) var(--ease) backwards;
+  text-wrap: balance;
 }
 .nt-turn-text {
   margin: 0;
@@ -1630,6 +1850,7 @@ ol.nt-md-list {
   display: flex;
   align-items: center;
   gap: 7px;
+  animation: nt-turn-in 420ms var(--ease) backwards;
 }
 .nt-thinking-dot {
   flex: none;
@@ -1650,6 +1871,19 @@ ol.nt-md-list {
   font-size: var(--text-meta-lg);
   color: var(--muted);
   overflow-wrap: anywhere;
+  /* Each step is filed as it happens, so each arrives on its own — a shorter
+     travel than a turn's, since it is a line being added to one. */
+  animation: nt-step-in 320ms var(--ease) backwards;
+}
+@keyframes nt-step-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+/* One after another rather than a paragraph of them. */
+.nt-turn-step + .nt-turn-step {
+  margin-top: 2px;
 }
 .nt-turn-step + .nt-turn-text,
 .nt-turn-text + .nt-turn-step {
@@ -1894,6 +2128,19 @@ ol.nt-md-list {
     border-color var(--dur-fast) var(--ease),
     color var(--dur-fast) var(--ease);
 }
+/* In the composer a chip is something just put down, so it lands: the menus'
+   spring, from a touch small. In a sent message it is part of the turn and
+   arrives with it. */
+.nt-composer-files .nt-chip {
+  animation: nt-chip-in var(--dur-slow) var(--spring) backwards;
+}
+@keyframes nt-chip-in {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+    filter: blur(3px);
+  }
+}
 a.nt-chip:hover {
   border-color: var(--border-strong);
   color: var(--foreground);
@@ -1903,13 +2150,22 @@ a.nt-chip:hover {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* A 16px seat around the glyph: the cross alone was a 10px target. */
 .nt-chip-remove {
   display: inline-flex;
-  margin-right: -2px;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-right: -4px;
+  border-radius: 3px;
   color: var(--faint);
-  transition: color var(--dur-fast) var(--ease);
+  transition:
+    background var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
 }
 .nt-chip-remove:hover {
+  background: var(--active);
   color: var(--foreground);
 }
 
@@ -1989,21 +2245,36 @@ a.nt-chip:hover {
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
+/* The agent is still at it, which is the one thing here that is AI activity —
+   so it is the one thing here that gets the dot. */
+.nt-chat-review-count.is-writing,
+.nt-review-count.is-writing {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 7px;
+}
 .nt-chat-review-actions {
   flex: none;
   display: flex;
   gap: 2px;
 }
 .nt-chat-review-btn {
-  height: 24px;
-  padding: 0 9px;
-  border-radius: var(--radius-sm);
+  height: 26px;
+  padding: 0 10px;
+  /* The Send button's corner: the two filled controls on this rail are a pair. */
+  border-radius: 7px;
   font-size: var(--text-meta-lg);
+  font-weight: 500;
   color: var(--muted);
   white-space: nowrap;
   transition:
     background var(--dur-fast) var(--ease),
-    color var(--dur-fast) var(--ease);
+    color var(--dur-fast) var(--ease),
+    transform var(--dur) var(--ease);
+}
+.nt-chat-review-btn:active:not(:disabled) {
+  transform: scale(0.96);
 }
 .nt-chat-review-btn:hover {
   background: var(--hover);
@@ -2146,6 +2417,12 @@ a.nt-chip:hover {
 }
 .nt-mention-item.is-active {
   background: var(--hover);
+  color: var(--foreground);
+}
+/* The list is rebuilt as the query narrows, so the rows do not each arrive —
+   the menu does, once, from the box it answers to. */
+.nt-mention-menu:not(.nt-mention-caret) {
+  transform-origin: bottom left;
 }
 .nt-mention-label {
   overflow: hidden;
@@ -2248,6 +2525,12 @@ a.nt-chip:hover {
 .nt-rewind:hover {
   color: var(--foreground);
 }
+.nt-rewind svg {
+  transition: transform var(--dur-slow) var(--spring);
+}
+.nt-rewind:hover svg {
+  transform: translateX(-2px);
+}
 
 /* On its way out, not gone: what a rewind would drop stays legible, because
    what is about to be lost is exactly what the decision is about. */
@@ -2259,10 +2542,20 @@ a.nt-chip:hover {
   display: none;
 }
 
+/* Editing a sent question turns its bubble into the composer it came from:
+   the same paper, line and lift, so it reads as writing again rather than as a
+   form inside a message. */
 .nt-rewind-draft {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  margin: -7px -10px;
+  padding: 8px 8px 6px 11px;
+  border: 1px solid var(--shape-line-active);
+  border-radius: 12px;
+  background: var(--elevated);
+  box-shadow: 0 6px 20px -8px oklch(0.25 0.005 90 / 0.2);
+  animation: nt-fade-in var(--dur) var(--ease);
 }
 .nt-rewind-input {
   width: 100%;
@@ -2272,6 +2565,10 @@ a.nt-chip:hover {
   background: transparent;
   color: inherit;
   font: inherit;
+  /* The size it was said in: `inherit` alone reaches past the turn's text to
+     the panel, and the question came back a size larger than it was asked. */
+  font-size: var(--text-ui);
+  line-height: 1.55;
   outline: none;
 }
 .nt-rewind-actions {
@@ -2280,14 +2577,19 @@ a.nt-chip:hover {
   justify-content: space-between;
 }
 .nt-rewind-action {
-  height: 22px;
-  padding-inline: 8px;
-  border-radius: var(--radius-sm);
-  font-size: var(--text-meta);
+  height: 26px;
+  padding-inline: 10px;
+  border-radius: 7px;
+  font-size: var(--text-meta-lg);
+  font-weight: 500;
   color: var(--muted);
   transition:
     background var(--dur-fast) var(--ease),
-    color var(--dur-fast) var(--ease);
+    color var(--dur-fast) var(--ease),
+    transform var(--dur) var(--ease);
+}
+.nt-rewind-action:active {
+  transform: scale(0.96);
 }
 .nt-rewind-action:hover {
   background: var(--hover);
@@ -2295,12 +2597,11 @@ a.nt-chip:hover {
 }
 .nt-rewind-action.is-primary {
   background: var(--foreground);
-  color: var(--elevated);
+  color: var(--background);
 }
 .nt-rewind-action.is-primary:hover {
-  background: var(--foreground);
-  opacity: 0.85;
-  color: var(--elevated);
+  background: oklch(0.33 0.005 90);
+  color: var(--background);
 }
 
 /* A menu item that carries its consequence under its name. The hint is the
@@ -2334,11 +2635,28 @@ a.nt-chip:hover {
 .nt-thread-delete:focus-visible {
   opacity: 1;
 }
+/* The tick is always in its seat and springs up when its row is the open one,
+   so switching chats moves a mark rather than swapping two rows' contents. */
 .nt-thread-check {
   display: inline-flex;
   width: 13px;
   flex: none;
-  color: var(--muted);
+  color: var(--foreground);
+}
+.nt-thread-check > svg {
+  opacity: 0;
+  transform: scale(0.4);
+  transition:
+    transform var(--dur-slow) var(--spring),
+    opacity var(--dur-fast) var(--ease);
+}
+.nt-thread-check[data-on="true"] > svg {
+  opacity: 1;
+  transform: none;
+}
+.nt-thread-row > .nt-menu-item[aria-current="true"] {
+  color: var(--foreground);
+  font-weight: 500;
 }
 .nt-thread-age {
   margin-left: auto;
@@ -2455,14 +2773,25 @@ a.nt-chip:hover {
   align-items: center;
   gap: 2px;
   max-width: min(560px, calc(100vw - 32px));
-  padding: 3px 3px 3px 10px;
-  border-radius: 999px;
+  padding: 4px 4px 4px 12px;
+  /* The canvas toolbar's corner and shadow: the two take turns in this one spot
+     at the foot of the window, and should read as the same object doing so. */
+  border-radius: 12px;
   background: var(--elevated);
-  border: 1px solid var(--border);
   box-shadow:
-    0 1px 2px oklch(0.25 0.005 90 / 0.05),
-    0 6px 20px oklch(0.25 0.005 90 / 0.1);
-  animation: nt-menu-in var(--dur) var(--ease);
+    0 0 0 1px oklch(0.25 0.005 90 / 0.06),
+    0 4px 12px oklch(0.25 0.005 90 / 0.07),
+    0 16px 40px oklch(0.25 0.005 90 / 0.1);
+  animation: nt-review-bar-in 520ms var(--spring);
+}
+/* Rises into the spot, the way the toolbar does, clearing as it lands. The
+   centring is a transform too, so the keyframe carries it. */
+@keyframes nt-review-bar-in {
+  from {
+    opacity: 0;
+    filter: blur(6px);
+    transform: translate(-50%, 20px) scale(0.95);
+  }
 }
 /* Both bars live at the foot of the window and both can be up at once. The
    review is the standing question, so it keeps the spot and the transient one
@@ -2486,18 +2815,23 @@ body:has(.nt-review-bar) .nt-reformat-switcher {
   background: var(--border);
 }
 .nt-review-action {
-  height: 24px;
-  padding: 0 9px;
-  border-radius: 999px;
+  height: 28px;
+  padding: 0 11px;
+  border-radius: 8px;
   font-size: var(--text-meta-lg);
+  font-weight: 500;
   color: var(--foreground);
   white-space: nowrap;
   transition:
     background var(--dur-fast) var(--ease),
-    color var(--dur-fast) var(--ease);
+    color var(--dur-fast) var(--ease),
+    transform var(--dur) var(--ease);
 }
 .nt-review-action:hover {
   background: var(--hover);
+}
+.nt-review-action:active:not(:disabled) {
+  transform: scale(0.96);
 }
 .nt-review-action:disabled {
   cursor: wait;
@@ -2514,6 +2848,24 @@ body:has(.nt-review-bar) .nt-reformat-switcher {
 .nt-review-action.is-quiet:hover {
   color: var(--danger);
   background: color-mix(in oklch, var(--danger) 8%, transparent);
+}
+/* Keeping is the ordinary answer, so it is the filled one — ink and paper, and
+   both said again for every state that would otherwise take one of them away:
+   hover's wash, and the clearing a disabled button's hover gets above. */
+.nt-review-action.is-keep,
+.nt-review-action.is-keep:disabled,
+.nt-review-action.is-keep:disabled:hover {
+  background: var(--foreground);
+  color: var(--background);
+}
+/* Ink at half strength is a grey nobody chose; busy, it stays most of itself. */
+.nt-review-action.is-keep:disabled,
+.nt-chat-review-btn.is-keep:disabled {
+  opacity: 0.7;
+}
+.nt-review-action.is-keep:hover:not(:disabled) {
+  background: oklch(0.33 0.005 90);
+  color: var(--background);
 }
 .nt-review-failure {
   padding-inline: 8px;
@@ -5241,8 +5593,14 @@ body:has(.nt-review-bar) .nt-sampler {
   /* The person's colour, pulled toward ink for contrast at monogram size —
      same move as the guest banner. */
   color: color-mix(in oklab, var(--face-color, var(--muted)) 55%, var(--foreground));
-  animation: nt-face-in var(--dur) var(--ease);
+  /* Someone arriving is a thing with mass: from nothing, on the spring, each a
+     beat after the one before it. */
+  animation: nt-face-in 420ms var(--spring) backwards;
 }
+.nt-face:nth-child(2) { animation-delay: 70ms; }
+.nt-face:nth-child(3) { animation-delay: 140ms; }
+.nt-face:nth-child(4) { animation-delay: 210ms; }
+.nt-face:nth-child(n + 5) { animation-delay: 280ms; }
 .nt-face + .nt-face {
   margin-left: -6px;
 }
@@ -5264,7 +5622,7 @@ body:has(.nt-review-bar) .nt-sampler {
 @keyframes nt-face-in {
   from {
     opacity: 0;
-    transform: scale(0.6);
+    transform: scale(0);
   }
 }
 @media (prefers-reduced-motion: reduce) {

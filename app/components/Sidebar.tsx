@@ -311,6 +311,14 @@ export function Sidebar({
     isInsideOf(folders ?? [], candidate, root);
 
   const listRef = useRef<HTMLUListElement>(null);
+  // The list arrives as a list — top first — once, as the sidebar opens. After
+  // that a row that mounts (a new page, a folder's children) still rises, but
+  // at once: a stagger is for a list arriving, not for one row joining it.
+  const [arriving, setArriving] = useState(true);
+  useEffect(() => {
+    const t = setTimeout(() => setArriving(false), 700);
+    return () => clearTimeout(t);
+  }, []);
   // The open page's wash is one element that travels between rows, so changing
   // page reads as the selection moving rather than as two rows repainting.
   // Placed from the row's offset, written straight to the list: a page folded
@@ -677,7 +685,7 @@ export function Sidebar({
       {/* Back to the project list, the way a docs app returns to your files —
           there is no project switcher here because the route is the project. */}
       <div className="nt-panel-head">
-        <Link href="/" className="nt-row min-w-0 flex-1 text-muted" title="All projects">
+        <Link href="/" className="nt-row nt-back min-w-0 flex-1 text-muted" title="All projects">
           <ArrowLeft width={14} height={14} className="shrink-0" />
           <span className="nt-row-label">Projects</span>
         </Link>
@@ -779,10 +787,18 @@ export function Sidebar({
             title="What the assistant knows about this project"
             className="nt-row w-full"
           >
+            <ContextGlyph />
             <span className="nt-row-label">Context</span>
+            {/* What is attached, counted in the voice counts are in — and said
+                in words, since "3" alone never said three of what. */}
             {!!((repos?.length ?? 0) + (files?.length ?? 0)) && (
-              <span className="nt-field-note">
-                {(repos?.length ?? 0) + (files?.length ?? 0)}
+              <span className="nt-meta shrink-0">
+                {[
+                  repos?.length ? `${repos.length} ${repos.length === 1 ? "repo" : "repos"}` : null,
+                  files?.length ? `${files.length} ${files.length === 1 ? "file" : "files"}` : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
               </span>
             )}
           </button>
@@ -818,6 +834,7 @@ export function Sidebar({
           aria-label="Pages and folders"
           aria-multiselectable
           className={`nt-pages relative space-y-px${otherPageId ? " is-split" : ""}`}
+          data-arriving={arriving || undefined}
         >
           <li className="nt-pages-mark" role="presentation" aria-hidden="true" />
           {rows.length === 0 && (
@@ -1047,7 +1064,7 @@ export function Sidebar({
               {clip && (
                 <>
                   <div className="nt-menu-sep" />
-                  <Item onClick={() => { pasteInto(null); setCtx(null); }}>
+                  <Item hint={chord(mod, "V")} onClick={() => { pasteInto(null); setCtx(null); }}>
                     Paste
                   </Item>
                 </>
@@ -1223,10 +1240,13 @@ function DropLabel({
 
 function Item({
   danger,
+  hint,
   onClick,
   children,
 }: {
   danger?: boolean;
+  /** The key that does the same thing from the list. */
+  hint?: string;
   onClick: () => void;
   children: ReactNode;
 }) {
@@ -1237,7 +1257,30 @@ function Item({
       onClick={onClick}
     >
       {children}
+      {hint && <kbd className="nt-menu-kbd">{hint}</kbd>}
     </button>
+  );
+}
+
+/** "⌘X" on Apple hardware, "Ctrl+X" elsewhere: the glyph stands alone, the word does not. */
+const chord = (mod: string, key: string) => (mod === "⌘" ? `⌘${key}` : `${mod}+${key}`);
+
+/** Lines of differing length: what is written down about the project. */
+function ContextGlyph() {
+  return (
+    <svg
+      width={14}
+      height={14}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      aria-hidden="true"
+      className="nt-row-icon"
+    >
+      <path d="M4 5h16M4 10h10M4 15h16M4 20h7" />
+    </svg>
   );
 }
 
@@ -1273,6 +1316,7 @@ function RowMenu({
   onDelete: () => void;
   onClose: () => void;
 }) {
+  const mod = useModKey();
   const only = subjects.length === 1 ? subjects[0] : null;
   const intoFolder = only?.kind === "folder" ? only.id : null;
   const act = (fn: () => void) => () => {
@@ -1295,10 +1339,10 @@ function RowMenu({
           <div className="nt-menu-sep" />
         </>
       )}
-      <Item onClick={act(() => onClip("cut"))}>Cut</Item>
-      <Item onClick={act(() => onClip("copy"))}>Copy</Item>
+      <Item hint={chord(mod, "X")} onClick={act(() => onClip("cut"))}>Cut</Item>
+      <Item hint={chord(mod, "C")} onClick={act(() => onClip("copy"))}>Copy</Item>
       {hasClip && only && (
-        <Item onClick={act(() => onPaste(destFor(only)))}>Paste</Item>
+        <Item hint={chord(mod, "V")} onClick={act(() => onPaste(destFor(only)))}>Paste</Item>
       )}
       {only && (
         <>
