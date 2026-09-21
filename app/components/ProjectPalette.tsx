@@ -6,7 +6,6 @@ import {
   useEffect,
   useRef,
   useState,
-  useSyncExternalStore,
   type KeyboardEvent,
   type ReactNode,
 } from "react";
@@ -62,17 +61,8 @@ const NotionImportBody = dynamic(() => loadNotionImport().then((m) => m.NotionIm
   ssr: false,
 });
 
-const noop = () => () => {};
-
-/** ⌘ on Apple hardware, Ctrl elsewhere — read on the client, ⌘ until then. */
-export function useModKey(): string {
-  const mac = useSyncExternalStore(
-    noop,
-    () => /Mac|iPhone|iPad/.test(navigator.platform),
-    () => true,
-  );
-  return mac ? "⌘" : "Ctrl";
-}
+// Its own module, so the workspace can name the key without importing this one.
+export { useModKey } from "@/app/lib/useModKey";
 
 /**
  * Search on the projects screen, and the keyboard's way to everything else on

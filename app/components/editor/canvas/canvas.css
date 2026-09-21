@@ -424,7 +424,8 @@
   color: var(--muted);
   transition:
     background var(--dur-fast) var(--ease),
-    color var(--dur-fast) var(--ease);
+    color var(--dur-fast) var(--ease),
+    transform var(--dur) var(--ease);
 }
 .nt-toolbar-btn:hover:not(:disabled) {
   background: var(--hover);
@@ -437,6 +438,44 @@
 .nt-toolbar-btn:disabled {
   opacity: 0.32;
   cursor: default;
+}
+
+/* The tools, and the one mark that says which is in hand. It travels on the
+   spring (`--at` is the tool's place in the row), in the ink of the app's one
+   filled control — neutral, so `--nt-select` stays the canvas's only accent.
+   A tool outside the row (none of them today) leaves `--at` at -1 and the mark
+   parked out of sight to the left. */
+.nt-toolbar-tools {
+  position: relative;
+  display: flex;
+  gap: 2px;
+}
+.nt-toolbar-mark {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: var(--foreground);
+  transform: translateX(calc(var(--at, 0) * 30px));
+  transition: transform 280ms var(--spring);
+}
+.nt-toolbar-tools .nt-toolbar-btn {
+  position: relative;
+}
+.nt-toolbar-tools .nt-toolbar-btn[aria-pressed="true"],
+.nt-toolbar-tools .nt-toolbar-btn[aria-pressed="true"]:hover {
+  background: none;
+  color: var(--background);
+}
+.nt-toolbar-tools .nt-toolbar-btn:active:not(:disabled) {
+  transform: scale(0.9);
+}
+@media (prefers-reduced-motion: reduce) {
+  .nt-toolbar-mark {
+    transition: none;
+  }
 }
 
 .nt-toolbar-sep {

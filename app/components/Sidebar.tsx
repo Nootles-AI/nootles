@@ -3,6 +3,7 @@
 import dynamic from "next/dynamic";
 import {
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -23,8 +24,10 @@ import {
   FolderPlus,
   PanelLeft,
   Plus,
+  Search,
   X,
 } from "./Icons";
+import { useModKey } from "@/app/lib/useModKey";
 import { useNotionAvailable } from "./notion/NotionAvailable";
 import { NotionImport } from "./notion/NotionImport";
 import {
@@ -84,6 +87,8 @@ type Props = {
   splitZone: RefObject<HTMLElement | null>;
   onOpenAside: (id: Id<"pages">) => void;
   onCollapse: () => void;
+  /** Opens the page finder, which the shell owns so ⌘K works with this shut. */
+  onFind: () => void;
 };
 
 export function Sidebar({
@@ -95,7 +100,9 @@ export function Sidebar({
   splitZone,
   onOpenAside,
   onCollapse,
+  onFind,
 }: Props) {
+  const mod = useModKey();
   // Back from Notion's consent screen, which the import dialog sent them to:
   // a grant reopens the dialog they left, and anything else is said under the
   // project's name. Initial state rather than an effect — the outcome is known
@@ -304,6 +311,21 @@ export function Sidebar({
     isInsideOf(folders ?? [], candidate, root);
 
   const listRef = useRef<HTMLUListElement>(null);
+  // The open page's wash is one element that travels between rows, so changing
+  // page reads as the selection moving rather than as two rows repainting.
+  // Placed from the row's offset, written straight to the list: a page folded
+  // away inside a closed folder has no row, and then there is no mark.
+  useLayoutEffect(() => {
+    const list = listRef.current;
+    if (!list) return;
+    const row = selectedPageId
+      ? list.querySelector<HTMLElement>(`[data-row="${selectedPageId}"]`)
+      : null;
+    list.dataset.marked = String(!!row);
+    if (!row) return;
+    list.style.setProperty("--mark-y", `${row.offsetTop}px`);
+    list.style.setProperty("--mark-h", `${row.offsetHeight}px`);
+  }, [selectedPageId, rows, editing]);
   const marquee = useMarquee(
     listRef,
     (ids, additive) => {
@@ -697,6 +719,16 @@ export function Sidebar({
         )}
       </div>
 
+      {/* A button dressed as a field, as on the projects screen: the way in to
+          the finder, and where its shortcut is written down. */}
+      <div className="px-2 pb-2">
+        <button onClick={onFind} className="nt-find w-full" aria-label="Find a page">
+          <Search width={14} height={14} />
+          <span>Find a page</span>
+          <kbd className="nt-kbd">{mod}K</kbd>
+        </button>
+      </div>
+
       {notice && (
         <div
           role={notice.problem ? "alert" : "status"}
@@ -787,6 +819,7 @@ export function Sidebar({
           aria-multiselectable
           className={`nt-pages relative space-y-px${otherPageId ? " is-split" : ""}`}
         >
+          <li className="nt-pages-mark" role="presentation" aria-hidden="true" />
           {rows.length === 0 && (
             <li className="px-2 py-1 text-[13px] text-muted">
               {canEdit ? "No pages yet — press + to add one." : "No pages yet."}
