@@ -527,7 +527,7 @@ try {
   const viewportBox = await (await page.$(canvasViewport)).boundingBox();
   assert.ok(viewportBox);
   await page.click(canvasViewport);
-  await page.keyboard.press("r");
+  await page.keyboard.press("Alt+Shift+KeyR");
   const drawX = viewportBox.x + viewportBox.width * 0.72;
   const drawY = viewportBox.y + viewportBox.height * 0.72;
   await page.mouse.move(drawX, drawY);

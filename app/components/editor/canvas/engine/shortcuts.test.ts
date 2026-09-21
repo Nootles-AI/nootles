@@ -116,13 +116,13 @@ describe("matchShortcut", () => {
 
   it("existing bindings still match unchanged", () => {
     const fixture: Array<{ id: ShortcutId; spec: string }> = [
-      { id: "tool.move", spec: "v" },
+      { id: "tool.move", spec: "Alt+Shift+v" },
       { id: "edit.undo", spec: "Mod+z" },
       { id: "edit.redo", spec: "Mod+Shift+z" },
       { id: "align.left", spec: "Alt+a" },
       { id: "view.zoomFit", spec: "Shift+1" },
       { id: "edit.deselect", spec: "escape" },
-      { id: "tool.hand", spec: "h" },
+      { id: "tool.hand", spec: "Alt+Shift+h" },
       { id: "edit.duplicate", spec: "Mod+d" },
       { id: "move.nudge", spec: "arrowleft" },
       { id: "toggle.hidden", spec: "Mod+Shift+h" },
