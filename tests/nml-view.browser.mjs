@@ -366,6 +366,60 @@ try {
   });
   await page.waitForFunction(() => JSON.stringify(window.nmlHarness.inspect().ast).includes("drop two"));
 
+  // NT-67: Enter has to be a way out of a list. Pressing it at the end of an
+  // item makes the next one; pressing it on that empty item steps out of the
+  // nesting and then ends the list, instead of making empty items forever.
+  const settleRequests = (count) => page.waitForFunction((value) => {
+    const requests = window.nmlHarness.inspect().requests;
+    return requests.length > value && ["acknowledged", "reconciled"].includes(requests.at(-1)?.status);
+  }, {}, count);
+  const blockAfter = (id) => page.evaluate((target) => {
+    const blocks = window.nmlHarness.inspect().ast.blocks;
+    const next = blocks[blocks.findIndex((block) => block.id === target) + 1];
+    return next ? { id: next.id, type: next.type, content: next.content } : null;
+  }, id);
+
+  assert.equal(await page.evaluate(() => window.nmlHarness.selectInline("list-one", "First item".length)), true);
+  let listRequests = await page.evaluate(() => window.nmlHarness.inspect().requests.length);
+  await page.keyboard.press("Enter");
+  await settleRequests(listRequests);
+  const escapee = await blockAfter("list-one");
+  assert.deepEqual({ type: escapee?.type, content: escapee?.content }, { type: "bulletListItem", content: [] });
+
+  assert.equal(await page.evaluate((id) => window.nmlHarness.selectInline(id, 0), escapee.id), true);
+  listRequests = await page.evaluate(() => window.nmlHarness.inspect().requests.length);
+  await page.keyboard.press("Tab");
+  await page.waitForFunction(
+    (id) => window.nmlHarness.inspect().ast.blocks.find((block) => block.id === "list-one")?.children[0]?.id === id,
+    {},
+    escapee.id,
+  );
+  await settleRequests(listRequests);
+
+  // Nested: the empty item steps out a level rather than gaining one below it.
+  assert.equal(await page.evaluate((id) => window.nmlHarness.selectInline(id, 0), escapee.id), true);
+  listRequests = await page.evaluate(() => window.nmlHarness.inspect().requests.length);
+  const blocksBeforeEnter = await page.evaluate(() => window.nmlHarness.inspect().ast.blocks.length);
+  await page.keyboard.press("Enter");
+  await settleRequests(listRequests);
+  assert.deepEqual(await page.evaluate(() => {
+    const blocks = window.nmlHarness.inspect().ast.blocks;
+    return { nested: blocks.find((block) => block.id === "list-one").children.length, total: blocks.length };
+  }), { nested: 0, total: blocksBeforeEnter + 1 });
+  assert.deepEqual(await blockAfter("list-one"), { id: escapee.id, type: "bulletListItem", content: [] });
+
+  // Top level: the empty item ends the list instead of continuing it.
+  assert.equal(await page.evaluate((id) => window.nmlHarness.selectInline(id, 0), escapee.id), true);
+  listRequests = await page.evaluate(() => window.nmlHarness.inspect().requests.length);
+  await page.keyboard.press("Enter");
+  await settleRequests(listRequests);
+  assert.deepEqual(await page.evaluate((id) => {
+    const blocks = window.nmlHarness.inspect().ast.blocks;
+    const block = blocks.find((candidate) => candidate.id === id);
+    return { type: block?.type, content: block?.content, total: blocks.length };
+  }, escapee.id), { type: "paragraph", content: [], total: blocksBeforeEnter + 1 });
+  assert.equal(await page.evaluate(() => window.nmlHarness.inspect().parity), true);
+
   await page.click('#bridge [data-nml-id="table-cell"]');
   await page.keyboard.press("End");
   await page.keyboard.type(" edited");

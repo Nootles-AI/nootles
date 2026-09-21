@@ -216,6 +216,118 @@ describe("rich and structural NML editing bridge", () => {
     bridge.destroy(); ydoc.destroy();
   });
 
+  it("leaves a list when Enter lands on an empty item, the way the BlockNote surface does", async () => {
+    const item = (id: string, text: string, children: NmlBlock[] = []): NmlBlock => ({
+      id, type: "bulletListItem", props: {}, children,
+      content: text ? [{ type: "text", text, marks: [] }] : [],
+    });
+    const shape = (ydoc: Y.Doc): string[] => {
+      const walk = (blocks: NmlBlock[], depth: number): string[] => blocks.flatMap((block) => [
+        `${"  ".repeat(depth)}${block.type} ${block.id}:${"content" in block
+          ? block.content.map((part) => part.type === "text" ? part.text : "").join("")
+          : ""}`,
+        ...walk(block.children, depth + 1),
+      ]);
+      return walk(decodeNmlDocument(ydoc).blocks, 0);
+    };
+    const caret = (bridge: EditableNmlBridge, id: string, offset = 0) => {
+      const start = bridge.index.get(id)!.contentStart!;
+      bridge.dispatch(bridge.state.tr.setSelection(TextSelection.create(bridge.state.doc, start + offset)));
+    };
+
+    // An empty item two levels deep steps out one level per press, then ends the
+    // list — so Enter alone always gets out, and never makes another empty item.
+    const nested = createNmlYDoc(document([item("one", "one", [item("two", "two", [item("three", "")])])]));
+    const stepping = editable(nested);
+    caret(stepping, "three");
+    expect(stepping.splitSelection()).toBe(true);
+    await flush();
+    expect(shape(nested)).toEqual(["bulletListItem one:one", "  bulletListItem two:two", "  bulletListItem three:"]);
+
+    caret(stepping, "three");
+    expect(stepping.splitSelection()).toBe(true);
+    await flush();
+    expect(shape(nested)).toEqual(["bulletListItem one:one", "  bulletListItem two:two", "bulletListItem three:"]);
+
+    caret(stepping, "three");
+    expect(stepping.splitSelection()).toBe(true);
+    await flush();
+    expect(shape(nested)).toEqual(["bulletListItem one:one", "  bulletListItem two:two", "paragraph three:"]);
+
+    // One keystroke is one undo: the paragraph goes back to being the item it was.
+    expect(stepping.canUndo()).toBe(true);
+    expect(stepping.undo()).toBe(true);
+    await flush();
+    expect(shape(nested)).toEqual(["bulletListItem one:one", "  bulletListItem two:two", "bulletListItem three:"]);
+    expect(stepping.checkDrift()).toBe(true);
+    stepping.destroy(); nested.destroy();
+
+    // Every list type ends its list the same way.
+    for (const type of ["bulletListItem", "numberedListItem", "checkListItem", "toggleListItem"] as const) {
+      const ydoc = createNmlYDoc(document([{ ...item("solo", ""), type, props: type === "checkListItem" ? { checked: false } : {} } as NmlBlock]));
+      const bridge = editable(ydoc);
+      caret(bridge, "solo");
+      expect(bridge.splitSelection()).toBe(true);
+      await flush();
+      expect(decodeNmlDocument(ydoc).blocks).toEqual([
+        { id: "solo", type: "paragraph", props: {}, content: [], children: [] },
+      ]);
+      expect(bridge.checkDrift()).toBe(true);
+      bridge.destroy(); ydoc.destroy();
+    }
+
+    // A top-level item that holds children keeps them, hoisted in order, because
+    // NML has no paragraph with children — the repair the legacy converter makes.
+    const holding = createNmlYDoc(document([item("parent", "", [item("kid", "kid"), item("sibling", "sibling")]), item("tail", "tail")]));
+    const hoisting = editable(holding);
+    caret(hoisting, "parent");
+    expect(hoisting.splitSelection()).toBe(true);
+    await flush();
+    expect(shape(holding)).toEqual([
+      "paragraph parent:", "bulletListItem kid:kid", "bulletListItem sibling:sibling", "bulletListItem tail:tail",
+    ]);
+    expect(hoisting.undo()).toBe(true);
+    await flush();
+    expect(shape(holding)).toEqual([
+      "bulletListItem parent:", "  bulletListItem kid:kid", "  bulletListItem sibling:sibling", "bulletListItem tail:tail",
+    ]);
+    expect(hoisting.checkDrift()).toBe(true);
+    hoisting.destroy(); holding.destroy();
+
+    // An empty block nested under an item steps out too, whatever kind it is —
+    // BlockNote's outdent reads emptiness and depth, not the block's type.
+    const inner = createNmlYDoc(document([item("host", "host", [paragraph("stray", "")])]));
+    const stepped = editable(inner);
+    caret(stepped, "stray");
+    expect(stepped.splitSelection()).toBe(true);
+    await flush();
+    expect(shape(inner)).toEqual(["bulletListItem host:host", "paragraph stray:"]);
+    expect(stepped.checkDrift()).toBe(true);
+    stepped.destroy(); inner.destroy();
+
+    // Nothing else about Enter moves: a non-empty item still splits, an empty
+    // top-level paragraph still splits, and a selection with a range declines.
+    const splitting = createNmlYDoc(document([item("text", "alpha"), paragraph("empty", "")]));
+    const splitter = editable(splitting);
+    caret(splitter, "text", 2);
+    expect(splitter.splitSelection()).toBe(true);
+    await flush();
+    expect(decodeNmlDocument(splitting).blocks.slice(0, 2).map((block) =>
+      `${block.type}:${"content" in block ? block.content.map((part) => part.type === "text" ? part.text : "").join("") : ""}`,
+    )).toEqual(["bulletListItem:al", "bulletListItem:pha"]);
+
+    caret(splitter, "empty");
+    expect(splitter.splitSelection()).toBe(true);
+    await flush();
+    expect(decodeNmlDocument(splitting).blocks.slice(-2).map((block) => block.type)).toEqual(["paragraph", "paragraph"]);
+
+    const ranged = splitter.index.get("text")!.contentStart!;
+    splitter.dispatch(splitter.state.tr.setSelection(TextSelection.create(splitter.state.doc, ranged, ranged + 2)));
+    expect(splitter.splitSelection()).toBe(false);
+    expect(splitter.checkDrift()).toBe(true);
+    splitter.destroy(); splitting.destroy();
+  });
+
   it("applies markdown shortcuts through canonical block-type commands", async () => {
     const shortcuts = [
       { marker: "##", type: "heading", props: { level: 2 } },
