@@ -269,7 +269,8 @@ const built = await page.evaluate(() => {
   const flowParts = pieces(flow, asWords).sort((p, q) => p.x - q.x || p.y - q.y);
   spread(flowParts, 5.5, 7.5, (p, t) => {
     const arrow = p.w > p.h * 3 && p.h < 16 && p.el.tagName === "path";
-    arrow ? draw(p.el, t) : pop(p.el, t, ".8");
+    if (arrow) draw(p.el, t);
+    else pop(p.el, t, ".8");
   });
   leave(flow);
 
@@ -344,7 +345,8 @@ const built = await page.evaluate(() => {
     const armL = part([...pencil, c[9], c[10]]);
     armR.after(armL);
     const shade = c[13];
-    const [shadeL, shadeR] = kids(shade.firstElementChild);
+    // The legs' shading is one masked group over both; each leg takes its half.
+    const shadeR = kids(shade.firstElementChild)[1];
     const shadeR2 = shade.cloneNode(true);
     shadeR2.firstElementChild.firstElementChild.remove();
     shadeR.remove();
@@ -352,7 +354,6 @@ const built = await page.evaluate(() => {
     const legR = part([c[12]]);
     legR.appendChild(shadeR2);
     legL.after(legR);
-    void shadeL;
     const antR = part([c[14], c[15]]);
     const antL = part([c[16], c[17]]);
     walker(t, "-760px 0", 0.3, 2.2, 0.32);
