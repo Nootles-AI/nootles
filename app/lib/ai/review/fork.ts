@@ -93,6 +93,7 @@ function sharedContent(editor: LiveEditor): string | null {
 export function ensureForked(editor: LiveEditor) {
   const fork = forkApi(editor);
   if (!fork || fork.store.state.isForked) return;
+  dropTrackedPositions(editor);
   try {
     fork.fork();
   } catch (error) {
@@ -110,6 +111,7 @@ export function ensureForked(editor: LiveEditor) {
     );
     fork.fork();
   }
+  followBinding(editor);
   const forked = boundDoc(editor);
   born.set(forked, contentOf(editor));
   bornPage.set(forked, editor.document as unknown as AnyBlock[]);
@@ -130,6 +132,10 @@ export function mergeFork(editor: LiveEditor, end: ForkEnd) {
   if (!fork?.store.state.isForked) return;
   const forked = boundDoc(editor);
   const selection = parkSelection(editor);
+  const merge = (keepChanges: boolean) => {
+    fork.merge({ keepChanges });
+    followBinding(editor);
+  };
   // An answer writes the page and lands in the same task; what lands has to
   // be what the page now says, diagrams included (see settleDiagrams).
   if (end !== "discarded") settleDiagrams(forked);
@@ -159,18 +165,18 @@ export function mergeFork(editor: LiveEditor, end: ForkEnd) {
       ? { birth, theirPage }
       : null;
     if (theirs && !replay) {
-      fork.merge({ keepChanges: true });
+      merge(true);
       restoreSelection(editor, selection);
       return;
     }
-    fork.merge({ keepChanges: false });
+    merge(false);
     if (replay) replayOwnEdits(editor, replay.birth, replay.theirPage);
     restoreSelection(editor, selection);
     return;
   }
   // BlockNote's `keepChanges` merge with the landing done here, so that it
   // carries an origin: the same update, onto the same doc, after the same swap.
-  fork.merge({ keepChanges: false });
+  merge(false);
   const shared = boundDoc(editor);
   Y.applyUpdate(shared, Y.encodeStateAsUpdate(forked, Y.encodeStateVector(shared)), KEPT_CHANGE);
   restoreSelection(editor, selection);
@@ -178,11 +184,74 @@ export function mergeFork(editor: LiveEditor, end: ForkEnd) {
 
 /**
  * The doc the editor is bound to now — the fork's while it is forked. Read off
- * the binding, because the sync state's own `doc` names the shared doc
- * throughout: ProseMirror keeps a plugin's state field across the swap.
+ * the binding, which follows the swap; the sync state's own `type` does not
+ * (see `followBinding`), and `fragmentOf` in history/textDomain.ts reads that
+ * stale `type` on purpose, to stay wired to the shared doc throughout.
  */
 export function boundDoc(editor: LiveEditor): Y.Doc {
   return bindingOf(editor).doc;
+}
+
+/**
+ * Puts the sync state's `doc` back on the doc the editor now edits.
+ *
+ * A swap replaces the ySync plugin with one bound to the other doc, but
+ * ProseMirror carries a plugin's state field across a reconfigure by key, so
+ * the fields y-prosemirror fills in `init` — `type` and `doc` — keep naming
+ * the doc the editor was bound to FIRST. The binding is fresh; those two are
+ * not. Nootles reads the binding everywhere it asks that question itself, so
+ * the staleness was invisible here — but y-prosemirror and BlockNote read the
+ * state, and pair its `doc` with the binding's `type`.
+ *
+ * BlockNote's `yPositionMapping` is where that pairing bites: it mints a
+ * relative position against `binding.type` and resolves it against
+ * `state.doc`, and a relative position resolves only in the doc whose items it
+ * names. Forked, those are two different docs, so EVERY tracked position came
+ * back null — and BlockNote turns that into a throw from the suggestion menu's
+ * `apply` and `decorations`, which runs inside `EditorView.dispatch`. Typing
+ * `:` during a review therefore killed the transaction after the browser had
+ * already put the character in the DOM: the editor kept accepting text it
+ * never committed, and the block held only the words typed before it (NT-69).
+ *
+ * Only `doc` is corrected. `type` keeps naming the shared fragment, which is
+ * the contract `boundDoc` and the text undo domain are written against.
+ */
+function followBinding(editor: LiveEditor) {
+  const state = ySyncPluginKey.getState(editor.prosemirrorState) as {
+    doc: Y.Doc;
+    binding: ProsemirrorBinding;
+  } | null;
+  if (!state?.binding) return;
+  // In place, as BlockNote's own fork writes the undo stack back: the swap has
+  // already happened, and this is the state every transaction after it carries
+  // forward. A transaction of our own here would land between the merge and
+  // the selection it is holding for the person.
+  state.doc = state.binding.doc;
+}
+
+/**
+ * Closes anything holding a position across the fork.
+ *
+ * A relative position names the items of one doc. `followBinding` makes the
+ * ones minted INSIDE a fork resolvable, but it can only run once `fork()` has
+ * returned, and the swap dispatches on the way through — with `doc` and the
+ * binding disagreeing, which is the state it exists to get out of. Measured: a
+ * menu left open threw from in there, and the agent's whole turn failed with
+ * it. Nothing could repair the way OUT either, whenever the fork is dropped:
+ * its items go with it, so there is nothing left for a position to name.
+ *
+ * The only thing that holds one is BlockNote's suggestion menu — `/`, `@`, and
+ * the emoji picker's `:` — which tracks where its query began. So a menu open
+ * when the agent's edit arrives closes. It was offering to complete a query in
+ * a page that has just been rewritten under it, and the honest end of that is
+ * to close rather than to guess. The way back out is `parkSelection`, which
+ * closes it a beat before the merge, for its own reasons.
+ */
+function dropTrackedPositions(editor: LiveEditor) {
+  // Meta-only and read before `queryStartPos` is, so it lands even while the
+  // menu holds a position that no longer resolves.
+  (editor.getExtension("suggestionMenu") as { closeMenu?: () => void } | undefined)
+    ?.closeMenu?.();
 }
 
 type ParkedSelection = {
@@ -191,7 +260,18 @@ type ParkedSelection = {
   at: { anchor: number; head: number };
 } | null;
 
-/** The fork can be longer than shared truth, so its absolute caret cannot cross the swap. */
+/**
+ * The fork can be longer than shared truth, so its absolute caret cannot cross
+ * the swap.
+ *
+ * This is also what closes an open suggestion menu on the way out, and it has
+ * to keep doing so: the menu tracks where its query began, and no position
+ * survives a fork being dropped (see `dropTrackedPositions`). Moving the caret
+ * to the start takes it out of the query's block, which is one of the menu's
+ * own reasons to close — and it happens HERE, a beat before the swap, while
+ * that position still resolves. A menu can only be open on a collapsed text
+ * selection, so the early return below cannot be the case that has one.
+ */
 function parkSelection(editor: LiveEditor): ParkedSelection {
   const view = (editor as unknown as { prosemirrorView?: EditorView }).prosemirrorView;
   if (!view || !(view.state.selection instanceof TextSelection)) return null;
