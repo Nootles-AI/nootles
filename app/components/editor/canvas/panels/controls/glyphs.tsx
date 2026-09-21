@@ -75,7 +75,9 @@ export function Rotation(props: Props) {
   return (
     <Line {...props}>
       <path d="M8 3.4a4.6 4.6 0 1 1-3.9 2.15" />
-      <path d="M4.6 2.6v2.9h2.9" />
+      {/* The head's point is the arc's end, and it points the way the arc is
+          going — on round toward the gap. Its legs trail back along the line. */}
+      <path d="M1.9 6.1 4.1 5.55 4.6 7.8" />
     </Line>
   );
 }
