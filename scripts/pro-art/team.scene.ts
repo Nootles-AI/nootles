@@ -114,11 +114,11 @@ const CUES = cueSheet(D, {
   write: [3.45, 8.3],
   ropeDown: [7.8, 8.5],
   ropeSettle: [8.5, 9.9],
-  bearLife: [8.85, 16.3],
+  bearLife: [8.85, 16.7],
   bearDown: [8.9, 10.3],
   handOver: [10.9, 11.9],
-  bearUp: [12.3, 15.9],
-  ropeUp: [16.0, 16.6],
+  bearUp: [12.3, 16.3],
+  ropeUp: [16.6, 17.2],
   elephantWalk: [13.4, 16.0],
   paint: [16.1, 19.4],
   alienWalk: [18.7, 20.9],
@@ -348,20 +348,29 @@ const damped = (amp: number, period: number, decay: number) => (s: number) =>
   amp * Math.exp(-decay * s) * Math.sin(2 * Math.PI * s / period);
 const landing = damped(18, 0.42, 5.5);
 
-// The climb, planned as grips. Each pull is made by one paw holding still on
-// the rope while the body rises under it; the other paw lets go and reaches
-// for a new grip as high as it can, ready to pull next.
+// The climb. First the bear sits up: holding on, it swings its body upright
+// about its middle, head up and belly to the rope, and hauls itself a little
+// higher. Then it goes up in pulls. Each pull is made by one paw holding still
+// on the rope while the body rises under it; the other paw lets go and reaches
+// for a new grip as high as it can, ready to pull next, while the legs tuck up
+// under it and push.
 const far = armGeom(ARM_FAR);
 const near = armGeom(ARM_NEAR);
+const SIT = 0.6;
+const c0 = u0 + SIT;
 const PULLS = 9;
-const T = (u1 - u0) / PULLS;
-const RISE = { far: 60, near: 66 };
-const REACH = { far: 1.02, near: 1.2 };
+const T = (u1 - c0) / PULLS;
+const RISE = { far: 80, near: 84 };
+const REACH = { far: 1.04, near: 1.2 };
+// Upright, the belly is this far to the right of where it hung, so the paws
+// meet the rope just clear of it.
+const SHIFT = 72;
+const SAT = LIFT - 24;
 type Side = 'far' | 'near';
 const arms = { far: { ...ARM_FAR, ...far }, near: { ...ARM_NEAR, ...near } };
 const puller = (k: number): Side => (k % 2 === 0 ? 'far' : 'near');
 const riseAt = (k: number) => {
-  let y = LIFT;
+  let y = SAT;
   for (let i = 0; i < k; i++) y -= RISE[puller(i)];
   return y;
 };
@@ -370,8 +379,19 @@ const surge = (p: number) => smooth(Math.min(1, Math.max(0, (p - 0.1) / 0.75)));
 const tiltAt = (k: number, p: number) => (puller(k) === 'far' ? 2.5 : -2.5) * Math.sin(Math.PI * surge(p));
 const TILT_C: Vec2 = [1300, 640];
 const climbing = (t: number) => {
-  const k = Math.min(PULLS - 1, Math.max(0, Math.floor((t - u0) / T)));
-  return { k, p: Math.min(1, Math.max(0, (t - u0 - k * T) / T)) };
+  const k = Math.min(PULLS - 1, Math.max(0, Math.floor((t - c0) / T)));
+  return { k, p: Math.min(1, Math.max(0, (t - c0 - k * T) / T)) };
+};
+/** 0 hanging level, 1 sitting upright: swung up with a little overshoot, and
+ *  laid back down out of sight once it is off the top. */
+const upright = (t: number) => {
+  if (t < u0) return 0;
+  if (t < c0) {
+    const p = (t - u0) / SIT;
+    return p < 0.7 ? 1.06 * smooth(p / 0.7) : 1.06 - 0.06 * smooth((p - 0.7) / 0.3);
+  }
+  if (t < u1) return 1;
+  return 1 - smooth(Math.min(1, (t - u1) / 0.3));
 };
 const bearY = (t: number) => {
   if (t <= d0) return TOP;
@@ -380,6 +400,7 @@ const bearY = (t: number) => {
     return TOP + (LIFT - TOP) * (0.35 * p + 0.65 * p * p);
   }
   if (t < u0) return LIFT + (t - d1 < 1.2 ? landing(t - d1) : 0);
+  if (t < c0) return LIFT + (SAT - LIFT) * smooth((t - u0) / SIT);
   if (t < u1) {
     const { k, p } = climbing(t);
     return riseAt(k) - RISE[puller(k)] * surge(p);
@@ -387,9 +408,15 @@ const bearY = (t: number) => {
   return riseAt(PULLS) + (TOP - riseAt(PULLS)) * smooth(Math.min(1, (t - u1) / 0.3));
 };
 const tilt = (t: number) => {
-  if (t < u0 || t >= u1) return 0;
-  const { k, p } = climbing(t);
-  return tiltAt(k, p);
+  const sway = t >= c0 && t < u1 ? tiltAt(climbing(t).k, climbing(t).p) : 0;
+  return 90 * upright(t) + sway;
+};
+const shift = (t: number) => SHIFT * upright(t);
+/** Where a point drawn on the bear is at a moment. */
+const onBear = (pt: Vec2, t: number): Vec2 => {
+  const a = (tilt(t) * Math.PI) / 180;
+  const [px, py] = [pt[0] - TILT_C[0], pt[1] - TILT_C[1]];
+  return [TILT_C[0] + px * Math.cos(a) - py * Math.sin(a) + shift(t), TILT_C[1] + px * Math.sin(a) + py * Math.cos(a) + bearY(t)];
 };
 
 // The rope: from its anchor above the page straight down, round a U of slack
@@ -401,7 +428,7 @@ const slack = (t: number) => {
   const start = TIE[1] + TOP;
   const landed = TIE[1] + LIFT;
   const bottom0 = 470;
-  const W = TIE[1] + bearY(t);
+  const W = onBear(TIE, t)[1];
   const thrown = t > r1 ? damped(26, 0.34, 5)(t - r1) : 0;
   if (t < d0) return bottom0 - W + thrown;
   if (t < d1) {
@@ -412,7 +439,7 @@ const slack = (t: number) => {
   return Math.max(0, (landed - W) / 2);
 };
 const ropeD = (t: number) => {
-  const W: Vec2 = [TIE[0], TIE[1] + bearY(t)];
+  const W = onBear(TIE, t);
   const D = slack(t);
   const r = Math.min(26, D / 2);
   const k = 0.552 * r;
@@ -646,11 +673,7 @@ walk({
   const fadeOut = (s: number) => 1 - smooth(Math.max(0, (s - settle + 0.3) / 0.3));
   P(ROPE).animate({ rotate: over('ropeSettle', (s) => damped(2.6, 0.95, 2.4)(s) * fadeOut(s), 40) });
 
-  const shoulder = (side: Side, t: number): Vec2 => {
-    const a = (tilt(t) * Math.PI) / 180;
-    const [px, py] = [arms[side].P[0] - TILT_C[0], arms[side].P[1] - TILT_C[1]];
-    return [TILT_C[0] + px * Math.cos(a) - py * Math.sin(a), TILT_C[1] + px * Math.sin(a) + py * Math.cos(a) + bearY(t)];
-  };
+  const shoulder = (side: Side, t: number): Vec2 => onBear(arms[side].P, t);
   /** The highest grip a paw can take on the rope from this shoulder. */
   const topGrip = (side: Side, t: number) => {
     const S = shoulder(side, t);
@@ -660,10 +683,9 @@ walk({
   // Where each paw holds, pull by pull: taken at the top of its reach at the
   // end of the other paw's pull.
   const grips: Record<Side, number[]> = { far: [], near: [] };
-  grips.far[0] = topGrip('far', u0);
   for (let k = 0; k < PULLS; k++) {
     const other: Side = puller(k) === 'far' ? 'near' : 'far';
-    grips[other][k + 1] = topGrip(other, u0 + (k + 1) * T - 1e-6);
+    grips[other][k + 1] = topGrip(other, c0 + (k + 1) * T - 1e-6);
   }
   /** Shoulder-relative aim at a world point: [rotation, length scale]. */
   const aimAt = (side: Side, t: number, g: Vec2): [number, number] => {
@@ -681,11 +703,14 @@ walk({
     return [S[0] + s * arms[side].L * Math.cos(a), S[1] + s * arms[side].L * Math.sin(a)];
   };
   const SLIDE: [number, number] = aimAt('far', d1, [ROPE_X, topGrip('far', d1)]);
+  // Sitting up, the far paw keeps its hold and the body turns under it.
+  grips.far[0] = pawAt('far', u0, SLIDE)[1];
   // Before the climb the near paw has the card, then falls open once it lets go.
   const nearRest = (t: number): [number, number] =>
     [near.a0 - 32 * smooth(Math.min(1, Math.max(0, (t - drop) / 0.22))), 1];
   const pose = (side: Side, t: number): [number, number] => {
     if (t < u0) return side === 'far' ? SLIDE : nearRest(t);
+    if (t < c0) return side === 'far' ? aimAt('far', t, [ROPE_X, grips.far[0]]) : nearRest(t);
     if (t >= u1) {
       const end = pose(side, u1 - 1e-6);
       const start = side === 'far' ? SLIDE : ([near.a0, 1] as [number, number]);
@@ -695,7 +720,7 @@ walk({
     const { k, p } = climbing(t);
     if (puller(k) === side) return aimAt(side, t, [ROPE_X, grips[side][k]]);
     // Reaching: off the old grip, out round the body, onto the new one.
-    const from = k === 0 && side === 'near' ? pawAt('near', u0, nearRest(u0)) : [ROPE_X, grips[side][k - 1]] as Vec2;
+    const from = k === 0 && side === 'near' ? pawAt('near', c0, nearRest(c0)) : [ROPE_X, grips[side][k - 1]] as Vec2;
     const to: Vec2 = [ROPE_X, grips[side][k + 1]];
     const e = smooth(Math.min(1, p / 0.85));
     const out = -30 * Math.sin(Math.PI * e);
@@ -705,7 +730,7 @@ walk({
   const [L0] = seconds('bearLife');
   const life = (fn: (t: number) => number) => over('bearLife', (s) => fn(L0 + s), 30);
   for (const s of ['bearBack', 'bearFront']) {
-    P(`cast.${s}Ride`).animate({ y: life(bearY) }).animate({ rotate: life(tilt) });
+    P(`cast.${s}Ride`).animate({ x: life(shift), y: life(bearY) }).animate({ rotate: life(tilt) });
   }
   for (const [path, side] of [['cast.bearBackRide.armFar', 'far'], ['cast.bearFrontRide.armNear', 'near']] as const) {
     P(path).animate({ rotate: life((t) => pose(side, t)[0]), scaleX: life((t) => pose(side, t)[1]) });
@@ -730,16 +755,18 @@ walk({
     rotate: at([[0, 0], [drop, 0, cubicBezier(0.3, 0, 0.3, 1)], [h1 - 0.12, -67.5]]),
   });
 
-  // Legs trail and flutter on the way down; on the way up they tuck with each
-  // reach and kick as the pull comes through.
+  // Legs trail and flutter on the way down. Sitting up they swing under the
+  // body toward the rope; climbing, they tuck up as each pull lifts the body
+  // and push down again to take its weight.
   const flutter = (amp: number, period: number, phase: number) => (s: number) =>
     amp * Math.sin(2 * Math.PI * (s / period + phase)) * Math.min(1, s / 0.2, (CUES.at('bearDown').seconds - s) / 0.2);
   const kick = (lag: number) => (t: number) => {
-    if (t < u0 || t >= u1) return 0;
+    const under = 55 * upright(t);
+    if (t < c0 || t >= u1) return under;
     const { p } = climbing(t);
     const q = Math.min(1, Math.max(0, p - lag) / (1 - lag));
-    const fade = Math.min(1, (t - u0) / 0.2, (u1 - t) / 0.2);
-    return (q < 0.55 ? 20 * Math.sin((Math.PI * q) / 0.55) : -9 * Math.sin((Math.PI * (q - 0.55)) / 0.45)) * fade;
+    const fade = Math.min(1, (t - c0) / 0.2, (u1 - t) / 0.2);
+    return under + (q < 0.6 ? 26 * Math.sin((Math.PI * q) / 0.6) : -10 * Math.sin((Math.PI * (q - 0.6)) / 0.4)) * fade;
   };
   for (const [leg, ph, lag] of [['legNear', 0, 0], ['legFar', 0.5, 0.12]] as const) {
     P(`cast.bearBackRide.${leg}`)
@@ -748,7 +775,7 @@ walk({
   }
   // Ears stream on the slide, and flop back with every haul.
   const flop = (t: number) => {
-    if (t < u0 || t >= u1) return 0;
+    if (t < c0 || t >= u1) return 0;
     const { p } = climbing(t);
     return -14 * Math.sin(Math.PI * Math.min(1, Math.max(0, (p - 0.2) / 0.8))) * Math.min(1, (u1 - t) / 0.2);
   };
