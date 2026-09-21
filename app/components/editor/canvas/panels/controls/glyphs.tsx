@@ -71,14 +71,30 @@ function Bars({ spec, ...props }: Props & { spec: string }) {
 
 /* ---- Geometry ----------------------------------------------------------- */
 
+/**
+ * Lucide's `rotate-cw` (ISC), taken as drawn rather than redrawn: a turning
+ * arrow is a symbol people already read, and the hand-drawn one kept getting
+ * its head wrong. Lucide draws on a 24 grid, so it keeps its own viewBox, and
+ * the stroke is scaled to land at the same width on screen as the 16-grid
+ * glyphs around it (1.25 of 16 is 1.875 of 24).
+ */
 export function Rotation(props: Props) {
   return (
-    <Line {...props}>
-      <path d="M8 3.4a4.6 4.6 0 1 1-3.9 2.15" />
-      {/* The head's point is the arc's end, and it points the way the arc is
-          going — on round toward the gap. Its legs trail back along the line. */}
-      <path d="M1.9 6.1 4.1 5.55 4.6 7.8" />
-    </Line>
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.875"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+      {...props}
+    >
+      <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
+      <path d="M21 3v5h-5" />
+    </svg>
   );
 }
 
