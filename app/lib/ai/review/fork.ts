@@ -9,6 +9,8 @@ import {
 import * as Y from "yjs";
 import { settleDiagrams } from "@/app/components/editor/canvas/collab/binding";
 import type { LiveEditor } from "@/app/components/editor/EditorRegistry";
+import type { AnyBlock } from "../projection";
+import { replayable, replayOwnEdits } from "./undo";
 
 /**
  * The privacy envelope around an agent turn, on the Yjs pipeline.
@@ -62,12 +64,30 @@ export function isForked(editor: LiveEditor): boolean {
 const born = new WeakMap<Y.Doc, string>();
 
 /**
+ * The same moment as a page, for the edits a dropped fork still owes them.
+ * Read back only when the answer to that question is yes.
+ */
+const bornPage = new WeakMap<Y.Doc, AnyBlock[]>();
+
+/**
  * A fork's content with nothing of its items' identity in it. Yjs sorts
  * attributes and marks for exactly this comparison, so the same page written
  * twice reads the same both times.
  */
 function contentOf(editor: LiveEditor): string {
   return bindingOf(editor).type.toString();
+}
+
+/**
+ * The same of the SHARED doc, fork or no fork: the sync state's own `type`
+ * names it throughout, where the binding follows the fork (see boundDoc).
+ * Against `born` it answers one question — has anyone else written here since.
+ */
+function sharedContent(editor: LiveEditor): string | null {
+  const state = ySyncPluginKey.getState(editor.prosemirrorState) as {
+    type?: Y.XmlFragment;
+  };
+  return state.type?.toString() ?? null;
 }
 
 export function ensureForked(editor: LiveEditor) {
@@ -90,16 +110,18 @@ export function ensureForked(editor: LiveEditor) {
     );
     fork.fork();
   }
-  born.set(boundDoc(editor), contentOf(editor));
+  const forked = boundDoc(editor);
+  born.set(forked, contentOf(editor));
+  bornPage.set(forked, editor.document as unknown as AnyBlock[]);
 }
 
 /**
  * How a fork ends. `kept` carries its changes into the shared doc as one step
  * of the person's history; `landed` is an answer that kept nothing (see
- * `undoable` in session.ts) — what the person typed into the fork meanwhile
- * comes in off the history, and a fork holding nothing of theirs is dropped
- * rather than landed; `discarded` drops them wholesale, whatever is in there
- * (a rewind or a revert of a turn nobody else ever saw).
+ * `undoable` in session.ts) — the fork is dropped and what the person put in it
+ * meanwhile written again as a step of their own, or, where nothing here can
+ * write it, landed whole as it used to be; `discarded` drops it wholesale,
+ * whatever is in there (a rewind or a revert of a turn nobody else ever saw).
  */
 export type ForkEnd = "kept" | "landed" | "discarded";
 
@@ -112,15 +134,37 @@ export function mergeFork(editor: LiveEditor, end: ForkEnd) {
   // be what the page now says, diagrams included (see settleDiagrams).
   if (end !== "discarded") settleDiagrams(forked);
   if (end !== "kept") {
-    // `landed` exists for the person's own typing, and carries the fork across
-    // for it. With none of it in there the fork says exactly what it was born
-    // saying, and landing it would write the whole page back as brand-new
-    // items — identical to read, and no longer the ones the person's undo
-    // entries name. Yjs pops those dead entries silently and undoes an older
-    // live one instead, so ⌘Z walked past their last words and took the
-    // paragraph they were in (NT-45). Nothing of theirs, nothing to carry.
+    // `landed` exists for the person's own typing, and the fork goes whatever
+    // is in it. With none of their words in there it says exactly what it was
+    // born saying (NT-45); with their words in there, landing it carries the
+    // discard's churn along with them (NT-68). Either way, what lands is the
+    // page written back as brand-new items — identical to read, and no longer
+    // the ones the person's undo entries name. Yjs pops those dead entries
+    // silently and undoes an older live one instead, so ⌘Z walked past their
+    // last words and took the paragraph they were in. So the fork is dropped,
+    // and what they put in it written again below, against the items the
+    // shared doc already has.
     const theirs = end === "landed" && contentOf(editor) !== born.get(forked);
-    fork.merge({ keepChanges: theirs });
+    // Unless the replay cannot speak for all of it. Dropping a fork on their
+    // behalf is only honest while nobody else has written here: the replay
+    // writes their blocks as the fork has them, and a collaborator's words in
+    // one of those blocks are not in the fork to be written, where the CRDT
+    // merge keeps both. Same for a fork this record does not know, one made
+    // before this ran, and for a diagram (see `replayable`). Each of those
+    // lands whole, as it always did: the reading that loses nothing.
+    const alone = born.has(forked) && sharedContent(editor) === born.get(forked);
+    const birth = theirs && alone ? bornPage.get(forked) : undefined;
+    const theirPage = birth ? (editor.document as unknown as AnyBlock[]) : null;
+    const replay = birth && theirPage && replayable(birth, theirPage)
+      ? { birth, theirPage }
+      : null;
+    if (theirs && !replay) {
+      fork.merge({ keepChanges: true });
+      restoreSelection(editor, selection);
+      return;
+    }
+    fork.merge({ keepChanges: false });
+    if (replay) replayOwnEdits(editor, replay.birth, replay.theirPage);
     restoreSelection(editor, selection);
     return;
   }
@@ -144,6 +188,7 @@ export function boundDoc(editor: LiveEditor): Y.Doc {
 type ParkedSelection = {
   view: EditorView;
   relative: ReturnType<typeof getRelativeSelection>;
+  at: { anchor: number; head: number };
 } | null;
 
 /** The fork can be longer than shared truth, so its absolute caret cannot cross the swap. */
@@ -151,12 +196,13 @@ function parkSelection(editor: LiveEditor): ParkedSelection {
   const view = (editor as unknown as { prosemirrorView?: EditorView }).prosemirrorView;
   if (!view || !(view.state.selection instanceof TextSelection)) return null;
   const relative = getRelativeSelection(bindingOf(editor), view.state);
+  const { anchor, head } = view.state.selection;
   view.dispatch(
     view.state.tr
       .setSelection(TextSelection.atStart(view.state.doc))
       .setMeta("addToHistory", false),
   );
-  return { view, relative };
+  return { view, relative, at: { anchor, head } };
 }
 
 function restoreSelection(editor: LiveEditor, parked: ParkedSelection) {
@@ -175,10 +221,15 @@ function restoreSelection(editor: LiveEditor, parked: ParkedSelection) {
     parked.relative.head,
     binding.mapping,
   );
-  if (anchor === null || head === null) return;
+  // A dropped fork takes the items the relative position names with it, so
+  // there is nothing to resolve against. The page it left behind says the same
+  // as the page they were looking at, so where they were is where they were.
+  const clamp = (at: number) => Math.max(0, Math.min(at, doc.content.size));
+  const from = anchor ?? clamp(parked.at.anchor);
+  const to = head ?? clamp(parked.at.head);
   parked.view.dispatch(
     parked.view.state.tr
-      .setSelection(TextSelection.between(doc.resolve(anchor), doc.resolve(head)))
+      .setSelection(TextSelection.between(doc.resolve(from), doc.resolve(to)))
       .setMeta("addToHistory", false),
   );
 }

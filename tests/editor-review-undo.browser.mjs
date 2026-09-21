@@ -26,6 +26,15 @@
  * undo entries naming items nobody could reach. The person's own steps after a
  * discarded turn are checked against the same three ⌘Z with no turn at all.
  *
+ * NT-68: the same failure for a fork that DID hold the person's own words —
+ * they typed during the review. It was landed for them, and one Yjs update
+ * carries a whole fork, so the discard's churn travelled with their words. The
+ * fork is dropped now whatever is in it, and what they put in there written
+ * again against the items the shared doc already has; their steps behind it are
+ * checked against the same three ⌘Z with no turn at all. A page a collaborator
+ * touched, or a diagram they moved, still lands whole — nothing here can write
+ * either — and both are checked as such.
+ *
  * NT-43: an agent's diagram edit reached collaborators' maps while it was
  * still under review, and Discard, Revert and the rewind put back only the
  * block's `<nt-diagram>` mirror. Every reader of the diagram — the block prop,
@@ -353,7 +362,7 @@ try {
   // (NT-45). A fork holding nothing of theirs is now dropped, not landed.
   check("the person's own steps are the same as if the turn had never happened", await walk(), alone);
 
-  console.log("NT-45: typing during the review, then Discard all");
+  console.log("NT-68: typing during the review, then Discard all");
   await fresh();
   await typeNotes();
   await turn();
@@ -365,9 +374,72 @@ try {
   const RETITLED = ["heading:Enactus intro reel v2", HEAD[1]];
   check("the notes come back and the typing stays", await texts(), [...RETITLED, ...NOTES]);
   // What `landed` is for, and the half of it that must not regress: the fork
-  // holds the person's own words, so it is carried across rather than dropped.
+  // holds the person's own words, so they are written again on the way out.
   check("…and the typing reaches the shared doc", await peer(), [...RETITLED, ...NOTES]);
   check("…with the fork closed behind it", await forked(), false);
+  // Landed, the discard's churn came with their words and replaced the items
+  // their earlier entries name, so ⌘Z took a whole paragraph and the one after
+  // it, and the third did nothing (NT-68). The fork is dropped now and what
+  // they put in it written again, as one step of their own.
+  await clickEnd(0);
+  await undo();
+  check("⌘Z takes back what they typed during the review", await texts(), [...HEAD, ...NOTES]);
+  check("…for the collaborator too", await peer(), [...HEAD, ...NOTES]);
+  await redo();
+  check("⌘⇧Z writes it again", await texts(), [...RETITLED, ...NOTES]);
+  await undo();
+  check("…and their own steps behind it are the same as with no turn at all", await walk(), alone);
+
+  console.log("NT-68: a paragraph written during the review, then Discard all");
+  await fresh();
+  await typeNotes();
+  await turn();
+  await clickEnd(0);
+  await page.keyboard.press("Enter");
+  await sleep(100);
+  await page.keyboard.type("postscript", { delay: 5 });
+  await sleep(BETWEEN_NOTES);
+  await press("Discard all");
+  await settled();
+  const WITH_POST = [HEAD[0], "paragraph:postscript", HEAD[1]];
+  check("the block they wrote is on the page, where they wrote it", await texts(), [...WITH_POST, ...NOTES]);
+  check("…and the collaborator has it too", await peer(), [...WITH_POST, ...NOTES]);
+  await clickEnd(1);
+  await undo();
+  check("…and ⌘Z takes it back", await texts(), [...HEAD, ...NOTES]);
+
+  console.log("NT-68: words deleted during the review, then Discard all");
+  await fresh();
+  await typeNotes();
+  await turn();
+  await clickEnd(1);
+  for (let i = 0; i < 5; i++) await page.keyboard.press("Backspace");
+  await sleep(BETWEEN_NOTES);
+  await press("Discard all");
+  await settled();
+  check("the deletion stands", await texts(), [HEAD[0], "paragraph:", ...NOTES]);
+  await clickEnd(0);
+  await undo();
+  // The half a step off the timeline could not do: the entries naming what
+  // they deleted would be dead, which is the same failure one turn narrower.
+  check("⌘Z gives the deleted word back", await texts(), [...HEAD, ...NOTES]);
+
+  console.log("NT-68: a collaborator writes during the review, then Discard all");
+  await fresh();
+  await typeNotes();
+  await turn();
+  await clickEnd(0);
+  await page.keyboard.type(" v2", { delay: 5 });
+  await sleep(BETWEEN_NOTES);
+  await h(() => window.reviewHarness.peerAdd("Notes", "from Ali: shoot on the 12th"));
+  await sleep(250);
+  await press("Discard all");
+  await settled();
+  // Nothing here can write a collaborator's words: they are not in the fork.
+  // So a page somebody else has touched lands whole, as it always did.
+  const ALI = "paragraph:from Ali: shoot on the 12th";
+  check("both people's words are on the page", await texts(), [...RETITLED, ALI, ...NOTES]);
+  check("…and in the shared doc", await peer(), [...RETITLED, ALI, ...NOTES]);
 
   console.log("Keep all, a collaborator writes, then ⌘Z");
   await fresh();
@@ -438,10 +510,11 @@ try {
     })),
     {
       inline: [{ disabled: true, busy: "true" }],
+      // Quietest first, the ordinary answer last and filled (#156).
       bar: [
-        { text: "Keeping…", disabled: true },
-        { text: "Discard all", disabled: true },
         { text: "Revert", disabled: true },
+        { text: "Discard all", disabled: true },
+        { text: "Keeping…", disabled: true },
       ],
       answering: ["accepted"],
       open: 1,
@@ -758,6 +831,27 @@ try {
   check("kept: the move and the new shape reach every map", await sharedAndShown(true), { maps: moved, peer: moved, shown: moved });
   await sleep(5600);
   check("…and the mirror follows them", await shapes(true), everywhere(moved));
+
+  console.log("NT-68: a shape moved during the review of a change elsewhere, then Discard all");
+  await freshDiagram();
+  await turn("agentHeading");
+  await sleep(300);
+  const stillThere = (await shapes(true)).shown;
+  await dragShape("a", 80, 0);
+  await sleep(800);
+  const theirMove = (await shapes(true)).shown;
+  check("the drag moved the shape", theirMove[0] !== stillThere[0], true);
+  await press("Discard all");
+  await settled();
+  await sleep(300);
+  // A diagram's truth is its maps, and only the merge carries those — written
+  // back as the block prop they read to the canvas as its own mirror coming
+  // round again. So a fork whose diagram moved lands whole (`replayable`),
+  // churn and all, rather than dropping the move on the floor.
+  check("the heading goes back and their move stays, everywhere", await shapes(true), everywhere(theirMove));
+  check("…and the heading is the one they had", (await texts())[0], "heading:Storyboard");
+  await sleep(5600);
+  check("…and the mirror's trail agrees", await shapes(true), everywhere(theirMove));
 
   console.log("NT-43: Keep a diagram change, then Rewind › Notes only");
   await freshDiagram();

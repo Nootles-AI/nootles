@@ -159,6 +159,108 @@ export function restoreDocument(editor: LiveEditor, before: AnyBlock[]) {
   endTextHistory(editor);
 }
 
+/**
+ * Writes onto the page what the person themselves wrote inside a fork that is
+ * not going to land.
+ *
+ * A fork holding their words was landed for them, and one `Y.applyUpdate`
+ * carries a whole fork: the discard's own churn — `undoHunks` above, rewriting
+ * what the change touched — travelled with their words and replaced the very
+ * items their undo entries name. Yjs pops a dead entry silently and undoes an
+ * older live one instead, so ⌘Z took the whole paragraph holding their last
+ * words (NT-68; NT-45 is the same failure for a fork with nothing of theirs in
+ * it, which is dropped rather than landed). Nothing at the merge can separate
+ * the two — the fork has one clientID, and the agent's apply, their typing and
+ * the rewrite interleave in one clock — so the fork is DROPPED like any other
+ * and the difference between the page it was made from and the page they leave
+ * is written again here.
+ *
+ * Only what differs is touched, and each block through its own call, so
+ * y-prosemirror writes the characters that changed and nothing else (its text
+ * update is a common-ends diff): every Yjs item the shared doc already has, and
+ * every entry naming one, is left standing. Blocks nobody in the fork touched
+ * are not written at all, which is what leaves a collaborator's work alone.
+ *
+ * One transaction, ON the history: the words they typed during a review are a
+ * ⌘Z of their own, exactly as they are when the answer keeps something (see
+ * `KEPT_CHANGE` in fork.ts). Off it, a deletion they made in the fork would
+ * leave the entries naming what they deleted dead — the same bug, narrower.
+ */
+export function replayOwnEdits(editor: LiveEditor, birth: AnyBlock[], theirs: AnyBlock[]) {
+  const was = new Map(descend(birth).map((b) => [b.id, b]));
+  const now = new Map(descend(theirs).map((b) => [b.id, b]));
+  const place = seats(theirs);
+  const present = (id: string) => !!editor.getBlock(id);
+  const where: Where = { present, last: () => lastBlock(editor, present) };
+
+  asReview(() =>
+    editor.transact(() => {
+      // Gone first: a block they took off the page takes its subtree with it,
+      // and what survived that deletion elsewhere is put back below.
+      for (const id of was.keys()) {
+        if (!now.has(id) && present(id)) editor.removeBlocks([id]);
+      }
+
+      // Then everything their page has that this one does not, outermost
+      // first and in their order — a block they wrote, or one they lifted out
+      // of something they deleted. Each anchors on the one placed before it.
+      const placed = new Set<string>();
+      for (const block of descend(theirs)) {
+        if (present(block.id)) continue;
+        if ((place.get(block.id)?.ancestors ?? []).some((a) => placed.has(a))) continue;
+        const anchor = anchorFor(block.id, place, where);
+        if (!anchor) continue;
+        put(editor, block, anchor);
+        placed.add(block.id);
+      }
+
+      for (const [id, block] of now) {
+        const before = was.get(id);
+        if (!before || !present(id) || unchanged(before, block)) continue;
+        editor.updateBlock(id, {
+          type: block.type,
+          props: block.props,
+          ...(block.content !== undefined ? { content: block.content } : {}),
+        } as AnyPartialBlock);
+      }
+    }),
+  );
+}
+
+/**
+ * Whether {@link replayOwnEdits} can carry everything a fork holds.
+ *
+ * A diagram's truth is its CRDT maps, and nothing but the merge carries those:
+ * written back as the block prop the replay has, they read to the shared doc's
+ * canvas as its own mirror coming round again and are ignored. The prop asked
+ * about here is that mirror, which `settleDiagrams` has just brought in line
+ * with the maps, so it answers for them. A page whose diagram moved inside the
+ * fork therefore lands whole, as it always did — the undo history is the price,
+ * and it is the smaller loss of the two.
+ */
+export function replayable(birth: AnyBlock[], theirs: AnyBlock[]): boolean {
+  const diagrams = (blocks: AnyBlock[]) =>
+    new Map(
+      descend(blocks)
+        .filter((b) => b.type === "canvas")
+        .map((b) => [b.id, JSON.stringify(b.props)] as const),
+    );
+  const was = diagrams(birth);
+  const now = diagrams(theirs);
+  return (
+    was.size === now.size && [...now].every(([id, props]) => was.get(id) === props)
+  );
+}
+
+/** A block as this comparison cares about it: its own words, type and props. */
+function unchanged(a: AnyBlock, b: AnyBlock): boolean {
+  return (
+    a.type === b.type &&
+    JSON.stringify(a.props) === JSON.stringify(b.props) &&
+    JSON.stringify(a.content ?? null) === JSON.stringify(b.content ?? null)
+  );
+}
+
 function put(editor: LiveEditor, block: AnyBlock, anchor: Anchor) {
   if (anchor.placement !== "in") {
     editor.insertBlocks([block as AnyPartialBlock], anchor.ref, anchor.placement);
