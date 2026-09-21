@@ -579,26 +579,34 @@
 }
 
 /* The tools, and the one mark that says which is in hand. It travels on the
-   spring (`--at` is the tool's place in the row), in the ink of the app's one
-   filled control — neutral, so `--nt-select` stays the canvas's only accent.
-   The pitch is a button and the gap beside it; each button sits in a tooltip's
-   inline-flex span, which adds nothing to either. A tool outside the row (none
-   of them today) leaves `--at` at -1 and the mark parked out of sight. */
+   spring to the pressed button's measured place (`--mark-x`, `--mark-w`, set by
+   the toolbar), in the ink of the app's one filled control — neutral, so
+   `--nt-select` stays the canvas's only accent. Measured because the row is
+   not all squares: the shape tools' slot is a button and its caret. */
 .nt-toolbar-tools {
   position: relative;
   display: flex;
+  align-items: center;
   gap: 2px;
 }
 .nt-toolbar-mark {
   position: absolute;
-  top: 0;
+  top: 50%;
   left: 0;
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
+  width: var(--mark-w, 32px);
+  height: var(--mark-h, 32px);
+  margin-top: calc(var(--mark-h, 32px) / -2);
+  border-radius: 9px;
   background: var(--foreground);
-  transform: translateX(calc(var(--at, 0) * 34px));
-  transition: transform 280ms var(--spring);
+  opacity: 0;
+  transform: translateX(var(--mark-x, 0px));
+  transition:
+    transform 280ms var(--spring),
+    width 280ms var(--spring),
+    opacity var(--dur-fast) var(--ease);
+}
+.nt-toolbar-tools[data-marked="true"] > .nt-toolbar-mark {
+  opacity: 1;
 }
 .nt-toolbar-tools .nt-toolbar-btn {
   position: relative;
@@ -612,6 +620,179 @@
   .nt-toolbar-mark {
     transition: none;
   }
+}
+
+/* ---- The shape tool -------------------------------------------------------
+   Four shapes, one tool, as in Figma: a single slot holding the shape last
+   used and, inside the slot's own right edge, the chevron that lists all four.
+   Not a second button beside the first — the slot takes the hover wash and the
+   ink mark whole, and the chevron rides on whichever it is. */
+.nt-toolbar-shapes {
+  position: relative;
+  display: flex;
+  align-items: center;
+  border-radius: 10px;
+  transition: background var(--dur-fast) var(--ease);
+}
+.nt-toolbar-shapes:hover:not([data-on]) {
+  background: var(--hover);
+}
+/* The button gives its own wash to the slot, and leaves room for the chevron. */
+.nt-toolbar-shapes .nt-toolbar-btn {
+  width: 36px;
+  background: none;
+}
+.nt-toolbar-shapes .nt-toolbar-btn:hover:not(:disabled) {
+  background: none;
+}
+.nt-toolbar-caret {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 14px;
+  height: 100%;
+  margin-left: -4px;
+  padding-right: 4px;
+  box-sizing: content-box;
+  border-radius: 0 10px 10px 0;
+  color: var(--muted);
+  transition: color var(--dur-fast) var(--ease);
+}
+.nt-toolbar-shapes:hover .nt-toolbar-caret,
+.nt-toolbar-caret[aria-expanded="true"] {
+  color: var(--foreground);
+}
+/* On the ink, the chevron is paper — a little quieter than the glyph beside it. */
+.nt-toolbar-shapes[data-on] .nt-toolbar-caret {
+  color: oklch(1 0 0 / 0.72);
+}
+.nt-toolbar-shapes[data-on] .nt-toolbar-caret:hover,
+.nt-toolbar-shapes[data-on] .nt-toolbar-caret[aria-expanded="true"] {
+  color: var(--background);
+}
+.nt-toolbar-caret > svg {
+  transition: transform var(--dur-slow) var(--spring);
+}
+.nt-toolbar-caret:hover > svg {
+  transform: translateY(1px);
+}
+.nt-toolbar-caret[aria-expanded="true"] > svg {
+  transform: rotate(180deg);
+}
+
+/* The list it opens is a piece of the bar, not a document menu: ink, like the
+   mark and the tooltips, with the tools in paper. Check, glyph, name, and the
+   key in the metadata voice at the far end — Figma's order — on rows a little
+   tighter than a menu's, since it is scanned for a shape, not read. */
+.nt-menu.nt-tool-flyout {
+  /* It hangs from the slot, not from the chevron: the menu is placed from the
+     chevron, which starts 32px into the slot, so it steps back by that much —
+     and its entrance grows from the slot's corner with it. */
+  margin-left: -32px;
+  min-width: 212px;
+  padding: 5px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--foreground);
+  box-shadow:
+    0 0 0 1px oklch(1 0 0 / 0.06) inset,
+    0 10px 30px -8px oklch(0.25 0.005 90 / 0.45),
+    0 2px 6px oklch(0.25 0.005 90 / 0.2);
+  color: var(--background);
+}
+.nt-tool-flyout .nt-menu-item {
+  gap: 10px;
+  height: 32px;
+  padding-inline: 8px 10px;
+  border-radius: 8px;
+  color: oklch(1 0 0 / 0.86);
+}
+.nt-tool-flyout .nt-menu-item:hover,
+.nt-tool-flyout .nt-menu-item:focus-visible,
+.nt-menu.nt-tool-flyout[data-by-pointer] .nt-menu-item:focus-visible {
+  background: var(--hover-on-dark);
+  color: var(--background);
+}
+.nt-tool-flyout .nt-menu-item:active {
+  background: var(--active-on-dark);
+}
+/* The keyboard ring stays the app's one ring, set just inside the row so the
+   ink around it frames it rather than cutting it. */
+.nt-tool-flyout .nt-menu-item:focus-visible {
+  outline-offset: -2px;
+}
+.nt-menu.nt-tool-flyout[data-by-pointer] .nt-menu-item:focus-visible {
+  outline: none;
+}
+.nt-tool-flyout-check {
+  flex: none;
+  opacity: 0;
+  transform: scale(0.4);
+  transition:
+    transform var(--dur-slow) var(--spring),
+    opacity var(--dur-fast) var(--ease);
+}
+.nt-tool-flyout-check[data-on] {
+  opacity: 1;
+  transform: none;
+}
+.nt-tool-flyout-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 16px;
+  color: oklch(1 0 0 / 0.72);
+}
+.nt-tool-flyout-icon > svg {
+  width: 16px;
+  height: 16px;
+}
+.nt-tool-flyout .nt-menu-item:hover .nt-tool-flyout-icon,
+.nt-tool-flyout .nt-menu-item:focus-visible .nt-tool-flyout-icon {
+  color: var(--background);
+}
+.nt-tool-flyout-name {
+  flex: 1 1 auto;
+  font-size: var(--text-ui);
+}
+.nt-tool-flyout-key {
+  flex: none;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--text-meta);
+  letter-spacing: 0.04em;
+  color: oklch(1 0 0 / 0.5);
+}
+
+/* The canvas's own bar is taller than the controls around it: it is the one
+   thing the hand goes back to all the time while drawing, so its targets are
+   the largest in the app. The storyboard's bar, standing on end beside a board,
+   keeps the smaller ones. */
+.nt-toolbar-dock .nt-toolbar {
+  padding: 6px;
+  border-radius: 14px;
+}
+.nt-toolbar-dock .nt-toolbar-btn {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+}
+.nt-toolbar-dock .nt-toolbar-mark {
+  border-radius: 10px;
+}
+.nt-toolbar-dock .nt-toolbar-shapes .nt-toolbar-btn {
+  width: 36px;
+}
+.nt-toolbar-dock .nt-toolbar-caret {
+  height: 38px;
+}
+.nt-toolbar-dock .nt-toolbar-zoom {
+  height: 34px;
+  min-width: 52px;
+  border-radius: 10px;
+}
+.nt-toolbar-dock .nt-toolbar-sep {
+  height: 22px;
+  margin-inline: 5px;
 }
 
 .nt-toolbar-sep {
