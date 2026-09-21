@@ -39,6 +39,7 @@ import { Sidebar } from "./Sidebar";
 import { PageSurface } from "./PageSurface";
 import { ChatPanel } from "./ChatPanel";
 import { ReviewBar } from "./ReviewBar";
+import { BarMorph } from "./BarMorph";
 import { ResizeHandle } from "./ResizeHandle";
 import { WorkspacePalette } from "./WorkspacePalette";
 import { useLinger } from "@/app/lib/useLinger";
@@ -592,7 +593,10 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
   // armed while nothing is being edited, so a claim disarms it by itself.
   const registry = useEditorRegistry();
   const [heldPageTool, setPageTool] = useState<PageTool>("move");
-  const pageBarOn = chrome && !viewer && !compact && !toolsHeld;
+  const pageBarOn = chrome && !viewer && !compact && !toolsOn;
+  // Where the page bar is there to turn into, the diagram's bar morphs into it
+  // on the way out rather than first sinking away.
+  const canvasBarOn = toolsOn || (toolsHeld && !pageBarOn);
   const pageTool: PageTool = pageBarOn ? heldPageTool : "move";
 
   // What a diagram just made or pressed into should be doing once it has
@@ -887,13 +891,12 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
         {/* One bar, one corner. The tool palette is transient and the review is a
             standing question, so while a diagram is being edited the palette has
             the slot and the review comes back the moment the diagram is let go.
-            Both are fixed, and the resize handles carry a z-index of their own —
-            hence the stacking context around this one. */}
-        <div className="relative" style={{ zIndex: "var(--z-sticky)" }}>
+            The page's bar and the diagram's turn into one another. */}
+        <BarMorph mode={toolsOn ? "canvas" : "page"}>
           {/* A storyboard shot claims the shell for the panels but carries its
               own vertical bar beside the board, so the floating pill stands
               down for it the way it does for a review. */}
-          {!chrome ? null : toolsHeld && lastTools ? (
+          {!chrome ? null : canvasBarOn && lastTools ? (
             <Toolbar
               key={lastTools.blockId}
               store={lastTools.api.store}
@@ -910,7 +913,7 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
               <ReviewBar />
             </>
           )}
-        </div>
+        </BarMorph>
 
         {openDrawer && (
           <>

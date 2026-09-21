@@ -210,12 +210,15 @@ export function Button({
   hint,
   pressed,
   disabled,
+  shape,
   onClick,
   children,
 }: {
   label: string;
   hint: string;
   pressed?: boolean;
+  /** One of the four shapes — what the bar's morph folds into their slot. */
+  shape?: boolean;
   disabled?: boolean;
   onClick: () => void;
   children: ReactNode;
@@ -227,6 +230,7 @@ export function Button({
         className="nt-toolbar-btn"
         aria-label={label}
         aria-pressed={pressed}
+        data-shape={shape || undefined}
         disabled={disabled}
         // The canvas keeps its focus, so the keymap and the clipboard keep working
         // with a tool picked by mouse.
@@ -553,6 +557,7 @@ export function ToolRow({
       label={SHORTCUTS_BY_ID[shortcut].label}
       hint={hint(shortcut)}
       pressed={tool === id}
+      shape={SHAPES.has(id)}
       onClick={() => onTool(id)}
     >
       {icon}
