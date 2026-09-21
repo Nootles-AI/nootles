@@ -1,0 +1,604 @@
+/* 07 Split — the page and its canvas are two panes of one window. The pane in
+   use is paper; the other recedes into the well, and the window leans toward
+   whichever you are doing. */
+
+.sl {
+  background: var(--surface);
+  --sl-head: 52px;
+  --sl-drawer: max(46vh, 320px);
+}
+.sl-frame {
+  display: grid;
+  grid-template-rows: var(--sl-head) minmax(0, 1fr);
+  height: 100%;
+}
+
+/* ---- Header: the projects page's three parts on one line -------------------- */
+
+.sl-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  padding-inline: 12px;
+  animation: ek-fade 500ms var(--ease) backwards;
+}
+.sl-head-side {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.sl-head-side.is-end {
+  justify-content: flex-end;
+  gap: 10px;
+}
+.sl-head-rule {
+  flex: none;
+  width: 1px;
+  height: 16px;
+  margin-inline: 6px;
+  background: var(--border-strong);
+}
+.sl-title {
+  display: block;
+  max-width: 32vw;
+  overflow: hidden;
+  font-size: 15px;
+  line-height: var(--control);
+  letter-spacing: -0.01em;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sl-title input {
+  width: 100%;
+  text-align: center;
+}
+.sl-pages-btn {
+  max-width: 240px;
+  font-weight: 500;
+}
+.sl-pages-caret {
+  flex: none;
+  color: var(--muted);
+  transition: rotate var(--dur-slow) var(--spring);
+}
+.sl-pages-btn[aria-expanded="true"] {
+  background: var(--hover);
+}
+.sl-pages-btn[aria-expanded="true"] .sl-pages-caret {
+  rotate: 180deg;
+}
+.sl-pop-pages {
+  width: 300px;
+  padding: 6px;
+}
+.sl .ek-find {
+  background: oklch(0.25 0.005 90 / 0.045);
+}
+
+/* ---- The shell: one sheet, two panes, a seam -------------------------------- */
+
+.sl-shell {
+  --split: 0.58;
+  position: relative;
+  display: grid;
+  grid-template-columns: calc(var(--split) * 100%) 0px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  min-height: 0;
+  margin: 0 8px 8px;
+  overflow: hidden;
+  border-radius: 14px;
+  background: var(--background);
+  box-shadow: 0 0 0 1px oklch(0.25 0.005 90 / 0.07), 0 1px 2px oklch(0.25 0.005 90 / 0.04), 0 12px 32px -16px oklch(0.25 0.005 90 / 0.12);
+  transition: grid-template-columns 560ms var(--spring), margin-bottom 520ms var(--ease);
+  animation: ek-rise 600ms var(--ease) 60ms backwards;
+  --ek-face-ring: var(--background);
+}
+/* Drawing leans the window toward the canvas — unless the seam has been put
+   somewhere by hand, which always wins (it is written inline). */
+.sl[data-mode="diagram"] .sl-shell {
+  --split: 0.36;
+}
+.sl-shell[data-dragging] {
+  transition: margin-bottom 520ms var(--ease);
+  cursor: col-resize;
+  user-select: none;
+}
+.sl-frame[data-asking="true"] .sl-shell {
+  margin-bottom: var(--sl-drawer);
+}
+
+.sl-pane {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  transition: background var(--dur-slow);
+}
+.sl-pane.is-write {
+  background: var(--background);
+}
+.sl-pane.is-canvas {
+  container-type: size;
+  overflow: hidden;
+  background: var(--surface);
+}
+.sl[data-mode="diagram"] .sl-pane.is-write {
+  background: var(--surface);
+}
+.sl[data-mode="diagram"] .sl-pane.is-canvas {
+  background: var(--background);
+}
+.sl-scroll {
+  height: 100%;
+  overflow-y: auto;
+  scroll-padding-block: 120px;
+}
+.sl .ek-doc {
+  max-width: calc(var(--measure) + 112px);
+  padding: 40px 48px 160px 60px;
+  transition: opacity var(--dur-slow);
+}
+.sl[data-mode="diagram"] .ek-doc {
+  opacity: 0.72;
+}
+
+/* The canvas fills its pane in both modes; only what it is lying on changes. */
+.sl .is-canvas .ek-diagram,
+.sl .is-canvas .ek-diagram[data-expanded="true"] {
+  position: relative;
+  inset: auto;
+  height: 100%;
+  border-radius: 0;
+  background-color: transparent;
+  box-shadow: none;
+  animation: none;
+  transition: opacity var(--dur-slow);
+}
+.sl .is-canvas .ek-diagram[data-live="false"] {
+  opacity: 0.72;
+}
+.sl .is-canvas .ek-diagram[data-live="false"]:hover {
+  opacity: 1;
+  box-shadow: none;
+}
+.sl .is-canvas .ek-diagram-view {
+  height: 100%;
+  border-radius: 0;
+  transition: none;
+}
+.sl .ek-diagram-expand {
+  display: none;
+}
+.sl .ek-diagram-hint {
+  bottom: 20px;
+}
+/* An open tray takes its side of the pane, and the stage fits what is left —
+   so folding one away gives the drawing its room back. */
+.sl[data-mode="diagram"] .is-canvas:has(.sl-tray.is-left[data-open="true"]) .ek-diagram-view {
+  padding-left: 244px;
+}
+.sl[data-mode="diagram"] .is-canvas:has(.sl-tray.is-right[data-open="true"]) .ek-diagram-view {
+  padding-right: 270px;
+}
+.sl-canvas-label {
+  position: absolute;
+  top: 16px;
+  left: 20px;
+  z-index: var(--z-base);
+  display: flex;
+  gap: 10px;
+  color: var(--muted);
+  font: var(--text-meta) var(--font-geist-mono), monospace;
+  letter-spacing: var(--tracking-meta);
+  text-transform: uppercase;
+  pointer-events: none;
+  transition: opacity var(--dur), translate var(--dur-slow) var(--ease);
+}
+.sl-canvas-label span + span {
+  color: var(--faint);
+}
+.sl[data-mode="diagram"] .sl-canvas-label {
+  opacity: 0;
+  translate: 0 -6px;
+}
+
+/* ---- The seam ---------------------------------------------------------------- */
+
+.sl-divider {
+  position: relative;
+  z-index: var(--z-sticky);
+  width: 0;
+  outline: none;
+  cursor: col-resize;
+  touch-action: none;
+}
+.sl-divider::before {
+  content: "";
+  position: absolute;
+  inset: 0 -7px;
+}
+.sl-divider::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 -0.5px;
+  width: 1px;
+  background: var(--border);
+  transition: background var(--dur), scale var(--dur);
+}
+.sl-divider:hover::after,
+.sl-divider:focus-visible::after,
+.sl-shell[data-dragging] .sl-divider::after {
+  background: var(--shape-line-active);
+  scale: 2 1;
+}
+.sl-grip {
+  position: absolute;
+  top: 50%;
+  left: -3px;
+  z-index: 1;
+  width: 6px;
+  height: 36px;
+  margin-top: -18px;
+  border-radius: 3px;
+  background: var(--elevated);
+  box-shadow: 0 0 0 1px var(--border-strong), 0 1px 3px oklch(0.25 0.005 90 / 0.12);
+  transition: scale var(--dur-slow) var(--spring), opacity var(--dur), box-shadow var(--dur);
+}
+.sl-divider:hover .sl-grip,
+.sl-divider:focus-visible .sl-grip {
+  scale: 1 1.35;
+  box-shadow: 0 0 0 1px var(--shape-line-active), 0 2px 6px oklch(0.25 0.005 90 / 0.16);
+}
+.sl-shell[data-dragging] .sl-grip {
+  scale: 1.35 1.1;
+}
+.sl[data-mode="diagram"] .sl-grip {
+  opacity: 0;
+  scale: 0.4;
+}
+
+/* Tools stand on the seam, between what you write and what you draw. They
+   spring out of it as the canvas is entered and fold back into it on the way
+   out. */
+.sl-tools.is-seam {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  z-index: 2;
+  translate: -50% -50%;
+  scale: 0.2 0.7;
+  opacity: 0;
+  visibility: hidden;
+  filter: blur(6px);
+  cursor: default;
+  transition: scale 200ms var(--ek-in), opacity var(--dur-fast), filter var(--dur), visibility 0s 200ms;
+}
+.sl[data-mode="diagram"] .sl-tools.is-seam {
+  scale: 1;
+  opacity: 1;
+  visibility: visible;
+  filter: none;
+  transition: scale 560ms var(--spring) 120ms, opacity var(--dur) 120ms, filter var(--dur-slow) 120ms, visibility 0s;
+}
+.sl-tools.is-floor {
+  display: none;
+}
+.sl .ek-bar[data-vertical] .ek-bar-zoom {
+  min-width: 32px;
+  width: 32px;
+  padding-inline: 0;
+  font-size: 10px;
+}
+@media (max-height: 720px) {
+  .sl[data-mode="diagram"] .sl-tools.is-seam {
+    scale: 0.84;
+  }
+}
+
+/* ---- Trays: layers and design, in the canvas's own top corners -------------- */
+
+.sl-trays {
+  position: absolute;
+  inset: 12px 12px auto 36px;
+  z-index: var(--z-base);
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  pointer-events: none;
+}
+.sl-tray {
+  width: 208px;
+  border-radius: 12px;
+  background: var(--elevated);
+  box-shadow: var(--ek-shadow-sm);
+  opacity: 0;
+  visibility: hidden;
+  translate: 0 -10px;
+  scale: 0.96;
+  filter: blur(6px);
+  pointer-events: auto;
+  transition: opacity var(--dur-fast), translate var(--dur) var(--ek-in), scale var(--dur) var(--ek-in), filter var(--dur), visibility 0s var(--dur), width var(--dur-slow) var(--ease);
+}
+.sl-tray.is-left {
+  transform-origin: top left;
+}
+.sl-tray.is-right {
+  width: 256px;
+  transform-origin: top right;
+}
+.sl-tray[data-open="false"] {
+  width: 116px;
+}
+.sl[data-mode="diagram"] .sl-tray {
+  opacity: 1;
+  visibility: visible;
+  translate: 0 0;
+  scale: 1;
+  filter: none;
+  transition: opacity var(--dur-slow) 180ms, translate 560ms var(--spring) 160ms, scale 560ms var(--spring) 160ms, filter var(--dur-slow) 180ms, visibility 0s, width var(--dur-slow) var(--ease);
+}
+.sl[data-mode="diagram"] .sl-tray.is-right {
+  transition-delay: 260ms, 240ms, 240ms, 260ms, 0s, 0s;
+}
+.sl-tray-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 36px;
+  padding-inline: 12px 10px;
+  border-radius: 12px;
+  font-weight: 500;
+  transition: background var(--dur-fast);
+}
+.sl-tray-head:hover {
+  background: var(--hover);
+}
+.sl-tray-head > svg:first-child {
+  flex: none;
+  color: var(--muted);
+}
+.sl-tray-head > span:first-of-type {
+  flex: 1;
+  text-align: left;
+}
+.sl-tray[data-open="false"] .ek-meta {
+  display: none;
+}
+.sl-tray-caret {
+  flex: none;
+  color: var(--muted);
+  transition: rotate var(--dur-slow) var(--spring);
+}
+.sl-tray[data-open="false"] .sl-tray-caret {
+  rotate: -90deg;
+}
+.sl-tray-fold {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows var(--dur-slow) var(--ease), opacity var(--dur);
+}
+.sl-tray[data-open="false"] .sl-tray-fold {
+  grid-template-rows: 0fr;
+  opacity: 0;
+}
+.sl-tray-body {
+  min-height: 0;
+  max-height: calc(60cqh - 36px);
+  overflow: hidden auto;
+  padding: 0 4px 6px;
+  scrollbar-width: thin;
+}
+.sl-tray.is-right .sl-tray-body {
+  padding-inline: 0;
+}
+/* The tray's own header already says what it is. */
+.sl-tray .ek-layers > .ek-section-label:first-child,
+.sl-tray .ek-inspector > .ek-section-label {
+  display: none;
+}
+.sl-tray .ek-align {
+  padding: 2px 8px 8px;
+}
+
+/* ---- The assistant: a drawer that rises between the panes -------------------- */
+
+.sl-ask {
+  position: fixed;
+  bottom: 16px;
+  left: 50%;
+  z-index: var(--z-sticky);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding-inline: 14px 8px;
+  border-radius: 999px;
+  background: var(--ek-ink);
+  box-shadow: 0 10px 30px -8px oklch(0.25 0.005 90 / 0.4);
+  color: var(--ek-on-ink);
+  font-weight: 500;
+  translate: -50% 0;
+  transition: translate 520ms var(--spring) 160ms, opacity var(--dur) 160ms, scale var(--dur) var(--ease), background var(--dur-fast);
+  animation: ek-rise 600ms var(--spring) 400ms backwards;
+}
+.sl-ask:hover {
+  background: oklch(0.33 0.005 90);
+}
+.sl-ask:active {
+  scale: 0.96;
+}
+.sl-ask[aria-expanded="true"] {
+  opacity: 0;
+  translate: -50% 28px;
+  pointer-events: none;
+  transition: translate 200ms var(--ek-in), opacity var(--dur-fast);
+}
+.sl-ask kbd {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--hover-on-dark);
+  color: oklch(0.8 0.004 90);
+  font: 11px var(--font-geist-mono), monospace;
+}
+/* The one thing here that may be amber: the assistant has something for you. */
+.sl-ask-dot {
+  width: 0;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  opacity: 0;
+  transition: width var(--dur-slow) var(--spring), opacity var(--dur);
+}
+.sl-ask[data-review] .sl-ask-dot {
+  width: 6px;
+  opacity: 1;
+  animation: ek-pulse 1.4s ease-in-out infinite;
+}
+
+.sl-drawer {
+  position: fixed;
+  bottom: 0;
+  left: 50%;
+  z-index: var(--z-sticky);
+  display: flex;
+  flex-direction: column;
+  width: min(920px, calc(100% - 32px));
+  height: calc(var(--sl-drawer) - 8px);
+  border-radius: 14px 14px 0 0;
+  background: var(--elevated);
+  box-shadow: 0 0 0 1px oklch(0.25 0.005 90 / 0.07), 0 -8px 40px -12px oklch(0.25 0.005 90 / 0.22);
+  translate: -50% calc(100% + 24px);
+  visibility: hidden;
+  transition: translate 240ms var(--ek-in), visibility 0s 240ms;
+  --ek-face-ring: var(--elevated);
+}
+/* The spring carries it a few pixels past home; this is the paper underneath. */
+.sl-drawer::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  right: 0;
+  left: 0;
+  height: 40px;
+  background: inherit;
+}
+.sl-drawer[data-on="true"] {
+  translate: -50% 0;
+  visibility: visible;
+  transition: translate 620ms var(--spring), visibility 0s;
+}
+.sl-drawer-lip {
+  position: absolute;
+  top: 5px;
+  left: 50%;
+  width: 36px;
+  height: 4px;
+  margin-left: -18px;
+  border-radius: 2px;
+  background: var(--border-strong);
+}
+.sl-drawer .ek-panel-head {
+  padding-top: 14px;
+}
+.sl-drawer .ek-chat-log {
+  padding-inline: max(12px, calc((100% - 680px) / 2));
+}
+.sl-drawer .ek-review,
+.sl-drawer .ek-composer {
+  width: min(680px, calc(100% - 16px));
+  margin-inline: auto;
+}
+
+/* The kit's switcher and toasts make room for the Ask tab and the drawer. */
+.sl .ek-switch {
+  left: 16px;
+  translate: 0 0;
+}
+.sl .ek-toasts {
+  bottom: 68px;
+}
+.sl:has(.sl-frame[data-asking="true"]) .ek-toasts {
+  bottom: calc(var(--sl-drawer) + 12px);
+}
+
+/* ---- Stacked: the page over its canvas --------------------------------------- */
+
+@media (max-width: 1000px) {
+  .sl-shell,
+  .sl[data-mode="diagram"] .sl-shell {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: calc(var(--split) * 100%) 0px minmax(0, 1fr);
+    transition: grid-template-rows 560ms var(--spring), margin-bottom 520ms var(--ease);
+  }
+  .sl-divider {
+    width: auto;
+    height: 0;
+    cursor: default;
+  }
+  .sl-divider::before {
+    inset: -7px 0;
+  }
+  .sl-divider::after {
+    inset: -0.5px 0 auto 0;
+    width: auto;
+    height: 1px;
+  }
+  .sl-divider:hover::after,
+  .sl-divider:focus-visible::after {
+    scale: 1 2;
+  }
+  .sl-grip {
+    top: -3px;
+    left: 50%;
+    width: 36px;
+    height: 6px;
+    margin: 0 0 0 -18px;
+  }
+  .sl-tools.is-seam {
+    display: none;
+  }
+  .sl-tools.is-floor {
+    position: absolute;
+    bottom: 12px;
+    left: 50%;
+    z-index: var(--z-base);
+    display: block;
+    max-width: calc(100% - 16px);
+    overflow-x: auto;
+    border-radius: 12px;
+    opacity: 0;
+    visibility: hidden;
+    translate: -50% 16px;
+    transition: opacity var(--dur-fast), translate var(--dur) var(--ek-in), visibility 0s var(--dur);
+  }
+  .sl[data-mode="diagram"] .sl-tools.is-floor {
+    opacity: 1;
+    visibility: visible;
+    translate: -50% 0;
+    transition: opacity var(--dur), translate 520ms var(--spring), visibility 0s;
+  }
+  .sl-trays {
+    inset: 8px 8px auto 8px;
+  }
+  .sl[data-mode="diagram"] .is-canvas:has(.sl-tray[data-open="true"]) .ek-diagram-view {
+    padding-inline: 14px;
+  }
+  .sl-tray-body {
+    max-height: calc(60cqh - 96px);
+  }
+  .sl .ek-doc {
+    padding: 28px 24px 120px;
+  }
+  .sl-title {
+    display: none;
+  }
+  .sl-head {
+    grid-template-columns: minmax(0, 1fr) 0 auto;
+  }
+  .sl .ek-switch {
+    bottom: 60px;
+  }
+}

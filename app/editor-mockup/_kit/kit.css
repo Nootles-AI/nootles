@@ -1,0 +1,2141 @@
+/* The shared world: the projects page's materials and motion, applied to every
+   affordance of the workspace. It sits in its own layer so a mockup's sheet,
+   which is unlayered, wins without a specificity fight. Layout is never decided
+   here — where a panel sits and how it arrives is each mockup's business. */
+
+@layer ekit {
+  .ek {
+    --nt-select: #0d99ff;
+    --ek-shadow: 0 0 0 1px oklch(0.25 0.005 90 / 0.06), 0 4px 12px oklch(0.25 0.005 90 / 0.07), 0 16px 40px oklch(0.25 0.005 90 / 0.1);
+    --ek-shadow-sm: 0 0 0 1px oklch(0.25 0.005 90 / 0.07), 0 1px 2px oklch(0.25 0.005 90 / 0.06), 0 6px 16px -6px oklch(0.25 0.005 90 / 0.14);
+    --ek-ink: var(--foreground);
+    --ek-on-ink: oklch(0.985 0.002 90);
+    --ek-in: cubic-bezier(0.7, 0, 0.84, 0);
+    position: relative;
+    width: 100%;
+    height: 100dvh;
+    overflow: hidden;
+    font-size: var(--text-ui);
+    line-height: 1.4;
+    color: var(--foreground);
+    background: var(--background);
+    -webkit-tap-highlight-color: transparent;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-strong) transparent;
+  }
+  .ek ::selection {
+    background: oklch(0.25 0.005 90 / 0.14);
+  }
+  /* Zero specificity: a control that sets its own ink (the tick, Send, anything
+     filled) must beat this with a single class. */
+  :where(.ek) :where(button, input, textarea) {
+    font: inherit;
+    color: inherit;
+  }
+  .ek button:not(:disabled) {
+    cursor: pointer;
+  }
+  .ek button:disabled {
+    opacity: 0.35;
+  }
+  :where(.ek) :where(input, textarea) {
+    min-width: 0;
+    background: none;
+    caret-color: var(--foreground);
+  }
+  .ek [contenteditable][data-placeholder]:empty::before {
+    content: attr(data-placeholder);
+    color: var(--faint);
+    pointer-events: none;
+  }
+  .ek-layer {
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-overlay);
+    pointer-events: none;
+  }
+  .ek-layer > * {
+    pointer-events: auto;
+  }
+
+  /* Stagger: a list arrives as a list, top first. */
+  .ek-stagger > :nth-child(1) { --i: 0; }
+  .ek-stagger > :nth-child(2) { --i: 1; }
+  .ek-stagger > :nth-child(3) { --i: 2; }
+  .ek-stagger > :nth-child(4) { --i: 3; }
+  .ek-stagger > :nth-child(5) { --i: 4; }
+  .ek-stagger > :nth-child(6) { --i: 5; }
+  .ek-stagger > :nth-child(7) { --i: 6; }
+  .ek-stagger > :nth-child(8) { --i: 7; }
+  .ek-stagger > :nth-child(9) { --i: 8; }
+  .ek-stagger > :nth-child(10) { --i: 9; }
+  .ek-stagger > :nth-child(n + 11) { --i: 10; }
+
+  @keyframes ek-rise {
+    from { opacity: 0; translate: 0 6px; }
+  }
+  @keyframes ek-fade {
+    from { opacity: 0; }
+  }
+  @keyframes ek-pop-in {
+    from { opacity: 0; scale: 0.94; filter: blur(6px); }
+  }
+  @keyframes ek-pop-out {
+    to { opacity: 0; scale: 0.97; }
+  }
+  @keyframes ek-grip-in {
+    from { scale: 0; }
+  }
+  @keyframes ek-pulse {
+    50% { opacity: 0.25; }
+  }
+
+  /* ---- Rows, buttons, labels ------------------------------------------- */
+
+  .ek-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    height: var(--control);
+    padding-inline: 8px;
+    border-radius: var(--radius);
+    text-align: left;
+    transition: background var(--dur-fast);
+  }
+  .ek-row:is(button, a):hover {
+    background: var(--hover);
+  }
+  .ek-row:is(button, a):active {
+    background: var(--active);
+  }
+  .ek-row[data-danger] {
+    color: var(--danger);
+  }
+  .ek-row-label {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .ek-row-icon {
+    flex: none;
+    color: var(--muted);
+  }
+  .ek-row-twist {
+    flex: none;
+    color: var(--muted);
+    transition: rotate var(--dur-slow) var(--spring);
+  }
+  [aria-expanded="true"] > .ek-row-twist {
+    rotate: 90deg;
+  }
+  .ek-row-edit {
+    flex: 1;
+    height: 24px;
+    margin-inline: -4px;
+    padding-inline: 4px;
+    border-radius: var(--radius-sm);
+    background: var(--background);
+    box-shadow: 0 0 0 1px var(--border-strong);
+  }
+  .ek-meta {
+    flex: none;
+    color: var(--muted);
+    font: var(--text-meta-lg) var(--font-geist-mono), monospace;
+  }
+  .ek-note {
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.5;
+    text-wrap: pretty;
+  }
+  .ek-section-label,
+  .ek-group-label {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    color: var(--muted);
+    font: var(--text-meta) var(--font-geist-mono), monospace;
+    letter-spacing: var(--tracking-meta);
+    text-transform: uppercase;
+  }
+  .ek-section-label {
+    height: var(--control);
+    padding-inline: 8px 0;
+  }
+  .ek-section-label > span:first-child {
+    flex: 1;
+  }
+  .ek-group-label {
+    padding: 8px 8px 4px;
+  }
+  .ek-kbd {
+    flex: none;
+    min-width: 18px;
+    padding: 1px 5px;
+    border-radius: var(--radius-sm);
+    box-shadow: inset 0 0 0 1px var(--border-strong);
+    color: var(--muted);
+    font: 11px var(--font-geist-mono), monospace;
+    text-align: center;
+  }
+
+  .ek-icon-btn {
+    display: grid;
+    flex: none;
+    place-items: center;
+    width: var(--control);
+    height: var(--control);
+    border-radius: var(--radius);
+    color: var(--muted);
+    transition: background var(--dur-fast), color var(--dur-fast), scale var(--dur) var(--ease);
+  }
+  .ek-icon-btn.is-sm {
+    width: var(--control-sm);
+    height: var(--control-sm);
+    border-radius: var(--radius-sm);
+  }
+  .ek-icon-btn:not(:disabled):hover,
+  .ek-icon-btn[aria-expanded="true"] {
+    background: var(--hover);
+    color: var(--foreground);
+  }
+  .ek-icon-btn:not(:disabled):active {
+    scale: 0.92;
+  }
+  .ek-icon-btn[aria-pressed="true"] {
+    background: var(--selected);
+    color: var(--foreground);
+  }
+  .ek-icon-btn.is-on-dark {
+    color: var(--code-fg-muted);
+  }
+  .ek-icon-btn.is-on-dark:hover {
+    background: var(--hover-on-dark);
+    color: var(--code-fg);
+  }
+
+  .ek-btn {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    height: var(--control);
+    padding-inline: 12px;
+    border-radius: 8px;
+    box-shadow: inset 0 0 0 1px var(--border-strong);
+    font-weight: 500;
+    transition: background var(--dur-fast), scale var(--dur) var(--ease), box-shadow var(--dur-fast);
+  }
+  .ek-btn:not(:disabled):hover {
+    background: var(--hover);
+  }
+  .ek-btn:not(:disabled):active {
+    scale: 0.97;
+  }
+  .ek-btn.is-ink {
+    background: var(--ek-ink);
+    box-shadow: none;
+    color: var(--ek-on-ink);
+  }
+  .ek-btn.is-ink:not(:disabled):hover {
+    background: oklch(0.33 0.005 90);
+  }
+  .ek-btn.is-danger {
+    background: var(--danger);
+    box-shadow: none;
+    color: #fff;
+  }
+  /* Two glyphs in one seat; the second takes it when the button is done. */
+  .ek-swap {
+    display: grid;
+  }
+  .ek-swap > * {
+    grid-area: 1 / 1;
+    transition: scale var(--dur-slow) var(--spring), opacity var(--dur);
+  }
+  .ek-swap > :last-child,
+  [data-done="true"] .ek-swap > :first-child {
+    scale: 0.4;
+    opacity: 0;
+  }
+  [data-done="true"] .ek-swap > :last-child {
+    scale: 1;
+    opacity: 1;
+  }
+
+  .ek-find {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 12rem;
+    height: var(--control);
+    padding-inline: 10px 6px;
+    border-radius: 8px;
+    background: var(--sunken);
+    color: var(--muted);
+    transition: background var(--dur-fast), color var(--dur-fast);
+  }
+  .ek-find > span {
+    flex: 1;
+    text-align: left;
+  }
+  .ek-find:hover {
+    background: var(--border);
+    color: var(--foreground);
+  }
+  .ek-find[data-compact] {
+    width: auto;
+  }
+
+  /* ---- Segmented: a well, and a thumb that travels ---------------------- */
+
+  .ek-seg {
+    position: relative;
+    display: grid;
+    flex: none;
+    grid-template-columns: repeat(var(--n), minmax(0, 1fr));
+    height: var(--control);
+    padding: 3px;
+    border-radius: 8px;
+    background: var(--sunken);
+  }
+  .ek-seg-thumb {
+    position: absolute;
+    top: 3px;
+    bottom: 3px;
+    left: 3px;
+    width: calc((100% - 6px) / var(--n));
+    border-radius: 5px;
+    background: var(--elevated);
+    box-shadow: 0 0 0 1px oklch(0.25 0.005 90 / 0.06), 0 1px 2px oklch(0.25 0.005 90 / 0.1);
+    translate: calc(var(--at) * 100%) 0;
+    transition: translate var(--dur-slow) var(--spring);
+  }
+  .ek-seg-btn {
+    position: relative;
+    display: grid;
+    place-items: center;
+    padding-inline: 10px;
+    border-radius: 5px;
+    color: var(--muted);
+    white-space: nowrap;
+    transition: color var(--dur);
+  }
+  .ek-seg-btn[aria-pressed="true"] {
+    color: var(--foreground);
+  }
+  .ek-seg.is-sm {
+    height: 28px;
+  }
+  .ek-seg.is-sm .ek-seg-btn {
+    padding-inline: 0;
+  }
+  .ek-seg.is-mono {
+    height: 26px;
+    padding: 2px;
+    border-radius: var(--radius);
+    font: var(--text-meta-lg) var(--font-geist-mono), monospace;
+  }
+  .ek-seg.is-mono .ek-seg-thumb {
+    top: 2px;
+    bottom: 2px;
+    left: 2px;
+    width: calc((100% - 4px) / var(--n));
+    border-radius: var(--radius-sm);
+  }
+  .ek-dash {
+    width: 14px;
+    border-top: 1.5px solid currentColor;
+  }
+  .ek-dash.is-dash {
+    border-top-style: dashed;
+  }
+  .ek-dash.is-dot {
+    border-top-style: dotted;
+  }
+
+  /* ---- Pop: every menu, select and popover ------------------------------ */
+
+  .ek-pop {
+    position: fixed;
+    z-index: var(--z-overlay);
+    width: max-content;
+    min-width: 200px;
+    max-width: min(360px, calc(100vw - 16px));
+    max-height: min(420px, calc(100dvh - 16px));
+    overflow-y: auto;
+    padding: 4px;
+    border-radius: var(--radius-lg);
+    background: var(--elevated);
+    box-shadow: var(--ek-shadow);
+    outline: none;
+    transform-origin: var(--origin, top left);
+    animation: ek-pop-in var(--dur-slow) var(--spring);
+  }
+  .ek-pop[data-state="closed"] {
+    pointer-events: none;
+    animation: ek-pop-out var(--dur-fast) var(--ek-in) forwards;
+  }
+  .ek-pop > * {
+    animation: ek-rise 260ms var(--ease) calc(var(--i, 0) * 16ms) backwards;
+  }
+  .ek-pop-wide {
+    width: 272px;
+  }
+  .ek-pop-slash {
+    width: 300px;
+    max-height: 340px;
+  }
+  .ek-pop-select {
+    min-width: 140px;
+  }
+  .ek-pop-empty {
+    padding: 10px 8px;
+  }
+  .ek-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    min-height: var(--control);
+    padding: 5px 8px;
+    border-radius: var(--radius);
+    outline: none;
+    text-align: left;
+  }
+  .ek-item:not(:disabled):hover,
+  .ek-item:not(:disabled):focus,
+  .ek-item-wrap[data-active] > .ek-item {
+    background: var(--hover);
+  }
+  .ek-item[data-danger] {
+    color: var(--danger);
+  }
+  .ek-item-icon {
+    display: grid;
+    flex: none;
+    place-items: center;
+    width: 16px;
+    color: var(--muted);
+  }
+  .ek-item[data-danger] .ek-item-icon {
+    color: inherit;
+  }
+  .ek-pop-slash .ek-item-icon,
+  .ek-palette-row .ek-item-icon {
+    width: 28px;
+    height: 28px;
+    border-radius: var(--radius);
+    background: var(--sunken);
+    color: var(--foreground);
+  }
+  .ek-item-text {
+    display: grid;
+    flex: 1;
+    min-width: 0;
+  }
+  .ek-item-hint {
+    color: var(--muted);
+    font-size: 12px;
+  }
+  .ek-item-check {
+    flex: none;
+    scale: 0.4;
+    opacity: 0;
+    transition: scale var(--dur-slow) var(--spring), opacity var(--dur-fast);
+  }
+  .ek-item-check[data-on="true"] {
+    scale: 1;
+    opacity: 1;
+  }
+  .ek-sep {
+    height: 1px;
+    margin: 4px 8px;
+    background: var(--border);
+  }
+  .ek-pop-who {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px;
+  }
+  .ek-pop-who > span:last-child {
+    display: grid;
+  }
+  .ek-pop-who i {
+    color: var(--muted);
+    font-size: 12px;
+    font-style: normal;
+  }
+
+  .ek-select {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    height: 28px;
+    padding-inline: 8px 6px;
+    border-radius: var(--radius);
+    background: var(--sunken);
+    transition: background var(--dur-fast);
+  }
+  .ek-select:hover,
+  .ek-select[aria-expanded="true"] {
+    background: var(--border);
+  }
+  .ek-select-lead {
+    color: var(--muted);
+  }
+  .ek-select-value {
+    flex: 1;
+    overflow: hidden;
+    text-align: left;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .ek-select-caret {
+    flex: none;
+    color: var(--muted);
+  }
+  .ek-select.is-quiet {
+    background: none;
+    color: var(--muted);
+  }
+  .ek-select.is-quiet:hover,
+  .ek-select.is-quiet[aria-expanded="true"] {
+    background: var(--hover);
+    color: var(--foreground);
+  }
+  .ek-select.is-on-dark {
+    background: none;
+    color: var(--code-fg-muted);
+  }
+  .ek-select.is-on-dark:hover {
+    background: var(--hover-on-dark);
+    color: var(--code-fg);
+  }
+
+  /* ---- Sheets, toasts, tips --------------------------------------------- */
+
+  .ek-modal {
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-modal);
+    display: grid;
+    place-items: start center;
+    padding-top: 14vh;
+  }
+  /* A closing sheet is already gone as far as the pointer is concerned. */
+  .ek-modal[data-state="closed"] {
+    pointer-events: none;
+  }
+  .ek-scrim {
+    position: absolute;
+    inset: 0;
+    background: oklch(0.25 0.005 90 / 0.16);
+    backdrop-filter: blur(6px);
+    animation: ek-fade var(--dur) var(--ease);
+  }
+  .ek-scrim[data-state="closed"] {
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity var(--dur);
+  }
+  @keyframes ek-sheet-in {
+    from {
+      opacity: 0;
+      translate: calc(var(--ox) * 0.35) calc(var(--oy) * 0.35 - 7vh);
+      scale: 0.82;
+      filter: blur(8px);
+    }
+  }
+  .ek-sheet {
+    position: relative;
+    width: min(440px, calc(100vw - 32px));
+    padding: 20px;
+    border-radius: 14px;
+    background: var(--elevated);
+    box-shadow: var(--ek-shadow), 0 40px 80px -20px oklch(0.25 0.005 90 / 0.25);
+    outline: none;
+    animation: ek-sheet-in 420ms var(--spring);
+  }
+  .ek-sheet[data-state="closed"] {
+    pointer-events: none;
+    animation: ek-pop-out 180ms var(--ek-in) forwards;
+  }
+  .ek-sheet h2 {
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  .ek-confirm p {
+    margin-top: 6px;
+    color: var(--muted);
+    line-height: 1.55;
+  }
+  .ek-confirm footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 20px;
+  }
+  .ek-keys {
+    width: min(680px, calc(100vw - 32px));
+  }
+  .ek-keys-cols {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 8px 24px;
+    margin-top: 8px;
+  }
+  .ek-keys .ek-group-label {
+    padding-inline: 0;
+  }
+  .ek-keys-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 30px;
+    border-top: 1px solid var(--border);
+  }
+
+  .ek-palette {
+    width: min(600px, calc(100vw - 32px));
+    padding: 0;
+    overflow: hidden;
+  }
+  .ek-palette-field {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    height: 52px;
+    padding-inline: 16px;
+    border-bottom: 1px solid var(--border);
+    color: var(--muted);
+  }
+  .ek-palette-field input {
+    flex: 1;
+    color: var(--foreground);
+    font-size: 16px;
+    outline: none;
+  }
+  .ek-palette-list {
+    position: relative;
+    max-height: 340px;
+    overflow-y: auto;
+    padding: 6px;
+  }
+  .ek-palette-mark {
+    position: absolute;
+    top: 0;
+    right: 6px;
+    left: 6px;
+    height: var(--mark-h, 40px);
+    border-radius: 8px;
+    background: var(--hover);
+    translate: 0 var(--mark-y, 6px);
+    transition: translate 220ms var(--spring);
+  }
+  .ek-palette-row {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    height: 40px;
+    padding-inline: 6px 10px;
+    border-radius: 8px;
+    outline: none;
+    text-align: left;
+    animation: ek-rise 300ms var(--ease) calc(var(--i) * 14ms) backwards;
+  }
+  .ek-palette-foot {
+    display: flex;
+    gap: 16px;
+    padding: 8px 14px;
+    border-top: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 12px;
+  }
+  .ek-palette-foot span {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .ek-toasts {
+    position: fixed;
+    bottom: 72px;
+    left: 50%;
+    z-index: var(--z-toast);
+    display: grid;
+    justify-items: center;
+    gap: 8px;
+    translate: -50% 0;
+    pointer-events: none;
+  }
+  @keyframes ek-toast-in {
+    from { opacity: 0; translate: 0 14px; scale: 0.92; filter: blur(4px); }
+  }
+  .ek-toast {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    height: 36px;
+    padding-inline: 14px;
+    border-radius: 999px;
+    background: var(--ek-ink);
+    box-shadow: 0 8px 24px -6px oklch(0.25 0.005 90 / 0.35);
+    color: var(--ek-on-ink);
+    font-weight: 500;
+    pointer-events: auto;
+    animation: ek-toast-in 380ms var(--spring);
+  }
+  .ek-toast[data-state="closed"] {
+    opacity: 0;
+    translate: 0 8px;
+    scale: 0.96;
+    transition: all 220ms var(--ek-in);
+  }
+  .ek-toast-act {
+    margin-right: -6px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    color: oklch(0.8 0.004 90);
+  }
+  .ek-toast-act:hover {
+    background: var(--hover-on-dark);
+    color: #fff;
+  }
+
+  @keyframes ek-tip-in {
+    from { opacity: 0; translate: -50% calc(-100% + 3px); }
+  }
+  @keyframes ek-tip-in-below {
+    from { opacity: 0; translate: -50% -3px; }
+  }
+  .ek-tip {
+    position: fixed;
+    z-index: var(--z-tooltip);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 8px;
+    border-radius: var(--radius);
+    background: var(--ek-ink);
+    color: var(--ek-on-ink);
+    font-size: 12px;
+    white-space: nowrap;
+    pointer-events: none;
+    translate: -50% -100%;
+    animation: ek-tip-in var(--dur) var(--ease);
+  }
+  .ek-tip[data-below="true"] {
+    translate: -50% 0;
+    animation-name: ek-tip-in-below;
+  }
+  .ek-tip kbd {
+    color: oklch(0.72 0.004 90);
+    font: 11px var(--font-geist-mono), monospace;
+  }
+
+  .ek-switch {
+    position: fixed;
+    bottom: 16px;
+    left: 50%;
+    z-index: var(--z-toast);
+    display: flex;
+    align-items: center;
+    height: 36px;
+    padding: 3px;
+    border-radius: 999px;
+    background: var(--ek-ink);
+    box-shadow: 0 10px 30px -8px oklch(0.25 0.005 90 / 0.4);
+    color: oklch(0.8 0.004 90);
+    translate: -50% 0;
+    animation: ek-rise 600ms var(--spring) 400ms backwards;
+  }
+  .ek-switch a {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 30px;
+    min-width: 30px;
+    justify-content: center;
+    padding-inline: 8px;
+    border-radius: 999px;
+    transition: background var(--dur-fast), color var(--dur-fast);
+  }
+  .ek-switch a:hover {
+    background: var(--hover-on-dark);
+    color: #fff;
+  }
+  .ek-switch-name {
+    color: var(--ek-on-ink);
+    font-weight: 500;
+  }
+  .ek-switch-name b {
+    color: oklch(0.72 0.004 90);
+    font: 500 11px var(--font-geist-mono), monospace;
+  }
+
+  /* ---- People ------------------------------------------------------------ */
+
+  .ek-face {
+    display: grid;
+    flex: none;
+    place-items: center;
+    width: var(--size);
+    height: var(--size);
+    border-radius: 50%;
+    background: oklch(var(--tone) 0.006 90);
+    box-shadow: 0 0 0 2px var(--ek-face-ring, var(--surface));
+    color: #fff;
+    font-size: calc(var(--size) * 0.44);
+    font-weight: 600;
+  }
+  .ek-account {
+    display: grid;
+    flex: none;
+    place-items: center;
+    width: var(--control);
+    height: var(--control);
+    border-radius: 50%;
+    transition: scale var(--dur) var(--ease);
+  }
+  .ek-account:active {
+    scale: 0.92;
+  }
+  .ek-facepile {
+    display: flex;
+    flex: none;
+  }
+  .ek-facepile > * {
+    animation: ek-grip-in 420ms var(--spring) calc(300ms + var(--i) * 70ms) backwards;
+  }
+  .ek-facepile > * + * {
+    margin-left: -6px;
+  }
+
+  /* ---- Pages ------------------------------------------------------------- */
+
+  .ek-pages-list {
+    position: relative;
+  }
+  .ek-pages-list > li:not(.ek-pages-mark) {
+    animation: ek-rise 420ms var(--ease) calc(60ms + var(--i) * 24ms) backwards;
+  }
+  .ek-pages-mark {
+    position: absolute;
+    top: 0;
+    right: 0;
+    left: 0;
+    height: var(--mark-h, 32px);
+    border-radius: var(--radius);
+    background: var(--selected);
+    opacity: 0;
+    translate: 0 var(--mark-y, 0);
+    transition: translate 260ms var(--spring), opacity var(--dur);
+    pointer-events: none;
+  }
+  [data-marked="true"] > .ek-pages-mark {
+    opacity: 1;
+  }
+  .ek-page {
+    position: relative;
+    display: flex;
+    align-items: center;
+  }
+  .ek-page-open {
+    flex: 1;
+    padding-left: calc(8px + var(--depth, 0) * 14px);
+    color: var(--muted);
+    transition: color var(--dur), background var(--dur-fast);
+  }
+  .ek-page[data-current="true"] .ek-page-open {
+    color: var(--foreground);
+    font-weight: 500;
+  }
+  .ek-page[data-current="true"] .ek-page-open:hover {
+    background: none;
+  }
+  .ek-page-more {
+    position: absolute;
+    right: 4px;
+    opacity: 0;
+    transition: opacity var(--dur-fast), background var(--dur-fast);
+  }
+  .ek-page:hover .ek-page-more,
+  .ek-page-more:focus-visible,
+  .ek-page-more[aria-expanded="true"] {
+    opacity: 1;
+  }
+  .ek-folder > .ek-row {
+    width: 100%;
+    color: var(--muted);
+  }
+  /* A fold is always laid out; what animates is the row it sits in. */
+  .ek-fold,
+  .ek-section-fold {
+    display: grid;
+    grid-template-rows: 1fr;
+    transition: grid-template-rows var(--dur-slow) var(--ease), opacity var(--dur);
+  }
+  .ek-fold > *,
+  .ek-section-fold > * {
+    min-height: 0;
+    overflow: hidden;
+  }
+  .ek-folder[data-open="false"] > .ek-fold,
+  .ek-section[data-open="false"] > .ek-section-fold {
+    grid-template-rows: 0fr;
+    opacity: 0;
+  }
+  .ek-panel-head {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 2px;
+    padding: 8px;
+  }
+  .ek-back {
+    color: var(--muted);
+  }
+  .ek-back:hover {
+    color: var(--foreground);
+  }
+  .ek-back svg {
+    transition: translate var(--dur-slow) var(--spring);
+  }
+  .ek-back:hover svg {
+    translate: -2px 0;
+  }
+  .ek-project {
+    font-weight: 600;
+  }
+  .ek-context {
+    width: 100%;
+    color: var(--muted);
+  }
+
+  /* ---- The page ----------------------------------------------------------- */
+
+  .ek-doc {
+    width: 100%;
+    max-width: calc(var(--measure) + 112px);
+    margin-inline: auto;
+    padding: 56px 56px 160px;
+    font-size: var(--text-body);
+    line-height: var(--leading-body);
+  }
+  .ek-doc-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 26px;
+    font-size: var(--text-ui);
+    line-height: 1.4;
+  }
+  .ek-title {
+    margin: 20px 0 22px;
+    font-size: var(--text-title);
+    font-weight: 650;
+    line-height: 1.2;
+    letter-spacing: -0.022em;
+    outline: none;
+    animation: ek-rise 500ms var(--ease) backwards;
+  }
+  .ek-blocks > .ek-block {
+    animation: ek-rise 480ms var(--ease) calc(40ms + var(--i) * 26ms) backwards;
+  }
+  .ek-block {
+    position: relative;
+    margin-block: 2px;
+  }
+  .ek-block[data-type="h2"] {
+    margin-top: 26px;
+  }
+  .ek-block:is([data-type="code"], [data-type="table"], [data-type="diagram"]) {
+    margin-block: 12px;
+  }
+  .ek-text {
+    min-height: 1.7em;
+    outline: none;
+    overflow-wrap: anywhere;
+  }
+  h2.ek-text {
+    font-size: 20px;
+    font-weight: 600;
+    line-height: 1.35;
+    letter-spacing: -0.012em;
+  }
+  .ek-line {
+    position: relative;
+  }
+  .ek-line > .ek-text {
+    display: inline;
+  }
+  .ek-line.is-quote {
+    padding-left: 14px;
+    box-shadow: inset 2px 0 0 var(--foreground);
+  }
+  .ek-bullet {
+    position: relative;
+    padding-left: 22px;
+  }
+  .ek-bullet::before {
+    content: "";
+    position: absolute;
+    top: 0.72em;
+    left: 8px;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: currentColor;
+  }
+  .ek-mention {
+    padding: 1px 5px;
+    border-radius: var(--radius-sm);
+    background: var(--sunken);
+    font-weight: 500;
+  }
+
+  .ek-handles {
+    position: absolute;
+    top: 1px;
+    right: 100%;
+    display: flex;
+    padding-right: 4px;
+    opacity: 0;
+    translate: 4px 0;
+    transition: opacity var(--dur-fast), translate var(--dur) var(--ease);
+  }
+  .ek-block:hover > .ek-handles,
+  .ek-handles:focus-within,
+  .ek-handles[data-open] {
+    opacity: 1;
+    translate: 0 0;
+  }
+  .ek-grip {
+    cursor: grab;
+  }
+  .ek-colors-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: conic-gradient(#f7dfb5, #d9e4d4, #dce1e6, #e4dad3, #f7dfb5);
+    box-shadow: inset 0 0 0 1px oklch(0.25 0.005 90 / 0.12);
+  }
+
+  .ek-todo {
+    display: flex;
+    gap: 10px;
+  }
+  .ek-todo .ek-text {
+    flex: 1;
+    transition: color var(--dur-slow);
+  }
+  .ek-todo[data-done="true"] .ek-text {
+    color: var(--muted);
+    text-decoration: line-through;
+    text-decoration-color: var(--faint);
+  }
+  .ek-check {
+    display: grid;
+    flex: none;
+    place-items: center;
+    width: 16px;
+    height: 16px;
+    margin-top: 5px;
+    border-radius: var(--radius-sm);
+    box-shadow: inset 0 0 0 1.5px var(--border-strong);
+    color: var(--ek-on-ink);
+    transition: background var(--dur), box-shadow var(--dur), scale var(--dur-slow) var(--spring);
+  }
+  .ek-check:active {
+    scale: 0.82;
+  }
+  .ek-check svg {
+    scale: 0;
+    transition: scale var(--dur-slow) var(--spring);
+  }
+  .ek-check[aria-checked="true"] {
+    background: var(--ek-ink);
+    box-shadow: none;
+  }
+  .ek-check[aria-checked="true"] svg {
+    scale: 1;
+  }
+
+  .ek-code {
+    overflow: hidden;
+    border-radius: var(--radius-lg);
+    background: var(--code-bg);
+    color: var(--code-fg);
+  }
+  .ek-code figcaption {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 6px;
+    background: var(--code-topbar);
+    font-size: 12px;
+  }
+  .ek-code pre {
+    overflow-x: auto;
+    padding: 14px 16px;
+    font: 13px/1.65 var(--font-geist-mono), monospace;
+  }
+  .ek-code b {
+    color: #fff;
+    font-weight: 500;
+  }
+  .ek-tok-str {
+    color: var(--code-fg-muted);
+  }
+
+  .ek-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+  }
+  .ek-table td {
+    padding: 7px 10px;
+    border: 1px solid var(--border);
+  }
+  .ek-table td[data-head] {
+    background: var(--surface);
+    font-weight: 500;
+  }
+  .ek-table span {
+    display: block;
+    outline: none;
+  }
+
+  /* Suggestion ink, and the key that makes it real. */
+  .ek-ghost {
+    color: var(--ghost);
+    animation: ek-fade 600ms var(--ease);
+  }
+  .ek-ghost .ek-kbd {
+    margin-left: 6px;
+    vertical-align: 1px;
+  }
+  @keyframes ek-arrive {
+    from { background: oklch(0.716 0.116 75 / 0.22); }
+  }
+  .ek-block[data-arrived] .ek-text {
+    border-radius: var(--radius-sm);
+    animation: ek-arrive 1.4s var(--ease);
+  }
+
+  /* A collaborator's caret: a bar, and a flag that furls once it has been read. */
+  .ek-caret {
+    position: relative;
+    display: inline-block;
+    width: 0;
+    height: 1.15em;
+    margin-left: 1px;
+    vertical-align: text-bottom;
+    box-shadow: 0 0 0 1px oklch(0.46 0.006 90);
+  }
+  @keyframes ek-flag {
+    0%, 70% { clip-path: inset(0 0 0 0 round 4px); opacity: 1; }
+    100% { clip-path: inset(0 100% 0 0 round 4px); opacity: 0; }
+  }
+  .ek-caret i {
+    position: absolute;
+    bottom: 100%;
+    left: -1px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 1px 6px 1px 2px;
+    border-radius: 4px 4px 4px 0;
+    background: oklch(0.46 0.006 90);
+    color: #fff;
+    font: 500 11px/16px var(--font-geist-sans), sans-serif;
+    white-space: nowrap;
+    animation: ek-flag 4s var(--ease) 1.2s forwards;
+  }
+  .ek-caret:hover i {
+    animation: none;
+  }
+  .ek-caret .ek-face {
+    box-shadow: none;
+    background: oklch(1 0 0 / 0.2);
+  }
+
+  /* A change under review: the two diff hues, and nothing else. */
+  .ek-hunk del {
+    border-radius: 3px;
+    background: var(--diff-del-bg);
+    color: var(--diff-del);
+    text-decoration-color: var(--diff-del-line);
+  }
+  .ek-hunk ins {
+    margin-left: 3px;
+    border-radius: 3px;
+    background: var(--diff-add-bg);
+    color: var(--diff-add);
+    text-decoration: none;
+    animation: ek-fade 500ms var(--ease);
+  }
+  .ek-hunk[data-review="kept"] ins {
+    background: none;
+    color: inherit;
+    transition: background 1.2s, color 1.2s;
+  }
+  .ek-hunk-acts {
+    display: inline-flex;
+    gap: 2px;
+    margin-left: 6px;
+    padding: 2px;
+    border-radius: var(--radius);
+    background: var(--elevated);
+    box-shadow: var(--ek-shadow-sm);
+    vertical-align: middle;
+    animation: ek-pop-in var(--dur-slow) var(--spring) 200ms backwards;
+  }
+  .ek-hunk-acts .is-keep {
+    background: var(--ek-ink);
+    color: var(--ek-on-ink);
+  }
+
+  .ek-pop-format {
+    min-width: 0;
+    max-width: none;
+    padding: 3px;
+    border-radius: 10px;
+  }
+  .ek-pop-format > * {
+    animation: none;
+  }
+  .ek-format {
+    display: flex;
+    align-items: center;
+    gap: 1px;
+  }
+  .ek-format-sep {
+    width: 1px;
+    height: 16px;
+    margin-inline: 3px;
+    background: var(--border);
+  }
+  .ek-format-ai {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    height: var(--control-sm);
+    padding-inline: 8px;
+    border-radius: var(--radius-sm);
+    color: var(--accent);
+    font-weight: 500;
+  }
+  .ek-format-ai:hover {
+    background: oklch(0.716 0.116 75 / 0.14);
+  }
+
+  /* ---- The canvas --------------------------------------------------------- */
+
+  .ek-diagram {
+    position: relative;
+    border-radius: var(--radius-lg);
+    background: oklch(0.974 0.002 90);
+    box-shadow: inset 0 0 0 1px transparent;
+    transition: box-shadow var(--dur-slow), background var(--dur-slow);
+  }
+  .ek-diagram[data-live="false"] {
+    cursor: pointer;
+  }
+  .ek-diagram[data-live="false"]:hover {
+    box-shadow: inset 0 0 0 1px var(--border-strong);
+  }
+  .ek-diagram[data-live="true"] {
+    background-color: oklch(0.974 0.002 90);
+    background-image: radial-gradient(oklch(0.25 0.005 90 / 0.13) 1px, transparent 1px);
+    background-size: 16px 16px;
+    box-shadow: inset 0 0 0 1px var(--border-strong);
+  }
+  /* Expanded, the block leaves the page for the window. A mockup says how much
+     of the window is its to take with `--stage-inset`. */
+  @keyframes ek-stage-in {
+    from { opacity: 0; scale: 0.96; filter: blur(8px); }
+  }
+  .ek-diagram[data-expanded="true"] {
+    position: fixed;
+    inset: var(--stage-inset, 0px);
+    z-index: var(--z-base);
+    animation: ek-stage-in 520ms var(--spring);
+  }
+  .ek-diagram[data-expanded="true"] .ek-diagram-view {
+    height: 100%;
+  }
+  .ek-diagram-view {
+    position: relative;
+    display: grid;
+    place-items: center;
+    height: var(--stage-h);
+    overflow: hidden;
+    border-radius: inherit;
+    touch-action: none;
+    user-select: none;
+  }
+  .ek-diagram[data-tool="hand"] .ek-diagram-view { cursor: grab; }
+  .ek-diagram[data-tool="zoom"] .ek-diagram-view { cursor: zoom-in; }
+  .ek-diagram:is([data-tool="rect"], [data-tool="ellipse"], [data-tool="polygon"], [data-tool="diamond"], [data-tool="text"], [data-tool="connector"], [data-tool="pen"])[data-live="true"] .ek-diagram-view {
+    cursor: crosshair;
+  }
+  .ek-stage {
+    position: relative;
+    flex: none;
+    transition: scale var(--dur-slow) var(--ease);
+  }
+  .ek-edges {
+    position: absolute;
+    inset: 0;
+    overflow: visible;
+  }
+  .ek-edge {
+    fill: none;
+    stroke: var(--edge-line);
+    stroke-width: 1.25;
+    pointer-events: none;
+  }
+  .ek-edge-hit {
+    fill: none;
+    stroke: transparent;
+    stroke-width: 12;
+  }
+  .ek-arrow {
+    fill: var(--edge-line);
+  }
+  [data-live="true"] [data-edge]:hover .ek-edge {
+    stroke: var(--shape-line-active);
+  }
+  [data-edge][data-on="true"] .ek-edge,
+  .ek-edge.is-preview {
+    stroke: var(--nt-select);
+    stroke-width: 1.5;
+  }
+  .ek-edge.is-preview {
+    stroke-dasharray: 4 3;
+  }
+  .ek-arrow.is-on {
+    fill: var(--nt-select);
+  }
+  .ek-shape {
+    position: absolute;
+    display: grid;
+    place-items: center;
+    padding: 4px 10px;
+    border-radius: var(--r);
+    background: var(--fill);
+    box-shadow: inset 0 0 0 1px var(--line);
+    line-height: 1.3;
+    text-align: center;
+  }
+  .ek-diagram:not([data-busy]) .ek-shape {
+    transition: background var(--dur), border-radius var(--dur), opacity var(--dur);
+  }
+  .ek-shape:is([data-kind="text"]) {
+    place-items: center start;
+    padding: 0;
+    text-align: left;
+  }
+  .ek-shape:is([data-kind="diamond"], [data-kind="polygon"]) {
+    background: none;
+    box-shadow: none;
+  }
+  .ek-shape > svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+  }
+  .ek-shape polygon {
+    fill: var(--fill);
+    stroke: var(--line);
+    stroke-width: 1;
+  }
+  .ek-shape-text {
+    position: relative;
+    outline: none;
+  }
+
+  /* The overlay is the system's answer to the hand, and wears the one accent.
+     `--k` undoes the stage's zoom so a hairline stays a hairline. */
+  .ek-ov {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+  .ek-ov > i {
+    position: absolute;
+    display: block;
+  }
+  .ek-ov-hover {
+    box-shadow: 0 0 0 calc(1.5px * var(--k)) var(--nt-select);
+    opacity: 0.55;
+  }
+  .ek-ov-frame {
+    box-shadow: 0 0 0 calc(1.5px * var(--k)) var(--nt-select);
+  }
+  .ek-ov-frame b {
+    position: absolute;
+    width: 8px;
+    height: 8px;
+    margin: -4px;
+    border-radius: 2px;
+    background: #fff;
+    box-shadow: 0 0 0 1.5px var(--nt-select);
+    scale: var(--k);
+    pointer-events: auto;
+    animation: ek-grip-in 300ms var(--spring) backwards;
+  }
+  [data-grip="nw"] { top: 0; left: 0; cursor: nwse-resize; }
+  [data-grip="ne"] { top: 0; left: 100%; cursor: nesw-resize; animation-delay: 30ms; }
+  [data-grip="se"] { top: 100%; left: 100%; cursor: nwse-resize; animation-delay: 60ms; }
+  [data-grip="sw"] { top: 100%; left: 0; cursor: nesw-resize; animation-delay: 90ms; }
+  .ek-ov-chip {
+    position: absolute;
+    top: calc(100% + 8px * var(--k));
+    left: 50%;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: var(--nt-select);
+    color: #fff;
+    font: 500 10px/16px var(--font-geist-mono), monospace;
+    white-space: nowrap;
+    translate: -50% 0;
+    scale: var(--k);
+    transform-origin: top center;
+    opacity: 0;
+    transition: opacity var(--dur);
+  }
+  .ek-diagram[data-busy] .ek-ov-chip {
+    opacity: 1;
+  }
+  .ek-ov-guide {
+    background: var(--nt-select);
+  }
+  .ek-ov-guide.is-v {
+    top: -40px;
+    bottom: -40px;
+    width: calc(1px * var(--k));
+  }
+  .ek-ov-guide.is-h {
+    right: -40px;
+    left: -40px;
+    height: calc(1px * var(--k));
+  }
+  .ek-ov-band {
+    background: color-mix(in oklab, var(--nt-select) 9%, transparent);
+    box-shadow: 0 0 0 calc(1px * var(--k)) var(--nt-select);
+  }
+  .ek-ov-target {
+    border-radius: 4px;
+    box-shadow: 0 0 0 calc(1.5px * var(--k)) var(--nt-select);
+    opacity: 0.5;
+    transition: opacity var(--dur-fast);
+  }
+  .ek-ov-target[data-live="true"] {
+    opacity: 1;
+    box-shadow: 0 0 0 calc(2px * var(--k)) var(--nt-select), 0 0 0 calc(6px * var(--k)) color-mix(in oklab, var(--nt-select) 18%, transparent);
+  }
+  .ek-ov-target b {
+    position: absolute;
+    width: 9px;
+    height: 9px;
+    margin: -4.5px;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 0 0 1.5px var(--nt-select);
+    scale: var(--k);
+    animation: ek-grip-in 260ms var(--spring) backwards;
+  }
+  [data-plug="n"] { top: 0; left: 50%; }
+  [data-plug="e"] { top: 50%; left: 100%; animation-delay: 25ms; }
+  [data-plug="s"] { top: 100%; left: 50%; animation-delay: 50ms; }
+  [data-plug="w"] { top: 50%; left: 0; animation-delay: 75ms; }
+
+  .ek-diagram-expand {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    background: var(--elevated);
+    box-shadow: var(--ek-shadow-sm);
+    animation: ek-pop-in var(--dur-slow) var(--spring);
+  }
+  /* Where a mockup keeps the canvas outside the page, the block is a pointer to it. */
+  .ek-diagram-ref {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    height: 40px;
+    padding-inline: 12px;
+    border-radius: var(--radius-lg);
+    background: var(--surface);
+    font-size: var(--text-ui);
+    font-weight: 500;
+    transition: background var(--dur-fast);
+  }
+  .ek-diagram-ref:hover {
+    background: var(--sunken);
+  }
+  .ek-diagram-ref .ek-meta {
+    margin-left: auto;
+  }
+  .ek-diagram-hint {
+    position: absolute;
+    bottom: 10px;
+    left: 50%;
+    padding: 3px 10px;
+    border-radius: 999px;
+    background: var(--ek-ink);
+    color: var(--ek-on-ink);
+    font-size: 12px;
+    white-space: nowrap;
+    opacity: 0;
+    translate: -50% 6px;
+    transition: opacity var(--dur), translate var(--dur-slow) var(--spring);
+    pointer-events: none;
+  }
+  .ek-diagram:hover .ek-diagram-hint {
+    opacity: 1;
+    translate: -50% 0;
+  }
+
+  /* ---- Toolbar ------------------------------------------------------------ */
+
+  .ek-bar {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    width: max-content;
+    padding: 4px;
+    border-radius: 12px;
+    background: var(--elevated);
+    box-shadow: var(--ek-shadow);
+  }
+  .ek-bar[data-vertical] {
+    flex-direction: column;
+  }
+  .ek-bar-tools {
+    position: relative;
+    display: flex;
+    flex-direction: inherit;
+    gap: 2px;
+  }
+  .ek-bar-mark {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    background: var(--ek-ink);
+    translate: calc(var(--at) * 34px) 0;
+    transition: translate 280ms var(--spring);
+  }
+  .ek-bar[data-vertical] .ek-bar-mark {
+    translate: 0 calc(var(--at) * 34px);
+  }
+  .ek-bar-btn {
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    color: var(--muted);
+    transition: color var(--dur), background var(--dur-fast), scale var(--dur) var(--ease);
+  }
+  .ek-bar-btn:not(:disabled):hover {
+    background: var(--hover);
+    color: var(--foreground);
+  }
+  .ek-bar-btn:not(:disabled):active {
+    scale: 0.9;
+  }
+  .ek-bar-btn[aria-pressed="true"],
+  .ek-bar-btn[aria-pressed="true"]:hover {
+    background: none;
+    color: var(--ek-on-ink);
+  }
+  .ek-bar-sep {
+    width: 1px;
+    height: 18px;
+    margin: 4px;
+    background: var(--border);
+  }
+  .ek-bar[data-vertical] .ek-bar-sep {
+    width: 18px;
+    height: 1px;
+  }
+  .ek-bar-zoom {
+    min-width: 46px;
+    height: 32px;
+    padding-inline: 6px;
+    border-radius: 8px;
+    color: var(--muted);
+    font: var(--text-meta-lg) var(--font-geist-mono), monospace;
+    font-variant-numeric: tabular-nums;
+  }
+  .ek-bar-zoom:hover,
+  .ek-bar-zoom[aria-expanded="true"] {
+    background: var(--hover);
+    color: var(--foreground);
+  }
+
+  /* ---- Layers -------------------------------------------------------------- */
+
+  .ek-lyr-list {
+    position: relative;
+  }
+  .ek-lyr {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 28px;
+    padding-inline: 10px 4px;
+    border-radius: var(--radius);
+    color: var(--muted);
+    cursor: default;
+    user-select: none;
+    animation: ek-rise 360ms var(--ease) calc(var(--i, 0) * 20ms) backwards;
+    transition: background var(--dur-fast), color var(--dur-fast), opacity var(--dur);
+  }
+  .ek-lyr[data-hover],
+  .ek-lyr:hover {
+    background: var(--hover);
+    color: var(--foreground);
+  }
+  .ek-lyr[aria-selected="true"] {
+    background: var(--selected);
+    color: var(--foreground);
+  }
+  .ek-lyr[data-dim] .ek-lyr-name,
+  .ek-lyr[data-dim] .ek-lyr-icon {
+    opacity: 0.45;
+  }
+  .ek-lyr[data-moving] {
+    opacity: 0.4;
+  }
+  .ek-lyr-icon {
+    flex: none;
+  }
+  .ek-lyr-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .ek-lyr-tog {
+    display: grid;
+    flex: none;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    border-radius: var(--radius-sm);
+    color: var(--muted);
+    opacity: 0;
+    transition: opacity var(--dur-fast), background var(--dur-fast);
+  }
+  .ek-lyr:hover .ek-lyr-tog,
+  .ek-lyr-tog:focus-visible,
+  .ek-lyr-tog[data-on] {
+    opacity: 1;
+  }
+  .ek-lyr-tog:hover {
+    background: var(--active);
+    color: var(--foreground);
+  }
+  .ek-lyr-line {
+    position: absolute;
+    right: 4px;
+    left: 4px;
+    height: 2px;
+    margin-top: -1px;
+    border-radius: 1px;
+    background: var(--nt-select);
+    pointer-events: none;
+    transition: top 120ms var(--ease);
+  }
+  .ek-layers[data-dragging] {
+    cursor: grabbing;
+  }
+
+  /* ---- Inspector ----------------------------------------------------------- */
+
+  .ek-inspector {
+    animation: ek-fade var(--dur) var(--ease);
+  }
+  .ek-inspector-empty {
+    padding: 12px 8px;
+  }
+  .ek-align {
+    display: flex;
+    align-items: center;
+    padding: 0 4px 8px;
+  }
+  .ek-align-gap {
+    flex: 1;
+  }
+  .ek-section {
+    border-top: 1px solid var(--border);
+    padding: 4px 8px;
+  }
+  .ek-section-head {
+    display: flex;
+    align-items: center;
+    height: var(--control);
+  }
+  .ek-section-title {
+    flex: 1;
+    color: var(--muted);
+    font: var(--text-meta) var(--font-geist-mono), monospace;
+    letter-spacing: var(--tracking-meta);
+    text-align: left;
+    text-transform: uppercase;
+  }
+  .ek-section-twist svg {
+    transition: rotate var(--dur-slow) var(--spring);
+  }
+  .ek-section[data-open="false"] .ek-section-twist svg {
+    rotate: -90deg;
+  }
+  .ek-section-body {
+    display: grid;
+    gap: 6px;
+    padding-bottom: 8px;
+  }
+  .ek-grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    align-items: center;
+  }
+  .ek-grid-2.has-end {
+    grid-template-columns: 1fr 1fr 24px;
+  }
+  .ek-field-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .ek-field-row > .ek-num {
+    flex: none;
+    width: 64px;
+  }
+  .ek-field-row > .ek-select,
+  .ek-field-row > .ek-color {
+    flex: 1;
+  }
+  .ek-field-name {
+    flex: none;
+    width: 76px;
+    color: var(--muted);
+  }
+  .ek-num,
+  .ek-color {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    height: 28px;
+    border-radius: var(--radius);
+    background: var(--sunken);
+    box-shadow: inset 0 0 0 1px transparent;
+    transition: box-shadow var(--dur-fast), background var(--dur-fast);
+  }
+  .ek-num:hover,
+  .ek-color:hover {
+    box-shadow: inset 0 0 0 1px var(--border-strong);
+  }
+  .ek-num:focus-within,
+  .ek-color:focus-within {
+    background: var(--background);
+    box-shadow: inset 0 0 0 1px var(--shape-line-active);
+  }
+  .ek-num-lead {
+    display: grid;
+    flex: none;
+    place-items: center;
+    width: 26px;
+    height: 100%;
+    color: var(--muted);
+    font: var(--text-meta) var(--font-geist-mono), monospace;
+    cursor: ew-resize;
+    touch-action: none;
+    user-select: none;
+  }
+  .ek-num-lead:empty {
+    width: 8px;
+  }
+  .ek-num input,
+  .ek-color input {
+    flex: 1;
+    width: 0;
+    height: 100%;
+    outline: none;
+    font-variant-numeric: tabular-nums;
+  }
+  .ek-num-unit {
+    flex: none;
+    padding-right: 8px;
+    color: var(--faint);
+    font-size: 11px;
+  }
+  .ek-color {
+    gap: 8px;
+    padding-left: 5px;
+    font: var(--text-meta-lg) var(--font-geist-mono), monospace;
+  }
+  .ek-swatch {
+    flex: none;
+    width: 18px;
+    height: 18px;
+    border-radius: var(--radius-sm);
+    background: var(--c);
+    box-shadow: inset 0 0 0 1px oklch(0.25 0.005 90 / 0.14);
+    transition: scale var(--dur-slow) var(--spring);
+  }
+  .ek-swatch:hover {
+    scale: 1.12;
+  }
+  .ek-pop-colors {
+    min-width: 0;
+    padding: 6px;
+  }
+  .ek-swatches {
+    display: grid;
+    grid-template-columns: repeat(4, 28px);
+    gap: 6px;
+    padding: 4px 8px 8px;
+  }
+  .ek-swatches .ek-swatch {
+    width: 28px;
+    height: 28px;
+    border-radius: var(--radius);
+  }
+  .ek-swatches .ek-swatch[aria-pressed="true"] {
+    box-shadow: inset 0 0 0 1px oklch(0.25 0.005 90 / 0.14), 0 0 0 2px var(--elevated), 0 0 0 3.5px var(--foreground);
+  }
+  .ek-slider {
+    position: relative;
+    flex: 1;
+    height: 28px;
+    outline: none;
+    cursor: ew-resize;
+    touch-action: none;
+  }
+  .ek-slider::before,
+  .ek-slider-fill {
+    content: "";
+    position: absolute;
+    top: 12px;
+    left: 0;
+    width: 100%;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--border);
+  }
+  .ek-slider-fill {
+    width: calc(var(--v) * 100%);
+    background: var(--foreground);
+  }
+  .ek-slider-thumb {
+    position: absolute;
+    top: 7px;
+    left: calc(var(--v) * (100% - 14px));
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--elevated);
+    box-shadow: 0 0 0 1px oklch(0.25 0.005 90 / 0.18), 0 1px 3px oklch(0.25 0.005 90 / 0.2);
+    transition: scale var(--dur-slow) var(--spring);
+  }
+  .ek-slider:hover .ek-slider-thumb,
+  .ek-slider:focus-visible .ek-slider-thumb {
+    scale: 1.2;
+  }
+
+  /* ---- Chat ----------------------------------------------------------------- */
+
+  .ek-chat {
+    display: flex;
+    min-height: 0;
+    flex: 1;
+    flex-direction: column;
+  }
+  .ek-chat-thread {
+    flex: 1;
+    font-weight: 500;
+  }
+  .ek-chat-thread svg {
+    flex: none;
+    color: var(--muted);
+  }
+  .ek-chat-log {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 14px;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 4px 12px 16px;
+    line-height: 1.6;
+  }
+  .ek-chat-empty {
+    display: grid;
+    gap: 4px;
+    margin: auto;
+    max-width: 22ch;
+    color: var(--muted);
+    text-align: center;
+    text-wrap: balance;
+  }
+  .ek-chat-empty b {
+    color: var(--foreground);
+    font-weight: 500;
+  }
+  .ek-turn {
+    display: grid;
+    gap: 4px;
+    animation: ek-rise 420ms var(--ease) backwards;
+  }
+  .ek-turn.is-you {
+    padding: 8px 10px;
+    border-radius: var(--radius-lg);
+    background: var(--sunken);
+  }
+  .ek-rewind {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    width: max-content;
+    color: var(--muted);
+    font: var(--text-meta) var(--font-geist-mono), monospace;
+    opacity: 0.7;
+    transition: opacity var(--dur-fast), color var(--dur-fast);
+  }
+  .ek-rewind:hover {
+    color: var(--foreground);
+    opacity: 1;
+  }
+  .ek-step {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--muted);
+    font-size: 12px;
+  }
+  .ek-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent-soft);
+    animation: ek-pulse 1.1s ease-in-out infinite;
+  }
+  .ek-stream-head {
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    margin-left: 4px;
+    border-radius: 50%;
+    background: var(--accent-soft);
+    box-shadow: 0 0 10px 2px oklch(0.716 0.116 75 / 0.5);
+    animation: ek-pulse 0.9s ease-in-out infinite;
+  }
+  @keyframes ek-review-in {
+    from { opacity: 0; translate: 0 100%; }
+  }
+  .ek-review {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 6px;
+    margin: 0 8px 8px;
+    padding: 6px 6px 6px 12px;
+    border-radius: 12px;
+    background: var(--elevated);
+    box-shadow: var(--ek-shadow-sm);
+    animation: ek-review-in 420ms var(--spring);
+  }
+  .ek-review-count {
+    flex: 1;
+    color: var(--muted);
+  }
+  .ek-review-count b {
+    color: var(--foreground);
+    font-weight: 500;
+  }
+  .ek-review .ek-btn {
+    height: 28px;
+  }
+  .ek-composer {
+    flex: none;
+    margin: 0 8px 8px;
+    padding: 8px 8px 6px 12px;
+    border-radius: 12px;
+    background: var(--background);
+    box-shadow: 0 0 0 1px var(--border-strong);
+    transition: box-shadow var(--dur);
+  }
+  .ek-composer:focus-within {
+    box-shadow: 0 0 0 1px var(--shape-line-active), 0 6px 20px -8px oklch(0.25 0.005 90 / 0.2);
+  }
+  .ek-composer textarea {
+    display: block;
+    width: 100%;
+    resize: none;
+    outline: none;
+    line-height: 1.5;
+  }
+  .ek-composer textarea::placeholder {
+    color: var(--muted);
+  }
+  .ek-composer-acts {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin: 4px 0 0 -6px;
+  }
+  .ek-send {
+    height: 26px;
+    padding-inline: 10px;
+    border-radius: 7px;
+    background: var(--ek-ink);
+    color: var(--ek-on-ink);
+    font-weight: 500;
+    transition: opacity var(--dur), scale var(--dur-slow) var(--spring), background var(--dur-fast);
+  }
+  .ek .ek-send:disabled {
+    background: none;
+    color: var(--faint);
+    opacity: 1;
+    scale: 0.96;
+  }
+  .ek-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-bottom: 6px;
+  }
+  .ek-chip {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    height: 22px;
+    padding-inline: 6px 2px;
+    border-radius: var(--radius-sm);
+    background: var(--sunken);
+    font-size: 12px;
+    animation: ek-pop-in var(--dur-slow) var(--spring);
+  }
+  .ek-chip button {
+    display: grid;
+    place-items: center;
+    width: 16px;
+    height: 16px;
+    border-radius: 3px;
+    color: var(--muted);
+  }
+  .ek-chip button:hover {
+    background: var(--active);
+  }
+
+  /* ---- Share ---------------------------------------------------------------- */
+
+  .ek-pop-share {
+    width: 23rem;
+    max-width: calc(100vw - 16px);
+    max-height: none;
+    padding: 0;
+  }
+  .ek-share {
+    display: grid;
+    gap: 10px;
+    padding: 14px;
+  }
+  .ek-share .ek-group-label {
+    padding-inline: 0;
+  }
+  .ek-share-head {
+    display: grid;
+    gap: 10px;
+  }
+  .ek-share-head h2 {
+    font-size: 15px;
+    font-weight: 600;
+  }
+  .ek-share-link {
+    display: flex;
+    gap: 6px;
+    transition: opacity var(--dur);
+  }
+  .ek-share-link[data-off="true"] {
+    opacity: 0.55;
+  }
+  .ek-share-link input {
+    flex: 1;
+    height: var(--control);
+    padding-inline: 10px;
+    border-radius: 8px;
+    background: var(--sunken);
+    color: var(--muted);
+    font: var(--text-meta-lg) var(--font-geist-mono), monospace;
+    outline: none;
+  }
+  .ek-person {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    height: 40px;
+    --ek-face-ring: var(--elevated);
+  }
+  .ek-person-name {
+    flex: 1;
+    min-width: 0;
+  }
+  .ek-person-name i {
+    margin-left: 4px;
+    color: var(--muted);
+    font-size: 12px;
+    font-style: normal;
+  }
+  .ek-share-ask {
+    padding: 2px 10px 6px;
+    border-radius: var(--radius-lg);
+    background: var(--surface);
+    transition: opacity 220ms, scale 220ms var(--ek-in);
+  }
+  .ek-share-ask[data-state="closed"] {
+    opacity: 0;
+    scale: 0.97;
+  }
+  .ek-share-ask .ek-btn {
+    height: 28px;
+  }
+  .ek-share-off {
+    justify-self: start;
+    margin: 0 -8px -4px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .ek *,
+    .ek *::before,
+    .ek *::after {
+      animation-duration: 1ms !important;
+      animation-delay: 0ms !important;
+      transition-duration: 1ms !important;
+    }
+  }
+}
