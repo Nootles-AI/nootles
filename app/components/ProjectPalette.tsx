@@ -95,13 +95,14 @@ export function ProjectPalette({
   projects: Project[];
   shared: SharedProject[];
   canCreate: boolean;
-  /** Whether the plan has room for another project; without it, the wall. */
+  /** Whether the plan has room for another project. Only the import asks
+   *  before starting — making one by hand meets the wall at its Create button. */
   room: boolean;
   notion: boolean;
   onOpen: (id: Id<"projects">) => void;
   onWall: () => void;
   /** Resolves once the project exists and is being opened. */
-  onCreate: (project: NewProject) => Promise<void>;
+  onCreate: (project: NewProject) => Promise<boolean | void>;
   onClose: () => void;
 }) {
   return (
@@ -153,7 +154,7 @@ function Palette({
   notion: boolean;
   onOpen: (id: Id<"projects">) => void;
   onWall: () => void;
-  onCreate: (project: NewProject) => Promise<void>;
+  onCreate: (project: NewProject) => Promise<boolean | void>;
   /** Closes the palette, playing its way out. */
   onDone: () => void;
 }) {
@@ -170,10 +171,10 @@ function Palette({
     setQuery("");
     setIndex(0);
   };
-  // The wall stands in front of making a project exactly as it does the
-  // header's button — before the first page that is only about making one.
+  // No wall in front of making a project: the whole of it — blank or template,
+  // the name, the context — is theirs to write, and the plan is asked at the
+  // Create button (`ProjectsScreen`'s `create`), with what they wrote kept.
   const startBlank = () => {
-    if (!room) return onWall();
     setTemplate(null);
     go("details");
   };
@@ -247,7 +248,7 @@ function Palette({
       icon: <Template />,
       drill: true,
       picture: "wall",
-      run: () => (room ? go("template") : onWall()),
+      run: () => go("template"),
     },
     ...(notion
       ? [
@@ -612,7 +613,7 @@ function DetailsForm({
   onBack,
 }: {
   template: { id: string; name: string } | null;
-  onCreate: (project: NewProject) => Promise<void>;
+  onCreate: (project: NewProject) => Promise<boolean | void>;
   onBack: () => void;
 }) {
   // No repositories for now: a project made here links none, and can link them
