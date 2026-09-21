@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import {
-  character, part, svgShape, mask, clipPath, linearGradient, keys, sampled, cueSheet, within, ellipse, circle, rect,
+  character, part, svgShape, mask, clipPath, linearGradient, keys, sampled, cueSheet, within, path, pathMorph, ellipse, circle,
   easeInOut, easeOut, easeIn, linear, cubicBezier,
 } from './heron/src/index.ts';
 import type { Channel, ClipRef, MaskRef, PaintRef, Vec2 } from './heron/src/index.ts';
@@ -116,8 +116,6 @@ const CUES = cueSheet(D, {
   ropeSettle: [8.5, 9.9],
   bearLife: [8.85, 16.3],
   bearDown: [8.9, 10.3],
-  cinch: [10.25, 10.85],
-  land: [10.3, 11.1],
   handOver: [10.9, 11.9],
   bearUp: [12.3, 15.9],
   ropeUp: [16.0, 16.6],
@@ -319,12 +317,9 @@ function boxes(n: Node): Box[] {
 // last box, just past its final arrow, level.
 const CARD_C: Vec2 = [1202.3, 687.9];
 const SLOT_C: Vec2 = [1195.8, 618];
-const ROPE_TOP: Vec2 = [1336, 0];
-// The rope ends in a knot and a loop, hung so the loop closes round the bear's
-// waist — the hitch drawn on its back — when it arrives on the rope.
-const KNOT: Vec2 = [1336, 548];
-const LOOP_C: Vec2 = [1340, 616];
-const LOOP_R: Vec2 = [40, 66];
+// The rope's line as drawn, and where its end is tied: the coil on the bear's sash.
+const ROPE_X = 1336.7;
+const TIE: Vec2 = [1331, 568];
 // Arms as drawn: shoulder, and the middle of the paw end, for aiming at a grip.
 // The far paw's fingers are drawn apart, on the card's face; they ride the
 // far arm's end.
@@ -336,6 +331,108 @@ const armGeom = (a: { P: Vec2; paw: Vec2 }) => {
   const dy = a.paw[1] - a.P[1];
   return { L: Math.hypot(dx, dy), a0: Math.atan2(dy, dx) * 180 / Math.PI };
 };
+
+// ---- The bear's route ----------------------------------------------------------------
+// Down the rope, a hang while the card goes, and out hand over hand. The rope
+// is drawn from this too — the bear is tied to its end throughout.
+
+const [r0, r1] = seconds('ropeDown');
+const [d0, d1] = seconds('bearDown');
+const [h0, h1] = seconds('handOver');
+const [u0, u1] = seconds('bearUp');
+const [q0, q1] = seconds('ropeUp');
+const LIFT = -200;
+const TOP = -800;
+const drop = h0 + 0.4;
+const damped = (amp: number, period: number, decay: number) => (s: number) =>
+  amp * Math.exp(-decay * s) * Math.sin(2 * Math.PI * s / period);
+const landing = damped(18, 0.42, 5.5);
+
+// The climb, planned as grips. Each pull is made by one paw holding still on
+// the rope while the body rises under it; the other paw lets go and reaches
+// for a new grip as high as it can, ready to pull next.
+const far = armGeom(ARM_FAR);
+const near = armGeom(ARM_NEAR);
+const PULLS = 9;
+const T = (u1 - u0) / PULLS;
+const RISE = { far: 60, near: 66 };
+const REACH = { far: 1.02, near: 1.2 };
+type Side = 'far' | 'near';
+const arms = { far: { ...ARM_FAR, ...far }, near: { ...ARM_NEAR, ...near } };
+const puller = (k: number): Side => (k % 2 === 0 ? 'far' : 'near');
+const riseAt = (k: number) => {
+  let y = LIFT;
+  for (let i = 0; i < k; i++) y -= RISE[puller(i)];
+  return y;
+};
+const surge = (p: number) => smooth(Math.min(1, Math.max(0, (p - 0.1) / 0.75)));
+// Hauling to one side and then the other, the body sways toward the pull.
+const tiltAt = (k: number, p: number) => (puller(k) === 'far' ? 2.5 : -2.5) * Math.sin(Math.PI * surge(p));
+const TILT_C: Vec2 = [1300, 640];
+const climbing = (t: number) => {
+  const k = Math.min(PULLS - 1, Math.max(0, Math.floor((t - u0) / T)));
+  return { k, p: Math.min(1, Math.max(0, (t - u0 - k * T) / T)) };
+};
+const bearY = (t: number) => {
+  if (t <= d0) return TOP;
+  if (t < d1) {
+    const p = (t - d0) / (d1 - d0);
+    return TOP + (LIFT - TOP) * (0.35 * p + 0.65 * p * p);
+  }
+  if (t < u0) return LIFT + (t - d1 < 1.2 ? landing(t - d1) : 0);
+  if (t < u1) {
+    const { k, p } = climbing(t);
+    return riseAt(k) - RISE[puller(k)] * surge(p);
+  }
+  return riseAt(PULLS) + (TOP - riseAt(PULLS)) * smooth(Math.min(1, (t - u1) / 0.3));
+};
+const tilt = (t: number) => {
+  if (t < u0 || t >= u1) return 0;
+  const { k, p } = climbing(t);
+  return tiltAt(k, p);
+};
+
+// The rope: from its anchor above the page straight down, round a U of slack
+// and back up to the tie on the bear's sash. Thrown down, the U swings in near
+// the bottom; as the bear slides down it takes up the slack until the rope runs
+// straight to it. Climbing, the rope it has passed hangs below it again, the U
+// sinking at half the bear's pace, as a hanging loop does.
+const slack = (t: number) => {
+  const start = TIE[1] + TOP;
+  const landed = TIE[1] + LIFT;
+  const bottom0 = 470;
+  const W = TIE[1] + bearY(t);
+  const thrown = t > r1 ? damped(26, 0.34, 5)(t - r1) : 0;
+  if (t < d0) return bottom0 - W + thrown;
+  if (t < d1) {
+    const p = Math.min(1, Math.max(0, (W - start) / (landed - start)));
+    return (bottom0 - start) * (1 - p) ** 1.15;
+  }
+  if (t < u0) return 0;
+  return Math.max(0, (landed - W) / 2);
+};
+const ropeD = (t: number) => {
+  const W: Vec2 = [TIE[0], TIE[1] + bearY(t)];
+  const D = slack(t);
+  const r = Math.min(26, D / 2);
+  const k = 0.552 * r;
+  const yb = W[1] + D;
+  const x2 = ROPE_X + 2 * r;
+  const rise = yb - r - W[1];
+  const f = (n: number) => Math.round(n * 10) / 10;
+  return [
+    `M${f(ROPE_X)} -60 L${f(ROPE_X)} ${f(yb - r)}`,
+    `C${f(ROPE_X)} ${f(yb - r + k)} ${f(ROPE_X + r - k)} ${f(yb)} ${f(ROPE_X + r)} ${f(yb)}`,
+    `C${f(ROPE_X + r + k)} ${f(yb)} ${f(x2)} ${f(yb - r + k)} ${f(x2)} ${f(yb - r)}`,
+    `C${f(x2)} ${f(yb - r - rise * 0.45)} ${f(W[0])} ${f(W[1] + rise * 0.35)} ${f(W[0])} ${f(W[1])}`,
+  ].join(' ');
+};
+const ROPE_PATH = (() => {
+  const rows: [number, string][] = [[0, ropeD(0)], [r1, ropeD(0)]];
+  for (let t = r1 + 1 / 24; t < u1 + 0.35; t += 1 / 24) rows.push([t, ropeD(t)]);
+  rows.push([u1 + 0.35, ropeD(u1 + 0.35)], [FADE[1] + 0.05, ropeD(u1 + 0.35)], [D, ropeD(0)]);
+  return pathMorph(rows.map(([t, d]) => [t / D, d]));
+})();
 
 export const team = character('team', { viewBox: ART.viewBox, duration: D }, () => {
   definitions();
@@ -375,27 +472,20 @@ export const team = character('team', { viewBox: ART.viewBox, duration: D }, () 
       const align = () => part(`${name}Align`, { pivot: arm.P, transform: { rotate: -a0 } }, build);
       part(name, { pivot: arm.P }, () => (paw ? part(`${name}Reach`, { pivot: arm.P }, align) : align()));
     };
-    const ropeLength = clipPath('rope-length', () => rect({ x: 1280, y: -2000, w: 140, h: 2000 + KNOT[1], fill: '#fff' }));
-    part('ropeSwing', { pivot: ROPE_TOP, offstage: true }, () =>
-      part('ropeFall', { pivot: ROPE_TOP }, () => {
-        part('ropeCut', { clip: ropeLength }, () => draw(find('Rope')));
-        // A lasso: the rope's end tied back on itself in an open loop, the
-        // braid drawn as the rope's own bands.
-        part('loop', { pivot: KNOT }, () => {
-          ellipse({ cx: LOOP_C[0], cy: LOOP_C[1], rx: LOOP_R[0], ry: LOOP_R[1], stroke: '#ffd398', width: 17 });
-          svgShape('ellipse', {
-            cx: LOOP_C[0], cy: LOOP_C[1], rx: LOOP_R[0], ry: LOOP_R[1], fill: 'none',
-            stroke: 'rgba(0,0,0,0.22)', 'stroke-width': 17, 'stroke-dasharray': '1.5 23',
-          });
-        });
-        part('knot', () => {
-          circle({ cx: KNOT[0], cy: KNOT[1], r: 12, fill: '#ffd398' });
-          svgShape('path', { d: `M${KNOT[0] - 9},${KNOT[1] - 5} q9,6 18,0 M${KNOT[0] - 9},${KNOT[1] + 3} q9,6 18,0`, fill: 'none', stroke: 'rgba(0,0,0,0.25)', 'stroke-width': 1.5 });
-        });
-      }));
+    // The drawn rope's hatching, as a repeating paint in the rope's own frame
+    // so the bands travel with it.
+    const hatch = linearGradient('rope-hatch', {
+      units: 'userSpaceOnUse', spread: 'repeat', x1: 0, y1: 0, x2: 12, y2: 16.2,
+      stops: [
+        { at: 0, color: '#ffd398' }, { at: 0.46, color: '#ffd398' }, { at: 0.46, color: '#bf9e72' },
+        { at: 0.54, color: '#bf9e72' }, { at: 0.54, color: '#ffd398' }, { at: 1, color: '#ffd398' },
+      ],
+    });
+    part('ropeSwing', { pivot: [ROPE_X, 0], offstage: true }, () =>
+      part('ropeFall', { pivot: [ROPE_X, 0] }, () => path({ d: ROPE_PATH, stroke: hatch, width: 18.2, cap: 'butt' })));
     bearStack('bearBack', () => {
-      // The rope's hitch on its back: the loop, once it has cinched.
-      part('hitchBack', () => { draw(bear[0]); draw(bear[1]); });
+      draw(bear[0]);
+      draw(bear[1]);
       part('legFar', { pivot: [1424, 640] }, () => draw(bear[2]));
       limb('armFar', ARM_FAR, () => draw(bear[3]));
       part('earFar', { pivot: [1228, 618] }, () => draw(bear[4]));
@@ -410,8 +500,7 @@ export const team = character('team', { viewBox: ART.viewBox, duration: D }, () 
       part('earNear', { pivot: [1236, 603] }, () => draw(bear[13]));
       limb('armNear', ARM_NEAR, () => draw(bear[14]));
       limb('thumb', FINGERS, () => draw(bear[15]), true);
-      part('hitchFront', () => [16, 17, 18, 19].forEach((i) => draw(bear[i])));
-      draw(bear[20]);
+      [16, 17, 18, 19, 20].forEach((i) => draw(bear[i]));
     });
 
     const el = kids('Character_-_Yellow_Elephant');
@@ -540,100 +629,23 @@ walk({
 }
 
 // -- The rope and the bear. --
-// The rope drops with a lasso on its end and swings itself still. The bear
-// slides down it one-handed with the card in the other, into the loop, which
-// cinches round its waist; it lets the card go into the flowchart, then climbs
-// out hand over hand, each paw holding its grip on the rope while the body is
+// The rope is thrown down, its end tied to the bear above, and hangs in a U.
+// The bear slides down it one-handed with the card in the other, taking up the
+// slack as it comes; it lets the card go into the flowchart, then climbs out
+// hand over hand, each paw holding its grip on the rope while the body is
 // hauled up past it.
 {
-  const [r0, r1] = seconds('ropeDown');
-  const [d0, d1] = seconds('bearDown');
-  const [c0, c1] = seconds('cinch');
-  const [h0, h1] = seconds('handOver');
-  const [u0] = seconds('bearUp');
-  const [q0, q1] = seconds('ropeUp');
-  const [L0] = seconds('bearLife');
-  const LIFT = -200;
-  const TOP = -800;
-  const drop = h0 + 0.4;
-  const ROPE_X = KNOT[0];
-  const damped = (amp: number, period: number, decay: number) => (s: number) =>
-    amp * Math.exp(-decay * s) * Math.sin(2 * Math.PI * s / period);
-  const landing = damped(18, 0.42, 5.5);
-
-  // The rope: falls under gravity, stretches as it is caught, springs back.
+  // The rope: thrown down, caught with a stretch and a bounce, then swinging
+  // on its anchor until it is still.
   const ROPE = 'cast.ropeSwing';
-  P(`${ROPE}.ropeFall`)
-    .animate({
-      y: at([[0, -900], [r0, -900, easeIn], [r1, LIFT + 18, easeInOut], [r1 + 0.14, LIFT - 8, easeInOut],
-        [r1 + 0.3, LIFT + 3, easeInOut], [r1 + 0.45, LIFT], [q0, LIFT, easeIn], [q1, -900]]),
-    })
-    .animate({ y: over('land', (s, u) => landing(s) * (1 - smooth(u)), 40) });
-  // A pendulum from its anchor, dying away; the loop, a looser weight on the
-  // end, answers a beat later and swings further.
+  P(`${ROPE}.ropeFall`).animate({
+    y: at([[0, -900], [r0, -900, easeIn], [r1, 16, easeInOut], [r1 + 0.14, -7, easeInOut],
+      [r1 + 0.3, 3, easeInOut], [r1 + 0.45, 0], [q0, 0, easeIn], [q1, -900]]),
+  });
   const settle = CUES.at('ropeSettle').seconds;
   const fadeOut = (s: number) => 1 - smooth(Math.max(0, (s - settle + 0.3) / 0.3));
   P(ROPE).animate({ rotate: over('ropeSettle', (s) => damped(2.6, 0.95, 2.4)(s) * fadeOut(s), 40) });
-  const loop = P(`${ROPE}.ropeFall.loop`);
-  loop.animate({ rotate: over('ropeSettle', (s) => damped(-7, 0.95, 2.2)(Math.max(0, s - 0.14)) * fadeOut(s), 40) });
-  // Streaming up behind the fall, then carried on past the catch.
-  loop.animate({
-    scaleY: at([[0, 1], [r0, 1, easeIn], [r1, 0.88, easeOut], [r1 + 0.13, 1.2, easeInOut], [r1 + 0.3, 0.94, easeInOut], [r1 + 0.46, 1.04, easeInOut], [r1 + 0.62, 1]]),
-    scaleX: at([[0, 1], [r0, 1, easeIn], [r1, 1.08, easeOut], [r1 + 0.13, 0.86, easeInOut], [r1 + 0.3, 1.04, easeInOut], [r1 + 0.46, 0.98, easeInOut], [r1 + 0.62, 1]]),
-  });
-  // Cinching: the loop draws tight about the waist and becomes the sash.
-  loop.animate({
-    scaleX: at([[0, 1], [c0, 1, easeIn], [c0 + 0.22, 0.52, pop], [c1, 0.5]]),
-  }).animate({ rotate: at([[0, 0], [c0, 0, easeInOut], [c0 + 0.3, -10]]) })
-    .animate({ opacity: at([[0, 1], [c0 + 0.2, 1, easeIn], [c1, 0]]) });
-  for (const h of ['cast.bearBackRide.hitchBack', 'cast.bearFrontRide.hitchFront']) {
-    P(h).animate({ opacity: at([[0, 0], [c0 + 0.18, 0, easeOut], [c1 - 0.05, 1]]) });
-  }
 
-  // The climb, planned as grips. Each pull is made by one paw holding still on
-  // the rope while the body rises under it; the other paw lets go and reaches
-  // for a new grip as high as it can, ready to pull next.
-  const far = armGeom(ARM_FAR);
-  const near = armGeom(ARM_NEAR);
-  const PULLS = 9;
-  const [, u1] = seconds('bearUp');
-  const T = (u1 - u0) / PULLS;
-  const RISE = { far: 60, near: 66 };
-  const REACH = { far: 1.02, near: 1.2 };
-  type Side = 'far' | 'near';
-  const arms = { far: { ...ARM_FAR, ...far }, near: { ...ARM_NEAR, ...near } };
-  const puller = (k: number): Side => (k % 2 === 0 ? 'far' : 'near');
-  const riseAt = (k: number) => {
-    let y = LIFT;
-    for (let i = 0; i < k; i++) y -= RISE[puller(i)];
-    return y;
-  };
-  const surge = (p: number) => smooth(Math.min(1, Math.max(0, (p - 0.1) / 0.75)));
-  // Hauling to one side and then the other, the body sways toward the pull.
-  const tiltAt = (k: number, p: number) => (puller(k) === 'far' ? 2.5 : -2.5) * Math.sin(Math.PI * surge(p));
-  const TILT_C: Vec2 = [1300, 640];
-  const climbing = (t: number) => {
-    const k = Math.min(PULLS - 1, Math.max(0, Math.floor((t - u0) / T)));
-    return { k, p: Math.min(1, Math.max(0, (t - u0 - k * T) / T)) };
-  };
-  const bearY = (t: number) => {
-    if (t <= d0) return TOP;
-    if (t < d1) {
-      const p = (t - d0) / (d1 - d0);
-      return TOP + (LIFT - TOP) * (0.35 * p + 0.65 * p * p);
-    }
-    if (t < u0) return LIFT + (t - d1 < 1.2 ? landing(t - d1) : 0);
-    if (t < u1) {
-      const { k, p } = climbing(t);
-      return riseAt(k) - RISE[puller(k)] * surge(p);
-    }
-    return riseAt(PULLS) + (TOP - riseAt(PULLS)) * smooth(Math.min(1, (t - u1) / 0.3));
-  };
-  const tilt = (t: number) => {
-    if (t < u0 || t >= u1) return 0;
-    const { k, p } = climbing(t);
-    return tiltAt(k, p);
-  };
   const shoulder = (side: Side, t: number): Vec2 => {
     const a = (tilt(t) * Math.PI) / 180;
     const [px, py] = [arms[side].P[0] - TILT_C[0], arms[side].P[1] - TILT_C[1]];
@@ -690,6 +702,7 @@ walk({
     return aimAt(side, t, [from[0] + (to[0] - from[0]) * e + out, from[1] + (to[1] - from[1]) * e]);
   };
 
+  const [L0] = seconds('bearLife');
   const life = (fn: (t: number) => number) => over('bearLife', (s) => fn(L0 + s), 30);
   for (const s of ['bearBack', 'bearFront']) {
     P(`cast.${s}Ride`).animate({ y: life(bearY) }).animate({ rotate: life(tilt) });
