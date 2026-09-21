@@ -1281,16 +1281,22 @@ export function CanvasSurface({
   const reveal = useCallback(
     (ids: readonly NodeId[]) => {
       if (inFrame) return;
-      const laid = laidOutScene(store.getScene());
-      const present = ids.filter((id) => {
-        const node = findNode(laid, id);
-        return node && !node.hidden;
+      // A frame later: the edit that added these may also have resized the
+      // frame (a shape drawn beside it widens it to hold it), and what is in
+      // view has to be measured against the frame the edit left, not the one
+      // it found.
+      requestAnimationFrame(() => {
+        const laid = laidOutScene(store.getScene());
+        const present = ids.filter((id) => {
+          const node = findNode(laid, id);
+          return node && !node.hidden;
+        });
+        if (!present.length) return;
+        const seen = visibleRect(viewport);
+        if (!seen) return;
+        const to = revealBounds(absoluteSelectionBounds(laid, present), seen);
+        if (to) viewport.zoomToFit(to, { maxZoom: viewport.get().zoom });
       });
-      if (!present.length) return;
-      const seen = visibleRect(viewport);
-      if (!seen) return;
-      const to = revealBounds(absoluteSelectionBounds(laid, present), seen);
-      if (to) viewport.zoomToFit(to, { maxZoom: viewport.get().zoom });
     },
     [store, viewport, inFrame],
   );
