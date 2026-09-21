@@ -10,6 +10,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { X } from "@/app/components/Icons";
+import { useColumnEdges } from "@/app/lib/columnEdges";
 import {
   CanvasSurface,
   type BoardApi,
@@ -53,6 +54,10 @@ export function FullscreenShot({
   onClaim: (api: CanvasApi) => void;
   onClose: () => void;
 }) {
+  // In the column's room rather than over the whole window, leaving the rails
+  // beside it standing; placed before the stage is measured.
+  const full = useRef<HTMLDivElement>(null);
+  useColumnEdges(full);
   const stage = useRef<HTMLDivElement>(null);
   const [box, setBox] = useState<{ w: number; h: number } | null>(null);
   useLayoutEffect(() => {
@@ -92,7 +97,7 @@ export function FullscreenShot({
   };
 
   return createPortal(
-    <div className="nt-sb-full" onPointerDown={onBackdrop}>
+    <div ref={full} className="nt-sb-full" onPointerDown={onBackdrop}>
       <button
         type="button"
         className="nt-sb-full-close"
