@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
-import { Authed } from "./components/Authed";
 import { ProjectsScreen } from "./components/ProjectsScreen";
 import { FirstRun } from "./components/welcome/FirstRun";
 
@@ -11,7 +10,9 @@ export const metadata: Metadata = {
 /**
  * The root is the project manager, the way a docs app opens on your files —
  * except on the one visit where there are no files yet, which goes to the
- * welcome screen instead of showing an empty shelf.
+ * welcome screen instead of showing an empty shelf. `FirstRun` is also what
+ * holds the screen back until Convex has the caller's token, in `Authed`'s
+ * place: a returning visitor's screen is let through ahead of it.
  *
  * Also where `/api/notion/connect` sends people back to when the import dialog
  * was opened here. The query string it arrives with is read on the client
@@ -20,12 +21,10 @@ export const metadata: Metadata = {
  */
 export default function Home() {
   return (
-    <Authed>
-      <FirstRun>
-        <Suspense>
-          <ProjectsScreen />
-        </Suspense>
-      </FirstRun>
-    </Authed>
+    <FirstRun>
+      <Suspense>
+        <ProjectsScreen />
+      </Suspense>
+    </FirstRun>
   );
 }

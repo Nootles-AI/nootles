@@ -2,7 +2,7 @@ import { components } from "./_generated/api";
 import { ProsemirrorSync } from "@convex-dev/prosemirror-sync";
 import type { DataModel } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { isTrashed, refuseStandIn, roleForProject } from "./auth";
+import { isTrashed, refuseStandIn, roleForProject, standInActor } from "./auth";
 
 /**
  * Collaborative sync for each page's block flow. The client (BlockNote) talks to
@@ -56,12 +56,27 @@ export async function checkRead(ctx: QueryCtx, id: string) {
  */
 export async function checkWrite(ctx: QueryCtx, id: string) {
   await refuseStandIn(ctx);
+  if (!(await hasWriteRole(ctx, id))) throw new Error("Not found");
+}
+
+async function hasWriteRole(ctx: QueryCtx, id: string): Promise<boolean> {
   const page = await pageForDoc(ctx, id);
-  if (!page || isTrashed(page)) throw new Error("Not found");
+  if (!page || isTrashed(page)) return false;
   const project = await ctx.db.get(page.projectId);
-  if (!project || isTrashed(project)) throw new Error("Not found");
+  if (!project || isTrashed(project)) return false;
   const role = await roleForProject(ctx, project);
-  if (role !== "owner" && role !== "editor") throw new Error("Not found");
+  return role === "owner" || role === "editor";
+}
+
+/**
+ * {@link checkWrite} as a question, for the one kind of write that is a
+ * courtesy rather than an intent: derived data a reader offers to leave
+ * behind (`previews.set`). A viewer's card making that offer is routine, and
+ * routine must not be a thrown server error. Same gate, same stand-in rule.
+ */
+export async function mayWrite(ctx: QueryCtx, id: string): Promise<boolean> {
+  if (await standInActor(ctx)) return false;
+  return await hasWriteRole(ctx, id);
 }
 
 /**

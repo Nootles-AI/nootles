@@ -7,7 +7,9 @@ import {
   removeAwarenessStates,
 } from "y-protocols/awareness";
 import { api } from "@/convex/_generated/api";
-import { joinUpdateRows, splitUpdate } from "@/convex/yshape";
+import { encodePreview } from "@/convex/previewShape";
+import { splitUpdate } from "@/convex/yshape";
+import { openYDoc } from "./ydocRead";
 
 /**
  * A Yjs provider over Convex: the `meta` query is the wake-up channel, and
@@ -39,6 +41,11 @@ const MAX_RETRY_MS = 10_000;
  * storyboard is exactly that, one 2MiB+ update from one transaction.
  */
 const MERGE_CAP_BYTES = 800 * 1024;
+/**
+ * How closely two preview writes may follow each other. A thumbnail wants
+ * seconds-freshness, and the read behind a write walks the whole document.
+ */
+const PREVIEW_MS = 4000;
 /** Cursor moves ride a trailing throttle; stillness still beats every 10s. */
 const AWARENESS_THROTTLE_MS = 200;
 const KEEPALIVE_MS = 10_000;
@@ -71,6 +78,10 @@ export class YConvexProvider {
   private pullAgain = false;
   private unwatch: (() => void) | null = null;
   private listeners = new Set<Listener>();
+
+  private previewTimer: ReturnType<typeof setTimeout> | null = null;
+  /** The last preview the server took; undefined until one has been offered. */
+  private sentPreview: string | null | undefined;
 
   private unwatchPresence: (() => void) | null = null;
   private awarenessTimer: ReturnType<typeof setTimeout> | null = null;
@@ -155,6 +166,13 @@ export class YConvexProvider {
       clearTimeout(this.awarenessTimer);
       this.awarenessTimer = null;
     }
+    // Leaving with a preview still owed: written now, since the last edits
+    // before closing a page are exactly the ones its thumbnail should show.
+    if (this.previewTimer) {
+      clearTimeout(this.previewTimer);
+      this.previewTimer = null;
+      void this.writePreview();
+    }
     if (this.keepaliveTimer) {
       clearInterval(this.keepaliveTimer);
       this.keepaliveTimer = null;
@@ -179,9 +197,8 @@ export class YConvexProvider {
   // ---- Remote → doc -------------------------------------------------------
 
   /**
-   * Bring the doc up to the server's seq: snapshot chunks if our log window
-   * was compacted away, then the update tail. Serialized by a latch — a
-   * second wake-up during a pull runs one more pull after, never two at once.
+   * Bring the doc up to the server's seq. Serialized by a latch — a second
+   * wake-up during a pull runs one more pull after, never two at once.
    */
   private async pull() {
     if (!this.connected) return;
@@ -193,55 +210,30 @@ export class YConvexProvider {
     try {
       do {
         this.pullAgain = false;
-        const meta = await this.client.query(api.ydoc.meta, {
-          docId: this.docId,
-        });
-        if (!meta) continue; // not Yjs-native (yet); the watch will say when
-        if (meta.snapshotSeq > this.cursor && meta.snapshotParts > 0) {
-          // Chunks are byte SLICES of one encoded update, so they gather into
-          // one buffer and apply once — a slice on its own is not an update.
-          // Fetched together: the part count is known upfront, and a doc past
-          // one chunk should not cost a round trip per 800KiB of itself.
-          const fetched = await Promise.all(
-            Array.from({ length: meta.snapshotParts }, (_, part) =>
-              this.client.query(api.ydoc.snapshot, {
-                docId: this.docId,
-                gen: meta.snapshotSeq,
-                part,
-              }),
-            ),
-          );
-          // A chunk can vanish if a newer fold replaced it mid-read; the loop
-          // re-runs from fresh meta, nothing having been applied.
-          if (fetched.some((c) => c === null)) {
-            this.pullAgain = true;
-            continue;
-          }
-          const chunks = fetched as ArrayBuffer[];
-          const whole = new Uint8Array(chunks.reduce((n, c) => n + c.byteLength, 0));
-          let at = 0;
-          for (const c of chunks) {
-            whole.set(new Uint8Array(c), at);
-            at += c.byteLength;
-          }
-          Y.applyUpdate(this.doc, whole, this);
-          this.cursor = meta.snapshotSeq;
-        }
-        while (this.cursor < meta.seq) {
-          const rows = await this.client.query(api.ydoc.updatesSince, {
+        // Once synced, the watch holds `meta` and asking it is free — which
+        // matters, because most wake-ups are our own flush echoing back and
+        // end right here. The first pull skips the question: `load` answers
+        // it, and waiting for `meta` first is a round trip spent learning
+        // only that there is a document to fetch.
+        if (this.syncedFlag) {
+          const meta = await this.client.query(api.ydoc.meta, {
             docId: this.docId,
-            afterSeq: this.cursor,
           });
-          if (rows.length === 0) break;
-          // Joined first: a chunked update's rows are slices, not updates.
-          const joined = joinUpdateRows(rows);
-          if (joined.length === 0) break;
-          for (const row of joined) {
-            Y.applyUpdate(this.doc, row.update, this);
-            this.cursor = Math.max(this.cursor, row.seq);
-          }
+          if (!meta || this.cursor >= meta.seq) continue;
         }
-        if (!this.syncedFlag && this.cursor >= meta.seq) {
+        const opened = await openYDoc(
+          this.client,
+          this.docId,
+          this.cursor,
+          (update) => Y.applyUpdate(this.doc, update, this),
+        );
+        if (!opened) continue; // not Yjs-native (yet); the watch will say when
+        this.cursor = opened.cursor;
+        if (opened.torn) {
+          this.pullAgain = true;
+          continue;
+        }
+        if (!this.syncedFlag && this.cursor >= opened.seq) {
           this.syncedFlag = true;
           this.resolveSynced();
           this.emit();
@@ -412,6 +404,7 @@ export class YConvexProvider {
       }
       this.retryMs = 0;
       this.lastFlushAt = Date.now();
+      this.schedulePreview();
     } catch {
       // Everything unsent goes back to the front, coalesced, and retries on
       // a doubling delay — the queue is the offline buffer.
@@ -424,6 +417,42 @@ export class YConvexProvider {
       if (this.queue.length && !this.flushTimer && this.retryMs === 0) {
         this.scheduleFlush(FLUSH_MS);
       }
+    }
+  }
+
+  // ---- Preview ------------------------------------------------------------
+
+  /**
+   * The document's stored preview (`schema.pagePreviews`) is kept here, behind
+   * the flush, because this is the one seam every Yjs writer passes through —
+   * an open editor, the agent editing a page nobody has open, a second pane.
+   * Only local edits flush, so of all the tabs on a page it is the one that
+   * made a change that writes the picture of it.
+   */
+  private schedulePreview() {
+    if (this.previewTimer) return;
+    this.previewTimer = setTimeout(() => {
+      this.previewTimer = null;
+      void this.writePreview();
+    }, PREVIEW_MS);
+  }
+
+  private async writePreview() {
+    try {
+      // BlockNote's schema is what reads a Y.Doc as blocks; imported here so
+      // a surface that only syncs never pays for it.
+      const { blocksFromYDoc } = await import("@/app/lib/ai/snapshot");
+      const blocks = encodePreview(blocksFromYDoc(this.doc));
+      // Most edits land below the fold of a thumbnail and change nothing.
+      if (blocks === this.sentPreview) return;
+      await this.client.mutation(api.previews.set, {
+        docId: this.docId,
+        blocks,
+        seq: this.cursor,
+      });
+      this.sentPreview = blocks;
+    } catch {
+      // Derived data: the next flush offers it again.
     }
   }
 }

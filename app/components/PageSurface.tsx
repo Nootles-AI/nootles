@@ -242,6 +242,7 @@ export function PageSurface({
             pageId={pageId}
             title={page.title}
             mode={(page.mode ?? "create") as PageMode}
+            yjs={page.yjs}
           />
         </div>
       </div>

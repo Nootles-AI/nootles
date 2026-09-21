@@ -30,7 +30,7 @@
 /* ---- Sections ------------------------------------------------------------
    Weighted to the top: more air above a title than below it, so a heading
    belongs to what follows rather than floating between two groups. The rule
-   between two sections is drawn once, by `.nt-style-panel-body > * + *`, which
+   between two sections is drawn once, by `.nt-style-panel-body`'s child rule, which
    also covers the align strip — this file used to declare it a second time. */
 .nt-ctl-head {
   display: flex;

@@ -61,6 +61,14 @@ export function blocksFromSnapshot(content: string, steps: string[] = []): AnyBl
   return docToBlocks(nodeFromSnapshot(content, steps)) as unknown as AnyBlock[];
 }
 
+/** The blocks of a Y.Doc somebody else holds — the editor's own root, read in place. */
+export function blocksFromYDoc(doc: Y.Doc): AnyBlock[] {
+  return yXmlFragmentToBlocks(
+    headlessEditor(),
+    doc.getXmlFragment("prosemirror"),
+  ) as unknown as AnyBlock[];
+}
+
 /**
  * A Yjs document held open across reads.
  *
@@ -80,10 +88,7 @@ export function yReader() {
       options: NmlBlockAdapterOptions = {},
     ): AnyBlock[] {
       if (source === "nml") return nmlToAnyBlocks(decodeNmlDocument(doc), options);
-      return yXmlFragmentToBlocks(
-        headlessEditor(),
-        doc.getXmlFragment("prosemirror"),
-      ) as unknown as AnyBlock[];
+      return blocksFromYDoc(doc);
     },
     nmlStorageIds(): string[] {
       const ids = new Set<string>();

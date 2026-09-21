@@ -407,6 +407,38 @@ export default defineSchema({
     data: v.bytes(),
   }).index("by_doc_and_gen_and_part", ["docId", "gen", "part"]),
 
+  /**
+   * The top of a document as blocks, kept so a thumbnail is one small read.
+   *
+   * Without it a card on the projects screen has to open the document to draw
+   * it: `meta`, the snapshot, the log behind it, a Y.Doc rebuilt in the
+   * browser and BlockNote imported to read it — several round trips in a row,
+   * per card, for a picture of a page nobody has touched since yesterday.
+   *
+   * Written by the CLIENT, because turning a Y.Doc into blocks needs the
+   * BlockNote schema and that is a browser bundle (see `projects.listForScreen`).
+   * The sync provider writes it behind its own flushes, so every Yjs writer
+   * keeps it current without knowing it exists. Derived and disposable: a
+   * missing row just means the card reads the document the old way and leaves
+   * a row behind for next time.
+   *
+   * Its own table rather than a field on `pages` or `ydocs`: it churns with
+   * the content, and those rows sit in the read set of queries that should
+   * not re-run because a heading changed.
+   */
+  pagePreviews: defineTable({
+    docId: v.string(),
+    /** JSON of the document's first blocks — see `app/lib/sync/pagePreview.ts`. */
+    blocks: v.string(),
+    /**
+     * The `ydocs.seq` the blocks were read at. Two writers can race — an
+     * editor and a card backfilling from an older read — and the higher seq
+     * is the one that saw more of the document.
+     */
+    seq: v.number(),
+    updatedAt: v.number(),
+  }).index("by_doc", ["docId"]),
+
   // ---- NML persistence & cohort migration (step 12) -----------------------
   // The elected migrator writes the canonical NML root into a page's Y.Doc
   // beside its ProseMirror root; these tables record that it happened, gate

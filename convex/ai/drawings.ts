@@ -1,3 +1,4 @@
+import { internal } from "../_generated/api";
 import { internalMutation, mutation, query } from "../_generated/server";
 import { v } from "convex/values";
 import { requireOwner } from "../auth";
@@ -55,15 +56,32 @@ export const get = query({
  * row is scaffolding — or the turn moved on without it. A day is far past
  * either story's end.
  */
+/**
+ * What one sweep may read. A drawing is ~100KB of path data and a delete
+ * re-reads the row it removes, so a sweep counted in ROWS — 256 of them — is
+ * a transaction past the platform's read ceiling, which is a sweep that never
+ * completes and a table that only grows. Counted in bytes instead, with the
+ * rest left to a pass scheduled behind this one.
+ */
+const PURGE_BYTES = 4 * 1024 * 1024;
+
 export const purgeStale = internalMutation({
   args: {},
-  handler: async (ctx) => {
+  handler: async (ctx): Promise<number> => {
     const cutoff = Date.now() - 24 * 60 * 60 * 1000;
-    const stale = await ctx.db
+    let bytes = 0;
+    let purged = 0;
+    for await (const row of ctx.db
       .query("drawings")
-      .withIndex("by_creation_time", (q) => q.lt("_creationTime", cutoff))
-      .take(256);
-    await Promise.all(stale.map((row) => ctx.db.delete(row._id)));
-    return stale.length;
+      .withIndex("by_creation_time", (q) => q.lt("_creationTime", cutoff))) {
+      await ctx.db.delete(row._id);
+      purged++;
+      bytes += row.data.length;
+      if (bytes >= PURGE_BYTES) {
+        await ctx.scheduler.runAfter(0, internal.ai.drawings.purgeStale, {});
+        break;
+      }
+    }
+    return purged;
   },
 });

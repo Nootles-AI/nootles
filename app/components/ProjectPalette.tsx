@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import {
   Fragment,
   useEffect,
@@ -18,7 +19,6 @@ import { Dialog } from "./Dialog";
 import { PROJECT_TEMPLATES, pagePicture, type ProjectTemplate } from "@/app/lib/templates";
 import { ChevronRight, FileDoc, Folder, Plus, Template } from "./Icons";
 import { useNewProjectDraft, type NewProject } from "./newProjectDraft";
-import { NotionImportBody } from "./notion/NotionImport";
 import { NotionMark } from "./NotionMark";
 import { NotionPort } from "./NotionPort";
 import { BlankStart } from "./BlankStart";
@@ -49,6 +49,18 @@ type Row = {
   picture?: "wall" | "blank" | "notion";
   run: () => void;
 };
+
+/*
+ * The import runs the editor headless to build the pages it brings across
+ * (`importRun` → `onboarding/seed` → the BlockNote schema), so a static import
+ * here put BlockNote, KaTeX, Yjs and the whole canvas in this screen's first
+ * bundle — for the last page of a palette most visits never open. Fetched when
+ * the highlight rests on its row, which is before it can be asked for.
+ */
+const loadNotionImport = () => import("./notion/NotionImport");
+const NotionImportBody = dynamic(() => loadNotionImport().then((m) => m.NotionImportBody), {
+  ssr: false,
+});
 
 const noop = () => () => {};
 
@@ -307,6 +319,12 @@ function Palette({
     }, 110);
     return () => clearTimeout(t);
   }, [currentProject, router]);
+
+  // Resting on the Notion row is the cue to fetch what choosing it will need.
+  const onNotionRow = current?.picture === "notion";
+  useEffect(() => {
+    if (onNotionRow) void loadNotionImport();
+  }, [onNotionRow]);
 
   const onKeyDown = (e: KeyboardEvent) => {
     // The form page has fields; arrows and Enter are theirs. Escape still backs

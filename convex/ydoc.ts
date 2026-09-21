@@ -6,7 +6,7 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
 import { checkRead, checkWrite, pageForDoc } from "./prosemirror";
 import { stampProject } from "./projects";
-import { joinUpdateRows } from "./yshape";
+import { joinUpdateRows, UPDATE_CHUNK_BYTES } from "./yshape";
 
 /**
  * Yjs document sync: an update log folded into chunked snapshots, one doc per
@@ -39,6 +39,11 @@ const CHUNK_BYTES = 800 * 1024;
 const READ_BUDGET = 6 * 1024 * 1024;
 /** A backstop for logs of tiny updates, where bytes alone would never stop. */
 const MAX_ROWS = 500;
+/**
+ * The heaviest snapshot `load` carries inline. Half the budget, so the log
+ * that rides with it always has room for a real page of itself.
+ */
+const LOAD_SNAPSHOT_BYTES = READ_BUDGET / 2;
 /** How coarsely `append` stamps pages.updatedAt (the debounce lives here now). */
 const TOUCH_EVERY_MS = 30_000;
 
@@ -120,6 +125,43 @@ export const snapshot = query({
   },
 });
 
+const updateRow = v.object({
+  seq: v.number(),
+  update: v.bytes(),
+  part: v.optional(v.number()),
+  parts: v.optional(v.number()),
+});
+
+/**
+ * The log after a cursor, oldest first, closed on weight. Walked rather than
+ * taken, so the page can be closed the moment it is heavy enough — and only
+ * ever at the end of a whole update, so a chunk group is never torn across
+ * the boundary.
+ */
+async function readLog(
+  ctx: QueryCtx,
+  docId: string,
+  afterSeq: number,
+  budget: number,
+) {
+  const rows: Doc<"yUpdates">[] = [];
+  let bytes = 0;
+  for await (const row of ctx.db
+    .query("yUpdates")
+    .withIndex("by_doc_and_seq", (q) => q.eq("docId", docId).gt("seq", afterSeq))) {
+    rows.push(row);
+    bytes += row.update.byteLength;
+    if (!endsUpdate(row)) continue;
+    if (bytes >= budget || rows.length >= MAX_ROWS) break;
+  }
+  return rows.map((r) => ({
+    seq: r.seq,
+    update: r.update,
+    ...(r.part !== undefined ? { part: r.part } : {}),
+    ...(r.parts !== undefined ? { parts: r.parts } : {}),
+  }));
+}
+
 /**
  * The log after a cursor, oldest first, bounded by weight — the caller loops
  * until its cursor reaches `meta.seq`, so a page may be as short as one
@@ -127,37 +169,78 @@ export const snapshot = query({
  */
 export const updatesSince = query({
   args: { docId: v.string(), afterSeq: v.number() },
-  returns: v.array(
+  returns: v.array(updateRow),
+  handler: async (ctx, args) => {
+    await checkRead(ctx, args.docId);
+    return await readLog(ctx, args.docId, args.afterSeq, READ_BUDGET);
+  },
+});
+
+/**
+ * Opening a document in one round trip: `meta`, the snapshot if the caller is
+ * behind it, and the first page of the log after that.
+ *
+ * The three were separate queries asked in a row, and a row of queries is
+ * what opening a page costs — measured, the server's work and the bytes are
+ * noise beside the round trips. A typical document is a few kilobytes, so
+ * nearly every open ends here; `snapshot` and `updatesSince` remain for the
+ * documents that do not fit and for the log a long-open tab keeps paging.
+ *
+ * `snapshot` is null both when the caller does not need one and when it is
+ * too heavy to ride along — the caller tells them apart by its own cursor,
+ * and fetches a heavy one by chunk the way it always has. No log rides with
+ * a heavy snapshot either: the two together are what would cross the read
+ * ceiling.
+ */
+export const load = query({
+  args: { docId: v.string(), afterSeq: v.number() },
+  returns: v.union(
+    v.null(),
     v.object({
       seq: v.number(),
-      update: v.bytes(),
-      part: v.optional(v.number()),
-      parts: v.optional(v.number()),
+      snapshotSeq: v.number(),
+      snapshotParts: v.number(),
+      snapshot: v.union(v.null(), v.array(v.bytes())),
+      updates: v.array(updateRow),
     }),
   ),
   handler: async (ctx, args) => {
     await checkRead(ctx, args.docId);
-    // Walked rather than taken, so the page can be closed on weight the
-    // moment it is heavy enough — and only ever at the end of a whole update,
-    // so a chunk group is never torn across the boundary.
-    const rows: Doc<"yUpdates">[] = [];
-    let bytes = 0;
-    for await (const row of ctx.db
-      .query("yUpdates")
-      .withIndex("by_doc_and_seq", (q) =>
-        q.eq("docId", args.docId).gt("seq", args.afterSeq),
-      )) {
-      rows.push(row);
-      bytes += row.update.byteLength;
-      if (!endsUpdate(row)) continue;
-      if (bytes >= READ_BUDGET || rows.length >= MAX_ROWS) break;
+    const row = await ydocRow(ctx, args.docId);
+    if (!row) return null;
+    const meta = {
+      seq: row.seq,
+      snapshotSeq: row.snapshotSeq,
+      snapshotParts: row.snapshotParts,
+    };
+
+    let from = args.afterSeq;
+    let snapshot: ArrayBuffer[] | null = null;
+    let weight = 0;
+    if (args.afterSeq < row.snapshotSeq && row.snapshotParts > 0) {
+      const heavy = { ...meta, snapshot: null, updates: [] };
+      if ((row.snapshotBytes ?? 0) > LOAD_SNAPSHOT_BYTES) return heavy;
+      snapshot = [];
+      // Index order is part order, so the chunks arrive ready to join.
+      for await (const chunk of ctx.db
+        .query("ySnapshots")
+        .withIndex("by_doc_and_gen_and_part", (q) =>
+          q.eq("docId", args.docId).eq("gen", row.snapshotSeq),
+        )) {
+        snapshot.push(chunk.data);
+        weight += chunk.data.byteLength;
+        if (weight > LOAD_SNAPSHOT_BYTES) return heavy;
+      }
+      // A fold replacing the generation mid-read cannot happen inside one
+      // transaction; a short count means the row and its chunks disagree.
+      if (snapshot.length !== row.snapshotParts) return heavy;
+      from = row.snapshotSeq;
     }
-    return rows.map((r) => ({
-      seq: r.seq,
-      update: r.update,
-      ...(r.part !== undefined ? { part: r.part } : {}),
-      ...(r.parts !== undefined ? { parts: r.parts } : {}),
-    }));
+    return {
+      ...meta,
+      snapshot,
+      updates: await readLog(ctx, args.docId, from, READ_BUDGET - weight),
+    };
   },
 });
 
@@ -282,6 +365,10 @@ export const init = mutation({
       seq: 1,
       update: args.update,
     });
+    // The flag `state` and the editor read, stamped at birth: left to the
+    // first `append`, a page that is opened but never edited goes without it.
+    const page = await pageForDoc(ctx, args.docId);
+    if (page && !page.yjs) await ctx.db.patch(page._id, { yjs: true });
     return { migrated: true };
   },
 });
@@ -357,6 +444,18 @@ export const compact = internalMutation({
         q.eq("docId", args.docId).gt("seq", row.snapshotSeq),
       )) {
       if (update.seq > args.targetSeq) break;
+      // A chunked update says how heavy it is on its first row: every part
+      // but the last is a full chunk. Asked BEFORE the rest is read, because
+      // reading is the cost — a 7MiB update read to be told it does not fit,
+      // on top of a full budget and the deletes that re-read it, is what put
+      // a pass over the platform's ceiling and left a log unable to fold.
+      if (
+        update.part === 0 &&
+        update.parts !== undefined &&
+        bytes + update.parts * UPDATE_CHUNK_BYTES > READ_BUDGET
+      ) {
+        break;
+      }
       group.push(update);
       groupBytes += update.update.byteLength;
       if (!endsUpdate(update)) continue;

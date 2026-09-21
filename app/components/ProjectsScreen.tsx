@@ -2,12 +2,14 @@
 
 import { memo, useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useQuery, useMutation } from "convex/react";
+import { useAuth } from "@clerk/nextjs";
+import { useConvexAuth, useQuery, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import { findTemplate } from "@/app/lib/templates";
 import { track } from "@/app/lib/telemetry";
 import { pages, when } from "@/app/lib/projectMeta";
+import { rememberScreen, seenScreen } from "@/app/lib/projectsCache";
 import { BoardView, GridView, ListView, Plus, Search } from "./Icons";
 import { AccountMenu } from "./AccountMenu";
 import { PlanWall } from "./billing/PlanWall";
@@ -34,6 +36,7 @@ import {
   RowMenu,
   ProjectActions,
   roleLabel,
+  sameProjectProps,
   type Project,
   type SharedProject,
 } from "./projectParts";
@@ -42,19 +45,52 @@ import { AccessRequests } from "./share/AccessRequests";
 
 type View = "grid" | "list" | "board";
 const VIEWS: View[] = ["grid", "list", "board"];
+const VIEW_KEY = "nt:projectsView";
+
+/** The view this browser left the screen in. */
+function savedView(): View {
+  try {
+    const saved = localStorage.getItem(VIEW_KEY) as View | null;
+    return saved && VIEWS.includes(saved) ? saved : "grid";
+  } catch {
+    return "grid";
+  }
+}
+
 /** A list item's place in its list, which is what staggers its entrance. */
 const nth = (i: number) => ({ "--i": i }) as React.CSSProperties;
 
 export function ProjectsScreen() {
   const router = useRouter();
   const standIn = useStandIn();
-  const projects = useQuery(api.projects.listForScreen);
-  const shared = useQuery(api.projects.sharedWithMe);
+  /*
+   * What this browser last saw stands in until the live lists arrive
+   * (`projectsCache`) — and for a returning visitor this screen is up before
+   * Convex has a token (`FirstRun`), so nothing here may ask as nobody: an
+   * anonymous `listForScreen` answers "no projects", which is a wrong answer
+   * rather than a missing one. Read once; the live lists replace it for good.
+   */
+  const { isAuthenticated: live } = useConvexAuth();
+  const { userId } = useAuth();
+  const [seen] = useState(() => (userId ? seenScreen(userId) : null));
+  const liveProjects = useQuery(api.projects.listForScreen, live ? {} : "skip");
+  const liveShared = useQuery(api.projects.sharedWithMe, live ? {} : "skip");
+  const projects = liveProjects ?? seen?.projects;
+  const shared = liveShared ?? seen?.shared;
+  useEffect(() => {
+    if (userId && liveProjects && liveShared) rememberScreen(userId, liveProjects, liveShared);
+  }, [userId, liveProjects, liveShared]);
   const createProject = useMutation(api.projects.create);
   const renameProject = useMutation(api.projects.rename);
   const removeProject = useMutation(api.projects.remove);
 
-  const [view, setView] = useState<View>("grid");
+  // Read where it is first needed rather than restored in an effect, which
+  // mounted the whole grid — every card and its reader — only to tear it down a
+  // frame later for anyone who had left the screen in another view. Safe to
+  // read during render because this never renders on the server or in the
+  // hydration pass: `FirstRun` holds it back until there is an answer from
+  // Convex or from this browser's storage, and neither exists before then.
+  const [view, setView] = useState<View>(savedView);
   const [editingId, setEditingId] = useState<Id<"projects"> | null>(null);
   const [confirming, setConfirming] = useState<Project | null>(null);
   const [ctx, setCtx] = useState<{ project: Project; x: number; y: number } | null>(
@@ -84,17 +120,12 @@ export function ProjectsScreen() {
   const setFailure = useCallback((text: string) => setNotice({ text, problem: true }), []);
   const { room } = usePlan();
 
-  // Restore the persisted view on the client. The default renders first so SSR
-  // and the first client render agree; set-state-in-effect is correct here.
-  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
-    const saved = localStorage.getItem("nt:projectsView") as View | null;
-    if (saved && saved !== "grid" && VIEWS.includes(saved)) setView(saved);
-  }, []);
-  /* eslint-enable react-hooks/set-state-in-effect */
-
-  useEffect(() => {
-    localStorage.setItem("nt:projectsView", view);
+    try {
+      localStorage.setItem(VIEW_KEY, view);
+    } catch {
+      // Storage refused: the view just does not outlive the visit.
+    }
   }, [view]);
 
   /**
@@ -446,7 +477,9 @@ export function ProjectsScreen() {
         </ContextMenu>
       )}
 
-      {finding && (
+      {/* Held until the account is live, like everything below that asks
+          Convex something: asked for a beat early, it opens a beat later. */}
+      {finding && live && (
         <ProjectPalette
           start={finding}
           projects={projects ?? []}
@@ -488,11 +521,11 @@ export function ProjectsScreen() {
           should reach them — and something worth reporting is as likely to be
           here as inside a project. Filed without a project, which `submit`
           already allows. */}
-      <Feedback />
-      <FixedToast />
+      {live && <Feedback />}
+      {live && <FixedToast />}
       {/* Same reasoning: someone asking to edit should reach the owner here
           too, not only inside whichever project they happen to open. */}
-      <AccessRequests />
+      {live && <AccessRequests />}
     </main>
   );
 }
@@ -552,7 +585,7 @@ const Lead = memo(function Lead({
       />
     </div>
   );
-});
+}, sameProjectProps);
 
 /** Memoized for the same reason `SharedCard` is: a live PagePreview each. */
 const Card = memo(function Card({
@@ -613,7 +646,7 @@ const Card = memo(function Card({
       </div>
     </div>
   );
-});
+}, sameProjectProps);
 
 const Row = memo(function Row({
   project,
@@ -672,7 +705,7 @@ const Row = memo(function Row({
       </span>
     </>
   );
-});
+}, sameProjectProps);
 
 /**
  * A project someone else shared: the same card, none of the owner's verbs — no
