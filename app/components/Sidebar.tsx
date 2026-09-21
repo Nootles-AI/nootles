@@ -75,7 +75,7 @@ const IconPicker = dynamic(
 const INDENT = 12;
 
 type Props = {
-  /** A CSS width — the shell holds the rail's live one in a custom property. */
+  /** A CSS width: the rail face it fills, or the drawer's own when narrow. */
   width: string;
   projectId: Id<"projects">;
   /** The focused pane's page — the one the chat and the agent are pointed at. */

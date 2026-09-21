@@ -9,6 +9,7 @@ import { laidOutScene } from "../app/components/editor/canvas/scene/autoLayout";
 import { absoluteBounds } from "../app/components/editor/canvas/scene/geometry";
 import type { NodeId, Point } from "../app/components/editor/canvas/scene/types";
 import { FIXTURES } from "./canvas-fixtures";
+import { publishColumnEdges } from "../app/lib/columnEdges";
 import "../app/components/editor/canvas/canvas.css";
 import "../app/components/editor/canvas/render/shape.css";
 import "../app/components/editor/canvas/render/edges.css";
@@ -20,7 +21,7 @@ import "./canvas-harness.browser.css";
 /**
  * The STAGE browser fixture: a real `CanvasSurface`, `Toolbar`, `LayersPanel`
  * and `CanvasStylePanel`, wired through `CanvasShellContext` and a column
- * that publishes `--nt-stage-l/r` with the same `ResizeObserver` pattern
+ * that publishes its edges (`publishColumnEdges`) with the same `ResizeObserver` pattern
  * `Workspace.tsx` uses — so `[data-stage]`'s fixed-position contract lands
  * against real, non-zero rail widths rather than an all-zero fallback.
  *
@@ -77,24 +78,21 @@ function Harness({ onReady }: { onReady: (api: CanvasApi) => void }) {
   const [source, setSource] = useState(() => FIXTURES["small-diagram"].html);
   const columnRef = useRef<HTMLDivElement>(null);
 
-  // The same `--nt-stage-l/r` publication `Workspace.tsx` does, against this
+  // The same edge publication `Workspace.tsx` does, against this
   // fixture's own column rather than the real app's rails.
   useLayoutEffect(() => {
     const el = columnRef.current;
     if (!el) return;
-    const root = document.documentElement.style;
     const measure = () => {
       const box = el.getBoundingClientRect();
-      root.setProperty("--nt-stage-l", `${box.left}px`);
-      root.setProperty("--nt-stage-r", `${window.innerWidth - box.right}px`);
+      publishColumnEdges({ left: box.left, right: window.innerWidth - box.right });
     };
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(el);
     return () => {
       observer.disconnect();
-      root.removeProperty("--nt-stage-l");
-      root.removeProperty("--nt-stage-r");
+      publishColumnEdges(null);
     };
   }, []);
 

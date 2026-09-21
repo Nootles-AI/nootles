@@ -670,6 +670,13 @@ body {
    hand; a drag on the divider is followed, never eased. No transform here: the
    chat inside becomes a fixed drawer on a narrow window, and a transformed
    ancestor would become what it is fixed to. */
+/* Not inherited, so a drag's per-frame write restyles the box it lands on
+   and nothing inside it (`Workspace.tsx` writes it on the slot and each face). */
+@property --nt-rail-w {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
 .nt-rail-slot {
   display: flex;
   flex: none;
@@ -683,7 +690,7 @@ body {
   justify-content: flex-start;
 }
 .nt-rail-slot[data-open="true"] {
-  width: var(--w);
+  width: var(--nt-rail-w);
 }
 body[data-resizing] .nt-rail-slot {
   transition: none;
@@ -710,7 +717,7 @@ body[data-resizing] .nt-rail-slot {
   inset-block: 0;
   right: 0;
   display: flex;
-  width: var(--w);
+  width: var(--nt-rail-w);
   opacity: 0;
   translate: -16px 0;
   visibility: hidden;
@@ -819,6 +826,16 @@ body[data-resizing] .nt-rail-face {
 }
 .nt-resize[data-dragging]::after {
   background: var(--foreground);
+}
+/* Over everything for the length of a drag (`ResizeHandle.tsx`): it holds the
+   cursor wherever the hand goes, keeps the drag from selecting text, and stops
+   an embedded frame from swallowing the moves. */
+.nt-resize-veil {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-tooltip);
+  cursor: col-resize;
+  user-select: none;
 }
 .nt-pane.is-idle {
   background: var(--surface);
