@@ -824,12 +824,6 @@
   background: var(--hover);
   color: var(--foreground);
 }
-/* The storyboard's bar stands on end, where a readout as wide as this one
-   would set the width of the whole column; there it keeps to its words. */
-.nt-sb-bar .nt-toolbar-zoom {
-  min-width: 0;
-  height: 24px;
-}
 
 /* ---- Co-presence ---------------------------------------------------------
    Other people on this diagram, Figma-grammar: name leaves stacking from the

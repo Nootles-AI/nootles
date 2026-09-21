@@ -44,7 +44,8 @@ import {
   type ShortcutId,
 } from "./engine/shortcuts";
 import type { ScreenControl } from "./engine/screen";
-import type { ToolControl } from "./render/CanvasSurface";
+import type { BoardApi, ToolControl } from "./render/CanvasSurface";
+import { BoardControls } from "../storyboard/BoardControls";
 import { useViewportZoom, ZOOM_STEP, type ViewportController } from "./engine/useViewport";
 import { absoluteSelectionBounds } from "./scene/geometry";
 import "./canvas.css";
@@ -60,8 +61,8 @@ const svg = {
   strokeLinejoin: "round" as const,
 };
 
-// Exported for the storyboard's vertical bar, which shows a subset of the same
-// tools — one drawing of each glyph, however many bars carry it.
+// Exported for the page's bar, which shows a subset of the same tools — one
+// drawing of each glyph, however many bars carry it.
 export const TOOLS: readonly { tool: CanvasTool; id: ShortcutId; icon: ReactNode }[] = [
   {
     tool: "move",
@@ -174,6 +175,11 @@ export const SHAPES: ReadonlySet<CanvasTool> = new Set(["rect", "ellipse", "poly
 const SHAPE_TOOLS = TOOLS.filter((t) => SHAPES.has(t.tool));
 const LEAD_TOOLS = TOOLS.slice(0, TOOLS.findIndex((t) => SHAPES.has(t.tool)));
 const TAIL_TOOLS = TOOLS.filter((t) => !SHAPES.has(t.tool) && !LEAD_TOOLS.includes(t));
+/** A storyboard shot's: no hand or zoom, since a shot is a fixed frame with
+ *  nothing to pan or zoom into, and no connector — a board's relations are its
+ *  shot order, not arrows between drawings. */
+const SHOT_LEAD = LEAD_TOOLS.filter((t) => t.tool !== "hand" && t.tool !== "zoom");
+const SHOT_TAIL = TAIL_TOOLS.filter((t) => t.tool !== "connector");
 
 /** The slot's disclosure: a small chevron, as Figma draws it. */
 const CARET = (
@@ -251,9 +257,11 @@ export interface ToolbarProps {
   screen: ScreenControl;
   /** Set for the moment it is on its way out, after the diagram was let go. */
   leaving?: boolean;
+  /** The storyboard the canvas is a shot of, whose verbs stand in for zoom. */
+  board?: BoardApi;
 }
 
-export function Toolbar({ store, viewport, tools, screen, leaving }: ToolbarProps) {
+export function Toolbar({ store, viewport, tools, screen, leaving, board }: ToolbarProps) {
   const tool = useSyncExternalStore(tools.subscribe, tools.get, tools.get);
   // The scalar, not the whole viewport: `commit()` allocates a fresh object on
   // every pan frame, and this pill only shows the zoom.
@@ -284,7 +292,9 @@ export function Toolbar({ store, viewport, tools, screen, leaving }: ToolbarProp
   // keyboard, or the browser leaving fullscreen on its own.
   const screenState = useSyncExternalStore(screen.subscribe, screen.get, screen.get);
 
-  const hint = (id: ShortcutId) => shortcutHint(id, apple);
+  // The diagram has the keyboard while this bar is up, so its tools show the
+  // bare letter they answer to there.
+  const hint = (id: ShortcutId) => shortcutHint(id, apple, id.startsWith("tool.") ? 1 : 0);
 
   const fit = () => {
     const scene = store.getScene();
@@ -305,8 +315,8 @@ export function Toolbar({ store, viewport, tools, screen, leaving }: ToolbarProp
       <div className="nt-toolbar" role="toolbar" aria-label="Canvas">
         <ToolRow
           tool={tool}
-          lead={LEAD_TOOLS}
-          tail={TAIL_TOOLS}
+          lead={board ? SHOT_LEAD : LEAD_TOOLS}
+          tail={board ? SHOT_TAIL : TAIL_TOOLS}
           hint={hint}
           onTool={(next) => tools.set(next)}
           // Back to the canvas rather than to the caret, so the next key is a
@@ -335,85 +345,89 @@ export function Toolbar({ store, viewport, tools, screen, leaving }: ToolbarProp
 
         <span className="nt-toolbar-sep" aria-hidden />
 
-        <Menu
-          label="Zoom"
-          side="top"
-          align="end"
-          trigger={(props) => (
-            <Tooltip label="Zoom">
-              <button
-                type="button"
-                {...props}
-                className="nt-toolbar-zoom"
-                onPointerDown={(e) => e.preventDefault()}
-              >
-                {Math.round(zoom * 100)}%
-              </button>
-            </Tooltip>
-          )}
-        >
-          {(close) => {
-            const item = (id: ShortcutId, fn: () => void) => (
-              <MenuItem
-                onClick={() => {
-                  fn();
-                  close();
-                }}
-              >
-                {SHORTCUTS_BY_ID[id].label}
-                <span className="ml-auto pl-4 font-mono text-[11px] text-[var(--muted)]">
-                  {hint(id)}
-                </span>
-              </MenuItem>
-            );
-            // Unlike `item` above, always closes — stage/minimal/fullscreen
-            // each move or hide the trigger this menu is anchored to (a
-            // resized stage, an unmounted toolbar), so there is no position
-            // left to leave the menu open over. `restoreFocus: false`: the
-            // screen host is what lands focus here (the viewport, on stage
-            // entry), and the menu's own default restore-to-trigger would
-            // fight that the moment the trigger itself moved or vanished.
-            const toggle = (id: ShortcutId, checked: boolean, fn: () => void) => (
-              <MenuItem
-                onClick={() => {
-                  fn();
-                  close({ restoreFocus: false });
-                }}
-              >
-                <span
-                  aria-hidden
-                  className={`flex size-3.5 shrink-0 items-center justify-center rounded-[var(--radius-sm)] border transition-colors ${
-                    checked
-                      ? "border-[var(--foreground)] bg-[var(--foreground)] text-[var(--background)]"
-                      : "border-[var(--border-strong)]"
-                  }`}
+        {board ? (
+          <BoardControls board={board} />
+        ) : (
+          <Menu
+            label="Zoom"
+            side="top"
+            align="end"
+            trigger={(props) => (
+              <Tooltip label="Zoom">
+                <button
+                  type="button"
+                  {...props}
+                  className="nt-toolbar-zoom"
+                  onPointerDown={(e) => e.preventDefault()}
                 >
-                  {checked && <Check width={10} height={10} />}
-                </span>
-                {SHORTCUTS_BY_ID[id].label}
-                <span className="sr-only">{checked ? "On" : "Off"}</span>
-                <span className="ml-auto pl-4 font-mono text-[11px] text-[var(--muted)]">
-                  {hint(id)}
-                </span>
-              </MenuItem>
-            );
-            return (
-              <>
-                {item("view.zoomIn", () => viewport.zoomBy(ZOOM_STEP))}
-                {item("view.zoomOut", () => viewport.zoomBy(1 / ZOOM_STEP))}
-                {item("view.zoomReset", viewport.resetZoom)}
-                {item("view.zoomFit", fit)}
-                <div className="nt-menu-sep" aria-hidden />
-                {toggle("view.stage", screenState.stage, () => screen.toggle("stage"))}
-                {toggle("view.minimal", screenState.minimal, () => screen.toggle("minimal"))}
-                {screen.canFullscreen() &&
-                  toggle("view.fullscreen", screenState.fullscreen, () =>
-                    screen.toggle("fullscreen"),
-                  )}
-              </>
-            );
-          }}
-        </Menu>
+                  {Math.round(zoom * 100)}%
+                </button>
+              </Tooltip>
+            )}
+          >
+            {(close) => {
+              const item = (id: ShortcutId, fn: () => void) => (
+                <MenuItem
+                  onClick={() => {
+                    fn();
+                    close();
+                  }}
+                >
+                  {SHORTCUTS_BY_ID[id].label}
+                  <span className="ml-auto pl-4 font-mono text-[11px] text-[var(--muted)]">
+                    {hint(id)}
+                  </span>
+                </MenuItem>
+              );
+              // Unlike `item` above, always closes — stage/minimal/fullscreen
+              // each move or hide the trigger this menu is anchored to (a
+              // resized stage, an unmounted toolbar), so there is no position
+              // left to leave the menu open over. `restoreFocus: false`: the
+              // screen host is what lands focus here (the viewport, on stage
+              // entry), and the menu's own default restore-to-trigger would
+              // fight that the moment the trigger itself moved or vanished.
+              const toggle = (id: ShortcutId, checked: boolean, fn: () => void) => (
+                <MenuItem
+                  onClick={() => {
+                    fn();
+                    close({ restoreFocus: false });
+                  }}
+                >
+                  <span
+                    aria-hidden
+                    className={`flex size-3.5 shrink-0 items-center justify-center rounded-[var(--radius-sm)] border transition-colors ${
+                      checked
+                        ? "border-[var(--foreground)] bg-[var(--foreground)] text-[var(--background)]"
+                        : "border-[var(--border-strong)]"
+                    }`}
+                  >
+                    {checked && <Check width={10} height={10} />}
+                  </span>
+                  {SHORTCUTS_BY_ID[id].label}
+                  <span className="sr-only">{checked ? "On" : "Off"}</span>
+                  <span className="ml-auto pl-4 font-mono text-[11px] text-[var(--muted)]">
+                    {hint(id)}
+                  </span>
+                </MenuItem>
+              );
+              return (
+                <>
+                  {item("view.zoomIn", () => viewport.zoomBy(ZOOM_STEP))}
+                  {item("view.zoomOut", () => viewport.zoomBy(1 / ZOOM_STEP))}
+                  {item("view.zoomReset", viewport.resetZoom)}
+                  {item("view.zoomFit", fit)}
+                  <div className="nt-menu-sep" aria-hidden />
+                  {toggle("view.stage", screenState.stage, () => screen.toggle("stage"))}
+                  {toggle("view.minimal", screenState.minimal, () => screen.toggle("minimal"))}
+                  {screen.canFullscreen() &&
+                    toggle("view.fullscreen", screenState.fullscreen, () =>
+                      screen.toggle("fullscreen"),
+                    )}
+                </>
+              );
+            }}
+          </Menu>
+        )}
 
         <span className="nt-toolbar-sep" aria-hidden />
 

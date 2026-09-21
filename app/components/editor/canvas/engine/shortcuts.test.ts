@@ -123,6 +123,7 @@ describe("matchShortcut", () => {
       { id: "view.zoomFit", spec: "Shift+1" },
       { id: "edit.deselect", spec: "escape" },
       { id: "tool.hand", spec: "Alt+Shift+h" },
+      { id: "tool.rect", spec: "r" },
       { id: "edit.duplicate", spec: "Mod+d" },
       { id: "move.nudge", spec: "arrowleft" },
       { id: "toggle.hidden", spec: "Mod+Shift+h" },

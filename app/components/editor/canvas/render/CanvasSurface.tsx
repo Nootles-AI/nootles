@@ -38,6 +38,7 @@
  * reason to reach for the model and no excuse for the two to drift again.
  */
 
+import { takeHandedTool } from "../engine/handedTool";
 import {
   useCallback,
   useEffect,
@@ -1548,6 +1549,11 @@ export function CanvasSurface({
       mode.onPointerDown?.(event.nativeEvent, modeCtx());
       return;
     }
+    // A shape armed on the page's bar and pressed onto this canvas: this press
+    // draws it, and the bar shows it in hand while it does.
+    const handed = readOnly ? null : takeHandedTool();
+    if (handed) setTool(handed);
+    const using = handed ?? tool;
     // Every branch below either captures the pointer or suppresses the default
     // drag, both of which would otherwise cost the canvas its focus — and with
     // it the keymap and the clipboard.
@@ -1555,7 +1561,7 @@ export function CanvasSurface({
     dropHover();
     busy.current = true;
 
-    if (tool === "hand") {
+    if (using === "hand") {
       event.preventDefault();
       startPan({ x: event.clientX, y: event.clientY });
       return;
@@ -1565,7 +1571,7 @@ export function CanvasSurface({
     // branch — a mode wins over the zoom tool while it is active, which is
     // this file's one documented case of that ordering (build-plan OQ-6):
     // you cannot sensibly draw a zoom-marquee while the eyedropper is up.
-    if (tool === "zoom") {
+    if (using === "zoom") {
       event.preventDefault();
       startZoom(event);
       return;
@@ -1573,14 +1579,14 @@ export function CanvasSurface({
 
     const point = scenePoint(event);
     if (
-      tool === "rect" ||
-      tool === "ellipse" ||
-      tool === "text" ||
-      tool === "polygon" ||
-      tool === "diamond"
+      using === "rect" ||
+      using === "ellipse" ||
+      using === "text" ||
+      using === "polygon" ||
+      using === "diamond"
     ) {
       event.preventDefault();
-      startDraw(tool, point);
+      startDraw(using, point);
       return;
     }
 
