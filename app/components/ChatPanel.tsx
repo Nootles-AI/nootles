@@ -26,7 +26,7 @@ export function ChatPanel({
   className = "",
   style,
 }: {
-  /** A CSS width — the shell holds the rail's live one in a custom property. */
+  /** A CSS width: the rail face it fills, or the drawer's own when narrow. */
   width: string;
   projectId: Id<"projects">;
   pageId: Id<"pages"> | null;

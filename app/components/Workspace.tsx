@@ -69,16 +69,23 @@ const RIGHT = { def: 320, min: 260, max: 560 };
 const SPLIT = { def: 0.5, min: 0.25, max: 0.75 };
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
 
-/* The three widths, as custom properties on the shell rather than numbers
-   passed down. A drag can then write the live value straight to the DOM and
-   leave React alone until the pointer is released — the alternative is a render
-   of the sidebar, both documents and the transcript per frame of a rail drag. */
-const VARS = { left: "--nt-left", right: "--nt-right", aside: "--nt-aside" };
+/* A rail's width lives on its slot and faces as `--nt-rail-w`, which
+   globals.css registers as not inherited. A drag writes the live value straight
+   onto those few boxes and leaves React alone until the pointer is released —
+   the alternative is a render of the sidebar, both documents and the transcript
+   per frame. Not on the shell: an inherited property there restyled every
+   element of the document on every pointer move. */
+const RAIL_W = "--nt-rail-w";
+const railWidth = (px: number) => ({ [RAIL_W]: `${px}px` }) as CSSProperties;
+function writeRailWidth(slot: HTMLElement | null, px: number) {
+  if (!slot) return;
+  for (const el of [slot, ...slot.children] as HTMLElement[]) el.style.setProperty(RAIL_W, `${px}px`);
+}
 /** A canvas with no `screen` (none claimed) never changes, so this subscribe
  *  is a stable identity `useSyncExternalStore` can hold onto across renders. */
 const NEVER_CHANGES = () => () => {};
-const LEFT_W = `var(${VARS.left})`;
-const RIGHT_W = `var(${VARS.right})`;
+/* What a rail holds fills its face; the face carries the width. */
+const FILL = "100%";
 const DRAWER_W = "288px";
 /** How long a rail takes to close; `.nt-rail-slot` in globals.css agrees. */
 const RAIL_MS = 320;
@@ -463,10 +470,9 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
 
   /* The live value goes to the DOM; only the release goes to React, which is
      what keeps a drag off the document and the transcript. */
-  const shellRef = useRef<HTMLDivElement>(null);
-  const write = useCallback((name: string, value: string) => {
-    shellRef.current?.style.setProperty(name, value);
-  }, []);
+  const leftSlotRef = useRef<HTMLDivElement>(null);
+  const rightSlotRef = useRef<HTMLDivElement>(null);
+  const asideRef = useRef<HTMLDivElement>(null);
 
   /* The column's edges, for the boxes fixed to the window that stand in it
      (`columnEdges.ts`) — a surface portalled to the body, like the storyboard's
@@ -499,17 +505,17 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
     (clientX: number, done: boolean) => {
       const width = clamp(clientX, LEFT.min, LEFT.max);
       if (done) setLeftWidth(width);
-      else write(VARS.left, `${width}px`);
+      else writeRailWidth(leftSlotRef.current, width);
     },
-    [write],
+    [],
   );
   const onResizeRight = useCallback(
     (clientX: number, done: boolean) => {
       const width = clamp(window.innerWidth - clientX, RIGHT.min, RIGHT.max);
       if (done) setRightWidth(width);
-      else write(VARS.right, `${width}px`);
+      else writeRailWidth(rightSlotRef.current, width);
     },
-    [write],
+    [],
   );
   // Measured against the column rather than the window: what is left of it
   // after the rails is all the two panes have to share.
@@ -519,9 +525,9 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
       if (!box) return;
       const share = clamp((box.right - clientX) / box.width, SPLIT.min, SPLIT.max);
       if (done) setAsideShare(share);
-      else write(VARS.aside, `${share * 100}%`);
+      else if (asideRef.current) asideRef.current.style.width = `${share * 100}%`;
     },
-    [write],
+    [],
   );
 
   // The project comes from the route now. Only the pages are a selection, and
@@ -679,7 +685,7 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
 
   const sidebar = (
     <Sidebar
-      width={compact ? DRAWER_W : LEFT_W}
+      width={compact ? DRAWER_W : FILL}
       projectId={projectId}
       selectedPageId={effectivePageId}
       otherPageId={focus === "aside" ? mainPageId : asidePageId}
@@ -697,7 +703,7 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
 
   const chatAsDrawer = compact && openDrawer === "right";
   const chatProps = {
-    width: compact ? DRAWER_W : RIGHT_W,
+    width: compact ? DRAWER_W : FILL,
     projectId,
     pageId: effectivePageId,
     onCollapse: () => (compact ? setDrawer(null) : setRightOpen(false)),
@@ -721,32 +727,21 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
      <PagesProvider pages={pageRefs}>
      <CompletionContextProvider projectId={projectId}>
      <PanelsProvider value={panels}>
-      <div
-        ref={shellRef}
-        className="nt-shell flex h-screen w-full overflow-hidden"
-        data-bare={!chrome || undefined}
-        style={
-          {
-            [VARS.left]: `${leftWidth}px`,
-            [VARS.right]: `${rightWidth}px`,
-            [VARS.aside]: `${asideShare * 100}%`,
-          } as CSSProperties
-        }
-      >
+      <div className="nt-shell flex h-screen w-full overflow-hidden" data-bare={!chrome || undefined}>
         {/* The left rail's place. It closes over what it holds when the rail is
             put away, and turns its face over when a diagram takes it. */}
         {!compact && (
-          <div className="nt-rail-slot" data-open={leftRail} style={{ "--w": LEFT_W } as CSSProperties}>
+          <div ref={leftSlotRef} className="nt-rail-slot" data-open={leftRail} style={railWidth(leftWidth)}>
             {pagesHeld && (
-              <div className="nt-rail-face" data-on={pagesOn} inert={!pagesOn}>
+              <div className="nt-rail-face" data-on={pagesOn} inert={!pagesOn} style={railWidth(leftWidth)}>
                 {sidebar}
               </div>
             )}
             {layersHeld && lastCanvas && (
-              <div className="nt-rail-face" data-on={layersOn} inert={!layersOn}>
+              <div className="nt-rail-face" data-on={layersOn} inert={!layersOn} style={railWidth(leftWidth)}>
                 <aside
                   className="nt-panel"
-                  style={{ width: LEFT_W }}
+                  style={{ width: FILL }}
                   aria-label="Layers"
                   {...undoScope}
                 >
@@ -828,8 +823,9 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
             <>
               <ResizeHandle onResize={onResizeAside} ariaLabel="Resize split" gap />
               <div
+                ref={asideRef}
                 className="flex min-w-0 shrink-0"
-                style={{ width: `var(${VARS.aside})` }}
+                style={{ width: `${asideShare * 100}%` }}
               >
                 <PageSurface
                   pageId={asidePageId}
@@ -856,9 +852,10 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
             the chat happens to be shown; turning its face over, putting the
             rail away and the narrow drawer all only hide it. */}
         <div
+          ref={rightSlotRef}
           className="nt-rail-slot is-right"
           data-open={rightRail && !compact}
-          style={{ "--w": RIGHT_W } as CSSProperties}
+          style={railWidth(rightWidth)}
         >
           {!viewer && (
             // Narrow, the chat is a fixed drawer, and a face mid-turn carries a
@@ -866,6 +863,7 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
             // there it is not a face at all.
             <div
               className={compact ? "contents" : "nt-rail-face is-right"}
+              style={railWidth(rightWidth)}
               data-on={chatOn}
               inert={!compact && !chatOn}
             >
@@ -873,12 +871,12 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
             </div>
           )}
           {designHeld && lastCanvas && (
-            <div className="nt-rail-face is-right" data-on={designOn} inert={!designOn}>
+            <div className="nt-rail-face is-right" data-on={designOn} inert={!designOn} style={railWidth(rightWidth)}>
               <CanvasStylePanel api={lastCanvas.api} />
             </div>
           )}
           {placeHeld && lastPlace && (
-            <div className="nt-rail-face is-right" data-on={placeOn} inert={!placeOn}>
+            <div className="nt-rail-face is-right" data-on={placeOn} inert={!placeOn} style={railWidth(rightWidth)}>
               <LocationPanel active={lastPlace} />
             </div>
           )}
