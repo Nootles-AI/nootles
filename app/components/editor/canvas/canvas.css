@@ -137,6 +137,17 @@
      this only shows through where the scene has none. */
   background: var(--nt-canvas-ground);
 }
+/* Inside the shell the stage is the sheet it grew out of, not a flat box laid
+   over it: the sheet's margin from the window's top and bottom, its corner and
+   its edge. With the interface hidden there is no sheet, and the stage is the
+   whole window as before. */
+.nt-shell:not([data-bare]) .nt-canvas[data-stage] > .nt-canvas-viewport {
+  inset-block: var(--inset);
+  border-radius: 14px;
+  box-shadow:
+    0 0 0 1px oklch(0.25 0.005 90 / 0.07),
+    0 12px 32px -16px oklch(0.25 0.005 90 / 0.12);
+}
 .nt-canvas[data-stage] > .nt-canvas-grip,
 .nt-canvas[data-stage] > .nt-canvas-grip-x {
   display: none;
