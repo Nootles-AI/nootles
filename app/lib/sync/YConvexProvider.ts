@@ -328,6 +328,15 @@ export class YConvexProvider {
       // again is work y-protocols would only discard after the fact.
       if (this.seenClients.get(row.clientId) === row.updatedAt) continue;
       this.seenClients.set(row.clientId, row.updatedAt);
+      // A client we are not showing has no clock worth defending. y-protocols
+      // keeps a removed client's clock and applies only a HIGHER one, so the
+      // heartbeat that brings someone back — the same state at the same clock,
+      // because nothing about them changed while they were away — is rejected,
+      // and they stay off the carets and the canvas until their own renewal
+      // timer outruns it. Their live row is the truth, whatever clock it says.
+      if (!this.awareness.states.has(row.clientId)) {
+        this.awareness.meta.delete(row.clientId);
+      }
       applyAwarenessUpdate(this.awareness, new Uint8Array(row.state), "remote");
     }
     const gone = [...this.seenClients.keys()].filter((id) => !live.has(id));
