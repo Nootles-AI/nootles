@@ -477,8 +477,8 @@ P('cast.turtle.antLBob.antL').animate({ rotate: wobble(6, 13, 0.3) });
   P('cast.rope').animate({
     y: at([[0, -700], [r0, -700, cubicBezier(0.3, 0, 0.3, 1)], [r1, 0], [q0, 0, easeIn], [q1, -700]]),
   });
-  // Down the rope with a bounce; one pull up with the card still in its arms;
-  // then, once the card is let go, up the rest of the way hand over hand.
+  // Down the rope to just above the flowchart, settling with a bounce; then,
+  // once the card is let go, up the rest of the way hand over hand.
   const LIFT = -200;
   const drop = h0 + 0.8;
   const climb: Key[] = [];
@@ -488,7 +488,7 @@ P('cast.turtle.antLBob.antL').animate({ rotate: wobble(6, 13, 0.3) });
     const b = u0 + ((u1 - u0) * (k + 0.65)) / pulls;
     climb.push([a, LIFT + ((-820 - LIFT) * k) / pulls, cubicBezier(0.4, 0, 0.2, 1)], [b, LIFT + ((-820 - LIFT) * (k + 1)) / pulls]);
   }
-  const descent: Key[] = [[0, -820], [d0, -820, cubicBezier(0.3, 0.1, 0.3, 1)], [d1, 12, easeInOut], [d1 + 0.25, -6, easeInOut], [d1 + 0.45, 0], [h0, 0, cubicBezier(0.4, 0, 0.2, 1)], [h0 + 0.6, LIFT]];
+  const descent: Key[] = [[0, -820], [d0, -820, cubicBezier(0.3, 0.1, 0.3, 1)], [d1, LIFT + 10, easeInOut], [d1 + 0.25, LIFT - 5, easeInOut], [d1 + 0.45, LIFT]];
   const ride = at([...descent, ...climb]);
   for (const s of ['bearBack', 'bearFront']) P(`cast.${s}Ride`).animate({ y: ride });
 
@@ -498,6 +498,9 @@ P('cast.turtle.antLBob.antL').animate({ rotate: wobble(6, 13, 0.3) });
   P('cast.bearFrontRide.armNear').animate({ rotate: arms });
   P('cast.bearFrontRide.thumb').animate({ rotate: arms });
   P('cast.bearBackRide.armFar').animate({ rotate: arms });
+  // The far hand is drawn as its own circle on the face of the card, so it
+  // would hang in the air once the card is gone: it goes with the card.
+  P('cast.bearFrontRide.thumb').animate({ opacity: at([[0, 1], [drop - 0.02, 1, easeOut], [drop + 0.14, 0]]) });
 
   // The card: carried down and up in its arms exactly as drawn, then let go —
   // it drops down and left, turning level, into the flowchart's empty last box.
@@ -542,16 +545,21 @@ walk({
   const pay = section([...DOC.pay].sort((a, b) => a.bb[1] - b.bb[1] || a.bb[0] - b.bb[0]), 'Section_Design_Mockups');
   // A stroke every `STROKE`; each lands one piece at the end of its sweep.
   const pieces = [...cart, ...pay];
-  const STROKE = (p1 - p0 - 0.2) / pieces.length;
+  // Unhurried strokes, each laying down its share of the mockups at the end
+  // of its sweep.
+  const STROKES = Math.max(1, Math.floor((p1 - p0 - 0.2) / 0.62));
+  const STROKE = (p1 - p0 - 0.2) / STROKES;
+  const perStroke = Math.ceil(pieces.length / STROKES);
   pieces.forEach((p, k) => {
-    const t = p0 + 0.2 + STROKE * (k + 0.7);
+    const stroke = Math.floor(k / perStroke);
+    const t = p0 + 0.2 + STROKE * (stroke + 0.62) + 0.035 * (k % perStroke);
     const big = (p.bb[2] - p.bb[0]) > 150 && (p.bb[3] - p.bb[1]) > 150;
     if (big) popIn(p.name.replace(/^Section_Design_Mockups\./, 'Section_Design_Mockups.'), t, 0.96);
     else place(p.name, t, 4, 0.18);
   });
   const stroke = over('paint', (s) => {
     const k = Math.floor((s - 0.2) / STROKE);
-    if (s < 0.2 || k >= pieces.length) return 0;
+    if (s < 0.2 || k >= STROKES) return 0;
     const u = ((s - 0.2) % STROKE) / STROKE;
     // Back, then a quick sweep forward, then ease back to the page.
     return u < 0.5 ? 10 * smooth(u / 0.5) : 10 - 20 * smooth((u - 0.5) / 0.25 > 1 ? 1 : (u - 0.5) / 0.25) + (u > 0.75 ? 10 * smooth((u - 0.75) / 0.25) : 0);
@@ -562,7 +570,8 @@ walk({
       .animate({ rotate: stroke });
   }
   // Two dips into the palette, one per mockup.
-  const mid = p0 + (p1 - p0) * (cart.length / pieces.length);
+  // The second dip comes on the stroke that starts the payment panel.
+  const mid = p0 + 0.2 + STROKE * Math.floor(cart.length / perStroke);
   const dip = at([[0, 0], [p0 - 0.1, 0, easeInOut], [p0 + 0.1, -10, easeInOut], [p0 + 0.35, 0], [mid - 0.2, 0, easeInOut], [mid, -10, easeInOut], [mid + 0.25, 0]]);
   P('cast.elephant.armFarBob.armFar').animate({ rotate: dip });
   P('cast.elephant.paletteBob.palette').animate({ rotate: dip });
@@ -577,7 +586,7 @@ walk({
 
 // -- The alien: marches in and hammers out the code, a line a blow. --
 walk({
-  cue: 'alienWalk', walker: 'cast.alien', from: -800, step: 0.26, lift: 9, stance: 0.5,
+  cue: 'alienWalk', walker: 'cast.alien', from: 1000, step: 0.26, lift: 9, stance: 0.5,
   legs: [
     { path: 'cast.alien.legL', hip: [589, 1980], foot: [590, 2040], phase: 0 },
     { path: 'cast.alien.legR', hip: [646, 1984], foot: [650, 2038], phase: 0.5 },
