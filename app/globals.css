@@ -1818,6 +1818,31 @@ a.nt-chip:hover {
   flex-wrap: wrap;
   padding: 8px 9px 0;
 }
+/* Questions asked mid-answer, in the order they will go. They sit inside the
+   box rather than in the transcript because they have not been asked yet —
+   putting them among the exchange would say the agent had heard them. */
+.nt-composer-queue {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 7px 9px 0;
+}
+.nt-queued {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px 2px 7px;
+  border-radius: var(--radius-sm);
+  background: var(--sunken);
+  font-size: var(--text-meta-lg);
+  color: var(--muted);
+}
+.nt-queued-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .nt-composer-note {
   margin: 0;
   padding: 8px 11px 0;
@@ -1926,6 +1951,22 @@ a.nt-chip:hover {
 .nt-composer-send:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+/* Beside Send while an answer runs, and quieter than it: stopping is the rarer
+   of the two, and the box may well be mid-sentence toward the other. */
+.nt-composer-stop {
+  height: 24px;
+  padding: 0 9px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-meta-lg);
+  color: var(--faint);
+  transition:
+    background var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
+}
+.nt-composer-stop:hover {
+  background: var(--hover);
+  color: var(--foreground);
 }
 
 /* Metadata voice, and quiet until wanted: a rewind sits under every question

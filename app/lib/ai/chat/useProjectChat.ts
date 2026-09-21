@@ -26,21 +26,14 @@ import {
   isAnswered,
   type PendingApproval,
 } from "./BrowserChat";
-import { withAttachmentUrls, type ReadyAttachment } from "./attachments";
+import { withAttachmentUrls } from "./attachments";
 import { runClientTool, type ToolContext } from "./clientTools";
 import { duplicateMutationResult, isRepeatedMutation } from "./toolReplay";
 import type { DrawChoice } from "../drawStyles";
-import { resolveMentions, type MentionPick } from "./mentions";
+import { resolveMentions } from "./mentions";
 import type { MentionData } from "./parts";
 import { isClientTool } from "./tools";
-import type { AbMessage } from "./types";
-
-/** What the composer hands over: the words, and what was attached to them. */
-export type ChatDraft = {
-  text: string;
-  attachments: ReadyAttachment[];
-  mentions: MentionPick[];
-};
+import type { AbMessage, ChatDraft, QueuedDraft } from "./types";
 
 const EMPTY = {
   messages: [] as AbMessage[],
@@ -48,6 +41,7 @@ const EMPTY = {
   error: undefined,
   busy: false,
   approvals: [] as PendingApproval[],
+  queued: [] as QueuedDraft[],
 };
 
 /**
@@ -265,54 +259,107 @@ export function useProjectChat({
     void latest.current.review.endTurn(current.chatPromptId);
   }, [snapshot.busy]);
 
-  const send = useCallback(
+  /**
+   * The send itself, once it is this draft's turn to go.
+   *
+   * Split from `send` so that a draft that waited takes exactly the path a
+   * typed one does — read, addressed and billed here, against the document the
+   * answer it waited for has just finished changing rather than against the one
+   * it was written over. It does not ask whether anything is ahead of it: that
+   * is `send`'s question, and the queue has already answered it.
+   */
+  const sendNow = useCallback(
     async (draft: ChatDraft) => {
       const { threadId: id, projectId: pid, pageId: page } = latest.current;
-      // Never into a turn that is still running: the loop hands a tool result to
-      // whatever message is last, and that would now be this one.
-      if (!chat || !id || !hasContent(draft) || chat.store.getSnapshot().busy)
-        return;
+      if (!chat || !id) return;
 
-      // Read here, before anything is written down: a mention means the page as
-      // it stands at the moment the user asked, and the agent is about to start
-      // moving between pages and changing them.
-      const mentions = await resolveMentions(draft.mentions, makeContext());
-      const { parts, attachments } = userParts(draft, mentions);
+      // Busy from here rather than from the request. Everything below is awaits,
+      // and a send that reads as idle until the stream opens is one the queue
+      // would drain a second question into.
+      chat.store.sendStarted();
+      try {
+        // Read here, before anything is written down: a mention means the page
+        // as it stands at the moment the user asked, and the agent is about to
+        // start moving between pages and changing them.
+        const mentions = await resolveMentions(draft.mentions, makeContext());
+        const { parts, attachments } = userParts(draft, mentions);
 
-      // Written before the turn runs, with an id minted here rather than by the
-      // SDK. `sendMessage` only resolves once the answer is finished, and the
-      // answer is persisted on the way out of it — so a user row written after
-      // that await would be given the later `seq` of the two, and the thread
-      // would reload, and be re-sent to the model, answer before question.
-      const chatPromptId = crypto.randomUUID();
-      const message = {
-        id: crypto.randomUUID(),
-        role: "user" as const,
-        parts,
-        metadata: { pageIdAtSend: page ?? undefined, chatPromptId },
-      };
-      void latest.current.putMessage({
-        threadId: id,
-        uiId: message.id,
-        role: "user",
-        parts: message.parts,
-        metadata: message.metadata,
-        chatPromptId,
-        pageIdAtSend: page ?? undefined,
-        ...(attachments.length ? { attachments } : {}),
-      });
+        // Written before the turn runs, with an id minted here rather than by
+        // the SDK. `sendMessage` only resolves once the answer is finished, and
+        // the answer is persisted on the way out of it — so a user row written
+        // after that await would be given the later `seq` of the two, and the
+        // thread would reload, and be re-sent to the model, answer before
+        // question.
+        const chatPromptId = crypto.randomUUID();
+        const message = {
+          id: crypto.randomUUID(),
+          role: "user" as const,
+          parts,
+          metadata: { pageIdAtSend: page ?? undefined, chatPromptId },
+        };
+        void latest.current.putMessage({
+          threadId: id,
+          uiId: message.id,
+          role: "user",
+          parts: message.parts,
+          metadata: message.metadata,
+          chatPromptId,
+          pageIdAtSend: page ?? undefined,
+          ...(attachments.length ? { attachments } : {}),
+        });
 
-      turn.current = { chatPromptId, started: false };
-      void latest.current.review.beginTurn({
-        threadId: id,
-        projectId: pid,
-        chatPromptId,
-      });
-      track("chat_prompt_sent", { attachments: attachments.length });
-      await chat.sendMessage(message);
+        turn.current = { chatPromptId, started: false };
+        void latest.current.review.beginTurn({
+          threadId: id,
+          projectId: pid,
+          chatPromptId,
+        });
+        track("chat_prompt_sent", { attachments: attachments.length });
+        await chat.sendMessage(message);
+      } finally {
+        chat.store.sendSettled();
+      }
     },
     [chat, makeContext],
   );
+
+  const send = useCallback(
+    async (draft: ChatDraft) => {
+      if (!chat || !latest.current.threadId || !hasContent(draft)) return;
+
+      // Anything ahead of it means it waits. A turn still running, because the
+      // loop hands a tool result to whatever message is last and that would now
+      // be this one — and asking mid-answer is how a person corrects an agent
+      // that has already started, so refusing the words is not an option. Or
+      // questions already waiting on a turn that has just this instant ended,
+      // which is a queue with a gap in it rather than a queue.
+      const { busy, queued } = chat.store.getSnapshot();
+      if (busy || queued.length) {
+        chat.store.enqueue(draft);
+        track("chat_prompt_queued", { waiting: queued.length });
+        return;
+      }
+
+      await sendNow(draft);
+    },
+    [chat, sendNow],
+  );
+
+  /**
+   * The queue drains itself.
+   *
+   * Not a derived value being written back — a question waiting for a turn to
+   * end is a fact this hook owns, and the turn ending is the event. `busy` is
+   * re-read off the store rather than taken from the render this effect belongs
+   * to: `sendNow` makes the chat busy synchronously, so a stale "ready" here
+   * would be two questions on the wire at once.
+   */
+  useEffect(() => {
+    if (!chat || snapshot.busy || !snapshot.queued.length) return;
+    if (chat.store.getSnapshot().busy) return;
+    const next = chat.store.takeQueued();
+    if (next) void sendNow(next.draft);
+  }, [chat, sendNow, snapshot.busy, snapshot.queued]);
 
   /** The first thing asked names the thread, the way Cursor titles a chat. */
   const nameThreadFrom = useCallback((text: string) => {
@@ -371,7 +418,18 @@ export function useProjectChat({
     [chat],
   );
 
-  const stop = useCallback(() => void chat?.cancel(), [chat]);
+  /**
+   * Stop. Ends the turn and drops what was waiting behind it — see
+   * `BrowserChat.cancel`.
+   */
+  const stop = useCallback(() => {
+    if (!chat) return;
+    track("chat_turn_stopped", { dropped: chat.store.getSnapshot().queued.length });
+    void chat.cancel();
+  }, [chat]);
+
+  /** Taking a waiting question back out of the queue. */
+  const unqueue = useCallback((id: string) => chat?.store.unqueue(id), [chat]);
 
   /**
    * Puts the conversation back to just before a message was sent.
@@ -400,11 +458,13 @@ export function useProjectChat({
     error: snapshot.error,
     busy: snapshot.busy,
     approvals: snapshot.approvals,
+    queued: snapshot.queued,
     send,
     nameThreadFrom,
     answerApproval,
     answerDraws,
     stop,
+    unqueue,
     rewind,
     ready: hydrated && !!chat,
   };

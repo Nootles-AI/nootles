@@ -6,7 +6,7 @@ import {
   type ChatState,
   type ChatStatus,
 } from "ai";
-import type { AbMessage } from "./types";
+import type { AbMessage, ChatDraft, QueuedDraft } from "./types";
 
 /**
  * The chat loop, running in the browser.
@@ -33,7 +33,9 @@ export type ChatSnapshot = {
    * Whether a turn is still in progress. Wider than `status`, which goes back to
    * "ready" the moment a stream ends — and both a tool the browser has to answer
    * and a call waiting on the user end one, so the middle of a turn looks idle to
-   * `status` alone.
+   * `status` alone. Wider at the front too: a send is under way from the moment
+   * it is asked for, through the uploads and mention reads before the request,
+   * so the gap between pressing Send and the stream opening is not an idle one.
    */
   busy: boolean;
   /**
@@ -42,6 +44,8 @@ export type ChatSnapshot = {
    * where a deletion still comes one at a time.
    */
   approvals: PendingApproval[];
+  /** Asked mid-answer, and waiting for the answer to finish. In order. */
+  queued: QueuedDraft[];
 };
 
 /** Whether a tool call has an answer the model can be handed. */
@@ -72,6 +76,8 @@ export class ChatStore implements ChatState<AbMessage> {
   private _status: ChatStatus = "ready";
   private _error: Error | undefined;
   private running = new Set<string>();
+  private _queued: QueuedDraft[] = [];
+  private _sending = false;
   /**
    * A frozen view handed to React. Rebuilt on every mutation so
    * `useSyncExternalStore` sees a new reference and re-renders, and stable
@@ -92,11 +98,13 @@ export class ChatStore implements ChatState<AbMessage> {
       status: this._status,
       error: this._error,
       busy:
+        this._sending ||
         this._status === "submitted" ||
         this._status === "streaming" ||
         this.running.size > 0 ||
         approvals.length > 0,
       approvals,
+      queued: this._queued,
     };
   }
 
@@ -184,6 +192,53 @@ export class ChatStore implements ChatState<AbMessage> {
   };
 
   /**
+   * A turn the hook has begun but has not yet handed to the loop.
+   *
+   * Sending is not instant — attachments upload and mentions are read off the
+   * pages first — and through all of it the loop's own status is "ready". The
+   * queue drains on `busy` falling, so without this the wait would read as a
+   * turn already over and the next question would go out beside this one.
+   */
+  sendStarted = () => {
+    this._sending = true;
+    this.emit();
+  };
+
+  sendSettled = () => {
+    this._sending = false;
+    this.emit();
+  };
+
+  /** A question asked mid-answer. It keeps its place; nothing is resolved yet. */
+  enqueue = (draft: ChatDraft) => {
+    this._queued = [...this._queued, { id: crypto.randomUUID(), draft }];
+    this.emit();
+  };
+
+  /** Thought better of before its turn came. */
+  unqueue = (id: string) => {
+    const next = this._queued.filter((item) => item.id !== id);
+    if (next.length === this._queued.length) return;
+    this._queued = next;
+    this.emit();
+  };
+
+  /** The next one to send, removed as it is taken so it cannot be taken twice. */
+  takeQueued = (): QueuedDraft | null => {
+    const [head, ...rest] = this._queued;
+    if (!head) return null;
+    this._queued = rest;
+    this.emit();
+    return head;
+  };
+
+  clearQueue = () => {
+    if (!this._queued.length) return;
+    this._queued = [];
+    this.emit();
+  };
+
+  /**
    * Forgets calls that were never answered — a tool the browser abandoned, a
    * deletion nobody allowed. They are also what the thread is saved without, so
    * this is the transcript catching up with its own record; leaving them would
@@ -239,9 +294,14 @@ export class BrowserChat extends AbstractChat<AbMessage> {
    * Abandons the turn in progress. `stop()` alone cannot: it aborts a request,
    * and between a client tool's call arriving and its result going back there
    * is no request to abort.
+   *
+   * What was waiting behind it goes too. A queued question was written to follow
+   * THIS answer, and stopping is how "no, not that" is said — draining the queue
+   * into the silence that follows would start the very turn that was stopped.
    */
   cancel = async () => {
     this.cancellations++;
+    this.store.clearQueue();
     this.store.toolsAbandoned();
     await this.stop();
     this.store.dropUnansweredCalls();

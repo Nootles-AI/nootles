@@ -33,6 +33,10 @@ type EventMap = {
   suggestion_accepted: { kind: string; latencyMs: number; decisionMs: number };
   suggestion_dismissed: { kind: string; reason: string };
   chat_prompt_sent: { attachments: number };
+  /** Asked mid-answer, and how many were already waiting when it was. */
+  chat_prompt_queued: { waiting: number };
+  /** Stop, and what it cost: the queued questions it dropped along with the turn. */
+  chat_turn_stopped: { dropped: number };
   chat_turn_completed: { pages: number; status: string };
   chat_turn_rewound: Record<string, never>;
   feedback_submitted: { kind: "issue" | "wish" };
