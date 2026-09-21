@@ -903,7 +903,9 @@
 
 /* BlockNote draws a vertical guide beside every nested block. On a checklist
    that is one rule per level of indent, which reads as table chrome rather than
-   an outline — the indent already says everything the line was saying. */
+   an outline — the indent already says everything the line was saying.
+   `deadSelectors.ts` also takes BlockNote's rule for it out of the sheet, for
+   what its `:has()` costs; bringing the guide back means restoring it there. */
 .nt-editor .bn-block-group .bn-block-group > .bn-block-outer::before {
   display: none;
 }

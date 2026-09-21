@@ -16,6 +16,7 @@ import {
 import { ABOUT, BACKGROUND } from "./ai/questions";
 import { requireQuota } from "./entitlements";
 import { add as addRepos } from "./github/repos";
+import { deletePreview } from "./previews";
 import { repoRef } from "./schema";
 
 /**
@@ -403,6 +404,7 @@ export async function purgeProject(ctx: MutationCtx, projectId: Id<"projects">) 
         await Promise.all(rows.map((r) => ctx.db.delete(r._id)));
       }
 
+      await deletePreview(ctx, page.docId);
       await ctx.db.delete(page._id);
     }
 

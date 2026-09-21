@@ -2261,7 +2261,11 @@ body:has(.nt-review-bar) .nt-reformat-switcher {
   border-radius: 12px;
   background: var(--surface);
   text-align: left;
-  animation: nt-rise 550ms var(--ease) both;
+  /* `backwards`, not `both`: the keyframes have no `to`, so the end state is the
+     card's own either way — but a fill that runs forwards keeps the animation in
+     effect for good, and Chrome kept every card on a compositor layer of its
+     own for as long as the screen was open. */
+  animation: nt-rise 550ms var(--ease) backwards;
   animation-delay: calc(min(var(--i, 0), 14) * 28ms + 60ms);
   transition: transform var(--dur-fast) var(--ease);
 }
@@ -2384,7 +2388,7 @@ body:has(.nt-review-bar) .nt-reformat-switcher {
   margin-bottom: 20px;
   border-radius: 14px;
   background: var(--surface);
-  animation: nt-rise 600ms var(--ease) both;
+  animation: nt-rise 600ms var(--ease) backwards;
   transition: transform var(--dur-fast) var(--ease);
 }
 .nt-lead:has(.nt-card-link:active) {
@@ -2850,6 +2854,11 @@ body:has(.nt-review-bar) .nt-reformat-switcher {
   background: linear-gradient(to bottom, transparent, var(--background) 88%);
   pointer-events: none;
 }
+/* Not yet near the viewport, so not yet reading: the placeholder without its
+   sweep. See `PagePreview`. */
+.nt-thumb.nt-skeleton.is-still::after {
+  animation: none;
+}
 .nt-thumb.is-empty {
   display: flex;
   align-items: center;
@@ -3116,7 +3125,7 @@ body:has(.nt-review-bar) .nt-reformat-switcher {
   width: var(--control);
 }
 .nt-list-row {
-  animation: nt-rise 450ms var(--ease) both;
+  animation: nt-rise 450ms var(--ease) backwards;
   animation-delay: calc(min(var(--i, 0), 20) * 18ms);
 }
 
@@ -3135,7 +3144,7 @@ body:has(.nt-review-bar) .nt-reformat-switcher {
   overflow: hidden;
   background-color: var(--surface);
   background-image: radial-gradient(circle, oklch(0.25 0.005 90 / 0.16) 1px, transparent 1.4px);
-  background-position: var(--pan, 0 0);
+  /* `background-position` follows the pan, written inline by `ProjectsBoard`. */
   background-size: 24px 24px;
   cursor: grab;
   touch-action: none;

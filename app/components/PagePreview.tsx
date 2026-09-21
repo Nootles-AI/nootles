@@ -3,17 +3,21 @@
 import dynamic from "next/dynamic";
 import {
   Component,
+  memo,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
   type RefObject,
 } from "react";
-import { useConvex, useQuery } from "convex/react";
+import { useConvex, useConvexAuth, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { joinUpdateRows } from "@/convex/yshape";
+import { encodePreview } from "@/convex/previewShape";
+import { openYDoc } from "@/app/lib/sync/ydocRead";
+import { rememberPreview, seenPreview } from "@/app/lib/projectsCache";
 import { parseAlbum } from "@/app/components/editor/album/parse";
 import { parseLocation } from "./editor/location/parse";
 import { describeStub } from "@/app/lib/notion/stub";
@@ -110,13 +114,13 @@ const ThumbMath = dynamic(() => import("./ThumbMath"), { ssr: false });
  * `aria-hidden` because it is a picture of content the card already names, and
  * because nothing in it is text meant to be read at this size.
  */
-export function PagePreview({ docId }: { docId: string | null }) {
+export const PagePreview = memo(function PagePreview({ docId }: { docId: string | null }) {
   return (
     <PreviewBoundary>
       <PreviewReader docId={docId} />
     </PreviewBoundary>
   );
-}
+});
 
 /**
  * A thumbnail must never take the screen down with it. The queries below can
@@ -153,6 +157,41 @@ function PreviewReader({ docId }: { docId: string | null }) {
   const near = useNearViewport(box);
 
   /*
+   * The stored preview first (`schema.pagePreviews`): one small read, where
+   * drawing a card from its document is a subscription, a snapshot, the log
+   * behind it, BlockNote imported and a Y.Doc rebuilt on the main thread.
+   * Writers keep it current, so it is live the way the document was.
+   *
+   * Everything below it is the long way round, taken only for a page nobody
+   * has left a preview of yet — and it leaves one, so it is taken once.
+   */
+  // Not before Convex has the caller's token: a returning visitor's screen is
+  // up ahead of it (`FirstRun`), and asked as nobody this read is refused —
+  // which is an error, and an error blanks the card for good.
+  const { isAuthenticated } = useConvexAuth();
+  const stored = useQuery(
+    api.previews.get,
+    near && docId && isAuthenticated ? { docId } : "skip",
+  );
+  // Until it answers, the last preview this browser drew of the page: a card
+  // remounted by a change of view, the palette's side pane, a return visit.
+  // A round trip of skeleton otherwise, every time.
+  const drawn = stored ?? (stored === undefined && near && docId ? seenPreview(docId) : undefined);
+  const source = drawn?.blocks;
+  const kept = useMemo(() => {
+    if (source === undefined) return null;
+    try {
+      return JSON.parse(source) as AnyBlock[];
+    } catch {
+      return [];
+    }
+  }, [source]);
+  const unkept = stored === null;
+  useEffect(() => {
+    if (docId && stored !== undefined) rememberPreview(docId, stored);
+  }, [docId, stored]);
+
+  /*
    * `meta` is the Yjs pipeline's version channel — a change in `seq` is what
    * re-reads — and it doubles as the answer to which pipeline this doc is on:
    * null means there is no `ydocs` row, which is precisely what `ydoc.state`
@@ -163,7 +202,7 @@ function PreviewReader({ docId }: { docId: string | null }) {
    */
   const meta = useQuery(
     api.ydoc.meta,
-    YJS_ON && near && docId ? { docId } : "skip",
+    YJS_ON && unkept && docId ? { docId } : "skip",
   );
   const yjs = YJS_ON && meta != null;
   const serveEnabled = useQuery(
@@ -178,15 +217,21 @@ function PreviewReader({ docId }: { docId: string | null }) {
   const legacy = !YJS_ON || meta === null;
   const snapshot = useQuery(
     api.prosemirror.getSnapshot,
-    near && docId && legacy ? { id: docId } : "skip",
+    unkept && docId && legacy ? { id: docId } : "skip",
   );
   const since = useQuery(
     api.prosemirror.getSteps,
     snapshot?.content ? { id: docId!, version: snapshot.version } : "skip",
   );
 
-  const [blocks, setBlocks] = useState<AnyBlock[] | null>(null);
+  const [read, setRead] = useState<AnyBlock[] | null>(null);
+  const blocks = kept ?? read;
+  // Held steady so the drawn page sits out this component's re-renders. There
+  // are several per card — the gate, the token, the answer — and on a return
+  // visit each of them was redrawing a page that had not changed.
+  const page = useMemo(() => blocks?.slice(0, MAX_BLOCKS), [blocks]);
   const lastRead = useRef(0);
+  const offered = useRef(false);
 
   /*
    * BlockNote is the heaviest thing in the app and this route has no other use
@@ -199,7 +244,7 @@ function PreviewReader({ docId }: { docId: string | null }) {
     if (yjs) return;
     if (snapshot === undefined) return;
     if (!snapshot?.content) {
-      setBlocks([]);
+      setRead([]);
       return;
     }
     if (since === undefined) return;
@@ -210,11 +255,11 @@ function PreviewReader({ docId }: { docId: string | null }) {
         const { blocksFromSnapshot } = await import("@/app/lib/ai/snapshot");
         if (cancelled) return;
         try {
-          setBlocks(blocksFromSnapshot(snapshot.content, since.steps));
+          setRead(blocksFromSnapshot(snapshot.content, since.steps));
         } catch {
           // A document the reader cannot rebuild is a blank card, not a blank
           // screen. Nothing here is worth failing the projects list over.
-          setBlocks([]);
+          setRead([]);
         }
       })();
     });
@@ -224,10 +269,8 @@ function PreviewReader({ docId }: { docId: string | null }) {
     };
   }, [yjs, snapshot, since]);
 
-  // The Yjs read: chunks and tail fetched by hand (the chunk count is data, so
-  // it cannot be a fixed set of hooks), re-run whenever `meta.seq` moves. The
-  // card's own document is what it is re-run against, so a move costs the
-  // updates since the last read rather than the whole page again.
+  // The Yjs read, re-run whenever `meta.seq` moves, against a document the
+  // card keeps for as long as it is mounted.
   const live = useRef<{ docId: string; reader: YReader; cursor: number } | null>(
     null,
   );
@@ -258,57 +301,16 @@ function PreviewReader({ docId }: { docId: string | null }) {
             cursor: 0,
           });
 
-          // A compaction deletes the updates it folded, so a reader still
-          // behind the snapshot cannot page across it and takes the snapshot
-          // instead. One already past it holds that state anyway.
-          if (card.cursor < meta.snapshotSeq) {
-            // Snapshot chunks are byte slices of ONE update — gathered back
-            // into one buffer — and chunked update rows join the same way
-            // (yshape). Fetched together, the way the editor's provider does:
-            // the part count is known upfront, so a document past one chunk
-            // should not cost a round trip per 800KiB of itself.
-            const fetched = await Promise.all(
-              Array.from({ length: meta.snapshotParts }, (_, part) =>
-                convex.query(api.ydoc.snapshot, {
-                  docId,
-                  gen: meta.snapshotSeq,
-                  part,
-                }),
-              ),
-            );
-            if (cancelled) return;
-            const chunks = fetched.filter((c) => c !== null);
-            // A compaction landing between `meta` and this fetch takes the
-            // generation out from under it. Leave the cursor where it is and
-            // wait for the `meta` that compaction is about to publish —
-            // advancing it now would step over the log the fold consumed.
-            if (chunks.length !== meta.snapshotParts) return;
-            const whole = new Uint8Array(
-              chunks.reduce((n, c) => n + c.byteLength, 0),
-            );
-            let at = 0;
-            for (const c of chunks) {
-              whole.set(new Uint8Array(c), at);
-              at += c.byteLength;
-            }
-            card.reader.apply([whole]);
-            card.cursor = meta.snapshotSeq;
-          }
-          // `meta.seq` is dense, so a cursor that already reaches it has the
-          // whole document — asking for a tail that cannot exist was a round
-          // trip every card paid, on every read, to be told nothing.
-          while (card.cursor < meta.seq) {
-            const rows = await convex.query(api.ydoc.updatesSince, {
-              docId,
-              afterSeq: card.cursor,
-            });
-            if (cancelled) return;
-            if (!rows.length) break;
-            const joined = joinUpdateRows(rows);
-            if (!joined.length) break;
-            card.reader.apply(joined.map((row) => row.update));
-            card.cursor = joined.reduce((n, row) => Math.max(n, row.seq), card.cursor);
-          }
+          // The card's own document is what is read against, so a move in
+          // `seq` costs the updates since the last read, not the page again.
+          const opened = await openYDoc(convex, docId, card.cursor, (update) =>
+            card.reader.apply([update]),
+          );
+          if (cancelled) return;
+          // A fold took the snapshot out from under the read: nothing of it
+          // was applied, and the `meta` that fold publishes reads again.
+          if (!opened || opened.torn) return;
+          card.cursor = opened.cursor;
           if (serveEnabled && authority?.serve) {
             const ids = card.reader.nmlStorageIds();
             const urls = new Map(await Promise.all(ids.map(async (storageId) => [
@@ -318,14 +320,27 @@ function PreviewReader({ docId }: { docId: string | null }) {
               }),
             ] as const)));
             if (cancelled) return;
-            setBlocks(card.reader.blocks("nml", {
+            setRead(card.reader.blocks("nml", {
               resolveStorageUrl: (storageId) => urls.get(storageId) ?? undefined,
             }));
           } else {
-            setBlocks(card.reader.blocks("legacy"));
+            const blocks = card.reader.blocks("legacy");
+            setRead(blocks);
+            // Left behind for next time. Offered once: a viewer's offer is
+            // declined, and asking again on every read would not change that.
+            if (!offered.current) {
+              offered.current = true;
+              void convex
+                .mutation(api.previews.set, {
+                  docId,
+                  blocks: encodePreview(blocks),
+                  seq: card.cursor,
+                })
+                .catch(() => {});
+            }
           }
         } catch {
-          if (!cancelled) setBlocks([]);
+          if (!cancelled) setRead([]);
         }
       })();
     });
@@ -347,13 +362,16 @@ function PreviewReader({ docId }: { docId: string | null }) {
       aria-hidden="true"
       className={
         blocks === null
-          ? "nt-thumb nt-skeleton rounded-none"
+          ? // The sweep says a read is under way, and off-screen none is: a card
+            // that has never come near kept an infinite animation, and the
+            // compositor layer it runs on, for a page nobody was looking at.
+            `nt-thumb nt-skeleton rounded-none${near ? "" : " is-still"}`
           : blocks.length
             ? "nt-thumb"
             : "nt-thumb is-empty"
       }
     >
-      {blocks === null ? null : blocks.length ? (
+      {!page ? null : page.length ? (
         // Hidden until measured, so the page is never seen at full size for a
         // frame before the transform lands.
         <div
@@ -364,9 +382,7 @@ function PreviewReader({ docId }: { docId: string | null }) {
             visibility: scale ? "visible" : "hidden",
           }}
         >
-          {blocks.slice(0, MAX_BLOCKS).map((block) => (
-            <Block key={block.id} block={block} />
-          ))}
+          <PreviewBlocks blocks={page} />
         </div>
       ) : (
         <span className="nt-thumb-blank" />
@@ -422,7 +438,7 @@ export function BlocksThumb({ blocks }: { blocks: readonly AnyBlock[] }) {
  * you and what the projects screen shows you afterwards are the same drawing
  * of the same page, which is what makes the promise land.
  */
-export function PreviewBlocks({
+export const PreviewBlocks = memo(function PreviewBlocks({
   blocks,
   diagramHeight,
 }: {
@@ -437,7 +453,7 @@ export function PreviewBlocks({
       ))}
     </>
   );
-}
+});
 
 function Block({
   block,

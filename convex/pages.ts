@@ -4,6 +4,7 @@ import { gunzipSync, gzipSync } from "fflate";
 import { components } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { isTrashed, readVisible, requireEditable } from "./auth";
+import { copyPreview, deletePreview } from "./previews";
 import { refreshPageSummary, stampProject } from "./projects";
 import { rowIcon } from "./schema";
 
@@ -208,7 +209,7 @@ export async function clonePage(
   home: { projectId: Id<"projects">; ownerId: string },
 ): Promise<Id<"pages">> {
   const docId = crypto.randomUUID();
-  await copyDoc(ctx, page.docId, docId);
+  const yjs = await copyDoc(ctx, page.docId, docId);
   return await ctx.db.insert("pages", {
     ownerId: home.ownerId,
     projectId: home.projectId,
@@ -218,6 +219,7 @@ export async function clonePage(
     folderId,
     order: placed.order,
     docId,
+    ...(yjs ? { yjs } : {}),
     createdAt: Date.now(),
   });
 }
@@ -231,8 +233,10 @@ export async function clonePage(
  * after it, forwarded verbatim; the snapshot alone can sit arbitrarily far
  * behind the document (see `projects.listForScreen`), so the steps must ride
  * along. A doc on neither pipeline has never been opened — nothing to copy.
+ *
+ * Answers whether the copy is Yjs-native, which the new page row records.
  */
-async function copyDoc(ctx: MutationCtx, from: string, to: string) {
+async function copyDoc(ctx: MutationCtx, from: string, to: string): Promise<boolean> {
   const ydoc = await ctx.db
     .query("ydocs")
     .withIndex("by_doc", (q) => q.eq("docId", from))
@@ -270,14 +274,15 @@ async function copyDoc(ctx: MutationCtx, from: string, to: string) {
         data: c.data,
       });
     }
-    return;
+    await copyPreview(ctx, from, to);
+    return true;
   }
 
   const snap: { content: string | null; version?: number } = await ctx.runQuery(
     components.prosemirrorSync.lib.getSnapshot,
     { id: from },
   );
-  if (snap.content === null || snap.version === undefined) return;
+  if (snap.content === null || snap.version === undefined) return false;
   await ctx.runMutation(components.prosemirrorSync.lib.submitSnapshot, {
     id: to,
     version: snap.version,
@@ -295,6 +300,7 @@ async function copyDoc(ctx: MutationCtx, from: string, to: string) {
       steps: trailing.steps,
     });
   }
+  return false;
 }
 
 export const setMode = mutation({
@@ -368,6 +374,7 @@ export async function removePageCascade(ctx: MutationCtx, page: Doc<"pages">) {
   }
 
   await forgetTurns(ctx, page);
+  await deletePreview(ctx, page.docId);
   await ctx.db.delete(page._id);
 }
 

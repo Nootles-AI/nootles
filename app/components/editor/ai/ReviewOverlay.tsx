@@ -116,6 +116,17 @@ export function ReviewOverlay({
         transaction.getMeta("y-sync$") !== undefined
       )
         return;
+      // With nothing under review on this page `userEdited` has no turn to
+      // mark, and the diff that feeds it reads the whole document on both
+      // sides of the transaction — a millisecond a keystroke on a long page.
+      // Asked of the session rather than of React state, which can trail it.
+      const open = session
+        .getSnapshot()
+        .some(
+          (turn) =>
+            session.isOpen(turn) && turn.pages.some((p) => p.pageId === pageId),
+        );
+      if (!open) return;
       const ids = getBlocksChangedByTransaction(transaction, appendedTransactions)
         .filter((change) => change.type !== "delete" && !HISTORY.has(change.source.type))
         .map((change) => change.block.id as string);

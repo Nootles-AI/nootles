@@ -1,7 +1,14 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useMemo, useRef, type ReactElement } from "react";
+import {
+  useCallback,
+  useEffect,
+  useInsertionEffect,
+  useMemo,
+  useRef,
+  type ReactElement,
+} from "react";
 import { BlockNoteView } from "@blocknote/mantine";
 import "@blocknote/mantine/style.css";
 import {
@@ -60,6 +67,7 @@ import { SlashMenu } from "./SlashMenu";
 import * as Icon from "../Icons";
 import { useReadOnly } from "./readOnly";
 import { trailingParagraphExtension } from "./trailingParagraph";
+import { dropDeadSelectors } from "./deadSelectors";
 import "./editor.css";
 
 type EditorInstance = typeof schema.BlockNoteEditor;
@@ -476,6 +484,13 @@ type EditorProps = {
   title?: string;
   /** How eager ambient suggestions should be on this page. */
   mode?: PageMode;
+  /**
+   * The page row's own word that this document is on the Yjs pipeline
+   * (`pages.yjs`). Known before any query about the document is, so the
+   * document starts loading in the same round trip as `meta` rather than the
+   * one after it. Absent just means "ask".
+   */
+  yjs?: boolean;
 };
 
 /** The flag the Yjs cutover ships behind; off means the app you had. */
@@ -550,11 +565,11 @@ export function Editor(props: EditorProps) {
     serveEnabled ? { docId: props.docId } : "skip",
   );
   if (!YJS_ON) return <LegacyEditor {...props} />;
-  if (meta === undefined) return placeholder;
+  if (!props.yjs && meta === undefined) return placeholder;
   if (serveEnabled && authority?.serve) {
     return <YjsEditor {...props} served />;
   }
-  if (meta !== null) return <YjsEditor {...props} />;
+  if (props.yjs || meta !== null) return <YjsEditor {...props} />;
   // No `ydocs` row: legacy or never-written, and only `state` tells them apart.
   if (state === undefined) return placeholder;
   if (state === "yjs") return <YjsEditor {...props} />;
@@ -698,6 +713,11 @@ function EditorSurface({
   // A viewer-role workspace: same document, none of the authoring. The context
   // also reaches the custom blocks, which disable themselves through it.
   const readOnly = useReadOnly();
+
+  // An insertion effect because it has to beat the document into the DOM: the
+  // view mounts on a ref and the node views in layout effects, and each of
+  // those is a style read the dead rules would turn into a whole-page restyle.
+  useInsertionEffect(dropDeadSelectors, []);
 
   useRegisterEditor(pageId, editor, docId, pipeline);
   const completion = useTabCompletion(readOnly ? null : editor, pageId, title, mode, docId);

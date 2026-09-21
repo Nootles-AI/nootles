@@ -1,9 +1,10 @@
 "use client";
 
-import { ReactNode, useCallback, useMemo, useState } from "react";
+import { ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { ConvexReactClient, ConvexProviderWithAuth } from "convex/react";
-import { useAuth } from "@clerk/nextjs";
+import { useAuth, useClerk } from "@clerk/nextjs";
 import { impersonationToken } from "./lib/impersonation";
+import { forgetOnSignOut } from "./lib/projectsCache";
 import { requireConvexDeploymentUrl } from "./lib/convexDeploymentUrl";
 
 const convex = new ConvexReactClient(
@@ -62,6 +63,11 @@ function useNootlesAuth() {
 }
 
 export function ConvexClientProvider({ children }: { children: ReactNode }) {
+  // Here rather than on the projects screen, because this is the one place
+  // mounted on every route: signing out from inside a project has to clear
+  // what the screen cached just as surely as signing out from the screen.
+  const clerk = useClerk();
+  useEffect(() => forgetOnSignOut(clerk), [clerk]);
   return (
     <ConvexProviderWithAuth client={convex} useAuth={useNootlesAuth}>
       {children}

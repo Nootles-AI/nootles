@@ -40,14 +40,7 @@ export async function fetchSnapshotUpdate(
     ),
   );
   if (fetched.some((chunk) => chunk === null)) return null;
-  const chunks = fetched as ArrayBuffer[];
-  const whole = new Uint8Array(chunks.reduce((n, c) => n + c.byteLength, 0));
-  let at = 0;
-  for (const chunk of chunks) {
-    whole.set(new Uint8Array(chunk), at);
-    at += chunk.byteLength;
-  }
-  return whole;
+  return joinChunks(fetched as ArrayBuffer[]);
 }
 
 /**
@@ -79,27 +72,68 @@ export async function applyUpdatesSince(
   }
 }
 
+function joinChunks(chunks: readonly ArrayBuffer[]): Uint8Array {
+  const whole = new Uint8Array(chunks.reduce((n, c) => n + c.byteLength, 0));
+  let at = 0;
+  for (const chunk of chunks) {
+    whole.set(new Uint8Array(chunk), at);
+    at += chunk.byteLength;
+  }
+  return whole;
+}
+
+/**
+ * Brings a holder of `cursor` up to the stored document, in one round trip
+ * wherever the document allows it: `ydoc.load` answers with the snapshot and
+ * the log together, and only a document too heavy for that is fetched the
+ * long way — its snapshot by chunk, its log by page.
+ *
+ * Null when the document has no Yjs row. `torn` means a fold replaced the
+ * snapshot generation mid-read: nothing of it was applied, the cursor has not
+ * moved, and the caller reads again rather than applying the tail alone.
+ */
+export async function openYDoc(
+  client: YClient,
+  docId: string,
+  cursor: number,
+  apply: (update: Uint8Array) => void,
+): Promise<{ seq: number; cursor: number; torn: boolean } | null> {
+  const loaded = await client.query(api.ydoc.load, { docId, afterSeq: cursor });
+  if (!loaded) return null;
+  if (cursor < loaded.snapshotSeq && loaded.snapshotParts > 0) {
+    const snapshot = loaded.snapshot
+      ? joinChunks(loaded.snapshot)
+      : await fetchSnapshotUpdate(client, docId, loaded);
+    if (!snapshot) return { seq: loaded.seq, cursor, torn: true };
+    apply(snapshot);
+    cursor = loaded.snapshotSeq;
+  }
+  for (const row of joinUpdateRows(loaded.updates)) {
+    apply(row.update);
+    cursor = Math.max(cursor, row.seq);
+  }
+  if (cursor < loaded.seq) {
+    cursor = await applyUpdatesSince(client, docId, cursor, apply);
+  }
+  return { seq: loaded.seq, cursor, torn: false };
+}
+
 /**
  * A whole stored document, snapshot first and then the tail, for a caller that
  * reads once and is done. Empty when the document has no Yjs row yet.
  *
- * Re-read from fresh meta when a fold replaces the generation mid-read: the
- * tail alone is not the document, and half of one is worse than another round
- * trip. The loop only turns when a compaction lands inside it.
+ * Re-read when a fold replaces the generation mid-read: the tail alone is not
+ * the document, and half of one is worse than another round trip. The loop
+ * only turns when a compaction lands inside it.
  */
 export async function readYDocUpdates(
   client: YClient,
   docId: string,
 ): Promise<Uint8Array[]> {
   for (;;) {
-    const meta = await client.query(api.ydoc.meta, { docId });
-    if (!meta) return [];
-    const snapshot = await fetchSnapshotUpdate(client, docId, meta);
-    if (!snapshot && meta.snapshotParts > 0) continue;
-    const updates = snapshot ? [snapshot] : [];
-    await applyUpdatesSince(client, docId, meta.snapshotSeq, (update) =>
-      updates.push(update),
-    );
-    return updates;
+    const updates: Uint8Array[] = [];
+    const opened = await openYDoc(client, docId, 0, (update) => updates.push(update));
+    if (!opened) return [];
+    if (!opened.torn) return updates;
   }
 }

@@ -320,3 +320,44 @@ export const forgetDeletedTurnPages = internalMutation({
     };
   },
 });
+
+/**
+ * Stamps `pages.yjs` on every page whose document already has a `ydocs` row.
+ *
+ * The flag was only ever written by `ydoc.append`, so a page nobody has edited
+ * since it migrated never got one — measured at 38% of production's Yjs pages.
+ * The flag is what lets the editor start loading a document in the same round
+ * trip as `meta` instead of the one after it (`Editor`'s `yjs` prop), and what
+ * lets `ydoc.state` answer without the `ydocs` lookup, so the pages it is
+ * missing from are exactly the ones opened to be read. `ydoc.init` stamps it
+ * at birth now; this is for the documents born before that.
+ *
+ * Run again with the returned cursor until `done`. Idempotent.
+ */
+export const stampYjsPages = internalMutation({
+  args: { cursor: v.optional(v.string()) },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ seen: number; stamped: number; done: boolean; cursor: string | null }> => {
+    const batch = await ctx.db
+      .query("ydocs")
+      .paginate({ numItems: BATCH, cursor: args.cursor ?? null });
+    let stamped = 0;
+    for (const ydoc of batch.page) {
+      const page = await ctx.db
+        .query("pages")
+        .withIndex("by_doc", (q) => q.eq("docId", ydoc.docId))
+        .unique();
+      if (!page || page.yjs) continue;
+      await ctx.db.patch(page._id, { yjs: true });
+      stamped++;
+    }
+    return {
+      seen: batch.page.length,
+      stamped,
+      done: batch.isDone,
+      cursor: batch.isDone ? null : batch.continueCursor,
+    };
+  },
+});

@@ -59,6 +59,8 @@ import type * as notion_seal from "../notion/seal.js";
 import type * as onboarding from "../onboarding.js";
 import type * as pages from "../pages.js";
 import type * as presence from "../presence.js";
+import type * as previewShape from "../previewShape.js";
+import type * as previews from "../previews.js";
 import type * as profiles from "../profiles.js";
 import type * as projects from "../projects.js";
 import type * as prosemirror from "../prosemirror.js";
@@ -130,6 +132,8 @@ declare const fullApi: ApiFromModules<{
   onboarding: typeof onboarding;
   pages: typeof pages;
   presence: typeof presence;
+  previewShape: typeof previewShape;
+  previews: typeof previews;
   profiles: typeof profiles;
   projects: typeof projects;
   prosemirror: typeof prosemirror;

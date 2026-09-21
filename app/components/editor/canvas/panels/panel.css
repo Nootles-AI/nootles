@@ -48,8 +48,15 @@
 /* Sections are the direct children, and one that does not apply renders
    nothing at all — so the rule that draws the dividers is also the rule that
    omits them. `.nt-ctl-section` carries its own top border for the same
-   reason; this one covers the align strip, which is not a section. */
-.nt-style-panel-body > * + * {
+   reason; this one covers the align strip, which is not a section.
+
+   Spelled `:not(:first-child)` rather than `* + *`, which selects the same
+   children. A universal sibling selector is one the browser cannot scope to
+   this panel: it answers every element inserted anywhere on the page by
+   restyling that element's siblings' whole subtrees, and for a new block in a
+   long document that is the document — 8ms of every Enter on a 540-block page.
+   `:where()` keeps the specificity the old spelling had. */
+.nt-style-panel-body > :where(:not(:first-child)) {
   border-top: 1px solid var(--border);
 }
 
