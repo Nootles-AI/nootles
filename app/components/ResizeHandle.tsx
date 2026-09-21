@@ -47,12 +47,15 @@ export function ResizeHandle({
     window.addEventListener("mouseup", up);
     document.body.style.cursor = "col-resize";
     document.body.style.userSelect = "none";
+    // A rail being dragged follows the hand; it does not ease after it.
+    document.body.dataset.resizing = "";
     return () => {
       if (frame) cancelAnimationFrame(frame);
       window.removeEventListener("mousemove", move);
       window.removeEventListener("mouseup", up);
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
+      delete document.body.dataset.resizing;
     };
   }, [dragging, onResize]);
 

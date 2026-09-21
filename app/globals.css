@@ -568,6 +568,25 @@ body {
 }
 .nt-well {
   padding-block: var(--inset);
+  transition: padding 320ms var(--ease);
+}
+/* With no rail on a side, the sheet keeps the same margin from the window that
+   it keeps from the top and bottom. */
+.nt-well[data-edge-l] {
+  padding-left: var(--inset);
+}
+.nt-well[data-edge-r] {
+  padding-right: var(--inset);
+}
+/* The sidebar gone, the page's left gutter is where its way back and the
+   feedback button stand; the text keeps clear of both. */
+.nt-well[data-edge-l] > .nt-pane {
+  padding-left: 40px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .nt-well {
+    transition: none;
+  }
 }
 .nt-well > .nt-pane,
 .nt-well > div > .nt-pane {
@@ -584,6 +603,70 @@ body {
 .nt-shell[data-bare] .nt-pane {
   border-radius: 0;
   box-shadow: none;
+}
+
+/* A rail's place in the shell. Putting a rail away closes this over it — the
+   rail keeps its width and slides out toward its own edge of the window while
+   the sheet takes the room — and the workspace keeps the rail mounted for as
+   long as that takes (`RAIL_MS`). One animated width per open or close, by
+   hand; a drag on the divider is followed, never eased. No transform here: the
+   chat inside becomes a fixed drawer on a narrow window, and a transformed
+   ancestor would become what it is fixed to. */
+.nt-rail-slot {
+  display: flex;
+  flex: none;
+  justify-content: flex-end;
+  width: 0;
+  height: 100%;
+  overflow: hidden;
+  transition: width 320ms var(--ease);
+}
+.nt-rail-slot.is-right {
+  justify-content: flex-start;
+}
+.nt-rail-slot[data-open="true"] {
+  width: var(--w);
+}
+body[data-resizing] .nt-rail-slot {
+  transition: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .nt-rail-slot {
+    transition: none;
+  }
+}
+
+/* The way back to a rail that has been put away, in the sheet's corner on the
+   side it went to. The right corner is also where presence floats. */
+.nt-corner {
+  position: absolute;
+  top: calc(var(--inset) + 10px);
+  z-index: var(--z-sticky);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  pointer-events: none;
+}
+.nt-corner > * {
+  pointer-events: auto;
+}
+.nt-corner.is-left {
+  left: 10px;
+}
+.nt-corner.is-right {
+  right: 14px;
+}
+.nt-corner > .nt-icon-btn {
+  animation: nt-corner-in 420ms var(--spring) 200ms backwards;
+}
+@keyframes nt-corner-in {
+  from {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+}
+.nt-shell[data-bare] .nt-corner {
+  top: 10px;
 }
 
 /* A divider with nothing drawn at rest. It shows a hairline to a hand that has
