@@ -81,6 +81,7 @@ import {
 import { MAX_ZOOM, useViewport, type ViewportController } from "../engine/useViewport";
 import type { DiagramPatch } from "../panels/StylePanel";
 import { undoScope } from "@/app/lib/history/useWorkspaceHistory";
+import { followColumnEdges } from "@/app/lib/columnEdges";
 import {
   absoluteBounds,
   absoluteSelectionBounds,
@@ -659,6 +660,8 @@ export function CanvasSurface({
   const stageWheelSwallow = useRef<((e: WheelEvent) => void) | null>(null);
   // The opening or closing in flight, so a toggle mid-way can stop it cleanly.
   const stageMorph = useRef<{ animations: Animation[]; cancel: () => void } | null>(null);
+  // Staged, the surface stands in the document column: it follows its edges.
+  const stageEdges = useRef<(() => void) | null>(null);
 
   const [screenHost] = useState<ScreenHost>(() => ({
     // A storyboard shot's viewport is locked to its frame and a read-only
@@ -683,6 +686,15 @@ export function CanvasSurface({
       }
 
       const still = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+
+      const stand = (staged: boolean) => {
+        wrapEl.toggleAttribute("data-stage", staged);
+        // Said on the body too, for the chrome that is portalled there and so
+        // sits outside anything the stage covers — the block handles.
+        document.body.toggleAttribute("data-nt-staged", staged);
+        stageEdges.current?.();
+        stageEdges.current = staged ? followColumnEdges(el) : null;
+      };
 
       if (!on && !still && wrapEl.hasAttribute("data-stage")) {
         // Closing plays the opening backwards while the stage is still the
@@ -716,8 +728,7 @@ export function CanvasSurface({
             if (done) return;
             done = true;
             stageMorph.current = null;
-            wrapEl.toggleAttribute("data-stage", false);
-            document.body.toggleAttribute("data-nt-staged", false);
+            stand(false);
             viewport.set(home);
             clip.cancel();
           };
@@ -736,10 +747,7 @@ export function CanvasSurface({
 
       const from = el.getBoundingClientRect();
       const before = { w: el.clientWidth, h: el.clientHeight };
-      wrapEl.toggleAttribute("data-stage", on);
-      // Said on the body too, for the chrome that is portalled there and so
-      // sits outside anything the stage covers — the block handles.
-      document.body.toggleAttribute("data-nt-staged", on);
+      stand(on);
       // The one forced layout per toggle: the attribute above just changed
       // `.nt-canvas-viewport`'s `position`, and the container's own box only
       // reflects that once the browser has recomputed it.
@@ -858,12 +866,11 @@ export function CanvasSurface({
         // only the false positive goes away.
         requestAnimationFrame(() => setTimeout(() => {
           const rect = el.getBoundingClientRect();
-          const style = getComputedStyle(document.documentElement);
-          const left = parseFloat(style.getPropertyValue("--nt-stage-l")) || 0;
-          const right = parseFloat(style.getPropertyValue("--nt-stage-r")) || 0;
+          const own = getComputedStyle(el);
+          const left = parseFloat(own.getPropertyValue("--nt-stage-l")) || 0;
+          const right = parseFloat(own.getPropertyValue("--nt-stage-r")) || 0;
           // Top and bottom are the stage's own: the sheet's margin inside the
           // shell, nothing when the interface is hidden.
-          const own = getComputedStyle(el);
           const expected = {
             top: parseFloat(own.top) || 0,
             left,
@@ -933,6 +940,8 @@ export function CanvasSurface({
       if (wrapEl?.hasAttribute("data-stage")) {
         document.body.removeAttribute("data-nt-staged");
       }
+      stageEdges.current?.();
+      stageEdges.current = null;
     };
   }, [screen]);
 

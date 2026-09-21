@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useSyncExternalStore, type RefObject } from "react";
+import { useEffect, useRef, useSyncExternalStore, type RefObject } from "react";
 import { track } from "@/app/lib/telemetry";
+import { useColumnEdges } from "@/app/lib/columnEdges";
 import { useSpineState, useWorkspaceHistory } from "@/app/lib/history/useWorkspaceHistory";
 import type { LiveEditor, EditorRegistry } from "./editor/EditorRegistry";
 import { Button, PaletteButton, REDO, TOOLS, ToolRow, UNDO } from "./editor/canvas/Toolbar";
@@ -60,9 +61,11 @@ export function PageToolbar({
   const hint = (id: ShortcutId) => shortcutHint(id, apple);
   const spine = useWorkspaceHistory();
   const history = useSpineState(spine);
+  const dock = useRef<HTMLDivElement>(null);
+  useColumnEdges(dock);
 
   return (
-    <div className="nt-toolbar-dock is-page" data-armed={tool !== "move" || undefined}>
+    <div ref={dock} className="nt-toolbar-dock is-page" data-armed={tool !== "move" || undefined}>
       <div className="nt-toolbar" role="toolbar" aria-label="Page tools">
         <ToolRow
           tool={tool}

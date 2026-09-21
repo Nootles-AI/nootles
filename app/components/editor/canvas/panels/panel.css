@@ -66,11 +66,16 @@
    two names are one fade: an animation replays when its name changes, and
    `StylePanel` turns `data-turn` over each time the selection's identity does.
    Opacity only — a section holds pickers that are fixed and not portaled, and
-   a transform here would become what they are fixed to. */
-.nt-style-panel-body[data-turn="a"] > * {
+   a transform here would become what they are fixed to.
+
+   The body fades, not each section: a rule keyed on an attribute with `> *`
+   for its subject makes the browser restyle the whole subtree of *any*
+   element whose `data-turn` changes — and the page's own entrance flips one on
+   the container of the entire document (`.nt-page-in`, editor.css). */
+.nt-style-panel-body[data-turn="a"] {
   animation: nt-panel-turn-a var(--dur) var(--ease);
 }
-.nt-style-panel-body[data-turn="b"] > * {
+.nt-style-panel-body[data-turn="b"] {
   animation: nt-panel-turn-b var(--dur) var(--ease);
 }
 @keyframes nt-panel-turn-a {
@@ -84,7 +89,7 @@
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .nt-style-panel-body[data-turn] > * {
+  .nt-style-panel-body[data-turn] {
     animation: none;
   }
 }

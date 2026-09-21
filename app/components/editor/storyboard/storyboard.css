@@ -174,7 +174,7 @@
  *
  * Full size means the document's room, not the window's. A shot opened this way
  * is still being edited — the layers and design rails are turned over to it —
- * so it stops at the column's edges (`--nt-stage-*`, published by the shell) and
+ * so it stops at the column's edges (`--nt-stage-*`, which it follows — `app/lib/columnEdges.ts`) and
  * leaves the rails beside it standing. Without them, it is a lightbox for a
  * drawing you cannot change.
  */
