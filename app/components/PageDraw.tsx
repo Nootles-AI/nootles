@@ -64,6 +64,7 @@ export function PageToolbar({
           tool={tool}
           lead={MOVE}
           tail={[]}
+          grouped={false}
           hint={hint}
           onTool={(next) => onTool(pageToolFor(`tool.${next}` as ShortcutId) ?? "move")}
         />

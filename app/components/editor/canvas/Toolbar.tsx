@@ -486,10 +486,10 @@ function ToggleRow({
 type ToolDef = (typeof TOOLS)[number];
 
 /**
- * A bar's tools: the ones it offers, the four shapes as one Figma-style slot
- * between them, and the one ink mark that travels to the tool in hand. The
- * canvas's bar and the page's bar are both this, with different tools around
- * the shapes.
+ * A bar's tools: the ones it offers, the four shapes between them, and the one
+ * ink mark that travels to the tool in hand. The canvas's bar folds the shapes
+ * into one Figma-style slot to make room for its other tools; the page's bar,
+ * with room to spare, lays them out loose. Both bars are this.
  */
 export function ToolRow({
   tool,
@@ -498,10 +498,13 @@ export function ToolRow({
   hint,
   onTool,
   onPicked,
+  grouped = true,
 }: {
   tool: CanvasTool;
   lead: readonly ToolDef[];
   tail: readonly ToolDef[];
+  /** The shapes as one slot with a list, or as four buttons of their own. */
+  grouped?: boolean;
   hint: (id: ShortcutId) => string;
   onTool: (tool: CanvasTool) => void;
   /** After a shape is chosen from the list — where focus should go next. */
@@ -560,68 +563,71 @@ export function ToolRow({
     <div ref={row} className="nt-toolbar-tools">
       <span className="nt-toolbar-mark" aria-hidden />
       {lead.map(toolButton)}
+      {!grouped && SHAPE_TOOLS.map(toolButton)}
 
-      {/* The four shapes are one tool with four heads, as in Figma: the button
-          is whichever was used last, and the caret — or a right click on the
-          button — lists all four. Their keys still pick any one directly. */}
-      <span
-        className="nt-toolbar-shapes"
-        data-on={SHAPES.has(tool) || undefined}
-        onContextMenu={(e) => {
-          e.preventDefault();
-          e.currentTarget.querySelector<HTMLButtonElement>(".nt-toolbar-caret")?.click();
-          byPointer();
-        }}
-      >
-        {toolButton(shape)}
-        <Menu
-          label="Shapes"
-          side="top"
-          align="start"
-          className="nt-tool-flyout"
-          trigger={(props) => (
-            <button
-              type="button"
-              {...props}
-              // A click with a `detail` came from a pointer; Enter and Space
-              // click with none, and those keep the keyboard ring.
-              onClick={(e) => {
-                props.onClick();
-                if (e.detail > 0) byPointer();
-              }}
-              aria-label="All shapes"
-              className="nt-toolbar-caret"
-              onPointerDown={(e) => e.preventDefault()}
-            >
-              {CARET}
-            </button>
-          )}
+      {grouped && (
+        /* The four shapes are one tool with four heads, as in Figma: the button
+           is whichever was used last, and the caret — or a right click on the
+           button — lists all four. Their keys still pick any one directly. */
+        <span
+          className="nt-toolbar-shapes"
+          data-on={SHAPES.has(tool) || undefined}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            e.currentTarget.querySelector<HTMLButtonElement>(".nt-toolbar-caret")?.click();
+            byPointer();
+          }}
         >
-          {(close) =>
-            SHAPE_TOOLS.map((t) => (
-              <MenuItem
-                key={t.tool}
-                onClick={() => {
-                  onTool(t.tool);
-                  close({ restoreFocus: false });
-                  onPicked?.();
+          {toolButton(shape)}
+          <Menu
+            label="Shapes"
+            side="top"
+            align="start"
+            className="nt-tool-flyout"
+            trigger={(props) => (
+              <button
+                type="button"
+                {...props}
+                // A click with a `detail` came from a pointer; Enter and Space
+                // click with none, and those keep the keyboard ring.
+                onClick={(e) => {
+                  props.onClick();
+                  if (e.detail > 0) byPointer();
                 }}
+                aria-label="All shapes"
+                className="nt-toolbar-caret"
+                onPointerDown={(e) => e.preventDefault()}
               >
-                <Check
-                  width={12}
-                  height={12}
-                  strokeWidth={2.5}
-                  className="nt-tool-flyout-check"
-                  data-on={tool === t.tool || undefined}
-                />
-                <span className="nt-tool-flyout-icon">{t.icon}</span>
-                <span className="nt-tool-flyout-name">{SHORTCUTS_BY_ID[t.id].label}</span>
-                <kbd className="nt-tool-flyout-key">{hint(t.id)}</kbd>
-              </MenuItem>
-            ))
-          }
-        </Menu>
-      </span>
+                {CARET}
+              </button>
+            )}
+          >
+            {(close) =>
+              SHAPE_TOOLS.map((t) => (
+                <MenuItem
+                  key={t.tool}
+                  onClick={() => {
+                    onTool(t.tool);
+                    close({ restoreFocus: false });
+                    onPicked?.();
+                  }}
+                >
+                  <Check
+                    width={12}
+                    height={12}
+                    strokeWidth={2.5}
+                    className="nt-tool-flyout-check"
+                    data-on={tool === t.tool || undefined}
+                  />
+                  <span className="nt-tool-flyout-icon">{t.icon}</span>
+                  <span className="nt-tool-flyout-name">{SHORTCUTS_BY_ID[t.id].label}</span>
+                  <kbd className="nt-tool-flyout-key">{hint(t.id)}</kbd>
+                </MenuItem>
+              ))
+            }
+          </Menu>
+        </span>
+      )}
 
       {tail.map(toolButton)}
     </div>
