@@ -256,18 +256,27 @@ function modHint(apple: boolean, word: string): string {
   return `${modGlyph(apple)}${word}`;
 }
 
+/**
+ * The tools answer to ⌥⇧ and a letter (Alt+Shift elsewhere) rather than to the
+ * bare letter. The bar is always there now, over a page you are typing in, and
+ * a bare R there would be a letter, not a rectangle. ⌥ alone is taken by the
+ * alignments, ⌘ by the browser's own (⌘R, ⌘T), and ⌃ on a Mac by the text
+ * fields' line editing; ⌥⇧ is free on both platforms and in the editor.
+ */
+const tool = (letter: string) => [`Alt+Shift+${letter}`];
+
 export const SHORTCUTS: readonly Shortcut[] = [
-  { id: "tool.move", label: "Move", group: "Tools", keys: ["v"] },
-  { id: "tool.scale", label: "Scale", group: "Tools", keys: ["k"] },
-  { id: "tool.rect", label: "Rectangle", group: "Tools", keys: ["r"] },
-  { id: "tool.ellipse", label: "Ellipse", group: "Tools", keys: ["o"] },
-  { id: "tool.polygon", label: "Polygon", group: "Tools", keys: ["g"] },
-  { id: "tool.diamond", label: "Diamond", group: "Tools", keys: ["d"] },
-  { id: "tool.text", label: "Text", group: "Tools", keys: ["t"] },
-  { id: "tool.pen", label: "Pen", group: "Tools", keys: ["p"] },
-  { id: "tool.connector", label: "Connector", group: "Tools", keys: ["c"] },
-  { id: "tool.hand", label: "Hand", group: "Tools", keys: ["h"] },
-  { id: "tool.zoom", label: "Zoom", group: "Tools", keys: ["z"] },
+  { id: "tool.move", label: "Move", group: "Tools", keys: tool("v") },
+  { id: "tool.scale", label: "Scale", group: "Tools", keys: tool("k") },
+  { id: "tool.rect", label: "Rectangle", group: "Tools", keys: tool("r") },
+  { id: "tool.ellipse", label: "Ellipse", group: "Tools", keys: tool("o") },
+  { id: "tool.polygon", label: "Polygon", group: "Tools", keys: tool("g") },
+  { id: "tool.diamond", label: "Diamond", group: "Tools", keys: tool("d") },
+  { id: "tool.text", label: "Text", group: "Tools", keys: tool("t") },
+  { id: "tool.pen", label: "Pen", group: "Tools", keys: tool("p") },
+  { id: "tool.connector", label: "Connector", group: "Tools", keys: tool("c") },
+  { id: "tool.hand", label: "Hand", group: "Tools", keys: tool("h") },
+  { id: "tool.zoom", label: "Zoom", group: "Tools", keys: tool("z") },
 
   { id: "edit.undo", label: "Undo", group: "Edit", keys: ["Mod+z"] },
   {
