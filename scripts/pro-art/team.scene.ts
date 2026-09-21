@@ -48,7 +48,9 @@ interface Art {
 }
 
 const ART: Art = JSON.parse(readFileSync(new URL('./art.json', import.meta.url), 'utf8'));
-const D = 13.5;
+const D = 9.5;
+// Timing below is authored in these story seconds; the film plays this much faster.
+const SPEED = 1.2;
 
 const find = (id: string, nodes: Node[] = ART.tree): Group => {
   for (const n of nodes) {
@@ -116,18 +118,20 @@ const CUES = cueSheet(D, {
   write: [3.85, 8.3],
   ropeDown: [0, 0.5],
   ropeSettle: [0.5, 1.9],
-  bearLife: [0.45, 10.7],
+  bearLife: [0.45, 9.0],
   bearDown: [0.5, 1.9],
   // The card lands just after the turtle has drawn the flowchart up to it.
   handOver: [5.0, 6.0],
-  bearUp: [6.4, 10.4],
-  ropeUp: [10.7, 11.3],
+  bearUp: [6.3, 8.6],
+  ropeUp: [8.9, 9.4],
   elephantWalk: [0.8, 3.0],
   paint: [3.5, 7.6],
   alienWalk: [0.8, 3.0],
   hammer: [3.4, 5.8],
 });
-const FADE: [number, number] = [12.3, 13.0];
+// Straight back to the start once the last of the document is down: no one
+// stands about waiting.
+const FADE: [number, number] = [8.9, 9.4];
 
 type Key = [seconds: number, value: number, ease?: Parameters<typeof keys>[0][number][2]];
 /**
@@ -363,7 +367,7 @@ const far = armGeom(ARM_FAR);
 const near = armGeom(ARM_NEAR);
 const SIT = 0.6;
 const c0 = u0 + SIT;
-const PULLS = 9;
+const PULLS = 7;
 const T = (u1 - c0) / PULLS;
 const RISE = { far: 80, near: 84 };
 const REACH = { far: 1.04, near: 1.2 };
@@ -474,7 +478,7 @@ const ROPE_PATH = (() => {
   return pathMorph(rows.map(([t, d]) => [t / D, d]));
 })();
 
-export const team = character('team', { viewBox: ART.viewBox, duration: D }, () => {
+export const team = character('team', { viewBox: ART.viewBox, duration: D / SPEED }, () => {
   definitions();
   // The paper stays; everything on it is placed and then cleared.
   draw(find('Card_Frame'));
@@ -665,8 +669,8 @@ walk({
     .animate({ rotate: swing(-1) });
   // Antennae stream back on the walk and spring upright at the stop.
   const trail = at([[0, -9], [t1 - 0.1, -9, easeOut], [t1 + 0.15, 4, easeInOut], [t1 + 0.4, -1.5, easeInOut], [t1 + 0.6, 0]]);
-  P('cast.turtle.antRBob.antR').animate({ rotate: wobble(5, 10) }).animate({ rotate: trail });
-  P('cast.turtle.antLBob.antL').animate({ rotate: wobble(6, 7, 0.3) }).animate({ rotate: trail });
+  P('cast.turtle.antRBob.antR').animate({ rotate: wobble(5, 7) }).animate({ rotate: trail });
+  P('cast.turtle.antLBob.antL').animate({ rotate: wobble(6, 5, 0.3) }).animate({ rotate: trail });
 }
 
 // -- The rope and the bear. --
@@ -852,8 +856,8 @@ walk({
   for (const e of ['eyeFarBob.eyeFar', 'eyeNearBob.eyeNear']) {
     P(`cast.elephant.${e}`).animate({ x: look }).animate({ scaleY: blinks([p0 + 0.9, p0 + 2.6, p1 + 1.0]) });
   }
-  P('cast.elephant.beretBob.beret').animate({ rotate: wobble(3, 6) });
-  P('cast.elephant.antennaBob.antenna').animate({ rotate: wobble(6, 11, 0.2) });
+  P('cast.elephant.beretBob.beret').animate({ rotate: wobble(3, 4) });
+  P('cast.elephant.antennaBob.antenna').animate({ rotate: wobble(6, 8, 0.2) });
 }
 
 // -- The alien: marches in and hammers out the code, a line a blow. --
@@ -903,8 +907,8 @@ walk({
   for (const h of hits) wince.push([h - 0.02, 1, easeOut], [h + 0.05, 0.45, easeIn], [h + 0.2, 1]);
   P('cast.alien.eyesBob.eyes').animate({ scaleY: at(wince) });
   P('cast.alien.armDownBob.armDown').animate({ rotate: at([[0, 0], [a0, 0], [a1, 0, easeInOut], [k0 - 0.3, 6, easeInOut], [k1 + 0.5, 6, easeInOut], [k1 + 0.9, 0]]) });
-  P('cast.alien.antLBob.antL').animate({ rotate: wobble(7, 13) });
-  P('cast.alien.antRBob.antR').animate({ rotate: wobble(7, 11, 0.5) });
+  P('cast.alien.antLBob.antL').animate({ rotate: wobble(7, 9) });
+  P('cast.alien.antRBob.antR').animate({ rotate: wobble(7, 8, 0.5) });
 }
 
 export default team;
