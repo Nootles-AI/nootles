@@ -4,7 +4,7 @@ import { useEffect, useSyncExternalStore, type RefObject } from "react";
 import { track } from "@/app/lib/telemetry";
 import { useSpineState, useWorkspaceHistory } from "@/app/lib/history/useWorkspaceHistory";
 import type { LiveEditor, EditorRegistry } from "./editor/EditorRegistry";
-import { Button, REDO, TOOLS, ToolRow, UNDO } from "./editor/canvas/Toolbar";
+import { Button, PaletteButton, REDO, TOOLS, ToolRow, UNDO } from "./editor/canvas/Toolbar";
 import { isApplePlatform, shortcutHint, type CanvasTool, type ShortcutId } from "./editor/canvas/engine/shortcuts";
 import { handTool } from "./editor/canvas/engine/handedTool";
 import { defaultBox, newNode, type DrawKind } from "./editor/canvas/render/newShape";
@@ -50,9 +50,11 @@ const notApple = () => false;
 export function PageToolbar({
   tool,
   onTool,
+  onPalette,
 }: {
   tool: PageTool;
   onTool: (tool: PageTool) => void;
+  onPalette: () => void;
 }) {
   const apple = useSyncExternalStore(neverChanges, isApplePlatform, notApple);
   const hint = (id: ShortcutId) => shortcutHint(id, apple);
@@ -91,6 +93,7 @@ export function PageToolbar({
             </Button>
           </>
         )}
+        <PaletteButton apple={apple} onOpen={onPalette} />
       </div>
     </div>
   );

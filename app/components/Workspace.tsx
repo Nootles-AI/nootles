@@ -893,11 +893,18 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
               tools={lastTools.api.tools}
               screen={lastTools.api.screen}
               board={lastTools.api.board}
+              onPalette={() => setFinding(true)}
               leaving={!toolsOn}
             />
           ) : (
             <>
-              {pageBarOn && <PageToolbar tool={pageTool} onTool={setPageTool} />}
+              {pageBarOn && (
+                <PageToolbar
+                  tool={pageTool}
+                  onTool={setPageTool}
+                  onPalette={() => setFinding(true)}
+                />
+              )}
               {/* Here rather than under the editor: the changes it answers for
                   can span pages, and the agent opens pages on its own. */}
               <ReviewBar />

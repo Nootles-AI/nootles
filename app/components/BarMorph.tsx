@@ -34,7 +34,9 @@ function partsOf(bar: HTMLElement): Map<string, HTMLElement> {
   const parts = new Map<string, HTMLElement>();
   let sep = 0;
   for (const el of bar.querySelectorAll<HTMLElement>("button, .nt-toolbar-mark, .nt-toolbar-sep")) {
-    const name = el.classList.contains("nt-toolbar-mark")
+    const name = el.dataset.morph
+      ? el.dataset.morph
+      : el.classList.contains("nt-toolbar-mark")
       ? "mark"
       : el.classList.contains("nt-toolbar-sep")
         ? `sep:${sep++}`
