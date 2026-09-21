@@ -1284,7 +1284,6 @@
     border-radius: inherit;
     touch-action: none;
     user-select: none;
-    transition: height var(--dur-slow) var(--ease);
   }
   .ek-diagram[data-tool="hand"] .ek-diagram-view { cursor: grab; }
   .ek-diagram[data-tool="zoom"] .ek-diagram-view { cursor: zoom-in; }
