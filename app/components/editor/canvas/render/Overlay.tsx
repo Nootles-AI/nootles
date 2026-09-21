@@ -82,7 +82,9 @@ export interface OverlayProps {
 }
 
 /** Screen px — everything below is divided by the zoom on the way out. */
-const GRIP = 7;
+/** A resize grip: a small square, with just enough corner not to read as sharp. */
+const GRIP = 8;
+const GRIP_ROUND = 2;
 const RADIUS_GRIP = 6;
 const TARGET = 15;
 const EDGE = 9;
@@ -308,7 +310,10 @@ export function Overlay({
         const [fx, fy] = FRAC[CORNERS[i]];
         const px = x + fx * w;
         const py = y + fy * h;
-        dot(grips.current!.children[i], px, py, (GRIP / 2) * k);
+        const grip = grips.current!.children[i];
+        const g = GRIP * k;
+        box(grip, px - g / 2, py - g / 2, g, g);
+        grip.setAttribute("rx", String(GRIP_ROUND * k));
         box(corners.current!.children[i], px - t / 2, py - t / 2, t, t);
         box(zones.current!.children[i], px - (fx ? 0 : z), py - (fy ? 0 : z), z, z);
       }
@@ -471,7 +476,7 @@ export function Overlay({
         </g>
         <g ref={grips} className="nt-ov-grips" style={grabbable}>
           {CORNERS.map((corner) => (
-            <circle key={corner} />
+            <rect key={corner} />
           ))}
         </g>
         <g ref={radii} className="nt-ov-radii" style={{ display: "none" }}>
