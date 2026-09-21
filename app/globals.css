@@ -694,6 +694,63 @@ body[data-resizing] .nt-rail-slot {
   }
 }
 
+/* What a rail's place holds, one face at a time. The faces stack; the one
+   leaving slides toward the window edge it belongs to and fades, and the one
+   arriving comes in from that edge a beat later, on the spring — so entering a
+   diagram reads as the rails turning over, not as the screen redrawing. At rest
+   a face has no transform: the chat inside one opens menus and dialogs that are
+   positioned against the window. */
+.nt-rail-slot {
+  position: relative;
+}
+/* Anchored to the side the rail closes toward, so a closing slot slides its
+   face out that way rather than cropping it where it stands. */
+.nt-rail-face {
+  position: absolute;
+  inset-block: 0;
+  right: 0;
+  display: flex;
+  width: var(--w);
+  opacity: 0;
+  translate: -16px 0;
+  visibility: hidden;
+  transition:
+    opacity var(--dur) var(--ease),
+    translate 360ms var(--ease),
+    visibility 0s 360ms;
+}
+.nt-rail-face.is-right {
+  right: auto;
+  left: 0;
+  translate: 16px 0;
+}
+.nt-rail-face[data-on="true"] {
+  opacity: 1;
+  translate: none;
+  visibility: visible;
+  transition:
+    opacity var(--dur-slow) var(--ease) 80ms,
+    translate 520ms var(--spring) 60ms,
+    visibility 0s;
+}
+/* The face is the entrance now; the panel's own would play on top of it. */
+.nt-rail-face > .nt-panel,
+.nt-rail-face > .nt-style-panel {
+  animation: none;
+}
+body[data-resizing] .nt-rail-face {
+  transition: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .nt-rail-face,
+  .nt-rail-face[data-on="true"] {
+    translate: none;
+    transition:
+      opacity var(--dur-fast) var(--ease),
+      visibility 0s var(--dur-fast);
+  }
+}
+
 /* The way back to a rail that has been put away, in the sheet's corner on the
    side it went to. The right corner is also where presence floats. */
 .nt-corner {
@@ -912,6 +969,47 @@ body[data-resizing] .nt-rail-slot {
   background: var(--border);
 }
 /* The key that does the same thing, at the row's far end, in the mono voice. */
+/* A row's leading glyph, in the label's muted neighbour so the words lead. */
+.nt-menu-icon {
+  flex: none;
+  color: var(--muted);
+}
+.nt-menu-item:hover .nt-menu-icon,
+.nt-menu-item:focus-visible .nt-menu-icon {
+  color: var(--foreground);
+}
+
+/* The account menu's head: who you are, and where the free run stands. */
+.nt-account-who {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 15rem;
+  padding: 8px var(--inset) 6px;
+}
+.nt-monogram.is-lg {
+  width: 32px;
+  height: 32px;
+  font-size: var(--text-ui);
+  color: var(--foreground);
+}
+.nt-account-text {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+.nt-account-name {
+  overflow: hidden;
+  font-size: var(--text-ui);
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.nt-account-plan {
+  font-size: var(--text-meta-lg);
+  color: var(--muted);
+}
+
 .nt-menu-kbd {
   flex: none;
   margin-left: auto;

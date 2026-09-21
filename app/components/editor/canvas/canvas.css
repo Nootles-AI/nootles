@@ -28,8 +28,39 @@
      field this large it reads as grey paper rather than as an empty surface. */
   background: var(--nt-canvas-ground);
 }
-.nt-editor .ProseMirror-selectednode .nt-canvas {
+.nt-editor .ProseMirror-selectednode .nt-canvas,
+.nt-canvas[data-live] {
   box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+.nt-canvas {
+  transition: box-shadow var(--dur-slow) var(--ease);
+}
+
+/* The ground's dots, while the diagram is the one being edited: a surface you
+   are working on rather than a picture on the page. Spacing and offset are
+   written by `useViewport` so the dots travel with a pan and a zoom; the ink
+   is the graphite at a whisper, never the accent. */
+.nt-canvas-grid {
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(
+    circle,
+    oklch(0.25 0.005 90 / 0.16) 1px,
+    transparent 1.2px
+  );
+  background-size: 16px 16px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--dur-slow) var(--ease);
+}
+.nt-canvas[data-live] .nt-canvas-grid {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .nt-canvas,
+  .nt-canvas-grid {
+    transition: none;
+  }
 }
 
 .nt-canvas-viewport {
@@ -427,24 +458,47 @@
 }
 
 /* ===== Toolbar ===========================================================
-   Floats over the canvas it serves rather than sitting in the block, which is
-   600px of a document column. Two elements on purpose: the dock is placed by
-   `useDock`, which writes top/left on every scroll frame, and the pill carries
-   the entrance transform — separate elements, so the placement and the
-   animation cannot overwrite one another.
+   Docked at the foot of the page column and centred on it, where the hand
+   already is — not on the diagram, which can be taller than the window or
+   scrolled half out of it. The shell publishes the column's edges as
+   `--nt-stage-l`/`--nt-stage-r`, and keeps them current while a rail opens or
+   closes, so the bar recentres with the sheet without a line of script. With
+   no shell around it (a shared page) they are unset and it centres on the
+   window.
 
-   No transform on the dock, and no `will-change: transform` either: both would
-   make it the containing block for its fixed descendants, and the menus and
-   tooltips inside the pill are fixed and rendered inline. See `useDock`.
-
-   `visibility` starts hidden because the dock is placed from a measurement:
-   the first paint would otherwise land it in the window's top-left corner. */
+   Two elements on purpose: the dock is placed and never moves on its own, and
+   the bar carries the entrance and exit. No transform on the dock, and no
+   `will-change: transform` either: both would make it the containing block for
+   its fixed descendants, and the menus and tooltips inside the bar are fixed
+   and rendered inline. */
 
 .nt-toolbar-dock {
   position: fixed;
-  top: 0;
-  left: 0;
-  visibility: hidden;
+  right: var(--nt-stage-r, 0px);
+  bottom: calc(var(--inset) + 16px);
+  left: var(--nt-stage-l, 0px);
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+.nt-toolbar-dock > .nt-toolbar {
+  pointer-events: auto;
+}
+/* Letting the diagram go: the bar sinks back the way it rose. */
+.nt-toolbar-dock[data-leaving] > .nt-toolbar {
+  animation: nt-toolbar-out 200ms var(--ease) forwards;
+}
+@keyframes nt-toolbar-out {
+  to {
+    opacity: 0;
+    transform: translateY(16px) scale(0.96);
+    filter: blur(4px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nt-toolbar-dock[data-leaving] > .nt-toolbar {
+    animation: nt-fade-out var(--dur-fast) var(--ease) forwards;
+  }
 }
 
 .nt-toolbar {

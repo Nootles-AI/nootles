@@ -31,6 +31,8 @@ const ROW_H = 28;
 /** Rows past this one arrive together; see `--i` on the row. */
 const STAGGER = 12;
 const INDENT = 12;
+/** A row's own inset, before any depth: the header's, so names line up with it. */
+const ROW_INSET = 10;
 const DRAG_SLOP = 4;
 
 interface Row {
@@ -360,6 +362,7 @@ export function LayersPanel({
     <div className="nt-lyr" aria-label="Layers" onKeyDown={onKeyDown}>
       <div className="nt-section-label">
         <span>Layers</span>
+        <span className="nt-meta">{countNodes(scene.nodes)}</span>
       </div>
 
       <div
@@ -368,6 +371,9 @@ export function LayersPanel({
         aria-label="Layers"
         aria-multiselectable
         className="nt-lyr-list"
+        // A scene with no groups has nothing to fold, so its rows give up the
+        // twist column and their names sit where the header's does.
+        data-flat={!scene.nodes.some(isContainer) || undefined}
         onPointerDown={(e) => {
           if (e.target === e.currentTarget) selection.clear();
         }}
@@ -399,7 +405,7 @@ export function LayersPanel({
               // fold: a scene of two hundred layers must not take four seconds
               // to finish appearing.
               style={
-                { paddingLeft: 8 + depth * INDENT, "--i": Math.min(i, STAGGER) } as CSSProperties
+                { paddingLeft: ROW_INSET + depth * INDENT, "--i": Math.min(i, STAGGER) } as CSSProperties
               }
               // The ring the canvas draws for a pointer over a shape, drawn
               // for a pointer over its row — the same answer from either side.
@@ -512,6 +518,7 @@ export function LayersPanel({
         <>
           <div className="nt-section-label">
             <span>Connectors</span>
+            <span className="nt-meta">{scene.edges.length}</span>
           </div>
           <div
             className="nt-lyr-edges"
@@ -601,3 +608,13 @@ const EYE_OFF =
   "M3 3l18 18M10.6 6.2A9.6 9.6 0 0 1 12 6c6.5 0 10 6 10 6a17.6 17.6 0 0 1-3.4 3.9M6.4 8.4C3.8 10 2 12 2 12s3.5 6 10 6a10 10 0 0 0 3.7-.7";
 const LOCKED = `${PADLOCK}M8 10V7a4 4 0 0 1 8 0v3`;
 const UNLOCKED = `${PADLOCK}M8 10V7a4 4 0 0 1 7.6-1.5`;
+
+/** Every layer in the tree, however deep — what the header counts. */
+function countNodes(nodes: readonly SceneNode[]): number {
+  let n = 0;
+  for (const node of nodes) {
+    n += 1;
+    if (isContainer(node)) n += countNodes(node.children);
+  }
+  return n;
+}

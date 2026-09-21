@@ -8,8 +8,24 @@
   height: 100%;
   min-height: 0;
   flex-direction: column;
+  /* The panel's inset at the top too, so the header sits off the window edge
+     the way the sidebar's does — the two are faces of one rail. */
+  padding-top: var(--inset);
   background: var(--surface);
   user-select: none;
+}
+/* The header's label starts where the rows' names do, and its count stands at
+   the far end in the metadata voice. */
+.nt-lyr > .nt-section-label {
+  padding-inline: calc(var(--inset) + 10px) calc(var(--inset) + 8px);
+}
+.nt-lyr > .nt-section-label > .nt-meta {
+  font-size: var(--text-meta);
+  letter-spacing: 0;
+}
+/* Nothing to fold, so no twist column: the glyph takes the row's first place. */
+.nt-lyr-list[data-flat] .nt-lyr-twist {
+  display: none;
 }
 
 .nt-lyr-list {
@@ -37,7 +53,7 @@
      by multiplying this number, and a gap would put it off by one per row. */
   height: 28px;
   padding-right: 3px;
-  padding-left: 8px;
+  padding-left: 10px;
   border-radius: var(--radius);
   font-size: var(--text-ui);
   color: var(--muted);

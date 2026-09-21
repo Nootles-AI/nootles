@@ -1,7 +1,8 @@
 /* ===== Style-panel controls ==============================================
-   The properties panel is denser than the shell — 24px controls rather than
-   32, because a row here is one property and you read a column of them at
-   once. Everything else is the shell's, so the panel reads as part of the app.
+   The properties panel is denser than the shell — 28px fields and 24px
+   buttons rather than 32, because a row here is one property and you read a
+   column of them at once. Everything else is the shell's, so the panel reads
+   as part of the app.
    No colour: the only hues on screen are the ones the drawing is painted in.
 
    ---- The one geometry -----------------------------------------------------
@@ -25,6 +26,10 @@
   /* Named so the grid and the action buttons cannot disagree about the slot. */
   --ctl-gutter: var(--control-sm);
   --ctl-gap: 6px;
+  /* A field's height. The panel takes the whole right rail now, like the chat
+     it stands in for, and at that width a 24px well read as a strip; the
+     buttons beside the fields keep the smaller control. */
+  --ctl-h: 28px;
 }
 
 /* ---- Sections ------------------------------------------------------------
@@ -202,12 +207,11 @@
   gap: 5px;
   flex: 1 1 auto;
   min-width: 0;
-  height: var(--control-sm);
+  height: var(--ctl-h, var(--control-sm));
   padding-inline: var(--inset);
   border-radius: var(--radius);
   background: var(--sunken);
-  /* So the mark's compartment is cut to the field's own corner rather than
-     squaring it off. */
+  /* So a long value or a picker's chip is cut to the field's own corner. */
   overflow: hidden;
   font-size: var(--text-ui);
   color: var(--foreground);
@@ -216,10 +220,9 @@
 
 /* The ring, as a layer of its own.
    It cannot be the field's own inset shadow: an inset shadow paints under the
-   element's children, and the name's compartment is a child sitting on the
-   left wall — so the ring ran round three sides and stopped dead where the
-   compartment began. A pseudo-element after the content paints over it, and the
-   ring closes. */
+   element's children, and a child that fills to the field's wall — a swatch's
+   chip, a select's name — would cut the ring where it begins. A pseudo-element
+   after the content paints over all of it, and the ring closes. */
 .nt-num::after,
 .nt-ctl-select::after,
 .nt-ctl-swatch::after {
@@ -232,9 +235,8 @@
   transition: box-shadow var(--dur-fast) var(--ease);
 }
 
-/* A field that names itself gives the name the wall: the compartment runs to
-   the field's own edge, so the padding that would hold it off belongs to the
-   compartment instead. */
+/* A field that names itself starts with the name, so the padding that would
+   hold the value off the edge belongs to the name instead. */
 .nt-num:has(> .nt-ctl-mark),
 .nt-ctl-select:has(> .nt-ctl-mark),
 .nt-ctl-swatch:has(> .nt-ctl-mark) {
@@ -258,8 +260,8 @@
 /* Focus lifts the field to white behind the canvas's own active line — the
    tone a shape's edge takes when it is the one in hand — which clears on its
    own the 3:1 a non-text indicator needs. Never the amber: that means the AI.
-   The compartment beside it stays put, so the field never changes shape as you
-   tab through the column. */
+   The name beside it stays put, so the field never changes shape as you tab
+   through the column. */
 .nt-num:focus-within {
   background: var(--background);
   cursor: default;
@@ -275,37 +277,25 @@
   background: var(--background);
 }
 
-/* The name, in its own compartment — Figma's move, and it earns its keep here
-   for the same reason: these fields are mostly two or three characters, and a
-   letter loose in the same well as its value reads as part of the value.
+/* The name, in the same well as its value — a letter or a glyph in the muted
+   ink and the metadata voice, so it reads as a label rather than as part of
+   the number beside it, and the well stays one surface. It used to be Figma's
+   darker compartment; the workspace's other fields are single wells, and a
+   column of compartments was the heaviest thing in the panel.
 
-   A step *darker* than the field, flush to three of its edges, so the two
-   halves are told apart by surface rather than by a rule. Darker rather than
-   lighter for two reasons: a glyph needs something to sit against, and the
-   field lifts to white when focused — so a lighter compartment was lighter at
-   rest and darker while you typed, which is the separation changing its mind.
-   Below the field in both states, it never does.
-
-   The ink is `--foreground`, not the `--muted` a label would normally take: a
-   14px glyph is a few thin strokes rather than a run of letters, and it needs
-   the weight that a word does not. */
+   Wide enough to be the scrub handle it is on a number, and it keeps its
+   place when the field lifts to paper, so nothing shifts as you tab through. */
 .nt-ctl-mark {
   display: inline-flex;
   flex: none;
-  /* Top and bottom as well as left: a compartment that stopped short of the
-     field's edge would be a chip sitting in it. */
   align-self: stretch;
   align-items: center;
   justify-content: center;
-  min-width: var(--control-sm);
-  padding-inline: 5px;
-  /* Between the two line tones: --border-strong read as a slab against a 24px
-     field, --border was not enough to sit a glyph on. There is no token in the
-     gap, and mixing the two neighbours is more honest than inventing a third
-     grey that would then need keeping in step with them. */
-  background: color-mix(in oklab, var(--border), var(--border-strong));
-  font-size: var(--text-meta-lg);
-  color: var(--foreground);
+  min-width: 26px;
+  padding-inline: 6px 2px;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--text-meta);
+  color: var(--muted);
   user-select: none;
 }
 .nt-num-unit {

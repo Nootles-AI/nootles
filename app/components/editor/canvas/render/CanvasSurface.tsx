@@ -589,7 +589,7 @@ export function CanvasSurface({
   const sel = useSelection(selection, scene);
   // The two elements the viewport owns: the one that clips and takes input,
   // and the one that carries the transform.
-  const { containerRef, sceneRef } = viewport;
+  const { containerRef, sceneRef, gridRef } = viewport;
 
   /**
    * The exclusive pointer-mode slot (`CanvasApi.modes`). `modeCtx` is what
@@ -1790,6 +1790,9 @@ export function CanvasSurface({
         onDoubleClick={readOnly ? undefined : onDoubleClick}
         onContextMenu={readOnly ? undefined : onContextMenu}
       >
+        {/* The ground's dots, under everything, only while the diagram is the
+            one being edited. Kept in step with the scene by `useViewport`. */}
+        <div ref={gridRef} className="nt-canvas-grid" aria-hidden />
         <div ref={sceneRef} className="nt-canvas-scene">
           {/* Under the shapes: a connector reads as running behind the things
               it joins, and its arrowhead lands on the box edge either way. */}

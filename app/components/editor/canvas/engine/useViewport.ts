@@ -86,6 +86,8 @@ export const MAX_ZOOM = 8;
  *  zoom tool's own, larger `ZOOM_TOOL_FACTOR` (`engine/zoomTool.ts`) — a tool
  *  is for jumping, the key is for stepping. */
 export const ZOOM_STEP = 1.25;
+/** The dot grid's spacing at 100%, in scene px. */
+const GRID = 16;
 
 /** Screen px left around the content by {@link ViewportController.zoomToFit}. */
 const FIT_PADDING = 32;
@@ -164,6 +166,13 @@ export interface ViewportController {
   containerRef: RefObject<HTMLDivElement | null>;
   /** Attach to the single transformed layer that holds every shape. */
   sceneRef: RefObject<HTMLDivElement | null>;
+  /**
+   * Attach to the dot grid under the scene, if there is one. It is not inside
+   * the transformed layer — a grid as large as anywhere you could pan would be
+   * an enormous bitmap whenever that layer is promoted — so it is kept in step
+   * by writing its own background position and spacing alongside the scene.
+   */
+  gridRef: RefObject<HTMLDivElement | null>;
 
   /**
    * The live viewport. A new object on every change and never mutated in
@@ -311,6 +320,7 @@ function createViewport(options: UseViewportOptions): ViewportEngine {
 
   const containerRef: RefObject<HTMLDivElement | null> = { current: null };
   const sceneRef: RefObject<HTMLDivElement | null> = { current: null };
+  const gridRef: RefObject<HTMLDivElement | null> = { current: null };
 
   const initial = options.initial;
   let vp: Viewport = {
@@ -367,6 +377,17 @@ function createViewport(options: UseViewportOptions): ViewportEngine {
       // composited path a gesture wants is `promote`'s job, and only for as
       // long as the gesture lasts.
       el.style.transform = `translate(${vp.x}px, ${vp.y}px) scale(${vp.zoom})`;
+    }
+    const grid = gridRef.current;
+    if (grid) {
+      // Real properties, not custom ones: a custom property here would be
+      // inherited by every shape and restyle all of them on every pan frame.
+      // Zoomed far out the spacing doubles, so the dots stay a texture rather
+      // than turning into a grey wash.
+      let step = GRID * vp.zoom;
+      while (step < GRID / 2) step *= 2;
+      grid.style.backgroundSize = `${step}px ${step}px`;
+      grid.style.backgroundPosition = `${vp.x}px ${vp.y}px`;
     }
   }
 
@@ -889,6 +910,7 @@ function createViewport(options: UseViewportOptions): ViewportEngine {
   return {
     containerRef,
     sceneRef,
+    gridRef,
     mount,
     get: () => vp,
     // Instant, and it wins: a placement is a caller saying where the view *is*,
