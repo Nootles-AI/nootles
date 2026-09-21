@@ -1,6 +1,7 @@
 "use client";
 
 import type { ChatDraft } from "@/app/lib/ai/chat/useProjectChat";
+import type { NewProject } from "@/app/components/newProjectDraft";
 
 /**
  * What the person was about to do when money stopped them, kept across the
@@ -25,7 +26,9 @@ import type { ChatDraft } from "@/app/lib/ai/chat/useProjectChat";
  */
 
 export type BillingIntent =
-  | { kind: "newProject" }
+  /** The project as it was being made, when the wall met its Create button —
+   *  made on the way back exactly as it was written. Plain JSON throughout. */
+  | { kind: "newProject"; project?: NewProject }
   /** The message that was never sent. Every field of a draft is plain JSON. */
   | {
       kind: "chatSend";

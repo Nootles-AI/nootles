@@ -1,6 +1,7 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import type { DefaultReactSuggestionItem } from "@blocknote/react";
 import type { SuggestionMenuProps } from "@blocknote/react";
+import { FileDoc } from "../Icons";
 import "./slashMenu.css";
 
 /**
@@ -21,14 +22,51 @@ import "./slashMenu.css";
  *  - scrolling the selected row into view as the arrow keys move.
  *  - the empty state.
  */
-export function SlashMenu({
+export function SlashMenu(props: SuggestionMenuProps<DefaultReactSuggestionItem>) {
+  return <SuggestionList {...props} empty="No blocks match" />;
+}
+
+/**
+ * The "@" menu is the same menu: the same rows, the same selection, the same
+ * keys. A page has no glyph of its own to offer, so it gets the page's.
+ */
+export function PageMentionMenu(props: SuggestionMenuProps<DefaultReactSuggestionItem>) {
+  return (
+    <SuggestionList
+      {...props}
+      empty="No pages match"
+      fallbackIcon={<FileDoc width={16} height={16} />}
+    />
+  );
+}
+
+function SuggestionList({
   items,
   loadingState,
   selectedIndex,
   onItemClick,
-}: SuggestionMenuProps<DefaultReactSuggestionItem>) {
+  empty,
+  fallbackIcon,
+}: SuggestionMenuProps<DefaultReactSuggestionItem> & {
+  empty: string;
+  fallbackIcon?: React.ReactNode;
+}) {
   const listRef = useRef<HTMLDivElement>(null);
   const selectedRef = useRef<HTMLDivElement>(null);
+
+  // The selection's wash is one element that travels between rows rather than
+  // a fill each row owns, so the arrow keys move something. Placed from the
+  // row's offset and written straight to the list — this list already re-renders
+  // per keystroke while it is open, and the read rides that render rather than
+  // adding one. Before paint, so the first frame has it where it belongs and
+  // only a change of row is ever seen to move.
+  useLayoutEffect(() => {
+    const list = listRef.current;
+    const row = selectedRef.current;
+    if (!list || !row) return;
+    list.style.setProperty("--hl-y", `${row.offsetTop}px`);
+    list.style.setProperty("--hl-h", `${row.offsetHeight}px`);
+  }, [selectedIndex, items]);
 
   // Keyboard navigation happens above us, so the only way a row driven off the
   // bottom edge comes back into view is if we bring it.
@@ -43,7 +81,7 @@ export function SlashMenu({
   if (!items.length) {
     return (
       <div className="nt-menu nt-slash" id="bn-suggestion-menu" role="listbox">
-        <div className="nt-slash-empty">No blocks match</div>
+        <div className="nt-slash-empty">{empty}</div>
       </div>
     );
   }
@@ -55,6 +93,7 @@ export function SlashMenu({
       role="listbox"
       ref={listRef}
     >
+      <span className="nt-slash-hl" aria-hidden />
       {items.map((item, i) => {
         const selected = i === selectedIndex;
         // Sections are derived from the item order, which is why the item list
@@ -75,7 +114,7 @@ export function SlashMenu({
               onClick={() => onItemClick?.(item)}
             >
               <span className="nt-slash-icon" aria-hidden>
-                {item.icon}
+                {item.icon ?? fallbackIcon}
               </span>
               <span className="nt-slash-text">
                 <span className="nt-slash-title">{item.title}</span>

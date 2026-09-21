@@ -63,7 +63,7 @@ import { ReformatBar } from "./ai/ReformatBar";
 import { arrivalFlashExtension } from "./arrivalFlash";
 import { blockSelection, blockSelectionExtension } from "./blockSelection";
 import { useBlockMarquee } from "./useBlockMarquee";
-import { SlashMenu } from "./SlashMenu";
+import { PageMentionMenu, SlashMenu } from "./SlashMenu";
 import * as Icon from "../Icons";
 import { useReadOnly } from "./readOnly";
 import { trailingParagraphExtension } from "./trailingParagraph";
@@ -780,6 +780,7 @@ function EditorSurface({
               <SuggestionMenuController
                 triggerCharacter="@"
                 floatingUIOptions={menuPlacement}
+                suggestionMenuComponent={PageMentionMenu}
                 getItems={async (query) =>
                   filterItems(mentionItems(editor, pages ?? []), query)
                 }

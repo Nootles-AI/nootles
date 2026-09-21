@@ -86,6 +86,8 @@ export const MAX_ZOOM = 8;
  *  zoom tool's own, larger `ZOOM_TOOL_FACTOR` (`engine/zoomTool.ts`) — a tool
  *  is for jumping, the key is for stepping. */
 export const ZOOM_STEP = 1.25;
+/** The dot grid's spacing at 100%, in scene px. */
+const GRID = 16;
 
 /** Screen px left around the content by {@link ViewportController.zoomToFit}. */
 const FIT_PADDING = 32;
@@ -130,6 +132,44 @@ const SETTLE_MS = 140;
  */
 const NAVIGATE_MS = 180;
 
+const easeOutCubic = (t: number) => 1 - (1 - t) ** 3;
+
+/** A CSS `cubic-bezier()`'s four numbers. */
+export type Bezier = readonly [number, number, number, number];
+
+/** `--ease`. */
+const APP_EASE: Bezier = [0.16, 1, 0.3, 1];
+
+/**
+ * A CSS cubic-bezier solved for y at a given x, so a glide can run on exactly
+ * the curve the chrome around it animates on in CSS.
+ */
+function bezierEase([x1, y1, x2, y2]: Bezier): (x: number) => number {
+  const bez = (t: number, a: number, b: number) =>
+    3 * (1 - t) ** 2 * t * a + 3 * (1 - t) * t ** 2 * b + t ** 3;
+  const slope = (t: number, a: number, b: number) =>
+    3 * (1 - t) ** 2 * a + 6 * (1 - t) * t * (b - a) + 3 * t ** 2 * (1 - b);
+  return (x) => {
+    let t = x;
+    for (let i = 0; i < 8; i++) {
+      const d = slope(t, x1, x2);
+      if (Math.abs(d) < 1e-6) break;
+      t -= (bez(t, x1, x2) - x) / d;
+    }
+    // Newton can step outside [0, 1] where a curve is steep; bisect there.
+    if (t < 0 || t > 1 || Math.abs(bez(t, x1, x2) - x) > 1e-4) {
+      let lo = 0;
+      let hi = 1;
+      for (let i = 0; i < 30; i++) {
+        t = (lo + hi) / 2;
+        if (bez(t, x1, x2) < x) lo = t;
+        else hi = t;
+      }
+    }
+    return bez(t, y1, y2);
+  };
+}
+
 /**
  * Pushes against a hard edge that a wheel pan absorbs before the page is
  * handed the scroll. The tail of a trackpad fling routinely overshoots by an
@@ -164,6 +204,13 @@ export interface ViewportController {
   containerRef: RefObject<HTMLDivElement | null>;
   /** Attach to the single transformed layer that holds every shape. */
   sceneRef: RefObject<HTMLDivElement | null>;
+  /**
+   * Attach to the dot grid under the scene, if there is one. It is not inside
+   * the transformed layer — a grid as large as anywhere you could pan would be
+   * an enormous bitmap whenever that layer is promoted — so it is kept in step
+   * by writing its own background position and spacing alongside the scene.
+   */
+  gridRef: RefObject<HTMLDivElement | null>;
 
   /**
    * The live viewport. A new object on every change and never mutated in
@@ -178,6 +225,15 @@ export interface ViewportController {
    * where the view *is*, and it cancels anything the view was easing towards.
    */
   set(next: Viewport): void;
+
+  /**
+   * Ease to a viewport over `ms`, along a CSS cubic-bezier (`--ease` unless
+   * given). For a move the chrome around the canvas is animating in step with —
+   * the stage opening and closing — which the short navigation ease would
+   * finish long before: pass the curve the CSS side runs on and the two land
+   * together. Like every tween, anything else that moves the view cancels it.
+   */
+  glideTo(next: Viewport, ms: number, curve?: Bezier): void;
 
   /** Translate by a delta in screen px. */
   panBy(dx: number, dy: number): void;
@@ -311,6 +367,7 @@ function createViewport(options: UseViewportOptions): ViewportEngine {
 
   const containerRef: RefObject<HTMLDivElement | null> = { current: null };
   const sceneRef: RefObject<HTMLDivElement | null> = { current: null };
+  const gridRef: RefObject<HTMLDivElement | null> = { current: null };
 
   const initial = options.initial;
   let vp: Viewport = {
@@ -367,6 +424,17 @@ function createViewport(options: UseViewportOptions): ViewportEngine {
       // composited path a gesture wants is `promote`'s job, and only for as
       // long as the gesture lasts.
       el.style.transform = `translate(${vp.x}px, ${vp.y}px) scale(${vp.zoom})`;
+    }
+    const grid = gridRef.current;
+    if (grid) {
+      // Real properties, not custom ones: a custom property here would be
+      // inherited by every shape and restyle all of them on every pan frame.
+      // Zoomed far out the spacing doubles, so the dots stay a texture rather
+      // than turning into a grey wash.
+      let step = GRID * vp.zoom;
+      while (step < GRID / 2) step *= 2;
+      grid.style.backgroundSize = `${step}px ${step}px`;
+      grid.style.backgroundPosition = `${vp.x}px ${vp.y}px`;
     }
   }
 
@@ -443,7 +511,7 @@ function createViewport(options: UseViewportOptions): ViewportEngine {
    * the layer stays promoted for the duration and settles once it arrives, and
    * `get()` reports where the view is now, not where it is going.
    */
-  function tweenTo(to: Viewport): void {
+  function tweenTo(to: Viewport, ms = NAVIGATE_MS, ease = easeOutCubic): void {
     stopTween();
     const z = clamp(to.zoom, minZoom, maxZoom);
     if (to.x === vp.x && to.y === vp.y && z === vp.zoom) return;
@@ -468,14 +536,14 @@ function createViewport(options: UseViewportOptions): ViewportEngine {
 
     const step = (now: number): void => {
       if (start === 0) start = now;
-      const t = (now - start) / NAVIGATE_MS;
+      const t = (now - start) / ms;
       if (t >= 1) {
         tween = 0;
         commit(to.x, to.y, z);
         return;
       }
       tween = requestAnimationFrame(step);
-      const e = 1 - (1 - t) ** 3;
+      const e = ease(t);
       const zoom = Math.exp(logFrom + logSpan * e);
       if (about) {
         const k = zoom / from.zoom;
@@ -511,6 +579,10 @@ function createViewport(options: UseViewportOptions): ViewportEngine {
   // -------------------------------------------------------------------------
   // Public transforms
   // -------------------------------------------------------------------------
+
+  function glideTo(next: Viewport, ms: number, curve: Bezier = APP_EASE): void {
+    tweenTo(next, ms, bezierEase(curve));
+  }
 
   /** A hand on the surface — the drag tools, the space-drag, the wheel. */
   function panBy(dx: number, dy: number): void {
@@ -889,6 +961,8 @@ function createViewport(options: UseViewportOptions): ViewportEngine {
   return {
     containerRef,
     sceneRef,
+    gridRef,
+    glideTo,
     mount,
     get: () => vp,
     // Instant, and it wins: a placement is a caller saying where the view *is*,

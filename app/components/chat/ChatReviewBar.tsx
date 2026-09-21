@@ -61,7 +61,10 @@ export function ChatReviewBar({ threadId }: { threadId: Id<"chatThreads"> | null
         {/* A hunk the agent is still growing gets regrouped under a new id, so a
             button here would settle nothing. It says so instead. */}
         {writing ? (
-          <span className="nt-chat-review-count">still writing…</span>
+          <span className="nt-chat-review-count is-writing">
+            <span className="nt-thinking-dot" aria-hidden />
+            still writing…
+          </span>
         ) : (
           <div className="nt-chat-review-actions">
             <button

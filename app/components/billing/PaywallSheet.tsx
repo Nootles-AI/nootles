@@ -224,13 +224,17 @@ export function PaywallSheet({
 
   useEffect(() => {
     if (mode !== "overlay") return;
+    // Heard first and kept: raised over another dialog — the palette, holding
+    // the project the wall stopped — an Escape closes the wall and only the
+    // wall, and leaves what was under it as it was.
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       e.preventDefault();
+      e.stopPropagation();
       dismissRef.current();
     };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
   }, [mode]);
 
   /** The deployment has landed and the entitlement agrees: go. */
