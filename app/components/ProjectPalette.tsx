@@ -16,11 +16,13 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { pages, when } from "@/app/lib/projectMeta";
 import { Dialog } from "./Dialog";
 import { PROJECT_TEMPLATES, pagePicture, type ProjectTemplate } from "@/app/lib/templates";
-import { ChevronRight, FileDoc, Folder, Plus, Template } from "./Icons";
+import { ChevronRight, FileDoc, Folder, Plus, Sparkles, Template } from "./Icons";
 import { useNewProjectDraft, type NewProject } from "./newProjectDraft";
 import { NotionMark } from "./NotionMark";
 import { NotionPort } from "./NotionPort";
 import { BlankStart } from "./BlankStart";
+import { ProLift } from "./ProLift";
+import { usePlan } from "@/app/lib/usePlan";
 import { BlocksThumb, PagePreview } from "./PagePreview";
 import { TemplateWall } from "./TemplateWall";
 
@@ -45,7 +47,7 @@ type Row = {
   /** What the side pane previews in place of a project. */
   template?: ProjectTemplate;
   /** A picture in the side pane, rather than a card about the row. */
-  picture?: "wall" | "blank" | "notion";
+  picture?: "wall" | "blank" | "notion" | "pro";
   run: () => void;
 };
 
@@ -192,7 +194,27 @@ function Palette({
   const [notionSearch, setNotionSearch] = useState(false);
   const fielded = !listless || (page === "notion" && notionSearch);
 
+  // Anyone not on Pro is offered it first — once the plan has answered, so an
+  // account that has paid never sees it flash. Not to a stand-in operator,
+  // who is not the one who would be paying.
+  const { left } = usePlan();
   const root: Row[] = [
+    ...(canCreate && left
+      ? [
+          {
+            id: "upgrade",
+            group: "Pro",
+            name: "Upgrade to Pro",
+            line: "Unlimited projects, completions and conversations",
+            icon: <Sparkles />,
+            picture: "pro" as const,
+            run: () => {
+              onDone();
+              router.push("/upgrade");
+            },
+          },
+        ]
+      : []),
     ...(canCreate
       ? [
           {
@@ -517,6 +539,8 @@ function Palette({
                 <BlankStart />
               ) : current?.picture === "notion" ? (
                 <NotionPort />
+              ) : current?.picture === "pro" && left ? (
+                <ProLift left={left} />
               ) : current?.template ? (
                 <TemplatePreview key={current.id} template={current.template} />
               ) : (
