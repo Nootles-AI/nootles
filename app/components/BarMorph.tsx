@@ -23,6 +23,10 @@ type Shot = { bar: DOMRect; parts: Map<string, Part>; slot: DOMRect | null };
 const BAR = ".nt-toolbar-dock:not([data-leaving]) > .nt-toolbar";
 const MS = 440;
 const OUT_MS = 160;
+/** Between one shape folding (or fanning) and the next. */
+const STAGGER = 45;
+/** One shape's fold into the slot. */
+const FOLD = 260;
 const EASE = "cubic-bezier(0.25, 0, 0, 1)";
 
 /** Every piece of a bar, by a name both bars would give it. */
@@ -55,6 +59,7 @@ function measure(root: HTMLElement | null): Shot | null {
 }
 
 const centre = (r: DOMRect) => ({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
+const distance = (a: DOMRect, b: DOMRect) => Math.abs(centre(a).x - centre(b).x);
 
 /** The move from `to` back to `from`, as the `translate`/`scale` a FLIP starts at. */
 function offset(from: DOMRect, to: DOMRect, scale = true) {
@@ -78,7 +83,10 @@ function play(root: HTMLElement | null, shot: Shot) {
     getComputedStyle(document.documentElement).getPropertyValue("--spring").trim() || EASE;
   const now = bar.getBoundingClientRect();
   const home = dock.getBoundingClientRect();
-  const slot = bar.querySelector(".nt-toolbar-shapes")?.getBoundingClientRect() ?? null;
+  const slotEl = bar.querySelector<HTMLElement>(".nt-toolbar-shapes");
+  // Where folded shapes land: under the shape the slot shows, not its middle,
+  // which is off towards the caret.
+  const slot = slotEl?.querySelector(".nt-toolbar-btn")?.getBoundingClientRect() ?? null;
 
   // The surface: lent to a skin behind the bar for the length of the morph,
   // so the outline can stretch while the buttons keep their true size.
@@ -111,8 +119,26 @@ function play(root: HTMLElement | null, shot: Shot) {
       () => skin.remove(),
     );
 
+  // Shapes fanning out leave the slot one after another, nearest first.
+  const fanned = shot.slot ? [...partsOf(bar).values()].filter((el) => el.dataset.shape !== undefined) : [];
+  const fanOrder = (el: HTMLElement) =>
+    fanned
+      .filter((other) => !shot.parts.has(other.getAttribute("aria-label") ?? ""))
+      .sort((a, b) => distance(a.getBoundingClientRect(), shot.slot!) - distance(b.getBoundingClientRect(), shot.slot!))
+      .indexOf(el);
+
+  const parts = partsOf(bar);
+  // Shapes fold nearest first, and under the bar's own buttons rather than
+  // over them, so each one visibly tucks in behind the shape the slot shows.
+  const folding = [...shot.parts.entries()]
+    .filter(([name, part]) => !parts.has(name) && part.shape && slot)
+    .sort(([, a], [, b]) => distance(a.rect, slot!) - distance(b.rect, slot!))
+    .map(([name]) => name);
+  // When the last of them is in, and the slot takes them.
+  const landed = FOLD + Math.max(0, folding.length - 1) * STAGGER;
+
   const seen = new Set<string>();
-  for (const [name, el] of partsOf(bar)) {
+  for (const [name, el] of parts) {
     const was = shot.parts.get(name);
     const is = el.getBoundingClientRect();
     // A fresh element's own transitions (the mark inking in) would replay what
@@ -125,10 +151,24 @@ function play(root: HTMLElement | null, shot: Shot) {
         easing: spring,
       });
     } else if (el.dataset.shape !== undefined && shot.slot) {
-      // Fanning out of the slot they were folded into.
+      // Fanning out from behind the shape they were folded under: visible from
+      // the start, so the eye follows each one out of the slot.
       el.animate(
-        [{ ...offset(shot.slot, is, false), scale: "0.5", opacity: 0 }, { translate: "0 0", scale: "1", opacity: 1 }],
-        { duration: MS, easing: spring },
+        [
+          { ...offset(shot.slot, is, false), scale: "0.7", opacity: 0 },
+          { opacity: 1, offset: 0.15 },
+          { translate: "0 0", scale: "1", opacity: 1 },
+        ],
+        { duration: MS, delay: 40 + fanOrder(el) * STAGGER, easing: spring, fill: "backwards" },
+      );
+    } else if (el.classList.contains("nt-toolbar-caret") && slot) {
+      // The caret comes out from under the slot once the shapes are in it.
+      el.animate(
+        [
+          { opacity: 0, translate: "-10px 0", scale: "0.6" },
+          { opacity: 1, translate: "0 0", scale: "1" },
+        ],
+        { duration: 260, delay: landed - 40, easing: spring, fill: "backwards" },
       );
     } else {
       el.animate([{ opacity: 0, scale: "0.6" }, { opacity: 1, scale: "1" }], {
@@ -153,16 +193,40 @@ function play(root: HTMLElement | null, shot: Shot) {
       pointerEvents: "none",
       ...box(part.rect),
     });
+    const order = folding.indexOf(name);
+    if (order >= 0 && slot) {
+      skin.after(ghost);
+      ghost
+        .animate(
+          [
+            { translate: "0 0", scale: "1", opacity: 1 },
+            { opacity: 1, offset: 0.8 },
+            { ...offset(slot, part.rect, false), scale: "0.8", opacity: 0 },
+          ],
+          { duration: FOLD, delay: order * STAGGER, easing: EASE, fill: "both" },
+        )
+        .finished.finally(() => ghost.remove());
+      continue;
+    }
     dock.append(ghost);
-    const into = part.shape && slot;
+    // The caret goes first when the shapes fan out, so they leave from a
+    // plain shape rather than from under the caret.
     ghost
-      .animate(
-        into
-          ? [{ opacity: 1 }, { ...offset(slot, part.rect, false), scale: "0.5", opacity: 0 }]
-          : [{ opacity: 1 }, { opacity: 0, scale: "0.6" }],
-        { duration: into ? MS * 0.6 : OUT_MS, easing: EASE, fill: "forwards" },
-      )
+      .animate([{ opacity: 1 }, { opacity: 0, scale: "0.6" }], {
+        duration: part.el.classList.contains("nt-toolbar-caret") ? OUT_MS * 0.6 : OUT_MS,
+        easing: EASE,
+        fill: "forwards",
+      })
       .finished.finally(() => ghost.remove());
+  }
+
+  // The slot takes the shapes in with a small give, as they land.
+  if (folding.length && slotEl) {
+    slotEl.animate([{ scale: "1" }, { scale: "1.1" }, { scale: "1" }], {
+      duration: 280,
+      delay: landed - 60,
+      easing: "cubic-bezier(0.3, 0, 0.2, 1)",
+    });
   }
 }
 
