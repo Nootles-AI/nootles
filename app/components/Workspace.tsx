@@ -105,9 +105,15 @@ const COMPACT = "(max-width: 1023px)";
    Leaving them out made choosing from one a press "outside" — it let the
    diagram go and the stage fall shut mid-choice. Counting any open menu is
    safe: a menu is only open because its trigger was pressed, and a trigger
-   outside the canvas has already let the diagram go before its menu exists. */
+   outside the canvas has already let the diagram go before its menu exists.
+
+   And the rails the panels stand in, edges and resize handles included: while a
+   diagram is being edited both rails are its panels, so widening one — or a
+   press that lands on its border — is adjusting the diagram's tools, not
+   leaving it. The split between two pages (`.is-gap`) is the document's. */
 const CANVAS_SHELL =
-  ".nt-canvas, .nt-lyr, .nt-style-panel, .nt-toolbar, .nt-mention-anchor, .nt-sb-full, .nt-menu";
+  ".nt-canvas, .nt-lyr, .nt-style-panel, .nt-toolbar, .nt-mention-anchor, .nt-sb-full, .nt-menu, " +
+  ".nt-rail-slot, .nt-resize:not(.is-gap)";
 
 /* The same idea for a place card: a press inside the card or its panel — or a
    menu one of them opened — is still about that card, and anywhere else is
