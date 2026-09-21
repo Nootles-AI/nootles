@@ -170,7 +170,7 @@ export const TOOLS: readonly { tool: CanvasTool; id: ShortcutId; icon: ReactNode
 ];
 
 /** The shape tools, drawn as one tool in the bar. */
-const SHAPES: ReadonlySet<CanvasTool> = new Set(["rect", "ellipse", "polygon", "diamond"]);
+export const SHAPES: ReadonlySet<CanvasTool> = new Set(["rect", "ellipse", "polygon", "diamond"]);
 const SHAPE_TOOLS = TOOLS.filter((t) => SHAPES.has(t.tool));
 const LEAD_TOOLS = TOOLS.slice(0, TOOLS.findIndex((t) => SHAPES.has(t.tool)));
 const TAIL_TOOLS = TOOLS.filter((t) => !SHAPES.has(t.tool) && !LEAD_TOOLS.includes(t));
@@ -282,55 +282,6 @@ export function Toolbar({ store, viewport, tools, screen, leaving }: ToolbarProp
 
   const hint = (id: ShortcutId) => shortcutHint(id, apple);
 
-  // The shape the group button stands for: the one in hand, or else the one
-  // last used. Kept as it changes, during render, so it is never a frame behind.
-  const [lastShape, setLastShape] = useState<CanvasTool>("rect");
-  if (SHAPES.has(tool) && tool !== lastShape) setLastShape(tool);
-  const shape = SHAPE_TOOLS.find((t) => t.tool === lastShape) ?? SHAPE_TOOLS[0];
-
-  // The travelling mark goes to whichever button is pressed, placed from its
-  // measured box and written to the row as properties: moving a mark is not a
-  // render. A tool with no button in the row leaves it hidden where it was.
-  const row = useRef<HTMLDivElement>(null);
-  useLayoutEffect(() => {
-    const el = row.current;
-    if (!el) return;
-    const pressed = el.querySelector<HTMLElement>('.nt-toolbar-btn[aria-pressed="true"]');
-    // A shape in hand inks the whole slot, caret and all: it is one tool.
-    const on = pressed?.closest<HTMLElement>(".nt-toolbar-shapes") ?? pressed;
-    el.dataset.marked = String(!!on);
-    if (!on) return;
-    // Offsets, not rects: the bar arrives scaled, and a rect read in its first
-    // frame would be measured at 94%. The row is the positioned parent.
-    el.style.setProperty("--mark-x", `${on.offsetLeft}px`);
-    el.style.setProperty("--mark-w", `${on.offsetWidth}px`);
-    el.style.setProperty("--mark-h", `${on.offsetHeight}px`);
-  }, [tool, lastShape]);
-
-  // The caret never takes focus — the canvas keeps the keyboard — so the list
-  // it opens focuses its first row by script, which the browser then rings as
-  // if a key had done it. A list a pointer opened says so, and shows where the
-  // pointer is instead, until a key is actually used in it.
-  const byPointer = () =>
-    requestAnimationFrame(() => {
-      const list = document.querySelector<HTMLElement>('[role="menu"][aria-label="Shapes"]');
-      if (!list) return;
-      list.dataset.byPointer = "";
-      list.addEventListener("keydown", () => delete list.dataset.byPointer, { once: true });
-    });
-
-  const toolButton = ({ tool: id, id: shortcut, icon }: (typeof TOOLS)[number]) => (
-    <Button
-      key={id}
-      label={SHORTCUTS_BY_ID[shortcut].label}
-      hint={hint(shortcut)}
-      pressed={tool === id}
-      onClick={() => tools.set(id)}
-    >
-      {icon}
-    </Button>
-  );
-
   const fit = () => {
     const scene = store.getScene();
     const bounds = scene.nodes.length
@@ -348,81 +299,16 @@ export function Toolbar({ store, viewport, tools, screen, leaving }: ToolbarProp
     // scroll. Never a transform on the dock — see `.nt-toolbar-dock`.
     <div className="nt-toolbar-dock" data-leaving={leaving || undefined} inert={leaving}>
       <div className="nt-toolbar" role="toolbar" aria-label="Canvas">
-        {/* One ink mark that travels to the tool in hand, rather than eleven
-            buttons that each know how to look pressed. Placed from the pressed
-            button's measured box (see `useMark`), since the shape tools'
-            slot is a button and its caret rather than one more square. */}
-        <div ref={row} className="nt-toolbar-tools">
-          <span className="nt-toolbar-mark" aria-hidden />
-          {LEAD_TOOLS.map(toolButton)}
-
-          {/* The four shapes are one tool with four heads, as in Figma: the
-              button is whichever was used last, and the caret — or a right
-              click on the button — lists all four. Their keys still pick any
-              one of them directly. */}
-          <span
-            className="nt-toolbar-shapes"
-            data-on={SHAPES.has(tool) || undefined}
-            onContextMenu={(e) => {
-              e.preventDefault();
-              e.currentTarget.querySelector<HTMLButtonElement>(".nt-toolbar-caret")?.click();
-              byPointer();
-            }}
-          >
-            {toolButton(shape)}
-            <Menu
-              label="Shapes"
-              side="top"
-              align="start"
-              className="nt-tool-flyout"
-              trigger={(props) => (
-                <button
-                  type="button"
-                  {...props}
-                  // A click with a `detail` came from a pointer; Enter and Space
-                  // click with none, and those keep the keyboard ring.
-                  onClick={(e) => {
-                    props.onClick();
-                    if (e.detail > 0) byPointer();
-                  }}
-                  aria-label="All shapes"
-                  className="nt-toolbar-caret"
-                  onPointerDown={(e) => e.preventDefault()}
-                >
-                  {CARET}
-                </button>
-              )}
-            >
-              {(close) =>
-                SHAPE_TOOLS.map((t) => (
-                  <MenuItem
-                    key={t.tool}
-                    onClick={() => {
-                      tools.set(t.tool);
-                      // Back to the canvas rather than to the caret, so the
-                      // next key is a shortcut and the next press draws.
-                      close({ restoreFocus: false });
-                      viewport.containerRef.current?.focus({ preventScroll: true });
-                    }}
-                  >
-                    <Check
-                      width={12}
-                      height={12}
-                      strokeWidth={2.5}
-                      className="nt-tool-flyout-check"
-                      data-on={tool === t.tool || undefined}
-                    />
-                    <span className="nt-tool-flyout-icon">{t.icon}</span>
-                    <span className="nt-tool-flyout-name">{SHORTCUTS_BY_ID[t.id].label}</span>
-                    <kbd className="nt-tool-flyout-key">{hint(t.id)}</kbd>
-                  </MenuItem>
-                ))
-              }
-            </Menu>
-          </span>
-
-          {TAIL_TOOLS.map(toolButton)}
-        </div>
+        <ToolRow
+          tool={tool}
+          lead={LEAD_TOOLS}
+          tail={TAIL_TOOLS}
+          hint={hint}
+          onTool={(next) => tools.set(next)}
+          // Back to the canvas rather than to the caret, so the next key is a
+          // shortcut and the next press draws.
+          onPicked={() => viewport.containerRef.current?.focus({ preventScroll: true })}
+        />
 
         <span className="nt-toolbar-sep" aria-hidden />
 
@@ -594,5 +480,150 @@ function ToggleRow({
         rather than a menuitemcheckbox. */}
       <span className="sr-only">{on ? "On" : "Off"}</span>
     </MenuItem>
+  );
+}
+
+type ToolDef = (typeof TOOLS)[number];
+
+/**
+ * A bar's tools: the ones it offers, the four shapes as one Figma-style slot
+ * between them, and the one ink mark that travels to the tool in hand. The
+ * canvas's bar and the page's bar are both this, with different tools around
+ * the shapes.
+ */
+export function ToolRow({
+  tool,
+  lead,
+  tail,
+  hint,
+  onTool,
+  onPicked,
+}: {
+  tool: CanvasTool;
+  lead: readonly ToolDef[];
+  tail: readonly ToolDef[];
+  hint: (id: ShortcutId) => string;
+  onTool: (tool: CanvasTool) => void;
+  /** After a shape is chosen from the list — where focus should go next. */
+  onPicked?: () => void;
+}) {
+  // The shape the slot stands for: the one in hand, or else the one last used.
+  // Kept as it changes, during render, so it is never a frame behind.
+  const [lastShape, setLastShape] = useState<CanvasTool>("rect");
+  if (SHAPES.has(tool) && tool !== lastShape) setLastShape(tool);
+  const shape = SHAPE_TOOLS.find((t) => t.tool === lastShape) ?? SHAPE_TOOLS[0];
+
+  // The travelling mark goes to whichever button is pressed, placed from its
+  // measured box and written to the row as properties: moving a mark is not a
+  // render. A tool with no button in the row leaves it hidden where it was.
+  const row = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const el = row.current;
+    if (!el) return;
+    const pressed = el.querySelector<HTMLElement>('.nt-toolbar-btn[aria-pressed="true"]');
+    // A shape in hand inks the whole slot, caret and all: it is one tool.
+    const on = pressed?.closest<HTMLElement>(".nt-toolbar-shapes") ?? pressed;
+    el.dataset.marked = String(!!on);
+    if (!on) return;
+    // Offsets, not rects: the bar arrives scaled, and a rect read in its first
+    // frame would be measured at 94%. The row is the positioned parent.
+    el.style.setProperty("--mark-x", `${on.offsetLeft}px`);
+    el.style.setProperty("--mark-w", `${on.offsetWidth}px`);
+    el.style.setProperty("--mark-h", `${on.offsetHeight}px`);
+  }, [tool, lastShape]);
+
+  // The caret never takes focus — the canvas or the page keeps the keyboard —
+  // so the list it opens focuses its first row by script, which the browser
+  // then rings as if a key had done it. A list a pointer opened says so, and
+  // shows where the pointer is instead, until a key is actually used in it.
+  const byPointer = () =>
+    requestAnimationFrame(() => {
+      const list = document.querySelector<HTMLElement>('[role="menu"][aria-label="Shapes"]');
+      if (!list) return;
+      list.dataset.byPointer = "";
+      list.addEventListener("keydown", () => delete list.dataset.byPointer, { once: true });
+    });
+
+  const toolButton = ({ tool: id, id: shortcut, icon }: ToolDef) => (
+    <Button
+      key={id}
+      label={SHORTCUTS_BY_ID[shortcut].label}
+      hint={hint(shortcut)}
+      pressed={tool === id}
+      onClick={() => onTool(id)}
+    >
+      {icon}
+    </Button>
+  );
+
+  return (
+    <div ref={row} className="nt-toolbar-tools">
+      <span className="nt-toolbar-mark" aria-hidden />
+      {lead.map(toolButton)}
+
+      {/* The four shapes are one tool with four heads, as in Figma: the button
+          is whichever was used last, and the caret — or a right click on the
+          button — lists all four. Their keys still pick any one directly. */}
+      <span
+        className="nt-toolbar-shapes"
+        data-on={SHAPES.has(tool) || undefined}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          e.currentTarget.querySelector<HTMLButtonElement>(".nt-toolbar-caret")?.click();
+          byPointer();
+        }}
+      >
+        {toolButton(shape)}
+        <Menu
+          label="Shapes"
+          side="top"
+          align="start"
+          className="nt-tool-flyout"
+          trigger={(props) => (
+            <button
+              type="button"
+              {...props}
+              // A click with a `detail` came from a pointer; Enter and Space
+              // click with none, and those keep the keyboard ring.
+              onClick={(e) => {
+                props.onClick();
+                if (e.detail > 0) byPointer();
+              }}
+              aria-label="All shapes"
+              className="nt-toolbar-caret"
+              onPointerDown={(e) => e.preventDefault()}
+            >
+              {CARET}
+            </button>
+          )}
+        >
+          {(close) =>
+            SHAPE_TOOLS.map((t) => (
+              <MenuItem
+                key={t.tool}
+                onClick={() => {
+                  onTool(t.tool);
+                  close({ restoreFocus: false });
+                  onPicked?.();
+                }}
+              >
+                <Check
+                  width={12}
+                  height={12}
+                  strokeWidth={2.5}
+                  className="nt-tool-flyout-check"
+                  data-on={tool === t.tool || undefined}
+                />
+                <span className="nt-tool-flyout-icon">{t.icon}</span>
+                <span className="nt-tool-flyout-name">{SHORTCUTS_BY_ID[t.id].label}</span>
+                <kbd className="nt-tool-flyout-key">{hint(t.id)}</kbd>
+              </MenuItem>
+            ))
+          }
+        </Menu>
+      </span>
+
+      {tail.map(toolButton)}
+    </div>
   );
 }

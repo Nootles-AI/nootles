@@ -1,0 +1,332 @@
+"use client";
+
+import { useEffect, useSyncExternalStore, type RefObject } from "react";
+import { track } from "@/app/lib/telemetry";
+import { useSpineState, useWorkspaceHistory } from "@/app/lib/history/useWorkspaceHistory";
+import type { LiveEditor, EditorRegistry } from "./editor/EditorRegistry";
+import { Button, REDO, TOOLS, ToolRow, UNDO } from "./editor/canvas/Toolbar";
+import { isApplePlatform, shortcutHint, type CanvasTool, type ShortcutId } from "./editor/canvas/engine/shortcuts";
+import { defaultBox, newNode, type DrawKind } from "./editor/canvas/render/newShape";
+import { emptyScene } from "./editor/canvas/scene/migrate";
+import { mintId } from "./editor/canvas/scene/ops";
+import { serializeScene } from "./editor/canvas/scene/serialize";
+
+/**
+ * Drawing on the page itself.
+ *
+ * The tool bar stays at the foot of the page when no diagram is being edited,
+ * holding the tools that make sense there: Move, which leaves the page a
+ * document, and the shapes. Arm a shape and a drag on the page draws it; on
+ * release a diagram is made where it was drawn — between the blocks nearest
+ * the top of the drag, or in place of an empty line — holding exactly that
+ * shape, and what you drew settles into it.
+ *
+ * It is an insertion, never an annotation: a shape lives only inside a canvas
+ * block, so a shape drawn across a paragraph becomes a diagram beside it, not
+ * a mark on it. And it is made the way the slash menu makes one — a canvas
+ * block whose scene is serialized from the same `newNode` the canvas's own
+ * tools use — so nothing here is a path the assistant could not also take.
+ */
+
+/** The tools the page offers. Text, the pen and connectors need a diagram. */
+const MOVE = TOOLS.filter((t) => t.tool === "move");
+const PAGE_KINDS: ReadonlySet<CanvasTool> = new Set(["rect", "ellipse", "polygon", "diamond"]);
+
+export type PageTool = "move" | DrawKind;
+
+/** The page tool a key picks, if it is one of the page's. */
+export function pageToolFor(id: ShortcutId | null): PageTool | null {
+  if (id === "tool.move") return "move";
+  const tool = id?.startsWith("tool.") ? (id.slice(5) as CanvasTool) : null;
+  return tool && PAGE_KINDS.has(tool) ? (tool as PageTool) : null;
+}
+
+const neverChanges = () => () => {};
+const notApple = () => false;
+
+/** The bar, for a page with no diagram in hand. */
+export function PageToolbar({
+  tool,
+  onTool,
+}: {
+  tool: PageTool;
+  onTool: (tool: PageTool) => void;
+}) {
+  const apple = useSyncExternalStore(neverChanges, isApplePlatform, notApple);
+  const hint = (id: ShortcutId) => shortcutHint(id, apple);
+  const spine = useWorkspaceHistory();
+  const history = useSpineState(spine);
+
+  return (
+    <div className="nt-toolbar-dock is-page" data-armed={tool !== "move" || undefined}>
+      <div className="nt-toolbar" role="toolbar" aria-label="Page tools">
+        <ToolRow
+          tool={tool}
+          lead={MOVE}
+          tail={[]}
+          hint={hint}
+          onTool={(next) => onTool(pageToolFor(`tool.${next}` as ShortcutId) ?? "move")}
+        />
+        {spine && (
+          <>
+            <span className="nt-toolbar-sep" aria-hidden />
+            <Button
+              label="Undo"
+              hint={hint("edit.undo")}
+              disabled={!history.canUndo}
+              onClick={() => void spine.undo()}
+            >
+              {UNDO}
+            </Button>
+            <Button
+              label="Redo"
+              hint={hint("edit.redo")}
+              disabled={!history.canRedo}
+              onClick={() => void spine.redo()}
+            >
+              {REDO}
+            </Button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+type Box = { x: number; y: number; w: number; h: number };
+
+/** Below this a drag was a click, and the shape takes the canvas's own size. */
+const DRAWN_MIN = 4;
+
+const POINTS: Partial<Record<DrawKind, string>> = {
+  polygon: "50,1 99,99 1,99",
+  diamond: "50,1 99,50 50,99 1,50",
+};
+
+/** The drawn-so-far shape, over the page: the shape itself, its frame, its size. */
+function makeGhost(kind: DrawKind): { el: HTMLElement; paint: (b: Box) => void } {
+  const el = document.createElement("div");
+  el.className = "nt-page-ghost";
+  el.dataset.kind = kind;
+  const points = POINTS[kind];
+  if (points) {
+    el.innerHTML = `<svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><polygon points="${points}" vector-effect="non-scaling-stroke"/></svg>`;
+  }
+  const chip = document.createElement("span");
+  chip.className = "nt-page-ghost-chip";
+  el.append(chip);
+  document.body.append(el);
+  return {
+    el,
+    paint: (b) => {
+      el.style.left = `${b.x}px`;
+      el.style.top = `${b.y}px`;
+      el.style.width = `${b.w}px`;
+      el.style.height = `${b.h}px`;
+      chip.textContent = `${Math.round(b.w)} × ${Math.round(b.h)}`;
+    },
+  };
+}
+
+function normalise(a: { x: number; y: number }, b: { x: number; y: number }, square: boolean): Box {
+  let w = b.x - a.x;
+  let h = b.y - a.y;
+  if (square) {
+    const side = Math.max(Math.abs(w), Math.abs(h));
+    w = Math.sign(w || 1) * side;
+    h = Math.sign(h || 1) * side;
+  }
+  return { x: Math.min(a.x, a.x + w), y: Math.min(a.y, a.y + h), w: Math.abs(w), h: Math.abs(h) };
+}
+
+/**
+ * Where a diagram drawn from `y` goes: in place of an empty line it was drawn
+ * on, or else before or after the top-level block it was drawn against,
+ * whichever half of it the drag began in. Returns the diagram's block id.
+ */
+function insertAt(editor: LiveEditor, y: number, data: string): string {
+  const blocks = editor.document as { id: string; type: string; content?: unknown }[];
+  const root = editor.domElement as HTMLElement | undefined;
+  let ref = blocks[blocks.length - 1];
+  let where: "before" | "after" = "after";
+  // Drawn past the last block counts as drawn on it: that is where the next
+  // line would go, and a trailing empty one is there to be written in.
+  let on = true;
+  for (const block of blocks) {
+    const r = root?.querySelector<HTMLElement>(`[data-id="${block.id}"]`)?.getBoundingClientRect();
+    if (!r || y >= r.bottom) continue;
+    ref = block;
+    on = y >= r.top;
+    where = y < r.top + r.height / 2 ? "before" : "after";
+    break;
+  }
+  const empty = ref.type === "paragraph" && Array.isArray(ref.content) && ref.content.length === 0;
+  if (on && empty) {
+    editor.updateBlock(ref, { type: "canvas", props: { data } });
+    return ref.id;
+  }
+  const [made] = editor.insertBlocks([{ type: "canvas", props: { data } }], ref, where);
+  return made.id;
+}
+
+/** Resolves with what `find` finds, polled a frame at a time, or null by `ms`. */
+function when<T>(find: () => T | null, ms: number): Promise<T | null> {
+  const until = performance.now() + ms;
+  return new Promise((resolve) => {
+    const look = () => {
+      const found = find();
+      if (found) return resolve(found);
+      if (performance.now() > until) return resolve(null);
+      requestAnimationFrame(look);
+    };
+    look();
+  });
+}
+
+/** `--ease`-family curve the stage morph uses, so both settle alike. */
+const SETTLE = "cubic-bezier(0.25, 0, 0, 1)";
+
+/**
+ * Arms the page for drawing while a shape tool is in hand. A press over the
+ * page's text or between its blocks draws; a press on a diagram that is
+ * already there hands the tool to that diagram instead, since more shapes
+ * belong in the one you pointed at rather than in a new one beside it.
+ */
+export function usePageDraw({
+  well,
+  tool,
+  registry,
+  onTool,
+  onDrawn,
+  onIntoDiagram,
+}: {
+  well: RefObject<HTMLElement | null>;
+  tool: PageTool;
+  registry: EditorRegistry;
+  onTool: (tool: PageTool) => void;
+  /** The diagram made, and the shape in it — to be opened and selected. */
+  onDrawn: (blockId: string, nodeId: string) => void;
+  /** A press landed on an existing diagram: open it with this tool in hand. */
+  onIntoDiagram: (blockId: string, tool: DrawKind) => void;
+}) {
+  useEffect(() => {
+    const el = well.current;
+    if (!el || tool === "move") return;
+    const kind = tool;
+    el.setAttribute("data-drawing", "");
+
+    const onDown = (e: PointerEvent) => {
+      if (e.button !== 0) return;
+      const target = e.target as Element;
+      const pane = target.closest<HTMLElement>(".nt-pane[data-page-id]");
+      // The page's own controls — the mode switch, the corner buttons — still work.
+      if (!pane || target.closest("button, a, input, textarea, select, [role='menu']")) return;
+      e.preventDefault();
+      e.stopPropagation();
+
+      const diagram = target.closest<HTMLElement>(".nt-canvas")?.closest<HTMLElement>("[data-id]");
+      if (diagram?.dataset.id) {
+        onIntoDiagram(diagram.dataset.id, kind);
+        return;
+      }
+
+      const pageId = pane.dataset.pageId!;
+      const origin = { x: e.clientX, y: e.clientY };
+      const ghost = makeGhost(kind);
+      let box: Box = { ...origin, w: 0, h: 0 };
+      let last = { ...origin };
+      let square = false;
+      let frame = 0;
+      const paint = () => {
+        frame = 0;
+        box = normalise(origin, last, square);
+        ghost.paint(box);
+      };
+      const schedule = () => {
+        if (!frame) frame = requestAnimationFrame(paint);
+      };
+      paint();
+
+      const onMove = (ev: PointerEvent) => {
+        last = { x: ev.clientX, y: ev.clientY };
+        square = ev.shiftKey;
+        schedule();
+      };
+      const onKey = (ev: KeyboardEvent) => {
+        if (ev.key === "Escape") {
+          ev.preventDefault();
+          ev.stopPropagation();
+          stop();
+          ghost.el.remove();
+          return;
+        }
+        if (ev.key === "Shift") {
+          square = ev.type === "keydown";
+          schedule();
+        }
+      };
+      const stop = () => {
+        if (frame) cancelAnimationFrame(frame);
+        window.removeEventListener("pointermove", onMove, true);
+        window.removeEventListener("pointerup", onUp, true);
+        window.removeEventListener("keydown", onKey, true);
+        window.removeEventListener("keyup", onKey, true);
+      };
+      const onUp = () => {
+        stop();
+        const drawn: Box = box.w < DRAWN_MIN && box.h < DRAWN_MIN ? defaultBox(kind, origin) : box;
+        ghost.el.dataset.settling = "";
+        ghost.paint(drawn);
+        void land(pageId, drawn, ghost.el);
+      };
+
+      window.addEventListener("pointermove", onMove, true);
+      window.addEventListener("pointerup", onUp, true);
+      window.addEventListener("keydown", onKey, true);
+      window.addEventListener("keyup", onKey, true);
+    };
+
+    /** Make the diagram, then let what was drawn settle into it. */
+    const land = async (pageId: string, drawn: Box, ghost: HTMLElement) => {
+      onTool("move");
+      let blockId: string;
+      const scene = emptyScene();
+      const nodeId = mintId(scene);
+      scene.nodes = [newNode(kind, nodeId, { x: 0, y: 0, w: Math.round(drawn.w), h: Math.round(drawn.h) })];
+      try {
+        const editor = await registry.editorFor(pageId);
+        blockId = insertAt(editor, drawn.y, serializeScene(scene));
+      } catch (error) {
+        console.warn("[page-draw] could not place the diagram:", error);
+        ghost.remove();
+        return;
+      }
+      track("block_created", { type: "canvas" });
+      onDrawn(blockId, nodeId);
+
+      // The shape in its new home, once the canvas has drawn and framed it.
+      const shape = await when(
+        () => document.querySelector<HTMLElement>(`[data-id="${blockId}"] .nt-canvas-scene [data-id="${nodeId}"]`),
+        1500,
+      );
+      if (!shape) return ghost.remove();
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const to = shape.getBoundingClientRect();
+      const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+      const settle = ghost.animate(
+        [
+          { left: `${drawn.x}px`, top: `${drawn.y}px`, width: `${drawn.w}px`, height: `${drawn.h}px`, opacity: 1 },
+          { left: `${to.left}px`, top: `${to.top}px`, width: `${to.width}px`, height: `${to.height}px`, opacity: 0 },
+        ],
+        { duration: reduced ? 1 : 320, easing: SETTLE, fill: "forwards" },
+      );
+      settle.onfinish = () => ghost.remove();
+    };
+
+    el.addEventListener("pointerdown", onDown, true);
+    return () => {
+      el.removeEventListener("pointerdown", onDown, true);
+      el.removeAttribute("data-drawing");
+    };
+  }, [well, tool, registry, onTool, onDrawn, onIntoDiagram]);
+}

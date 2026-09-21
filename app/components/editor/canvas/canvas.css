@@ -976,3 +976,68 @@
     transition: none;
   }
 }
+
+/* ---- Drawing on the page ------------------------------------------------
+   A shape armed from the page bar draws straight onto the document, and on
+   release becomes a diagram holding it (`PageDraw.tsx`). While armed the page
+   is a surface, not text: it takes the crosshair, and its caret stands down. */
+.nt-well[data-drawing] .nt-pane,
+.nt-well[data-drawing] .nt-pane * {
+  cursor: crosshair;
+}
+.nt-well[data-drawing] .nt-pane button,
+.nt-well[data-drawing] .nt-pane a {
+  cursor: pointer;
+}
+.nt-well[data-drawing] .ProseMirror {
+  caret-color: transparent;
+}
+
+/* The shape as it is drawn: the canvas's own new-shape grey, framed in the
+   accent because it is the system's answer to the drag, with the size the
+   grips would show. On release it settles into the diagram made for it. */
+.nt-page-ghost {
+  position: fixed;
+  z-index: var(--z-overlay);
+  box-sizing: border-box;
+  pointer-events: none;
+  border: 1.5px solid var(--nt-select);
+  background: oklch(0.93 0 0 / 0.7);
+}
+.nt-page-ghost[data-kind="ellipse"] {
+  border-radius: 50%;
+}
+.nt-page-ghost:has(svg) {
+  border: 0;
+  background: none;
+}
+.nt-page-ghost svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.nt-page-ghost polygon {
+  fill: oklch(0.93 0 0 / 0.7);
+  stroke: var(--nt-select);
+  stroke-width: 1.5px;
+}
+.nt-page-ghost-chip {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 50%;
+  translate: -50% 0;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--nt-select);
+  color: oklch(1 0 90);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.nt-page-ghost[data-settling] .nt-page-ghost-chip {
+  display: none;
+}

@@ -2857,6 +2857,17 @@ a.nt-chip:hover {
 body:has(.nt-review-bar) .nt-reformat-switcher {
   bottom: 66px;
 }
+/* The page's tool bar holds the foot of the column whenever nothing else
+   does, so the review and the switcher stack above it rather than on it. */
+body:has(.nt-toolbar-dock.is-page) .nt-review-bar {
+  bottom: calc(var(--inset) + 16px + 50px + 10px);
+}
+body:has(.nt-toolbar-dock.is-page) .nt-reformat-switcher {
+  bottom: calc(var(--inset) + 16px + 50px + 10px);
+}
+body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar) .nt-reformat-switcher {
+  bottom: calc(var(--inset) + 16px + 50px + 10px + 46px);
+}
 .nt-review-count {
   font-family: var(--font-mono), ui-monospace, monospace;
   font-size: var(--text-meta);
