@@ -6,6 +6,7 @@ import { api } from "@/convex/_generated/api";
 import type { Listed } from "@/convex/github/repos";
 import { reason } from "@/app/lib/github";
 import { openConnectWindow } from "./connectWindow";
+import { PickerReading } from "./PickerReading";
 import { GitHubMark } from "./marks";
 
 
@@ -28,7 +29,7 @@ export function GitHubPicker({
   // the last of them is a picker. Nothing at all until the answer is in:
   // rendering the connect step while the query is in flight offers it for an
   // instant to people who connected months ago.
-  if (!status) return null;
+  if (!status) return <PickerReading label="Reading your repositories" />;
   if (!status.ready) return <p className="nt-note">{status.blocker}</p>;
   if (!status.account) return <Connect />;
   return (
@@ -151,7 +152,7 @@ function Picker({
             <span className="nt-row-label">Look up “{typed}” on GitHub</span>
           </button>
         )}
-        {busy && !list && <p className="nt-picker-empty">Reading your repositories…</p>}
+        {busy && !list && <PickerReading label="Reading your repositories" words="Fetching repositories…" />}
         {list && !shown.length && !nameable && (
           <p className="nt-picker-empty">
             {typed

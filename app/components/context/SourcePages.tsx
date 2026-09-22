@@ -8,6 +8,7 @@ import type { PageNode } from "@/convex/notion/pages";
 import { reason } from "@/app/lib/github";
 import { Check } from "../Icons";
 import { NotionConnect } from "../notion/NotionConnect";
+import { ProgressBar } from "../notion/Progress";
 import { matchingPages, NotionPageTree } from "../notion/NotionPageTree";
 import { PaletteShell, PALETTE_TITLE_ID } from "../notion/PaletteShell";
 import { openConnectWindow } from "./connectWindow";
@@ -29,6 +30,25 @@ const Leave = ({ onClick }: { onClick: () => void }) => (
   </button>
 );
 
+/**
+ * The import's wait, drawn the same: one bar while the connection is asked
+ * after and the list is fetched, so the two read as one wait — and the words
+ * only once there is a list being fetched, never before it is known there is
+ * a connection to fetch it with.
+ */
+function Reading({ what, fetching, onBack }: { what: string; fetching: boolean; onBack: () => void }) {
+  return (
+    <PaletteShell said={fetching ? `Reading your ${what}` : ""} title="" foot={<Leave onClick={onBack} />}>
+      <div className="nt-pal-reading">
+        <div className="nt-pal-reading-bar">
+          <ProgressBar label={`Reading your ${what}`} />
+          {fetching && <p aria-hidden>Fetching {what}…</p>}
+        </div>
+      </div>
+    </PaletteShell>
+  );
+}
+
 export function GitHubSourcePage({
   chosen,
   search,
@@ -44,17 +64,16 @@ export function GitHubSourcePage({
   const status = useQuery(api.github.account.status);
   const connected = !!status?.account && !status.account.invalidAt;
 
+  if (!status) return <Reading what="repositories" fetching={false} onBack={onBack} />;
   if (!connected) {
     return (
       <PaletteShell said="GitHub is not connected." title="" foot={<Leave onClick={onBack} />}>
-        {status && (
-          <GitHubConnect
-            titleId={PALETTE_TITLE_ID}
-            stale={!!status.account?.invalidAt}
-            blocker={status.ready ? null : status.blocker}
-            onConnect={() => openConnectWindow("/api/github/connect")}
-          />
-        )}
+        <GitHubConnect
+          titleId={PALETTE_TITLE_ID}
+          stale={!!status.account?.invalidAt}
+          blocker={status.ready ? null : status.blocker}
+          onConnect={() => openConnectWindow("/api/github/connect")}
+        />
       </PaletteShell>
     );
   }
@@ -124,6 +143,8 @@ function Repositories({
 
   const add = () => onChoose([...picked.values()]);
 
+  if (!list && !failure) return <Reading what="repositories" fetching onBack={onBack} />;
+
   return (
     <PaletteShell
       said={list ? `${shown.length} repositories` : "Reading your repositories"}
@@ -169,7 +190,6 @@ function Repositories({
             </span>
           </button>
         )}
-        {!list && !failure && <p className="nt-srcpage-empty">Reading your repositories…</p>}
         {list && !shown.length && !nameable && (
           <p className="nt-srcpage-empty">
             {typed ? "Nothing matches. Type the full owner/name to fetch it directly." : "This connection cannot see any repositories."}
@@ -217,18 +237,17 @@ export function NotionSourcePage({
   const status = useQuery(api.notion.account.status);
   const connected = !!status?.account && !status.account.invalidAt;
 
+  if (!status) return <Reading what="Notion pages" fetching={false} onBack={onBack} />;
   if (!connected) {
     return (
       <PaletteShell said="Notion is not connected." title="" foot={<Leave onClick={onBack} />}>
-        {status && (
-          <NotionConnect
-            titleId={PALETTE_TITLE_ID}
-            stale={!!status.account?.invalidAt}
-            blocker={status.ready ? null : status.blocker}
-            title="Read your Notion pages into context"
-            onConnect={() => openConnectWindow("/api/notion/connect")}
-          />
-        )}
+        <NotionConnect
+          titleId={PALETTE_TITLE_ID}
+          stale={!!status.account?.invalidAt}
+          blocker={status.ready ? null : status.blocker}
+          title="Read your Notion pages into context"
+          onConnect={() => openConnectWindow("/api/notion/connect")}
+        />
       </PaletteShell>
     );
   }
@@ -281,9 +300,11 @@ function NotionPages({
     );
   };
 
+  if (!tree && !failure) return <Reading what="Notion pages" fetching onBack={onBack} />;
+
   return (
     <PaletteShell
-      said={tree ? "Notion pages" : "Reading your Notion pages"}
+      said="Notion pages"
       title="Choose pages to read into context"
       note="Ticking a page takes the pages inside it. They stay in Notion."
       flush
@@ -313,7 +334,6 @@ function NotionPages({
         </>
       }
     >
-      {!tree && !failure && <p className="nt-srcpage-empty">Reading your Notion pages…</p>}
       {tree && !tree.length && <p className="nt-srcpage-empty">No pages are shared with Nootles yet.</p>}
       {tree && tree.length > 0 && (
         <NotionPageTree

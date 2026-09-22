@@ -257,3 +257,13 @@
   color: var(--muted);
   text-align: center;
 }
+
+/* A picker's wait: the import's bar, at the picker's width. */
+.nt-picker-reading {
+  padding: 16px 14px;
+}
+.nt-picker-reading p {
+  margin-top: 9px;
+  font-size: 12px;
+  color: var(--muted);
+}

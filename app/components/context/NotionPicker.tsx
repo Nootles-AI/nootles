@@ -7,6 +7,7 @@ import type { PageNode } from "@/convex/notion/pages";
 import { NotionMark } from "../NotionMark";
 import { matchingPages, NotionPageTree } from "../notion/NotionPageTree";
 import { openConnectWindow } from "./connectWindow";
+import { PickerReading } from "./PickerReading";
 
 export type NotionChoice = { pageId: string; title: string; emoji?: string };
 
@@ -27,7 +28,7 @@ export function NotionPicker({
   onDone: () => void;
 }) {
   const status = useQuery(api.notion.account.status);
-  if (!status) return null;
+  if (!status) return <PickerReading label="Reading your Notion pages" />;
   if (!status.ready) return <p className="nt-note">{status.blocker}</p>;
   if (!status.account) {
     return (
@@ -106,7 +107,9 @@ function Pages({
         />
       </div>
       <div className="nt-picker-list">
-        {!tree && !failure && <p className="nt-picker-empty">Reading your Notion pages…</p>}
+        {!tree && !failure && (
+          <PickerReading label="Reading your Notion pages" words="Fetching Notion pages…" />
+        )}
         {tree && !tree.length && (
           <p className="nt-picker-empty">No pages are shared with Nootles yet.</p>
         )}
