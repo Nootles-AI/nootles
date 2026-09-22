@@ -234,7 +234,7 @@ function Connect() {
   );
 }
 
-function PasteToken() {
+export function PasteToken() {
   const connect = useAction(api.github.account.connect);
   const [token, setToken] = useState("");
   const [busy, setBusy] = useState(false);

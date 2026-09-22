@@ -53,6 +53,7 @@ function Sources({
   busy,
   failure,
   empty,
+  onDoor,
 }: {
   cards: Card[];
   linkedRepos: ReadonlySet<string>;
@@ -63,10 +64,13 @@ function Sources({
   busy?: boolean;
   failure?: string | null;
   empty: string;
+  /** Given, GitHub and Notion open somewhere else — the palette's own pages — not inline. */
+  onDoor?: (door: Door) => void;
 }) {
   const [door, setDoor] = useState<Door | null>(null);
   const input = useRef<HTMLInputElement>(null);
-  const toggle = (next: Door) => setDoor((d) => (d === next ? null : next));
+  const toggle = (next: Door) =>
+    onDoor ? onDoor(next) : setDoor((d) => (d === next ? null : next));
 
   return (
     <div className="nt-sources">
@@ -301,9 +305,11 @@ export type DraftSourcesValue = {
 export function DraftSources({
   value,
   onChange,
+  onDoor,
 }: {
   value: DraftSourcesValue;
   onChange: (next: DraftSourcesValue) => void;
+  onDoor?: (door: Door) => void;
 }) {
   const cards: Card[] = [
     ...value.repos.map(
@@ -340,6 +346,7 @@ export function DraftSources({
       linkedRepos={new Set(value.repos.map((r) => r.fullName))}
       linkedPages={new Set(value.pages.map((p) => p.pageId))}
       empty="Add files, repositories or Notion pages. They are read into the project once it is made."
+      onDoor={onDoor}
       onFiles={(chosen) => onChange({ ...value, files: [...value.files, ...chosen] })}
       onRepo={(repo) => onChange({ ...value, repos: [...value.repos, repo] })}
       onPages={(chosen) => onChange({ ...value, pages: [...value.pages, ...chosen] })}
