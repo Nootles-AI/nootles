@@ -115,14 +115,35 @@ function EditableMath({ block, bridge }: {
   bridge: EditableNmlBridge;
 }) {
   const [reasserted, dispatch] = useReassertingDispatch(bridge);
+  /**
+   * Only a row this block asked for takes the keyboard — the way Enter works.
+   * Every other row mounts quietly: a field that focuses itself on mount takes
+   * the caret from wherever the person is the moment MathLive finishes
+   * loading, and a row the model or a collaborator adds is not theirs to be
+   * moved into (NT-77).
+   *
+   * The commit mints the new row's id, so the row is recognised by arriving:
+   * the one that was not there when it was asked for. A refusal withdraws the
+   * ask, or a collaborator's row would answer it later.
+   */
+  const [asked, setAsked] = useState<{ known: string[]; reasserted: number } | null>(null);
+  const [focusId, setFocusId] = useState<string | null>(null);
+  if (asked) {
+    const arrived = block.rows.find((row) => !asked.known.includes(row.id));
+    if (arrived) {
+      setFocusId(arrived.id);
+      setAsked(null);
+    } else if (asked.reasserted !== reasserted) setAsked(null);
+  }
   const addAfter = (rowId: string) => {
     const temporaryId = `$nml-math-row-${crypto.randomUUID()}`;
-    dispatch([{
+    const known = block.rows.map((row) => row.id);
+    if (dispatch([{
       type: "insertMathRows",
       nodeId: block.id,
       anchor: { afterId: rowId },
       rows: [{ id: temporaryId, latex: "" }],
-    }], [block.id, temporaryId], [temporaryId]);
+    }], [block.id, temporaryId], [temporaryId])) setAsked({ known, reasserted });
   };
   return <div className="nt-mathblock">
     {block.rows.map((row) => <div key={row.id} data-nml-id={row.id} className="nt-mathblock-row">
@@ -130,6 +151,7 @@ function EditableMath({ block, bridge }: {
         <MathField
           value={row.latex}
           reasserted={reasserted}
+          autoFocus={row.id === focusId}
           onChange={(latex) => latex !== row.latex && dispatch([
             { type: "setMathRow", nodeId: block.id, rowId: row.id, latex },
           ], [block.id, row.id])}
