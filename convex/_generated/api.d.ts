@@ -47,6 +47,7 @@ import type * as github_graphStore from "../github/graphStore.js";
 import type * as github_index_cluster from "../github/index/cluster.js";
 import type * as github_index_cochange from "../github/index/cochange.js";
 import type * as github_index_describe from "../github/index/describe.js";
+import type * as github_index_look from "../github/index/look.js";
 import type * as github_index_parse from "../github/index/parse.js";
 import type * as github_index_resolve from "../github/index/resolve.js";
 import type * as github_index_select from "../github/index/select.js";
@@ -138,6 +139,7 @@ declare const fullApi: ApiFromModules<{
   "github/index/cluster": typeof github_index_cluster;
   "github/index/cochange": typeof github_index_cochange;
   "github/index/describe": typeof github_index_describe;
+  "github/index/look": typeof github_index_look;
   "github/index/parse": typeof github_index_parse;
   "github/index/resolve": typeof github_index_resolve;
   "github/index/select": typeof github_index_select;
