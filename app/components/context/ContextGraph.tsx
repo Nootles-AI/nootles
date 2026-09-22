@@ -15,20 +15,24 @@ import "./graph/graph.css";
 /**
  * The project's context, as a map: every page and folder, the lines between
  * them, and — floating on the right — everything known about whatever is
- * selected. Opened from the sidebar's Context row; the project is selected
- * first, and its panel is where Description and Context are written.
+ * selected. Opened from the sidebar's Context section, on the source that was
+ * clicked or else on the project, whose panel is where Description and the
+ * sources are managed.
  */
 export function ContextGraph({
   projectId,
+  focus,
   onClose,
 }: {
   projectId: Id<"projects">;
+  /** A node id, or `x:` and a document's external id — which only the graph can turn into a node. */
+  focus?: string;
   onClose: () => void;
 }) {
   const data = useQuery(api.context.read.graph, { projectId });
   const { open } = useOpenPage();
   const graph = useMemo(() => (data ? buildGraph(data) : null), [data]);
-  const [chosen, setChosen] = useState(PROJECT);
+  const [chosen, setChosen] = useState(focus ?? PROJECT);
   const [query, setQuery] = useState("");
   const [centreOn, setCentreOn] = useState<{ id: string; nonce: number } | null>(null);
   const panel = useRef<HTMLElement>(null);
@@ -36,7 +40,10 @@ export function ContextGraph({
   // A selection whose node has gone — a page trashed in another tab — falls
   // back to the project rather than to a panel about nothing.
   const byId = useMemo(() => new Map(graph?.nodes.map((n) => [n.id, n])), [graph]);
-  const selected = byId.has(chosen) ? chosen : PROJECT;
+  const focused = focus?.startsWith("x:")
+    ? graph?.nodes.find((n) => n.kind === "document" && `x:${n.doc.externalId}` === focus)?.id
+    : undefined;
+  const selected = byId.has(chosen) ? chosen : (focused ?? PROJECT);
   const node = byId.get(selected);
 
   const matches = useMemo(() => {

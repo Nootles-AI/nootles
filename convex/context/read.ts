@@ -538,6 +538,7 @@ export const graph = query({
       }),
       documents: documents.map((d) => ({
         nodeId: d._id as string,
+        externalId: d.externalId,
         source: d.source === "notion" ? ("notion" as const) : ("files" as const),
         title: d.title,
         brief: d.brief,
