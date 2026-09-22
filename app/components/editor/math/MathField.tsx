@@ -41,6 +41,7 @@ export function MathField({
   onBackspaceEmpty,
   onTab,
   onEscape,
+  reasserted = 0,
   autoFocus = true,
 }: {
   value: string;
@@ -50,6 +51,12 @@ export function MathField({
   onBackspaceEmpty?: () => void;
   onTab?: () => boolean;
   onEscape?: () => void;
+  /**
+   * How many times the host has re-asserted `value` over this field. A host
+   * whose write was refused still holds the same latex it held before, so
+   * nothing in the props changes and the push below would never look again.
+   */
+  reasserted?: number;
   autoFocus?: boolean;
 }) {
   const host = useRef<HTMLSpanElement>(null);
@@ -125,7 +132,7 @@ export function MathField({
     if (!field || value === lastEmitted.current) return;
     lastEmitted.current = value;
     field.value = value;
-  }, [value]);
+  }, [value, reasserted]);
 
   return <span ref={host} className="nt-mathfield-host" />;
 }

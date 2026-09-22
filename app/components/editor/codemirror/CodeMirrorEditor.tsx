@@ -23,6 +23,7 @@ export function CodeMirrorEditor({
   onChange,
   onBlur,
   getFimContext,
+  reasserted = 0,
   readOnly = false,
 }: {
   initialValue: string;
@@ -31,6 +32,13 @@ export function CodeMirrorEditor({
   onBlur?: () => void;
   /** Document HTML split at the caret inside this block, for completion. */
   getFimContext?: (offset: number) => { prefix: string; suffix: string } | null;
+  /**
+   * How many times the host has re-asserted `initialValue` over this editor.
+   * A host whose write was refused holds the same canonical text it held
+   * before, so nothing in the props changes and the reconcile below would
+   * never look again — this is what asks it to.
+   */
+  reasserted?: number;
   /** Fixed for the life of the editor — the share viewer never becomes an author. */
   readOnly?: boolean;
 }) {
@@ -122,7 +130,7 @@ export function CodeMirrorEditor({
     view.dispatch({
       changes: { from: start, to: prevEnd, insert: next.slice(start, nextEnd) },
     });
-  }, [initialValue]);
+  }, [initialValue, reasserted]);
 
   // Completion inside the block. The document is serialized into the Nootles
   // HTML language with the caret placed inside this <nt-code-block>, so the model

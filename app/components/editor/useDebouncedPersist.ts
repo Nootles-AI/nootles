@@ -34,7 +34,8 @@ export type DebouncedPersist = {
 };
 
 export function useDebouncedPersist(
-  persist: (value: string) => void,
+  /** Writes the value into the document. `false` means the document refused it. */
+  persist: (value: string) => void | boolean,
   delayMs: number,
   /** The block's current value, watched for changes that are not ours. */
   incoming: string,
@@ -67,8 +68,12 @@ export function useDebouncedPersist(
     const put = (value: Persistable) => {
       const s = typeof value === "string" ? value : value();
       if (s === last.current) return;
+      const held = last.current;
       last.current = s;
-      persistRef.current(s);
+      // A refused write never reached the document. Booking it as written would
+      // leave the next outside change looking like our own echo, and the value
+      // the surface is still showing would never be reconciled away.
+      if (persistRef.current(s) === false) last.current = held;
     };
     const flush = () => {
       const value = pending.current;

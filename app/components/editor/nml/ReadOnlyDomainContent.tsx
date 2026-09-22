@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { NmlCommand } from "@/app/lib/nml/commands";
 import type { NmlBlock } from "@/app/lib/nml/schema";
 import { isSafeUrl } from "@/app/lib/nml/validate";
 import {
@@ -48,19 +49,64 @@ function textDiff(before: string, after: string): { from: number; to: number; te
   return { from, to: before.length - suffix, text: after.slice(from, after.length - suffix) };
 }
 
+/**
+ * Dispatch for a surface that holds its own value — CodeMirror's text, a
+ * MathLive row — and hands it to the document afterwards.
+ *
+ * The document is free to say no: a request is already in flight, or the one
+ * this block sent lost a precondition to a collaborator. Either way the
+ * canonical value stays exactly where it was, so nothing in the block's props
+ * moves and the surface would go on showing a value the page does not have.
+ * The count returned alongside is what asks the surface to look again.
+ *
+ * Only the refusals of *this* block's writes count. A rejection belongs to us
+ * when we are waiting on one — the bridge keeps a single request outstanding —
+ * and somebody else's must not take text off this surface that has not been
+ * offered to the document yet.
+ */
+function useReassertingDispatch(bridge: EditableNmlBridge): [
+  number,
+  (commands: NmlCommand[], nodeIds: string[], temporaryIds?: string[]) => boolean,
+] {
+  const [reasserted, setReasserted] = useState(0);
+  const awaiting = useRef(false);
+  const reassert = useCallback(() => setReasserted((count) => count + 1), []);
+
+  useEffect(() => bridge.subscribe((update) => {
+    const status = update.request?.status;
+    if (!status || status === "optimistic" || !awaiting.current) return;
+    awaiting.current = false;
+    if (status === "rejected") reassert();
+  }), [bridge, reassert]);
+
+  const dispatch = useCallback((commands: NmlCommand[], nodeIds: string[], temporaryIds?: string[]) => {
+    // Set before the dispatch, not after: a commit whose authorization is
+    // synchronous lands its Yjs transaction, and with it the settlement this
+    // very subscription is waiting for, before the call returns.
+    awaiting.current = true;
+    if (bridge.dispatchCommands(commands, nodeIds, temporaryIds)) return true;
+    awaiting.current = false;
+    reassert();
+    return false;
+  }, [bridge, reassert]);
+
+  return [reasserted, dispatch];
+}
+
 function EditableCode({ block, bridge }: {
   block: Extract<NmlBlock, { type: "codeBlock" }>;
   bridge: EditableNmlBridge;
 }) {
+  const [reasserted, dispatch] = useReassertingDispatch(bridge);
   const persist = useDebouncedPersist((value) => {
     const diff = textDiff(block.code, value);
-    if (diff) bridge.dispatchCommands([
+    return !diff || dispatch([
       { type: "setCode", nodeId: block.id, range: { from: diff.from, to: diff.to }, text: diff.text },
     ], [block.id]);
   }, 400, block.code);
   return <div className="nt-code">
     <div className="nt-code-topbar"><span className="nt-code-lang-label">{languageLabel(block.props.language)}</span></div>
-    <CodeSurface initialValue={block.code} language={block.props.language} onChange={persist.schedule} onBlur={persist.flush} />
+    <CodeSurface initialValue={block.code} reasserted={reasserted} language={block.props.language} onChange={persist.schedule} onBlur={persist.flush} />
   </div>;
 }
 
@@ -68,9 +114,10 @@ function EditableMath({ block, bridge }: {
   block: Extract<NmlBlock, { type: "mathBlock" }>;
   bridge: EditableNmlBridge;
 }) {
+  const [reasserted, dispatch] = useReassertingDispatch(bridge);
   const addAfter = (rowId: string) => {
     const temporaryId = `$nml-math-row-${crypto.randomUUID()}`;
-    bridge.dispatchCommands([{
+    dispatch([{
       type: "insertMathRows",
       nodeId: block.id,
       anchor: { afterId: rowId },
@@ -82,11 +129,12 @@ function EditableMath({ block, bridge }: {
       <div className="nt-mathblock-input">
         <MathField
           value={row.latex}
-          onChange={(latex) => bridge.dispatchCommands([
+          reasserted={reasserted}
+          onChange={(latex) => latex !== row.latex && dispatch([
             { type: "setMathRow", nodeId: block.id, rowId: row.id, latex },
           ], [block.id, row.id])}
           onEnter={() => addAfter(row.id)}
-          onBackspaceEmpty={() => block.rows.length > 1 && bridge.dispatchCommands([
+          onBackspaceEmpty={() => block.rows.length > 1 && dispatch([
             { type: "removeMathRows", nodeId: block.id, rowIds: [row.id] },
           ], [block.id, row.id])}
         />
