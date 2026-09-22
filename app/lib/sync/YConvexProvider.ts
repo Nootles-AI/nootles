@@ -7,6 +7,7 @@ import {
   removeAwarenessStates,
 } from "y-protocols/awareness";
 import { api } from "@/convex/_generated/api";
+import type { PageDigest } from "@/convex/context/shape";
 import { encodePreview } from "@/convex/previewShape";
 import { splitUpdate } from "@/convex/yshape";
 import { openYDoc } from "./ydocRead";
@@ -42,10 +43,11 @@ const MAX_RETRY_MS = 10_000;
  */
 const MERGE_CAP_BYTES = 800 * 1024;
 /**
- * How closely two preview writes may follow each other. A thumbnail wants
- * seconds-freshness, and the read behind a write walks the whole document.
+ * How closely two writes of derived data — the preview and the context digest
+ * — may follow each other. Both want seconds-freshness, and the read behind
+ * them walks the whole document, so they share one read and one clock.
  */
-const PREVIEW_MS = 4000;
+const DERIVED_MS = 4000;
 /** Cursor moves ride a trailing throttle; stillness still beats every 10s. */
 const AWARENESS_THROTTLE_MS = 200;
 const KEEPALIVE_MS = 10_000;
@@ -79,9 +81,11 @@ export class YConvexProvider {
   private unwatch: (() => void) | null = null;
   private listeners = new Set<Listener>();
 
-  private previewTimer: ReturnType<typeof setTimeout> | null = null;
+  private derivedTimer: ReturnType<typeof setTimeout> | null = null;
   /** The last preview the server took; undefined until one has been offered. */
   private sentPreview: string | null | undefined;
+  /** The hash of the last digest offered; undefined until one has been. */
+  private sentDigest: string | undefined;
 
   private unwatchPresence: (() => void) | null = null;
   private awarenessTimer: ReturnType<typeof setTimeout> | null = null;
@@ -166,12 +170,12 @@ export class YConvexProvider {
       clearTimeout(this.awarenessTimer);
       this.awarenessTimer = null;
     }
-    // Leaving with a preview still owed: written now, since the last edits
+    // Leaving with derived data still owed: written now, since the last edits
     // before closing a page are exactly the ones its thumbnail should show.
-    if (this.previewTimer) {
-      clearTimeout(this.previewTimer);
-      this.previewTimer = null;
-      void this.writePreview();
+    if (this.derivedTimer) {
+      clearTimeout(this.derivedTimer);
+      this.derivedTimer = null;
+      void this.writeDerived();
     }
     if (this.keepaliveTimer) {
       clearInterval(this.keepaliveTimer);
@@ -237,6 +241,10 @@ export class YConvexProvider {
           this.syncedFlag = true;
           this.resolveSynced();
           this.emit();
+          // A page opened is a page whose node can be brought up to date, so a
+          // page written before the graph existed joins it on its next visit.
+          // Only the digest: an unchanged thumbnail is not worth a write.
+          void this.writeDerived({ preview: false });
         }
       } while (this.pullAgain);
     } finally {
@@ -413,7 +421,7 @@ export class YConvexProvider {
       }
       this.retryMs = 0;
       this.lastFlushAt = Date.now();
-      this.schedulePreview();
+      this.scheduleDerived();
     } catch {
       // Everything unsent goes back to the front, coalesced, and retries on
       // a doubling delay — the queue is the offline buffer.
@@ -429,37 +437,67 @@ export class YConvexProvider {
     }
   }
 
-  // ---- Preview ------------------------------------------------------------
+  // ---- Derived data -------------------------------------------------------
 
   /**
-   * The document's stored preview (`schema.pagePreviews`) is kept here, behind
-   * the flush, because this is the one seam every Yjs writer passes through —
-   * an open editor, the agent editing a page nobody has open, a second pane.
-   * Only local edits flush, so of all the tabs on a page it is the one that
-   * made a change that writes the picture of it.
+   * The document's stored preview (`schema.pagePreviews`) and its node in the
+   * context graph (`context/pages.digest`) are kept here, behind the flush,
+   * because this is the one seam every Yjs writer passes through — an open
+   * editor, the agent editing a page nobody has open, a second pane. Only
+   * local edits flush, so of all the tabs on a page it is the one that made a
+   * change that writes what is derived from it.
    */
-  private schedulePreview() {
-    if (this.previewTimer) return;
-    this.previewTimer = setTimeout(() => {
-      this.previewTimer = null;
-      void this.writePreview();
-    }, PREVIEW_MS);
+  private scheduleDerived() {
+    if (this.derivedTimer) return;
+    this.derivedTimer = setTimeout(() => {
+      this.derivedTimer = null;
+      void this.writeDerived();
+    }, DERIVED_MS);
   }
 
-  private async writePreview() {
+  private async writeDerived({ preview = true } = {}) {
+    // BlockNote's schema is what reads a Y.Doc as blocks; imported here so
+    // a surface that only syncs never pays for it.
     try {
-      // BlockNote's schema is what reads a Y.Doc as blocks; imported here so
-      // a surface that only syncs never pays for it.
-      const { blocksFromYDoc } = await import("@/app/lib/ai/snapshot");
-      const blocks = encodePreview(blocksFromYDoc(this.doc));
-      // Most edits land below the fold of a thumbnail and change nothing.
-      if (blocks === this.sentPreview) return;
+      const [{ blocksFromYDoc }, { digestPage }] = await Promise.all([
+        import("@/app/lib/ai/snapshot"),
+        import("@/app/lib/ai/context/digest"),
+      ]);
+      const blocks = blocksFromYDoc(this.doc);
+      await Promise.all([
+        preview ? this.writePreview(encodePreview(blocks)) : null,
+        this.writeDigest(digestPage(blocks)),
+      ]);
+    } catch {
+      // Derived data: the next flush offers it again.
+    }
+  }
+
+  private async writePreview(blocks: string | null) {
+    // Most edits land below the fold of a thumbnail and change nothing.
+    if (blocks === this.sentPreview) return;
+    try {
       await this.client.mutation(api.previews.set, {
         docId: this.docId,
         blocks,
         seq: this.cursor,
       });
       this.sentPreview = blocks;
+    } catch {
+      // Derived data: the next flush offers it again.
+    }
+  }
+
+  private async writeDigest(digest: PageDigest) {
+    if (digest.contentHash === this.sentDigest) return;
+    try {
+      // Declined while an AI turn on the page awaits review; not remembered
+      // as sent, so the next flush or visit offers it again.
+      const taken = await this.client.mutation(api.context.pages.digest, {
+        docId: this.docId,
+        digest,
+      });
+      if (taken) this.sentDigest = digest.contentHash;
     } catch {
       // Derived data: the next flush offers it again.
     }

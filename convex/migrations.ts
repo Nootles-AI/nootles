@@ -2,6 +2,8 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { internalMutation, internalQuery, type QueryCtx } from "./_generated/server";
+import { isTrashed } from "./auth";
+import { pageNode } from "./context/pages";
 import { raiseTo, TICKET } from "./counters";
 import { forgetPagesIn, pagesInBlob } from "./pages";
 
@@ -359,5 +361,30 @@ export const stampYjsPages = internalMutation({
       done: batch.isDone,
       cursor: batch.isDone ? null : batch.continueCursor,
     };
+  },
+});
+
+/**
+ * Gives every live page a node in its project's context graph, so
+ * `search_context` finds pages by title before anyone has opened them since
+ * the graph shipped. Titles only: a page's words arrive with its first digest,
+ * which the browser writes the next time the page is opened or edited.
+ * Idempotent — a page that already has a node is left alone.
+ */
+export const contextPageNodes = internalMutation({
+  args: { cursor: v.optional(v.string()) },
+  handler: async (ctx, args): Promise<{ pages: number; done: boolean }> => {
+    const batch = await ctx.db
+      .query("pages")
+      .paginate({ numItems: BATCH, cursor: args.cursor ?? null });
+    for (const page of batch.page) {
+      if (!isTrashed(page)) await pageNode(ctx, page);
+    }
+    if (!batch.isDone) {
+      await ctx.scheduler.runAfter(0, internal.migrations.contextPageNodes, {
+        cursor: batch.continueCursor,
+      });
+    }
+    return { pages: batch.page.length, done: batch.isDone };
   },
 });

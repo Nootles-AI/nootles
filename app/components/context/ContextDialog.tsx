@@ -1,16 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { useAction, useMutation, useQuery } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { ABOUT, BACKGROUND } from "@/convex/ai/questions";
-import type { Listed } from "@/convex/github/repos";
-import { reason } from "@/app/lib/github";
 import { Dialog } from "../Dialog";
 import { X } from "../Icons";
-import { ContextFiles } from "./ContextFiles";
-import { GitHubRepos, type Chosen } from "./GitHubRepos";
 
 /**
  * What the assistant knows about this project, after it exists.
@@ -18,9 +14,12 @@ import { GitHubRepos, type Chosen } from "./GitHubRepos";
  * The new-project dialog asks the same two questions and then never asks again,
  * which left the Context Sheet write-once: everything typed at creation primed
  * every request forever and could not be corrected. This is the other half of
- * that form — the same two fields, the entries anything else has added since,
- * and the repositories, which are the one kind of context that is read rather
- * than written.
+ * that form — the same two fields, and the entries anything else has added
+ * since. The project's pages are context too, and need nothing from here.
+ *
+ * Linked repositories and uploaded files are not shown while they reach no
+ * model: they come back as connectors into the context graph
+ * (docs/context-graph.md), and their rows are kept for that.
  */
 export function ContextDialog({
   projectId,
@@ -30,15 +29,9 @@ export function ContextDialog({
   onClose: () => void;
 }) {
   const entries = useQuery(api.ai.context.list, { projectId });
-  const repos = useQuery(api.github.repos.listForProject, { projectId });
   const add = useMutation(api.ai.context.add);
   const answer = useMutation(api.ai.context.answer);
   const remove = useMutation(api.ai.context.remove);
-  const link = useMutation(api.github.repos.link);
-  const unlink = useMutation(api.github.repos.unlink);
-  const refresh = useAction(api.github.repos.refresh);
-
-  const [failure, setFailure] = useState<string | null>(null);
 
   /**
    * Write an answer to one of the standing questions, creating its row the
@@ -65,23 +58,16 @@ export function ContextDialog({
   const standing = new Set([ABOUT, BACKGROUND]);
   const also = entries?.filter((e) => !standing.has(e.question)) ?? [];
 
-  const chosen: Chosen[] = (repos ?? []).map((repo) => ({
-    key: repo._id,
-    fullName: repo.fullName,
-    description: repo.description,
-    private: repo.private,
-    ...note(repo),
-  }));
-
   return (
-    <Dialog label="Project context" onClose={onClose}>
+    <Dialog label="Project context" className="nt-context" onClose={onClose}>
       {(close) => (
         <>
           <div className="nt-dialog-head">
             <p className="text-sm font-medium">Project context</p>
             <p className="mt-1.5 text-[13px] text-muted">
-              What the assistant is told before every request in this project.
-              Changes take effect on the next message.
+              What the assistant is told before every request in this project,
+              alongside what its pages say. Changes take effect on the next
+              message.
             </p>
           </div>
 
@@ -137,60 +123,9 @@ export function ContextDialog({
                 </div>
               )}
             </div>
-
-            <div>
-              <GitHubRepos
-                repos={chosen}
-                onAdd={(repo: Listed) => {
-                  setFailure(null);
-                  void link({ projectId, repos: [strip(repo)] }).catch(
-                    (error) =>
-                      setFailure(
-                        reason(error, "That repository could not be linked."),
-                      ),
-                  );
-                }}
-                onRemove={(key) =>
-                  void unlink({ repoId: key as Id<"projectRepos"> })
-                }
-              />
-              {chosen.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setFailure(null);
-                    // Sequential rather than concurrent: each one is three
-                    // requests to GitHub, and a rate limit spent on a refresh
-                    // nobody asked for is a bad trade.
-                    void (async () => {
-                      for (const repo of repos ?? []) {
-                        await refresh({ repoId: repo._id }).catch((error) =>
-                          setFailure(reason(error)),
-                        );
-                      }
-                    })();
-                  }}
-                  className="nt-row mt-1 w-full text-muted"
-                >
-                  <span className="nt-row-label">Re-read all repositories</span>
-                </button>
-              )}
-
-              <div className="mt-4">
-                <ContextFiles projectId={projectId} />
-              </div>
-            </div>
           </div>
 
           <div className="nt-dialog-foot">
-            {failure && (
-              <p
-                role="alert"
-                className="min-w-0 flex-1 text-[13px] text-danger"
-              >
-                {failure}
-              </p>
-            )}
             <button
               type="button"
               onClick={close}
@@ -256,28 +191,4 @@ function Field({
       )}
     </>
   );
-}
-
-/**
- * The second line of a repository row: what the last read of it found. Nothing
- * when it went fine — the description is a better line than "read 4 minutes
- * ago", and `GitHubRepos` falls back to it.
- */
-function note(repo: { syncError?: string; syncedAt?: number }): {
-  note?: string;
-  noteIsProblem?: boolean;
-} {
-  if (repo.syncError) return { note: repo.syncError, noteIsProblem: true };
-  if (!repo.syncedAt) return { note: "Reading…" };
-  return {};
-}
-
-/** The picker hands back more than a link needs; the extra would fail validation. */
-function strip(repo: Listed) {
-  return {
-    fullName: repo.fullName,
-    defaultBranch: repo.defaultBranch,
-    ...(repo.description ? { description: repo.description } : {}),
-    private: repo.private,
-  };
 }

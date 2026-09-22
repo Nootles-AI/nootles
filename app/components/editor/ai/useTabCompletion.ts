@@ -566,7 +566,7 @@ export function useTabCompletion(
   // A ref like the mutations, and for the same reason: the next completion
   // should carry the latest context without a changed sheet restarting the
   // whole lane.
-  const contextSeed = useCompletionContext();
+  const contextSeed = useCompletionContext(pageId);
   const appendRef = useRef(appendBatch);
   const logRef = useRef(logSuggestion);
   const logManyRef = useRef(logTurnedDown);

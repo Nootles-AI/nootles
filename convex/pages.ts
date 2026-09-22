@@ -3,7 +3,8 @@ import { v } from "convex/values";
 import { gunzipSync, gzipSync } from "fflate";
 import { components } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { isTrashed, readVisible, requireEditable } from "./auth";
+import { isTrashed, readVisible, requireEditable, requireOwner } from "./auth";
+import { removePageNode, retitlePageNode } from "./context/pages";
 import { copyPreview, deletePreview } from "./previews";
 import { refreshPageSummary, stampProject } from "./projects";
 import { rowIcon } from "./schema";
@@ -89,6 +90,7 @@ export const create = mutation({
     // page can never disagree with the project it hangs off — a page an editor
     // creates still belongs to the project's owner.
     const { ownerId } = await requireEditable(ctx, "projects", args.projectId);
+    const createdBy = await requireOwner(ctx);
     if (args.folderId) await folderIn(ctx, args.projectId, args.folderId);
     const anchor = args.after ? await ctx.db.get(args.after) : null;
     // An unnamed folder falls back to the anchor's, so "after that page" lands
@@ -98,6 +100,7 @@ export const create = mutation({
     const placed = args.after ? orderAfter(siblings, args.after) : null;
     const pageId = await ctx.db.insert("pages", {
       ownerId,
+      createdBy,
       projectId: args.projectId,
       // Empty by default so the doc shows its grayed "Untitled" placeholder;
       // the sidebar renders an "Untitled" fallback for empty titles.
@@ -210,8 +213,11 @@ export async function clonePage(
 ): Promise<Id<"pages">> {
   const docId = crypto.randomUUID();
   const yjs = await copyDoc(ctx, page.docId, docId);
+  // A copy is made by whoever copied it, not by whoever wrote the original.
+  const createdBy = await requireOwner(ctx);
   return await ctx.db.insert("pages", {
     ownerId: home.ownerId,
+    createdBy,
     projectId: home.projectId,
     title: placed.title,
     mode: page.mode,
@@ -320,6 +326,7 @@ export const rename = mutation({
     const page = await requireEditable(ctx, "pages", args.pageId);
     const now = Date.now();
     await ctx.db.patch(args.pageId, { title: args.title, updatedAt: now });
+    await retitlePageNode(ctx, page, args.title);
     await stampProject(ctx, page.projectId, now);
   },
 });
@@ -375,6 +382,7 @@ export async function removePageCascade(ctx: MutationCtx, page: Doc<"pages">) {
 
   await forgetTurns(ctx, page);
   await deletePreview(ctx, page.docId);
+  await removePageNode(ctx, page);
   await ctx.db.delete(page._id);
 }
 

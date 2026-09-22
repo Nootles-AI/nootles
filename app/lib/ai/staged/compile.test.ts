@@ -45,7 +45,6 @@ const ctx: StageContext = {
     { pageId: "pg_req", title: "Requirements & Traceability" },
     { pageId: "pg_test", title: "Test & Validation" },
   ],
-  repos: ["team-kestrel/kr1-firmware"],
 };
 
 function payloads(): { id: string; at: number; html: string }[] {

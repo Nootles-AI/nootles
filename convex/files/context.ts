@@ -107,9 +107,9 @@ export const refresh = mutation({
 });
 
 /**
- * The whole extracted text — what the chat tool returns. Editors read it too,
- * the same reach `forPrompt` has: the context is the project's, not the
- * owner's alone. A query rather than an action, because unlike a repository
+ * The whole extracted text — what the chat tool returned while files reached
+ * the model, kept for the files connector. Editors read it too: the context
+ * is the project's, not the owner's alone. A query rather than an action, because unlike a repository
  * there is nothing left to fetch.
  */
 export const read = query({

@@ -77,8 +77,3 @@ export function shapesLabelled(scene: string, label: RegExp): string[] {
   }
   return out;
 }
-
-/** The project's linked repository, or null when none is linked. */
-export function repo(ctx: StageContext): string | null {
-  return ctx.repos[0] ?? null;
-}

@@ -9,8 +9,6 @@
 export const MAX_FILE_BYTES = 10_000_000;
 /** Enough of a file to reason about — the same cap a repo file read gets. */
 export const MAX_FILE_TEXT = 60_000;
-/** The head read into every prompt; the same slice a README gets. */
-export const FILE_HEAD = 1500;
 
 export type FileKind = "pdf" | "docx" | "html" | "text";
 

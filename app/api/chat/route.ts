@@ -19,8 +19,8 @@ import {
   OUT_OF_STEPS,
   SYSTEM,
   openPageNote,
-  projectNote,
 } from "@/app/lib/ai/chat/prompt";
+import { pagePack, projectPack } from "@/app/lib/ai/context/pack";
 import { chatTools } from "@/app/lib/ai/chat/serverTools";
 import { stageTurn } from "@/app/lib/ai/staged/stage";
 import {
@@ -148,13 +148,14 @@ export async function POST(req: Request) {
     }
   }
 
-  // What the user said this project is. Read per request rather than per turn
-  // because the sheet is a living thing, and it is one round trip: without it
-  // the agent writes into every project as if it were the same project.
-  const project = await convex
-    .query(api.ai.context.forPrompt, { projectId })
+  // The project's context pack. Read per request rather than per turn because
+  // the project is a living thing, and it is one round trip: without it the
+  // agent writes into every project as if it were the same project.
+  const note = openPageNote(pageId);
+  const inputs = await convex
+    .query(api.context.read.packInputs, { projectId, ...(note ? { pageId } : {}) })
     .catch(() => null);
-  const about = projectNote(project);
+  const about = inputs ? projectPack(inputs, AI.chat.context.projectTokens) : "";
 
   // Separate instructions, not one concatenated string. The breakpoint goes on
   // the last thing that holds for the whole conversation — the standing prompt
@@ -165,8 +166,9 @@ export async function POST(req: Request) {
   if (about) instructions.push({ role: "system", content: about });
   instructions[instructions.length - 1].providerOptions = cached();
 
-  const note = openPageNote(pageId);
-  if (note) instructions.push({ role: "system", content: note });
+  const around = inputs && note ? pagePack(inputs, pageId, AI.chat.context.pageTokens) : "";
+  const open = [note, around].filter(Boolean).join("\n\n");
+  if (open) instructions.push({ role: "system", content: open });
 
   // Taken apart rather than spread: this call's tool typing is what the step
   // budget and `activeTools` are checked against, and spreading a bundle that
@@ -183,10 +185,6 @@ export async function POST(req: Request) {
     tools: chatTools(
       projectId,
       convex,
-      {
-        repos: !!project?.repos.length,
-        files: !!project?.files.length,
-      },
       // The user's style for this turn's drawings, set by the picker that
       // answered the draw approvals. Absent or malformed reads as the
       // default — a request hand-rolled without a choice still draws.

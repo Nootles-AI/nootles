@@ -14,8 +14,8 @@ import { z } from "zod";
  * hand-kept parallel list, so a new client tool can never forget to add
  * itself there. `surfaces` is what lets an MCP adapter (later) offer a
  * filtered subset of this same table without a second tool definition —
- * `CANVAS_TOOLS`, the 13 node-level diagram tools, are the first ones that
- * carry `"mcp"`.
+ * `CANVAS_TOOLS`, the 13 node-level diagram tools, and the three context
+ * tools carry `"mcp"`.
  */
 const pageIdArg = z.string().optional().describe("A page id from list_pages. The open page if left out.");
 const blockIdArg = z
@@ -23,17 +23,10 @@ const blockIdArg = z
   .describe(
     'The diagram\'s block id — the `at` on its <nt-diagram> stub, or its id in an expanded read.',
   );
-/** Said once, because all three repo tools ask for the same two things. */
-const repoArg = z
+/** Said once, because all three context tools take the same thing. */
+const contextIdArg = z
   .string()
-  .describe(
-    'A repository as "owner/name", exactly as the project\'s linked ' +
-      "repositories are named. Only those can be read.",
-  );
-const refArg = z
-  .string()
-  .optional()
-  .describe("A branch, tag or commit sha. The repository's default branch if left out.");
+  .describe("An id from search_context or expand_context, or a page id.");
 
 export const TOOLS = {
   list_pages: {
@@ -355,78 +348,39 @@ export const TOOLS = {
       maxResults: z.number().int().min(1).max(10).optional(),
     }),
   },
-  list_repo_files: {
+  search_context: {
     side: "server",
     mutates: false,
-    surfaces: ["chat"],
+    surfaces: ["chat", "mcp"],
     description:
-      "List what is in one of the project's linked GitHub repositories, at a " +
-      "path. Leave the path out for the top level. Returns each entry's full " +
-      "path and whether it is a file or a directory — one level at a time, so " +
-      "walk down to what you want.",
+      "Search this project's context for what it says about something — pages " +
+      "are found by their words as well as their titles. Returns each match's " +
+      "id, page id, title, a one-line brief and who owns it, best first. Use it " +
+      "before asking the user something the project may already say.",
     inputSchema: z.object({
-      repo: repoArg,
-      path: z
-        .string()
-        .optional()
-        .describe("A directory inside the repo, e.g. \"src/lib\". The top level if left out."),
-      ref: refArg,
+      query: z.string().describe("Words the thing would be written in, not a question."),
+      limit: z.number().int().min(1).max(10).optional(),
     }),
   },
-  read_repo_file: {
+  expand_context: {
     side: "server",
     mutates: false,
-    surfaces: ["chat"],
+    surfaces: ["chat", "mcp"],
     description:
-      "Read a file from one of the project's linked GitHub repositories. " +
-      "Returns its text; a very large file comes back truncated and says so, " +
-      "and a binary one is refused rather than returned as noise.",
-    inputSchema: z.object({
-      repo: repoArg,
-      path: z
-        .string()
-        .describe("The file's path from the repo root, e.g. \"src/index.ts\"."),
-      ref: refArg,
-    }),
+      "What a context item is connected to: the pages it mentions and the pages " +
+      "that mention it, each with its brief and owner. For following a thread " +
+      "from a page you have found to the pages around it.",
+    inputSchema: z.object({ id: contextIdArg }),
   },
-  search_repo_code: {
+  read_context: {
     side: "server",
     mutates: false,
-    surfaces: ["chat"],
+    surfaces: ["chat", "mcp"],
     description:
-      "Search the code in this project's linked repositories for a symbol or " +
-      "phrase — the fastest way to find where something lives. Returns file " +
-      "paths and the lines that matched, not whole files, so read the ones that " +
-      "look right. Searches the default branch only.",
-    inputSchema: z.object({
-      query: z
-        .string()
-        .describe(
-          "What to look for. GitHub code search: a symbol or a quoted phrase " +
-            'works, and qualifiers like path:, language: and extension: are allowed.',
-        ),
-      repo: repoArg
-        .optional()
-        .describe("Confine the search to one repository. All of them if left out."),
-    }),
-  },
-  read_context_file: {
-    side: "server",
-    mutates: false,
-    surfaces: ["chat"],
-    description:
-      "Read a file the user has added to this project's context — the whole " +
-      "extracted text, where the prompt carries only the head. A PDF or Word " +
-      "document comes back as plain text; a very large file comes back " +
-      "truncated and says so.",
-    inputSchema: z.object({
-      name: z
-        .string()
-        .describe(
-          "The file's exact name, as the project's context files are listed. " +
-            "Only those can be read.",
-        ),
-    }),
+      "A context item's summary — its sections and how it opens — and who owns " +
+      "it and when it last changed. Enough to decide whether to read it whole; " +
+      "for a page, read_page is the whole of it.",
+    inputSchema: z.object({ id: contextIdArg }),
   },
   create_page: {
     side: "server",
