@@ -39,7 +39,7 @@ const xs = (scene: Scene) => {
 function person(doc: Y.Doc) {
   const block = () => doc.getXmlFragment("prosemirror").get(0) as Y.XmlElement;
   const prop = () => block().getAttribute("data") as string;
-  const collab = new CanvasCollab("b1");
+  let collab = new CanvasCollab("b1");
   collab.attach(doc, prop());
   const store = new SceneStore(collab.seed(prop()));
   let flushed: string | null = null;
@@ -50,10 +50,34 @@ function person(doc: Y.Doc) {
   collab.setStore(store);
   const refreshes: string[] = [];
   collab.onStaleMirror((html) => void refreshes.push(html));
+  let cleared = 0;
+  store.onHistory((event) => void (event.type === "clear" && (cleared += 1)));
   return {
     store,
     refreshes,
     prop,
+    /** How many times this person's undo horizon has been taken away. */
+    clears: () => cleared,
+    sizes: (id: string) => {
+      const node = store.getNode(id)!;
+      return { w: node.w, h: node.h };
+    },
+    /** What a ResizeObserver reports for an auto-sized text (`onMeasure`). */
+    measure(id: string, w: number, h: number) {
+      const node = store.getNode(id)!;
+      store.measure([{ id, x: node.x, y: node.y, w, h }]);
+    },
+    /** What the picture hoist does once a fill is in storage (`hoistOps`). */
+    readdress(id: string, background: string) {
+      store.amend([{ type: "setStyle", ids: [id], decls: { background } }]);
+    },
+    /** A block view remounting onto the store kept warm behind it. */
+    rebind() {
+      collab.detach();
+      collab = new CanvasCollab("b1");
+      collab.attach(doc, prop());
+      collab.setStore(store);
+    },
     maps: () => xs(materializeCanvas(doc.getMap(canvasMapName("b1")))),
     shown: () => xs(store.getScene()),
     move(id: string, x: number) {
@@ -213,5 +237,193 @@ describe("the mirror on the block", () => {
     expect(a.refreshes.map((html) => xs(migrateLegacyCanvas(html)))).toEqual([{ a: 70, b: 260 }]);
     a.move("a", 80);
     expect(b.refreshes).toHaveLength(1);
+  });
+});
+
+/**
+ * `measure` and `amend` change the model without anybody doing anything. They
+ * are not edits where they happen, and NT-27 was that crossing to a
+ * collaborator promoted them into one: the peer saw map keys move, read
+ * concurrent work, and paid its documented price — a fresh undo horizon — for
+ * a box nobody had typed.
+ */
+describe("a change nobody made", () => {
+  test("a text's measured box crosses without costing anyone their undo (NT-27)", () => {
+    const { a, b } = network();
+    a.move("a", 60);
+    expect(a.store.canUndo()).toBe(true);
+    b.measure("b", 173, 91);
+    expect([a.store.canUndo(), a.clears()]).toEqual([true, 0]);
+  });
+
+  test("so does a picture moved into storage", () => {
+    const { a, b } = network();
+    a.move("a", 60);
+    b.readdress("b", "url(https://example.test/p.png)");
+    expect([a.store.canUndo(), a.clears()]).toEqual([true, 0]);
+  });
+
+  test("the box still arrives — it is taken, only not charged for", () => {
+    const { a, b } = network();
+    a.move("a", 60);
+    b.measure("b", 173, 91);
+    expect(a.sizes("b")).toEqual({ w: 173, h: 91 });
+    expect(a.maps().b).toBe(360);
+    // And the person's own work is still on the surface, and still undoable.
+    expect(a.shown().a).toBe(60);
+    expect(a.store.canUndo()).toBe(true);
+    a.store.undo();
+    expect(a.shown().a).toBe(40);
+  });
+
+  /**
+   * The horizon is kept, and an entry on it is still a whole scene from before
+   * the box arrived — so stepping back to one carries the old box with it.
+   * That is the honest cost of keeping the history, and it does not last: the
+   * observer that measured the text reports again on the next layout
+   * (`render/ShapeView.tsx`), and a re-addressed picture is re-addressed from
+   * memory on the next notify (`blocks/CanvasBlock.tsx`). Both write the
+   * housekeeping straight back. Nobody's WORK is reverted, which is the thing
+   * `adoptRemote` exists to prevent.
+   */
+  test("stepping back over one carries the old box, and it is written straight back", () => {
+    const { a, b } = network();
+    a.move("a", 60);
+    b.measure("b", 173, 91);
+    a.store.undo();
+    expect(a.sizes("b")).toEqual({ w: 160, h: 90 });
+    // The next layout reports the box again, and it is news once more.
+    a.measure("b", 173, 91);
+    expect([a.sizes("b"), b.sizes("b")]).toEqual([
+      { w: 173, h: 91 },
+      { w: 173, h: 91 },
+    ]);
+    // B paid for A's move and for A's undo — both things A DID — and for
+    // neither of the two measurements.
+    expect(b.clears()).toBe(2);
+  });
+
+  test("a collaborator's actual edit still costs the horizon", () => {
+    const { a, b } = network();
+    a.move("a", 60);
+    expect(a.store.canUndo()).toBe(true);
+    b.move("b", 250);
+    expect([a.store.canUndo(), a.clears()]).toEqual([false, 1]);
+  });
+
+  test("housekeeping flushed together with an edit is an edit", () => {
+    const { a, b, hold, deliver } = network();
+    a.move("a", 60);
+    hold();
+    b.measure("b", 173, 91);
+    b.move("b", 250);
+    deliver();
+    expect([a.store.canUndo(), a.clears()]).toEqual([false, 1]);
+  });
+
+  test("one that lands mid-gesture is taken at the end, and still costs nothing", () => {
+    const { a, b } = network();
+    a.move("a", 60);
+    a.store.begin();
+    b.measure("b", 173, 91);
+    // Held while the gesture is open, exactly as a collaborator's edit is.
+    expect(a.sizes("b")).toEqual({ w: 160, h: 90 });
+    a.store.commit();
+    expect(a.sizes("b")).toEqual({ w: 173, h: 91 });
+    expect([a.store.canUndo(), a.clears()]).toEqual([true, 0]);
+  });
+
+  test("a collaborator's edit that lands mid-gesture still costs it", () => {
+    const { a, b } = network();
+    a.move("a", 60);
+    a.store.begin();
+    b.move("b", 250);
+    a.store.commit();
+    expect([a.store.canUndo(), a.clears()]).toEqual([false, 1]);
+  });
+
+  /**
+   * The reason this one is worth its own test: the two browsers never agree,
+   * so they never stop correcting each other. Before the fix, every round of
+   * that cost both of them their horizon — a diagram two people had open was
+   * one nobody could undo on.
+   */
+  test("two browsers that measure the same words differently stop wiping each other", () => {
+    const { a, b } = network();
+    a.move("a", 60);
+    const beforeA = a.clears();
+    const beforeB = b.clears();
+    for (let i = 0; i < 8; i++) {
+      a.measure("b", 161, 91);
+      b.measure("b", 160, 91);
+    }
+    // Eight rounds of disagreement, and nobody was charged for any of it.
+    expect([a.clears() - beforeA, b.clears() - beforeB]).toEqual([0, 0]);
+    expect(a.store.canUndo()).toBe(true);
+    a.store.undo();
+    expect(a.shown().a).toBe(40);
+  });
+
+  test("a store kept warm through a remount still yields to what arrived while it was away", () => {
+    const { a, b } = network();
+    a.move("a", 60);
+    expect(a.store.canUndo()).toBe(true);
+    // The block view goes and comes back; the store — and its history — stay.
+    a.rebind();
+    expect(a.store.canUndo()).toBe(true);
+    b.move("b", 250);
+    expect([a.store.canUndo(), a.clears()]).toEqual([false, 1]);
+  });
+
+  test("a remount over a collaborator's edit made while away clears, as it always did", () => {
+    const docs = network();
+    docs.a.move("a", 60);
+    docs.b.measure("b", 173, 91);
+    // The horizon survived the box…
+    expect(docs.a.store.canUndo()).toBe(true);
+    // …and the rebind does not invent an arrival of its own.
+    docs.a.rebind();
+    expect(docs.a.store.canUndo()).toBe(true);
+    expect(docs.a.sizes("b")).toEqual({ w: 173, h: 91 });
+  });
+
+  /**
+   * The quiet path answers to a token, and a diagram written before the key
+   * existed carries none. It still costs the horizon then — which costs
+   * nothing real, because a horizon you can lose is one an edit gave you, and
+   * that edit minted the token.
+   */
+  test("on a diagram nobody has edited yet it still clears, and the first edit settles it", () => {
+    const { a, b } = network();
+    // No edit anywhere: the maps carry no token.
+    b.measure("b", 173, 91);
+    expect(a.store.canUndo()).toBe(false); // nothing to lose in the first place
+    // One edit mints one, and from then on the browser's work is free.
+    a.move("a", 60);
+    const before = a.clears();
+    b.measure("b", 174, 92);
+    b.readdress("b", "#abcdef");
+    expect([a.clears() - before, a.store.canUndo()]).toEqual([0, true]);
+  });
+
+  test("an outside author's whole diagram is work, and still costs the horizon", () => {
+    const { a, b } = network();
+    b.move("b", 250);
+    expect(b.store.canUndo()).toBe(true);
+    // An agent writes the whole diagram onto the block with no maps behind it.
+    a.writeProp(WITH_C(a.prop()), "outside");
+    a.reconcile();
+    expect([b.store.canUndo(), b.clears()]).toEqual([false, 1]);
+    expect(b.shown().c).toBe(220);
+  });
+
+  test("the diagram is the same on both sides afterwards", () => {
+    const { a, b } = network();
+    a.move("a", 60);
+    b.measure("b", 173, 91);
+    a.readdress("a", "#123456");
+    expect(a.maps()).toEqual(b.maps());
+    expect(a.shown()).toEqual(b.shown());
+    expect(a.sizes("b")).toEqual(b.sizes("b"));
   });
 });

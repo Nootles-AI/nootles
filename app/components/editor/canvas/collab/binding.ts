@@ -38,6 +38,25 @@ const MIRROR = "mirror";
 /** How many recent stamps still identify a mirror (see `stamps`). */
 const STAMPS = 8;
 
+/**
+ * The root key carrying the last thing anybody DID — a fresh token, written in
+ * the same transaction as the shape writes it accompanies.
+ *
+ * `measure` and `amend` (`engine/useScene.ts`) change the model without anyone
+ * doing anything: a text reporting the box its browser gave it, a picture
+ * moving into storage. Locally they are marked as non-edits by their
+ * transaction origin — but an origin is this client's own note to itself and
+ * is gone by the time the bytes reach anyone else. A collaborator sees map
+ * keys moving and nothing more, so it read every one of them as concurrent
+ * work and paid the documented price: a fresh undo horizon, for a box nobody
+ * typed (NT-27).
+ *
+ * The fact travels in the maps instead. An edit moves this key; housekeeping
+ * leaves it where it is. A peer that sees the diagram change under an unmoved
+ * token knows nobody did it, and keeps its history.
+ */
+const EDIT = "edit";
+
 /** A mark of the mirror rather than a copy of it: its length and FNV-1a. */
 function mirrorStamp(html: string): string {
   let hash = 0x811c9dc5;
@@ -93,6 +112,15 @@ export class CanvasCollab {
   private stamps: string[] = [];
   /** The mirror this client last put on the block, and its stamp. */
   private mirrored: { html: string; stamp: string } | null = null;
+  /**
+   * The {@link EDIT} token as this client last took it into its scene. A token
+   * that has moved since is somebody's work; one that has not is the browser's
+   * housekeeping, whatever else changed with it.
+   */
+  private lastEdit: unknown = null;
+  /** This binding's own mark, and the count of edits it has made under it. */
+  private readonly mint = Math.random().toString(36).slice(2, 10);
+  private edits = 0;
   private staleMirror: ((html: string) => void) | null = null;
   /**
    * Recent map states, for a mirror that arrives without a stamp — from a
@@ -146,9 +174,14 @@ export class CanvasCollab {
     this.known = hasCanvasState(this.root)
       ? materializeCanvas(this.root)
       : null;
+    // Read, not reset: a diagram from before this key existed carries none,
+    // and an absent token must compare equal to the next absent one.
+    this.lastEdit = this.root.get(EDIT);
     this.root.observeDeep(this.onDeep);
-    // The maps may already be ahead of whatever the store was seeded with.
-    this.pushToStore();
+    // The maps may already be ahead of whatever the store was seeded with —
+    // and a warm store's history predates whatever arrived while it was away,
+    // so this first reconciliation is a remote one whatever the token says.
+    this.pushToStore(true);
   }
 
   detach() {
@@ -164,12 +197,12 @@ export class CanvasCollab {
     if (store) {
       // Committed scenes stream to the maps the moment they exist; the
       // debounced HTML flush keeps feeding the block-prop mirror behind it.
-      store.setLiveWriter((scene) => {
+      store.setLiveWriter((scene, edit) => {
         if (!this.root || !this.doc) return;
-        this.doc.transact(
-          () => applySceneDiff(this.root!, this.known, scene),
-          CANVAS_LOCAL,
-        );
+        this.doc.transact(() => {
+          applySceneDiff(this.root!, this.known, scene);
+          if (edit) this.markEdit();
+        }, CANVAS_LOCAL);
         this.known = scene;
         this.note(materializeCanvas(this.root));
       });
@@ -206,6 +239,21 @@ export class CanvasCollab {
     return html;
   }
 
+  /**
+   * Mark this write as something a person or an agent DID. Call inside the
+   * same transaction as the shape writes, so the two reach a peer together and
+   * cannot be told apart in time.
+   */
+  private markEdit() {
+    if (!this.root) return;
+    // Counted as well as random: two edits in one millisecond must not mint
+    // the same token, or the second reads as nobody's doing.
+    this.edits += 1;
+    const token = `${this.mint}.${this.edits.toString(36)}`;
+    this.root.set(EDIT, token);
+    this.lastEdit = token;
+  }
+
   private noteStamp() {
     const stamp = this.root?.get(MIRROR);
     if (typeof stamp !== "string" || this.stamps.includes(stamp)) return;
@@ -240,10 +288,10 @@ export class CanvasCollab {
     // committed; the flush is the same edit arriving again as a string.
     if (scene && scene === this.known) return;
     const next = scene ?? migrateLegacyCanvas(html);
-    this.doc.transact(
-      () => applySceneDiff(this.root!, this.known, next),
-      CANVAS_LOCAL,
-    );
+    this.doc.transact(() => {
+      applySceneDiff(this.root!, this.known, next);
+      this.markEdit();
+    }, CANVAS_LOCAL);
     // The store now believes `next`; the next flush diffs against it.
     this.known = next;
     this.note(materializeCanvas(this.root));
@@ -272,10 +320,10 @@ export class CanvasCollab {
     const before = serializeScene(materializeCanvas(this.root));
     if (html === before) return;
     const next = migrateLegacyCanvas(html);
-    this.doc.transact(
-      () => applySceneDiff(this.root!, this.known, next),
-      CANVAS_EXTERNAL,
-    );
+    this.doc.transact(() => {
+      applySceneDiff(this.root!, this.known, next);
+      this.markEdit();
+    }, CANVAS_EXTERNAL);
     const merged = materializeCanvas(this.root);
     const after = serializeScene(merged);
     this.known = merged;
@@ -297,13 +345,22 @@ export class CanvasCollab {
       return;
     }
     this.noteStamp();
-    // Someone marking their mirror moved no shape.
-    const stampOnly = events.every(
+    // Someone marking their mirror, or noting an edit that moved nothing,
+    // moved no shape.
+    const bookkeepingOnly = events.every(
       (event) =>
         event.target === this.root &&
-        [...(event as Y.YMapEvent<unknown>).keysChanged].every((key) => key === MIRROR),
+        [...(event as Y.YMapEvent<unknown>).keysChanged].every(
+          (key) => key === MIRROR || key === EDIT,
+        ),
     );
-    if (!stampOnly) this.pushToStore();
+    if (bookkeepingOnly) {
+      // Their edit changed no map, so nothing here is out of date; taking the
+      // token now keeps the next housekeeping change from reading as theirs.
+      this.lastEdit = this.root?.get(EDIT);
+      return;
+    }
+    this.pushToStore();
   };
 
   /**
@@ -317,10 +374,21 @@ export class CanvasCollab {
     };
   }
 
-  private pushToStore() {
+  private pushToStore(reattach = false) {
     if (!this.root || !hasCanvasState(this.root)) return;
     const merged = materializeCanvas(this.root);
     this.known = merged;
+    // Read before anything is adopted, and taken whether or not there is a
+    // store to tell: what has been seen is a fact about this client.
+    const token = this.root.get(EDIT);
+    // Quiet only UNDER a token somebody has minted. A diagram written before
+    // this key existed carries none, and so does a client too old to mint one
+    // — and staying quiet for either would let ⌘Z revert work this client
+    // cannot see. It costs the fix nothing: a horizon you can lose is one you
+    // made an edit to get, and that edit minted the token.
+    const edited =
+      reattach || typeof token !== "string" || token !== this.lastEdit;
+    this.lastEdit = token;
     if (!this.store) return;
     // Against the store's LIVE scene, not its last flush: setStore re-runs on
     // every api republish (each tool change), and mid-edit the maps are
@@ -338,9 +406,11 @@ export class CanvasCollab {
     ) {
       this.staleMirror?.(html);
     }
-    if (serializeScene(this.store.getScene()) !== html) {
-      this.store.adoptRemote(html);
-    }
+    if (serializeScene(this.store.getScene()) === html) return;
+    // Somebody's work costs the horizon; the browser's own housekeeping — a
+    // measured box, a hoisted picture — must not (NT-27).
+    if (edited) this.store.adoptRemote(html);
+    else this.store.adoptQuiet(html);
   }
 }
 
