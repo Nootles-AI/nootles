@@ -148,10 +148,28 @@ export function ContextGraph({
   );
 }
 
-const KIND = { project: "Project", folder: "Folder", page: "Page" } as const;
+const KIND = {
+  project: "Project",
+  folder: "Folder",
+  page: "Page",
+  repo: "Repository",
+  area: "Area of the code",
+  concern: "Concern",
+} as const;
 
 function searchable(node: ViewNode): string {
-  if (node.kind === "project") return node.title.toLowerCase();
-  if (node.kind === "folder") return node.folder.title.toLowerCase();
-  return `${node.page.title}\n${node.page.brief}`.toLowerCase();
+  switch (node.kind) {
+    case "project":
+      return node.title.toLowerCase();
+    case "folder":
+      return node.folder.title.toLowerCase();
+    case "page":
+      return `${node.page.title}\n${node.page.brief}`.toLowerCase();
+    case "repo":
+      return `${node.repo.fullName}\n${node.repo.description}`.toLowerCase();
+    case "area":
+      return `${node.area.title}\n${node.area.brief}`.toLowerCase();
+    case "concern":
+      return `${node.concern.title}\n${node.concern.brief}`.toLowerCase();
+  }
 }

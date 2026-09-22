@@ -11,22 +11,35 @@ import type { api } from "@/convex/_generated/api";
 export type GraphData = NonNullable<FunctionReturnType<typeof api.context.read.graph>>;
 export type GraphPage = GraphData["pages"][number];
 export type GraphFolder = GraphData["folders"][number];
+export type GraphRepo = GraphData["code"]["repos"][number];
+export type GraphArea = GraphData["code"]["areas"][number];
+export type GraphConcern = GraphData["code"]["concerns"][number];
 
 export type ViewNode =
   | { id: "project"; kind: "project"; title: string }
   | { id: string; kind: "folder"; folder: GraphFolder }
-  | { id: string; kind: "page"; page: GraphPage };
+  | { id: string; kind: "page"; page: GraphPage }
+  | { id: string; kind: "repo"; repo: GraphRepo }
+  | { id: string; kind: "area"; area: GraphArea }
+  | { id: string; kind: "concern"; concern: GraphConcern };
 
 export type ViewEdge = {
   id: string;
   source: string;
   target: string;
-  kind: "contains" | "mentions";
+  /** `works` is the summed pull between two concerns — code that moves together. */
+  kind: "contains" | "mentions" | "works";
+  weight?: number;
 };
+
+/** Past this many, a concern's weakest ties are left off the map: they are noise. */
+const WORKS_PER_CONCERN = 3;
 
 export const PROJECT = "project";
 export const folderKey = (folderId: string) => `f:${folderId}`;
 export const pageKey = (pageId: string) => `p:${pageId}`;
+export const repoKey = (repoId: string) => `r:${repoId}`;
+export const codeKey = (nodeId: string) => `n:${nodeId}`;
 
 export function buildGraph(data: GraphData): { nodes: ViewNode[]; edges: ViewEdge[] } {
   const nodes: ViewNode[] = [{ id: PROJECT, kind: "project", title: data.title }];
@@ -47,6 +60,51 @@ export function buildGraph(data: GraphData): { nodes: ViewNode[]; edges: ViewEdg
     nodes.push({ id, kind: "page", page });
     contains(parent(page.folderId), id);
   }
+  const repoOfNode = new Map<string, string>();
+  for (const repo of data.code.repos) {
+    const id = repoKey(repo.repoId);
+    nodes.push({ id, kind: "repo", repo });
+    contains(PROJECT, id);
+    if (repo.nodeId) repoOfNode.set(repo.nodeId, id);
+  }
+  const areaIds = new Set(data.code.areas.map((a) => a.nodeId));
+  for (const area of data.code.areas) {
+    const up = area.parentId ? repoOfNode.get(area.parentId) : undefined;
+    if (!up) continue;
+    nodes.push({ id: codeKey(area.nodeId), kind: "area", area });
+    contains(up, codeKey(area.nodeId));
+  }
+  const placed = new Set<string>();
+  for (const concern of data.code.concerns) {
+    if (!concern.parentId || !areaIds.has(concern.parentId)) continue;
+    nodes.push({ id: codeKey(concern.nodeId), kind: "concern", concern });
+    contains(codeKey(concern.parentId), codeKey(concern.nodeId));
+    placed.add(concern.nodeId);
+  }
+  // Each concern keeps its strongest ties only, so the map shows structure
+  // rather than every import anyone ever wrote.
+  const strongest = new Map<string, { from: string; to: string; weight: number }[]>();
+  for (const r of [...data.code.rollups].sort((a, b) => b.weight - a.weight)) {
+    if (!placed.has(r.from) || !placed.has(r.to)) continue;
+    const a = strongest.get(r.from) ?? [];
+    const b = strongest.get(r.to) ?? [];
+    if (a.length >= WORKS_PER_CONCERN && b.length >= WORKS_PER_CONCERN) continue;
+    a.push(r);
+    b.push(r);
+    strongest.set(r.from, a);
+    strongest.set(r.to, b);
+  }
+  const works = new Set([...strongest.values()].flat());
+  for (const r of works) {
+    edges.push({
+      id: `${codeKey(r.from)}=${codeKey(r.to)}`,
+      source: codeKey(r.from),
+      target: codeKey(r.to),
+      kind: "works",
+      weight: r.weight,
+    });
+  }
+
   const seen = new Set<string>();
   for (const { from, to } of data.mentions) {
     const id = `${pageKey(from)}~${pageKey(to)}`;

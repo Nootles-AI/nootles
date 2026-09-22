@@ -21,20 +21,21 @@ import { hasKey, MISSING_KEY, open, seal } from "./seal";
  * it on every project would be asking the same question again and again. What is
  * per project is which repositories that identity is pointed at — `repos.ts`.
  *
- * A personal access token rather than an App because a token is the only thing
- * that works inside somebody else's organisation without an owner installing
- * anything: a classic token authorised for the org's SSO, or a fine-grained one
- * where the org permits them. Both are accepted; which one you pasted is read
- * off the prefix, and only affects what we can tell you about it afterwards.
+ * Connected by OAuth — the Connect GitHub button, and GitHub's own consent
+ * screen (`app/api/github/`) — or, as the fallback for an organisation that
+ * will not approve the app, by a pasted personal access token. All three end
+ * up the same sealed row; which kind it is is read off the token's prefix, and
+ * only affects what we can tell you about it afterwards.
  */
 
-/** Fine-grained tokens announce themselves; everything else is classic. */
+/** Tokens announce themselves; anything unprefixed is a classic PAT. */
 const FINE_GRAINED = "github_pat_";
+const OAUTH = "gho_";
 
 export type Account = {
   login: string;
   hint: string;
-  kind: "classic" | "fine-grained";
+  kind: "classic" | "fine-grained" | "oauth";
   scopes?: string[];
   orgs?: string[];
   connectedAt: number;
@@ -106,7 +107,11 @@ export const connect = action({
     const account: Account = {
       login: user.login,
       hint: token.slice(-4),
-      kind: token.startsWith(FINE_GRAINED) ? "fine-grained" : "classic",
+      kind: token.startsWith(OAUTH)
+        ? "oauth"
+        : token.startsWith(FINE_GRAINED)
+          ? "fine-grained"
+          : "classic",
       ...(scopes?.length ? { scopes } : {}),
       ...(orgs?.length ? { orgs } : {}),
       connectedAt: Date.now(),
@@ -179,7 +184,7 @@ export const save = internalMutation({
     sealed: v.string(),
     login: v.string(),
     hint: v.string(),
-    kind: v.union(v.literal("classic"), v.literal("fine-grained")),
+    kind: v.union(v.literal("classic"), v.literal("fine-grained"), v.literal("oauth")),
     scopes: v.optional(v.array(v.string())),
     orgs: v.optional(v.array(v.string())),
     connectedAt: v.number(),

@@ -45,7 +45,8 @@ export function recordAiCall(
       | "chat"
       | "categorize"
       | "feedback"
-      | "album";
+      | "album"
+      | "context";
     model: string;
     latencyMs: number;
     ttfbMs?: number;

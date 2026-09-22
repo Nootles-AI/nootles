@@ -50,6 +50,7 @@ const ShortcutsDialog = dynamic(() => import("./ShortcutsDialog"), { ssr: false 
 import { PanelsProvider } from "./PanelsContext";
 import { PagesProvider, type PageRef } from "./PagesContext";
 import { CompletionContextProvider } from "./editor/ai/CompletionContext";
+import { useRepoNaming } from "./context/useRepoNaming";
 import { ReadOnlyContext } from "./editor/readOnly";
 import { Facepile } from "./presence/Facepile";
 import { Hints } from "./hints/Hints";
@@ -273,6 +274,7 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
   );
 
   const compact = useMediaQuery(COMPACT);
+  useRepoNaming(projectId);
 
   // Only what something outside needs: the first-run guide brings the chat rail
   // out before pointing at it. Rebuilt when `compact` flips because the same

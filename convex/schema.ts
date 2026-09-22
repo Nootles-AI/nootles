@@ -775,6 +775,7 @@ export default defineSchema({
       v.literal("categorize"),
       v.literal("feedback"),
       v.literal("album"),
+      v.literal("context"),
     ),
     model: v.string(),
     promptTokens: v.optional(v.number()),
@@ -1162,7 +1163,7 @@ export default defineSchema({
     login: v.string(),
     /** Last four characters, so a stored token is recognisable but not readable. */
     hint: v.string(),
-    kind: v.union(v.literal("classic"), v.literal("fine-grained")),
+    kind: v.union(v.literal("classic"), v.literal("fine-grained"), v.literal("oauth")),
     /**
      * Classic tokens report their scopes in a response header; fine-grained ones
      * report nothing, which is why this is optional rather than empty.
@@ -1230,6 +1231,32 @@ export default defineSchema({
     syncedAt: v.optional(v.number()),
     /** Why the last refresh failed, shown on the row rather than swallowed. */
     syncError: v.optional(v.string()),
+    /**
+     * Where the repository's place in the context graph stands. "naming" is
+     * indexed and waiting for its concerns to be named; directory names stand
+     * in until then, so the graph is usable the moment indexing lands.
+     */
+    index: v.optional(
+      v.object({
+        state: v.union(
+          v.literal("queued"),
+          v.literal("indexing"),
+          v.literal("naming"),
+          v.literal("ready"),
+          v.literal("failed"),
+        ),
+        error: v.optional(v.string()),
+        /** The commit the graph was built from. */
+        sha: v.optional(v.string()),
+        at: v.optional(v.number()),
+        files: v.optional(v.number()),
+        concerns: v.optional(v.number()),
+        areas: v.optional(v.number()),
+        references: v.optional(v.number()),
+        /** When a naming run took this repository, so two tabs do not both pay for it. */
+        claimedAt: v.optional(v.number()),
+      }),
+    ),
     addedAt: v.number(),
   })
     .index("by_project", ["projectId"])
@@ -1285,16 +1312,30 @@ export default defineSchema({
    */
   contextNodes: defineTable({
     projectId: v.id("projects"),
-    source: v.literal("pages"),
+    source: v.union(v.literal("pages"), v.literal("github")),
+    /** The linked repository a GitHub node came from; what a re-index replaces. */
+    repoId: v.optional(v.id("projectRepos")),
+    /** The node this one sits inside: a file's concern, a concern's area, an area's repo. */
+    parentId: v.optional(v.id("contextNodes")),
     tier: v.union(
       v.literal("source"),
       v.literal("artifact"),
       v.literal("part"),
       v.literal("concern"),
     ),
-    kind: v.literal("page"),
+    kind: v.union(
+      v.literal("page"),
+      v.literal("repo"),
+      v.literal("area"),
+      v.literal("concern"),
+      v.literal("file"),
+    ),
     externalId: v.string(),
     title: v.string(),
+    /** A deep link into the source, where it has one — a file on GitHub. */
+    url: v.optional(v.string()),
+    /** Set on the one concern that holds a codebase's look — see `github/index/cluster.ts`. */
+    styling: v.optional(v.boolean()),
     /** About twenty tokens: what the node is, for a list. Empty until digested. */
     brief: v.string(),
     /**
@@ -1306,7 +1347,13 @@ export default defineSchema({
       memberId: v.optional(v.string()),
       handle: v.optional(v.string()),
     }),
-  }).index("by_project_and_externalId", ["projectId", "externalId"]),
+  })
+    .index("by_project_and_externalId", ["projectId", "externalId"])
+    // What a pack or the graph view reads: pages, or a repository's map,
+    // without wading through its thousands of files.
+    .index("by_project_and_kind", ["projectId", "kind"])
+    .index("by_repoId", ["repoId"])
+    .index("by_parentId", ["parentId"]),
 
   /** A node's heavier half — see `contextNodes`. One row per node. */
   contextNodeText: defineTable({
@@ -1346,8 +1393,14 @@ export default defineSchema({
       v.literal("same_as"),
       v.literal("supersedes"),
     ),
-    /** Which kind within the family — "mentions", for a page naming a page. */
+    /**
+     * Which kind within the family — "mentions" for a page naming a page,
+     * "imports" for code, "rollup" for the summed pull between two concerns.
+     */
     type: v.string(),
+    /** How strong the relation is, where that varies — a rollup's summed weight. */
+    weight: v.optional(v.number()),
+    repoId: v.optional(v.id("projectRepos")),
     origin: v.union(v.literal("parsed"), v.literal("inferred"), v.literal("human")),
     createdAt: v.number(),
     expiredAt: v.optional(v.number()),
@@ -1355,7 +1408,9 @@ export default defineSchema({
     // `expiredAt` last, so live edges are one range: eq(undefined).
     .index("by_from_and_family_and_expiredAt", ["from", "family", "expiredAt"])
     .index("by_to_and_family_and_expiredAt", ["to", "family", "expiredAt"])
-    .index("by_project", ["projectId"]),
+    .index("by_project", ["projectId"])
+    .index("by_project_and_type", ["projectId", "type"])
+    .index("by_repoId", ["repoId"]),
 
   // ---- Chat ---------------------------------------------------------------
 

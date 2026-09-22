@@ -540,6 +540,24 @@ above, the departure is deliberate:
   Context are now written; the old context dialog is gone. In-house force layout
   (`graph/force.ts`) — deterministic, box-aware collision, settled mostly before first paint.
   Human corrections are not built yet.
+- **GitHub connector** (steps 3 and 5's naming, first cut). Connect GitHub is an OAuth App
+  (`app/api/github/`, scopes `repo read:org`) in a popup, with a pasted token as the fallback for
+  organisations that will not approve it. Repositories are linked in the new-project dialog's
+  Code row or the project's panel in the graph view; linking queues `github/indexer.run` — a
+  Node action that reads the branch head's tarball and the last 100 commits, parses imports
+  (with the Convex `api.*` resolver), clusters with two-level Louvain, and writes repo → area →
+  concern → file nodes, import and `about` edges, and concern rollups
+  (`convex/github/index/`, pure and tested). Stage 2 names areas and concerns with Gemini in
+  one call per repository, or one per 60 concerns (`app/api/context/name`, asked for by the
+  linker's workspace, bounded by a claim so it runs once per index). Directory names stand in
+  until then and stay if naming fails. The graph view shows repos, areas and concerns with
+  their strongest ties; files are listed in a concern's panel. `read_context` returns a file's
+  whole text from GitHub.
+- **Invariant: styling and components.** A repository with a GUI always has exactly one concern
+  named "Styling and components" (`styling: true`) holding its style files, theme and token
+  files and its shared component library. Its summary is facts, not prose — tokens verbatim,
+  fonts, component names — and it rides in every chat pack, ahead of the code map, so
+  anything that draws or mocks up the product's screens can match it.
 - **Backfill.** `npx convex run migrations:contextPageNodes` gives every existing page a title
   node; its words arrive with its first digest.
 

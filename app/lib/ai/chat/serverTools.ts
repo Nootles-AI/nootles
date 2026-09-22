@@ -9,6 +9,7 @@ import { DEFAULT_DRAW_CHOICE, type DrawChoice } from "../drawStyles";
 import { findImages, imagesConfigured } from "../findImages";
 import { recordAiCall } from "../recordCall";
 import { generateVectorDrawing } from "../vectorDraw";
+import { reason } from "@/app/lib/github";
 import { findSongs } from "@/app/lib/songs";
 import { configured as placesConfigured, search as findPlaces } from "@/app/lib/places";
 import { searchModel } from "./provider";
@@ -69,9 +70,17 @@ export function chatTools(
 
     read_context: tool({
       ...TOOLS.read_context,
-      execute: async ({ id }) =>
-        (await convex.query(api.context.read.read, { projectId, id })) ??
-        noSuchContext(id),
+      // A file is read whole, from GitHub, on top of its summary: the summary
+      // says what it is, and the question being asked is usually about how.
+      execute: async ({ id }) => {
+        const item =
+          (await convex.query(api.context.read.read, { projectId, id })) ?? noSuchContext(id);
+        if (item.kind !== "file") return item;
+        const body = await convex
+          .action(api.github.read.nodeFile, { projectId, nodeId: item.id })
+          .catch((error) => ({ unreadable: reason(error, "GitHub would not return the file.") }));
+        return { ...item, ...body };
+      },
     }),
 
     list_pages: tool({

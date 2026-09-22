@@ -26,7 +26,9 @@ const blockIdArg = z
 /** Said once, because all three context tools take the same thing. */
 const contextIdArg = z
   .string()
-  .describe("An id from search_context or expand_context, or a page id.");
+  .describe(
+    'An id from search_context or expand_context, a page id, or a file as "owner/repo:path".',
+  );
 
 export const TOOLS = {
   list_pages: {
@@ -354,9 +356,11 @@ export const TOOLS = {
     surfaces: ["chat", "mcp"],
     description:
       "Search this project's context for what it says about something — pages " +
-      "are found by their words as well as their titles. Returns each match's " +
-      "id, page id, title, a one-line brief and who owns it, best first. Use it " +
-      "before asking the user something the project may already say.",
+      "by their words as well as their titles, linked code by file path, " +
+      "exported names and leading comments, and the code's areas and concerns. " +
+      "Returns each match's id, kind, title, a one-line brief and who owns it, " +
+      "best first. Use it before asking the user something the project may " +
+      "already say.",
     inputSchema: z.object({
       query: z.string().describe("Words the thing would be written in, not a question."),
       limit: z.number().int().min(1).max(10).optional(),
@@ -367,9 +371,11 @@ export const TOOLS = {
     mutates: false,
     surfaces: ["chat", "mcp"],
     description:
-      "What a context item is connected to: the pages it mentions and the pages " +
-      "that mention it, each with its brief and owner. For following a thread " +
-      "from a page you have found to the pages around it.",
+      "What a context item is connected to. A page: the pages it mentions and " +
+      "the pages that mention it. A concern: its files and the concerns it works " +
+      "with. A file: its concern, what it imports and what imports it. An area " +
+      "or repository: what it contains. For following a thread from something " +
+      "you have found to what is around it.",
     inputSchema: z.object({ id: contextIdArg }),
   },
   read_context: {
@@ -377,9 +383,8 @@ export const TOOLS = {
     mutates: false,
     surfaces: ["chat", "mcp"],
     description:
-      "A context item's summary — its sections and how it opens — and who owns " +
-      "it and when it last changed. Enough to decide whether to read it whole; " +
-      "for a page, read_page is the whole of it.",
+      "A context item's summary and who owns it. For a code file, its whole text " +
+      "as well, fetched from GitHub. For a page, read_page is the whole of it.",
     inputSchema: z.object({ id: contextIdArg }),
   },
   create_page: {

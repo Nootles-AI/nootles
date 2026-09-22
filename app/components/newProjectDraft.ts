@@ -1,11 +1,14 @@
 "use client";
 
 import { useState, type FormEvent, type KeyboardEvent } from "react";
+import type { Listed } from "@/convex/github/repos";
 
 export type NewProject = {
   title: string;
   description: string;
   context: string;
+  /** Repositories to index into the project's context once it exists. */
+  repos: Listed[];
   /** An `app/lib/templates` id; absent means blank. */
   template?: string;
 };
@@ -31,6 +34,7 @@ export function useNewProjectDraft(
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [context, setContext] = useState("");
+  const [repos, setRepos] = useState<Listed[]>([]);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
 
@@ -47,6 +51,7 @@ export function useNewProjectDraft(
       title: named,
       description: description.trim(),
       context: context.trim(),
+      repos,
       template,
     })
       .then((made) => {
@@ -67,6 +72,6 @@ export function useNewProjectDraft(
 
   return {
     title, setTitle, description, setDescription, context, setContext,
-    busy, failure, named, submit, sendOnModEnter,
+    repos, setRepos, busy, failure, named, submit, sendOnModEnter,
   };
 }

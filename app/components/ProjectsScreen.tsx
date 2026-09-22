@@ -220,6 +220,16 @@ export function ProjectsScreen() {
       title: project.title,
       ...(project.description ? { description: project.description } : {}),
       ...(project.context ? { context: project.context } : {}),
+      ...(project.repos.length
+        ? {
+            repos: project.repos.map((r) => ({
+              fullName: r.fullName,
+              defaultBranch: r.defaultBranch,
+              ...(r.description ? { description: r.description } : {}),
+              private: r.private,
+            })),
+          }
+        : {}),
       ...(seed ? { seed } : {}),
     });
     track("project_created", {});

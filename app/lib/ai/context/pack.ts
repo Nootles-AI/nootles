@@ -18,8 +18,12 @@ type Page = PackInputs["pages"][number];
 
 /** Rough on purpose: a budget, not a bill. */
 const CHARS_PER_TOKEN = 4;
-/** The most of a chat budget the user's own notes may take before the page list. */
-const NOTES_SHARE = 0.6;
+/** The most of a chat budget the user's own notes may take before the rest. */
+const NOTES_SHARE = 0.45;
+/** A codebase's look, for drawing and mocking up its screens — kept whatever else is cut. */
+const STYLING_SHARE = 0.2;
+/** The map of each repository: areas and their concerns. */
+const CODE_SHARE = 0.15;
 const RECENT_PAGES = 6;
 
 /**
@@ -34,38 +38,88 @@ const RECENT_PAGES = 6;
  * They are attributed to them so the model reads them as theirs and not ours.
  */
 export function projectPack(inputs: PackInputs, budgetTokens: number): string {
-  let room = budgetTokens * CHARS_PER_TOKEN;
+  const total = budgetTokens * CHARS_PER_TOKEN;
+  let room = total;
+  const out: string[] = [];
+  /**
+   * One block of the pack, within `allowance` and whatever room is left. Every
+   * line it writes is counted, the note that says there is more included, so
+   * the pack as a whole meets its budget.
+   */
+  const section = (
+    head: string[],
+    lines: string[],
+    allowance: number,
+    options: { partial?: boolean; more?: (cut: number) => string } = {},
+  ) => {
+    const reserve = options.more ? 90 : 0;
+    const kept = fit(lines, Math.min(allowance, room) - size(head) - reserve, options.partial);
+    const tail = kept.cut && options.more ? [options.more(kept.cut)] : [];
+    out.push(...head, ...kept.lines, ...tail);
+    room -= size(head) + size(kept.lines) + size(tail);
+  };
+
   const title = inputs.title.trim();
-  const out = [
-    `The project you are working in is called ${title ? `"${title}"` : "Untitled project"}.`,
-  ];
-  room -= out[0].length;
+  section(
+    [`The project you are working in is called ${title ? `"${title}"` : "Untitled project"}.`],
+    [],
+    total,
+  );
 
   if (inputs.notes.length) {
-    const head = [
-      "",
-      "What the user has said about it. This holds for every page in the project — treat it",
-      "as their standing instructions, and let it shape what you write and how you write it.",
-    ];
-    const said = inputs.notes.flatMap((n) => ["", n.question.trim(), n.answer.trim()]);
-    const kept = fit(said, Math.floor(room * NOTES_SHARE) - size(head), true);
-    out.push(...head, ...kept.lines);
-    if (kept.cut) {
-      out.push("", "(What they wrote goes on, but past the room this context has.)");
-    }
-    room -= size(head) + size(kept.lines);
+    section(
+      [
+        "",
+        "What the user has said about it. This holds for every page in the project — treat it",
+        "as their standing instructions, and let it shape what you write and how you write it.",
+      ],
+      inputs.notes.flatMap((n) => ["", n.question.trim(), n.answer.trim()]),
+      Math.floor(room * NOTES_SHARE),
+      { partial: true, more: () => "(What they wrote goes on, but past the room this context has.)" },
+    );
   }
 
-  const pages = inputs.pages.map((p) => `- ${p.title.trim() || "Untitled"} — ${p.pageId}`);
-  if (pages.length) {
-    const head = [
-      "",
-      "The pages in this project, by title and id. search_context finds a page by what it",
-      "says; read_page reads one.",
-    ];
-    const kept = fit(pages, room - size(head) - 80);
-    out.push(...head, ...kept.lines);
-    if (kept.cut) out.push(`…and ${kept.cut} more — list_pages has them all.`);
+  for (const repo of inputs.code) {
+    if (!repo.styling) continue;
+    section(
+      [
+        "",
+        `How ${repo.fullName} looks — its styling and components. Use these exact tokens,`,
+        "fonts and component names when drawing, mocking up or describing its screens.",
+      ],
+      repo.styling.split("\n"),
+      Math.floor(total * STYLING_SHARE),
+      { partial: true },
+    );
+  }
+
+  if (inputs.code.length) {
+    section(
+      [
+        "",
+        "Code linked to this project, by area and its concerns. search_context finds a file",
+        "by its path or what it exports; read_context reads one.",
+      ],
+      inputs.code.flatMap((repo) => [
+        `${repo.fullName}${repo.files ? ` (${repo.files} files)` : " (still being read)"}`,
+        ...repo.areas.map((a) => `- ${a.title}: ${a.concerns.join(", ")}`),
+      ]),
+      Math.floor(total * CODE_SHARE),
+      { more: (cut) => `…and ${cut} more areas — search_context finds them.` },
+    );
+  }
+
+  if (inputs.pages.length) {
+    section(
+      [
+        "",
+        "The pages in this project, by title and id. search_context finds a page by what it",
+        "says; read_page reads one.",
+      ],
+      inputs.pages.map((p) => `- ${p.title.trim() || "Untitled"} — ${p.pageId}`),
+      room,
+      { more: (cut) => `…and ${cut} more — list_pages has them all.` },
+    );
   }
   return out.join("\n");
 }
@@ -130,7 +184,8 @@ export function pagePack(
  * copies what it is shown.
  *
  * Priority runs top down: the user's notes, the pages this one is linked
- * with, pages edited lately, then every other page's title as a glossary.
+ * with, pages edited lately, then every other page's title and the code's
+ * concern names as a glossary.
  */
 export function completionSeed(
   inputs: PackInputs,
@@ -172,6 +227,13 @@ export function completionSeed(
   if (titles.length && room > 20) {
     const kept = fit(titles, room - 14, false, "; ");
     if (kept.lines.length) body.push(`Other pages: ${kept.lines.join("; ")}`);
+    room -= 14 + size(kept.lines);
+  }
+  // The code's own names for its parts, so a sentence about the product uses them.
+  const concerns = inputs.code.flatMap((r) => r.areas.flatMap((a) => a.concerns));
+  if (concerns.length && room > 20) {
+    const kept = fit(concerns, room - 7, false, "; ");
+    if (kept.lines.length) body.push(`Code: ${kept.lines.join("; ")}`);
   }
 
   return `<!-- What this document's project is about. Ground completions in it: prefer its

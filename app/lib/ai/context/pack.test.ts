@@ -14,6 +14,7 @@ const inputs = (over: Partial<PackInputs> = {}): PackInputs => ({
   notes: [{ question: "What is this project?", answer: "A teleoperated rover." }],
   pages: [page(1), page(2, { brief: "Wiring and the power path." }), page(3)],
   links: { out: [], in: [] },
+  code: [],
   ...over,
 });
 
@@ -49,6 +50,44 @@ describe("projectPack", () => {
     const text = projectPack(inputs({ notes: [{ question: "Q", answer: long }] }), 500);
     expect(tokens(text)).toBeLessThanOrEqual(500);
     expect(text).toContain("past the room this context has");
+  });
+});
+
+describe("projectPack with code", () => {
+  const code = [
+    {
+      fullName: "kestrel/rover",
+      files: 412,
+      areas: [
+        { title: "Firmware", concerns: ["Watchdog", "Motor control"] },
+        { title: "Styling", concerns: ["Styling and components"] },
+      ],
+      styling: "--foreground: oklch(0.25 0.005 90)\nFonts: Geist\nComponents: Button, Dialog",
+    },
+  ];
+
+  it("carries the code map and the styling facts verbatim", () => {
+    const text = projectPack(inputs({ code }), 2000);
+    expect(text).toContain("kestrel/rover (412 files)");
+    expect(text).toContain("- Firmware: Watchdog, Motor control");
+    expect(text).toContain("--foreground: oklch(0.25 0.005 90)");
+    expect(text.indexOf("How kestrel/rover looks")).toBeLessThan(text.indexOf("Code linked"));
+  });
+
+  it("keeps the styling facts even when the project is large", () => {
+    const pages = Array.from({ length: 400 }, (_, i) => page(i));
+    const long = "word ".repeat(4000);
+    const text = projectPack(
+      inputs({ code, pages, notes: [{ question: "Q", answer: long }] }),
+      800,
+    );
+    expect(tokens(text)).toBeLessThanOrEqual(800);
+    expect(text).toContain("Components: Button, Dialog");
+  });
+
+  it("says a repository still being read is still being read", () => {
+    const text = projectPack(inputs({ code: [{ ...code[0], files: 0, areas: [] }] }), 2000);
+    expect(text).toContain("kestrel/rover (still being read)");
   });
 });
 

@@ -33,10 +33,13 @@ export function GitHubRepos({
   repos,
   onAdd,
   onRemove,
+  bare,
 }: {
   repos: Chosen[];
   onAdd: (repo: Listed) => void;
   onRemove: (key: string) => void;
+  /** Without its own heading — for a form whose row already names it. */
+  bare?: boolean;
 }) {
   const status = useQuery(api.github.account.status);
   const [picking, setPicking] = useState(false);
@@ -45,10 +48,12 @@ export function GitHubRepos({
 
   return (
     <div>
-      <div className="nt-field-label">
-        Repositories
-        <span className="nt-field-note">Optional</span>
-      </div>
+      {!bare && (
+        <div className="nt-field-label">
+          Repositories
+          <span className="nt-field-note">Optional</span>
+        </div>
+      )}
 
       {repos.length > 0 && (
         <ul className="mb-1">
@@ -114,8 +119,8 @@ export function GitHubRepos({
 
       {!picking && repos.length === 0 && (
         <p className="nt-note mt-1.5">
-          The assistant reads a linked repository’s files when it needs them, and
-          knows what each one is without being told.
+          A linked repository is read into this project’s context: what each
+          part of the code is for, and how the parts fit together.
         </p>
       )}
     </div>
@@ -275,16 +280,59 @@ function Picker({
 }
 
 /**
- * Connecting GitHub, which is one paste.
+ * Connecting GitHub: GitHub's own consent screen, in a window of its own.
  *
- * A token rather than an App: an App has to be installed by whoever owns the
- * organisation, and a token you already have the right to create. The two kinds
- * fail in different ways in an org — a classic one needs authorising for SSO
- * after it is made, a fine-grained one needs the org to permit them at all — so
- * both are named here, and the error that comes back from `connect` says which
- * of those went wrong rather than "403".
+ * A popup rather than a redirect because this sits inside the new-project
+ * dialog, where leaving the page loses everything typed so far. The window
+ * closes itself once the token is sealed (`app/github/connected`), and the
+ * account status above is a live query, so the picker simply appears.
+ *
+ * A pasted token stays as the way in for an organisation that will not approve
+ * the app: a classic token authorised for its SSO, or a fine-grained one where
+ * the org permits them.
  */
 function Connect() {
+  const [pasting, setPasting] = useState(false);
+  const open = () => {
+    const w = 640;
+    const h = 760;
+    const left = window.screenX + (window.outerWidth - w) / 2;
+    const top = window.screenY + (window.outerHeight - h) / 2;
+    window.open(
+      "/api/github/connect?returnTo=/github/connected",
+      "nootles-github",
+      `popup,width=${w},height=${h},left=${left},top=${top}`,
+    );
+  };
+
+  return (
+    <div className="nt-picker p-2.5">
+      <button
+        type="button"
+        onClick={open}
+        className="nt-row nt-solid w-full justify-center px-3 font-medium"
+      >
+        Connect GitHub
+      </button>
+      <p className="nt-note mt-2">
+        Nootles reads the repositories you link, and never writes to them.
+      </p>
+      {pasting ? (
+        <PasteToken />
+      ) : (
+        <button
+          type="button"
+          onClick={() => setPasting(true)}
+          className="nt-note mt-1.5 underline underline-offset-2 hover:text-foreground"
+        >
+          Use a personal access token instead
+        </button>
+      )}
+    </div>
+  );
+}
+
+function PasteToken() {
   const connect = useAction(api.github.account.connect);
   const [token, setToken] = useState("");
   const [busy, setBusy] = useState(false);
@@ -302,14 +350,13 @@ function Connect() {
   };
 
   return (
-    // Its own form, submitted by its own button: nested inside the new-project
-    // dialog's form, an Enter here would otherwise create the project.
-    <div className="nt-picker p-2.5">
+    // Submitted by its own button: nested inside the new-project dialog's
+    // form, an Enter here would otherwise create the project.
+    <div className="mt-2.5 border-t border-border pt-2.5">
       <p className="nt-note">
-        Paste a GitHub personal access token. A classic token needs the{" "}
-        <code className="nt-mono-inline">repo</code> scope, and “Configure SSO”
-        on it to reach an organisation; a fine-grained one needs Contents: Read
-        on the repositories you want.
+        A classic token needs the <code className="nt-mono-inline">repo</code> scope,
+        and “Configure SSO” on it to reach an organisation; a fine-grained one needs
+        Contents: Read on the repositories you want.
       </p>
       <div className="mt-2 flex gap-1.5">
         <input
@@ -331,7 +378,7 @@ function Connect() {
           type="button"
           onClick={submit}
           disabled={!token.trim() || busy}
-          className="nt-row nt-solid shrink-0 px-3 font-medium"
+          className="nt-row shrink-0 px-3 font-medium"
         >
           {busy ? "Checking…" : "Connect"}
         </button>
@@ -341,17 +388,6 @@ function Connect() {
           {failure}
         </p>
       )}
-      <p className="nt-note mt-2">
-        It is stored encrypted and never sent to the browser again.{" "}
-        <a
-          href="https://github.com/settings/tokens"
-          target="_blank"
-          rel="noreferrer"
-          className="underline underline-offset-2 hover:text-foreground"
-        >
-          Make one on GitHub
-        </a>
-      </p>
     </div>
   );
 }

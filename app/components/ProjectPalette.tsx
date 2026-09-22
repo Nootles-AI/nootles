@@ -25,6 +25,7 @@ import { ProLift } from "./ProLift";
 import { usePlan } from "@/app/lib/usePlan";
 import { BlocksThumb, PagePreview } from "./PagePreview";
 import { TemplateWall } from "./TemplateWall";
+import { GitHubRepos } from "./context/GitHubRepos";
 
 type Project = NonNullable<
   ReturnType<typeof useQuery<typeof api.projects.listForScreen>>
@@ -640,11 +641,9 @@ function DetailsForm({
   onCreate: (project: NewProject) => Promise<boolean | void>;
   onBack: () => void;
 }) {
-  // No repositories for now: a project made here links none, and can link them
-  // from its sidebar once it exists.
   const {
     title, setTitle, description, setDescription, context, setContext,
-    busy, failure, named, submit, sendOnModEnter,
+    repos, setRepos, busy, failure, named, submit, sendOnModEnter,
   } = useNewProjectDraft(onCreate, template?.id);
 
   return (
@@ -687,6 +686,23 @@ function DetailsForm({
             onKeyDown={sendOnModEnter}
           />
         </label>
+        {/* Not a <label>: it holds its own buttons and a picker. */}
+        <div className="nt-pal-fld">
+          <span className="nt-pal-key">Code</span>
+          <div className="min-w-0">
+            <GitHubRepos
+              bare
+              repos={repos.map((r) => ({
+                key: r.fullName,
+                fullName: r.fullName,
+                description: r.description,
+                private: r.private,
+              }))}
+              onAdd={(repo) => setRepos((list) => [...list, repo])}
+              onRemove={(key) => setRepos((list) => list.filter((r) => r.fullName !== key))}
+            />
+          </div>
+        </div>
       </div>
 
       <div className="nt-pal-foot">

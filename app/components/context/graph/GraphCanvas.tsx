@@ -9,7 +9,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { RowIcon } from "../../rowIcon";
-import { Minus, Plus } from "../../Icons";
+import { Code, Minus, Plus } from "../../Icons";
 import { Layout, startAt, type Body } from "./force";
 import { neighbours, PROJECT, type ViewEdge, type ViewNode } from "./model";
 
@@ -35,10 +35,15 @@ const DOT = 22;
  */
 function springFor(edge: ViewEdge, kinds: Map<string, ViewNode["kind"]>) {
   if (edge.kind === "mentions") return { length: 220, strength: 0.03 };
-  if (edge.source !== PROJECT) return { length: 104, strength: 0.5 };
-  return kinds.get(edge.target) === "folder"
-    ? { length: 250, strength: 0.4 }
-    : { length: 190, strength: 0.4 };
+  if (edge.kind === "works") return { length: 200, strength: 0.02 };
+  const from = kinds.get(edge.source);
+  const to = kinds.get(edge.target);
+  if (from === "project") {
+    if (to === "repo") return { length: 330, strength: 0.4 };
+    return to === "folder" ? { length: 250, strength: 0.4 } : { length: 190, strength: 0.4 };
+  }
+  if (from === "repo") return { length: 170, strength: 0.45 };
+  return { length: 104, strength: 0.5 };
 }
 
 /**
@@ -116,7 +121,7 @@ export function GraphCanvas({
       const path = pathEls.current.get(edge.id);
       const a = bodyOf.current.get(edge.source);
       const b = bodyOf.current.get(edge.target);
-      if (path && a && b) path.setAttribute("d", route(a, b, edge.kind === "mentions"));
+      if (path && a && b) path.setAttribute("d", route(a, b, edge.kind !== "contains"));
     }
   };
 
@@ -434,6 +439,11 @@ export function GraphCanvas({
                     else pathEls.current.delete(edge.id);
                   }}
                   className={`nt-graph-line is-${edge.kind}${on ? " is-lit" : ""}${off && !on ? " is-dim" : ""}`}
+                  style={
+                    edge.kind === "works"
+                      ? { strokeWidth: Math.min(3, 0.75 + Math.log2(1 + (edge.weight ?? 0)) * 0.5) }
+                      : undefined
+                  }
                   markerEnd={
                     edge.kind === "mentions"
                       ? `url(#${on ? "nt-graph-arrow-lit" : "nt-graph-arrow"})`
@@ -471,13 +481,19 @@ export function GraphCanvas({
                 }
                 onSelect(node.id);
               }}
-              onDoubleClick={() => node.kind === "page" && onOpen(node.page.pageId)}
+              onDoubleClick={() => {
+                if (node.kind === "page") onOpen(node.page.pageId);
+              }}
             >
               {node.kind === "folder" && (
                 <RowIcon icon={node.folder.icon} kind="folder" size={13} className="nt-gnode-icon" />
               )}
               {node.kind === "page" && (
                 <RowIcon icon={node.page.icon} kind="page" size={13} className="nt-gnode-icon" />
+              )}
+              {node.kind === "repo" && <Code width={13} height={13} className="nt-gnode-icon" />}
+              {node.kind === "concern" && node.concern.styling && (
+                <span className="nt-gnode-swatch" aria-hidden />
               )}
               <span className="nt-gnode-title">{label(node)}</span>
             </button>
@@ -511,15 +527,33 @@ export function GraphCanvas({
 }
 
 function label(node: ViewNode): string {
-  if (node.kind === "project") return node.title.trim() || "Untitled project";
-  if (node.kind === "folder") return node.folder.title.trim() || "Untitled folder";
-  return node.page.title.trim() || "Untitled";
+  switch (node.kind) {
+    case "project":
+      return node.title.trim() || "Untitled project";
+    case "folder":
+      return node.folder.title.trim() || "Untitled folder";
+    case "page":
+      return node.page.title.trim() || "Untitled";
+    case "repo":
+      return node.repo.fullName;
+    case "area":
+      return node.area.title;
+    case "concern":
+      return node.concern.title;
+  }
 }
 
+const SPOKEN = {
+  project: "Project",
+  folder: "Folder",
+  page: "Page",
+  repo: "Repository",
+  area: "Area",
+  concern: "Concern",
+} as const;
+
 function ariaLabel(node: ViewNode): string {
-  if (node.kind === "project") return `Project: ${label(node)}`;
-  if (node.kind === "folder") return `Folder: ${label(node)}`;
-  return `Page: ${label(node)}`;
+  return `${SPOKEN[node.kind]}: ${label(node)}`;
 }
 
 function nodeClass(
@@ -530,6 +564,8 @@ function nodeClass(
     "nt-gnode",
     `is-${node.kind}`,
     node.kind === "page" && !node.page.digested ? "is-unread" : "",
+    node.kind === "repo" && node.repo.state !== "ready" ? `is-${node.repo.state}` : "",
+    node.kind === "concern" && node.concern.styling ? "is-styling" : "",
     s.selected ? "is-selected" : "",
     s.dim ? "is-dim" : "",
     s.match ? "is-match" : "",
@@ -540,9 +576,9 @@ function nodeClass(
 
 /**
  * A line from box to box, ending on the target's edge rather than its centre
- * so an arrowhead lands where it can be seen. Mentions bow slightly, so two
- * pages that mention each other draw two lines instead of one on top of the
- * other.
+ * so an arrowhead lands where it can be seen. Mentions and ties between
+ * concerns bow slightly, so two lines between the same pair — or one beside a
+ * containment line — never sit on top of each other.
  */
 function route(a: Body, b: Body, bow: boolean): string {
   const from = exit(a, b.x, b.y, 2);
