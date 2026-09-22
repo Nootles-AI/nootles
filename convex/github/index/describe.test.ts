@@ -114,8 +114,9 @@ describe("describeStyling", () => {
     expect(summary).toMatch(/^Shadows: none anywhere/m);
   });
 
-  test("control rules come verbatim, buttons first, motion left out", () => {
+  test("control rules come verbatim, buttons first, motion left out; utility buttons as CSS", () => {
     const texts = new Map([
+      ["package.json", '{ "devDependencies": { "tailwindcss": "^3.4.0" } }'],
       ["src/card.module.css", ".card { border: 1px solid #ddd; padding: 16px; }"],
       [
         "src/button.module.css",
@@ -129,7 +130,7 @@ describe("describeStyling", () => {
     expect(line).toContain(".primaryButton { background: #000; color: #fff; border-radius: 0 }");
     expect(line).toContain(".secondaryButton { border: 1px solid #000; background: transparent }");
     expect(line.indexOf(".secondaryButton")).toBeLessThan(line.indexOf(".card"));
-    expect(line).toContain("<button> rounded-none bg-black px-4 text-white");
+    expect(line).toContain("button { background: #000000; color: #ffffff; border-radius: 0px; padding: 0 16px }");
     expect(line).not.toContain("transition");
     // Radius set to zero, explicitly, is still square.
     expect(summary).toMatch(/^Corners: square/m);
@@ -159,12 +160,12 @@ describe("describeStyling", () => {
     expect(summary).not.toContain("API");
   });
 
-  test("colours lead, and the whole stays within 1500 chars", () => {
+  test("colours lead, and the whole stays within 2400 chars", () => {
     expect(summary.split("\n")[0]).toMatch(/^Colour tokens: /);
     const many = Array.from({ length: 200 }, (_, i) => `  --color-shade-${i}: oklch(0.${i} 0.1 200);`);
     const big = new Map([["a.css", `:root {\n${many.join("\n")}\n}`], ...texts]);
     const bigSummary = describeStyling([...big].map(([p, t]) => parseFile(p, t)), big);
-    expect(bigSummary.length).toBeLessThanOrEqual(1500);
+    expect(bigSummary.length).toBeLessThanOrEqual(2400);
     expect(bigSummary).toMatch(/\(\+\d+ more\)/);
     expect(bigSummary).toContain("Components: Button");
     expect(bigSummary).toContain("--color-shade-0: oklch(0.0 0.1 200)");

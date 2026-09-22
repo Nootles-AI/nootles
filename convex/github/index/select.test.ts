@@ -8,6 +8,8 @@ describe("keep", () => {
       "src/lib.rs", "App.vue", "Widget.svelte", "app/globals.css", "styles/a.scss",
       "index.html", "README.md", "docs/intro.mdx", "package.json", "ci.yml",
       "Cargo.toml", "db/schema.sql", "schema.graphql", "prisma/schema.prisma", "run.sh",
+      "lib/main.dart", "app/src/main/res/values/colors.xml",
+      "App/Assets.xcassets/Brand.colorset/Contents.json",
     ]) {
       expect(keep(path, 1000), path).toBe(true);
     }
@@ -32,6 +34,10 @@ describe("keep", () => {
     ]) {
       expect(keep(path, 1000), path).toBe(false);
     }
+    expect(keep("App/Assets.xcassets/Logo.imageset/Contents.json", 1000)).toBe(false);
+    expect(keep("App/Assets.xcassets/Contents.json", 1000)).toBe(false);
+    expect(keep("ios/Pods/Lib/a.swift", 1000)).toBe(false);
+    expect(keep("res/layout/huge.xml", 100_001)).toBe(false);
     expect(keep("big.ts", 300_000)).toBe(true);
     expect(keep("big.ts", 300_001)).toBe(false);
   });

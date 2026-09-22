@@ -31,7 +31,7 @@ const LANGUAGES: Record<string, string> = {
   vue: "vue", svelte: "svelte", css: "css", scss: "scss", sass: "sass", less: "less",
   styl: "styl", html: "html", md: "md", mdx: "mdx", json: "json", yaml: "yaml",
   yml: "yaml", toml: "toml", sql: "sql", graphql: "graphql", gql: "graphql",
-  prisma: "prisma", sh: "sh",
+  prisma: "prisma", sh: "sh", kts: "kt", dart: "dart", xml: "xml",
 };
 
 export const SCRIPT_LANGUAGES = new Set(["ts", "tsx", "js", "jsx", "vue", "svelte"]);
@@ -86,7 +86,10 @@ export function parseFile(path: string, text: string): ParsedFile {
     parsed.leading = leadingComment(text, "slash");
   } else if (language === "md" || language === "mdx") {
     parsed.leading = markdownOpening(text);
-  } else if (["java", "kt", "swift", "php", "cs", "c", "cpp", "scala"].includes(language)) {
+  } else if (["java", "kt", "swift", "dart"].includes(language)) {
+    parsed.imports = nativeImports(blankC(text, { backtick: false }), language);
+    parsed.leading = leadingComment(text, "slash");
+  } else if (["php", "cs", "c", "cpp", "scala"].includes(language)) {
     parsed.leading = leadingComment(text, "slash");
   } else if (["sh", "yaml", "toml", "rb"].includes(language)) {
     parsed.leading = leadingComment(text, "hash");
@@ -346,6 +349,22 @@ function rustImports(code: string): string[] {
     found.push({ at: m.index ?? 0, spec: `mod ${m[1]}` });
   }
   return found.sort((a, b) => a.at - b.at).map((f) => f.spec);
+}
+
+// ---------------------------------------------------------------- native
+
+/**
+ * Module names, not paths: nothing resolves them to files, but they say which
+ * UI framework a file draws with — SwiftUI, Compose, Flutter.
+ */
+function nativeImports(code: string, language: string): string[] {
+  const pattern =
+    language === "swift"
+      ? /^[ \t]*(?:@\w+[ \t]+)*import[ \t]+(?:(?:struct|class|enum|protocol|func|var|let|typealias)[ \t]+)?([\w.]+)/gm
+      : language === "dart"
+        ? /^[ \t]*(?:import|export)[ \t]+['"]([^'"\n]+)['"]/gm
+        : /^[ \t]*import[ \t]+(?:static[ \t]+)?([\w.*]+)/gm;
+  return matchAll(code, pattern);
 }
 
 // ---------------------------------------------------------------- styles

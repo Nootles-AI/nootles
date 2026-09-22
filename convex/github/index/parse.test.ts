@@ -222,6 +222,16 @@ describe("parseFile: other languages", () => {
     expect(parsed.imports).toEqual(["vue", "./Icon.vue"]);
   });
 
+  test("swift, kotlin and dart imports name their UI toolkit", () => {
+    const swift = parseFile("App/ContentView.swift", "// The home screen.\nimport SwiftUI\n@testable import Core\nimport struct Foundation.URL\n");
+    expect(swift).toMatchObject({ language: "swift", imports: ["SwiftUI", "Core", "Foundation.URL"], leading: "The home screen." });
+    const kt = parseFile("app/Theme.kt", "package a\nimport androidx.compose.material3.MaterialTheme\n// import android.widget.Button\n");
+    expect(kt).toMatchObject({ language: "kt", imports: ["androidx.compose.material3.MaterialTheme"] });
+    const dart = parseFile("lib/main.dart", "import 'package:flutter/material.dart';\nexport \"src/a.dart\";\n");
+    expect(dart).toMatchObject({ language: "dart", imports: ["package:flutter/material.dart", "src/a.dart"] });
+    expect(parseFile("res/values/colors.xml", "<resources/>").language).toBe("xml");
+  });
+
   test("markdown opening paragraph", () => {
     const parsed = parseFile("README.md", "# Title\n\nA planning tool for *teams*.\n\n## More\n");
     expect(parsed.leading).toBe("A planning tool for teams.");

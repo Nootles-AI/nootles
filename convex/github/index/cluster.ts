@@ -346,8 +346,43 @@ const SERVER_DIRS = new Set([
 const BUILD_CONFIG = /(^|\/)(tailwind|postcss)\.config\.[^/]+$/;
 const LIBRARY_DIRS = new Set(["ui", "design-system", "design_system", "designsystem", "primitives"]);
 
+/** Where a native app's look is declared: colour sets, Android values, theme sources. */
+const NATIVE_STYLING = [
+  /\.xcassets\/(?:[^/]+\/)*[^/]+\.colorset\/Contents\.json$/,
+  /(^|\/)res\/values[^/]*\/(colors|themes|styles|dimens|type|typography)\.xml$/,
+  /\.tokens\.json$/,
+];
+const NATIVE_THEME = /(theme|colou?r|palette|typograph|style|token|dimen)/i;
+
 function hasGui(files: ParsedFile[]): boolean {
-  return files.some((f) => GUI_LANGUAGES.has(f.language) || STYLE_LANGUAGES.has(f.language));
+  return files.some(
+    (f) => GUI_LANGUAGES.has(f.language) || STYLE_LANGUAGES.has(f.language) || nativeGui(f),
+  );
+}
+
+/** A file that draws with a native UI toolkit: SwiftUI, UIKit, Android, Flutter, React Native. */
+export function nativeGui(f: ParsedFile): boolean {
+  switch (f.language) {
+    case "swift":
+      return f.imports.some((i) => i === "SwiftUI" || i === "UIKit");
+    case "kt":
+    case "java":
+      return f.imports.some((i) => /^(androidx\.compose|android\.widget|android\.view)\./.test(i));
+    case "dart":
+      return f.imports.some((i) => i.startsWith("package:flutter/"));
+    case "xml":
+      return /(^|\/)res\/(layout|values)[^/]*\//.test(f.path);
+    case "ts":
+    case "js":
+      return f.imports.includes("react-native");
+    default:
+      return false;
+  }
+}
+
+/** A path under a backend directory, where "tokens" and "theme" mean something else. */
+export function serverSide(path: string): boolean {
+  return dirs(path).some((d) => SERVER_DIRS.has(d.toLowerCase()));
 }
 
 /**
@@ -359,7 +394,12 @@ function stylingFiles(files: ParsedFile[], references: Reference[]): Set<string>
   const out = new Set<string>();
   for (const f of files) {
     if (isTest(f.path)) continue;
-    const theme = THEME.test(f.path) && !dirs(f.path).some((d) => SERVER_DIRS.has(d.toLowerCase()));
+    const name = f.path.slice(f.path.lastIndexOf("/") + 1);
+    const themed =
+      THEME.test(f.path) ||
+      NATIVE_STYLING.some((p) => p.test(f.path)) ||
+      (["swift", "kt", "dart"].includes(f.language) && NATIVE_THEME.test(name));
+    const theme = themed && !serverSide(f.path);
     if (STYLE_LANGUAGES.has(f.language) || theme || BUILD_CONFIG.test(f.path)) {
       out.add(f.path);
     }

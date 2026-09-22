@@ -8,19 +8,21 @@
 
 export const MAX_FILES = 4000;
 const MAX_BYTES = 300_000;
+/** Hand-written XML — an Android layout or values file — is small; a big one is generated. */
+const MAX_XML_BYTES = 100_000;
 
 const CODE = new Set([
   "ts", "tsx", "js", "jsx", "mjs", "cjs", "py", "go", "rs", "java", "kt", "swift",
-  "rb", "php", "cs", "c", "h", "cpp", "hpp", "scala", "vue", "svelte",
+  "rb", "php", "cs", "c", "h", "cpp", "hpp", "scala", "vue", "svelte", "dart",
 ]);
 const STYLE = new Set(["css", "scss", "sass", "less", "styl"]);
-const CONFIG = new Set(["html", "json", "yaml", "yml", "toml", "sql", "graphql", "prisma", "sh"]);
+const CONFIG = new Set(["html", "json", "yaml", "yml", "toml", "sql", "graphql", "prisma", "sh", "xml"]);
 const DOCS = new Set(["md", "mdx"]);
 
 const SKIPPED_DIRS = new Set([
   "node_modules", "vendor", "dist", "build", "out", ".next", "coverage", "target",
   ".git", "__pycache__", "venv", ".venv", "third_party", "_generated", "__generated__",
-  "generated",
+  "generated", "Pods", "DerivedData", ".gradle", ".dart_tool", ".idea",
 ]);
 
 const LOCK_FILES = new Set([
@@ -36,6 +38,11 @@ export function keep(path: string, size: number): boolean {
   if (LOCK_FILES.has(name)) return false;
   if (/\.min\.(js|css)$/.test(name) || name.endsWith(".map")) return false;
   const ext = extension(name);
+  if (ext === "xml" && size > MAX_XML_BYTES) return false;
+  // An asset catalog's other entries list image files; only a colour set holds a fact.
+  if (name === "Contents.json" && /\.xcassets\//.test(path) && !/\.colorset\/Contents\.json$/.test(path)) {
+    return false;
+  }
   return CODE.has(ext) || STYLE.has(ext) || CONFIG.has(ext) || DOCS.has(ext);
 }
 

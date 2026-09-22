@@ -217,6 +217,58 @@ describe("cluster: invariants", () => {
     }
   });
 
+  test("a native UI brings a styling concern; a native file that draws nothing does not", () => {
+    for (const [path, text] of [
+      ["App/ContentView.swift", "import SwiftUI"],
+      ["App/ViewController.swift", "import UIKit"],
+      ["app/Home.kt", "import androidx.compose.material3.Text"],
+      ["app/Main.java", "import android.widget.Button;"],
+      ["app/src/main/res/layout/main.xml", "<LinearLayout/>"],
+      ["lib/main.dart", "import 'package:flutter/material.dart';"],
+      ["src/Home.ts", "import { View } from 'react-native';"],
+    ]) {
+      const result = build({ "server/main.py": "", [path]: text });
+      expect(concerns(result).filter((c) => c.styling), path).toHaveLength(1);
+    }
+    for (const [path, text] of [
+      ["Sources/Tool/main.swift", "import Foundation"],
+      ["src/Main.kt", "import kotlinx.coroutines.launch"],
+      ["bin/cli.dart", "import 'dart:io';"],
+      ["pom.xml", "<project/>"],
+    ]) {
+      const result = build({ "server/main.py": "", [path]: text });
+      expect(concerns(result).some((c) => c.styling), path).toBe(false);
+    }
+  });
+
+  test("native colour sets, Android values and theme sources are Styling", () => {
+    const result = build({
+      "App/ContentView.swift": "import SwiftUI",
+      "App/Assets.xcassets/Brand.colorset/Contents.json": "{}",
+      "App/AppTheme.swift": "import SwiftUI",
+      "app/src/main/res/values/colors.xml": "<resources/>",
+      "app/src/main/res/values-night/themes.xml": "<resources/>",
+      "app/src/main/res/values/strings.xml": "<resources/>",
+      "app/src/main/java/com/acme/ui/theme/Type.kt": "import androidx.compose.ui.text.TextStyle",
+      "lib/app_colors.dart": "import 'package:flutter/material.dart';",
+      "design.tokens.json": "{}",
+      "server/colors.dart": "",
+    });
+    const styling = concerns(result).find((c) => c.styling)!;
+    expect(styling.files).toEqual(expect.arrayContaining([
+      "App/Assets.xcassets/Brand.colorset/Contents.json",
+      "App/AppTheme.swift",
+      "app/src/main/res/values/colors.xml",
+      "app/src/main/res/values-night/themes.xml",
+      "app/src/main/java/com/acme/ui/theme/Type.kt",
+      "lib/app_colors.dart",
+      "design.tokens.json",
+    ]));
+    expect(styling.files).not.toContain("app/src/main/res/values/strings.xml");
+    expect(styling.files).not.toContain("App/ContentView.swift");
+    expect(styling.files).not.toContain("server/colors.dart");
+  });
+
   test("a backend's token and theme files stay out of Styling; the UI's go in", () => {
     const result = build({
       "src/App.tsx": imports("./theme"),

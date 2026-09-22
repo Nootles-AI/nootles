@@ -1,3 +1,4 @@
+import { collapse, describeLook, objectAfter, readLook, uncomment } from "./look";
 import { clip, SCRIPT_LANGUAGES, STYLE_LANGUAGES, type ParsedFile } from "./parse";
 
 /**
@@ -10,14 +11,17 @@ import { clip, SCRIPT_LANGUAGES, STYLE_LANGUAGES, type ParsedFile } from "./pars
 const BRIEF = 140;
 const SUMMARY = 900;
 const TERMS = 6000;
-const STYLING_SUMMARY = 2000;
+const STYLING_SUMMARY = 2400;
+/** What the look may take of the styling summary, and what it must leave for the lines after it. */
+const LOOK_BUDGET = 1400;
+const AFTER_LOOK = 400;
 
 const LANGUAGE_NAMES: Record<string, string> = {
   ts: "TypeScript", tsx: "TypeScript React", js: "JavaScript", jsx: "JavaScript React",
   py: "Python", go: "Go", rs: "Rust", java: "Java", kt: "Kotlin", swift: "Swift",
   rb: "Ruby", php: "PHP", cs: "C#", c: "C", cpp: "C++", scala: "Scala", vue: "Vue",
   svelte: "Svelte", css: "CSS", scss: "SCSS", sass: "Sass", less: "Less", styl: "Stylus",
-  html: "HTML", md: "Markdown", mdx: "MDX", json: "JSON", yaml: "YAML", toml: "TOML",
+  html: "HTML", xml: "XML", dart: "Dart", md: "Markdown", mdx: "MDX", json: "JSON", yaml: "YAML", toml: "TOML",
   sql: "SQL", graphql: "GraphQL", prisma: "Prisma", sh: "Shell",
 };
 
@@ -96,17 +100,20 @@ const FAMILIES: { label: string; test: (t: Token) => boolean }[] = [
   { label: "Other tokens", test: () => true },
 ];
 
-/** Most useful first, so a long token list cannot crowd out fonts or components. */
+/**
+ * After the declared palette and the look in use, most useful first, so a
+ * long token list cannot crowd out fonts or components.
+ */
 const ORDER = [
-  "Colour tokens", "Corners", "Shadows", "Borders", "Font families", "Component styles",
-  "Components", "Radius tokens", "Type tokens", "Spacing tokens", "Tailwind",
+  "Font families", "Components", "Radius tokens", "Type tokens", "Spacing tokens", "Tailwind",
   "Shadow tokens", "Motion tokens", "Other tokens",
 ];
 
 /**
  * The styling concern as reference lines a designer, or a mockup generator,
- * can build to: token values verbatim, the fonts, the Tailwind theme, and the
- * component names. Facts only.
+ * can build to: the declared colour tokens verbatim, then the look the code
+ * actually uses in CSS terms (see look.ts), the fonts, the Tailwind theme,
+ * and the component names. Facts only.
  */
 export function describeStyling(files: ParsedFile[], texts: Map<string, string>): string {
   const sorted = [...files].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
@@ -130,24 +137,28 @@ export function describeStyling(files: ParsedFile[], texts: Map<string, string>)
   for (const t of tokens) {
     add(FAMILIES.find((family) => family.test(t))!.label, [`${t.name}: ${t.value}`]);
   }
-  for (const [label, items] of inUse(texts)) add(label, items);
-  add("Component styles", componentStyles(texts));
   add("Font families", fontFamilies(sorted, tokens, texts));
   add("Tailwind", tailwindFacts(sorted, texts));
   add("Components", componentNames(sorted));
 
   const out: string[] = [];
   let budget = STYLING_SUMMARY;
-  for (const label of ORDER) {
+  const emit = (label: string) => {
     const items = lines.get(label);
-    if (!items || budget <= label.length + 8) continue;
-    const separator =
-      label === "Tailwind" ? ". " : label.endsWith("tokens") || label === "Component styles" ? "; " : ", ";
+    if (!items || budget <= label.length + 8) return;
+    const separator = label === "Tailwind" ? ". " : label.endsWith("tokens") ? "; " : ", ";
     const line = fit(`${label}: `, [...new Set(items)], separator, Math.min(budget, lineCap(label)));
-    if (!line) continue;
+    if (!line) return;
     out.push(line);
     budget -= line.length + 1;
+  };
+  emit("Colour tokens");
+  const look = describeLook(readLook(sorted, texts), Math.min(LOOK_BUDGET, budget - AFTER_LOOK));
+  if (look) {
+    out.push(look);
+    budget -= look.length + 1;
   }
+  for (const label of ORDER) emit(label);
   return out.join("\n");
 }
 
@@ -173,7 +184,6 @@ const VENDOR = /^--(bn|tw|ov|mantine|chakra|mui|radix|rdp|swiper|toastify|reach)
 
 function lineCap(label: string): number {
   if (label === "Colour tokens") return 560;
-  if (label === "Component styles") return 700;
   if (label === "Components") return 360;
   return 300;
 }
@@ -192,6 +202,10 @@ function fit(prefix: string, items: string[], separator: string, max: number): s
   return line;
 }
 
+/**
+ * The declared families: font tokens and the Tailwind config's. What style
+ * sheets and classes actually set is the look's (look.ts).
+ */
 function fontFamilies(files: ParsedFile[], tokens: Token[], texts: Map<string, string>): string[] {
   const found: string[] = [];
   for (const t of tokens) {
@@ -202,9 +216,6 @@ function fontFamilies(files: ParsedFile[], tokens: Token[], texts: Map<string, s
   for (const f of files) {
     const text = texts.get(f.path);
     if (!text) continue;
-    if (STYLE_LANGUAGES.has(f.language)) {
-      for (const m of text.matchAll(/font-family\s*:\s*([^;{}]+)/g)) found.push(collapse(m[1]));
-    }
     if (isTailwindConfig(f.path)) {
       const block = objectAfter(uncomment(text), /fontFamily\s*:\s*\{/);
       for (const m of block.matchAll(/([\w-]+|"[^"]+"|'[^']+')\s*:\s*\[([^\]]*)\]/g)) {
@@ -234,147 +245,6 @@ function tailwindFacts(files: ParsedFile[], texts: Map<string, string>): string[
   return facts;
 }
 
-// ---------------------------------------------------------------- in use
-
-const STYLE_FILE = /\.(css|scss|sass|less|styl)$/i;
-const GUI_FILE = /\.(tsx|jsx|vue|svelte|html)$/i;
-/** What a person drawing a screen needs spelled out for a control. */
-const CONTROL = /(button|btn|cta|link|input|field|card|chip|tag|badge|tab|pill)/i;
-const DECLS_SHOWN = 10;
-
-/**
- * How the code actually styles itself, as opposed to what it declares: the
- * corner radii, shadows and borders its style sheets and Tailwind classes use.
- * A look is as much what is never used as what is — a codebase with no
- * border-radius anywhere is square, and a mockup that is not told so rounds
- * its corners by habit — so absence is said outright.
- */
-function inUse(texts: Map<string, string>): [string, string[]][] {
-  const radii = new Map<string, number>();
-  const shadows = new Map<string, number>();
-  const borders = new Map<string, number>();
-  let sheets = 0;
-  const count = (into: Map<string, number>, value: string) =>
-    into.set(value, (into.get(value) ?? 0) + 1);
-
-  for (const [path, text] of [...texts].sort(([a], [b]) => (a < b ? -1 : 1))) {
-    if (STYLE_FILE.test(path)) {
-      sheets++;
-      for (const rule of rules(text)) {
-        for (const [prop, value] of rule.decls) {
-          if (/^border(-[a-z]+)*-radius$/.test(prop)) count(radii, value);
-          else if (prop === "box-shadow") count(shadows, value);
-          else if (/^border(-(top|right|bottom|left))?$/.test(prop)) count(borders, value);
-        }
-      }
-    } else if (GUI_FILE.test(path)) {
-      for (const cls of classNames(text)) {
-        if (/^rounded(-|$)/.test(cls)) count(radii, cls);
-        else if (/^shadow(-|$)/.test(cls)) count(shadows, cls);
-        else if (/^border(-[0-9]+)?$/.test(cls)) count(borders, cls);
-      }
-    }
-  }
-  if (!sheets && !radii.size && !shadows.size) return [];
-
-  const top = (m: Map<string, number>) =>
-    [...m]
-      .sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))
-      .slice(0, 8)
-      .map(([v, n]) => (n > 1 ? `${v} (${n}×)` : v));
-  const square = [...radii.keys()].every((v) => /^(0|0px|none|rounded-none)$/.test(v));
-  return [
-    [
-      "Corners",
-      square
-        ? ["square — no border-radius in any style sheet or class; draw corners at 0"]
-        : top(radii),
-    ],
-    ["Shadows", shadows.size ? top(shadows) : ["none anywhere — draw flat"]],
-    ["Borders", top(borders)],
-  ];
-}
-
-/**
- * The rules that style controls — buttons, links, inputs, cards — verbatim,
- * and for markup styled with utility classes, the classes on those elements.
- * What a primary and a secondary button look like is a fact to copy, not one
- * to infer from a palette.
- */
-function componentStyles(texts: Map<string, string>): string[] {
-  const found: { text: string; rank: number; at: number }[] = [];
-  const utilities: string[] = [];
-  for (const [path, text] of [...texts].sort(([a], [b]) => (a < b ? -1 : 1))) {
-    if (STYLE_FILE.test(path)) {
-      for (const rule of rules(text)) {
-        // One declaration is a tweak, not a look.
-        if (!CONTROL.test(rule.selector) || rule.decls.length < 2) continue;
-        const decls = rule.decls
-          .filter(([p]) => !UNSEEN.test(p))
-          .slice(0, DECLS_SHOWN)
-          .map(([p, v]) => `${p}: ${v}`)
-          .join("; ");
-        if (!decls) continue;
-        found.push({ text: `${rule.selector} { ${decls} }`, rank: controlRank(rule.selector), at: found.length });
-      }
-    } else if (GUI_FILE.test(path)) {
-      for (const m of text.matchAll(/<(button|a|input|Link)\b[^>]*?class(?:Name)?=["'`{]+([^"'`}]{1,240})/g)) {
-        const classes = collapse(m[2]);
-        // Only utility classes say how a thing looks; a semantic class name
-        // points at a rule, and the rule is listed above.
-        const looks = classes.split(" ").filter((c) => UTILITY.test(c.replace(/^[a-z]+:/, "")));
-        if (looks.length >= 2) utilities.push(`<${m[1]}> ${classes}`);
-      }
-    }
-  }
-  return [
-    ...found.sort((a, b) => a.rank - b.rank || a.at - b.at).map((f) => f.text),
-    ...utilities,
-  ];
-}
-
-/** Declarations a still picture cannot show. */
-const UNSEEN = /^(transition|animation|cursor|will-change|user-select|pointer-events|outline-offset)/;
-
-const UTILITY = /^(bg|text|px|py|pl|pr|pt|pb|p|m[xytrbl]?|rounded|border|font|shadow|ring|h|w|gap|tracking|leading|uppercase|lowercase)(-|$)/;
-
-/** Buttons first: they are what a mockup draws most, and get wrong most. */
-function controlRank(selector: string): number {
-  if (/button|btn|cta/i.test(selector)) return 0;
-  if (/input|field/i.test(selector)) return 1;
-  if (/link/i.test(selector)) return 2;
-  return 3;
-}
-
-/** Flat rules out of a style sheet: innermost blocks, so nesting and @media are read through. */
-function rules(text: string): { selector: string; decls: [string, string][] }[] {
-  const clean = text.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/[^\n]*/g, "$1");
-  const out: { selector: string; decls: [string, string][] }[] = [];
-  for (const m of clean.matchAll(/([^{};]+)\{([^{}]*)\}/g)) {
-    const selector = collapse(m[1]);
-    if (!selector || selector.startsWith("@") || /^(from|to|\d+%)/.test(selector)) continue;
-    const decls: [string, string][] = [];
-    for (const part of m[2].split(";")) {
-      const at = part.indexOf(":");
-      if (at < 0) continue;
-      const prop = part.slice(0, at).trim().toLowerCase();
-      const value = collapse(part.slice(at + 1));
-      if (prop && value && !prop.startsWith("--")) decls.push([prop, value]);
-    }
-    out.push({ selector, decls });
-  }
-  return out;
-}
-
-/** Every class a markup file names, from class and className attributes. */
-function classNames(text: string): string[] {
-  const out: string[] = [];
-  for (const m of text.matchAll(/class(?:Name)?=["'`{]+([^"'`}]{1,400})/g)) {
-    out.push(...m[1].split(/\s+/).map((c) => c.replace(/^[a-z]+:/, "")).filter(Boolean));
-  }
-  return out;
-}
-
 function componentNames(files: ParsedFile[]): string[] {
   const names: string[] = [];
   for (const f of files) {
@@ -397,19 +267,6 @@ function isTailwindConfig(path: string): boolean {
   return /(^|\/)tailwind\.config\.[^/]+$/.test(path);
 }
 
-/** The body of the `{…}` the pattern ends on, braces balanced; "" if absent. */
-function objectAfter(text: string, pattern: RegExp): string {
-  const m = pattern.exec(text);
-  if (!m) return "";
-  const open = (m.index ?? 0) + m[0].length - 1;
-  let depth = 0;
-  for (let i = open; i < text.length; i++) {
-    if (text[i] === "{") depth++;
-    else if (text[i] === "}" && --depth === 0) return text.slice(open + 1, i);
-  }
-  return text.slice(open + 1);
-}
-
 function topLevelKeys(body: string): string[] {
   const keys: string[] = [];
   let depth = 0;
@@ -426,13 +283,4 @@ function topLevelKeys(body: string): string[] {
     }
   }
   return [...new Set(keys)];
-}
-
-/** Comments out of a config file, sparing the `//` in a URL. */
-function uncomment(text: string): string {
-  return text.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/[^\n]*/g, "$1");
-}
-
-function collapse(text: string): string {
-  return text.replace(/\s+/g, " ").trim();
 }
