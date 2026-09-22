@@ -31,6 +31,12 @@ export type DebouncedPersist = {
   write: (value: Persistable) => void;
   /** Write what is pending, if anything is. */
   flush: () => void;
+  /**
+   * Take `value` as what the document holds, dropping anything pending. For a
+   * surface sent back to the document after a refusal it only learned of
+   * later — the write was booked as made, and is not in the document.
+   */
+  adopt: (value: string) => void;
 };
 
 export function useDebouncedPersist(
@@ -57,7 +63,7 @@ export function useDebouncedPersist(
   const pending = useRef<Persistable | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const api = useMemo(() => {
+  const api = useMemo((): DebouncedPersist => {
     const stop = () => {
       if (timer.current) clearTimeout(timer.current);
       timer.current = null;

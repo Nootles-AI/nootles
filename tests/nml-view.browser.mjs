@@ -708,6 +708,213 @@ try {
   assert.equal(await codeText(), "const value = 2; // accepted!");
   await page.screenshot({ path: path.join(output, "refused-domain-write-desktop.png"), fullPage: true });
 
+  // A storyboard and an album hold what they show and hand it to the document
+  // afterwards, so a write the document refuses leaves the canonical domain —
+  // and with it every prop the surface is given — exactly where it was. The
+  // surface has to go back to the document anyway (NT-75).
+  await page.evaluate(() => window.nmlHarness.mountRichEditable());
+  await page.waitForSelector("#bridge .nt-sb .nt-sb-note");
+  await page.waitForSelector("#bridge .nt-album-tile");
+  // The math block's field takes focus once MathLive has loaded; typing that
+  // starts before then is typed into it instead (NT-77).
+  await page.waitForFunction(() => document.activeElement?.closest?.('[data-nml-id="math-rich"]'));
+  const domainOf = (type) => page.evaluate((type) => window.nmlHarness.inspect().ast.blocks.find((block) => block.type === type).domain, type);
+  const noteShown = (index = 0) => page.$$eval("#bridge .nt-sb-note", (notes, index) => notes[index].value, index);
+  const noteCanonical = async (index = 0) => (await domainOf("storyboard")).shots[index].note;
+  const requestsMade = () => page.evaluate(() => window.nmlHarness.inspect().requests.length);
+  const settled = (after, status) => page.waitForFunction((after, status) => {
+    const requests = window.nmlHarness.inspect().requests;
+    return requests.length > after && requests.at(-1).status === status;
+  }, {}, after, status);
+  /** The caret at the end of a note — macOS Puppeteer has no working End in a field. */
+  const noteCaret = async (index = 0) => {
+    const notes = await page.$$("#bridge .nt-sb-note");
+    await notes[index].click();
+    await notes[index].evaluate((note) => note.setSelectionRange(note.value.length, note.value.length));
+  };
+  const proseKeystroke = async (key) => {
+    await page.click('#bridge [data-nml-id="rich-full"]');
+    await page.keyboard.press("End");
+    await page.keyboard.type(key);
+  };
+  const waitNote = (text, index = 0) => page.waitForFunction((text, index) => document.querySelectorAll("#bridge .nt-sb-note")[index]?.value === text, {}, text, index);
+  const quiet = () => new Promise((resolve) => setTimeout(resolve, 900));
+
+  assert.equal(await noteShown(), "Opening wide shot");
+  assert.equal(await noteCanonical(), "Opening wide shot");
+
+  // Refused after the request was made (the ticket's reproduction).
+  await page.evaluate(() => window.nmlHarness.setAuthorization("deny"));
+  let before = await requestsMade();
+  await noteCaret();
+  await page.keyboard.type(" refused");
+  await settled(before, "rejected");
+  await waitNote("Opening wide shot");
+  await quiet();
+  assert.equal(await noteShown(), "Opening wide shot");
+  assert.equal(await noteCanonical(), "Opening wide shot");
+
+  // Refused outright: another request is outstanding, so none is made and no
+  // rejection ever arrives — the surface is the only place that knows.
+  await page.evaluate(() => window.nmlHarness.setAuthorization("defer"));
+  await proseKeystroke("!");
+  await page.waitForFunction(() => window.nmlHarness.inspect().requests.at(-1)?.status === "optimistic");
+  before = await requestsMade();
+  await noteCaret();
+  await page.keyboard.type(" in flight");
+  await waitNote("Opening wide shot");
+  assert.equal(await requestsMade(), before);
+  await page.evaluate(() => window.nmlHarness.resolveAuthorization(true));
+  await page.waitForFunction(() => ["acknowledged", "reconciled"].includes(window.nmlHarness.inspect().requests.at(-1)?.status));
+  assert.equal(await noteShown(), "Opening wide shot");
+  assert.equal(await noteCanonical(), "Opening wide shot");
+
+  // Still live once the document takes writes again.
+  await noteCaret();
+  await page.keyboard.type(" landed");
+  await page.waitForFunction(() => window.nmlHarness.inspect().ast.blocks.find((block) => block.type === "storyboard").domain.shots[0].note === "Opening wide shot landed");
+  assert.equal(await noteShown(), "Opening wide shot landed");
+
+  // Somebody else's rejection leaves alone a note this board has not offered
+  // to the document yet.
+  await page.evaluate(() => window.nmlHarness.setAuthorization("defer"));
+  await proseKeystroke("?");
+  await page.waitForFunction(() => window.nmlHarness.inspect().requests.at(-1)?.status === "optimistic");
+  before = await requestsMade();
+  await noteCaret();
+  await page.keyboard.type("!");
+  await page.evaluate(() => window.nmlHarness.resolveAuthorization(false));
+  await settled(before, "rejected");
+  assert.equal(await noteShown(), "Opening wide shot landed!");
+  await page.waitForFunction(() => window.nmlHarness.inspect().ast.blocks.find((block) => block.type === "storyboard").domain.shots[0].note === "Opening wide shot landed!");
+  assert.equal(await noteShown(), "Opening wide shot landed!");
+
+  // Our own write rejected while more typing waits behind it: the board goes
+  // back whole, and the words queued on top of the refusal are not written
+  // later as if nothing had happened.
+  await page.evaluate(() => window.nmlHarness.setAuthorization("defer"));
+  before = await requestsMade();
+  await noteCaret(1);
+  await page.keyboard.type(" sent");
+  await settled(before, "optimistic");
+  await page.keyboard.type(" queued");
+  await page.evaluate(() => window.nmlHarness.resolveAuthorization(false));
+  await settled(before + 1, "rejected");
+  await waitNote("Close up", 1);
+  before = await requestsMade();
+  await quiet();
+  assert.equal(await requestsMade(), before);
+  assert.equal(await noteShown(1), "Close up");
+  assert.equal(await noteCanonical(1), "Close up");
+  assert.equal(await noteShown(), "Opening wide shot landed!");
+
+  // A shot's drawing is carried the same way as its note.
+  const shotShapes = (index = 0) => page.$$eval("#bridge .nt-sb-shot", (shots, index) => shots[index].querySelectorAll(".nt-node").length, index);
+  const drawInShot = async (index = 0) => {
+    const shots = await page.$$("#bridge .nt-sb-shot .nt-canvas-viewport");
+    await shots[index].evaluate((shot) => shot.scrollIntoView({ block: "center" }));
+    const box = await shots[index].boundingBox();
+    await page.mouse.click(box.x + box.width * 0.2, box.y + box.height * 0.2);
+    await page.keyboard.down("Alt");
+    await page.keyboard.down("Shift");
+    await page.keyboard.press("KeyR");
+    await page.keyboard.up("Shift");
+    await page.keyboard.up("Alt");
+    await page.mouse.move(box.x + box.width * 0.3, box.y + box.height * 0.3);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width * 0.6, box.y + box.height * 0.6, { steps: 7 });
+    await page.mouse.up();
+    await page.keyboard.press("Escape");
+  };
+  assert.equal(await shotShapes(), 0);
+  await page.evaluate(() => window.nmlHarness.setAuthorization("deny"));
+  before = await requestsMade();
+  await drawInShot();
+  await settled(before, "rejected");
+  await page.waitForFunction(() => document.querySelectorAll("#bridge .nt-sb-shot")[0].querySelectorAll(".nt-node").length === 0);
+  await quiet();
+  assert.equal(await shotShapes(), 0);
+  assert.equal((await domainOf("storyboard")).shots[0].scene, "");
+  await page.evaluate(() => window.nmlHarness.setAuthorization("allow"));
+  await drawInShot();
+  await page.waitForFunction(() => window.nmlHarness.inspect().ast.blocks.find((block) => block.type === "storyboard").domain.shots[0].scene.includes("<"));
+  assert.equal(await shotShapes(), 1);
+  assert.equal(await noteShown(), "Opening wide shot landed!");
+
+  // A width the document refused does not stay behind on the element. (The
+  // rendered width is not asserted: a board in this host is a flex item sized
+  // from its own last measurement, and keeps it even when a fit is accepted —
+  // NT-78.)
+  const dragGrip = async (selector, dx) => {
+    await page.$eval(selector, (grip) => grip.scrollIntoView({ block: "center" }));
+    const box = await (await page.$(selector)).boundingBox();
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width / 2 + dx, box.y + box.height / 2, { steps: 6 });
+    await page.mouse.up();
+  };
+  const boardWidth = () => page.$eval("#bridge .nt-sb-wrap", (wrap) => ({ inline: wrap.style.width, width: wrap.offsetWidth }));
+  const boardBefore = await boardWidth();
+  await page.evaluate(() => window.nmlHarness.setAuthorization("deny"));
+  before = await requestsMade();
+  await dragGrip("#bridge .nt-sb-grip", -120);
+  await settled(before, "rejected");
+  await page.waitForFunction((inline) => document.querySelector("#bridge .nt-sb-wrap").style.width === inline, {}, boardBefore.inline);
+  await quiet();
+  assert.equal((await boardWidth()).inline, boardBefore.inline);
+  assert.equal((await domainOf("storyboard")).w, undefined);
+
+  // The album: a reorder, a picture's width and the album's own width.
+  const albumOrder = () => page.$$eval("#bridge .nt-album-tile", (tiles) => tiles
+    .map((tile) => ({ label: tile.getAttribute("aria-label"), src: tile.querySelector("img")?.getAttribute("src") }))
+    .sort((a, b) => a.label.localeCompare(b.label)).map((tile) => tile.src));
+  const albumCanonical = async () => (await domainOf("album")).items.map((item) => item.src);
+  const tileBoxes = () => page.$$eval("#bridge .nt-album-tile", (tiles) => tiles.map((tile) => tile.getAttribute("style")));
+  const canonicalOrder = await albumCanonical();
+  assert.deepEqual(await albumOrder(), canonicalOrder);
+  const boxesBefore = await tileBoxes();
+
+  await page.evaluate(() => window.nmlHarness.setAuthorization("deny"));
+  before = await requestsMade();
+  await page.focus('#bridge .nt-album-tile[aria-label^="Photo 1 of"]');
+  await page.keyboard.press("ArrowRight");
+  await settled(before, "rejected");
+  await page.waitForFunction((order) => JSON.stringify([...document.querySelectorAll("#bridge .nt-album-tile")]
+    .map((tile) => ({ label: tile.getAttribute("aria-label"), src: tile.querySelector("img")?.getAttribute("src") }))
+    .sort((a, b) => a.label.localeCompare(b.label)).map((tile) => tile.src)) === JSON.stringify(order), {}, canonicalOrder);
+  await quiet();
+  assert.deepEqual(await albumOrder(), canonicalOrder);
+  assert.deepEqual(await albumCanonical(), canonicalOrder);
+  assert.deepEqual(await tileBoxes(), boxesBefore);
+
+  before = await requestsMade();
+  await page.$eval('#bridge .nt-album-tile[aria-label^="Photo 1 of"] [aria-label="Make wider"]', (button) => button.click());
+  await settled(before, "rejected");
+  await page.waitForFunction((boxes) => JSON.stringify([...document.querySelectorAll("#bridge .nt-album-tile")].map((tile) => tile.getAttribute("style"))) === JSON.stringify(boxes), {}, boxesBefore);
+  await quiet();
+  assert.deepEqual(await tileBoxes(), boxesBefore);
+  assert.equal((await domainOf("album")).items[0].span, undefined);
+
+  const albumWidth = () => page.$eval("#bridge .nt-album", (album) => ({ inline: album.style.width, width: album.offsetWidth }));
+  const albumBefore = await albumWidth();
+  before = await requestsMade();
+  await dragGrip('#bridge [aria-label="Resize album width"]', -120);
+  await settled(before, "rejected");
+  await page.waitForFunction((inline) => document.querySelector("#bridge .nt-album").style.width === inline, {}, albumBefore.inline);
+  await quiet();
+  assert.deepEqual(await albumWidth(), albumBefore);
+  assert.equal((await domainOf("album")).w, undefined);
+
+  // And a reorder the document takes still lands and shows.
+  await page.evaluate(() => window.nmlHarness.setAuthorization("allow"));
+  await page.focus('#bridge .nt-album-tile[aria-label^="Photo 1 of"]');
+  await page.keyboard.press("ArrowRight");
+  await page.waitForFunction((order) => JSON.stringify(window.nmlHarness.inspect().ast.blocks.find((block) => block.type === "album").domain.items.map((item) => item.src)) === JSON.stringify(order), {}, [...canonicalOrder].reverse());
+  await quiet();
+  assert.deepEqual(await albumOrder(), [...canonicalOrder].reverse());
+  assert.equal((await page.evaluate(() => window.nmlHarness.inspect())).parity, true);
+  await page.screenshot({ path: path.join(output, "refused-board-write-desktop.png"), fullPage: true });
+
   await page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true });
   await page.evaluate(() => window.nmlHarness.mount("rich"));
   await page.waitForSelector("#bridge .nt-nml-view");
@@ -722,5 +929,5 @@ try {
   await page.evaluate(() => window.nmlHarness.destroy());
   assert.deepEqual(errors, []);
   assert.deepEqual(paidRequests, []);
-  console.log(JSON.stringify({ result: "passed", fixtures: 8, editableWorkflows: 10, canonicalHistory: true, refusedDomainWrites: true, desktop: "1440x1100", mobile: "390x844", screenshots: output, browserErrors: errors.length, paidRequests: paidRequests.length }, null, 2));
+  console.log(JSON.stringify({ result: "passed", fixtures: 8, editableWorkflows: 10, canonicalHistory: true, refusedDomainWrites: true, refusedBoardWrites: true, desktop: "1440x1100", mobile: "390x844", screenshots: output, browserErrors: errors.length, paidRequests: paidRequests.length }, null, 2));
 } finally { await browser?.close(); await new Promise((resolve) => server.close(resolve)); }
