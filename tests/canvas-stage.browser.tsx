@@ -72,6 +72,19 @@ function sleep(ms: number): Promise<void> {
 
 const NEVER_CHANGES = () => () => {};
 
+/**
+ * Both rail panels take their width from the rail `Workspace.tsx` puts them
+ * in — `.nt-lyr` states none at all and `.nt-style-panel` is `width: 100%` —
+ * so a fixture that drops them straight into the row gives the style panel
+ * the whole window and collapses the document column to nothing. `recentre`
+ * declines a zero-width box, which left the stage moving the scene point it
+ * exists to hold still. The numbers are the app's own rail defaults; only
+ * their being real widths matters here.
+ */
+const LEFT_RAIL = 256;
+const RIGHT_RAIL = 320;
+const rail = (width: number) => ({ flex: "none" as const, width, height: "100%" });
+
 function Harness({ onReady }: { onReady: (api: CanvasApi) => void }) {
   const [active, setActive] = useState<ActiveCanvas | null>(null);
   const shell = useMemo(() => ({ active, set: setActive }), [active]);
@@ -108,7 +121,9 @@ function Harness({ onReady }: { onReady: (api: CanvasApi) => void }) {
     <CanvasShellContext value={shell}>
       <div className="flex h-screen w-full overflow-hidden">
         {chrome && active && (
-          <LayersPanel store={active.api.store} selection={active.api.selection} />
+          <div style={rail(LEFT_RAIL)}>
+            <LayersPanel store={active.api.store} selection={active.api.selection} />
+          </div>
         )}
         <main id="pane" ref={columnRef} className="relative isolate min-w-0 flex-1" style={{ overflow: "auto" }}>
           {/* Real scroll room above and below the block, like a document. */}
@@ -127,7 +142,11 @@ function Harness({ onReady }: { onReady: (api: CanvasApi) => void }) {
           />
           <div style={{ height: 2000 }} />
         </main>
-        {chrome && active && <CanvasStylePanel api={active.api} />}
+        {chrome && active && (
+          <div style={rail(RIGHT_RAIL)}>
+            <CanvasStylePanel api={active.api} />
+          </div>
+        )}
         {chrome && active && !active.api.board && (
           <Toolbar
             store={active.api.store}

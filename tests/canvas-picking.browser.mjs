@@ -51,7 +51,15 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
-import { buildHarness, checker, launch, openPage, repo, writeArtifact } from "./canvas-harness.mjs";
+import {
+  buildHarness,
+  checker,
+  launch,
+  openPage,
+  pretendApplePlatform,
+  repo,
+  writeArtifact,
+} from "./canvas-harness.mjs";
 
 const VIEWPORT = { width: 1280, height: 900 };
 // The canvas itself is forced to exactly this size regardless of the page's
@@ -300,6 +308,9 @@ async function main() {
 
   try {
     const { page, guards } = await openPage(browser, built.origin, { viewport: VIEWPORT, aiReach: built.aiReach });
+    // Every `cmdClick`/`layerMenu` probe presses ⌘, and the surface reads the
+    // deep-select modifier as `isApplePlatform() ? metaKey : ctrlKey`.
+    await pretendApplePlatform(page);
     await page.goto(built.origin, { waitUntil: "networkidle" });
 
     await runLayoutAgreement(page);
