@@ -1,3 +1,5 @@
+import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
 import { AI } from "@/app/lib/ai/aiConfig";
 import { streamDiagram } from "@/app/lib/ai/diagram";
 import { recordAiCall } from "@/app/lib/ai/recordCall";
@@ -16,6 +18,9 @@ import { sessionToken } from "@/app/lib/session";
  */
 export const maxDuration = 60;
 
+/** A repository's styling facts, capped — the brief and the page still come first. */
+const LOOK_CHARS = 1600;
+
 export async function POST(req: Request) {
   const token = await sessionToken();
   if (!token) return new Response("Unauthorized", { status: 401 });
@@ -27,10 +32,11 @@ export async function POST(req: Request) {
     return new Response("Invalid JSON", { status: 400 });
   }
 
-  const { brief, page, title } = (body ?? {}) as {
+  const { brief, page, title, projectId } = (body ?? {}) as {
     brief?: unknown;
     page?: unknown;
     title?: unknown;
+    projectId?: unknown;
   };
   if (typeof brief !== "string" || !brief.trim()) {
     return new Response("`brief` must be a non-empty string", { status: 400 });
@@ -48,11 +54,29 @@ export async function POST(req: Request) {
   const limited = await refuseIfLimited(convex, "agentGeneration");
   if (limited) return limited;
 
+  // How the project's product looks, read here with the caller's own access
+  // rather than taken from the request: it becomes instruction, and a body is
+  // anything anyone sends.
+  const look =
+    typeof projectId === "string"
+      ? await convex
+          .query(api.context.read.packInputs, { projectId: projectId as Id<"projects"> })
+          .then((inputs) =>
+            (inputs?.code ?? [])
+              .flatMap((repo) =>
+                repo.styling ? [`${repo.fullName}:\n${repo.styling.slice(0, LOOK_CHARS)}`] : [],
+              )
+              .join("\n\n"),
+          )
+          .catch(() => "")
+      : "";
+
   try {
     return streamDiagram(
       brief,
       typeof page === "string" ? page : "",
       typeof title === "string" ? title : "",
+      look,
       req.signal,
       ({ usage, latencyMs }) =>
         recordAiCall(convex, {

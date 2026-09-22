@@ -27,6 +27,11 @@ export function CompletionContextProvider({
   return <CompletionProject value={projectId}>{children}</CompletionProject>;
 }
 
+/** The project completions are written in, or null off the workspace. */
+export function useCompletionProject(): Id<"projects"> | null {
+  return useContext(CompletionProject);
+}
+
 /**
  * The seed for completions on one page, or "" anywhere the provider isn't
  * mounted. A subscription rather than a fetch per completion, because the pack
