@@ -532,6 +532,14 @@ above, the departure is deliberate:
   the prompt, the seed or the tool list, and the context dialog no longer shows them. Their
   tables and backend stay for the connectors. The staged demos C-11 and C-16 read the firmware
   source kept in the project, as they already did wherever no repo was linked.
+- **Graph view** (step 6, first cut), opened from the sidebar's Context row
+  (`app/components/context/ContextGraph.tsx`, one `context.read.graph` read). The project as a
+  dark hub, folders and pages round it on the sidebar's own structure, mentions as the lines
+  worth reading, and a floating panel for the selection: the page's thumbnail, opening, sections,
+  owner, what it mentions and what mentions it. The project's panel is where Description and
+  Context are now written; the old context dialog is gone. In-house force layout
+  (`graph/force.ts`) — deterministic, box-aware collision, settled mostly before first paint.
+  Human corrections are not built yet.
 - **Backfill.** `npx convex run migrations:contextPageNodes` gives every existing page a title
   node; its words arrive with its first digest.
 

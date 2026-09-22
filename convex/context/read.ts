@@ -246,3 +246,85 @@ async function edges(ctx: QueryCtx, node: Id<"contextNodes">, end: "from" | "to"
         )
         .take(MAX_LINKS);
 }
+
+/**
+ * The whole graph as the context view draws it: the project, its folders and
+ * pages, and the live mentions between them — in one read, so the view settles
+ * once rather than filling in node by node. Owners come with a face where the
+ * profile has one. A page's summary is not here; `read` fetches it for the one
+ * page being looked at.
+ */
+export const graph = query({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, args) => {
+    const project = await readVisible(ctx, "projects", args.projectId);
+    if (!project) return null;
+    const [folders, pages, nodes, edges] = await Promise.all([
+      ctx.db
+        .query("folders")
+        .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+        .take(MAX_PAGES),
+      ctx.db
+        .query("pages")
+        .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+        .take(MAX_PAGES),
+      ctx.db
+        .query("contextNodes")
+        .withIndex("by_project_and_externalId", (q) => q.eq("projectId", args.projectId))
+        .take(MAX_PAGES),
+      ctx.db
+        .query("contextEdges")
+        .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+        .take(MAX_PAGES * 5),
+    ]);
+
+    const byExternal = new Map(nodes.map((n) => [n.externalId, n]));
+    const pageOfNode = new Map(nodes.map((n) => [n._id, n.externalId]));
+    const live = pages.filter((p) => !isTrashed(p));
+    const livePages = new Set<string>(live.map((p) => p._id));
+
+    const ownerOf = (p: Doc<"pages">) =>
+      byExternal.get(p._id)?.owner.memberId ?? p.createdBy ?? p.ownerId;
+    const faces = new Map<string, { name: string; imageUrl?: string } | null>();
+    for (const memberId of new Set(live.map(ownerOf))) {
+      const profile = await ctx.db
+        .query("profiles")
+        .withIndex("by_owner", (q) => q.eq("ownerId", memberId))
+        .unique();
+      const name = profile?.name ?? profile?.email;
+      faces.set(memberId, name ? { name, imageUrl: profile?.imageUrl } : null);
+    }
+
+    return {
+      title: project.title,
+      folders: folders
+        .filter((f) => !isTrashed(f))
+        .map((f) => ({
+          folderId: f._id as string,
+          title: f.title,
+          parentId: (f.parentId as string | undefined) ?? null,
+          icon: f.icon ?? null,
+        })),
+      pages: live.map((p) => {
+        const node = byExternal.get(p._id);
+        return {
+          pageId: p._id as string,
+          docId: p.docId,
+          title: p.title,
+          icon: p.icon ?? null,
+          folderId: (p.folderId as string | undefined) ?? null,
+          brief: node?.brief ?? "",
+          digested: !!node?.brief,
+          owner: faces.get(ownerOf(p)) ?? null,
+          updatedAt: p.updatedAt ?? p.createdAt,
+        };
+      }),
+      mentions: edges.flatMap((e) => {
+        if (e.expiredAt !== undefined || e.family !== "references") return [];
+        const from = pageOfNode.get(e.from);
+        const to = pageOfNode.get(e.to);
+        return from && to && livePages.has(from) && livePages.has(to) ? [{ from, to }] : [];
+      }),
+    };
+  },
+});

@@ -1283,15 +1283,6 @@ textarea.nt-input {
    Shown in the new-project dialog and again from the sidebar, in the same
    shapes both times. */
 
-/* One column: the two standing fields and what else has been noted, read top
-   to bottom. Narrower than a form dialog, since nothing sits beside them. */
-.nt-dialog.nt-context {
-  width: 34rem;
-}
-.nt-context .nt-dialog-body {
-  grid-template-columns: minmax(0, 1fr);
-}
-
 /* A sentence of guidance under a control. Quiet by construction: it explains
    the field, so it must never compete with it. */
 .nt-note {

@@ -41,7 +41,7 @@ import { AccountMenu } from "./AccountMenu";
 import { SharePopover } from "./SharePopover";
 import { RequestEditButton } from "./share/AccessRequests";
 import { ConfirmDeleteDialog } from "./ConfirmDelete";
-import { ContextDialog } from "./context/ContextDialog";
+import { ContextGraph } from "./context/ContextGraph";
 import { ContextMenu } from "./ContextMenu";
 import { Editable } from "./Editable";
 import { usePageChanges, type PageChange } from "./ReviewContext";
@@ -1127,7 +1127,7 @@ export function Sidebar({
         )}
 
       {showingContext && (
-        <ContextDialog
+        <ContextGraph
           projectId={projectId}
           onClose={() => setShowingContext(false)}
         />

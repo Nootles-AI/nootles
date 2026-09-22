@@ -1,0 +1,605 @@
+/* ---- Context graph ------------------------------------------------------
+   The project as a map: pages and folders over the canvas's own dotted ground,
+   one dark tile for the project itself, and a floating panel for whatever is
+   selected. Neutral throughout — the ink of the selection is the page's own
+   foreground, never an accent. Unlayered on purpose: it sizes the dialog box,
+   whose base rules live in globals.css's components layer. */
+
+.nt-dialog.nt-graph {
+  width: calc(100vw - 32px);
+  max-width: none;
+  height: calc(100dvh - 32px);
+  max-height: none;
+  overflow: hidden;
+  background: var(--surface);
+  border-radius: 14px;
+}
+/* The box takes focus so the keyboard starts inside it; a ring round the
+   whole screen says nothing. Nodes and fields keep theirs. */
+.nt-dialog.nt-graph:focus-visible {
+  outline: none;
+}
+
+.nt-graph-stage {
+  position: absolute;
+  inset: 0;
+}
+
+.nt-graph-viewport {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  background-color: var(--surface);
+  background-image: radial-gradient(
+    circle at 1px 1px,
+    oklch(0.25 0.005 90 / 0.12) 1px,
+    transparent 1.3px
+  );
+  background-size: 22px 22px;
+  animation: nt-graph-in 360ms var(--ease);
+}
+.nt-graph-viewport.is-panning {
+  cursor: grabbing;
+}
+@keyframes nt-graph-in {
+  from {
+    opacity: 0;
+  }
+}
+
+.nt-graph-lines {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+.nt-graph-world {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  transform-origin: 0 0;
+  pointer-events: none;
+}
+
+/* ---- Lines -------------------------------------------------------------- */
+
+.nt-graph-line {
+  fill: none;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+  transition:
+    stroke var(--dur) var(--ease),
+    opacity var(--dur) var(--ease);
+}
+/* Structure: where a page lives. Present, and nothing more. */
+.nt-graph-line.is-contains {
+  stroke: var(--border-strong);
+  stroke-width: 1;
+}
+/* What pages say about each other — the lines worth reading. */
+.nt-graph-line.is-mentions {
+  stroke: var(--edge-line);
+  stroke-width: 1.5;
+}
+.nt-graph-line.is-contains.is-lit {
+  stroke: var(--muted);
+}
+.nt-graph-line.is-mentions.is-lit {
+  stroke: var(--foreground);
+  stroke-width: 1.75;
+}
+.nt-graph-line.is-dim {
+  opacity: 0.2;
+}
+.nt-graph-arrowhead {
+  fill: none;
+  stroke: var(--edge-line);
+  stroke-width: 1.25;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.nt-graph-arrowhead.is-lit {
+  stroke: var(--foreground);
+}
+
+/* ---- Nodes -------------------------------------------------------------- */
+
+.nt-gnode {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 32px;
+  max-width: 232px;
+  padding: 0 12px 0 10px;
+  white-space: nowrap;
+  font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+  font-size: var(--text-ui);
+  font-weight: 500;
+  line-height: 1;
+  color: var(--foreground);
+  background: var(--elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  box-shadow:
+    0 1px 1px oklch(0.25 0.005 90 / 0.04),
+    0 3px 8px -3px oklch(0.25 0.005 90 / 0.1);
+  cursor: pointer;
+  pointer-events: auto;
+  /* No `will-change`: a promoted layer is scaled as a bitmap, and a zoomed-in
+     title would blur. Never `transform` in the transition either — the layout
+     writes it every frame. */
+  transition:
+    opacity var(--dur) var(--ease),
+    border-color var(--dur-fast) var(--ease),
+    box-shadow var(--dur) var(--ease);
+}
+.nt-gnode:hover {
+  border-color: var(--shape-line-hover);
+  box-shadow:
+    0 1px 1px oklch(0.25 0.005 90 / 0.05),
+    0 6px 16px -6px oklch(0.25 0.005 90 / 0.18);
+}
+.nt-gnode:focus-visible {
+  outline: 2px solid var(--foreground);
+  outline-offset: 2px;
+}
+.nt-gnode-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.nt-gnode-icon {
+  flex: none;
+  color: var(--muted);
+}
+
+/* A folder holds; it is not read. Outlined on the ground, not raised off it. */
+.nt-gnode.is-folder {
+  height: 28px;
+  padding: 0 12px 0 10px;
+  color: var(--muted);
+  background: var(--surface);
+  border-radius: 999px;
+  box-shadow: none;
+}
+
+/* A page whose words have not reached the graph yet — honest about it. */
+.nt-gnode.is-unread {
+  color: var(--muted);
+  background: var(--surface);
+  border-style: dashed;
+  box-shadow: none;
+}
+
+/* The project: the one dark thing on the map, and where every reading starts. */
+.nt-gnode.is-project {
+  height: 40px;
+  padding: 0 16px 0 14px;
+  gap: 9px;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  color: var(--background);
+  background: var(--foreground);
+  border-color: var(--foreground);
+  border-radius: 12px;
+  box-shadow:
+    0 1px 2px oklch(0.25 0.005 90 / 0.2),
+    0 10px 28px -10px oklch(0.25 0.005 90 / 0.5);
+}
+.nt-gnode.is-project::before {
+  content: "";
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--brand);
+}
+
+.nt-gnode.is-selected {
+  border-color: var(--foreground);
+  border-style: solid;
+  box-shadow:
+    0 0 0 1px var(--foreground),
+    0 8px 22px -8px oklch(0.25 0.005 90 / 0.32);
+}
+.nt-gnode.is-project.is-selected {
+  box-shadow:
+    0 0 0 3px var(--surface),
+    0 0 0 4.5px var(--foreground),
+    0 10px 28px -10px oklch(0.25 0.005 90 / 0.5);
+}
+.nt-gnode.is-match {
+  border-color: var(--foreground);
+}
+.nt-gnode.is-dim {
+  opacity: 0.3;
+}
+/* The anchor recedes, but stays the anchor — never a disabled grey button. */
+.nt-gnode.is-project.is-dim {
+  opacity: 0.55;
+}
+.nt-gnode.is-dragging {
+  cursor: grabbing;
+  box-shadow:
+    0 0 0 1px var(--foreground),
+    0 14px 32px -10px oklch(0.25 0.005 90 / 0.35);
+}
+
+/* ---- Floating chrome ---------------------------------------------------- */
+
+.nt-graph-bar {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.nt-graph-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 248px;
+  height: 34px;
+  padding: 0 12px;
+  color: var(--muted);
+  background: var(--elevated);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  box-shadow: 0 2px 8px -4px oklch(0.25 0.005 90 / 0.12);
+  transition: border-color var(--dur-fast) var(--ease);
+}
+.nt-graph-search:focus-within {
+  border-color: var(--border-strong);
+}
+.nt-graph-search input {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-ui);
+  color: var(--foreground);
+  background: transparent;
+  border: 0;
+  outline: 0;
+}
+.nt-graph-search input::placeholder {
+  color: var(--muted);
+}
+.nt-graph-found {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.nt-graph-zoom {
+  position: absolute;
+  left: 16px;
+  bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  background: var(--elevated);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 2px 8px -4px oklch(0.25 0.005 90 / 0.12);
+}
+.nt-graph-zoom-level {
+  min-width: 52px;
+  height: 28px;
+  padding: 0 6px;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--text-meta-lg);
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  border-radius: var(--radius);
+  transition: background var(--dur-fast) var(--ease);
+}
+.nt-graph-zoom-level:hover {
+  color: var(--foreground);
+  background: var(--hover);
+}
+
+/* ---- The panel ---------------------------------------------------------- */
+
+.nt-ginfo {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  width: 360px;
+  background: var(--elevated);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow:
+    0 1px 2px oklch(0.25 0.005 90 / 0.04),
+    0 16px 40px -16px oklch(0.25 0.005 90 / 0.22);
+  overflow: hidden;
+}
+.nt-ginfo-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex: none;
+  height: 44px;
+  padding: 0 8px 0 20px;
+  border-bottom: 1px solid var(--border);
+}
+.nt-ginfo-kind {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+}
+.nt-ginfo-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 20px 20px 24px;
+  animation: nt-ginfo-in 240ms var(--ease);
+}
+/* Answers the click: what changed is the panel's subject, so it arrives. */
+@keyframes nt-ginfo-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+.nt-ginfo-thumb {
+  display: block;
+  width: 100%;
+  margin-bottom: 18px;
+  padding: 0;
+  overflow: hidden;
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  cursor: pointer;
+  transition:
+    border-color var(--dur-fast) var(--ease),
+    box-shadow var(--dur) var(--ease);
+}
+.nt-ginfo-thumb:hover {
+  border-color: var(--border-strong);
+  box-shadow: 0 6px 18px -10px oklch(0.25 0.005 90 / 0.25);
+}
+.nt-ginfo-thumb:focus-visible {
+  outline: 2px solid var(--foreground);
+  outline-offset: 2px;
+}
+.nt-ginfo-thumb .nt-thumb {
+  aspect-ratio: 16 / 7;
+}
+
+.nt-ginfo-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.nt-ginfo-glyph {
+  flex: none;
+  margin-top: 4px;
+  color: var(--muted);
+}
+.nt-ginfo-title {
+  font-size: 19px;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+  color: var(--foreground);
+  overflow-wrap: anywhere;
+}
+.nt-ginfo-title.is-project {
+  font-size: 22px;
+}
+.nt-ginfo-lede {
+  margin-top: 8px;
+  font-size: var(--text-ui);
+  line-height: 1.55;
+  color: var(--muted);
+}
+.nt-ginfo-byline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.nt-ginfo-face {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  overflow: hidden;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--muted);
+  background: var(--sunken);
+  border-radius: 50%;
+}
+.nt-ginfo-face img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.nt-ginfo-brief {
+  margin-top: 14px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--foreground);
+}
+.nt-ginfo-meta {
+  margin-top: 6px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.nt-ginfo-note {
+  margin-top: 14px;
+  padding: 10px 12px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--muted);
+  background: var(--sunken);
+  border-radius: 8px;
+}
+
+.nt-ginfo-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  margin: 18px 0 20px;
+  overflow: hidden;
+  background: var(--border);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.nt-ginfo-stats > div {
+  padding: 10px 12px;
+  background: var(--elevated);
+}
+.nt-ginfo-stats dt {
+  font-size: 12px;
+  color: var(--muted);
+}
+.nt-ginfo-stats dd {
+  margin: 2px 0 0;
+  font-size: 18px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+  color: var(--foreground);
+}
+
+.nt-ginfo-section {
+  margin-top: 22px;
+}
+.nt-ginfo-label {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+}
+.nt-ginfo-count {
+  font-variant-numeric: tabular-nums;
+}
+.nt-ginfo-outline {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-left: 1px solid var(--border);
+}
+.nt-ginfo-outline li {
+  padding: 3px 0 3px 12px;
+  font-size: var(--text-ui);
+  line-height: 1.4;
+  color: var(--foreground);
+}
+.nt-ginfo-links {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 0 -8px;
+  padding: 0;
+  list-style: none;
+}
+.nt-ginfo-link {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 8px;
+  text-align: left;
+  border-radius: 7px;
+  transition: background var(--dur-fast) var(--ease);
+}
+.nt-ginfo-link:hover {
+  background: var(--hover);
+}
+.nt-ginfo-link .nt-row-icon {
+  margin-top: 1px;
+}
+.nt-ginfo-link-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.nt-ginfo-link-title {
+  overflow: hidden;
+  font-size: var(--text-ui);
+  font-weight: 500;
+  color: var(--foreground);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nt-ginfo-link-brief {
+  display: -webkit-box;
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--muted);
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+/* Kept in reach at the foot of a long panel. */
+.nt-ginfo-actions {
+  position: sticky;
+  bottom: -24px;
+  margin: 24px -20px -24px;
+  padding: 16px 20px 20px;
+  background: linear-gradient(to bottom, transparent, var(--elevated) 28%);
+}
+.nt-ginfo-actions > button {
+  width: 100%;
+  height: 34px;
+}
+
+/* A narrow window: the panel docks under the canvas instead of beside it. */
+@media (max-width: 720px) {
+  .nt-dialog.nt-graph {
+    width: calc(100vw - 16px);
+    height: calc(100dvh - 16px);
+  }
+  .nt-ginfo {
+    top: auto;
+    left: 8px;
+    right: 8px;
+    bottom: 8px;
+    width: auto;
+    height: 48%;
+  }
+  .nt-graph-bar {
+    top: 10px;
+    left: 10px;
+    right: 10px;
+  }
+  .nt-graph-search {
+    width: 100%;
+  }
+  .nt-graph-zoom {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nt-graph-viewport,
+  .nt-ginfo-body {
+    animation: none;
+  }
+}
