@@ -143,8 +143,42 @@ function EditableMath({ block, bridge }: {
   </div>;
 }
 
-function updateDomain(bridge: EditableNmlBridge, block: NmlBlock, domain: unknown): void {
-  bridge.dispatchCommands([{ type: "replaceDomain", nodeId: block.id, domain }], [block.id]);
+type Dispatch = (commands: NmlCommand[], nodeIds: string[]) => boolean;
+
+/** Writes a domain block whole. `false` means the document refused it. */
+function updateDomain(dispatch: Dispatch, block: NmlBlock, domain: unknown): boolean {
+  return dispatch([{ type: "replaceDomain", nodeId: block.id, domain }], [block.id]);
+}
+
+/**
+ * A storyboard holds its board and an album its committed arrangement until
+ * the document takes them, so each is sent back to the document when it
+ * refuses — the same obligation as a code block's text. A location card holds
+ * nothing of its own and needs no such thing.
+ */
+function EditableStoryboard({ block, bridge }: {
+  block: Extract<NmlBlock, { type: "storyboard" }>;
+  bridge: EditableNmlBridge;
+}) {
+  const [reasserted, dispatch] = useReassertingDispatch(bridge);
+  return <StoryboardSurface
+    blockId={block.id}
+    source={serializeStoryboard(block.domain)}
+    reasserted={reasserted}
+    onChange={(source) => updateDomain(dispatch, block, parseStoryboard(source))}
+  />;
+}
+
+function EditableAlbum({ block, bridge }: {
+  block: Extract<NmlBlock, { type: "album" }>;
+  bridge: EditableNmlBridge;
+}) {
+  const [reasserted, dispatch] = useReassertingDispatch(bridge);
+  return <AlbumSurface
+    source={serializeAlbum(block.domain)}
+    reasserted={reasserted}
+    onChange={(source) => updateDomain(dispatch, block, parseAlbum(source))}
+  />;
 }
 
 function EditableCanvas({ block, bridge }: {
@@ -260,9 +294,15 @@ export default function ReadOnlyDomainContent({ block, editableBridge, resolveSt
     case "canvas": return editableBridge
       ? <EditableCanvas block={block} bridge={editableBridge} />
       : <CanvasSurface source={serializeScene(block.scene)} onChange={noChange} readOnly />;
-    case "album": return <AlbumSurface source={serializeAlbum(block.domain)} onChange={editableBridge ? (source) => updateDomain(editableBridge, block, parseAlbum(source)) : noChange} />;
-    case "storyboard": return <StoryboardSurface blockId={block.id} source={serializeStoryboard(block.domain)} onChange={editableBridge ? (source) => updateDomain(editableBridge, block, parseStoryboard(source)) : noChange} readOnly={!editableBridge} />;
-    case "location": return <LocationSurface blockId={block.id} source={serializeLocation(block.domain)} onChange={editableBridge ? (source) => updateDomain(editableBridge, block, parseLocation(source)) : noChange} />;
+    case "album": return editableBridge
+      ? <EditableAlbum block={block} bridge={editableBridge} />
+      : <AlbumSurface source={serializeAlbum(block.domain)} onChange={noChange} />;
+    case "storyboard": return editableBridge
+      ? <EditableStoryboard block={block} bridge={editableBridge} />
+      : <StoryboardSurface blockId={block.id} source={serializeStoryboard(block.domain)} onChange={noChange} readOnly />;
+    case "location": return <LocationSurface blockId={block.id} source={serializeLocation(block.domain)} onChange={editableBridge ? (source) => updateDomain(
+      (commands, nodeIds) => editableBridge.dispatchCommands(commands, nodeIds), block, parseLocation(source),
+    ) : noChange} />;
     case "notionStub": return <a
       href={isSafeUrl(block.props.href) ? block.props.href : undefined}
       rel="noopener noreferrer"

@@ -186,10 +186,19 @@ const Shot = memo(function Shot({
 
 export interface StoryboardSurfaceProps {
   source: string;
-  onChange: (source: string) => void;
+  /** Writes the board into the document. `false` means the document refused it. */
+  onChange: (source: string) => void | boolean;
   readOnly?: boolean;
   /** Identifies this block to the canvas shell, which mounts the toolbar. */
   blockId: string;
+  /**
+   * How many times the host has re-asserted `source` over this board. A write
+   * the document refused leaves `source` exactly where it was, so nothing in
+   * the props moves and the board would go on showing what the page does not
+   * have — a refusal learned of after the write, most of all. This is what
+   * asks it to look again.
+   */
+  reasserted?: number;
 }
 
 export function StoryboardSurface({
@@ -197,6 +206,7 @@ export function StoryboardSurface({
   onChange,
   readOnly = false,
   blockId,
+  reasserted = 0,
 }: StoryboardSurfaceProps) {
   const shell = useCanvasShell();
   const wrap = useRef<HTMLDivElement>(null);
@@ -247,6 +257,26 @@ export function StoryboardSurface({
     },
     [persist],
   );
+
+  /**
+   * Back to the document, whole, when the host says a write was refused.
+   *
+   * Whole, because every write is the whole board: whatever was typed or drawn
+   * on top of the refused one composed against a board the page never had, and
+   * is dropped with it rather than written later as though nothing happened.
+   * The width goes back by hand. The grip leaves its number standing on the
+   * element for React to take over, and React takes over only a `w` that moved.
+   */
+  const seen = useRef(reasserted);
+  useEffect(() => {
+    if (seen.current === reasserted) return;
+    seen.current = reasserted;
+    const next = read(source);
+    boardRef.current = next;
+    setBoard(next);
+    persist.adopt(source);
+    if (wrap.current) wrap.current.style.width = next.w !== undefined ? `${next.w}px` : "";
+  }, [reasserted, source, persist]);
 
   // Width drives the column count, which drives the scale. Measured rather than
   // guessed from the viewport: the block sits in a column whose width is the

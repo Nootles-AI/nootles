@@ -137,9 +137,18 @@ function watchPlayback(entries: IntersectionObserverEntry[]): void {
 export function AlbumSurface({
   source,
   onChange,
+  reasserted = 0,
 }: {
   source: string;
   onChange: (source: string) => void;
+  /**
+   * How many times the host has re-asserted `source` over this album. A write
+   * the document refused leaves `source` where it was — which is exactly the
+   * `over` a committed preview stands in for, so the refused arrangement would
+   * stay on screen until somebody else's edit arrived. This is what asks the
+   * album to look again.
+   */
+  reasserted?: number;
 }) {
   const convex = useConvex();
   const readOnly = useReadOnly();
@@ -296,6 +305,23 @@ export function AlbumSurface({
     if (preview?.over !== undefined && preview.from === source) setPreview(null);
     if (sizing?.over !== undefined && sizing.from === source) setSizing(null);
   }, [preview, sizing, source]);
+
+  /**
+   * A refusal spends every stand-in for a write: the document is not coming
+   * round to any of them. A carry's preview stands in for a gesture, not a
+   * write, and is left to its drop. The width goes back by hand — the grip and
+   * the fit both write it straight to the element, and React re-applies only
+   * a `w` that moved.
+   */
+  const seen = useRef(reasserted);
+  useEffect(() => {
+    if (seen.current === reasserted) return;
+    seen.current = reasserted;
+    setPreview((held) => (held?.over !== undefined ? null : held));
+    setSizing((held) => (held?.over !== undefined ? null : held));
+    view.current = album;
+    if (wrap.current) wrap.current.style.width = album.w ? `${album.w}px` : "";
+  }, [reasserted, album]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
   const items = useMemo(() => {
