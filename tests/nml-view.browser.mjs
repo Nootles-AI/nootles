@@ -715,9 +715,7 @@ try {
   await page.evaluate(() => window.nmlHarness.mountRichEditable());
   await page.waitForSelector("#bridge .nt-sb .nt-sb-note");
   await page.waitForSelector("#bridge .nt-album-tile");
-  // The math block's field takes focus once MathLive has loaded; typing that
-  // starts before then is typed into it instead (NT-77).
-  await page.waitForFunction(() => document.activeElement?.closest?.('[data-nml-id="math-rich"]'));
+  await page.waitForSelector('#bridge [data-nml-id="math-rich"] math-field');
   const domainOf = (type) => page.evaluate((type) => window.nmlHarness.inspect().ast.blocks.find((block) => block.type === type).domain, type);
   const noteShown = (index = 0) => page.$$eval("#bridge .nt-sb-note", (notes, index) => notes[index].value, index);
   const noteCanonical = async (index = 0) => (await domainOf("storyboard")).shots[index].note;
@@ -915,6 +913,61 @@ try {
   assert.equal((await page.evaluate(() => window.nmlHarness.inspect())).parity, true);
   await page.screenshot({ path: path.join(output, "refused-board-write-desktop.png"), fullPage: true });
 
+  // A math row takes the keyboard only when this page asked for it — Enter.
+  // A row that focused itself on mount took the caret from wherever the person
+  // was the moment MathLive loaded, and typing went into the math (NT-77).
+  await page.evaluate(() => window.nmlHarness.mountRichEditable());
+  await page.waitForSelector('#bridge [data-nml-id="math-rich"] math-field');
+  const mathRows = () => page.evaluate(() => window.nmlHarness.inspect().ast.blocks.find((block) => block.id === "math-rich").rows);
+  const clickMath = async (id) => {
+    const field = await page.$(`#bridge [data-nml-id="${id}"] math-field`);
+    await field.evaluate((element) => element.scrollIntoView({ block: "center" }));
+    const box = await field.boundingBox();
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    await page.waitForFunction((id) => document.activeElement?.closest?.("#bridge [data-nml-id]")?.getAttribute("data-nml-id") === id, {}, id);
+  };
+  const focusedRow = () => page.evaluate(() => document.activeElement?.closest?.("#bridge [data-nml-id]")?.getAttribute("data-nml-id") ?? null);
+  await quiet();
+  assert.notEqual(await focusedRow(), "math-row");
+  assert.equal(await page.evaluate(() => document.querySelector('#bridge [data-nml-id="math-rich"]').contains(document.activeElement)), false);
+  await noteCaret();
+  await page.keyboard.type(" kept");
+  await page.waitForFunction(() => window.nmlHarness.inspect().ast.blocks.find((block) => block.type === "storyboard").domain.shots[0].note === "Opening wide shot kept");
+  assert.equal(await page.$eval('#bridge [data-nml-id="math-rich"] math-field', (field) => field.value), "x");
+
+  // Enter asks for a row, and the row that arrives is the one typed into.
+  await clickMath("math-row");
+  await page.keyboard.press("Enter");
+  await page.waitForFunction(() => window.nmlHarness.inspect().ast.blocks.find((block) => block.id === "math-rich").rows.length === 2);
+  const added = (await mathRows())[1].id;
+  await page.waitForFunction((id) => document.activeElement?.closest?.("#bridge [data-nml-id]")?.getAttribute("data-nml-id") === id, {}, added);
+  await page.keyboard.type("y");
+  await page.waitForFunction((id) => window.nmlHarness.inspect().ast.blocks.find((block) => block.id === "math-rich").rows.find((row) => row.id === id)?.latex === "y", {}, added);
+  assert.equal((await mathRows())[0].latex, "x");
+
+  // A row somebody else adds arrives quietly, wherever the caret is.
+  await noteCaret(1);
+  await page.evaluate(() => window.nmlHarness.command([{ type: "insertMathRows", nodeId: "math-rich", anchor: { afterId: "math-row" }, rows: [{ id: "model-row", latex: "z" }] }]));
+  await page.waitForSelector('#bridge [data-nml-id="model-row"] math-field');
+  await quiet();
+  assert.equal(await page.evaluate(() => document.activeElement?.classList.contains("nt-sb-note")), true);
+
+  // A refused Enter withdraws its ask, so the next row to arrive — a
+  // collaborator's — does not answer it.
+  await page.evaluate(() => window.nmlHarness.setAuthorization("deny"));
+  before = await requestsMade();
+  await clickMath("model-row");
+  await page.keyboard.press("Enter");
+  await settled(before, "rejected");
+  assert.equal((await mathRows()).length, 3);
+  await noteCaret(1);
+  await page.evaluate(() => window.nmlHarness.command([{ type: "insertMathRows", nodeId: "math-rich", anchor: { afterId: "model-row" }, rows: [{ id: "remote-row", latex: "w" }] }]));
+  await page.waitForSelector('#bridge [data-nml-id="remote-row"] math-field');
+  await quiet();
+  assert.equal(await page.evaluate(() => document.activeElement?.classList.contains("nt-sb-note")), true);
+  await page.evaluate(() => window.nmlHarness.setAuthorization("allow"));
+  await page.screenshot({ path: path.join(output, "math-focus-desktop.png"), fullPage: true });
+
   await page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true });
   await page.evaluate(() => window.nmlHarness.mount("rich"));
   await page.waitForSelector("#bridge .nt-nml-view");
@@ -929,5 +982,5 @@ try {
   await page.evaluate(() => window.nmlHarness.destroy());
   assert.deepEqual(errors, []);
   assert.deepEqual(paidRequests, []);
-  console.log(JSON.stringify({ result: "passed", fixtures: 8, editableWorkflows: 10, canonicalHistory: true, refusedDomainWrites: true, refusedBoardWrites: true, desktop: "1440x1100", mobile: "390x844", screenshots: output, browserErrors: errors.length, paidRequests: paidRequests.length }, null, 2));
+  console.log(JSON.stringify({ result: "passed", fixtures: 8, editableWorkflows: 10, canonicalHistory: true, refusedDomainWrites: true, refusedBoardWrites: true, mathFocus: true, desktop: "1440x1100", mobile: "390x844", screenshots: output, browserErrors: errors.length, paidRequests: paidRequests.length }, null, 2));
 } finally { await browser?.close(); await new Promise((resolve) => server.close(resolve)); }
