@@ -5,6 +5,7 @@ import { useAction, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { PageNode } from "@/convex/notion/pages";
 import { NotionMark } from "../NotionMark";
+import { matchingPages, NotionPageTree } from "../notion/NotionPageTree";
 import { openConnectWindow } from "./connectWindow";
 
 export type NotionChoice = { pageId: string; title: string; emoji?: string };
@@ -60,8 +61,8 @@ function Pages({
   const listPages = useAction(api.notion.pages.listPages);
   const [tree, setTree] = useState<PageNode[] | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
-  const [filter, setFilter] = useState("");
-  const [chosen, setChosen] = useState<Map<string, NotionChoice>>(new Map());
+  const [query, setQuery] = useState("");
+  const [selection, setSelection] = useState<ReadonlySet<string>>(new Set());
 
   // Asked once per opening: a call outside React, made when the door opens.
   useEffect(() => {
@@ -74,17 +75,12 @@ function Pages({
     };
   }, [listPages]);
 
-  const rows = useMemo(() => flatten(tree ?? []), [tree]);
-  const typed = filter.trim().toLowerCase();
-  const shown = rows.filter((r) => !linked.has(r.page.id) && r.page.title.toLowerCase().includes(typed));
-
-  const toggle = (page: PageNode) =>
-    setChosen((prev) => {
-      const next = new Map(prev);
-      if (next.has(page.id)) next.delete(page.id);
-      else next.set(page.id, { pageId: page.id, title: page.title || "Untitled", ...(page.emoji ? { emoji: page.emoji } : {}) });
-      return next;
-    });
+  const shown = useMemo(() => matchingPages(tree ?? [], query), [tree, query]);
+  const byId = useMemo(() => new Map(walk(tree ?? []).map((p) => [p.id, p])), [tree]);
+  // Ticking a page takes the pages under it, as the import does; the ones
+  // already in context are simply not added twice.
+  const adding = [...selection].filter((id) => !linked.has(id) && byId.has(id));
+  const already = [...selection].filter((id) => linked.has(id)).length;
 
   return (
     <div className="nt-picker">
@@ -93,8 +89,8 @@ function Pages({
           autoFocus
           autoComplete="off"
           spellCheck={false}
-          value={filter}
-          onChange={(e) => setFilter(e.target.value)}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => {
             // Swallowed either way: inside the new-project form a stray Enter
             // would create the project.
@@ -104,32 +100,25 @@ function Pages({
               onDone();
             }
           }}
-          placeholder="Filter pages"
-          aria-label="Find a Notion page"
+          placeholder="Search pages"
+          aria-label="Search Notion pages"
           className="nt-input"
         />
       </div>
       <div className="nt-picker-list">
         {!tree && !failure && <p className="nt-picker-empty">Reading your Notion pages…</p>}
-        {tree && !shown.length && (
-          <p className="nt-picker-empty">
-            {typed ? "Nothing matches." : "No pages are shared with Nootles yet."}
-          </p>
+        {tree && !tree.length && (
+          <p className="nt-picker-empty">No pages are shared with Nootles yet.</p>
         )}
-        {shown.map(({ page, depth }) => (
-          <label key={page.id} className="nt-row w-full" style={{ paddingLeft: 8 + depth * 14 }}>
-            <input
-              type="checkbox"
-              checked={chosen.has(page.id)}
-              onChange={() => toggle(page)}
-              className="nt-check"
-            />
-            <span aria-hidden className="w-4 shrink-0 text-center">
-              {page.emoji ?? ""}
-            </span>
-            <span className="nt-row-label">{page.title || "Untitled"}</span>
-          </label>
-        ))}
+        {tree && tree.length > 0 && (
+          <NotionPageTree
+            nodes={shown}
+            selection={selection}
+            setSelection={setSelection}
+            forceOpen={!!query}
+            label="Notion pages to read into context"
+          />
+        )}
       </div>
       {failure && (
         <p role="alert" className="nt-picker-foot text-danger">
@@ -137,29 +126,41 @@ function Pages({
         </p>
       )}
       <div className="nt-picker-foot">
+        <span className="min-w-0 flex-1 truncate">
+          {already ? `${already} already in context · ` : ""}
+          <button
+            type="button"
+            onClick={() => openConnectWindow("/api/notion/connect")}
+            className="underline underline-offset-2 hover:text-foreground"
+          >
+            Share more pages
+          </button>
+        </span>
         <button
           type="button"
-          onClick={() => openConnectWindow("/api/notion/connect")}
-          className="min-w-0 flex-1 truncate text-left underline underline-offset-2 hover:text-foreground"
-        >
-          Share more pages
-        </button>
-        <button
-          type="button"
-          disabled={!chosen.size}
+          disabled={!adding.length}
           onClick={() => {
-            onAdd([...chosen.values()]);
+            onAdd(
+              adding.map((id) => {
+                const page = byId.get(id)!;
+                return {
+                  pageId: page.id,
+                  title: page.title || "Untitled",
+                  ...(page.emoji ? { emoji: page.emoji } : {}),
+                };
+              }),
+            );
             onDone();
           }}
           className="nt-row nt-solid px-3 font-medium"
         >
-          {chosen.size > 1 ? `Add ${chosen.size} pages` : "Add page"}
+          {adding.length > 1 ? `Add ${adding.length} pages` : "Add page"}
         </button>
       </div>
     </div>
   );
 }
 
-function flatten(nodes: PageNode[], depth = 0): { page: PageNode; depth: number }[] {
-  return nodes.flatMap((page) => [{ page, depth }, ...flatten(page.children, depth + 1)]);
+function walk(nodes: PageNode[]): PageNode[] {
+  return nodes.flatMap((page) => [page, ...walk(page.children)]);
 }
