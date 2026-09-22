@@ -38,6 +38,16 @@ const MIRROR = "mirror";
 /** How many recent stamps still identify a mirror (see `stamps`). */
 const STAMPS = 8;
 
+/**
+ * The transaction meta a block's mirror write carries, so the rest of the
+ * editor can tell it from an edit. The mirror is the block's own bookkeeping —
+ * it lands on a trailing cadence, long after the gesture it describes, and
+ * nobody typed it. A review counting one as the person rewriting the block made
+ * a diagram change undiscardable five seconds after anyone nudged a shape
+ * (NT-70, `ReviewOverlay`).
+ */
+export const CANVAS_MIRROR_META = "nt-canvas-mirror";
+
 /** A mark of the mirror rather than a copy of it: its length and FNV-1a. */
 function mirrorStamp(html: string): string {
   let hash = 0x811c9dc5;

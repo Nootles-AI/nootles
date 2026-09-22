@@ -5,6 +5,7 @@ import { settleDiagrams } from "@/app/components/editor/canvas/collab/binding";
 import { endTextHistory } from "@/app/lib/history/textDomain";
 import type { AnyBlock } from "../projection";
 import { asReview } from "./attribution";
+import { takeBackDiagram } from "./diagram";
 import { boundDoc, isForked } from "./fork";
 import type { Change } from "./hunks";
 
@@ -29,6 +30,11 @@ import type { Change } from "./hunks";
  * The trace read it as the op ran, which is after the same batch had already
  * carried its children elsewhere — put back from there, a retyped list comes
  * back empty and its items are stranded at the top level.
+ *
+ * One block is not answered at block grain: a diagram, whose prop is a whole
+ * mirror of maps the page keeps per shape. Writing the checkpoint's prop back
+ * there took the shapes the person moved while they were reading with it, so
+ * the change's own write is taken back shape by shape instead (`./diagram.ts`).
  */
 
 // The applier's loose handle; see app/lib/ai/apply.ts.
@@ -42,10 +48,29 @@ export type Seat = {
   ancestors: string[];
 };
 
-export function undoHunks(editor: LiveEditor, hunks: Change[], before: AnyBlock[]) {
+export function undoHunks(
+  editor: LiveEditor,
+  hunks: Change[],
+  before: AnyBlock[],
+  /** What the change wrote onto a block's props, for the ones it rewrote whole. */
+  proposed: ReadonlyMap<string, Record<string, unknown>> = new Map(),
+) {
   const place = seats(before);
   const was = new Map(descend(before).map((b) => [b.id, b]));
   const present = (id: string) => !!editor.getBlock(id);
+
+  // A diagram's prop is a mirror that trails its maps, and the undo below is
+  // about to read it as what the page now says. Settling brings each one level
+  // with the maps first, so a shape moved seconds ago is part of "now" rather
+  // than of the write that takes the change back. Asked only of a forked
+  // editor, which is the only place a review's diagram has maps behind it: on
+  // the legacy pipeline the prop IS the document and there is nothing to level.
+  if (
+    isForked(editor) &&
+    hunks.some((h) => h.changed.some((id) => was.get(id)?.type === "canvas"))
+  ) {
+    settleDiagrams(boundDoc(editor));
+  }
 
   const added = new Set(hunks.flatMap((h) => h.added));
   // Blocks the change took out of the place the checkpoint had them. Only ones
@@ -85,7 +110,7 @@ export function undoHunks(editor: LiveEditor, hunks: Change[], before: AnyBlock[
         if (!original || !present(id)) continue;
         editor.updateBlock(id, {
           type: original.type,
-          props: original.props,
+          props: propsFor(editor, id, original, proposed.get(id)),
           ...(original.content !== undefined ? { content: original.content } : {}),
         } as AnyPartialBlock);
       }
@@ -128,6 +153,37 @@ export function undoHunks(editor: LiveEditor, hunks: Change[], before: AnyBlock[
       }
     }),
   );
+}
+
+/**
+ * The props to write back onto a block the change rewrote.
+ *
+ * The checkpoint's, except where the block is a diagram: there the prop is one
+ * whole-HTML mirror of maps the page keeps per shape, and writing the
+ * checkpoint's back takes the shapes the person moved while they were reading
+ * with it (NT-70). What the change itself did to that diagram is taken back
+ * instead, shape by shape — see `takeBackDiagram`. Without the change's own
+ * write to compare against there is nothing to be that precise with, and the
+ * checkpoint's prop is still the honest answer.
+ */
+function propsFor(
+  editor: LiveEditor,
+  id: string,
+  original: AnyBlock,
+  proposal: Record<string, unknown> | undefined,
+): Record<string, unknown> {
+  const props = original.props as Record<string, unknown>;
+  const asked = proposal?.data;
+  const live = (editor.getBlock(id)?.props as { data?: unknown } | undefined)?.data;
+  if (
+    original.type !== "canvas" ||
+    typeof props.data !== "string" ||
+    typeof asked !== "string" ||
+    typeof live !== "string"
+  ) {
+    return props;
+  }
+  return { ...props, data: takeBackDiagram(props.data, asked, live) };
 }
 
 /**
