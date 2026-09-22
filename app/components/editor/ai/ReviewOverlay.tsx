@@ -6,6 +6,7 @@ import type { Transaction } from "prosemirror-state";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useOpenReviews, useReview } from "@/app/components/ReviewContext";
 import type { LiveEditor } from "@/app/components/editor/EditorRegistry";
+import { CANVAS_MIRROR_META } from "@/app/components/editor/canvas/collab/binding";
 import { isReviewWriting } from "@/app/lib/ai/review/attribution";
 import { pendingHunks } from "@/app/lib/ai/review/session";
 import { setReview, type ReviewHunk, type ReviewSpec } from "./reviewDecorations";
@@ -100,7 +101,10 @@ export function ReviewOverlay({
   // is prosemirror-collab's `receiveTransaction`, identifiable by the
   // `rebased` meta it sets; on Yjs it is y-prosemirror's replay, stamped with
   // its `y-sync$` plugin key — BlockNote's own remote test. And Cmd-Z, which
-  // is the user taking something back rather than writing it.
+  // is the user taking something back rather than writing it. And a diagram's
+  // block-prop mirror, which trails its maps by seconds and describes them
+  // rather than being an edit at all — counted as one, any nudge to any shape
+  // made the change undiscardable a moment later (NT-70).
   useEffect(() => {
     const tiptap = editor._tiptapEditor;
     const onUpdate = ({
@@ -113,7 +117,8 @@ export function ReviewOverlay({
       if (
         isReviewWriting() ||
         transaction.getMeta("rebased") !== undefined ||
-        transaction.getMeta("y-sync$") !== undefined
+        transaction.getMeta("y-sync$") !== undefined ||
+        transaction.getMeta(CANVAS_MIRROR_META) !== undefined
       )
         return;
       // With nothing under review on this page `userEdited` has no turn to

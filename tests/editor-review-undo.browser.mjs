@@ -50,6 +50,15 @@
  * both docs' maps, the collaborator's copy of the mirror, the review's fork and
  * the surface — is checked on its own, and a shape is dragged with the pointer.
  *
+ * NT-70: discarding an agent's diagram change also took back the shape the
+ * person had moved while reading it. The hunk names a whole canvas block —
+ * a whole-HTML prop write is the only diagram edit an agent has — and the undo
+ * wrote the checkpoint's whole mirror back, which diffs into the maps and takes
+ * every shape with it. It is taken back per shape now, against what the change
+ * itself proposed. The block's own mirror write, five seconds behind, used to
+ * read as the person rewriting the block, so the same gesture answered
+ * differently either side of that timer; both sides are driven here.
+ *
  * NT-39: an agent that changed a few words of a table had the whole table
  * washed green, as if all of it were new. Every table edit reaches the review
  * as one whole-table `setTableRows`, so the checks read what a reader meets:
@@ -290,6 +299,11 @@ try {
     await sleep(80);
     await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
     return boxes.length;
+  };
+  /** How many of a hunk's own buttons are on the page, without pressing one. */
+  const hunkButtons = async (label) => {
+    const buttons = await page.$$(`button[aria-label="${label}"]`);
+    return (await Promise.all(buttons.map((b) => b.boundingBox()))).filter(Boolean).length;
   };
   const press = async (label) => {
     const [button] = await page.$$(`xpath/.//div[@id="bar"]//button[normalize-space()="${label}"]`);
@@ -955,6 +969,70 @@ try {
   check("…and the heading is the one they had", (await texts())[0], "heading:Storyboard");
   await sleep(5600);
   check("…and the mirror's trail agrees", await shapes(true), everywhere(theirMove));
+
+  console.log("NT-70: a shape moved during the review OF the diagram, then Discard all");
+  await freshDiagram();
+  await turn("agentDiagram");
+  await sleep(300);
+  const beside = (await shapes(true)).shown;
+  await dragShape("a", 80, 0);
+  await sleep(800);
+  const theirs = (await shapes(true)).shown.filter((id) => id.startsWith("a@"));
+  check("the drag moved the shape the change did not touch", theirs[0] !== beside[0], true);
+  check("…and the change is still discardable — a move is not a rewrite", await hunkButtons("Discard this change"), 1);
+  await press("Discard all");
+  await settled();
+  await sleep(300);
+  // The hunk names the whole diagram because a whole diagram is what the agent
+  // can write, but the maps keep it per shape and so does the undo: the shape
+  // the change added goes, the shape the person moved is not written at all.
+  check("the change's shape goes and their move stays, everywhere", await shapes(true), everywhere(theirs));
+  await sleep(5600);
+  check("…and the mirror's trail agrees", await shapes(true), everywhere(theirs));
+
+  console.log("NT-70: the same, with the mirror's trail landed before the answer");
+  await freshDiagram();
+  await turn("agentDiagram");
+  await sleep(300);
+  await dragShape("a", 80, 0);
+  // Past MIRROR_MS: the block writes the maps onto the prop. That write is the
+  // block's own bookkeeping, and counted as the person rewriting the block it
+  // made the change unanswerable — the discard silently kept it instead.
+  await sleep(5600);
+  const trailed = (await shapes(true)).shown.filter((id) => id.startsWith("a@"));
+  check("the change is discardable five seconds later too", await hunkButtons("Discard this change"), 1);
+  await press("Discard all");
+  await settled();
+  await sleep(300);
+  check("the answer is the same as before the trail landed", await shapes(true), everywhere(trailed));
+
+  console.log("NT-70: a shape the change itself moved, moved again by the person");
+  await freshDiagram();
+  await turn("agentMovesShape");
+  await sleep(300);
+  const proposed = (await shapes(true)).shown;
+  await dragShape("a", 80, 0);
+  await sleep(800);
+  const overruled = (await shapes(true)).shown;
+  check("the drag moved it past where the change put it", [overruled.length, overruled[0] !== proposed[0]], [1, true]);
+  await press("Discard all");
+  await settled();
+  await sleep(300);
+  // Their own work on the very shape the change rewrote, exactly as typing into
+  // a rewritten paragraph is theirs: it stands rather than being written over.
+  check("the shape stays where they put it", await shapes(true), everywhere(overruled));
+
+  console.log("NT-70: a diagram change's own Discard button, after a move");
+  await freshDiagram();
+  await turn("agentDiagram");
+  await sleep(300);
+  await dragShape("a", 80, 0);
+  await sleep(800);
+  const byButton = (await shapes(true)).shown.filter((id) => id.startsWith("a@"));
+  check("one change, one Discard button", await pressHunk("Discard this change"), 1);
+  await settled();
+  await sleep(300);
+  check("it takes the change's shape back and leaves theirs", await shapes(true), everywhere(byButton));
 
   console.log("NT-43: Keep a diagram change, then Rewind › Notes only");
   await freshDiagram();

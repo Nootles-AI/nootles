@@ -449,6 +449,15 @@ function agentDiagram() {
   return stageTurn([{ kind: "updateBlockProps", blockId: block.id, props: { data: DIAGRAM_WITH_B } }], []);
 }
 
+/** The other shape a whole-diagram write can take: the shape already there, moved. */
+function agentMovesShape() {
+  const block = editor.document.find((b) => b.type === "canvas")!;
+  return stageTurn(
+    [{ kind: "updateBlockProps", blockId: block.id, props: { data: DIAGRAM.replace('x="0"', 'x="150"') } }],
+    [],
+  );
+}
+
 const canvasBlock = () => editor.document.find((b) => b.type === "canvas");
 
 /** A scene's shapes, sorted — as `id`, or as `id@x` where a check follows a move. */
@@ -738,6 +747,7 @@ const harness = {
   agentTwoChanges,
   seedDiagram,
   agentDiagram,
+  agentMovesShape,
   diagram,
   diagramPrivacy,
   peerDraws,

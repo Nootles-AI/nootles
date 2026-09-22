@@ -13,7 +13,7 @@ import { canonicalPathOps } from "../canvas/scene/canonicalPaths";
 import { shapeIdsIn } from "../canvas/scene/reveal";
 import { hoistOps, inlinePictures } from "../canvas/scene/inlineImages";
 import { CanvasAiContext } from "../canvas/canvasAi";
-import { CanvasCollab, onDiagramSettle } from "../canvas/collab/binding";
+import { CANVAS_MIRROR_META, CanvasCollab, onDiagramSettle } from "../canvas/collab/binding";
 import {
   broadcastCanvasPresence,
   paintCanvasPresence,
@@ -92,7 +92,8 @@ function CanvasBlockView({
 }: {
   blockId: string;
   source: string;
-  onChange: (source: string) => void;
+  /** `mirror` marks a write that describes the maps rather than an edit. */
+  onChange: (source: string, mirror?: boolean) => void;
   editor: HostEditor;
   /** Surrounding page text, used to inform shape-label completion. */
   getDocContext: () => string;
@@ -165,7 +166,7 @@ function CanvasBlockView({
     const html = collab.stampMirror(held.html);
     written.current = html;
     try {
-      onChangeRef.current(html);
+      onChangeRef.current(html, true);
     } catch {
       // The block can be gone by the time the mirror lands — a delete, or the
       // page it was on being closed. The maps still hold the diagram.
@@ -506,9 +507,10 @@ export const canvasBlockSpec = createReactBlockSpec(
         // Out of the document's history: the diagram's undo is the scene
         // store's, and a whole-diagram prop write on the text stack would put
         // the same edit on two ledgers — ⌘Z in prose could pop a drawing.
-        onChange={(data) =>
+        onChange={(data, mirror) =>
           editor.transact((tr) => {
             tr.setMeta("addToHistory", false);
+            if (mirror) tr.setMeta(CANVAS_MIRROR_META, true);
             editor.updateBlock(block.id, { props: { data } });
           })
         }
