@@ -1,4 +1,4 @@
-import { collapse, describeLook, objectAfter, readLook, uncomment } from "./look";
+import { collapse, describeLook, objectAfter, readLook, uncomment, vendored } from "./look";
 import { clip, SCRIPT_LANGUAGES, STYLE_LANGUAGES, type ParsedFile } from "./parse";
 
 /**
@@ -120,6 +120,8 @@ export function describeStyling(files: ParsedFile[], texts: Map<string, string>)
   const ranked: { token: Token; score: number; at: number }[] = [];
   const seen = new Set<string>();
   for (const f of sorted) {
+    // A framework's build declares its whole stock palette; the look names the framework instead.
+    if (vendored({ path: f.path, text: texts.get(f.path) ?? "" })) continue;
     for (const t of f.cssTokens) {
       if (seen.has(t.name)) continue;
       seen.add(t.name);

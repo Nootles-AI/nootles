@@ -375,6 +375,8 @@ describe("describeLook", () => {
     spacing: Array.from({ length: 10 }, (_, i) => ({ css: `${4 * i + 4}px`, count: 10 - i })),
     components: Array.from({ length: 12 }, (_, i) => `button.v${i} { background: #000000; color: #ffffff; padding: 8px 16px }`),
     platforms: ["tailwind", "css"],
+    frameworks: [],
+    variants: [],
   };
 
   test("stays within budget, dropping the least useful first", () => {
@@ -399,8 +401,49 @@ describe("describeLook", () => {
     const native = describeLook({ ...big, radii: [], platforms: ["flutter"] }, 2000);
     expect(native).toMatch(/^Platform: Flutter \(translated to CSS\)$/m);
     expect(native).toMatch(/^Corners: square — no corner radius anywhere/m);
-    const empty: Look = { colours: [], radii: [], shadows: [], fonts: [], type: [], spacing: [], components: [], platforms: [] };
+    const empty: Look = { colours: [], radii: [], shadows: [], fonts: [], type: [], spacing: [], components: [], platforms: [], frameworks: [], variants: [] };
     expect(describeLook(empty, 2000)).toBe("");
+  });
+});
+
+describe("readLook: frameworks", () => {
+  const stock = `@charset "UTF-8";
+/*!
+ * Bootstrap  v5.3.2 (https://getbootstrap.com/)
+ */
+:root { --bs-primary: #0d6efd; --bs-border-radius: 0.375rem; }
+.btn { color: #0d6efd; background-color: #0d6efd; border-radius: 0.375rem; padding: 6px 12px; }
+.btn-primary { color: #ffffff; background-color: #0d6efd; border-color: #0d6efd; }`;
+  const files = {
+    "package.json": '{ "dependencies": { "bootstrap": "^5.3.2", "react-bootstrap": "^2.9.1", "react": "^18" } }',
+    "src/styles/customBootstrap.css": stock,
+    "src/App.css": ".card-button { background-color: #20242e; color: antiquewhite; border-radius: 10px }\n.link { color: var(--bs-primary) }",
+    "src/Order.jsx": '<Button variant="outline-primary" /> <Button variant="danger" /> <Card.Img variant="top" /> <a className="btn btn-outline-primary" />',
+  };
+
+  test("a committed framework build is named, not tallied", () => {
+    const l = look(files);
+    expect(l.frameworks).toEqual(["Bootstrap 5.3.2 (react-bootstrap)"]);
+    expect(swatch(l, "#20242e")).toMatchObject({ role: "background" });
+    // The app's own reference to a framework token still resolves through it.
+    expect(swatch(l, "#0d6efd")).toMatchObject({ name: "--bs-primary", count: 1 });
+    expect(l.radii.map((r) => r.css)).toEqual(["10px"]);
+    expect(l.components.some((r) => r.startsWith(".btn"))).toBe(false);
+    expect(l.variants.map((v) => v.css)).toEqual(["outline-primary", "danger"]);
+  });
+
+  test("the summary says what it is built on, and claims no square corners it cannot see", () => {
+    const text = describeLook(look(files), 2000);
+    expect(text).toMatch(/^Built on: Bootstrap 5\.3\.2 \(react-bootstrap\) — .*variants the app uses: outline-primary, danger$/m);
+    const bare = describeLook(look({ ...files, "src/App.css": ".x { color: #20242e }" }), 2000);
+    expect(bare).not.toContain("square");
+    expect(bare).not.toContain("draw flat");
+  });
+
+  test("an app's own large sheet is still its own", () => {
+    const own = ".card-button { background-color: #20242e; border-radius: 10px }\n".repeat(1000);
+    expect(look({ "src/bootstrap-overrides.css": own }).frameworks).toEqual([]);
+    expect(look({ "src/bootstrap-overrides.css": own }).radii[0]).toMatchObject({ css: "10px" });
   });
 });
 

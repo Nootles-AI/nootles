@@ -27,6 +27,10 @@ export type Look = {
   spacing: Measure[];
   components: string[];
   platforms: string[];
+  /** Component libraries and CSS frameworks the look is built on, e.g. "Bootstrap 5.3.2 (react-bootstrap)". */
+  frameworks: string[];
+  /** The library variants the app's own code asks for, e.g. `outline-primary`. */
+  variants: Measure[];
 };
 
 const PLATFORMS = [
@@ -46,7 +50,8 @@ export function readLook(files: ParsedFile[], texts: Map<string, string>): Look 
   const tokens = tokenMap(files, sheets);
   const tailwind = tailwindContext(entries, tokens);
 
-  readCss(sheets, tokens, tailwind, bag);
+  const frameworks = frameworksOf(entries, sheets);
+  readCss(sheets.filter((s) => !vendored(s)), tokens, tailwind, bag);
   if (tailwind) readTailwind(entries, tailwind, bag);
   readWebFonts(entries, bag);
   readReactNative(entries, bag);
@@ -78,6 +83,8 @@ export function readLook(files: ParsedFile[], texts: Map<string, string>): Look 
       .slice(0, MAX_RULES)
       .map(([rule]) => rule),
     platforms: PLATFORMS.filter((p) => bag.platforms.has(p)),
+    frameworks,
+    variants: frameworks.length ? variantsUsed(entries) : [],
   };
 }
 
@@ -652,6 +659,115 @@ function controlRank(selector: string): number {
   if (/input|field/i.test(selector)) return 1;
   if (/link|^a\b/i.test(selector)) return 2;
   return 3;
+}
+
+// ---------------------------------------------------------------- frameworks
+
+/**
+ * A framework's own build committed into the repo, known by the licence banner
+ * its build writes or by its name. Hundreds of kilobytes of stock rules would
+ * otherwise outvote the app's own sheets on every count, so the look reads as
+ * the framework's defaults rather than the app's — its tokens still resolve
+ * the app's `var()`s, and the framework is named instead of tallied.
+ */
+const FRAMEWORK_BANNER =
+  /^\s*(?:@charset[^;]*;\s*)?\/\*!?[\s*]*(Bootstrap|Bulma|Foundation(?: for Sites)?|tailwindcss|Materialize|Semantic UI|Fomantic UI|UIkit|Pure|Spectre\.css|Milligram|Skeleton|Pico\.css|daisyUI|normalize\.css|animate\.css|Font Awesome[\w ]*)\s*v?\s*(\d+(?:\.\d+)*)?/i;
+const FRAMEWORK_FILE =
+  /(^|\/)(bootstrap|bulma|foundation|materialize|semantic|uikit|pure|spectre|milligram|pico|normalize|animate|font-?awesome|all)(\.[\w-]+)*\.(css|scss)$/i;
+const FRAMEWORK_DIR = /(^|\/)(lib|libs|vendors?|third[-_]party|assets\/vendor)\//i;
+
+type Framework = { name: string; version?: string };
+
+function bannerOf(sheet: Sheet): Framework | null {
+  const m = FRAMEWORK_BANNER.exec(sheet.text.slice(0, 600));
+  if (!m) return null;
+  const name = /^tailwindcss$/i.test(m[1]) ? "Tailwind CSS" : m[1].trim();
+  return m[2] ? { name, version: m[2] } : { name };
+}
+
+export function vendored(sheet: Sheet): boolean {
+  if (!STYLE_FILE.test(sheet.path)) return false;
+  if (bannerOf(sheet)) return true;
+  return FRAMEWORK_FILE.test(sheet.path) && (FRAMEWORK_DIR.test(sheet.path) || sheet.text.length > 40_000);
+}
+
+/** Component libraries by package, each with the name a designer knows it by. */
+const KITS: [RegExp, string][] = [
+  [/^(bootstrap|react-bootstrap|reactstrap|bootstrap-vue(-next)?|ng-bootstrap|@ng-bootstrap\/ng-bootstrap)$/, "Bootstrap"],
+  [/^(@mui\/material|@material-ui\/core|@angular\/material|vuetify|@material\/web|material-components-web)$/, "Material Design"],
+  [/^(antd|ant-design-vue|ng-zorro-antd)$/, "Ant Design"],
+  [/^@chakra-ui\/react$/, "Chakra UI"],
+  [/^@mantine\/core$/, "Mantine"],
+  [/^(bulma|react-bulma-components|buefy)$/, "Bulma"],
+  [/^(element-plus|element-ui)$/, "Element"],
+  [/^(primereact|primevue|primeng)$/, "PrimeUI"],
+  [/^(semantic-ui-react|semantic-ui-css|fomantic-ui)$/, "Semantic UI"],
+  [/^@radix-ui\/themes$/, "Radix Themes"],
+  [/^daisyui$/, "daisyUI"],
+  [/^(@nextui-org\/react|@heroui\/react)$/, "HeroUI"],
+  [/^(@fluentui\/react|@fluentui\/react-components)$/, "Fluent UI"],
+  [/^@shopify\/polaris$/, "Polaris"],
+  [/^(@carbon\/react|carbon-components-react)$/, "Carbon"],
+  [/^@blueprintjs\/core$/, "Blueprint"],
+  [/^(react-native-paper)$/, "Material Design (React Native Paper)"],
+  [/^(native-base|@gluestack-ui\/themed)$/, "NativeBase"],
+];
+
+/**
+ * What the look is built on: kits named in a package.json (with the package
+ * the app reaches them through) and framework builds committed as sheets.
+ */
+function frameworksOf(entries: Entries, sheets: Sheet[]): string[] {
+  const found = new Map<string, { version?: string; via: Set<string> }>();
+  const note = (name: string, version: string | undefined, via?: string) => {
+    const known = found.get(name) ?? { via: new Set<string>() };
+    known.version ??= version;
+    if (via) known.via.add(via);
+    found.set(name, known);
+  };
+  for (const [path, text] of entries) {
+    if (!/(^|\/)package\.json$/.test(path)) continue;
+    let pkg: { dependencies?: Record<string, string>; devDependencies?: Record<string, string> };
+    try {
+      pkg = JSON.parse(text);
+    } catch {
+      continue;
+    }
+    for (const [dep, range] of Object.entries({ ...pkg.devDependencies, ...pkg.dependencies })) {
+      const kit = KITS.find(([test]) => test.test(dep))?.[1];
+      if (!kit) continue;
+      const version = /\d+(\.\d+)*/.exec(String(range))?.[0];
+      const own = dep.toLowerCase() === kit.toLowerCase();
+      note(kit, own ? version : undefined, own ? undefined : dep);
+    }
+  }
+  for (const sheet of sheets) {
+    const banner = vendored(sheet) ? bannerOf(sheet) : null;
+    // Resets and icon fonts are not a look.
+    if (banner && !/normalize|animate|font awesome/i.test(banner.name)) note(banner.name, banner.version);
+  }
+  return [...found]
+    .sort(([a], [b]) => compare(a, b))
+    .map(([name, f]) => `${name}${f.version ? ` ${f.version}` : ""}${f.via.size ? ` (${[...f.via].join(", ")})` : ""}`);
+}
+
+/**
+ * The stock variants the app's code asks a kit for — `variant="outline-primary"`,
+ * `color="secondary"` or Bootstrap's `btn-success` — which name the kit's own
+ * look a mockup should reach for.
+ */
+function variantsUsed(entries: Entries): Measure[] {
+  const tally = new Tally();
+  for (const [path, text] of entries) {
+    if (!SCRIPT_FILE.test(path)) continue;
+    for (const m of text.matchAll(/\b(?:variant|color|appearance|kind|intent)=\{?["'`]([a-z][\w-]*)["'`]/g)) {
+      if (!/^(top|bottom|start|end|body\d?|h\d|inherit|default)$/.test(m[1])) tally.add(m[1]);
+    }
+    for (const m of text.matchAll(/\bbtn-(outline-)?(primary|secondary|success|danger|warning|info|light|dark|link)\b/g)) {
+      tally.add(`${m[1] ?? ""}${m[2]}`);
+    }
+  }
+  return tally.list().slice(0, 8).map(({ css, count }) => ({ css, count }));
 }
 
 // ---------------------------------------------------------------- tailwind
@@ -1687,13 +1803,24 @@ export function describeLook(look: Look, budget: number): string {
   const content =
     look.colours.length + look.radii.length + look.shadows.length + look.fonts.length +
     look.type.length + look.spacing.length + look.components.length;
-  if (!look.platforms.length && !content) return "";
+  if (!look.platforms.length && !look.frameworks.length && !content) return "";
 
   const measure = (m: Measure) => `${m.css} (${m.name ? `${m.name}, ` : ""}${m.count}×)`;
   const native = look.platforms.map((p) => PLATFORM_NAMES[p]).filter((n): n is string => !!n);
   const radii = look.radii.filter((r) => r.css !== "0px" && r.css !== "0");
   const shadows = look.shadows.filter((s) => s.css !== "none");
   const lines: Line[] = [];
+  if (look.frameworks.length) {
+    const variants = look.variants.map((v) => v.css);
+    lines.push({
+      label: "Built on",
+      items: [
+        `${look.frameworks.join(", ")} — its stock components and defaults apply wherever the app's own styles below say nothing` +
+          (variants.length ? `; variants the app uses: ${variants.join(", ")}` : ""),
+      ],
+      separator: "", keep: 1, priority: 10,
+    });
+  }
   if (native.length) {
     lines.push({ label: "Platform", items: [`${native.join(", ")} (translated to CSS)`], separator: "", keep: 1, priority: 9 });
   }
@@ -1704,7 +1831,7 @@ export function describeLook(look: Look, budget: number): string {
     ),
     separator: ", ", keep: 1, priority: 8,
   });
-  if (radii.length || look.platforms.length) {
+  if (radii.length || (look.platforms.length && !look.frameworks.length)) {
     lines.push({
       label: "Corners",
       items: radii.length
@@ -1713,7 +1840,7 @@ export function describeLook(look: Look, budget: number): string {
       separator: ", ", keep: 1, priority: 7,
     });
   }
-  if (shadows.length || look.platforms.length) {
+  if (shadows.length || (look.platforms.length && !look.frameworks.length)) {
     lines.push({
       label: "Shadows",
       items: shadows.length ? shadows.slice(0, 4).map(measure) : ["none anywhere — draw flat"],
