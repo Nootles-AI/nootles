@@ -87,6 +87,23 @@ describe("describeStyling", () => {
   const files = [...texts].map(([path, text]) => parseFile(path, text));
   const summary = describeStyling(files, texts);
 
+  test("the product's own palette leads; vendors' and aliases trail", () => {
+    const sheet = (path: string, css: string) => [path, css] as const;
+    const texts = new Map([
+      sheet("src/editor/block.css", ":root { --bn-colors-menu: #fff; --nt-select: #0d99ff; }"),
+      sheet("app/globals.css", ":root { --background: #fff; --foreground: #222; --hover: var(--foreground); }"),
+    ]);
+    const files = [...texts].map(([p, t]) => parseFile(p, t));
+    const summary = describeStyling(files, texts);
+    const at = (name: string) => {
+      expect(summary).toContain(name);
+      return summary.indexOf(name);
+    };
+    expect(at("--background")).toBeLessThan(at("--nt-select"));
+    expect(at("--foreground")).toBeLessThan(at("--hover"));
+    expect(at("--nt-select")).toBeLessThan(at("--bn-colors-menu"));
+  });
+
   test("tokens verbatim, grouped", () => {
     expect(summary).toContain("--color-ink: oklch(0.21 0.006 285.885)");
     expect(summary).toContain("--foreground: #1f1f1f");

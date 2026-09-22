@@ -109,15 +109,18 @@ const ORDER = [
  */
 export function describeStyling(files: ParsedFile[], texts: Map<string, string>): string {
   const sorted = [...files].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
-  const tokens: Token[] = [];
+  const ranked: { token: Token; score: number; at: number }[] = [];
   const seen = new Set<string>();
   for (const f of sorted) {
     for (const t of f.cssTokens) {
       if (seen.has(t.name)) continue;
       seen.add(t.name);
-      tokens.push(t);
+      ranked.push({ token: t, score: usefulness(t, f.path), at: ranked.length });
     }
   }
+  const tokens = ranked
+    .sort((a, b) => b.score - a.score || a.at - b.at)
+    .map((r) => r.token);
 
   const lines = new Map<string, string[]>();
   const add = (label: string, items: string[]) => {
@@ -143,6 +146,26 @@ export function describeStyling(files: ParsedFile[], texts: Map<string, string>)
   }
   return out.join("\n");
 }
+
+/**
+ * How much a token tells someone drawing the product. The palette a page is
+ * built from — declared at the root of a global sheet, with a literal value
+ * and a semantic name — comes first; a component's private variable, an alias
+ * of another token, and a vendor's own namespace come last.
+ */
+function usefulness(t: Token, path: string): number {
+  let score = 0;
+  if (GLOBAL_SHEET.test(path)) score += 3;
+  if (!/^var\(/.test(t.value.trim())) score += 2;
+  if (CORE_NAME.test(t.name)) score += 3;
+  if (VENDOR.test(t.name)) score -= 5;
+  return score;
+}
+
+const GLOBAL_SHEET = /(^|\/)(globals?|index|app|main|base|root|theme|tokens|variables|vars)\.(css|scss|sass|less)$/i;
+const CORE_NAME =
+  /^--(color-)?(background|foreground|surface|elevated|sunken|card|border|input|ring|muted|faint|primary|secondary|accent|brand|danger|destructive|success|warning|info|radius|font|text|ink|paper)(-|$)/i;
+const VENDOR = /^--(bn|tw|ov|mantine|chakra|mui|radix|rdp|swiper|toastify|reach)-/i;
 
 function lineCap(label: string): number {
   if (label === "Colour tokens") return 560;
@@ -210,7 +233,11 @@ function componentNames(files: ParsedFile[]): string[] {
   const names: string[] = [];
   for (const f of files) {
     if (!SCRIPT_LANGUAGES.has(f.language)) continue;
-    const pascal = f.exports.filter((name) => /^[A-Z][A-Za-z0-9]*$/.test(name) && /[a-z]/.test(name));
+    // Providers and contexts are wiring, not something drawn on a screen.
+    const pascal = f.exports.filter(
+      (name) =>
+        /^[A-Z][A-Za-z0-9]*$/.test(name) && /[a-z]/.test(name) && !/(Provider|Context)$/.test(name),
+    );
     names.push(...pascal);
     if (!pascal.length && (f.language === "vue" || f.language === "svelte")) {
       const base = f.path.slice(f.path.lastIndexOf("/") + 1).replace(/\.[^.]+$/, "");
