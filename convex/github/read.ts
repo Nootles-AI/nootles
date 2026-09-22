@@ -111,6 +111,43 @@ export const file = action({
 });
 
 /**
+ * The text of a file the context graph indexed — what `read_context` returns
+ * for a file, past its summary. Readable by anyone the project is shared
+ * with, read with the token of whoever linked the repository.
+ */
+export const nodeFile = action({
+  args: { projectId: v.id("projects"), nodeId: v.id("contextNodes") },
+  handler: async (ctx, args): Promise<NodeFile> => {
+    const found: { path: string; url: string | null; repo: Doc<"projectRepos"> } | null =
+      await ctx.runQuery(internal.github.graphStore.fileForReader, args);
+    if (!found) throw new ConvexError("That file is not in this project's context.");
+    const { repo, path } = found;
+    return await withToken(ctx, repo.ownerId, async (token) => {
+      const body = await text(token, `/repos/${repo.fullName}/contents/${path}`, {
+        query: { ref: repo.defaultBranch },
+        allowMissing: true,
+      });
+      if (body === null) return { repo: repo.fullName, path, missing: true as const };
+      if (body.includes("\u0000")) return { repo: repo.fullName, path, binary: true as const };
+      return {
+        repo: repo.fullName,
+        path,
+        url: found.url,
+        content: body.slice(0, FILE_CHARS),
+        ...(body.length > FILE_CHARS
+          ? { truncated: `Showing the first ${FILE_CHARS} characters of ${body.length}.` }
+          : {}),
+      };
+    });
+  },
+});
+
+type NodeFile =
+  | { repo: string; path: string; missing: true }
+  | { repo: string; path: string; binary: true }
+  | { repo: string; path: string; url: string | null; content: string; truncated?: string };
+
+/**
  * GitHub's code search, confined to this project's repositories.
  *
  * The `repo:` qualifiers are not a filter applied afterwards — they are what

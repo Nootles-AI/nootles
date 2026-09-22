@@ -12,7 +12,6 @@ const ctx: StageContext = {
   said: "",
   results: [],
   pages: [{ pageId: "pg_open", title: "ICD" }],
-  repos: ["team-kestrel/kr1-firmware"],
 };
 
 export function diagrams(): { id: string; title: string; html: string }[] {

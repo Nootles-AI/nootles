@@ -41,8 +41,6 @@ function clientStubs(names: readonly CanvasToolName[]): Record<CanvasToolName, R
 export function chatTools(
   projectId: Id<"projects">,
   convex: ConvexHttpClient,
-  /** Whether this project has any linked repositories / context files. */
-  has: { repos: boolean; files: boolean },
   /**
    * The style the user settled for this turn's drawings. Chosen in the
    * browser — a scene draw pauses for approval, the picker answers it, and
@@ -51,25 +49,39 @@ export function chatTools(
   drawStyle: DrawChoice = DEFAULT_DRAW_CHOICE,
 ) {
   return {
-    // Offered only where there is something to point them at. A project with no
-    // repository would otherwise carry three tool schemas the model cannot use
-    // and, given the chance, will try — the prompt says nothing about them
-    // either, so their absence is complete rather than merely discouraged.
-    ...(has.repos ? repoTools(projectId, convex) : {}),
-    ...(has.files
-      ? {
-          read_context_file: tool({
-            ...TOOLS.read_context_file,
-            execute: async ({ name }) => {
-              try {
-                return await convex.query(api.files.context.read, { projectId, name });
-              } catch (error) {
-                throw new Error(reason(error, "The file could not be read."));
-              }
-            },
-          }),
-        }
-      : {}),
+    // The project's context graph, by the same three verbs an MCP client
+    // gets. An id the model got wrong answers with the way to a right one.
+    search_context: tool({
+      ...TOOLS.search_context,
+      execute: async ({ query, limit }) =>
+        await convex.query(api.context.read.search, {
+          projectId,
+          query,
+          ...(limit ? { limit } : {}),
+        }),
+    }),
+
+    expand_context: tool({
+      ...TOOLS.expand_context,
+      execute: async ({ id }) =>
+        (await convex.query(api.context.read.expand, { projectId, id })) ??
+        noSuchContext(id),
+    }),
+
+    read_context: tool({
+      ...TOOLS.read_context,
+      // A file is read whole, from GitHub, on top of its summary: the summary
+      // says what it is, and the question being asked is usually about how.
+      execute: async ({ id }) => {
+        const item =
+          (await convex.query(api.context.read.read, { projectId, id })) ?? noSuchContext(id);
+        if (item.kind !== "file") return item;
+        const body = await convex
+          .action(api.github.read.nodeFile, { projectId, nodeId: item.id })
+          .catch((error) => ({ unreadable: reason(error, "GitHub would not return the file.") }));
+        return { ...item, ...body };
+      },
+    }),
 
     list_pages: tool({
       ...TOOLS.list_pages,
@@ -367,53 +379,11 @@ export function chatTools(
   };
 }
 
-/**
- * Reading the project's GitHub repositories.
- *
- * Every one is a call into Convex rather than into GitHub: the token lives on
- * that side and is opened only inside the action, and the action checks the
- * repository is linked to THIS project before it fetches. A model naming a
- * repository is not a model with permission to read it.
- *
- * The failures are worth as much as the results here — "authorise this token
- * for your organisation" is something the agent can tell the user to go and do,
- * where a bare 403 is something it can only apologise for.
- */
-function repoTools(projectId: Id<"projects">, convex: ConvexHttpClient) {
-  return {
-    list_repo_files: tool({
-      ...TOOLS.list_repo_files,
-      execute: async ({ repo, path, ref }) =>
-        await reading(() =>
-          convex.action(api.github.read.tree, { projectId, repo, path, ref }),
-        ),
-    }),
-
-    read_repo_file: tool({
-      ...TOOLS.read_repo_file,
-      execute: async ({ repo, path, ref }) =>
-        await reading(() =>
-          convex.action(api.github.read.file, { projectId, repo, path, ref }),
-        ),
-    }),
-
-    search_repo_code: tool({
-      ...TOOLS.search_repo_code,
-      execute: async ({ query, repo }) =>
-        await reading(() =>
-          convex.action(api.github.read.search, { projectId, query, repo }),
-        ),
-    }),
-  };
-}
-
-/** The sentence, not the request id — see `reason`. */
-async function reading<T>(call: () => Promise<T>): Promise<T> {
-  try {
-    return await call();
-  } catch (error) {
-    throw new Error(reason(error));
-  }
+function noSuchContext(id: string): never {
+  throw new Error(
+    `Nothing in this project's context has the id "${id}". Use an id from ` +
+      "search_context, or a page id from list_pages.",
+  );
 }
 
 /**

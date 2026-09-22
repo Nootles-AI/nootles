@@ -153,7 +153,7 @@ export const fetchOpening = action({
   },
 });
 
-async function children(paced: Paced, token: string, blockId: string, depth: number): Promise<Block[]> {
+export async function children(paced: Paced, token: string, blockId: string, depth: number): Promise<Block[]> {
   if (depth >= MAX_BLOCK_DEPTH) return [];
   const out: Block[] = [];
   let cursor: string | undefined;

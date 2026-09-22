@@ -41,7 +41,8 @@ import { AccountMenu } from "./AccountMenu";
 import { SharePopover } from "./SharePopover";
 import { RequestEditButton } from "./share/AccessRequests";
 import { ConfirmDeleteDialog } from "./ConfirmDelete";
-import { ContextDialog } from "./context/ContextDialog";
+import { ContextGraph } from "./context/ContextGraph";
+import { SidebarContext } from "./context/SidebarContext";
 import { ContextMenu } from "./ContextMenu";
 import { Editable } from "./Editable";
 import { usePageChanges, type PageChange } from "./ReviewContext";
@@ -121,8 +122,6 @@ export function Sidebar({
   const project = useQuery(api.projects.get, { projectId });
   const pages = useQuery(api.pages.listByProject, { projectId });
   const folders = useQuery(api.folders.listByProject, { projectId });
-  const repos = useQuery(api.github.repos.listForProject, { projectId });
-  const files = useQuery(api.files.context.listForProject, { projectId });
   // What this sidebar may offer: editors get the page verbs, only the owner
   // gets the project's own — sharing, renaming it, its context sheet.
   const role = useQuery(api.projects.myRole, { projectId });
@@ -193,7 +192,7 @@ export function Sidebar({
     null,
   );
   const [confirming, setConfirming] = useState<readonly Target[] | null>(null);
-  const [showingContext, setShowingContext] = useState(false);
+  const [showingContext, setShowingContext] = useState<{ focus?: string } | null>(null);
   const [draft, setDraft] = useState("");
   /** The rows the verbs act on. Finder's rules: click, ⌘-click, shift-range. */
   const [selection, setSelection] = useState<readonly Target[]>([]);
@@ -774,38 +773,11 @@ export function Sidebar({
           canEdit ? (e) => openMenu(e, { kind: "list" }) : undefined
         }
       >
-        {/* Above the pages because it is above them: what holds for the whole
-            project, and the one place a repository or file can be attached to
-            it. Owner-only — the sheet is the project's, and its dialog manages
-            it. */}
         {/* A viewer's one verb: ask for the pen. Above the pages for the same
             reason Context is — it holds for the whole project. */}
         {/* An operator standing in reads as a viewer, but asking the owner for
             the pen on their own project is not a thing to offer them. */}
         {role === "viewer" && !standIn && <RequestEditButton projectId={projectId} />}
-
-        {owner && (
-          <button
-            onClick={() => setShowingContext(true)}
-            title="What the assistant knows about this project"
-            className="nt-row w-full"
-          >
-            <ContextGlyph />
-            <span className="nt-row-label">Context</span>
-            {/* What is attached, counted in the voice counts are in — and said
-                in words, since "3" alone never said three of what. */}
-            {!!((repos?.length ?? 0) + (files?.length ?? 0)) && (
-              <span className="nt-meta shrink-0">
-                {[
-                  repos?.length ? `${repos.length} ${repos.length === 1 ? "repo" : "repos"}` : null,
-                  files?.length ? `${files.length} ${files.length === 1 ? "file" : "files"}` : null,
-                ]
-                  .filter(Boolean)
-                  .join(" · ")}
-              </span>
-            )}
-          </button>
-        )}
 
         <div className="nt-section-label mt-1">
           <span>Pages</span>
@@ -1031,6 +1003,10 @@ export function Sidebar({
         )}
       </nav>
 
+      {/* Below the pages, and apart from them: what the project is read
+          alongside. Owner-only — the sources are the owner's to manage. */}
+      {owner && <SidebarContext projectId={projectId} onOpen={(focus) => setShowingContext({ focus })} />}
+
       <DropLabel
         pointer={drag.pointer}
         into={drag.intoId ? folderById(drag.intoId)?.title || "Untitled" : null}
@@ -1142,9 +1118,10 @@ export function Sidebar({
         )}
 
       {showingContext && (
-        <ContextDialog
+        <ContextGraph
           projectId={projectId}
-          onClose={() => setShowingContext(false)}
+          focus={showingContext.focus}
+          onClose={() => setShowingContext(null)}
         />
       )}
 
@@ -1267,25 +1244,6 @@ function Item({
 
 /** "⌘X" on Apple hardware, "Ctrl+X" elsewhere: the glyph stands alone, the word does not. */
 const chord = (mod: string, key: string) => (mod === "⌘" ? `⌘${key}` : `${mod}+${key}`);
-
-/** Lines of differing length: what is written down about the project. */
-function ContextGlyph() {
-  return (
-    <svg
-      width={14}
-      height={14}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      aria-hidden="true"
-      className="nt-row-icon"
-    >
-      <path d="M4 5h16M4 10h10M4 15h16M4 20h7" />
-    </svg>
-  );
-}
 
 /**
  * The menu for what was right-clicked: one row, or the selection it belongs to.

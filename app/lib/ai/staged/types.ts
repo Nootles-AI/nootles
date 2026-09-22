@@ -33,8 +33,6 @@ export type StageContext = {
   said: string;
   results: StageResult[];
   pages: { pageId: string; title: string }[];
-  /** Linked repositories, as "owner/name" — what the repo tools take. */
-  repos: string[];
 };
 
 /**

@@ -28,7 +28,6 @@ const ctx: StageContext = {
   said: "",
   results: [],
   pages: [{ pageId: "pg_open", title: "ICD" }],
-  repos: ["team-kestrel/kr1-firmware"],
 };
 
 /** Every `<nt-diagram>` a script writes, with the script that writes it. */

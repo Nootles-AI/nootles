@@ -4,10 +4,10 @@ import { resolveStep } from "./model";
 import type { StageContext } from "./types";
 
 /**
- * The seeded project as it actually exists on production: six pages, no linked
- * repository. Every repo-reading call has to work here, because this is what
- * Ali will be sitting in front of — a bail in this context is the demo's best
- * call answering "I can't see a repository" to a room.
+ * The seeded project as it actually exists on production: six pages, the
+ * firmware source among them. Every firmware-reading call has to work here,
+ * because this is what Ali will be sitting in front of — a bail in this
+ * context is the demo's best call answering "I can't see the code" to a room.
  */
 const seeded: StageContext = {
   projectId: "p1",
@@ -22,10 +22,9 @@ const seeded: StageContext = {
     { pageId: "pg_fw", title: "Firmware source" },
     { pageId: "pg_notes", title: "Meeting notes — 2026-09-14" },
   ],
-  repos: [],
 };
 
-describe("with no repository linked", () => {
+describe("reading the firmware from the project", () => {
   for (const id of ["C-16", "C-11"]) {
     it(`${id} runs every step and never bails`, () => {
       const script = SCRIPTS.find((s) => s.id === id)!;
@@ -51,7 +50,7 @@ describe("with no repository linked", () => {
   it("no staged call can end a turn with nothing said and nothing done", () => {
     // The trap `optional` opens: if every call in a step stands down and the
     // step has no prose, the stream finishes and whatever came next is lost.
-    const empty: StageContext = { ...seeded, pages: [], repos: [], pageId: undefined };
+    const empty: StageContext = { ...seeded, pages: [], pageId: undefined };
     for (const script of SCRIPTS) {
       for (const [at, step] of script.steps.entries()) {
         const resolved = resolveStep(step, empty, script.bail);

@@ -2,6 +2,10 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { internalMutation, internalQuery, type QueryCtx } from "./_generated/server";
+import { isTrashed } from "./auth";
+import { upsertDocument } from "./context/documents";
+import { pageNode } from "./context/pages";
+import { documentId } from "./files/context";
 import { raiseTo, TICKET } from "./counters";
 import { forgetPagesIn, pagesInBlob } from "./pages";
 
@@ -359,5 +363,61 @@ export const stampYjsPages = internalMutation({
       done: batch.isDone,
       cursor: batch.isDone ? null : batch.continueCursor,
     };
+  },
+});
+
+/**
+ * Gives every live page a node in its project's context graph, so
+ * `search_context` finds pages by title before anyone has opened them since
+ * the graph shipped. Titles only: a page's words arrive with its first digest,
+ * which the browser writes the next time the page is opened or edited.
+ * Idempotent — a page that already has a node is left alone.
+ */
+export const contextPageNodes = internalMutation({
+  args: { cursor: v.optional(v.string()) },
+  handler: async (ctx, args): Promise<{ pages: number; done: boolean }> => {
+    const batch = await ctx.db
+      .query("pages")
+      .paginate({ numItems: BATCH, cursor: args.cursor ?? null });
+    for (const page of batch.page) {
+      if (!isTrashed(page)) await pageNode(ctx, page);
+    }
+    if (!batch.isDone) {
+      await ctx.scheduler.runAfter(0, internal.migrations.contextPageNodes, {
+        cursor: batch.continueCursor,
+      });
+    }
+    return { pages: batch.page.length, done: batch.isDone };
+  },
+});
+
+/**
+ * Reads every uploaded file that already has its text into the context graph
+ * as a document — files uploaded before the graph read them. Idempotent: a
+ * file already there is written again with the same text.
+ */
+export const contextFileNodes = internalMutation({
+  args: { cursor: v.optional(v.string()) },
+  handler: async (ctx, args): Promise<{ files: number; done: boolean }> => {
+    const batch = await ctx.db
+      .query("projectFiles")
+      .paginate({ numItems: 25, cursor: args.cursor ?? null });
+    for (const file of batch.page) {
+      if (!file.text) continue;
+      await upsertDocument(ctx, {
+        projectId: file.projectId,
+        source: "files",
+        externalId: documentId(file._id),
+        title: file.filename,
+        memberId: file.ownerId,
+        text: file.text,
+      });
+    }
+    if (!batch.isDone) {
+      await ctx.scheduler.runAfter(0, internal.migrations.contextFileNodes, {
+        cursor: batch.continueCursor,
+      });
+    }
+    return { files: batch.page.length, done: batch.isDone };
   },
 });

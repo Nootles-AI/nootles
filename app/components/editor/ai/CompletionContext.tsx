@@ -4,20 +4,18 @@ import { createContext, useContext, useMemo, type ReactNode } from "react";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { contextSeed } from "@/app/lib/ai/contextSeed";
+import { AI } from "@/app/lib/ai/aiConfig";
+import { completionSeed } from "@/app/lib/ai/context/pack";
 
 /**
- * The project's standing context, rendered once for the completion lane.
+ * The project the completion lane draws its context from.
  *
  * A context rather than a prop because the editor sits several components below
- * anything that knows the project — and a subscription here rather than a fetch
- * per completion because the note only changes when the context sheet or a
- * file does, while completions fire on every pause in typing.
- *
- * Empty is the ordinary case: viewers, the shared surface, and every project
- * with nothing on its sheet all complete exactly as before.
+ * anything that knows the project. Empty is the ordinary case off the
+ * workspace: the shared surface mounts no provider, and completes exactly as
+ * before.
  */
-const CompletionContext = createContext("");
+const CompletionProject = createContext<Id<"projects"> | null>(null);
 
 export function CompletionContextProvider({
   projectId,
@@ -26,12 +24,28 @@ export function CompletionContextProvider({
   projectId: Id<"projects">;
   children: ReactNode;
 }) {
-  const project = useQuery(api.ai.context.forPrompt, { projectId });
-  const seed = useMemo(() => contextSeed(project ?? null), [project]);
-  return <CompletionContext value={seed}>{children}</CompletionContext>;
+  return <CompletionProject value={projectId}>{children}</CompletionProject>;
 }
 
-/** The seed addition, or "" anywhere the provider isn't mounted. */
-export function useCompletionContext(): string {
-  return useContext(CompletionContext);
+/** The project completions are written in, or null off the workspace. */
+export function useCompletionProject(): Id<"projects"> | null {
+  return useContext(CompletionProject);
+}
+
+/**
+ * The seed for completions on one page, or "" anywhere the provider isn't
+ * mounted. A subscription rather than a fetch per completion, because the pack
+ * only changes when the project's context does, while completions fire on
+ * every pause in typing.
+ */
+export function useCompletionContext(pageId: Id<"pages"> | null | undefined): string {
+  const projectId = useContext(CompletionProject);
+  const inputs = useQuery(
+    api.context.read.packInputs,
+    projectId ? { projectId, ...(pageId ? { pageId } : {}) } : "skip",
+  );
+  return useMemo(
+    () => (inputs ? completionSeed(inputs, pageId ?? undefined, AI.fim.context.maxChars) : ""),
+    [inputs, pageId],
+  );
 }

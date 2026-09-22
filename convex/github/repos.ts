@@ -102,6 +102,24 @@ export const unlink = mutation({
   handler: async (ctx, args) => {
     await requireOwned(ctx, "projectRepos", args.repoId);
     await ctx.db.delete(args.repoId);
+    // Its place in the context graph goes with it, in batches of its own.
+    await ctx.scheduler.runAfter(0, internal.github.graphStore.forget, args);
+  },
+});
+
+/**
+ * Read the repository into the context graph again, from its branch's head.
+ * Refused while one is already running, so a second press is not a second
+ * download of the same tarball.
+ */
+export const reindex = mutation({
+  args: { repoId: v.id("projectRepos") },
+  handler: async (ctx, args) => {
+    const repo = await requireOwned(ctx, "projectRepos", args.repoId);
+    const state = repo.index?.state;
+    if (state === "queued" || state === "indexing") return;
+    await ctx.db.patch(repo._id, { index: { ...repo.index, state: "queued" } });
+    await ctx.scheduler.runAfter(0, internal.github.indexer.run, { repoId: repo._id });
   },
 });
 
@@ -220,9 +238,11 @@ export async function add(
       ownerId,
       projectId,
       ...repo,
+      index: { state: "queued" },
       addedAt: now,
     });
     await ctx.scheduler.runAfter(0, internal.github.repos.sync, { repoId, ownerId });
+    await ctx.scheduler.runAfter(0, internal.github.indexer.run, { repoId });
   }
 }
 

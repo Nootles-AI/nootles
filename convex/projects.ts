@@ -278,6 +278,7 @@ export const create = mutation({
       const docId = crypto.randomUUID();
       await ctx.db.insert("pages", {
         ownerId,
+        createdBy: ownerId,
         projectId,
         title: page.title,
         folderId,
@@ -312,6 +313,7 @@ export const create = mutation({
       // fallback.
       await ctx.db.insert("pages", {
         ownerId,
+        createdBy: ownerId,
         projectId,
         title: "",
         order: 0,
@@ -408,13 +410,25 @@ export async function purgeProject(ctx: MutationCtx, projectId: Id<"projects">) 
       await ctx.db.delete(page._id);
     }
 
-    for (const table of ["contextSheet", "projectRepos", "folders"] as const) {
+    for (const table of [
+      "contextSheet",
+      "projectRepos",
+      "projectNotion",
+      "folders",
+      "contextNodeText",
+      "contextEdges",
+    ] as const) {
       const rows = await ctx.db
         .query(table)
         .withIndex("by_project", (q) => q.eq("projectId", projectId))
         .collect();
       await Promise.all(rows.map((r) => ctx.db.delete(r._id)));
     }
+    const nodes = await ctx.db
+      .query("contextNodes")
+      .withIndex("by_project_and_externalId", (q) => q.eq("projectId", projectId))
+      .collect();
+    await Promise.all(nodes.map((n) => ctx.db.delete(n._id)));
 
     // The conversations about a project go with it. Turns in particular outlive
     // the pages they edited — they are what a reload reads to find changes still

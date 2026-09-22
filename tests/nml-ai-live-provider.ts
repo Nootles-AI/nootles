@@ -314,6 +314,7 @@ if (!resumeAfter) {
     "a two-step release flow from Draft to Approved, with one arrow",
     "Draft moves to Approved after review.",
     "Release flow",
+    "",
     AbortSignal.timeout(90_000),
     (usage) => {
       diagramUsage = usage;
