@@ -126,8 +126,8 @@ export class SceneStore {
   private lastSource: string;
   /** An external source that arrived mid-gesture, adopted once it ends. */
   private pendingSource: string | null = null;
-  /** Whether the pending source came from {@link adoptRemote}. */
-  private pendingRemote = false;
+  /** How that pending source is to be taken once the gesture ends. */
+  private pendingAs: "source" | "remote" | "quiet" = "source";
   private timer: ReturnType<typeof setTimeout> | null = null;
   private dirty = false;
 
@@ -149,7 +149,7 @@ export class SceneStore {
     this.write = write;
   };
 
-  private live: ((scene: Scene) => void) | null = null;
+  private live: ((scene: Scene, edit: boolean) => void) | null = null;
 
   /**
    * A second, immediate output for collaboration: called synchronously with
@@ -157,8 +157,14 @@ export class SceneStore {
    * debounced writer waits for quiet that continuous editing never gives it.
    * The CRDT binding ships per-shape diffs through here, so a collaborator
    * sees each gesture land as it ends rather than when the editor pauses.
+   *
+   * `edit` is false for the scenes nobody asked for — {@link measure} and
+   * {@link amend}. They are not edits here, and the binding needs to say so in
+   * the maps, or the trip to a collaborator turns them into one (NT-27).
    */
-  setLiveWriter = (live: ((scene: Scene) => void) | null): void => {
+  setLiveWriter = (
+    live: ((scene: Scene, edit: boolean) => void) | null,
+  ): void => {
     this.live = live;
   };
 
@@ -257,12 +263,17 @@ export class SceneStore {
    * in the bug log. Persisted all the same, because hit-testing, the layers
    * panel and every other client read the box from the model — and a text
    * whose box only the DOM knows is a text nothing else can find.
+   *
+   * Not an edit ON EVERY CLIENT, which is what the `false` carries: two people
+   * whose browsers measure the same words a pixel apart were wiping each
+   * other's undo horizon, over and over, for a box neither of them typed
+   * (NT-27).
    */
   measure = (frames: NodeFrame[]): void => {
     const before = this.scene;
     const next = applyOps(before, [{ type: "resize", frames }]);
     if (next === before) return;
-    this.setScene(next, true);
+    this.setScene(next, true, false);
   };
 
   /**
@@ -270,13 +281,14 @@ export class SceneStore {
    * moved from inline bytes to a storage URL. Not an edit, on the same terms
    * as `measure`: no history entry and no op in the bug log, because nobody
    * did anything and there is nothing to undo; persisted, because the whole
-   * point is what the document holds.
+   * point is what the document holds. Not an edit for a collaborator either,
+   * on the same terms as {@link measure} (NT-27).
    */
   amend = (ops: readonly SceneOp[]): void => {
     const before = this.scene;
     const next = applyOps(before, ops);
     if (next === before) return;
-    this.setScene(next, true);
+    this.setScene(next, true, false);
   };
 
   /** Open a gesture: everything until the matching `commit` is one entry. */
@@ -329,10 +341,11 @@ export class SceneStore {
 
     const source = this.pendingSource;
     if (source !== null) {
-      const remote = this.pendingRemote;
+      const as = this.pendingAs;
       this.pendingSource = null;
-      this.pendingRemote = false;
-      if (remote) this.adoptRemote(source);
+      this.pendingAs = "source";
+      if (as === "remote") this.adoptRemote(source);
+      else if (as === "quiet") this.adoptQuiet(source);
       else this.adopt(source);
     }
   };
@@ -383,7 +396,7 @@ export class SceneStore {
     if (source === this.lastSource) return;
     if (this.depth > 0) {
       this.pendingSource = source;
-      this.pendingRemote = false;
+      this.pendingAs = "source";
       return;
     }
     this.adopt(source);
@@ -401,7 +414,7 @@ export class SceneStore {
     if (source === this.lastSource) return;
     if (this.depth > 0) {
       this.pendingSource = source;
-      this.pendingRemote = true;
+      this.pendingAs = "remote";
       return;
     }
     this.lastSource = source;
@@ -410,6 +423,32 @@ export class SceneStore {
     this.past = [];
     this.future = [];
     this.emitHistory({ type: "clear" });
+    this.setScene(migrateLegacyCanvas(source), false);
+  };
+
+  /**
+   * Reconcile a remote change NOBODY MADE — a text's box as another browser
+   * measured it, a picture moved into storage, a path written back at pen
+   * precision. {@link measure} and {@link amend} are not edits where they
+   * happen, and crossing to a collaborator must not promote them into one.
+   *
+   * So this takes the model and leaves the history standing. A horizon is the
+   * price of somebody else's WORK ({@link adoptRemote}) — never of the
+   * browser's own housekeeping, which used to cost every collaborator their
+   * undo stack, repeatedly, for a box no one had typed (NT-27).
+   */
+  adoptQuiet = (source: string): void => {
+    if (source === this.lastSource) return;
+    if (this.depth > 0) {
+      this.pendingSource = source;
+      this.pendingAs = "quiet";
+      return;
+    }
+    this.lastSource = source;
+    // The maps already hold this, merged with whatever of ours was unflushed;
+    // a pending debounce would only write that merge back as if it were news.
+    this.cancelPersist();
+    this.dirty = false;
     this.setScene(migrateLegacyCanvas(source), false);
   };
 
@@ -465,14 +504,14 @@ export class SceneStore {
     return true;
   }
 
-  private setScene(scene: Scene, persist: boolean): void {
+  private setScene(scene: Scene, persist: boolean, edit = true): void {
     this.scene = scene;
     this.index = null;
     if (persist) {
       this.dirty = true;
       this.cancelPersist();
       this.timer = setTimeout(this.flush, PERSIST_MS);
-      this.live?.(scene);
+      this.live?.(scene, edit);
     }
     this.notify();
   }
