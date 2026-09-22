@@ -25,7 +25,7 @@ import { ProLift } from "./ProLift";
 import { usePlan } from "@/app/lib/usePlan";
 import { BlocksThumb, PagePreview } from "./PagePreview";
 import { TemplateWall } from "./TemplateWall";
-import { GitHubRepos } from "./context/GitHubRepos";
+import { DraftSources } from "./context/ContextSources";
 
 type Project = NonNullable<
   ReturnType<typeof useQuery<typeof api.projects.listForScreen>>
@@ -642,8 +642,8 @@ function DetailsForm({
   onBack: () => void;
 }) {
   const {
-    title, setTitle, description, setDescription, context, setContext,
-    repos, setRepos, busy, failure, named, submit, sendOnModEnter,
+    title, setTitle, description, setDescription, sources, setSources,
+    busy, failure, named, submit,
   } = useNewProjectDraft(onCreate, template?.id);
 
   return (
@@ -675,32 +675,11 @@ function DetailsForm({
             onChange={(e) => setDescription(e.target.value)}
           />
         </label>
-        <label className="nt-pal-fld">
-          <span className="nt-pal-key">Context</span>
-          <textarea
-            className="nt-pal-input"
-            rows={4}
-            placeholder="Who it is for, what has been decided, anything the assistant should take as given"
-            value={context}
-            onChange={(e) => setContext(e.target.value)}
-            onKeyDown={sendOnModEnter}
-          />
-        </label>
-        {/* Not a <label>: it holds its own buttons and a picker. */}
+        {/* Not a <label>: it holds its own buttons and pickers. */}
         <div className="nt-pal-fld">
-          <span className="nt-pal-key">Code</span>
+          <span className="nt-pal-key">Context</span>
           <div className="min-w-0">
-            <GitHubRepos
-              bare
-              repos={repos.map((r) => ({
-                key: r.fullName,
-                fullName: r.fullName,
-                description: r.description,
-                private: r.private,
-              }))}
-              onAdd={(repo) => setRepos((list) => [...list, repo])}
-              onRemove={(key) => setRepos((list) => list.filter((r) => r.fullName !== key))}
-            />
+            <DraftSources value={sources} onChange={setSources} />
           </div>
         </div>
       </div>

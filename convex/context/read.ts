@@ -16,6 +16,7 @@ const MAX_LINKS = 50;
 /** A repository's map is areas and concerns — dozens, not its thousands of files. */
 const MAX_MAP = 600;
 const MAX_FILES_SHOWN = 400;
+const MAX_DOCUMENTS = 200;
 
 /**
  * Everything a pack is rendered from, in one round trip. The renderers are
@@ -31,7 +32,7 @@ export const packInputs = query({
   handler: async (ctx, args) => {
     const project = await readVisible(ctx, "projects", args.projectId);
     if (!project) return null;
-    const [notes, pages, nodes, code] = await Promise.all([
+    const [notes, pages, nodes, code, documents] = await Promise.all([
       ctx.db
         .query("contextSheet")
         .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
@@ -42,6 +43,7 @@ export const packInputs = query({
         .take(MAX_PAGES),
       ofKind(ctx, args.projectId, "page", MAX_PAGES),
       codeMap(ctx, args.projectId),
+      ofKind(ctx, args.projectId, "document", MAX_DOCUMENTS),
     ]);
 
     const byExternal = new Map(nodes.map((n) => [n.externalId, n]));
@@ -73,6 +75,13 @@ export const packInputs = query({
             in: pageOf((await mentions(ctx, open._id, "to")).map((e) => e.from)),
           }
         : { out: [], in: [] },
+      documents: documents
+        .map((d) => ({
+          title: d.title,
+          source: d.source === "notion" ? ("Notion" as const) : ("file" as const),
+          brief: d.brief,
+        }))
+        .sort((a, b) => (a.title < b.title ? -1 : 1)),
       code: code.repos.map((repo) => ({
         fullName: repo.fullName,
         files: repo.files,
@@ -167,9 +176,10 @@ export const expand = query({
 });
 
 /**
- * `read_context`: the item at summary resolution. The body stays at its source
- * — a page is read with `read_page`, a file's text is fetched from GitHub by
- * the tool (`github/read.nodeFile`).
+ * `read_context`: the item at summary resolution. A document comes with its
+ * whole text; otherwise the body stays at its source — a page is read with
+ * `read_page`, a code file's text is fetched from GitHub by the tool
+ * (`github/read.nodeFile`).
  */
 export const read = query({
   args: { projectId: v.id("projects"), id: v.string() },
@@ -178,7 +188,13 @@ export const read = query({
     if (!node) return null;
     const item = await describer(ctx)(node);
     if (!item) return null;
-    return { ...item, summary: (await textOf(ctx, node._id))?.summary ?? "" };
+    const text = await textOf(ctx, node._id);
+    return {
+      ...item,
+      summary: text?.summary ?? "",
+      // A document is read whole from here; nothing else holds its text.
+      ...(node.kind === "document" && text?.body ? { text: text.body } : {}),
+    };
   },
 });
 
@@ -217,6 +233,8 @@ type Described = {
   /** For code: where it is on GitHub, and which repository. */
   url?: string;
   repo?: string;
+  /** For a document: where it came from. */
+  from?: string;
   owner: string | null;
   updatedAt?: number;
 };
@@ -245,14 +263,15 @@ function describer(ctx: QueryCtx) {
     node.owner.memberId ? await nameOf(node.owner.memberId) : (node.owner.handle ?? null);
 
   return async (node: Doc<"contextNodes">): Promise<Described | null> => {
-    if (node.source === "github") {
+    if (node.source !== "pages") {
       return {
         id: node._id,
         kind: node.kind,
         title: node.title,
         brief: node.brief,
         ...(node.url ? { url: node.url } : {}),
-        repo: node.externalId.split(/[#:]/, 1)[0],
+        ...(node.source === "github" ? { repo: node.externalId.split(/[#:]/, 1)[0] } : {}),
+        ...(node.kind === "document" ? { from: node.source === "notion" ? "Notion" : "an uploaded file" } : {}),
         owner: await ownerOf(node),
       };
     }
@@ -444,7 +463,7 @@ export const graph = query({
   handler: async (ctx, args) => {
     const project = await readVisible(ctx, "projects", args.projectId);
     if (!project) return null;
-    const [folders, pages, nodes, mentionEdges, rollupEdges, code] = await Promise.all([
+    const [folders, pages, nodes, mentionEdges, rollupEdges, code, documents] = await Promise.all([
       ctx.db
         .query("folders")
         .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
@@ -467,6 +486,7 @@ export const graph = query({
         )
         .take(MAX_MAP * 4),
       codeMap(ctx, args.projectId),
+      ofKind(ctx, args.projectId, "document", MAX_DOCUMENTS),
     ]);
 
     const byExternal = new Map(nodes.map((n) => [n.externalId, n]));
@@ -516,6 +536,13 @@ export const graph = query({
         const to = pageOfNode.get(e.to);
         return from && to && livePages.has(from) && livePages.has(to) ? [{ from, to }] : [];
       }),
+      documents: documents.map((d) => ({
+        nodeId: d._id as string,
+        source: d.source === "notion" ? ("notion" as const) : ("files" as const),
+        title: d.title,
+        brief: d.brief,
+        url: d.url ?? null,
+      })),
       code: {
         repos: code.repos,
         areas: code.areas,

@@ -1,14 +1,13 @@
 "use client";
 
-import { useState, type FormEvent, type KeyboardEvent } from "react";
-import type { Listed } from "@/convex/github/repos";
+import { useState, type FormEvent } from "react";
+import type { DraftSourcesValue } from "./context/ContextSources";
 
 export type NewProject = {
   title: string;
   description: string;
-  context: string;
-  /** Repositories to index into the project's context once it exists. */
-  repos: Listed[];
+  /** Files, repositories and Notion pages to read into its context once it exists. */
+  sources: DraftSourcesValue;
   /** An `app/lib/templates` id; absent means blank. */
   template?: string;
 };
@@ -33,8 +32,7 @@ export function useNewProjectDraft(
 ) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [context, setContext] = useState("");
-  const [repos, setRepos] = useState<Listed[]>([]);
+  const [sources, setSources] = useState<DraftSourcesValue>({ repos: [], files: [], pages: [] });
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
 
@@ -50,8 +48,7 @@ export function useNewProjectDraft(
     onCreate({
       title: named,
       description: description.trim(),
-      context: context.trim(),
-      repos,
+      sources,
       template,
     })
       .then((made) => {
@@ -63,15 +60,8 @@ export function useNewProjectDraft(
       });
   };
 
-  /** Enter sends a one-line field; a box you can write paragraphs in needs the modifier. */
-  const sendOnModEnter = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key !== "Enter" || !(e.metaKey || e.ctrlKey)) return;
-    e.preventDefault();
-    e.currentTarget.form?.requestSubmit();
-  };
-
   return {
-    title, setTitle, description, setDescription, context, setContext,
-    repos, setRepos, busy, failure, named, submit, sendOnModEnter,
+    title, setTitle, description, setDescription, sources, setSources,
+    busy, failure, named, submit,
   };
 }

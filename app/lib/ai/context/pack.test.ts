@@ -15,6 +15,7 @@ const inputs = (over: Partial<PackInputs> = {}): PackInputs => ({
   pages: [page(1), page(2, { brief: "Wiring and the power path." }), page(3)],
   links: { out: [], in: [] },
   code: [],
+  documents: [],
   ...over,
 });
 
@@ -88,6 +89,23 @@ describe("projectPack with code", () => {
   it("says a repository still being read is still being read", () => {
     const text = projectPack(inputs({ code: [{ ...code[0], files: 0, areas: [] }] }), 2000);
     expect(text).toContain("kestrel/rover (still being read)");
+  });
+});
+
+describe("projectPack with documents", () => {
+  it("lists what was added, where it came from and what it says", () => {
+    const text = projectPack(
+      inputs({
+        documents: [
+          { title: "Safety case", source: "Notion", brief: "Why the rover stops." },
+          { title: "spec.pdf", source: "file", brief: "" },
+        ],
+      }),
+      2000,
+    );
+    expect(text).toContain("- Safety case (Notion): Why the rover stops.");
+    expect(text).toContain("- spec.pdf (file)");
+    expect(text).toContain("read_context reads one whole");
   });
 });
 

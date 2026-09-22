@@ -413,6 +413,7 @@ export async function purgeProject(ctx: MutationCtx, projectId: Id<"projects">) 
     for (const table of [
       "contextSheet",
       "projectRepos",
+      "projectNotion",
       "folders",
       "contextNodeText",
       "contextEdges",

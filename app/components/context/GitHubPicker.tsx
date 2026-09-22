@@ -5,125 +5,41 @@ import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Listed } from "@/convex/github/repos";
 import { reason } from "@/app/lib/github";
-import { Plus, X } from "../Icons";
+import { openConnectWindow } from "./connectWindow";
+import { GitHubMark } from "./marks";
+
 
 /**
- * The repositories a project is pointed at, and the one control that adds them.
- *
- * Controlled, because the two places it appears mean different things by
- * "added": in the new-project dialog the project does not exist yet and the
- * choices are held in memory until it does, and in the context view each one is
- * a row written the moment it is picked. Same component, same picker, two
- * owners of the list.
+ * Choosing a repository from GitHub, connecting first if there is no account
+ * yet — the GitHub door of the context sources (`ContextSources`).
  */
-
-/** A repository as this component draws one, whether or not it is saved yet. */
-export type Chosen = {
-  /** Whatever the owner of the list identifies a row by — an id, or the name. */
-  key: string;
-  fullName: string;
-  description?: string;
-  private: boolean;
-  /** A second line: what the last read found, or why it failed. */
-  note?: string;
-  noteIsProblem?: boolean;
-};
-
-export function GitHubRepos({
-  repos,
-  onAdd,
-  onRemove,
-  bare,
+export function GitHubPicker({
+  linked,
+  onPick,
+  onDone,
 }: {
-  repos: Chosen[];
-  onAdd: (repo: Listed) => void;
-  onRemove: (key: string) => void;
-  /** Without its own heading — for a form whose row already names it. */
-  bare?: boolean;
+  linked: ReadonlySet<string>;
+  onPick: (repo: Listed) => void;
+  onDone: () => void;
 }) {
   const status = useQuery(api.github.account.status);
-  const [picking, setPicking] = useState(false);
-
-  const linked = new Set(repos.map((r) => r.fullName));
-
+  // The deployment cannot hold a secret yet, nobody has connected one, or there
+  // is a token and the question is which repository — three states, and only
+  // the last of them is a picker. Nothing at all until the answer is in:
+  // rendering the connect step while the query is in flight offers it for an
+  // instant to people who connected months ago.
+  if (!status) return null;
+  if (!status.ready) return <p className="nt-note">{status.blocker}</p>;
+  if (!status.account) return <Connect />;
   return (
-    <div>
-      {!bare && (
-        <div className="nt-field-label">
-          Repositories
-          <span className="nt-field-note">Optional</span>
-        </div>
-      )}
-
-      {repos.length > 0 && (
-        <ul className="mb-1">
-          {repos.map((repo) => (
-            <li key={repo.key} className="nt-repo">
-              <span className="nt-repo-body">
-                <span className="nt-repo-name">{repo.fullName}</span>
-                <span
-                  className={`nt-repo-note${repo.noteIsProblem ? " is-problem" : ""}`}
-                >
-                  {repo.note ?? repo.description ?? (repo.private ? "Private" : "Public")}
-                </span>
-              </span>
-              <button
-                type="button"
-                onClick={() => onRemove(repo.key)}
-                aria-label={`Remove ${repo.fullName}`}
-                title="Remove"
-                className="nt-icon-btn is-sm"
-              >
-                <X />
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-
-      {picking ? (
-        // The deployment cannot hold a secret yet, nobody has connected one, or
-        // there is a token and the question is which repository — three states,
-        // and only the last of them is a picker. Nothing at all until the answer
-        // is in: rendering the connect form while the query is in flight offers
-        // it for an instant to people who connected months ago.
-        !status ? null : !status.ready ? (
-          <p className="nt-note">{status.blocker}</p>
-        ) : status.account ? (
-          <Picker
-            linked={linked}
-            login={status.account.login}
-            hint={status.account.hint}
-            stale={!!status.account.invalidAt}
-            onPick={(repo) => {
-              onAdd(repo);
-              setPicking(false);
-            }}
-            onDone={() => setPicking(false)}
-          />
-        ) : (
-          <Connect />
-        )
-      ) : (
-        <button
-          type="button"
-          onClick={() => setPicking(true)}
-          className="nt-row w-full text-muted"
-        >
-          <Plus />
-          <span className="nt-row-label">
-            {repos.length ? "Add another repository" : "Add a repository"}
-          </span>
-        </button>
-      )}
-
-      {!picking && repos.length === 0 && (
-        <p className="nt-note mt-1.5">
-          A linked repository is read into this project’s context: what each
-          part of the code is for, and how the parts fit together.
-        </p>
-      )}
-    </div>
+    <Picker
+      linked={linked}
+      login={status.account.login}
+      hint={status.account.hint}
+      stale={!!status.account.invalidAt}
+      onPick={onPick}
+      onDone={onDone}
+    />
   );
 }
 
@@ -143,7 +59,7 @@ function Picker({
   onPick,
   onDone,
 }: {
-  linked: Set<string>;
+  linked: ReadonlySet<string>;
   login: string;
   hint: string;
   stale: boolean;
@@ -280,12 +196,9 @@ function Picker({
 }
 
 /**
- * Connecting GitHub: GitHub's own consent screen, in a window of its own.
- *
- * A popup rather than a redirect because this sits inside the new-project
- * dialog, where leaving the page loses everything typed so far. The window
- * closes itself once the token is sealed (`app/github/connected`), and the
- * account status above is a live query, so the picker simply appears.
+ * Connecting GitHub: GitHub's own consent screen, in a window of its own
+ * (`openConnectWindow`), so an unfinished new-project form survives it; the
+ * picker appears the moment the token is sealed.
  *
  * A pasted token stays as the way in for an organisation that will not approve
  * the app: a classic token authorised for its SSO, or a fine-grained one where
@@ -293,25 +206,14 @@ function Picker({
  */
 function Connect() {
   const [pasting, setPasting] = useState(false);
-  const open = () => {
-    const w = 640;
-    const h = 760;
-    const left = window.screenX + (window.outerWidth - w) / 2;
-    const top = window.screenY + (window.outerHeight - h) / 2;
-    window.open(
-      "/api/github/connect?returnTo=/github/connected",
-      "nootles-github",
-      `popup,width=${w},height=${h},left=${left},top=${top}`,
-    );
-  };
-
   return (
     <div className="nt-picker p-2.5">
       <button
         type="button"
-        onClick={open}
-        className="nt-row nt-solid w-full justify-center px-3 font-medium"
+        onClick={() => openConnectWindow("/api/github/connect")}
+        className="nt-row nt-solid w-full justify-center gap-2 px-3 font-medium"
       >
+        <GitHubMark width={14} height={14} />
         Connect GitHub
       </button>
       <p className="nt-note mt-2">

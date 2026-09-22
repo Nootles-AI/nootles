@@ -155,6 +155,7 @@ const KIND = {
   repo: "Repository",
   area: "Area of the code",
   concern: "Concern",
+  document: "Document",
 } as const;
 
 function searchable(node: ViewNode): string {
@@ -171,5 +172,7 @@ function searchable(node: ViewNode): string {
       return `${node.area.title}\n${node.area.brief}`.toLowerCase();
     case "concern":
       return `${node.concern.title}\n${node.concern.brief}`.toLowerCase();
+    case "document":
+      return `${node.doc.title}\n${node.doc.brief}`.toLowerCase();
   }
 }

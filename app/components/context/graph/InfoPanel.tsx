@@ -5,10 +5,12 @@ import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { when } from "@/app/lib/projectMeta";
+import { FileDoc } from "../../Icons";
+import { NotionMark } from "../../NotionMark";
 import { PagePreview } from "../../PagePreview";
 import { RowIcon } from "../../rowIcon";
 import { ContextFields } from "../ContextFields";
-import { GitHubRepos } from "../GitHubRepos";
+import { ContextSources, repoLine } from "../ContextSources";
 import {
   codeKey,
   folderKey,
@@ -17,6 +19,7 @@ import {
   sectionsOf,
   type GraphData,
   type GraphConcern,
+  type GraphDocument,
   type GraphPage,
   type GraphRepo,
   type ViewEdge,
@@ -65,6 +68,7 @@ export function InfoPanel({
   if (node.kind === "concern") {
     return <ConcernInfo projectId={projectId} concern={node.concern} onSelect={onSelect} />;
   }
+  if (node.kind === "document") return <DocumentInfo projectId={projectId} doc={node.doc} />;
   if (node.kind === "folder") {
     const inside = edges.filter((e) => e.kind === "contains" && e.source === node.id);
     return (
@@ -113,8 +117,8 @@ function ProjectInfo({
       <header>
         <h2 className="nt-ginfo-title is-project">{data.title.trim() || "Untitled project"}</h2>
         <p className="nt-ginfo-lede">
-          What the assistant reads before it answers: what you say about the
-          project here, then what its pages say.
+          What the assistant reads before it answers: this description, the
+          files, code and Notion pages added below, and the project’s pages.
         </p>
       </header>
 
@@ -136,7 +140,8 @@ function ProjectInfo({
       <ContextFields projectId={projectId} />
 
       <section className="nt-ginfo-section">
-        <Repositories projectId={projectId} />
+        <h3 className="nt-ginfo-label">Context</h3>
+        <ContextSources projectId={projectId} />
       </section>
 
       {unread > 0 && (
@@ -311,67 +316,6 @@ function Face({ name, imageUrl }: { name: string; imageUrl?: string }) {
   );
 }
 
-/**
- * The repositories feeding this project's context, and the way to add more —
- * the same picker the new-project dialog offers, writing straight away here.
- */
-function Repositories({ projectId }: { projectId: Id<"projects"> }) {
-  const repos = useQuery(api.github.repos.listForProject, { projectId });
-  const link = useMutation(api.github.repos.link);
-  const unlink = useMutation(api.github.repos.unlink);
-  return (
-    <GitHubRepos
-      repos={(repos ?? []).map((r) => ({
-        key: r._id,
-        fullName: r.fullName,
-        description: r.description,
-        private: r.private,
-        note: stateLine(r.index),
-        noteIsProblem: r.index?.state === "failed",
-      }))}
-      onAdd={(repo) =>
-        void link({
-          projectId,
-          repos: [
-            {
-              fullName: repo.fullName,
-              defaultBranch: repo.defaultBranch,
-              ...(repo.description ? { description: repo.description } : {}),
-              private: repo.private,
-            },
-          ],
-        })
-      }
-      onRemove={(key) => void unlink({ repoId: key as Id<"projectRepos"> })}
-    />
-  );
-}
-
-type IndexState = {
-  state: "queued" | "indexing" | "naming" | "ready" | "failed";
-  error?: string;
-  files?: number;
-  concerns?: number;
-};
-
-/** Where a repository's reading stands, in a line. */
-function stateLine(index: IndexState | undefined | null): string | undefined {
-  switch (index?.state) {
-    case "queued":
-      return "Waiting to be read";
-    case "indexing":
-      return "Reading the code…";
-    case "naming":
-      return "Naming what it found…";
-    case "failed":
-      return index.error ?? "Could not be read";
-    case "ready":
-      return index.files ? `${index.files} files in ${index.concerns ?? 0} concerns` : undefined;
-    default:
-      return undefined;
-  }
-}
-
 function RepoInfo({
   repo,
   data,
@@ -383,7 +327,7 @@ function RepoInfo({
 }) {
   const areas = data.code.areas.filter((a) => a.parentId === repo.nodeId);
   const busy = repo.state === "queued" || repo.state === "indexing";
-  const line = stateLine({ state: repo.state, error: repo.error ?? undefined, files: repo.files });
+  const line = repoLine({ state: repo.state, error: repo.error ?? undefined, files: repo.files });
   return (
     <div className="nt-ginfo-body">
       <header>
@@ -524,5 +468,43 @@ function CodeRows({
         ))}
       </ul>
     </section>
+  );
+}
+
+/** A file or Notion page read into context: where it is from, and how it reads. */
+function DocumentInfo({ projectId, doc }: { projectId: Id<"projects">; doc: GraphDocument }) {
+  const read = useQuery(api.context.read.read, { projectId, id: doc.nodeId });
+  const sections = sectionsOf(read?.summary ?? "");
+  const opening = openingOf(read?.summary ?? "").trim() || doc.brief;
+  return (
+    <div className="nt-ginfo-body">
+      <header className="nt-ginfo-head">
+        <span className="nt-ginfo-glyph">
+          {doc.source === "notion" ? <NotionMark width={16} height={16} /> : <FileDoc width={16} height={16} />}
+        </span>
+        <h2 className="nt-ginfo-title">{doc.title}</h2>
+      </header>
+      <p className="nt-ginfo-meta">
+        {doc.source === "notion" ? "A Notion page, read into context" : "An uploaded file, read into context"}
+      </p>
+      {opening && <p className="nt-ginfo-brief">{opening}</p>}
+      {sections.length > 0 && (
+        <section className="nt-ginfo-section">
+          <h3 className="nt-ginfo-label">Sections</h3>
+          <ol className="nt-ginfo-outline">
+            {sections.map((s, i) => (
+              <li key={`${i}:${s}`}>{s}</li>
+            ))}
+          </ol>
+        </section>
+      )}
+      {doc.url && (
+        <div className="nt-ginfo-actions">
+          <a href={doc.url} target="_blank" rel="noreferrer" className="nt-row justify-center px-3">
+            Open in Notion
+          </a>
+        </div>
+      )}
+    </div>
   );
 }

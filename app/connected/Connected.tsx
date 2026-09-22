@@ -4,13 +4,14 @@ import { useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 
 const SAID: Record<string, string> = {
-  connected: "GitHub is connected. This window closes on its own.",
+  connected: "Connected. This window closes on its own.",
   cancelled: "Nothing was connected. You can close this window.",
-  error: "GitHub could not be connected. Close this window and try again.",
+  error: "That could not be connected. Close this window and try again.",
 };
 
 export function Connected() {
-  const outcome = useSearchParams().get("github") ?? "error";
+  const params = useSearchParams();
+  const outcome = params.get("github") ?? params.get("notion") ?? "error";
 
   // Only a window something opened can close itself; a callback reached any
   // other way stays up and says where to go instead.

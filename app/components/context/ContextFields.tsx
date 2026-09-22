@@ -4,13 +4,13 @@ import { useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { ABOUT, BACKGROUND } from "@/convex/ai/questions";
-import { X } from "../Icons";
+import { ABOUT } from "@/convex/ai/questions";
 
 /**
- * What the user has said about the project — the two standing questions the
- * new-project dialog asks, and the entries anything else has added since.
- * Every lane's context pack starts with these, ahead of any page.
+ * The one thing about a project still typed rather than sourced: a line on
+ * what it is. Everything else the assistant knows comes in through the
+ * context sources (`ContextSources`) — including anything written freehand
+ * before there were sources, which shows there as a note card.
  */
 export function ContextFields({ projectId }: { projectId: Id<"projects"> }) {
   const entries = useQuery(api.ai.context.list, { projectId });
@@ -19,15 +19,11 @@ export function ContextFields({ projectId }: { projectId: Id<"projects"> }) {
   const remove = useMutation(api.ai.context.remove);
 
   /**
-   * Write an answer to one of the standing questions, creating its row the
-   * first time. A project made with only a title has no entries at all, and
-   * asking someone to "add a note" before they can say what the project is
-   * would be a worse form than the one they filled in to make it.
+   * Write the description, creating its row the first time. Until the sheet
+   * has loaded there is no way to tell a new answer from an edit, and guessing
+   * wrong writes a second row saying the same thing in the same words.
    */
   const say = (question: string, said: string) => {
-    // Until the sheet has loaded there is no way to tell a new answer from an
-    // edit to an existing one, and guessing wrong writes a second row saying
-    // the same thing in the same words.
     if (!entries) return;
     const existing = entries.find((e) => e.question === question);
     const value = said.trim();
@@ -40,59 +36,15 @@ export function ContextFields({ projectId }: { projectId: Id<"projects"> }) {
     }
   };
 
-  const standing = new Set([ABOUT, BACKGROUND]);
-  const also = entries?.filter((e) => !standing.has(e.question)) ?? [];
-
   return (
-    <div>
-      <Field
-        id="ctx-about"
-        label="Description"
-        question={ABOUT}
-        value={entries?.find((e) => e.question === ABOUT)?.answer ?? ""}
-        placeholder="One line on what it is"
-        onCommit={say}
-      />
-      <Field
-        id="ctx-background"
-        label="Context"
-        question={BACKGROUND}
-        value={entries?.find((e) => e.question === BACKGROUND)?.answer ?? ""}
-        placeholder="Who it is for, what has been decided, anything to take as given"
-        multiline
-        onCommit={say}
-      />
-
-      {also.length > 0 && (
-        <div className="mt-4">
-          <div className="nt-field-label">
-            Also noted
-            <span className="nt-field-note">{also.length}</span>
-          </div>
-          <ul className="space-y-2">
-            {also.map((entry) => (
-              <li key={entry._id} className="nt-repo items-start">
-                <span className="nt-repo-body">
-                  <span className="nt-repo-note">{entry.question}</span>
-                  <span className="block text-[13px] leading-snug">
-                    {entry.answer || "—"}
-                  </span>
-                </span>
-                <button
-                  type="button"
-                  onClick={() => void remove({ id: entry._id })}
-                  aria-label={`Remove “${entry.question}”`}
-                  title="Remove"
-                  className="nt-icon-btn is-sm"
-                >
-                  <X />
-                </button>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-    </div>
+    <Field
+      id="ctx-about"
+      label="Description"
+      question={ABOUT}
+      value={entries?.find((e) => e.question === ABOUT)?.answer ?? ""}
+      placeholder="One line on what it is"
+      onCommit={say}
+    />
   );
 }
 
@@ -110,7 +62,6 @@ function Field({
   question,
   value,
   placeholder,
-  multiline,
   onCommit,
 }: {
   id: string;
@@ -118,7 +69,6 @@ function Field({
   question: string;
   value: string;
   placeholder: string;
-  multiline?: boolean;
   onCommit: (question: string, said: string) => void;
 }) {
   const [draft, setDraft] = useState<string | null>(null);
@@ -140,11 +90,7 @@ function Field({
       <label className="nt-field-label mt-4 first:mt-0" htmlFor={id}>
         {label}
       </label>
-      {multiline ? (
-        <textarea {...props} rows={6} spellCheck />
-      ) : (
-        <input {...props} autoComplete="off" />
-      )}
+      <input {...props} autoComplete="off" />
     </>
   );
 }

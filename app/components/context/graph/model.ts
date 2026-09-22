@@ -14,6 +14,7 @@ export type GraphFolder = GraphData["folders"][number];
 export type GraphRepo = GraphData["code"]["repos"][number];
 export type GraphArea = GraphData["code"]["areas"][number];
 export type GraphConcern = GraphData["code"]["concerns"][number];
+export type GraphDocument = GraphData["documents"][number];
 
 export type ViewNode =
   | { id: "project"; kind: "project"; title: string }
@@ -21,7 +22,8 @@ export type ViewNode =
   | { id: string; kind: "page"; page: GraphPage }
   | { id: string; kind: "repo"; repo: GraphRepo }
   | { id: string; kind: "area"; area: GraphArea }
-  | { id: string; kind: "concern"; concern: GraphConcern };
+  | { id: string; kind: "concern"; concern: GraphConcern }
+  | { id: string; kind: "document"; doc: GraphDocument };
 
 export type ViewEdge = {
   id: string;
@@ -40,6 +42,7 @@ export const folderKey = (folderId: string) => `f:${folderId}`;
 export const pageKey = (pageId: string) => `p:${pageId}`;
 export const repoKey = (repoId: string) => `r:${repoId}`;
 export const codeKey = (nodeId: string) => `n:${nodeId}`;
+export const docKey = (nodeId: string) => `d:${nodeId}`;
 
 export function buildGraph(data: GraphData): { nodes: ViewNode[]; edges: ViewEdge[] } {
   const nodes: ViewNode[] = [{ id: PROJECT, kind: "project", title: data.title }];
@@ -60,6 +63,11 @@ export function buildGraph(data: GraphData): { nodes: ViewNode[]; edges: ViewEdg
     nodes.push({ id, kind: "page", page });
     contains(parent(page.folderId), id);
   }
+  for (const doc of data.documents) {
+    nodes.push({ id: docKey(doc.nodeId), kind: "document", doc });
+    contains(PROJECT, docKey(doc.nodeId));
+  }
+
   const repoOfNode = new Map<string, string>();
   for (const repo of data.code.repos) {
     const id = repoKey(repo.repoId);

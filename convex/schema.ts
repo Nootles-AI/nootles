@@ -1312,7 +1312,12 @@ export default defineSchema({
    */
   contextNodes: defineTable({
     projectId: v.id("projects"),
-    source: v.union(v.literal("pages"), v.literal("github")),
+    source: v.union(
+      v.literal("pages"),
+      v.literal("github"),
+      v.literal("files"),
+      v.literal("notion"),
+    ),
     /** The linked repository a GitHub node came from; what a re-index replaces. */
     repoId: v.optional(v.id("projectRepos")),
     /** The node this one sits inside: a file's concern, a concern's area, an area's repo. */
@@ -1329,6 +1334,8 @@ export default defineSchema({
       v.literal("area"),
       v.literal("concern"),
       v.literal("file"),
+      /** A whole document read into context: an uploaded file, a linked Notion page. */
+      v.literal("document"),
     ),
     externalId: v.string(),
     title: v.string(),
@@ -1368,6 +1375,12 @@ export default defineSchema({
     searchText: v.string(),
     /** Fingerprint of what the digest was built from; equal means nothing to write. */
     contentHash: v.string(),
+    /**
+     * A document's whole text, capped, for `read_context` — a page's body is
+     * read from the page, and a code file's from GitHub, but an uploaded file
+     * or a Notion page is read from here.
+     */
+    body: v.optional(v.string()),
     syncedAt: v.number(),
   })
     .index("by_nodeId", ["nodeId"])
@@ -1411,6 +1424,36 @@ export default defineSchema({
     .index("by_project", ["projectId"])
     .index("by_project_and_type", ["projectId", "type"])
     .index("by_repoId", ["repoId"]),
+
+  /**
+   * A Notion page linked to a project as context: it stays in Notion, and is
+   * read into the context graph as a document — the Notion counterpart of a
+   * linked repository. Read with the token of whoever linked it.
+   */
+  projectNotion: defineTable({
+    ownerId: v.string(),
+    projectId: v.id("projects"),
+    /** Notion's page id, dashed or not as Notion gave it. */
+    pageId: v.string(),
+    title: v.string(),
+    emoji: v.optional(v.string()),
+    url: v.optional(v.string()),
+    index: v.object({
+      state: v.union(
+        v.literal("queued"),
+        v.literal("reading"),
+        v.literal("ready"),
+        v.literal("failed"),
+      ),
+      error: v.optional(v.string()),
+      at: v.optional(v.number()),
+      /** Characters read, so a card can say how much there is. */
+      chars: v.optional(v.number()),
+    }),
+    addedAt: v.number(),
+  })
+    .index("by_project", ["projectId"])
+    .index("by_project_and_pageId", ["projectId", "pageId"]),
 
   // ---- Chat ---------------------------------------------------------------
 

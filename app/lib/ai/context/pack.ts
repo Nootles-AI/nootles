@@ -24,6 +24,8 @@ const NOTES_SHARE = 0.45;
 const STYLING_SHARE = 0.25;
 /** The map of each repository: areas and their concerns. */
 const CODE_SHARE = 0.15;
+/** Documents read into context — uploaded files, linked Notion pages. */
+const DOCUMENTS_SHARE = 0.12;
 const RECENT_PAGES = 6;
 
 /**
@@ -106,6 +108,18 @@ export function projectPack(inputs: PackInputs, budgetTokens: number): string {
       ]),
       Math.floor(total * CODE_SHARE),
       { more: (cut) => `…and ${cut} more areas — search_context finds them.` },
+    );
+  }
+
+  if (inputs.documents.length) {
+    section(
+      [
+        "",
+        "Documents added to this project's context. read_context reads one whole.",
+      ],
+      inputs.documents.map((d) => `- ${d.title} (${d.source})${d.brief ? `: ${d.brief}` : ""}`),
+      Math.floor(total * DOCUMENTS_SHARE),
+      { more: (cut) => `…and ${cut} more documents — search_context finds them.` },
     );
   }
 

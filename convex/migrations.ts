@@ -3,7 +3,9 @@ import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { internalMutation, internalQuery, type QueryCtx } from "./_generated/server";
 import { isTrashed } from "./auth";
+import { upsertDocument } from "./context/documents";
 import { pageNode } from "./context/pages";
+import { documentId } from "./files/context";
 import { raiseTo, TICKET } from "./counters";
 import { forgetPagesIn, pagesInBlob } from "./pages";
 
@@ -386,5 +388,36 @@ export const contextPageNodes = internalMutation({
       });
     }
     return { pages: batch.page.length, done: batch.isDone };
+  },
+});
+
+/**
+ * Reads every uploaded file that already has its text into the context graph
+ * as a document — files uploaded before the graph read them. Idempotent: a
+ * file already there is written again with the same text.
+ */
+export const contextFileNodes = internalMutation({
+  args: { cursor: v.optional(v.string()) },
+  handler: async (ctx, args): Promise<{ files: number; done: boolean }> => {
+    const batch = await ctx.db
+      .query("projectFiles")
+      .paginate({ numItems: 25, cursor: args.cursor ?? null });
+    for (const file of batch.page) {
+      if (!file.text) continue;
+      await upsertDocument(ctx, {
+        projectId: file.projectId,
+        source: "files",
+        externalId: documentId(file._id),
+        title: file.filename,
+        memberId: file.ownerId,
+        text: file.text,
+      });
+    }
+    if (!batch.isDone) {
+      await ctx.scheduler.runAfter(0, internal.migrations.contextFileNodes, {
+        cursor: batch.continueCursor,
+      });
+    }
+    return { files: batch.page.length, done: batch.isDone };
   },
 });

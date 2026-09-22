@@ -26,6 +26,7 @@ const data: GraphData = {
     { from: "a", to: "b" },
     { from: "c", to: "a" },
   ],
+  documents: [],
   code: { repos: [], areas: [], concerns: [], rollups: [] },
 };
 

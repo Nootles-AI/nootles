@@ -2,6 +2,8 @@ import { ConvexError, v } from "convex/values";
 import { internal } from "../_generated/api";
 import { internalMutation, internalQuery, mutation, query } from "../_generated/server";
 import { projectRole, readOwned, requireOwned } from "../auth";
+import { removeDocument, upsertDocument } from "../context/documents";
+import type { Id } from "../_generated/dataModel";
 import { uploadUrl } from "../uploads";
 import { CONTEXT_FILE_HELP, fileKind, MAX_FILE_BYTES } from "./shared";
 
@@ -69,6 +71,7 @@ export const add = mutation({
     if (existing) {
       await ctx.storage.delete(existing.storageId);
       await ctx.db.delete(existing._id);
+      await removeDocument(ctx, args.projectId, documentId(existing._id));
     }
 
     const fileId = await ctx.db.insert("projectFiles", {
@@ -91,6 +94,7 @@ export const remove = mutation({
     const file = await requireOwned(ctx, "projectFiles", args.fileId);
     await ctx.storage.delete(file.storageId);
     await ctx.db.delete(args.fileId);
+    await removeDocument(ctx, file.projectId, documentId(file._id));
   },
 });
 
@@ -174,7 +178,20 @@ export const writeText = internalMutation({
     syncError: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    if (!(await ctx.db.get(args.fileId))) return;
+    const file = await ctx.db.get(args.fileId);
+    if (!file) return;
+    // The text is what the context graph reads; the row keeps it for the file
+    // card, the graph keeps its own copy as a document.
+    if (args.text !== undefined) {
+      await upsertDocument(ctx, {
+        projectId: file.projectId,
+        source: "files",
+        externalId: documentId(file._id),
+        title: file.filename,
+        memberId: file.ownerId,
+        text: args.text,
+      });
+    }
     await ctx.db.patch(args.fileId, {
       // A failed parse records why and leaves the last good text alone, the
       // same trade `writeSummary` makes for a repository.
@@ -186,3 +203,6 @@ export const writeText = internalMutation({
     });
   },
 });
+
+/** A file's address in the context graph. */
+export const documentId = (fileId: Id<"projectFiles">) => `file:${fileId}`;

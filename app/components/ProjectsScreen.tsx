@@ -3,13 +3,15 @@
 import { memo, useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
-import { useConvexAuth, useQuery, useMutation } from "convex/react";
+import { useConvex, useConvexAuth, useQuery, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import { findTemplate } from "@/app/lib/templates";
 import { track } from "@/app/lib/telemetry";
 import { pages, when } from "@/app/lib/projectMeta";
 import { rememberScreen, seenScreen } from "@/app/lib/projectsCache";
+import { uploadContextFile } from "@/app/lib/contextFiles";
+import { repoRef } from "./context/ContextSources";
 import { BoardView, GridView, ListView, Plus, Search } from "./Icons";
 import { AccountMenu } from "./AccountMenu";
 import { PlanWall } from "./billing/PlanWall";
@@ -81,6 +83,8 @@ export function ProjectsScreen() {
     if (userId && liveProjects && liveShared) rememberScreen(userId, liveProjects, liveShared);
   }, [userId, liveProjects, liveShared]);
   const createProject = useMutation(api.projects.create);
+  const linkPages = useMutation(api.notion.context.link);
+  const convex = useConvex();
   const renameProject = useMutation(api.projects.rename);
   const removeProject = useMutation(api.projects.remove);
 
@@ -216,22 +220,21 @@ export function ProjectsScreen() {
     const seed = template
       ? (await import("@/app/lib/templates/seed")).seedOf(template)
       : undefined;
+    const { repos, files, pages } = project.sources;
     const id = await createProject({
       title: project.title,
       ...(project.description ? { description: project.description } : {}),
-      ...(project.context ? { context: project.context } : {}),
-      ...(project.repos.length
-        ? {
-            repos: project.repos.map((r) => ({
-              fullName: r.fullName,
-              defaultBranch: r.defaultBranch,
-              ...(r.description ? { description: r.description } : {}),
-              private: r.private,
-            })),
-          }
-        : {}),
+      ...(repos.length ? { repos: repos.map(repoRef) } : {}),
       ...(seed ? { seed } : {}),
     });
+    // What only exists once the project does. Not awaited in full: the project
+    // opens now, and a card for each source shows its reading as it lands.
+    if (pages.length) void linkPages({ projectId: id, pages });
+    for (const file of files) {
+      void uploadContextFile(convex, id, file).catch(() => {
+        // The file card is absent rather than wrong; it can be added again.
+      });
+    }
     track("project_created", {});
     router.push(`/p/${id}`);
   };

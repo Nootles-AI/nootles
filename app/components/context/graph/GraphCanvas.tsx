@@ -9,7 +9,8 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { RowIcon } from "../../rowIcon";
-import { Code, Minus, Plus } from "../../Icons";
+import { Code, FileDoc, Minus, Plus } from "../../Icons";
+import { NotionMark } from "../../NotionMark";
 import { Layout, startAt, type Body } from "./force";
 import { neighbours, PROJECT, type ViewEdge, type ViewNode } from "./model";
 
@@ -40,6 +41,7 @@ function springFor(edge: ViewEdge, kinds: Map<string, ViewNode["kind"]>) {
   const to = kinds.get(edge.target);
   if (from === "project") {
     if (to === "repo") return { length: 330, strength: 0.4 };
+    if (to === "document") return { length: 220, strength: 0.4 };
     return to === "folder" ? { length: 250, strength: 0.4 } : { length: 190, strength: 0.4 };
   }
   if (from === "repo") return { length: 170, strength: 0.45 };
@@ -492,6 +494,12 @@ export function GraphCanvas({
                 <RowIcon icon={node.page.icon} kind="page" size={13} className="nt-gnode-icon" />
               )}
               {node.kind === "repo" && <Code width={13} height={13} className="nt-gnode-icon" />}
+              {node.kind === "document" &&
+                (node.doc.source === "notion" ? (
+                  <NotionMark width={13} height={13} className="nt-gnode-icon" />
+                ) : (
+                  <FileDoc width={13} height={13} className="nt-gnode-icon" />
+                ))}
               {node.kind === "concern" && node.concern.styling && (
                 <span className="nt-gnode-swatch" aria-hidden />
               )}
@@ -540,6 +548,8 @@ function label(node: ViewNode): string {
       return node.area.title;
     case "concern":
       return node.concern.title;
+    case "document":
+      return node.doc.title;
   }
 }
 
@@ -550,6 +560,7 @@ const SPOKEN = {
   repo: "Repository",
   area: "Area",
   concern: "Concern",
+  document: "Document",
 } as const;
 
 function ariaLabel(node: ViewNode): string {
