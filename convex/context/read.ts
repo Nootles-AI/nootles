@@ -181,7 +181,7 @@ function describer(ctx: QueryCtx) {
           .query("profiles")
           .withIndex("by_owner", (q) => q.eq("ownerId", memberId))
           .unique()
-          .then((p) => p?.name ?? null),
+          .then((p) => p?.name ?? p?.email ?? null),
       );
     }
     return names.get(memberId)!;

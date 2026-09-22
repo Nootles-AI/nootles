@@ -278,6 +278,7 @@ export const create = mutation({
       const docId = crypto.randomUUID();
       await ctx.db.insert("pages", {
         ownerId,
+        createdBy: ownerId,
         projectId,
         title: page.title,
         folderId,
@@ -312,6 +313,7 @@ export const create = mutation({
       // fallback.
       await ctx.db.insert("pages", {
         ownerId,
+        createdBy: ownerId,
         projectId,
         title: "",
         order: 0,
