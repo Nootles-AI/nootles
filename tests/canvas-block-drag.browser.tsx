@@ -281,15 +281,35 @@ const harness = {
   removeStackingObstacle() {
     document.getElementById("stacking-obstacle")?.remove();
   },
+  /**
+   * The dropdown's surface beside the one the app asks for. The expected side
+   * is resolved by the browser from the menu's own inherited custom
+   * properties rather than written out here, so the comparison survives
+   * whatever notation the engine serializes a colour in — and a token the app
+   * stops declaring fails as transparent on both sides, which is why the
+   * runner checks that too.
+   */
   menuTheme() {
     const menu = document.querySelector<HTMLElement>(".bn-drag-handle-menu");
     if (!menu) return null;
+    const probe = document.createElement("div");
+    probe.style.cssText =
+      "background-color:var(--elevated);color:var(--foreground);border-color:var(--border)";
+    menu.append(probe);
     const style = getComputedStyle(menu);
-    return {
+    const app = getComputedStyle(probe);
+    const theme = {
       backgroundColor: style.backgroundColor,
       borderColor: style.borderColor,
       color: style.color,
+      app: {
+        backgroundColor: app.backgroundColor,
+        borderColor: app.borderColor,
+        color: app.color,
+      },
     };
+    probe.remove();
+    return theme;
   },
 };
 

@@ -32,7 +32,6 @@ const ctx = (over: Partial<StageContext> = {}): StageContext => ({
     { pageId: "pg_req", title: "Requirements & Traceability" },
     { pageId: "pg_test", title: "Test & Validation" },
   ],
-  repos: ["team-kestrel/kr1-firmware"],
   ...over,
 });
 
@@ -296,7 +295,7 @@ describe("degrading — a skipped beat is an ordinary answer", () => {
       // Empty context: nothing read, no diagram, no repo.
       const step = resolveStep(
         script.steps[editing],
-        ctx({ pageId: undefined, pages: [], repos: [], results: [] }),
+        ctx({ pageId: undefined, pages: [], results: [] }),
         script.bail,
       );
       expect(step.calls, `${script.id} still tried to act`).toEqual([]);

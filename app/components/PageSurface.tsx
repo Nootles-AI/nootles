@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Doc, Id } from "@/convex/_generated/dataModel";
@@ -75,6 +75,14 @@ export function PageSurface({
       unregister();
     };
   }, [spine, pageId]);
+  // A page opening rises into place, once: the title, then the body a beat
+  // behind it. The surface is not remounted between pages, so the entrance is
+  // replayed by renaming the animation — `turn` flips with every page, and a
+  // changed `animation-name` is a new animation. Counted during render, from
+  // the prop, like any derived value; typing never touches it.
+  const [opened, setOpened] = useState({ pageId, turn: 0 });
+  if (opened.pageId !== pageId) setOpened({ pageId, turn: opened.turn + 1 });
+  const turn = opened.turn % 2 === 0 ? "a" : "b";
   /** The last title this surface knows to be persisted — the entry's "before". */
   const committedTitle = useRef<string | null>(null);
   const titleHost = useRef<HTMLDivElement>(null);
@@ -150,6 +158,7 @@ export function PageSurface({
         same answer. */}
     <main
       className={`nt-pane flex flex-1 flex-col overflow-auto${idle ? " is-idle" : ""}`}
+      data-page-id={pageId}
       onPointerDownCapture={() => focusPane(pane)}
       onFocusCapture={() => focusPane(pane)}
     >
@@ -203,11 +212,14 @@ export function PageSurface({
           )}
         </div>
         {readOnly ? (
-          <h1 className="w-full text-[length:var(--text-title)] font-semibold tracking-[-0.02em] text-balance">
+          <h1
+            data-turn={turn}
+            className="nt-page-in is-title w-full text-[length:var(--text-title)] font-semibold tracking-[-0.02em] text-balance"
+          >
             {page.title || "Untitled"}
           </h1>
         ) : (
-        <div ref={titleHost} className="contents" {...undoScope}>
+        <div ref={titleHost} className="nt-page-in is-title" data-turn={turn} {...undoScope}>
         <Editable
           value={page.title}
           onInput={persistTitle}
@@ -236,12 +248,13 @@ export function PageSurface({
         />
         </div>
         )}
-        <div className="mt-8">
+        <div className="nt-page-in mt-8" data-turn={turn}>
           <Editor
             docId={page.docId}
             pageId={pageId}
             title={page.title}
             mode={(page.mode ?? "create") as PageMode}
+            yjs={page.yjs}
           />
         </div>
       </div>

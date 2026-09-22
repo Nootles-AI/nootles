@@ -68,3 +68,6 @@ next-env.d.ts
 
 # Figma plugin bundle, built by `npm run figma:build`
 figma-plugin/dist
+
+# Heron (github.com/iforaa/heron), symlinked from the installed skill for the Pro art scene
+/scripts/pro-art/heron

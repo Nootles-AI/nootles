@@ -17,7 +17,7 @@ import {
 } from "../colorVariables";
 import { useCanvasShell } from "../../shell";
 import { canSampleScreen, colorPick, useColorPick, type PickDestination, type PickResult, type PickSource } from "./colorPick";
-import { Dropper, Sampler } from "./glyphs";
+import { Dropper } from "./glyphs";
 import { useLiveEdit } from "./live";
 import { Popover } from "./Popover";
 import { track } from "./track";
@@ -336,32 +336,24 @@ function Body({
         }
       />
       <div className="nt-ctl-row">
+        {/* One eyedropper, as the key is one: the diagram by default, and
+            with Shift anywhere on screen where the browser can sample it. */}
         <button
           type="button"
           className="nt-icon-btn is-sm"
-          aria-label="Pick from canvas"
-          title="Pick from canvas (I)"
-          disabled={!shell.active}
+          aria-label="Pick a colour"
+          title={canScreen ? "Pick from canvas (I) · Shift for anywhere on screen" : "Pick from canvas (I)"}
+          disabled={!shell.active && !canScreen}
           // Matches `Refit`'s own rule in `CanvasSurface.tsx`: a pointerdown
           // on a panel button must not blur — and so end — a label mid-edit
           // before the pick session even starts.
           onPointerDown={(e) => e.preventDefault()}
-          onClick={() => startPick("canvas")}
+          onClick={(e) =>
+            startPick((e.shiftKey || !shell.active) && canScreen ? "screen" : "canvas")
+          }
         >
           <Dropper width={15} height={15} />
         </button>
-        {canScreen && (
-          <button
-            type="button"
-            className="nt-icon-btn is-sm"
-            aria-label="Sample screen"
-            title="Sample screen (Shift+I)"
-            onPointerDown={(e) => e.preventDefault()}
-            onClick={() => startPick("screen")}
-          >
-            <Sampler width={15} height={15} />
-          </button>
-        )}
         <span className="nt-ctl-note min-w-0 flex-1 truncate">
           {pick.active ? "Click on the canvas…" : "Pick a colour"}
         </span>

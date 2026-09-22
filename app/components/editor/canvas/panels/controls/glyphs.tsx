@@ -71,12 +71,30 @@ function Bars({ spec, ...props }: Props & { spec: string }) {
 
 /* ---- Geometry ----------------------------------------------------------- */
 
+/**
+ * Lucide's `rotate-cw` (ISC), taken as drawn rather than redrawn: a turning
+ * arrow is a symbol people already read, and the hand-drawn one kept getting
+ * its head wrong. Lucide draws on a 24 grid, so it keeps its own viewBox, and
+ * the stroke is scaled to land at the same width on screen as the 16-grid
+ * glyphs around it (1.25 of 16 is 1.875 of 24).
+ */
 export function Rotation(props: Props) {
   return (
-    <Line {...props}>
-      <path d="M8 3.4a4.6 4.6 0 1 1-3.9 2.15" />
-      <path d="M4.6 2.6v2.9h2.9" />
-    </Line>
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.875"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+      {...props}
+    >
+      <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
+      <path d="M21 3v5h-5" />
+    </svg>
   );
 }
 
@@ -296,32 +314,30 @@ export function Eye({ off, ...props }: Props & { off?: boolean }) {
 
 /* ---- Colour pick (COLOR) -------------------------------------------------- */
 
-/** The canvas eyedropper: a round bulb, an angled tube, a wedge nib — the
- *  pipette silhouette every design tool draws for this, matching the cursor
- *  drawn in `canvas.css` for `data-mode="color-pick"` at 1.5×, same shape,
- *  two places. The previous version's tube-plus-tick-mark near the tip read
- *  as a pencil's own written line, not a dropper; this one doesn't have one. */
+/**
+ * The eyedropper — Lucide's `pipette` (ISC), taken as drawn, for the same
+ * reason as {@link Rotation}: a pipette is a symbol people already read, and
+ * the hand-drawn ones never quite did. The canvas's pick cursor
+ * (`canvas.css`, `data-mode="color-pick"`) is the same drawing.
+ */
 export function Dropper(props: Props) {
   return (
-    <Line {...props}>
-      <circle cx="11.3" cy="3.3" r="1.9" />
-      <path d="M9.9 4.7 4.6 10Z" />
-      <path d="M9.9 4.7 5.9 8.7" />
-      <path d="M4.6 10 3.2 13.4a.5.5 0 0 0 .65.65L7 12.7Z" fill="currentColor" stroke="none" />
-    </Line>
-  );
-}
-
-/** Screen sample (`EyeDropper.open()`): a small display with the sampled
- *  pixel marked — deliberately distinct from {@link Dropper}'s pipette so the
- *  two buttons never look like the same action. */
-export function Sampler(props: Props) {
-  return (
-    <Line {...props}>
-      <rect x="2.2" y="3" width="11.6" height="8.2" rx="1.2" />
-      <path d="M6 13.6h4" />
-      <circle cx="8" cy="7.1" r="1.3" fill="currentColor" stroke="none" />
-    </Line>
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.875"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+      {...props}
+    >
+      <path d="m12 9-8.414 8.414A2 2 0 0 0 3 18.828v1.344a2 2 0 0 1-.586 1.414A2 2 0 0 1 3.828 21h1.344a2 2 0 0 0 1.414-.586L15 12" />
+      <path d="m18 9 .4.4a1 1 0 1 1-3 3l-3.8-3.8a1 1 0 1 1 3-3l.4.4 3.4-3.4a1 1 0 1 1 3 3z" />
+      <path d="m2 22 .414-.414" />
+    </svg>
   );
 }
 

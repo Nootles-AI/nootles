@@ -62,7 +62,12 @@ export function PanelSection({
           />
         </button>
       </div>
-      {open && <div className="nt-ctl-section-body">{children}</div>}
+      {/* Folded, not removed: the body is always laid out and the row it sits
+          in closes over it, so a section shuts the way the rails do. `inert`
+          takes what is folded away out of the tab order and the tree. */}
+      <div className="nt-ctl-fold" data-open={open} inert={!open}>
+        <div className="nt-ctl-section-body">{children}</div>
+      </div>
     </section>
   );
 }

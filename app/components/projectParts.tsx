@@ -25,6 +25,31 @@ export type SharedProject = NonNullable<
 >[number];
 
 /** Your standing in someone else's project, in the words Docs taught. */
+/**
+ * `memo`'s comparison for anything that draws one of the owner's projects.
+ *
+ * By what is drawn rather than by identity, because identity is not stable
+ * across the one moment it matters: the screen paints from what this browser
+ * last saw (`projectsCache`) and the live list then arrives as all new objects.
+ * Nearly always the same projects — and every card was redrawing to say so.
+ */
+export function sameProjectProps<P extends { project: Project }>(prev: P, next: P) {
+  for (const key in next) {
+    if (key !== "project" && prev[key] !== next[key]) return false;
+  }
+  const a = prev.project;
+  const b = next.project;
+  return (
+    a === b ||
+    (a._id === b._id &&
+      a.title === b.title &&
+      a.description === b.description &&
+      a.pageCount === b.pageCount &&
+      a.updatedAt === b.updatedAt &&
+      a.firstPageDocId === b.firstPageDocId)
+  );
+}
+
 export const roleLabel = (p: SharedProject) =>
   p.role === "editor" ? "can edit" : "view only";
 

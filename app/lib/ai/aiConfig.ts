@@ -41,15 +41,14 @@ export const AI = {
     maxBefore: 4000,
     maxAfter: 1000,
     /**
-     * How much of the project's standing context rides the completion seed —
-     * the sheet's answers and the head of each context file, so a completion
-     * can use the project's own names and facts. Part of the seed because the
-     * seed is the one thing exempt from `MAX_BEFORE`; capped because the seed
-     * prefixes EVERY completion, and this lane is priced per keystroke.
+     * How much of the project's context rides the completion seed — the
+     * project's own words and the briefs of the pages around this one, so a
+     * completion can use the project's names and facts. Part of the seed
+     * because the seed is the one thing exempt from `MAX_BEFORE`; capped
+     * because the seed prefixes EVERY completion, and this lane is priced per
+     * keystroke.
      */
     context: {
-      /** Per file, so one long file cannot spend the whole allowance. */
-      fileHeadChars: 600,
       maxChars: 2400,
     },
   },
@@ -90,6 +89,19 @@ export const AI = {
    * want redoing. 3.7 because the diagram lane already runs on it and it is
    * cheaper per output token than the model it replaces.
    */
+  /**
+   * Naming what the GitHub indexer clustered (stage 2 of the context graph).
+   * One call names a whole repository's areas and concerns — the design's
+   * estimate of a call per concern was a hundred times this — split by area
+   * only when a repository has more concerns than one answer holds.
+   */
+  context: {
+    nameModel: "google/gemini-3.7-flash",
+    /** Concerns per call; each costs a name and a sentence in the answer. */
+    concernsPerCall: 60,
+    answerTokens: 4000,
+  },
+
   reformat: {
     model: "google/gemini-3.7-flash",
     /**
@@ -164,6 +176,16 @@ export const AI = {
      * headroom for the model to re-read after a failed validation.
      */
     maxSteps: 24,
+    /**
+     * The project's context pack, in estimated tokens. `project` is the cached
+     * half — what the user said and the page list — and holds for the whole
+     * conversation; `page` is what surrounds the open page, re-rendered as it
+     * moves. The pack meets its budget rather than growing with the project.
+     */
+    context: {
+      projectTokens: 2000,
+      pageTokens: 600,
+    },
     /** Cap on a single `read_page` result, so one long page can't eat the window. */
     maxPageChars: 24_000,
     /**

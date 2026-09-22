@@ -20,16 +20,57 @@
  * rewind is pressed through the chat transcript's own Rewind menu, wired to the
  * session as `ChatPanel` wires it.
  *
+ * NT-45: ⌘Z after Discard all took back the whole last-typed paragraph. The
+ * discard puts the page back inside the review's fork, and landing that fork
+ * rewrote the shared doc's items with identical copies, leaving the person's
+ * undo entries naming items nobody could reach. The person's own steps after a
+ * discarded turn are checked against the same three ⌘Z with no turn at all.
+ *
+ * NT-68: the same failure for a fork that DID hold the person's own words —
+ * they typed during the review. It was landed for them, and one Yjs update
+ * carries a whole fork, so the discard's churn travelled with their words. The
+ * fork is dropped now whatever is in it, and what they put in there written
+ * again against the items the shared doc already has; their steps behind it are
+ * checked against the same three ⌘Z with no turn at all. A page a collaborator
+ * touched, or a diagram they moved, still lands whole — nothing here can write
+ * either — and both are checked as such.
+ *
+ * NT-69: a block written during a review kept only its first word. The fork
+ * leaves the sync plugin's state naming the doc the editor was bound to first,
+ * so every position BlockNote tracked while a review was open resolved in the
+ * wrong doc — and it turns that into a throw from inside `EditorView.dispatch`.
+ * The browser had already put the character in the DOM, so the editor went on
+ * accepting text it never committed. The holder is the suggestion menu, which
+ * the emoji picker opens on `:`; these type words with one in them, on both
+ * sides of the fork and through every way out of it.
+ *
  * NT-43: an agent's diagram edit reached collaborators' maps while it was
  * still under review, and Discard, Revert and the rewind put back only the
  * block's `<nt-diagram>` mirror. Every reader of the diagram — the block prop,
  * both docs' maps, the collaborator's copy of the mirror, the review's fork and
  * the surface — is checked on its own, and a shape is dragged with the pointer.
  *
+ * NT-70: discarding an agent's diagram change also took back the shape the
+ * person had moved while reading it. The hunk names a whole canvas block —
+ * a whole-HTML prop write is the only diagram edit an agent has — and the undo
+ * wrote the checkpoint's whole mirror back, which diffs into the maps and takes
+ * every shape with it. It is taken back per shape now, against what the change
+ * itself proposed. The block's own mirror write, five seconds behind, used to
+ * read as the person rewriting the block, so the same gesture answered
+ * differently either side of that timer; both sides are driven here.
+ *
  * NT-39: an agent that changed a few words of a table had the whole table
  * washed green, as if all of it were new. Every table edit reaches the review
  * as one whole-table `setTableRows`, so the checks read what a reader meets:
  * the block's own mark, and which cells have words marked in them.
+ *
+ * NT-47: the rule in the margin — the thing the review means you to scan for —
+ * never drew. It sizes itself off `top` and `bottom`, and BlockNote pins
+ * `height: 0` on the block-content pseudo-element it was drawn on, so it
+ * resolved to 0px everywhere, production included. That pseudo-element is also
+ * where a bulleted or numbered item draws its marker, which the rule carried
+ * into the margin with it. The checks read the rule's used height against the
+ * block's own, on every block type, and watch that nobody's words move.
  *
  * Uses the existing esbuild dependency and an operator-installed Puppeteer. No
  * app server, no Convex, no API keys — and every non-local request fails the
@@ -108,7 +149,7 @@ await build({
 // utilities, without which a diagram lays out zero pixels wide and no shape on
 // it can be pressed. `globals.css` imports Tailwind too, so the review's diff
 // colours are copied from it: without them a wash paints nothing to check.
-await writeFile(path.join(output, "index.html"), `<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="/editor-review-undo.browser.css"><style>html,body{margin:0;height:100%;overflow:hidden;font-family:Arial,sans-serif}.relative{position:relative}.w-full{width:100%}:root{--diff-add-bg:oklch(0.962 0.024 148);--diff-add-line:oklch(0.63 0.105 148);--diff-del:oklch(0.548 0.115 25);--diff-del-bg:oklch(0.958 0.019 25)}</style></head><body><div id="app"></div><script type="module" src="/editor-review-undo.browser.js"></script></body></html>`);
+await writeFile(path.join(output, "index.html"), `<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="/editor-review-undo.browser.css"><style>html,body{margin:0;height:100%;overflow:hidden;font-family:Arial,sans-serif}.relative{position:relative}.w-full{width:100%}:root{--diff-add-bg:oklch(0.962 0.024 148);--diff-add-line:oklch(0.63 0.105 148);--diff-del:oklch(0.548 0.115 25);--diff-del-bg:oklch(0.958 0.019 25);--border-strong:oklch(0.875 0.004 90)}</style></head><body><div id="app"></div><script type="module" src="/editor-review-undo.browser.js"></script></body></html>`);
 
 const server = createServer(async (request, response) => {
   try {
@@ -227,17 +268,25 @@ try {
     }
   };
   const settled = () => page.waitForFunction(() => window.reviewHarness.open() === 0 && !window.reviewHarness.forked(), { timeout: 5000 }).then(() => sleep(250));
-  /** The question typed into the chat composer, then the agent's answer staged. */
-  const turn = async (kind = "agentReplace", ...args) => {
+  /** The question typed into the chat composer. */
+  const ask = async () => {
     const composer = await page.$("#composer");
     const box = await composer.boundingBox();
     await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
     await page.keyboard.type("turn my notes into a storyboard", { delay: 2 });
     await sleep(100);
+  };
+  /** The agent's answer staged, as it arrives: whenever it arrives. */
+  const stage = async (kind = "agentReplace", ...args) => {
     const id = await h((name, rest) => window.reviewHarness[name](...rest), kind, args);
     await page.waitForSelector("#bar button");
     await sleep(150);
     return id;
+  };
+  /** Both, back to back, which is every turn but the ones timed on purpose. */
+  const turn = async (kind = "agentReplace", ...args) => {
+    await ask();
+    return stage(kind, ...args);
   };
   const peer = () => h(() => window.reviewHarness.peerTexts());
   /** A hunk's own button, topmost first, pressed with the pointer resting on it. */
@@ -250,6 +299,11 @@ try {
     await sleep(80);
     await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
     return boxes.length;
+  };
+  /** How many of a hunk's own buttons are on the page, without pressing one. */
+  const hunkButtons = async (label) => {
+    const buttons = await page.$$(`button[aria-label="${label}"]`);
+    return (await Promise.all(buttons.map((b) => b.boundingBox()))).filter(Boolean).length;
   };
   const press = async (label) => {
     const [button] = await page.$$(`xpath/.//div[@id="bar"]//button[normalize-space()="${label}"]`);
@@ -299,18 +353,124 @@ try {
   check("…still forked, still open", [await h(() => window.reviewHarness.open()), await forked()], [1, true]);
   check("…and the shared doc never heard the change", await h(() => window.reviewHarness.peerTexts()), [...HEAD, ...NOTES]);
 
-  console.log("Discard all, then ⌘Z");
+  console.log("NT-45: Discard all, then ⌘Z");
+  // The control first: the person's own steps with nothing but their typing
+  // behind them. A turn they discarded whole has to leave these untouched.
+  const walk = async () => {
+    const steps = [];
+    for (let i = 0; i < 3; i++) {
+      await undo();
+      steps.push(await texts());
+    }
+    return steps;
+  };
+  await fresh();
+  await typeNotes();
+  await clickEnd(0);
+  const alone = await walk();
+  check("three ⌘Z walk back through the typing", alone, [
+    [...HEAD, ...NOTES.slice(0, 2), "paragraph:"],
+    [...HEAD, ...NOTES.slice(0, 2)],
+    [...HEAD, NOTES[0], "paragraph:"],
+  ]);
+
   await fresh();
   await typeNotes();
   await turn();
   await press("Discard all");
   await settled();
   check("Discard all puts the notes back", await texts(), [...HEAD, ...NOTES]);
+  check("…and the collaborator never heard any of it", await peer(), [...HEAD, ...NOTES]);
   await clickEnd(0);
   await undo();
   check("⌘Z after a discard does not bring the change back", (await texts()).some((t) => SCENE.includes(t)), false);
   await redo();
   check("…and ⌘⇧Z gives the notes back whole", await texts(), [...HEAD, ...NOTES]);
+  // A discard puts the notes back by writing them out again, inside the fork.
+  // Landed, that rewrite replaced the very Yjs items the person's undo entries
+  // name; Yjs pops a dead entry silently and undoes an older live one instead,
+  // so ⌘Z walked past their last words and took the paragraph holding them
+  // (NT-45). A fork holding nothing of theirs is now dropped, not landed.
+  check("the person's own steps are the same as if the turn had never happened", await walk(), alone);
+
+  console.log("NT-68: typing during the review, then Discard all");
+  await fresh();
+  await typeNotes();
+  await turn();
+  await clickEnd(0);
+  await page.keyboard.type(" v2", { delay: 5 });
+  await sleep(BETWEEN_NOTES);
+  await press("Discard all");
+  await settled();
+  const RETITLED = ["heading:Enactus intro reel v2", HEAD[1]];
+  check("the notes come back and the typing stays", await texts(), [...RETITLED, ...NOTES]);
+  // What `landed` is for, and the half of it that must not regress: the fork
+  // holds the person's own words, so they are written again on the way out.
+  check("…and the typing reaches the shared doc", await peer(), [...RETITLED, ...NOTES]);
+  check("…with the fork closed behind it", await forked(), false);
+  // Landed, the discard's churn came with their words and replaced the items
+  // their earlier entries name, so ⌘Z took a whole paragraph and the one after
+  // it, and the third did nothing (NT-68). The fork is dropped now and what
+  // they put in it written again, as one step of their own.
+  await clickEnd(0);
+  await undo();
+  check("⌘Z takes back what they typed during the review", await texts(), [...HEAD, ...NOTES]);
+  check("…for the collaborator too", await peer(), [...HEAD, ...NOTES]);
+  await redo();
+  check("⌘⇧Z writes it again", await texts(), [...RETITLED, ...NOTES]);
+  await undo();
+  check("…and their own steps behind it are the same as with no turn at all", await walk(), alone);
+
+  console.log("NT-68: a paragraph written during the review, then Discard all");
+  await fresh();
+  await typeNotes();
+  await turn();
+  await clickEnd(0);
+  await page.keyboard.press("Enter");
+  await sleep(100);
+  await page.keyboard.type("postscript", { delay: 5 });
+  await sleep(BETWEEN_NOTES);
+  await press("Discard all");
+  await settled();
+  const WITH_POST = [HEAD[0], "paragraph:postscript", HEAD[1]];
+  check("the block they wrote is on the page, where they wrote it", await texts(), [...WITH_POST, ...NOTES]);
+  check("…and the collaborator has it too", await peer(), [...WITH_POST, ...NOTES]);
+  await clickEnd(1);
+  await undo();
+  check("…and ⌘Z takes it back", await texts(), [...HEAD, ...NOTES]);
+
+  console.log("NT-68: words deleted during the review, then Discard all");
+  await fresh();
+  await typeNotes();
+  await turn();
+  await clickEnd(1);
+  for (let i = 0; i < 5; i++) await page.keyboard.press("Backspace");
+  await sleep(BETWEEN_NOTES);
+  await press("Discard all");
+  await settled();
+  check("the deletion stands", await texts(), [HEAD[0], "paragraph:", ...NOTES]);
+  await clickEnd(0);
+  await undo();
+  // The half a step off the timeline could not do: the entries naming what
+  // they deleted would be dead, which is the same failure one turn narrower.
+  check("⌘Z gives the deleted word back", await texts(), [...HEAD, ...NOTES]);
+
+  console.log("NT-68: a collaborator writes during the review, then Discard all");
+  await fresh();
+  await typeNotes();
+  await turn();
+  await clickEnd(0);
+  await page.keyboard.type(" v2", { delay: 5 });
+  await sleep(BETWEEN_NOTES);
+  await h(() => window.reviewHarness.peerAdd("Notes", "from Ali: shoot on the 12th"));
+  await sleep(250);
+  await press("Discard all");
+  await settled();
+  // Nothing here can write a collaborator's words: they are not in the fork.
+  // So a page somebody else has touched lands whole, as it always did.
+  const ALI = "paragraph:from Ali: shoot on the 12th";
+  check("both people's words are on the page", await texts(), [...RETITLED, ALI, ...NOTES]);
+  check("…and in the shared doc", await peer(), [...RETITLED, ALI, ...NOTES]);
 
   console.log("Keep all, a collaborator writes, then ⌘Z");
   await fresh();
@@ -356,6 +516,92 @@ try {
   await redo();
   check("⌘⇧Z puts both back", await texts(), [...TITLED, ...SCENE]);
 
+  console.log("NT-69: writing words with a \":\" in them, during a review");
+  // The emoji picker opens on ":", and a suggestion menu tracks where its query
+  // began. Forked, that position resolved in the shared doc while the binding
+  // was on the fork, so it came back null and BlockNote threw — out of
+  // `EditorView.dispatch`, which abandons the transaction the keystroke was in
+  // after the browser has already drawn the character. The line looks typed and
+  // the document never hears it. Every check here is on the document, not the
+  // page, for that reason. The control is the same words with no turn at all.
+  const SUBTITLE = "subtitle: a letter to ourselves";
+  await fresh();
+  await typeNotes();
+  await clickEnd(0);
+  await page.keyboard.press("Enter");
+  await sleep(100);
+  await page.keyboard.type(SUBTITLE, { delay: 5 });
+  await sleep(300);
+  check("control: a new block takes the whole line, with no review", await texts(), [HEAD[0], `paragraph:${SUBTITLE}`, HEAD[1], ...NOTES]);
+
+  await fresh();
+  await typeNotes();
+  await turn();
+  await clickEnd(0);
+  await page.keyboard.press("Enter");
+  await sleep(100);
+  await page.keyboard.type(SUBTITLE, { delay: 5 });
+  await sleep(300);
+  check("under review, it takes the whole line too", await texts(), [HEAD[0], `paragraph:${SUBTITLE}`, HEAD[1], ...SCENE]);
+  check("…and the collaborator hears none of it, fork and typing alike", await peer(), [...HEAD, ...NOTES]);
+  // Typing slowly failed identically, which is how the original was told apart
+  // from a dropped keystroke; it is kept because the two look the same on screen.
+  await fresh();
+  await typeNotes();
+  await turn();
+  await clickEnd(0);
+  await page.keyboard.press("Enter");
+  await sleep(400);
+  await page.keyboard.type(SUBTITLE, { delay: 60 });
+  await sleep(300);
+  check("…however slowly it is typed", (await texts())[1], `paragraph:${SUBTITLE}`);
+  // A block the review has never seen was the reported shape, but the menu is
+  // what holds the position, so an existing block is no safer.
+  await fresh();
+  await typeNotes();
+  await turn();
+  await clickEnd(0);
+  await page.keyboard.type(": a letter", { delay: 5 });
+  await sleep(300);
+  check("…and in a block that was already there", (await texts())[0], "heading:Enactus intro reel: a letter");
+
+  console.log("NT-69: the menu open as the agent's edit arrives");
+  // The prompt is sent and the caret goes back to the page, so the menu is open
+  // when the turn forks. No repair can carry its position across — the fork is
+  // a clone, and the new binding maps the clone's own types — so the fork
+  // closes the menu, a beat before it swaps. Left open, this threw inside
+  // `fork()` and the whole turn failed.
+  await fresh();
+  await typeNotes();
+  await ask();
+  await clickEnd(0);
+  await page.keyboard.type(":", { delay: 5 });
+  await sleep(200);
+  await stage();
+  check("the agent's change arrives", (await texts()).slice(2), SCENE);
+  await page.keyboard.type(" a letter", { delay: 5 });
+  await sleep(300);
+  check("…and the words carry on into the block they were being typed in", (await texts())[0], "heading:Enactus intro reel: a letter");
+
+  for (const answer of ["Discard all", "Keep all"]) {
+    console.log(`NT-69: the menu open as the turn is answered — ${answer}`);
+    // The way out is `parkSelection`, which moves the caret off the query
+    // before the merge for its own reasons, and closes the menu doing it.
+    await fresh();
+    await typeNotes();
+    await turn();
+    await clickEnd(0);
+    await page.keyboard.type(":", { delay: 5 });
+    await sleep(200);
+    await press(answer);
+    await settled();
+    await clickEnd(0);
+    await page.keyboard.type(" a letter", { delay: 5 });
+    await sleep(300);
+    check("the page is still writable after the answer", (await texts())[0], "heading:Enactus intro reel: a letter");
+    check("…and the collaborator has the same words", (await peer())[0], "heading:Enactus intro reel: a letter");
+  }
+
   console.log("NT-36: Keep gives immediate feedback while Convex is reconnecting");
   await fresh();
   await typeNotes();
@@ -381,10 +627,11 @@ try {
     })),
     {
       inline: [{ disabled: true, busy: "true" }],
+      // Quietest first, the ordinary answer last and filled (#156).
       bar: [
-        { text: "Keeping…", disabled: true },
-        { text: "Discard all", disabled: true },
         { text: "Revert", disabled: true },
+        { text: "Discard all", disabled: true },
+        { text: "Keeping…", disabled: true },
       ],
       answering: ["accepted"],
       open: 1,
@@ -702,6 +949,91 @@ try {
   await sleep(5600);
   check("…and the mirror follows them", await shapes(true), everywhere(moved));
 
+  console.log("NT-68: a shape moved during the review of a change elsewhere, then Discard all");
+  await freshDiagram();
+  await turn("agentHeading");
+  await sleep(300);
+  const stillThere = (await shapes(true)).shown;
+  await dragShape("a", 80, 0);
+  await sleep(800);
+  const theirMove = (await shapes(true)).shown;
+  check("the drag moved the shape", theirMove[0] !== stillThere[0], true);
+  await press("Discard all");
+  await settled();
+  await sleep(300);
+  // A diagram's truth is its maps, and only the merge carries those — written
+  // back as the block prop they read to the canvas as its own mirror coming
+  // round again. So a fork whose diagram moved lands whole (`replayable`),
+  // churn and all, rather than dropping the move on the floor.
+  check("the heading goes back and their move stays, everywhere", await shapes(true), everywhere(theirMove));
+  check("…and the heading is the one they had", (await texts())[0], "heading:Storyboard");
+  await sleep(5600);
+  check("…and the mirror's trail agrees", await shapes(true), everywhere(theirMove));
+
+  console.log("NT-70: a shape moved during the review OF the diagram, then Discard all");
+  await freshDiagram();
+  await turn("agentDiagram");
+  await sleep(300);
+  const beside = (await shapes(true)).shown;
+  await dragShape("a", 80, 0);
+  await sleep(800);
+  const theirs = (await shapes(true)).shown.filter((id) => id.startsWith("a@"));
+  check("the drag moved the shape the change did not touch", theirs[0] !== beside[0], true);
+  check("…and the change is still discardable — a move is not a rewrite", await hunkButtons("Discard this change"), 1);
+  await press("Discard all");
+  await settled();
+  await sleep(300);
+  // The hunk names the whole diagram because a whole diagram is what the agent
+  // can write, but the maps keep it per shape and so does the undo: the shape
+  // the change added goes, the shape the person moved is not written at all.
+  check("the change's shape goes and their move stays, everywhere", await shapes(true), everywhere(theirs));
+  await sleep(5600);
+  check("…and the mirror's trail agrees", await shapes(true), everywhere(theirs));
+
+  console.log("NT-70: the same, with the mirror's trail landed before the answer");
+  await freshDiagram();
+  await turn("agentDiagram");
+  await sleep(300);
+  await dragShape("a", 80, 0);
+  // Past MIRROR_MS: the block writes the maps onto the prop. That write is the
+  // block's own bookkeeping, and counted as the person rewriting the block it
+  // made the change unanswerable — the discard silently kept it instead.
+  await sleep(5600);
+  const trailed = (await shapes(true)).shown.filter((id) => id.startsWith("a@"));
+  check("the change is discardable five seconds later too", await hunkButtons("Discard this change"), 1);
+  await press("Discard all");
+  await settled();
+  await sleep(300);
+  check("the answer is the same as before the trail landed", await shapes(true), everywhere(trailed));
+
+  console.log("NT-70: a shape the change itself moved, moved again by the person");
+  await freshDiagram();
+  await turn("agentMovesShape");
+  await sleep(300);
+  const proposed = (await shapes(true)).shown;
+  await dragShape("a", 80, 0);
+  await sleep(800);
+  const overruled = (await shapes(true)).shown;
+  check("the drag moved it past where the change put it", [overruled.length, overruled[0] !== proposed[0]], [1, true]);
+  await press("Discard all");
+  await settled();
+  await sleep(300);
+  // Their own work on the very shape the change rewrote, exactly as typing into
+  // a rewritten paragraph is theirs: it stands rather than being written over.
+  check("the shape stays where they put it", await shapes(true), everywhere(overruled));
+
+  console.log("NT-70: a diagram change's own Discard button, after a move");
+  await freshDiagram();
+  await turn("agentDiagram");
+  await sleep(300);
+  await dragShape("a", 80, 0);
+  await sleep(800);
+  const byButton = (await shapes(true)).shown.filter((id) => id.startsWith("a@"));
+  check("one change, one Discard button", await pressHunk("Discard this change"), 1);
+  await settled();
+  await sleep(300);
+  check("it takes the change's shape back and leaves theirs", await shapes(true), everywhere(byButton));
+
   console.log("NT-43: Keep a diagram change, then Rewind › Notes only");
   await freshDiagram();
   await turn("agentDiagram");
@@ -848,6 +1180,147 @@ try {
   await turn("agentLine", "Drive: ~3 hrs (subject to border wait)");
   const line = await h(() => window.reviewHarness.drawnLine("Drive:"));
   check("a rewritten line has its words marked, and no wash", [marks(line), line.wash], [{ tone: "edit", ins: ["~3"], del: ["~2.5"], cells: [] }, TRANSPARENT]);
+  check("nothing reported a failure", await h(() => window.reviewHarness.failure()), null);
+
+  // NT-47: the rule in the margin never drew. It sizes itself off `top` and
+  // `bottom`, and BlockNote pins `height: 0` on the pseudo-element it was drawn
+  // on — so it resolved to 0px, unclipped and coloured and invisible, in
+  // production too. The same pseudo-element is where a bulleted or numbered
+  // item draws its MARKER, which the rule took out of the flex line with it.
+  const GREEN = "oklch(0.63 0.105 148)";
+  const NEUTRAL = "oklch(0.875 0.004 90)";
+  const BAR = { width: "2px", left: "-14px" };
+  /** What a check asks of a rule: that it runs the block, as the right bar. */
+  const asBar = (rule) => ({
+    tone: rule.tone,
+    runsTheBlock: rule.height > 0 && rule.height === rule.block,
+    width: rule.width,
+    left: rule.left,
+    colour: rule.colour,
+  });
+  const ruleOn = (prefix) => h((p) => window.reviewHarness.rule(p), prefix);
+  const marker = (prefix) => ruleOn(prefix).then((rule) => rule.marker);
+  const wordsAt = (prefix) => ruleOn(prefix).then((rule) => rule.wordsAt);
+  const freshList = async () => {
+    await h(() => window.reviewHarness.mount());
+    await page.waitForSelector(".bn-editor");
+    await h(() => window.reviewHarness.seedList());
+    await page.waitForFunction(() => window.reviewHarness.stacks() !== null);
+    await sleep(150);
+  };
+
+  console.log("NT-47: the rule runs the height of the block it marks");
+  await fresh();
+  await typeNotes();
+  await turn();
+  await sleep(250);
+  check("a changed heading wears a rule its own height", asBar(await ruleOn("Scene 1")), { tone: "add", runsTheBlock: true, ...BAR, colour: GREEN });
+  check("…so does the paragraph under it", asBar(await ruleOn("Visual:")), { tone: "add", runsTheBlock: true, ...BAR, colour: GREEN });
+  check("…and the quote under that", asBar(await ruleOn('"What was')), { tone: "add", runsTheBlock: true, ...BAR, colour: GREEN });
+  // A two-line heading is where a rule sized off one line would show.
+  check("the heading is taller than one line", (await ruleOn("Scene 1")).block > 40, true);
+
+  console.log("NT-47: a changed list item keeps its marker, and its words stay put");
+  await freshList();
+  const beforeTheReview = {
+    bullet: await wordsAt("camera body"),
+    nested: await wordsAt("spare battery"),
+    numbered: await wordsAt("clear the border"),
+    check: await wordsAt("charge the drone"),
+  };
+  await turn("agentList");
+  await sleep(300);
+  for (const [what, prefix] of [
+    ["a bulleted item", "camera body and lens"],
+    ["a nested bulleted item", "two spare batteries"],
+    ["a numbered item", "clear the border early"],
+    ["a nested numbered item", "buy a local SIM"],
+    ["a tick-box item", "charge the drone twice"],
+  ]) {
+    check(`${what} wears a rule its own height`, asBar(await ruleOn(prefix)), { tone: "edit", runsTheBlock: true, ...BAR, colour: GREEN });
+  }
+  check("the bullet is still a bullet, in the line with the words", await marker("camera body and lens"), { glyph: '"•"', position: "static", width: "24px" });
+  check("…the nested one is still the hollow bullet", await marker("two spare batteries"), { glyph: '"◦"', position: "static", width: "24px" });
+  check("…and the numbers are still numbers", [await marker("clear the border early"), await marker("buy a local SIM")], [
+    { glyph: '"1."', position: "static", width: "24px" },
+    { glyph: '"1."', position: "static", width: "24px" },
+  ]);
+  // The rule is drawn beside the block, not in front of its words. Before the
+  // fix it took the marker's place in the flex line and every item's words
+  // jumped 24px left the moment the review opened.
+  check("the review moved nobody's words", {
+    bullet: await wordsAt("camera body and lens"),
+    nested: await wordsAt("two spare batteries"),
+    numbered: await wordsAt("clear the border early"),
+    check: await wordsAt("charge the drone twice"),
+  }, beforeTheReview);
+  // The rule is a thing you look at, so leave a way to look at it:
+  //   NT47_SHOT=/tmp/nt47 node tests/editor-review-undo.browser.mjs
+  if (process.env.NT47_SHOT) {
+    const clip = await h(() => {
+      const box = document.querySelector('[data-content-type="bulletListItem"]').closest(".bn-block-outer").getBoundingClientRect();
+      return { x: Math.round(box.x) - 40, y: Math.round(box.y) - 12, width: 440, height: 200 };
+    });
+    await page.screenshot({ path: `${process.env.NT47_SHOT}-list.png`, clip });
+    console.log(`  screenshot → ${process.env.NT47_SHOT}-list.png`);
+  }
+
+  console.log("NT-47: the rule on the blocks with no words of their own");
+  await freshTable();
+  await turn("agentTable", PARTIAL);
+  await sleep(250);
+  check("a partly rewritten table wears a rule its whole height", asBar(await h(() => window.reviewHarness.ruleOnTable())), { tone: "edit", runsTheBlock: true, ...BAR, colour: GREEN });
+  check("…and that is several rows tall", (await h(() => window.reviewHarness.ruleOnTable())).block > 100, true);
+  // A diagram's view is a React node, so it never sat under BlockNote's
+  // `height: 0` and its rule drew all along. It is here because the rule moved
+  // pseudo-element for every block type, not only the ones that were broken.
+  await freshDiagram();
+  await turn("agentDiagram");
+  await sleep(500);
+  check("a rewritten diagram still wears one", asBar(await h(() => window.reviewHarness.ruleOnDiagram())), { tone: "whole", runsTheBlock: true, ...BAR, colour: GREEN });
+  check("…the height of the canvas", (await h(() => window.reviewHarness.ruleOnDiagram())).block > 200, true);
+  if (process.env.NT47_SHOT) {
+    await page.screenshot({ path: `${process.env.NT47_SHOT}-diagram.png` });
+    console.log(`  screenshot → ${process.env.NT47_SHOT}-diagram.png`);
+  }
+
+  console.log("NT-47: pressing into a changed block puts the caret where it was pressed");
+  // The `height: 0` the rule ran into is BlockNote's workaround for a Chrome
+  // bug (#1588) where a block's `::before` moves the caret a mouse-down asks
+  // for. The rule is off that pseudo-element now; this is the bug not coming
+  // back. The control is the same press with no review open.
+  const pressInto = async (index, offset) => {
+    const at = await h((i, o) => window.reviewHarness.textPoint(i, o), index, offset);
+    await page.mouse.click(at.x, at.y);
+    await sleep(120);
+    return h(() => window.reviewHarness.caretAt());
+  };
+  await fresh();
+  await typeNotes();
+  check("control: the caret lands where it was pressed, with no review", await pressInto(4, 12), { empty: true, text: NOTES[2].slice("paragraph:".length), offset: 12 });
+  await turn();
+  await sleep(250);
+  check("under review, it still does — in the changed paragraph", await pressInto(3, 12), { empty: true, text: "Visual: A café table. Actor B leans into frame.", offset: 12 });
+  check("…and in the changed heading", await pressInto(2, 3), { empty: true, text: "Scene 1 — The Question", offset: 3 });
+
+  console.log("NT-47: a changed block the person then empties keeps its placeholder");
+  // `::after` is the empty-block placeholder's. The rule declines there rather
+  // than painting the placeholder's own box green and hanging it in the margin.
+  await fresh();
+  await typeNotes();
+  await turn();
+  await sleep(250);
+  await clickEnd(3);
+  const words = await h(() => window.reviewHarness.caretAt().text.length);
+  for (let i = 0; i < words; i++) await page.keyboard.press("Backspace");
+  await sleep(400);
+  check("emptying it makes it theirs, and the placeholder keeps its pseudo-element", await h(() => window.reviewHarness.emptiedBlock()), {
+    tone: "kept",
+    placeholder: "\"Enter text or type '/' for commands\"",
+    position: "static",
+    colour: "rgba(0, 0, 0, 0)",
+  });
+  check("…and a block they edited but did not empty keeps a neutral rule", asBar(await ruleOn('"What was')), { tone: "kept", runsTheBlock: true, ...BAR, colour: NEUTRAL });
   check("nothing reported a failure", await h(() => window.reviewHarness.failure()), null);
 } finally {
   await browser?.close();

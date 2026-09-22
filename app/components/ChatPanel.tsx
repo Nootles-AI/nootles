@@ -13,8 +13,8 @@ import { useReview } from "./ReviewContext";
 import { PlanWall } from "./billing/PlanWall";
 import { usePlan } from "@/app/lib/usePlan";
 import { useResumeIntent } from "@/app/lib/billing/useResumeIntent";
-import { useProjectChat, type ChatDraft } from "@/app/lib/ai/chat/useProjectChat";
-import type { AbMessage } from "@/app/lib/ai/chat/types";
+import { useProjectChat } from "@/app/lib/ai/chat/useProjectChat";
+import type { AbMessage, ChatDraft } from "@/app/lib/ai/chat/types";
 import type { ReturnPoint } from "@/app/lib/ai/review/session";
 
 export function ChatPanel({
@@ -26,7 +26,7 @@ export function ChatPanel({
   className = "",
   style,
 }: {
-  /** A CSS width — the shell holds the rail's live one in a custom property. */
+  /** A CSS width: the rail face it fills, or the drawer's own when narrow. */
   width: string;
   projectId: Id<"projects">;
   pageId: Id<"pages"> | null;
@@ -73,15 +73,16 @@ export function ChatPanel({
   /**
    * A message written before any thread existed. Creating the thread is async
    * and re-keys the chat, so the draft waits here for one render rather than
-   * being sent to a chat that is about to be replaced.
+   * being sent to a chat that is about to be replaced. Not the same waiting as
+   * `chat.queued`, which is a question asked while an answer was running.
    */
-  const queued = useRef<ChatDraft | null>(null);
+  const awaitingThread = useRef<ChatDraft | null>(null);
   const { ready, send, nameThreadFrom } = chat;
 
   useEffect(() => {
-    const draft = queued.current;
+    const draft = awaitingThread.current;
     if (!draft || !threadId || !ready) return;
-    queued.current = null;
+    awaitingThread.current = null;
     nameThreadFrom(titleFor(draft));
     void send(draft);
   }, [threadId, ready, send, nameThreadFrom]);
@@ -100,7 +101,7 @@ export function ChatPanel({
       return;
     }
     if (!threadId) {
-      queued.current = draft;
+      awaitingThread.current = draft;
       setPicked(await createThread({ projectId }));
       return;
     }
@@ -167,7 +168,10 @@ export function ChatPanel({
     <aside
       hidden={hidden}
       style={{ width, ...style }}
-      className={`nt-panel relative nt-rail-r ${hidden ? "hidden" : ""} ${className}`}
+      // No `relative` here: `.nt-panel` already is, in the components layer, so
+      // the narrow drawer's `fixed` can override it — a `relative` utility sat
+      // level with `fixed` and won, which left the drawer in the page's flow.
+      className={`nt-panel nt-rail-r ${hidden ? "hidden" : ""} ${className}`}
       aria-label="Chat"
     >
       <div className="nt-panel-head">
@@ -184,7 +188,7 @@ export function ChatPanel({
         <button
           onClick={() => {
             setPicked(null);
-            queued.current = null;
+            awaitingThread.current = null;
             void createThread({ projectId }).then(setPicked);
           }}
           aria-label="New chat"
@@ -234,10 +238,12 @@ export function ChatPanel({
       <ChatComposer
         disabled={!chat.ready}
         busy={chat.busy}
+        queued={chat.queued}
         projectId={projectId}
         pageId={pageId}
         onSend={onSend}
         onStop={chat.stop}
+        onUnqueue={chat.unqueue}
       />
 
       {walled && (

@@ -23,6 +23,9 @@ import {
 } from "@/app/lib/history/useWorkspaceHistory";
 import { LayersPanel } from "./editor/canvas/panels/LayersPanel";
 import { Toolbar } from "./editor/canvas/Toolbar";
+import { isApplePlatform, matchShortcut } from "./editor/canvas/engine/shortcuts";
+import { useEditorRegistry } from "./editor/EditorRegistry";
+import { PageToolbar, pageToolFor, usePageDraw, type PageTool } from "./PageDraw";
 import {
   CanvasShellContext,
   CanvasStylePanel,
@@ -35,10 +38,19 @@ import { Sidebar } from "./Sidebar";
 import { PageSurface } from "./PageSurface";
 import { ChatPanel } from "./ChatPanel";
 import { ReviewBar } from "./ReviewBar";
+import { BarMorph } from "./BarMorph";
 import { ResizeHandle } from "./ResizeHandle";
+import { WorkspacePalette } from "./WorkspacePalette";
+import { useLinger } from "@/app/lib/useLinger";
+import { publishColumnEdges } from "@/app/lib/columnEdges";
+import dynamic from "next/dynamic";
+
+// Opened rarely, so it does not ride in the workspace's first bundle.
+const ShortcutsDialog = dynamic(() => import("./ShortcutsDialog"), { ssr: false });
 import { PanelsProvider } from "./PanelsContext";
 import { PagesProvider, type PageRef } from "./PagesContext";
 import { CompletionContextProvider } from "./editor/ai/CompletionContext";
+import { useRepoNaming } from "./context/useRepoNaming";
 import { ReadOnlyContext } from "./editor/readOnly";
 import { Facepile } from "./presence/Facepile";
 import { Hints } from "./hints/Hints";
@@ -58,22 +70,28 @@ const RIGHT = { def: 320, min: 260, max: 560 };
 const SPLIT = { def: 0.5, min: 0.25, max: 0.75 };
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
 
-/* The three widths, as custom properties on the shell rather than numbers
-   passed down. A drag can then write the live value straight to the DOM and
-   leave React alone until the pointer is released — the alternative is a render
-   of the sidebar, both documents and the transcript per frame of a rail drag. */
-const VARS = { left: "--nt-left", right: "--nt-right", aside: "--nt-aside" };
-/* The document column's own edges, published on the root instead of the shell:
-   a surface portalled to the body — the storyboard's fullscreen shot — is still
-   part of this page, and can then stand in the column's room rather than over
-   the whole window, leaving the rails beside it standing. */
-const STAGE = { left: "--nt-stage-l", right: "--nt-stage-r" };
+/* A rail's width lives on its slot and faces as `--nt-rail-w`, which
+   globals.css registers as not inherited. A drag writes the live value straight
+   onto those few boxes and leaves React alone until the pointer is released —
+   the alternative is a render of the sidebar, both documents and the transcript
+   per frame. Not on the shell: an inherited property there restyled every
+   element of the document on every pointer move. */
+const RAIL_W = "--nt-rail-w";
+const railWidth = (px: number) => ({ [RAIL_W]: `${px}px` }) as CSSProperties;
+function writeRailWidth(slot: HTMLElement | null, px: number) {
+  if (!slot) return;
+  for (const el of [slot, ...slot.children] as HTMLElement[]) el.style.setProperty(RAIL_W, `${px}px`);
+}
 /** A canvas with no `screen` (none claimed) never changes, so this subscribe
  *  is a stable identity `useSyncExternalStore` can hold onto across renders. */
 const NEVER_CHANGES = () => () => {};
-const LEFT_W = `var(${VARS.left})`;
-const RIGHT_W = `var(${VARS.right})`;
+/* What a rail holds fills its face; the face carries the width. */
+const FILL = "100%";
 const DRAWER_W = "288px";
+/** How long a rail takes to close; `.nt-rail-slot` in globals.css agrees. */
+const RAIL_MS = 320;
+/** How long the tool bar takes to leave; `nt-toolbar-out` agrees. */
+const TOOLS_MS = 200;
 
 /* Below this the three fixed panels leave no usable column for the document
    (462px of chrome against a 560px viewport left 2px of text), so they stop
@@ -84,13 +102,27 @@ const COMPACT = "(max-width: 1023px)";
    what "deselect" means — and the panels have to be in here, because a field in
    one takes focus off the canvas without meaning to leave it. The mention menu
    is portalled to the body but belongs to a label edit inside the canvas; the
-   storyboard's fullscreen shot is a whole canvas view portalled the same way. */
-const CANVAS_SHELL =
-  ".nt-canvas, .nt-lyr, .nt-style-panel, .nt-toolbar, .nt-mention-anchor, .nt-sb-full";
+   storyboard's fullscreen shot is a whole canvas view portalled the same way.
 
-/* The same idea for a place card: a press inside the card or its panel is
-   still about that card, and anywhere else is done with it. */
-const LOCATION_SHELL = ".nt-loc, .nt-style-panel";
+   So is every menu (`.nt-menu`): the inspector's selects, the toolbar's zoom
+   and settings, the canvas's own context menu are all portalled to the body.
+   Leaving them out made choosing from one a press "outside" — it let the
+   diagram go and the stage fall shut mid-choice. Counting any open menu is
+   safe: a menu is only open because its trigger was pressed, and a trigger
+   outside the canvas has already let the diagram go before its menu exists.
+
+   And the rails the panels stand in, edges and resize handles included: while a
+   diagram is being edited both rails are its panels, so widening one — or a
+   press that lands on its border — is adjusting the diagram's tools, not
+   leaving it. The split between two pages (`.is-gap`) is the document's. */
+const CANVAS_SHELL =
+  ".nt-canvas, .nt-lyr, .nt-style-panel, .nt-toolbar, .nt-mention-anchor, .nt-sb-full, .nt-menu, " +
+  ".nt-rail-slot, .nt-resize:not(.is-gap)";
+
+/* The same idea for a place card: a press inside the card or its panel — or a
+   menu one of them opened — is still about that card, and anywhere else is
+   done with it. */
+const LOCATION_SHELL = ".nt-loc, .nt-style-panel, .nt-menu";
 
 /* Room left above a diagram too tall to centre. */
 const REVEAL_TOP = 24;
@@ -141,6 +173,8 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
   const [leftOpen, setLeftOpen] = useState(true);
   const [rightOpen, setRightOpen] = useState(true);
   const [drawer, setDrawer] = useState<"left" | "right" | null>(null);
+  const [finding, setFinding] = useState(false);
+  const [showingKeys, setShowingKeys] = useState(false);
 
   const [canvas, setCanvas] = useState<ActiveCanvas | null>(null);
   const [place, setPlace] = useState<ActiveLocation | null>(null);
@@ -240,6 +274,7 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
   );
 
   const compact = useMediaQuery(COMPACT);
+  useRepoNaming(projectId);
 
   // Only what something outside needs: the first-run guide brings the chat rail
   // out before pointing at it. Rebuilt when `compact` flips because the same
@@ -251,6 +286,31 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
     }),
     [compact],
   );
+  // ⌘K finds a page, as it finds a project one screen up. Heard on the way
+  // down, before the editor: there ⌘K is "link this selection", and it keeps
+  // that meaning whenever there is a selection to link.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      // `?` lists the keys — a bare key, so it stands down wherever one could
+      // be typing, and while another dialog has the floor.
+      if (e.key === "?" && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        const el = e.target as HTMLElement | null;
+        if (el?.closest?.("input, textarea, [contenteditable='true'], [role='dialog']")) return;
+        e.preventDefault();
+        setShowingKeys(true);
+        return;
+      }
+      if (e.key.toLowerCase() !== "k" || !(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey) return;
+      const typing = (e.target as HTMLElement | null)?.closest?.("[contenteditable='true']");
+      if (typing && !window.getSelection()?.isCollapsed) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setFinding((f) => !f);
+    };
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
+  }, []);
+
   // Narrow: panels are overlays, and overlays start closed.
   const showLeft = leftOpen && !compact;
   const showRight = rightOpen && !compact;
@@ -275,6 +335,7 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
     () => false,
   );
   const chrome = !(canvas && minimal);
+
 
   // Restore persisted layout on the client. Defaults render first (so SSR and
   // the first client render match — no hydration mismatch), then we sync from
@@ -411,33 +472,34 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
 
   /* The live value goes to the DOM; only the release goes to React, which is
      what keeps a drag off the document and the transcript. */
-  const shellRef = useRef<HTMLDivElement>(null);
-  const write = useCallback((name: string, value: string) => {
-    shellRef.current?.style.setProperty(name, value);
-  }, []);
+  const leftSlotRef = useRef<HTMLDivElement>(null);
+  const rightSlotRef = useRef<HTMLDivElement>(null);
+  const asideRef = useRef<HTMLDivElement>(null);
 
-  /* Measured, not recomputed: the rails beside the column are a sidebar, a
-     layers panel, an edge tab or nothing at all depending on the moment, and
-     the column already knows what is left over. Its width changes whenever any
-     of them does, which is what the observer watches. */
+  /* The column's edges, for the boxes fixed to the window that stand in it
+     (`columnEdges.ts`) — a surface portalled to the body, like the storyboard's
+     full-size shot, included. Measured, not recomputed: the rails beside the
+     column are a sidebar, a layers panel, an edge tab or nothing at all
+     depending on the moment, and the column already knows what is left over.
+     Its width changes whenever any of them does, which is what the observer
+     watches — on every frame of a rail opening or closing. */
   useLayoutEffect(() => {
     const el = columnRef.current;
     if (!el) return;
-    const root = document.documentElement.style;
     const measure = () => {
       // Narrow, the rails are drawers summoned over the document rather than
       // chrome standing beside it, so there is nothing to leave room for.
       const box = compact ? null : el.getBoundingClientRect();
-      root.setProperty(STAGE.left, box ? `${box.left}px` : "0px");
-      root.setProperty(STAGE.right, box ? `${window.innerWidth - box.right}px` : "0px");
+      publishColumnEdges(
+        box ? { left: box.left, right: window.innerWidth - box.right } : { left: 0, right: 0 },
+      );
     };
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(el);
     return () => {
       observer.disconnect();
-      root.removeProperty(STAGE.left);
-      root.removeProperty(STAGE.right);
+      publishColumnEdges(null);
     };
   }, [compact]);
 
@@ -445,17 +507,17 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
     (clientX: number, done: boolean) => {
       const width = clamp(clientX, LEFT.min, LEFT.max);
       if (done) setLeftWidth(width);
-      else write(VARS.left, `${width}px`);
+      else writeRailWidth(leftSlotRef.current, width);
     },
-    [write],
+    [],
   );
   const onResizeRight = useCallback(
     (clientX: number, done: boolean) => {
       const width = clamp(window.innerWidth - clientX, RIGHT.min, RIGHT.max);
       if (done) setRightWidth(width);
-      else write(VARS.right, `${width}px`);
+      else writeRailWidth(rightSlotRef.current, width);
     },
-    [write],
+    [],
   );
   // Measured against the column rather than the window: what is left of it
   // after the rails is all the two panes have to share.
@@ -465,9 +527,9 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
       if (!box) return;
       const share = clamp((box.right - clientX) / box.width, SPLIT.min, SPLIT.max);
       if (done) setAsideShare(share);
-      else write(VARS.aside, `${share * 100}%`);
+      else if (asideRef.current) asideRef.current.style.width = `${share * 100}%`;
     },
-    [write],
+    [],
   );
 
   // The project comes from the route now. Only the pages are a selection, and
@@ -517,9 +579,115 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
     pageRef.current = effectivePageId ?? null;
   });
 
+
+  // Each rail is one place with two faces: the pages or the layers on the
+  // left, the chat or an inspector on the right. Entering a diagram does not
+  // close one rail and open another — the place stays, and what is in it turns
+  // over. Every face stays mounted for as long as it takes to leave.
+  //
+  // The panels a claim brings need the claim's API to render, and that is gone
+  // the moment the diagram is let go; the last one is kept for the way out.
+  const [lastCanvas, setLastCanvas] = useState(canvasPanels);
+  if (canvasPanels && canvasPanels !== lastCanvas) setLastCanvas(canvasPanels);
+  const [lastPlace, setLastPlace] = useState(placePanel);
+  if (placePanel && placePanel !== lastPlace) setLastPlace(placePanel);
+
+  // The tool bar leaves the same way, a beat after the diagram is let go, and
+  // the review it shares the corner with waits until it has.
+  const [lastTools, setLastTools] = useState(canvas);
+  if (canvas && canvas !== lastTools) setLastTools(canvas);
+  const toolsOn = chrome && !!canvas;
+  const toolsHeld = useLinger(toolsOn, TOOLS_MS) && !!lastTools;
+
+  // With no diagram in hand the bar stays, holding the page's own tools: a
+  // shape armed there draws a new diagram onto the page. The page is only ever
+  // armed while nothing is being edited, so a claim disarms it by itself.
+  const registry = useEditorRegistry();
+  const [heldPageTool, setPageTool] = useState<PageTool>("move");
+  const pageBarOn = chrome && !viewer && !compact && !toolsOn;
+  // Where the page bar is there to turn into, the diagram's bar morphs into it
+  // on the way out rather than first sinking away.
+  const canvasBarOn = toolsOn || (toolsHeld && !pageBarOn);
+  const pageTool: PageTool = pageBarOn ? heldPageTool : "move";
+
+  // A diagram just drawn onto the page opens with what was drawn selected.
+  const arriving = useRef<{ blockId: string; select: string } | null>(null);
+  useEffect(() => {
+    const next = arriving.current;
+    if (!canvas || next?.blockId !== canvas.blockId) return;
+    arriving.current = null;
+    canvas.api.selection.select([next.select]);
+  }, [canvas]);
+  usePageDraw({
+    well: columnRef,
+    tool: pageTool,
+    registry,
+    onTool: setPageTool,
+    onDrawn: useCallback((blockId: string, nodeId: string) => {
+      arriving.current = { blockId, select: nodeId };
+      void awaitSurface(blockId).then((claim) => claim?.());
+    }, []),
+    onIntoDiagram: useCallback(() => setPageTool("move"), []),
+  });
+
+  // ⌥⇧ and a letter, the diagram's own keys, pick the page's tools — heard in
+  // the editor too, since the modifiers are what keep them from being typing.
+  // A diagram in hand answers them itself.
+  useEffect(() => {
+    if (!pageBarOn) return;
+    const apple = isApplePlatform();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return;
+      if (e.key === "Escape" && heldPageTool !== "move") {
+        e.preventDefault();
+        setPageTool("move");
+        return;
+      }
+      // ⌥⇧ only: the tools' bare letters are the diagram's, and here they are typing.
+      if (!e.altKey || !e.shiftKey) return;
+      const el = e.target as HTMLElement | null;
+      if (el?.closest?.("input, textarea, math-field, [role='dialog']")) return;
+      const next = pageToolFor(matchShortcut(e, apple));
+      if (!next) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setPageTool(next);
+    };
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
+  }, [pageBarOn, heldPageTool]);
+
+  // The diagram being edited says so on its own element: its ground shows the
+  // dots and its edge (`.nt-canvas[data-live]`). Written from here because the
+  // shell is what knows which one it is, and as an attribute rather than state
+  // so no canvas re-renders for it.
+  useEffect(() => {
+    const el = canvas?.api.viewport.containerRef.current?.closest<HTMLElement>(".nt-canvas");
+    if (!el) return;
+    el.dataset.live = "";
+    return () => {
+      delete el.dataset.live;
+    };
+  }, [canvas]);
+
+  const pagesOn = chrome && showLeft && !canvasPanels;
+  const layersOn = chrome && !!canvasPanels;
+  const leftRail = pagesOn || layersOn;
+  const pagesHeld = useLinger(pagesOn, RAIL_MS);
+  const layersHeld = useLinger(layersOn, RAIL_MS) && !!lastCanvas;
+
+  const rightClaimed = !!canvasPanels || !!placePanel;
+  const chatOn = chrome && !viewer && showRight && !rightClaimed;
+  const designOn = chrome && !!canvasPanels;
+  const placeOn = chrome && !!placePanel;
+  const rightRail = chatOn || designOn || placeOn;
+  const chatHeld = useLinger(chatOn, RAIL_MS) && !compact;
+  const designHeld = useLinger(designOn, RAIL_MS) && !!lastCanvas;
+  const placeHeld = useLinger(placeOn, RAIL_MS) && !!lastPlace;
+
   const sidebar = (
     <Sidebar
-      width={compact ? DRAWER_W : LEFT_W}
+      width={compact ? DRAWER_W : FILL}
       projectId={projectId}
       selectedPageId={effectivePageId}
       otherPageId={focus === "aside" ? mainPageId : asidePageId}
@@ -530,12 +698,14 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
         setDrawer(null);
       }}
       onCollapse={() => (compact ? setDrawer(null) : setLeftOpen(false))}
+      onFind={() => setFinding(true)}
+      onShowKeys={() => setShowingKeys(true)}
     />
   );
 
   const chatAsDrawer = compact && openDrawer === "right";
   const chatProps = {
-    width: compact ? DRAWER_W : RIGHT_W,
+    width: compact ? DRAWER_W : FILL,
     projectId,
     pageId: effectivePageId,
     onCollapse: () => (compact ? setDrawer(null) : setRightOpen(false)),
@@ -550,9 +720,7 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
   // its hook owns the BrowserChat and its abort signal. `hidden` keeps it out
   // of both layout and the accessibility tree while a canvas/location claims
   // the slot (or while the rail is collapsed), without mistaking that for Stop.
-  const chatHidden = compact
-    ? !chatAsDrawer
-    : !chrome || !!canvasPanels || !!placePanel || !showRight;
+  const chatHidden = compact ? !chatAsDrawer : !chatOn && !chatHeld;
 
   return (
     <CanvasShellContext value={shell}>
@@ -561,43 +729,37 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
      <PagesProvider pages={pageRefs}>
      <CompletionContextProvider projectId={projectId}>
      <PanelsProvider value={panels}>
-      <div
-        ref={shellRef}
-        className="flex h-screen w-full overflow-hidden"
-        style={
-          {
-            [VARS.left]: `${leftWidth}px`,
-            [VARS.right]: `${rightWidth}px`,
-            [VARS.aside]: `${asideShare * 100}%`,
-          } as CSSProperties
-        }
-      >
-        {!chrome ? null : canvasPanels ? (
-          <>
-            <aside
-              className="nt-panel nt-rail-l"
-              style={{ width: LEFT_W }}
-              aria-label="Layers"
-              {...undoScope}
-            >
-              <LayersPanel
-                store={canvasPanels.api.store}
-                selection={canvasPanels.api.selection}
-              />
-            </aside>
-            <ResizeHandle onResize={onResizeLeft} ariaLabel="Resize layers" />
-          </>
-        ) : showLeft ? (
-          <>
-            {sidebar}
-            <ResizeHandle onResize={onResizeLeft} ariaLabel="Resize sidebar" />
-          </>
-        ) : (
-          <EdgeRail
-            side="left"
-            onClick={() => (compact ? setDrawer("left") : setLeftOpen(true))}
-            label="Open sidebar"
-            expanded={openDrawer === "left"}
+      <div className="nt-shell flex h-screen w-full overflow-hidden" data-bare={!chrome || undefined}>
+        {/* The left rail's place. It closes over what it holds when the rail is
+            put away, and turns its face over when a diagram takes it. */}
+        {!compact && (
+          <div ref={leftSlotRef} className="nt-rail-slot" data-open={leftRail} style={railWidth(leftWidth)}>
+            {pagesHeld && (
+              <div className="nt-rail-face" data-on={pagesOn} inert={!pagesOn} style={railWidth(leftWidth)}>
+                {sidebar}
+              </div>
+            )}
+            {layersHeld && lastCanvas && (
+              <div className="nt-rail-face" data-on={layersOn} inert={!layersOn} style={railWidth(leftWidth)}>
+                <aside
+                  className="nt-panel"
+                  style={{ width: FILL }}
+                  aria-label="Layers"
+                  {...undoScope}
+                >
+                  <LayersPanel
+                    store={lastCanvas.api.store}
+                    selection={lastCanvas.api.selection}
+                  />
+                </aside>
+              </div>
+            )}
+          </div>
+        )}
+        {leftRail && !compact && (
+          <ResizeHandle
+            onResize={onResizeLeft}
+            ariaLabel={canvasPanels ? "Resize layers" : "Resize sidebar"}
           />
         )}
 
@@ -608,19 +770,47 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
             settles the shell, and anything that must paint over the whole
             app (menus, dialogs, the block-handle cluster) portals to the
             body rather than fighting this boundary from inside. */}
-        <div ref={columnRef} className="relative isolate flex min-w-0 flex-1">
+        <div
+          ref={columnRef}
+          className="nt-well relative isolate flex min-w-0 flex-1"
+          data-edge-l={!leftRail || undefined}
+          data-edge-r={!rightRail || undefined}
+        >
           {/* The workspace has no top bar, so presence floats where a top
               bar's corner would be — over the focused document. */}
-          <div
-            className="pointer-events-none absolute right-3 top-3"
-            style={{ zIndex: "var(--z-sticky)" }}
-          >
+          {/* A rail that is put away leaves its way back in the sheet's corner,
+              on the side it went to. */}
+          {chrome && !leftRail && (
+            <div className="nt-corner is-left">
+              <button
+                onClick={() => (compact ? setDrawer("left") : setLeftOpen(true))}
+                aria-label="Open sidebar"
+                aria-expanded={openDrawer === "left"}
+                title="Open sidebar"
+                className="nt-icon-btn"
+              >
+                <PanelLeft />
+              </button>
+            </div>
+          )}
+          <div className="nt-corner is-right">
             <Facepile
               docId={
                 sortedPages?.find((p) => p._id === effectivePageId)?.docId ??
                 null
               }
             />
+            {chrome && !viewer && !rightRail && (
+              <button
+                onClick={() => (compact ? setDrawer("right") : setRightOpen(true))}
+                aria-label="Open chat"
+                aria-expanded={openDrawer === "right"}
+                title="Open chat"
+                className="nt-icon-btn"
+              >
+                <PanelRight />
+              </button>
+            )}
           </div>
           {mainPageId ? (
             <PageSurface
@@ -633,10 +823,11 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
           )}
           {asidePageId && (
             <>
-              <ResizeHandle onResize={onResizeAside} ariaLabel="Resize split" />
+              <ResizeHandle onResize={onResizeAside} ariaLabel="Resize split" gap />
               <div
+                ref={asideRef}
                 className="flex min-w-0 shrink-0"
-                style={{ width: `var(${VARS.aside})` }}
+                style={{ width: `${asideShare * 100}%` }}
               >
                 <PageSurface
                   pageId={asidePageId}
@@ -648,50 +839,82 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
           )}
         </div>
 
-        {/* Viewers have no chat: their AI would need the pen. No rail, no
-            edge tab — absence, not a locked door. */}
-        {!chrome ? null : canvasPanels ? (
-          <CanvasStylePanel api={canvasPanels.api} />
-        ) : placePanel ? (
-          <LocationPanel active={placePanel} />
-        ) : viewer ? null : showRight ? (
-          <ResizeHandle onResize={onResizeRight} ariaLabel="Resize chat" />
-        ) : (
-          <EdgeRail
-            side="right"
-            onClick={() => (compact ? setDrawer("right") : setRightOpen(true))}
-            label="Open chat"
-            expanded={openDrawer === "right"}
+        {rightRail && !compact && (
+          <ResizeHandle
+            onResize={onResizeRight}
+            ariaLabel={chatOn ? "Resize chat" : "Resize panel"}
           />
         )}
 
-        {/* Inspector swaps, rail collapse and compact-drawer dismissal only hide
-            this panel. The one mounted instance keeps an active response alive
-            wherever the chat happens to be shown. */}
-        {!viewer && <ChatPanel {...chatProps} hidden={chatHidden} />}
+        {/* The right rail's place: the chat, or what a diagram or a place card
+            brings. Viewers have no chat — their AI would need the pen — so for
+            them the place is only ever an inspector's.
+
+            The one mounted ChatPanel keeps an active response alive wherever
+            the chat happens to be shown; turning its face over, putting the
+            rail away and the narrow drawer all only hide it. */}
+        <div
+          ref={rightSlotRef}
+          className="nt-rail-slot is-right"
+          data-open={rightRail && !compact}
+          style={railWidth(rightWidth)}
+        >
+          {!viewer && (
+            // Narrow, the chat is a fixed drawer, and a face mid-turn carries a
+            // transform that would become what the drawer is fixed to — so
+            // there it is not a face at all.
+            <div
+              className={compact ? "contents" : "nt-rail-face is-right"}
+              style={railWidth(rightWidth)}
+              data-on={chatOn}
+              inert={!compact && !chatOn}
+            >
+              <ChatPanel {...chatProps} hidden={chatHidden} />
+            </div>
+          )}
+          {designHeld && lastCanvas && (
+            <div className="nt-rail-face is-right" data-on={designOn} inert={!designOn} style={railWidth(rightWidth)}>
+              <CanvasStylePanel api={lastCanvas.api} />
+            </div>
+          )}
+          {placeHeld && lastPlace && (
+            <div className="nt-rail-face is-right" data-on={placeOn} inert={!placeOn} style={railWidth(rightWidth)}>
+              <LocationPanel active={lastPlace} />
+            </div>
+          )}
+        </div>
 
         {/* One bar, one corner. The tool palette is transient and the review is a
             standing question, so while a diagram is being edited the palette has
             the slot and the review comes back the moment the diagram is let go.
-            Both are fixed, and the resize handles carry a z-index of their own —
-            hence the stacking context around this one. */}
-        <div className="relative" style={{ zIndex: "var(--z-sticky)" }}>
-          {/* A storyboard shot claims the shell for the panels but carries its
-              own vertical bar beside the board, so the floating pill stands
-              down for it the way it does for a review. */}
-          {!chrome ? null : canvas && !canvas.api.board ? (
+            The page's bar and the diagram's turn into one another. */}
+        <BarMorph mode={toolsOn ? "canvas" : "page"}>
+          {!chrome ? null : canvasBarOn && lastTools ? (
             <Toolbar
-              store={canvas.api.store}
-              viewport={canvas.api.viewport}
-              tools={canvas.api.tools}
-              screen={canvas.api.screen}
+              key={lastTools.blockId}
+              store={lastTools.api.store}
+              viewport={lastTools.api.viewport}
+              tools={lastTools.api.tools}
+              screen={lastTools.api.screen}
+              board={lastTools.api.board}
+              onPalette={() => setFinding(true)}
+              leaving={!toolsOn}
             />
           ) : (
-            // Here rather than under the editor: the changes it answers for can
-            // span pages, and the agent opens pages on its own.
-            <ReviewBar />
+            <>
+              {pageBarOn && (
+                <PageToolbar
+                  tool={pageTool}
+                  onTool={setPageTool}
+                  onPalette={() => setFinding(true)}
+                />
+              )}
+              {/* Here rather than under the editor: the changes it answers for
+                  can span pages, and the agent opens pages on its own. */}
+              <ReviewBar />
+            </>
           )}
-        </div>
+        </BarMorph>
 
         {openDrawer && (
           <>
@@ -711,6 +934,29 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
             )}
           </>
         )}
+
+        {finding && (
+          <WorkspacePalette
+            pages={sortedPages ?? []}
+            currentPageId={effectivePageId}
+            leftOpen={compact ? openDrawer === "left" : leftOpen}
+            rightOpen={compact ? openDrawer === "right" : rightOpen}
+            canChat={!viewer}
+            onOpenPage={(id) => {
+              open(id);
+              setDrawer(null);
+            }}
+            onToggleLeft={() =>
+              compact ? setDrawer((d) => (d === "left" ? null : "left")) : setLeftOpen((o) => !o)
+            }
+            onToggleRight={() =>
+              compact ? setDrawer((d) => (d === "right" ? null : "right")) : setRightOpen((o) => !o)
+            }
+            onShowKeys={() => setShowingKeys(true)}
+            onClose={() => setFinding(false)}
+          />
+        )}
+        {showingKeys && <ShortcutsDialog onClose={() => setShowingKeys(false)} />}
 
         <Feedback projectId={projectId} pageId={effectivePageId} />
         {/* The answer to what that button sent, in the corner it left from. */}
@@ -741,37 +987,6 @@ function EmptyWorkspace() {
       <p className="max-w-xs text-sm text-muted">
         Press + in the sidebar to start one.
       </p>
-    </div>
-  );
-}
-
-/**
- * The rail shown in place of a collapsed panel. Its padding matches the panel's
- * own `--inset`, so the toggle button keeps its size and its distance from the
- * edge whether the panel is open or closed, instead of jumping.
- */
-function EdgeRail({
-  side,
-  onClick,
-  label,
-  expanded,
-}: {
-  side: "left" | "right";
-  onClick: () => void;
-  label: string;
-  expanded: boolean;
-}) {
-  return (
-    <div className="flex h-full shrink-0 flex-col bg-surface p-2">
-      <button
-        onClick={onClick}
-        aria-label={label}
-        aria-expanded={expanded}
-        title={label}
-        className="nt-icon-btn"
-      >
-        {side === "left" ? <PanelLeft /> : <PanelRight />}
-      </button>
     </div>
   );
 }

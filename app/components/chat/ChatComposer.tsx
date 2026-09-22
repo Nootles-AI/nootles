@@ -22,7 +22,7 @@ import {
   type MentionItem,
   type MentionPick,
 } from "@/app/lib/ai/chat/mentions";
-import type { ChatDraft } from "@/app/lib/ai/chat/useProjectChat";
+import type { ChatDraft, QueuedDraft } from "@/app/lib/ai/chat/types";
 import { clearPrefill, onPrefill } from "@/app/lib/ai/chat/prefill";
 
 /**
@@ -35,21 +35,33 @@ import { clearPrefill, onPrefill } from "@/app/lib/ai/chat/prefill";
  *
  * Files are read and checked the moment they are dropped, but uploaded only on
  * Send: a file you thought better of never reaches storage.
+ *
+ * It takes questions while the agent is still answering. Refusing them is the
+ * easier build and the worse tool: the moment you most want to say something is
+ * the moment you can see where the answer is going. So Send keeps working mid-
+ * answer and what you wrote waits its turn above the box, and Escape — the same
+ * key everything else here is dismissed with — is Stop under the fingers that
+ * are already on the keyboard.
  */
 export function ChatComposer({
   disabled,
   busy,
+  queued,
   projectId,
   pageId,
   onSend,
   onStop,
+  onUnqueue,
 }: {
   disabled: boolean;
   busy: boolean;
+  /** Written during the answer now running, waiting for it to end. */
+  queued: QueuedDraft[];
   projectId: Id<"projects">;
   pageId: Id<"pages"> | null;
   onSend: (draft: ChatDraft) => Promise<void>;
   onStop: () => void;
+  onUnqueue: (id: string) => void;
 }) {
   const convex = useConvex();
   const pages = useQuery(api.pages.listByProject, { projectId });
@@ -177,7 +189,8 @@ export function ChatComposer({
     setNote(refused[0] ?? null);
   };
 
-  const ready = !disabled && !busy && !sending && (text.trim().length > 0 || files.length > 0);
+  // `busy` is deliberately not here: mid-answer this sends to the queue.
+  const ready = !disabled && !sending && (text.trim().length > 0 || files.length > 0);
 
   const submit = async () => {
     if (!ready) return;
@@ -202,6 +215,18 @@ export function ChatComposer({
   return (
     <div
       className={`nt-composer${dropping ? " is-dropping" : ""}`}
+      // Scoped to the box rather than to the rail: the transcript's own menus
+      // and its delete confirmation take Escape for themselves, and a rail-wide
+      // handler would stop the turn out from under whichever one was open.
+      onKeyDown={(e) => {
+        if (e.key !== "Escape" || !busy) return;
+        e.preventDefault();
+        // Innermost first, like the menu above: on a narrow screen this rail is
+        // a drawer that Escape closes, and stopping the answer should not also
+        // take the person away from the transcript of it.
+        e.stopPropagation();
+        onStop();
+      }}
       onDragOver={(e) => {
         if (!e.dataTransfer.types.includes("Files")) return;
         e.preventDefault();
@@ -231,6 +256,23 @@ export function ChatComposer({
         <p role="status" className="nt-composer-note">
           {note}
         </p>
+      )}
+
+      {queued.length > 0 && (
+        <ul className="nt-composer-queue" aria-label="Waiting to send">
+          {queued.map((item) => (
+            <li key={item.id} className="nt-queued">
+              <span className="nt-queued-label">{queuedLabel(item.draft)}</span>
+              <button
+                className="nt-chip-remove"
+                aria-label={`Don't send "${queuedLabel(item.draft)}"`}
+                onClick={() => onUnqueue(item.id)}
+              >
+                <X width={11} height={11} />
+              </button>
+            </li>
+          ))}
+        </ul>
       )}
 
       {files.length > 0 && (
@@ -287,6 +329,10 @@ export function ChatComposer({
             }
             if (e.key === "Escape") {
               e.preventDefault();
+              // Innermost first: this Escape closed the menu, and must not also
+              // stop the turn behind it — nor reach the compact drawer, which
+              // Escape closes.
+              e.stopPropagation();
               setDismissed({ start: trigger.start, query: trigger.query });
               return;
             }
@@ -312,20 +358,23 @@ export function ChatComposer({
             <Paperclip width={14} height={14} />
           </button>
         </div>
-        {busy ? (
-          <button className="nt-composer-send" onClick={onStop} title="Stop">
-            Stop
-          </button>
-        ) : (
+        {/* Both, mid-answer: Escape is the fast way to stop, but it cannot be
+            the only one, and a box with something in it must still be sendable. */}
+        <div className="flex items-center gap-1">
+          {busy && (
+            <button className="nt-composer-stop" onClick={onStop} title="Stop (Esc)">
+              Stop
+            </button>
+          )}
           <button
             className="nt-composer-send"
             onClick={() => void submit()}
             disabled={!ready}
-            title="Send (↵)"
+            title={busy ? "Send when this answer finishes (↵)" : "Send (↵)"}
           >
             Send
           </button>
-        )}
+        </div>
       </div>
 
       <input
@@ -342,4 +391,9 @@ export function ChatComposer({
       />
     </div>
   );
+}
+
+/** A waiting question, said in as much of itself as the rail can show. */
+function queuedLabel(draft: ChatDraft): string {
+  return draft.text || draft.attachments[0]?.filename || "Attachment";
 }

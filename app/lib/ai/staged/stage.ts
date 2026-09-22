@@ -117,22 +117,16 @@ export async function stageTurn(args: {
   const script = matchScript(said);
   if (!script) return null;
 
-  // Only now, because these are round trips and every unstaged turn in a staged
-  // project would otherwise pay for them.
-  const [pages, repos] = await Promise.all([
-    convex
-      .query(api.pages.listByProject, { projectId })
-      .then((rows) =>
-        rows
-          .sort((a, b) => a.order - b.order)
-          .map((p) => ({ pageId: String(p._id), title: p.title })),
-      )
-      .catch(() => [] as { pageId: string; title: string }[]),
-    convex
-      .query(api.ai.context.forPrompt, { projectId })
-      .then((it) => (it?.repos ?? []).map((r) => r.fullName))
-      .catch(() => [] as string[]),
-  ]);
+  // Only now, because it is a round trip and every unstaged turn in a staged
+  // project would otherwise pay for it.
+  const pages = await convex
+    .query(api.pages.listByProject, { projectId })
+    .then((rows) =>
+      rows
+        .sort((a, b) => a.order - b.order)
+        .map((p) => ({ pageId: String(p._id), title: p.title })),
+    )
+    .catch(() => [] as { pageId: string; title: string }[]);
 
   const ctx: StageContext = {
     projectId,
@@ -140,7 +134,6 @@ export async function stageTurn(args: {
     said,
     results: resultsSoFar(messages),
     pages,
-    repos,
   };
 
   // A script that has run out of steps still answers — with a bare stop, which

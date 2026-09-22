@@ -49,14 +49,15 @@ export function ThreadPicker({
           <div key={thread._id} className="nt-thread-row">
             <button
               role="menuitem"
+              aria-current={thread._id === activeId || undefined}
               className="nt-menu-item flex-1"
               onClick={() => {
                 onPick(thread._id);
                 onClose();
               }}
             >
-              <span className="nt-thread-check">
-                {thread._id === activeId && <Check width={13} height={13} />}
+              <span className="nt-thread-check" data-on={thread._id === activeId}>
+                <Check width={13} height={13} />
               </span>
               <span className="nt-row-label">{thread.title || "New chat"}</span>
               <span className="nt-thread-age">{ago(thread.updatedAt)}</span>

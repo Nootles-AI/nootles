@@ -17,13 +17,22 @@ export function NotionConnect({
   stale,
   blocker,
   href,
+  onConnect,
+  title = "Bring your pages across from Notion",
 }: {
   titleId: string;
   /** There was a connection and Notion has since withdrawn it. */
   stale: boolean;
   /** Why this deployment cannot hold a connection, when it cannot. */
   blocker: string | null;
-  href: string;
+  /** Where the button goes — the consent screen, leaving this page. */
+  href?: string;
+  /**
+   * Instead of `href`: connect without leaving, in a window of its own — for a
+   * page whose unfinished form would not survive the round trip.
+   */
+  onConnect?: () => void;
+  title?: string;
 }) {
   return (
     <div className="nt-nc">
@@ -38,7 +47,7 @@ export function NotionConnect({
       </div>
 
       <h2 id={titleId} className="nt-nc-title">
-        {stale ? "Reconnect your Notion" : "Bring your pages across from Notion"}
+        {stale ? "Reconnect your Notion" : title}
       </h2>
       {/* Not decoration: it is why someone who already connected is being asked
           again. */}
@@ -53,7 +62,15 @@ export function NotionConnect({
       {blocker ? (
         <p className="nt-note nt-nc-blocker">{blocker}</p>
       ) : (
-        <a href={href} className="nt-nc-go">
+        <a
+          href={href ?? "#"}
+          className="nt-nc-go"
+          onClick={(e) => {
+            if (!onConnect) return;
+            e.preventDefault();
+            onConnect();
+          }}
+        >
           <NotionMark width={16} height={16} />
           {stale ? "Reconnect Notion" : "Connect Notion"}
         </a>

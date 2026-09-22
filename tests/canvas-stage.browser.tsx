@@ -9,6 +9,7 @@ import { laidOutScene } from "../app/components/editor/canvas/scene/autoLayout";
 import { absoluteBounds } from "../app/components/editor/canvas/scene/geometry";
 import type { NodeId, Point } from "../app/components/editor/canvas/scene/types";
 import { FIXTURES } from "./canvas-fixtures";
+import { publishColumnEdges } from "../app/lib/columnEdges";
 import "../app/components/editor/canvas/canvas.css";
 import "../app/components/editor/canvas/render/shape.css";
 import "../app/components/editor/canvas/render/edges.css";
@@ -20,7 +21,7 @@ import "./canvas-harness.browser.css";
 /**
  * The STAGE browser fixture: a real `CanvasSurface`, `Toolbar`, `LayersPanel`
  * and `CanvasStylePanel`, wired through `CanvasShellContext` and a column
- * that publishes `--nt-stage-l/r` with the same `ResizeObserver` pattern
+ * that publishes its edges (`publishColumnEdges`) with the same `ResizeObserver` pattern
  * `Workspace.tsx` uses — so `[data-stage]`'s fixed-position contract lands
  * against real, non-zero rail widths rather than an all-zero fallback.
  *
@@ -71,30 +72,40 @@ function sleep(ms: number): Promise<void> {
 
 const NEVER_CHANGES = () => () => {};
 
+/**
+ * Both rail panels take their width from the rail `Workspace.tsx` puts them
+ * in — `.nt-lyr` states none at all and `.nt-style-panel` is `width: 100%` —
+ * so a fixture that drops them straight into the row gives the style panel
+ * the whole window and collapses the document column to nothing. `recentre`
+ * declines a zero-width box, which left the stage moving the scene point it
+ * exists to hold still. The numbers are the app's own rail defaults; only
+ * their being real widths matters here.
+ */
+const LEFT_RAIL = 256;
+const RIGHT_RAIL = 320;
+const rail = (width: number) => ({ flex: "none" as const, width, height: "100%" });
+
 function Harness({ onReady }: { onReady: (api: CanvasApi) => void }) {
   const [active, setActive] = useState<ActiveCanvas | null>(null);
   const shell = useMemo(() => ({ active, set: setActive }), [active]);
   const [source, setSource] = useState(() => FIXTURES["small-diagram"].html);
   const columnRef = useRef<HTMLDivElement>(null);
 
-  // The same `--nt-stage-l/r` publication `Workspace.tsx` does, against this
+  // The same edge publication `Workspace.tsx` does, against this
   // fixture's own column rather than the real app's rails.
   useLayoutEffect(() => {
     const el = columnRef.current;
     if (!el) return;
-    const root = document.documentElement.style;
     const measure = () => {
       const box = el.getBoundingClientRect();
-      root.setProperty("--nt-stage-l", `${box.left}px`);
-      root.setProperty("--nt-stage-r", `${window.innerWidth - box.right}px`);
+      publishColumnEdges({ left: box.left, right: window.innerWidth - box.right });
     };
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(el);
     return () => {
       observer.disconnect();
-      root.removeProperty("--nt-stage-l");
-      root.removeProperty("--nt-stage-r");
+      publishColumnEdges(null);
     };
   }, []);
 
@@ -110,7 +121,9 @@ function Harness({ onReady }: { onReady: (api: CanvasApi) => void }) {
     <CanvasShellContext value={shell}>
       <div className="flex h-screen w-full overflow-hidden">
         {chrome && active && (
-          <LayersPanel store={active.api.store} selection={active.api.selection} />
+          <div style={rail(LEFT_RAIL)}>
+            <LayersPanel store={active.api.store} selection={active.api.selection} />
+          </div>
         )}
         <main id="pane" ref={columnRef} className="relative isolate min-w-0 flex-1" style={{ overflow: "auto" }}>
           {/* Real scroll room above and below the block, like a document. */}
@@ -129,7 +142,11 @@ function Harness({ onReady }: { onReady: (api: CanvasApi) => void }) {
           />
           <div style={{ height: 2000 }} />
         </main>
-        {chrome && active && <CanvasStylePanel api={active.api} />}
+        {chrome && active && (
+          <div style={rail(RIGHT_RAIL)}>
+            <CanvasStylePanel api={active.api} />
+          </div>
+        )}
         {chrome && active && !active.api.board && (
           <Toolbar
             store={active.api.store}

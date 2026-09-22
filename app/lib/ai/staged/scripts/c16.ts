@@ -1,13 +1,13 @@
 import type { StagedScript } from "../types";
-import { openPage, pageLike, repo } from "./resolve";
+import { openPage, pageLike } from "./resolve";
 
 /**
  * C-16 — does the firmware actually do what REQ-015 says?
  *
  * The flagship, and the one with the least fiction in it: the requirements
- * page is read off the live editor, the repository search and the file read
- * hit the team's real GitHub. Only the conclusion is written ahead, and the
- * conclusion is the one part a model would get wrong in front of a room.
+ * page and the firmware source kept in the project are read off the live
+ * editor. Only the conclusion is written ahead, and the conclusion is the one
+ * part a model would get wrong in front of a room.
  */
 export const C16: StagedScript = {
   id: "C-16",
@@ -51,27 +51,9 @@ export const C16: StagedScript = {
       say: "REQ-015 asks for a controlled stop within 300 ms of losing the teleop heartbeat. Now the firmware.",
       delayMs: 500,
       call: [
-        // Both optional, and that is the point: with a repository linked this
-        // reads the team's real GitHub, and without one it reads the source
-        // kept in the project. Either way the watchdog is read rather than
-        // remembered — what must never happen is the demo's best call bailing
-        // to prose because nobody linked a repo.
-        {
-          tool: "search_repo_code",
-          optional: true,
-          input: (ctx) => (repo(ctx) ? { query: "HEARTBEAT_TIMEOUT_MS" } : null),
-        },
-        {
-          tool: "read_repo_file",
-          optional: true,
-          input: (ctx) => {
-            const name = repo(ctx);
-            return name ? { repo: name, path: "src/teleop/watchdog.c" } : null;
-          },
-        },
-        // Not optional: this is what guarantees the step has something to do.
-        // A step whose every call stood down would end the turn silently,
-        // before the conclusion below ever gets written.
+        // The watchdog is read rather than remembered, from the source kept
+        // in the project. Not optional: a step whose every call stood down
+        // would end the turn silently, before the conclusion is written.
         {
           tool: "read_page",
           input: (ctx) => {

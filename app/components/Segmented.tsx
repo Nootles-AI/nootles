@@ -1,6 +1,6 @@
 "use client";
 
-import { useId } from "react";
+import { useId, type CSSProperties } from "react";
 
 export type Segment<T extends string> = { id: T; label: string; hint: string };
 
@@ -30,7 +30,17 @@ export function Segmented<T extends string>({
   const id = useId();
 
   return (
-    <div className="nt-mode" role="group" aria-label={label}>
+    <div
+      className="nt-mode is-even"
+      role="group"
+      aria-label={label}
+      style={
+        {
+          "--n": segments.length,
+          "--at": Math.max(0, segments.findIndex((s) => s.id === value)),
+        } as CSSProperties
+      }
+    >
       {segments.map((s) => (
         <button
           key={s.id}

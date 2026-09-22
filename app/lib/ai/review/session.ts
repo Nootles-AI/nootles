@@ -12,6 +12,7 @@ import { track } from "@/app/lib/telemetry";
 import { broadcastFimFlash } from "@/app/lib/sync/fimFlash";
 import { asReview } from "./attribution";
 import { ensureForked, isForked, mergeFork } from "./fork";
+import { diagramStanding } from "./diagram";
 import { computeHunks, type Hunk } from "./hunks";
 import { canonicalise, produces, target } from "./ops";
 import { packTurn, unpackTurn } from "./pack";
@@ -865,7 +866,7 @@ export class ReviewSession {
     }
 
     if (rejected.length && editor) {
-      undoHunks(editor, rejected, before);
+      undoHunks(editor, rejected, before, wroteProps(rejected, page.ops));
     }
     // Logged on settle, not on apply: the op log is the record of what the page
     // says, and an edit that was undone never said anything. Once, however many
@@ -937,7 +938,7 @@ export class ReviewSession {
     const expected = surviving.flatMap((h) => h.added);
     if (expected.length) {
       if (expected.some((id) => editor.getBlock(id))) return;
-    } else if (standingProps(surviving, page.ops, editor)) {
+    } else if (standingProps(surviving, page.ops, editor, before)) {
       // No insertions to look for. Whole-value prop writes are the other
       // testable shape — and far from rare: every canvas, album and storyboard
       // edit is one. A turn that is neither (text-only changes) stays
@@ -1056,12 +1057,19 @@ export class ReviewSession {
  * the user has edited since. A target block that no longer exists also reads
  * as standing — restaging cannot conjure the block back, and its hunks settle
  * as superseded through the usual paths.
+ *
+ * A diagram is the exception to the exactness: its prop is a mirror trailing
+ * per-shape maps, so it stops matching the op the moment anyone moves anything,
+ * and re-applying the whole diagram then writes that person's move away
+ * (NT-70). It is asked per shape instead — is any of the change still there.
  */
 function standingProps(
   surviving: Hunk[],
   ops: Operation[],
   editor: LiveEditor,
+  before: AnyBlock[],
 ): boolean {
+  const was = new Map(descend(before).map((b) => [b.id, b]));
   const mine = new Set(surviving.flatMap((h) => h.opIndices));
   for (let i = 0; i < ops.length; i++) {
     if (!mine.has(i)) continue;
@@ -1075,11 +1083,46 @@ function standingProps(
     }
     if (!block) continue;
     const props = block.props as Record<string, unknown>;
+    const checkpoint = (was.get(op.blockId)?.props as { data?: unknown } | undefined)?.data;
+    if (
+      block.type === "canvas" &&
+      typeof checkpoint === "string" &&
+      typeof op.props.data === "string" &&
+      typeof props.data === "string"
+    ) {
+      if (!diagramStanding(checkpoint, op.props.data, props.data)) return false;
+      continue;
+    }
     for (const [name, value] of Object.entries(op.props)) {
       if (props[name] !== value) return false;
     }
   }
   return true;
+}
+
+/** The checkpoint's blocks at every depth, for a lookup by id. */
+function descend(blocks: AnyBlock[]): AnyBlock[] {
+  return blocks.flatMap((b) => [b, ...descend(b.children ?? [])]);
+}
+
+/**
+ * What each rejected hunk's ops wrote onto a block's props — the change's own
+ * word for what it proposed, which {@link undoHunks} needs to take a diagram
+ * back shape by shape rather than by whole mirror. Last write wins: a turn that
+ * redrew the same diagram twice proposed the second one.
+ */
+function wroteProps(
+  rejected: Hunk[],
+  ops: Operation[],
+): ReadonlyMap<string, Record<string, unknown>> {
+  const out = new Map<string, Record<string, unknown>>();
+  const mine = new Set(rejected.flatMap((h) => h.opIndices));
+  for (const i of [...mine].sort((a, b) => a - b)) {
+    const op = ops[i];
+    if (op?.kind !== "updateBlockProps") continue;
+    out.set(op.blockId, { ...out.get(op.blockId), ...op.props });
+  }
+  return out;
 }
 
 function absentRefs(editor: LiveEditor, batch: Batch): string[] {

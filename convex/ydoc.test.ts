@@ -441,3 +441,105 @@ describe("compaction", () => {
     expect(tail.map((u) => u.seq)).toEqual([2]);
   });
 });
+
+describe("load", () => {
+  test("a small document opens in one answer: snapshot and tail together", async () => {
+    const t = harness();
+    const { docId } = await world(t);
+    const as = t.withIdentity(OWNER);
+    await as.mutation(api.ydoc.init, { docId, update: encodedInsert("seed ") });
+    await as.mutation(api.ydoc.append, { docId, update: encodedInsert("a ") });
+    await t.mutation(internal.ydoc.compact, { docId, targetSeq: 2 });
+    await as.mutation(api.ydoc.append, { docId, update: encodedInsert("b ") });
+
+    const loaded = await as.query(api.ydoc.load, { docId, afterSeq: 0 });
+    expect(loaded).toMatchObject({ seq: 3, snapshotSeq: 2, snapshotParts: 1 });
+    expect(loaded!.snapshot).toHaveLength(1);
+    expect(loaded!.updates.map((u) => u.seq)).toEqual([3]);
+
+    const rebuilt = new Y.Doc();
+    Y.applyUpdate(rebuilt, new Uint8Array(loaded!.snapshot![0]));
+    for (const u of loaded!.updates) Y.applyUpdate(rebuilt, new Uint8Array(u.update));
+    const words = rebuilt.getText("t").toString();
+    for (const expected of ["seed", "a ", "b "]) expect(words).toContain(expected);
+  });
+
+  test("a caller already past the snapshot is sent only the tail", async () => {
+    const t = harness();
+    const { docId } = await world(t);
+    const as = t.withIdentity(OWNER);
+    await as.mutation(api.ydoc.init, { docId, update: encodedInsert("seed ") });
+    await t.mutation(internal.ydoc.compact, { docId, targetSeq: 1 });
+    await as.mutation(api.ydoc.append, { docId, update: encodedInsert("a ") });
+
+    const loaded = await as.query(api.ydoc.load, { docId, afterSeq: 1 });
+    expect(loaded!.snapshot).toBeNull();
+    expect(loaded!.updates.map((u) => u.seq)).toEqual([2]);
+  });
+
+  test("a snapshot too heavy to ride along is left to the chunk reads", { timeout: 30000 }, async () => {
+    const t = harness();
+    const { docId } = await world(t);
+    const as = t.withIdentity(OWNER);
+    const local = new Y.Doc();
+    // Incompressible, so the fold cannot shrink it under the inline ceiling.
+    const noise = Array.from({ length: UPDATE_CHUNK_BYTES * 5 }, (_, i) =>
+      String.fromCharCode(33 + ((i * 7919) % 90)),
+    ).join("");
+    local.getText("t").insert(0, noise);
+    const seq = await (async () => {
+      await as.mutation(api.ydoc.init, { docId, update: encodedInsert("seed ") });
+      return await as.mutation(api.ydoc.append, {
+        docId,
+        chunks: splitUpdate(Y.encodeStateAsUpdate(local)),
+      });
+    })();
+    await t.mutation(internal.ydoc.compact, { docId, targetSeq: seq });
+
+    const loaded = await as.query(api.ydoc.load, { docId, afterSeq: 0 });
+    expect(loaded!.snapshotParts).toBeGreaterThan(1);
+    expect(loaded!.snapshot).toBeNull();
+    expect(loaded!.updates).toEqual([]);
+    // The long way still works, and is what the caller falls back to.
+    expect((await rebuild(as, docId)).getText("t").toString()).toContain(noise);
+  });
+
+  test("strangers cannot load", async () => {
+    const t = harness();
+    const { docId } = await world(t);
+    await t.withIdentity(OWNER).mutation(api.ydoc.init, {
+      docId,
+      update: encodedInsert("seed"),
+    });
+    await expect(
+      t.withIdentity(GUEST).query(api.ydoc.load, { docId, afterSeq: 0 }),
+    ).rejects.toThrow();
+  });
+});
+
+describe("compaction budget", () => {
+  test("an update too heavy to fold is recognised from its first row, not read whole", { timeout: 30000 }, async () => {
+    const t = harness();
+    const { docId } = await world(t);
+    const as = t.withIdentity(OWNER);
+    await as.mutation(api.ydoc.init, { docId, update: encodedInsert("seed ") });
+    await as.mutation(api.ydoc.append, { docId, update: encodedInsert("small ") });
+    // One update past the whole fold budget: nine chunks, like the one that
+    // put a production fold over the platform's read ceiling.
+    const heavy = new Y.Doc();
+    heavy.getText("t").insert(0, "x".repeat(UPDATE_CHUNK_BYTES * 8 + 10));
+    const last = await as.mutation(api.ydoc.append, {
+      docId,
+      chunks: splitUpdate(Y.encodeStateAsUpdate(heavy)),
+    });
+
+    await t.mutation(internal.ydoc.compact, { docId, targetSeq: last });
+
+    // Everything before it folded; it stays in the log, whole and readable.
+    const meta = await as.query(api.ydoc.meta, { docId });
+    expect(meta).toMatchObject({ seq: last, snapshotSeq: 2 });
+    const tail = await as.query(api.ydoc.updatesSince, { docId, afterSeq: 2 });
+    expect(joinUpdateRows(tail).map((u) => u.seq)).toEqual([last]);
+  });
+});
+

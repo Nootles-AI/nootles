@@ -3,6 +3,7 @@
 import dynamic from "next/dynamic";
 import {
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -23,8 +24,10 @@ import {
   FolderPlus,
   PanelLeft,
   Plus,
+  Search,
   X,
 } from "./Icons";
+import { useModKey } from "@/app/lib/useModKey";
 import { useNotionAvailable } from "./notion/NotionAvailable";
 import { NotionImport } from "./notion/NotionImport";
 import {
@@ -38,7 +41,8 @@ import { AccountMenu } from "./AccountMenu";
 import { SharePopover } from "./SharePopover";
 import { RequestEditButton } from "./share/AccessRequests";
 import { ConfirmDeleteDialog } from "./ConfirmDelete";
-import { ContextDialog } from "./context/ContextDialog";
+import { ContextGraph } from "./context/ContextGraph";
+import { SidebarContext } from "./context/SidebarContext";
 import { ContextMenu } from "./ContextMenu";
 import { Editable } from "./Editable";
 import { usePageChanges, type PageChange } from "./ReviewContext";
@@ -72,7 +76,7 @@ const IconPicker = dynamic(
 const INDENT = 12;
 
 type Props = {
-  /** A CSS width — the shell holds the rail's live one in a custom property. */
+  /** A CSS width: the rail face it fills, or the drawer's own when narrow. */
   width: string;
   projectId: Id<"projects">;
   /** The focused pane's page — the one the chat and the agent are pointed at. */
@@ -84,6 +88,10 @@ type Props = {
   splitZone: RefObject<HTMLElement | null>;
   onOpenAside: (id: Id<"pages">) => void;
   onCollapse: () => void;
+  /** Opens the page finder, which the shell owns so ⌘K works with this shut. */
+  onFind: () => void;
+  /** Opens the keyboard reference, which the shell owns for the same reason. */
+  onShowKeys: () => void;
 };
 
 export function Sidebar({
@@ -95,7 +103,10 @@ export function Sidebar({
   splitZone,
   onOpenAside,
   onCollapse,
+  onFind,
+  onShowKeys,
 }: Props) {
+  const mod = useModKey();
   // Back from Notion's consent screen, which the import dialog sent them to:
   // a grant reopens the dialog they left, and anything else is said under the
   // project's name. Initial state rather than an effect — the outcome is known
@@ -111,8 +122,6 @@ export function Sidebar({
   const project = useQuery(api.projects.get, { projectId });
   const pages = useQuery(api.pages.listByProject, { projectId });
   const folders = useQuery(api.folders.listByProject, { projectId });
-  const repos = useQuery(api.github.repos.listForProject, { projectId });
-  const files = useQuery(api.files.context.listForProject, { projectId });
   // What this sidebar may offer: editors get the page verbs, only the owner
   // gets the project's own — sharing, renaming it, its context sheet.
   const role = useQuery(api.projects.myRole, { projectId });
@@ -183,7 +192,7 @@ export function Sidebar({
     null,
   );
   const [confirming, setConfirming] = useState<readonly Target[] | null>(null);
-  const [showingContext, setShowingContext] = useState(false);
+  const [showingContext, setShowingContext] = useState<{ focus?: string } | null>(null);
   const [draft, setDraft] = useState("");
   /** The rows the verbs act on. Finder's rules: click, ⌘-click, shift-range. */
   const [selection, setSelection] = useState<readonly Target[]>([]);
@@ -304,6 +313,29 @@ export function Sidebar({
     isInsideOf(folders ?? [], candidate, root);
 
   const listRef = useRef<HTMLUListElement>(null);
+  // The list arrives as a list — top first — once, as the sidebar opens. After
+  // that a row that mounts (a new page, a folder's children) still rises, but
+  // at once: a stagger is for a list arriving, not for one row joining it.
+  const [arriving, setArriving] = useState(true);
+  useEffect(() => {
+    const t = setTimeout(() => setArriving(false), 700);
+    return () => clearTimeout(t);
+  }, []);
+  // The open page's wash is one element that travels between rows, so changing
+  // page reads as the selection moving rather than as two rows repainting.
+  // Placed from the row's offset, written straight to the list: a page folded
+  // away inside a closed folder has no row, and then there is no mark.
+  useLayoutEffect(() => {
+    const list = listRef.current;
+    if (!list) return;
+    const row = selectedPageId
+      ? list.querySelector<HTMLElement>(`[data-row="${selectedPageId}"]`)
+      : null;
+    list.dataset.marked = String(!!row);
+    if (!row) return;
+    list.style.setProperty("--mark-y", `${row.offsetTop}px`);
+    list.style.setProperty("--mark-h", `${row.offsetHeight}px`);
+  }, [selectedPageId, rows, editing]);
   const marquee = useMarquee(
     listRef,
     (ids, additive) => {
@@ -655,12 +687,12 @@ export function Sidebar({
       {/* Back to the project list, the way a docs app returns to your files —
           there is no project switcher here because the route is the project. */}
       <div className="nt-panel-head">
-        <Link href="/" className="nt-row min-w-0 flex-1 text-muted" title="All projects">
+        <Link href="/" className="nt-row nt-back min-w-0 flex-1 text-muted" title="All projects">
           <ArrowLeft width={14} height={14} className="shrink-0" />
           <span className="nt-row-label">Projects</span>
         </Link>
         {owner && <SharePopover projectId={projectId} />}
-        <AccountMenu />
+        <AccountMenu align="start" onShowKeys={onShowKeys} />
         <button
           onClick={onCollapse}
           aria-label="Collapse sidebar"
@@ -697,6 +729,16 @@ export function Sidebar({
         )}
       </div>
 
+      {/* A button dressed as a field, as on the projects screen: the way in to
+          the finder, and where its shortcut is written down. */}
+      <div className="px-2 pb-2">
+        <button onClick={onFind} className="nt-find w-full" aria-label="Find a page">
+          <Search width={14} height={14} />
+          <span>Find a page</span>
+          <kbd className="nt-kbd">{mod}K</kbd>
+        </button>
+      </div>
+
       {notice && (
         <div
           role={notice.problem ? "alert" : "status"}
@@ -731,30 +773,11 @@ export function Sidebar({
           canEdit ? (e) => openMenu(e, { kind: "list" }) : undefined
         }
       >
-        {/* Above the pages because it is above them: what holds for the whole
-            project, and the one place a repository or file can be attached to
-            it. Owner-only — the sheet is the project's, and its dialog manages
-            it. */}
         {/* A viewer's one verb: ask for the pen. Above the pages for the same
             reason Context is — it holds for the whole project. */}
         {/* An operator standing in reads as a viewer, but asking the owner for
             the pen on their own project is not a thing to offer them. */}
         {role === "viewer" && !standIn && <RequestEditButton projectId={projectId} />}
-
-        {owner && (
-          <button
-            onClick={() => setShowingContext(true)}
-            title="What the assistant knows about this project"
-            className="nt-row w-full"
-          >
-            <span className="nt-row-label">Context</span>
-            {!!((repos?.length ?? 0) + (files?.length ?? 0)) && (
-              <span className="nt-field-note">
-                {(repos?.length ?? 0) + (files?.length ?? 0)}
-              </span>
-            )}
-          </button>
-        )}
 
         <div className="nt-section-label mt-1">
           <span>Pages</span>
@@ -786,7 +809,9 @@ export function Sidebar({
           aria-label="Pages and folders"
           aria-multiselectable
           className={`nt-pages relative space-y-px${otherPageId ? " is-split" : ""}`}
+          data-arriving={arriving || undefined}
         >
+          <li className="nt-pages-mark" role="presentation" aria-hidden="true" />
           {rows.length === 0 && (
             <li className="px-2 py-1 text-[13px] text-muted">
               {canEdit ? "No pages yet — press + to add one." : "No pages yet."}
@@ -978,6 +1003,10 @@ export function Sidebar({
         )}
       </nav>
 
+      {/* Below the pages, and apart from them: what the project is read
+          alongside. Owner-only — the sources are the owner's to manage. */}
+      {owner && <SidebarContext projectId={projectId} onOpen={(focus) => setShowingContext({ focus })} />}
+
       <DropLabel
         pointer={drag.pointer}
         into={drag.intoId ? folderById(drag.intoId)?.title || "Untitled" : null}
@@ -1014,7 +1043,7 @@ export function Sidebar({
               {clip && (
                 <>
                   <div className="nt-menu-sep" />
-                  <Item onClick={() => { pasteInto(null); setCtx(null); }}>
+                  <Item hint={chord(mod, "V")} onClick={() => { pasteInto(null); setCtx(null); }}>
                     Paste
                   </Item>
                 </>
@@ -1089,9 +1118,10 @@ export function Sidebar({
         )}
 
       {showingContext && (
-        <ContextDialog
+        <ContextGraph
           projectId={projectId}
-          onClose={() => setShowingContext(false)}
+          focus={showingContext.focus}
+          onClose={() => setShowingContext(null)}
         />
       )}
 
@@ -1190,10 +1220,13 @@ function DropLabel({
 
 function Item({
   danger,
+  hint,
   onClick,
   children,
 }: {
   danger?: boolean;
+  /** The key that does the same thing from the list. */
+  hint?: string;
   onClick: () => void;
   children: ReactNode;
 }) {
@@ -1204,9 +1237,13 @@ function Item({
       onClick={onClick}
     >
       {children}
+      {hint && <kbd className="nt-menu-kbd">{hint}</kbd>}
     </button>
   );
 }
+
+/** "⌘X" on Apple hardware, "Ctrl+X" elsewhere: the glyph stands alone, the word does not. */
+const chord = (mod: string, key: string) => (mod === "⌘" ? `⌘${key}` : `${mod}+${key}`);
 
 /**
  * The menu for what was right-clicked: one row, or the selection it belongs to.
@@ -1240,6 +1277,7 @@ function RowMenu({
   onDelete: () => void;
   onClose: () => void;
 }) {
+  const mod = useModKey();
   const only = subjects.length === 1 ? subjects[0] : null;
   const intoFolder = only?.kind === "folder" ? only.id : null;
   const act = (fn: () => void) => () => {
@@ -1262,10 +1300,10 @@ function RowMenu({
           <div className="nt-menu-sep" />
         </>
       )}
-      <Item onClick={act(() => onClip("cut"))}>Cut</Item>
-      <Item onClick={act(() => onClip("copy"))}>Copy</Item>
+      <Item hint={chord(mod, "X")} onClick={act(() => onClip("cut"))}>Cut</Item>
+      <Item hint={chord(mod, "C")} onClick={act(() => onClip("copy"))}>Copy</Item>
       {hasClip && only && (
-        <Item onClick={act(() => onPaste(destFor(only)))}>Paste</Item>
+        <Item hint={chord(mod, "V")} onClick={act(() => onPaste(destFor(only)))}>Paste</Item>
       )}
       {only && (
         <>

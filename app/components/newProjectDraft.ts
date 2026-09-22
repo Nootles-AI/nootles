@@ -1,11 +1,13 @@
 "use client";
 
-import { useState, type FormEvent, type KeyboardEvent } from "react";
+import { useState, type FormEvent } from "react";
+import type { DraftSourcesValue } from "./context/ContextSources";
 
 export type NewProject = {
   title: string;
   description: string;
-  context: string;
+  /** Files, repositories and Notion pages to read into its context once it exists. */
+  sources: DraftSourcesValue;
   /** An `app/lib/templates` id; absent means blank. */
   template?: string;
 };
@@ -23,12 +25,14 @@ export type NewProject = {
  * would be a form standing between them and a blank page.
  */
 export function useNewProjectDraft(
-  onCreate: (project: NewProject) => Promise<void>,
+  /** Resolves `false` when nothing was made yet — the plan's wall stepped in —
+   *  and the form is handed back as it was, to send again. */
+  onCreate: (project: NewProject) => Promise<boolean | void>,
   template?: string,
 ) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [context, setContext] = useState("");
+  const [sources, setSources] = useState<DraftSourcesValue>({ repos: [], files: [], pages: [] });
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
 
@@ -44,23 +48,20 @@ export function useNewProjectDraft(
     onCreate({
       title: named,
       description: description.trim(),
-      context: context.trim(),
+      sources,
       template,
-    }).catch(() => {
-      setFailure("Couldn’t create that project.");
-      setBusy(false);
-    });
-  };
-
-  /** Enter sends a one-line field; a box you can write paragraphs in needs the modifier. */
-  const sendOnModEnter = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key !== "Enter" || !(e.metaKey || e.ctrlKey)) return;
-    e.preventDefault();
-    e.currentTarget.form?.requestSubmit();
+    })
+      .then((made) => {
+        if (made === false) setBusy(false);
+      })
+      .catch(() => {
+        setFailure("Couldn’t create that project.");
+        setBusy(false);
+      });
   };
 
   return {
-    title, setTitle, description, setDescription, context, setContext,
-    busy, failure, named, submit, sendOnModEnter,
+    title, setTitle, description, setDescription, sources, setSources,
+    busy, failure, named, submit,
   };
 }

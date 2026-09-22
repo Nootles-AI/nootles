@@ -59,15 +59,21 @@ export function ReviewBar() {
           has a different id — so it cannot honestly be answered yet. The bar
           says why instead of offering buttons that would quietly do nothing. */}
       {writing ? (
-        <span className="nt-review-count">still writing…</span>
+        <span className="nt-review-count is-writing">
+          <span className="nt-thinking-dot" aria-hidden />
+          still writing…
+        </span>
       ) : (
         <>
+          {/* Quietest first, the ordinary answer last and filled — the order the
+              chat's own bar and every hunk's pair already keep. */}
           <button
-            className="nt-review-action"
+            className="nt-review-action is-quiet"
             disabled={busy}
-            onClick={() => session.answer(session.acceptAll())}
+            onClick={() => session.answer(session.revertTurn(oldest.chatPromptId))}
+            title="Put the page back exactly as it was, including anything you have typed since"
           >
-            {answering.has("accepted") ? "Keeping…" : "Keep all"}
+            Revert
           </button>
           <button
             className="nt-review-action"
@@ -77,12 +83,11 @@ export function ReviewBar() {
             {answering.has("rejected") ? "Discarding…" : "Discard all"}
           </button>
           <button
-            className="nt-review-action is-quiet"
+            className="nt-review-action is-keep"
             disabled={busy}
-            onClick={() => session.answer(session.revertTurn(oldest.chatPromptId))}
-            title="Put the page back exactly as it was, including anything you have typed since"
+            onClick={() => session.answer(session.acceptAll())}
           >
-            Revert
+            {answering.has("accepted") ? "Keeping…" : "Keep all"}
           </button>
         </>
       )}

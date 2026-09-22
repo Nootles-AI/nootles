@@ -43,7 +43,6 @@ const ctx: StageContext = {
     { pageId: "pg_open", title: "Program Brief" },
     { pageId: "pg_req", title: "Requirements & Traceability" },
   ],
-  repos: ["team-kestrel/kr1-firmware"],
 };
 
 describe("the staged model is a model", () => {
@@ -135,14 +134,7 @@ describe("the cursor survives a client-tool round trip", () => {
       expect(step.done).toBe(false);
       seen.push(step.calls.map((c) => c.toolName).join(",") || "(text)");
     }
-    // With a repository linked, the middle step reads GitHub AND the project's
-    // own copy; with none, the repo calls stand down and only the page read
-    // runs. Either way the step has work, which is what keeps the turn alive.
-    expect(seen).toEqual([
-      "read_page",
-      "search_repo_code,read_repo_file,read_page",
-      "edit_page",
-    ]);
+    expect(seen).toEqual(["read_page", "read_page", "edit_page"]);
     // One past the end ends the turn rather than starting it again.
     expect(resolveStep(script.steps[script.steps.length], ctx, script.bail).done).toBe(true);
   });

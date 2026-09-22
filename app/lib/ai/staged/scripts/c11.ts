@@ -1,13 +1,13 @@
 import type { StagedScript } from "../types";
-import { openPage, pageLike, repo } from "./resolve";
+import { openPage, pageLike } from "./resolve";
 
 /**
- * C-11 — architecture from the linked repository.
+ * C-11 — architecture from the firmware source.
  *
- * The search and both file reads are real GitHub calls. The diagram is written
- * ahead, but the file paths on the nodes are paths the reads just returned —
- * which is the claim being made: this is not a drawing OF the system, it was
- * read off the system.
+ * The read is real: the source kept in the project, off the live editor. The
+ * diagram is written ahead, but the file paths on the nodes are paths that
+ * read just returned — which is the claim being made: this is not a drawing OF
+ * the system, it was read off the system.
  */
 export const C11: StagedScript = {
   id: "C-11",
@@ -36,22 +36,6 @@ export const C11: StagedScript = {
       say: "Reading the source rather than guessing at it.",
       delayMs: 600,
       call: [
-        // Prefers the linked repository and falls back to the source kept in
-        // the project, for the reason set out in c16.ts. The page read is the
-        // one that is never optional, so the step always has work to do.
-        {
-          tool: "list_repo_files",
-          optional: true,
-          input: (ctx) => (repo(ctx) ? { repo: repo(ctx)!, path: "src" } : null),
-        },
-        {
-          tool: "read_repo_file",
-          optional: true,
-          input: (ctx) => {
-            const name = repo(ctx);
-            return name ? { repo: name, path: "src/rtos/tasks.c" } : null;
-          },
-        },
         {
           tool: "read_page",
           input: (ctx) => {

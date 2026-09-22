@@ -10,6 +10,7 @@ import {
   OpenProject,
   RowMenu,
   roleLabel,
+  sameProjectProps,
   type Project,
   type SharedProject,
 } from "./projectParts";
@@ -120,17 +121,24 @@ export function ProjectsBoard({
   const settle = useRef<ReturnType<typeof setTimeout>>(undefined);
   const wheeled = useRef<ReturnType<typeof setTimeout>>(undefined);
 
+  // Where the stage sits in the window. Measured when that can change rather
+  // than read in `draw`: a wheel gesture draws several times a frame, and a
+  // layout read straight after the last draw's writes made each one lay out.
+  const origin = useRef<Point>({ x: 0, y: 0 });
+
   const draw = (to: Point) => {
     const el = stage.current;
     if (!el) return;
     // Some of the board always stays in reach: it cannot be panned off-screen.
-    const ox = el.offsetLeft;
-    const oy = el.offsetTop;
+    const { x: ox, y: oy } = origin.current;
     const x = Math.min(innerWidth - 160 - ox - bounds.x, Math.max(160 - ox - bounds.x - bounds.w, to.x));
     const y = Math.min(innerHeight - 160 - oy - bounds.y, Math.max(160 - oy - bounds.y - bounds.h, to.y));
     pan.current = { x, y };
     el.style.translate = `${x}px ${y}px`;
-    board.current?.style.setProperty("--pan", `${x}px ${y}px`);
+    // The dots travel with the stage. Written as the property itself: a custom
+    // property on the board is inherited by every frame and every thumbnail on
+    // it, and restyled all of them on each pointer move.
+    if (board.current) board.current.style.backgroundPosition = `${x}px ${y}px`;
     // The window, in the board's coordinates.
     const vx = -ox - x;
     const vy = -oy - y;
@@ -156,8 +164,16 @@ export function ProjectsBoard({
   // The store is the truth between gestures; the window's size is part of what
   // the minimap shows.
   useLayoutEffect(() => {
+    const measure = () => {
+      const el = stage.current;
+      if (el) origin.current = { x: el.offsetLeft, y: el.offsetTop };
+    };
+    measure();
     drawRef.current(layout.pan);
-    const onResize = () => drawRef.current(pan.current);
+    const onResize = () => {
+      measure();
+      drawRef.current(pan.current);
+    };
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, [layout.pan, bounds, k]);
@@ -391,7 +407,7 @@ const Frame = memo(function Frame({
       </div>
     </div>
   );
-});
+}, sameProjectProps);
 
 const SharedFrame = memo(function SharedFrame({
   project,

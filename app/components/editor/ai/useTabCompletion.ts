@@ -30,7 +30,7 @@ import { compileDocHtml } from "@/app/lib/ai/html/compile";
 import { completionsSuspended } from "@/app/lib/ai/tourDrive";
 import { INLINE_TAGS, grounding, type Run } from "@/app/lib/ai/html/grammar";
 import type { Batch } from "@/convex/ai/operations";
-import { useCompletionContext } from "./CompletionContext";
+import { useCompletionContext, useCompletionProject } from "./CompletionContext";
 import {
   setGhost,
   setAction,
@@ -566,7 +566,10 @@ export function useTabCompletion(
   // A ref like the mutations, and for the same reason: the next completion
   // should carry the latest context without a changed sheet restarting the
   // whole lane.
-  const contextSeed = useCompletionContext();
+  const contextSeed = useCompletionContext(pageId);
+  // Sent with a diagram's brief, so the builder can draw in the product's look.
+  const projectId = useCompletionProject();
+  const projectRef = useRef(projectId);
   const appendRef = useRef(appendBatch);
   const logRef = useRef(logSuggestion);
   const logManyRef = useRef(logTurnedDown);
@@ -578,6 +581,7 @@ export function useTabCompletion(
     logManyRef.current = logTurnedDown;
     amendRef.current = amendSuggestion;
     seedRef.current = contextSeed;
+    projectRef.current = projectId;
   });
 
   useEffect(() => {
@@ -1043,7 +1047,7 @@ export function useTabCompletion(
         const res = await fetch("/api/diagram", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ brief, page, title }),
+          body: JSON.stringify({ brief, page, title, projectId: projectRef.current }),
           signal: controller.signal,
         });
         if (!res.ok || !res.body) return "";

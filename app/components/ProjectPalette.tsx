@@ -1,11 +1,11 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import {
   Fragment,
   useEffect,
   useRef,
   useState,
-  useSyncExternalStore,
   type KeyboardEvent,
   type ReactNode,
 } from "react";
@@ -16,14 +16,17 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { pages, when } from "@/app/lib/projectMeta";
 import { Dialog } from "./Dialog";
 import { PROJECT_TEMPLATES, pagePicture, type ProjectTemplate } from "@/app/lib/templates";
-import { ChevronRight, FileDoc, Folder, Plus, Template } from "./Icons";
+import { ChevronRight, FileDoc, Folder, Plus, Sparkles, Template } from "./Icons";
 import { useNewProjectDraft, type NewProject } from "./newProjectDraft";
-import { NotionImportBody } from "./notion/NotionImport";
 import { NotionMark } from "./NotionMark";
 import { NotionPort } from "./NotionPort";
 import { BlankStart } from "./BlankStart";
+import { ProLift } from "./ProLift";
+import { usePlan } from "@/app/lib/usePlan";
 import { BlocksThumb, PagePreview } from "./PagePreview";
 import { TemplateWall } from "./TemplateWall";
+import { DraftSources } from "./context/ContextSources";
+import { GitHubSourcePage, NotionSourcePage } from "./context/SourcePages";
 
 type Project = NonNullable<
   ReturnType<typeof useQuery<typeof api.projects.listForScreen>>
@@ -46,21 +49,24 @@ type Row = {
   /** What the side pane previews in place of a project. */
   template?: ProjectTemplate;
   /** A picture in the side pane, rather than a card about the row. */
-  picture?: "wall" | "blank" | "notion";
+  picture?: "wall" | "blank" | "notion" | "pro";
   run: () => void;
 };
 
-const noop = () => () => {};
+/*
+ * The import runs the editor headless to build the pages it brings across
+ * (`importRun` → `onboarding/seed` → the BlockNote schema), so a static import
+ * here put BlockNote, KaTeX, Yjs and the whole canvas in this screen's first
+ * bundle — for the last page of a palette most visits never open. Fetched when
+ * the highlight rests on its row, which is before it can be asked for.
+ */
+const loadNotionImport = () => import("./notion/NotionImport");
+const NotionImportBody = dynamic(() => loadNotionImport().then((m) => m.NotionImportBody), {
+  ssr: false,
+});
 
-/** ⌘ on Apple hardware, Ctrl elsewhere — read on the client, ⌘ until then. */
-export function useModKey(): string {
-  const mac = useSyncExternalStore(
-    noop,
-    () => /Mac|iPhone|iPad/.test(navigator.platform),
-    () => true,
-  );
-  return mac ? "⌘" : "Ctrl";
-}
+// Its own module, so the workspace can name the key without importing this one.
+export { useModKey } from "@/app/lib/useModKey";
 
 /**
  * Search on the projects screen, and the keyboard's way to everything else on
@@ -93,13 +99,14 @@ export function ProjectPalette({
   projects: Project[];
   shared: SharedProject[];
   canCreate: boolean;
-  /** Whether the plan has room for another project; without it, the wall. */
+  /** Whether the plan has room for another project. Only the import asks
+   *  before starting — making one by hand meets the wall at its Create button. */
   room: boolean;
   notion: boolean;
   onOpen: (id: Id<"projects">) => void;
   onWall: () => void;
   /** Resolves once the project exists and is being opened. */
-  onCreate: (project: NewProject) => Promise<void>;
+  onCreate: (project: NewProject) => Promise<boolean | void>;
   onClose: () => void;
 }) {
   return (
@@ -129,7 +136,15 @@ export function ProjectPalette({
 }
 
 /** Each page's way back, which is also what Escape and the crumbs follow. */
-export type Page = "root" | "create" | "template" | "details" | "notion";
+export type Page =
+  | "root"
+  | "create"
+  | "template"
+  | "details"
+  | "notion"
+  /** The details form's GitHub and Notion doors, each a page of its own. */
+  | "sourceGithub"
+  | "sourceNotion";
 
 function Palette({
   start,
@@ -151,7 +166,7 @@ function Palette({
   notion: boolean;
   onOpen: (id: Id<"projects">) => void;
   onWall: () => void;
-  onCreate: (project: NewProject) => Promise<void>;
+  onCreate: (project: NewProject) => Promise<boolean | void>;
   /** Closes the palette, playing its way out. */
   onDone: () => void;
 }) {
@@ -162,16 +177,19 @@ function Palette({
   const [query, setQuery] = useState("");
   const [index, setIndex] = useState(0);
   const list = useRef<HTMLDivElement>(null);
+  // Held here rather than in the form: the form's source doors are pages of
+  // their own, and what was typed has to be there when they step back.
+  const draft = useNewProjectDraft(onCreate, template?.id);
 
   const go = (to: Page) => {
     setPage(to);
     setQuery("");
     setIndex(0);
   };
-  // The wall stands in front of making a project exactly as it does the
-  // header's button — before the first page that is only about making one.
+  // No wall in front of making a project: the whole of it — blank or template,
+  // the name, the context — is theirs to write, and the plan is asked at the
+  // Create button (`ProjectsScreen`'s `create`), with what they wrote kept.
   const startBlank = () => {
-    if (!room) return onWall();
     setTemplate(null);
     go("details");
   };
@@ -181,15 +199,45 @@ function Palette({
     template: "create",
     details: template ? "template" : "create",
     notion: "create",
+    sourceGithub: "details",
+    sourceNotion: "details",
   };
+  const sourcePage = page === "sourceGithub" || page === "sourceNotion";
   // Pages that are not a list of rows: the keys belong to whatever is on them.
-  const listless = page === "details" || page === "notion";
+  const listless = page === "details" || page === "notion" || sourcePage;
   // The import's pick state is searched from this field rather than one of its
   // own; it says when it has pages to search.
   const [notionSearch, setNotionSearch] = useState(false);
-  const fielded = !listless || (page === "notion" && notionSearch);
+  // A source's page is searched once it has something to search: not on its
+  // connect screen.
+  const githubStatus = useQuery(api.github.account.status, page === "sourceGithub" ? {} : "skip");
+  const notionStatus = useQuery(api.notion.account.status, page === "sourceNotion" ? {} : "skip");
+  const sourceReady =
+    (page === "sourceGithub" && !!githubStatus?.account && !githubStatus.account.invalidAt) ||
+    (page === "sourceNotion" && !!notionStatus?.account && !notionStatus.account.invalidAt);
+  const fielded = !listless || (page === "notion" && notionSearch) || sourceReady;
 
+  // Anyone not on Pro is offered it first — once the plan has answered, so an
+  // account that has paid never sees it flash. Not to a stand-in operator,
+  // who is not the one who would be paying.
+  const { left } = usePlan();
   const root: Row[] = [
+    ...(canCreate && left
+      ? [
+          {
+            id: "upgrade",
+            group: "Pro",
+            name: "Upgrade to Pro",
+            line: "Unlimited projects, completions and conversations",
+            icon: <Sparkles />,
+            picture: "pro" as const,
+            run: () => {
+              onDone();
+              router.push("/upgrade");
+            },
+          },
+        ]
+      : []),
     ...(canCreate
       ? [
           {
@@ -245,7 +293,7 @@ function Palette({
       icon: <Template />,
       drill: true,
       picture: "wall",
-      run: () => (room ? go("template") : onWall()),
+      run: () => go("template"),
     },
     ...(notion
       ? [
@@ -308,6 +356,12 @@ function Palette({
     return () => clearTimeout(t);
   }, [currentProject, router]);
 
+  // Resting on the Notion row is the cue to fetch what choosing it will need.
+  const onNotionRow = current?.picture === "notion";
+  useEffect(() => {
+    if (onNotionRow) void loadNotionImport();
+  }, [onNotionRow]);
+
   const onKeyDown = (e: KeyboardEvent) => {
     // The form page has fields; arrows and Enter are theirs. Escape still backs
     // out one page rather than closing the palette.
@@ -320,7 +374,9 @@ function Palette({
       } else if (e.key === "ArrowDown" && e.target instanceof HTMLInputElement) {
         // From the search field into what it found: the tree keeps one row in
         // the tab order, and that is the one to land on.
-        const row = e.currentTarget.querySelector<HTMLElement>('[role="treeitem"][tabindex="0"]');
+        const row = e.currentTarget.querySelector<HTMLElement>(
+          '[role="treeitem"][tabindex="0"], [role="option"]',
+        );
         if (!row) return;
         e.preventDefault();
         row.focus();
@@ -358,7 +414,7 @@ function Palette({
           ...(page === "template" || (page === "details" && template)
             ? [{ label: "From template", to: "create" as Page }]
             : []),
-          ...(page === "details"
+          ...(page === "details" || sourcePage
             ? [
                 template
                   ? { label: "Project details", to: "template" as Page }
@@ -366,6 +422,8 @@ function Palette({
               ]
             : []),
           ...(page === "notion" ? [{ label: "Import from Notion", to: "create" as Page }] : []),
+          ...(page === "sourceGithub" ? [{ label: "GitHub", to: "details" as Page }] : []),
+          ...(page === "sourceNotion" ? [{ label: "Notion", to: "details" as Page }] : []),
         ];
 
   return (
@@ -383,12 +441,14 @@ function Palette({
         ))}
         {!fielded ? (
           <span className="flex-1" />
-        ) : page === "notion" ? (
+        ) : page === "notion" || sourcePage ? (
           <input
             autoFocus
             type="search"
-            aria-label="Search Notion pages"
-            placeholder="Search your Notion pages…"
+            aria-label={page === "sourceGithub" ? "Search repositories" : "Search Notion pages"}
+            placeholder={
+              page === "sourceGithub" ? "Search your repositories, or type owner/name…" : "Search your Notion pages…"
+            }
             autoComplete="off"
             spellCheck={false}
             value={query}
@@ -431,11 +491,31 @@ function Palette({
           search={query}
           onSearchable={setNotionSearch}
         />
+      ) : page === "sourceGithub" ? (
+        <GitHubSourcePage
+          chosen={draft.sources.repos}
+          search={query}
+          onChoose={(repos) => {
+            draft.setSources({ ...draft.sources, repos });
+            go("details");
+          }}
+          onBack={() => go("details")}
+        />
+      ) : page === "sourceNotion" ? (
+        <NotionSourcePage
+          chosen={draft.sources.pages}
+          search={query}
+          onChoose={(pages) => {
+            draft.setSources({ ...draft.sources, pages });
+            go("details");
+          }}
+          onBack={() => go("details")}
+        />
       ) : page === "details" ? (
         <DetailsForm
-          key={template?.id ?? "blank"}
           template={template}
-          onCreate={onCreate}
+          draft={draft}
+          onDoor={(door) => go(door === "github" ? "sourceGithub" : "sourceNotion")}
           onBack={() => go(template ? "template" : "create")}
         />
       ) : (
@@ -508,6 +588,8 @@ function Palette({
                 <BlankStart />
               ) : current?.picture === "notion" ? (
                 <NotionPort />
+              ) : current?.picture === "pro" ? (
+                <ProLift />
               ) : current?.template ? (
                 <TemplatePreview key={current.id} template={current.template} />
               ) : (
@@ -600,19 +682,20 @@ function TemplatePreview({ template }: { template: ProjectTemplate }) {
  */
 function DetailsForm({
   template,
-  onCreate,
+  draft,
+  onDoor,
   onBack,
 }: {
   template: { id: string; name: string } | null;
-  onCreate: (project: NewProject) => Promise<void>;
+  draft: ReturnType<typeof useNewProjectDraft>;
+  /** GitHub and Notion open as pages of the palette; files stay a file dialog. */
+  onDoor: (door: "github" | "notion") => void;
   onBack: () => void;
 }) {
-  // No repositories for now: a project made here links none, and can link them
-  // from its sidebar once it exists.
   const {
-    title, setTitle, description, setDescription, context, setContext,
-    busy, failure, named, submit, sendOnModEnter,
-  } = useNewProjectDraft(onCreate, template?.id);
+    title, setTitle, description, setDescription, sources, setSources,
+    busy, failure, named, submit,
+  } = draft;
 
   return (
     <form className="nt-pal-form" onSubmit={submit}>
@@ -643,17 +726,13 @@ function DetailsForm({
             onChange={(e) => setDescription(e.target.value)}
           />
         </label>
-        <label className="nt-pal-fld">
+        {/* Not a <label>: it holds its own buttons and pickers. */}
+        <div className="nt-pal-fld">
           <span className="nt-pal-key">Context</span>
-          <textarea
-            className="nt-pal-input"
-            rows={4}
-            placeholder="Who it is for, what has been decided, anything the assistant should take as given"
-            value={context}
-            onChange={(e) => setContext(e.target.value)}
-            onKeyDown={sendOnModEnter}
-          />
-        </label>
+          <div className="min-w-0">
+            <DraftSources value={sources} onChange={setSources} onDoor={onDoor} />
+          </div>
+        </div>
       </div>
 
       <div className="nt-pal-foot">

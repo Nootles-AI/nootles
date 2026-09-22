@@ -14,13 +14,32 @@ import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import { track } from "@/app/lib/telemetry";
-import { LinkIcon } from "./Icons";
+import { Check, LinkIcon } from "./Icons";
 import { Segmented, type Segment } from "./Segmented";
 import "./share/access.css";
 
 type LinkRole = "editor" | "viewer";
 
 /** By code point, not char: a name starting with an emoji keeps it whole. */
+/** Two sheets, one over the other, in the app's 24-grid stroke. */
+function CopyGlyph() {
+  return (
+    <svg
+      width={14}
+      height={14}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M9 9h10a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1V10a1 1 0 0 1 1-1Z" />
+      <path d="M16 5V4a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h1" />
+    </svg>
+  );
+}
+
 function initial(name: string | null | undefined) {
   return (Array.from(name?.trim() ?? "")[0] ?? "?").toUpperCase();
 }
@@ -105,6 +124,9 @@ function SharePopoverBody({
   const tipId = useId();
   const [role, setRole] = useState<LinkRole>("editor");
   const [copied, setCopied] = useState<LinkRole | null>(null);
+  // An answered request is on its way out: it fades while the server agrees,
+  // rather than sitting there looking unanswered until the list redraws.
+  const [answered, setAnswered] = useState<ReadonlySet<string>>(new Set());
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(
     () => () => {
@@ -177,7 +199,7 @@ function SharePopoverBody({
     }
     setCopied(which);
     if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => setCopied(null), 2000);
+    timer.current = setTimeout(() => setCopied(null), 1600);
     track("share_link_copied", { role: which });
   };
 
@@ -244,8 +266,15 @@ function SharePopoverBody({
               <button
                 onClick={() => void copy(token, role)}
                 aria-live="polite"
-                className="nt-row nt-solid min-w-[4.5rem] shrink-0 justify-center px-3 font-medium"
+                data-done={copied === role || undefined}
+                className="nt-row nt-solid min-w-[5.5rem] shrink-0 justify-center gap-1.5 px-3 font-medium"
               >
+                {/* Two glyphs in one seat: the tick takes it while the word
+                    says so, and gives it back. */}
+                <span className="nt-swap" aria-hidden="true">
+                  <CopyGlyph />
+                  <Check width={14} height={14} />
+                </span>
                 {copied === role ? "Copied" : "Copy"}
               </button>
             </div>
@@ -300,7 +329,10 @@ function SharePopoverBody({
             </div>
             <ul aria-label="People waiting to edit" className="space-y-px">
               {waiting.map((ask) => (
-                <li key={ask.requestId} className="nt-ask-row">
+                <li
+                  key={ask.requestId}
+                  className={`nt-ask-row${answered.has(ask.requestId) ? " is-leaving" : ""}`}
+                >
                   {ask.imageUrl ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
@@ -320,6 +352,7 @@ function SharePopoverBody({
                     className="nt-ask-no"
                     onClick={() => {
                       track("access_request_decided", { grant: false });
+                      setAnswered((ids) => new Set(ids).add(ask.requestId));
                       void decide({
                         requestId: ask.requestId,
                         grant: false,
@@ -332,6 +365,7 @@ function SharePopoverBody({
                     className="nt-ask-yes"
                     onClick={() => {
                       track("access_request_decided", { grant: true });
+                      setAnswered((ids) => new Set(ids).add(ask.requestId));
                       void decide({
                         requestId: ask.requestId,
                         grant: true,
@@ -359,7 +393,7 @@ function SharePopoverBody({
             </div>
             <ul
               aria-label="People with access"
-              className="max-h-56 space-y-px overflow-y-auto"
+              className="nt-share-people max-h-56 space-y-px overflow-y-auto"
             >
               {/* The list answers "who has access", so it starts with the one
                   person who always does. Alone, the row is also the answer to

@@ -12,7 +12,7 @@
     "lint": "eslint",
     "test": "vitest run",
     "figma:build": "node figma-plugin/build.mjs",
-    "test:canvas:browser": "node tests/canvas-block-drag.browser.mjs && node tests/canvas-picking.browser.mjs && node tests/canvas-camera.browser.mjs && node tests/canvas-stage.browser.mjs",
+    "test:canvas:browser": "node tests/canvas-browser.mjs",
     "test:canvas:drag": "node tests/canvas-block-drag.browser.mjs",
     "test:canvas:camera": "node tests/canvas-camera.browser.mjs",
     "test:canvas:camera:record": "node tests/canvas-camera.browser.mjs --record",

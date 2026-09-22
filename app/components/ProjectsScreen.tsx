@@ -2,16 +2,20 @@
 
 import { memo, useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useQuery, useMutation } from "convex/react";
+import { useAuth } from "@clerk/nextjs";
+import { useConvex, useConvexAuth, useQuery, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import { findTemplate } from "@/app/lib/templates";
 import { track } from "@/app/lib/telemetry";
 import { pages, when } from "@/app/lib/projectMeta";
+import { rememberScreen, seenScreen } from "@/app/lib/projectsCache";
+import { uploadContextFile } from "@/app/lib/contextFiles";
+import { repoRef } from "./context/ContextSources";
 import { BoardView, GridView, ListView, Plus, Search } from "./Icons";
 import { AccountMenu } from "./AccountMenu";
 import { PlanWall } from "./billing/PlanWall";
-import { usePlan } from "@/app/lib/usePlan";
+import { isQuotaError, usePlan } from "@/app/lib/usePlan";
 import { useResumeIntent } from "@/app/lib/billing/useResumeIntent";
 import { ConfirmDeleteDialog } from "./ConfirmDelete";
 import { CreateProject } from "./CreateProject";
@@ -34,6 +38,7 @@ import {
   RowMenu,
   ProjectActions,
   roleLabel,
+  sameProjectProps,
   type Project,
   type SharedProject,
 } from "./projectParts";
@@ -42,19 +47,54 @@ import { AccessRequests } from "./share/AccessRequests";
 
 type View = "grid" | "list" | "board";
 const VIEWS: View[] = ["grid", "list", "board"];
+const VIEW_KEY = "nt:projectsView";
+
+/** The view this browser left the screen in. */
+function savedView(): View {
+  try {
+    const saved = localStorage.getItem(VIEW_KEY) as View | null;
+    return saved && VIEWS.includes(saved) ? saved : "grid";
+  } catch {
+    return "grid";
+  }
+}
+
 /** A list item's place in its list, which is what staggers its entrance. */
 const nth = (i: number) => ({ "--i": i }) as React.CSSProperties;
 
 export function ProjectsScreen() {
   const router = useRouter();
   const standIn = useStandIn();
-  const projects = useQuery(api.projects.listForScreen);
-  const shared = useQuery(api.projects.sharedWithMe);
+  /*
+   * What this browser last saw stands in until the live lists arrive
+   * (`projectsCache`) — and for a returning visitor this screen is up before
+   * Convex has a token (`FirstRun`), so nothing here may ask as nobody: an
+   * anonymous `listForScreen` answers "no projects", which is a wrong answer
+   * rather than a missing one. Read once; the live lists replace it for good.
+   */
+  const { isAuthenticated: live } = useConvexAuth();
+  const { userId } = useAuth();
+  const [seen] = useState(() => (userId ? seenScreen(userId) : null));
+  const liveProjects = useQuery(api.projects.listForScreen, live ? {} : "skip");
+  const liveShared = useQuery(api.projects.sharedWithMe, live ? {} : "skip");
+  const projects = liveProjects ?? seen?.projects;
+  const shared = liveShared ?? seen?.shared;
+  useEffect(() => {
+    if (userId && liveProjects && liveShared) rememberScreen(userId, liveProjects, liveShared);
+  }, [userId, liveProjects, liveShared]);
   const createProject = useMutation(api.projects.create);
+  const linkPages = useMutation(api.notion.context.link);
+  const convex = useConvex();
   const renameProject = useMutation(api.projects.rename);
   const removeProject = useMutation(api.projects.remove);
 
-  const [view, setView] = useState<View>("grid");
+  // Read where it is first needed rather than restored in an effect, which
+  // mounted the whole grid — every card and its reader — only to tear it down a
+  // frame later for anyone who had left the screen in another view. Safe to
+  // read during render because this never renders on the server or in the
+  // hydration pass: `FirstRun` holds it back until there is an answer from
+  // Convex or from this browser's storage, and neither exists before then.
+  const [view, setView] = useState<View>(savedView);
   const [editingId, setEditingId] = useState<Id<"projects"> | null>(null);
   const [confirming, setConfirming] = useState<Project | null>(null);
   const [ctx, setCtx] = useState<{ project: Project; x: number; y: number } | null>(
@@ -75,7 +115,9 @@ export function ProjectsScreen() {
   // Absent, not disabled, on a deployment without the integration: a door
   // that opens onto "set this env var" is not a door.
   const notionAvailable = useNotionAvailable();
-  const [walled, setWalled] = useState(false);
+  // The plan's wall, and — when it met a Create button — the project that was
+  // being made, so paying (or a code) makes it exactly as it was written.
+  const [walled, setWalled] = useState<{ project?: NewProject } | null>(null);
   const [notice, setNotice] = useState<OutcomeLine | null>(
     notion.outcome && notion.outcome !== "connected"
       ? describeOutcome(notion.outcome, notion.reason)
@@ -84,28 +126,26 @@ export function ProjectsScreen() {
   const setFailure = useCallback((text: string) => setNotice({ text, problem: true }), []);
   const { room } = usePlan();
 
-  // Restore the persisted view on the client. The default renders first so SSR
-  // and the first client render agree; set-state-in-effect is correct here.
-  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
-    const saved = localStorage.getItem("nt:projectsView") as View | null;
-    if (saved && saved !== "grid" && VIEWS.includes(saved)) setView(saved);
-  }, []);
-  /* eslint-enable react-hooks/set-state-in-effect */
-
-  useEffect(() => {
-    localStorage.setItem("nt:projectsView", view);
+    try {
+      localStorage.setItem(VIEW_KEY, view);
+    } catch {
+      // Storage refused: the view just does not outlive the visit.
+    }
   }, [view]);
 
   /**
    * Making a project happens in the palette, whichever door was used — the
    * header, its menu, the empty state, a shortcut, coming back from the wall.
-   * Every door goes through the same gate first, so the plan's limit stands in
-   * front of all of them alike, and each opens the palette on its own page.
+   * None of them stops at the plan's limit: someone out of projects still
+   * writes the whole project, and meets the wall at its Create button, with
+   * what they wrote kept for the way back (`create`). The import alone is
+   * asked first, since what it makes is decided on Notion's side.
    */
   const hasRoom = room("projects");
   const start = useCallback(
-    (page: PalettePage) => (hasRoom ? setFinding(page) : setWalled(true)),
+    (page: PalettePage) =>
+      page === "notion" && !hasRoom ? setWalled({}) : setFinding(page),
     [hasRoom],
   );
 
@@ -115,7 +155,7 @@ export function ProjectsScreen() {
   // browser tab keeps that for "new window" and never delivers it, so N is the
   // one the button advertises. Neither while another dialog is up: the palette
   // would open over a form that is in the middle of being filled in.
-  const busy = walled || confirming !== null;
+  const busy = walled !== null || confirming !== null;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (busy || e.altKey) return;
@@ -171,12 +211,8 @@ export function ProjectsScreen() {
 
   const openCreate = useCallback(() => setFinding("create"), []);
 
-  // Paid for mid-thought and came back: what they were reaching for opens
-  // itself, so the wall reads as a pause in making the project rather than as a
-  // detour they have to retrace.
-  useResumeIntent("newProject", true, openCreate);
-
-  const create = async (project: NewProject) => {
+  /** Makes it, and opens it. The plan is the server's to enforce. */
+  const make = async (project: NewProject) => {
     // A template's pages become documents here, in the browser, at the moment
     // one is used — the builder brings the editor with it, so it is not part of
     // this screen's bundle.
@@ -184,15 +220,58 @@ export function ProjectsScreen() {
     const seed = template
       ? (await import("@/app/lib/templates/seed")).seedOf(template)
       : undefined;
+    const { repos, files, pages } = project.sources;
     const id = await createProject({
       title: project.title,
       ...(project.description ? { description: project.description } : {}),
-      ...(project.context ? { context: project.context } : {}),
+      ...(repos.length ? { repos: repos.map(repoRef) } : {}),
       ...(seed ? { seed } : {}),
     });
+    // What only exists once the project does. Not awaited in full: the project
+    // opens now, and a card for each source shows its reading as it lands.
+    if (pages.length) void linkPages({ projectId: id, pages });
+    for (const file of files) {
+      void uploadContextFile(convex, id, file).catch(() => {
+        // The file card is absent rather than wrong; it can be added again.
+      });
+    }
     track("project_created", {});
     router.push(`/p/${id}`);
   };
+
+  /**
+   * The Create button. Out of projects, nothing is made and nothing is lost:
+   * the wall comes up over the form, which is handed back as it was, and the
+   * project rides along to be made on the way back. The server has the last
+   * word either way — a refusal it sends is the same wall.
+   */
+  const create = async (project: NewProject): Promise<boolean> => {
+    if (!hasRoom) {
+      setWalled({ project });
+      return false;
+    }
+    try {
+      await make(project);
+      return true;
+    } catch (error) {
+      if (!isQuotaError(error)) throw error;
+      setWalled({ project });
+      return false;
+    }
+  };
+
+  // Paid for mid-thought and came back: the project they were making is made,
+  // as they wrote it, and opened — the wall was a pause in making it, not a
+  // detour to retrace. Without one (a wall met some other way), the palette
+  // opens where making one starts. Straight to the server rather than through
+  // `create`: the plan on this screen may not have caught up with the payment.
+  useResumeIntent("newProject", live, (intent) => {
+    if (!intent.project) return openCreate();
+    make(intent.project).catch((error: unknown) => {
+      if (isQuotaError(error)) setWalled({ project: intent.project });
+      else setFailure("Couldn’t create that project.");
+    });
+  });
 
   const confirmRemove = () => {
     if (!confirming) return;
@@ -446,7 +525,9 @@ export function ProjectsScreen() {
         </ContextMenu>
       )}
 
-      {finding && (
+      {/* Held until the account is live, like everything below that asks
+          Convex something: asked for a beat early, it opens a beat later. */}
+      {finding && live && (
         <ProjectPalette
           start={finding}
           projects={projects ?? []}
@@ -455,7 +536,7 @@ export function ProjectsScreen() {
           room={hasRoom}
           notion={notionAvailable === true}
           onOpen={open}
-          onWall={() => setWalled(true)}
+          onWall={() => setWalled({})}
           onCreate={create}
           onClose={() => setFinding(null)}
         />
@@ -464,11 +545,16 @@ export function ProjectsScreen() {
       {walled && (
         <PlanWall
           meter="projects"
-          intent={{ kind: "newProject" }}
-          onClose={() => setWalled(false)}
+          intent={{ kind: "newProject", project: walled.project }}
+          // Dismissed, it closes onto the palette still holding the form.
+          onClose={() => setWalled(null)}
           onResume={() => {
-            setWalled(false);
-            openCreate();
+            const { project } = walled;
+            setWalled(null);
+            if (!project) return openCreate();
+            // Granted in place — a code — so the palette is still up over the
+            // form; the project is made and opened from it.
+            make(project).catch(() => setFailure("Couldn’t create that project."));
           }}
         />
       )}
@@ -488,11 +574,11 @@ export function ProjectsScreen() {
           should reach them — and something worth reporting is as likely to be
           here as inside a project. Filed without a project, which `submit`
           already allows. */}
-      <Feedback />
-      <FixedToast />
+      {live && <Feedback />}
+      {live && <FixedToast />}
       {/* Same reasoning: someone asking to edit should reach the owner here
           too, not only inside whichever project they happen to open. */}
-      <AccessRequests />
+      {live && <AccessRequests />}
     </main>
   );
 }
@@ -552,7 +638,7 @@ const Lead = memo(function Lead({
       />
     </div>
   );
-});
+}, sameProjectProps);
 
 /** Memoized for the same reason `SharedCard` is: a live PagePreview each. */
 const Card = memo(function Card({
@@ -613,7 +699,7 @@ const Card = memo(function Card({
       </div>
     </div>
   );
-});
+}, sameProjectProps);
 
 const Row = memo(function Row({
   project,
@@ -672,7 +758,7 @@ const Row = memo(function Row({
       </span>
     </>
   );
-});
+}, sameProjectProps);
 
 /**
  * A project someone else shared: the same card, none of the owner's verbs — no

@@ -267,6 +267,8 @@ export function streamDiagram(
   brief: string,
   page: string,
   title: string,
+  /** The project's styling facts — how its product looks — or "". */
+  look: string,
   signal?: AbortSignal,
   onUsage?: (result: { usage: LanguageModelUsage; latencyMs: number }) => void,
 ): Response {
@@ -282,7 +284,7 @@ export function streamDiagram(
             { role: "assistant" as const, content: shot.html },
           ] as const,
       ),
-      { role: "user", content: userMessage(brief, page, title) },
+      { role: "user", content: userMessage(brief, page, title, look) },
     ],
     maxOutputTokens: AI.diagram.maxTokens + AI.diagram.thinkingHeadroom,
     abortSignal: signal,
@@ -292,13 +294,24 @@ export function streamDiagram(
   return result.toTextStreamResponse();
 }
 
-function userMessage(brief: string, page: string, title: string): string {
-  // The page goes first and the instruction last: what to draw is the thing the
-  // model must still be holding when it starts writing.
+/**
+ * The page goes first and the instruction last: what to draw is the thing the
+ * model must still be holding when it starts writing. The product's look sits
+ * between them — in this message rather than the system prompt, so the cached
+ * prefix of instructions and examples is the same for every project.
+ */
+export function userMessage(brief: string, page: string, title: string, look: string): string {
   const context = page.trim()
     ? `The page${title.trim() ? ` "${title.trim()}"` : ""} says:\n${page.trim()}\n\n`
     : "";
-  return `${context}Draw: ${brief}`;
+  const style = look.trim()
+    ? "The product this project builds has its own look, read from its code. Anything " +
+      "that shows the product — a screen, a mockup, a wireframe, a component — is drawn " +
+      "in it: these exact colours, fonts, corner radii and component names, in place of " +
+      "the default look in the examples. A flowchart or other diagram may keep the " +
+      `default look.\n${look.trim()}\n\n`
+    : "";
+  return `${context}${style}Draw: ${brief}`;
 }
 
 /**

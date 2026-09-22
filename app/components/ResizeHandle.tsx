@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 
 /**
- * A 1px draggable divider. Reports the pointer's absolute clientX while
+ * A draggable divider with nothing drawn at rest: the sheet's own edge is the
+ * line, and the handle only shows itself to a hand that has found it. Reports the pointer's absolute clientX while
  * dragging; the parent decides how that maps to a panel width (so the same
  * handle works on either the left or right edge).
  *
@@ -15,9 +16,12 @@ import { useEffect, useState } from "react";
 export function ResizeHandle({
   onResize,
   ariaLabel,
+  gap = false,
 }: {
   onResize: (clientX: number, done: boolean) => void;
   ariaLabel: string;
+  /** Between two sheets, where the handle is also the room between them. */
+  gap?: boolean;
 }) {
   const [dragging, setDragging] = useState(false);
 
@@ -41,14 +45,20 @@ export function ResizeHandle({
     };
     window.addEventListener("mousemove", move);
     window.addEventListener("mouseup", up);
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
+    // The cursor and the ban on selecting text ride a veil over the window,
+    // not the body: both are inherited, so writing them on the body restyled
+    // every element of the document at the press and again at the release.
+    const veil = document.createElement("div");
+    veil.className = "nt-resize-veil";
+    document.body.append(veil);
+    // A rail being dragged follows the hand; it does not ease after it.
+    document.body.dataset.resizing = "";
     return () => {
       if (frame) cancelAnimationFrame(frame);
       window.removeEventListener("mousemove", move);
       window.removeEventListener("mouseup", up);
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
+      veil.remove();
+      delete document.body.dataset.resizing;
     };
   }, [dragging, onResize]);
 
@@ -57,15 +67,8 @@ export function ResizeHandle({
       role="separator"
       aria-label={ariaLabel}
       onMouseDown={() => setDragging(true)}
-      className="group relative z-10 w-px shrink-0 cursor-col-resize bg-border"
-    >
-      {/* Widened invisible hit area for easier grabbing. */}
-      <div className="absolute inset-y-0 -left-1.5 -right-1.5" />
-      <div
-        className={`absolute inset-y-0 left-0 w-px transition-colors ${
-          dragging ? "bg-accent" : "group-hover:bg-accent/50"
-        }`}
-      />
-    </div>
+      data-dragging={dragging || undefined}
+      className={`nt-resize${gap ? " is-gap" : ""}`}
+    />
   );
 }

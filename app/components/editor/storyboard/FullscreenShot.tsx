@@ -10,12 +10,13 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { X } from "@/app/components/Icons";
+import { useColumnEdges } from "@/app/lib/columnEdges";
 import {
   CanvasSurface,
   type BoardApi,
   type CanvasApi,
 } from "../canvas/render/CanvasSurface";
-import { StoryboardToolbar } from "./StoryboardToolbar";
+import { Toolbar } from "../canvas/Toolbar";
 import { SHOT_W } from "./types";
 
 /**
@@ -53,6 +54,10 @@ export function FullscreenShot({
   onClaim: (api: CanvasApi) => void;
   onClose: () => void;
 }) {
+  // In the column's room rather than over the whole window, leaving the rails
+  // beside it standing; placed before the stage is measured.
+  const full = useRef<HTMLDivElement>(null);
+  useColumnEdges(full);
   const stage = useRef<HTMLDivElement>(null);
   const [box, setBox] = useState<{ w: number; h: number } | null>(null);
   useLayoutEffect(() => {
@@ -92,7 +97,7 @@ export function FullscreenShot({
   };
 
   return createPortal(
-    <div className="nt-sb-full" onPointerDown={onBackdrop}>
+    <div ref={full} className="nt-sb-full" onPointerDown={onBackdrop}>
       <button
         type="button"
         className="nt-sb-full-close"
@@ -112,10 +117,16 @@ export function FullscreenShot({
           />
         )}
       </div>
+      {/* The workspace's bar is under this view, so it brings its own, in
+          the same spot. */}
       {api && !readOnly && (
-        <div className="nt-sb-bar-h">
-          <StoryboardToolbar api={api} board={board} />
-        </div>
+        <Toolbar
+          store={api.store}
+          viewport={api.viewport}
+          tools={api.tools}
+          screen={api.screen}
+          board={board}
+        />
       )}
     </div>,
     document.body,

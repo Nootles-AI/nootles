@@ -32,6 +32,7 @@ export function Menu({
   side = "top",
   align = "start",
   label,
+  className,
 }: {
   trigger: (props: {
     ref: React.Ref<HTMLButtonElement>;
@@ -43,6 +44,9 @@ export function Menu({
   side?: Side;
   align?: Align;
   label: string;
+  /** A variant of the surface, for a menu that is a different object — the
+   *  canvas toolbar's ink tool list, drawn like the bar it hangs from. */
+  className?: string;
 }) {
   const [open, setOpen] = useState(false);
   // The menu outlives `open` by its exit animation. Everything that means
@@ -182,7 +186,7 @@ export function Menu({
               onAnimationEnd={(e) => {
                 if (!open && e.target === e.currentTarget) setLeaving(false);
               }}
-              className={`nt-menu fixed${open ? "" : " is-closing"}`}
+              className={`nt-menu fixed${className ? ` ${className}` : ""}${open ? "" : " is-closing"}`}
               style={
                 {
                   top: pos.top,

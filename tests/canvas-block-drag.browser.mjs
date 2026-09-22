@@ -4,9 +4,8 @@ import { createServer } from "node:http";
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { repo, writeAppStylesheet } from "./canvas-harness.mjs";
 
-const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const output = await mkdtemp(path.join(tmpdir(), "canvas-block-drag-"));
 const { chromium } = await import("playwright");
 
@@ -49,9 +48,15 @@ await build({
   logLevel: "warning",
 });
 
+// The app's own `:root`, not a stand-in. `editor.css` points BlockNote's menu
+// surface at `--elevated` and its ink at `--foreground`, so a fixture that
+// declares neither makes the themed dropdown compute `transparent` — which is
+// what the NT-52 check below read as a regression for five days (NT-72).
+await writeAppStylesheet(output);
+
 await writeFile(
   path.join(output, "index.html"),
-  '<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="/canvas-block-drag.browser.css"><style>:root{--background:#fff;--z-dropdown:20;--dur-fast:110ms;--dur:170ms;--ease:cubic-bezier(.16,1,.3,1)}html,body{margin:0;height:100%;font-family:Arial,sans-serif}.relative{position:relative}.w-full{width:100%}</style></head><body><div id="app"></div><script type="module" src="/canvas-block-drag.browser.js"></script></body></html>',
+  '<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="/app.css"><link rel="stylesheet" href="/canvas-block-drag.browser.css"><style>html,body{height:100%}</style></head><body><div id="app"></div><script type="module" src="/canvas-block-drag.browser.js"></script></body></html>',
 );
 
 const server = createServer(async (request, response) => {
@@ -214,15 +219,27 @@ try {
   await page.evaluate(() => window.canvasBlockDrag.removeStackingObstacle());
 
   // The escaped dropdown keeps the Mantine/BlockNote theme scope that the
-  // original NT-52 body portal lost.
+  // original NT-52 body portal lost: `editor.css`'s `.bn-root.bn-mantine`
+  // block still reaches it, so its paper, ink and hairline are the app's own
+  // and not BlockNote's defaults. Asserting the app's values rather than
+  // "some background" is the point — the weaker check passed against
+  // BlockNote's own white for as long as a fixture happened to load it.
   const handleSelector = 'button[aria-label="Block actions"]';
   await page.click(handleSelector);
   await page.waitForSelector(".bn-drag-handle-menu");
   const menuTheme = await page.evaluate(() => window.canvasBlockDrag.menuTheme());
   assert.ok(menuTheme, "the block-actions dropdown opened");
-  assert.notEqual(menuTheme.backgroundColor, "rgba(0, 0, 0, 0)");
-  assert.notEqual(menuTheme.backgroundColor, "transparent");
-  assert.notEqual(menuTheme.color, "rgba(0, 0, 0, 0)");
+  for (const [property, value] of Object.entries(menuTheme.app)) {
+    assert.notEqual(value, "rgba(0, 0, 0, 0)", `the app declares ${property}`);
+  }
+  assert.deepEqual(
+    {
+      backgroundColor: menuTheme.backgroundColor,
+      borderColor: menuTheme.borderColor,
+      color: menuTheme.color,
+    },
+    menuTheme.app,
+  );
   await page.keyboard.press("Escape");
   await page.waitForSelector(".bn-drag-handle-menu", { state: "hidden" });
 

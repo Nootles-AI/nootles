@@ -6,6 +6,7 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type CSSProperties,
   type ReactNode,
 } from "react";
 import { useColorPick } from "./colorPick";
@@ -46,7 +47,7 @@ export function Popover({
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState({ top: 0, left: 0 });
+  const [pos, setPos] = useState({ top: 0, left: 0, up: false });
 
   const close = useCallback(() => setOpen(false), []);
 
@@ -57,9 +58,10 @@ export function Popover({
     const r = t.getBoundingClientRect();
     const h = p.offsetHeight;
     let top = r.bottom + 6;
-    if (top + h > window.innerHeight - 8) top = Math.max(8, r.top - h - 6);
+    const up = top + h > window.innerHeight - 8;
+    if (up) top = Math.max(8, r.top - h - 6);
     const left = Math.min(Math.max(8, r.right - width), window.innerWidth - width - 8);
-    setPos({ top, left });
+    setPos({ top, left, up });
   }, [width]);
 
   useLayoutEffect(() => {
@@ -93,7 +95,16 @@ export function Popover({
             role="dialog"
             aria-label={label}
             className="nt-menu nt-ctl-pop fixed"
-            style={{ top: pos.top, left: pos.left, width }}
+            // It hangs from the field's right edge, above or below it, and grows
+            // out of whichever corner is touching.
+            style={
+              {
+                top: pos.top,
+                left: pos.left,
+                width,
+                "--origin": pos.up ? "bottom right" : "top right",
+              } as CSSProperties
+            }
             onKeyDown={(e) => {
               if (e.key !== "Escape") return;
               e.stopPropagation();

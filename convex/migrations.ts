@@ -2,6 +2,10 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { internalMutation, internalQuery, type QueryCtx } from "./_generated/server";
+import { isTrashed } from "./auth";
+import { upsertDocument } from "./context/documents";
+import { pageNode } from "./context/pages";
+import { documentId } from "./files/context";
 import { raiseTo, TICKET } from "./counters";
 import { forgetPagesIn, pagesInBlob } from "./pages";
 
@@ -318,5 +322,102 @@ export const forgetDeletedTurnPages = internalMutation({
       done: batch.isDone,
       cursor: batch.isDone ? null : batch.continueCursor,
     };
+  },
+});
+
+/**
+ * Stamps `pages.yjs` on every page whose document already has a `ydocs` row.
+ *
+ * The flag was only ever written by `ydoc.append`, so a page nobody has edited
+ * since it migrated never got one — measured at 38% of production's Yjs pages.
+ * The flag is what lets the editor start loading a document in the same round
+ * trip as `meta` instead of the one after it (`Editor`'s `yjs` prop), and what
+ * lets `ydoc.state` answer without the `ydocs` lookup, so the pages it is
+ * missing from are exactly the ones opened to be read. `ydoc.init` stamps it
+ * at birth now; this is for the documents born before that.
+ *
+ * Run again with the returned cursor until `done`. Idempotent.
+ */
+export const stampYjsPages = internalMutation({
+  args: { cursor: v.optional(v.string()) },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ seen: number; stamped: number; done: boolean; cursor: string | null }> => {
+    const batch = await ctx.db
+      .query("ydocs")
+      .paginate({ numItems: BATCH, cursor: args.cursor ?? null });
+    let stamped = 0;
+    for (const ydoc of batch.page) {
+      const page = await ctx.db
+        .query("pages")
+        .withIndex("by_doc", (q) => q.eq("docId", ydoc.docId))
+        .unique();
+      if (!page || page.yjs) continue;
+      await ctx.db.patch(page._id, { yjs: true });
+      stamped++;
+    }
+    return {
+      seen: batch.page.length,
+      stamped,
+      done: batch.isDone,
+      cursor: batch.isDone ? null : batch.continueCursor,
+    };
+  },
+});
+
+/**
+ * Gives every live page a node in its project's context graph, so
+ * `search_context` finds pages by title before anyone has opened them since
+ * the graph shipped. Titles only: a page's words arrive with its first digest,
+ * which the browser writes the next time the page is opened or edited.
+ * Idempotent — a page that already has a node is left alone.
+ */
+export const contextPageNodes = internalMutation({
+  args: { cursor: v.optional(v.string()) },
+  handler: async (ctx, args): Promise<{ pages: number; done: boolean }> => {
+    const batch = await ctx.db
+      .query("pages")
+      .paginate({ numItems: BATCH, cursor: args.cursor ?? null });
+    for (const page of batch.page) {
+      if (!isTrashed(page)) await pageNode(ctx, page);
+    }
+    if (!batch.isDone) {
+      await ctx.scheduler.runAfter(0, internal.migrations.contextPageNodes, {
+        cursor: batch.continueCursor,
+      });
+    }
+    return { pages: batch.page.length, done: batch.isDone };
+  },
+});
+
+/**
+ * Reads every uploaded file that already has its text into the context graph
+ * as a document — files uploaded before the graph read them. Idempotent: a
+ * file already there is written again with the same text.
+ */
+export const contextFileNodes = internalMutation({
+  args: { cursor: v.optional(v.string()) },
+  handler: async (ctx, args): Promise<{ files: number; done: boolean }> => {
+    const batch = await ctx.db
+      .query("projectFiles")
+      .paginate({ numItems: 25, cursor: args.cursor ?? null });
+    for (const file of batch.page) {
+      if (!file.text) continue;
+      await upsertDocument(ctx, {
+        projectId: file.projectId,
+        source: "files",
+        externalId: documentId(file._id),
+        title: file.filename,
+        memberId: file.ownerId,
+        text: file.text,
+      });
+    }
+    if (!batch.isDone) {
+      await ctx.scheduler.runAfter(0, internal.migrations.contextFileNodes, {
+        cursor: batch.continueCursor,
+      });
+    }
+    return { files: batch.page.length, done: batch.isDone };
   },
 });
