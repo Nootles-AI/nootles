@@ -527,7 +527,14 @@ try {
   const viewportBox = await (await page.$(canvasViewport)).boundingBox();
   assert.ok(viewportBox);
   await page.click(canvasViewport);
-  await page.keyboard.press("Alt+Shift+KeyR");
+  // The bare letter only reaches a diagram that has the keyboard; over a page
+  // you are typing in, R is a letter. This harness drives Puppeteer, which
+  // spells a chord out rather than taking it as one key name.
+  await page.keyboard.down("Alt");
+  await page.keyboard.down("Shift");
+  await page.keyboard.press("KeyR");
+  await page.keyboard.up("Shift");
+  await page.keyboard.up("Alt");
   const drawX = viewportBox.x + viewportBox.width * 0.72;
   const drawY = viewportBox.y + viewportBox.height * 0.72;
   await page.mouse.move(drawX, drawY);
@@ -624,6 +631,83 @@ try {
   await page.waitForFunction(() => window.nmlHarness.history.blockText("rich-full") === "Rich text");
   await page.screenshot({ path: path.join(output, "canonical-history-desktop.png"), fullPage: true });
 
+  // A domain surface holds its value while it is being edited, so a write the
+  // document refuses leaves the canonical value untouched and nothing in the
+  // block's props moves. The surface has to be sent back to the document
+  // anyway, or it goes on showing a value the page does not have (NT-31).
+  await page.evaluate(() => window.nmlHarness.mountRichEditable());
+  await page.waitForSelector('#bridge .nt-nml-view[contenteditable="true"][aria-label="Rich document editor"]');
+  await page.waitForSelector('#bridge [data-nml-id="code-rich"] .cm-content');
+  await page.waitForSelector('#bridge [data-nml-id="math-rich"] math-field');
+  const codeText = () => page.$eval('#bridge [data-nml-id="code-rich"] .cm-content', (element) => element.textContent);
+  const codeCanonical = () => page.evaluate(() => window.nmlHarness.inspect().ast.blocks.find((block) => block.id === "code-rich").code);
+  const mathText = () => page.$eval('#bridge [data-nml-id="math-rich"] math-field', (field) => field.value);
+  const mathCanonical = () => page.evaluate(() => window.nmlHarness.inspect().ast.blocks.find((block) => block.id === "math-rich").rows[0].latex);
+  const caretToCodeEnd = async () => {
+    await page.click('#bridge [data-nml-id="code-rich"] .cm-content');
+    await page.keyboard.down("Control");
+    await page.keyboard.press("End");
+    await page.keyboard.up("Control");
+  };
+
+  // An outside change — a collaborator, the model, an undo — reaches the surface.
+  await page.evaluate(() => window.nmlHarness.command([{ type: "setCode", nodeId: "code-rich", range: { from: 0, to: "const value = 1".length }, text: "const value = 2" }]));
+  await page.waitForFunction(() => document.querySelector('#bridge [data-nml-id="code-rich"] .cm-content').textContent === "const value = 2");
+  assert.equal(await codeCanonical(), "const value = 2");
+
+  // Refused after the request was made: the rejection rolls the document back.
+  await page.evaluate(() => window.nmlHarness.setAuthorization("deny"));
+  await caretToCodeEnd();
+  await page.keyboard.type("; // refused");
+  await page.waitForFunction(() => window.nmlHarness.inspect().requests.at(-1)?.status === "rejected");
+  await page.waitForFunction(() => document.querySelector('#bridge [data-nml-id="code-rich"] .cm-content').textContent === "const value = 2");
+  assert.equal(await codeCanonical(), "const value = 2");
+
+  await page.$eval('#bridge [data-nml-id="math-rich"] math-field', (field) => {
+    field.value = "x^{refused}";
+    field.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: "^{refused}" }));
+  });
+  await page.waitForFunction(() => document.querySelector('#bridge [data-nml-id="math-rich"] math-field').value === "x");
+  assert.equal(await mathCanonical(), "x");
+
+  // Refused outright, with another request still in flight: no request is made
+  // and no rejection arrives, so the surface is the only place that knows.
+  await page.evaluate(() => window.nmlHarness.setAuthorization("defer"));
+  await page.click('#bridge [data-nml-id="rich-full"]');
+  await page.keyboard.press("End");
+  await page.keyboard.type("!");
+  await page.waitForFunction(() => window.nmlHarness.inspect().requests.at(-1)?.status === "optimistic");
+  await caretToCodeEnd();
+  await page.keyboard.type("; // in flight");
+  await page.waitForFunction(() => document.querySelector('#bridge [data-nml-id="code-rich"] .cm-content').textContent === "const value = 2");
+  await page.evaluate(() => window.nmlHarness.resolveAuthorization(true));
+  await page.waitForFunction(() => ["acknowledged", "reconciled"].includes(window.nmlHarness.inspect().requests.at(-1)?.status));
+  assert.equal(await codeText(), "const value = 2");
+  assert.equal(await codeCanonical(), "const value = 2");
+  assert.equal(await mathText(), "x");
+  assert.equal((await page.evaluate(() => window.nmlHarness.inspect())).parity, true);
+
+  // The surface is still live once the document is taking writes again.
+  await caretToCodeEnd();
+  await page.keyboard.type("; // accepted");
+  await page.waitForFunction(() => window.nmlHarness.inspect().ast.blocks.find((block) => block.id === "code-rich").code === "const value = 2; // accepted");
+  assert.equal(await codeText(), "const value = 2; // accepted");
+  // Somebody else's rejection leaves alone the text this surface is still
+  // holding — it was never offered to the document, so it was never refused.
+  await page.evaluate(() => window.nmlHarness.setAuthorization("defer"));
+  await page.click('#bridge [data-nml-id="rich-full"]');
+  await page.keyboard.press("End");
+  await page.keyboard.type("?");
+  await page.waitForFunction(() => window.nmlHarness.inspect().requests.at(-1)?.status === "optimistic");
+  await caretToCodeEnd();
+  await page.keyboard.type("!");
+  await page.evaluate(() => window.nmlHarness.resolveAuthorization(false));
+  await page.waitForFunction(() => window.nmlHarness.inspect().requests.at(-1)?.status === "rejected");
+  assert.equal(await codeText(), "const value = 2; // accepted!");
+  await page.waitForFunction(() => window.nmlHarness.inspect().ast.blocks.find((block) => block.id === "code-rich").code === "const value = 2; // accepted!");
+  assert.equal(await codeText(), "const value = 2; // accepted!");
+  await page.screenshot({ path: path.join(output, "refused-domain-write-desktop.png"), fullPage: true });
+
   await page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true });
   await page.evaluate(() => window.nmlHarness.mount("rich"));
   await page.waitForSelector("#bridge .nt-nml-view");
@@ -638,5 +722,5 @@ try {
   await page.evaluate(() => window.nmlHarness.destroy());
   assert.deepEqual(errors, []);
   assert.deepEqual(paidRequests, []);
-  console.log(JSON.stringify({ result: "passed", fixtures: 8, editableWorkflows: 9, canonicalHistory: true, desktop: "1440x1100", mobile: "390x844", screenshots: output, browserErrors: errors.length, paidRequests: paidRequests.length }, null, 2));
+  console.log(JSON.stringify({ result: "passed", fixtures: 8, editableWorkflows: 10, canonicalHistory: true, refusedDomainWrites: true, desktop: "1440x1100", mobile: "390x844", screenshots: output, browserErrors: errors.length, paidRequests: paidRequests.length }, null, 2));
 } finally { await browser?.close(); await new Promise((resolve) => server.close(resolve)); }
