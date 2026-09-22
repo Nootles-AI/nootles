@@ -23,9 +23,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import postcss from "postcss";
-import tailwind from "@tailwindcss/postcss";
-import { checker, launch, openPage, repo, writeArtifact } from "./canvas-harness.mjs";
+import { checker, launch, openPage, repo, writeAppStylesheet, writeArtifact } from "./canvas-harness.mjs";
 
 const c = checker();
 
@@ -73,11 +71,7 @@ async function buildStageHarness() {
     logLevel: "warning",
   });
 
-  const appCssPath = path.join(repo, "app/globals.css");
-  const styles = await postcss([tailwind({ base: repo })]).process(await readFile(appCssPath, "utf8"), {
-    from: appCssPath,
-  });
-  await writeFile(path.join(output, "app.css"), styles.css);
+  await writeAppStylesheet(output);
 
   await writeFile(
     path.join(output, "index.html"),

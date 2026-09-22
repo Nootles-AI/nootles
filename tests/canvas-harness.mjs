@@ -89,6 +89,25 @@ function refSourcePlugin(ref) {
 }
 
 /**
+ * Writes `app/globals.css`, compiled by the app's own Tailwind pipeline, into
+ * `output` as `app.css` — the only supported way a fixture gets the app's
+ * `:root`. Hand-written stand-ins were the alternative, and they are how the
+ * block-drag harness came to assert against tokens no fixture declared: the
+ * dropdown's `--bn-colors-menu-background` resolves through `--elevated`, so a
+ * missing token makes a themed surface compute `transparent` and reads as a
+ * product regression (NT-72). A fixture that loads this one file cannot drift
+ * from the app again, whatever `:root` grows next.
+ */
+export async function writeAppStylesheet(output) {
+  const appCssPath = path.join(repo, "app/globals.css");
+  const styles = await postcss([tailwind({ base: repo })]).process(
+    await readFile(appCssPath, "utf8"),
+    { from: appCssPath },
+  );
+  await writeFile(path.join(output, "app.css"), styles.css);
+}
+
+/**
  * Builds the harness page once and serves it from a temp dir on 127.0.0.1.
  * `ref`, when given, builds `app/**` from that git ref instead of the
  * working tree (§3.1.6's A/B re-recording) — everything outside `app/**`
@@ -122,11 +141,7 @@ export async function buildHarness({ ref } = {}) {
   // The canvas CSS consumes `--radius-lg`, `--border`, `--muted`, `--dur`,
   // `--ease`, `--z-modal`, `--selected`… from `:root`, declared by Tailwind's
   // base layer — exactly the `tests/nml-view.browser.mjs` pattern.
-  const appCssPath = path.join(repo, "app/globals.css");
-  const styles = await postcss([tailwind({ base: repo })]).process(await readFile(appCssPath, "utf8"), {
-    from: appCssPath,
-  });
-  await writeFile(path.join(output, "app.css"), styles.css);
+  await writeAppStylesheet(output);
 
   await writeFile(
     path.join(output, "index.html"),

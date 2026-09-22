@@ -150,18 +150,20 @@ keep them that way.
 
 ### Reading CI on a PR
 
-`.github/workflows/check.yml` has two jobs, and only one is a gate:
+`.github/workflows/check.yml` has two jobs, and both are gates:
 
 - **`check`** — `tsc --noEmit`, `npm run lint`, `npm test`. **This is the bar.** It must be
   green, and it is what to fix if it is not.
 - **`canvas-browser`** — `npm run test:canvas:browser` under Playwright on a shared runner.
-  **Always fails, on every PR and on `main` too.** Not your change.
+  Green on `main` since NT-72; **a red one is a real failure and is yours to read.** It was
+  red on every run from 2026-09-16 to 2026-09-21, which is how a genuine break in
+  `canvas-stage` reached `main` unnoticed — so treat "it always fails" as a claim that has
+  already cost this repo once.
 - **Vercel** (preview deployment, not this workflow) — **always fails on every PR.**
 
-So a PR whose only red marks are Vercel and `canvas-browser` has passed. Confirm rather than
-assume: compare against the latest `main` run (`gh run list --branch main`) and check that the
-`check` job itself is the one that is green. Never chase either known-red check, and never
-report a PR as failing on their account.
+So Vercel is the only mark to read past. Confirm rather than assume: compare against the
+latest `main` run (`gh run list --branch main`), and never report a PR as failing on
+Vercel's account.
 
 ## Roadmap pointer
 
