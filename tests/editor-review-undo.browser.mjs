@@ -35,6 +35,15 @@
  * touched, or a diagram they moved, still lands whole — nothing here can write
  * either — and both are checked as such.
  *
+ * NT-69: a block written during a review kept only its first word. The fork
+ * leaves the sync plugin's state naming the doc the editor was bound to first,
+ * so every position BlockNote tracked while a review was open resolved in the
+ * wrong doc — and it turns that into a throw from inside `EditorView.dispatch`.
+ * The browser had already put the character in the DOM, so the editor went on
+ * accepting text it never committed. The holder is the suggestion menu, which
+ * the emoji picker opens on `:`; these type words with one in them, on both
+ * sides of the fork and through every way out of it.
+ *
  * NT-43: an agent's diagram edit reached collaborators' maps while it was
  * still under review, and Discard, Revert and the rewind put back only the
  * block's `<nt-diagram>` mirror. Every reader of the diagram — the block prop,
@@ -250,17 +259,25 @@ try {
     }
   };
   const settled = () => page.waitForFunction(() => window.reviewHarness.open() === 0 && !window.reviewHarness.forked(), { timeout: 5000 }).then(() => sleep(250));
-  /** The question typed into the chat composer, then the agent's answer staged. */
-  const turn = async (kind = "agentReplace", ...args) => {
+  /** The question typed into the chat composer. */
+  const ask = async () => {
     const composer = await page.$("#composer");
     const box = await composer.boundingBox();
     await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
     await page.keyboard.type("turn my notes into a storyboard", { delay: 2 });
     await sleep(100);
+  };
+  /** The agent's answer staged, as it arrives: whenever it arrives. */
+  const stage = async (kind = "agentReplace", ...args) => {
     const id = await h((name, rest) => window.reviewHarness[name](...rest), kind, args);
     await page.waitForSelector("#bar button");
     await sleep(150);
     return id;
+  };
+  /** Both, back to back, which is every turn but the ones timed on purpose. */
+  const turn = async (kind = "agentReplace", ...args) => {
+    await ask();
+    return stage(kind, ...args);
   };
   const peer = () => h(() => window.reviewHarness.peerTexts());
   /** A hunk's own button, topmost first, pressed with the pointer resting on it. */
@@ -484,6 +501,92 @@ try {
   check("one ⌘Z takes back both, as they landed together", await texts(), [...HEAD, ...NOTES]);
   await redo();
   check("⌘⇧Z puts both back", await texts(), [...TITLED, ...SCENE]);
+
+  console.log("NT-69: writing words with a \":\" in them, during a review");
+  // The emoji picker opens on ":", and a suggestion menu tracks where its query
+  // began. Forked, that position resolved in the shared doc while the binding
+  // was on the fork, so it came back null and BlockNote threw — out of
+  // `EditorView.dispatch`, which abandons the transaction the keystroke was in
+  // after the browser has already drawn the character. The line looks typed and
+  // the document never hears it. Every check here is on the document, not the
+  // page, for that reason. The control is the same words with no turn at all.
+  const SUBTITLE = "subtitle: a letter to ourselves";
+  await fresh();
+  await typeNotes();
+  await clickEnd(0);
+  await page.keyboard.press("Enter");
+  await sleep(100);
+  await page.keyboard.type(SUBTITLE, { delay: 5 });
+  await sleep(300);
+  check("control: a new block takes the whole line, with no review", await texts(), [HEAD[0], `paragraph:${SUBTITLE}`, HEAD[1], ...NOTES]);
+
+  await fresh();
+  await typeNotes();
+  await turn();
+  await clickEnd(0);
+  await page.keyboard.press("Enter");
+  await sleep(100);
+  await page.keyboard.type(SUBTITLE, { delay: 5 });
+  await sleep(300);
+  check("under review, it takes the whole line too", await texts(), [HEAD[0], `paragraph:${SUBTITLE}`, HEAD[1], ...SCENE]);
+  check("…and the collaborator hears none of it, fork and typing alike", await peer(), [...HEAD, ...NOTES]);
+  // Typing slowly failed identically, which is how the original was told apart
+  // from a dropped keystroke; it is kept because the two look the same on screen.
+  await fresh();
+  await typeNotes();
+  await turn();
+  await clickEnd(0);
+  await page.keyboard.press("Enter");
+  await sleep(400);
+  await page.keyboard.type(SUBTITLE, { delay: 60 });
+  await sleep(300);
+  check("…however slowly it is typed", (await texts())[1], `paragraph:${SUBTITLE}`);
+  // A block the review has never seen was the reported shape, but the menu is
+  // what holds the position, so an existing block is no safer.
+  await fresh();
+  await typeNotes();
+  await turn();
+  await clickEnd(0);
+  await page.keyboard.type(": a letter", { delay: 5 });
+  await sleep(300);
+  check("…and in a block that was already there", (await texts())[0], "heading:Enactus intro reel: a letter");
+
+  console.log("NT-69: the menu open as the agent's edit arrives");
+  // The prompt is sent and the caret goes back to the page, so the menu is open
+  // when the turn forks. No repair can carry its position across — the fork is
+  // a clone, and the new binding maps the clone's own types — so the fork
+  // closes the menu, a beat before it swaps. Left open, this threw inside
+  // `fork()` and the whole turn failed.
+  await fresh();
+  await typeNotes();
+  await ask();
+  await clickEnd(0);
+  await page.keyboard.type(":", { delay: 5 });
+  await sleep(200);
+  await stage();
+  check("the agent's change arrives", (await texts()).slice(2), SCENE);
+  await page.keyboard.type(" a letter", { delay: 5 });
+  await sleep(300);
+  check("…and the words carry on into the block they were being typed in", (await texts())[0], "heading:Enactus intro reel: a letter");
+
+  for (const answer of ["Discard all", "Keep all"]) {
+    console.log(`NT-69: the menu open as the turn is answered — ${answer}`);
+    // The way out is `parkSelection`, which moves the caret off the query
+    // before the merge for its own reasons, and closes the menu doing it.
+    await fresh();
+    await typeNotes();
+    await turn();
+    await clickEnd(0);
+    await page.keyboard.type(":", { delay: 5 });
+    await sleep(200);
+    await press(answer);
+    await settled();
+    await clickEnd(0);
+    await page.keyboard.type(" a letter", { delay: 5 });
+    await sleep(300);
+    check("the page is still writable after the answer", (await texts())[0], "heading:Enactus intro reel: a letter");
+    check("…and the collaborator has the same words", (await peer())[0], "heading:Enactus intro reel: a letter");
+  }
 
   console.log("NT-36: Keep gives immediate feedback while Convex is reconnecting");
   await fresh();
