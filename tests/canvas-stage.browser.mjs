@@ -23,12 +23,17 @@ import { execFileSync } from "node:child_process";
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { checker, launch, openPage, repo, writeAppStylesheet, writeArtifact } from "./canvas-harness.mjs";
+import {
+  checker,
+  launch,
+  openPage,
+  pretendApplePlatform,
+  repo,
+  writeAppStylesheet,
+  writeArtifact,
+} from "./canvas-harness.mjs";
 
 const c = checker();
-
-const MAC_UA =
-  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
 function rejectNextServerDiagnosticsPlugin() {
   return {
@@ -118,11 +123,9 @@ async function main() {
   const { browser } = await launch();
   try {
     const { page, guards } = await openPage(browser, built.origin, { viewport: { width: 1280, height: 900 } });
-    // Mac UA so `isApplePlatform()` reads `Mod` as ⌘ — every chord below
-    // (⌘⇧F, ⌘., ⌃⌘F) is written against that binding table.
-    await page.addInitScript((ua) => {
-      Object.defineProperty(navigator, "userAgent", { value: ua, configurable: true });
-    }, MAC_UA);
+    // Every chord below (⌘⇧F, ⌘., ⌃⌘F) is written against the Apple
+    // binding table.
+    await pretendApplePlatform(page);
     await page.emulateMedia({ reducedMotion: "reduce" });
     await page.goto(built.origin, { waitUntil: "networkidle" });
 

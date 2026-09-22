@@ -227,6 +227,28 @@ export async function launch({ unlockedFrames = true } = {}) {
 }
 
 /**
+ * Makes the page read as macOS, so `isApplePlatform()` resolves `Mod` to ⌘ and
+ * a harness can press `Meta` for deep-select, the layer menu and every chord
+ * the probe tables are written in. Must run before the bundle loads:
+ * `shortcuts.ts` memoises the answer on first call.
+ *
+ * The canvas gate pins one platform rather than following the host's. A
+ * developer's Mac and CI's Linux runner otherwise exercise different bindings
+ * from the same table — which is what kept 21 `picking.*.cmd` probes failing
+ * on every CI run and passing on every laptop (NT-72). The off-Apple bindings
+ * are `app/components/editor/canvas/engine/shortcuts.test.ts`'s job, and it
+ * covers both tables directly.
+ */
+export const MAC_UA =
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+
+export async function pretendApplePlatform(page) {
+  await page.addInitScript((ua) => {
+    Object.defineProperty(navigator, "userAgent", { value: ua, configurable: true });
+  }, MAC_UA);
+}
+
+/**
  * A fresh page on the fixture's origin, every non-origin request aborted and
  * recorded as a failure, and the runtime API stubs of §2.6 installed before
  * any page script runs.
