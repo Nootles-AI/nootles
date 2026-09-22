@@ -19,7 +19,7 @@ import { sessionToken } from "@/app/lib/session";
 export const maxDuration = 60;
 
 /** A repository's styling facts, capped — the brief and the page still come first. */
-const LOOK_CHARS = 1600;
+const LOOK_CHARS = 2000;
 
 export async function POST(req: Request) {
   const token = await sessionToken();

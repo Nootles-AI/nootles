@@ -104,6 +104,37 @@ describe("describeStyling", () => {
     expect(at("--nt-select")).toBeLessThan(at("--bn-colors-menu"));
   });
 
+  test("a codebase that never rounds says it is square, and flat", () => {
+    const texts = new Map([
+      ["app/globals.css", ":root { --primary: #000; }"],
+      ["app/components/links/links.module.css", ".primaryButton { background: #000; color: #fff; padding: 8px 16px; }"],
+    ]);
+    const summary = describeStyling([...texts].map(([p, t]) => parseFile(p, t)), texts);
+    expect(summary).toMatch(/^Corners: square — no border-radius/m);
+    expect(summary).toMatch(/^Shadows: none anywhere/m);
+  });
+
+  test("control rules come verbatim, buttons first, motion left out", () => {
+    const texts = new Map([
+      ["src/card.module.css", ".card { border: 1px solid #ddd; padding: 16px; }"],
+      [
+        "src/button.module.css",
+        ".secondaryButton { border: 1px solid #000; background: transparent; transition: all 0.2s; }" +
+          ".primaryButton { background: #000; color: #fff; border-radius: 0; }",
+      ],
+      ["src/App.tsx", '<button className="rounded-none bg-black px-4 text-white">Go</button>'],
+    ]);
+    const summary = describeStyling([...texts].map(([p, t]) => parseFile(p, t)), texts);
+    const line = summary.split("\n").find((l) => l.startsWith("Component styles:"))!;
+    expect(line).toContain(".primaryButton { background: #000; color: #fff; border-radius: 0 }");
+    expect(line).toContain(".secondaryButton { border: 1px solid #000; background: transparent }");
+    expect(line.indexOf(".secondaryButton")).toBeLessThan(line.indexOf(".card"));
+    expect(line).toContain("<button> rounded-none bg-black px-4 text-white");
+    expect(line).not.toContain("transition");
+    // Radius set to zero, explicitly, is still square.
+    expect(summary).toMatch(/^Corners: square/m);
+  });
+
   test("tokens verbatim, grouped", () => {
     expect(summary).toContain("--color-ink: oklch(0.21 0.006 285.885)");
     expect(summary).toContain("--foreground: #1f1f1f");

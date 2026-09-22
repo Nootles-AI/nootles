@@ -21,7 +21,7 @@ const CHARS_PER_TOKEN = 4;
 /** The most of a chat budget the user's own notes may take before the rest. */
 const NOTES_SHARE = 0.45;
 /** A codebase's look, for drawing and mocking up its screens — kept whatever else is cut. */
-const STYLING_SHARE = 0.2;
+const STYLING_SHARE = 0.25;
 /** The map of each repository: areas and their concerns. */
 const CODE_SHARE = 0.15;
 const RECENT_PAGES = 6;
