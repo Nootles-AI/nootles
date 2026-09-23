@@ -280,7 +280,8 @@ export default defineSchema({
    * A workspace's Team subscription as Stripe last reported it: one customer
    * per workspace, never a member's own, and one subscription with two items,
    * seats and metered AI usage. Instants are milliseconds, unlike the personal
-   * mirror's verbatim seconds.
+   * mirror's verbatim seconds. Written when the customer is made, before
+   * anything is bought (`teamBilling.ts`).
    */
   workspaceBilling: defineTable({
     workspaceId: v.id("workspaces"),
@@ -288,16 +289,44 @@ export default defineSchema({
     subscriptionId: v.optional(v.string()),
     seatItemId: v.optional(v.string()),
     usageItemId: v.optional(v.string()),
-    /** Stripe's own status word, stored verbatim — see `entitlements.ts`. */
+    /**
+     * Stripe's own status word, stored verbatim — see `entitlements.ts` — or
+     * "none" while the customer has no subscription.
+     */
     status: v.string(),
     /** The seat quantity last pushed to Stripe. */
     seats: v.number(),
+    /** Zero while there is no subscription. */
     periodStart: v.number(),
     periodEnd: v.number(),
+    cancelAtPeriodEnd: v.optional(v.boolean()),
     /** AI spend included in the period before usage is billed, in dollars. */
     aiAllowanceUsd: v.number(),
     /** Signed spend up to here has been reported as usage. */
     usageReportedThrough: v.optional(v.number()),
+    /**
+     * The period that reported spend was counted in: its bounds, its
+     * allowance, the signed spend up to `usageReportedThrough`, and the cents
+     * of overage already sent. Kept apart from `periodStart` so the report
+     * after a renewal can still finish the period before it.
+     */
+    usagePeriod: v.optional(
+      v.object({
+        start: v.number(),
+        end: v.number(),
+        allowanceUsd: v.number(),
+        spentUsd: v.number(),
+        reportedCents: v.number(),
+      }),
+    ),
+    /**
+     * A usage report counted here and not yet acknowledged by Stripe. It is
+     * sent again under the same identifier, never recounted, so a retry
+     * cannot bill the same spend twice.
+     */
+    pendingUsage: v.optional(v.object({ identifier: v.string(), cents: v.number() })),
+    /** A seat sync is scheduled; membership changes until it runs ride along. */
+    seatSyncPending: v.optional(v.boolean()),
     updatedAt: v.number(),
   })
     .index("by_workspace", ["workspaceId"])

@@ -20,6 +20,7 @@ import { unlinkRepo } from "./github/repos";
 import { unlinkPage } from "./notion/context";
 import { ensureArrivalProfile, personOf } from "./profiles";
 import { invitedRole, memberRole } from "./schema";
+import { scheduleSeatSync } from "./teamBilling";
 
 /**
  * Who is in a workspace, and the three ways in: an invitation bound to one
@@ -107,6 +108,7 @@ async function giveSeat(
       removedBy: undefined,
     });
   }
+  await scheduleSeatSync(ctx, workspaceId);
 }
 
 /**
@@ -155,6 +157,7 @@ async function unseat(
   const { workspaceId, userId } = seat;
   const now = Date.now();
   await ctx.db.patch(seat._id, { status: "removed", removedAt: now, removedBy });
+  await scheduleSeatSync(ctx, workspaceId);
 
   const projects = await ctx.db
     .query("projects")
@@ -597,6 +600,7 @@ export const setRole = mutation({
     }
     await ctx.db.patch(target._id, { role: args.role });
     await withdrawSent(ctx, args.workspaceId, target.userId, args.role);
+    await scheduleSeatSync(ctx, args.workspaceId);
     return null;
   },
 });

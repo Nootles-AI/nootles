@@ -45,6 +45,7 @@ async function subscribe(
   priceId: string,
   endsInDays: number,
   status = "active",
+  metadata: Record<string, string> = {},
 ) {
   await t.run(async (ctx) => {
     await ctx.runMutation(components.stripe.private.handleSubscriptionCreated, {
@@ -54,7 +55,7 @@ async function subscribe(
       currentPeriodEnd: now() + endsInDays * DAY,
       cancelAtPeriodEnd: false,
       priceId,
-      metadata: { userId: ME.subject },
+      metadata: { userId: ME.subject, ...metadata },
     });
   });
 }
@@ -176,6 +177,44 @@ describe("which subscription speaks for an account", () => {
     const { subscription, entitlement } = await mirror(t);
     expect(subscription).toBeUndefined();
     expect(entitlement?.plan).toBe("free");
+  });
+});
+
+/**
+ * A workspace's Team subscription is bought by a person, but is never theirs:
+ * were the personal mirror to take it, one seat's price would buy its buyer
+ * Pro in every project of their own.
+ */
+describe("a workspace's subscription", () => {
+  test("is not a person's, even carrying their id", async () => {
+    const t = harness();
+    await subscribe(t, "sub_team", MONTHLY, 30, "active", { orgId: "workspace_1" });
+
+    const { subscription, entitlement } = await mirror(t);
+    expect(subscription).toBeUndefined();
+    expect(entitlement).toMatchObject({ plan: "free", source: "none" });
+  });
+
+  test("is not a person's on either Team price, and does not hide their own plan", async () => {
+    vi.stubEnv("STRIPE_PRICE_TEAM_SEAT", "price_team_seat");
+    vi.stubEnv("STRIPE_PRICE_TEAM_USAGE", "price_team_usage");
+    const t = harness();
+    await subscribe(t, "sub_seats", "price_team_seat", 365);
+    await subscribe(t, "sub_usage", "price_team_usage", 365);
+    await subscribe(t, "sub_monthly", MONTHLY, 30, "canceled");
+
+    const { subscription, entitlement } = await mirror(t);
+    expect(subscription?.subscriptionId).toBe("sub_monthly");
+    expect(entitlement).toMatchObject({ plan: "free", source: "none" });
+  });
+
+  test("leaves someone on a retired Pro price on Pro", async () => {
+    vi.stubEnv("STRIPE_PRICE_TEAM_SEAT", "price_team_seat");
+    const t = harness();
+    await subscribe(t, "sub_legacy", "price_pro_2025", 30);
+
+    const { entitlement } = await mirror(t);
+    expect(entitlement).toMatchObject({ plan: "pro", source: "subscription" });
   });
 });
 

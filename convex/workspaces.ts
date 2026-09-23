@@ -18,6 +18,7 @@ import { isPersonalDomain } from "./joinDomains";
 import { pageSummary, withoutLinks } from "./projects";
 import { workspaceSettings } from "./schema";
 import { normalizeSlug, SLUG_TAKEN, slugProblem } from "./slugs";
+import { scheduleSeatSync } from "./teamBilling";
 import { teamsEnabledFor } from "./teamsRollout";
 
 /**
@@ -308,7 +309,8 @@ async function syncDomains(
  * mutation: every live project goes to the trash (purged on the usual
  * schedule), every seat is retired, every open invitation withdrawn. Retiring
  * the seats here is what lets the per-document access path skip the
- * workspace row — nothing downstream has to know it was deleted.
+ * workspace row — nothing downstream has to know it was deleted. A Team
+ * subscription is set to end with the period already paid for.
  */
 export const remove = mutation({
   args: { workspaceId: v.id("workspaces") },
@@ -351,6 +353,7 @@ export const remove = mutation({
     }
 
     await syncDomains(ctx, workspaceId, []);
+    await scheduleSeatSync(ctx, workspaceId);
     return null;
   },
 });
