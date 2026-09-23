@@ -406,7 +406,8 @@ export default defineSchema({
     /** Dotted, noun first: "member.remove", "share.link.on", "page.edit". */
     action: v.string(),
     /**
-     * The action's first segment — "edit" for page.edit, a kind of its own —
+     * The action's first segment — "edit" for page.edit, a kind of its own;
+     * "integration" for repo, github and notion; "billing" for entitlement —
      * so the log filters by kind of event through an index.
      */
     category: v.string(),
