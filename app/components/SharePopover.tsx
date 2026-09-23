@@ -89,6 +89,18 @@ const SAYS = {
   },
 } as const;
 
+/** What a link not yet made would do, for the note that offers to make it. */
+const WOULD = {
+  anyone: {
+    editor: "anyone who has it can view, and edit once signed in",
+    viewer: "anyone who has it can view",
+  },
+  signedIn: {
+    editor: "anyone signed in who has it can edit",
+    viewer: "anyone signed in who has it can view",
+  },
+} as const;
+
 const TABS: Record<keyof typeof SAYS, readonly Segment<LinkRole>[]> = {
   anyone: [
     { id: "editor", label: "Editor link", hint: "Anyone with it can view; signing in lets them edit" },
@@ -120,10 +132,13 @@ const ROW_MENU =
  */
 export function SharePopover({ projectId }: { projectId: Id<"projects"> }) {
   const [open, setOpen] = useState(false);
+  // The popover outlives `open` by its exit animation, like Menu's.
+  const [leaving, setLeaving] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
 
   const close = useCallback(() => {
     setOpen(false);
+    setLeaving(true);
     triggerRef.current?.focus();
   }, []);
 
@@ -136,15 +151,21 @@ export function SharePopover({ projectId }: { projectId: Id<"projects"> }) {
         aria-expanded={open}
         title="Share project"
         className="nt-icon-btn"
-        onClick={() => (open ? close() : setOpen(true))}
+        onClick={() => {
+          if (open) return close();
+          setLeaving(false);
+          setOpen(true);
+        }}
       >
         <LinkIcon />
       </button>
-      {open && (
+      {(open || leaving) && (
         <SharePopoverBody
           projectId={projectId}
           anchor={triggerRef}
+          closing={!open}
           onClose={close}
+          onGone={() => setLeaving(false)}
         />
       )}
     </>
@@ -154,11 +175,16 @@ export function SharePopover({ projectId }: { projectId: Id<"projects"> }) {
 function SharePopoverBody({
   projectId,
   anchor,
+  closing,
   onClose,
+  onGone,
 }: {
   projectId: Id<"projects">;
   anchor: React.RefObject<HTMLButtonElement | null>;
+  /** On its way out: drawn, but no longer answering anything. */
+  closing: boolean;
   onClose: () => void;
+  onGone: () => void;
 }) {
   const links = useQuery(api.share.links, { projectId });
   const collaborators = useQuery(api.share.collaborators, { projectId });
@@ -210,6 +236,9 @@ function SharePopoverBody({
   // Fixed for the visit: a link's day does not need to tick.
   const [now] = useState(() => Date.now());
   const [linkProblem, setLinkProblem] = useState<string | null>(null);
+  // Turning a link off kills its address for good, so it is asked twice.
+  const [offAsked, setOffAsked] = useState(false);
+  const offRef = useRef<HTMLButtonElement>(null);
   const [peopleProblem, setPeopleProblem] = useState<string | null>(null);
   // An answered request is on its way out: it fades while the server agrees,
   // rather than sitting there looking unanswered until the list redraws.
@@ -239,7 +268,9 @@ function SharePopoverBody({
   // stacking regardless of `fixed` position — a mount-in-place popover here
   // would still render under the sidebar's resize handle.
   const popRef = useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const [pos, setPos] = useState<{ top: number; left: number; origin: string } | null>(
+    null,
+  );
   useLayoutEffect(() => {
     const place = () => {
       const t = anchor.current;
@@ -250,7 +281,8 @@ function SharePopoverBody({
         Math.max(8, r.left),
         window.innerWidth - p.offsetWidth - 8,
       );
-      setPos({ top: r.bottom + 6, left });
+      // Grown from under the trigger, wherever the edge pushed the box.
+      setPos({ top: r.bottom + 6, left, origin: `top ${r.left + r.width / 2 - left}px` });
     };
     place();
     window.addEventListener("resize", place);
@@ -272,14 +304,19 @@ function SharePopoverBody({
   }, [pos]);
 
   useEffect(() => {
+    if (closing) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       e.preventDefault();
-      onClose();
+      // A question on screen is answered first: Escape is its Cancel.
+      if (offAsked) {
+        setOffAsked(false);
+        requestAnimationFrame(() => offRef.current?.focus());
+      } else onClose();
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, [onClose, closing, offAsked]);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const copy = async (token: string, which: LinkRole) => {
@@ -303,6 +340,7 @@ function SharePopoverBody({
 
   const create = () => {
     setLinkProblem(null);
+    setOffAsked(false);
     setLink({ projectId, role, enabled: true })
       .then((t) => {
         if (t) void copy(t, role);
@@ -313,6 +351,7 @@ function SharePopoverBody({
     track("share_link_toggled", { role, on: true });
   };
 
+  const waitingOut = rows?.filter((p) => p.paused && !leaving.has(p.granteeId)).length ?? 0;
   const token = links ? links[role] : null;
   const until = links ? links.expiresAt[role] : null;
   // A link that has run out admits nobody; turning it on again mints another.
@@ -334,14 +373,16 @@ function SharePopoverBody({
   return createPortal(
     <>
       {/* Pointer-only dismissal; keyboard users get Escape and Tab-out. */}
-      <div
-        className="fixed inset-0"
-        // A dialog's layer, not a dropdown's: on a phone the Share button is
-        // inside the sidebar drawer, which sits at the modal layer itself.
-        // Portaled after it, the popover paints above it at the same layer.
-        style={{ zIndex: "var(--z-modal)" }}
-        onMouseDown={onClose}
-      />
+      {!closing && (
+        <div
+          className="fixed inset-0"
+          // A dialog's layer, not a dropdown's: on a phone the Share button is
+          // inside the sidebar drawer, which sits at the modal layer itself.
+          // Portaled after it, the popover paints above it at the same layer.
+          style={{ zIndex: "var(--z-modal)" }}
+          onMouseDown={onClose}
+        />
+      )}
       <div
         ref={popRef}
         role="dialog"
@@ -356,6 +397,7 @@ function SharePopoverBody({
         onBlur={(e) => {
           const to = e.relatedTarget;
           if (
+            !closing &&
             to instanceof Element &&
             !e.currentTarget.contains(to) &&
             !to.closest("[role='menu']")
@@ -364,16 +406,23 @@ function SharePopoverBody({
         }}
         // The container takes focus only to bootstrap the keyboard into the
         // dialog — the control focus ring is not its to wear.
-        className="nt-menu fixed w-[22rem] max-w-[calc(100vw-1rem)] overflow-y-auto p-3 outline-none"
+        inert={closing}
+        onAnimationEnd={(e) => {
+          if (closing && e.target === e.currentTarget) onGone();
+        }}
+        className={`nt-menu fixed w-[22rem] max-w-[calc(100vw-1rem)] overflow-y-auto p-3 outline-none${
+          closing ? " is-closing" : ""
+        }`}
         style={{
           top: pos?.top ?? 0,
           left: pos?.left ?? 0,
+          "--origin": pos?.origin,
           // On a window too short for the whole popover, it scrolls rather
           // than running off the bottom edge.
           maxHeight: pos ? `calc(100dvh - ${pos.top + 8}px)` : undefined,
           visibility: pos ? undefined : "hidden",
           zIndex: "var(--z-modal)",
-        }}
+        } as React.CSSProperties}
       >
         {/* A workspace comes first, under its own label: everyone its
             membership lets in, as one row, said before any link is offered —
@@ -413,13 +462,16 @@ function SharePopoverBody({
           </div>
         ) : links?.allowed === false ? (
           // No links at all here: the tabs would offer what cannot be had.
+          // Whoever came in by one is only waiting, and is said to be.
           <p className="nt-note text-pretty">
             Share links are turned off in {workspace?.name ?? "this workspace"}, so nobody can
-            open this project through one.
-            {workspace && (
+            open this project through one.{" "}
+            {waitingOut > 0
+              ? `${waitingOut === 1 ? "The person" : `The ${waitingOut} people`} who joined by link will be back when links are turned on again`
+              : "They can be turned back on"}
+            {workspace ? (
               <>
-                {" "}
-                They can be turned back on in{" "}
+                {" in "}
                 <Link
                   href={settingsPath(workspace.slug)}
                   className="underline underline-offset-2 hover:text-foreground"
@@ -428,6 +480,8 @@ function SharePopoverBody({
                 </Link>
                 .
               </>
+            ) : (
+              "."
             )}
           </p>
         ) : (
@@ -438,8 +492,10 @@ function SharePopoverBody({
               value={role}
               onChange={(next) => {
                 setRole(next);
+                setOffAsked(false);
                 setLinkProblem(null);
               }}
+              chosenSaidBelow={!!token && !lapsed}
             />
 
             {links === undefined ? (
@@ -473,35 +529,72 @@ function SharePopoverBody({
                   </button>
                 </div>
                 <p className="nt-note mt-2 text-pretty">{SAYS[says][role]}</p>
-                <div className="nt-share-link-foot mt-1 -mx-2 flex items-center justify-between gap-2">
-                  <LinkLifetime
-                    // Each link its own: a tick given for one never shows on
-                    // the other's tab.
-                    key={role}
-                    projectId={projectId}
-                    role={role}
-                    until={until}
-                    now={now}
-                    onProblem={setLinkProblem}
-                  />
-                  <button
-                    onClick={() => {
-                      setLinkProblem(null);
-                      void setLink({ projectId, role, enabled: false });
-                      track("share_link_toggled", { role, on: false });
-                    }}
-                    aria-describedby={`${tipId}-off`}
-                    data-tip="The link stops working, and everyone who signed in through it loses access"
-                    className="nt-row nt-tip shrink-0 px-2 text-danger"
-                  >
-                    Turn off link
-                    {/* The same words for a screen reader, which never sees the tooltip. */}
-                    <span id={`${tipId}-off`} className="sr-only">
-                      The link stops working, and everyone who signed in through it
-                      loses access
-                    </span>
-                  </button>
-                </div>
+                {offAsked ? (
+                  <div role="group" aria-labelledby={`${tipId}-ask`} className="mt-3">
+                    <p id={`${tipId}-ask`} className="nt-note text-pretty">
+                      Turn off the {role} link? Its address stops working for good, and a new
+                      link will have a new one. People who joined through it lose the access it
+                      gave them.
+                    </p>
+                    <div className="mt-2 -mr-2 flex justify-end gap-1">
+                      <button
+                        autoFocus
+                        onClick={() => {
+                          setOffAsked(false);
+                          requestAnimationFrame(() => offRef.current?.focus());
+                        }}
+                        className="nt-row px-2.5"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={() => {
+                          setOffAsked(false);
+                          setLinkProblem(null);
+                          setLink({ projectId, role, enabled: false }).catch((error) =>
+                            setLinkProblem(
+                              refusal(error, "That link is still on. Try again in a moment."),
+                            ),
+                          );
+                          track("share_link_toggled", { role, on: false });
+                        }}
+                        className="nt-row px-2.5 font-medium text-danger"
+                      >
+                        Turn off
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="nt-share-link-foot mt-1 -mx-2 flex items-center justify-between gap-2">
+                    <LinkLifetime
+                      // Each link its own: a tick given for one never shows on
+                      // the other's tab.
+                      key={role}
+                      projectId={projectId}
+                      role={role}
+                      until={until}
+                      now={now}
+                      onProblem={setLinkProblem}
+                    />
+                    <button
+                      ref={offRef}
+                      onClick={() => {
+                        setLinkProblem(null);
+                        setOffAsked(true);
+                      }}
+                      aria-describedby={`${tipId}-off`}
+                      data-tip="Its address stops working for good, and whoever joined through it loses that access"
+                      className="nt-row nt-tip shrink-0 px-2 text-danger"
+                    >
+                      Turn off link
+                      {/* The same words for a screen reader, which never sees the tooltip. */}
+                      <span id={`${tipId}-off`} className="sr-only">
+                        Its address stops working for good, and whoever joined through it loses
+                        that access
+                      </span>
+                    </button>
+                  </div>
+                )}
               </>
             ) : (
               <>
@@ -510,9 +603,7 @@ function SharePopoverBody({
                     ? `Expired on ${dayOf(ranOut, now)}. Nobody can ${
                         role === "editor" ? "view or edit" : "view"
                       } through it now.`
-                    : role === "editor"
-                      ? "Off. Nobody can view or edit through an editor link."
-                      : "Off. Nobody can view through a viewer link."}
+                    : `There’s no ${role} link. Once one is made, ${WOULD[says][role]}.`}
                   {links.defaultDays !== null &&
                     ` New links expire after ${lifetimeLabel(links.defaultDays)}.`}
                 </p>
@@ -646,8 +737,10 @@ function SharePopoverBody({
                   key={person.granteeId}
                   projectId={projectId}
                   person={person}
-                  holds={person.role === "editor" ? holds.editor : holds.viewer}
-                  offersCode={offersCode && person.guest}
+                  holds={
+                    person.paused ? "Paused" : person.role === "editor" ? holds.editor : holds.viewer
+                  }
+                  offersCode={offersCode && person.guest && !person.paused}
                   liveLinks={liveLinks}
                   leaving={leaving.has(person.granteeId)}
                   onLeaving={() =>
@@ -894,7 +987,11 @@ function Person({
           {initial(person.name ?? person.email)}
         </span>
       )}
-      <span className="flex min-w-0 flex-1 items-center gap-1.5 text-[13px]">
+      <span
+        className={`flex min-w-0 flex-1 items-center gap-1.5 text-[13px]${
+          person.paused ? " text-muted" : ""
+        }`}
+      >
         <span className="truncate">{name}</span>
         {offersCode && person.codeAccess && (
           <Tooltip label="Sees code context" className="flex shrink-0 text-muted">
@@ -921,7 +1018,14 @@ function Person({
         >
           {(close) => (
             <>
-              {person.expiresAt !== null && (
+              {person.paused ? (
+                <>
+                  <p className="nt-menu-caption">
+                    Kept out while the workspace’s links are off.
+                  </p>
+                  <div className="nt-menu-sep" />
+                </>
+              ) : person.expiresAt !== null && (
                 <>
                   <p className="nt-menu-caption">
                     Their access expires with the link on {dayOf(person.expiresAt, now)}.
@@ -970,7 +1074,9 @@ function Person({
                 <span className="nt-ws-choice-text">
                   <span>Remove access</span>
                   <span className="nt-ws-choice-hint">
-                    {rejoinHint(liveLinks)}
+                    {person.paused
+                      ? "They won’t be back when links are turned on again"
+                      : rejoinHint(liveLinks)}
                   </span>
                 </span>
               </MenuItem>
