@@ -13,22 +13,25 @@ import {
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import { useMutation } from "convex/react";
-import { ConvexError } from "convex/values";
 import { api } from "@/convex/_generated/api";
+import type { WorkspaceRole } from "@/convex/auth";
 import { joinPath, settingsPath } from "@/app/lib/containerPaths";
-import { Check, Copy } from "../Icons";
+import { Check, ChevronsUpDown, Copy } from "../Icons";
+import { Menu, MenuItem } from "../Menu";
 import { Segmented, type Segment } from "../Segmented";
 import type { WorkspaceContainer } from "./ContainerContext";
+import { refusal } from "./refusal";
+import { INVITED, inviteProblem, ROLE_HINT, ROLE_LABEL, type Invited } from "./seats";
+import { useMoment } from "./useMoment";
 import "./workspaces.css";
-
-type Invited = "member" | "admin";
 
 const DAY_MS = 86_400_000;
 
-const ROLES: readonly Segment<Invited>[] = [
-  { id: "member", label: "Member", hint: "Sees the workspace’s projects and makes new ones" },
-  { id: "admin", label: "Admin", hint: "Also invites people and runs the workspace’s settings" },
-];
+const ROLES: readonly Segment<Invited>[] = INVITED.map((role) => ({
+  id: role,
+  label: ROLE_LABEL[role],
+  hint: ROLE_HINT[role],
+}));
 
 /**
  * Inviting someone, from the workspace's home: a popover on the Invite button
@@ -153,18 +156,25 @@ function InvitePopover({
  * the link is handed back to be sent however the team talks, and it opens
  * only for someone signed in with the address it was made for.
  *
- * Owners choose between member and admin; an admin's invitations are always
- * a member's (`mayAssignSeat`), so they are offered no choice to be refused.
+ * Two dresses for one form. In the home's popover the role is a switch beside
+ * the label, and only an owner — the one who has a choice — sees it. On the
+ * members screen it is one line, the role a menu in the middle of it, and an
+ * admin sees the admin seat refused with the reason rather than missing.
  */
 export function InviteForm({
   workspace,
   autoFocus,
+  inline,
 }: {
   workspace: WorkspaceContainer;
   autoFocus?: boolean;
+  /** The members screen's one-line form. */
+  inline?: boolean;
 }) {
   const invite = useMutation(api.members.invite);
-  const id = useId();
+  const auto = useId();
+  // The members screen holds one form, so it can be found by name.
+  const id = inline ? "nt-ws-invite" : auto;
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<Invited>("member");
   const [busy, setBusy] = useState(false);
@@ -193,11 +203,7 @@ export function InviteForm({
       });
       setEmail("");
     } catch (error) {
-      setProblem(
-        error instanceof ConvexError && typeof error.data === "string"
-          ? error.data
-          : "That invitation didn’t go through. Try again in a moment.",
-      );
+      setProblem(refusal(error, "That invitation didn’t go through. Try again in a moment."));
     } finally {
       setBusy(false);
     }
@@ -205,12 +211,18 @@ export function InviteForm({
 
   return (
     <form onSubmit={submit} noValidate>
-      <div className="mb-1.5 flex items-center justify-between gap-3">
-        <label htmlFor={`${id}-email`} className="nt-field-label mb-0">
-          Invite by email
+      {inline ? (
+        <label htmlFor={`${id}-email`} className="sr-only">
+          Email address
         </label>
-        {owner && <Segmented label="Invite as" segments={ROLES} value={role} onChange={setRole} />}
-      </div>
+      ) : (
+        <div className="mb-1.5 flex items-center justify-between gap-3">
+          <label htmlFor={`${id}-email`} className="nt-field-label mb-0">
+            Invite by email
+          </label>
+          {owner && <Segmented label="Invite as" segments={ROLES} value={role} onChange={setRole} />}
+        </div>
+      )}
       <div className="flex items-center gap-1.5">
         <input
           id={`${id}-email`}
@@ -229,6 +241,7 @@ export function InviteForm({
           }}
           className="nt-input min-w-0 flex-1"
         />
+        {inline && <RoleChoice actor={workspace.role} value={role} onChange={setRole} />}
         <button
           type="submit"
           disabled={!email.trim() || busy}
@@ -242,30 +255,114 @@ export function InviteForm({
           {problem}
         </p>
       )}
-      {sent && <InviteLink key={sent.token} {...sent} />}
+      {sent ? (
+        <InviteLink key={sent.token} {...sent} />
+      ) : (
+        inline && (
+          <p className="nt-note mt-2 text-pretty">
+            You’ll get a link to send them yourself. It opens only for someone signed in with
+            the address you enter.
+          </p>
+        )
+      )}
     </form>
   );
 }
 
-function InviteLink({ email, token, days }: { email: string; token: string; days: number }) {
-  const url = `${window.location.origin}${joinPath(token)}`;
-  const field = useRef<HTMLInputElement>(null);
-  const [copied, setCopied] = useState(false);
-  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  useEffect(() => () => clearTimeout(timer.current), []);
+/**
+ * The seat an invitation asks for, as a menu: each role with what it may do,
+ * and the ones this inviter may not hand out refused with the reason in the
+ * place the description would be.
+ */
+function RoleChoice({
+  actor,
+  value,
+  onChange,
+}: {
+  actor: WorkspaceRole;
+  value: Invited;
+  onChange: (role: Invited) => void;
+}) {
+  return (
+    <Menu
+      label="Invite as"
+      side="bottom"
+      align="end"
+      className="nt-ws-choices"
+      trigger={(t) => (
+        <button
+          {...t}
+          type="button"
+          aria-label={`Invite as ${ROLE_LABEL[value].toLowerCase()}`}
+          className="nt-row nt-ws-pick shrink-0 gap-1.5 px-2.5"
+        >
+          {ROLE_LABEL[value]}
+          <ChevronsUpDown width={14} height={14} aria-hidden="true" className="nt-ws-pick-glyph" />
+        </button>
+      )}
+    >
+      {(close) =>
+        INVITED.map((role) => {
+          const why = inviteProblem(actor, role);
+          return (
+            <MenuItem
+              key={role}
+              className="nt-ws-choice"
+              disabled={!!why}
+              onClick={() => {
+                onChange(role);
+                close();
+              }}
+            >
+              <span className="nt-ws-choice-text">
+                <span>{ROLE_LABEL[role]}</span>
+                <span className="nt-ws-choice-hint">{why ?? ROLE_HINT[role]}</span>
+              </span>
+              <Check
+                width={14}
+                height={14}
+                aria-hidden="true"
+                className={`nt-menu-check${role === value ? " is-on" : ""}`}
+              />
+            </MenuItem>
+          );
+        })
+      }
+    </Menu>
+  );
+}
 
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(url);
-    } catch {
-      // Refused: the link sits selected instead, one keystroke from copied.
-      field.current?.select();
-      return;
-    }
-    setCopied(true);
-    clearTimeout(timer.current);
-    timer.current = setTimeout(() => setCopied(false), 1600);
-  };
+/**
+ * Copying, with the word that says it worked: true for a moment after a copy
+ * lands, for a `.nt-swap` to turn its glyph on. The copy answers whether the
+ * browser allowed it, so a caller can offer another way when it did not.
+ */
+export function useCopied(): [boolean, (text: string) => Promise<boolean>] {
+  const [copied, flash] = useMoment();
+  const copy = useCallback(
+    async (text: string) => {
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch {
+        return false;
+      }
+      flash();
+      return true;
+    },
+    [flash],
+  );
+  return [copied, copy];
+}
+
+/** Where an invitation's token opens, on this deployment. */
+export function inviteUrl(token: string): string {
+  return `${window.location.origin}${joinPath(token)}`;
+}
+
+function InviteLink({ email, token, days }: { email: string; token: string; days: number }) {
+  const url = inviteUrl(token);
+  const field = useRef<HTMLInputElement>(null);
+  const [copied, copy] = useCopied();
 
   return (
     <div className="nt-ws-sent mt-4">
@@ -281,7 +378,8 @@ function InviteLink({ email, token, days }: { email: string; token: string; days
         />
         <button
           type="button"
-          onClick={() => void copy()}
+          // Refused: the link sits selected instead, one keystroke from copied.
+          onClick={() => void copy(url).then((ok) => ok || field.current?.select())}
           aria-live="polite"
           data-done={copied || undefined}
           className="nt-row nt-solid min-w-[5.5rem] shrink-0 justify-center gap-1.5 px-3 font-medium"
