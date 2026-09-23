@@ -537,3 +537,77 @@ describe("taking one person's access away", () => {
     expect(await t.withIdentity(GUEST).query(api.projects.myRole, { projectId })).toBe("viewer");
   });
 });
+
+describe("pages leaving a workspace", () => {
+  /** A project of the caller's own, somewhere to paste into. */
+  const desk = (t: T, who: Identity, workspaceId?: Id<"workspaces">) =>
+    t.run((ctx) =>
+      ctx.db.insert("projects", {
+        ownerId: who.subject,
+        title: "Mine",
+        createdAt: 1,
+        ...(workspaceId ? { workspaceId } : {}),
+      }),
+    );
+  const landed = (t: T, projectId: Id<"projects">) =>
+    t.run(async (ctx) =>
+      (
+        await ctx.db
+          .query("pages")
+          .withIndex("by_project", (q) => q.eq("projectId", projectId))
+          .collect()
+      ).filter((p) => p.deletedAt === undefined),
+    );
+
+  test("go only in a member's hands", async () => {
+    const t = harness();
+    const w = await world(t);
+    await claimed(t, w.team.projectId, GUEST, { role: "editor" });
+    await claimed(t, w.team.projectId, STRANGER, { role: "editor" });
+    const items = [{ kind: "page" as const, id: w.team.pageId }];
+
+    for (const who of [GUEST, STRANGER]) {
+      const mine = await desk(t, who);
+      for (const move of [false, true]) {
+        await expect(
+          t.withIdentity(who).mutation(api.tree.copyTo, { items, projectId: mine, move }),
+        ).rejects.toThrow("Only the workspace’s members can take its pages out of it.");
+      }
+      expect(await landed(t, mine)).toEqual([]);
+    }
+    expect((await landed(t, w.team.projectId)).map((p) => p._id)).toEqual([w.team.pageId]);
+
+    const mine = await desk(t, MEMBER);
+    await t.withIdentity(MEMBER).mutation(api.tree.copyTo, { items, projectId: mine });
+    expect(await landed(t, mine)).toHaveLength(1);
+  });
+
+  test("stay free to move around inside it, and out of a personal project", async () => {
+    const t = harness();
+    const w = await world(t);
+    await claimed(t, w.team.projectId, GUEST, { role: "editor" });
+    const inside = await desk(t, MEMBER, w.workspaceId);
+    await t.run((ctx) =>
+      ctx.db.insert("shareClaims", {
+        projectId: inside,
+        granteeId: GUEST.subject,
+        role: "editor",
+        createdAt: 1,
+      }),
+    );
+    await t.run((ctx) => ctx.db.patch(inside, { editShareToken: "inside-edit" }));
+    await t.withIdentity(GUEST).mutation(api.tree.copyTo, {
+      items: [{ kind: "page", id: w.team.pageId }],
+      projectId: inside,
+    });
+    expect(await landed(t, inside)).toHaveLength(1);
+
+    await claimed(t, w.personal.projectId, STRANGER);
+    const mine = await desk(t, STRANGER);
+    await t.withIdentity(STRANGER).mutation(api.tree.copyTo, {
+      items: [{ kind: "page", id: w.personal.pageId }],
+      projectId: mine,
+    });
+    expect(await landed(t, mine)).toHaveLength(1);
+  });
+});

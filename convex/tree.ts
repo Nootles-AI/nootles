@@ -1,7 +1,7 @@
 import { mutation, type MutationCtx } from "./_generated/server";
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import { isTrashed, readVisible, requireEditable } from "./auth";
+import { isTrashed, mayCarryOut, readVisible, requireEditable } from "./auth";
 import { cloneFolder, softRemoveFolderCascade } from "./folders";
 import { clonePage, folderIn, levelOf, placeBetween } from "./pages";
 import { refreshPageSummary } from "./projects";
@@ -235,7 +235,8 @@ async function treeRows(ctx: MutationCtx, projectId: Id<"projects">) {
  * the sources takes any role on theirs — a copy takes nothing a viewer cannot
  * already see — except under `move`, whose delete takes the pen there too. A
  * source that has vanished since it was copied is skipped, the same way the
- * sidebar's paste skips rows its clipboard has outlived.
+ * sidebar's paste skips rows its clipboard has outlived. And what a workspace
+ * holds leaves it only in a member's hands (`mayCarryOut`).
  */
 export const copyTo = mutation({
   args: {
@@ -272,6 +273,12 @@ export const copyTo = mutation({
       }
     }
     if (!sources.length) return;
+    for (const projectId of new Set(sources.map((s) => s.doc.projectId))) {
+      const from = await ctx.db.get(projectId);
+      if (from && !(await mayCarryOut(ctx, from, project))) {
+        throw new ConvexError("Only the workspace’s members can take its pages out of it.");
+      }
+    }
 
     // Every tree is loaded once, before any insert: the destination's for the
     // placement, each source project's for its folders' recursion — and when
