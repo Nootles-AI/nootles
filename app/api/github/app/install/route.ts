@@ -28,10 +28,9 @@ export async function GET(req: Request) {
     return new Response("Only a workspace admin can install the GitHub App.", { status: 403 });
   }
   if (!status.ready || !status.appSlug) {
-    return new Response(
-      `The GitHub App isn’t set up on this deployment (missing ${status.missing.join(", ")}). See docs/github-app.md.`,
-      { status: 503 },
-    );
+    // The names are for whoever runs the deployment; the admin who pressed gets a sentence.
+    console.error(`GitHub App not configured: missing ${status.missing.join(", ")} (docs/github-app.md)`);
+    return new Response("Nootles can’t connect to GitHub right now. Try again later.", { status: 503 });
   }
 
   const state = crypto.randomUUID();

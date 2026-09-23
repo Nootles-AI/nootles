@@ -70,11 +70,16 @@ describe("who is turned away", () => {
     expect(res.headers.get("set-cookie")).toBeNull();
   });
 
-  test("a deployment missing the App's Convex config says what's missing", async () => {
+  test("a deployment missing the App's Convex config logs what's missing, and tells the admin only that it can't", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
     status.mockResolvedValue({ ...ADMIN, ready: false, missing: ["GITHUB_APP_ID", "GITHUB_APP_SLUG"], appSlug: null });
     const res = await GET(install({ workspace: "ws_1" }));
     expect(res.status).toBe(503);
-    expect(await res.text()).toMatch(/missing GITHUB_APP_ID, GITHUB_APP_SLUG/);
+    const body = await res.text();
+    expect(body).toMatch(/can’t connect to GitHub/);
+    expect(body).not.toMatch(/GITHUB_APP_ID/);
+    expect(log).toHaveBeenCalledWith(expect.stringMatching(/missing GITHUB_APP_ID, GITHUB_APP_SLUG/));
+    log.mockRestore();
     expect(cookieOf(res)).toBeNull();
   });
 });
