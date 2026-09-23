@@ -77,13 +77,18 @@ installation can be called directly, so it has to make its own check.
    `github/app.install` as that user.
 4. `install` checks again that the user is an admin, and exchanges `code` for a
    token that acts as that GitHub user. It then requires `installation_id` to
-   be in that user's `GET /user/installations`. Only after that does it record
-   the installation (`githubInstallations`), and the admin check runs a final
-   time in the transaction that writes the row.
+   be in that user's `GET /user/installations`, and the user to hold the
+   installation's account: for a personal account, `GET /user` has to be that
+   login; for an organisation, `GET /user/memberships/orgs/{org}` has to say
+   an active admin. Only after that does it record the installation
+   (`githubInstallations`), and the admin check runs a final time in the
+   transaction that writes the row.
 
-GitHub puts `installation_id` on the URL, and anyone can type one. Without the
-last step, anyone could attach another organisation's installation to their
-own workspace.
+GitHub puts `installation_id` on the URL, and anyone can type one. Being able
+to reach it isn't enough either: GitHub lists an organisation's installation
+for any member who can read one repository it covers, and the installation's
+token reads all of them. Without the last step, anyone could attach another
+organisation's installation to their own workspace.
 
 ## 4. Reading code
 
@@ -93,8 +98,12 @@ own workspace.
   installation row. When it has less than five minutes left, a new one is
   minted. If GitHub answers 401, the cache is skipped and the call is retried
   once.
+- The App's list is every repository the installation reads, page after
+  page (up to 3,000).
 - Every other repository is read with the connection of the person who linked
-  it, as before. `github/credential.ts` is the one place that decides which
+  it, as before. While personal connections are allowed, the pickers offer
+  the member's own repositories beside the App's — the App's row wins where
+  both reach one — and look one up by owner/name with their connection. `github/credential.ts` is the one place that decides which
   applies, for the read tools, the summary and the indexer alike.
 - If the installation is uninstalled or suspended, its repositories fail and
   the reason is shown on the row.

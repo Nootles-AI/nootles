@@ -5,10 +5,10 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import schema from "./schema";
-import { reachableInstallation } from "./github/app";
+import { controlsAccount, reachableInstallation, REPOSITORY_PAGES } from "./github/app";
 import { appJwt } from "./github/appAuth";
 import { PUSH_DEBOUNCE_MS } from "./github/installations";
-import { seal } from "./github/seal";
+import { open, seal } from "./github/seal";
 import { signatureValid } from "./github/webhook";
 
 /**
@@ -256,6 +256,26 @@ describe("which credential reads a repository", () => {
     expect(calls().filter((c) => c.method === "POST")).toHaveLength(1);
   });
 
+  test("a fresh token refused too is minted once, not again, and the read fails", async () => {
+    const t = convexTest(schema, modules);
+    const { workspaceId, projectId } = await world(t);
+    const id = await installation(t, workspaceId, {
+      token: { sealed: await seal("ghs_stale"), expiresAt: Date.now() + 30 * 60_000 },
+    });
+    const repoId = await repo(t, projectId, { installationId: INSTALLATION });
+    fetchMock.mockImplementation(async (input: unknown) =>
+      String(input).endsWith("/access_tokens")
+        ? ok({ token: "ghs_fresh", expires_at: new Date(Date.now() + 3600_000).toISOString() })
+        : new Response("{}", { status: 401 }),
+    );
+    await t.action(internal.github.repos.sync, { repoId, ownerId: MEMBER.subject });
+    expect(calls().filter((c) => c.method === "POST")).toHaveLength(1);
+    expect(calls().filter((c) => c.auth === "Bearer ghs_fresh").length).toBeGreaterThan(0);
+    expect((await t.run(async (ctx) => ctx.db.get(repoId)))?.syncError).toBeDefined();
+    const cached = (await t.run(async (ctx) => ctx.db.get(id)))?.token;
+    expect(cached && (await open(cached.sealed))).toBe("ghs_fresh");
+  });
+
   test("a suspended installation fails the read with a plain reason", async () => {
     const t = convexTest(schema, modules);
     const { workspaceId, projectId } = await world(t);
@@ -322,6 +342,23 @@ describe("linking", () => {
     ).rejects.toThrow(/personal project/);
   });
 
+  test("the workspace's own installation, uninstalled or suspended, links nothing", async () => {
+    for (const [extra, why] of [
+      [{ removedAt: 5 }, /uninstalled from acme/],
+      [{ suspendedAt: 5 }, /suspended on acme/],
+    ] as const) {
+      const t = convexTest(schema, modules);
+      const { workspaceId, projectId } = await world(t);
+      await installation(t, workspaceId, extra);
+      await expect(
+        t
+          .withIdentity(ADMIN)
+          .mutation(api.github.repos.link, { projectId, repos: [{ ...ref, installationId: INSTALLATION }] }),
+      ).rejects.toThrow(why);
+      expect(await t.run(async (ctx) => ctx.db.query("projectRepos").collect())).toHaveLength(0);
+    }
+  });
+
   test("a manager re-indexes a repository read through the App, whoever linked it", async () => {
     const t = convexTest(schema, modules);
     const { workspaceId, projectId } = await world(t);
@@ -344,22 +381,83 @@ describe("linking", () => {
 });
 
 describe("installing", () => {
-  function github(installations: { id: number }[]) {
+  /**
+   * GitHub for one user: the installations they can reach, their login, and
+   * their standing in the organisation `acme` (none answers 404).
+   */
+  function github(
+    installations: { id: number; account?: { login: string; type: string } }[],
+    {
+      login = "octo",
+      membership = { state: "active", role: "admin" } as { state: string; role: string } | null,
+    } = {},
+  ) {
     fetchMock.mockImplementation(async (input: unknown) => {
       const url = String(input);
       if (url === "https://github.com/login/oauth/access_token") return ok({ access_token: "ghu_user" });
       if (url.startsWith("https://api.github.com/user/installations")) {
         return ok({
           installations: installations.map((i) => ({
-            ...i,
             account: { login: "acme", type: "Organization" },
+            ...i,
             repository_selection: "all",
           })),
         });
       }
+      if (url === "https://api.github.com/user/memberships/orgs/acme" && membership) return ok(membership);
+      if (url === "https://api.github.com/user") return ok({ login });
       return new Response("{}", { status: 404 });
     });
   }
+
+  test("holding an account is its own login, or an active owner of its organisation", async () => {
+    const org = { login: "acme", type: "Organization" };
+    const person = { login: "Octo", type: "User" };
+    github([]);
+    expect(await controlsAccount("ghu_user", org)).toBe(true);
+    expect(await controlsAccount("ghu_user", person)).toBe(true);
+    expect(calls().every((c) => c.auth === "Bearer ghu_user")).toBe(true);
+    github([], { login: "someone-else", membership: { state: "active", role: "member" } });
+    expect(await controlsAccount("ghu_user", org)).toBe(false);
+    expect(await controlsAccount("ghu_user", person)).toBe(false);
+    github([], { membership: { state: "pending", role: "admin" } });
+    expect(await controlsAccount("ghu_user", org)).toBe(false);
+    github([], { membership: null });
+    expect(await controlsAccount("ghu_user", org)).toBe(false);
+  });
+
+  test("an organisation's plain member, who can reach its installation, can't attach it", async () => {
+    const t = convexTest(schema, modules);
+    const { workspaceId } = await world(t);
+    github([{ id: INSTALLATION }], { membership: { state: "active", role: "member" } });
+    await expect(
+      t
+        .withIdentity(ADMIN)
+        .action(api.github.app.install, { workspaceId, installationId: INSTALLATION, code: "c0de" }),
+    ).rejects.toThrow(/Only an owner of acme/);
+    expect(await t.run(async (ctx) => ctx.db.query("githubInstallations").collect())).toHaveLength(0);
+  });
+
+  test("a person's installation is theirs alone to attach", async () => {
+    const t = convexTest(schema, modules);
+    const { workspaceId } = await world(t);
+    const account = { login: "octo", type: "User" };
+    github([{ id: INSTALLATION, account }], { login: "not-octo" });
+    await expect(
+      t
+        .withIdentity(ADMIN)
+        .action(api.github.app.install, { workspaceId, installationId: INSTALLATION, code: "c0de" }),
+    ).rejects.toThrow(/Only octo can add/);
+    expect(await t.run(async (ctx) => ctx.db.query("githubInstallations").collect())).toHaveLength(0);
+
+    github([{ id: INSTALLATION, account }], { login: "Octo" });
+    await t
+      .withIdentity(ADMIN)
+      .action(api.github.app.install, { workspaceId, installationId: INSTALLATION, code: "c0de" });
+    expect(await t.run(async (ctx) => ctx.db.query("githubInstallations").collect())).toMatchObject([
+      { accountLogin: "octo", accountType: "User" },
+    ]);
+  });
 
   test("the verification helper finds only installations GitHub lists for the user", async () => {
     github([{ id: 7 }, { id: INSTALLATION }]);
@@ -436,6 +534,14 @@ describe("the webhook", () => {
     return `sha256=${Array.from(mac, (b) => b.toString(16).padStart(2, "0")).join("")}`;
   }
 
+  /** The repositories whose code graph is scheduled to be forgotten. */
+  async function forgotten(t: T) {
+    const scheduled = await t.run(async (ctx) => ctx.db.system.query("_scheduled_functions").collect());
+    return scheduled
+      .filter((s) => s.name.includes("graphStore") && s.name.includes("forget"))
+      .map((s) => (s.args[0] as { repoId: Id<"projectRepos"> }).repoId);
+  }
+
   async function deliver(t: T, event: string, payload: object) {
     const body = JSON.stringify(payload);
     return await t.fetch("/github/webhook", {
@@ -463,6 +569,25 @@ describe("the webhook", () => {
     expect((await post({ "x-hub-signature-256": await signed(body) })).status).toBe(200);
     expect((await post({ "x-hub-signature-256": await signed(body, "wrong") })).status).toBe(401);
     expect((await post({})).status).toBe(401);
+  });
+
+  test("with no secret set, nothing is accepted and nothing changes", async () => {
+    const t = convexTest(schema, modules);
+    const { workspaceId, projectId } = await world(t);
+    const id = await installation(t, workspaceId);
+    const appRepo = await repo(t, projectId, { installationId: INSTALLATION });
+    vi.stubEnv("GITHUB_APP_WEBHOOK_SECRET", "");
+    const body = JSON.stringify({ action: "deleted", installation: { id: INSTALLATION } });
+    for (const secret of ["", SECRET]) {
+      const res = await t.fetch("/github/webhook", {
+        method: "POST",
+        headers: { "x-github-event": "installation", "x-hub-signature-256": await signed(body, secret || "x") },
+        body,
+      });
+      expect(res.status).toBe(503);
+    }
+    expect((await t.run(async (ctx) => ctx.db.get(id)))?.removedAt).toBeUndefined();
+    expect(await t.run(async (ctx) => ctx.db.get(appRepo))).not.toBeNull();
   });
 
   test("a push to the default branch re-indexes once per window", async () => {
@@ -506,6 +631,7 @@ describe("the webhook", () => {
     expect(row?.token).toBeUndefined();
     expect(await t.run(async (ctx) => ctx.db.get(appRepo))).toBeNull();
     expect(await t.run(async (ctx) => ctx.db.get(ownRepo))).not.toBeNull();
+    expect(await forgotten(t)).toEqual([appRepo]);
   });
 
   test("suspend and unsuspend mark and clear", async () => {
@@ -531,6 +657,7 @@ describe("the webhook", () => {
     });
     expect(await t.run(async (ctx) => ctx.db.get(rover))).toBeNull();
     expect(await t.run(async (ctx) => ctx.db.get(other))).not.toBeNull();
+    expect(await forgotten(t)).toEqual([rover]);
     expect((await t.run(async (ctx) => ctx.db.get(id)))?.repositorySelection).toBe("selected");
   });
 
@@ -671,6 +798,123 @@ describe("the GitHub organisation rule", () => {
     await expect(
       t.withIdentity(ADMIN).action(api.github.orgProof.verify, { workspaceId }),
     ).rejects.toThrow(/No GitHub account is connected/);
+  });
+});
+
+describe("the App's repositories", () => {
+  const listing = (n: number, from = 0) =>
+    Array.from({ length: n }, (_, i) => ({
+      full_name: `acme/r${from + i}`,
+      default_branch: "main",
+      description: null,
+      private: true,
+      pushed_at: `2026-08-01T00:00:${String((from + i) % 60).padStart(2, "0")}Z`,
+    }));
+
+  test("a member sees every usable installation's repositories, each naming its installation", async () => {
+    const t = convexTest(schema, modules);
+    const { workspaceId } = await world(t);
+    const token = { sealed: await seal("ghs_live"), expiresAt: Date.now() + 30 * 60_000 };
+    await installation(t, workspaceId, { token });
+    await installation(t, workspaceId, { installationId: 43, removedAt: 5, token });
+    await installation(t, workspaceId, { installationId: 44, suspendedAt: 5, token });
+    fetchMock.mockImplementation(async (input: unknown) =>
+      String(input).startsWith("https://api.github.com/installation/repositories")
+        ? ok({
+            total_count: 1,
+            repositories: [
+              { full_name: FULL, default_branch: "main", description: null, private: true, pushed_at: "2026-08-01T00:00:00Z" },
+            ],
+          })
+        : new Response("{}", { status: 404 }),
+    );
+    expect(await t.withIdentity(MEMBER).action(api.github.app.available, { workspaceId })).toEqual([
+      {
+        installationId: INSTALLATION,
+        fullName: FULL,
+        defaultBranch: "main",
+        private: true,
+        pushedAt: "2026-08-01T00:00:00Z",
+      },
+    ]);
+    expect(calls().filter((c) => c.url.includes("/installation/repositories"))).toHaveLength(1);
+
+    fetchMock.mockClear();
+    await expect(t.withIdentity(GUEST).action(api.github.app.available, { workspaceId })).rejects.toThrow();
+    await expect(
+      t.withIdentity({ subject: "stranger" }).action(api.github.app.available, { workspaceId }),
+    ).rejects.toThrow();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("past a hundred, every page is read, up to the cap", async () => {
+    const t = convexTest(schema, modules);
+    const { workspaceId } = await world(t);
+    await installation(t, workspaceId, {
+      token: { sealed: await seal("ghs_live"), expiresAt: Date.now() + 30 * 60_000 },
+    });
+    let total = 250;
+    fetchMock.mockImplementation(async (input: unknown) => {
+      const url = new URL(String(input));
+      if (url.pathname !== "/installation/repositories") return new Response("{}", { status: 404 });
+      const page = Number(url.searchParams.get("page"));
+      const from = (page - 1) * 100;
+      return ok({ total_count: total, repositories: listing(Math.max(0, Math.min(100, total - from)), from) });
+    });
+    const listed = await t.withIdentity(MEMBER).action(api.github.app.available, { workspaceId });
+    expect(listed).toHaveLength(250);
+    expect(new Set(listed.map((r) => r.fullName)).size).toBe(250);
+    expect(listed.map((r) => r.pushedAt)).toEqual(
+      [...listed.map((r) => r.pushedAt)].sort().reverse(),
+    );
+    expect(calls().map((c) => new URL(c.url).searchParams.get("page")).sort()).toEqual(["1", "2", "3"]);
+
+    fetchMock.mockClear();
+    total = 100_000;
+    expect(await t.withIdentity(MEMBER).action(api.github.app.available, { workspaceId })).toHaveLength(
+      REPOSITORY_PAGES * 100,
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(REPOSITORY_PAGES);
+  });
+});
+
+describe("searching a project's code", () => {
+  test("a refused credential leaves the rest searchable, and says what it left out", async () => {
+    const t = convexTest(schema, modules);
+    const { workspaceId, projectId } = await world(t, { allowPersonalTokens: false });
+    await installation(t, workspaceId, {
+      token: { sealed: await seal("ghs_app"), expiresAt: Date.now() + 30 * 60_000 },
+    });
+    await repo(t, projectId, { installationId: INSTALLATION });
+    await repo(t, projectId, { fullName: "acme/own" });
+    fetchMock.mockImplementation(async (input: unknown) =>
+      String(input).startsWith("https://api.github.com/search/code")
+        ? ok({
+            total_count: 1,
+            items: [{ path: "src/a.ts", repository: { full_name: FULL }, text_matches: [{ fragment: "watchdog" }] }],
+          })
+        : new Response("{}", { status: 404 }),
+    );
+    const found = await t
+      .withIdentity(MEMBER)
+      .action(api.github.read.search, { projectId, query: "watchdog" });
+    expect(found).toMatchObject({
+      total: 1,
+      searched: [`${FULL}@main`],
+      skipped: [{ repo: "acme/own", reason: expect.stringMatching(/only through its GitHub App/) }],
+      results: [{ repo: FULL, path: "src/a.ts" }],
+    });
+    expect(calls().map((c) => c.auth)).toEqual(["Bearer ghs_app"]);
+  });
+
+  test("when every credential is refused, the search fails with the reason", async () => {
+    const t = convexTest(schema, modules);
+    const { projectId } = await world(t, { allowPersonalTokens: false });
+    await repo(t, projectId, { fullName: "acme/own" });
+    await expect(
+      t.withIdentity(MEMBER).action(api.github.read.search, { projectId, query: "watchdog" }),
+    ).rejects.toThrow(/only through its GitHub App/);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
 

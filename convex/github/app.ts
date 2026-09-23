@@ -101,8 +101,9 @@ export const status = query({
  * The `installation_id` GitHub puts on the setup URL is only a claim — anyone
  * can type one. So the App asks for user authorization during installation,
  * and `code` is that authorization: it is traded for a token that acts as
- * this GitHub user, and GitHub's own list of the installations they can reach
- * has to include the id. Without that, anyone could attach another
+ * this GitHub user. GitHub's own list of the installations they can reach
+ * has to include the id, and they have to hold its account
+ * (`controlsAccount`). Without both, anyone could attach another
  * organisation's installation to their workspace. Done here rather than in
  * Next because this action is callable directly — the proof has to be made
  * wherever the recording is.
@@ -123,6 +124,13 @@ export const install = action({
     if (!found) {
       throw new ConvexError(
         "GitHub doesn’t list that installation among the ones you can reach, so it can’t be added.",
+      );
+    }
+    if (!(await controlsAccount(userToken, found.account))) {
+      throw new ConvexError(
+        found.account.type === "Organization"
+          ? `Only an owner of ${found.account.login} on GitHub can add its installation to a workspace.`
+          : `Only ${found.account.login} can add their GitHub installation to a workspace.`,
       );
     }
     await ctx.runMutation(internal.github.installations.record, {
@@ -169,6 +177,29 @@ export async function reachableInstallation(
 }
 
 /**
+ * Whether the user behind `userToken` holds the account an installation is
+ * on: that user themselves, or an active owner of that organisation. Reaching
+ * an installation is not enough — GitHub lists one for anyone who can read a
+ * single repository it covers, and attaching it hands a workspace the
+ * installation's token, which reads every repository it covers.
+ */
+export async function controlsAccount(
+  userToken: string,
+  account: Installation["account"],
+): Promise<boolean> {
+  if (account.type === "Organization") {
+    const membership = await json<{ state?: string; role?: string }>(
+      userToken,
+      `/user/memberships/orgs/${encodeURIComponent(account.login)}`,
+      { allowMissing: true },
+    );
+    return membership?.state === "active" && membership.role === "admin";
+  }
+  const me = await json<{ login?: string }>(userToken, "/user");
+  return !!me?.login && me.login.toLowerCase() === account.login.toLowerCase();
+}
+
+/**
  * Trades the code from "request user authorization during installation" for
  * a user-to-server token. GitHub answers a failed exchange with a 200 and an
  * `error` field, so both are read; the detail is not passed on, since it can
@@ -206,15 +237,12 @@ export const available = action({
     );
     const lists = await Promise.all(
       installations.map((row) =>
-        withInstallation(ctx, row._id, async (token) => {
-          const answer = await json<{ repositories?: Repo[] }>(token, "/installation/repositories", {
-            query: { per_page: 100 },
-          });
-          return (answer?.repositories ?? []).map((repo) => ({
+        withInstallation(ctx, row._id, async (token) =>
+          (await installationRepositories(token)).map((repo) => ({
             ...listed(repo),
             installationId: row.installationId,
-          }));
-        }),
+          })),
+        ),
       ),
     );
     return lists
@@ -222,6 +250,31 @@ export const available = action({
       .sort((a, b) => (b.pushedAt ?? "").localeCompare(a.pushedAt ?? ""));
   },
 });
+
+/** GitHub's page size cap; past this many pages an installation's list stops. */
+const REPOSITORY_PAGE = 100;
+export const REPOSITORY_PAGES = 30;
+
+/**
+ * Every repository an installation reads, up to `REPOSITORY_PAGES` pages.
+ * The first page says how many there are, so the rest are asked for at once.
+ */
+async function installationRepositories(token: string): Promise<Repo[]> {
+  type Page = { total_count?: number; repositories?: Repo[] };
+  const page = (n: number) =>
+    json<Page>(token, "/installation/repositories", { query: { per_page: REPOSITORY_PAGE, page: n } });
+  const first = await page(1);
+  const repos = first?.repositories ?? [];
+  const pages = Math.min(
+    REPOSITORY_PAGES,
+    Math.ceil((first?.total_count ?? repos.length) / REPOSITORY_PAGE),
+  );
+  if (repos.length < REPOSITORY_PAGE || pages <= 1) return repos;
+  const rest = await Promise.all(
+    Array.from({ length: pages - 1 }, (_, i) => page(i + 2)),
+  );
+  return [...repos, ...rest.flatMap((answer) => answer?.repositories ?? [])];
+}
 
 /**
  * The GitHub organisation rule: every non-guest reads the workspace's code
