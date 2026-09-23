@@ -911,7 +911,11 @@
   white-space: nowrap;
   text-overflow: ellipsis;
 }
+/* At least as wide as its resting value, so a shorter choice moves nothing
+   after it; the glyph keeps to the end. */
 .nt-ws-filters .nt-ws-pick {
+  justify-content: space-between;
+  min-width: 6.5rem;
   max-width: 14rem;
 }
 /* Sized to its longest choice, the tick beside it, and tall enough to hold
@@ -945,9 +949,10 @@
   font-size: var(--text-ui);
   line-height: 20px;
 }
+/* Wide enough for a date in another year, "Sep 30, 2025", in full. */
 .nt-ws-ev-when {
   flex: none;
-  width: 56px;
+  width: 92px;
   overflow: hidden;
   color: var(--muted);
   white-space: nowrap;
@@ -1011,10 +1016,17 @@
   opacity: 0.55;
   transition: opacity var(--dur) var(--ease) 150ms;
 }
+/* Arrives as rows do, in the slot they would have risen into. */
 .nt-ws-empty {
   padding: 40px 24px;
   text-align: center;
   text-wrap: balance;
+  animation: nt-rise 450ms var(--ease) backwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .nt-ws-empty {
+    animation: nt-fade-in var(--dur-fast) var(--ease);
+  }
 }
 
 /* On a phone the head goes and a row folds in two: who and when on one line,

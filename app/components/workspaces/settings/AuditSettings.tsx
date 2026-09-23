@@ -20,6 +20,9 @@ import { Bone } from "./MembersSettings";
 type Event = FunctionReturnType<typeof api.audit.list>["page"][number];
 type Member = NonNullable<FunctionReturnType<typeof api.members.list>>["members"][number];
 
+/** The log's heading: where focus goes when the control it was on has gone. */
+const HEADING = "nt-ws-audit";
+
 /** Rows a page of the log asks for. */
 const PAGE = 40;
 
@@ -30,6 +33,7 @@ const FULL = new Intl.DateTimeFormat(undefined, {
   year: "numeric",
   hour: "numeric",
   minute: "2-digit",
+  timeZoneName: "short",
 });
 
 /** A row's place in the batch it arrived with, for the staggered entrance. */
@@ -37,15 +41,15 @@ const nth = (i: number) => ({ "--i": i % PAGE }) as CSSProperties;
 
 /**
  * Kinds of event, in the order an admin looks for them, each a kind the
- * server narrows by. Edits are a kind of their own on the server, so pages
- * moved, deleted, restored or copied out are a page's other events. `none`
+ * server narrows by. Edits are a kind of their own on the server, so a
+ * page's events are its other ones, as a folder's are. `none`
  * finishes "No …" when the log has nothing of the kind; `about` says what the
  * kind holds, under it.
  */
 const KINDS: readonly { id: string; label: string; none: string; about: string }[] = [
   {
     id: "member",
-    label: "Members",
+    label: "Membership",
     none: "membership events",
     about: "Membership events are invitations, joins, role changes, removals and leaving.",
   },
@@ -63,9 +67,9 @@ const KINDS: readonly { id: string; label: string; none: string; about: string }
   },
   {
     id: "page",
-    label: "Pages moved, deleted or restored",
-    none: "pages moved, deleted or restored",
-    about: "This covers pages moved, deleted, restored or copied out of a project.",
+    label: "Pages",
+    none: "page events",
+    about: "Page events are pages moved, deleted, restored or copied out of a project.",
   },
   {
     id: "folder",
@@ -105,7 +109,7 @@ const KINDS: readonly { id: string; label: string; none: string; about: string }
   },
   {
     id: "operator",
-    label: "Support access",
+    label: "Support visits",
     none: "support visits",
     about: "A support visit is Nootles support viewing the workspace as one of its members.",
   },
@@ -178,7 +182,10 @@ function NotIncluded({ workspace }: { workspace: WorkspaceContainer }) {
             </p>
           </div>
           <div className="nt-set-actions">
-            <Link href={settingsPath(workspace.slug, "billing")} className="nt-row px-2.5">
+            <Link
+              href={settingsPath(workspace.slug, "billing")}
+              className="nt-row nt-solid px-3 font-medium"
+            >
               See the Team plan
             </Link>
           </div>
@@ -227,8 +234,9 @@ function Log({ workspace }: { workspace: WorkspaceContainer }) {
   const batch = `${person}|${kind}|${span.id}`;
 
   // A new filter is a new query, which starts from no rows: the last ones
-  // stay on screen, dimmed, until the first page of the new one lands.
-  const settled = status !== "LoadingFirstPage";
+  // stay on screen, dimmed, until the first page of the new one lands. The
+  // first rows wait for the names and projects they are said with.
+  const settled = status !== "LoadingFirstPage" && people !== undefined && projects !== undefined;
   const [held, setHeld] = useState<{ results: Event[]; said: Nothing; batch: string } | null>(
     null,
   );
@@ -236,16 +244,18 @@ function Log({ workspace }: { workspace: WorkspaceContainer }) {
   const shown = settled ? { results, said, batch } : held;
   const stale = !settled && held !== null;
 
+  // The button goes with the empty state it sits in, so focus goes to the log's heading.
   const clear = () => {
     setPerson(null);
     setKind(null);
     setSpan({ id: "all" });
+    requestAnimationFrame(() => document.getElementById(HEADING)?.focus());
   };
 
   return (
     <section className="nt-set-section" aria-labelledby="nt-ws-audit">
       <div className="nt-ws-set-head">
-        <h2 id="nt-ws-audit" className="nt-set-label">
+        <h2 id={HEADING} tabIndex={-1} className="nt-set-label nt-ws-label">
           Audit log
         </h2>
         <Export
@@ -267,14 +277,8 @@ function Log({ workspace }: { workspace: WorkspaceContainer }) {
           {problem}
         </p>
       )}
+      {/* The filter whose value runs longest goes last, so a choice moves no other. */}
       <div className="nt-ws-filters" role="group" aria-label="Filter the log">
-        <Picker
-          label="Done by"
-          value={person}
-          choices={choices}
-          onChange={setPerson}
-          display={(c) => (c.id === null ? c.label : `By ${c.spoken ?? c.label}`)}
-        />
         <Picker
           label="Kind of event"
           value={kind}
@@ -287,6 +291,13 @@ function Log({ workspace }: { workspace: WorkspaceContainer }) {
           choices={SPANS}
           onChange={(id: Span) => setSpan({ id, from: spanStart(id) })}
         />
+        <Picker
+          label="Done by"
+          value={person}
+          choices={choices}
+          onChange={setPerson}
+          display={(c) => (c.id === null ? c.label : `By ${c.spoken ?? c.label}`)}
+        />
       </div>
       <div className="nt-ws-table" data-stale={stale || undefined} aria-busy={stale || undefined}>
         <Head />
@@ -294,7 +305,7 @@ function Log({ workspace }: { workspace: WorkspaceContainer }) {
           <Bones />
         ) : shown.results.length === 0 ? (
           shown.said ? (
-            <div className="nt-ws-empty">
+            <div key={shown.batch} className="nt-ws-empty">
               <p className="text-[13px] font-medium">{shown.said.headline}</p>
               <p className="mt-1 text-[13px] text-muted">{shown.said.hint}</p>
               <div className="mt-3 flex justify-center">
@@ -304,7 +315,7 @@ function Log({ workspace }: { workspace: WorkspaceContainer }) {
               </div>
             </div>
           ) : (
-            <div className="nt-ws-empty">
+            <div key={shown.batch} className="nt-ws-empty">
               <p className="text-[13px] font-medium">Nothing here yet</p>
               <p className="mt-1 text-[13px] text-muted">
                 Joins, sharing, projects and edits are written here as they happen.
@@ -701,24 +712,33 @@ function save(filename: string, text: string) {
 // ---- While it loads ----------------------------------------------------------
 
 /**
- * The page's shape before it knows whether the plan brings the log: its label
- * and one card's row, which the log's head and the plan's card both begin
- * with. The log draws its own table's bones.
+ * The page's shape before it knows whether the plan brings the log: the log's,
+ * which is what an admin on Team — nearly everyone who opens it — goes on to
+ * see, its own first page's bones continuing the same table.
  */
 function Loading() {
   return (
     <section className="nt-set-section" aria-busy="true" aria-label="Audit log">
       <div className="nt-ws-set-head">
         <Bone bar="h-3.5 w-20" />
+        <div className="nt-ws-export flex h-8 items-center gap-1.5 px-2" aria-hidden="true">
+          <div className="nt-skeleton h-3.5 w-3.5" />
+          <div className="nt-skeleton h-3.5 w-16" />
+        </div>
       </div>
-      <ul className="nt-set-list" aria-hidden="true">
-        <li className="nt-set-row">
-          <div className="nt-set-body-col">
-            <Bone bar="h-3.5 w-56 max-w-full" />
-            <Bone bar="h-3 w-[26rem] max-w-full" className="mt-1" />
+      <Bone bar="h-3 w-[30rem] max-w-full" className="nt-ws-audit-note" />
+      <div className="nt-ws-filters" aria-hidden="true">
+        {["w-16", "w-14", "w-12"].map((w, i) => (
+          <div key={i} className="nt-ws-pick flex h-8 items-center gap-1.5 px-2">
+            <div className={`nt-skeleton h-3.5 ${w}`} />
+            <div className="nt-skeleton h-3.5 w-3.5" />
           </div>
-        </li>
-      </ul>
+        ))}
+      </div>
+      <div className="nt-ws-table" aria-hidden="true">
+        <Head />
+        <Bones />
+      </div>
     </section>
   );
 }
