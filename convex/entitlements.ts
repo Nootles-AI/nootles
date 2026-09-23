@@ -4,7 +4,6 @@ import type { Doc } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import {
   ownerId as currentOwner,
-  isTrashed,
   requireOwned,
   requireOwner,
 } from "./auth";
@@ -133,20 +132,26 @@ async function accountOf(
 }
 
 /**
- * Live projects this account owns, counted rather than stored.
+ * Live personal projects this account owns, counted rather than stored.
  *
  * A stored count drifts the moment a project is trashed and restored, and this
  * is only ever asked one project short of the limit — so the bounded read is
- * both cheaper to keep right and cheap enough to do. Projects shared WITH
- * someone are not theirs and never counted; a free collaborator on a paid
- * project keeps working.
+ * both cheaper to keep right and cheap enough to do. The index does the
+ * filtering, so the bound cuts only rows that count: trashed projects taken
+ * first and dropped after once let two in the bin hide a third live one.
+ *
+ * Projects shared WITH someone are not theirs and never counted; a free
+ * collaborator on a paid project keeps working. Nor are the workspace projects
+ * they made — those are the workspace's, whoever made them.
  */
 async function liveProjects(ctx: QueryCtx, owner: string): Promise<number> {
   const rows = await ctx.db
     .query("projects")
-    .withIndex("by_owner", (q) => q.eq("ownerId", owner))
+    .withIndex("by_owner_and_workspace_and_deleted", (q) =>
+      q.eq("ownerId", owner).eq("workspaceId", undefined).eq("deletedAt", undefined),
+    )
     .take(FREE_LIMITS.projects + 1);
-  return rows.filter((p) => !isTrashed(p)).length;
+  return rows.length;
 }
 
 /** The furthest-out live code grant, or null if none is still standing. */

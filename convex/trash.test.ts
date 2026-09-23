@@ -2,6 +2,7 @@
 import { convexTest, type TestConvex } from "convex-test";
 import { describe, expect, test } from "vitest";
 import { api } from "./_generated/api";
+import { FREE_LIMITS, isQuotaRefusal } from "./entitlements";
 import schema from "./schema";
 import componentSchema from "../node_modules/@convex-dev/prosemirror-sync/src/component/schema";
 
@@ -130,6 +131,26 @@ describe("soft delete and restore", () => {
     expect(await as(t).query(api.projects.list, {})).toHaveLength(1);
     const pages = await as(t).query(api.pages.listByProject, { projectId });
     expect(pages.map((p) => p.title)).toEqual(["Inside"]);
+  });
+});
+
+describe("restoring a project takes a free slot", () => {
+  test("refused while the slots are full, let back once one is freed", async () => {
+    const t = harness();
+    const binned = await world(t);
+    await as(t).mutation(api.projects.remove, { projectId: binned });
+    const made = [];
+    for (let i = 0; i < FREE_LIMITS.projects; i++) {
+      made.push(await as(t).mutation(api.projects.create, { title: `New ${i}` }));
+    }
+
+    // Otherwise delete, create, undo is a way past the limit.
+    await expect(as(t).mutation(api.trash.restore, { projects: [binned] })).rejects.toSatisfy(
+      (e: unknown) => isQuotaRefusal(e) && e.data.meter === "projects",
+    );
+    await as(t).mutation(api.projects.remove, { projectId: made[0] });
+    await as(t).mutation(api.trash.restore, { projects: [binned] });
+    expect(await as(t).query(api.projects.get, { projectId: binned })).not.toBeNull();
   });
 });
 

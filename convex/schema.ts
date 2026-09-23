@@ -288,6 +288,10 @@ export default defineSchema({
     visibility: v.optional(v.union(v.literal("workspace"), v.literal("private"))),
   })
     .index("by_owner", ["ownerId"])
+    // Someone's live personal projects are the prefix (ownerId, no workspace,
+    // no deletedAt): the free limit counts them and the projects screen lists
+    // them, and neither may cut before it filters.
+    .index("by_owner_and_workspace_and_deleted", ["ownerId", "workspaceId", "deletedAt"])
     .index("by_share_token", ["shareToken"])
     .index("by_edit_share_token", ["editShareToken"])
     .index("by_deleted", ["deletedAt"])

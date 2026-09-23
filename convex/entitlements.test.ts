@@ -295,6 +295,22 @@ describe("the gates", () => {
     );
   });
 
+  test("projects in the trash never hide a live one from the count", async () => {
+    // A full bin ahead of a live project in the owner index used to fill the
+    // bounded read, so the limit stopped applying for as long as the trashed
+    // projects waited to be purged.
+    const t = convexTest(schema, modules);
+    for (let i = 0; i < FREE_LIMITS.projects; i++) await project(t, { trashed: true });
+    await project(t);
+    const me = t.withIdentity(ME);
+    for (let i = 1; i < FREE_LIMITS.projects; i++) {
+      await me.mutation(api.projects.create, { title: `Live ${i}` });
+    }
+    await expect(me.mutation(api.projects.create, { title: "One more" })).rejects.toSatisfy(
+      (e: unknown) => isQuotaRefusal(e) && e.data.meter === "projects",
+    );
+  });
+
   test("the tutorial's seeded project is not metered, so a new account can have one", async () => {
     const t = convexTest(schema, modules);
     // Two projects already, which is the whole allowance — the tutorial path
