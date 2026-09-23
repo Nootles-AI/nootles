@@ -14,14 +14,16 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 // Hoisted so the mock factories below — which vitest lifts to the top of the
 // file — can close over them without reaching a not-yet-initialised `const`.
-const { streamDiagram, refuseIfLimited, sessionToken } = vi.hoisted(() => ({
+const { streamDiagram, refuseIfLimited, refuseIfSpent, sessionToken } = vi.hoisted(() => ({
   streamDiagram: vi.fn(),
   refuseIfLimited: vi.fn(),
+  refuseIfSpent: vi.fn(),
   sessionToken: vi.fn(),
 }));
 
 vi.mock("@/app/lib/ai/diagram", () => ({ streamDiagram }));
 vi.mock("@/app/lib/requestLimitGate", () => ({ refuseIfLimited }));
+vi.mock("@/app/lib/entitlementGate", () => ({ refuseIfSpent }));
 vi.mock("@/app/lib/session", () => ({ sessionToken }));
 // Touched only inside the record/stream callbacks, never on the refusal path;
 // stubbed so importing the route needs no Convex URL.
@@ -41,6 +43,7 @@ function post(body: unknown): Request {
 beforeEach(() => {
   sessionToken.mockResolvedValue("tok");
   refuseIfLimited.mockResolvedValue(null);
+  refuseIfSpent.mockResolvedValue(null);
   streamDiagram.mockReturnValue(new Response("<nt-diagram/>"));
 });
 
@@ -96,5 +99,18 @@ test("malformed JSON is 400 before the gate", async () => {
 
   expect(res.status).toBe(400);
   expect(refuseIfLimited).not.toHaveBeenCalled();
+  expect(streamDiagram).not.toHaveBeenCalled();
+});
+
+test("a guest past their day is refused after the limiter and before the model", async () => {
+  const wall = new Response(JSON.stringify({ code: "quota", meter: "guestAi" }), { status: 402 });
+  refuseIfSpent.mockResolvedValue(wall);
+
+  const res = await POST(post({ brief: "a flowchart", projectId: "p1" }));
+
+  expect(res.status).toBe(402);
+  expect(refuseIfLimited).toHaveBeenCalledTimes(1);
+  // No meter of its own: only the guest's day is asked, of the named project.
+  expect(refuseIfSpent.mock.calls[0]).toEqual(["tok", null, "p1"]);
   expect(streamDiagram).not.toHaveBeenCalled();
 });

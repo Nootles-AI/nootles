@@ -8,6 +8,7 @@ import { pageNode } from "./context/pages";
 import { documentId } from "./files/context";
 import { raiseTo, TICKET } from "./counters";
 import { forgetPagesIn, pagesInBlob } from "./pages";
+import { PLAN_OVERRIDE } from "./plans";
 
 /**
  * One-off backfills, run by hand with `npx convex run`. Internal: none of this
@@ -210,6 +211,60 @@ export const grandfatherChatThreads = internalMutation({
     return {
       seen: batch.page.length,
       stamped,
+      done: batch.isDone,
+      cursor: batch.isDone ? null : batch.continueCursor,
+    };
+  },
+});
+
+/**
+ * Keeps the workspaces made before Team billing on the plan they had.
+ *
+ * Until billing, every workspace was unlimited; after it, one with no live
+ * subscription is on the free allowance, so every tester's workspace would
+ * lose chat and completions the moment it deploys. This grants each the
+ * `plan: "team"` override instead — the one an operator grants a tester by
+ * hand (`adminBilling.grantWorkspaceOverride`), and cleared the same way.
+ *
+ * Run once, right after the deploy. Idempotent: a workspace that already has
+ * a plan override, or has been deleted, is left as it is.
+ */
+export const grandfatherWorkspaces = internalMutation({
+  args: { note: v.string(), cursor: v.optional(v.string()) },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ seen: number; granted: number; done: boolean; cursor: string | null }> => {
+    const note = args.note.trim();
+    if (!note) throw new Error("Say why these workspaces keep the Team plan.");
+    const batch = await ctx.db
+      .query("workspaces")
+      .paginate({ numItems: BATCH, cursor: args.cursor ?? null });
+
+    let granted = 0;
+    for (const workspace of batch.page) {
+      if (workspace.deletedAt !== undefined) continue;
+      const existing = await ctx.db
+        .query("workspaceEntitlements")
+        .withIndex("by_workspace_and_feature", (q) =>
+          q.eq("workspaceId", workspace._id).eq("feature", PLAN_OVERRIDE),
+        )
+        .unique();
+      if (existing) continue;
+      await ctx.db.insert("workspaceEntitlements", {
+        workspaceId: workspace._id,
+        feature: PLAN_OVERRIDE,
+        value: "team",
+        note,
+        grantedBy: "convex run",
+        grantedAt: Date.now(),
+      });
+      granted += 1;
+    }
+
+    return {
+      seen: batch.page.length,
+      granted,
       done: batch.isDone,
       cursor: batch.isDone ? null : batch.continueCursor,
     };

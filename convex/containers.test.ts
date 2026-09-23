@@ -28,7 +28,12 @@ const STRANGER = { subject: "user_stranger" };
 type Identity = { subject: string; act?: string };
 type T = TestConvex<typeof schema>;
 
-async function world(t: T) {
+/**
+ * A workspace with one of every seat. On the Team plan unless `paid` is
+ * false — granted rather than bought, as an internal tester's is, since what
+ * these tests are about is whose allowance is spent, not how it was paid for.
+ */
+async function world(t: T, { paid = true } = {}) {
   return await t.run(async (ctx) => {
     const workspaceId = await ctx.db.insert("workspaces", {
       slug: "acme",
@@ -38,6 +43,16 @@ async function world(t: T) {
       settings: { linkSharing: true, guestCodeAccess: false, joinDomains: [], autoJoin: false },
       createdAt: 1,
     });
+    if (paid) {
+      await ctx.db.insert("workspaceEntitlements", {
+        workspaceId,
+        feature: "plan",
+        value: "team",
+        note: "test",
+        grantedBy: "test",
+        grantedAt: 1,
+      });
+    }
     const seat = (who: Identity, role: Doc<"memberships">["role"], removed = false) =>
       ctx.db.insert("memberships", {
         workspaceId,
@@ -394,10 +409,12 @@ describe("entitlements resolve by container", () => {
     const me = t.withIdentity(MEMBER);
 
     expect(
-      await me.query(api.entitlements.forProject, { projectId: personal.projectId }),
+      (await me.query(api.entitlements.forContainer, { projectId: personal.projectId }))
+        ?.entitlement,
     ).toMatchObject({ plan: "free", source: "none", left: { chats: 0 } });
     expect(
-      await me.query(api.entitlements.forProject, { projectId: team.projectId }),
+      (await me.query(api.entitlements.forContainer, { projectId: team.projectId }))
+        ?.entitlement,
     ).toEqual({ plan: "pro", source: "workspace", left: null, used: null });
   });
 
@@ -419,8 +436,9 @@ describe("entitlements resolve by container", () => {
       });
     });
     const own = { plan: "free", source: "none" };
-    const ask = (who: Identity, projectId: string) =>
-      t.withIdentity(who).query(api.entitlements.forProject, { projectId });
+    const ask = async (who: Identity, projectId: string) =>
+      (await t.withIdentity(who).query(api.entitlements.forContainer, { projectId }))
+        ?.entitlement;
 
     // A guest who only reads, a stranger, a member shut out of a private
     // project, and ids that name nothing: every one of them is on their own.
@@ -434,7 +452,9 @@ describe("entitlements resolve by container", () => {
     await t.run(async (ctx) => ctx.db.patch(team.projectId, { deletedAt: 5 }));
     expect(await ask(MEMBER, team.projectId)).toMatchObject(own);
     // Signed out has no answer at all, like `mine`.
-    expect(await t.query(api.entitlements.forProject, { projectId: team.projectId })).toBeNull();
+    expect(
+      await t.query(api.entitlements.forContainer, { projectId: team.projectId }),
+    ).toBeNull();
   });
 
   test("a guest an editor link let in writes on the workspace's allowance", async () => {
@@ -454,9 +474,11 @@ describe("entitlements resolve by container", () => {
       });
     });
     expect(
-      await t
-        .withIdentity(GUEST)
-        .query(api.entitlements.forProject, { projectId: team.projectId }),
+      (
+        await t
+          .withIdentity(GUEST)
+          .query(api.entitlements.forContainer, { projectId: team.projectId })
+      )?.entitlement,
     ).toMatchObject({ source: "workspace" });
   });
 });

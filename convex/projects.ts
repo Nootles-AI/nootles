@@ -19,7 +19,7 @@ import {
   workspaceRole,
 } from "./auth";
 import { ABOUT, BACKGROUND } from "./ai/questions";
-import { requireQuota } from "./entitlements";
+import { requireQuota, requireQuotaIn } from "./entitlements";
 import { attachFile, contextFileRef } from "./files/context";
 import { add as addRepos } from "./github/repos";
 import { linkPages, notionPageRef } from "./notion/context";
@@ -308,8 +308,9 @@ export const create = mutation({
     const ownerId = await requireOwner(ctx);
     if (args.workspaceId) {
       // Any seat but a guest's. A workspace's projects are the workspace's to
-      // pay for, so nobody's personal limit is asked.
+      // pay for, so the limit asked is its own, never the maker's.
       await requireWorkspaceRole(ctx, args.workspaceId, "member");
+      await requireQuotaIn(ctx, { kind: "workspace", workspaceId: args.workspaceId }, "projects");
     } else {
       // The free plan's project limit. Deliberately not in `onboarding.ts`: the
       // tutorial's seeded project is the one project everybody gets regardless,
