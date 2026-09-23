@@ -445,13 +445,18 @@ function Export({
       for (;;) {
         const page: FunctionReturnType<typeof api.audit.exportRows> = await convex.query(
           api.audit.exportRows,
-          { workspaceId: workspace.workspaceId, from: from ?? 0, to, cursor },
+          {
+            workspaceId: workspace.workspaceId,
+            from: from ?? 0,
+            to,
+            filters: {
+              ...(person ? { actorId: person } : {}),
+              ...(kind ? { action: kind } : {}),
+            },
+            cursor,
+          },
         );
-        for (const row of page.rows) {
-          if (person && row.actorId !== person) continue;
-          if (kind && row.action !== kind && !row.action.startsWith(`${kind}.`)) continue;
-          rows.push(row);
-        }
+        rows.push(...page.rows);
         setCount(rows.length);
         if (page.done) break;
         cursor = page.cursor;

@@ -349,13 +349,16 @@ export const list = query({
 
 /**
  * A period of the log, oldest first, for a CSV file: a page per call, the
- * client asking again with `cursor` until `done`. Admins and owners.
+ * client asking again with `cursor` until `done`. Narrowed by the same
+ * filters as `list`, through the same index, so an export of one person
+ * reads that person's rows and no one else's. Admins and owners.
  */
 export const exportRows = query({
   args: {
     workspaceId: v.id("workspaces"),
     from: v.number(),
     to: v.number(),
+    filters: v.optional(v.object({ actorId: v.optional(v.string()), action: v.optional(v.string()) })),
     cursor: v.union(v.string(), v.null()),
   },
   handler: async (ctx, args) => {
@@ -363,7 +366,7 @@ export const exportRows = query({
     const result = await matching(
       ctx,
       args.workspaceId,
-      { from: args.from, to: args.to },
+      { ...args.filters, from: args.from, to: args.to },
       "asc",
     ).paginate({ cursor: args.cursor, numItems: EXPORT_PAGE });
     return {
