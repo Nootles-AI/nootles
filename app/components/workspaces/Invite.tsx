@@ -54,7 +54,7 @@ export function InviteButton({ workspace }: { workspace: WorkspaceContainer }) {
         aria-haspopup="dialog"
         aria-expanded={open}
         onClick={() => (open ? close() : setOpen(true))}
-        className="nt-row px-2.5"
+        className="nt-row nt-ws-invite px-2.5"
       >
         Invite
       </button>

@@ -297,6 +297,48 @@
   }
 }
 
+/* ---- A workspace's home header ------------------------------------------------
+   More sits on its right than on anyone's own home — who is in it and the way
+   to invite — beside a title that is whatever the team called it. The outer
+   columns keep at least what they hold, so the title gives way, cut short,
+   before anything lands on anything else; with room to spare they are still
+   equal, and the title keeps to the page's centre line. */
+
+.nt-ws-head {
+  grid-template-columns: minmax(max-content, 1fr) minmax(0, auto) minmax(max-content, 1fr);
+}
+.nt-ws-head .nt-ws-switch {
+  max-width: min(32rem, 44vw, 100%);
+}
+/* The title takes a line of its own sooner than on anyone's own home, since
+   the row it leaves holds more (`.nt-front-head` at 36rem). */
+@media (max-width: 48rem) {
+  .nt-ws-head {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .nt-ws-head .nt-front-title {
+    grid-column: 1 / -1;
+    grid-row: 1;
+    text-align: left;
+  }
+  .nt-ws-head .nt-ws-switch {
+    grid-template-columns: minmax(0, auto) 16px;
+    max-width: 100%;
+    margin-left: -10px;
+  }
+  .nt-ws-head .nt-ws-switch::before {
+    display: none;
+  }
+}
+/* And at a phone's width the row under it has only the room anyone's own home
+   has: the tools and the create button. Inviting stays a menu away, under the
+   switcher's Workspace settings, as the members are. */
+@media (max-width: 36rem) {
+  .nt-ws-invite {
+    display: none;
+  }
+}
+
 /* ---- Members, on the home ----------------------------------------------------
    Who is in the workspace, as the presence pile draws people, and the way to
    the list of them. Pointing at it fans the faces apart a little, as if to

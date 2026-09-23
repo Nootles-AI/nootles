@@ -341,7 +341,9 @@ export function ProjectsScreen() {
           nothing competes with it for "start here". */}
       {/* On the board the header lies over the canvas rather than above it, so
           it is lifted onto its own layer — see `.nt-board-host`. */}
-      <header className={`nt-front-head${view === "board" ? " nt-board-host" : ""}`}>
+      <header
+        className={`nt-front-head${workspace ? " nt-ws-head" : ""}${view === "board" ? " nt-board-host" : ""}`}
+      >
         <div className="nt-tools">
           {/* Held at its size while the account loads: it is first in the row
               now, and a circle arriving late would push everything after it. */}
