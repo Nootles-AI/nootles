@@ -3278,20 +3278,7 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar) .nt-reformat-switcher {
   display: flex;
   justify-content: flex-end;
 }
-/* Below this the title and the full search field cannot share a line with
-   equal columns, so search folds to its glyph — the palette is one key away. */
-@media (max-width: 64rem) {
-  .nt-find {
-    width: var(--control);
-    padding-inline: 0;
-    justify-content: center;
-  }
-  .nt-find > span,
-  .nt-find .nt-kbd {
-    display: none;
-  }
-}
-/* And below this the title takes a line of its own, above the controls. */
+/* Below this the title takes a line of its own, above the controls. */
 @media (max-width: 36rem) {
   .nt-front-head {
     grid-template-columns: minmax(0, 1fr) auto;
@@ -3330,6 +3317,21 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar) .nt-reformat-switcher {
 }
 .nt-find > span {
   flex: 1;
+}
+/* Below this the title and the full search field cannot share a line with
+   equal columns, so search folds to its glyph — the palette is one key away.
+   After the field's own rules, or its width would win and the glyph would sit
+   alone in a field squeezed to whatever room was left. */
+@media (max-width: 64rem) {
+  .nt-find {
+    width: var(--control);
+    padding-inline: 0;
+    justify-content: center;
+  }
+  .nt-find > span,
+  .nt-find .nt-kbd {
+    display: none;
+  }
 }
 .nt-kbd {
   display: inline-grid;
