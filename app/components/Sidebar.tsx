@@ -43,6 +43,7 @@ import { SharePopover } from "./SharePopover";
 import { RequestEditButton } from "./share/AccessRequests";
 import { ConfirmDeleteDialog } from "./ConfirmDelete";
 import { ContextGraph } from "./context/ContextGraph";
+import { CodeGate } from "./context/CodeGate";
 import { SidebarContext } from "./context/SidebarContext";
 import { ContextMenu } from "./ContextMenu";
 import { Editable } from "./Editable";
@@ -1014,8 +1015,14 @@ export function Sidebar({
       </nav>
 
       {/* Below the pages, and apart from them: what the project is read
-          alongside. Owner-only — the sources are the owner's to manage. */}
-      {owner && <SidebarContext projectId={projectId} onOpen={(focus) => setShowingContext({ focus })} />}
+          alongside. Owner-only — the sources are the owner's to manage. A
+          member the organisation rule holds back is still told why the code
+          is missing, and how to be let in. */}
+      {owner ? (
+        <SidebarContext projectId={projectId} onOpen={(focus) => setShowingContext({ focus })} />
+      ) : (
+        <CodeGate frame="nt-sbctx" />
+      )}
 
       <DropLabel
         pointer={drag.pointer}
