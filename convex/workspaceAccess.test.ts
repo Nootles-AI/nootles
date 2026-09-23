@@ -557,6 +557,21 @@ describe("the manage gates' effects", () => {
     ).toBe("editor");
   });
 
+  test("the member who made a workspace project finds neither it nor its links on their own list", async () => {
+    const t = harness();
+    const w = await world(t);
+    const diary = await t.run(async (ctx) => {
+      await ctx.db.patch(w.secret.projectId, { shareToken: "view", editShareToken: "edit" });
+      return await ctx.db.insert("projects", {
+        ownerId: CREATOR.subject,
+        title: "Diary",
+        createdAt: 1,
+      });
+    });
+    const listed = await t.withIdentity(CREATOR).query(api.projects.list, {});
+    expect(listed.map((p) => p._id)).toEqual([diary]);
+  });
+
   test("what an admin links is read with the admin's connection", async () => {
     const t = harness();
     const w = await world(t);

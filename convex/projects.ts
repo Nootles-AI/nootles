@@ -113,18 +113,23 @@ export async function stampProject(
   await ctx.db.patch(projectId, { updatedAt: at });
 }
 
+/**
+ * The caller's live personal projects, whole rows and share tokens included.
+ * Personal only: making a workspace project gives no hold on its links, which
+ * are its managers' to hand out.
+ */
 export const list = query({
   args: {},
   handler: async (ctx) => {
     const owner = await currentOwner(ctx);
     if (!owner) return [];
-    return (
-      await ctx.db
-        .query("projects")
-        .withIndex("by_owner", (q) => q.eq("ownerId", owner))
-        .order("desc")
-        .collect()
-    ).filter((p) => !isTrashed(p));
+    return await ctx.db
+      .query("projects")
+      .withIndex("by_owner_and_workspace_and_deleted", (q) =>
+        q.eq("ownerId", owner).eq("workspaceId", undefined).eq("deletedAt", undefined),
+      )
+      .order("desc")
+      .collect();
   },
 });
 
