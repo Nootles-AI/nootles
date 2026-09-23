@@ -89,7 +89,16 @@ function avatarSrc(url: string): string {
   }
 }
 
-function Face({ user }: { user: Row["user"] }) {
+/**
+ * One person in a pile, as their photo or else their initial. Also the
+ * members pile on a workspace's home, which has no presence colour to ring
+ * a face in and so keeps the plain hairline.
+ */
+export function Face({
+  user,
+}: {
+  user: { name: string; color?: string; imageUrl?: string | null };
+}) {
   // Remembering which URL failed (not a boolean) lets a repaired avatar
   // recover without a remount.
   const [brokenUrl, setBrokenUrl] = useState<string | null>(null);

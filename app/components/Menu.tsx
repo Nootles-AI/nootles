@@ -12,7 +12,7 @@ import {
 import { createPortal } from "react-dom";
 import Link from "next/link";
 
-type Align = "start" | "end";
+type Align = "start" | "center" | "end";
 type Side = "top" | "bottom";
 
 /**
@@ -33,6 +33,7 @@ export function Menu({
   align = "start",
   label,
   className,
+  layer = "dropdown",
 }: {
   trigger: (props: {
     ref: React.Ref<HTMLButtonElement>;
@@ -47,6 +48,9 @@ export function Menu({
   /** A variant of the surface, for a menu that is a different object — the
    *  canvas toolbar's ink tool list, drawn like the bar it hangs from. */
   className?: string;
+  /** "modal" for a menu raised inside a dialog: on the dialog's layer, and
+   *  after it in the body, so the dialog does not cover it. */
+  layer?: "dropdown" | "modal";
 }) {
   const [open, setOpen] = useState(false);
   // The menu outlives `open` by its exit animation. Everything that means
@@ -96,11 +100,13 @@ export function Menu({
     // Flip if it would leave the viewport.
     if (top < 8) top = r.bottom + gap;
     if (top + h > window.innerHeight - 8) top = Math.max(8, r.top - h - gap);
-    let left = align === "start" ? r.left : r.right - w;
-    left = Math.min(Math.max(8, left), window.innerWidth - w - 8);
+    const wanted = { start: r.left, center: r.left + (r.width - w) / 2, end: r.right - w }[align];
+    const left = Math.min(Math.max(8, wanted), window.innerWidth - w - 8);
     // Where it ended up, not where it was asked to go: the entrance grows from
-    // the corner that actually touches the trigger.
-    const origin = `${top < r.top ? "bottom" : "top"} ${align === "start" ? "left" : "right"}`;
+    // the corner that actually touches the trigger — or, centred under it, from
+    // the middle of that edge.
+    const edge = { start: "left", center: "center", end: "right" }[align];
+    const origin = `${top < r.top ? "bottom" : "top"} ${edge}`;
     setPos({ top, left, width: r.width, origin });
   }, [side, align]);
 
@@ -126,6 +132,8 @@ export function Menu({
     menuRef.current?.querySelector<HTMLElement>("[role='menuitem']")?.focus();
   }, [open]);
 
+  const z = `var(--z-${layer})`;
+
   const onKeyDown = (e: React.KeyboardEvent) => {
     const items = Array.from(
       menuRef.current?.querySelectorAll<HTMLElement>("[role='menuitem']") ?? [],
@@ -134,6 +142,13 @@ export function Menu({
     const i = items.indexOf(document.activeElement as HTMLElement);
     if (e.key === "Escape") {
       e.preventDefault();
+      // Inside a dialog, Escape is the menu's alone: the dialog hears it on
+      // `document`, and a palette page on its own tree, and either would
+      // close or step back underneath the menu.
+      if (layer === "modal") {
+        e.stopPropagation();
+        e.nativeEvent.stopImmediatePropagation();
+      }
       close();
     } else if (e.key === "ArrowDown") {
       e.preventDefault();
@@ -173,7 +188,7 @@ export function Menu({
             {open && (
               <div
                 className="fixed inset-0"
-                style={{ zIndex: "var(--z-dropdown)" }}
+                style={{ zIndex: z }}
                 onMouseDown={() => close()}
               />
             )}
@@ -193,6 +208,7 @@ export function Menu({
                   left: pos.left,
                   minWidth: pos.width,
                   "--origin": pos.origin,
+                  ...(layer === "modal" ? { zIndex: z } : {}),
                 } as React.CSSProperties
               }
             >
@@ -238,14 +254,23 @@ export function MenuItem({
 export function MenuLink({
   href,
   onClick,
+  current,
   children,
 }: {
   href: string;
   onClick: () => void;
+  /** The place this link leads is where you already are. */
+  current?: boolean;
   children: ReactNode;
 }) {
   return (
-    <Link role="menuitem" href={href} onClick={onClick} className="nt-menu-item">
+    <Link
+      role="menuitem"
+      href={href}
+      onClick={onClick}
+      aria-current={current ? "page" : undefined}
+      className="nt-menu-item"
+    >
       {children}
     </Link>
   );

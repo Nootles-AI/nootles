@@ -69,6 +69,26 @@ export function Check(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+/** Closed, for what only some people can see. */
+export function Lock(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <rect x="4.5" y="10.5" width="15" height="10" rx="2.5" />
+      <path d="M8 10.5V8a4 4 0 0 1 8 0v2.5" />
+    </svg>
+  );
+}
+
+/** Two sheets, one over the other. */
+export function Copy(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M9 9h10a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1V10a1 1 0 0 1 1-1Z" />
+      <path d="M16 5V4a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h1" />
+    </svg>
+  );
+}
+
 export function Settings(props: SVGProps<SVGSVGElement>) {
   return (
     <svg {...base} {...props}>

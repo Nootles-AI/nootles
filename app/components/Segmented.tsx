@@ -44,6 +44,8 @@ export function Segmented<T extends string>({
       {segments.map((s) => (
         <button
           key={s.id}
+          // Never a submit: it is as often inside a form as not.
+          type="button"
           onClick={() => onChange(s.id)}
           aria-pressed={value === s.id}
           aria-describedby={`${id}-${s.id}`}
