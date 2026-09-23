@@ -6,8 +6,14 @@
  * or listed in the layers panel. They are simply not in the canvas.
  */
 
+/* The column, unless a `w` says otherwise. Stated rather than left to the
+   host: one that lays a block out in a flex row would shrink an unsized board
+   to its shots — sized from the board's own last measurement — and squeeze a
+   board widened into the margin back to the column. */
 .nt-sb-wrap {
   position: relative;
+  flex: none;
+  width: 100%;
   margin: 8px 0;
 }
 
