@@ -3,6 +3,7 @@
 import { useEffect, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter, useSelectedLayoutSegment } from "next/navigation";
+import { atLeast, type WorkspaceRole } from "@/convex/auth";
 import { homePath, settingsPath, type SettingsSection } from "@/app/lib/containerPaths";
 import { Authed } from "../../Authed";
 import { Wordmark } from "../../Brand";
@@ -11,15 +12,16 @@ import "../../settings/settings.css";
 import "../workspaces.css";
 
 /**
- * Every section a workspace's settings has, in the order they are listed.
- * Later sections (audit) are added here and as a route beside
- * `members/`.
+ * Every section a workspace's settings has, in the order they are listed, and
+ * the seat it takes to see it listed. The server refuses the rest anyway; a
+ * section nobody could read is only left out of the nav.
  */
-const SECTIONS: readonly { id: SettingsSection; label: string }[] = [
+const SECTIONS: readonly { id: SettingsSection; label: string; from?: WorkspaceRole }[] = [
   { id: "general", label: "General" },
   { id: "members", label: "Members" },
   { id: "integrations", label: "Integrations" },
   { id: "billing", label: "Billing" },
+  { id: "audit", label: "Audit", from: "admin" },
 ];
 
 /**
@@ -44,7 +46,8 @@ export function SettingsFrame({ children }: { children: ReactNode }) {
   }, [workspace, guest, router]);
 
   if (!workspace || guest) return <div className="flex-1" aria-busy="true" />;
-  const current = SECTIONS.find((s) => s.id === segment)?.id ?? "general";
+  const sections = SECTIONS.filter((s) => !s.from || atLeast(workspace.role, s.from));
+  const current = sections.find((s) => s.id === segment)?.id ?? "general";
 
   return (
     <div className="nt-set-page">
@@ -61,7 +64,7 @@ export function SettingsFrame({ children }: { children: ReactNode }) {
           <span className="nt-ws-set-of">{workspace.name}</span> Settings
         </h1>
         <nav aria-label="Workspace settings" className="nt-ws-set-nav">
-          {SECTIONS.map((section) => (
+          {sections.map((section) => (
             <Link
               key={section.id}
               href={settingsPath(workspace.slug, section.id)}
