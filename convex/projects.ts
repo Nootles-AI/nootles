@@ -14,6 +14,7 @@ import {
   requireWorkspaceRole,
   roleForProject,
   standInActor,
+  workspaceRole,
 } from "./auth";
 import { ABOUT, BACKGROUND } from "./ai/questions";
 import { requireQuota } from "./entitlements";
@@ -159,6 +160,27 @@ export const myRole = query({
   handler: async (ctx, args) => {
     const role = await projectRole(ctx, args.projectId);
     return role && (await standInActor(ctx)) ? "viewer" : role;
+  },
+});
+
+/**
+ * Which address a project answers to for the caller: its workspace's
+ * (`/w/<slug>/p/<id>`) for someone with a seat there, `/p/<id>` for anyone
+ * else — a person who came in by link to a workspace they are not in stays on
+ * `/p/`, since `/w/<slug>` would not open for them. Null when the caller has
+ * no role on it at all, so a route can tell "elsewhere" from "nowhere".
+ *
+ * A string rather than an id because it arrives straight off the URL, and a
+ * malformed one should read as nowhere rather than throw.
+ */
+export const home = query({
+  args: { projectId: v.string() },
+  handler: async (ctx, args) => {
+    const projectId = ctx.db.normalizeId("projects", args.projectId);
+    if (!projectId || !(await projectRole(ctx, projectId))) return null;
+    const workspaceId = (await ctx.db.get(projectId))?.workspaceId;
+    if (!workspaceId || !(await workspaceRole(ctx, workspaceId))) return { slug: null };
+    return { slug: (await ctx.db.get(workspaceId))?.slug ?? null };
   },
 });
 
