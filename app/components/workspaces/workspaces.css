@@ -787,11 +787,20 @@
 
 /* ---- Integrations ------------------------------------------------------------ */
 
-/* What the deployment lacks, for whoever runs it: a list of names that wraps
-   between them rather than running off the card. */
-.nt-set-meta.nt-ws-gh-missing {
-  white-space: normal;
-  overflow-wrap: anywhere;
+/* Where the rest of who reads code is decided: a line under the card, since
+   it is no row of its own. */
+.nt-ws-policy-aside {
+  margin-top: 8px;
+}
+.nt-ws-aside-link {
+  color: var(--foreground);
+  text-decoration: underline;
+  text-decoration-color: var(--border-strong);
+  text-underline-offset: 2px;
+  transition: text-decoration-color var(--dur-fast) var(--ease);
+}
+.nt-ws-aside-link:hover {
+  text-decoration-color: currentColor;
 }
 
 /* The proof row folds in and out with the rule, its edge with it: the list's

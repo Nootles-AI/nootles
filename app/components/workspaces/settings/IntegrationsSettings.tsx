@@ -1,13 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { atLeast } from "@/convex/auth";
 import type { InstallFailure } from "@/app/api/github/app/flow";
-import { Check, ChevronsUpDown, Lock, Person, X } from "../../Icons";
+import { Check, ChevronsUpDown, Lock, Person, Plus, X } from "../../Icons";
 import { Menu, MenuItem } from "../../Menu";
 import { Segmented, type Segment } from "../../Segmented";
 import { useStandIn } from "../../StandIn";
@@ -43,10 +44,12 @@ function Integrations({ workspace }: { workspace: WorkspaceContainer }) {
   const standIn = useStandIn();
   const outcome = useInstallOutcome();
 
-  if (status === undefined) return <Loading code={!standIn && atLeast(workspace.role, "admin")} />;
+  if (status === undefined) return <Loading edits={!standIn && atLeast(workspace.role, "admin")} />;
   if (!status) return null;
 
   const edits = status.canManage && !standIn;
+  // What the deployment lacks is for whoever runs it, not for a customer.
+  const operator = standIn || process.env.NODE_ENV !== "production";
   // An uninstalled installation is history; a suspended one is still the
   // workspace's, and says so on its row.
   const live = status.installations.filter((i) => i.removedAt === undefined);
@@ -62,7 +65,7 @@ function Integrations({ workspace }: { workspace: WorkspaceContainer }) {
         <ul className="nt-set-list">
           {!status.ready ? (
             <li>
-              <div className="nt-set-row">
+              <div className="nt-set-row" tabIndex={-1}>
                 <span className="nt-set-glyph">
                   <GitHubMark />
                 </span>
@@ -70,13 +73,13 @@ function Integrations({ workspace }: { workspace: WorkspaceContainer }) {
                   <div className="nt-set-name">GitHub App</div>
                   <p className="nt-set-note">
                     {status.allowPersonalTokens
-                      ? "Not available yet. Members link repositories with their own GitHub connection."
-                      : "Not available yet, so no project here can read code."}
+                      ? "Nootles can’t connect to GitHub right now. Members link repositories with their own GitHub connection in the meantime."
+                      : "Nootles can’t connect to GitHub right now, so no project here can read code."}
                   </p>
-                  {edits && status.missing.length > 0 && (
-                    <div className="nt-set-meta nt-ws-gh-missing">
-                      Missing {status.missing.join(", ")} · docs/github-app.md
-                    </div>
+                  {operator && status.missing.length > 0 && (
+                    <p className="nt-set-problem" title={status.missing.join("\n")}>
+                      This deployment needs its GitHub App keys. See docs/github-app.md.
+                    </p>
                   )}
                   {said}
                 </div>
@@ -96,11 +99,12 @@ function Integrations({ workspace }: { workspace: WorkspaceContainer }) {
               {edits && (
                 <li>
                   <div className="nt-set-row">
-                    <span className="nt-set-glyph" />
+                    <span className="nt-set-glyph">
+                      <Plus aria-hidden="true" />
+                    </span>
                     <div className="nt-set-body-col">
-                      <p className="nt-set-note">
-                        Code in another organisation or account needs the App installed there too.
-                      </p>
+                      <div className="nt-set-name">Another organisation or account</div>
+                      <p className="nt-set-note">Its code needs the GitHub App installed there too.</p>
                     </div>
                     <div className="nt-set-actions">
                       <a href={installPath(workspace.workspaceId)} className="nt-row px-2.5">
@@ -136,25 +140,27 @@ function Integrations({ workspace }: { workspace: WorkspaceContainer }) {
 }
 
 /**
- * The page's shape while it is on its way: the GitHub card's one row, then,
- * for whoever will be given it, the two rows of Code access — so nothing moves
- * down when the answer arrives. Each bar sits in the line box of its text.
+ * The page's shape while it is on its way, drawn for the usual answer — an
+ * installation, and for whoever edits, the row that adds another and the two
+ * rows of Code access — so nothing moves down when the answer arrives. Each
+ * bar sits in the line box of its text.
  */
-function Loading({ code }: { code: boolean }) {
+function Loading({ edits }: { edits: boolean }) {
   return (
     <>
       <section className="nt-set-section" aria-busy="true" aria-label="GitHub">
         <Bone bar="h-3.5 w-14" className="mb-2" />
         <ul className="nt-set-list" aria-hidden="true">
-          <BoneRow />
+          <BoneRow meta notes={edits ? ["w-full", "w-40"] : []} action={edits} />
+          {edits && <BoneRow notes={["w-64"]} action />}
         </ul>
       </section>
-      {code && (
+      {edits && (
         <section className="nt-set-section" aria-hidden="true">
           <Bone bar="h-3.5 w-24" className="mb-2" />
           <ul className="nt-set-list">
-            <BoneRow />
-            <BoneRow />
+            <BoneRow notes={["w-full", "w-full", "w-24"]} action />
+            <BoneRow notes={["w-full", "w-40"]} action />
           </ul>
         </section>
       )}
@@ -162,7 +168,7 @@ function Loading({ code }: { code: boolean }) {
   );
 }
 
-function BoneRow() {
+function BoneRow({ meta, notes, action }: { meta?: boolean; notes: readonly string[]; action?: boolean }) {
   return (
     <li>
       <div className="nt-set-row">
@@ -173,8 +179,20 @@ function BoneRow() {
           <div className="flex h-5 items-center">
             <div className="nt-skeleton h-3.5 w-32" />
           </div>
-          <Bone bar="h-3 w-48" className="mt-0.5" />
+          {meta && (
+            <div className="mt-0.5 flex h-[18px] items-center">
+              <div className="nt-skeleton h-3 w-44" />
+            </div>
+          )}
+          {notes.map((width, i) => (
+            <Bone key={i} bar={`h-3 ${width}`} className={i === 0 ? "mt-0.5" : ""} />
+          ))}
         </div>
+        {action && (
+          <div className="nt-set-actions">
+            <div className="nt-skeleton h-8 w-[5.5rem]" />
+          </div>
+        )}
       </div>
     </li>
   );
@@ -200,7 +218,7 @@ function NotInstalled({
   said: ReactNode;
 }) {
   return (
-    <div className="nt-set-row">
+    <div className="nt-set-row" tabIndex={-1}>
       <span className="nt-set-glyph">
         <GitHubMark />
       </span>
@@ -235,7 +253,7 @@ function InstallationRow({
 }) {
   const org = installation.accountType === "Organization";
   return (
-    <div className="nt-set-row">
+    <div className="nt-set-row" tabIndex={-1}>
       <span className="nt-set-glyph">
         <Avatar login={installation.accountLogin} round={!org} />
       </span>
@@ -274,17 +292,21 @@ function InstallationRow({
 
 /**
  * The install's outcome line. Dismissed, it folds shut before it goes, so
- * what is under it is moved rather than thrown.
+ * what is under it is moved rather than thrown, and focus waits on its row.
  */
 function Outcome({ line, onDismiss }: { line: Line; onDismiss: () => void }) {
   const [leaving, setLeaving] = useState(false);
+  const fold = useRef<HTMLDivElement>(null);
   const leave = () => {
+    // Before the fold goes inert, which would drop focus to the page.
+    fold.current?.closest<HTMLElement>(".nt-set-row")?.focus();
     // Without motion no transition ends, so there is nothing to wait for.
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) onDismiss();
     else setLeaving(true);
   };
   return (
     <div
+      ref={fold}
       className="nt-ws-fold"
       data-open={!leaving}
       inert={leaving}
@@ -333,8 +355,8 @@ function Avatar({ login, round }: { login: string; round: boolean }) {
 type Switch = "off" | "on";
 
 const PERSONAL: readonly Segment<Switch>[] = [
-  { id: "off", label: "Off", hint: "Repositories are linked and read only through the GitHub App" },
-  { id: "on", label: "On", hint: "Members may link repositories with their own GitHub connection" },
+  { id: "off", label: "Off", hint: "Only the GitHub App links repositories" },
+  { id: "on", label: "On", hint: "Members may also link repositories with their own GitHub connection" },
 ];
 
 /**
@@ -371,6 +393,8 @@ function CodeAccess({
   const [drawnRule, setDrawnRule] = useState(rule);
   if (rule && rule !== drawnRule) setDrawnRule(rule);
   const named = rule ?? drawnRule;
+  // A rule first set here folds its proof row open; one there at load is simply there.
+  const [ruleAtLoad] = useState(!!rule);
   const orgs = status.installations
     .filter(
       (i) => i.accountType === "Organization" && i.removedAt === undefined && i.suspendedAt === undefined,
@@ -404,13 +428,13 @@ function CodeAccess({
               <div className="nt-set-name">Personal GitHub connections</div>
               <Said open={personal}>
                 {installed
-                  ? "Members can also link repositories the App doesn’t reach, using their own GitHub connection. Turn this off to read code only through the App; repositories linked with a personal connection stop being read."
-                  : "Members link repositories with their own GitHub connection. Installing the App is better: code keeps being read when whoever linked it leaves."}
+                  ? "Members can also link repositories the GitHub App can’t reach, using their own GitHub connection. Turned off, those repositories stop being read."
+                  : "Members link repositories with their own GitHub connection. Install the GitHub App so linked code stays readable when that person leaves."}
               </Said>
               <Said open={!personal}>
                 {installed
-                  ? "Repositories are linked and read only through the GitHub App."
-                  : "Repositories are linked and read only through the GitHub App, which isn’t installed — so no project here reads code yet."}
+                  ? "Only the GitHub App can link repositories."
+                  : "Only the GitHub App can link repositories. It isn’t installed, so no project here can read code yet."}
               </Said>
             </div>
             <div className="nt-set-actions">
@@ -432,12 +456,14 @@ function CodeAccess({
             <div className="nt-set-body-col">
               <div className="nt-set-name">Require GitHub organisation membership</div>
               <Said open={!!rule}>
-                {`Only people GitHub lists as members of ${named} can read this workspace’s code, owners and admins included. Each person verifies below or from a project’s context, and again every two weeks. Anyone who leaves ${named} loses access straight away. Guests keep the access their project grants them.`}
+                Only members of <Login>{named}</Login> on GitHub can read this workspace’s code, owners
+                and admins included. Each person verifies here or from a project’s context, every two
+                weeks.
               </Said>
               <Said open={!rule}>
                 {orgs.length
                   ? "Everyone in the workspace can read its linked code. Choose an organisation to limit it to that organisation’s members."
-                  : "Available once the App is installed on an organisation."}
+                  : "Available once the GitHub App is installed on an organisation."}
               </Said>
             </div>
             <div className="nt-set-actions">
@@ -452,7 +478,7 @@ function CodeAccess({
                     aria-label={`Required GitHub organisation, ${rule ?? "off"}`}
                     className="nt-row nt-ws-pick gap-1.5 px-2.5"
                   >
-                    {rule ?? "Off"}
+                    <Login>{rule ?? "Off"}</Login>
                     <ChevronsUpDown width={14} height={14} aria-hidden="true" className="nt-ws-pick-glyph" />
                   </button>
                 )}
@@ -482,7 +508,7 @@ function CodeAccess({
         </li>
         {named && (
           <li className="nt-ws-gh-proof">
-            <div className="nt-ws-fold" data-open={!!rule} inert={!rule}>
+            <div className={`nt-ws-fold${ruleAtLoad ? "" : " is-arriving"}`} data-open={!!rule} inert={!rule}>
               <div className="nt-ws-fold-body">
                 <div className="nt-ws-gh-proof-row">
                   <ProofRow workspaceId={workspace.workspaceId} org={named} status={status} />
@@ -497,6 +523,13 @@ function CodeAccess({
           {problem}
         </p>
       )}
+      <p className="nt-set-note nt-ws-policy-aside">
+        What guests can read is set in{" "}
+        <Link href={`/w/${workspace.slug}/settings#nt-ws-sharing`} className="nt-ws-aside-link">
+          General › Sharing
+        </Link>
+        .
+      </p>
 
       {asking?.kind === "rule" && (
         <ConfirmBox
@@ -511,8 +544,10 @@ function CodeAccess({
           onClose={() => setAsking(null)}
         >
           Everyone in {workspace.name}, you included, stops reading its code until GitHub shows
-          they’re in {asking.org}. You can verify straight after, on this page.
-          {rule && ` Everyone verified for ${rule} verifies again.`}
+          they’re in <Login>{asking.org}</Login>. You can verify straight after, on this page.
+          {rule && <> Everyone verified for <Login>{rule}</Login> verifies again.</>} Anyone who
+          later leaves the organisation loses access straight away; guests keep what their project
+          grants them.
         </ConfirmBox>
       )}
       {asking?.kind === "personal" && (
@@ -541,12 +576,24 @@ function CodeAccess({
  */
 function Said({ open, children }: { open: boolean; children: ReactNode }) {
   return (
-    <div className="nt-ws-fold" data-open={open} inert={!open}>
-      <div className="nt-ws-fold-body">
-        <p className="nt-set-note">{children}</p>
-      </div>
+    <Fold open={open}>
+      <p className="nt-set-note">{children}</p>
+    </Fold>
+  );
+}
+
+/** Room taken and given back over time; `arriving` opens it as it mounts. */
+function Fold({ open = true, arriving, children }: { open?: boolean; arriving?: boolean; children: ReactNode }) {
+  return (
+    <div className={`nt-ws-fold${arriving ? " is-arriving" : ""}`} data-open={open} inert={!open}>
+      <div className="nt-ws-fold-body">{children}</div>
     </div>
   );
+}
+
+/** A GitHub login, which a line may not break at its hyphen. */
+function Login({ children }: { children: ReactNode }) {
+  return <span className="whitespace-nowrap">{children}</span>;
 }
 
 /** Where you stand with the organisation rule, and the press that proves it. */
@@ -561,33 +608,46 @@ function ProofRow({
 }) {
   const proof = useOrgProof(workspaceId, org);
   const { passes, verifiedAt, login } = status.orgProof;
+  const verified = passes && !!verifiedAt;
+  const hidden = verifiedAt
+    ? "Your last check is over two weeks old. Until you verify again, this workspace’s code is hidden from you."
+    : "Not verified. Until you are, this workspace’s code is hidden from you.";
+  // Each line goes on drawing what it last said while it folds shut.
+  const [drawn, setDrawn] = useState({ at: verifiedAt, login, hidden });
+  if (verified && (verifiedAt !== drawn.at || login !== drawn.login)) setDrawn({ ...drawn, at: verifiedAt, login });
+  if (!verified && hidden !== drawn.hidden) setDrawn({ ...drawn, hidden });
   return (
     <div className="nt-set-row">
       <span className="nt-set-glyph">
         <GitHubMark />
       </span>
       <div className="nt-set-body-col">
-        <div className="nt-set-name">Your membership of {org}</div>
-        {passes && verifiedAt ? (
+        <div className="nt-set-name">
+          Your membership of <Login>{org}</Login>
+        </div>
+        <Fold open={verified}>
           <div className="nt-set-meta">
-            Verified {WHEN.format(verifiedAt)}
-            {login ? ` · @${login}` : ""}
+            Verified{drawn.at ? ` ${WHEN.format(drawn.at)}` : ""}
+            {drawn.login ? ` · @${drawn.login}` : ""}
           </div>
-        ) : (
-          <p className="nt-set-note">
-            {verifiedAt
-              ? "Your last check is over two weeks old. Until you verify again, this workspace’s code is hidden from you."
-              : "Not verified. Until you are, this workspace’s code is hidden from you."}
-          </p>
+        </Fold>
+        <Fold open={!verified}>
+          <p className="nt-set-note">{drawn.hidden}</p>
+        </Fold>
+        {proof.blocker && (
+          <Fold arriving>
+            <p className="nt-set-problem">{proof.blocker}</p>
+          </Fold>
         )}
-        {proof.blocker && <p className="nt-set-problem">{proof.blocker}</p>}
         {proof.said && (
-          <p
-            role={proof.said.problem ? "alert" : "status"}
-            className={`nt-set-outcome ${proof.said.problem ? "nt-set-problem" : "nt-set-note"}`}
-          >
-            <span>{proof.said.text}</span>
-          </p>
+          <Fold arriving key={proof.said.text}>
+            <p
+              role={proof.said.problem ? "alert" : "status"}
+              className={`nt-set-outcome ${proof.said.problem ? "nt-set-problem" : "nt-set-note"}`}
+            >
+              <span>{proof.said.text}</span>
+            </p>
+          </Fold>
         )}
       </div>
       {proof.action && (
@@ -595,7 +655,8 @@ function ProofRow({
           <button
             type="button"
             onClick={proof.action.run}
-            disabled={proof.action.busy}
+            // Not `disabled`: a disabled button drops the focus that pressed it.
+            aria-disabled={proof.action.busy}
             className={passes ? "nt-row px-2.5" : "nt-row nt-solid px-3 font-medium"}
           >
             {proof.action.label}
@@ -610,18 +671,20 @@ function ProofRow({
 
 type InstallOutcome = "installed" | "requested" | "error";
 
+const RETRY = "Try again, or contact support if it keeps happening.";
+const WHICH_ACCOUNT =
+  "GitHub didn’t confirm you have access to that account. Check you’re signed in to the right GitHub account, then try again.";
+
 const FAILED: Record<InstallFailure, string> = {
-  state: "the install didn’t start from this browser, so it wasn’t trusted. Start it again from here.",
-  no_code:
-    "GitHub came back without authorising Nootles. The App must request user authorisation during installation (docs/github-app.md).",
+  state: "The install started in another browser or took too long. Press Install to try again.",
+  no_code: `Nootles couldn’t finish setting up with GitHub. ${RETRY}`,
   no_installation: "GitHub came back without an installation. Try again.",
-  verify: "GitHub didn’t confirm you can reach that installation. Try installing again.",
-  unconfigured: "the GitHub App isn’t fully set up on this deployment.",
-  unauthorised: "GitHub didn’t accept the authorisation it asked you for. Try installing again.",
-  unreachable: "GitHub doesn’t list that installation among the ones you can reach.",
-  not_owner:
-    "only an owner of that organisation on GitHub can add it. Ask one of them to install it from here.",
-  not_holder: "only the person whose GitHub account it is can add it.",
+  verify: WHICH_ACCOUNT,
+  unconfigured: `Nootles couldn’t finish setting up with GitHub. ${RETRY}`,
+  unauthorised: "GitHub didn’t accept the authorisation it asked you for. Try again.",
+  unreachable: WHICH_ACCOUNT,
+  not_owner: "Only an owner of that organisation on GitHub can add it. Ask one of them to install it from this page.",
+  not_holder: "Only the person whose GitHub account it is can add it.",
 };
 
 /**
@@ -665,7 +728,7 @@ function describe(outcome: InstallOutcome, reason: string | null): Line {
     case "error": {
       const why = reason && reason in FAILED ? FAILED[reason as InstallFailure] : null;
       return {
-        text: why ? `The GitHub App wasn’t added: ${why}` : "The GitHub App wasn’t added. Try again.",
+        text: `The GitHub App wasn’t added. ${why ?? "Try again."}`,
         problem: true,
       };
     }
