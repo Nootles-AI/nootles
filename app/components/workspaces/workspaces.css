@@ -639,7 +639,9 @@
 /* A skeleton bar set straight on the page, a label's: the page is --surface,
    which is the bar's own fill, so it goes a step down to be seen. Bars on the
    cards are on white and keep theirs. */
-.nt-set-section > .nt-ws-bone > .nt-skeleton {
+.nt-set-section > .nt-ws-bone > .nt-skeleton,
+.nt-ws-set-head .nt-skeleton,
+.nt-ws-filters .nt-skeleton {
   background: var(--sunken);
 }
 
