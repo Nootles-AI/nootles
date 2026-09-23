@@ -21,7 +21,7 @@ import {
 } from "@/app/components/editor/comments/commentDecorations";
 import type { MentionPick } from "@/app/lib/ai/chat/mentions";
 import { initials, outsiderNote, type Person } from "@/app/lib/comments/compose";
-import { THREAD_PARAM } from "@/app/lib/comments/link";
+import { PAGE_PARAM, THREAD_PARAM } from "@/app/lib/comments/link";
 import { anchorForSelection } from "@/app/lib/comments/pmText";
 import type { Thread } from "@/app/lib/comments/types";
 import { useReadOnly } from "../editor/readOnly";
@@ -271,27 +271,32 @@ export function CommentsLayer({ linked, children }: { linked: boolean; children:
   }, []);
 
   // A link to a thread — a comment notice's — opens it once the page's
-  // threads are known, then gives the param up.
-  const requested = useSearchParams()?.get(THREAD_PARAM) ?? null;
+  // threads are known, then gives the params up. A link that names its page
+  // is that page's pane's to answer, wherever it opens (main or aside): any
+  // other pane on screen would otherwise drop a thread it simply doesn't have.
+  const params = useSearchParams();
+  const requested = params?.get(THREAD_PARAM) ?? null;
+  const bound = params?.get(PAGE_PARAM) ?? null;
   const status = comments?.status;
   const openRef = useRef(openThread);
   useEffect(() => {
     openRef.current = openThread;
   });
   useEffect(() => {
-    if (!requested || !pageId) return;
+    if (!requested || !pageId || (bound && bound !== pageId)) return;
     const ready = status === "absent" || (status === "ready" && view !== null);
     if (!ready) return;
     const owns = (threads ?? []).some((t) => t.id === requested);
-    if (!owns && !linked) return;
+    if (!owns && !bound && !linked) return;
     if (owns) {
       openRef.current(requested);
       if (userId) void markPageSeen({ pageId }).catch(() => {});
     }
     const url = new URL(window.location.href);
     url.searchParams.delete(THREAD_PARAM);
+    url.searchParams.delete(PAGE_PARAM);
     window.history.replaceState(null, "", url);
-  }, [requested, pageId, status, view, threads, linked, userId, markPageSeen]);
+  }, [requested, bound, pageId, status, view, threads, linked, userId, markPageSeen]);
 
   const ctx = useMemo<CardContext | null>(
     () =>

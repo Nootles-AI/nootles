@@ -24,10 +24,10 @@ import { mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { launchBrowser } from "./comments-launch.mjs";
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const output = await mkdtemp(path.join(tmpdir(), "comments-inbox-"));
-const { chromium } = await import("playwright");
 
 for (const key of ["OPENAI_API_KEY", "OPENROUTER_API_KEY", "GOOGLE_GENERATIVE_AI_API_KEY", "MISTRAL_API_KEY", "RECRAFT_API_KEY"]) {
   delete process.env[key];
@@ -94,11 +94,7 @@ const notice = (over) => ({
 
 let browser;
 try {
-  const channel = process.env.COMMENTS_BROWSER_CHANNEL || "chrome";
-  browser = await chromium.launch({
-    headless: true,
-    ...(process.env.COMMENTS_CHROME_PATH ? { executablePath: process.env.COMMENTS_CHROME_PATH } : { channel }),
-  });
+  browser = await launchBrowser();
   const page = await browser.newPage({ viewport: { width: 1000, height: 700 } });
   page.on("pageerror", (error) => failures.push(`page error: ${error.message}`));
   page.on("console", (message) => {
@@ -173,7 +169,9 @@ try {
   check("the whole thread is marked seen — the mention and the reply after it", await page.evaluate(() => window.ntInbox.calls().filter((c) => c.kind === "mutation").at(-1).args.ids), ["n2", "n1"]);
   check("the address moves to the thread's link", await page.evaluate(() => window.ntInbox.pushes()), ["/p/proj_a?page=page_plan&thread=t_1"]);
   check("the workspace opens the page it names", await page.evaluate(() => window.ntInbox.opened()), ["page_plan"]);
-  check("and gives up `page`, leaving `thread` for the comments surface", await page.evaluate(() => location.pathname + location.search), "/p/proj_a?thread=t_1");
+  // A thread link keeps naming its page: the comments surface of THAT page takes
+  // the thread and drops both, so no other pane on screen drops it first.
+  check("and keeps `page` beside `thread`, for that page's comments surface", await page.evaluate(() => location.pathname + location.search), "/p/proj_a?page=page_plan&thread=t_1");
 
   // --- the keyboard reaches a card too -----------------------------------------
   await page.waitForTimeout(250);
@@ -184,7 +182,7 @@ try {
     document.activeElement?.closest(".nt-notice")?.querySelector(".nt-ask-said")?.textContent), "Cleo Viewer replied on Budget");
   await page.keyboard.press("Enter");
   await page.waitForFunction(() => document.getElementById("opened")?.textContent === "page_budget");
-  check("Enter opens it, in this project", await page.evaluate(() => location.pathname + location.search), "/p/proj_a?thread=t_2");
+  check("Enter opens it, in this project", await page.evaluate(() => location.pathname + location.search), "/p/proj_a?page=page_budget&thread=t_2");
 
   // --- a notice from another project goes there --------------------------------
   await page.waitForTimeout(250);
