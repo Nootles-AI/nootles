@@ -773,11 +773,14 @@ export function Sidebar({
           canEdit ? (e) => openMenu(e, { kind: "list" }) : undefined
         }
       >
-        {/* A viewer's one verb: ask for the pen. Above the pages for the same
-            reason Context is — it holds for the whole project. */}
+        {/* The one verb of anyone without the pen, viewer or commenter: ask
+            for it. Above the pages for the same reason Context is — it holds
+            for the whole project. */}
         {/* An operator standing in reads as a viewer, but asking the owner for
             the pen on their own project is not a thing to offer them. */}
-        {role === "viewer" && !standIn && <RequestEditButton projectId={projectId} />}
+        {(role === "viewer" || role === "commenter") && !standIn && (
+          <RequestEditButton projectId={projectId} />
+        )}
 
         <div className="nt-section-label mt-1">
           <span>Pages</span>

@@ -1,3 +1,4 @@
+import type { ResolutionWrite } from "./resolve";
 import type { CommentAnchor } from "./types";
 
 /**
@@ -18,3 +19,16 @@ export type AnchorWrite = {
   ambiguous?: boolean;
   orphanedAt?: number | null;
 };
+
+/**
+ * The store's form of a resolver's writes. The resolver says only whether the
+ * thread is orphaned so every client's answer is identical; the time is
+ * stamped here, and the store keeps the first stamp it ever saw.
+ */
+export function persistable(writes: ResolutionWrite, now: number): AnchorWrite {
+  const out: AnchorWrite = {};
+  if (writes.anchor !== undefined) out.anchor = writes.anchor;
+  if (writes.ambiguous !== undefined) out.ambiguous = writes.ambiguous;
+  if (writes.orphaned !== undefined) out.orphanedAt = writes.orphaned ? now : null;
+  return out;
+}

@@ -429,6 +429,11 @@ export async function purgeProject(ctx: MutationCtx, projectId: Id<"projects">) 
       .withIndex("by_project_and_externalId", (q) => q.eq("projectId", projectId))
       .collect();
     await Promise.all(nodes.map((n) => ctx.db.delete(n._id)));
+    const overrides = await ctx.db
+      .query("entitlementOverrides")
+      .withIndex("by_scope_and_feature", (q) => q.eq("scope", "project").eq("scopeId", projectId))
+      .collect();
+    await Promise.all(overrides.map((o) => ctx.db.delete(o._id)));
 
     // The conversations about a project go with it. Turns in particular outlive
     // the pages they edited — they are what a reload reads to find changes still

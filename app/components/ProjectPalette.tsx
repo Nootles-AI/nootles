@@ -25,6 +25,7 @@ import { ProLift } from "./ProLift";
 import { usePlan } from "@/app/lib/usePlan";
 import { BlocksThumb, PagePreview } from "./PagePreview";
 import { TemplateWall } from "./TemplateWall";
+import { roleLabel } from "./projectParts";
 import { DraftSources } from "./context/ContextSources";
 import { GitHubSourcePage, NotionSourcePage } from "./context/SourcePages";
 
@@ -265,7 +266,7 @@ function Palette({
       id: p._id,
       group: "Shared with me",
       name: p.title || "Untitled project",
-      line: [p.ownerName && `by ${p.ownerName}`, p.role === "editor" ? "can edit" : "view only"]
+      line: [p.ownerName && `by ${p.ownerName}`, roleLabel(p)]
         .filter(Boolean)
         .join(" · "),
       icon: <Folder />,

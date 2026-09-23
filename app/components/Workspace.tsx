@@ -52,11 +52,13 @@ import { PagesProvider, type PageRef } from "./PagesContext";
 import { CompletionContextProvider } from "./editor/ai/CompletionContext";
 import { useRepoNaming } from "./context/useRepoNaming";
 import { ReadOnlyContext } from "./editor/readOnly";
+import { CommentAccessContext, commentAccessFor } from "./comments/access";
 import { Facepile } from "./presence/Facepile";
 import { Hints } from "./hints/Hints";
 import { Feedback } from "./feedback/Feedback";
 import { FixedToast } from "./feedback/FixedToast";
-import { AccessRequests } from "./share/AccessRequests";
+import { Correspondence } from "./share/AccessRequests";
+import { useLinkedPage } from "./comments/useLinkedPage";
 import { TesterNote } from "./feedback/TesterNote";
 import { PmfSurvey } from "./feedback/PmfSurvey";
 import { DismissSampler } from "./feedback/DismissSampler";
@@ -193,6 +195,9 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
     canvasRef.current = canvas;
     placeRef.current = place;
   });
+
+  // Through the sidebar's own selection: one way to choose a page.
+  useLinkedPage(open);
 
   useEffect(() => {
     if (!spine) return;
@@ -728,6 +733,7 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
     <CanvasShellContext value={shell}>
       <LocationShellContext value={placeShell}>
      <ReadOnlyContext value={viewer}>
+     <CommentAccessContext value={commentAccessFor(role)}>
      <PagesProvider pages={pageRefs}>
      <CompletionContextProvider projectId={projectId}>
      <PanelsProvider value={panels}>
@@ -964,7 +970,7 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
         {/* The answer to what that button sent, in the corner it left from. */}
         <FixedToast />
         {/* Not this project's — the caller's, wherever they are standing. */}
-        <AccessRequests />
+        <Correspondence projectId={projectId} />
         <TesterNote projectId={projectId} />
         <PmfSurvey />
         <DismissSampler />
@@ -976,6 +982,7 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
      </PanelsProvider>
      </CompletionContextProvider>
      </PagesProvider>
+     </CommentAccessContext>
      </ReadOnlyContext>
       </LocationShellContext>
     </CanvasShellContext>

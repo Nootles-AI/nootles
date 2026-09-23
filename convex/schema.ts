@@ -142,8 +142,8 @@ export default defineSchema({
     /**
      * The third link: admits commenters, who may read the pages and write
      * threads in their comments documents but never the pages themselves.
-     * Ranked between the other two. Nothing mints it yet (`share.ts` gains it
-     * with the commenter role); declared now so the gate's contract is whole.
+     * Ranked between the other two; minted and revoked like them, by
+     * `share.setLink`.
      */
     commentShareToken: v.optional(v.string()),
     /**
@@ -257,7 +257,10 @@ export default defineSchema({
     seenAt: v.optional(v.number()),
   })
     .index("by_recipient_unseen", ["recipientId", "seenAt"])
-    .index("by_page", ["pageId"]),
+    .index("by_page", ["pageId"])
+    /** One unseen notice per person per thread per kind: a second event
+     *  refreshes it (`commentNotices.event`) rather than piling up. */
+    .index("by_recipient_thread_unseen", ["recipientId", "threadId", "seenAt"]),
 
   /**
    * Who did what, and when — the Teams design's audit shape (its decision 23),
@@ -286,7 +289,9 @@ export default defineSchema({
     count: v.optional(v.number()),
   })
     .index("by_project_at", ["projectId", "at"])
-    .index("by_workspace_at", ["workspaceId", "at"]),
+    .index("by_workspace_at", ["workspaceId", "at"])
+    /** The retention sweep's horizon: every row older than a year, across tenants. */
+    .index("by_at", ["at"]),
 
   /**
    * Per-account settings. Exists at all because first run needs somewhere to
@@ -861,6 +866,7 @@ export default defineSchema({
       v.literal("feedback"),
       v.literal("album"),
       v.literal("context"),
+      v.literal("commentsGate"),
     ),
     model: v.string(),
     promptTokens: v.optional(v.number()),
@@ -1226,6 +1232,30 @@ export default defineSchema({
     .index("by_owner", ["ownerId"])
     .index("by_code", ["codeId"])
     .index("by_owner_and_code", ["ownerId", "codeId"]),
+
+  /**
+   * One feature, forced on or off for one project or one account, over what
+   * the owner's plan says — the Teams design's override table (its decision
+   * 19) for the containers that exist before workspaces do. Most accounts have
+   * no rows and run on `PLAN_FEATURES` alone; a row exists when a feature has
+   * to be turned off for an abuse case, or on for a promise.
+   *
+   * `scopeId` is the project's id for `project`, the owner's Clerk subject for
+   * `account`. A project row outranks its owner's account row. Written only by
+   * `entitlements.setOverride` (internal); read by `entitlements.feature`.
+   */
+  entitlementOverrides: defineTable({
+    scope: v.union(v.literal("project"), v.literal("account")),
+    scopeId: v.string(),
+    feature: v.literal("comments"),
+    value: v.boolean(),
+    /** Why, and who asked. */
+    note: v.string(),
+    grantedBy: v.string(),
+    grantedAt: v.number(),
+    /** When the override lapses and the plan answers again; absent = never. */
+    expiresAt: v.optional(v.number()),
+  }).index("by_scope_and_feature", ["scope", "scopeId", "feature"]),
 
   // ---- GitHub -------------------------------------------------------------
 

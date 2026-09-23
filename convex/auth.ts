@@ -137,7 +137,7 @@ export async function requireOwned<T extends Owned>(
  * Ranked owner > editor > commenter > viewer. A commenter reads everything a
  * viewer does and may write one thing more: the threads in a page's comments
  * document (`prosemirror.channelAdmits`) — never the page itself, which is why
- * `requireEditable` does not admit them. No claim resolves to it yet.
+ * `requireEditable` does not admit them. It is the comment link's role.
  */
 export type ProjectRole = "owner" | "editor" | "commenter" | "viewer";
 
@@ -145,11 +145,11 @@ export type ProjectRole = "owner" | "editor" | "commenter" | "viewer";
  * What the caller is to a loaded project.
  *
  * A claim names the role of the link it came through, but permission is always
- * re-derived against the tokens that are live NOW: killing the editor link
- * demotes its claimants to viewers while any link is still on (the same move
- * as Google downgrading a link from editor to viewer), and killing both links
- * closes the project to everyone but the owner. A claim row alone admits
- * nobody.
+ * re-derived against the tokens that are live NOW: killing the editor or the
+ * comment link demotes its claimants to viewers while any link is still on
+ * (the same move as Google downgrading a link from editor to viewer), and
+ * killing every link closes the project to everyone but the owner. A claim row
+ * alone admits nobody.
  *
  * `grantedRole` is the one thing a link does not decide: the owner answering
  * an access request hands the pen to one person, and no link turns on for it.
@@ -181,10 +181,14 @@ export async function roleForProject(
 export function claimRole(
   project: Doc<"projects">,
   claim: Doc<"shareClaims">,
-): "editor" | "viewer" | null {
+): Exclude<ProjectRole, "owner"> | null {
   if (!hasLiveLink(project)) return null;
   if (claim.grantedRole === "editor") return "editor";
   if (claim.role === "editor" && project.editShareToken) return "editor";
+  // A claim records one link, so an editor whose link dies is a viewer even
+  // while the comment link lives — until they open that link, which
+  // `share.claim` then records. Nothing here may assume they ever held it.
+  if (claim.role === "commenter" && project.commentShareToken) return "commenter";
   return "viewer";
 }
 
@@ -239,6 +243,24 @@ export async function projectRole(
 ): Promise<ProjectRole | null> {
   const project = await ctx.db.get(projectId);
   return project ? await roleForProject(ctx, project) : null;
+}
+
+/**
+ * Whether the caller may read a project's audit log: its owner, in their own
+ * session. Not editors or commenters — the log names who did what across
+ * everyone's access, which is the owner's to hold — and not an operator
+ * standing in, whose reading someone's record is not something the owner's
+ * token should vouch for. A trashed project has no log to read.
+ *
+ * The one place the answer lives, so the Teams workspace branch (a
+ * workspace's admins read its projects' logs) is one more clause here.
+ */
+export async function mayReadAudit(
+  ctx: QueryCtx,
+  project: Doc<"projects">,
+): Promise<boolean> {
+  if (isTrashed(project) || (await standInActor(ctx))) return false;
+  return (await roleForProject(ctx, project)) === "owner";
 }
 
 /** Tables that resolve their access through a project's role. */
