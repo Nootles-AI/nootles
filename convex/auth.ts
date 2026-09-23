@@ -611,6 +611,24 @@ export async function linkShows(
 }
 
 /**
+ * Whether the caller may carry pages from project `from` into project `to` —
+ * a copy, or a cut and paste. Within one workspace, or out of a personal
+ * project, whoever can read them may. Out of a workspace, into a personal
+ * project or another workspace, only its members may: a guest or someone in
+ * by link reads what they were shown, and takes none of it away.
+ */
+export async function mayCarryOut(
+  ctx: QueryCtx,
+  from: Doc<"projects">,
+  to: Doc<"projects">,
+): Promise<boolean> {
+  if (!from.workspaceId || from.workspaceId === to.workspaceId) return true;
+  const me = await ownerId(ctx);
+  const seat = me && (await activeMembership(ctx, from.workspaceId, me));
+  return !!seat && seat.role !== "guest";
+}
+
+/**
  * The caller's role in a project named by id, or null for missing, trashed or
  * stranger — a trashed project is nobody's to act in until it is restored.
  */
