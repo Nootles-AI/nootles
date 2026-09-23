@@ -41,6 +41,8 @@ export type AuditEvent = AuditAction & {
   actorKind?: ActorKind;
 };
 
+const EDIT = "page.edit";
+
 /** The width of an edit-activity window. */
 export const EDIT_WINDOW_MS = 10 * 60_000;
 /** How long an event is kept. */
@@ -50,7 +52,12 @@ const PRUNE_BATCH = 500;
 /** Rows one page of an export carries. */
 const EXPORT_PAGE = 500;
 
+/**
+ * The index range an action is read through: its first segment, except that
+ * edits are a kind of their own, so "Pages" is not buried under them.
+ */
 function categoryOf(action: string): string {
+  if (action === EDIT || action.startsWith(`${EDIT}.`)) return "edit";
   return action.split(".")[0];
 }
 
@@ -156,8 +163,8 @@ export async function recordEdit(
     workspaceId: edit.workspaceId,
     actorId: edit.actorId,
     actorKind: "user",
-    action: "page.edit",
-    category: "page",
+    action: EDIT,
+    category: categoryOf(EDIT),
     subjectKind: "page",
     subjectId: edit.pageId,
     meta: cleanMeta(edit.meta),
@@ -291,10 +298,11 @@ const filters = v.object({
 
 /**
  * The events that match, newest or oldest first, by the narrowest index the
- * filters allow: the person's, else the kind of event's, else the whole log.
- * An action longer than its kind narrows within that range.
+ * filters allow: the person's kind of event, the person's, the kind of
+ * event's, else the whole log. Only an action longer than its kind is left
+ * to a filter, and that reads rows already of its kind.
  */
-function matching(
+export function matching(
   ctx: QueryCtx,
   workspaceId: Id<"workspaces">,
   f: { actorId?: string; action?: string; from?: number; to?: number },
@@ -304,30 +312,33 @@ function matching(
   const to = f.to ?? Number.MAX_SAFE_INTEGER;
   const action = f.action?.trim() || undefined;
   const category = action && categoryOf(action);
+  const { actorId } = f;
+  const events = ctx.db.query("auditEvents");
   const ranged =
-    f.actorId !== undefined
-      ? ctx.db
-          .query("auditEvents")
-          .withIndex("by_workspace_actor_at", (q) =>
-            q.eq("workspaceId", workspaceId).eq("actorId", f.actorId!).gte("at", from).lt("at", to),
+    actorId !== undefined && category
+      ? events.withIndex("by_workspace_actor_category_at", (q) =>
+          q
+            .eq("workspaceId", workspaceId)
+            .eq("actorId", actorId)
+            .eq("category", category)
+            .gte("at", from)
+            .lt("at", to),
+        )
+      : actorId !== undefined
+        ? events.withIndex("by_workspace_actor_at", (q) =>
+            q.eq("workspaceId", workspaceId).eq("actorId", actorId).gte("at", from).lt("at", to),
           )
-      : category
-        ? ctx.db
-            .query("auditEvents")
-            .withIndex("by_workspace_category_at", (q) =>
+        : category
+          ? events.withIndex("by_workspace_category_at", (q) =>
               q.eq("workspaceId", workspaceId).eq("category", category).gte("at", from).lt("at", to),
             )
-        : ctx.db
-            .query("auditEvents")
-            .withIndex("by_workspace_at", (q) =>
+          : events.withIndex("by_workspace_at", (q) =>
               q.eq("workspaceId", workspaceId).gte("at", from).lt("at", to),
             );
   const ordered = ranged.order(order);
-  if (!action || (f.actorId === undefined && action === category)) return ordered;
+  if (!action || action === category) return ordered;
   return ordered.filter((q) =>
-    action === category
-      ? q.eq(q.field("category"), category)
-      : q.and(q.gte(q.field("action"), action), q.lt(q.field("action"), `${action}￿`)),
+    q.and(q.gte(q.field("action"), action), q.lt(q.field("action"), `${action}\uffff`)),
   );
 }
 

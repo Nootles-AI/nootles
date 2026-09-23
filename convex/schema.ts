@@ -398,7 +398,10 @@ export default defineSchema({
     actorKind: v.union(v.literal("user"), v.literal("operator"), v.literal("system")),
     /** Dotted, noun first: "member.remove", "share.link.on", "page.edit". */
     action: v.string(),
-    /** The action's first segment, so the log filters by kind of event through an index. */
+    /**
+     * The action's first segment — "edit" for page.edit, a kind of its own —
+     * so the log filters by kind of event through an index.
+     */
     category: v.string(),
     subjectKind: v.optional(v.string()),
     subjectId: v.optional(v.string()),
@@ -412,6 +415,7 @@ export default defineSchema({
     .index("by_workspace_at", ["workspaceId", "at"])
     .index("by_workspace_actor_at", ["workspaceId", "actorId", "at"])
     .index("by_workspace_category_at", ["workspaceId", "category", "at"])
+    .index("by_workspace_actor_category_at", ["workspaceId", "actorId", "category", "at"])
     .index("by_window", ["windowKey"])
     .index("by_subject", ["subjectKind", "subjectId", "at"])
     .index("by_at", ["at"]),
