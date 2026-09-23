@@ -1,7 +1,7 @@
 import { ConvexError, v } from "convex/values";
 import { internal } from "../_generated/api";
 import { internalMutation, internalQuery, mutation, query } from "../_generated/server";
-import { projectRole, readOwned, requireOwned } from "../auth";
+import { projectRole, readManageable, requireManageable, requireOwner } from "../auth";
 import { removeDocument, upsertDocument } from "../context/documents";
 import type { Id } from "../_generated/dataModel";
 import { uploadUrl } from "../uploads";
@@ -22,7 +22,7 @@ export const generateUploadUrl = mutation({ args: {}, handler: uploadUrl });
 export const listForProject = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
-    if (!(await readOwned(ctx, "projects", args.projectId))) return [];
+    if (!(await readManageable(ctx, "projects", args.projectId))) return [];
     return await ctx.db
       .query("projectFiles")
       .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
@@ -44,7 +44,8 @@ export const add = mutation({
     mediaType: v.string(),
   },
   handler: async (ctx, args) => {
-    const { ownerId } = await requireOwned(ctx, "projects", args.projectId);
+    await requireManageable(ctx, "projects", args.projectId);
+    const ownerId = await requireOwner(ctx);
     const filename = args.filename.trim();
     if (!filename || !fileKind(filename, args.mediaType)) {
       throw new ConvexError(`"${filename}" isn't a kind of file the assistant can read. ${CONTEXT_FILE_HELP}`);
@@ -91,7 +92,7 @@ export const add = mutation({
 export const remove = mutation({
   args: { fileId: v.id("projectFiles") },
   handler: async (ctx, args) => {
-    const file = await requireOwned(ctx, "projectFiles", args.fileId);
+    const file = await requireManageable(ctx, "projectFiles", args.fileId);
     await ctx.storage.delete(file.storageId);
     await ctx.db.delete(args.fileId);
     await removeDocument(ctx, file.projectId, documentId(file._id));
@@ -102,7 +103,7 @@ export const remove = mutation({
 export const refresh = mutation({
   args: { fileId: v.id("projectFiles") },
   handler: async (ctx, args) => {
-    const file = await requireOwned(ctx, "projectFiles", args.fileId);
+    const file = await requireManageable(ctx, "projectFiles", args.fileId);
     await ctx.scheduler.runAfter(0, internal.files.extract.run, {
       fileId: file._id,
       ownerId: file.ownerId,

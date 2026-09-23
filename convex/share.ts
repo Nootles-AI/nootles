@@ -6,8 +6,8 @@ import {
   claimRole,
   isTrashed,
   ownerId,
-  readOwned,
-  requireOwned,
+  readManageable,
+  requireManageable,
   requireOwner,
   roleForProject,
 } from "./auth";
@@ -50,17 +50,17 @@ async function projectForToken(
   return asEditor ? { project: asEditor, role: "editor" } : null;
 }
 
-/** Both links as the share dialog draws them. Owner only. */
+/** Both links as the share dialog draws them. Whoever manages the project. */
 /**
- * `readOwned` plus the throw, rather than `requireOwned`: this reads, and
- * `requireOwned` is a write gate — it refuses an operator's stand-in, which
- * would blind the one session most likely to be asking who a project is
- * shared with.
+ * `readManageable` plus the throw, rather than `requireManageable`: this
+ * reads, and `requireManageable` is a write gate — it refuses an operator's
+ * stand-in, which would blind the one session most likely to be asking who a
+ * project is shared with.
  */
 export const links = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
-    const project = await readOwned(ctx, "projects", args.projectId);
+    const project = await readManageable(ctx, "projects", args.projectId);
     if (!project) throw new Error("Not found");
     return {
       viewer: project.shareToken ?? null,
@@ -72,7 +72,7 @@ export const links = query({
 export const setLink = mutation({
   args: { projectId: v.id("projects"), role, enabled: v.boolean() },
   handler: async (ctx, args) => {
-    const project = await requireOwned(ctx, "projects", args.projectId);
+    const project = await requireManageable(ctx, "projects", args.projectId);
     const field = tokenField[args.role];
     if (!args.enabled) {
       // Disabling IS revoking: the token goes, the old URL dies, and everyone
@@ -135,8 +135,8 @@ export const view = query({
 /**
  * What signing in through a link does: records who came, at the role the link
  * grants. Idempotent, upserting to the higher role — a viewer later handed the
- * editor link is promoted, never demoted. The owner passes through unrecorded;
- * their own project has nothing to claim.
+ * editor link is promoted, never demoted. Whoever already owns the project
+ * passes through unrecorded; nothing a link grants is more than they have.
  *
  * An account whose first act is a claim was CREATED by this document, and the
  * survey-and-seed welcome is for people starting from nothing — so the claim
@@ -169,7 +169,7 @@ export const claim = mutation({
       });
     }
 
-    if (found.project.ownerId === me) return found.project._id;
+    if ((await roleForProject(ctx, found.project)) === "owner") return found.project._id;
     const existing = await ctx.db
       .query("shareClaims")
       .withIndex("by_project_and_grantee", (q) =>
@@ -192,14 +192,14 @@ export const claim = mutation({
 
 /**
  * Who holds a role in this project through a claim, for the share dialog's
- * access list. Owner only, and read-only in v1 — removing someone means
- * revoking the link they came by.
+ * access list. Whoever manages the project, and read-only in v1 — removing
+ * someone means revoking the link they came by.
  */
-/** Reads, so `readOwned` — see `links` above. */
+/** Reads, so `readManageable` — see `links` above. */
 export const collaborators = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
-    const project = await readOwned(ctx, "projects", args.projectId);
+    const project = await readManageable(ctx, "projects", args.projectId);
     if (!project) throw new Error("Not found");
     const claims = await ctx.db
       .query("shareClaims")
@@ -299,6 +299,7 @@ export const requestEdit = mutation({
       projectId: args.projectId,
       requesterId: me,
       projectOwnerId: project.ownerId,
+      workspaceId: project.workspaceId,
       status: "pending",
       createdAt: Date.now(),
     });
@@ -322,21 +323,51 @@ export const myEditRequest = query({
 });
 
 /**
- * Everyone waiting on the caller, across every project they own — the owner's
- * inbox, which is why it is keyed on the owner rather than on a project: the
- * toast has to find them wherever they are standing, including the project list.
+ * Everyone waiting on the caller, across every project they manage — the
+ * owner's inbox, which is why it is keyed on the owner rather than on a
+ * project: the toast has to find them wherever they are standing, including
+ * the project list.
+ *
+ * Two doors in: the projects they created, and every workspace they run. A
+ * workspace project's creator is not necessarily one of the people who can
+ * answer it, so each request is asked whether the caller manages its project
+ * now rather than trusted for the index it came through.
  */
 export const incomingRequests = query({
   args: {},
   handler: async (ctx) => {
     const me = await ownerId(ctx);
     if (!me) return [];
-    const requests = await ctx.db
+    const mine = await ctx.db
       .query("accessRequests")
       .withIndex("by_owner_and_status", (q) =>
         q.eq("projectOwnerId", me).eq("status", "pending"),
       )
       .collect();
+    const seats = await ctx.db
+      .query("memberships")
+      .withIndex("by_user_status", (q) => q.eq("userId", me).eq("status", "active"))
+      .collect();
+    const theirs = await Promise.all(
+      seats
+        .filter((seat) => seat.role === "owner" || seat.role === "admin")
+        .map((seat) =>
+          ctx.db
+            .query("accessRequests")
+            .withIndex("by_workspace_and_status", (q) =>
+              q.eq("workspaceId", seat.workspaceId).eq("status", "pending"),
+            )
+            .collect(),
+        ),
+    );
+
+    const seen = new Set<string>();
+    const requests: Doc<"accessRequests">[] = [];
+    for (const request of [...mine, ...theirs.flat()]) {
+      if (seen.has(request._id)) continue;
+      seen.add(request._id);
+      if (await readManageable(ctx, "projects", request.projectId)) requests.push(request);
+    }
     return await Promise.all(requests.map((r) => requesterCard(ctx, r)));
   },
 });
@@ -354,9 +385,9 @@ export const incomingRequests = query({
 export const decideRequest = mutation({
   args: { requestId: v.id("accessRequests"), grant: v.boolean() },
   handler: async (ctx, args) => {
-    const me = await requireOwner(ctx);
     const request = await ctx.db.get(args.requestId);
-    if (!request || request.projectOwnerId !== me) throw new Error("Not found");
+    if (!request) throw new Error("Not found");
+    await requireManageable(ctx, "projects", request.projectId);
 
     if (args.grant) {
       const claim = await ctx.db

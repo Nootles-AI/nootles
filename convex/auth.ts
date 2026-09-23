@@ -24,6 +24,25 @@ export type Owned = {
 }[TableNames];
 
 /**
+ * Owned tables whose `ownerId` does NOT say who may act on the row. Projects,
+ * pages and folders carry their creator (or the project's, copied); a linked
+ * repository, file or Notion page carries whose credential or upload it is;
+ * the context sheet copies the project's. Every one of them is the project's
+ * to govern, so it answers to the project's role — and `readOwned` refuses
+ * them at the type level, because on a workspace project `ownerId` equality
+ * would hand the creator what belongs to the workspace's admins.
+ */
+type ProjectGoverned =
+  | Shared
+  | "contextSheet"
+  | "projectRepos"
+  | "projectFiles"
+  | "projectNotion";
+
+/** Rows that really are one person's own: threads, checkpoints, accounts. */
+type Personal = Exclude<Owned, ProjectGoverned>;
+
+/**
  * The signed-in subject, or null. Null is routine rather than exceptional:
  * queries subscribe before Clerk has resolved a token, so reads have to be able
  * to answer "nobody yet" without throwing.
@@ -102,10 +121,15 @@ export function isTrashed(doc: object): boolean {
  * The row, if it exists and belongs to the caller. Missing and not-yours both
  * answer null, so a stranger cannot probe which ids exist.
  *
+ * A row made inside a project stays yours only while the project does: it
+ * has to be live, and you have to still hold a role on it. That is what takes
+ * a removed member's conversations and checkpoints — which quote the
+ * project's pages and code verbatim — away with their seat.
+ *
  * `table` goes unused at runtime; it binds the type parameter so callers get
- * back a `Doc<"pages">` rather than a union of every owned table.
+ * back a `Doc<"chatThreads">` rather than a union of every owned table.
  */
-export async function readOwned<T extends Owned>(
+export async function readOwned<T extends Personal>(
   ctx: QueryCtx,
   table: T,
   id: Id<T>,
@@ -113,18 +137,45 @@ export async function readOwned<T extends Owned>(
   const owner = await ownerId(ctx);
   if (!owner) return null;
   const doc = await ctx.db.get(id);
-  return doc && doc.ownerId === owner && !isTrashed(doc) ? doc : null;
+  if (!doc || doc.ownerId !== owner || isTrashed(doc)) return null;
+  const project = await projectMadeIn(ctx, doc);
+  if (project === undefined) return doc;
+  if (!project || isTrashed(project)) return null;
+  return (await roleForProject(ctx, project)) ? doc : null;
+}
+
+/**
+ * The project a personal row was made in: directly, or through the page or
+ * thread it hangs off. Undefined for rows that belong to no project at all.
+ */
+async function projectMadeIn(
+  ctx: QueryCtx,
+  row: object,
+): Promise<Doc<"projects"> | null | undefined> {
+  const { projectId, pageId, threadId } = row as {
+    projectId?: Id<"projects">;
+    pageId?: Id<"pages">;
+    threadId?: Id<"chatThreads">;
+  };
+  if (projectId) return await ctx.db.get(projectId);
+  const parent = pageId
+    ? await ctx.db.get(pageId)
+    : threadId
+      ? await ctx.db.get(threadId)
+      : undefined;
+  if (parent === undefined) return undefined;
+  return parent && (await ctx.db.get(parent.projectId));
 }
 
 /**
  * The same lookup, for callers that cannot proceed without the row — which in
  * practice means the ones about to write it. That is why this refuses an
  * operator's stand-in and `readOwned` does not: they are read scope and write
- * scope, and the two must never collapse into one check. The two queries that
+ * scope, and the two must never collapse into one check. The queries that
  * legitimately need a throwing read (`share.links`, `share.collaborators`) say
- * so with `readOwned` and their own throw.
+ * so with the read gate and their own throw.
  */
-export async function requireOwned<T extends Owned>(
+export async function requireOwned<T extends Personal>(
   ctx: QueryCtx,
   table: T,
   id: Id<T>,

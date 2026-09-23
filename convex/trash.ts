@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { internalMutation, mutation } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
-import { isTrashed, projectRole, requireOwner } from "./auth";
+import { isTrashed, managesProject, projectRole, requireOwner } from "./auth";
 import { removePageCascade } from "./pages";
 import { purgeProject, refreshPageSummary } from "./projects";
 
@@ -23,13 +23,13 @@ export const restore = mutation({
     projects: v.optional(v.array(v.id("projects"))),
   },
   handler: async (ctx, args) => {
-    const me = await requireOwner(ctx);
+    await requireOwner(ctx);
     const touched = new Set<Id<"projects">>();
 
     for (const id of args.projects ?? []) {
       const project = await ctx.db.get(id);
       if (!project || !isTrashed(project)) continue;
-      if (project.ownerId !== me) throw new Error("Not found");
+      if (!(await managesProject(ctx, project))) throw new Error("Not found");
       await ctx.db.patch(id, { deletedAt: undefined });
     }
 

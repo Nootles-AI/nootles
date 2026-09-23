@@ -1,10 +1,10 @@
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { v } from "convex/values";
-import type { Doc, Id } from "./_generated/dataModel";
+import type { Doc } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { checkRead, checkWrite, pageForDoc } from "./prosemirror";
-import { ownerId, requireOwned } from "./auth";
+import { ownerId, requireManageable, requireOwner } from "./auth";
 import { appendYUpdate } from "./ydoc";
 import { joinUpdateRows } from "./yshape";
 import { NML_SCHEMA_VERSION } from "@/app/lib/nml/schema";
@@ -142,16 +142,19 @@ async function eligible(ctx: QueryCtx, docId: string): Promise<boolean> {
 
 /**
  * Authorize a cohort change: opting a single document in needs write access to
- * it; opting a whole project in needs ownership of the project. Both reuse the
- * one centralized authority rather than inventing a migration-only role.
+ * it; opting a whole project in needs the right to manage the project. Both
+ * reuse the one centralized authority rather than inventing a migration-only
+ * role.
  */
 async function authorizeCohort(ctx: MutationCtx, scope: "project" | "doc", key: string): Promise<string> {
   if (scope === "doc") {
     await checkWrite(ctx, key);
     return (await ownerId(ctx)) ?? "anonymous";
   }
-  const project = await requireOwned(ctx, "projects", key as Id<"projects">);
-  return project.ownerId;
+  const projectId = ctx.db.normalizeId("projects", key);
+  if (!projectId) throw new Error("Not found");
+  await requireManageable(ctx, "projects", projectId);
+  return await requireOwner(ctx);
 }
 
 /** Is this document eligible to migrate? Subscribed to by a preparing client. */

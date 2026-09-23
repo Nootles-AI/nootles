@@ -11,7 +11,7 @@ import {
   type ActionCtx,
   type MutationCtx,
 } from "../_generated/server";
-import { readOwned, requireOwned, requireOwner } from "../auth";
+import { projectRole, readManageable, requireManageable, requireOwner } from "../auth";
 import { repoRef } from "../schema";
 import { json, text } from "./rest";
 import { withToken } from "./account";
@@ -35,7 +35,7 @@ const TOP_LEVEL = 80;
 export const listForProject = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
-    if (!(await readOwned(ctx, "projects", args.projectId))) return [];
+    if (!(await readManageable(ctx, "projects", args.projectId))) return [];
     return await ctx.db
       .query("projectRepos")
       .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
@@ -89,18 +89,23 @@ export const lookup = action({
   },
 });
 
+/**
+ * The rows are linked under the caller, not the project's creator: they were
+ * picked from the caller's own `available` list, so the caller's connection is
+ * the one that can read them.
+ */
 export const link = mutation({
   args: { projectId: v.id("projects"), repos: v.array(repoRef) },
   handler: async (ctx, args) => {
-    const { ownerId } = await requireOwned(ctx, "projects", args.projectId);
-    await add(ctx, ownerId, args.projectId, args.repos);
+    await requireManageable(ctx, "projects", args.projectId);
+    await add(ctx, await requireOwner(ctx), args.projectId, args.repos);
   },
 });
 
 export const unlink = mutation({
   args: { repoId: v.id("projectRepos") },
   handler: async (ctx, args) => {
-    await requireOwned(ctx, "projectRepos", args.repoId);
+    await requireManageable(ctx, "projectRepos", args.repoId);
     await ctx.db.delete(args.repoId);
     // Its place in the context graph goes with it, in batches of its own.
     await ctx.scheduler.runAfter(0, internal.github.graphStore.forget, args);
@@ -115,7 +120,7 @@ export const unlink = mutation({
 export const reindex = mutation({
   args: { repoId: v.id("projectRepos") },
   handler: async (ctx, args) => {
-    const repo = await requireOwned(ctx, "projectRepos", args.repoId);
+    const repo = await requireManageable(ctx, "projectRepos", args.repoId);
     const state = repo.index?.state;
     if (state === "queued" || state === "indexing") return;
     await ctx.db.patch(repo._id, { index: { ...repo.index, state: "queued" } });
@@ -123,17 +128,21 @@ export const reindex = mutation({
   },
 });
 
-/** Re-read a repository's summary now, rather than waiting for a reason to. */
+/**
+ * Re-read a repository's summary now, rather than waiting for a reason to.
+ * Asked by whoever manages the project; read, as always, with the linker's
+ * connection.
+ */
 export const refresh = action({
   args: { repoId: v.id("projectRepos") },
   handler: async (ctx, args) => {
-    const ownerId = await requireOwner(ctx);
+    await requireOwner(ctx);
     const repo: Doc<"projectRepos"> | null = await ctx.runQuery(
-      internal.github.repos.row,
-      { repoId: args.repoId, ownerId },
+      internal.github.repos.manageable,
+      { repoId: args.repoId },
     );
     if (!repo) throw new ConvexError("That repository is no longer linked.");
-    await summarise(ctx, ownerId, repo);
+    await summarise(ctx, repo.ownerId, repo);
   },
 });
 
@@ -164,19 +173,28 @@ export const row = internalQuery({
   },
 });
 
+/** The repository, if the calling user manages its project. */
+export const manageable = internalQuery({
+  args: { repoId: v.id("projectRepos") },
+  handler: async (ctx, args) => await readManageable(ctx, "projectRepos", args.repoId),
+});
+
 /**
- * The repositories a caller may read through this project — the permission
- * check every tool in `read.ts` makes first. Named, it is one row; unnamed, all
- * of them, which is what an unscoped code search is allowed to cover.
+ * The repositories the calling user may read through this project — the
+ * permission check every tool in `read.ts` makes first. Anyone who can edit
+ * the project may, whoever linked the repository; each row's `ownerId` is the
+ * connection it is read with. Named, it is one row; unnamed, all of them,
+ * which is what an unscoped code search is allowed to cover.
  */
 export const access = internalQuery({
   args: {
     projectId: v.id("projects"),
-    ownerId: v.string(),
     fullName: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const rows = args.fullName
+    const role = await projectRole(ctx, args.projectId);
+    if (role !== "owner" && role !== "editor") return [];
+    return args.fullName
       ? await ctx.db
           .query("projectRepos")
           .withIndex("by_project_and_fullName", (q) =>
@@ -187,7 +205,6 @@ export const access = internalQuery({
           .query("projectRepos")
           .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
           .collect();
-    return rows.filter((r) => r.ownerId === args.ownerId);
   },
 });
 

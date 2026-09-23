@@ -13,7 +13,8 @@ import { withToken } from "./account";
  * leaves Convex: the route calls these as the signed-in user, and each one
  * checks that the repository is actually linked to the project the chat belongs
  * to before it fetches anything. Being named in a tool call is not permission;
- * being in `projectRepos` is.
+ * being in `projectRepos` is. Anyone who can edit the project may read its
+ * repositories, each with the connection of whoever linked it.
  *
  * Everything is capped. A model that asks for a 40,000-line generated file gets
  * the top of it and a note saying so, which is a better turn than one that
@@ -161,59 +162,68 @@ export const search = action({
     repo: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const ownerId = await requireOwner(ctx);
+    await requireOwner(ctx);
     const repos: Doc<"projectRepos">[] = await ctx.runQuery(
       internal.github.repos.access,
-      { projectId: args.projectId, ownerId, ...(args.repo ? { fullName: args.repo } : {}) },
+      { projectId: args.projectId, ...(args.repo ? { fullName: args.repo } : {}) },
     );
     if (!repos.length) throw new ConvexError(unlinked(args.repo));
 
-    const scope = repos.map((r) => `repo:${r.fullName}`).join(" ");
-    return await withToken(ctx, ownerId, async (token) => {
-      const found = await json<{ total_count: number; items: Hit[] }>(
-        token,
-        "/search/code",
-        {
-          accept: "application/vnd.github.text-match+json",
-          query: { q: `${args.query} ${scope}`, per_page: RESULTS },
-        },
-      );
-      return {
-        total: found?.total_count ?? 0,
-        // Search only ever covers the default branch — worth saying, because a
-        // model that finds nothing should not conclude the code isn't there.
-        searched: repos.map((r) => `${r.fullName}@${r.defaultBranch}`),
-        results: (found?.items ?? []).map((hit) => ({
+    // One search per connection: each can only be asked about the repositories
+    // it linked, and the qualifiers keep it from reaching past them.
+    const byLinker = new Map<string, Doc<"projectRepos">[]>();
+    for (const r of repos) byLinker.set(r.ownerId, [...(byLinker.get(r.ownerId) ?? []), r]);
+    const found = await Promise.all(
+      [...byLinker].map(([linker, linked]) =>
+        withToken(ctx, linker, (token) =>
+          json<{ total_count: number; items: Hit[] }>(token, "/search/code", {
+            accept: "application/vnd.github.text-match+json",
+            query: {
+              q: `${args.query} ${linked.map((r) => `repo:${r.fullName}`).join(" ")}`,
+              per_page: RESULTS,
+            },
+          }),
+        ),
+      ),
+    );
+    return {
+      total: found.reduce((sum, f) => sum + (f?.total_count ?? 0), 0),
+      // Search only ever covers the default branch — worth saying, because a
+      // model that finds nothing should not conclude the code isn't there.
+      searched: repos.map((r) => `${r.fullName}@${r.defaultBranch}`),
+      results: found
+        .flatMap((f) => f?.items ?? [])
+        .slice(0, RESULTS)
+        .map((hit) => ({
           repo: hit.repository.full_name,
           path: hit.path,
           matches: (hit.text_matches ?? [])
             .map((m) => m.fragment.trim())
             .slice(0, 3),
         })),
-      };
-    });
+    };
   },
 });
 
 /**
- * The repository, if this project is allowed to read it. The message names the
- * project rather than the repository as the thing that is wrong, because that
- * is the fix — a repository the agent wants is one the user can link.
+ * The repository, if this project is allowed to read it, and the connection it
+ * is read with — its linker's. The message names the project rather than the
+ * repository as the thing that is wrong, because that is the fix — a
+ * repository the agent wants is one the user can link.
  */
 async function permitted(
   ctx: ActionCtx,
   projectId: Id<"projects">,
   fullName: string,
 ) {
-  const ownerId = await requireOwner(ctx);
+  await requireOwner(ctx);
   const rows: Doc<"projectRepos">[] = await ctx.runQuery(internal.github.repos.access, {
     projectId,
-    ownerId,
     fullName: fullName.trim(),
   });
   const repo = rows[0];
   if (!repo) throw new ConvexError(unlinked(fullName));
-  return { ownerId, repo };
+  return { ownerId: repo.ownerId, repo };
 }
 
 const unlinked = (fullName?: string) =>

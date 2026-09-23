@@ -8,7 +8,7 @@ import {
   isTrashed,
   projectRole,
   readVisible,
-  requireOwned,
+  requireManageable,
   requireOwner,
   roleForProject,
   standInActor,
@@ -366,7 +366,7 @@ export const listForScreen = query({
 export const rename = mutation({
   args: { projectId: v.id("projects"), title: v.string() },
   handler: async (ctx, args) => {
-    await requireOwned(ctx, "projects", args.projectId);
+    await requireManageable(ctx, "projects", args.projectId);
     await ctx.db.patch(args.projectId, { title: args.title });
   },
 });
@@ -380,7 +380,7 @@ export const rename = mutation({
 export const remove = mutation({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
-    await requireOwned(ctx, "projects", args.projectId);
+    await requireManageable(ctx, "projects", args.projectId);
     await ctx.db.patch(args.projectId, { deletedAt: Date.now() });
   },
 });

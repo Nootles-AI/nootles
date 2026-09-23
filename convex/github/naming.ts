@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import { mutation, type MutationCtx, type QueryCtx } from "../_generated/server";
-import { requireOwned } from "../auth";
+import { requireManageable } from "../auth";
 import { searchTextOf } from "../context/shape";
 
 /**
@@ -26,7 +26,7 @@ const FILES_SHOWN = 12;
 export const claim = mutation({
   args: { repoId: v.id("projectRepos") },
   handler: async (ctx, args) => {
-    const repo = await requireOwned(ctx, "projectRepos", args.repoId);
+    const repo = await requireManageable(ctx, "projectRepos", args.repoId);
     const index = repo.index;
     if (index?.state !== "naming") return null;
     const now = Date.now();
@@ -49,7 +49,7 @@ export const apply = mutation({
     ),
   },
   handler: async (ctx, args) => {
-    const repo = await requireOwned(ctx, "projectRepos", args.repoId);
+    const repo = await requireManageable(ctx, "projectRepos", args.repoId);
     for (const n of args.names) {
       const id = ctx.db.normalizeId("contextNodes", n.nodeId);
       const node = id ? await ctx.db.get(id) : null;
@@ -76,7 +76,7 @@ export const apply = mutation({
 export const skip = mutation({
   args: { repoId: v.id("projectRepos") },
   handler: async (ctx, args) => {
-    const repo = await requireOwned(ctx, "projectRepos", args.repoId);
+    const repo = await requireManageable(ctx, "projectRepos", args.repoId);
     if (repo.index?.state === "naming") await settle(ctx, repo);
   },
 });

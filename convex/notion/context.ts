@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import { internalMutation, internalQuery, mutation, query } from "../_generated/server";
-import { readOwned, requireOwned } from "../auth";
+import { readManageable, requireManageable, requireOwner } from "../auth";
 import { removeDocument, upsertDocument } from "../context/documents";
 
 /**
@@ -14,7 +14,7 @@ import { removeDocument, upsertDocument } from "../context/documents";
 export const listForProject = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
-    if (!(await readOwned(ctx, "projects", args.projectId))) return [];
+    if (!(await readManageable(ctx, "projects", args.projectId))) return [];
     return await ctx.db
       .query("projectNotion")
       .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
@@ -30,7 +30,9 @@ export const link = mutation({
     ),
   },
   handler: async (ctx, args) => {
-    const { ownerId } = await requireOwned(ctx, "projects", args.projectId);
+    // Linked under the caller: it is their Notion connection that reads it.
+    await requireManageable(ctx, "projects", args.projectId);
+    const ownerId = await requireOwner(ctx);
     const now = Date.now();
     const seen = new Set<string>();
     for (const page of args.pages) {
@@ -61,7 +63,7 @@ export const link = mutation({
 export const unlink = mutation({
   args: { rowId: v.id("projectNotion") },
   handler: async (ctx, args) => {
-    const row = await requireOwned(ctx, "projectNotion", args.rowId);
+    const row = await requireManageable(ctx, "projectNotion", args.rowId);
     await ctx.db.delete(row._id);
     await removeDocument(ctx, row.projectId, externalIdOf(row.pageId));
   },
@@ -71,7 +73,7 @@ export const unlink = mutation({
 export const reindex = mutation({
   args: { rowId: v.id("projectNotion") },
   handler: async (ctx, args) => {
-    const row = await requireOwned(ctx, "projectNotion", args.rowId);
+    const row = await requireManageable(ctx, "projectNotion", args.rowId);
     if (row.index.state === "queued" || row.index.state === "reading") return;
     await ctx.db.patch(row._id, { index: { ...row.index, state: "queued" } });
     await ctx.scheduler.runAfter(0, internal.notion.contextRead.run, { rowId: row._id });
