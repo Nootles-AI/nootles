@@ -665,6 +665,15 @@
     opacity 220ms var(--ease),
     transform 220ms cubic-bezier(0.7, 0, 0.84, 0);
 }
+/* The ⋯ fades in on the same beat as whatever it takes the place of, and
+   keeps the icon button's own eased wash and press. */
+.nt-ws-row-menu {
+  transition:
+    opacity var(--dur-fast) var(--ease),
+    background var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease),
+    transform var(--dur) var(--ease);
+}
 /* Where there is no pointer to reveal it, the row's menu is always there. */
 @media (hover: none) {
   .nt-ws-row-menu {

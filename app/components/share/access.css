@@ -209,7 +209,8 @@ body:has(.nt-fixed) .nt-asks {
 }
 
 /* Someone whose access was taken away fades, then their row closes up, so
-   the list shortens rather than snapping when the server agrees. */
+   the list shortens rather than snapping when the server agrees. The row is
+   kept until this ends: COLLAPSE_MS in SharePopover.tsx. */
 .nt-share-people > li {
   transition:
     opacity 220ms var(--ease),
@@ -220,9 +221,9 @@ body:has(.nt-fixed) .nt-asks {
   height: 0;
   overflow: hidden;
 }
+/* The role and its ⋯ still cross-fade: nothing moves. */
 @media (prefers-reduced-motion: reduce) {
-  .nt-share-people > li,
-  .nt-share-hold-text {
+  .nt-share-people > li {
     transition: none;
   }
 }
