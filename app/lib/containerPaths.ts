@@ -11,7 +11,11 @@
  *   /w/join/<token>        an invitation into one
  */
 
-export type SettingsSection = "general" | "members" | "integrations";
+export type SettingsSection =
+  | "general"
+  | "members"
+  | "integrations"
+  | "billing";
 
 export function homePath(slug: string | null): string {
   return slug === null ? "/" : `/w/${slug}`;

@@ -12,13 +12,14 @@ import "../workspaces.css";
 
 /**
  * Every section a workspace's settings has, in the order they are listed.
- * Later sections (billing, audit) are added here and as a route beside
+ * Later sections (audit) are added here and as a route beside
  * `members/`.
  */
 const SECTIONS: readonly { id: SettingsSection; label: string }[] = [
   { id: "general", label: "General" },
   { id: "members", label: "Members" },
   { id: "integrations", label: "Integrations" },
+  { id: "billing", label: "Billing" },
 ];
 
 /**
