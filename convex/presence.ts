@@ -7,7 +7,8 @@ import { checkRead } from "./prosemirror";
  * The presence channel: who is on a doc, and where their caret is. Announcing
  * yourself is a read-level act — a share-link viewer's cursor is as real as
  * an editor's — so everything here is gated by the same `checkRead` the doc
- * itself is.
+ * itself is. That gate defaults to the document channel, and nothing here
+ * widens it: a comments document has no carets, so its docId is refused.
  *
  * Liveness is time-based, never event-based: a closed laptop sends no
  * goodbye. `leave` is a courtesy for the common case; the truth is

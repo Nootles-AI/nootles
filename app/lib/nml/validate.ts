@@ -1,7 +1,9 @@
 import type { SceneNode } from "@/app/components/editor/canvas/scene/types";
 import {
   NML_LIMITS,
+  NML_PROFILE_ISSUE,
   NML_SCHEMA_VERSION,
+  nmlProfileViolations,
   nmlDocumentSchema,
   type NmlBlock,
   type NmlDocument,
@@ -101,7 +103,15 @@ export function validateDocument(input: unknown): NmlIssue[] {
   }
 
   const document = parsed.data;
-  const issues: NmlIssue[] = [];
+  // Placement is validation, not decoding: a comments document a merge left
+  // out of profile must still read, so it can be seen and repaired.
+  const issues: NmlIssue[] = nmlProfileViolations(document).map((violation) => ({
+    code: NML_PROFILE_ISSUE,
+    severity: "error",
+    path: violation.path,
+    message: violation.message,
+    nodeId: violation.nodeId,
+  }));
   const ids = new Map<string, Array<string | number>>();
   let blocks = 0;
   let inlineUnits = 0;
@@ -142,6 +152,14 @@ export function validateDocument(input: unknown): NmlIssue[] {
           issue(issues, "unsafe_url", [...path, "scene", "nodes", index, "src"], "Canvas image URL scheme is not allowed.", node.id);
         }
       });
+    }
+    if (block.type === "commentThread") {
+      const resolved = block.props.status === "resolved";
+      const stamped = block.props.resolvedBy !== undefined && block.props.resolvedAt !== undefined;
+      const partial = block.props.resolvedBy !== undefined || block.props.resolvedAt !== undefined;
+      if (resolved ? !stamped : partial) {
+        issue(issues, "thread_resolution", [...path, "props", "status"], "A thread carries resolvedBy and resolvedAt exactly when it is resolved.", block.id);
+      }
     }
     if (block.type === "checkListItem" && block.props.checked === undefined) {
       issue(issues, "missing_checked", [...path, "props", "checked"], "Checklist items require a checked state.", block.id);

@@ -56,6 +56,24 @@ const PRESENCE_STALE_MS = 30_000;
 
 type Listener = () => void;
 
+/**
+ * What a provider does beyond syncing its document. Both default on, which is
+ * a page: its flushes leave a preview and a context digest behind, and its
+ * awareness rides the presence table. A page's comments document turns both
+ * off — it is not a page to preview or digest, and it has no carets — and the
+ * server refuses it on both channels anyway.
+ */
+export type ProviderOptions = {
+  /** Write the preview and context digest behind flushes. */
+  derived?: boolean;
+  /** Watch and announce presence. */
+  presence?: boolean;
+};
+
+function withDefaults(options: ProviderOptions): Readonly<Required<ProviderOptions>> {
+  return { derived: options.derived ?? true, presence: options.presence ?? true };
+}
+
 export class YConvexProvider {
   readonly doc: Y.Doc;
   readonly awareness: Awareness;
@@ -64,6 +82,7 @@ export class YConvexProvider {
 
   private client: ConvexReactClient;
   private docId: string;
+  readonly options: Readonly<Required<ProviderOptions>>;
 
   private connected = false;
   private syncedFlag = false;
@@ -98,10 +117,16 @@ export class YConvexProvider {
   private announced = false;
   private onPageHide = () => void this.sendLeave();
 
-  constructor(client: ConvexReactClient, docId: string, doc: Y.Doc) {
+  constructor(
+    client: ConvexReactClient,
+    docId: string,
+    doc: Y.Doc,
+    options: ProviderOptions = {},
+  ) {
     this.client = client;
     this.docId = docId;
     this.doc = doc;
+    this.options = withDefaults(options);
     this.awareness = new Awareness(doc);
     this.whenSynced = new Promise((r) => (this.resolveSynced = r));
     doc.on("update", this.onDocUpdate);
@@ -135,6 +160,7 @@ export class YConvexProvider {
     const watch = this.client.watchQuery(api.ydoc.meta, { docId: this.docId });
     this.unwatch = watch.onUpdate(() => void this.pull());
     void this.pull();
+    if (!this.options.presence) return;
 
     const presence = this.client.watchQuery(api.presence.list, {
       docId: this.docId,
@@ -184,7 +210,7 @@ export class YConvexProvider {
     if (typeof window !== "undefined") {
       window.removeEventListener("pagehide", this.onPageHide);
     }
-    void this.sendLeave();
+    if (this.options.presence) void this.sendLeave();
     // A parting attempt at anything unsent; the queue survives failure and
     // ships on reconnect.
     if (this.queue.length) void this.flush();
@@ -268,7 +294,7 @@ export class YConvexProvider {
     { added, updated, removed }: { added: number[]; updated: number[]; removed: number[] },
     origin: unknown,
   ) => {
-    if (origin === "remote" || !this.connected) return;
+    if (origin === "remote" || !this.connected || !this.options.presence) return;
     const mine = this.doc.clientID;
     if (![...added, ...updated, ...removed].includes(mine)) return;
     if (this.announced && this.peers === 0) return;
@@ -280,7 +306,7 @@ export class YConvexProvider {
   };
 
   private sendAwareness() {
-    if (!this.connected) return;
+    if (!this.connected || !this.options.presence) return;
     const local = this.awareness.getLocalState();
     if (!local) return;
     const user = (local.user ?? {}) as {
@@ -448,7 +474,7 @@ export class YConvexProvider {
    * change that writes what is derived from it.
    */
   private scheduleDerived() {
-    if (this.derivedTimer) return;
+    if (this.derivedTimer || !this.options.derived) return;
     this.derivedTimer = setTimeout(() => {
       this.derivedTimer = null;
       void this.writeDerived();
@@ -456,6 +482,7 @@ export class YConvexProvider {
   }
 
   private async writeDerived({ preview = true } = {}) {
+    if (!this.options.derived) return;
     // BlockNote's schema is what reads a Y.Doc as blocks; imported here so
     // a surface that only syncs never pays for it.
     try {
@@ -547,17 +574,25 @@ export function providerForDoc(doc: Y.Doc): YConvexProvider | null {
 export function acquireProvider(
   client: ConvexReactClient,
   docId: string,
+  options: ProviderOptions = {},
 ): YConvexProvider {
   if (recentClient !== client) {
     for (const [id, provider] of recent) forget(id, provider);
     recentClient = client;
+  }
+  // A docId is one kind of document for life, so a second opinion about what
+  // its provider does is a caller bug — not something to settle by first come.
+  const existing = held.get(docId)?.provider ?? recent.get(docId);
+  const wanted = withDefaults(options);
+  if (existing && (existing.options.derived !== wanted.derived || existing.options.presence !== wanted.presence)) {
+    throw new Error(`Provider for ${docId} is already held with different options.`);
   }
   let entry = held.get(docId);
   if (!entry) {
     const warm = recent.get(docId);
     recent.delete(docId);
     entry = {
-      provider: warm ?? new YConvexProvider(client, docId, new Y.Doc()),
+      provider: warm ?? new YConvexProvider(client, docId, new Y.Doc(), options),
       refs: 0,
     };
     held.set(docId, entry);

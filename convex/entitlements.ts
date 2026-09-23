@@ -225,6 +225,36 @@ export async function entitlementOf(
   };
 }
 
+/**
+ * Features a plan switches on or off, as opposed to meters it counts. Comments
+ * are on for every plan: commenting costs no model call and is not something
+ * to meter. The flag exists so every gate that asks — minting, discovery, and
+ * the comments channel itself — has one answer to ask for.
+ */
+export const PLAN_FEATURES = {
+  free: { comments: true },
+  pro: { comments: true },
+} as const satisfies Record<Plan, { comments: boolean }>;
+
+const COMMENTS_ON_EVERY_PLAN = Object.values(PLAN_FEATURES).every((plan) => plan.comments);
+
+/**
+ * Whether a project's pages may carry comments. Decided by the project OWNER's
+ * plan, never the caller's: a free commenter on a paid project comments.
+ *
+ * Asked on every comments-channel read, so while no plan turns comments off
+ * there is nothing to look up — resolving the owner's plan reads their account
+ * and projects, and would put every open comments doc in their read set.
+ */
+export async function commentsEnabled(
+  ctx: QueryCtx,
+  project: Doc<"projects">,
+): Promise<boolean> {
+  if (COMMENTS_ON_EVERY_PLAN) return true;
+  const { plan } = await entitlementOf(ctx, project.ownerId);
+  return PLAN_FEATURES[plan].comments;
+}
+
 /** Whether one meter still has room. Pro always does. */
 export function hasRoom(entitlement: Entitlement, meter: Meter): boolean {
   return entitlement.left === null || entitlement.left[meter] > 0;

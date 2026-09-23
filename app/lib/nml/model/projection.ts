@@ -3,7 +3,7 @@ import { serializeScene } from "@/app/components/editor/canvas/scene/serialize";
 import { serializeAlbum } from "@/app/components/editor/album/serialize";
 import { serializeStoryboard } from "@/app/components/editor/storyboard/serialize";
 import { serializeLocation } from "@/app/components/editor/location/serialize";
-import type { NmlBlock, NmlDocument, NmlInlineContent, NmlMark } from "../schema";
+import { nmlDocumentKind, type NmlBlock, type NmlDocument, type NmlInlineContent, type NmlMark } from "../schema";
 
 /**
  * The model read projection for a *served* NML document.
@@ -136,6 +136,10 @@ export function nmlBlockToAnyBlock(
       return { id: block.id, type: "location", props: { data: serializeLocation(block.domain) }, children };
     case "notionStub":
       return { id: block.id, type: "notionStub", props: { ...block.props }, children };
+    case "commentThread":
+    case "comment":
+      // Unreachable from a valid page document; comments have their own read.
+      throw new Error(`A ${block.type} is not page content.`);
   }
 }
 
@@ -144,6 +148,7 @@ export function nmlToAnyBlocks(
   doc: NmlDocument,
   options: NmlBlockAdapterOptions = {},
 ): AnyBlock[] {
+  if (nmlDocumentKind(doc) !== "page") throw new Error("Only a page document has a page projection.");
   return doc.blocks.map((block) => nmlBlockToAnyBlock(block, options));
 }
 
