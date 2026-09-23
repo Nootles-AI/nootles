@@ -6,7 +6,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { Listed } from "@/convex/github/repos";
 import type { PageNode } from "@/convex/notion/pages";
-import { reason } from "@/app/lib/github";
+import { mergeRepos, reason } from "@/app/lib/github";
 import { Check } from "../Icons";
 import { NotionConnect } from "../notion/NotionConnect";
 import { ProgressBar } from "../notion/Progress";
@@ -93,7 +93,11 @@ export function GitHubSourcePage({
   }
   return (
     <Repositories
-      through={door.via === "app" ? { app: door.workspaceId } : { forWorkspace: door.forWorkspace }}
+      through={
+        door.via === "app"
+          ? { app: door.workspaceId, own: door.personal }
+          : { forWorkspace: door.forWorkspace }
+      }
       chosen={chosen}
       search={search}
       onChoose={onChoose}
@@ -103,11 +107,11 @@ export function GitHubSourcePage({
 }
 
 /**
- * What the list is read through: a workspace's GitHub App installations, or
- * the person's own connection — for a workspace project, only until its App
- * is installed.
+ * What the list is read through: a workspace's GitHub App installations
+ * (with the person's own connection beside them where `own`), or the person's
+ * own connection — for a workspace project, only until its App is installed.
  */
-type Through = { app: Id<"workspaces"> } | { forWorkspace: boolean };
+type Through = { app: Id<"workspaces">; own: boolean } | { forWorkspace: boolean };
 
 function Repositories({
   through,
@@ -131,17 +135,25 @@ function Repositories({
     () => new Map(chosen.map((r) => [r.fullName, r])),
   );
   const app = "app" in through ? through.app : null;
+  const own = "app" in through && through.own;
 
   // Asked once per visit: a call outside React, made when the page opens.
   useEffect(() => {
     let alive = true;
-    (app ? installed({ workspaceId: app }) : personal({}))
+    (app
+      ? own
+        ? Promise.all([installed({ workspaceId: app }), personal({}).catch(() => [])]).then(([a, b]) =>
+            mergeRepos(a, b),
+          )
+        : installed({ workspaceId: app })
+      : personal({})
+    )
       .then((rows) => alive && setList(rows))
       .catch((error) => alive && setFailure(reason(error)));
     return () => {
       alive = false;
     };
-  }, [app, installed, personal]);
+  }, [app, own, installed, personal]);
 
   const typed = search.trim();
   const shown = (list ?? []).filter((r) =>
@@ -149,9 +161,10 @@ function Repositories({
   );
   // A repository the page of recents did not reach looks like a typo until
   // GitHub is asked for it by name. An installation's list is already the
-  // whole of what it may read.
+  // whole of what it reads, so through the App only the person's own
+  // connection looks one up.
   const nameable =
-    !app && /^[\w.-]+\/[\w.-]+$/.test(typed) && !shown.some((r) => r.fullName === typed);
+    (!app || own) && /^[\w.-]+\/[\w.-]+$/.test(typed) && !shown.some((r) => r.fullName === typed);
 
   const toggle = (repo: Listed) =>
     setPicked((prev) => {
@@ -164,7 +177,9 @@ function Repositories({
   const byName = async () => {
     setFailure(null);
     try {
-      const repo = await lookup({ fullName: typed });
+      const found = await lookup({ fullName: typed });
+      // Where the App reads it too, the App's row: that is what it's read with.
+      const repo = found && (list?.find((r) => r.fullName.toLowerCase() === found.fullName.toLowerCase()) ?? found);
       if (!repo) setFailure(`GitHub has no repository at “${typed}” that this connection can see.`);
       else {
         setList((rows) => (rows?.some((r) => r.fullName === repo.fullName) ? rows : [repo, ...(rows ?? [])]));
@@ -185,7 +200,9 @@ function Repositories({
       title="Choose repositories to read into context"
       note={
         app
-          ? "Read through the workspace’s GitHub App, which never writes to them."
+          ? own
+            ? "Read through the workspace’s GitHub App, or your own GitHub connection where the App doesn’t reach. Nootles never writes to them."
+            : "Read through the workspace’s GitHub App, which never writes to them."
           : "forWorkspace" in through && through.forWorkspace
             ? "Read with your own GitHub connection until the workspace installs its GitHub App. Nootles never writes to them."
             : "Nootles reads what you link and never writes to it."
@@ -233,7 +250,7 @@ function Repositories({
         {list && !shown.length && !nameable && (
           <p className="nt-srcpage-empty">
             {typed
-              ? app
+              ? app && !own
                 ? "Nothing matches among the repositories the GitHub App reads."
                 : "Nothing matches. Type the full owner/name to fetch it directly."
               : app

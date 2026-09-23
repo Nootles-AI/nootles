@@ -10,13 +10,19 @@ import type { Account } from "@/convex/github/account";
  * offers them (docs/github-app.md).
  *
  * A personal project's are its person's own, read with their connection. A
- * workspace project's are the workspace's GitHub App installations' — and
- * until an admin installs it, the person's own where the workspace allows
- * that. Where it does not, the door is shut, and says who can open it.
+ * workspace project's are the workspace's GitHub App installations' — and,
+ * where the workspace allows personal connections, the person's own beside
+ * them, or instead of them until an admin installs the App. Where it allows
+ * neither, the door is shut, and says who can open it.
  */
 export type GitHubDoor =
   | { via: "loading" }
-  | { via: "app"; workspaceId: Id<"workspaces"> }
+  | {
+      via: "app";
+      workspaceId: Id<"workspaces">;
+      /** The person's own connection also lists and looks up, for what the App doesn’t reach. */
+      personal: boolean;
+    }
   | {
       via: "personal";
       ready: boolean;
@@ -43,7 +49,12 @@ export function useGitHubDoor(workspaceId: Id<"workspaces"> | undefined, active 
     // the server refuses whatever this offers; the personal door says least.
     if (app) {
       const installed = app.installations.some((i) => i.removedAt === undefined && i.suspendedAt === undefined);
-      if (installed) return { via: "app", workspaceId };
+      if (installed) {
+        if (!app.allowPersonalTokens) return { via: "app", workspaceId, personal: false };
+        if (personal === undefined) return { via: "loading" };
+        const connected = !!personal.account && !personal.account.invalidAt;
+        return { via: "app", workspaceId, personal: connected };
+      }
       if (!app.allowPersonalTokens) {
         return {
           via: "shut",
@@ -75,7 +86,8 @@ export function installPath(workspaceId: Id<"workspaces">): string {
 
 /** What the search field over a door's list says it searches. */
 export function repoPlaceholder(door: GitHubDoor): string {
-  return door.via === "app"
-    ? "Search the workspace’s repositories…"
-    : "Search your repositories, or type owner/name…";
+  if (door.via !== "app") return "Search your repositories, or type owner/name…";
+  return door.personal
+    ? "Search the workspace’s and your repositories, or type owner/name…"
+    : "Search the workspace’s repositories…";
 }
