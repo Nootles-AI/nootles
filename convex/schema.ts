@@ -332,8 +332,12 @@ export default defineSchema({
      * cannot bill the same spend twice.
      */
     pendingUsage: v.optional(v.object({ identifier: v.string(), cents: v.number() })),
-    /** A seat sync is scheduled; membership changes until it runs ride along. */
-    seatSyncPending: v.optional(v.boolean()),
+    /**
+     * When a seat sync was scheduled; membership changes until it runs ride
+     * along. Stale past `teamBilling.seatSyncWaiting`'s window, so a sync
+     * that never ran cannot hold the seat count still for good.
+     */
+    seatSyncPendingAt: v.optional(v.number()),
     updatedAt: v.number(),
   })
     .index("by_workspace", ["workspaceId"])

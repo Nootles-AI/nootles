@@ -201,6 +201,13 @@ export const startTeamCheckout = action({
     }
     const desk = await ctx.runQuery(internal.teamBilling.desk, args);
     if (desk.live) throw new ConvexError(`${desk.name} is already on the Team plan.`);
+    // Stripe still bills an unpaid or paused subscription's seats; a second
+    // one beside it would bill them twice.
+    if (desk.open) {
+      throw new ConvexError(
+        `${desk.name}’s subscription is still open in Stripe. Settle it in Manage billing.`,
+      );
+    }
 
     const orgId = args.workspaceId;
     let customerId = desk.customerId;

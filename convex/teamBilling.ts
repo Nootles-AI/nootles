@@ -39,6 +39,16 @@ const NO_SUBSCRIPTION = "none";
 const SEAT_SYNC_DELAY_MS = 60_000;
 
 /**
+ * How long a scheduled seat sync is waited on before it is taken for lost.
+ * Convex runs a scheduled action at most once: one that dies before it takes
+ * its sync would otherwise leave every later change waiting on it for good.
+ */
+const SEAT_SYNC_LOST_MS = SEAT_SYNC_DELAY_MS + 10 * 60_000;
+
+/** Stripe statuses a subscription never comes back from, and ours for none bought. */
+const CLOSED_STATUSES = new Set([NO_SUBSCRIPTION, "canceled", "incomplete_expired"]);
+
+/**
  * How far behind the clock a usage report stops. A row is stamped when its
  * mutation starts and seen once it commits, so the last moments before a
  * report are left for the next one rather than read while still filling.
@@ -96,6 +106,27 @@ function stripeSdk(): StripeSDK {
 
 // ---- Reads -------------------------------------------------------------------
 
+/**
+ * Whether Stripe still holds the workspace's subscription open, live or not.
+ * An unpaid, paused or incomplete one keeps its seat item and its place on the
+ * meter, so buying another beside it would bill the workspace twice.
+ */
+export function subscriptionOpen(
+  billing: Pick<Doc<"workspaceBilling">, "subscriptionId" | "status"> | null,
+): boolean {
+  return !!billing?.subscriptionId && !CLOSED_STATUSES.has(billing.status);
+}
+
+/** Whether a seat sync is scheduled and still due to run. */
+export function seatSyncWaiting(
+  billing: Pick<Doc<"workspaceBilling">, "seatSyncPendingAt">,
+  now: number,
+): boolean {
+  return (
+    billing.seatSyncPendingAt !== undefined && now - billing.seatSyncPendingAt < SEAT_SYNC_LOST_MS
+  );
+}
+
 async function billingOf(
   ctx: QueryCtx,
   workspaceId: Id<"workspaces">,
@@ -133,6 +164,7 @@ export const desk = internalQuery({
     seats: v.number(),
     customerId: v.union(v.string(), v.null()),
     live: v.boolean(),
+    open: v.boolean(),
   }),
   handler: async (ctx, { workspaceId }) => {
     const { workspace } = await requireWorkspaceRole(ctx, workspaceId, "admin");
@@ -143,6 +175,7 @@ export const desk = internalQuery({
       seats: await seatsInUse(ctx, workspaceId),
       customerId: billing?.stripeCustomerId ?? null,
       live: workspaceSubscriptionLive(billing, Date.now()),
+      open: subscriptionOpen(billing),
     };
   },
 });
@@ -391,15 +424,19 @@ export const applyMirror = internalMutation({
  * change to who holds a seat, in the same mutation. Coalesced: while one sync
  * is waiting, further changes add nothing, since the sync counts the seats
  * when it runs rather than applying each change. A workspace with nothing live
- * to update has nothing to schedule; checkout counts afresh.
+ * to update has nothing to schedule; checkout counts afresh. A sync that has
+ * waited past its time is taken for lost and scheduled again
+ * (`seatSyncWaiting`); two landing is harmless, since each counts afresh.
  */
 export async function scheduleSeatSync(
   ctx: MutationCtx,
   workspaceId: Id<"workspaces">,
 ): Promise<void> {
   const billing = await billingOf(ctx, workspaceId);
-  if (!billing?.seatItemId || !isLiveStatus(billing.status) || billing.seatSyncPending) return;
-  await ctx.db.patch(billing._id, { seatSyncPending: true });
+  if (!billing?.seatItemId || !isLiveStatus(billing.status)) return;
+  const now = Date.now();
+  if (seatSyncWaiting(billing, now)) return;
+  await ctx.db.patch(billing._id, { seatSyncPendingAt: now });
   await ctx.scheduler.runAfter(SEAT_SYNC_DELAY_MS, internal.teamBilling.syncSeats, {
     workspaceId,
   });
@@ -419,7 +456,9 @@ export const takeSeatSync = internalMutation({
   handler: async (ctx, { workspaceId }) => {
     const billing = await billingOf(ctx, workspaceId);
     if (!billing) return null;
-    if (billing.seatSyncPending) await ctx.db.patch(billing._id, { seatSyncPending: undefined });
+    if (billing.seatSyncPendingAt !== undefined) {
+      await ctx.db.patch(billing._id, { seatSyncPendingAt: undefined });
+    }
     if (!billing.subscriptionId || !billing.seatItemId || !isLiveStatus(billing.status)) {
       return null;
     }
@@ -801,7 +840,7 @@ export const reportUsage = internalMutation({
       }
       if (
         billing.seatItemId &&
-        !billing.seatSyncPending &&
+        !seatSyncWaiting(billing, now) &&
         (await seatsInUse(ctx, billing.workspaceId)) !== billing.seats
       ) {
         await scheduleSeatSync(ctx, billing.workspaceId);
@@ -865,6 +904,11 @@ export const summary = query({
       source: standing.source,
       /** There is a customer to open the billing portal for. */
       manageable: billing !== null,
+      /**
+       * A subscription Stripe holds open but no longer counts as paid for:
+       * settled in the portal, never replaced by a second checkout.
+       */
+      unsettled: !live && subscriptionOpen(billing),
       subscription:
         billing && hasSubscription
           ? {
@@ -884,17 +928,19 @@ export const summary = query({
 });
 
 /**
- * Whether the caller should be asked to start the workspace's Team plan: an
+ * What the caller should be asked about the workspace's plan, if anything: an
  * admin or owner, on a deployment it can be bought on, of a workspace with no
- * plan. Apart from `summary` so the home's one line does not re-run with every
- * AI call the workspace makes.
+ * plan — to start one, or, while Stripe holds an unpaid one open, to settle
+ * that instead. Apart from `summary` so the home's one line does not re-run
+ * with every AI call the workspace makes.
  */
 export const unpaid = query({
   args: { workspaceId: v.id("workspaces") },
-  returns: v.boolean(),
+  returns: v.union(v.null(), v.literal("start"), v.literal("settle")),
   handler: async (ctx, { workspaceId }) => {
     const role = await workspaceRole(ctx, workspaceId);
-    if (!role || !atLeast(role, "admin") || !teamBillingConfigured()) return false;
-    return (await workspaceStanding(ctx, workspaceId)).source === "none";
+    if (!role || !atLeast(role, "admin") || !teamBillingConfigured()) return null;
+    if ((await workspaceStanding(ctx, workspaceId)).source !== "none") return null;
+    return subscriptionOpen(await billingOf(ctx, workspaceId)) ? "settle" : "start";
   },
 });

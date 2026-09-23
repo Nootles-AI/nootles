@@ -117,6 +117,7 @@ function PlanSection({
   const { subscription, plan, source } = summary;
   const live = subscription?.live ?? false;
   const paid = source !== "none";
+  const starts = !paid && !summary.unsettled && summary.configured;
 
   const leave = (what: "start" | "manage", go: Promise<{ url: string }>, fallback: string) => {
     setBusy(what);
@@ -194,7 +195,7 @@ function PlanSection({
                   {busy === "manage" ? "Opening Stripe…" : "Manage billing"}
                 </button>
               )}
-              {!paid && summary.configured && (
+              {starts && (
                 <button
                   type="button"
                   disabled={busy !== null}
@@ -215,16 +216,21 @@ function PlanSection({
         </li>
       </ul>
       {!acts && !paid && summary.configured && (
-        <p className="nt-ws-notes nt-set-note">Only an owner or an admin can start the Team plan.</p>
+        <p className="nt-ws-notes nt-set-note">
+          {summary.unsettled
+            ? "Only an owner or an admin can settle its billing."
+            : "Only an owner or an admin can start the Team plan."}
+        </p>
       )}
     </section>
   );
 }
 
 /** The plan's state in one mono line: how it stands and until when. */
-function standingLine({ source, subscription }: Summary): string {
+function standingLine({ source, subscription, unsettled }: Summary): string {
   if (source === "override") return "Granted";
   if (!subscription) return "Not started";
+  if (unsettled) return subscription.status === "paused" ? "Paused" : "Unpaid";
   const until = WHEN.format(subscription.periodEnd);
   if (!subscription.live) return `Ended ${until}`;
   if (subscription.status === "past_due") return "Payment past due";
@@ -233,8 +239,17 @@ function standingLine({ source, subscription }: Summary): string {
   return `Renews ${until}`;
 }
 
-function planNote(workspace: WorkspaceContainer, { source, subscription }: Summary): string {
+function planNote(
+  workspace: WorkspaceContainer,
+  { source, subscription, unsettled }: Summary,
+): string {
   if (source === "override") return "Nootles granted this plan. Nothing here is billed.";
+  if (unsettled) {
+    return (
+      `${workspace.name}’s subscription is still open in Stripe, but not paid up, ` +
+      "so everyone shares the free allowance. Manage billing settles it."
+    );
+  }
   if (subscription?.live && subscription.status === "past_due") {
     return (
       "Stripe couldn’t take the last payment and is trying the card again. " +
