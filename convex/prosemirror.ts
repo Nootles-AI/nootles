@@ -113,19 +113,35 @@ export async function checkRead(
   id: string,
   channels: readonly DocChannel[] = DOCUMENT_ONLY,
 ): Promise<DocAccess> {
+  const access = await readAccess(ctx, id, channels);
+  if (!access) throw new Error("Not found");
+  return access;
+}
+
+/**
+ * {@link checkRead} as a question, for the one read-level write that must bend
+ * rather than break: a presence heartbeat. Access can end while a tab is still
+ * announcing itself — a link turned off mid-session — and that tab's last
+ * heartbeat is routine, not a server error.
+ */
+export async function mayRead(
+  ctx: QueryCtx,
+  id: string,
+  channels: readonly DocChannel[] = DOCUMENT_ONLY,
+): Promise<boolean> {
+  return (await readAccess(ctx, id, channels)) !== null;
+}
+
+async function readAccess(
+  ctx: QueryCtx,
+  id: string,
+  channels: readonly DocChannel[],
+): Promise<DocAccess | null> {
   const access = await resolveDoc(ctx, id, channels);
-  if (
-    access &&
-    channelAdmits({
-      channel: access.channel,
-      access: "read",
-      role: access.role,
-      linkLive: hasLiveLink(access.project),
-    })
-  ) {
-    return access;
-  }
-  throw new Error("Not found");
+  return access &&
+    channelAdmits({ channel: access.channel, access: "read", role: access.role, linkLive: hasLiveLink(access.project) })
+    ? access
+    : null;
 }
 
 /**
