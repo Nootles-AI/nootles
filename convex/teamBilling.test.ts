@@ -250,6 +250,33 @@ describe("checkout", () => {
     ).rejects.toThrow("Acme is already on the Team plan.");
   });
 
+  test("a workspace whose subscription Stripe still holds open is sent to settle it, not sold another", async () => {
+    for (const status of ["unpaid", "paused", "incomplete", "past_due"]) {
+      const t = convexTest(schema, modules);
+      const { workspaceId } = await world(t);
+      // past_due only once its period is long over — no longer live, still open.
+      await billing(t, workspaceId, { status, periodEnd: NOW - 30 * DAY });
+      await expect(
+        t.withIdentity(OWNER).action(api.billing.startTeamCheckout, { workspaceId }),
+      ).rejects.toThrow("Acme’s subscription is still open in Stripe. Settle it in Manage billing.");
+    }
+    expect(stripe.createCheckoutSession).not.toHaveBeenCalled();
+    expect(stripe.createCustomer).not.toHaveBeenCalled();
+  });
+
+  test("a workspace whose last subscription ended can buy the plan again, on its own customer", async () => {
+    for (const status of ["canceled", "incomplete_expired"]) {
+      const t = convexTest(schema, modules);
+      const { workspaceId } = await world(t);
+      await billing(t, workspaceId, { status, periodEnd: NOW - 30 * DAY });
+      await expect(
+        t.withIdentity(OWNER).action(api.billing.startTeamCheckout, { workspaceId }),
+      ).resolves.toEqual({ url: "https://pay.test/cs_1" });
+    }
+    expect(stripe.createCustomer).not.toHaveBeenCalled();
+    expect(stripe.createCheckoutSession).toHaveBeenCalledTimes(2);
+  });
+
   test("a person's own checkout never lands on their workspace's customer", async () => {
     const t = convexTest(schema, modules);
     const { workspaceId } = await world(t);
@@ -442,7 +469,7 @@ describe("seats", () => {
       .mutation(api.members.setRole, { workspaceId, userId: ADMIN.subject, role: "member" });
 
     expect(await scheduled(t, "syncSeats")).toHaveLength(1);
-    expect((await billingRow(t, workspaceId))?.seatSyncPending).toBe(true);
+    expect((await billingRow(t, workspaceId))?.seatSyncPendingAt).toBe(NOW);
 
     await t.finishAllScheduledFunctions(vi.runAllTimers);
     expect(stripe.updateItem).toHaveBeenCalledOnce();
@@ -452,13 +479,54 @@ describe("seats", () => {
     });
     const row = await billingRow(t, workspaceId);
     expect(row).toMatchObject({ seats: 4, aiAllowanceUsd: 40 });
-    expect(row?.seatSyncPending).toBeUndefined();
+    expect(row?.seatSyncPendingAt).toBeUndefined();
 
     // The sync is over, so the next change asks for another.
     await t
       .withIdentity(OWNER)
       .mutation(api.members.remove, { workspaceId, userId: MEMBER.subject });
     expect(await scheduled(t, "syncSeats")).toHaveLength(1);
+  });
+
+  test("a sync that never ran is given up on, and the next change or the night schedules another", async () => {
+    const t = convexTest(schema, modules);
+    const { workspaceId } = await world(t);
+    const { workspaceId: nightly } = await world(t);
+    // Marked waiting well past the sync's time, by a run that died before it took the sync.
+    const lost = NOW - 20 * 60_000;
+    await billing(t, workspaceId, { seats: 3, seatSyncPendingAt: lost });
+    await billing(t, nightly, { seats: 5, seatSyncPendingAt: lost, stripeCustomerId: "cus_n" });
+
+    await t
+      .withIdentity(ADMIN)
+      .mutation(api.members.setRole, { workspaceId, userId: GUEST.subject, role: "member" });
+    expect((await scheduled(t, "syncSeats")).map((f) => f.args[0])).toEqual([{ workspaceId }]);
+    expect((await billingRow(t, workspaceId))?.seatSyncPendingAt).toBe(NOW);
+
+    await t.mutation(internal.teamBilling.reportUsage, {});
+    expect((await scheduled(t, "syncSeats")).map((f) => f.args[0])).toEqual([
+      { workspaceId },
+      { workspaceId: nightly },
+    ]);
+
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    expect(stripe.updateItem).toHaveBeenCalledTimes(2);
+    expect(await billingRow(t, workspaceId)).toMatchObject({ seats: 4 });
+    expect((await billingRow(t, workspaceId))?.seatSyncPendingAt).toBeUndefined();
+  });
+
+  test("a sync still due to run is waited on, by changes and by the night alike", async () => {
+    const t = convexTest(schema, modules);
+    const { workspaceId } = await world(t);
+    await billing(t, workspaceId, { seats: 5, seatSyncPendingAt: NOW - 30_000 });
+
+    await t
+      .withIdentity(ADMIN)
+      .mutation(api.members.setRole, { workspaceId, userId: GUEST.subject, role: "member" });
+    await t.mutation(internal.teamBilling.reportUsage, {});
+
+    expect(await scheduled(t, "syncSeats")).toHaveLength(0);
+    expect((await billingRow(t, workspaceId))?.seatSyncPendingAt).toBe(NOW - 30_000);
   });
 
   test("a guest coming or going changes nothing Stripe is told", async () => {
@@ -498,7 +566,7 @@ describe("seats", () => {
       .withIdentity({ subject: "user_new", email: "new@acme.test", emailVerified: true })
       .mutation(api.members.acceptInvite, { token: "invite-token" });
     expect(await scheduled(t, "syncSeats")).toHaveLength(1);
-    expect((await billingRow(t, workspaceId))?.seatSyncPending).toBe(true);
+    expect((await billingRow(t, workspaceId))?.seatSyncPendingAt).toBe(Date.now());
 
     await t.finishAllScheduledFunctions(vi.runAllTimers);
     expect(stripe.updateItem).toHaveBeenCalledOnce();
@@ -919,19 +987,52 @@ describe("the billing screen", () => {
     const unpaid = (who: Identity) =>
       t.withIdentity(who).query(api.teamBilling.unpaid, { workspaceId });
 
-    expect(await unpaid(ADMIN)).toBe(true);
-    expect(await unpaid(OWNER)).toBe(true);
+    expect(await unpaid(ADMIN)).toBe("start");
+    expect(await unpaid(OWNER)).toBe("start");
     // A member can do nothing with it, and a guest or a stranger has no business knowing.
-    expect(await unpaid(MEMBER)).toBe(false);
-    expect(await unpaid(GUEST)).toBe(false);
-    expect(await unpaid(STRANGER)).toBe(false);
+    expect(await unpaid(MEMBER)).toBeNull();
+    expect(await unpaid(GUEST)).toBeNull();
+    expect(await unpaid(STRANGER)).toBeNull();
 
     vi.stubEnv("STRIPE_TEAM_METER_EVENT", "");
-    expect(await unpaid(ADMIN)).toBe(false);
+    expect(await unpaid(ADMIN)).toBeNull();
     vi.stubEnv("STRIPE_TEAM_METER_EVENT", METER);
 
     await billing(t, workspaceId);
-    expect(await unpaid(ADMIN)).toBe(false);
+    expect(await unpaid(ADMIN)).toBeNull();
+  });
+
+  test("a subscription Stripe holds open unpaid is to be settled, never started again", async () => {
+    const t = convexTest(schema, modules);
+    const { workspaceId } = await world(t);
+    await billing(t, workspaceId, { status: "unpaid" });
+
+    expect(await t.withIdentity(ADMIN).query(api.teamBilling.unpaid, { workspaceId })).toBe(
+      "settle",
+    );
+    expect(
+      await t.withIdentity(OWNER).query(api.teamBilling.summary, { workspaceId }),
+    ).toMatchObject({
+      plan: "free",
+      source: "none",
+      manageable: true,
+      unsettled: true,
+      subscription: { status: "unpaid", live: false },
+    });
+
+    await t.run(async (ctx) => {
+      const row = await ctx.db
+        .query("workspaceBilling")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+        .unique();
+      await ctx.db.patch(row!._id, { status: "canceled" });
+    });
+    expect(await t.withIdentity(ADMIN).query(api.teamBilling.unpaid, { workspaceId })).toBe(
+      "start",
+    );
+    expect(
+      (await t.withIdentity(OWNER).query(api.teamBilling.summary, { workspaceId }))?.unsettled,
+    ).toBe(false);
   });
 
   test("an unpaid workspace on a deployment without Team says both", async () => {
