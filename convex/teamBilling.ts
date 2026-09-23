@@ -5,13 +5,15 @@ import {
   internalAction,
   internalMutation,
   internalQuery,
+  query,
   type ActionCtx,
   type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
-import { atLeast, requireWorkspaceRole } from "./auth";
-import { isLiveStatus, workspaceSubscriptionLive } from "./entitlements";
+import { atLeast, requireWorkspaceRole, workspaceRole } from "./auth";
+import { isLiveStatus, workspaceStanding, workspaceSubscriptionLive } from "./entitlements";
+import { utcDay } from "./plans";
 
 /**
  * A workspace's Team subscription, kept in step with Stripe.
@@ -778,5 +780,82 @@ export const reportUsage = internalMutation({
       });
     }
     return null;
+  },
+});
+
+// ---- The billing screen ---------------------------------------------------------
+
+/** Rows read for the screen's running figures — far past a period of any real workspace's. */
+const SUMMARY_CAP = 5000;
+
+/**
+ * What the workspace's billing screen shows, for anyone with a seat of member
+ * or above — admins act on it, members read it. Null for guests and everyone
+ * else.
+ *
+ * `usage` is the current period's signed AI spend against the seats'
+ * allowance, and what guests spent of it; present only while a subscription
+ * is live. `configured` false is a deployment Team cannot be bought on.
+ */
+export const summary = query({
+  args: { workspaceId: v.id("workspaces") },
+  handler: async (ctx, { workspaceId }) => {
+    const role = await workspaceRole(ctx, workspaceId);
+    if (!role || !atLeast(role, "member")) return null;
+    const billing = await billingOf(ctx, workspaceId);
+    const standing = await workspaceStanding(ctx, workspaceId);
+    const live = workspaceSubscriptionLive(billing, Date.now());
+    const hasSubscription = !!billing?.subscriptionId;
+
+    let usage: { allowanceUsd: number; spentUsd: number; guestUsd: number } | null = null;
+    if (billing && live) {
+      const counted =
+        billing.usagePeriod?.start === billing.periodStart ? billing.usagePeriod.spentUsd : 0;
+      const since = Math.max(billing.usageReportedThrough ?? 0, billing.periodStart);
+      const recent = await ctx.db
+        .query("aiCalls")
+        .withIndex("by_workspace_and_createdAt", (q) =>
+          q.eq("workspaceId", workspaceId).gte("createdAt", since),
+        )
+        .take(SUMMARY_CAP);
+      const guests = await ctx.db
+        .query("guestAiSpend")
+        .withIndex("by_workspace_and_day_and_user", (q) =>
+          q.eq("workspaceId", workspaceId).gte("day", utcDay(billing.periodStart)),
+        )
+        .take(SUMMARY_CAP);
+      usage = {
+        allowanceUsd: billing.aiAllowanceUsd,
+        spentUsd: recent.reduce(
+          (sum, row) => (row.signed && row.costUsd ? sum + row.costUsd : sum),
+          counted,
+        ),
+        guestUsd: guests.reduce((sum, row) => sum + row.costUsd, 0),
+      };
+    }
+
+    return {
+      role,
+      canManage: atLeast(role, "admin"),
+      configured: teamBillingConfigured(),
+      plan: standing.plan,
+      source: standing.source,
+      /** There is a customer to open the billing portal for. */
+      manageable: billing !== null,
+      subscription:
+        billing && hasSubscription
+          ? {
+              status: billing.status,
+              live,
+              seats: billing.seats,
+              periodStart: billing.periodStart,
+              periodEnd: billing.periodEnd,
+              cancelAtPeriodEnd: billing.cancelAtPeriodEnd ?? false,
+            }
+          : null,
+      seatsInUse: await seatsInUse(ctx, workspaceId),
+      allowancePerSeatUsd: allowancePerSeatUsd(),
+      usage,
+    };
   },
 });
