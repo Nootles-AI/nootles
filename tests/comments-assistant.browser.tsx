@@ -15,7 +15,7 @@ import { PageCommentsRegistryProvider } from "../app/components/comments/registr
 import { useProjectChat } from "../app/lib/ai/chat/useProjectChat";
 import { CommentsStore, readThreads } from "../app/lib/comments/store";
 import { commentText } from "../app/lib/comments/types";
-import type { ProjectRole } from "../convex/auth";
+import type { ProjectRole } from "../convex/roles";
 import { commentsFixture } from "./comments-assistant.fixture";
 import "@blocknote/mantine/style.css";
 import "../app/components/editor/editor.css";

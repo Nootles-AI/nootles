@@ -257,7 +257,9 @@ export default defineSchema({
     seenAt: v.optional(v.number()),
   })
     .index("by_recipient_unseen", ["recipientId", "seenAt"])
-    .index("by_page", ["pageId"])
+    .index("by_recipient_page_unseen", ["recipientId", "pageId", "seenAt"])
+    /** A page's notices; by thread and unseen, so a deleted thread's are one read. */
+    .index("by_page", ["pageId", "threadId", "seenAt"])
     /** One unseen notice per person per thread per kind: a second event
      *  refreshes it (`commentNotices.event`) rather than piling up. */
     .index("by_recipient_thread_unseen", ["recipientId", "threadId", "seenAt"]),

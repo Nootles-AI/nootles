@@ -1,38 +1,40 @@
 import { ConvexError, v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import { internalMutation, mutation, query } from "./_generated/server";
+import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import {
   channelAdmits,
+  commentsProject,
   isTrashed,
   ownerId,
-  readVisible,
+  readableComments,
   requireCommentable,
   requireOwner,
   roleForProject,
   standInActor,
 } from "./auth";
 import { isAuditId, recordAudit } from "./audit";
+import { storedThreads } from "./comments";
 import { containerMembers, mentionablePeople } from "./container";
-import { commentsEnabled } from "./entitlements";
+import { MAX_SIGNERS } from "@/app/lib/comments/types";
 
 /**
  * Who is told about a comment, and the record that it happened
  * (docs/commenting-plan.md §9–§10).
  *
  * The thread itself lives in the page's comments document, written by the
- * client straight into the Yjs log; the server never reads those bytes, so
- * nothing in them — an `authorId` included — is proof of anything. What the
- * client says here is therefore only ever a request: the actor is the
- * authenticated caller, and every person named is checked against the
- * project's own membership before a row is written for them.
+ * client straight into the Yjs log by anyone who may comment, so nothing in
+ * it — an `authorId` included — is proof of who did what. What the client
+ * says here is therefore only ever a request: the actor is the authenticated
+ * caller, and every person named is checked against the project's own
+ * membership before a row is written for them. The one claim checked against
+ * the document itself is a deletion, which would otherwise let anyone clear
+ * everybody's news of a thread that is still there.
  */
 
 /** Most people one event may name — a thread is a conversation, not a list. */
 export const MAX_PEOPLE = 50;
-
-const COMMENTS_OFF = () =>
-  new ConvexError("Comments are turned off for this project.");
 
 const kind = v.union(
   v.literal("create"),
@@ -113,12 +115,79 @@ async function notify(
 async function forgetThread(ctx: MutationCtx, pageId: Id<"pages">, threadId: string): Promise<void> {
   const told = await ctx.db
     .query("commentNotices")
-    .withIndex("by_page", (q) => q.eq("pageId", pageId))
+    .withIndex("by_page", (q) => q.eq("pageId", pageId).eq("threadId", threadId).eq("seenAt", undefined))
     .collect();
-  for (const notice of told) {
-    if (notice.threadId === threadId && notice.seenAt === undefined) await ctx.db.delete(notice._id);
-  }
+  for (const notice of told) await ctx.db.delete(notice._id);
 }
+
+/**
+ * Whether the comments document no longer holds what a `delete` names — the
+ * thread, or one comment of it. An unreadable document proves nothing, so it
+ * counts as still there.
+ */
+async function deleted(
+  ctx: QueryCtx,
+  page: Doc<"pages">,
+  threadId: string,
+  commentId: string | undefined,
+): Promise<boolean> {
+  const threads = await storedThreads(ctx, page);
+  if (!threads) return false;
+  const thread = threads.find((t) => t.id === threadId);
+  return !thread || (commentId !== undefined && !thread.comments.some((c) => c.id === commentId));
+}
+
+/**
+ * How long a deletion the document does not show yet is given to arrive. The
+ * client tells the server after its own write, but that write reaches the log
+ * on the provider's flush, which may trail the notice by a throttle or a retry.
+ */
+export const DELETE_RECHECK_MS = 10_000;
+
+type Deletion = {
+  pageId: Id<"pages">;
+  projectId: Id<"projects">;
+  threadId: string;
+  commentId?: string;
+  actorId: string;
+};
+
+/** A deletion the document shows: its notices go, and it is recorded. */
+async function recordDeletion(ctx: MutationCtx, deletion: Deletion): Promise<void> {
+  const { pageId, projectId, threadId, commentId, actorId } = deletion;
+  if (commentId === undefined) await forgetThread(ctx, pageId, threadId);
+  await recordAudit(ctx, {
+    projectId,
+    actorId,
+    actorKind: "user",
+    action: "comment.delete",
+    subjectKind: "commentThread",
+    subjectId: threadId,
+    meta: {
+      ids: { pageId, ...(commentId !== undefined ? { commentId } : {}) },
+      counts: { mentions: 0, notified: 0 },
+    },
+  });
+}
+
+/** The second and last look at a deletion that had not reached the document yet. */
+export const confirmDeletion = internalMutation({
+  args: {
+    pageId: v.id("pages"),
+    projectId: v.id("projects"),
+    threadId: v.string(),
+    commentId: v.optional(v.string()),
+    actorId: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const page = await ctx.db.get(args.pageId);
+    if (page && page.projectId === args.projectId && (await deleted(ctx, page, args.threadId, args.commentId))) {
+      await recordDeletion(ctx, args);
+    }
+    return null;
+  },
+});
 
 /**
  * Something happened to a thread; say so to whom it concerns, and record it.
@@ -134,7 +203,10 @@ async function forgetThread(ctx: MutationCtx, pageId: Id<"pages">, threadId: str
  * participants reaches no one it could not reach by mentioning them, and
  * repeating itself refreshes one card rather than adding more.
  *
- * `delete` names a comment (`commentId`) or, without one, the whole thread.
+ * `delete` names a comment (`commentId`) or, without one, the whole thread,
+ * and is believed only once the comments document shows it: until then no
+ * notice is cleared and nothing is recorded, and one later look is scheduled
+ * for a write still on its way. It names nobody, so it tells nobody.
  */
 export const event = mutation({
   args: {
@@ -148,7 +220,6 @@ export const event = mutation({
   returns: v.null(),
   handler: async (ctx, args) => {
     const { page, project } = await requireCommentable(ctx, args.pageId);
-    if (!(await commentsEnabled(ctx, project))) throw COMMENTS_OFF();
     const actor = (await ownerId(ctx))!;
     if (!isAuditId(args.threadId)) throw new ConvexError("That is not a thread.");
     if (args.commentId !== undefined && !isAuditId(args.commentId)) {
@@ -157,6 +228,19 @@ export const event = mutation({
     const writes = args.kind === "create" || args.kind === "reply";
     if (!writes && args.mentions.length) {
       throw new ConvexError("Only a new comment can mention someone.");
+    }
+
+    if (args.kind === "delete") {
+      const deletion: Deletion = {
+        pageId: page._id,
+        projectId: project._id,
+        threadId: args.threadId,
+        ...(args.commentId !== undefined ? { commentId: args.commentId } : {}),
+        actorId: actor,
+      };
+      if (await deleted(ctx, page, args.threadId, args.commentId)) await recordDeletion(ctx, deletion);
+      else await ctx.scheduler.runAfter(DELETE_RECHECK_MS, internal.commentNotices.confirmDeletion, deletion);
+      return null;
     }
 
     const mentions = people(args.mentions, "people");
@@ -176,10 +260,6 @@ export const event = mutation({
       }
     }
     recipients.delete(actor);
-
-    if (args.kind === "delete" && args.commentId === undefined) {
-      await forgetThread(ctx, page._id, args.threadId);
-    }
 
     const createdAt = Date.now();
     for (const [recipientId, noticeKind] of recipients) {
@@ -213,75 +293,115 @@ export const event = mutation({
   },
 });
 
+const person = v.object({
+  userId: v.string(),
+  name: v.union(v.string(), v.null()),
+  imageUrl: v.union(v.string(), v.null()),
+});
+
 /**
  * The people an @ in a comment on this page may name — everyone who can open
- * the project except the caller. Empty for anyone who may not comment here,
- * including an operator standing in, so the menu simply has nobody to offer.
+ * the project except the caller, as a name and a face (never an email). The
+ * roster goes to whoever may comment, as Docs' mention menu does: naming
+ * someone is what a commenter is for. It stays closed to viewers, strangers,
+ * signed-out visitors and an operator standing in, who get nobody.
  */
 export const mentionable = query({
   args: { pageId: v.id("pages") },
-  returns: v.array(
-    v.object({
-      userId: v.string(),
-      name: v.union(v.string(), v.null()),
-      imageUrl: v.union(v.string(), v.null()),
-    }),
-  ),
+  returns: v.array(person),
   handler: async (ctx, args) => {
-    const me = await ownerId(ctx);
-    if (!me || (await standInActor(ctx))) return [];
-    const page = await readVisible(ctx, "pages", args.pageId);
-    if (!page) return [];
-    const project = await ctx.db.get(page.projectId);
-    if (!project || !(await commentsEnabled(ctx, project))) return [];
-    const role = await roleForProject(ctx, project);
-    if (!channelAdmits({ channel: "comments", access: "write", role, linkLive: false })) {
+    if (await standInActor(ctx)) return [];
+    const found = await readableComments(ctx, args.pageId);
+    if (!found || !channelAdmits({ channel: "comments", access: "write", role: found.role, linkLive: false })) {
       return [];
     }
-    return (await mentionablePeople(ctx, project))
+    const me = await ownerId(ctx);
+    return (await mentionablePeople(ctx, found.project))
       .filter((person) => person.userId !== me)
       .map(({ userId, name, imageUrl }) => ({ userId, name, imageUrl }));
   },
 });
 
 /**
- * Everyone who can open the project, the caller included — the names a
- * thread's comments are signed with. Unlike `mentionable` it answers every
- * reader of the page's comments, a viewer too: whoever may read a comment may
- * see who wrote it. An author missing here has since lost access, and the
- * card names them no further.
+ * The names the page's comments are signed with, for the people the caller
+ * names — the authors their copy of the comments document shows. Answered to
+ * every reader of the comments, a viewer too: whoever may read a comment may
+ * see who wrote it. But only for someone who can open the project now, so an
+ * id typed in is not a way to list the project's people, nor to look up a
+ * stranger's name; an author who has since lost access is named no further.
  */
 export const authors = query({
-  args: { pageId: v.id("pages") },
-  returns: v.array(
-    v.object({
-      userId: v.string(),
-      name: v.union(v.string(), v.null()),
-      imageUrl: v.union(v.string(), v.null()),
-    }),
-  ),
+  args: { pageId: v.id("pages"), userIds: v.array(v.string()) },
+  returns: v.array(person),
   handler: async (ctx, args) => {
-    if (!(await ownerId(ctx))) return [];
-    const page = await readVisible(ctx, "pages", args.pageId);
-    if (!page) return [];
-    const project = await ctx.db.get(page.projectId);
-    if (!project || !(await commentsEnabled(ctx, project))) return [];
-    const role = await roleForProject(ctx, project);
-    if (!channelAdmits({ channel: "comments", access: "read", role, linkLive: false })) return [];
-    return (await mentionablePeople(ctx, project)).map(({ userId, name, imageUrl }) => ({ userId, name, imageUrl }));
+    const found = await readableComments(ctx, args.pageId);
+    if (!found) return [];
+    const asked = new Set(args.userIds.slice(0, MAX_SIGNERS));
+    const members = (await containerMembers(ctx, found.project)).filter((m) => asked.has(m.userId));
+    return await Promise.all(
+      members.map(async ({ userId }) => {
+        const profile = await ctx.db
+          .query("profiles")
+          .withIndex("by_owner", (q) => q.eq("ownerId", userId))
+          .unique();
+        return { userId, name: profile?.name ?? null, imageUrl: profile?.imageUrl ?? null };
+      }),
+    );
   },
 });
 
 /** Newest first, and no more than an inbox can show. */
 const INBOX_LIMIT = 100;
+/**
+ * Most unseen notices one read walks. A notice can outlive its door (below),
+ * and the walk skips those, so it is bounded on what it reads rather than on
+ * what it keeps.
+ */
+const SCAN_LIMIT = 500;
+
+/**
+ * Where an unseen notice leads: the page and project it opens; `closed` while
+ * it opens nothing but may again (the project unshared, trashed or with
+ * comments off, the page trashed — each undone by a re-share or a restore);
+ * `gone` once nothing can bring it back (the page deleted or moved away).
+ */
+type Door = { project: Doc<"projects">; page: Doc<"pages"> } | "closed" | "gone";
+
+/** The caller's unseen notices, newest first, each with where it leads. */
+async function* unseenNotices(
+  ctx: QueryCtx,
+  me: string,
+): AsyncGenerator<{ notice: Doc<"commentNotices">; door: Door }> {
+  const open = new Map<Id<"projects">, Doc<"projects"> | null>();
+  let scanned = 0;
+  for await (const notice of ctx.db
+    .query("commentNotices")
+    .withIndex("by_recipient_unseen", (q) => q.eq("recipientId", me).eq("seenAt", undefined))
+    .order("desc")) {
+    if (++scanned > SCAN_LIMIT) return;
+    const page = await ctx.db.get(notice.pageId);
+    if (!page || page.projectId !== notice.projectId) {
+      yield { notice, door: "gone" };
+      continue;
+    }
+    if (isTrashed(page)) {
+      yield { notice, door: "closed" };
+      continue;
+    }
+    if (!open.has(page.projectId)) {
+      const project = await commentsProject(ctx, page);
+      open.set(page.projectId, project && (await roleForProject(ctx, project)) ? project : null);
+    }
+    const project = open.get(page.projectId)!;
+    yield { notice, door: project ? { project, page } : "closed" };
+  }
+}
 
 /**
  * What the caller has not yet been told, across every project — the query is
- * keyed on them, so the notice reaches them wherever they are standing.
- *
- * A notice outlives the access it was sent under: a project since unshared,
- * trashed, or with comments turned off drops out here rather than offering a
- * door that no longer opens.
+ * keyed on them, so the notice reaches them wherever they are standing. A
+ * notice that no longer opens anything drops out rather than offering a door
+ * that no longer opens.
  */
 export const inbox = query({
   args: {},
@@ -302,53 +422,28 @@ export const inbox = query({
   handler: async (ctx) => {
     const me = await ownerId(ctx);
     if (!me) return [];
-    const notices = await ctx.db
-      .query("commentNotices")
-      .withIndex("by_recipient_unseen", (q) => q.eq("recipientId", me).eq("seenAt", undefined))
-      .order("desc")
-      .take(INBOX_LIMIT);
-
-    const openable = new Map<Id<"projects">, Doc<"projects"> | null>();
-    const projectFor = async (id: Id<"projects">) => {
-      if (!openable.has(id)) {
-        const project = await ctx.db.get(id);
-        const ok =
-          project &&
-          !isTrashed(project) &&
-          (await roleForProject(ctx, project)) !== null &&
-          (await commentsEnabled(ctx, project));
-        openable.set(id, ok ? project : null);
-      }
-      return openable.get(id)!;
-    };
-
-    const rows = await Promise.all(
-      notices.map(async (notice) => {
-        const project = await projectFor(notice.projectId);
-        if (!project) return null;
-        const page = await ctx.db.get(notice.pageId);
-        if (!page || isTrashed(page) || page.projectId !== project._id) return null;
-        const actor = await ctx.db
-          .query("profiles")
-          .withIndex("by_owner", (q) => q.eq("ownerId", notice.actorId))
-          .unique();
-        return {
-          noticeId: notice._id,
-          kind: notice.kind,
-          projectId: project._id,
-          projectTitle: project.title,
-          pageId: page._id,
-          pageTitle: page.title,
-          threadId: notice.threadId,
-          actorName: actor?.name ?? null,
-          actorImageUrl: actor?.imageUrl ?? null,
-          createdAt: notice.createdAt,
-        };
-      }),
-    );
-    return rows
-      .filter((row) => row !== null)
-      .sort((a, b) => b.createdAt - a.createdAt);
+    const rows = [];
+    for await (const { notice, door } of unseenNotices(ctx, me)) {
+      if (typeof door === "string") continue;
+      const actor = await ctx.db
+        .query("profiles")
+        .withIndex("by_owner", (q) => q.eq("ownerId", notice.actorId))
+        .unique();
+      rows.push({
+        noticeId: notice._id,
+        kind: notice.kind,
+        projectId: door.project._id,
+        projectTitle: door.project.title,
+        pageId: door.page._id,
+        pageTitle: door.page.title,
+        threadId: notice.threadId,
+        actorName: actor?.name ?? null,
+        actorImageUrl: actor?.imageUrl ?? null,
+        createdAt: notice.createdAt,
+      });
+      if (rows.length >= INBOX_LIMIT) break;
+    }
+    return rows.sort((a, b) => b.createdAt - a.createdAt);
   },
 });
 
@@ -368,6 +463,17 @@ async function markOwn(
   }
 }
 
+/**
+ * Marks seen the notices whose door is gone for good, so they cannot crowd the
+ * inbox's walk. A closed one is left: it comes back with a re-share or a
+ * restore, as it always has.
+ */
+async function sweepGone(ctx: MutationCtx, me: string): Promise<void> {
+  const gone: Doc<"commentNotices">[] = [];
+  for await (const { notice, door } of unseenNotices(ctx, me)) if (door === "gone") gone.push(notice);
+  await markOwn(ctx, me, gone);
+}
+
 /** Records that the caller was told. Someone else's notice is left alone. */
 export const markSeen = mutation({
   args: { ids: v.array(v.id("commentNotices")) },
@@ -378,6 +484,7 @@ export const markSeen = mutation({
       throw new ConvexError(`At most ${MARK_LIMIT} notices at once.`);
     }
     await markOwn(ctx, me, await Promise.all(args.ids.map((id) => ctx.db.get(id))));
+    await sweepGone(ctx, me);
     return null;
   },
 });
@@ -388,15 +495,13 @@ export const markPageSeen = mutation({
   returns: v.null(),
   handler: async (ctx, args) => {
     const me = await requireOwner(ctx);
-    const unseen = await unseenFor(ctx, me);
-    await markOwn(ctx, me, unseen.filter((n) => n.pageId === args.pageId));
+    const unseen = await ctx.db
+      .query("commentNotices")
+      .withIndex("by_recipient_page_unseen", (q) =>
+        q.eq("recipientId", me).eq("pageId", args.pageId).eq("seenAt", undefined),
+      )
+      .collect();
+    await markOwn(ctx, me, unseen);
     return null;
   },
 });
-
-async function unseenFor(ctx: QueryCtx, me: string): Promise<Doc<"commentNotices">[]> {
-  return await ctx.db
-    .query("commentNotices")
-    .withIndex("by_recipient_unseen", (q) => q.eq("recipientId", me).eq("seenAt", undefined))
-    .collect();
-}

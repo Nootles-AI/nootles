@@ -103,7 +103,16 @@ function decorated(state: EditorState) {
 function asRemote(state: EditorState, change: (tr: Transaction) => void): Transaction {
   const local = state.tr;
   change(local);
-  return state.tr.replace(0, state.doc.content.size, new Slice(local.doc.content, 0, 0)).setMeta("addToHistory", false);
+  return state.tr.replace(0, state.doc.content.size, new Slice(local.doc.content, 0, 0))
+    .setMeta("addToHistory", false)
+    .setMeta(ySyncPluginKey, { isChangeOrigin: true });
+}
+
+/** Another client's edit far from every range lands, then the edits pause. */
+function settleAfterRemote(state: EditorState): EditorState {
+  const tail = pmBlockTexts(state.doc).at(-1)!;
+  state = state.apply(asRemote(state, (tr) => tr.insertText(".", tail.end)));
+  return meta(state, { settle: true });
 }
 
 describe("mapRange", () => {
@@ -195,7 +204,9 @@ describe("resolving once, then mapping", () => {
     expect(rangeText(state, "t1")).toBe("by Friday");
     expect(commentRanges(state).get("t2")).toBeNull();
     expect(decorated(state)).toEqual([]);
-    // First sight of an orphan records it.
+    // First sight holds the orphan until a remote page change and a settle agree.
+    expect(writesOf(state).size).toBe(0);
+    state = settleAfterRemote(state);
     expect([...writesOf(state)]).toEqual([["t2", { orphaned: true }]]);
   });
 
@@ -322,6 +333,8 @@ describe("when the range is deleted", () => {
     let state = stateFor();
     const t1 = thread("t1", state.doc, "p1", "by Friday");
     state = withThreads(state, [{ ...t1, orphanedAt: 5 }]);
+    expect(rangeText(state, "t1")).toBe("by Friday");
+    state = settleAfterRemote(state);
     expect([...writesOf(state)]).toEqual([["t1", { orphaned: false }]]);
   });
 
@@ -396,6 +409,85 @@ describe("when the range is deleted", () => {
     expect(commentRanges(state).get("t1")).toBeNull();
     state = withThreads(state, [t1]);
     expect(rangeText(state, "t1")).toBe("by Friday");
+  });
+});
+
+describe("a thread that arrives before its words", () => {
+  /** This replica's page, missing words another client has already commented on. */
+  const lagging = (p1: string): Blocks => [PAGE[0], { id: "p1", type: "paragraph", content: p1 }, ...PAGE.slice(2)];
+  const fromFullPage = () => thread("t1", stateFor().doc, "p1", "by Friday");
+  const setP1 = (state: EditorState, text: string) => {
+    const p1 = blockText(state.doc, "p1");
+    return state.apply(asRemote(state, (tr) => tr.insertText(text, p1.start, p1.end)));
+  };
+
+  it("shows a fuzzy first sight, writes nothing, and moves to the words when they arrive", () => {
+    let state = stateFor(lagging("We ship it by Fridy if the review passes."));
+    state = withThreads(state, [fromFullPage()]);
+    expect(rangeText(state, "t1")).toBe("by Fridy");
+    expect(writesOf(state).size).toBe(0);
+    state = setP1(state, "We ship it by Friday if the review passes.");
+    expect(rangeText(state, "t1")).toBe("by Friday");
+    expect(writesOf(state).size).toBe(0);
+    state = meta(state, { settle: true });
+    expect(writesOf(state).size).toBe(0);
+    expect(commentKey.getState(state)!.unconfirmed.size).toBe(0);
+  });
+
+  it("never marks a thread created moments ago an orphan while its words are on their way", () => {
+    let state = stateFor(lagging("We ship it"));
+    state = withThreads(state, [fromFullPage()]);
+    expect(commentRanges(state).get("t1")).toBeNull();
+    expect(writesOf(state).size).toBe(0);
+    // A settle with no page change since proves nothing.
+    state = meta(state, { settle: true });
+    expect(writesOf(state).size).toBe(0);
+    state = setP1(state, "We ship it by Friday if the review passes.");
+    expect(rangeText(state, "t1")).toBe("by Friday");
+    state = meta(state, { settle: true });
+    expect(writesOf(state).size).toBe(0);
+  });
+
+  it("writes an answer once it holds through a remote page change and a settle", () => {
+    let state = stateFor(lagging("We ship it by Fridy if the review passes."));
+    state = withThreads(state, [fromFullPage()]);
+    state = settleAfterRemote(state);
+    expect(writesOf(state).get("t1")?.anchor?.exact).toBe("by Fridy");
+    // Written once: nothing is left to settle, so the state does not change.
+    const settled = commentKey.getState(state);
+    state = meta(state, { settle: true });
+    expect(commentKey.getState(state)).toBe(settled);
+  });
+
+  it("an answer that changes with the remote page waits for the next settle to agree", () => {
+    let state = stateFor(lagging("We ship it"));
+    state = withThreads(state, [fromFullPage()]);
+    state = setP1(state, "We ship it by Fridy if the review passes.");
+    expect(rangeText(state, "t1")).toBe("by Fridy");
+    state = meta(state, { settle: true });
+    expect(writesOf(state).get("t1")?.anchor?.exact).toBe("by Fridy");
+  });
+
+  it("an undo or a fork swap is not a remote change, and confirms nothing", () => {
+    let state = stateFor(lagging("We ship it"));
+    state = withThreads(state, [fromFullPage()]);
+    const tail = pmBlockTexts(state.doc).at(-1)!;
+    for (const sync of [{ isChangeOrigin: true, isUndoRedoOperation: true }, { isChangeOrigin: true, binding: {} }]) {
+      state = state.apply(asRemote(state, (tr) => tr.insertText(".", tail.end)).setMeta(ySyncPluginKey, sync));
+      state = meta(state, { settle: true });
+      expect(writesOf(state).size).toBe(0);
+    }
+    expect(commentKey.getState(state)!.unconfirmed.get("t1")?.ticked).toBe(false);
+  });
+
+  it("words typed here are the typist's to settle, not the held answer's", () => {
+    let state = stateFor(lagging("We ship it by Fridy if the review passes."));
+    state = withThreads(state, [fromFullPage()]);
+    const { to } = commentRanges(state).get("t1")!;
+    state = state.apply(state.tr.insertText("y", to - 1));
+    state = meta(state, { settle: true });
+    expect(writesOf(state).get("t1")?.anchor?.exact).toBe("by Fridyy");
+    expect(commentKey.getState(state)!.unconfirmed.size).toBe(0);
   });
 });
 
@@ -550,8 +642,8 @@ describe("under a review fork", () => {
   it("leaves a range the fork deleted unanchored, resolves nothing and writes nothing until it ends", () => {
     let forked = true;
     let state = stateFor();
-    state = meta(state, { isForked: () => forked });
     state = withThreads(state, [thread("t1", state.doc, "p1", "by Friday")]);
+    state = meta(state, { isForked: () => forked });
     const resolves = commentResolveCount(state);
     const { from, to } = commentRanges(state).get("t1")!;
     state = state.apply(state.tr.insertText("by friday", from, to));
@@ -619,6 +711,8 @@ describe("the same phrase twice in one block", () => {
     state = withThreads(state, [bare(8), bare(4), bare(12)]);
     const offsets = ["h8", "h4", "h12"].map((id) => commentRanges(state).get(id)!.from - block.start);
     expect(offsets).toEqual([8, 0, 8]);
+    expect(writesOf(state).size).toBe(0);
+    state = settleAfterRemote(state);
     expect(writesOf(state).get("h8")).toEqual({ ambiguous: true });
   });
 });

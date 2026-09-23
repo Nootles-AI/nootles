@@ -4,15 +4,15 @@ import type { DataModel, Doc } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import {
   channelAdmits,
+  commentsProject,
   hasLiveLink,
-  isTrashed,
+  liveProject,
   refuseStandIn,
   roleForProject,
   standInActor,
   type DocChannel,
   type ProjectRole,
 } from "./auth";
-import { commentsEnabled } from "./entitlements";
 
 /**
  * Collaborative sync for each page's block flow. The client (BlockNote) talks to
@@ -81,13 +81,6 @@ export type DocAccess = {
   role: ProjectRole | null;
 };
 
-/** The page's project, provided both are live. */
-async function liveProject(ctx: QueryCtx, page: Doc<"pages">): Promise<Doc<"projects"> | null> {
-  if (isTrashed(page)) return null;
-  const project = await ctx.db.get(page.projectId);
-  return project && !isTrashed(project) ? project : null;
-}
-
 /**
  * The page, its live project and the caller's role on it, or null for a
  * docId that names nothing live on an accepted channel — or a comments docId
@@ -100,19 +93,10 @@ async function resolveDoc(
 ): Promise<DocAccess | null> {
   const found = await pageAndChannelForDoc(ctx, id);
   if (!found || !channels.includes(found.channel)) return null;
-  const project = await liveProject(ctx, found.page);
+  const project =
+    found.channel === "comments" ? await commentsProject(ctx, found.page) : await liveProject(ctx, found.page);
   if (!project) return null;
-  if (found.channel === "comments" && !(await commentsEnabled(ctx, project))) return null;
   return { ...found, project, role: await roleForProject(ctx, project) };
-}
-
-/** The caller's role on a page's project, or null for trashed/missing/stranger. */
-export async function roleForPage(
-  ctx: QueryCtx,
-  page: Doc<"pages">,
-): Promise<ProjectRole | null> {
-  const project = await liveProject(ctx, page);
-  return project ? await roleForProject(ctx, project) : null;
 }
 
 /**
@@ -164,7 +148,7 @@ export async function checkWrite(
   return access;
 }
 
-export async function hasWriteRole(
+async function hasWriteRole(
   ctx: QueryCtx,
   id: string,
   channels: readonly DocChannel[] = DOCUMENT_ONLY,

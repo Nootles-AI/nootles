@@ -7,7 +7,7 @@ import { getFunctionName } from "convex/server";
 import { ConvexError } from "convex/values";
 import { ConvexProvider, type ConvexReactClient } from "convex/react";
 import type { Doc, Id } from "../convex/_generated/dataModel";
-import { channelAdmits, type ProjectRole } from "../convex/auth";
+import { channelAdmits, type ProjectRole } from "../convex/roles";
 import { schema } from "../app/components/editor/schema";
 import { EditorRegistryProvider, useEditorRegistry } from "../app/components/editor/EditorRegistry";
 import { PageCommentsRegistryProvider, usePageCommentsRegistry } from "../app/components/comments/registry";
@@ -208,7 +208,9 @@ class Backend {
       case "commentNotices:mentionable":
         return this.role ? this.mentionable : [];
       case "commentNotices:authors":
-        return this.role ? [OLIVE, ADA, CAM, DEE] : [];
+        return this.role
+          ? [OLIVE, ADA, CAM, DEE].filter((person) => (args.userIds as string[]).includes(person.userId))
+          : [];
       case "commentNotices:inbox":
         return [];
       case "presence:list":
