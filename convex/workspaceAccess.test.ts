@@ -319,9 +319,10 @@ describe("the role a seat gives", () => {
 });
 
 /**
- * Every gate that used to compare `ownerId`, one row each. Allowed means the
- * workspace's owner and admins; the member who made the project is refused
- * with everyone else — even for rows that carry their own name.
+ * Every manage gate that used to compare `ownerId`, one row each. Allowed
+ * means the workspace's owner and admins; the member who made the project is
+ * refused with everyone else — even for rows that carry their own name. The
+ * repository tools, which editors use too, have their own tests below.
  */
 type Gate = {
   name: string;
@@ -329,6 +330,8 @@ type Gate = {
   kind: "read" | "write";
   /** A refused read either throws or answers empty; a refused write throws. */
   refusedEmpty?: boolean;
+  /** What a refused caller is told, when it is not "Not found". */
+  refusal?: RegExp;
   run: (caller: Caller, w: World) => Promise<unknown>;
 };
 
@@ -382,6 +385,12 @@ const gates: Gate[] = [
       c.mutation(api.nmlMigration.addToCohort, { scope: "project", key: w.open.projectId }),
   },
   {
+    name: "nmlMigration.removeFromCohort (a project)",
+    kind: "write",
+    run: (c, w) =>
+      c.mutation(api.nmlMigration.removeFromCohort, { scope: "project", key: w.open.projectId }),
+  },
+  {
     name: "github.repos.listForProject",
     kind: "read",
     refusedEmpty: true,
@@ -407,9 +416,20 @@ const gates: Gate[] = [
     run: (c, w) => c.mutation(api.github.repos.reindex, { repoId: w.repoId }),
   },
   {
+    name: "github.repos.refresh",
+    kind: "write",
+    refusal: /That repository is no longer linked\.|Not signed in/,
+    run: (c, w) => c.action(api.github.repos.refresh, { repoId: w.repoId }),
+  },
+  {
     name: "github.naming.claim",
     kind: "write",
     run: (c, w) => c.mutation(api.github.naming.claim, { repoId: w.repoId }),
+  },
+  {
+    name: "github.naming.apply",
+    kind: "write",
+    run: (c, w) => c.mutation(api.github.naming.apply, { repoId: w.repoId, names: [] }),
   },
   {
     name: "github.naming.skip",
@@ -504,7 +524,7 @@ describe.each(gates)("$name", (gate) => {
     for (const who of refused) {
       const attempt = gate.run(as(t, who), w);
       if (gate.refusedEmpty) await expect(attempt).resolves.toEqual([]);
-      else await expect(attempt).rejects.toThrow(/Not found|Not signed in/);
+      else await expect(attempt).rejects.toThrow(gate.refusal ?? /Not found|Not signed in/);
     }
   });
 
@@ -676,6 +696,32 @@ describe("the repository tools", () => {
         token: "Bearer creator-token",
       },
     ]);
+  });
+
+  test("a summary is refreshed by the project's managers, with its linker's connection", async () => {
+    vi.stubEnv("GITHUB_TOKEN_KEY", KEY);
+    const t = harness();
+    const w = await world(t);
+    await connect(t, CREATOR, "creator-token");
+    await connect(t, ADMIN, "admin-token");
+    const asked = github();
+    const refresh = (who: Identity) =>
+      t.withIdentity(who).action(api.github.repos.refresh, { repoId: w.repoId });
+
+    for (const who of [CREATOR, MEMBER, GUEST, REMOVED, STRANGER]) {
+      await expect(refresh(who)).rejects.toThrow("That repository is no longer linked.");
+    }
+    await expect(refresh(STAND_IN)).rejects.toThrow("Read-only");
+    expect(asked).toEqual([]);
+
+    // The admin who asks lends nothing of their own: it is the linker's GitHub read.
+    await refresh(ADMIN);
+    expect(asked).toEqual(
+      ["", "/contents", "/readme"].map((path) => ({
+        url: `https://api.github.com/repos/acme/api${path}`,
+        token: "Bearer creator-token",
+      })),
+    );
   });
 
   test("a search spans linkers, one connection per repository it linked", async () => {
