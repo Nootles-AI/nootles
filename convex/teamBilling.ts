@@ -13,7 +13,6 @@ import {
 import type { Doc, Id } from "./_generated/dataModel";
 import { atLeast, requireWorkspaceRole, workspaceRole } from "./auth";
 import { isLiveStatus, workspaceStanding, workspaceSubscriptionLive } from "./entitlements";
-import { utcDay } from "./plans";
 
 /**
  * A workspace's Team subscription, kept in step with Stripe.
@@ -558,6 +557,40 @@ export function nextReport(
   };
 }
 
+/**
+ * Adds one signed call's cost to its maker's running total for the workspace's
+ * current period (`workspaceSpend`). Nothing while the workspace has no
+ * subscription: there is no period to count it in, and the screen shows no
+ * usage then.
+ */
+export async function addPeriodSpend(
+  ctx: MutationCtx,
+  workspaceId: Id<"workspaces">,
+  userId: string,
+  costUsd: number,
+  guest: boolean,
+): Promise<void> {
+  const billing = await billingOf(ctx, workspaceId);
+  if (!billing?.subscriptionId) return;
+  const periodStart = billing.periodStart;
+  const row = await ctx.db
+    .query("workspaceSpend")
+    .withIndex("by_workspace_and_period_and_user", (q) =>
+      q.eq("workspaceId", workspaceId).eq("periodStart", periodStart).eq("userId", userId),
+    )
+    .unique();
+  const seatUsd = guest ? 0 : costUsd;
+  const guestUsd = guest ? costUsd : 0;
+  if (row) {
+    await ctx.db.patch(row._id, {
+      seatUsd: row.seatUsd + seatUsd,
+      guestUsd: row.guestUsd + guestUsd,
+    });
+  } else {
+    await ctx.db.insert("workspaceSpend", { workspaceId, periodStart, userId, seatUsd, guestUsd });
+  }
+}
+
 /** Signed spend a workspace's calls made in `[from, to)`, one page at a time. */
 export const signedSpend = internalQuery({
   args: {
@@ -785,8 +818,8 @@ export const reportUsage = internalMutation({
 
 // ---- The billing screen ---------------------------------------------------------
 
-/** Rows read for the screen's running figures — far past a period of any real workspace's. */
-const SUMMARY_CAP = 5000;
+/** One row per person who spent in the period — far past any real workspace's. */
+const SPENDERS_CAP = 5000;
 
 /**
  * What the workspace's billing screen shows, for anyone with a seat of member
@@ -809,29 +842,19 @@ export const summary = query({
 
     let usage: { allowanceUsd: number; spentUsd: number; guestUsd: number } | null = null;
     if (billing && live) {
-      const counted =
-        billing.usagePeriod?.start === billing.periodStart ? billing.usagePeriod.spentUsd : 0;
-      const since = Math.max(billing.usageReportedThrough ?? 0, billing.periodStart);
-      const recent = await ctx.db
-        .query("aiCalls")
-        .withIndex("by_workspace_and_createdAt", (q) =>
-          q.eq("workspaceId", workspaceId).gte("createdAt", since),
+      const spenders = await ctx.db
+        .query("workspaceSpend")
+        .withIndex("by_workspace_and_period_and_user", (q) =>
+          q.eq("workspaceId", workspaceId).eq("periodStart", billing.periodStart),
         )
-        .take(SUMMARY_CAP);
-      const guests = await ctx.db
-        .query("guestAiSpend")
-        .withIndex("by_workspace_and_day_and_user", (q) =>
-          q.eq("workspaceId", workspaceId).gte("day", utcDay(billing.periodStart)),
-        )
-        .take(SUMMARY_CAP);
-      usage = {
-        allowanceUsd: billing.aiAllowanceUsd,
-        spentUsd: recent.reduce(
-          (sum, row) => (row.signed && row.costUsd ? sum + row.costUsd : sum),
-          counted,
-        ),
-        guestUsd: guests.reduce((sum, row) => sum + row.costUsd, 0),
-      };
+        .take(SPENDERS_CAP);
+      let spentUsd = 0;
+      let guestUsd = 0;
+      for (const row of spenders) {
+        spentUsd += row.seatUsd + row.guestUsd;
+        guestUsd += row.guestUsd;
+      }
+      usage = { allowanceUsd: billing.aiAllowanceUsd, spentUsd, guestUsd };
     }
 
     return {
@@ -857,5 +880,21 @@ export const summary = query({
       allowancePerSeatUsd: allowancePerSeatUsd(),
       usage,
     };
+  },
+});
+
+/**
+ * Whether the caller should be asked to start the workspace's Team plan: an
+ * admin or owner, on a deployment it can be bought on, of a workspace with no
+ * plan. Apart from `summary` so the home's one line does not re-run with every
+ * AI call the workspace makes.
+ */
+export const unpaid = query({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.boolean(),
+  handler: async (ctx, { workspaceId }) => {
+    const role = await workspaceRole(ctx, workspaceId);
+    if (!role || !atLeast(role, "admin") || !teamBillingConfigured()) return false;
+    return (await workspaceStanding(ctx, workspaceId)).source === "none";
   },
 });

@@ -3,6 +3,7 @@ import { ConvexError, v } from "convex/values";
 import { holdsSeat, requireOwner } from "../auth";
 import { containerFor, spendGuestDay } from "../entitlements";
 import { utcDay } from "../plans";
+import { addPeriodSpend } from "../teamBilling";
 import { ledgerSecret, verifyCall } from "./callSignature";
 
 /**
@@ -114,8 +115,10 @@ export const record = mutation({
       ...(signed ? { signed: true } : {}),
       createdAt: now,
     });
-    if (signed && workspaceId && call.costUsd && !(await holdsSeat(ctx, workspaceId, ownerId))) {
-      await spendGuestDay(ctx, workspaceId, ownerId, utcDay(now), call.costUsd);
+    if (signed && workspaceId && call.costUsd) {
+      const guest = !(await holdsSeat(ctx, workspaceId, ownerId));
+      if (guest) await spendGuestDay(ctx, workspaceId, ownerId, utcDay(now), call.costUsd);
+      await addPeriodSpend(ctx, workspaceId, ownerId, call.costUsd, guest);
     }
   },
 });
