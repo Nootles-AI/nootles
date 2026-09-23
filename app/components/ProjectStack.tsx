@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
@@ -12,6 +12,7 @@ import { OpenPageProvider } from "./OpenPageContext";
 import { ReviewProvider } from "./ReviewContext";
 import { Workspace } from "./Workspace";
 import { slugOf, useContainer } from "./workspaces/ContainerContext";
+import { NothingHere } from "./workspaces/ContainerRoute";
 
 /**
  * One project, open — the same stack at `/p/<id>` and at
@@ -51,8 +52,13 @@ export function ProjectStack({ projectId }: { projectId: string }) {
  * open is already at the right address, and holding it would put a round trip
  * in front of every one of them; the answer is asked for alongside the
  * project's own first reads and usually lands with them, before anything but
- * the skeleton has drawn. An answer of "nowhere" moves nothing — the stack
- * already says that in its own words.
+ * the skeleton has drawn. An answer of "nowhere" moves nothing.
+ *
+ * In a workspace, a first answer of "nowhere" is said as the address that
+ * leads nowhere: a seat is not a way into each project, and someone else's
+ * private one would otherwise open as an empty project. Not at `/p/<id>`,
+ * which is also where a link on its way to being claimed lands, and not once
+ * the project has opened — one deleted from inside it goes home on its own.
  */
 function InItsHome({ projectId, children }: { projectId: string; children: ReactNode }) {
   const router = useRouter();
@@ -66,6 +72,10 @@ function InItsHome({ projectId, children }: { projectId: string; children: React
     router.replace(`${elsewhere}${search}${hash}`);
   }, [elsewhere, router]);
 
+  const [opened, setOpened] = useState<string | null>(null);
+  if (home && opened !== projectId) setOpened(projectId);
+
   if (elsewhere) return <div className="flex-1" aria-busy="true" />;
+  if (here && home === null && opened !== projectId) return <NothingHere />;
   return <>{children}</>;
 }

@@ -130,6 +130,10 @@ function Nowhere({ projectId }: { projectId: string | null }) {
   if (there || (projectId && home === undefined)) {
     return <div className="flex-1" aria-busy="true" />;
   }
+  return <NothingHere />;
+}
+
+export function NothingHere() {
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 py-16 text-center">
       <Link href="/" aria-label="Nootles" className="mb-4">
