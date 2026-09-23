@@ -24,6 +24,14 @@ export const ROLE_HINT: Record<WorkspaceRole, string> = {
   guest: "Sees only the projects shared with them",
 };
 
+/** The same, said to whoever is offered the seat, of the workspace as "it". */
+export const ROLE_OFFER: Record<WorkspaceRole, string> = {
+  owner: "You’ll run everything in it, down to deleting it.",
+  admin: "You’ll see its projects, invite people and run its settings.",
+  member: "You’ll see its projects and can make new ones.",
+  guest: "You’ll see only the projects shared with you.",
+};
+
 /** The seats a menu offers. Guests are in the schema, not in the menus. */
 const OFFERED: readonly WorkspaceRole[] = ["owner", "admin", "member"];
 

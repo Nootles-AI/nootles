@@ -12,14 +12,15 @@ import { Wordmark } from "../Brand";
 import { Mail } from "../Icons";
 import { initial } from "./people";
 import { refusal } from "./refusal";
+import { ROLE_OFFER } from "./seats";
 import "../settings/settings.css";
 import "./workspaces.css";
 
 const an = (role: string) => (role === "admin" ? "an admin" : `a ${role}`);
 
 /**
- * An invitation, answered: who asked, into what, and the one button that
- * takes the seat. Everything it can say comes from `members.invitation`,
+ * An invitation, answered: who asked, into what, what the seat lets you do,
+ * and the one button that takes it — "Join", the switcher's word for it. Everything it can say comes from `members.invitation`,
  * which tells an account the invitation is not for only which address it is
  * for, in outline — so that state offers the one useful move, signing out to
  * come back as the right account, with this page as the way back. A sign-in
@@ -31,12 +32,18 @@ export function JoinInvitation({ token }: { token: string }) {
   const { user } = useUser();
   const { userId } = useAuth();
   const { signOut } = useClerk();
-  const invitation = useQuery(api.members.invitation, { token });
+  const live = useQuery(api.members.invitation, { token });
+  // The invitation as it was when Join was pressed. Joining answers the query
+  // "accepted" before the home it goes to has replaced this page, and the card
+  // would otherwise turn into "You’re in" under the pointer on its way out.
+  const [held, setHeld] = useState<typeof live>(undefined);
+  const invitation = held ?? live;
   const accept = useMutation(api.members.acceptInvite);
   const [going, setGoing] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
 
   const join = async () => {
+    setHeld(live);
     setGoing(true);
     setFailure(null);
     try {
@@ -46,6 +53,7 @@ export function JoinInvitation({ token }: { token: string }) {
       if (userId) rememberWorkspace(userId, joined.slug, { kind: "workspace", ...joined });
       router.replace(homePath(joined.slug));
     } catch (error) {
+      setHeld(undefined);
       setGoing(false);
       setFailure(refusal(error, "That didn’t go through. Try again in a moment."));
     }
@@ -130,7 +138,7 @@ export function JoinInvitation({ token }: { token: string }) {
     if (invitation.state === "valid") {
       card = (
         <Card
-          title={name}
+          title={`Join ${name}`}
           tile={tile}
           actions={
             <>
@@ -140,7 +148,7 @@ export function JoinInvitation({ token }: { token: string }) {
                 disabled={going}
                 className="nt-row nt-solid px-3 font-medium"
               >
-                {going ? "Joining…" : "Accept"}
+                {going ? "Joining…" : "Join"}
               </button>
               <Link href="/" className="nt-row px-2.5">
                 Not now
@@ -149,7 +157,7 @@ export function JoinInvitation({ token }: { token: string }) {
           }
           problem={failure}
         >
-          {inviter ?? "Someone"} invited you to join as {an(invitation.role)}.
+          {inviter ?? "Someone"} invited you as {an(invitation.role)}. {ROLE_OFFER[invitation.role]}
         </Card>
       );
     } else if (invitation.state === "accepted") {
