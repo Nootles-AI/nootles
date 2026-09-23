@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useSyncExternalStore, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useSyncExternalStore, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import { useConvexAuth, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import { projectIdIn, projectPath, withSlug } from "@/app/lib/containerPaths";
+import { addressMove, projectIdIn, projectPath } from "@/app/lib/containerPaths";
 import { rememberWorkspace, seenWorkspace } from "@/app/lib/projectsCache";
 import { Wordmark } from "../Brand";
 import { ContainerProvider, type WorkspaceContainer } from "./ContainerContext";
@@ -24,10 +24,11 @@ const noop = () => () => {};
  * browser (`projectsCache`) stands in until `bySlug` answers, and is replaced
  * by whatever it says.
  *
- * An old address is moved to the current one where it stands, the rest of the
- * path kept, so a link to a project from before a rename still opens that
- * project. An address that is not a workspace the caller sits in reads exactly
- * like one that was never taken: `bySlug` says null for both.
+ * An old address is moved to the current one, the rest of the path kept, so a
+ * link to a project from before a rename still opens that project — and a
+ * rename made while someone is here changes only what their address bar says
+ * (`addressMove`). An address that is not a workspace the caller sits in
+ * reads exactly like one that was never taken: `bySlug` says null for both.
  */
 export function ContainerRoute({ slug, children }: { slug: string; children: ReactNode }) {
   const router = useRouter();
@@ -60,11 +61,18 @@ export function ContainerRoute({ slug, children }: { slug: string; children: Rea
     if (userId && resolved !== undefined) rememberWorkspace(userId, slug, resolved);
   }, [userId, slug, resolved]);
 
+  // What the address was on its first answer, which is what tells arriving
+  // at an old address from staying on one while it is renamed.
   const canonical = resolved?.slug;
+  const opened = useRef<string | null>(null);
   useEffect(() => {
-    if (!canonical || canonical === slug) return;
+    if (!canonical) return;
+    opened.current ??= canonical;
+    const move = addressMove(pathname, { slug, canonical: opened.current }, canonical);
+    if (!move) return;
     const { search, hash } = window.location;
-    router.replace(`${withSlug(pathname, canonical)}${search}${hash}`);
+    if (move.navigate) router.replace(`${move.to}${search}${hash}`);
+    else window.history.replaceState(null, "", `${move.to}${search}${hash}`);
   }, [canonical, slug, pathname, router]);
 
   if (resolved === null) return <Nowhere projectId={projectIdIn(pathname)} />;

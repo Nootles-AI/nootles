@@ -7,7 +7,6 @@ import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { atLeast } from "@/convex/auth";
 import { normalizeSlug, typingSlug } from "@/convex/slugs";
-import { withSlug } from "@/app/lib/containerPaths";
 import { rememberWorkspace } from "@/app/lib/projectsCache";
 import { Check } from "../../Icons";
 import { useStandIn } from "../../StandIn";
@@ -148,7 +147,6 @@ function NameField({ workspace, edits }: { workspace: WorkspaceContainer; edits:
  * old one keeps arriving, which is what the note under it promises.
  */
 function AddressField({ workspace, edits }: { workspace: WorkspaceContainer; edits: boolean }) {
-  const router = useRouter();
   const { userId } = useAuth();
   const setSlug = useMutation(api.workspaces.setSlug);
   // Null while the field shows the address as it is.
@@ -178,15 +176,17 @@ function AddressField({ workspace, edits }: { workspace: WorkspaceContainer; edi
     setBusy(true);
     try {
       const moved = await setSlug({ workspaceId: workspace.workspaceId, slug });
-      // What the new address resolves to is already known, so the page it
-      // moves to draws at once rather than waiting to be told.
+      // What the new address resolves to is already known, so the next page
+      // opened there draws at once rather than waiting to be told. This one
+      // stays put: `ContainerRoute` rewrites its address, as it does for
+      // everyone else here.
       if (userId) rememberWorkspace(userId, moved.slug, { ...workspace, slug: moved.slug });
-      const { pathname, search, hash } = window.location;
-      router.replace(`${withSlug(pathname, moved.slug)}${search}${hash}`);
+      setTyped(null);
+      setFailure(null);
     } catch (error) {
       setFailure(refusal(error, "That address didn’t save. Try again in a moment."));
-      setBusy(false);
     }
+    setBusy(false);
   };
 
   const note = problem

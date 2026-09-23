@@ -48,3 +48,25 @@ export function withSlug(pathname: string, slug: string): string {
   parts[2] = slug;
   return parts.join("/");
 }
+
+/**
+ * How an open workspace address catches up with the workspace's current slug.
+ *
+ * Opened at an address that was already retired, the page is moved to the
+ * current one by navigating. Renamed while it is open — someone else changed
+ * it — the address is only rewritten where it stands: navigating changes the
+ * `[slug]` segment, which remounts everything under it, and whatever the
+ * person was in the middle of would go with it.
+ *
+ * `opened` is the slug the page was opened at and what the workspace was
+ * called in the first answer for it; `canonical` is what it is called now.
+ */
+export function addressMove(
+  pathname: string,
+  opened: { slug: string; canonical: string },
+  canonical: string,
+): { to: string; navigate: boolean } | null {
+  const to = withSlug(pathname, canonical);
+  if (to === pathname) return null;
+  return { to, navigate: opened.canonical !== opened.slug };
+}

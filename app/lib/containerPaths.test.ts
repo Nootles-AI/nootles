@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
+  addressMove,
   homePath,
   joinPath,
   projectIdIn,
@@ -62,5 +63,40 @@ describe("projectIdIn", () => {
     expect(projectIdIn("/w/acme/p/")).toBeNull();
     expect(projectIdIn("/w/acme/settings/members")).toBeNull();
     expect(projectIdIn("/w//p/abc")).toBeNull();
+  });
+});
+
+describe("addressMove", () => {
+  test("an address that was already retired when opened moves by navigating", () => {
+    expect(addressMove("/w/old/p/abc", { slug: "old", canonical: "new" }, "new")).toEqual({
+      to: "/w/new/p/abc",
+      navigate: true,
+    });
+    // An address typed in another case is not the current one either.
+    expect(addressMove("/w/Acme", { slug: "Acme", canonical: "acme" }, "acme")).toEqual({
+      to: "/w/acme",
+      navigate: true,
+    });
+  });
+
+  test("a rename made while the address is open only rewrites it where it stands", () => {
+    // Navigating would change the `[slug]` segment and remount the open project.
+    expect(addressMove("/w/acme/p/abc", { slug: "acme", canonical: "acme" }, "acme-co")).toEqual({
+      to: "/w/acme-co/p/abc",
+      navigate: false,
+    });
+    // The segment keeps its first value after that, while the path moves on:
+    // a second rename is still only a rewrite.
+    expect(
+      addressMove("/w/acme-co/settings", { slug: "acme", canonical: "acme" }, "acme-inc"),
+    ).toEqual({ to: "/w/acme-inc/settings", navigate: false });
+  });
+
+  test("nothing to do once the address says what the workspace is called", () => {
+    expect(addressMove("/w/acme/p/abc", { slug: "acme", canonical: "acme" }, "acme")).toBeNull();
+    // Rewritten already: the path caught up though the segment did not.
+    expect(
+      addressMove("/w/acme-co/p/abc", { slug: "acme", canonical: "acme" }, "acme-co"),
+    ).toBeNull();
   });
 });
