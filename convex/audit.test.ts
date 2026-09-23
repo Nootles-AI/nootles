@@ -1027,9 +1027,13 @@ describe("billing and operators", () => {
         actorKind: "operator",
         subjectKind: "user",
         subjectId: MEMBER.subject,
-        meta: { reason: "Their sidebar is empty", sessionId: jti },
+        meta: { sessionId: jti },
       });
+      expect(rows[0].meta).not.toHaveProperty("reason");
+      expect(JSON.stringify(rows)).not.toContain("Their sidebar is empty");
     }
+    const kept = await t.run((ctx) => ctx.db.get(jti));
+    expect(kept?.reason).toBe("Their sidebar is empty");
     expect(await log(t, left)).toEqual([]);
     expect(await log(t, unrelated)).toEqual([]);
   });
