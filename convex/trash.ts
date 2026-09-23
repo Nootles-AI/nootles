@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { internalMutation, mutation } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { isTrashed, managesProject, projectRole, requireOwner } from "./auth";
+import { recordInProject } from "./audit";
 import { containerOf, requireQuotaIn } from "./entitlements";
 import { removePageCascade } from "./pages";
 import { purgeProject, refreshPageSummary } from "./projects";
@@ -36,6 +37,11 @@ export const restore = mutation({
       // container's slot: a workspace's own, never the restorer's.
       await requireQuotaIn(ctx, containerOf(project, caller), "projects");
       await ctx.db.patch(id, { deletedAt: undefined });
+      await recordInProject(ctx, project, {
+        action: "project.restore",
+        subjectKind: "project",
+        subjectId: id,
+      });
     }
 
     // Pages and folders restore into their LIVE project, at the caller's
@@ -47,20 +53,33 @@ export const restore = mutation({
       if (!project || isTrashed(project)) throw new Error("Not found");
       const role = await projectRole(ctx, projectId);
       if (role !== "owner" && role !== "editor") throw new Error("Not found");
+      return project;
     };
 
     for (const id of args.folders ?? []) {
       const folder = await ctx.db.get(id);
       if (!folder || !isTrashed(folder)) continue;
-      await editable(folder.projectId);
+      const project = await editable(folder.projectId);
       await ctx.db.patch(id, { deletedAt: undefined });
+      await recordInProject(ctx, project, {
+        action: "folder.restore",
+        subjectKind: "folder",
+        subjectId: id,
+        meta: { folder: folder.title },
+      });
       touched.add(folder.projectId);
     }
     for (const id of args.pages ?? []) {
       const page = await ctx.db.get(id);
       if (!page || !isTrashed(page)) continue;
-      await editable(page.projectId);
+      const project = await editable(page.projectId);
       await ctx.db.patch(id, { deletedAt: undefined });
+      await recordInProject(ctx, project, {
+        action: "page.restore",
+        subjectKind: "page",
+        subjectId: id,
+        meta: { page: page.title },
+      });
       touched.add(page.projectId);
     }
 
@@ -84,19 +103,32 @@ export const remove = mutation({
     const editable = async (projectId: Id<"projects">) => {
       const role = await projectRole(ctx, projectId);
       if (role !== "owner" && role !== "editor") throw new Error("Not found");
+      return (await ctx.db.get(projectId))!;
     };
     for (const id of args.pages ?? []) {
       const page = await ctx.db.get(id);
       if (!page || isTrashed(page)) continue;
-      await editable(page.projectId);
+      const project = await editable(page.projectId);
       await ctx.db.patch(id, { deletedAt: now });
+      await recordInProject(ctx, project, {
+        action: "page.delete",
+        subjectKind: "page",
+        subjectId: id,
+        meta: { page: page.title },
+      });
       touched.add(page.projectId);
     }
     for (const id of args.folders ?? []) {
       const folder = await ctx.db.get(id);
       if (!folder || isTrashed(folder)) continue;
-      await editable(folder.projectId);
+      const project = await editable(folder.projectId);
       await ctx.db.patch(id, { deletedAt: now });
+      await recordInProject(ctx, project, {
+        action: "folder.delete",
+        subjectKind: "folder",
+        subjectId: id,
+        meta: { folder: folder.title },
+      });
       touched.add(folder.projectId);
     }
     for (const projectId of touched) await refreshPageSummary(ctx, projectId);

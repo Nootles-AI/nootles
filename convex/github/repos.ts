@@ -18,6 +18,7 @@ import {
   requireManageable,
   requireOwner,
 } from "../auth";
+import { recordInProject } from "../audit";
 import { repoRef } from "../schema";
 import { json, text } from "./rest";
 import { withToken } from "./account";
@@ -114,8 +115,14 @@ export const link = mutation({
 export const unlink = mutation({
   args: { repoId: v.id("projectRepos") },
   handler: async (ctx, args) => {
-    await requireManageable(ctx, "projectRepos", args.repoId);
+    const repo = await requireManageable(ctx, "projectRepos", args.repoId);
     await unlinkRepo(ctx, args.repoId);
+    await recordInProject(ctx, (await ctx.db.get(repo.projectId))!, {
+      action: "repo.unlink",
+      subjectKind: "repo",
+      subjectId: repo._id,
+      meta: { repo: repo.fullName },
+    });
   },
 });
 
@@ -262,7 +269,7 @@ export async function add(
   projectId: Id<"projects">,
   repos: readonly Infer<typeof repoRef>[],
 ) {
-  await vetCredentials(ctx, projectId, repos);
+  const project = await vetCredentials(ctx, projectId, repos);
   const already = await ctx.db
     .query("projectRepos")
     .withIndex("by_project", (q) => q.eq("projectId", projectId))
@@ -281,6 +288,20 @@ export async function add(
     });
     await ctx.scheduler.runAfter(0, internal.github.repos.sync, { repoId, ownerId });
     await ctx.scheduler.runAfter(0, internal.github.indexer.run, { repoId });
+    await recordInProject(
+      ctx,
+      project,
+      {
+        action: "repo.link",
+        subjectKind: "repo",
+        subjectId: repoId,
+        meta: {
+          repo: repo.fullName,
+          via: repo.installationId === undefined ? "personal" : "app",
+        },
+      },
+      ownerId,
+    );
   }
 }
 
@@ -288,7 +309,7 @@ async function vetCredentials(
   ctx: MutationCtx,
   projectId: Id<"projects">,
   repos: readonly Infer<typeof repoRef>[],
-) {
+): Promise<Doc<"projects">> {
   const project = await ctx.db.get(projectId);
   if (!project) throw new Error("Not found");
   const workspaceId = project.workspaceId;
@@ -304,9 +325,10 @@ async function vetCredentials(
     const refused = unusable(installation);
     if (refused) throw new ConvexError(refused);
   }
-  if (!workspaceId || repos.every((repo) => repo.installationId !== undefined)) return;
+  if (!workspaceId || repos.every((repo) => repo.installationId !== undefined)) return project;
   const workspace = await ctx.db.get(workspaceId);
   if (workspace?.settings.allowPersonalTokens === false) throw new ConvexError(PERSONAL_OFF);
+  return project;
 }
 
 /**

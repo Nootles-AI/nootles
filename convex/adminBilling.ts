@@ -11,6 +11,7 @@ import {
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { requireAdmin } from "./admin";
+import { record } from "./audit";
 import { normalizeCode } from "./accessCodes";
 import {
   entitlementOf,
@@ -269,6 +270,15 @@ async function writeOverride(
     .unique();
   if (existing) await ctx.db.replace(existing._id, row);
   else await ctx.db.insert("workspaceEntitlements", row);
+  await record(ctx, {
+    workspaceId: args.workspaceId,
+    actorId: grantedBy,
+    actorKind: "operator",
+    action: "entitlement.set",
+    subjectKind: "workspace",
+    subjectId: args.workspaceId,
+    meta: { feature: args.feature, value: args.value, expiresAt: args.expiresAt, note },
+  });
 }
 
 /** Every workspace, and what it stands on — the way into one's overrides. */
@@ -344,14 +354,24 @@ export const workspaceOverrideClear = mutation({
   args: { token: v.string(), workspaceId: v.id("workspaces"), feature: v.string() },
   returns: v.null(),
   handler: async (ctx, args) => {
-    await requireAdmin(ctx, args.token);
+    const session = await requireAdmin(ctx, args.token);
     const row = await ctx.db
       .query("workspaceEntitlements")
       .withIndex("by_workspace_and_feature", (q) =>
         q.eq("workspaceId", args.workspaceId).eq("feature", args.feature),
       )
       .unique();
-    if (row) await ctx.db.delete(row._id);
+    if (!row) return null;
+    await ctx.db.delete(row._id);
+    await record(ctx, {
+      workspaceId: args.workspaceId,
+      actorId: session._id,
+      actorKind: "operator",
+      action: "entitlement.clear",
+      subjectKind: "workspace",
+      subjectId: args.workspaceId,
+      meta: { feature: args.feature },
+    });
     return null;
   },
 });

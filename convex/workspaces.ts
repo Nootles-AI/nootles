@@ -14,6 +14,7 @@ import {
   verifiedEmail,
   workspaceRole,
 } from "./auth";
+import { record, recordByCaller } from "./audit";
 import { isPersonalDomain } from "./joinDomains";
 import { pageSummary, withoutLinks } from "./projects";
 import { workspaceSettings } from "./schema";
@@ -129,6 +130,14 @@ export const create = mutation({
       status: "active",
       joinedAt: now,
     });
+    await record(ctx, {
+      workspaceId,
+      actorId: me,
+      action: "workspace.create",
+      subjectKind: "workspace",
+      subjectId: workspaceId,
+      meta: { name, slug },
+    });
     return { workspaceId, slug };
   },
 });
@@ -193,8 +202,16 @@ export const listMine = query({
 export const rename = mutation({
   args: { workspaceId: v.id("workspaces"), name: v.string() },
   handler: async (ctx, args) => {
-    await requireWorkspaceRole(ctx, args.workspaceId, "admin");
-    await ctx.db.patch(args.workspaceId, { name: cleanName(args.name) });
+    const { workspace } = await requireWorkspaceRole(ctx, args.workspaceId, "admin");
+    const name = cleanName(args.name);
+    if (name === workspace.name) return null;
+    await ctx.db.patch(args.workspaceId, { name });
+    await recordByCaller(ctx, workspace._id, {
+      action: "workspace.rename",
+      subjectKind: "workspace",
+      subjectId: workspace._id,
+      meta: { from: workspace.name, to: name },
+    });
     return null;
   },
 });
@@ -215,6 +232,12 @@ export const setSlug = mutation({
     if (row) await ctx.db.patch(row._id, { retiredAt: undefined });
     else await ctx.db.insert("workspaceSlugs", { slug, workspaceId: workspace._id });
     await ctx.db.patch(workspace._id, { slug });
+    await recordByCaller(ctx, workspace._id, {
+      action: "workspace.slug",
+      subjectKind: "workspace",
+      subjectId: workspace._id,
+      meta: { from: workspace.slug, to: slug },
+    });
     return { slug };
   },
 });
@@ -281,9 +304,40 @@ export const updateSettings = mutation({
     }
 
     await ctx.db.patch(workspace._id, { settings });
+    await recordSettings(ctx, workspace, settings);
     return null;
   },
 });
+
+type Settings = Doc<"workspaces">["settings"];
+
+/** A setting as the log shows it: a list joined, absent as null. */
+function settingValue(value: Settings[keyof Settings]): string | number | boolean | null {
+  if (value === undefined) return null;
+  return Array.isArray(value) ? value.join(", ") : value;
+}
+
+/**
+ * One event per setting that changed, so each reads as its own sentence —
+ * "turned link sharing off", "allowed personal GitHub connections".
+ */
+export async function recordSettings(
+  ctx: MutationCtx,
+  workspace: Doc<"workspaces">,
+  after: Settings,
+) {
+  for (const key of Object.keys(after) as (keyof Settings)[]) {
+    const from = settingValue(workspace.settings[key]);
+    const to = settingValue(after[key]);
+    if (from === to) continue;
+    await recordByCaller(ctx, workspace._id, {
+      action: "workspace.settings",
+      subjectKind: "workspace",
+      subjectId: workspace._id,
+      meta: { setting: key, from, to },
+    });
+  }
+}
 
 /** Keeps the domain lookup table equal to `settings.joinDomains`. */
 async function syncDomains(
@@ -354,6 +408,18 @@ export const remove = mutation({
 
     await syncDomains(ctx, workspaceId, []);
     await scheduleSeatSync(ctx, workspaceId);
+    await record(ctx, {
+      workspaceId,
+      actorId: membership.userId,
+      action: "workspace.delete",
+      subjectKind: "workspace",
+      subjectId: workspaceId,
+      meta: {
+        name: (await ctx.db.get(workspaceId))?.name,
+        projects: projects.filter((p) => !isTrashed(p)).length,
+        members: seats.length,
+      },
+    });
     return null;
   },
 });

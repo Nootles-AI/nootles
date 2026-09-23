@@ -11,6 +11,7 @@ import {
   type QueryCtx,
 } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
+import { record } from "./audit";
 import { atLeast, requireWorkspaceRole, workspaceRole, type WorkspaceRole } from "./auth";
 import { isLiveStatus, workspaceStanding, workspaceSubscriptionLive } from "./entitlements";
 
@@ -397,6 +398,18 @@ export const applyMirror = internalMutation({
           cancelAtPeriodEnd: undefined,
         };
     const existing = await billingOf(ctx, workspaceId);
+    const was = existing?.status ?? NO_SUBSCRIPTION;
+    if (was !== fields.status) {
+      await record(ctx, {
+        workspaceId,
+        actorId: "stripe",
+        actorKind: "system",
+        action: "billing.subscription",
+        subjectKind: "workspace",
+        subjectId: workspaceId,
+        meta: { from: was, to: fields.status, seats: subscription?.seats },
+      });
+    }
     if (existing) {
       await ctx.db.patch(existing._id, { ...fields, updatedAt: now });
     } else {
@@ -514,6 +527,17 @@ export const recordSeats = internalMutation({
   handler: async (ctx, { workspaceId, seats }) => {
     const billing = await billingOf(ctx, workspaceId);
     if (!billing) return null;
+    if (billing.seats !== seats) {
+      await record(ctx, {
+        workspaceId,
+        actorId: "stripe",
+        actorKind: "system",
+        action: "billing.seats",
+        subjectKind: "workspace",
+        subjectId: workspaceId,
+        meta: { from: billing.seats, to: seats },
+      });
+    }
     await ctx.db.patch(billing._id, {
       seats,
       aiAllowanceUsd: seats * allowancePerSeatUsd(),

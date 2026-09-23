@@ -21,6 +21,7 @@ import {
   roleForProject,
   seatRole,
 } from "./auth";
+import { recordInProject } from "./audit";
 import { ensureArrivalProfile, personOf } from "./profiles";
 
 /**
@@ -125,6 +126,14 @@ export const setLink = mutation({
         [fields.token]: undefined,
         [fields.expiresAt]: undefined,
       });
+      if (project[fields.token]) {
+        await recordInProject(ctx, project, {
+          action: "share.link.off",
+          subjectKind: "project",
+          subjectId: project._id,
+          meta: { role: args.role },
+        });
+      }
       return null;
     }
     if (!(await linksOpen(ctx, project))) {
@@ -144,6 +153,12 @@ export const setLink = mutation({
       await ctx.db.patch(args.projectId, {
         [fields.token]: token,
         [fields.expiresAt]: expiresAt,
+      });
+      await recordInProject(ctx, project, {
+        action: live ? "share.link.expiry" : "share.link.on",
+        subjectKind: "project",
+        subjectId: project._id,
+        meta: { role: args.role, expiresAt: expiresAt ?? null },
       });
     }
     await carryExpiry(ctx, args.projectId, args.role, expiresAt, now);
@@ -271,6 +286,13 @@ export const claim = mutation({
     if (await containerRole(ctx, found.project, me)) return found.project._id;
     const expiresAt = found.project[LINK_FIELDS[found.role].expiresAt];
     const existing = await claimOf(ctx, found.project._id, me);
+    const logClaim = () =>
+      recordInProject(ctx, found.project, {
+        action: "share.claim",
+        subjectKind: "user",
+        subjectId: me,
+        meta: { role: found.role, renewed: !!existing },
+      });
     if (!existing) {
       await ctx.db.insert("shareClaims", {
         projectId: found.project._id,
@@ -279,10 +301,13 @@ export const claim = mutation({
         ...(expiresAt !== undefined ? { expiresAt } : {}),
         createdAt: now,
       });
+      await logClaim();
     } else {
       const lapsed = existing.expiresAt !== undefined && existing.expiresAt <= now;
       if (lapsed || existing.role === found.role || found.role === "editor") {
         await ctx.db.patch(existing._id, { role: found.role, expiresAt });
+        // Visiting again is not news; coming back after running out, or up to the pen, is.
+        if (lapsed || existing.role !== found.role) await logClaim();
       }
     }
     return found.project._id;
@@ -352,9 +377,17 @@ export const collaborators = query({
 export const revokeClaim = mutation({
   args: { projectId: v.id("projects"), granteeId: v.string() },
   handler: async (ctx, args) => {
-    await requireManageable(ctx, "projects", args.projectId);
+    const project = await requireManageable(ctx, "projects", args.projectId);
     const claim = await claimOf(ctx, args.projectId, args.granteeId);
-    if (claim) await ctx.db.delete(claim._id);
+    if (claim) {
+      await ctx.db.delete(claim._id);
+      await recordInProject(ctx, project, {
+        action: "share.claim.revoke",
+        subjectKind: "user",
+        subjectId: args.granteeId,
+        meta: { role: claim.grantedRole ?? claim.role },
+      });
+    }
     const request = await ctx.db
       .query("accessRequests")
       .withIndex("by_project_and_requester", (q) =>
@@ -382,7 +415,13 @@ export const setCodeAccess = mutation({
       const refusal = await codeGrantRefusal(ctx, project, args.granteeId);
       if (refusal) throw new ConvexError(refusal);
     }
+    if ((claim.codeAccess === true) === args.allowed) return null;
     await ctx.db.patch(claim._id, { codeAccess: args.allowed ? true : undefined });
+    await recordInProject(ctx, project, {
+      action: args.allowed ? "share.code.grant" : "share.code.revoke",
+      subjectKind: "user",
+      subjectId: args.granteeId,
+    });
     return null;
   },
 });
@@ -540,7 +579,7 @@ export const decideRequest = mutation({
   handler: async (ctx, args) => {
     const request = await ctx.db.get(args.requestId);
     if (!request) throw new Error("Not found");
-    await requireManageable(ctx, "projects", request.projectId);
+    const project = await requireManageable(ctx, "projects", request.projectId);
 
     if (args.grant) {
       const claim = await ctx.db
@@ -555,6 +594,11 @@ export const decideRequest = mutation({
     await ctx.db.patch(args.requestId, {
       status: args.grant ? "granted" : "denied",
       decidedAt: Date.now(),
+    });
+    await recordInProject(ctx, project, {
+      action: args.grant ? "share.request.grant" : "share.request.deny",
+      subjectKind: "user",
+      subjectId: request.requesterId,
     });
     return null;
   },

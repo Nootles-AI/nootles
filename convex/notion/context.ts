@@ -9,6 +9,7 @@ import {
   type MutationCtx,
 } from "../_generated/server";
 import { readManageable, requireManageable, requireOwner } from "../auth";
+import { recordInProject } from "../audit";
 import { removeDocument, upsertDocument } from "../context/documents";
 
 /**
@@ -57,6 +58,7 @@ export async function linkPages(
 ) {
   const now = Date.now();
   const seen = new Set<string>();
+  const project = (await ctx.db.get(projectId))!;
   for (const page of pages) {
     if (seen.has(page.pageId)) continue;
     seen.add(page.pageId);
@@ -78,13 +80,26 @@ export async function linkPages(
       addedAt: now,
     });
     await ctx.scheduler.runAfter(0, internal.notion.contextRead.run, { rowId });
+    await recordInProject(
+      ctx,
+      project,
+      { action: "notion.link", subjectKind: "notion", subjectId: rowId, meta: { page: page.title } },
+      ownerId,
+    );
   }
 }
 
 export const unlink = mutation({
   args: { rowId: v.id("projectNotion") },
   handler: async (ctx, args) => {
-    await unlinkPage(ctx, await requireManageable(ctx, "projectNotion", args.rowId));
+    const row = await requireManageable(ctx, "projectNotion", args.rowId);
+    await unlinkPage(ctx, row);
+    await recordInProject(ctx, (await ctx.db.get(row.projectId))!, {
+      action: "notion.unlink",
+      subjectKind: "notion",
+      subjectId: row._id,
+      meta: { page: row.title },
+    });
   },
 });
 

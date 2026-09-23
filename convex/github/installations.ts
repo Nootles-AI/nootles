@@ -8,6 +8,7 @@ import {
   type QueryCtx,
 } from "../_generated/server";
 import { isTrashed, requireGithubCodeSeat, requireWorkspaceRole } from "../auth";
+import { record as audit } from "../audit";
 import { memberRole } from "../schema";
 import { unlinkRepo } from "./repos";
 
@@ -178,6 +179,19 @@ export const record = internalMutation({
     };
     const suspendedAt = args.suspended ? now : undefined;
     const existing = await installationIn(ctx, args.workspaceId, args.installationId);
+    await audit(ctx, {
+      workspaceId: args.workspaceId,
+      actorId: membership.userId,
+      action: "github.installation.record",
+      subjectKind: "githubInstallation",
+      subjectId: String(args.installationId),
+      meta: {
+        account: args.accountLogin,
+        repositories: args.repositorySelection,
+        suspended: args.suspended,
+        reinstalled: !!existing,
+      },
+    });
     if (existing) {
       await ctx.db.patch(existing._id, {
         ...facts,
@@ -273,19 +287,47 @@ export const onInstallation = internalMutation({
       .query("githubInstallations")
       .withIndex("by_installation", (q) => q.eq("installationId", args.installationId))
       .collect();
-    for (const row of rows) {
-      if (args.action === "deleted") {
-        if (row.removedAt === undefined) await ctx.db.patch(row._id, { removedAt: now, token: undefined });
-      } else if (args.action === "suspend") {
-        if (row.suspendedAt === undefined) await ctx.db.patch(row._id, { suspendedAt: now, token: undefined });
-      } else if (row.suspendedAt !== undefined) {
-        await ctx.db.patch(row._id, { suspendedAt: undefined });
-      }
-    }
+    const unlinked = new Map<Id<"workspaces">, number>();
     if (args.action === "deleted") {
       for (const repo of await linkedThrough(ctx, args.installationId)) {
         await unlinkRepo(ctx, repo._id);
+        const workspaceId = (await ctx.db.get(repo.projectId))?.workspaceId;
+        if (workspaceId) unlinked.set(workspaceId, (unlinked.get(workspaceId) ?? 0) + 1);
       }
+    }
+    for (const row of rows) {
+      let changed = false;
+      if (args.action === "deleted") {
+        if (row.removedAt === undefined) {
+          await ctx.db.patch(row._id, { removedAt: now, token: undefined });
+          changed = true;
+        }
+      } else if (args.action === "suspend") {
+        if (row.suspendedAt === undefined) {
+          await ctx.db.patch(row._id, { suspendedAt: now, token: undefined });
+          changed = true;
+        }
+      } else if (row.suspendedAt !== undefined) {
+        await ctx.db.patch(row._id, { suspendedAt: undefined });
+        changed = true;
+      }
+      if (!changed) continue;
+      await audit(ctx, {
+        workspaceId: row.workspaceId,
+        actorId: "github",
+        actorKind: "system",
+        action: {
+          deleted: "github.installation.remove",
+          suspend: "github.installation.suspend",
+          unsuspend: "github.installation.unsuspend",
+        }[args.action],
+        subjectKind: "githubInstallation",
+        subjectId: String(args.installationId),
+        meta: {
+          account: row.accountLogin,
+          ...(args.action === "deleted" ? { unlinked: unlinked.get(row.workspaceId) ?? 0 } : {}),
+        },
+      });
     }
   },
 });
@@ -301,6 +343,22 @@ export const onRepositories = internalMutation({
     for (const fullName of args.removed) {
       for (const repo of await linkedThrough(ctx, args.installationId, fullName)) {
         await unlinkRepo(ctx, repo._id);
+        const project = await ctx.db.get(repo.projectId);
+        if (!project?.workspaceId) continue;
+        await audit(ctx, {
+          workspaceId: project.workspaceId,
+          actorId: "github",
+          actorKind: "system",
+          action: "repo.unlink",
+          subjectKind: "repo",
+          subjectId: repo._id,
+          meta: {
+            repo: repo.fullName,
+            projectId: project._id,
+            project: project.title,
+            reason: "removed from the GitHub App",
+          },
+        });
       }
     }
     if (!args.selection) return;

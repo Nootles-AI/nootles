@@ -16,6 +16,7 @@ import {
   workspaceRole,
   type WorkspaceRole,
 } from "./auth";
+import { record } from "./audit";
 import { unlinkRepo } from "./github/repos";
 import { unlinkPage } from "./notion/context";
 import { ensureArrivalProfile, personOf } from "./profiles";
@@ -344,8 +345,18 @@ export const invite = mutation({
       createdAt: now,
       expiresAt: now + INVITATION_DAYS * DAY_MS,
     };
+    const logInvite = (invitationId: Id<"invitations">) =>
+      record(ctx, {
+        workspaceId: args.workspaceId,
+        actorId: membership.userId,
+        action: "member.invite",
+        subjectKind: "invitation",
+        subjectId: invitationId,
+        meta: { email, role: args.role, renewed: !!open },
+      });
     if (open) {
       await ctx.db.patch(open._id, fields);
+      await logInvite(open._id);
       return {
         invitationId: open._id,
         token,
@@ -358,6 +369,7 @@ export const invite = mutation({
       email,
       ...fields,
     });
+    await logInvite(invitationId);
     return { invitationId, token, expiresAt: fields.expiresAt, replaced: false };
   },
 });
@@ -376,6 +388,14 @@ export const revokeInvite = mutation({
     }
     if (invitation.revokedAt === undefined) {
       await ctx.db.patch(invitation._id, { revokedAt: Date.now() });
+      await record(ctx, {
+        workspaceId: invitation.workspaceId,
+        actorId: membership.userId,
+        action: "member.invite.revoke",
+        subjectKind: "invitation",
+        subjectId: invitation._id,
+        meta: { email: invitation.email, role: invitation.role },
+      });
     }
     return null;
   },
@@ -480,6 +500,22 @@ export const acceptInvite = mutation({
 
     await giveSeat(ctx, seat, workspace._id, me, role, invitation.invitedBy);
     await ctx.db.patch(invitation._id, { acceptedAt: Date.now(), acceptedBy: me });
+    if (seat?.status !== "active") {
+      await record(ctx, {
+        workspaceId: workspace._id,
+        actorId: me,
+        action: "member.join",
+        subjectKind: "user",
+        subjectId: me,
+        meta: {
+          via: "invitation",
+          role,
+          email: invitation.email,
+          invitedBy: invitation.invitedBy,
+          invitationId: invitation._id,
+        },
+      });
+    }
     await ensureArrivalProfile(ctx, me);
     return arrival(workspace, seat, role);
   },
@@ -558,7 +594,17 @@ export const joinByDomain = mutation({
     const seat = await seatOf(ctx, args.workspaceId, me);
     const role = workspace && domainSeat(workspace, email, seat);
     if (!workspace || !email || !role) throw new Error("Not found");
-    if (seat?.status !== "active") await giveSeat(ctx, seat, workspace._id, me, role);
+    if (seat?.status !== "active") {
+      await giveSeat(ctx, seat, workspace._id, me, role);
+      await record(ctx, {
+        workspaceId: workspace._id,
+        actorId: me,
+        action: "member.join",
+        subjectKind: "user",
+        subjectId: me,
+        meta: { via: "domain", role, email },
+      });
+    }
 
     const invitations = await ctx.db
       .query("invitations")
@@ -599,6 +645,14 @@ export const setRole = mutation({
       throw new ConvexError("A workspace needs an owner. Make someone else an owner first.");
     }
     await ctx.db.patch(target._id, { role: args.role });
+    await record(ctx, {
+      workspaceId: args.workspaceId,
+      actorId: membership.userId,
+      action: "member.role",
+      subjectKind: "user",
+      subjectId: target.userId,
+      meta: { from: target.role, to: args.role },
+    });
     await withdrawSent(ctx, args.workspaceId, target.userId, args.role);
     await scheduleSeatSync(ctx, args.workspaceId);
     return null;
@@ -623,6 +677,14 @@ export const remove = mutation({
       throw new ConvexError("Only a workspace owner can remove an admin or an owner.");
     }
     await unseat(ctx, target, membership.userId, membership.userId);
+    await record(ctx, {
+      workspaceId: args.workspaceId,
+      actorId: membership.userId,
+      action: "member.remove",
+      subjectKind: "user",
+      subjectId: target.userId,
+      meta: { role: target.role },
+    });
     return null;
   },
 });
@@ -645,6 +707,14 @@ export const leave = mutation({
       );
     }
     await unseat(ctx, membership, membership.userId, heir.userId);
+    await record(ctx, {
+      workspaceId: args.workspaceId,
+      actorId: membership.userId,
+      action: "member.leave",
+      subjectKind: "user",
+      subjectId: membership.userId,
+      meta: { role: membership.role, heir: heir.userId },
+    });
     return null;
   },
 });
