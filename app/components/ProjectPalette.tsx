@@ -17,7 +17,18 @@ import { pages, when } from "@/app/lib/projectMeta";
 import { projectPath } from "@/app/lib/containerPaths";
 import { Dialog } from "./Dialog";
 import { PROJECT_TEMPLATES, pagePicture, type ProjectTemplate } from "@/app/lib/templates";
-import { ChevronRight, FileDoc, Folder, Plus, Sparkles, Template } from "./Icons";
+import {
+  Check,
+  ChevronRight,
+  ChevronsUpDown,
+  FileDoc,
+  Folder,
+  Plus,
+  Sparkles,
+  Template,
+} from "./Icons";
+import { Menu, MenuItem } from "./Menu";
+import { Segmented } from "./Segmented";
 import { useNewProjectDraft, type NewProject, type ProjectHome } from "./newProjectDraft";
 import { slugOf, useContainer } from "./workspaces/ContainerContext";
 import { NotionMark } from "./NotionMark";
@@ -706,8 +717,14 @@ function DetailsForm({
 }) {
   const {
     title, setTitle, description, setDescription, sources, setSources,
-    busy, failure, named, submit,
+    workspace, setWorkspace, busy, failure, named, submit,
   } = draft;
+  // Where it can go: your own projects, and every workspace you make things
+  // in. Only asked of someone who has one — for everyone else the form is
+  // exactly what it always was.
+  const seats = useQuery(api.workspaces.listMine);
+  const places = seats?.filter((w) => w.role !== "guest") ?? [];
+  const chosen = workspace && places.find((w) => w.workspaceId === workspace.workspaceId);
 
   return (
     <form className="nt-pal-form" onSubmit={submit}>
@@ -725,9 +742,106 @@ function DetailsForm({
         />
       </label>
 
-      {/* The rest is one thing — what the assistant is told — and reads as one
-          group: keys down the left, answers down the right. */}
+      {/* The rest reads as one group, keys down the left and answers down the
+          right: where it lives, when there is a choice, and then what the
+          assistant is told. */}
       <div className="nt-pal-fields">
+        {places.length > 0 && (
+          <div className="nt-pal-fld">
+            <span id="nt-pal-in-key" className="nt-pal-key">
+              In
+            </span>
+            <div className="min-w-0">
+              <Menu
+                label="Where the project goes"
+                side="bottom"
+                align="start"
+                layer="modal"
+                trigger={(t) => (
+                  <button
+                    {...t}
+                    type="button"
+                    id="nt-pal-in"
+                    aria-labelledby="nt-pal-in-key nt-pal-in"
+                    className="nt-row -ml-2 max-w-full gap-1.5 px-2 text-[15px] text-foreground"
+                  >
+                    <span className="truncate">{chosen ? chosen.name : "My Nootles"}</span>
+                    <ChevronsUpDown width={14} height={14} className="shrink-0 text-muted" />
+                  </button>
+                )}
+              >
+                {(close) => (
+                  <>
+                    <MenuItem
+                      onClick={() => {
+                        setWorkspace(undefined);
+                        close();
+                      }}
+                    >
+                      My Nootles
+                      <Check
+                        width={14}
+                        height={14}
+                        aria-hidden="true"
+                        className={`nt-menu-check${chosen ? "" : " is-on"}`}
+                      />
+                    </MenuItem>
+                    {places.map((w) => (
+                      <MenuItem
+                        key={w.workspaceId}
+                        onClick={() => {
+                          setWorkspace({
+                            workspaceId: w.workspaceId,
+                            slug: w.slug,
+                            visibility: workspace?.visibility ?? "workspace",
+                          });
+                          close();
+                        }}
+                      >
+                        <span className="min-w-0 truncate">{w.name}</span>
+                        <Check
+                          width={14}
+                          height={14}
+                          aria-hidden="true"
+                          className={`nt-menu-check${
+                            chosen?.workspaceId === w.workspaceId ? " is-on" : ""
+                          }`}
+                        />
+                      </MenuItem>
+                    ))}
+                  </>
+                )}
+              </Menu>
+              {/* Moving a project between them is not something Nootles does,
+                  so the choice is said to be for good before it is made. */}
+              <p className="text-[12px] text-muted">A project stays where it’s made.</p>
+            </div>
+          </div>
+        )}
+        {chosen && workspace && (
+          <div className="nt-pal-fld">
+            <span className="nt-pal-key">Visible to</span>
+            <div className="min-w-0 pt-1">
+              <Segmented
+                label="Who sees it"
+                segments={[
+                  {
+                    id: "workspace",
+                    label: `Everyone in ${chosen.name}`,
+                    hint: `Everyone in ${chosen.name} can find it and edit it`,
+                  },
+                  {
+                    id: "private",
+                    label: "Only me",
+                    hint: `Only you and ${chosen.name}’s admins can open it`,
+                  },
+                ]}
+                value={workspace.visibility}
+                onChange={(visibility) => setWorkspace({ ...workspace, visibility })}
+              />
+            </div>
+          </div>
+        )}
         <label className="nt-pal-fld">
           <span className="nt-pal-key">Description</span>
           <input
