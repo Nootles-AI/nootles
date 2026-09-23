@@ -194,6 +194,9 @@ export function ProjectsScreen() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (busy || e.altKey) return;
+      // The dialogs this screen does not hold itself (New workspace, Invite)
+      // are known by where the key was pressed.
+      if (!finding && e.target instanceof Element && e.target.closest("[role='dialog']")) return;
       const key = e.key.toLowerCase();
       const mod = e.metaKey || e.ctrlKey;
       if (key === "k" && mod) {

@@ -10,6 +10,7 @@ import type { WorkspaceRole } from "@/convex/auth";
 import { homePath, joinPath, settingsPath } from "@/app/lib/containerPaths";
 import { Check, ChevronsUpDown, Plus, Settings } from "../Icons";
 import { Menu, MenuItem, MenuLink } from "../Menu";
+import { useStandIn } from "../StandIn";
 import { useContainer } from "./ContainerContext";
 import { NewWorkspace } from "./NewWorkspace";
 import "./workspaces.css";
@@ -40,9 +41,11 @@ export function ContainerSwitcher({ onProblem }: { onProblem: (text: string) => 
   const here = useContainer();
   const { user } = useUser();
   const { isAuthenticated } = useConvexAuth();
+  const standIn = useStandIn();
   const ask = isAuthenticated ? {} : "skip";
   const workspaces = useQuery(api.workspaces.listMine, ask);
-  const doors = useQuery(api.members.joinable, ask);
+  // Walking through one is a write, which an operator standing in is refused.
+  const doors = useQuery(api.members.joinable, isAuthenticated && !standIn ? {} : "skip");
   const canCreate = useQuery(api.workspaces.canCreate, ask);
   const joinByDomain = useMutation(api.members.joinByDomain);
   const [making, setMaking] = useState(false);
