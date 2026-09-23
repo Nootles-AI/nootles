@@ -785,16 +785,22 @@
   }
 }
 
-/* ---- Integrations ------------------------------------------------------------
-   Nothing installed is the pickers' connect art, in the settings card: the
-   card clips the art's dotted field to its own corners, and the art keeps the
-   room it has in the palette. */
+/* ---- Integrations ------------------------------------------------------------ */
 
-.nt-ws-gh-install {
-  overflow: hidden;
+/* What the deployment lacks, for whoever runs it: a list of names that wraps
+   between them rather than running off the card. */
+.nt-set-meta.nt-ws-gh-missing {
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
-.nt-ws-gh-install > .nt-nc {
-  padding: 32px 24px 28px;
+
+/* The proof row folds in and out with the rule, its edge with it: the list's
+   own rule between rows would be left standing on a shut fold. */
+.nt-set-list > li.nt-ws-gh-proof {
+  border-top: 0;
+}
+.nt-ws-gh-proof-row {
+  border-top: 1px solid var(--border);
 }
 
 /* An installation's account, drawn as GitHub draws it: a person round, an

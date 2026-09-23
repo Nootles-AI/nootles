@@ -1,12 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { atLeast } from "@/convex/auth";
 import type { InstallFailure } from "@/app/api/github/app/flow";
-import { Brandmark } from "../../Brand";
 import { Check, ChevronsUpDown, Lock, Person, X } from "../../Icons";
 import { Menu, MenuItem } from "../../Menu";
 import { Segmented, type Segment } from "../../Segmented";
@@ -16,9 +16,11 @@ import { useOrgProof } from "../../context/useOrgProof";
 import { installPath } from "../../context/useGitHubDoor";
 import { useContainer, type WorkspaceContainer } from "../ContainerContext";
 import { refusal } from "../refusal";
+import { ConfirmBox } from "./Confirm";
 
 type Status = NonNullable<ReturnType<typeof useQuery<typeof api.github.app.status>>>;
 type Installation = Status["installations"][number];
+type Line = { text: string; problem: boolean };
 
 const WHEN = new Intl.DateTimeFormat(undefined, { day: "numeric", month: "short", year: "numeric" });
 
@@ -29,36 +31,27 @@ const WHEN = new Intl.DateTimeFormat(undefined, { day: "numeric", month: "short"
  * code (docs/github-app.md).
  *
  * Everyone here sees what is installed; only owners and admins change it.
- * `installable` is whether the web app knows the App's name to send an admin
- * to — the other half of "set up on this deployment", which Convex answers.
  */
-export function IntegrationsSettings({ installable }: { installable: boolean }) {
+export function IntegrationsSettings() {
   const container = useContainer();
   if (container.kind !== "workspace") return null;
-  return <Integrations workspace={container} installable={installable} />;
+  return <Integrations workspace={container} />;
 }
 
-function Integrations({ workspace, installable }: { workspace: WorkspaceContainer; installable: boolean }) {
+function Integrations({ workspace }: { workspace: WorkspaceContainer }) {
   const status = useQuery(api.github.app.status, { workspaceId: workspace.workspaceId });
   const standIn = useStandIn();
   const outcome = useInstallOutcome();
 
-  if (status === undefined) {
-    return (
-      <section className="nt-set-section" aria-labelledby="nt-ws-github" aria-busy="true">
-        <h2 id="nt-ws-github" className="nt-set-label">
-          GitHub
-        </h2>
-      </section>
-    );
-  }
+  if (status === undefined) return <Loading code={!standIn && atLeast(workspace.role, "admin")} />;
   if (!status) return null;
 
   const edits = status.canManage && !standIn;
-  const ready = status.ready && installable;
   // An uninstalled installation is history; a suspended one is still the
   // workspace's, and says so on its row.
   const live = status.installations.filter((i) => i.removedAt === undefined);
+  // How the install ended, said in the row it is about.
+  const said = outcome.line && <Outcome line={outcome.line} onDismiss={outcome.dismiss} />;
 
   return (
     <>
@@ -66,8 +59,8 @@ function Integrations({ workspace, installable }: { workspace: WorkspaceContaine
         <h2 id="nt-ws-github" className="nt-set-label">
           GitHub
         </h2>
-        {!ready ? (
-          <ul className="nt-set-list">
+        <ul className="nt-set-list">
+          {!status.ready ? (
             <li>
               <div className="nt-set-row">
                 <span className="nt-set-glyph">
@@ -76,60 +69,50 @@ function Integrations({ workspace, installable }: { workspace: WorkspaceContaine
                 <div className="nt-set-body-col">
                   <div className="nt-set-name">GitHub App</div>
                   <p className="nt-set-note">
-                    The GitHub App isn’t set up on this deployment, so repositories are linked
-                    with each person’s own GitHub connection.
+                    {status.allowPersonalTokens
+                      ? "Not available yet. Members link repositories with their own GitHub connection."
+                      : "Not available yet, so no project here can read code."}
                   </p>
-                  {edits && (
-                    <p className="nt-set-note">
-                      {status.blocker ||
-                        "The web app is missing GITHUB_APP_SLUG. See docs/github-app.md."}
-                    </p>
+                  {edits && status.missing.length > 0 && (
+                    <div className="nt-set-meta nt-ws-gh-missing">
+                      Missing {status.missing.join(", ")} · docs/github-app.md
+                    </div>
                   )}
+                  {said}
                 </div>
               </div>
             </li>
-          </ul>
-        ) : live.length === 0 ? (
-          <div className="nt-set-list nt-ws-gh-install">
-            <NotInstalled workspace={workspace} edits={edits} />
-          </div>
-        ) : (
-          <ul className="nt-set-list">
-            {live.map((installation) => (
-              <li key={installation._id}>
-                <InstallationRow installation={installation} edits={edits} />
-              </li>
-            ))}
-            {edits && (
-              <li>
-                <div className="nt-set-row">
-                  <span className="nt-set-glyph" />
-                  <div className="nt-set-body-col">
-                    <p className="nt-set-note">
-                      Code in another organisation or account needs the App installed there too.
-                    </p>
+          ) : live.length === 0 ? (
+            <li>
+              <NotInstalled workspace={workspace} edits={edits} said={said} />
+            </li>
+          ) : (
+            <>
+              {live.map((installation, i) => (
+                <li key={installation._id}>
+                  <InstallationRow installation={installation} edits={edits} said={i === 0 ? said : null} />
+                </li>
+              ))}
+              {edits && (
+                <li>
+                  <div className="nt-set-row">
+                    <span className="nt-set-glyph" />
+                    <div className="nt-set-body-col">
+                      <p className="nt-set-note">
+                        Code in another organisation or account needs the App installed there too.
+                      </p>
+                    </div>
+                    <div className="nt-set-actions">
+                      <a href={installPath(workspace.workspaceId)} className="nt-row px-2.5">
+                        Install on another account
+                      </a>
+                    </div>
                   </div>
-                  <div className="nt-set-actions">
-                    <a href={installPath(workspace.workspaceId)} className="nt-row px-2.5">
-                      Install on another account
-                    </a>
-                  </div>
-                </div>
-              </li>
-            )}
-          </ul>
-        )}
-        {outcome.line && (
-          <div
-            role={outcome.line.problem ? "alert" : "status"}
-            className={`nt-set-outcome mt-2 ${outcome.line.problem ? "nt-set-problem" : "nt-set-note"}`}
-          >
-            <span>{outcome.line.text}</span>
-            <button type="button" onClick={outcome.dismiss} aria-label="Dismiss" className="nt-icon-btn is-sm">
-              <X />
-            </button>
-          </div>
-        )}
+                </li>
+              )}
+            </>
+          )}
+        </ul>
       </section>
 
       {edits ? (
@@ -153,39 +136,103 @@ function Integrations({ workspace, installable }: { workspace: WorkspaceContaine
 }
 
 /**
- * Nothing installed: the connect art the source pickers show, with the one
- * press that installs it for an admin, and who to ask for anyone else.
+ * The page's shape while it is on its way: the GitHub card's one row, then,
+ * for whoever will be given it, the two rows of Code access — so nothing moves
+ * down when the answer arrives. Each bar sits in the line box of its text.
  */
-function NotInstalled({ workspace, edits }: { workspace: WorkspaceContainer; edits: boolean }) {
+function Loading({ code }: { code: boolean }) {
   return (
-    <div className="nt-nc">
-      <div className="nt-nc-art" aria-hidden="true">
-        <span className="nt-nc-tile">
-          <GitHubMark width={28} height={28} />
+    <>
+      <section className="nt-set-section" aria-busy="true" aria-label="GitHub">
+        <Bone bar="h-3.5 w-14" className="mb-2" />
+        <ul className="nt-set-list" aria-hidden="true">
+          <BoneRow />
+        </ul>
+      </section>
+      {code && (
+        <section className="nt-set-section" aria-hidden="true">
+          <Bone bar="h-3.5 w-24" className="mb-2" />
+          <ul className="nt-set-list">
+            <BoneRow />
+            <BoneRow />
+          </ul>
+        </section>
+      )}
+    </>
+  );
+}
+
+function BoneRow() {
+  return (
+    <li>
+      <div className="nt-set-row">
+        <span className="nt-set-glyph">
+          <span className="nt-skeleton h-5 w-5" />
         </span>
-        <span className="nt-nc-track" />
-        <span className="nt-nc-tile is-ours">
-          <Brandmark width={24} height={30} />
-        </span>
+        <div className="nt-set-body-col">
+          <div className="flex h-5 items-center">
+            <div className="nt-skeleton h-3.5 w-32" />
+          </div>
+          <Bone bar="h-3 w-48" className="mt-0.5" />
+        </div>
       </div>
-      <h3 className="nt-nc-title">Read {workspace.name}’s code into context</h3>
-      <p className="nt-nc-note">
-        The Nootles GitHub App reads only the repositories you choose for it, and never writes to
-        them. Members link those to projects without a GitHub connection of their own.
-      </p>
-      {edits ? (
-        <a href={installPath(workspace.workspaceId)} className="nt-nc-go">
-          <GitHubMark width={15} height={15} />
-          Install the Nootles GitHub App
-        </a>
-      ) : (
-        <p className="nt-note nt-nc-blocker">Ask an owner or an admin to install it.</p>
+    </li>
+  );
+}
+
+/** A bar in the line box of the 13px text it stands for. */
+function Bone({ bar, className = "" }: { bar: string; className?: string }) {
+  return (
+    <div className={`nt-ws-bone flex h-[19.5px] items-center ${className}`}>
+      <div className={`nt-skeleton ${bar}`} />
+    </div>
+  );
+}
+
+/** Nothing installed: what the App would read, and the press that installs it — or who to ask. */
+function NotInstalled({
+  workspace,
+  edits,
+  said,
+}: {
+  workspace: WorkspaceContainer;
+  edits: boolean;
+  said: ReactNode;
+}) {
+  return (
+    <div className="nt-set-row">
+      <span className="nt-set-glyph">
+        <GitHubMark />
+      </span>
+      <div className="nt-set-body-col">
+        <div className="nt-set-name">GitHub App</div>
+        <p className="nt-set-note">
+          {edits
+            ? `Not installed. It reads only the repositories you choose, and never writes to them, so members link ${workspace.name}’s code without a GitHub connection of their own.`
+            : "Not installed yet. Ask an owner or an admin to install it."}
+        </p>
+        {said}
+      </div>
+      {edits && (
+        <div className="nt-set-actions">
+          <a href={installPath(workspace.workspaceId)} className="nt-row nt-solid px-3 font-medium">
+            Install GitHub App
+          </a>
+        </div>
       )}
     </div>
   );
 }
 
-function InstallationRow({ installation, edits }: { installation: Installation; edits: boolean }) {
+function InstallationRow({
+  installation,
+  edits,
+  said,
+}: {
+  installation: Installation;
+  edits: boolean;
+  said: ReactNode;
+}) {
   const org = installation.accountType === "Organization";
   return (
     <div className="nt-set-row">
@@ -211,11 +258,50 @@ function InstallationRow({ installation, edits }: { installation: Installation; 
             </p>
           )
         )}
+        {said}
       </div>
-      <div className="nt-set-actions">
-        <a href={installation.manageUrl} target="_blank" rel="noreferrer" className="nt-row px-2.5">
-          Manage on GitHub
-        </a>
+      {/* GitHub opens an installation's settings to its account's owners only. */}
+      {edits && (
+        <div className="nt-set-actions">
+          <a href={installation.manageUrl} target="_blank" rel="noreferrer" className="nt-row px-2.5">
+            Manage on GitHub
+          </a>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The install's outcome line. Dismissed, it folds shut before it goes, so
+ * what is under it is moved rather than thrown.
+ */
+function Outcome({ line, onDismiss }: { line: Line; onDismiss: () => void }) {
+  const [leaving, setLeaving] = useState(false);
+  const leave = () => {
+    // Without motion no transition ends, so there is nothing to wait for.
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) onDismiss();
+    else setLeaving(true);
+  };
+  return (
+    <div
+      className="nt-ws-fold"
+      data-open={!leaving}
+      inert={leaving}
+      onTransitionEnd={(e) => {
+        if (leaving && e.target === e.currentTarget && e.propertyName === "grid-template-rows") onDismiss();
+      }}
+    >
+      <div className="nt-ws-fold-body">
+        <div
+          role={line.problem ? "alert" : "status"}
+          className={`nt-set-outcome ${line.problem ? "nt-set-problem" : "nt-set-note"}`}
+        >
+          <span>{line.text}</span>
+          <button type="button" onClick={leave} aria-label="Dismiss" className="nt-icon-btn is-sm">
+            <X />
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -253,8 +339,8 @@ const PERSONAL: readonly Segment<Switch>[] = [
 
 /**
  * For owners and admins: whether a member's own connection may stand in for
- * the App, and the organisation rule. Each moves on the press, and a refusal
- * puts it back.
+ * the App, and the organisation rule. Either one that takes code away from
+ * people asks first; giving it back is one press. A refusal puts it back.
  */
 function CodeAccess({
   workspace,
@@ -277,9 +363,14 @@ function CodeAccess({
     store.setQuery(api.github.app.status, args, { ...now, requireGithubOrg: org });
   });
   const [problem, setProblem] = useState<string | null>(null);
+  const [asking, setAsking] = useState<{ kind: "rule"; org: string } | { kind: "personal" } | null>(null);
 
   const personal = status.allowPersonalTokens;
   const rule = status.requireGithubOrg;
+  // Shut, the rule's folds go on drawing the organisation they last named.
+  const [drawnRule, setDrawnRule] = useState(rule);
+  if (rule && rule !== drawnRule) setDrawnRule(rule);
+  const named = rule ?? drawnRule;
   const orgs = status.installations
     .filter(
       (i) => i.accountType === "Organization" && i.removedAt === undefined && i.suspendedAt === undefined,
@@ -287,13 +378,15 @@ function CodeAccess({
     .map((i) => i.accountLogin);
 
   const fail = (error: unknown) => setProblem(refusal(error, "That didn’t save. Try again in a moment."));
-  const savePersonal = (on: boolean) => {
+  const choosePersonal = (on: boolean) => {
     setProblem(null);
-    update({ workspaceId: workspace.workspaceId, patch: { allowPersonalTokens: on } }).catch(fail);
+    if (!on) return setAsking({ kind: "personal" });
+    update({ workspaceId: workspace.workspaceId, patch: { allowPersonalTokens: true } }).catch(fail);
   };
-  const saveRule = (org: string | null) => {
+  const chooseRule = (org: string | null) => {
     setProblem(null);
-    setOrgRule({ workspaceId: workspace.workspaceId, org }).catch(fail);
+    if (org !== null) return setAsking({ kind: "rule", org });
+    setOrgRule({ workspaceId: workspace.workspaceId, org: null }).catch(fail);
   };
 
   return (
@@ -309,22 +402,23 @@ function CodeAccess({
             </span>
             <div className="nt-set-body-col">
               <div className="nt-set-name">Personal GitHub connections</div>
-              <p className="nt-set-note">
-                {personal
-                  ? installed
-                    ? "Members may still link a repository with their own connection where the App doesn’t reach. Turning this off keeps every project’s code in the App’s hands, and stops reading what was linked the other way."
-                    : "Members link repositories with their own GitHub connection. Installing the App is better: code keeps being read when whoever linked it leaves."
-                  : installed
-                    ? "Repositories are linked and read only through the GitHub App."
-                    : "Repositories are linked and read only through the GitHub App, which isn’t installed — so no project here reads code yet."}
-              </p>
+              <Said open={personal}>
+                {installed
+                  ? "Members can also link repositories the App doesn’t reach, using their own GitHub connection. Turn this off to read code only through the App; repositories linked with a personal connection stop being read."
+                  : "Members link repositories with their own GitHub connection. Installing the App is better: code keeps being read when whoever linked it leaves."}
+              </Said>
+              <Said open={!personal}>
+                {installed
+                  ? "Repositories are linked and read only through the GitHub App."
+                  : "Repositories are linked and read only through the GitHub App, which isn’t installed — so no project here reads code yet."}
+              </Said>
             </div>
             <div className="nt-set-actions">
               <Segmented
                 label="Personal GitHub connections"
                 segments={PERSONAL}
                 value={personal ? "on" : "off"}
-                onChange={(to) => savePersonal(to === "on")}
+                onChange={(to) => choosePersonal(to === "on")}
                 chosenSaidBelow
               />
             </div>
@@ -337,16 +431,14 @@ function CodeAccess({
             </span>
             <div className="nt-set-body-col">
               <div className="nt-set-name">Require GitHub organisation membership</div>
-              <p className="nt-set-note">
-                {rule
-                  ? `Everyone here — owners and admins too — reads code only after GitHub shows they’re in ${rule}. Each presses Verify GitHub membership in a project’s context, and again every two weeks; leaving ${rule} on GitHub takes their access away at once. Guests are covered by their own grant.`
-                  : orgs.length
-                    ? "Off: every member reads the code linked here. On, members must show GitHub lists them in the organisation you choose."
-                    : "Available once the App is installed on an organisation."}
-              </p>
-              {rule && (
-                <p className="nt-set-note">Choosing another organisation asks everyone to verify again.</p>
-              )}
+              <Said open={!!rule}>
+                {`Only people GitHub lists as members of ${named} can read this workspace’s code, owners and admins included. Each person verifies below or from a project’s context, and again every two weeks. Anyone who leaves ${named} loses access straight away. Guests keep the access their project grants them.`}
+              </Said>
+              <Said open={!rule}>
+                {orgs.length
+                  ? "Everyone in the workspace can read its linked code. Choose an organisation to limit it to that organisation’s members."
+                  : "Available once the App is installed on an organisation."}
+              </Said>
             </div>
             <div className="nt-set-actions">
               <Menu
@@ -371,7 +463,7 @@ function CodeAccess({
                       key={org ?? "off"}
                       onClick={() => {
                         close();
-                        if (org !== rule) saveRule(org);
+                        if (org !== rule) chooseRule(org);
                       }}
                     >
                       <span className="min-w-0 flex-1 truncate">{org ?? "Off"}</span>
@@ -388,9 +480,15 @@ function CodeAccess({
             </div>
           </div>
         </li>
-        {rule && (
-          <li>
-            <ProofRow workspaceId={workspace.workspaceId} org={rule} status={status} />
+        {named && (
+          <li className="nt-ws-gh-proof">
+            <div className="nt-ws-fold" data-open={!!rule} inert={!rule}>
+              <div className="nt-ws-fold-body">
+                <div className="nt-ws-gh-proof-row">
+                  <ProofRow workspaceId={workspace.workspaceId} org={named} status={status} />
+                </div>
+              </div>
+            </div>
           </li>
         )}
       </ul>
@@ -399,7 +497,55 @@ function CodeAccess({
           {problem}
         </p>
       )}
+
+      {asking?.kind === "rule" && (
+        <ConfirmBox
+          label="Require GitHub organisation membership"
+          question={`Require membership of ${asking.org}?`}
+          action="Require membership"
+          busyAction="Saving…"
+          onConfirm={async () => {
+            await setOrgRule({ workspaceId: workspace.workspaceId, org: asking.org });
+            setAsking(null);
+          }}
+          onClose={() => setAsking(null)}
+        >
+          Everyone in {workspace.name}, you included, stops reading its code until GitHub shows
+          they’re in {asking.org}. You can verify straight after, on this page.
+          {rule && ` Everyone verified for ${rule} verifies again.`}
+        </ConfirmBox>
+      )}
+      {asking?.kind === "personal" && (
+        <ConfirmBox
+          label="Turn off personal GitHub connections"
+          question="Turn off personal GitHub connections?"
+          action="Turn off"
+          busyAction="Turning off…"
+          onConfirm={async () => {
+            await update({ workspaceId: workspace.workspaceId, patch: { allowPersonalTokens: false } });
+            setAsking(null);
+          }}
+          onClose={() => setAsking(null)}
+        >
+          Repositories members linked with their own connection stop being read in every project.
+          {!installed && " No project here will read code until the GitHub App is installed."}
+        </ConfirmBox>
+      )}
     </section>
+  );
+}
+
+/**
+ * One of a row's two sentences, folded open while it is the true one: the
+ * other shuts as it opens, so the card changes height once, over time.
+ */
+function Said({ open, children }: { open: boolean; children: ReactNode }) {
+  return (
+    <div className="nt-ws-fold" data-open={open} inert={!open}>
+      <div className="nt-ws-fold-body">
+        <p className="nt-set-note">{children}</p>
+      </div>
+    </div>
   );
 }
 
@@ -469,7 +615,13 @@ const FAILED: Record<InstallFailure, string> = {
   no_code:
     "GitHub came back without authorising Nootles. The App must request user authorisation during installation (docs/github-app.md).",
   no_installation: "GitHub came back without an installation. Try again.",
-  verify: "GitHub didn’t confirm you can reach that installation, so it wasn’t added. Try again.",
+  verify: "GitHub didn’t confirm you can reach that installation. Try installing again.",
+  unconfigured: "the GitHub App isn’t fully set up on this deployment.",
+  unauthorised: "GitHub didn’t accept the authorisation it asked you for. Try installing again.",
+  unreachable: "GitHub doesn’t list that installation among the ones you can reach.",
+  not_owner:
+    "only an owner of that organisation on GitHub can add it. Ask one of them to install it from here.",
+  not_holder: "only the person whose GitHub account it is can add it.",
 };
 
 /**
@@ -477,7 +629,7 @@ const FAILED: Record<InstallFailure, string> = {
  * route sent the browser back to (`?github=`), and the address cleaned at
  * once so a reload does not report it again — `useNotionOutcome`'s way.
  */
-function useInstallOutcome() {
+function useInstallOutcome(): { line: Line | null; dismiss: () => void } {
   const params = useSearchParams();
   const pathname = usePathname();
   const router = useRouter();
@@ -501,7 +653,7 @@ function useInstallOutcome() {
   return { line: held && describe(held.outcome, held.reason), dismiss };
 }
 
-function describe(outcome: InstallOutcome, reason: string | null): { text: string; problem: boolean } {
+function describe(outcome: InstallOutcome, reason: string | null): Line {
   switch (outcome) {
     case "installed":
       return { text: "The GitHub App is installed.", problem: false };
