@@ -146,3 +146,41 @@ describe("projects.home", () => {
     expect(await homeOf(t, MEMBER, workspaceId)).toBeNull();
   });
 });
+
+describe("projects.pausedBy", () => {
+  const pause = (t: T, workspaceId: Doc<"workspaces">["_id"]) =>
+    t.run(async (ctx) => {
+      const workspace = await ctx.db.get(workspaceId);
+      await ctx.db.patch(workspaceId, {
+        settings: { ...workspace!.settings, linkSharing: false },
+      });
+    });
+  const pausedBy = (t: T, who: Identity, projectId: string) =>
+    t.withIdentity(who).query(api.projects.pausedBy, { projectId });
+
+  test("names the workspace to someone whose link waits on its links coming back", async () => {
+    const t = convexTest(schema, modules);
+    const { workspaceId, shared } = await world(t);
+    expect(await pausedBy(t, OUTSIDER, shared)).toBeNull();
+    await pause(t, workspaceId);
+    expect(await homeOf(t, OUTSIDER, shared)).toBeNull();
+    expect(await pausedBy(t, OUTSIDER, shared)).toBe("Acme");
+  });
+
+  test("says nothing to anyone kept out by something else", async () => {
+    const t = convexTest(schema, modules);
+    const { workspaceId, shared, secret, personal } = await world(t);
+    await pause(t, workspaceId);
+    // No claim, a seat that still opens it, a project with no workspace.
+    expect(await pausedBy(t, STRANGER, shared)).toBeNull();
+    expect(await pausedBy(t, MEMBER, shared)).toBeNull();
+    expect(await pausedBy(t, OTHER, secret)).toBeNull();
+    expect(await pausedBy(t, MEMBER, personal)).toBeNull();
+    expect(await t.query(api.projects.pausedBy, { projectId: shared })).toBeNull();
+    // A link that is off would not let them back in either.
+    await t.run(async (ctx) => {
+      await ctx.db.patch(shared, { shareToken: undefined });
+    });
+    expect(await pausedBy(t, OUTSIDER, shared)).toBeNull();
+  });
+});

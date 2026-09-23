@@ -7,6 +7,7 @@ import {
   activeMembership,
   ownerId as currentOwner,
   isTrashed,
+  pausedFor,
   projectRole,
   readVisible,
   requireManageable,
@@ -200,6 +201,22 @@ export const home = query({
     const workspaceId = (await ctx.db.get(projectId))?.workspaceId;
     if (!workspaceId || !(await workspaceRole(ctx, workspaceId))) return { slug: null };
     return { slug: (await ctx.db.get(workspaceId))?.slug ?? null };
+  },
+});
+
+/**
+ * Why a project `home` calls nowhere is closed to the caller, when the reason
+ * is one that passes on its own: the name of the workspace whose share links
+ * are paused, for someone whose link would let them in again once they are
+ * back on. Null for every other way of being kept out.
+ */
+export const pausedBy = query({
+  args: { projectId: v.string() },
+  handler: async (ctx, args) => {
+    const projectId = ctx.db.normalizeId("projects", args.projectId);
+    const project = projectId ? await ctx.db.get(projectId) : null;
+    if (!project) return null;
+    return (await pausedFor(ctx, project))?.name ?? null;
   },
 });
 
