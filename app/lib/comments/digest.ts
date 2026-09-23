@@ -68,7 +68,7 @@ export type CommentsDigest = z.infer<typeof digestSchema>;
  * At most `max` UTF-16 units — the unit the schema counts — and never half a
  * surrogate pair.
  */
-function clip(text: string, max: number): string {
+export function clip(text: string, max: number): string {
   if (text.length <= max) return text;
   let cut = max - 1;
   const last = text.charCodeAt(cut - 1);
@@ -207,7 +207,8 @@ function when(at: number): string {
   return `${new Date(at).toISOString().slice(0, 16).replace("T", " ")} UTC`;
 }
 
-function threadLines(t: DigestThread): string[] {
+/** One thread as the model reads it — the digest's lines, and `read_comments`'. */
+export function threadLines(t: DigestThread): string[] {
   const where = t.orphaned ? "no longer in the document; it was" : `on block ${t.blockId},`;
   const lines = [`- thread ${t.id} ${where} about ${JSON.stringify(t.quote)}`];
   if (t.ambiguous) lines.push("  (those words appear more than once in the block)");
@@ -280,7 +281,7 @@ export function formatDigest(digest: CommentsDigest, maxChars: number): string {
 }
 
 /** A thread reduced to its opening and its latest comment. */
-function condensed(thread: DigestThread): DigestThread {
+export function condensed(thread: DigestThread): DigestThread {
   const { comments } = thread;
   if (comments.length <= 2) return thread;
   return {

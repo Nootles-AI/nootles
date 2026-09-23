@@ -125,3 +125,47 @@ describe("turn-scoped mutation replay guard", () => {
     );
   });
 });
+
+describe("comment tools under the replay guard", () => {
+  const call = (toolName: string, toolCallId: string, input: Record<string, unknown>) =>
+    ({ type: `tool-${toolName}`, toolCallId, state: "output-available", input, output: "Done." }) as AbMessage["parts"][number];
+  const create = { blockId: "p1", quote: "by Friday", text: "Is this firm?" };
+
+  it("suppresses a second identical create, reply or resolve in the same turn", () => {
+    for (const [toolName, input] of [
+      ["create_comment", create],
+      ["reply_comment", { threadId: "t1", text: "Yes." }],
+      ["resolve_comment", { threadId: "t1" }],
+    ] as const) {
+      expect(
+        isRepeatedMutation([user("u1"), assistant(call(toolName, "a", input))], {
+          toolName,
+          toolCallId: "b",
+          input,
+        }),
+      ).toBe(true);
+    }
+  });
+
+  it("lets a call that was refused run again — nothing was written the first time", () => {
+    const refused = {
+      type: "tool-create_comment",
+      toolCallId: "a",
+      state: "output-available",
+      input: create,
+      output: "Nothing was written. Those words are in the change waiting for the user's review…",
+    } as AbMessage["parts"][number];
+    expect(
+      isRepeatedMutation([user("u1"), assistant(refused)], { toolName: "create_comment", toolCallId: "b", input: create }),
+    ).toBe(false);
+  });
+
+  it("lets a different comment through, and never holds back a read", () => {
+    const history = [user("u1"), assistant(call("create_comment", "a", create))];
+    expect(
+      isRepeatedMutation(history, { toolName: "create_comment", toolCallId: "b", input: { ...create, text: "Another." } }),
+    ).toBe(false);
+    const read = [user("u1"), assistant(call("read_comments", "a", {}))];
+    expect(isRepeatedMutation(read, { toolName: "read_comments", toolCallId: "b", input: {} })).toBe(false);
+  });
+});

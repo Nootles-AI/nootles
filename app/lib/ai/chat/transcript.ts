@@ -49,6 +49,9 @@ const PAGE_SNAPSHOTS: ReadonlySet<string> = new Set([
   "get_html",
   "write_nodes",
   "update_styles",
+  // A page's threads, read at one moment: collaborators reply and resolve
+  // between turns just as they type.
+  "read_comments",
 ]);
 
 /**
