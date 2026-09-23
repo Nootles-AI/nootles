@@ -20,7 +20,10 @@ export async function POST(req: Request) {
   if (!caller) return new Response("Unauthorized", { status: 401 });
   const { token } = caller;
 
-  const { repoId } = ((await req.json().catch(() => null)) ?? {}) as { repoId?: unknown };
+  const { repoId, projectId } = ((await req.json().catch(() => null)) ?? {}) as {
+    repoId?: unknown;
+    projectId?: unknown;
+  };
   if (typeof repoId !== "string") return new Response("`repoId` is required", { status: 400 });
 
   const convex = asUser(token);
@@ -42,6 +45,7 @@ export async function POST(req: Request) {
         ownerId: caller.userId,
         feature: "context",
         model: AI.context.nameModel,
+        projectId: typeof projectId === "string" ? projectId : undefined,
         promptTokens: call.promptTokens,
         completionTokens: call.completionTokens,
         latencyMs: Date.now() - started,

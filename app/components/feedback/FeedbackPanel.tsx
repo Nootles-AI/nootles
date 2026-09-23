@@ -104,7 +104,7 @@ export function FeedbackPanel({
           const res = await fetch("/api/categorize", {
             method: "POST",
             headers: { "content-type": "application/json" },
-            body: JSON.stringify({ text, ops: opKinds(), consoleTail }),
+            body: JSON.stringify({ text, ops: opKinds(), consoleTail, projectId }),
           });
           if (!res.ok) return;
           const { category: guess } = (await res.json()) as {
@@ -125,7 +125,7 @@ export function FeedbackPanel({
       })();
     }, 800);
     return () => clearTimeout(t);
-  }, [text]);
+  }, [text, projectId]);
 
   useEffect(() => {
     if (!nudge) return;
@@ -148,7 +148,7 @@ export function FeedbackPanel({
           const res = await fetch("/api/feedback-complete", {
             method: "POST",
             headers: { "content-type": "application/json" },
-            body: JSON.stringify({ text, kind, ops: opKinds(), consoleTail }),
+            body: JSON.stringify({ text, kind, ops: opKinds(), consoleTail, projectId }),
           });
           if (!res.ok) return;
           const { completion } = (await res.json()) as { completion: string };
@@ -159,7 +159,7 @@ export function FeedbackPanel({
       })();
     }, 700);
     return () => clearTimeout(t);
-  }, [text, kind]);
+  }, [text, kind, projectId]);
 
   // The screenshot is of the state being reported — the screen as it was
   // when the form opened, scroll positions included (see capture.ts).
