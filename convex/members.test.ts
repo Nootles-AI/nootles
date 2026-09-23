@@ -806,9 +806,10 @@ describe("taking a seat away", () => {
 
     // Their old inbox is empty; the admin's holds the stranger's request.
     expect(await cy.query(api.share.incomingRequests, {})).toEqual([]);
+    // Once, though it now reaches the admin both as the project's and as the workspace's.
     expect(
       (await t.withIdentity(ADMIN).query(api.share.incomingRequests, {})).map((r) => r.projectId),
-    ).toContain(w.open.projectId);
+    ).toEqual([w.open.projectId]);
   });
 
   test("unlinks what they linked, since each is read with their own connection", async () => {

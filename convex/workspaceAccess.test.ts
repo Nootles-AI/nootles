@@ -296,6 +296,25 @@ describe("the role a seat gives", () => {
       await t.withIdentity(ADMIN).query(api.projects.myRole, { projectId: w.binned.projectId }),
     ).toBeNull();
 
+    // Nor to manage, the rows hanging off it included: only `trash.restore` reaches in.
+    await t.run((ctx) => ctx.db.patch(w.open.projectId, { deletedAt: 9 }));
+    const admin = t.withIdentity(ADMIN);
+    const projectId = w.open.projectId;
+    await expect(admin.mutation(api.projects.rename, { projectId, title: "V2" })).rejects.toThrow(
+      "Not found",
+    );
+    await expect(admin.query(api.share.links, { projectId })).rejects.toThrow("Not found");
+    await expect(
+      admin.mutation(api.share.setLink, { projectId, role: "viewer", enabled: true }),
+    ).rejects.toThrow("Not found");
+    await expect(admin.mutation(api.files.context.remove, { fileId: w.fileId })).rejects.toThrow(
+      "Not found",
+    );
+    await expect(admin.mutation(api.github.repos.unlink, { repoId: w.repoId })).rejects.toThrow(
+      "Not found",
+    );
+    expect(await admin.query(api.files.context.listForProject, { projectId })).toEqual([]);
+    expect(await admin.query(api.github.repos.listForProject, { projectId })).toEqual([]);
   });
 });
 
@@ -497,7 +516,9 @@ describe.each(gates)("$name", (gate) => {
       const t = harness();
       const w = await world(t);
       const attempt = gate.run(t.withIdentity(STAND_IN), w);
-      if (gate.kind === "read") await expect(attempt).resolves.toBeDefined();
+      // An empty answer is how five of these reads refuse, so it is no answer here.
+      if (gate.kind === "read" && gate.refusedEmpty) await expect(attempt).resolves.not.toEqual([]);
+      else if (gate.kind === "read") await expect(attempt).resolves.toBeDefined();
       else await expect(attempt).rejects.toThrow("Read-only");
     },
   );

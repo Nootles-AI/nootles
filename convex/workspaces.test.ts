@@ -261,6 +261,31 @@ describe("making a workspace", () => {
     await expect(
       other.mutation(api.workspaces.create, { name: "Mine", slug: "acme-hq" }),
     ).rejects.toThrow("That address is taken.");
+
+    // Nor by moving another workspace onto it.
+    const mine = await other.mutation(api.workspaces.create, { name: "Mine" });
+    const move = (slug: string) =>
+      other.mutation(api.workspaces.setSlug, { workspaceId: mine.workspaceId, slug });
+    await expect(move("acme")).rejects.toThrow("That address is taken.");
+    await expect(move("acme-hq")).rejects.toThrow("That address is taken.");
+    await expect(move("billing")).rejects.toThrow("is reserved");
+    await expect(move("ab")).rejects.toThrow("at least 3");
+    const slugs = await t.run(async (ctx) => ({
+      first: (await ctx.db.get(first.workspaceId))!.slug,
+      mine: (await ctx.db.get(mine.workspaceId))!.slug,
+      rows: (await ctx.db.query("workspaceSlugs").collect()).map((row) => [
+        row.slug,
+        row.workspaceId,
+        row.retiredAt === undefined,
+      ]),
+    }));
+    expect(slugs.first).toBe("acme-hq");
+    expect(slugs.mine).toBe("mine");
+    expect(slugs.rows).toEqual([
+      ["acme", first.workspaceId, false],
+      ["acme-hq", first.workspaceId, true],
+      ["mine", mine.workspaceId, true],
+    ]);
   });
 });
 
