@@ -69,7 +69,11 @@ export function GitHubSourcePage({
   if (door.via === "loading") return <Reading what="repositories" fetching={false} onBack={onBack} />;
   if (door.via === "shut") {
     return (
-      <PaletteShell said="The GitHub App is not installed." title="" foot={<Leave onClick={onBack} />}>
+      <PaletteShell
+        said={door.unconfigured ? "GitHub isn’t available yet." : "The GitHub App isn’t installed."}
+        title=""
+        foot={<Leave onClick={onBack} />}
+      >
         <GitHubAppMissing
           titleId={PALETTE_TITLE_ID}
           canInstall={door.canInstall}

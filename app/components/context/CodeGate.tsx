@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useContainer } from "../workspaces/ContainerContext";
+import { GitHubMark } from "./marks";
 import { useOrgProof } from "./useOrgProof";
 
 /** How long "Verified" stays up once the gate has nothing left to hold back. */
@@ -86,34 +87,75 @@ function Gate({
   onStart: () => void;
   onSettled: (verified: boolean) => void;
 }) {
-  const proof = useOrgProof(workspaceId, org, { onStart, onSettled });
-  // Let in, the line that says so is all there is left to say.
+  const box = useRef<HTMLDivElement>(null);
+  const press = useRef<HTMLButtonElement>(null);
+  const proof = useOrgProof(workspaceId, org, {
+    onStart,
+    onSettled: (verified) => {
+      // The press folds away once it has let them in; focus waits on the gate.
+      if (verified && document.activeElement === press.current) box.current?.focus();
+      onSettled(verified);
+    },
+  });
+  // Let in, the line that says so is all there is left to say: the sentence
+  // and the press fold shut as it folds open, one change of height.
   const through = proof.said !== null && !proof.said.problem;
   return (
-    <div className="nt-codegate">
-      {!through && (
-        <p>
-          {lapsed
-            ? `Code is hidden: your ${org} membership needs verifying again.`
-            : `Code is hidden until GitHub shows you’re in ${org}.`}
-        </p>
+    <div ref={box} tabIndex={-1} className="nt-codegate">
+      <div className="nt-codegate-fold" data-open={!through} inert={through}>
+        <div className="nt-codegate-fold-body">
+          <div className="nt-codegate-part">
+            <p>
+              {lapsed ? (
+                <>
+                  Code is hidden: your <Login>{org}</Login> membership needs verifying again.
+                </>
+              ) : (
+                <>
+                  Code is hidden until GitHub shows you’re in <Login>{org}</Login>.
+                </>
+              )}
+            </p>
+            {proof.action && (
+              <button
+                ref={press}
+                type="button"
+                onClick={proof.action.run}
+                // Not `disabled`: a disabled button drops the focus that pressed it.
+                aria-disabled={proof.action.busy}
+                className="nt-row nt-codegate-go gap-1.5"
+              >
+                <GitHubMark width={14} height={14} aria-hidden="true" />
+                {proof.action.label}
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+      {proof.blocker && (
+        <div className="nt-codegate-fold is-arriving">
+          <div className="nt-codegate-fold-body">
+            <p className="nt-codegate-part">{proof.blocker}</p>
+          </div>
+        </div>
       )}
-      {proof.action && !through && (
-        <button
-          type="button"
-          onClick={proof.action.run}
-          disabled={proof.action.busy}
-          className="nt-row nt-codegate-go"
-        >
-          {proof.action.label}
-        </button>
-      )}
-      {proof.blocker && <p>{proof.blocker}</p>}
       {proof.said && (
-        <p role={proof.said.problem ? "alert" : "status"} className={proof.said.problem ? "is-problem" : undefined}>
-          {proof.said.text}
-        </p>
+        <div key={proof.said.text} className="nt-codegate-fold is-arriving">
+          <div className="nt-codegate-fold-body">
+            <p
+              role={proof.said.problem ? "alert" : "status"}
+              className={`nt-codegate-part${proof.said.problem ? " is-problem" : ""}`}
+            >
+              {proof.said.text}
+            </p>
+          </div>
+        </div>
       )}
     </div>
   );
+}
+
+/** A GitHub login, which a line may not break at its hyphen. */
+function Login({ children }: { children: string }) {
+  return <span className="whitespace-nowrap">{children}</span>;
 }
