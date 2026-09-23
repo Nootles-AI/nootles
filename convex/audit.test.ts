@@ -6,7 +6,8 @@ import { api, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import schema from "./schema";
 import componentSchema from "../node_modules/@convex-dev/prosemirror-sync/src/component/schema";
-import { EDIT_WINDOW_MS, RETAIN_MS } from "./audit";
+import { EDIT_WINDOW_MS, RETAIN_MS, matching } from "./audit";
+import type { QueryCtx } from "./_generated/server";
 
 /**
  * A workspace's audit log: every discrete change writes exactly one row, by
@@ -329,6 +330,74 @@ describe("membership", () => {
       subjectId: MEMBER.subject,
       meta: { heir: OWNER.subject },
     });
+  });
+
+  test("a seat taken away logs each repository and Notion page its own connection linked", async () => {
+    const t = harness();
+    const { workspaceId, projectId } = await world(t);
+    const linked = (who: Identity, name: string) =>
+      t.run(async (ctx) => {
+        const repoId = await ctx.db.insert("projectRepos", {
+          ownerId: who.subject,
+          projectId,
+          fullName: name,
+          defaultBranch: "main",
+          private: true,
+          addedAt: 1,
+        });
+        const pageId = await ctx.db.insert("projectNotion", {
+          ownerId: who.subject,
+          projectId,
+          pageId: `${name}-page`,
+          title: `${name} brief`,
+          index: { state: "ready" },
+          addedAt: 1,
+        });
+        return { repoId, pageId };
+      });
+    const guest = await linked(GUEST, "acme/guest");
+    const member = await linked(MEMBER, "acme/member");
+
+    await t.withIdentity(ADMIN).mutation(api.members.remove, { workspaceId, userId: GUEST.subject });
+    const removed = await log(t, workspaceId);
+    expect(removed.map((row) => row.action).sort()).toEqual([
+      "member.remove",
+      "notion.unlink",
+      "repo.unlink",
+    ]);
+    expect(removed.find((row) => row.action === "repo.unlink")).toMatchObject({
+      actorId: ADMIN.subject,
+      actorKind: "user",
+      subjectKind: "repo",
+      subjectId: guest.repoId,
+      meta: {
+        repo: "acme/guest",
+        projectId,
+        project: "Roadmap",
+        reason: "linked by a member who was removed",
+      },
+    });
+    expect(removed.find((row) => row.action === "notion.unlink")).toMatchObject({
+      actorId: ADMIN.subject,
+      subjectKind: "notion",
+      subjectId: guest.pageId,
+      meta: { page: "acme/guest brief", projectId, reason: "linked by a member who was removed" },
+    });
+
+    await t.withIdentity(MEMBER).mutation(api.members.leave, { workspaceId });
+    const left = (await log(t, workspaceId)).slice(removed.length);
+    expect(left.map((row) => row.action).sort()).toEqual([
+      "member.leave",
+      "notion.unlink",
+      "repo.unlink",
+    ]);
+    for (const row of left) {
+      expect(row.actorId).toBe(MEMBER.subject);
+      if (row.action !== "member.leave") {
+        expect(row.meta).toMatchObject({ reason: "linked by a member who left" });
+      }
+    }
+    expect(left.find((row) => row.action === "repo.unlink")?.subjectId).toBe(member.repoId);
   });
 
   test("a refused change writes nothing", async () => {
@@ -659,9 +728,9 @@ describe("carrying out and moving", () => {
 });
 
 describe("integrations and context", () => {
-  test("a GitHub installation recorded, suspended and removed; the organisation rule", async () => {
+  test("a GitHub installation recorded, suspended, unsuspended and removed; the organisation rule", async () => {
     const t = harness();
-    const { workspaceId } = await world(t);
+    const { workspaceId, projectId } = await world(t);
     const record = {
       workspaceId,
       installationId: 42,
@@ -700,10 +769,88 @@ describe("integrations and context", () => {
       await one(t, workspaceId, () =>
         t.mutation(internal.github.installations.onInstallation, {
           installationId: 42,
+          action: "unsuspend",
+        }),
+      ),
+    ).toMatchObject({
+      action: "github.installation.unsuspend",
+      actorId: "github",
+      actorKind: "system",
+      meta: { account: "acme" },
+    });
+    const before = (await log(t, workspaceId)).length;
+    await t.mutation(internal.github.installations.onInstallation, { installationId: 42, action: "unsuspend" });
+    expect(await log(t, workspaceId)).toHaveLength(before);
+
+    // Two repositories read through it: one row for the uninstall, counting both.
+    await t.run(async (ctx) => {
+      for (const fullName of ["acme/rover", "acme/lander"]) {
+        await ctx.db.insert("projectRepos", {
+          ownerId: ADMIN.subject,
+          projectId,
+          fullName,
+          defaultBranch: "main",
+          private: true,
+          installationId: 42,
+          addedAt: 1,
+        });
+      }
+    });
+    expect(
+      await one(t, workspaceId, () =>
+        t.mutation(internal.github.installations.onInstallation, {
+          installationId: 42,
           action: "deleted",
         }),
       ),
-    ).toMatchObject({ action: "github.installation.remove", meta: { unlinked: 0 } });
+    ).toMatchObject({ action: "github.installation.remove", actorKind: "system", meta: { unlinked: 2 } });
+    expect(await t.run((ctx) => ctx.db.query("projectRepos").collect())).toEqual([]);
+  });
+
+  test("GitHub taking a repository out of the App unlinks it, by the system, in workspace projects only", async () => {
+    const t = harness();
+    const { workspaceId, projectId, personalId } = await world(t);
+    const [workspaceRepo, personalRepo] = await t.run(async (ctx) => {
+      await ctx.db.insert("githubInstallations", {
+        workspaceId,
+        installationId: 42,
+        accountLogin: "acme",
+        accountType: "Organization",
+        repositorySelection: "selected",
+        installedBy: ADMIN.subject,
+        createdAt: 1,
+      });
+      const repo = (owner: Identity, project: Id<"projects">) =>
+        ctx.db.insert("projectRepos", {
+          ownerId: owner.subject,
+          projectId: project,
+          fullName: "acme/rover",
+          defaultBranch: "main",
+          private: true,
+          installationId: 42,
+          addedAt: 1,
+        });
+      return [await repo(ADMIN, projectId), await repo(OWNER, personalId)];
+    });
+    expect(
+      await one(t, workspaceId, () =>
+        t.mutation(internal.github.installations.onRepositories, {
+          installationId: 42,
+          removed: ["acme/rover"],
+        }),
+      ),
+    ).toMatchObject({
+      action: "repo.unlink",
+      actorId: "github",
+      actorKind: "system",
+      subjectKind: "repo",
+      subjectId: workspaceRepo,
+      meta: { repo: "acme/rover", projectId, project: "Roadmap", reason: "removed from the GitHub App" },
+    });
+    expect(await t.run((ctx) => ctx.db.get(personalRepo))).toBeNull();
+    const rows = await log(t);
+    expect(rows).toHaveLength(1);
+    expect(rows.some((row) => row.subjectId === personalRepo)).toBe(false);
   });
 
   test("a repository, a Notion page and a file, each added and taken away", async () => {
@@ -904,6 +1051,7 @@ describe("edit activity", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({
       action: "page.edit",
+      category: "edit",
       actorId: MEMBER.subject,
       subjectKind: "page",
       subjectId: pageId,
@@ -962,6 +1110,7 @@ describe("edit activity", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({
       action: "page.edit",
+      category: "edit",
       actorId: MEMBER.subject,
       subjectId: pageId,
       count: 2,
@@ -1157,6 +1306,101 @@ describe("reading the log", () => {
     expect(await exported({ actorId: ADMIN.subject, action: "share.link.off" })).toEqual([
       "share.link.off",
     ]);
+  });
+});
+
+describe("kinds of event", () => {
+  async function mixed(t: T) {
+    const w = await world(t);
+    const member = t.withIdentity(MEMBER);
+    await member.mutation(api.ydoc.init, { docId: w.docId, update: update(PROSE) });
+    for (let i = 0; i < 3; i++) {
+      await member.mutation(api.ydoc.append, { docId: w.docId, update: update(PROSE) });
+      vi.advanceTimersByTime(EDIT_WINDOW_MS);
+    }
+    await member.mutation(api.pages.remove, { pageId: w.pageId });
+    await member.mutation(api.trash.restore, { pages: [w.pageId] });
+    await t.withIdentity(ADMIN).mutation(api.members.invite, {
+      workspaceId: w.workspaceId,
+      email: "zed@acme.com",
+      role: "guest",
+    });
+    return w;
+  }
+
+  test("Pages is a page's own events, and Edits are a kind of their own", async () => {
+    const t = harness();
+    const { workspaceId } = await mixed(t);
+    const admin = t.withIdentity(ADMIN);
+    const list = async (filters: { actorId?: string; action?: string }) =>
+      (
+        await admin.query(api.audit.list, {
+          workspaceId,
+          paginationOpts: { numItems: 20, cursor: null },
+          filters,
+        })
+      ).page.map((row) => row.action);
+    const exported = async (filters: { actorId?: string; action?: string }) =>
+      (
+        await admin.query(api.audit.exportRows, { workspaceId, from: 0, to: NOW * 2, filters, cursor: null })
+      ).rows.map((row) => row.action);
+
+    expect(await list({ action: "page" })).toEqual(["page.restore", "page.delete"]);
+    expect(await exported({ action: "page" })).toEqual(["page.delete", "page.restore"]);
+    expect(await list({ action: "page.edit" })).toEqual(["page.edit", "page.edit", "page.edit"]);
+    expect(await list({ actorId: MEMBER.subject, action: "page" })).toEqual(["page.restore", "page.delete"]);
+    expect(await list({ actorId: MEMBER.subject, action: "page.edit" })).toHaveLength(3);
+    expect(await list({ actorId: MEMBER.subject, action: "member" })).toEqual([]);
+    expect(await list({ actorId: ADMIN.subject, action: "member.invite" })).toEqual(["member.invite"]);
+  });
+
+  test("a person and a kind together read through one index, with no filter over the person's other rows", async () => {
+    const t = harness();
+    const { workspaceId } = await mixed(t);
+    const reads = async (f: { actorId?: string; action?: string }) =>
+      await t.run(async (ctx) => {
+        const seen: string[] = [];
+        const spy = <Q extends object>(q: Q): Q =>
+          new Proxy(q, {
+            get(target, prop, receiver) {
+              const value = Reflect.get(target, prop, receiver);
+              if (typeof value !== "function") return value;
+              return (...args: unknown[]) => {
+                if (prop === "withIndex") seen.push(args[0] as string);
+                if (prop === "filter") seen.push("filter");
+                const next = value.apply(target, args);
+                return next && typeof next === "object" ? spy(next) : next;
+              };
+            },
+          });
+        const db = new Proxy(ctx.db, {
+          get(target, prop, receiver) {
+            if (prop === "query") return (table: "auditEvents") => spy(target.query(table));
+            const value = Reflect.get(target, prop, receiver);
+            return typeof value === "function" ? value.bind(target) : value;
+          },
+        });
+        const rows = await matching({ ...ctx, db } as QueryCtx, workspaceId, f, "desc").collect();
+        return { seen, actions: rows.map((row) => row.action) };
+      });
+
+    expect(await reads({ actorId: MEMBER.subject, action: "member" })).toEqual({
+      seen: ["by_workspace_actor_category_at"],
+      actions: [],
+    });
+    expect(await reads({ actorId: MEMBER.subject, action: "page" })).toEqual({
+      seen: ["by_workspace_actor_category_at"],
+      actions: ["page.restore", "page.delete"],
+    });
+    expect(await reads({ actorId: ADMIN.subject, action: "member.invite" })).toEqual({
+      seen: ["by_workspace_actor_category_at", "filter"],
+      actions: ["member.invite"],
+    });
+    expect(await reads({ action: "page" })).toEqual({
+      seen: ["by_workspace_category_at"],
+      actions: ["page.restore", "page.delete"],
+    });
+    expect((await reads({ actorId: MEMBER.subject })).seen).toEqual(["by_workspace_actor_at"]);
   });
 });
 
