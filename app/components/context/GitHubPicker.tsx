@@ -5,7 +5,7 @@ import { useAction, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { Listed } from "@/convex/github/repos";
-import { reason } from "@/app/lib/github";
+import { mergeRepos, reason } from "@/app/lib/github";
 import { openConnectWindow } from "./connectWindow";
 import { PickerReading } from "./PickerReading";
 import { GitHubMark } from "./marks";
@@ -37,7 +37,9 @@ export function GitHubPicker({
   if (door.via === "loading") return <PickerReading label="Reading your repositories" />;
   if (door.via === "shut") return <AppMissing door={door} />;
   if (door.via === "app") {
-    return <Picker linked={linked} app={door.workspaceId} onPick={onPick} onDone={onDone} />;
+    return (
+      <Picker linked={linked} app={door.workspaceId} own={door.personal} onPick={onPick} onDone={onDone} />
+    );
   }
   if (!door.ready) return <p className="nt-note">{door.blocker}</p>;
   if (!door.account) return <Connect />;
@@ -82,11 +84,14 @@ function AppMissing({ door }: { door: Extract<GitHubDoor, { via: "shut" }> }) {
  * The list is one page of what the token can see, most recently pushed first —
  * which is the right hundred for a person, and nowhere near all of them for an
  * organisation. So the field doubles as a lookup: type a full "owner/name" and
- * it is fetched by name, whether or not it was on the list.
+ * it is fetched by name, whether or not it was on the list. An installation's
+ * list is all of what it reads, so through the App there is a lookup only
+ * where the person's own connection may fill in what the App doesn't reach.
  */
 function Picker({
   linked,
   app,
+  own = false,
   account,
   onPick,
   onDone,
@@ -94,6 +99,8 @@ function Picker({
   linked: ReadonlySet<string>;
   /** Listed through this workspace's GitHub App rather than an account. */
   app?: Id<"workspaces">;
+  /** Beside the App's, the person's own repositories, and a lookup with their connection. */
+  own?: boolean;
   account?: { login: string; hint: string; stale: boolean };
   onPick: (repo: Listed) => void;
   onDone: () => void;
@@ -113,14 +120,21 @@ function Picker({
   // only when the add button is pressed, so it runs once per picking.
   useEffect(() => {
     let alive = true;
-    (app ? installed({ workspaceId: app }) : available({}))
+    (app
+      ? own
+        ? Promise.all([installed({ workspaceId: app }), available({}).catch(() => [])]).then(([a, b]) =>
+            mergeRepos(a, b),
+          )
+        : installed({ workspaceId: app })
+      : available({})
+    )
       .then((rows) => alive && setList(rows))
       .catch((error) => alive && setFailure(reason(error)))
       .finally(() => alive && setBusy(false));
     return () => {
       alive = false;
     };
-  }, [app, available, installed]);
+  }, [app, own, available, installed]);
 
   const typed = filter.trim();
   const shown = (list ?? []).filter(
@@ -128,15 +142,16 @@ function Picker({
   );
   // Worth offering the moment it is a plausible name — an org repo the page of
   // recents did not reach looks exactly like a typo until you ask GitHub.
-  // An installation's list is already all it may read.
   const nameable =
-    !app && /^[\w.-]+\/[\w.-]+$/.test(typed) && !shown.some((r) => r.fullName === typed);
+    (!app || own) && /^[\w.-]+\/[\w.-]+$/.test(typed) && !shown.some((r) => r.fullName === typed);
 
   const byName = async () => {
     setBusy(true);
     setFailure(null);
     try {
-      const repo = await lookup({ fullName: typed });
+      const found = await lookup({ fullName: typed });
+      // Where the App reads it too, the App's row: that is what it's read with.
+      const repo = found && (list?.find((r) => r.fullName.toLowerCase() === found.fullName.toLowerCase()) ?? found);
       if (!repo) setFailure(`GitHub has no repository at “${typed}” that this token can see.`);
       else if (linked.has(repo.fullName)) setFailure(`${repo.fullName} is already linked.`);
       else onPick(repo);
@@ -169,7 +184,7 @@ function Picker({
               if (nameable) void byName();
             }
           }}
-          placeholder={app ? "Filter the workspace’s repositories" : "Filter, or type owner/name"}
+          placeholder={app && !own ? "Filter the workspace’s repositories" : "Filter, or type owner/name"}
           aria-label="Find a repository"
           className="nt-input"
         />
@@ -190,7 +205,7 @@ function Picker({
         {list && !shown.length && !nameable && (
           <p className="nt-picker-empty">
             {typed
-              ? app
+              ? app && !own
                 ? "Nothing matches among the repositories the GitHub App reads."
                 : "Nothing matches. Type the full owner/name to fetch it directly."
               : app
@@ -233,7 +248,9 @@ function Picker({
             </button>
           </>
         ) : (
-          <span className="min-w-0 flex-1 truncate">Through the workspace’s GitHub App</span>
+          <span className="min-w-0 flex-1 truncate">
+            {own ? "Through the workspace’s GitHub App, or your own connection" : "Through the workspace’s GitHub App"}
+          </span>
         )}
       </div>
     </div>
