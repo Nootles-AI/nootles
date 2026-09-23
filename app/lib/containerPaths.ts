@@ -31,6 +31,12 @@ export function joinPath(token: string): string {
   return `/w/join/${token}`;
 }
 
+/** The project a `/w/<slug>/p/<id>` address opens, or null for any other address. */
+export function projectIdIn(pathname: string): string | null {
+  const [, w, slug, p, id] = pathname.split("/");
+  return w === "w" && slug && p === "p" && id ? id : null;
+}
+
 /**
  * The same place in a workspace under another of its addresses — what a
  * retired slug is replaced with, so an old link to a project or a settings

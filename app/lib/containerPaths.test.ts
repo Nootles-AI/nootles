@@ -1,5 +1,12 @@
 import { describe, expect, test } from "vitest";
-import { homePath, joinPath, projectPath, settingsPath, withSlug } from "./containerPaths";
+import {
+  homePath,
+  joinPath,
+  projectIdIn,
+  projectPath,
+  settingsPath,
+  withSlug,
+} from "./containerPaths";
 
 describe("container addresses", () => {
   test("your own container lives at the root", () => {
@@ -39,5 +46,21 @@ describe("withSlug", () => {
     expect(withSlug("/p/abc", "new")).toBe("/w/new");
     expect(withSlug("/w", "new")).toBe("/w/new");
     expect(withSlug("", "new")).toBe("/w/new");
+  });
+});
+
+describe("projectIdIn", () => {
+  test("reads the project out of a workspace's project address", () => {
+    expect(projectIdIn("/w/acme/p/abc")).toBe("abc");
+    expect(projectIdIn("/w/acme/p/abc/")).toBe("abc");
+  });
+
+  test("is null for every other address", () => {
+    expect(projectIdIn("/p/abc")).toBeNull();
+    expect(projectIdIn("/w/acme")).toBeNull();
+    expect(projectIdIn("/w/acme/p")).toBeNull();
+    expect(projectIdIn("/w/acme/p/")).toBeNull();
+    expect(projectIdIn("/w/acme/settings/members")).toBeNull();
+    expect(projectIdIn("/w//p/abc")).toBeNull();
   });
 });

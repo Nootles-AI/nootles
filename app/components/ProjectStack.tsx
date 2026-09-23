@@ -42,8 +42,10 @@ export function ProjectStack({ projectId }: { projectId: string }) {
 
 /**
  * Moves the project to the address it answers to (`projects.home`) when it
- * was reached at another: an old `/p/` link to a workspace project, a
- * workspace address it is not in, a workspace link opened from outside.
+ * was reached at another: an old `/p/` link to a workspace project, or the
+ * address of a workspace it is not in. (Someone without a seat in the
+ * workspace an address names never gets this far — `ContainerRoute` sends
+ * them on.)
  *
  * The stack is not held back while the answer is on its way. Nearly every
  * open is already at the right address, and holding it would put a round trip

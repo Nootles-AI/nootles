@@ -6,7 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import { useConvexAuth, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import { withSlug } from "@/app/lib/containerPaths";
+import { projectIdIn, projectPath, withSlug } from "@/app/lib/containerPaths";
 import { rememberWorkspace, seenWorkspace } from "@/app/lib/projectsCache";
 import { Wordmark } from "../Brand";
 import { ContainerProvider, type WorkspaceContainer } from "./ContainerContext";
@@ -67,7 +67,7 @@ export function ContainerRoute({ slug, children }: { slug: string; children: Rea
     router.replace(`${withSlug(pathname, canonical)}${search}${hash}`);
   }, [canonical, slug, pathname, router]);
 
-  if (resolved === null) return <Nowhere />;
+  if (resolved === null) return <Nowhere projectId={projectIdIn(pathname)} />;
   if (!container) return <div className="flex-1" aria-busy="true" />;
   return <ContainerProvider value={container}>{children}</ContainerProvider>;
 }
@@ -75,8 +75,27 @@ export function ContainerRoute({ slug, children }: { slug: string; children: Rea
 /**
  * The same few words whether the workspace does not exist or is not the
  * caller's to see, so an address cannot be used to learn which one it is.
+ *
+ * Except for a project someone can open by another door — a link they were
+ * given, a seat in the workspace it is really in: a teammate's copied address
+ * takes them on to the one it answers to for them (`projects.home`). That
+ * says nothing about the workspace named in the address, since the answer is
+ * the same whatever it names.
  */
-function Nowhere() {
+function Nowhere({ projectId }: { projectId: string | null }) {
+  const router = useRouter();
+  const home = useQuery(api.projects.home, projectId ? { projectId } : "skip");
+  const there = projectId && home ? projectPath(home.slug, projectId) : null;
+
+  useEffect(() => {
+    if (!there) return;
+    const { search, hash } = window.location;
+    router.replace(`${there}${search}${hash}`);
+  }, [there, router]);
+
+  if (there || (projectId && home === undefined)) {
+    return <div className="flex-1" aria-busy="true" />;
+  }
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 py-16 text-center">
       <Link href="/" aria-label="Nootles" className="mb-4">
