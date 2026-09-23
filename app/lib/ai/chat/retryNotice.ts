@@ -2,11 +2,16 @@ const RESETS = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-
 
 /**
  * Also what the panel says when it knows ahead of sending. The day is the
- * UTC day the server counts, said at the reader's own clock.
+ * UTC day the server counts, said at the reader's own clock — and on their
+ * own calendar, where the reset often falls tomorrow.
  */
 export function guestDaySpent(now: Date = new Date()): string {
-  const resets = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1);
-  return `You’ve used today’s AI allowance for guests. It resets at ${RESETS.format(resets)}.`;
+  const resets = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
+  const day = resets.toDateString() === now.toDateString() ? "today" : "tomorrow";
+  return (
+    `You’ve used your guest AI allowance for the day. It resets ${day} at ${RESETS.format(resets)}. ` +
+    "Members of the workspace have no daily limit — ask the person who shared this project to invite you."
+  );
 }
 
 /**
