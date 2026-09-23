@@ -225,8 +225,10 @@ export async function exchangeCode(
 /**
  * The repositories the workspace's installations read, most recently pushed
  * first, each naming the installation it came through — what a workspace
- * project's pickers offer. Any member may list them; linking one is the
- * project's manager's, or a member making a new project.
+ * project's pickers offer. Any member the GitHub organisation rule lets read
+ * code may list them; linking one is the project's manager's, or a member
+ * making a new project. One installation GitHub refuses leaves the others
+ * listed; only when every one fails does the list fail, with GitHub's reason.
  */
 export const available = action({
   args: { workspaceId: v.id("workspaces") },
@@ -235,7 +237,7 @@ export const available = action({
       internal.github.installations.usable,
       { workspaceId: args.workspaceId },
     );
-    const lists = await Promise.all(
+    const settled = await Promise.allSettled(
       installations.map((row) =>
         withInstallation(ctx, row._id, async (token) =>
           (await installationRepositories(token)).map((repo) => ({
@@ -245,6 +247,9 @@ export const available = action({
         ),
       ),
     );
+    const lists = settled.flatMap((result) => (result.status === "fulfilled" ? [result.value] : []));
+    const failed = settled.find((result): result is PromiseRejectedResult => result.status === "rejected");
+    if (!lists.length && failed) throw failed.reason;
     return lists
       .flat()
       .sort((a, b) => (b.pushedAt ?? "").localeCompare(a.pushedAt ?? ""));

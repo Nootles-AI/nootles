@@ -26,3 +26,18 @@ export function mergeRepos(installed: readonly Listed[], own: readonly Listed[])
     (b.pushedAt ?? "").localeCompare(a.pushedAt ?? ""),
   );
 }
+
+/**
+ * `mergeRepos` over the two lists as they arrive: neither one failing hides
+ * the other. With nothing of their own to show, the App's failure is the
+ * answer, since it says what went wrong.
+ */
+export async function appAndOwn(
+  installed: Promise<Listed[]>,
+  own: Promise<Listed[]>,
+): Promise<Listed[]> {
+  const [app, mine] = await Promise.allSettled([installed, own]);
+  const kept = mine.status === "fulfilled" ? mine.value : [];
+  if (app.status === "rejected" && !kept.length) throw app.reason;
+  return mergeRepos(app.status === "fulfilled" ? app.value : [], kept);
+}

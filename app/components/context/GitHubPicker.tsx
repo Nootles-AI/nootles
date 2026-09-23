@@ -5,7 +5,7 @@ import { useAction, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { Listed } from "@/convex/github/repos";
-import { mergeRepos, reason } from "@/app/lib/github";
+import { appAndOwn, reason } from "@/app/lib/github";
 import { openConnectWindow } from "./connectWindow";
 import { PickerReading } from "./PickerReading";
 import { GitHubMark } from "./marks";
@@ -122,9 +122,7 @@ function Picker({
     let alive = true;
     (app
       ? own
-        ? Promise.all([installed({ workspaceId: app }), available({}).catch(() => [])]).then(([a, b]) =>
-            mergeRepos(a, b),
-          )
+        ? appAndOwn(installed({ workspaceId: app }), available({}))
         : installed({ workspaceId: app })
       : available({})
     )

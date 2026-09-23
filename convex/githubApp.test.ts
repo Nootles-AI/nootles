@@ -7,6 +7,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import schema from "./schema";
 import { controlsAccount, reachableInstallation, REPOSITORY_PAGES } from "./github/app";
 import { appJwt } from "./github/appAuth";
+import { APP_TOKEN_REFUSED } from "./github/credential";
 import { PUSH_DEBOUNCE_MS } from "./github/installations";
 import { open, seal } from "./github/seal";
 import { signatureValid } from "./github/webhook";
@@ -200,6 +201,28 @@ describe("installation tokens", () => {
     );
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  test("GitHub refusing to mint, before its webhook lands, is said as the installation's state", async () => {
+    const t = convexTest(schema, modules);
+    const { workspaceId } = await world(t);
+    const id = await installation(t, workspaceId);
+    const mint = () => t.action(internal.github.appAuth.token, { installation: id });
+
+    fetchMock.mockImplementation(async () => new Response("{}", { status: 404 }));
+    await expect(mint()).rejects.toThrow(/^The GitHub App was uninstalled from acme\. Install it again/);
+    fetchMock.mockImplementation(async () => new Response("{}", { status: 403 }));
+    await expect(mint()).rejects.toThrow(/^The GitHub App is suspended on acme\. Unsuspend it/);
+    fetchMock.mockImplementation(
+      async () =>
+        new Response("{}", {
+          status: 403,
+          headers: { "x-ratelimit-remaining": "0", "x-ratelimit-reset": "1788220800" },
+        }),
+    );
+    await expect(mint()).rejects.toThrow(/rate limit is spent/);
+    fetchMock.mockImplementation(async () => new Response("{}", { status: 401 }));
+    await expect(mint()).rejects.toThrow(/App’s own credentials/);
+  });
 });
 
 describe("which credential reads a repository", () => {
@@ -271,7 +294,7 @@ describe("which credential reads a repository", () => {
     await t.action(internal.github.repos.sync, { repoId, ownerId: MEMBER.subject });
     expect(calls().filter((c) => c.method === "POST")).toHaveLength(1);
     expect(calls().filter((c) => c.auth === "Bearer ghs_fresh").length).toBeGreaterThan(0);
-    expect((await t.run(async (ctx) => ctx.db.get(repoId)))?.syncError).toBeDefined();
+    expect((await t.run(async (ctx) => ctx.db.get(repoId)))?.syncError).toBe(APP_TOKEN_REFUSED);
     const cached = (await t.run(async (ctx) => ctx.db.get(id)))?.token;
     expect(cached && (await open(cached.sealed))).toBe("ghs_fresh");
   });
@@ -292,6 +315,48 @@ describe("which credential reads a repository", () => {
     const repoId = await repo(t, projectId);
     await t.action(internal.github.repos.sync, { repoId, ownerId: MEMBER.subject });
     expect((await t.run(async (ctx) => ctx.db.get(repoId)))?.syncError).toMatch(/only through its GitHub App/);
+  });
+
+  describe("the indexer, as a re-index or a push schedules it", () => {
+    async function indexed(t: T, repoId: Id<"projectRepos">) {
+      await t.action(internal.github.indexer.run, { repoId });
+      return (await t.run(async (ctx) => ctx.db.get(repoId)))?.index;
+    }
+
+    test("a suspended installation fails the run with its reason, asking GitHub nothing", async () => {
+      const t = convexTest(schema, modules);
+      const { workspaceId, projectId } = await world(t);
+      await installation(t, workspaceId, { suspendedAt: 5 });
+      const repoId = await repo(t, projectId, { installationId: INSTALLATION, index: { state: "queued" } });
+      expect(await indexed(t, repoId)).toMatchObject({ state: "failed", error: expect.stringMatching(/suspended on acme/) });
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    test("so does an uninstalled one", async () => {
+      const t = convexTest(schema, modules);
+      const { workspaceId, projectId } = await world(t);
+      await installation(t, workspaceId, { removedAt: 5 });
+      const repoId = await repo(t, projectId, { installationId: INSTALLATION, index: { state: "queued" } });
+      expect(await indexed(t, repoId)).toMatchObject({ state: "failed", error: expect.stringMatching(/uninstalled from acme/) });
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    test("and one GitHub says is gone before its webhook has", async () => {
+      const t = convexTest(schema, modules);
+      const { workspaceId, projectId } = await world(t);
+      await installation(t, workspaceId);
+      const repoId = await repo(t, projectId, { installationId: INSTALLATION, index: { state: "queued" } });
+      expect(await indexed(t, repoId)).toMatchObject({ state: "failed", error: expect.stringMatching(/^The GitHub App was uninstalled from acme/) });
+      expect(calls().map((c) => c.method)).toEqual(["POST"]);
+    });
+
+    test("a personal connection, once the workspace turns them off", async () => {
+      const t = convexTest(schema, modules);
+      const { projectId } = await world(t, { allowPersonalTokens: false });
+      const repoId = await repo(t, projectId, { index: { state: "queued" } });
+      expect(await indexed(t, repoId)).toMatchObject({ state: "failed", error: expect.stringMatching(/only through its GitHub App/) });
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
   });
 });
 
@@ -875,6 +940,65 @@ describe("the App's repositories", () => {
       REPOSITORY_PAGES * 100,
     );
     expect(fetchMock).toHaveBeenCalledTimes(REPOSITORY_PAGES);
+  });
+
+  test("under the organisation rule, only a member with fresh proof may list them", async () => {
+    const t = convexTest(schema, modules);
+    const { workspaceId } = await world(t, { requireGithubOrg: "acme" });
+    await installation(t, workspaceId, {
+      token: { sealed: await seal("ghs_live"), expiresAt: Date.now() + 30 * 60_000 },
+    });
+    fetchMock.mockImplementation(async () => ok({ total_count: 1, repositories: listing(1) }));
+    const list = (who: { subject: string }) => t.withIdentity(who).action(api.github.app.available, { workspaceId });
+    const stamp = (who: { subject: string }, at: number | undefined) =>
+      t.run(async (ctx) => {
+        const seat = (await ctx.db
+          .query("memberships")
+          .withIndex("by_workspace_user", (q) => q.eq("workspaceId", workspaceId).eq("userId", who.subject))
+          .unique())!;
+        await ctx.db.patch(seat._id, { githubOrgVerifiedAt: at });
+      });
+
+    await expect(list(MEMBER)).rejects.toThrow(/Verify your GitHub membership in acme/);
+    await expect(list(OWNER)).rejects.toThrow(/Verify your GitHub membership in acme/);
+    await stamp(MEMBER, Date.now() - 15 * DAY);
+    await expect(list(MEMBER)).rejects.toThrow(/Verify your GitHub membership/);
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    await stamp(MEMBER, Date.now() - DAY);
+    expect(await list(MEMBER)).toHaveLength(1);
+    // What the member_removed webhook does to a proof.
+    await stamp(MEMBER, undefined);
+    await expect(list(MEMBER)).rejects.toThrow(/Verify your GitHub membership/);
+  });
+
+  test("one installation GitHub refuses leaves the others listed; all refused says why", async () => {
+    const t = convexTest(schema, modules);
+    const { workspaceId } = await world(t);
+    await installation(t, workspaceId, {
+      token: { sealed: await seal("ghs_live"), expiresAt: Date.now() + 30 * 60_000 },
+    });
+    await installation(t, workspaceId, { installationId: 43, accountLogin: "octo", accountType: "User" });
+    fetchMock.mockImplementation(async (input: unknown) => {
+      const url = String(input);
+      if (url.endsWith("/app/installations/43/access_tokens")) return new Response("{}", { status: 404 });
+      if (url.startsWith("https://api.github.com/installation/repositories")) {
+        return ok({ total_count: 1, repositories: listing(1) });
+      }
+      return new Response("{}", { status: 404 });
+    });
+    const listed = await t.withIdentity(MEMBER).action(api.github.app.available, { workspaceId });
+    expect(listed.map((r) => [r.fullName, r.installationId])).toEqual([["acme/r0", INSTALLATION]]);
+
+    fetchMock.mockImplementation(async () => new Response("{}", { status: 404 }));
+    await t.run(async (ctx) => {
+      for (const row of await ctx.db.query("githubInstallations").collect()) {
+        await ctx.db.patch(row._id, { token: undefined });
+      }
+    });
+    await expect(t.withIdentity(MEMBER).action(api.github.app.available, { workspaceId })).rejects.toThrow(
+      /^The GitHub App was uninstalled from (acme|octo)/,
+    );
   });
 });
 

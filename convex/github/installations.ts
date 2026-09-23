@@ -7,7 +7,7 @@ import {
   type MutationCtx,
   type QueryCtx,
 } from "../_generated/server";
-import { isTrashed, requireWorkspaceRole } from "../auth";
+import { isTrashed, requireGithubCodeSeat, requireWorkspaceRole } from "../auth";
 import { memberRole } from "../schema";
 import { unlinkRepo } from "./repos";
 
@@ -77,11 +77,14 @@ export const seat = internalQuery({
   },
 });
 
-/** The workspace's installations a member may list repositories through. */
+/**
+ * The workspace's installations a member may list repositories through —
+ * one the GitHub organisation rule lets read its code.
+ */
 export const usable = internalQuery({
   args: { workspaceId: v.id("workspaces") },
   handler: async (ctx, args) => {
-    await requireWorkspaceRole(ctx, args.workspaceId, "member");
+    await requireGithubCodeSeat(ctx, args.workspaceId);
     return (await installationsOf(ctx, args.workspaceId)).filter((row) => !unusable(row));
   },
 });
