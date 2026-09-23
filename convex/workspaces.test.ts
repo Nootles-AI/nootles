@@ -320,7 +320,7 @@ describe("checking an address before it is used", () => {
   test("says what create would, to someone who may create", async () => {
     vi.stubEnv("TEAMS_ROLLOUT", "on");
     const t = harness();
-    await world(t);
+    const { workspaceId } = await world(t);
     const stranger = t.withIdentity(STRANGER);
     expect(await stranger.query(api.workspaces.checkSlug, { slug: "Acme Two" })).toEqual({
       slug: "acme-two",
@@ -333,6 +333,15 @@ describe("checking an address before it is used", () => {
     expect((await stranger.query(api.workspaces.checkSlug, { slug: "ab" }))?.problem).toMatch(
       "at least 3",
     );
+
+    // A workspace's old address stays taken once it has moved on.
+    await t.withIdentity(ADMIN).mutation(api.workspaces.setSlug, { workspaceId, slug: "acme-hq" });
+    for (const slug of ["acme", "acme-hq"]) {
+      expect(await stranger.query(api.workspaces.checkSlug, { slug })).toEqual({
+        slug,
+        problem: "That address is taken. Try another.",
+      });
+    }
   });
 
   test("tells nobody anything while the rollout says no, nor a stand-in", async () => {
@@ -352,8 +361,33 @@ describe("checking an address before it is used", () => {
       t.withIdentity(who).query(api.workspaces.checkSlug, { slug, workspaceId });
     expect(await check(ADMIN, "acme")).toEqual({ slug: "acme", problem: null });
     expect(await check(OWNER, "acme-hq")).toEqual({ slug: "acme-hq", problem: null });
-    expect(await check(MEMBER, "acme")).toBeNull();
-    expect(await check(STRANGER, "acme")).toBeNull();
+    for (const who of [MEMBER, GUEST, REMOVED, STRANGER]) {
+      expect(await check(who, "acme")).toBeNull();
+    }
+  });
+
+  test("for a workspace's own new address, another workspace's are taken, old or current", async () => {
+    const t = harness();
+    const { workspaceId } = await world(t);
+    await t.run(async (ctx) => {
+      const globex = await ctx.db.insert("workspaces", {
+        slug: "globex",
+        name: "Globex",
+        createdBy: STRANGER.subject,
+        plan: "team",
+        settings: { linkSharing: true, guestCodeAccess: false, joinDomains: [], autoJoin: false },
+        createdAt: 1,
+      });
+      await ctx.db.insert("workspaceSlugs", { slug: "globex-old", workspaceId: globex, retiredAt: 1 });
+      await ctx.db.insert("workspaceSlugs", { slug: "globex", workspaceId: globex });
+    });
+    const check = (slug: string) =>
+      t.withIdentity(ADMIN).query(api.workspaces.checkSlug, { slug, workspaceId });
+    for (const slug of ["globex", "globex-old"]) {
+      expect(await check(slug)).toEqual({ slug, problem: "That address is taken. Try another." });
+    }
+    expect((await check("billing"))?.problem).toMatch("reserved");
+    expect(await check("initech")).toEqual({ slug: "initech", problem: null });
   });
 });
 
