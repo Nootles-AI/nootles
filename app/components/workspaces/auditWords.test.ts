@@ -56,6 +56,29 @@ describe("the sentence", () => {
     expect(whatText(ttl, "Acme")).toBe("set new share links to run out after 30 days");
   });
 
+  test("a move between projects links both, and a folder counts its pages", () => {
+    const moved = row({
+      action: "page.move",
+      subjectKind: "page",
+      meta: { projectId: "p1", project: "Launch", page: "Roadmap", toProjectId: "p2", toProject: "Ops" },
+    });
+    expect(whatParts(moved, "Acme")).toEqual([
+      "moved the page “Roadmap” from ",
+      { project: "p1", title: "Launch" },
+      " to ",
+      { project: "p2", title: "Ops" },
+    ]);
+    const restored = row({
+      action: "folder.restore",
+      subjectKind: "folder",
+      meta: { projectId: "p1", project: "Launch", folder: "Specs", pages: 30 },
+    });
+    expect(whatText(restored, "Acme")).toBe("restored the folder “Specs” in Launch, with 30 pages");
+    expect(whatText({ ...restored, meta: { ...restored.meta, pages: 0 } }, "Acme")).toBe(
+      "restored the folder “Specs” in Launch",
+    );
+  });
+
   test("an unknown action is said as itself", () => {
     expect(whatText(row({ action: "something.new" }), "Acme")).toBe("something.new");
   });
