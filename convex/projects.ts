@@ -28,7 +28,7 @@ import { repoRef } from "./schema";
  * edit anywhere re-runs it. `pageCount` being set is what says the whole
  * summary is; projects written before it existed fall back to the pages.
  */
-async function pageSummary(ctx: QueryCtx, project: Doc<"projects">) {
+export async function pageSummary(ctx: QueryCtx, project: Doc<"projects">) {
   if (project.pageCount !== undefined) {
     // Verify the one reference a reader acts on before handing it out: a
     // `firstPageDocId` whose page has since been deleted subscribes every
