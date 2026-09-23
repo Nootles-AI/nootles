@@ -60,11 +60,36 @@ const plural = (n: number, one: string, many = `${one}s`) =>
 
 const unsubscribed = (status: unknown) => status === "none" || status == null;
 
-/** A change of Stripe status, named by where it landed: "marked the subscription past due". */
+/** Stripe statuses that start a subscription's life, before it is paid for. */
+const opening = (status: unknown) => unsubscribed(status) || status === "incomplete";
+
+/**
+ * A change of Stripe status, said as what it means for the workspace:
+ * "marked the subscription past due after a failed payment".
+ */
 function subscription(from: unknown, to: unknown): string {
-  if (unsubscribed(to) || to === "canceled") return "ended the subscription";
-  if (to === "active" && unsubscribed(from)) return "started the subscription";
-  if (to === "trialing" && unsubscribed(from)) return "started a trial of the subscription";
+  if (unsubscribed(to) || to === "canceled" || to === "incomplete_expired") {
+    return "ended the subscription";
+  }
+  switch (to) {
+    case "incomplete":
+      return "opened the subscription, waiting on its first payment";
+    case "trialing":
+      return opening(from)
+        ? "started a trial of the subscription"
+        : "put the subscription on a trial";
+    case "active":
+      if (opening(from)) return "started the subscription";
+      if (from === "trialing") return "started paying for the subscription after its trial";
+      if (from === "paused") return "resumed the subscription";
+      return "marked the subscription paid up";
+    case "past_due":
+      return "marked the subscription past due after a failed payment";
+    case "unpaid":
+      return "marked the subscription unpaid after its payments failed";
+    case "paused":
+      return "paused the subscription";
+  }
   return `marked the subscription ${String(to).replaceAll("_", " ")}`;
 }
 
@@ -348,11 +373,10 @@ const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
 const SHORT = new Intl.DateTimeFormat(undefined, { day: "numeric", month: "short" });
-const LAST_YEAR = new Intl.DateTimeFormat(undefined, { month: "short", year: "2-digit" });
 
 /**
- * "now", "5m", "3h", "2d" within a week; then the day, or the month and year
- * once it is another — each short enough for the log's When column.
+ * "now", "5m", "3h", "2d" within a week; then the day, and the year too once
+ * it is another — "Sep 3, 2025", never a month and year that reads as a day.
  */
 export function ago(at: number, now: number): string {
   const since = Math.max(0, now - at);
@@ -362,13 +386,13 @@ export function ago(at: number, now: number): string {
   if (since < 7 * DAY) return `${Math.floor(since / DAY)}d`;
   return new Date(at).getFullYear() === new Date(now).getFullYear()
     ? SHORT.format(at)
-    : LAST_YEAR.format(at);
+    : DATE.format(at);
 }
 
 // ---- The file ----------------------------------------------------------------
 
 const COLUMNS = [
-  "time",
+  "time_utc",
   "actor",
   "actor_email",
   "actor_kind",

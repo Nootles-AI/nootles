@@ -49,8 +49,19 @@ describe("the sentence", () => {
     const say = (from: string, to: string) =>
       whatText(row({ action: "billing.subscription", meta: { from, to } }), "Acme");
     expect(say("none", "active")).toBe("started the subscription");
-    expect(say("active", "past_due")).toBe("marked the subscription past due");
+    expect(say("active", "past_due")).toBe(
+      "marked the subscription past due after a failed payment",
+    );
     expect(say("past_due", "canceled")).toBe("ended the subscription");
+    expect(say("incomplete", "incomplete_expired")).toBe("ended the subscription");
+    expect(say("none", "incomplete")).toBe("opened the subscription, waiting on its first payment");
+    expect(say("incomplete", "active")).toBe("started the subscription");
+    expect(say("past_due", "unpaid")).toBe(
+      "marked the subscription unpaid after its payments failed",
+    );
+    expect(say("past_due", "active")).toBe("marked the subscription paid up");
+    expect(say("active", "paused")).toBe("paused the subscription");
+    expect(say("active", "some_new_status")).toBe("marked the subscription some new status");
   });
 
   test("links and roles are called what the screens that set them call them", () => {
@@ -208,7 +219,7 @@ describe("when", () => {
     const lastAug = Date.UTC(2025, 7, 1, 12);
     expect(ago(aug, now)).toBe(new Intl.DateTimeFormat(undefined, day).format(aug));
     expect(ago(lastAug, now)).toBe(
-      new Intl.DateTimeFormat(undefined, { month: "short", year: "2-digit" }).format(lastAug),
+      new Intl.DateTimeFormat(undefined, { ...day, year: "numeric" }).format(lastAug),
     );
   });
 });
@@ -226,7 +237,7 @@ describe("the file", () => {
     );
     const [head, line, end] = csv.split("\r\n");
     expect(head).toBe(
-      "time,actor,actor_email,actor_kind,action,description,subject_kind,subject_id,project_id,count",
+      "time_utc,actor,actor_email,actor_kind,action,description,subject_kind,subject_id,project_id,count",
     );
     expect(line).toBe(
       '2026-09-20T12:00:00.000Z,Maya,maya@acme.com,user,project.create,' +
