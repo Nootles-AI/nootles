@@ -16,7 +16,7 @@ import {
   workspaceRole,
   type WorkspaceRole,
 } from "./auth";
-import { record } from "./audit";
+import { record, recordInProject } from "./audit";
 import { unlinkRepo } from "./github/repos";
 import { unlinkPage } from "./notion/context";
 import { ensureArrivalProfile, personOf } from "./profiles";
@@ -164,22 +164,46 @@ async function unseat(
     .query("projects")
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
     .collect();
+  const reason =
+    removedBy === userId ? "linked by a member who left" : "linked by a member who was removed";
   for (const project of projects) {
     const repos = await ctx.db
       .query("projectRepos")
       .withIndex("by_project", (q) => q.eq("projectId", project._id))
       .collect();
     for (const repo of repos) {
-      if (repo.ownerId === userId && repo.installationId === undefined) {
-        await unlinkRepo(ctx, repo._id);
-      }
+      if (repo.ownerId !== userId || repo.installationId !== undefined) continue;
+      await unlinkRepo(ctx, repo._id);
+      await recordInProject(
+        ctx,
+        project,
+        {
+          action: "repo.unlink",
+          subjectKind: "repo",
+          subjectId: repo._id,
+          meta: { repo: repo.fullName, reason },
+        },
+        removedBy,
+      );
     }
     const pages = await ctx.db
       .query("projectNotion")
       .withIndex("by_project", (q) => q.eq("projectId", project._id))
       .collect();
     for (const page of pages) {
-      if (page.ownerId === userId) await unlinkPage(ctx, page);
+      if (page.ownerId !== userId) continue;
+      await unlinkPage(ctx, page);
+      await recordInProject(
+        ctx,
+        project,
+        {
+          action: "notion.unlink",
+          subjectKind: "notion",
+          subjectId: page._id,
+          meta: { page: page.title, reason },
+        },
+        removedBy,
+      );
     }
 
     if (project.ownerId !== userId) continue;
