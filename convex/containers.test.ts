@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 import { convexTest, type TestConvex } from "convex-test";
-import { describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { api } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import schema from "./schema";
@@ -199,6 +199,106 @@ describe("making a project in a workspace", () => {
     const row = await t.run(async (ctx) => await ctx.db.get(projectId));
     expect(row?.workspaceId).toBeUndefined();
     expect(row?.visibility).toBeUndefined();
+  });
+});
+
+describe("a new project's sources come with it", () => {
+  // Scheduled reads stay queued: under fake timers they never fire, and
+  // firing would go to GitHub, Notion or the extractor.
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  const REPO = { fullName: "acme/rover", defaultBranch: "main", private: true };
+  const PAGE = { pageId: "1f2e3d4c-5b6a-4789-8abc-def012345678", title: "Telemetry spec" };
+  const upload = (t: T, bytes = 3) =>
+    t.run(async (ctx) => await ctx.storage.store(new Blob([new Uint8Array(bytes)])));
+
+  test("a member's choices are attached as theirs, though the project is not theirs to add to", async () => {
+    const t = convexTest(schema, modules);
+    const { workspaceId } = await world(t);
+    const storageId = await upload(t);
+    const member = t.withIdentity(MEMBER);
+    const projectId = await member.mutation(api.projects.create, {
+      title: "Rover",
+      workspaceId,
+      repos: [REPO],
+      pages: [PAGE],
+      files: [{ storageId, filename: "spec.md", mediaType: "text/markdown" }],
+    });
+
+    const linked = await t.run(async (ctx) => ({
+      repos: await ctx.db
+        .query("projectRepos")
+        .withIndex("by_project", (q) => q.eq("projectId", projectId))
+        .collect(),
+      pages: await ctx.db
+        .query("projectNotion")
+        .withIndex("by_project", (q) => q.eq("projectId", projectId))
+        .collect(),
+      files: await ctx.db
+        .query("projectFiles")
+        .withIndex("by_project", (q) => q.eq("projectId", projectId))
+        .collect(),
+    }));
+    // Each read with, or uploaded by, the member who chose it.
+    expect(linked.repos.map((r) => [r.fullName, r.ownerId])).toEqual([
+      [REPO.fullName, MEMBER.subject],
+    ]);
+    expect(linked.pages.map((p) => [p.pageId, p.ownerId, p.index.state])).toEqual([
+      [PAGE.pageId, MEMBER.subject, "queued"],
+    ]);
+    expect(linked.files.map((f) => [f.filename, f.ownerId, f.storageId, f.size])).toEqual([
+      ["spec.md", MEMBER.subject, storageId, 3],
+    ]);
+
+    // What made this necessary: once the project exists, adding to it is an
+    // admin's, and the member who made it is not one.
+    await expect(
+      member.mutation(api.notion.context.link, { projectId, pages: [PAGE] }),
+    ).rejects.toThrow("Not found");
+    await expect(
+      member.mutation(api.files.context.add, {
+        projectId,
+        storageId: await upload(t),
+        filename: "notes.md",
+        mediaType: "text/markdown",
+      }),
+    ).rejects.toThrow("Not found");
+  });
+
+  test("a file that can’t be read refuses the whole project, so nothing half-made is left", async () => {
+    const t = convexTest(schema, modules);
+    const { workspaceId } = await world(t);
+    const storageId = await upload(t);
+    await expect(
+      t.withIdentity(MEMBER).mutation(api.projects.create, {
+        title: "Rover",
+        workspaceId,
+        pages: [PAGE],
+        files: [{ storageId, filename: "photo.png", mediaType: "image/png" }],
+      }),
+    ).rejects.toThrow("isn't a kind of file the assistant can read");
+    expect(
+      await t.run(async (ctx) => ({
+        projects: (await ctx.db.query("projects").collect()).length,
+        pages: (await ctx.db.query("projectNotion").collect()).length,
+      })),
+    ).toEqual({ projects: 0, pages: 0 });
+  });
+
+  test("a guest still makes nothing there, sources or not", async () => {
+    const t = convexTest(schema, modules);
+    const { workspaceId } = await world(t);
+    await expect(
+      t.withIdentity(GUEST).mutation(api.projects.create, {
+        title: "Rover",
+        workspaceId,
+        pages: [PAGE],
+      }),
+    ).rejects.toThrow("A guest can’t do that here.");
+    expect(await t.run(async (ctx) => (await ctx.db.query("projectNotion").collect()).length)).toBe(
+      0,
+    );
   });
 });
 

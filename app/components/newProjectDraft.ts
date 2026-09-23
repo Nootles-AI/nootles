@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 import type { Id } from "@/convex/_generated/dataModel";
+import { ContextFileError } from "@/app/lib/contextFiles";
 import type { DraftSourcesValue } from "./context/ContextSources";
 
 /**
@@ -72,8 +73,10 @@ export function useNewProjectDraft(
       .then((made) => {
         if (made === false) setBusy(false);
       })
-      .catch(() => {
-        setFailure("Couldn’t create that project.");
+      .catch((error: unknown) => {
+        setFailure(
+          error instanceof ContextFileError ? error.message : "Couldn’t create that project.",
+        );
         setBusy(false);
       });
   };

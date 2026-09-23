@@ -1,6 +1,6 @@
-import { v } from "convex/values";
+import { v, type Infer } from "convex/values";
 import { internal } from "../_generated/api";
-import type { Doc } from "../_generated/dataModel";
+import type { Doc, Id } from "../_generated/dataModel";
 import {
   internalMutation,
   internalQuery,
@@ -29,43 +29,57 @@ export const listForProject = query({
   },
 });
 
+/** A page as the picker hands it over. */
+export const notionPageRef = v.object({
+  pageId: v.string(),
+  title: v.string(),
+  emoji: v.optional(v.string()),
+});
+
 export const link = mutation({
-  args: {
-    projectId: v.id("projects"),
-    pages: v.array(
-      v.object({ pageId: v.string(), title: v.string(), emoji: v.optional(v.string()) }),
-    ),
-  },
+  args: { projectId: v.id("projects"), pages: v.array(notionPageRef) },
   handler: async (ctx, args) => {
-    // Linked under the caller: it is their Notion connection that reads it.
     await requireManageable(ctx, "projects", args.projectId);
-    const ownerId = await requireOwner(ctx);
-    const now = Date.now();
-    const seen = new Set<string>();
-    for (const page of args.pages) {
-      if (seen.has(page.pageId)) continue;
-      seen.add(page.pageId);
-      const already = await ctx.db
-        .query("projectNotion")
-        .withIndex("by_project_and_pageId", (q) =>
-          q.eq("projectId", args.projectId).eq("pageId", page.pageId),
-        )
-        .first();
-      if (already) continue;
-      const rowId = await ctx.db.insert("projectNotion", {
-        ownerId,
-        projectId: args.projectId,
-        pageId: page.pageId,
-        title: page.title,
-        ...(page.emoji ? { emoji: page.emoji } : {}),
-        url: `https://www.notion.so/${page.pageId.replace(/-/g, "")}`,
-        index: { state: "queued" },
-        addedAt: now,
-      });
-      await ctx.scheduler.runAfter(0, internal.notion.contextRead.run, { rowId });
-    }
+    await linkPages(ctx, await requireOwner(ctx), args.projectId, args.pages);
   },
 });
+
+/**
+ * Link pages to a project and start reading them. Linked under `ownerId`, the
+ * caller: it is their Notion connection that reads them. Shared with
+ * `projects.create`, which links what was chosen before the project existed.
+ */
+export async function linkPages(
+  ctx: MutationCtx,
+  ownerId: string,
+  projectId: Id<"projects">,
+  pages: Infer<typeof notionPageRef>[],
+) {
+  const now = Date.now();
+  const seen = new Set<string>();
+  for (const page of pages) {
+    if (seen.has(page.pageId)) continue;
+    seen.add(page.pageId);
+    const already = await ctx.db
+      .query("projectNotion")
+      .withIndex("by_project_and_pageId", (q) =>
+        q.eq("projectId", projectId).eq("pageId", page.pageId),
+      )
+      .first();
+    if (already) continue;
+    const rowId = await ctx.db.insert("projectNotion", {
+      ownerId,
+      projectId,
+      pageId: page.pageId,
+      title: page.title,
+      ...(page.emoji ? { emoji: page.emoji } : {}),
+      url: `https://www.notion.so/${page.pageId.replace(/-/g, "")}`,
+      index: { state: "queued" },
+      addedAt: now,
+    });
+    await ctx.scheduler.runAfter(0, internal.notion.contextRead.run, { rowId });
+  }
+}
 
 export const unlink = mutation({
   args: { rowId: v.id("projectNotion") },

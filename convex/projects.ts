@@ -18,7 +18,9 @@ import {
 } from "./auth";
 import { ABOUT, BACKGROUND } from "./ai/questions";
 import { requireQuota } from "./entitlements";
+import { attachFile, contextFileRef } from "./files/context";
 import { add as addRepos } from "./github/repos";
+import { linkPages, notionPageRef } from "./notion/context";
 import { deletePreview } from "./previews";
 import { repoRef } from "./schema";
 
@@ -250,8 +252,13 @@ export const create = mutation({
     description: v.optional(v.string()),
     /** Freeform: whatever the user wants the agent to know going in. */
     context: v.optional(v.string()),
-    /** Repositories chosen in the dialog, before there was a project to hang them on. */
+    /**
+     * Context chosen in the dialog, before there was a project to hang it on:
+     * repositories, Notion pages, and files the browser has already uploaded.
+     */
     repos: v.optional(v.array(repoRef)),
+    pages: v.optional(v.array(notionPageRef)),
+    files: v.optional(v.array(contextFileRef)),
     /**
      * The sidebar a project made from a template opens with, top to bottom:
      * pages, and one level of folders holding pages. Each `update` is the Yjs
@@ -309,12 +316,15 @@ export const create = mutation({
       });
     }
 
-    // Repositories are context too, just the kind that is read rather than
-    // written: each one is linked here and summarised by a scheduled action, so
-    // the project opens with the fetch already under way.
-    if (args.repos?.length) {
-      await addRepos(ctx, ownerId, projectId, args.repos);
-    }
+    // Sources are context too, just the kind that is read rather than written.
+    // Attached here, as the maker's, rather than after: once it exists the
+    // project is its manager's to add to, and in a workspace that is not
+    // necessarily the member who made it — so what they chose would be
+    // refused. Each is read by a scheduled action, so the project opens with
+    // the reading already under way.
+    if (args.repos?.length) await addRepos(ctx, ownerId, projectId, args.repos);
+    if (args.pages?.length) await linkPages(ctx, ownerId, projectId, args.pages);
+    for (const file of args.files ?? []) await attachFile(ctx, ownerId, projectId, file);
 
     // A page and its document together, the way first run seeds them: the row
     // first, because `ydoc.init` authorizes through it.

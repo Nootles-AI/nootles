@@ -11,7 +11,7 @@ import { track } from "@/app/lib/telemetry";
 import { pages, when } from "@/app/lib/projectMeta";
 import { projectPath } from "@/app/lib/containerPaths";
 import { ACCOUNT, rememberScreen, seenScreen } from "@/app/lib/projectsCache";
-import { uploadContextFile } from "@/app/lib/contextFiles";
+import { checkContextFile, storeContextFile } from "@/app/lib/contextFiles";
 import { repoRef } from "./context/ContextSources";
 import { BoardView, GridView, ListView, Plus, Search } from "./Icons";
 import { AccountMenu } from "./AccountMenu";
@@ -115,7 +115,6 @@ export function ProjectsScreen() {
     }
   }, [userId, home, liveProjects, liveOthers]);
   const createProject = useMutation(api.projects.create);
-  const linkPages = useMutation(api.notion.context.link);
   const convex = useConvex();
   const renameProject = useMutation(api.projects.rename);
   const removeProject = useMutation(api.projects.remove);
@@ -259,10 +258,18 @@ export function ProjectsScreen() {
       ? (await import("@/app/lib/templates/seed")).seedOf(template)
       : undefined;
     const { repos, files, pages } = project.sources;
+    // Its sources are attached as it is made, not added to it after: a
+    // member's workspace project is its admins' to add to once it exists. So
+    // the files go up first — every one checked before any bytes move, so a
+    // refusal is said on the form with nothing left behind.
+    files.forEach(checkContextFile);
+    const stored = await Promise.all(files.map((file) => storeContextFile(convex, file)));
     const id = await createProject({
       title: project.title,
       ...(project.description ? { description: project.description } : {}),
       ...(repos.length ? { repos: repos.map(repoRef) } : {}),
+      ...(pages.length ? { pages } : {}),
+      ...(stored.length ? { files: stored } : {}),
       ...(seed ? { seed } : {}),
       ...(project.workspace
         ? {
@@ -271,14 +278,6 @@ export function ProjectsScreen() {
           }
         : {}),
     });
-    // What only exists once the project does. Not awaited in full: the project
-    // opens now, and a card for each source shows its reading as it lands.
-    if (pages.length) void linkPages({ projectId: id, pages });
-    for (const file of files) {
-      void uploadContextFile(convex, id, file).catch(() => {
-        // The file card is absent rather than wrong; it can be added again.
-      });
-    }
     track("project_created", {});
     // Straight to its own address, not through `/p/`'s redirect to it.
     router.push(projectPath(project.workspace?.slug ?? null, id));
@@ -313,8 +312,11 @@ export function ProjectsScreen() {
   // `create`: the plan on this screen may not have caught up with the payment.
   useResumeIntent("newProject", live, (intent) => {
     if (!intent.project) return openCreate();
-    make(intent.project).catch((error: unknown) => {
-      if (isQuotaError(error)) setWalled({ project: intent.project });
+    // A chosen file is bytes this tab held, and the trip out came back as
+    // JSON without them.
+    const project = { ...intent.project, sources: { ...intent.project.sources, files: [] } };
+    make(project).catch((error: unknown) => {
+      if (isQuotaError(error)) setWalled({ project });
       else setFailure("Couldn’t create that project.");
     });
   });
