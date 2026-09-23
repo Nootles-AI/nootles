@@ -294,20 +294,43 @@ export function domainOf(email: string): string {
 }
 
 /**
- * Whether someone may take a member's seat without an invitation: auto-join
+ * The seat someone takes without an invitation, or null for none: auto-join
  * is on and their verified address is on one of the workspace's domains.
- * `seat` is their row, whatever its status. Someone who left may come back
- * this way; someone an admin removed may not — being on the domain is what
- * let them in the first time, so it cannot be what overrules the removal.
+ * `seat` is their row, whatever its status, and an active one stays as it is.
+ *
+ * Someone who left may come back this way, but no higher than they left: a
+ * guest returns a guest, or leaving and rejoining would undo an admin's
+ * demotion. Someone an admin removed may not come back this way at all —
+ * being on the domain is what let them in the first time, so it cannot be
+ * what overrules the removal.
  */
-export function joinsByDomain(
+export function domainSeat(
   workspace: Doc<"workspaces">,
   email: string | null,
   seat: Doc<"memberships"> | null,
+): WorkspaceRole | null {
+  if (!email || workspace.deletedAt !== undefined || !workspace.settings.autoJoin) return null;
+  if (!workspace.settings.joinDomains.includes(domainOf(email))) return null;
+  if (!seat) return "member";
+  if (seat.status === "active") return seat.role;
+  if (seat.removedBy !== seat.userId) return null;
+  return seat.role === "guest" ? "guest" : "member";
+}
+
+/**
+ * Whether a removal outranks an invitation to the person removed. An admin's
+ * removal is the later word on every invitation sent before it, so only one
+ * sent or renewed since brings them back. Leaving withdraws nothing.
+ */
+export function removedSince(
+  invitation: Doc<"invitations">,
+  seat: Doc<"memberships"> | null,
 ): boolean {
-  if (!email || workspace.deletedAt !== undefined || !workspace.settings.autoJoin) return false;
-  if (!workspace.settings.joinDomains.includes(domainOf(email))) return false;
-  return !seat || seat.status === "active" || seat.removedBy === seat.userId;
+  return (
+    seat?.status === "removed" &&
+    seat.removedBy !== seat.userId &&
+    invitation.createdAt < (seat.removedAt ?? Infinity)
+  );
 }
 
 export type ProjectRole = "owner" | "editor" | "viewer";

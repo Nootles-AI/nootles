@@ -47,6 +47,8 @@ function harness() {
 const as = (t: T, who: Identity | null): Caller => (who ? t.withIdentity(who) : t);
 
 afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
   vi.unstubAllEnvs();
 });
 
@@ -520,7 +522,77 @@ describe("joining by domain", () => {
       { via: "domain" },
     ]);
     await t.withIdentity(MEMBER).mutation(api.members.joinByDomain, { workspaceId: w.workspaceId });
-    expect(await seatOf(t, w.workspaceId, MEMBER)).toMatchObject({ status: "active" });
+    expect(await seatOf(t, w.workspaceId, MEMBER)).toMatchObject({
+      status: "active",
+      role: "member",
+    });
+  });
+
+  test("brings someone back no higher than they left, so leaving undoes no demotion", async () => {
+    const t = harness();
+    const w = await world(t);
+    await openDomain(t, w);
+    await t.withIdentity(ADMIN).mutation(api.members.setRole, {
+      workspaceId: w.workspaceId,
+      userId: MEMBER.subject,
+      role: "guest",
+    });
+    const max = t.withIdentity(MEMBER);
+    await max.mutation(api.members.joinByDomain, { workspaceId: w.workspaceId });
+    expect(await seatOf(t, w.workspaceId, MEMBER)).toMatchObject({ role: "guest" });
+
+    await max.mutation(api.members.leave, { workspaceId: w.workspaceId });
+    expect(await max.query(api.members.joinable, {})).toEqual([
+      { workspaceId: w.workspaceId, name: "Acme", role: "guest", via: "domain", token: null },
+    ]);
+    await max.mutation(api.members.joinByDomain, { workspaceId: w.workspaceId });
+    expect(await seatOf(t, w.workspaceId, MEMBER)).toMatchObject({
+      status: "active",
+      role: "guest",
+    });
+  });
+
+  test("an invitation sent before an admin removed someone does not bring them back", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const t = harness();
+    const w = await world(t);
+    await openDomain(t, w);
+    const invite = () =>
+      t.withIdentity(ADMIN).mutation(api.members.invite, {
+        workspaceId: w.workspaceId,
+        email: NEWCOMER.email,
+        role: "member",
+      });
+    const { token } = await invite();
+    // In by the domain instead, with the invitation still open.
+    const nia = t.withIdentity(NEWCOMER);
+    await nia.mutation(api.members.joinByDomain, { workspaceId: w.workspaceId });
+    vi.setSystemTime(Date.now() + 60_000);
+    await t.withIdentity(ADMIN).mutation(api.members.remove, {
+      workspaceId: w.workspaceId,
+      userId: NEWCOMER.subject,
+    });
+
+    expect(await nia.query(api.members.joinable, {})).toEqual([]);
+    expect(await nia.query(api.members.invitation, { token })).toMatchObject({
+      state: "revoked",
+    });
+    await expect(nia.mutation(api.members.acceptInvite, { token })).rejects.toThrow(
+      "This invitation was withdrawn.",
+    );
+    expect(await seatOf(t, w.workspaceId, NEWCOMER)).toMatchObject({ status: "removed" });
+
+    // Asked back since, they come back.
+    vi.setSystemTime(Date.now() + 60_000);
+    const again = await invite();
+    expect(await nia.query(api.members.joinable, {})).toMatchObject([
+      { via: "invitation", token: again.token },
+    ]);
+    await nia.mutation(api.members.acceptInvite, { token: again.token });
+    expect(await seatOf(t, w.workspaceId, NEWCOMER)).toMatchObject({
+      status: "active",
+      role: "member",
+    });
   });
 
   test("lists open invitations beside domains, one door per workspace", async () => {

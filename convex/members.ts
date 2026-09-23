@@ -6,9 +6,10 @@ import {
   activeMembership,
   atLeast,
   domainOf,
-  joinsByDomain,
+  domainSeat,
   mayAssignSeat,
   ownerId as currentOwner,
+  removedSince,
   requireOwner,
   requireWorkspaceRole,
   verifiedEmail,
@@ -335,7 +336,8 @@ export const revokeInvite = mutation({
 export const invitation = query({
   args: { token: v.string() },
   handler: async (ctx, args) => {
-    if (!(await currentOwner(ctx))) return null;
+    const me = await currentOwner(ctx);
+    if (!me) return null;
     const invitation = await ctx.db
       .query("invitations")
       .withIndex("by_token", (q) => q.eq("token", args.token))
@@ -346,14 +348,17 @@ export const invitation = query({
     if ((await verifiedEmail(ctx)) !== invitation.email) {
       return { state: "wrong-account" as const, email: maskEmail(invitation.email) };
     }
+    // In the order `acceptInvite` asks, so the page says what accepting would.
     const state =
       invitation.revokedAt !== undefined || workspace.deletedAt !== undefined
         ? ("revoked" as const)
         : invitation.acceptedAt !== undefined
           ? ("accepted" as const)
-          : invitation.expiresAt <= Date.now()
-            ? ("expired" as const)
-            : ("valid" as const);
+          : removedSince(invitation, await seatOf(ctx, workspace._id, me))
+            ? ("revoked" as const)
+            : invitation.expiresAt <= Date.now()
+              ? ("expired" as const)
+              : ("valid" as const);
     const inviter = await profileOf(ctx, invitation.invitedBy);
     return {
       state,
@@ -400,6 +405,9 @@ export const acceptInvite = mutation({
       }
       throw new ConvexError("This invitation has already been used.");
     }
+    if (removedSince(invitation, await seatOf(ctx, workspace._id, me))) {
+      throw new ConvexError("This invitation was withdrawn.");
+    }
     if (invitation.expiresAt <= Date.now()) {
       throw new ConvexError("This invitation has expired. Ask for a new one.");
     }
@@ -439,7 +447,8 @@ export const joinable = query({
       if (!pending(invitation) || invitation.expiresAt <= now) continue;
       const workspace = await ctx.db.get(invitation.workspaceId);
       if (!workspace || workspace.deletedAt !== undefined) continue;
-      if (await activeMembership(ctx, workspace._id, me)) continue;
+      const seat = await seatOf(ctx, workspace._id, me);
+      if (seat?.status === "active" || removedSince(invitation, seat)) continue;
       doors.push({
         workspaceId: workspace._id,
         name: workspace.name,
@@ -458,25 +467,27 @@ export const joinable = query({
       const workspace = await ctx.db.get(workspaceId);
       const seat = await seatOf(ctx, workspaceId, me);
       if (!workspace || seat?.status === "active") continue;
-      if (!joinsByDomain(workspace, email, seat)) continue;
-      doors.push({ workspaceId, name: workspace.name, role: "member", via: "domain", token: null });
+      const role = domainSeat(workspace, email, seat);
+      if (role) doors.push({ workspaceId, name: workspace.name, role, via: "domain", token: null });
     }
 
     return doors.sort((a, b) => a.name.localeCompare(b.name));
   },
 });
 
-/** Walks through a join domain, as a member. Joining twice is harmless. */
+/**
+ * Walks through a join domain, into the seat `domainSeat` names. Joining twice
+ * is harmless.
+ */
 export const joinByDomain = mutation({
   args: { workspaceId: v.id("workspaces") },
   handler: async (ctx, args) => {
     const me = await requireOwner(ctx);
     const workspace = await ctx.db.get(args.workspaceId);
     const seat = await seatOf(ctx, args.workspaceId, me);
-    if (!workspace || !joinsByDomain(workspace, await verifiedEmail(ctx), seat)) {
-      throw new Error("Not found");
-    }
-    if (seat?.status !== "active") await giveSeat(ctx, workspace._id, me, "member");
+    const role = workspace && domainSeat(workspace, await verifiedEmail(ctx), seat);
+    if (!workspace || !role) throw new Error("Not found");
+    if (seat?.status !== "active") await giveSeat(ctx, workspace._id, me, role);
     await ensureArrivalProfile(ctx, me);
     return { slug: workspace.slug };
   },
