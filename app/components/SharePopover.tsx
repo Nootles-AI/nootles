@@ -186,6 +186,9 @@ function SharePopoverBody({
   // An answered request is on its way out: it fades while the server agrees,
   // rather than sitting there looking unanswered until the list redraws.
   const [answered, setAnswered] = useState<ReadonlySet<string>>(new Set());
+  // Likewise someone whose access was just taken away, and they leave the
+  // count with their row.
+  const [leaving, setLeaving] = useState<ReadonlySet<string>>(new Set());
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(
     () => () => {
@@ -283,13 +286,24 @@ function SharePopoverBody({
   // the likely answer.
   const inWorkspace = project ? !!project.workspaceId : container.kind === "workspace";
   const says = inWorkspace ? "signedIn" : "anyone";
+  // Whether someone removed could come straight back: a claim is kept by any
+  // live link, not only the one it came through.
+  const linkLive =
+    !!links &&
+    links.allowed !== false &&
+    (["editor", "viewer"] as const).some(
+      (r) => !!links[r] && (links.expiresAt[r] === null || links.expiresAt[r] > now),
+    );
 
   return createPortal(
     <>
       {/* Pointer-only dismissal; keyboard users get Escape and Tab-out. */}
       <div
         className="fixed inset-0"
-        style={{ zIndex: "var(--z-dropdown)" }}
+        // A dialog's layer, not a dropdown's: on a phone the Share button is
+        // inside the sidebar drawer, which sits at the modal layer itself.
+        // Portaled after it, the popover paints above it at the same layer.
+        style={{ zIndex: "var(--z-modal)" }}
         onMouseDown={onClose}
       />
       <div
@@ -322,6 +336,7 @@ function SharePopoverBody({
           // than running off the bottom edge.
           maxHeight: pos ? `calc(100dvh - ${pos.top + 8}px)` : undefined,
           visibility: pos ? undefined : "hidden",
+          zIndex: "var(--z-modal)",
         }}
       >
         {/* A workspace comes first, under its own label: everyone its
@@ -456,14 +471,14 @@ function SharePopoverBody({
               <>
                 <p className="nt-note mt-3 text-pretty">
                   {ranOut !== null
-                    ? `Ran out on ${dayOf(ranOut, now)}. Nobody can ${
+                    ? `Expired on ${dayOf(ranOut, now)}. Nobody can ${
                         role === "editor" ? "view or edit" : "view"
                       } through it now.`
                     : role === "editor"
                       ? "Off. Nobody can view or edit through an editor link."
                       : "Off. Nobody can view through a viewer link."}
                   {links.defaultDays !== null &&
-                    ` A new one runs out after ${lifetimeLabel(links.defaultDays)}.`}
+                    ` New links expire after ${lifetimeLabel(links.defaultDays)}.`}
                 </p>
                 <button onClick={create} className="nt-row nt-solid mt-2 px-3 font-medium">
                   {lapsed ? `Create a new ${role} link` : `Create ${role} link`}
@@ -549,7 +564,9 @@ function SharePopoverBody({
             <div className="nt-field-label">
               People with access
               <span className="nt-field-note">
-                {collaborators.length + 1 + (maker ? 1 : 0)}
+                {collaborators.filter((p) => !leaving.has(p.granteeId)).length +
+                  1 +
+                  (maker ? 1 : 0)}
               </span>
             </div>
             <ul
@@ -567,8 +584,6 @@ function SharePopoverBody({
                 </span>
                 <span className="min-w-0 flex-1 truncate text-[13px]">You</span>
                 <span className="shrink-0 text-[13px] text-muted">{holds.owner}</span>
-                {/* The ⋯'s seat, so every row's role lines up down the list. */}
-                {collaborators.length > 0 && <span aria-hidden className="w-6 shrink-0" />}
               </li>
               {maker && (
                 <li className="flex h-8 items-center gap-2">
@@ -588,7 +603,6 @@ function SharePopoverBody({
                     {maker.name ?? maker.email ?? "Someone"}
                   </span>
                   <span className="shrink-0 text-[13px] text-muted">{holds.editor}</span>
-                  {collaborators.length > 0 && <span aria-hidden className="w-6 shrink-0" />}
                 </li>
               )}
               {collaborators.map((person) => (
@@ -598,6 +612,16 @@ function SharePopoverBody({
                   person={person}
                   holds={person.role === "editor" ? holds.editor : holds.viewer}
                   offersCode={offersCode && person.guest}
+                  linkLive={linkLive}
+                  leaving={leaving.has(person.granteeId)}
+                  onLeaving={(going) =>
+                    setLeaving((ids) => {
+                      const next = new Set(ids);
+                      if (going) next.add(person.granteeId);
+                      else next.delete(person.granteeId);
+                      return next;
+                    })
+                  }
                   now={now}
                   onProblem={setPeopleProblem}
                   // Its row is going, ⋯ and all: focus waits on the popover.
@@ -619,8 +643,8 @@ function SharePopoverBody({
 }
 
 /**
- * When a link runs out, and the choice of when: the day it does, in the
- * metadata voice, as the trigger of a menu of lifetimes counted from now.
+ * When a link expires, and the choice of when: the day it does, as the
+ * trigger of a menu of lifetimes counted from now.
  * A pick moves the link's day and its people's with it (`share.setLink`); the
  * trigger's glyph turns to a tick for a moment once the server has it.
  */
@@ -662,6 +686,14 @@ function LinkLifetime({
   };
 
   const said = until === null ? "Never expires" : `Expires ${dayOf(until, now)}`;
+  // The link keeps only its day, not the lifetime picked: the pick is the
+  // lifetime that, counted from today, lands on that day.
+  const chosen =
+    until === null
+      ? null
+      : LIFETIMES.find(
+          (days) => days !== null && dayOf(runsOutAt(days, now), now) === dayOf(until, now),
+        );
   return (
     <Menu
       label="When the link expires"
@@ -676,7 +708,7 @@ function LinkLifetime({
           data-done={saved || undefined}
           className="nt-row nt-ws-pick min-w-0 gap-1.5 px-2"
         >
-          <span className="nt-meta truncate">{said}</span>
+          <span className="truncate text-muted">{said}</span>
           <span className="nt-swap nt-ws-pick-glyph" aria-hidden="true">
             <ChevronsUpDown width={14} height={14} />
             <Check width={14} height={14} />
@@ -684,31 +716,43 @@ function LinkLifetime({
         </button>
       )}
     >
-      {(close) =>
-        LIFETIMES.map((days) => (
-          <MenuItem
-            key={days ?? "never"}
-            className="nt-ws-choice"
-            onClick={() => {
-              close();
-              pick(days);
-            }}
-          >
-            <span className="nt-ws-choice-text">
-              <span>{lifetimeLabel(days)}</span>
-              <span className="nt-ws-choice-hint">
-                {days === null ? "Until it’s turned off" : `Until ${dayOf(runsOutAt(days, now), now)}`}
+      {(close) => (
+        <>
+          {/* Set on another day, the link's lifetime matches none counted
+              from today: its day is said here instead of a tick. */}
+          {chosen === undefined && (
+            <>
+              <p className="nt-menu-caption">{said}.</p>
+              <div className="nt-menu-sep" />
+            </>
+          )}
+          {LIFETIMES.map((days) => (
+            <MenuItem
+              key={days ?? "never"}
+              className="nt-ws-choice"
+              onClick={() => {
+                close();
+                pick(days);
+              }}
+            >
+              <span className="nt-ws-choice-text">
+                <span>{lifetimeLabel(days)}</span>
+                <span className="nt-ws-choice-hint">
+                  {days === null
+                    ? "Until you turn it off"
+                    : `Expires ${dayOf(runsOutAt(days, now), now)}`}
+                </span>
               </span>
-            </span>
-            <Check
-              width={14}
-              height={14}
-              aria-hidden="true"
-              className={`nt-menu-check${days === null && until === null ? " is-on" : ""}`}
-            />
-          </MenuItem>
-        ))
-      }
+              <Check
+                width={14}
+                height={14}
+                aria-hidden="true"
+                className={`nt-menu-check${days === chosen ? " is-on" : ""}`}
+              />
+            </MenuItem>
+          ))}
+        </>
+      )}
     </Menu>
   );
 }
@@ -724,6 +768,9 @@ function Person({
   person,
   holds,
   offersCode,
+  linkLive,
+  leaving,
+  onLeaving,
   now,
   onProblem,
   onGone,
@@ -733,6 +780,10 @@ function Person({
   /** What the row says they can do. */
   holds: string;
   offersCode: boolean;
+  /** Whether a link is still on that would let them straight back in. */
+  linkLive: boolean;
+  leaving: boolean;
+  onLeaving: (going: boolean) => void;
   now: number;
   onProblem: (text: string | null) => void;
   /** Moves focus off the row, which is on its way out. */
@@ -748,19 +799,21 @@ function Person({
       list.map((p) => (p.granteeId === args.granteeId ? { ...p, codeAccess: args.allowed } : p)),
     );
   });
-  // Leaves at once; the list drops it when the server agrees, and it comes
-  // back if the server does not.
-  const [leaving, setLeaving] = useState(false);
   const name = person.name ?? person.email ?? "Someone";
 
   const remove = () => {
     onProblem(null);
-    setLeaving(true);
+    // Leaves at once; the list drops it when the server agrees, and it comes
+    // back if the server does not.
+    onLeaving(true);
     onGone();
-    revoke({ projectId, granteeId: person.granteeId }).catch((error) => {
-      setLeaving(false);
-      onProblem(refusal(error, `Couldn’t remove ${name}’s access. Try again in a moment.`));
-    });
+    revoke({ projectId, granteeId: person.granteeId }).then(
+      () => onLeaving(false),
+      (error) => {
+        onLeaving(false);
+        onProblem(refusal(error, `Couldn’t remove ${name}’s access. Try again in a moment.`));
+      },
+    );
   };
 
   const toggleCode = () => {
@@ -790,77 +843,83 @@ function Person({
           </Tooltip>
         )}
       </span>
-      <span className="shrink-0 text-[13px] text-muted">{holds}</span>
-      <Menu
-        label={`Access for ${name}`}
-        side="bottom"
-        align="end"
-        layer="modal"
-        className="nt-ws-choices"
-        trigger={(t) => (
-          <button {...t} aria-label={`Actions for ${name}`} className={ROW_MENU}>
-            <MoreHorizontal />
-          </button>
-        )}
-      >
-        {(close) => (
-          <>
-            {person.expiresAt !== null && (
-              <>
-                <p className="nt-menu-caption">
-                  Their access runs out with the link, on {dayOf(person.expiresAt, now)}.
-                </p>
-                <div className="nt-menu-sep" />
-              </>
-            )}
-            {offersCode && (
-              <>
-                <MenuItem
-                  className="nt-ws-choice"
-                  onClick={() => {
-                    close();
-                    toggleCode();
-                  }}
-                >
-                  <span className="nt-ws-choice-text">
-                    <span>
-                      Allow code context
-                      <span className="sr-only">{person.codeAccess ? ", on" : ", off"}</span>
+      {/* The ⋯ takes the role's seat as it appears, so every role in the
+          list ends on the same edge as the workspace's above it. */}
+      <span className="nt-share-hold">
+        <span className="nt-share-hold-text text-[13px] text-muted">{holds}</span>
+        <Menu
+          label={`Access for ${name}`}
+          side="bottom"
+          align="end"
+          layer="modal"
+          className="nt-ws-choices"
+          trigger={(t) => (
+            <button {...t} aria-label={`Actions for ${name}`} className={ROW_MENU}>
+              <MoreHorizontal />
+            </button>
+          )}
+        >
+          {(close) => (
+            <>
+              {person.expiresAt !== null && (
+                <>
+                  <p className="nt-menu-caption">
+                    Their access expires with the link on {dayOf(person.expiresAt, now)}.
+                  </p>
+                  <div className="nt-menu-sep" />
+                </>
+              )}
+              {offersCode && (
+                <>
+                  <MenuItem
+                    className="nt-ws-choice"
+                    onClick={() => {
+                      close();
+                      toggleCode();
+                    }}
+                  >
+                    <span className="nt-ws-choice-text">
+                      <span>
+                        Allow code context
+                        <span className="sr-only">{person.codeAccess ? ", on" : ", off"}</span>
+                      </span>
+                      <span className="nt-ws-choice-hint">
+                        Gives them the linked repositories as context too
+                      </span>
                     </span>
-                    <span className="nt-ws-choice-hint">
-                      Gives them the linked repositories as context too
-                    </span>
+                    <Check
+                      width={14}
+                      height={14}
+                      aria-hidden="true"
+                      className={`nt-menu-check${person.codeAccess ? " is-on" : ""}`}
+                    />
+                  </MenuItem>
+                  <div className="nt-menu-sep" />
+                </>
+              )}
+              <MenuItem
+                danger
+                className="nt-ws-choice"
+                disabled={leaving}
+                onClick={() => {
+                  // Not back to this ⋯: the row it is on is leaving.
+                  close({ restoreFocus: false });
+                  remove();
+                }}
+              >
+                <span className="nt-ws-choice-text">
+                  <span>Remove access</span>
+                  <span className="nt-ws-choice-hint">
+                    {linkLive
+                      ? "They lose access now, but can rejoin while the link works. Turn the link off to keep them out"
+                      : "They lose access now"}
                   </span>
-                  <Check
-                    width={14}
-                    height={14}
-                    aria-hidden="true"
-                    className={`nt-menu-check${person.codeAccess ? " is-on" : ""}`}
-                  />
-                </MenuItem>
-                <div className="nt-menu-sep" />
-              </>
-            )}
-            <MenuItem
-              danger
-              className="nt-ws-choice"
-              disabled={leaving}
-              onClick={() => {
-                // Not back to this ⋯: the row it is on is leaving.
-                close({ restoreFocus: false });
-                remove();
-              }}
-            >
-              <span className="nt-ws-choice-text">
-                <span>Remove access</span>
-                <span className="nt-ws-choice-hint">
-                  A link that still works lets them back in
                 </span>
-              </span>
-            </MenuItem>
-          </>
-        )}
-      </Menu>
+              </MenuItem>
+            </>
+          )}
+        </Menu>
+      </span>
     </li>
   );
 }
