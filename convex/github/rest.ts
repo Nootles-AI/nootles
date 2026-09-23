@@ -39,6 +39,9 @@ type Options = {
   query?: Record<string, string | number | undefined>;
   /** 404 answers null instead of throwing — for things that may simply not exist. */
   allowMissing?: boolean;
+  /** GET unless said; a body is sent as JSON. */
+  method?: "GET" | "POST";
+  body?: unknown;
 };
 
 export async function request(
@@ -52,11 +55,14 @@ export async function request(
   }
 
   const res = await fetch(url, {
+    method: options.method ?? "GET",
     headers: {
       Authorization: `Bearer ${token}`,
       Accept: options.accept ?? "application/vnd.github+json",
       "X-GitHub-Api-Version": "2022-11-28",
+      ...(options.body !== undefined ? { "Content-Type": "application/json" } : {}),
     },
+    ...(options.body !== undefined ? { body: JSON.stringify(options.body) } : {}),
   });
   if (res.ok) return res;
   if (res.status === 404 && options.allowMissing) return null;

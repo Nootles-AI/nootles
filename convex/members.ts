@@ -134,9 +134,10 @@ function arrival(
  *   requests waiting on those projects, so the creator's own inbox stops
  *   finding them. Pages and folders keep their `ownerId`: nothing reads it
  *   for access, and NML migration keys on it.
- * - Repositories and Notion pages they linked are unlinked. Each is read with
- *   its linker's own connection, which stops serving the workspace when they
- *   stop being in it — and which they could no longer unlink themselves.
+ * - Repositories and Notion pages they linked with their own connection are
+ *   unlinked: it stops serving the workspace when they stop being in it —
+ *   and they could no longer unlink them themselves. A repository read
+ *   through the workspace's GitHub App stays; the App is the workspace's.
  * - Their share-link claims and access requests on the workspace's projects
  *   go, or the link path would hand back what the seat just lost. Claims on
  *   anyone else's projects stay.
@@ -165,7 +166,9 @@ async function unseat(
       .withIndex("by_project", (q) => q.eq("projectId", project._id))
       .collect();
     for (const repo of repos) {
-      if (repo.ownerId === userId) await unlinkRepo(ctx, repo._id);
+      if (repo.ownerId === userId && repo.installationId === undefined) {
+        await unlinkRepo(ctx, repo._id);
+      }
     }
     const pages = await ctx.db
       .query("projectNotion")

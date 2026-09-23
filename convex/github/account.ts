@@ -138,8 +138,9 @@ export const disconnect = mutation({
  * Runs a GitHub call with the account's token, and remembers a token GitHub has
  * stopped accepting.
  *
- * The only place a stored token is ever opened. Every GitHub request this app
- * makes on a user's behalf goes through here, so there is one answer to where
+ * The only place a stored personal token is ever opened. Every GitHub request
+ * this app makes on a user's behalf goes through here — for a linked
+ * repository, by way of `credential.ts`, which decides whose token it is — so there is one answer to where
  * the token goes and one place that notices when it dies — without which a
  * revoked token fails identically forever while the UI still reads "connected".
  *

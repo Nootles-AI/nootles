@@ -113,6 +113,12 @@ export const repoRef = v.object({
   defaultBranch: v.string(),
   description: v.optional(v.string()),
   private: v.boolean(),
+  /**
+   * The GitHub App installation that reads it, for a workspace project's
+   * repository chosen from the workspace's installations. Absent is read with
+   * the linker's own connection.
+   */
+  installationId: v.optional(v.number()),
 });
 
 /** A seat in a workspace, highest first. `auth.ts` ranks them. */
@@ -141,6 +147,12 @@ export const workspaceSettings = v.object({
   autoJoin: v.boolean(),
   /** A GitHub organisation every non-guest must belong to, when set. */
   requireGithubOrg: v.optional(v.string()),
+  /**
+   * Whether a repository may be linked, and read, with a member's own GitHub
+   * connection rather than the workspace's App. Absent is allowed, so nothing
+   * linked before the App was installed stops working (docs/github-app.md).
+   */
+  allowPersonalTokens: v.optional(v.boolean()),
   /** The expiry a new share link starts with, in days. Absent is no expiry. */
   linkTtlDays: v.optional(v.number()),
 });
@@ -201,6 +213,11 @@ export default defineSchema({
     removedBy: v.optional(v.string()),
     /** When the GitHub organisation rule last passed for this person. */
     githubOrgVerifiedAt: v.optional(v.number()),
+    /**
+     * The GitHub login that passed it, so the organisation's webhook can take
+     * the pass away when that login leaves.
+     */
+    githubOrgLogin: v.optional(v.string()),
   })
     .index("by_workspace_user", ["workspaceId", "userId"])
     .index("by_user_status", ["userId", "status"])
@@ -1382,6 +1399,32 @@ export default defineSchema({
   }).index("by_owner", ["ownerId"]),
 
   /**
+   * A GitHub App installation a workspace admin attached to their workspace,
+   * after GitHub proved they can reach it (`github/app.install`). One
+   * installation can serve more than one workspace, a row each.
+   *
+   * The installation token GitHub mints lasts an hour; it is cached here
+   * sealed, the same way a personal token is kept, and re-minted when it has
+   * little left.
+   */
+  githubInstallations: defineTable({
+    workspaceId: v.id("workspaces"),
+    /** GitHub's id for the installation. */
+    installationId: v.number(),
+    accountLogin: v.string(),
+    accountType: v.union(v.literal("Organization"), v.literal("User")),
+    repositorySelection: v.union(v.literal("all"), v.literal("selected")),
+    installedBy: v.string(),
+    createdAt: v.number(),
+    suspendedAt: v.optional(v.number()),
+    /** Uninstalled on GitHub. Kept so the screen can say so. */
+    removedAt: v.optional(v.number()),
+    token: v.optional(v.object({ sealed: v.string(), expiresAt: v.number() })),
+  })
+    .index("by_workspace", ["workspaceId"])
+    .index("by_installation", ["installationId"]),
+
+  /**
    * The Notion connection, one per account.
    *
    * OAuth rather than a pasted token, because the thing being connected is a
@@ -1460,8 +1503,17 @@ export default defineSchema({
       }),
     ),
     addedAt: v.number(),
+    /** Read through this GitHub App installation instead of `ownerId`'s connection. */
+    installationId: v.optional(v.number()),
+    /**
+     * When a re-index for pushes to the default branch is due. Pushes inside
+     * the window add nothing: the run reads the branch's head when it starts.
+     */
+    pushReindexAt: v.optional(v.number()),
   })
     .index("by_project", ["projectId"])
+    // What a push or an uninstall names: an installation and a repository.
+    .index("by_installation_and_fullName", ["installationId", "fullName"])
     // The permission check every repo tool makes, and the guard against linking
     // the same repo twice.
     .index("by_project_and_fullName", ["projectId", "fullName"]),

@@ -4,7 +4,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import { action, type ActionCtx } from "../_generated/server";
 import { requireOwner } from "../auth";
 import { json, text } from "./rest";
-import { withToken } from "./account";
+import { withRepoToken } from "./credential";
 
 /**
  * Reading a linked repository — the three things the agent can do to one.
@@ -14,8 +14,8 @@ import { withToken } from "./account";
  * checks that the repository is actually linked to the project the chat belongs
  * to before it fetches anything. Being named in a tool call is not permission;
  * being in `projectRepos` is. Its owner may read its repositories, and so may
- * a workspace seat that edits it — each with the connection of whoever linked
- * the repository. A share link does not reach this far (`readsLinkedCode`).
+ * a workspace seat that edits it — each with the credential `credential.ts`
+ * picks for the repository. A share link does not reach this far (`readsLinkedCode`).
  *
  * Everything is capped. A model that asks for a 40,000-line generated file gets
  * the top of it and a note saying so, which is a better turn than one that
@@ -36,9 +36,9 @@ export const tree = action({
     ref: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const { ownerId, repo } = await permitted(ctx, args.projectId, args.repo);
+    const repo = await permitted(ctx, args.projectId, args.repo);
     const path = clean(args.path);
-    return await withToken(ctx, ownerId, async (token) => {
+    return await withRepoToken(ctx, repo, async (token) => {
       const found = await json<Entry[] | Entry>(token, contents(repo, path), {
         query: { ref: args.ref },
         allowMissing: true,
@@ -77,10 +77,10 @@ export const file = action({
     ref: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const { ownerId, repo } = await permitted(ctx, args.projectId, args.repo);
+    const repo = await permitted(ctx, args.projectId, args.repo);
     const path = clean(args.path);
     if (!path) throw new ConvexError("A file path is required.");
-    return await withToken(ctx, ownerId, async (token) => {
+    return await withRepoToken(ctx, repo, async (token) => {
       const body = await text(token, contents(repo, path), {
         query: { ref: args.ref },
         allowMissing: true,
@@ -114,7 +114,7 @@ export const file = action({
 /**
  * The text of a file the context graph indexed — what `read_context` returns
  * for a file, past its summary. Readable by whoever may read the project's
- * code (`canReadCode`), read with the token of whoever linked the repository.
+ * code (`canReadCode`), read with the repository's credential (`credential.ts`).
  */
 export const nodeFile = action({
   args: { projectId: v.id("projects"), nodeId: v.id("contextNodes") },
@@ -123,7 +123,7 @@ export const nodeFile = action({
       await ctx.runQuery(internal.github.graphStore.fileForReader, args);
     if (!found) throw new ConvexError("That file is not in this project's context.");
     const { repo, path } = found;
-    return await withToken(ctx, repo.ownerId, async (token) => {
+    return await withRepoToken(ctx, repo, async (token) => {
       const body = await text(token, contents(repo, path), {
         query: { ref: repo.defaultBranch },
         allowMissing: true,
@@ -179,13 +179,16 @@ export const search = action({
     );
     if (!repos.length) throw new ConvexError(unlinked(args.repo));
 
-    // One search per connection: each can only be asked about the repositories
-    // it linked, and the qualifiers keep it from reaching past them.
-    const byLinker = new Map<string, Doc<"projectRepos">[]>();
-    for (const r of repos) byLinker.set(r.ownerId, [...(byLinker.get(r.ownerId) ?? []), r]);
+    // One search per credential: each can only be asked about the repositories
+    // it reads, and the qualifiers keep it from reaching past them.
+    const byCredential = new Map<string, Doc<"projectRepos">[]>();
+    for (const r of repos) {
+      const key = r.installationId !== undefined ? `app:${r.installationId}` : `user:${r.ownerId}`;
+      byCredential.set(key, [...(byCredential.get(key) ?? []), r]);
+    }
     const found = await Promise.all(
-      [...byLinker].map(async ([linker, linked]) => {
-        const answer = await withToken(ctx, linker, (token) =>
+      [...byCredential.values()].map(async (linked) => {
+        const answer = await withRepoToken(ctx, linked[0], (token) =>
           json<{ total_count: number; items: Hit[] }>(token, "/search/code", {
             accept: "application/vnd.github.text-match+json",
             query: {
@@ -225,8 +228,7 @@ export const search = action({
 });
 
 /**
- * The repository, if this project is allowed to read it, and the connection it
- * is read with — its linker's. The message names the project rather than the
+ * The repository, if this project is allowed to read it. The message names the project rather than the
  * repository as the thing that is wrong, because that is the fix — a
  * repository the agent wants is one the user can link.
  */
@@ -242,7 +244,7 @@ async function permitted(
   });
   const repo = rows[0];
   if (!repo) throw new ConvexError(unlinked(fullName));
-  return { ownerId: repo.ownerId, repo };
+  return repo;
 }
 
 const unlinked = (fullName?: string) =>

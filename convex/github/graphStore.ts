@@ -17,8 +17,7 @@ import { BATCH, edge, node } from "./graphShape";
 
 /**
  * An indexed file, if the caller may read the code of the project it is
- * context for (`canReadCode`), with the repository row whose linker's token
- * reads it.
+ * context for (`canReadCode`), with the repository row it is read through.
  */
 export const fileForReader = internalQuery({
   args: { projectId: v.id("projects"), nodeId: v.id("contextNodes") },
