@@ -775,6 +775,15 @@ describe("changing a role", () => {
   test("an admin moves people between member and guest, and no further", async () => {
     const t = harness();
     const w = await world(t);
+    await t.run(async (ctx) => {
+      await ctx.db.insert("memberships", {
+        workspaceId: w.workspaceId,
+        userId: NEWCOMER.subject,
+        role: "admin",
+        status: "active",
+        joinedAt: 20,
+      });
+    });
     await setRole(t, ADMIN, w, MEMBER, "guest");
     expect(await seatOf(t, w.workspaceId, MEMBER)).toMatchObject({ role: "guest" });
     await setRole(t, ADMIN, w, MEMBER, "member");
@@ -784,6 +793,13 @@ describe("changing a role", () => {
     await expect(setRole(t, ADMIN, w, OWNER, "member")).rejects.toThrow(
       "Only a workspace owner can do that.",
     );
+    // Nor a peer: another admin is an owner's to demote.
+    for (const role of ["member", "guest", "owner"] as const) {
+      await expect(setRole(t, ADMIN, w, NEWCOMER, role)).rejects.toThrow(
+        "Only a workspace owner can do that.",
+      );
+    }
+    expect(await seatOf(t, w.workspaceId, NEWCOMER)).toMatchObject({ role: "admin" });
     await expect(setRole(t, ADMIN, w, ADMIN, "member")).rejects.toThrow(
       "You can’t change your own role.",
     );
@@ -1071,9 +1087,25 @@ describe("taking a seat away", () => {
         workspaceId: w.workspaceId,
         userId: target.subject,
       });
+    await t.run(async (ctx) => {
+      await ctx.db.insert("memberships", {
+        workspaceId: w.workspaceId,
+        userId: NEWCOMER.subject,
+        role: "admin",
+        status: "active",
+        joinedAt: 20,
+      });
+    });
     await expect(remove(ADMIN, OWNER)).rejects.toThrow(
       "Only a workspace owner can remove an admin or an owner.",
     );
+    await expect(remove(ADMIN, NEWCOMER)).rejects.toThrow(
+      "Only a workspace owner can remove an admin or an owner.",
+    );
+    expect(await seatOf(t, w.workspaceId, NEWCOMER)).toMatchObject({
+      status: "active",
+      role: "admin",
+    });
     await expect(remove(ADMIN, ADMIN)).rejects.toThrow("use Leave instead");
     await expect(remove(MEMBER, GUEST)).rejects.toThrow("Only a workspace admin");
     await expect(remove(STAND_IN, GUEST)).rejects.toThrow("Read-only");
@@ -1082,14 +1114,10 @@ describe("taking a seat away", () => {
     await remove(OWNER, ADMIN);
     expect(await seatOf(t, w.workspaceId, ADMIN)).toMatchObject({ status: "removed" });
 
-    await t.run(async (ctx) => {
-      await ctx.db.insert("memberships", {
-        workspaceId: w.workspaceId,
-        userId: NEWCOMER.subject,
-        role: "owner",
-        status: "active",
-        joinedAt: 20,
-      });
+    await t.withIdentity(OWNER).mutation(api.members.setRole, {
+      workspaceId: w.workspaceId,
+      userId: NEWCOMER.subject,
+      role: "owner",
     });
     await remove(OWNER, NEWCOMER);
     expect(await seatOf(t, w.workspaceId, NEWCOMER)).toMatchObject({ status: "removed" });

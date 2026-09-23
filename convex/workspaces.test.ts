@@ -519,7 +519,7 @@ describe("deleting a workspace", () => {
   test("trashes its projects and retires every seat and invitation at once", async () => {
     const t = harness();
     const w = await world(t);
-    await t.withIdentity(ADMIN).mutation(api.members.invite, {
+    const { token } = await t.withIdentity(ADMIN).mutation(api.members.invite, {
       workspaceId: w.workspaceId,
       email: "new@acme.com",
       role: "member",
@@ -564,6 +564,18 @@ describe("deleting a workspace", () => {
     await expect(
       t.withIdentity(OWNER).mutation(api.trash.restore, { projects: [w.open.projectId] }),
     ).rejects.toThrow("Not found");
+    // Nor walk back in, by the domain it still names or the invitation that
+    // still has days to run.
+    for (const who of [{ subject: "user_new", email: "new@acme.com" }, MEMBER, OWNER]) {
+      await expect(
+        t.withIdentity(who).mutation(api.members.joinByDomain, { workspaceId: w.workspaceId }),
+      ).rejects.toThrow("Not found");
+      await expect(
+        t.withIdentity(who).mutation(api.members.acceptInvite, { token }),
+      ).rejects.toThrow("Not found");
+    }
+    const seats = await t.run((ctx) => ctx.db.query("memberships").collect());
+    expect(seats.filter((s) => s.status === "active")).toEqual([]);
     // Its address stays spoken for.
     vi.stubEnv("TEAMS_ROLLOUT", "on");
     await expect(
