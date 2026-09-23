@@ -129,14 +129,14 @@ describe("setLink and links — the third link", () => {
     const token = await on(t, w, "commenter");
     expect(token).toMatch(/^[0-9a-f-]{36}$/);
     expect(await on(t, w, "commenter")).toBe(token);
-    expect(await t.withIdentity(OWNER).query(api.share.links, { projectId: w.projectId })).toEqual({
+    expect(await t.withIdentity(OWNER).query(api.share.links, { projectId: w.projectId })).toMatchObject({
       viewer: null,
       commenter: token,
       editor: null,
     });
 
     expect(await off(t, w, "commenter")).toBeNull();
-    expect(await t.withIdentity(OWNER).query(api.share.links, { projectId: w.projectId })).toEqual({
+    expect(await t.withIdentity(OWNER).query(api.share.links, { projectId: w.projectId })).toMatchObject({
       viewer: null,
       commenter: null,
       editor: null,

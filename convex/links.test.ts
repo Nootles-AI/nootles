@@ -120,14 +120,6 @@ function documentReads(caller: Caller, docId: string): (() => Promise<unknown>)[
     () => caller.query(api.ydoc.load, { docId, afterSeq: 0 }),
     () => caller.query(api.presence.list, { docId }),
     () => caller.query(api.presence.roster, { docId }),
-    () =>
-      caller.mutation(api.presence.heartbeat, {
-        docId,
-        sessionId: "s1",
-        clientId: 1,
-        user: { name: "Someone", color: "#000" },
-        state: new ArrayBuffer(0),
-      }),
     () => caller.query(api.previews.get, { docId }),
     () => caller.query(api.nmlMigration.inCohort, { docId }),
     () => caller.query(api.nmlMigration.nmlAuthority, { docId }),
@@ -144,6 +136,16 @@ async function readsAll(caller: Caller, docId: string) {
 
 async function readsNone(caller: Caller, docId: string) {
   for (const read of documentReads(caller, docId)) await expect(read()).rejects.toThrow("Not found");
+  // A heartbeat bends rather than breaks: declined, never announced.
+  expect(
+    await caller.mutation(api.presence.heartbeat, {
+      docId,
+      sessionId: "s1",
+      clientId: 1,
+      user: { name: "Someone", color: "#000" },
+      state: new ArrayBuffer(0),
+    }),
+  ).toBeNull();
 }
 
 beforeEach(() => {
