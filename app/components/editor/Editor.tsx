@@ -55,6 +55,7 @@ import { track } from "@/app/lib/telemetry";
 import { serializeStoryboard } from "./storyboard/serialize";
 import { emptyStoryboard } from "./storyboard/types";
 import { useTabCompletion, type PageMode } from "./ai/useTabCompletion";
+import { useCompletionProject } from "./ai/CompletionContext";
 import { PlanWall } from "../billing/PlanWall";
 import { useReformat } from "./ai/useReformat";
 import { StageDirector } from "./ai/StageDirector";
@@ -721,6 +722,8 @@ function EditorSurface({
 
   useRegisterEditor(pageId, editor, docId, pipeline);
   const completion = useTabCompletion(readOnly ? null : editor, pageId, title, mode, docId);
+  // Whose completions ran out when the lane walls: the project's container.
+  const completionProject = useCompletionProject();
   const reformat = useReformat(readOnly ? null : editor, pageId);
 
   // The document is one domain on the workspace history spine — Yjs only;
@@ -795,6 +798,7 @@ function EditorSurface({
       {completion.walled && (
         <PlanWall
           meter="completions"
+          projectId={completionProject}
           // Nothing to replay: the lane resumes itself the moment the allowance
           // stops being the reason it went quiet. The intent is carried anyway,
           // so the way back names this page rather than the projects list.
