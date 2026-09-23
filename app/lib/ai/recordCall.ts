@@ -46,7 +46,8 @@ export function recordAiCall(
       | "categorize"
       | "feedback"
       | "album"
-      | "context";
+      | "context"
+      | "commentsGate";
     model: string;
     latencyMs: number;
     ttfbMs?: number;

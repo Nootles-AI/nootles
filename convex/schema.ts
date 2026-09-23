@@ -142,8 +142,8 @@ export default defineSchema({
     /**
      * The third link: admits commenters, who may read the pages and write
      * threads in their comments documents but never the pages themselves.
-     * Ranked between the other two. Nothing mints it yet (`share.ts` gains it
-     * with the commenter role); declared now so the gate's contract is whole.
+     * Ranked between the other two; minted and revoked like them, by
+     * `share.setLink`.
      */
     commentShareToken: v.optional(v.string()),
     /**
@@ -864,6 +864,7 @@ export default defineSchema({
       v.literal("feedback"),
       v.literal("album"),
       v.literal("context"),
+      v.literal("commentsGate"),
     ),
     model: v.string(),
     promptTokens: v.optional(v.number()),

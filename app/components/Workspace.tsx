@@ -52,6 +52,7 @@ import { PagesProvider, type PageRef } from "./PagesContext";
 import { CompletionContextProvider } from "./editor/ai/CompletionContext";
 import { useRepoNaming } from "./context/useRepoNaming";
 import { ReadOnlyContext } from "./editor/readOnly";
+import { CommentAccessContext, commentAccessFor } from "./comments/access";
 import { Facepile } from "./presence/Facepile";
 import { Hints } from "./hints/Hints";
 import { Feedback } from "./feedback/Feedback";
@@ -732,6 +733,7 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
     <CanvasShellContext value={shell}>
       <LocationShellContext value={placeShell}>
      <ReadOnlyContext value={viewer}>
+     <CommentAccessContext value={commentAccessFor(role)}>
      <PagesProvider pages={pageRefs}>
      <CompletionContextProvider projectId={projectId}>
      <PanelsProvider value={panels}>
@@ -980,6 +982,7 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
      </PanelsProvider>
      </CompletionContextProvider>
      </PagesProvider>
+     </CommentAccessContext>
      </ReadOnlyContext>
       </LocationShellContext>
     </CanvasShellContext>
