@@ -65,20 +65,16 @@ export function sameProjectProps<P extends { project: Project }>(prev: P, next: 
 export const manages = (p: Project) => p.role === undefined || p.role === "owner";
 
 /**
- * What a private workspace project wears wherever it is listed. Raised over
- * the stretched link (`nt-private`) so its tooltip can be found. It says who
- * can open it in the words its Visibility switch did when it was made — and
- * those are also the people it is shown to, so it cannot say "hidden".
+ * What a private workspace project wears wherever it is listed: right after
+ * its name, in every view. Raised over the stretched link (`nt-private`) so
+ * its tooltip can be found. The tooltip is a label, not the sentence the
+ * Visibility switch says it in — it names who can open it, which is also who
+ * it is shown to, so it cannot say "hidden".
  */
-export function PrivateMark() {
-  const container = useContainer();
-  const whose = container.kind === "workspace" ? `${container.name}’s` : "the workspace’s";
+export function PrivateMark({ size = 12 }: { size?: number }) {
   return (
-    <Tooltip
-      label={`Private — only its maker and ${whose} owners and admins can open it`}
-      className="nt-private"
-    >
-      <Lock width={12} height={12} role="img" aria-label="Private" />
+    <Tooltip label="Private to its maker, owners and admins" className="nt-private">
+      <Lock width={size} height={size} role="img" aria-label="Private" />
     </Tooltip>
   );
 }

@@ -3166,8 +3166,21 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar) .nt-reformat-switcher {
   flex: 0 1 auto;
   min-width: 0;
 }
-/* A private workspace project's lock, beside its name or its facts. Lifted over
-   the stretched link so the tooltip saying what it means can be found; the
+/* A name with something after it on its line — a private project's lock. The
+   name gives way, cut short; what follows it keeps its size. */
+.nt-card-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.nt-card-title > .nt-card-name,
+.nt-card-title > .nt-lead-name {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+/* A private workspace project's lock, right after its name in every view. Lifted
+   over the stretched link so the tooltip saying what it means can be found; the
    rest of the card or row still opens the project. */
 .nt-private {
   position: relative;

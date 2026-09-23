@@ -61,6 +61,18 @@ const nth = (i: number) => ({ "--i": i }) as React.CSSProperties;
 const NONE: SharedProject[] = [];
 
 /**
+ * Who else a workspace project's deletion takes it from — whoever it is shown
+ * to, in the words its lock and its Visibility switch use — along with what it
+ * held.
+ */
+const lostBy = (workspace: WorkspaceContainer, project: Project) =>
+  `${
+    project.visibility === "private"
+      ? `Its maker and ${workspace.name}’s owners and admins lose`
+      : `Everyone in ${workspace.name} loses`
+  } it, and its diagrams and history go with it.`;
+
+/**
  * A home's projects: your own at `/`, or one workspace's at `/w/<slug>` —
  * whichever container this is rendered in (`useContainer`). The same screen
  * either way, so the two can never drift apart; what differs is whose
@@ -614,6 +626,7 @@ export function ProjectsScreen() {
           what={`“${confirming.title || "Untitled project"}” and its ${pages(
             confirming.pageCount,
           )}`}
+          consequence={workspace ? lostBy(workspace, confirming) : undefined}
           onCancel={() => setConfirming(null)}
           onConfirm={confirmRemove}
         />
@@ -668,13 +681,15 @@ const Lead = memo(function Lead({
             className="nt-lead-name relative block w-full"
           />
         ) : (
-          <OpenProject id={project._id} className="nt-lead-name nt-card-link">
-            {project.title || "Untitled project"}
-          </OpenProject>
+          <div className="nt-card-title">
+            <OpenProject id={project._id} className="nt-lead-name nt-card-link">
+              {project.title || "Untitled project"}
+            </OpenProject>
+            {project.visibility === "private" && <PrivateMark size={16} />}
+          </div>
         )}
         {project.description && <p className="nt-lead-line">{project.description}</p>}
         <p className="nt-card-meta">
-          {project.visibility === "private" && <PrivateMark />}
           <span>{pages(project.pageCount)}</span>
           <span aria-hidden="true">·</span>
           <span>edited {when(project.updatedAt)}</span>
@@ -729,12 +744,14 @@ const Card = memo(function Card({
             /* The chin opens the project the way the thumbnail does: a card
                that says "23 pages · 2d ago" under a picture of the page reads
                as one target, and half of it used to be dead. */
-            <OpenProject id={project._id} className="nt-card-name nt-card-link">
-              {name}
-            </OpenProject>
+            <div className="nt-card-title">
+              <OpenProject id={project._id} className="nt-card-name nt-card-link">
+                {name}
+              </OpenProject>
+              {project.visibility === "private" && <PrivateMark />}
+            </div>
           )}
           <p className="nt-card-meta">
-            {project.visibility === "private" && <PrivateMark />}
             <span>{pages(project.pageCount)}</span>
             <span aria-hidden="true">·</span>
             <span>{when(project.updatedAt)}</span>
