@@ -32,7 +32,7 @@ function stopped(meter: Meter, name: string): { title: string; body: string } {
       };
     case "chats":
       return {
-        title: `${name} has used its ${FREE_LIMITS.chats} free conversations`,
+        title: `${name} has used its ${FREE_LIMITS.chats} free chats`,
         body: "The ones already started still work.",
       };
   }
@@ -111,7 +111,9 @@ function Sheet({ meter, name, back, onClose, seat }: WallProps & { seat: Seat | 
         aria-label="Close"
         onClick={close}
         className={`nt-pw-scrim${closing ? " is-closing" : ""}`}
-        style={{ zIndex: "var(--z-overlay)" }}
+        // The modal layer, as the holder: on a phone the wall rises from the
+        // chat drawer, which sits there too, and a later sibling paints over it.
+        style={{ zIndex: "var(--z-modal)" }}
       />
       <div className="nt-pw-holder" style={{ zIndex: "var(--z-modal)" }}>
         <div
@@ -132,8 +134,8 @@ function Sheet({ meter, name, back, onClose, seat }: WallProps & { seat: Seat | 
               {starts
                 ? `The Team plan lifts the limit for everyone in ${name}.`
                 : seat
-                  ? `An owner or an admin of ${name} can start the Team plan, which lifts it for everyone.`
-                  : `Whoever runs ${name} can start the Team plan, which lifts it for everyone.`}
+                  ? `An owner or an admin of ${name} can start the Team plan, which lifts this limit for everyone. Let them know.`
+                  : `This project belongs to ${name}. Ask whoever shared it with you — ${name}’s Team plan lifts the limit.`}
             </p>
             <div className="mt-5">
               <Strip meter={meter} left={0} />
