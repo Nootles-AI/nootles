@@ -76,6 +76,11 @@ describe("the container is part of the answer", () => {
     expect(await refuseIfSpent("token", null)).toBeNull();
     expect(await refuseIfSpent("token", null, "personal")).toBeNull();
   });
+
+  test("with no meter and no project there is nothing to ask the deployment", async () => {
+    expect(await refuseIfSpent("token", null)).toBeNull();
+    expect(query).not.toHaveBeenCalled();
+  });
 });
 
 describe("a guest's day", () => {

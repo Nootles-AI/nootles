@@ -2,6 +2,7 @@ import { AI } from "@/app/lib/ai/aiConfig";
 import { categorizeFeedback } from "@/app/lib/ai/categorize";
 import { recordAiCall } from "@/app/lib/ai/recordCall";
 import { asUser } from "@/app/lib/convexServer";
+import { refuseIfSpent } from "@/app/lib/entitlementGate";
 import { session } from "@/app/lib/session";
 
 /**
@@ -30,6 +31,10 @@ export async function POST(req: Request) {
   if (typeof text !== "string" || !text.trim()) {
     return new Response("`text` must be a non-empty string", { status: 400 });
   }
+  const project = typeof projectId === "string" ? projectId : undefined;
+  // See the reformat route: a named workspace project is that workspace's bill.
+  const spent = await refuseIfSpent(token, null, project);
+  if (spent) return spent;
 
   const started = Date.now();
   try {
@@ -46,7 +51,7 @@ export async function POST(req: Request) {
       feature: "categorize",
       model: AI.reformat.model,
       // The report is filed from a project, when it is, and so is its cost.
-      projectId: typeof projectId === "string" ? projectId : undefined,
+      projectId: project,
       ...usage,
       latencyMs: Date.now() - started,
       // "general" is both a real guess and the fallback, so only the row can say

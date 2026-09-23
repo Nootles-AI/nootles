@@ -2,6 +2,7 @@ import { AI } from "@/app/lib/ai/aiConfig";
 import { reformatCandidates } from "@/app/lib/ai/reformat";
 import { recordAiCall } from "@/app/lib/ai/recordCall";
 import { asUser } from "@/app/lib/convexServer";
+import { refuseIfSpent } from "@/app/lib/entitlementGate";
 import { session } from "@/app/lib/session";
 
 /**
@@ -28,6 +29,10 @@ export async function POST(req: Request) {
   }
   // Whose ledger the call lands in. Absent off the workspace.
   const projectId = typeof named === "string" ? named : undefined;
+  // Naming a workspace's project bills its AI to that workspace, so a guest's
+  // spent day is refused here as it is everywhere else.
+  const spent = await refuseIfSpent(token, null, projectId);
+  if (spent) return spent;
 
   const started = Date.now();
   try {

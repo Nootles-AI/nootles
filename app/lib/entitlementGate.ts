@@ -125,6 +125,8 @@ export async function refuseIfSpent(
   meter: Meter | null,
   projectId?: string,
 ): Promise<Response | null> {
+  // Off a project there is no guest, and without a meter nothing else to ask.
+  if (!meter && !projectId) return null;
   const standing = await standingFor(token, projectId).catch(() => null);
   if (!standing) return null;
   const guest = standing.guestAi;

@@ -2,6 +2,7 @@ import { AI } from "@/app/lib/ai/aiConfig";
 import { completeFeedback } from "@/app/lib/ai/feedbackComplete";
 import { recordAiCall } from "@/app/lib/ai/recordCall";
 import { asUser } from "@/app/lib/convexServer";
+import { refuseIfSpent } from "@/app/lib/entitlementGate";
 import { session } from "@/app/lib/session";
 
 /** Ghost-text continuation for the feedback form. Best-effort and cheap. */
@@ -27,6 +28,10 @@ export async function POST(req: Request) {
   if (typeof text !== "string" || !text.trim()) {
     return new Response("`text` must be a non-empty string", { status: 400 });
   }
+  const project = typeof projectId === "string" ? projectId : undefined;
+  // See the reformat route: a named workspace project is that workspace's bill.
+  const spent = await refuseIfSpent(token, null, project);
+  if (spent) return spent;
 
   const started = Date.now();
   try {
@@ -43,7 +48,7 @@ export async function POST(req: Request) {
       ownerId: caller.userId,
       feature: "feedback",
       model: AI.reformat.model,
-      projectId: typeof projectId === "string" ? projectId : undefined,
+      projectId: project,
       ...usage,
       latencyMs: Date.now() - started,
       // See the reformat route's note: no ghost text is a fine answer, and a
