@@ -9,7 +9,7 @@ import { Id } from "@/convex/_generated/dataModel";
 import { findTemplate } from "@/app/lib/templates";
 import { track } from "@/app/lib/telemetry";
 import { pages, when } from "@/app/lib/projectMeta";
-import { rememberScreen, seenScreen } from "@/app/lib/projectsCache";
+import { ACCOUNT, rememberScreen, seenScreen } from "@/app/lib/projectsCache";
 import { uploadContextFile } from "@/app/lib/contextFiles";
 import { repoRef } from "./context/ContextSources";
 import { BoardView, GridView, ListView, Plus, Search } from "./Icons";
@@ -80,7 +80,9 @@ export function ProjectsScreen() {
   const projects = liveProjects ?? seen?.projects;
   const shared = liveShared ?? seen?.shared;
   useEffect(() => {
-    if (userId && liveProjects && liveShared) rememberScreen(userId, liveProjects, liveShared);
+    if (userId && liveProjects && liveShared) {
+      rememberScreen(userId, ACCOUNT, liveProjects, liveShared);
+    }
   }, [userId, liveProjects, liveShared]);
   const createProject = useMutation(api.projects.create);
   const linkPages = useMutation(api.notion.context.link);
