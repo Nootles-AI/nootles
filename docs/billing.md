@@ -121,6 +121,23 @@ in a UTC day; 1 by default, 0 for none). Add `"expiresAt": <ms>` for one that
 lapses. A plan override outranks the subscription, so clear it
 (`adminBilling.workspaceOverrideClear`) once the workspace pays.
 
+## 6. The AI ledger's secret
+
+Usage is billed from `aiCalls`, whose writer anyone signed in can call. Only
+rows the Next server signed count toward a bill or a guest's cap; the rest are
+kept, unsigned. Set the same secret on **both** sides:
+
+```
+openssl rand -hex 32
+npx convex env set --prod AI_LEDGER_SECRET <it>
+```
+
+and `AI_LEDGER_SECRET=<it>` in the Next deployment's environment (Vercel).
+Without it on either side every row is unsigned — nothing breaks, and nothing
+is billed. With two different values every row is refused, and the Convex logs
+say "That ledger row’s signature doesn’t hold": fix the pair before switching
+usage billing on.
+
 ## What is where
 
 - **Free allowance** — `FREE_LIMITS` in `convex/entitlements.ts`. Change the

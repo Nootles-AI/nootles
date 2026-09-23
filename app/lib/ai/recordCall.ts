@@ -1,5 +1,6 @@
 import type { ConvexHttpClient } from "convex/browser";
 import { api } from "@/convex/_generated/api";
+import { ledgerSecret, signCall } from "@/convex/ai/callSignature";
 import { AI } from "./aiConfig";
 
 /**
@@ -35,32 +36,60 @@ export function costUsd(model: string, u: CallUsage): number | undefined {
   );
 }
 
+type Row = {
+  feature:
+    | "fim"
+    | "reformat"
+    | "diagram"
+    | "chat"
+    | "categorize"
+    | "feedback"
+    | "album"
+    | "context";
+  model: string;
+  latencyMs: number;
+  ttfbMs?: number;
+  status: "ok" | "error" | "aborted" | "timeout";
+  errorCode?: string;
+  /**
+   * The project the call was made in, when the route knows it. Convex
+   * resolves the workspace it is charged to from this, never the route.
+   */
+  projectId?: string;
+  costUsd?: number;
+} & CallUsage;
+
+/**
+ * What lets Convex bill the row (`convex/ai/callSignature.ts`), or nothing on
+ * a server without `AI_LEDGER_SECRET` — the row is still kept, unsigned.
+ */
+async function signatureFor(
+  ownerId: string | null,
+  row: Row,
+): Promise<{ signedAt: number; signature: string } | Record<string, never>> {
+  const secret = ledgerSecret(process.env.AI_LEDGER_SECRET);
+  if (!secret || !ownerId) return {};
+  const signedAt = Date.now();
+  return { signedAt, signature: await signCall(secret, { ownerId, ...row, signedAt }) };
+}
+
 export function recordAiCall(
   convex: ConvexHttpClient,
-  call: {
-    feature:
-      | "fim"
-      | "reformat"
-      | "diagram"
-      | "chat"
-      | "categorize"
-      | "feedback"
-      | "album"
-      | "context";
-    model: string;
-    latencyMs: number;
-    ttfbMs?: number;
-    status: "ok" | "error" | "aborted" | "timeout";
-    errorCode?: string;
+  {
+    ownerId,
+    ...call
+  }: Omit<Row, "costUsd"> & {
     /**
-     * The project the call was made in, when the route knows it. Convex
-     * resolves the workspace it is charged to from this, never the route.
+     * Who made the call: the session's Clerk user id, which is the subject
+     * Convex reads off the same session's token. The signature binds the row
+     * to it, so it must be the session's own — never anything a request said.
      */
-    projectId?: string;
-  } & CallUsage,
+    ownerId: string | null;
+  },
 ): void {
-  void convex
-    .mutation(api.ai.calls.record, { ...call, costUsd: costUsd(call.model, call) })
+  const row: Row = { ...call, costUsd: costUsd(call.model, call) };
+  void signatureFor(ownerId, row)
+    .then((signature) => convex.mutation(api.ai.calls.record, { ...row, ...signature }))
     .catch((error: unknown) => {
       // Never the user's problem, but never silent either: a row that fails to
       // land is a cost nobody sees, and this once hid a token expiring under a

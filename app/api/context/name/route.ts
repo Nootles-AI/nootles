@@ -5,7 +5,7 @@ import { nameRepository } from "@/app/lib/ai/context/name";
 import { recordAiCall } from "@/app/lib/ai/recordCall";
 import { asUser } from "@/app/lib/convexServer";
 import { refuseIfLimited } from "@/app/lib/requestLimitGate";
-import { sessionToken } from "@/app/lib/session";
+import { session } from "@/app/lib/session";
 
 /**
  * Names a freshly indexed repository's areas and concerns (stage 2).
@@ -16,8 +16,9 @@ import { sessionToken } from "@/app/lib/session";
  * tabs ask, and a repository not waiting to be named costs nothing to ask about.
  */
 export async function POST(req: Request) {
-  const token = await sessionToken();
-  if (!token) return new Response("Unauthorized", { status: 401 });
+  const caller = await session();
+  if (!caller) return new Response("Unauthorized", { status: 401 });
+  const { token } = caller;
 
   const { repoId } = ((await req.json().catch(() => null)) ?? {}) as { repoId?: unknown };
   if (typeof repoId !== "string") return new Response("`repoId` is required", { status: 400 });
@@ -38,6 +39,7 @@ export async function POST(req: Request) {
     const { names, calls } = await nameRepository(outline);
     for (const call of calls) {
       recordAiCall(convex, {
+        ownerId: caller.userId,
         feature: "context",
         model: AI.context.nameModel,
         promptTokens: call.promptTokens,

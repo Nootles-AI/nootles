@@ -185,6 +185,7 @@ export async function POST(req: Request) {
     tools: chatTools(
       projectId,
       convex,
+      caller.userId,
       // The user's style for this turn's drawings, set by the picker that
       // answered the draw approvals. Absent or malformed reads as the
       // default — a request hand-rolled without a choice still draws.
@@ -200,6 +201,7 @@ export async function POST(req: Request) {
       report({ totalUsage });
       const details = totalUsage.inputTokenDetails;
       recordAiCall(convex, {
+        ownerId: caller.userId,
         feature: "chat",
         // A staged turn is still a row. It costs nothing, and ops should be able
         // to tell demo traffic from unexplained free traffic.

@@ -2,12 +2,13 @@ import { AI } from "@/app/lib/ai/aiConfig";
 import { completeFeedback } from "@/app/lib/ai/feedbackComplete";
 import { recordAiCall } from "@/app/lib/ai/recordCall";
 import { asUser } from "@/app/lib/convexServer";
-import { sessionToken } from "@/app/lib/session";
+import { session } from "@/app/lib/session";
 
 /** Ghost-text continuation for the feedback form. Best-effort and cheap. */
 export async function POST(req: Request) {
-  const token = await sessionToken();
-  if (!token) return new Response("Unauthorized", { status: 401 });
+  const caller = await session();
+  if (!caller) return new Response("Unauthorized", { status: 401 });
+  const { token } = caller;
 
   let body: unknown;
   try {
@@ -38,6 +39,7 @@ export async function POST(req: Request) {
       req.signal,
     );
     recordAiCall(asUser(token), {
+      ownerId: caller.userId,
       feature: "feedback",
       model: AI.reformat.model,
       ...usage,

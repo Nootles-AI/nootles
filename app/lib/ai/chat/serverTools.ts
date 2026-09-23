@@ -41,6 +41,8 @@ function clientStubs(names: readonly CanvasToolName[]): Record<CanvasToolName, R
 export function chatTools(
   projectId: Id<"projects">,
   convex: ConvexHttpClient,
+  /** The session's user, whose ledger rows the drawings are (`recordAiCall`). */
+  ownerId: string | null,
   /**
    * The style the user settled for this turn's drawings. Chosen in the
    * browser — a scene draw pauses for approval, the picker answers it, and
@@ -249,6 +251,7 @@ export function chatTools(
           };
         }
         recordAiCall(convex, {
+          ownerId,
           feature: "diagram",
           model: AI.diagram.vector.model,
           projectId,
