@@ -19,6 +19,17 @@ describe("returnPath from Clerk’s redirect_url", () => {
     expect(returnPath("javascript:alert(1)", ORIGIN)).toBe("/");
   });
 
+  test("a path on this origin that would read as another host is not followed", () => {
+    expect(returnPath(`${ORIGIN}//evil.example`, ORIGIN)).toBe("/");
+    expect(returnPath(`${ORIGIN}//evil.example/x?y=1#z`, ORIGIN)).toBe("/");
+    expect(returnPath(`${ORIGIN}/\\evil.example/x`, ORIGIN)).toBe("/");
+    expect(returnPath(`${ORIGIN}/./\\evil.example`, ORIGIN)).toBe("/");
+    expect(returnPath(`${ORIGIN}/.//evil.example`, ORIGIN)).toBe("/");
+    expect(returnPath(`${ORIGIN}/share/..//evil.example`, ORIGIN)).toBe("/");
+    expect(returnPath("/.//evil.example", ORIGIN)).toBe("/");
+    expect(returnPath("/..//evil.example", ORIGIN)).toBe("/");
+  });
+
   test("nothing, or the sign-in round trip itself, is home", () => {
     expect(returnPath(null, ORIGIN)).toBe("/");
     expect(returnPath("", ORIGIN)).toBe("/");
@@ -41,6 +52,27 @@ describe("returnPath from the callback’s ?return=", () => {
     expect(returnPath("//evil.example/share/tok")).toBe("/");
     expect(returnPath("/\\evil.example")).toBe("/");
     expect(returnPath("/sign-in")).toBe("/");
+  });
+
+  test("a path that would read as another host once resolved again is refused", () => {
+    expect(returnPath("/.//evil.example")).toBe("/");
+    expect(returnPath("/..//evil.example")).toBe("/");
+    expect(returnPath("/./\\evil.example")).toBe("/");
+    expect(returnPath("/share/..//evil.example")).toBe("/");
+    expect(returnPath("https://nootles.invalid//evil.example/x")).toBe("/");
+  });
+
+  test("whatever it returns stays on this origin when resolved again", () => {
+    for (const raw of [
+      "/.//evil.example/x",
+      "/..//evil.example",
+      "/./\\evil.example",
+      "/share/..//evil.example",
+      "/share/tok",
+      "w/acme",
+    ]) {
+      expect(new URL(returnPath(raw), `${ORIGIN}/sso-callback`).origin).toBe(ORIGIN);
+    }
   });
 
   test("a relative path resolves from the root", () => {

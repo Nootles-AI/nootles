@@ -20,6 +20,10 @@ export function returnPath(raw: string | null | undefined, origin: string = PATH
     return "/";
   }
   if (url.origin !== origin) return "/";
+  // Same-origin on this parse, but the path is parsed again where it lands:
+  // `/.//host` or `<origin>//host` leaves a `//host` path, which there is
+  // another host.
+  if (url.pathname.startsWith("//")) return "/";
   if (/^\/(sign-in|sso-callback)(\/|$)/.test(url.pathname)) return "/";
   return `${url.pathname}${url.search}${url.hash}`;
 }
