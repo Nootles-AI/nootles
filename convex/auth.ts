@@ -11,9 +11,11 @@ import type { QueryCtx } from "./_generated/server";
  *
  * Two families. The `Owned` family answers "is this mine": personal rows
  * (threads, checkpoints, profiles) never widen past their creator. The
- * `visible`/`editable` family answers "what am I to this project": sharing
- * grants a role per project (owner / editor / viewer), and anything reachable
- * through a project resolves its access through that role.
+ * `visible`/`editable`/`manageable` family answers "what am I to this
+ * project": a role per project (owner / editor / viewer), resolved from the
+ * project's container — its creator's account, or a workspace seat — and
+ * then from share links. Anything reachable through a project resolves its
+ * access through that role.
  */
 
 /** Tables whose rows are owned. Derived, so a new table joins by having the field. */
@@ -88,13 +90,6 @@ export async function requireOwner(ctx: { auth: Auth }): Promise<string> {
 }
 
 /**
- * The row, if it exists and belongs to the caller. Missing and not-yours both
- * answer null, so a stranger cannot probe which ids exist.
- *
- * `table` goes unused at runtime; it binds the type parameter so callers get
- * back a `Doc<"pages">` rather than a union of every owned table.
- */
-/**
  * Whether a row is soft-deleted. Central so every access path answers the
  * same: a stamped row reads as missing everywhere except `trash.ts`, which
  * is the one module allowed to see the other side.
@@ -103,6 +98,13 @@ export function isTrashed(doc: object): boolean {
   return "deletedAt" in doc && doc.deletedAt !== undefined;
 }
 
+/**
+ * The row, if it exists and belongs to the caller. Missing and not-yours both
+ * answer null, so a stranger cannot probe which ids exist.
+ *
+ * `table` goes unused at runtime; it binds the type parameter so callers get
+ * back a `Doc<"pages">` rather than a union of every owned table.
+ */
 export async function readOwned<T extends Owned>(
   ctx: QueryCtx,
   table: T,
@@ -133,12 +135,90 @@ export async function requireOwned<T extends Owned>(
   return doc;
 }
 
+export type WorkspaceRole = Doc<"memberships">["role"];
+
+const RANK: Record<WorkspaceRole, number> = { guest: 0, member: 1, admin: 2, owner: 3 };
+
+/**
+ * Someone's live seat in a workspace, or null.
+ *
+ * Reads the membership row and nothing else, because this sits on the path of
+ * every document read in a workspace project: were it to read the workspace
+ * row too, an admin flipping one setting would re-run every open document's
+ * subscription. A deleted workspace needs no look here — deleting it retires
+ * every seat in the same mutation.
+ */
+export async function activeMembership(
+  ctx: QueryCtx,
+  workspaceId: Id<"workspaces">,
+  userId: string,
+): Promise<Doc<"memberships"> | null> {
+  const seat = await ctx.db
+    .query("memberships")
+    .withIndex("by_workspace_user", (q) =>
+      q.eq("workspaceId", workspaceId).eq("userId", userId),
+    )
+    .unique();
+  return seat?.status === "active" ? seat : null;
+}
+
+/**
+ * The caller's seat in a workspace, for surfaces about the workspace itself
+ * (its settings, its people). Null for signed out, never a member, removed,
+ * or a deleted workspace — all four read as "no such workspace".
+ */
+export async function workspaceRole(
+  ctx: QueryCtx,
+  workspaceId: Id<"workspaces">,
+): Promise<WorkspaceRole | null> {
+  const me = await ownerId(ctx);
+  if (!me) return null;
+  const workspace = await ctx.db.get(workspaceId);
+  if (!workspace || workspace.deletedAt !== undefined) return null;
+  return (await activeMembership(ctx, workspaceId, me))?.role ?? null;
+}
+
+/**
+ * The gate for acting on a workspace: a seat at `min` or above
+ * (owner > admin > member > guest). Someone with no seat learns nothing — the
+ * same "Not found" as a workspace that does not exist — while a member short
+ * of the rank is told so, since they already know the workspace is there.
+ */
+export async function requireWorkspaceRole(
+  ctx: QueryCtx,
+  workspaceId: Id<"workspaces">,
+  min: WorkspaceRole,
+): Promise<{ workspace: Doc<"workspaces">; membership: Doc<"memberships"> }> {
+  await refuseStandIn(ctx);
+  const me = await ownerId(ctx);
+  const workspace = await ctx.db.get(workspaceId);
+  const membership =
+    me && workspace && workspace.deletedAt === undefined
+      ? await activeMembership(ctx, workspaceId, me)
+      : null;
+  if (!workspace || !membership) throw new Error("Not found");
+  if (RANK[membership.role] < RANK[min]) {
+    throw new ConvexError(
+      min === "member" ? "A guest can’t do that here." : `Only a workspace ${min} can do that.`,
+    );
+  }
+  return { workspace, membership };
+}
+
 export type ProjectRole = "owner" | "editor" | "viewer";
 
 /**
  * What the caller is to a loaded project.
  *
- * A claim names the role of the link it came through, but permission is always
+ * The container answers first. A personal project's owner is its creator. A
+ * workspace project's owners are the workspace's owners and admins; a member
+ * edits it, unless it is private and someone else's; a guest holds nothing by
+ * their seat. The creator of a workspace project is NOT its owner — that is
+ * the whole difference between the two containers — and neither is anyone
+ * whose seat was taken away, whatever the row says.
+ *
+ * Share links answer for everyone the container did not. A claim names the
+ * role of the link it came through, but permission is always
  * re-derived against the tokens that are live NOW: killing the editor link
  * demotes its claimants to viewers while any link is still on (the same move
  * as Google downgrading a link from editor to viewer), and killing both links
@@ -157,7 +237,18 @@ export async function roleForProject(
 ): Promise<ProjectRole | null> {
   const me = await ownerId(ctx);
   if (!me) return null;
-  if (project.ownerId === me) return "owner";
+  if (project.workspaceId) {
+    const seat = await activeMembership(ctx, project.workspaceId, me);
+    if (seat?.role === "owner" || seat?.role === "admin") return "owner";
+    if (
+      seat?.role === "member" &&
+      (project.visibility !== "private" || project.ownerId === me)
+    ) {
+      return "editor";
+    }
+  } else if (project.ownerId === me) {
+    return "owner";
+  }
   const claim = await ctx.db
     .query("shareClaims")
     .withIndex("by_project_and_grantee", (q) =>
@@ -182,24 +273,32 @@ export function claimRole(
   return "viewer";
 }
 
-/** The caller's role in a project named by id, or null for missing/stranger. */
+/**
+ * The caller's role in a project named by id, or null for missing, trashed or
+ * stranger — a trashed project is nobody's to act in until it is restored.
+ */
 export async function projectRole(
   ctx: QueryCtx,
   projectId: Id<"projects">,
 ): Promise<ProjectRole | null> {
   const project = await ctx.db.get(projectId);
-  return project ? await roleForProject(ctx, project) : null;
+  return project && !isTrashed(project) ? await roleForProject(ctx, project) : null;
 }
 
 /** Tables that resolve their access through a project's role. */
 type Shared = "projects" | "pages" | "folders";
 
-async function projectOf<T extends Shared>(
+/** Tables whose every row hangs off one project. Derived, like `Owned`. */
+type ProjectScoped = {
+  [K in TableNames]: Doc<K> extends { projectId: Id<"projects"> } ? K : never;
+}[TableNames];
+
+async function projectOf<T extends "projects" | ProjectScoped>(
   ctx: QueryCtx,
   doc: Doc<T>,
 ): Promise<Doc<"projects"> | null> {
   // TS cannot relate the generic Doc<T> to the closed union, hence the hop.
-  const row = doc as unknown as Doc<"projects"> | Doc<"pages"> | Doc<"folders">;
+  const row = doc as unknown as Doc<"projects"> | { projectId: Id<"projects"> };
   return "projectId" in row ? await ctx.db.get(row.projectId) : row;
 }
 
@@ -244,4 +343,50 @@ export async function requireEditable<T extends Shared>(
     }
   }
   throw new Error("Not found");
+}
+
+/**
+ * The row, if the caller may MANAGE its project — rename or delete it, share
+ * it, answer its access requests, choose what context it reads. That is role
+ * "owner": a personal project's creator, a workspace's owners and admins. The
+ * read half, so an operator's stand-in can still see who a project is shared
+ * with; `requireManageable` is the write half.
+ *
+ * Works for the project itself and for any row hanging off one (a linked
+ * repository, a context file), because those answer to the project's role
+ * rather than to whoever's `ownerId` they carry.
+ */
+export async function readManageable<T extends "projects" | ProjectScoped>(
+  ctx: QueryCtx,
+  table: T,
+  id: Id<T>,
+): Promise<Doc<T> | null> {
+  const doc = (await ctx.db.get(id)) as Doc<T> | null;
+  if (!doc || isTrashed(doc)) return null;
+  const project = await projectOf(ctx, doc);
+  if (!project || isTrashed(project)) return null;
+  return (await roleForProject(ctx, project)) === "owner" ? doc : null;
+}
+
+export async function requireManageable<T extends "projects" | ProjectScoped>(
+  ctx: QueryCtx,
+  table: T,
+  id: Id<T>,
+): Promise<Doc<T>> {
+  await refuseStandIn(ctx);
+  const doc = await readManageable(ctx, table, id);
+  if (!doc) throw new Error("Not found");
+  return doc;
+}
+
+/**
+ * {@link readManageable}'s question for a project in the trash, which that
+ * gate reads as missing — asked only by `trash.restore`, the one module
+ * allowed past the stamp.
+ */
+export async function managesProject(
+  ctx: QueryCtx,
+  project: Doc<"projects">,
+): Promise<boolean> {
+  return (await roleForProject(ctx, project)) === "owner";
 }
