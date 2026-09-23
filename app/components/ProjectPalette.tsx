@@ -729,6 +729,12 @@ function DetailsForm({
   // what the Visibility row goes on showing while it folds shut.
   const [visibility, setVisibility] = useState(workspace?.visibility ?? "workspace");
   const place = chosen?.name ?? "the workspace";
+  // What each answer means, said under the switch as well as in its hints:
+  // who can open the project is the one thing here that can't be guessed.
+  const seen = {
+    workspace: `Everyone in ${place} can find it and edit it`,
+    private: `Only you and ${place}’s owners and admins can open it`,
+  };
 
   return (
     <form className="nt-pal-form" onSubmit={submit}>
@@ -753,7 +759,7 @@ function DetailsForm({
         {places.length > 0 && (
           <div className="nt-pal-fld">
             <span id="nt-pal-in-key" className="nt-pal-key">
-              In
+              Where
             </span>
             <div className="min-w-0">
               <Menu
@@ -817,14 +823,21 @@ function DetailsForm({
                 )}
               </Menu>
               {/* Moving a project between them is not something Nootles does,
-                  so the choice is said to be for good before it is made. */}
-              <p className="text-[12px] text-muted">A project stays where it’s made.</p>
+                  so the choice is said to be for good before it is made — and
+                  so is what a member gives up by making one in a workspace:
+                  its owners and admins manage it, not whoever made it. */}
+              <p className="text-[12px] text-muted text-pretty">
+                {chosen?.role === "member"
+                  ? `A project can’t be moved after it’s made, and only ${chosen.name}’s owners and admins can rename or delete it.`
+                  : "A project can’t be moved after it’s made."}
+              </p>
             </div>
           </div>
         )}
         {/* Two short words, since the workspace is named just above; who
-            exactly each one means is in its hint. Folded shut, not unmounted,
-            while the project is going into My Nootles. */}
+            exactly the chosen one means is said under it, and the other's in
+            its hint. Folded shut, not unmounted, while the project is going
+            into My Nootles. */}
         {places.length > 0 && (
           <div className="nt-pal-fold" data-open={!!chosen} inert={!chosen}>
             <div className="nt-pal-fld">
@@ -833,16 +846,8 @@ function DetailsForm({
                 <Segmented
                   label="Visibility"
                   segments={[
-                    {
-                      id: "workspace",
-                      label: "Workspace",
-                      hint: `Everyone in ${place} can find it and edit it`,
-                    },
-                    {
-                      id: "private",
-                      label: "Private",
-                      hint: `Only you and ${place}’s owners and admins can open it`,
-                    },
+                    { id: "workspace", label: "Workspace", hint: seen.workspace },
+                    { id: "private", label: "Private", hint: seen.private },
                   ]}
                   value={visibility}
                   onChange={(next) => {
@@ -850,6 +855,9 @@ function DetailsForm({
                     if (workspace) setWorkspace({ ...workspace, visibility: next });
                   }}
                 />
+                <p aria-live="polite" className="mt-1.5 text-[12px] text-muted text-pretty">
+                  {seen[visibility]}.
+                </p>
               </div>
             </div>
           </div>
