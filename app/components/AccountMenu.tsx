@@ -5,6 +5,7 @@ import { usePlan } from "@/app/lib/usePlan";
 import { Menu, MenuItem, MenuLink } from "./Menu";
 import { Settings, Sparkle } from "./Icons";
 import { useNotionAvailable } from "./notion/NotionAvailable";
+import { useContainer } from "./workspaces/ContainerContext";
 import { useAccountSettingsName } from "./workspaces/useAccountSettingsName";
 
 /** First letter of whatever we know them by — name, else the email. */
@@ -32,6 +33,9 @@ export function AccountMenu({
   const { user, isLoaded } = useUser();
   const { signOut } = useClerk();
   const { entitlement: plan } = usePlan();
+  // Inside a workspace the AI spends the workspace's allowance, not this one,
+  // so the plan line says whose it is.
+  const inWorkspace = useContainer().kind === "workspace";
   // Settings holds one thing, the Notion connection; a deployment without the
   // integration has nothing to settle, so the door to it is not offered.
   const settings = useNotionAvailable();
@@ -68,6 +72,7 @@ export function AccountMenu({
               <span className="nt-account-name">{label}</span>
               {plan && (
                 <span className="nt-account-plan">
+                  {inWorkspace && "My Nootles · "}
                   {plan.left === null
                     ? "Pro"
                     : `Free · ${plan.left.completions} completions, ${plan.left.chats} chats left`}
