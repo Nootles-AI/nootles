@@ -260,6 +260,12 @@ export default defineSchema({
     shareToken: v.optional(v.string()),
     editShareToken: v.optional(v.string()),
     /**
+     * When each link stops admitting anyone; absent is never. Past it the
+     * link reads as off, and so does every claim made through it.
+     */
+    shareExpiresAt: v.optional(v.number()),
+    editShareExpiresAt: v.optional(v.number()),
+    /**
      * What the projects screen draws about this project's pages, denormalized
      * so the screen's read set stops covering every page of every project.
      * Maintained by `projects.refreshPageSummary`; absent on projects written
@@ -323,6 +329,12 @@ export default defineSchema({
      * everybody (`auth.ts`).
      */
     grantedRole: v.optional(v.literal("editor")),
+    /**
+     * The expiry of the link this claim came through, carried so a claim
+     * outlives neither it nor a new link turned on after it ran out. Absent
+     * is never. `grantedRole` does not expire: it was handed over by name.
+     */
+    expiresAt: v.optional(v.number()),
     createdAt: v.number(),
   })
     .index("by_grantee", ["granteeId"])
