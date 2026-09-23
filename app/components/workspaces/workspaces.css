@@ -907,16 +907,26 @@
 .nt-ws-filters .nt-ws-pick {
   max-width: 14rem;
 }
+/* Sized to its longest choice, the tick beside it, and tall enough to hold
+   every kind without a scroll on any laptop. */
 .nt-ws-filter-menu {
-  max-height: min(24rem, 70vh);
+  min-width: 11rem;
+  max-width: min(18rem, calc(100vw - 16px));
+  max-height: min(32rem, calc(100vh - 16px));
   overflow-y: auto;
 }
+/* A ghost button in the label's row that leaves the row at the label's line
+   height, and hangs right as the filters hang left, so its glyph ends on the
+   column's edge. */
 .nt-ws-export {
   flex: none;
+  margin-block: calc((var(--text-ui) * 1.5 - var(--control)) / 2);
+  margin-right: calc(-1 * var(--inset));
 }
-.nt-ws-set-head > .nt-skeleton,
-.nt-ws-filters > .nt-skeleton {
-  background: var(--sunken);
+/* Why the log reads as it does, under its label and above what narrows it. */
+.nt-ws-audit-note,
+.nt-set-note.nt-ws-audit-note {
+  margin: -4px 0 8px;
 }
 
 .nt-ws-event {
@@ -962,13 +972,10 @@
 .nt-ws-event > .nt-ws-ev-what {
   color: var(--foreground);
 }
+/* The aside link's underline at rest, so a project that opens is told from
+   one that is gone before anyone hovers. */
 .nt-ws-ev-link {
   font-weight: 500;
-  color: var(--foreground);
-  text-underline-offset: 3px;
-}
-.nt-ws-ev-link:hover {
-  text-decoration: underline;
 }
 /* A project that no longer opens — deleted since — is named, not linked. */
 .nt-ws-ev-gone {
@@ -976,6 +983,17 @@
 }
 .nt-ws-ev-end {
   height: 1px;
+}
+/* The rows' gap, for the bones as for the rows they stand in for. */
+.nt-ws-event + .nt-ws-event {
+  margin-top: 1px;
+}
+/* The last filter's rows, held while the next filter's arrive. */
+.nt-ws-table > :not(.nt-ws-ev-head) {
+  transition: opacity var(--dur) var(--ease);
+}
+.nt-ws-table[data-stale] > :not(.nt-ws-ev-head) {
+  opacity: 0.55;
 }
 .nt-ws-empty {
   padding: 40px 24px;
