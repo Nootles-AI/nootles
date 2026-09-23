@@ -4362,6 +4362,52 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar) .nt-reformat-switcher {
 .nt-pal-fld + .nt-pal-fld {
   border-top: 1px solid var(--border);
 }
+/* A row a choice above it brings — a workspace's Visibility, under In. It
+   folds open and shut rather than landing: its track runs between 0fr and 1fr
+   and the row is clipped as it goes, with its padding and its hairline, as
+   `.nt-ctl-fold` does in the canvas panels. Kept mounted while shut, so what
+   it held is still there when it opens again. Open, it stops clipping once it
+   has finished opening, since its switch's hints open downward, over the row
+   below; shutting clips at once. */
+.nt-pal-fld + .nt-pal-fold > .nt-pal-fld,
+.nt-pal-fold + .nt-pal-fld {
+  border-top: 1px solid var(--border);
+}
+.nt-pal-fold {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition:
+    grid-template-rows var(--dur-slow) var(--ease),
+    opacity var(--dur) var(--ease);
+}
+.nt-pal-fold[data-open="false"] {
+  grid-template-rows: 0fr;
+  opacity: 0;
+}
+.nt-pal-fold > .nt-pal-fld {
+  min-height: 0;
+  overflow: visible;
+  transition:
+    padding var(--dur-slow) var(--ease),
+    border-top-width var(--dur-slow) var(--ease),
+    overflow 0s linear var(--dur-slow);
+  transition-behavior: normal, normal, allow-discrete;
+}
+.nt-pal-fold[data-open="false"] > .nt-pal-fld {
+  overflow: clip;
+  padding-block: 0;
+  border-top-width: 0;
+  transition:
+    padding var(--dur-slow) var(--ease),
+    border-top-width var(--dur-slow) var(--ease);
+}
+@media (prefers-reduced-motion: reduce) {
+  .nt-pal-fold,
+  .nt-pal-fold > .nt-pal-fld,
+  .nt-pal-fold[data-open="false"] > .nt-pal-fld {
+    transition: none;
+  }
+}
 /* A key sits on the answer's first line, whatever the answer's height. */
 .nt-pal-key {
   padding-top: 5px;

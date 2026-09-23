@@ -725,6 +725,10 @@ function DetailsForm({
   const seats = useQuery(api.workspaces.listMine);
   const places = seats?.filter((w) => w.role !== "guest") ?? [];
   const chosen = workspace && places.find((w) => w.workspaceId === workspace.workspaceId);
+  // Who sees it, remembered across a trip to My Nootles and back — and so
+  // what the Visibility row goes on showing while it folds shut.
+  const [visibility, setVisibility] = useState(workspace?.visibility ?? "workspace");
+  const place = chosen?.name ?? "the workspace";
 
   return (
     <form className="nt-pal-form" onSubmit={submit}>
@@ -793,7 +797,7 @@ function DetailsForm({
                           setWorkspace({
                             workspaceId: w.workspaceId,
                             slug: w.slug,
-                            visibility: workspace?.visibility ?? "workspace",
+                            visibility,
                           });
                           close();
                         }}
@@ -819,29 +823,34 @@ function DetailsForm({
           </div>
         )}
         {/* Two short words, since the workspace is named just above; who
-            exactly each one means is in its hint, in the words the private
-            project's lock uses. */}
-        {chosen && workspace && (
-          <div className="nt-pal-fld">
-            <span className="nt-pal-key">Visibility</span>
-            <div className="min-w-0 pt-0.5">
-              <Segmented
-                label="Visibility"
-                segments={[
-                  {
-                    id: "workspace",
-                    label: "Workspace",
-                    hint: `Everyone in ${chosen.name} can find it and edit it`,
-                  },
-                  {
-                    id: "private",
-                    label: "Private",
-                    hint: `Only you and ${chosen.name}’s owners and admins can open it`,
-                  },
-                ]}
-                value={workspace.visibility}
-                onChange={(visibility) => setWorkspace({ ...workspace, visibility })}
-              />
+            exactly each one means is in its hint. Folded shut, not unmounted,
+            while the project is going into My Nootles. */}
+        {places.length > 0 && (
+          <div className="nt-pal-fold" data-open={!!chosen} inert={!chosen}>
+            <div className="nt-pal-fld">
+              <span className="nt-pal-key">Visibility</span>
+              <div className="min-w-0 pt-0.5">
+                <Segmented
+                  label="Visibility"
+                  segments={[
+                    {
+                      id: "workspace",
+                      label: "Workspace",
+                      hint: `Everyone in ${place} can find it and edit it`,
+                    },
+                    {
+                      id: "private",
+                      label: "Private",
+                      hint: `Only you and ${place}’s owners and admins can open it`,
+                    },
+                  ]}
+                  value={visibility}
+                  onChange={(next) => {
+                    setVisibility(next);
+                    if (workspace) setWorkspace({ ...workspace, visibility: next });
+                  }}
+                />
+              </div>
             </div>
           </div>
         )}
