@@ -52,17 +52,15 @@ you are writing to dev):
 | `GITHUB_APP_WEBHOOK_SECRET` | The webhook secret from §1. |
 | `GITHUB_APP_CLIENT_ID` | The App's client ID (`Iv…`). |
 | `GITHUB_APP_CLIENT_SECRET` | The App's client secret. |
+| `GITHUB_APP_SLUG` | The App's URL name, as in `github.com/apps/<slug>`. The install route builds its link from it. |
 | `GITHUB_TOKEN_KEY` | Already set for the OAuth App. Installation tokens are sealed with this key too. |
 
-On **Next** (Vercel):
-
-| Name | What it is |
-|---|---|
-| `GITHUB_APP_SLUG` | The App's URL name, as in `github.com/apps/<slug>`. The install route builds its link from it. |
-
-Next doesn't need the App's client ID or secret. The authorization code is
-exchanged inside Convex (§3), because the Convex action that records an
-installation can be called directly, so it has to make its own check.
+Next needs nothing of its own for the App. The slug lives in Convex so that
+one answer (`github/app.status.ready`) decides everywhere whether an Install
+button is offered, and the install route reads the slug from that same answer.
+The authorization code is exchanged inside Convex (§3), because the Convex
+action that records an installation can be called directly, so it has to make
+its own check.
 
 ## 3. Installing, and why it is verified
 

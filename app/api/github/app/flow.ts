@@ -1,3 +1,6 @@
+import { ConvexError } from "convex/values";
+import type { InstallRefusal } from "@/convex/github/app";
+
 /**
  * What the two halves of installing the GitHub App agree on
  * (docs/github-app.md): the install route that sends an admin to GitHub, and
@@ -21,12 +24,20 @@ export type Binding = {
   returnTo: string;
 };
 
-/** Why an install did not land, as the setup route writes it into `?reason=`. */
-export type InstallFailure = "state" | "no_code" | "no_installation" | "verify";
+/**
+ * Why an install did not land, as the setup route writes it into `?reason=`:
+ * its own checks, then `github/app.install`'s refusals, and `verify` for any
+ * other failure.
+ */
+export type InstallFailure = "state" | "no_code" | "no_installation" | "verify" | InstallRefusal;
 
-/** The App's public name, which its install URL is built on. */
-export function appSlug(): string | null {
-  return process.env.GITHUB_APP_SLUG || null;
+const REFUSALS: readonly InstallRefusal[] = ["unconfigured", "unauthorised", "unreachable", "not_owner", "not_holder"];
+
+/** The refusal `github/app.install` threw, or `verify` for anything that isn't one. */
+export function failureOf(error: unknown): InstallFailure {
+  if (!(error instanceof ConvexError)) return "verify";
+  const refused = (error.data as { refused?: unknown } | null)?.refused;
+  return REFUSALS.find((r) => r === refused) ?? "verify";
 }
 
 export function installUrl(slug: string, state: string): string {

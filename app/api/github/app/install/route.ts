@@ -4,7 +4,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { asUser } from "@/app/lib/convexServer";
 import { session } from "@/app/lib/session";
 import { safeReturn } from "../../oauth";
-import { INSTALL_COOKIE, INSTALL_MAX_AGE, appSlug, installUrl, sealBinding } from "../flow";
+import { INSTALL_COOKIE, INSTALL_MAX_AGE, installUrl, sealBinding } from "../flow";
 
 /**
  * Send a workspace admin to GitHub to install the App:
@@ -14,14 +14,6 @@ import { INSTALL_COOKIE, INSTALL_MAX_AGE, appSlug, installUrl, sealBinding } fro
 export async function GET(req: Request) {
   const caller = await session();
   if (!caller?.userId) return new Response("Unauthorized", { status: 401 });
-
-  const slug = appSlug();
-  if (!slug) {
-    return new Response(
-      "The GitHub App is not set up on this deployment. Set GITHUB_APP_SLUG.",
-      { status: 503 },
-    );
-  }
 
   const url = new URL(req.url);
   const workspaceId = url.searchParams.get("workspace");
@@ -35,14 +27,19 @@ export async function GET(req: Request) {
   if (!status.canManage) {
     return new Response("Only a workspace admin can install the GitHub App.", { status: 403 });
   }
-  if (!status.ready) return new Response(status.blocker, { status: 503 });
+  if (!status.ready || !status.appSlug) {
+    return new Response(
+      `The GitHub App isn’t set up on this deployment (missing ${status.missing.join(", ")}). See docs/github-app.md.`,
+      { status: 503 },
+    );
+  }
 
   const state = crypto.randomUUID();
   const integrations = `/w/${status.slug}/settings/integrations`;
   // A return that would leave the app lands where the outcome is shown instead.
   const asked = safeReturn(url.searchParams.get("returnTo") ?? integrations);
   const returnTo = asked === "/" ? integrations : asked;
-  const res = NextResponse.redirect(installUrl(slug, state));
+  const res = NextResponse.redirect(installUrl(status.appSlug, state));
   res.cookies.set(
     INSTALL_COOKIE,
     sealBinding({ state, workspaceId, userId: caller.userId, returnTo }),

@@ -14,7 +14,7 @@ vi.mock("@/app/lib/convexServer", () => ({ asUser: () => ({ query: status }) }))
 import { INSTALL_COOKIE, INSTALL_MAX_AGE, openBinding } from "../flow";
 import { GET } from "./route";
 
-const ADMIN = { slug: "acme", ready: true, blocker: null, canManage: true };
+const ADMIN = { slug: "acme", ready: true, missing: [], appSlug: "nootles", canManage: true };
 
 function install(query: Record<string, string>): Request {
   const url = new URL("http://test/api/github/app/install");
@@ -30,7 +30,6 @@ function cookieOf(res: Response): string | null {
 }
 
 beforeEach(() => {
-  vi.stubEnv("GITHUB_APP_SLUG", "nootles");
   session.mockResolvedValue({ userId: "u1", token: "t", sessionId: "sess" });
   status.mockResolvedValue(ADMIN);
 });
@@ -46,14 +45,6 @@ describe("who is turned away", () => {
     const res = await GET(install({ workspace: "ws_1" }));
     expect(res.status).toBe(401);
     expect(cookieOf(res)).toBeNull();
-  });
-
-  test("with no App slug the deployment isn't set up, and no cookie is set", async () => {
-    vi.stubEnv("GITHUB_APP_SLUG", "");
-    const res = await GET(install({ workspace: "ws_1" }));
-    expect(res.status).toBe(503);
-    expect(cookieOf(res)).toBeNull();
-    expect(status).not.toHaveBeenCalled();
   });
 
   test("no workspace named is a bad request", async () => {
@@ -80,10 +71,10 @@ describe("who is turned away", () => {
   });
 
   test("a deployment missing the App's Convex config says what's missing", async () => {
-    status.mockResolvedValue({ ...ADMIN, ready: false, blocker: "Set GITHUB_APP_ID." });
+    status.mockResolvedValue({ ...ADMIN, ready: false, missing: ["GITHUB_APP_ID", "GITHUB_APP_SLUG"], appSlug: null });
     const res = await GET(install({ workspace: "ws_1" }));
     expect(res.status).toBe(503);
-    expect(await res.text()).toBe("Set GITHUB_APP_ID.");
+    expect(await res.text()).toMatch(/missing GITHUB_APP_ID, GITHUB_APP_SLUG/);
     expect(cookieOf(res)).toBeNull();
   });
 });
