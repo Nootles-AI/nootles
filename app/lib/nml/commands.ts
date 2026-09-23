@@ -444,7 +444,8 @@ function isGraphemeBoundary(text: string, offset: number): boolean {
     ].some((part) => part.index === offset) || offset === text.length
   );
 }
-function inlineLength(content: NmlInlineContent): number {
+/** Inline length in the executor's ranges: UTF-16 text, one unit per atom. */
+export function inlineLength(content: NmlInlineContent): number {
   return content.reduce(
     (sum, node) =>
       sum +
