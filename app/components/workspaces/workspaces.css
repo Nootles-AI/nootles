@@ -18,6 +18,140 @@
   margin: 16px calc(-1 * var(--inset)) 0;
 }
 
+/* A section label with something of its own on the right — the join-domain
+   switch. The label keeps its own metrics; the row takes its margin. */
+.nt-ws-set-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.nt-ws-set-head > .nt-set-label {
+  margin-bottom: 0;
+}
+/* A label with its count beside it, in the field label's metadata voice. */
+.nt-set-label.nt-ws-label {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+}
+
+/* A card that holds a form rather than rows. */
+.nt-ws-card {
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--elevated);
+}
+
+/* ---- Fields, edited where they are read -------------------------------------
+   A key column and the answer, as the palette's details page lays a form out.
+   The key sits on the first line of the field's text, which is 8px down: 1px of
+   hairline and 7px of padding. Read-only, the answer is the same line of ink
+   without the box, so a member's page and an admin's line up. */
+
+.nt-ws-fld {
+  display: grid;
+  grid-template-columns: 7rem minmax(0, 1fr);
+  align-items: start;
+  gap: 4px 12px;
+  padding: 12px;
+}
+.nt-ws-key {
+  padding-top: 8px;
+  font-size: var(--text-ui);
+  font-weight: 500;
+  line-height: 1.5;
+  color: var(--foreground);
+}
+.nt-ws-value {
+  padding-block: 8px;
+  font-size: var(--text-ui);
+  line-height: 1.5;
+  color: var(--foreground);
+  overflow-wrap: anywhere;
+}
+@media (max-width: 560px) {
+  .nt-ws-fld {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .nt-ws-key {
+    padding-top: 0;
+  }
+}
+
+/* "Saved", inside the field's far end: where the eye already is, and gone again
+   before it becomes part of the furniture. It rises into place on the spring
+   and fades out flat. */
+.nt-ws-saving {
+  position: relative;
+}
+.nt-ws-saving > .nt-input {
+  padding-right: 76px;
+}
+.nt-ws-saved {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--text-meta-lg);
+  color: var(--muted);
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(calc(-50% + 3px));
+  transition:
+    opacity var(--dur) var(--ease),
+    transform var(--dur-slow) var(--spring);
+}
+.nt-ws-saved[data-on] {
+  opacity: 1;
+  transform: translateY(-50%);
+}
+
+/* The address: a field whose first part is not yours to edit, set down as muted
+   ink inside the same box. The box is the field (`.nt-input`'s look, focus
+   included); the input inside is bare. */
+.nt-ws-url {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--background);
+  font-size: var(--text-ui);
+  line-height: 1.5;
+  cursor: text;
+  transition: border-color var(--dur-fast) var(--ease);
+}
+.nt-ws-url:hover {
+  border-color: var(--border-strong);
+}
+.nt-ws-url:focus-within {
+  border-color: var(--muted);
+}
+.nt-ws-url-base {
+  flex: none;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.nt-ws-url > input {
+  flex: 1 1 auto;
+  min-width: 4ch;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--foreground);
+}
+/* Under a field on the settings page the note sits a little further off. */
+.nt-ws-fld .nt-ws-note {
+  margin-top: 6px;
+}
+
 /* ---- The switcher ----------------------------------------------------------
    The projects home's title, when there is somewhere else to go: the name of
    whose place this is, and a quiet glyph saying it opens. The glyph has an
@@ -197,12 +331,260 @@
   animation: nt-row-in 360ms var(--ease) backwards;
 }
 
+/* ---- Role menus ---------------------------------------------------------------
+   A seat and what it may do, two lines to an item; where this seat may not
+   give it, the reason takes the description's place. The tick stays centred
+   on the pair. */
+
+.nt-ws-choices {
+  width: 18rem;
+  max-width: calc(100vw - 16px);
+}
+.nt-menu-item.nt-ws-choice {
+  height: auto;
+  min-height: var(--control);
+  padding-block: 6px;
+}
+.nt-ws-choice-text {
+  display: grid;
+  flex: 1 1 auto;
+  min-width: 0;
+  gap: 1px;
+  line-height: 1.4;
+}
+.nt-ws-choice-hint {
+  font-size: var(--text-meta-lg);
+  color: var(--muted);
+  text-wrap: pretty;
+}
+/* The invite row's picker: a row button that reads as a choice, not a verb. */
+.nt-ws-pick-glyph {
+  color: var(--muted);
+  transition: color var(--dur-fast) var(--ease);
+}
+.nt-ws-pick:hover .nt-ws-pick-glyph,
+.nt-ws-pick[aria-expanded="true"] .nt-ws-pick-glyph {
+  color: var(--foreground);
+}
+.nt-ws-pick[aria-expanded="true"] {
+  background: var(--selected);
+  color: var(--foreground);
+}
+
+/* ---- People and invitations ------------------------------------------------------
+   The projects list's table-in-all-but-markup, in the settings card: a mono
+   head over rows that arrive as the projects screen's do. A row is a person the
+   way the account menu draws you — face, name, address under it — with the
+   columns read down: role, then a date. */
+
+.nt-ws-table {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--elevated);
+}
+.nt-ws-table > .nt-list-head {
+  height: 32px;
+  padding-inline: 12px;
+}
+.nt-ws-rows {
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+}
+.nt-ws-person {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 48px;
+  padding: 6px 8px;
+}
+.nt-ws-who {
+  display: grid;
+  flex: 1 1 auto;
+  min-width: 0;
+  gap: 1px;
+}
+.nt-ws-who-name,
+.nt-ws-who-mail {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.nt-ws-who-name {
+  font-size: var(--text-ui);
+  font-weight: 500;
+  line-height: 1.4;
+  color: var(--foreground);
+}
+.nt-ws-who-mail {
+  font-size: var(--text-meta-lg);
+  line-height: 1.4;
+  color: var(--muted);
+}
+.nt-ws-col-role {
+  flex: none;
+  width: 64px;
+  font-size: var(--text-ui);
+  color: var(--muted);
+}
+.nt-ws-col-when {
+  flex: none;
+  width: 96px;
+  text-align: right;
+}
+.nt-ws-col-invite {
+  display: flex;
+  flex: none;
+  justify-content: flex-end;
+  gap: 2px;
+  width: 10.5rem;
+}
+.nt-ws-refused {
+  display: inline-flex;
+  gap: 2px;
+}
+/* An invitation nobody answered: an envelope in the monogram's well, its ring
+   dashed — somebody who has not arrived. */
+.nt-monogram.nt-ws-pending {
+  flex: none;
+  background: none;
+  box-shadow: none;
+  border: 1px dashed var(--border-strong);
+  color: var(--muted);
+}
+.nt-ws-lapsed {
+  color: var(--danger);
+}
+/* An invitation revoked leaves while the server agrees, as an answered request
+   does in the share popover. */
+.nt-ws-person.is-leaving {
+  opacity: 0;
+  transform: scale(0.97);
+  pointer-events: none;
+  transition:
+    opacity 220ms var(--ease),
+    transform 220ms cubic-bezier(0.7, 0, 0.84, 0);
+}
+/* Where there is no pointer to reveal it, the row's menu is always there. */
+@media (hover: none) {
+  .nt-ws-row-menu {
+    opacity: 1;
+  }
+}
+/* A refusal's reason hangs from the right edge, where the buttons are. */
+.nt-ws-tip-end::after {
+  right: 0;
+  left: auto;
+}
+/* On a phone the date gives way, and an invitation's verbs take a line of
+   their own under the address rather than squeezing it to nothing. */
+@media (max-width: 36rem) {
+  .nt-ws-table .nt-ws-col-when,
+  .nt-ws-table > .nt-list-head > .nt-ws-col-invite {
+    display: none;
+  }
+  .nt-ws-person {
+    flex-wrap: wrap;
+  }
+  .nt-ws-who {
+    flex-basis: 0;
+  }
+  .nt-ws-person > .nt-ws-col-invite {
+    width: 100%;
+    justify-content: flex-start;
+    margin-top: -4px;
+    padding-left: 36px;
+  }
+}
+
+/* ---- An invitation, answered -------------------------------------------------
+   One card on the settings surface, centred in what the topbar leaves: the
+   workspace's tile, its name, a sentence, the way on. It arrives the way a
+   dialog does — a surface settling — and the tile lands a beat after it. */
+
+.nt-ws-join-body {
+  display: grid;
+  place-items: center;
+  padding: clamp(16px, 5vh, 56px) 24px clamp(48px, 14vh, 160px);
+}
+.nt-ws-join {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: min(26rem, 100%);
+  padding: 36px 28px 28px;
+  border-radius: 14px;
+  background: var(--elevated);
+  box-shadow:
+    0 0 0 1px oklch(0.25 0.005 90 / 0.07),
+    0 1px 2px oklch(0.25 0.005 90 / 0.04),
+    0 12px 32px -16px oklch(0.25 0.005 90 / 0.12);
+  text-align: center;
+  transform-origin: 50% 30%;
+  animation: nt-ws-join-in 480ms var(--spring) backwards;
+}
+@keyframes nt-ws-join-in {
+  from {
+    opacity: 0;
+    filter: blur(6px);
+    transform: translateY(12px) scale(0.97);
+  }
+}
+.nt-monogram.nt-ws-join-tile {
+  width: 48px;
+  height: 48px;
+  font-size: 20px;
+  color: var(--foreground);
+  animation: nt-ws-tile-in 520ms var(--spring) 90ms backwards;
+}
+.nt-monogram.nt-ws-join-tile.is-square {
+  border-radius: 12px;
+}
+@keyframes nt-ws-tile-in {
+  from {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+}
+.nt-ws-join-title {
+  max-width: 100%;
+  margin-top: 16px;
+  overflow-wrap: anywhere;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+  color: var(--foreground);
+}
+.nt-ws-join-note {
+  margin-top: 6px;
+  font-size: var(--text-ui);
+  line-height: 1.55;
+  color: var(--muted);
+  text-wrap: pretty;
+}
+.nt-ws-join-mail {
+  color: var(--foreground);
+  overflow-wrap: anywhere;
+}
+.nt-ws-join-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px;
+  margin-top: 24px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .nt-ws-switch-glyph,
-  .nt-ws-sent {
+  .nt-ws-sent,
+  .nt-ws-join,
+  .nt-monogram.nt-ws-join-tile {
     animation: nt-fade-in var(--dur-fast) var(--ease);
   }
-  .nt-ws-pile .nt-face + .nt-face {
+  .nt-ws-pile .nt-face + .nt-face,
+  .nt-ws-saved,
+  .nt-ws-person.is-leaving {
     transition: none;
   }
 }
