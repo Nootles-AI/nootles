@@ -47,7 +47,7 @@ export async function containerMembers(
     .withIndex("by_project_and_grantee", (q) => q.eq("projectId", project._id))
     .collect();
   for (const claim of claims) {
-    const role = claimRole(project, claim);
+    const role = claimRole(project, claim, Date.now());
     if (role && claim.granteeId !== container.userId) {
       members.push({ userId: claim.granteeId, role });
     }

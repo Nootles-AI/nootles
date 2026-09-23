@@ -283,9 +283,10 @@ export const PLAN_FEATURES = {
   pro: { comments: true },
 } as const satisfies Record<Plan, { comments: boolean }>;
 
-export type Feature = keyof (typeof PLAN_FEATURES)[Plan];
+/** A per-project switch — not a workspace plan's `Feature` (`plans.ts`). */
+export type ProjectFeature = keyof (typeof PLAN_FEATURES)[Plan];
 
-const ON_EVERY_PLAN = (feature: Feature) =>
+const ON_EVERY_PLAN = (feature: ProjectFeature) =>
   Object.values(PLAN_FEATURES).every((plan) => plan[feature]);
 
 type OverrideScope = Doc<"entitlementOverrides">["scope"];
@@ -294,7 +295,7 @@ async function overrideRow(
   ctx: QueryCtx,
   scope: OverrideScope,
   scopeId: string,
-  feature: Feature,
+  feature: ProjectFeature,
 ): Promise<Doc<"entitlementOverrides"> | null> {
   return await ctx.db
     .query("entitlementOverrides")
@@ -315,7 +316,7 @@ async function overrideOf(
   ctx: QueryCtx,
   scope: OverrideScope,
   scopeId: string,
-  feature: Feature,
+  feature: ProjectFeature,
 ): Promise<boolean | null> {
   return (await overrideRow(ctx, scope, scopeId, feature))?.value ?? null;
 }
@@ -333,7 +334,7 @@ async function overrideOf(
 export async function projectFeature(
   ctx: QueryCtx,
   project: Doc<"projects">,
-  feature: Feature,
+  feature: ProjectFeature,
 ): Promise<boolean> {
   const forced =
     (await overrideOf(ctx, "project", project._id, feature)) ??

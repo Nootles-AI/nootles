@@ -191,7 +191,7 @@ describe("view — the public door", () => {
     const token = await on(t, w, "commenter");
     const seen = await t.query(api.share.view, { token });
     expect(seen).toMatchObject({ projectId: w.projectId, role: "commenter", title: "P" });
-    expect(seen?.pages.map((p) => p.docId)).toEqual([w.docId]);
+    expect(seen?.pages?.map((p) => p.docId)).toEqual([w.docId]);
 
     await t.run(async (ctx) => ctx.db.patch(w.projectId, { deletedAt: 5 }));
     expect(await t.query(api.share.view, { token })).toBeNull();
@@ -403,7 +403,7 @@ describe("claimRole — every claim, every combination of links", () => {
       test(`${JSON.stringify(links)} × ${JSON.stringify(c)}`, () => {
         const project = { ownerId: OWNER.subject, title: "P", createdAt: 1, ...links } as Doc<"projects">;
         const row = { granteeId: ADA.subject, createdAt: 1, ...c } as Doc<"shareClaims">;
-        expect(claimRole(project, row)).toBe(expected(links, c));
+        expect(claimRole(project, row, Date.now())).toBe(expected(links, c));
       });
     }
   }
@@ -620,7 +620,9 @@ describe("the gate, end to end with a real claim", () => {
     });
     const seen = await t.query(api.share.view, { token: w.token });
     expect(seen?.role).toBe("commenter");
-    expect((await t.query(api.ydoc.meta, { docId: seen!.pages[0].docId }))?.seq).toBe(1);
+    const docIdSeen = seen?.pages?.[0]?.docId;
+    if (!docIdSeen) throw new Error("The comment link opened no tree.");
+    expect((await t.query(api.ydoc.meta, { docId: docIdSeen }))?.seq).toBe(1);
     expect((await loaded(t, null, w.docId)).getText("t").toString()).toBe("page");
 
     await expect(t.query(api.ydoc.meta, { docId })).rejects.toThrow("Not found");

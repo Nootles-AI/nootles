@@ -301,6 +301,7 @@ describe("who may report a comment event", () => {
   const resolved: string | null = claimRole(
     { shareToken: "v", commentShareToken: "c" } as Doc<"projects">,
     { role: "commenter" } as Doc<"shareClaims">,
+    Date.now(),
   );
   const commenterResolves = resolved === "commenter";
 

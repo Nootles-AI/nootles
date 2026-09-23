@@ -179,7 +179,10 @@ export async function POST(req: Request) {
   const pageComments =
     digest?.ok && note && digest.digest.pageId === pageId && !staged && inputs ? digest.digest : null;
   const withComments = pageComments
-    ? await commentsWanted(convex, messages, pageComments, budget > 0, req.signal).catch(() => false)
+    ? await commentsWanted(convex, messages, pageComments, budget > 0, req.signal, {
+        ownerId: caller.userId,
+        projectId,
+      }).catch(() => false)
     : null;
   const about = inputs ? projectPack(inputs, AI.chat.context.projectTokens) : "";
 
@@ -282,13 +285,14 @@ async function commentsWanted(
   digest: CommentsDigest,
   mayAsk: boolean,
   signal: AbortSignal,
+  ledger: { ownerId: string | null; projectId: string },
 ): Promise<boolean | null> {
   const last = messages[messages.length - 1];
   const asked = last?.role === "assistant" ? last.metadata?.commentsGate : undefined;
   if (asked?.pageId === digest.pageId && typeof asked.include === "boolean") return asked.include;
   if (!mayAsk) return null;
   const summary = gateSummary(digest, AI.commentsGate);
-  return commentsGate(convex, { message: latestUserText(messages), ...summary }, signal);
+  return commentsGate(convex, { message: latestUserText(messages), ...summary }, signal, ledger);
 }
 
 /** `context` as a user message just ahead of the user's latest one. */

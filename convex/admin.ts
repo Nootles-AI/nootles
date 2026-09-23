@@ -638,7 +638,7 @@ export const userDetail = query({
         id: p._id,
         title: p.title,
         createdAt: p.createdAt,
-        shared: hasLiveLink(p),
+        shared: hasLiveLink(p, Date.now()),
       })),
       pageCount,
       suggestionKinds: [...kinds.entries()]

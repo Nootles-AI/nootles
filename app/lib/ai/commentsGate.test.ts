@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
  * network.
  */
 
+const LEDGER = { ownerId: "user_1", projectId: "project_1" };
 const { recordAiCall } = vi.hoisted(() => ({ recordAiCall: vi.fn() }));
 vi.mock("./recordCall", () => ({ recordAiCall }));
 
@@ -160,14 +161,14 @@ describe("classifyComments", () => {
 
 describe("commentsGate", () => {
   test("no open threads: no call is made, and the answer is no", async () => {
-    const result = await commentsGate(convex, input({ openThreads: 0, snippets: [] }), new AbortController().signal);
+    const result = await commentsGate(convex, input({ openThreads: 0, snippets: [] }), new AbortController().signal, LEDGER);
     expect(result).toBe(false);
     expect(NO_NETWORK).not.toHaveBeenCalled();
     expect(recordAiCall).not.toHaveBeenCalled();
   });
 
   test("a message with no words: no call is made", async () => {
-    expect(await commentsGate(convex, input({ message: "  \n " }), new AbortController().signal)).toBe(false);
+    expect(await commentsGate(convex, input({ message: "  \n " }), new AbortController().signal, LEDGER)).toBe(false);
     expect(NO_NETWORK).not.toHaveBeenCalled();
     expect(recordAiCall).not.toHaveBeenCalled();
   });
@@ -175,13 +176,13 @@ describe("commentsGate", () => {
   test("an already-aborted request: no call is made", async () => {
     const controller = new AbortController();
     controller.abort();
-    expect(await commentsGate(convex, input(), controller.signal)).toBe(false);
+    expect(await commentsGate(convex, input(), controller.signal, LEDGER)).toBe(false);
     expect(NO_NETWORK).not.toHaveBeenCalled();
   });
 
   test("yes is recorded as an ok row on its own feature, with usage and cost inputs", async () => {
     respondWith(() => answer("yes"));
-    expect(await commentsGate(convex, input(), new AbortController().signal)).toBe(true);
+    expect(await commentsGate(convex, input(), new AbortController().signal, LEDGER)).toBe(true);
     expect(recordAiCall).toHaveBeenCalledTimes(1);
     const [client, row] = recordAiCall.mock.calls[0];
     expect(client).toBe(convex);
@@ -199,7 +200,7 @@ describe("commentsGate", () => {
 
   test("an off-list answer is no, recorded as an error with its reason", async () => {
     respondWith(() => answer("perhaps"));
-    expect(await commentsGate(convex, input(), new AbortController().signal)).toBe(false);
+    expect(await commentsGate(convex, input(), new AbortController().signal, LEDGER)).toBe(false);
     expect(recordAiCall.mock.calls[0][1]).toMatchObject({
       feature: "commentsGate",
       status: "error",
@@ -209,19 +210,19 @@ describe("commentsGate", () => {
 
   test("an upstream failure is no, and never throws", async () => {
     respondWith(() => new Response("nope", { status: 400 }));
-    await expect(commentsGate(convex, input(), new AbortController().signal)).resolves.toBe(false);
+    await expect(commentsGate(convex, input(), new AbortController().signal, LEDGER)).resolves.toBe(false);
     expect(recordAiCall.mock.calls[0][1]).toMatchObject({ status: "error", errorCode: "upstream-400" });
   });
 
   test("a network error is no, and never throws", async () => {
-    await expect(commentsGate(convex, input(), new AbortController().signal)).resolves.toBe(false);
+    await expect(commentsGate(convex, input(), new AbortController().signal, LEDGER)).resolves.toBe(false);
     expect(NO_NETWORK).toHaveBeenCalledTimes(1);
     expect(recordAiCall.mock.calls[0][1]).toMatchObject({ status: "error" });
   });
 
   test("a missing key is no, and nothing is sent", async () => {
     vi.stubEnv("GOOGLE_GENERATIVE_AI_API_KEY", "");
-    await expect(commentsGate(convex, input(), new AbortController().signal)).resolves.toBe(false);
+    await expect(commentsGate(convex, input(), new AbortController().signal, LEDGER)).resolves.toBe(false);
     expect(NO_NETWORK).not.toHaveBeenCalled();
     expect(recordAiCall.mock.calls[0][1]).toMatchObject({ status: "error" });
   });
@@ -229,7 +230,7 @@ describe("commentsGate", () => {
   test("the timeout is no, aborts the call, and is recorded as a timeout", async () => {
     vi.useFakeTimers();
     const fake = hanging();
-    const pending = commentsGate(convex, input(), new AbortController().signal);
+    const pending = commentsGate(convex, input(), new AbortController().signal, LEDGER);
     await vi.advanceTimersByTimeAsync(AI.commentsGate.timeoutMs - 1);
     expect(fake).toHaveBeenCalledTimes(1);
     const signal = fake.mock.calls[0][1]?.signal as AbortSignal;
@@ -243,7 +244,7 @@ describe("commentsGate", () => {
   test("a wire that ignores its abort still cannot hold the turn past the timeout", async () => {
     vi.useFakeTimers();
     vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(() => {})));
-    const pending = commentsGate(convex, input(), new AbortController().signal);
+    const pending = commentsGate(convex, input(), new AbortController().signal, LEDGER);
     await vi.advanceTimersByTimeAsync(AI.commentsGate.timeoutMs);
     await expect(pending).resolves.toBe(false);
     expect(recordAiCall.mock.calls[0][1]).toMatchObject({ status: "timeout" });
@@ -252,7 +253,7 @@ describe("commentsGate", () => {
   test("the request's abort reaches the vendor call, and is recorded as aborted", async () => {
     const fake = hanging();
     const request = new AbortController();
-    const pending = commentsGate(convex, input(), request.signal);
+    const pending = commentsGate(convex, input(), request.signal, LEDGER);
     await vi.waitFor(() => expect(fake).toHaveBeenCalledTimes(1));
     const signal = fake.mock.calls[0][1]?.signal as AbortSignal;
     expect(signal.aborted).toBe(false);
@@ -265,7 +266,7 @@ describe("commentsGate", () => {
   test("a transient refusal is retried once inside the budget, then answered", async () => {
     let calls = 0;
     const fake = respondWith(() => (calls++ === 0 ? new Response("busy", { status: 503 }) : answer("yes")));
-    expect(await commentsGate(convex, input(), new AbortController().signal)).toBe(true);
+    expect(await commentsGate(convex, input(), new AbortController().signal, LEDGER)).toBe(true);
     expect(fake).toHaveBeenCalledTimes(2);
   });
 
@@ -273,7 +274,7 @@ describe("commentsGate", () => {
     vi.stubEnv("USE_OPENROUTER", "true");
     vi.stubEnv("OPENROUTER_API_KEY", "or-test-not-real");
     const fake = respondWith(() => answer("no"));
-    await commentsGate(convex, input(), new AbortController().signal);
+    await commentsGate(convex, input(), new AbortController().signal, LEDGER);
     const [url, init] = fake.mock.calls[0];
     expect(url).toBe("https://openrouter.ai/api/v1/chat/completions");
     expect(JSON.parse(String(init?.body))).toMatchObject({

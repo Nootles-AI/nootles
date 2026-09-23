@@ -79,7 +79,10 @@ console.log(
 let agreed = 0;
 for (const [i, sample] of SAMPLES.entries()) {
   const before = rows.length;
-  const got = await commentsGate(ledger, sample.input, new AbortController().signal);
+  const got = await commentsGate(ledger, sample.input, new AbortController().signal, {
+    ownerId: null,
+    projectId: "live-check",
+  });
   // The ledger write is fire-and-forget; give it its tick.
   await new Promise((resolve) => setTimeout(resolve, 0));
   if (got === sample.expect) agreed++;

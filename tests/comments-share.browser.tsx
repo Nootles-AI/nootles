@@ -56,7 +56,7 @@ function createBackend() {
       case "share:collaborators":
         return claims
           .map((claim) => {
-            const role = claimRole(project, claim);
+            const role = claimRole(project, claim, Date.now());
             const profile = profiles.get(claim.granteeId);
             return role && {
               granteeId: claim.granteeId,
