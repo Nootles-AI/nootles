@@ -402,19 +402,17 @@ try {
 
   await C.click("[data-comments-toggle]");
   await C.waitForSelector(".nt-comments-panel");
+  // As in Docs, replying to a resolved thread reopens it: one write, one reply notice.
   await C.click(`.nt-comments-panel [data-thread-card="${friday.id}"] .nt-comment-body`);
-  await C.click(`.nt-comments-panel [data-thread-card="${friday.id}"] button[aria-label="Reopen"]`);
-  await C.click('[aria-label="Close comments"]');
-  check("[cora, olive, eddie] reopened, the card is back in every margin",
-    [await cardShows(C, friday.id, replyBody), await cardShows(O, friday.id, replyBody), await cardShows(E, friday.id, replyBody)], [true, true, true]);
-  await C.click(`${card(friday.id)} .nt-comment-body`);
-  await C.click(`${card(friday.id)} textarea[aria-label="Reply"]`);
+  await C.click(`.nt-comments-panel [data-thread-card="${friday.id}"] textarea[aria-label="Reply"]`);
   const reopenBody = body("Reopening: QA moved to Friday morning.");
   await C.keyboard.type(reopenBody, { delay: 8 });
   await C.keyboard.press("Enter");
   threads = await until(serverThreads, (l) => l[0]?.comments.length === 3);
-  check("[server] open again, with Cora's reply", [threads[0].status, threads[0].comments.at(-1).text], ["open", reopenBody]);
-  check("[olive] the reply reaches her card", await cardShows(O, friday.id, reopenBody), true);
+  check("[server] her reply reopened it", [threads[0].status, threads[0].comments.at(-1).text], ["open", reopenBody]);
+  await C.click('[aria-label="Close comments"]');
+  check("[cora, olive, eddie] reopened, the card is back in every margin, with her reply",
+    [await cardShows(C, friday.id, reopenBody), await cardShows(O, friday.id, reopenBody), await cardShows(E, friday.id, reopenBody)], [true, true, true]);
 
   // =========================================================================
   section("3. The gate: each role is held to its channel by the server");
@@ -635,16 +633,17 @@ try {
   check("[server] the page holds the kept words", await until(async () => (await reader.storedBlocks(olive, page.docId)).find((b) => b.id === newBlock)?.text, (t) => t === drifted), drifted);
   check("[olive] her highlight is the re-resolved words", await until(() => rangeOf(O, friday.id), (r) => r === "next Friday"), "next Friday");
   // Cora and Eddie never forked: the kept words reach them as a remote edit
-  // inside their live range, which maps and grows; a live range is not
-  // re-resolved against a changed stored quote. So until they reload, their
-  // highlight is one word wider than Olive's. Recorded here as it stands.
-  check("[cora, eddie] their live ranges mapped through the kept edit instead", [
-    await until(() => rangeOf(C, friday.id), (r) => r === "by the next Friday"),
-    await until(() => rangeOf(E, friday.id), (r) => r === "by the next Friday"),
-  ], ["by the next Friday", "by the next Friday"]);
+  // inside their live range, which maps and grows — until Olive's rewritten
+  // quote arrives and their range moves to what it quotes. No reload.
+  check("[cora, eddie] their highlights follow the stored quote, without a reload", [
+    await until(() => rangeOf(C, friday.id), (r) => r === "next Friday"),
+    await until(() => rangeOf(E, friday.id), (r) => r === "next Friday"),
+  ], ["next Friday", "next Friday"]);
+  await wait(1500);
+  check("[server] and neither wrote it back: the quote stays Olive's", await storedFriday().then((t) => t.exact), "next Friday");
   await C.reload({ waitUntil: "domcontentloaded" });
   await editorOf(C, newBlock);
-  check("[cora] on reload she resolves the stored quote, and agrees with Olive", await until(() => rangeOf(C, friday.id), (r) => r === "next Friday"), "next Friday");
+  check("[cora] a reload agrees", await until(() => rangeOf(C, friday.id), (r) => r === "next Friday"), "next Friday");
   await idle();
 
   // =========================================================================
@@ -744,7 +743,6 @@ try {
     ["comment.create", PEOPLE.cora.userId, friday.id],
     ["comment.reply", PEOPLE.olive.userId, friday.id],
     ["comment.resolve", PEOPLE.eddie.userId, friday.id],
-    ["comment.reopen", PEOPLE.cora.userId, friday.id],
     ["comment.reply", PEOPLE.cora.userId, friday.id],
     ["comment.create", PEOPLE.cora.userId, migration.id],
     ["comment.reply", PEOPLE.olive.userId, migration.id],

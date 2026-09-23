@@ -167,13 +167,13 @@ describe("resolving once, then mapping", () => {
     expect(commentResolveCount(state)).toBe(1);
   });
 
-  it("keeps a known thread's range when its stored anchor changes", () => {
+  it("keeps a known thread's range while its new stored anchor quotes words not here", () => {
     let state = stateFor();
     const t1 = thread("t1", state.doc, "p1", "by Friday");
     state = withThreads(state, [t1]);
     state = withThreads(state, [{ ...t1, anchor: { ...t1.anchor, exact: "something else" } }]);
     expect(rangeText(state, "t1")).toBe("by Friday");
-    expect(commentResolveCount(state)).toBe(1);
+    expect(writesOf(state).size).toBe(0);
   });
 
   it("drops a thread that leaves the document, and its focus with it", () => {
@@ -454,6 +454,95 @@ describe("remote changes (one whole-document step)", () => {
     state = state.apply(asRemote(state, (tr) => tr.delete(from, to)));
     expect(commentRanges(state).get("t1")).toBeNull();
     expect(commentResolveCount(state)).toBe(2);
+  });
+});
+
+describe("another client's anchor write", () => {
+  /** The anchor another replica minted for `phrase` in its copy of the text. */
+  const minted = (state: EditorState, t: Thread, blockId: string, phrase: string): Thread => ({
+    ...t,
+    anchor: thread(t.id, state.doc, blockId, phrase).anchor,
+  });
+
+  it("moves a range that mapped differently to where the stored anchor quotes, writing nothing", () => {
+    let state = stateFor();
+    const t1 = thread("t1", state.doc, "p1", "by Friday");
+    state = withThreads(state, [t1]);
+    // A kept review lands here as one remote change; the mapping grows the range.
+    const at = pos(state.doc, "p1", "We ship it by".length);
+    state = state.apply(asRemote(state, (tr) => tr.insertText(" the next", at)));
+    expect(rangeText(state, "t1")).toBe("by the next Friday");
+    // The forking client re-resolved and wrote what its range is.
+    state = withThreads(state, [minted(state, t1, "p1", "next Friday")]);
+    expect(rangeText(state, "t1")).toBe("next Friday");
+    expect(writesOf(state).size).toBe(0);
+    state = meta(state, { settle: true });
+    expect(writesOf(state).size).toBe(0);
+  });
+
+  it("waits for the words when the anchor outruns the page, then moves", () => {
+    let state = stateFor();
+    const t1 = thread("t1", state.doc, "p1", "by Friday");
+    state = withThreads(state, [t1]);
+    const ahead = { ...t1, anchor: { ...t1.anchor, exact: "next Friday", prefix: "We ship it by the ", offsetHint: 18 } };
+    state = withThreads(state, [ahead]);
+    expect(rangeText(state, "t1")).toBe("by Friday");
+    // Typing elsewhere cannot bring another client's words.
+    const resolves = commentResolveCount(state);
+    state = state.apply(state.tr.insertText("!", pos(state.doc, "p2", 3)));
+    expect(commentResolveCount(state)).toBe(resolves);
+    const at = pos(state.doc, "p1", "We ship it by".length);
+    state = state.apply(asRemote(state, (tr) => tr.insertText(" the next", at)));
+    expect(rangeText(state, "t1")).toBe("next Friday");
+    expect(writesOf(state).size).toBe(0);
+    // Settled: later remote changes resolve nothing more.
+    const settled = commentResolveCount(state);
+    state = state.apply(asRemote(state, (tr) => tr.insertText("?", pos(state.doc, "p2", 3))));
+    expect(commentResolveCount(state)).toBe(settled);
+  });
+
+  it("the echo of this client's own settle write resolves nothing and moves nothing", () => {
+    let state = stateFor();
+    const t1 = thread("t1", state.doc, "p1", "by Friday");
+    state = withThreads(state, [t1]);
+    let at = pos(state.doc, "p1", "We ship it by".length);
+    for (const ch of " next") state = state.apply(state.tr.insertText(ch, at++));
+    state = meta(state, { settle: true });
+    const written = writesOf(state).get("t1")!.anchor!;
+    const before = commentRanges(state).get("t1");
+    const resolves = commentResolveCount(state);
+    state = withThreads(state, [{ ...t1, anchor: written }]);
+    expect(commentRanges(state).get("t1")).toEqual(before);
+    expect(commentResolveCount(state)).toBe(resolves);
+    expect(writesOf(state).size).toBe(0);
+  });
+
+  it("a range being edited here keeps tracking the typing, even when the echo lags it", () => {
+    let state = stateFor();
+    const t1 = thread("t1", state.doc, "p1", "by Friday");
+    state = withThreads(state, [t1]);
+    let at = pos(state.doc, "p1", "We ship it by".length);
+    for (const ch of " next") state = state.apply(state.tr.insertText(ch, at++));
+    state = meta(state, { settle: true });
+    const written = writesOf(state).get("t1")!.anchor!;
+    for (const ch of " week") state = state.apply(state.tr.insertText(ch, at++));
+    state = withThreads(state, [{ ...t1, anchor: written }]);
+    expect(rangeText(state, "t1")).toBe("by next week Friday");
+    state = meta(state, { settle: true });
+    expect(writesOf(state).get("t1")?.anchor?.exact).toBe("by next week Friday");
+  });
+
+  it("is not followed from a fork; the fork's end resolves it", () => {
+    let forked = true;
+    let state = stateFor();
+    state = meta(state, { isForked: () => forked });
+    const t1 = thread("t1", state.doc, "p1", "by Friday");
+    state = withThreads(state, [t1]);
+    state = withThreads(state, [minted(state, t1, "p1", "Friday")]);
+    expect(rangeText(state, "t1")).toBe("by Friday");
+    forked = false;
+    state = meta(state, { resolve: "all" });
+    expect(rangeText(state, "t1")).toBe("Friday");
   });
 });
 

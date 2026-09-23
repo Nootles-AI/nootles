@@ -502,6 +502,26 @@ try {
   console.log(`       stage-2 writes after Keep: ${JSON.stringify(kept)}`);
   check("at most one write per commenting replica", kept.ada <= 1 && kept.bram <= 1 && kept.ada + kept.bram >= 1, true);
 
+  // A proposal that only inserts inside the range: the collaborators' mapping
+  // grows it, while Ada's stage 2 picks the nearer words. The stored anchor
+  // decides, on every replica, without a reload.
+  console.log("a kept review that the mapping reads differently");
+  await fresh(PAGE.map((block) => (block.id === "p1" ? { ...block, content: "We ship it by next Friday if the review passes." } : block)));
+  const t8 = await comment("ada", "p1", "by next Friday");
+  await h("ada", ([text]) => window.ntAnchor.stageRewrite("p1", text), "We ship it by the next Friday if the review passes.");
+  await h("ada", () => window.ntAnchor.idle());
+  const beforeKeep = sentComments();
+  await pages.ada.click(".nt-diff-btn.is-keep");
+  await h("ada", () => window.ntAnchor.idle());
+  await synced();
+  await sleep(SETTLE);
+  await synced();
+  check("Ada's stage 2 writes the nearer words", Object.values(await anchors(t8)).map((a) => a.exact), ["next Friday", "next Friday", "next Friday"]);
+  check("every replica draws what the stored anchor quotes, without a reload", await everyone(highlights), same({ [t8]: "next Friday" }));
+  await sleep(SETTLE);
+  const followed = { ada: sent.ada.comments - beforeKeep.ada, bram: sent.bram.comments - beforeKeep.bram, vera: sent.vera.comments - beforeKeep.vera };
+  check("following the stored anchor wrote nothing: only Ada's rewrite", followed, { ada: 1, bram: 0, vera: 0 });
+
   // ==== Fifty threads, two hundred characters ==================================
   console.log("fifty threads");
   const busy = Array.from({ length: 50 }, (_, i) => ({ id: `b${i}`, type: "paragraph", content: `Item ${i}: the milestone ${i} is due soon, says the plan.` }));

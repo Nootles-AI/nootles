@@ -40,7 +40,8 @@ export type CardContext = {
  *
  * Unfocused it is a summary — the opening comment and how many replies follow
  * — so a margin of many threads stays short enough to stack. Focused, it
- * opens: every comment, and a reply box for anyone who may comment.
+ * opens: every comment, and a reply box for anyone who may comment — on a
+ * resolved thread too, where a reply reopens it, as in Docs.
  */
 export const ThreadCard = memo(function ThreadCard({
   thread,
@@ -108,9 +109,9 @@ export const ThreadCard = memo(function ThreadCard({
           <span className="nt-comment-who">
             <span className="nt-comment-name">{name}</span>
             <span className="nt-comment-meta">
-              {comment.via === "assistant" && <span className="nt-comment-via">via assistant · </span>}
+              {comment.via === "assistant" && <span>via assistant</span>}
               <time dateTime={new Date(comment.createdAt).toISOString()}>{timeAgo(comment.createdAt, ctx.now)}</time>
-              {comment.editedAt !== undefined && " · edited"}
+              {comment.editedAt !== undefined && <span>edited</span>}
             </span>
           </span>
           <span className="nt-comment-tools">
@@ -230,11 +231,11 @@ export const ThreadCard = memo(function ThreadCard({
           </li>
         ) : null}
       </ol>
-      {focused && ctx.canComment && !resolved && (
+      {focused && ctx.canComment && (
         <CommentComposer
           people={ctx.mentionable}
           label="Reply"
-          placeholder="Reply…"
+          placeholder={resolved ? "Reply to reopen…" : "Reply…"}
           submitLabel="Reply"
           onSubmit={async (body: string, mentions: string[], picks: MentionPick[]) => {
             const { outsiders } = await ctx.actions.reply(thread, body, mentions);

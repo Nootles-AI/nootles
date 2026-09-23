@@ -69,10 +69,16 @@ Where the code disagreed with this design, these decisions were made and are wha
   (`npm run test:comments:e2e`): a throwaway `convex-local-backend`, the real app, one browser
   per person (owner, editor, commenter, viewer, stranger, signed-out guest, and an operator
   standing in with a token the deployment mints). CI runs it and the other comment harnesses
-  (`comments-browser`, `comments-fullstack` jobs). Two departures from §12's wording: a
-  resolved thread is reopened with Reopen (its card has no reply box), and after a review's
-  Keep the forking client re-resolves the thread from its stored quote while clients that never
-  forked map their live range through the kept edit — they can differ by a word until reload.
+  (`comments-browser`, `comments-fullstack` jobs). Its findings were fixed:
+  - A resolved card has a reply box ("Reply to reopen…") beside Reopen. Replying is the store's
+    one `comments.reply` transaction, which also reopens, so it sends one `reply` notice (and
+    one `comment.reply` audit row); Reopen alone still sends `reopen`.
+  - Every replica converges on the stored anchor without a reload. When a thread's stored
+    anchor changes under a replica that is not mid-edit on it and no longer quotes its live
+    range (another client settled, re-homed or re-resolved it after a Keep), the replica moves
+    the range to where the new anchor quotes verbatim (stage 1), for display only. If the
+    words have not arrived yet, the mapped range stays and the move is retried on remote
+    changes. A replica editing that range keeps its own and its settle pass writes.
 
 Original status line (22 September 2026): nothing was implemented. This document chooses the
 anchor format and the storage split, and sizes the work as five shippable pull requests.

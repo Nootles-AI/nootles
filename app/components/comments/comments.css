@@ -111,25 +111,38 @@
   border-radius: 50%;
   object-fit: cover;
 }
+/* The name comes first: when it and the meta do not share a line, the meta
+   wraps under it, and only a name wider than the card ellipsizes. */
 .nt-comment-who {
   display: flex;
   flex: 1 1 auto;
+  flex-wrap: wrap;
   align-items: baseline;
-  gap: 6px;
+  column-gap: 6px;
   min-width: 0;
 }
 .nt-comment-name {
+  min-width: 0;
+  max-width: 100%;
   overflow: hidden;
   font-weight: 600;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
 .nt-comment-meta {
-  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  min-width: 0;
   font-family: var(--font-mono), ui-monospace, monospace;
   font-size: var(--text-meta);
   color: var(--muted);
+}
+.nt-comment-meta > * {
   white-space: nowrap;
+}
+.nt-comment-meta > :not(:last-child)::after {
+  content: "·";
+  margin: 0 0.6ch;
 }
 /* A thread's tools wait until it is pointed at or chosen: a margin of cards
    each wearing its buttons would be a toolbar, not a conversation. */
