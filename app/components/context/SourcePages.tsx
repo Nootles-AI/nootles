@@ -70,13 +70,15 @@ export function GitHubSourcePage({
   if (door.via === "shut") {
     return (
       <PaletteShell
-        said={door.unconfigured ? "GitHub isn’t available yet." : "The GitHub App isn’t installed."}
+        said={door.unconfigured ? "Personal GitHub connections are off." : "The GitHub App isn’t installed."}
         title=""
         foot={<Leave onClick={onBack} />}
       >
         <GitHubAppMissing
           titleId={PALETTE_TITLE_ID}
+          workspaceId={door.workspaceId}
           canInstall={door.canInstall}
+          manages={door.manages}
           unconfigured={door.unconfigured}
           onInstall={() => openConnectWindow(installPath(door.workspaceId))}
         />
