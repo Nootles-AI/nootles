@@ -87,6 +87,24 @@ export const prices = action({
 });
 
 /**
+ * What a Team seat costs, read from Stripe as {@link prices} reads the
+ * personal plans: the admin reads the number before checkout does.
+ */
+export const teamSeatPrice = action({
+  args: {},
+  returns: v.union(price, v.null()),
+  handler: async () => {
+    const key = process.env.STRIPE_SECRET_KEY;
+    const id = teamPrices()?.seat;
+    if (!key || !id) return null;
+    const found = await new StripeSDK(key).prices.retrieve(id);
+    return found.unit_amount === null
+      ? null
+      : { amount: found.unit_amount, currency: found.currency };
+  },
+});
+
+/**
  * Opens checkout. Returns the URL to send the browser to.
  *
  * `allow_promotion_codes` is what makes discount codes work at all — the field
@@ -197,7 +215,7 @@ export const startTeamCheckout = action({
   handler: async (ctx, args): Promise<{ url: string }> => {
     const prices = teamPrices();
     if (!prices || !teamBillingConfigured()) {
-      throw new ConvexError("Team billing isn’t set up on this deployment.");
+      throw new ConvexError("The Team plan isn’t available yet.");
     }
     const desk = await ctx.runQuery(internal.teamBilling.desk, args);
     if (desk.live) throw new ConvexError(`${desk.name} is already on the Team plan.`);
@@ -205,7 +223,7 @@ export const startTeamCheckout = action({
     // one beside it would bill them twice.
     if (desk.open) {
       throw new ConvexError(
-        `${desk.name}’s subscription is still open in Stripe. Settle it in Manage billing.`,
+        `${desk.name} already has a subscription in Stripe that needs attention. Fix it in Manage billing.`,
       );
     }
 
@@ -237,7 +255,7 @@ export const startTeamCheckout = action({
         allow_promotion_codes: true,
       },
     });
-    if (!session.url) throw new ConvexError("Stripe returned no checkout URL.");
+    if (!session.url) throw new ConvexError("Couldn’t open checkout. Try again in a moment.");
     return { url: session.url };
   },
 });
@@ -248,7 +266,7 @@ export const manageTeam = action({
   returns: v.object({ url: v.string() }),
   handler: async (ctx, args): Promise<{ url: string }> => {
     const desk = await ctx.runQuery(internal.teamBilling.desk, args);
-    if (!desk.customerId) throw new ConvexError("There is no billing to manage yet.");
+    if (!desk.customerId) throw new ConvexError("Nothing has been billed yet, so there’s nothing to manage.");
     const session = await stripe.createCustomerPortalSession(ctx, {
       customerId: desk.customerId,
       returnUrl: `${appUrl()}/w/${desk.slug}/settings/billing`,
