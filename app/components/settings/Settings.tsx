@@ -44,7 +44,7 @@ export function Settings() {
         </Link>
       </header>
       <main className="nt-set-body">
-        <h1 className="nt-set-title">Settings</h1>
+        <h1 className="nt-set-title">Account settings</h1>
         <section
           className="nt-set-section"
           aria-labelledby="nt-set-integrations"

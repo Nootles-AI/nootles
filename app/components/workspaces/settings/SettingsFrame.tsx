@@ -22,8 +22,9 @@ const SECTIONS: readonly { id: SettingsSection; label: string }[] = [
 
 /**
  * The chrome of a workspace's settings: the account settings' topbar with the
- * way back to this workspace, its name as the title, and the sections as
- * links under it.
+ * way back to this workspace, "Settings" as the title with whose over it —
+ * the home's title is the workspace's name, and this is not the home — and
+ * the sections as links under it.
  *
  * A guest has no settings here — they were let into projects, not into the
  * workspace — so the address sends them to the workspace's projects instead.
@@ -54,7 +55,9 @@ export function SettingsFrame({ children }: { children: ReactNode }) {
         </Link>
       </header>
       <main className="nt-set-body">
-        <h1 className="nt-set-title">{workspace.name}</h1>
+        <h1 className="nt-set-title">
+          <span className="nt-ws-set-of">{workspace.name}</span> Settings
+        </h1>
         <nav aria-label="Workspace settings" className="nt-ws-set-nav">
           {SECTIONS.map((section) => (
             <Link

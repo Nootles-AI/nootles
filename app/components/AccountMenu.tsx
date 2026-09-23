@@ -77,7 +77,7 @@ export function AccountMenu({
           {settings && (
             <MenuLink href="/settings" onClick={() => close()}>
               <Settings width={16} height={16} className="nt-menu-icon" />
-              Settings
+              Account settings
             </MenuLink>
           )}
           {onShowKeys && (

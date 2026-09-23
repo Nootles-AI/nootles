@@ -18,6 +18,22 @@
   margin: 16px calc(-1 * var(--inset)) 0;
 }
 
+/* Whose settings these are, over the title: the name the home is titled with,
+   quieter, so the page says where it is and what it is. One heading still —
+   a screen reader hears "Acme Settings". */
+.nt-ws-set-of {
+  display: block;
+  margin-bottom: 6px;
+  overflow: hidden;
+  font-size: var(--text-ui);
+  font-weight: 500;
+  letter-spacing: 0;
+  line-height: 1.5;
+  color: var(--muted);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 /* A section label with something of its own on the right — the join-domain
    switch. The label keeps its own metrics; the row takes its margin. */
 .nt-ws-set-head {

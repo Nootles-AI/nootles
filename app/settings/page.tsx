@@ -4,7 +4,7 @@ import { Authed } from "@/app/components/Authed";
 import { Settings } from "@/app/components/settings/Settings";
 
 export const metadata: Metadata = {
-  title: "Settings — Nootles",
+  title: "Account settings — Nootles",
 };
 
 /**
