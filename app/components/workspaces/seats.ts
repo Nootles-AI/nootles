@@ -17,18 +17,24 @@ export const ROLE_LABEL: Record<WorkspaceRole, string> = {
   guest: "Guest",
 };
 
+/**
+ * What each seat may do, where one is handed out. Private projects are named
+ * because they are the line between the seats: an admin opens and manages
+ * every one of them (`containerRole`), a member only their own.
+ */
 export const ROLE_HINT: Record<WorkspaceRole, string> = {
-  owner: "Runs everything, down to deleting the workspace",
-  admin: "Invites people and runs the workspace’s settings",
-  member: "Sees the workspace’s projects and makes new ones",
+  owner: "Manages everything, down to deleting the workspace",
+  admin: "Invites people, manages settings, and can open every project, private ones too",
+  member: "Edits the workspace’s projects, except others’ private ones, and makes new ones",
   guest: "Sees only the projects shared with them",
 };
 
 /** The same, said to whoever is offered the seat, of the workspace as "it". */
 export const ROLE_OFFER: Record<WorkspaceRole, string> = {
-  owner: "You’ll run everything in it, down to deleting it.",
-  admin: "You’ll see its projects, invite people and run its settings.",
-  member: "You’ll see its projects and can make new ones.",
+  owner: "You’ll manage everything in it, down to deleting it.",
+  admin:
+    "You’ll see all its projects, private ones included, and can invite people and manage its settings.",
+  member: "You’ll be able to edit its projects, except others’ private ones, and make new ones.",
   guest: "You’ll see only the projects shared with you.",
 };
 
