@@ -12,7 +12,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
-import { useMutation } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { WorkspaceRole } from "@/convex/auth";
 import { joinPath, settingsPath } from "@/app/lib/containerPaths";
@@ -196,10 +196,14 @@ export function InviteForm({
     days: number;
     replaced: boolean;
   } | null>(null);
+  // The link folds away once its invitation is no longer open — revoked here
+  // or by another admin, or used — rather than staying to be copied dead.
+  const people = useQuery(api.members.list, { workspaceId: workspace.workspaceId });
+  const live = !!sent && (people?.invitations.some((i) => i.token === sent.token) ?? true);
   const owner = workspace.role === "owner";
   // One line under the field, saying how inviting works until something goes
   // wrong and then what did — in place, so nothing below it moves.
-  const note = problem ?? (sent && said) ?? HOW;
+  const note = problem ?? (live ? said : null) ?? HOW;
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -274,7 +278,7 @@ export function InviteForm({
       {/* Once there is a link, the how-to folds away as the link folds in, the
           two at one pace, so the form grows by the difference and nothing
           below it jumps. A problem after that folds back in above the link. */}
-      <div className="nt-ws-fold" data-open={!sent || !!problem}>
+      <div className="nt-ws-fold" data-open={!live || !!problem}>
         <div className="nt-ws-fold-body">
           <p
             id={`${id}-note`}
@@ -286,7 +290,7 @@ export function InviteForm({
         </div>
       </div>
       {sent && (
-        <div className="nt-ws-fold is-arriving">
+        <div className="nt-ws-fold is-arriving" data-open={live} inert={!live}>
           <div className="nt-ws-fold-body">
             <InviteLink key={sent.token} {...sent} />
           </div>
