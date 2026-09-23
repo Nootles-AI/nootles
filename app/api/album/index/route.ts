@@ -2,6 +2,7 @@ import { AI } from "@/app/lib/ai/aiConfig";
 import { describeSheet } from "@/app/lib/ai/albumIndex";
 import { recordAiCall } from "@/app/lib/ai/recordCall";
 import { asUser } from "@/app/lib/convexServer";
+import { refuseIfSpent } from "@/app/lib/entitlementGate";
 import { refuseIfLimited } from "@/app/lib/requestLimitGate";
 import { session } from "@/app/lib/session";
 
@@ -59,6 +60,9 @@ export async function POST(req: Request) {
   const convex = asUser(token);
   const limited = await refuseIfLimited(convex, "agentGeneration");
   if (limited) return limited;
+  // See the reformat route: a named workspace project is that workspace's bill.
+  const spent = await refuseIfSpent(token, null, projectId);
+  if (spent) return spent;
 
   const started = Date.now();
   try {
