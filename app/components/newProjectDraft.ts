@@ -28,6 +28,14 @@ export type NewProject = {
 };
 
 /**
+ * Whose allowance a project being made ran out of: its own workspace's, or the
+ * person's. Never the home it was drafted from — a draft moved to the person's
+ * own projects is walled by their plan, wherever the palette was opened.
+ */
+export const wallOf = (project?: NewProject): Id<"workspaces"> | null =>
+  project?.workspace?.workspaceId ?? null;
+
+/**
  * What a project is, asked before it exists.
  *
  * None of this is filing: everything typed here becomes the project's Context
