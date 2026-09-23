@@ -3,8 +3,9 @@
  * sentence that finishes their name, when, and the same as a CSV file.
  *
  * Pure, so the screen and the export say one thing and a test can read it.
- * A project is a part of its own, so the screen can make it a link while it
- * still leads somewhere; everything else is text.
+ * One rule for names: a thing's current name is a part of its own — a
+ * project, which the screen links while it still leads somewhere, or any
+ * other name, which it sets as a noun — and a former name is quoted text.
  */
 
 type Person = { name: string | null; email: string | null } | null;
@@ -23,7 +24,7 @@ export type AuditRow = {
   count: number | null;
 };
 
-export type Part = string | { project: string; title: string };
+export type Part = string | { project: string; title: string } | { name: string };
 
 const SYSTEMS: Record<string, string> = { github: "GitHub", stripe: "Stripe" };
 
@@ -38,6 +39,7 @@ export function actorName(row: AuditRow, me: string | null): string {
 const DATE = new Intl.DateTimeFormat(undefined, { day: "numeric", month: "short", year: "numeric" });
 
 const quoted = (value: unknown) => `“${String(value ?? "")}”`;
+const noun = (value: unknown): Part => ({ name: String(value ?? "") });
 
 const ROLE: Record<string, string> = {
   owner: "an owner",
@@ -85,20 +87,25 @@ function override(feature: unknown, value: unknown): string {
   return `set ${name} to ${value}`;
 }
 
-/** A page or folder as a sentence names it: the page “Launch”. */
-const nameOf = (row: AuditRow) => `the ${row.subjectKind} ${quoted(row.meta[row.subjectKind ?? ""])}`;
+/** A page or folder as a sentence names it: the page Launch. */
+const nameOf = (row: AuditRow): Part[] => [
+  `the ${row.subjectKind} `,
+  noun(row.meta[row.subjectKind ?? ""]),
+];
 
 /** A folder's pages, when it carried any. */
 const withPages = (m: AuditRow["meta"]) =>
   typeof m.pages === "number" && m.pages > 0 ? [`, with ${plural(m.pages, "page")}`] : [];
 
-function subjectName(row: AuditRow): string {
-  return row.subject?.name ?? row.subject?.email ?? "someone";
+/** Who an event was done to: a name, or "someone" when the log no longer knows. */
+function subjectPart(row: AuditRow): Part {
+  const name = row.subject?.name ?? row.subject?.email;
+  return name ? noun(name) : "someone";
 }
 
 /**
  * What was done, as the rest of a sentence that starts with who did it:
- * "removed Tom from Acme", "edited “Roadmap” in Launch · 37 changes".
+ * "removed Tom from Acme", "edited Roadmap in Launch · 37 changes".
  */
 export function whatParts(row: AuditRow, workspaceName: string): Part[] {
   const m = row.meta;
@@ -106,42 +113,42 @@ export function whatParts(row: AuditRow, workspaceName: string): Part[] {
   const projectTitle = String(m.project ?? "a project");
   const project: Part = projectId ? { project: projectId, title: projectTitle } : projectTitle;
   const link = String(m.role) === "editor" ? "editor link" : "viewer link";
-  const who = subjectName(row);
+  const who = subjectPart(row);
+  const workspace = noun(workspaceName);
 
   switch (row.action) {
     case "workspace.create":
-      return [`created the workspace ${m.name ?? workspaceName}`];
+      return ["created the workspace ", noun(m.name ?? workspaceName)];
     case "workspace.rename":
-      return [`renamed the workspace from ${quoted(m.from)} to ${quoted(m.to)}`];
+      return [`renamed the workspace from ${quoted(m.from)} to `, noun(m.to)];
     case "workspace.slug":
       return [`moved the workspace’s address from /w/${m.from} to /w/${m.to}`];
     case "workspace.settings":
-      return [setting(m)];
+      return setting(m);
     case "workspace.delete":
       return [
-        `deleted the workspace ${m.name ?? workspaceName}`,
+        "deleted the workspace ",
+        noun(m.name ?? workspaceName),
         ...(typeof m.projects === "number" ? [`, with ${plural(m.projects, "project")}`] : []),
       ];
 
     case "member.invite":
-      return [
-        m.renewed
-          ? `renewed the invitation for ${m.email}`
-          : `invited ${m.email} as ${roleWord(m.role)}`,
-      ];
+      return m.renewed
+        ? ["renewed the invitation for ", noun(m.email)]
+        : ["invited ", noun(m.email), ` as ${roleWord(m.role)}`];
     case "member.invite.revoke":
-      return [`revoked the invitation for ${m.email}`];
+      return ["revoked the invitation for ", noun(m.email)];
     case "member.join":
       return [
         `joined as ${roleWord(m.role)}`,
-        m.via === "domain" ? " through their email’s domain" : " by invitation",
+        m.via === "domain" ? " by email domain" : " by invitation",
       ];
     case "member.role":
-      return [`changed ${who}’s role from ${m.from} to ${m.to}`];
+      return ["changed ", who, `’s role from ${m.from} to ${m.to}`];
     case "member.remove":
-      return [`removed ${who} from ${workspaceName}`];
+      return ["removed ", who, " from ", workspace];
     case "member.leave":
-      return [`left ${workspaceName}`];
+      return ["left ", workspace];
 
     case "share.link.on":
       return [
@@ -158,22 +165,22 @@ export function whatParts(row: AuditRow, workspaceName: string): Part[] {
     case "share.claim":
       return [m.renewed ? "came back to " : "opened ", project, ` with its ${link}`];
     case "share.claim.revoke":
-      return [`took away ${who}’s access to `, project];
+      return ["took away ", who, "’s access to ", project];
     case "share.code.grant":
-      return [`let ${who} read the code of `, project];
+      return ["let ", who, " read the code of ", project];
     case "share.code.revoke":
-      return [`stopped ${who} reading the code of `, project];
+      return ["stopped letting ", who, " read the code of ", project];
     case "share.request.grant":
-      return [`let ${who} edit `, project];
+      return ["let ", who, " edit ", project];
     case "share.request.deny":
-      return [`turned down ${who}’s request to edit `, project];
+      return ["turned down ", who, "’s request to edit ", project];
 
     case "project.create":
       return [m.visibility === "private" ? "created the private project " : "created the project ", project];
     case "project.rename":
       return [
-        `renamed the project ${quoted(m.from)} to `,
-        projectId ? { project: projectId, title: String(m.to) } : String(m.to),
+        `renamed the project from ${quoted(m.from)} to `,
+        projectId ? { project: projectId, title: String(m.to) } : noun(m.to),
       ];
     case "project.delete":
       return ["deleted the project ", project];
@@ -182,20 +189,24 @@ export function whatParts(row: AuditRow, workspaceName: string): Part[] {
 
     case "page.edit":
       return [
-        `edited ${quoted(m.page)} in `,
+        "edited ",
+        noun(m.page),
+        " in ",
         project,
         ...(row.count && row.count > 1 ? [` · ${plural(row.count, "change")}`] : []),
       ];
     case "page.delete":
     case "folder.delete":
-      return [`deleted ${nameOf(row)} from `, project, ...withPages(m)];
+      return ["deleted ", ...nameOf(row), " from ", project, ...withPages(m)];
     case "page.restore":
     case "folder.restore":
-      return [`restored ${nameOf(row)} in `, project, ...withPages(m)];
+      return ["restored ", ...nameOf(row), " in ", project, ...withPages(m)];
     case "page.move":
     case "folder.move":
       return [
-        `moved ${nameOf(row)} from `,
+        "moved ",
+        ...nameOf(row),
+        " from ",
         project,
         " to ",
         typeof m.toProjectId === "string"
@@ -206,59 +217,65 @@ export function whatParts(row: AuditRow, workspaceName: string): Part[] {
     case "page.carryOut":
     case "folder.carryOut":
       return [
-        `${m.move ? "moved" : "copied"} ${nameOf(row)} out of `,
+        m.move ? "moved " : "copied ",
+        ...nameOf(row),
+        " out of ",
         project,
         m.to === "personal" ? ", into a personal project" : ", into another workspace",
         ...withPages(m),
       ];
 
     case "file.add":
-      return [`${m.replaced ? "replaced" : "added"} the file ${quoted(m.file)} in `, project];
+      return [m.replaced ? "replaced the file " : "added the file ", noun(m.file), " in ", project];
     case "file.remove":
-      return [`removed the file ${quoted(m.file)} from `, project];
+      return ["removed the file ", noun(m.file), " from ", project];
     case "repo.link":
       return [
-        `linked ${m.repo} to `,
+        "linked ",
+        noun(m.repo),
+        " to ",
         project,
         ...(m.via === "personal" ? [", with their own GitHub"] : []),
       ];
     case "repo.unlink":
       return [
-        `unlinked ${m.repo} from `,
+        "unlinked ",
+        noun(m.repo),
+        " from ",
         project,
         ...(m.reason ? [`, as it was ${m.reason}`] : []),
       ];
     case "notion.link":
-      return [`linked the Notion page ${quoted(m.page)} to `, project];
+      return ["linked the Notion page ", noun(m.page), " to ", project];
     case "notion.unlink":
       return [
-        `unlinked the Notion page ${quoted(m.page)} from `,
+        "unlinked the Notion page ",
+        noun(m.page),
+        " from ",
         project,
         ...(m.reason ? [`, as it was ${m.reason}`] : []),
       ];
 
     case "github.installation.record":
       return [
-        `${m.reinstalled ? "reconnected" : "installed"} the GitHub App on ${m.account}`,
-        ...(m.suspended ? [", suspended"] : []),
+        m.reinstalled ? "reconnected the GitHub App on " : "installed the GitHub App on ",
+        noun(m.account),
+        ...(m.suspended ? [" (it’s suspended)"] : []),
       ];
     case "github.installation.remove":
       return [
-        `uninstalled the GitHub App from ${m.account}`,
+        "uninstalled the GitHub App from ",
+        noun(m.account),
         ...(typeof m.unlinked === "number" && m.unlinked > 0
           ? [`, unlinking ${plural(m.unlinked, "repository", "repositories")}`]
           : []),
       ];
     case "github.installation.suspend":
-      return [`suspended the GitHub App on ${m.account}`];
+      return ["suspended the GitHub App on ", noun(m.account)];
     case "github.installation.unsuspend":
-      return [`unsuspended the GitHub App on ${m.account}`];
+      return ["unsuspended the GitHub App on ", noun(m.account)];
     case "github.orgRule":
-      return [
-        m.to
-          ? `required every member to belong to the GitHub organisation ${m.to}`
-          : "stopped requiring a GitHub organisation",
-      ];
+      return orgRule(m.to);
 
     case "billing.checkout":
       return [
@@ -278,47 +295,52 @@ export function whatParts(row: AuditRow, workspaceName: string): Part[] {
     case "entitlement.clear":
       return [
         m.feature === "plan"
-          ? "took this workspace off the plan it was given"
-          : `gave ${featureName(m.feature)} back to what the plan sets`,
+          ? "removed the plan Nootles support had set for this workspace"
+          : `reset ${featureName(m.feature)} to what the plan includes`,
       ];
     case "operator.standIn":
-      return [`viewed the workspace as ${who}`];
+      return ["viewed the workspace as ", who];
 
     default:
       return [`made a change (${row.action})`];
   }
 }
 
-function setting(m: AuditRow["meta"]): string {
+const orgRule = (org: unknown): Part[] =>
+  org
+    ? ["required every member to belong to the GitHub organisation ", noun(org)]
+    : ["stopped requiring a GitHub organisation"];
+
+function setting(m: AuditRow["meta"]): Part[] {
   const on = m.to === true;
   switch (m.setting) {
     case "linkSharing":
-      return on ? "turned share links on" : "turned share links off";
+      return [on ? "turned share links on" : "turned share links off"];
     case "guestCodeAccess":
-      return on ? "let guests be given code access" : "stopped guests being given code access";
+      return [on ? "let guests be given code access" : "stopped letting guests be given code access"];
     case "autoJoin":
-      return on ? "turned joining by email domain on" : "turned joining by email domain off";
+      return [on ? "turned joining by email domain on" : "turned joining by email domain off"];
     case "joinDomains":
-      return m.to ? `set the join domains to ${m.to}` : "removed every join domain";
+      return [m.to ? `set the join domains to ${m.to}` : "removed every join domain"];
     case "requireGithubOrg":
-      return m.to
-        ? `required every member to belong to the GitHub organisation ${m.to}`
-        : "stopped requiring a GitHub organisation";
+      return orgRule(m.to);
     case "allowPersonalTokens":
-      return on ? "allowed personal GitHub connections" : "stopped personal GitHub connections";
+      return [on ? "allowed personal GitHub connections" : "stopped personal GitHub connections"];
     case "linkTtlDays":
-      return typeof m.to === "number"
-        ? `set new share links to expire after ${plural(m.to, "day")}`
-        : "set new share links to never expire";
+      return [
+        typeof m.to === "number"
+          ? `set new share links to expire after ${plural(m.to, "day")}`
+          : "set new share links to never expire",
+      ];
     default:
-      return `changed a setting (${m.setting})`;
+      return [`changed a setting (${m.setting})`];
   }
 }
 
 /** The sentence as plain text, for the file and for a screen reader. */
 export function whatText(row: AuditRow, workspaceName: string): string {
   return whatParts(row, workspaceName)
-    .map((part) => (typeof part === "string" ? part : part.title))
+    .map((part) => (typeof part === "string" ? part : "project" in part ? part.title : part.name))
     .join("");
 }
 
@@ -326,8 +348,12 @@ const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
 const SHORT = new Intl.DateTimeFormat(undefined, { day: "numeric", month: "short" });
+const LAST_YEAR = new Intl.DateTimeFormat(undefined, { month: "short", year: "2-digit" });
 
-/** "now", "5m", "3h", "2d" within a week; then the date, with the year once it is another. */
+/**
+ * "now", "5m", "3h", "2d" within a week; then the day, or the month and year
+ * once it is another — each short enough for the log's When column.
+ */
 export function ago(at: number, now: number): string {
   const since = Math.max(0, now - at);
   if (since < MINUTE) return "now";
@@ -336,7 +362,7 @@ export function ago(at: number, now: number): string {
   if (since < 7 * DAY) return `${Math.floor(since / DAY)}d`;
   return new Date(at).getFullYear() === new Date(now).getFullYear()
     ? SHORT.format(at)
-    : DATE.format(at);
+    : LAST_YEAR.format(at);
 }
 
 // ---- The file ----------------------------------------------------------------
