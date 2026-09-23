@@ -4,6 +4,7 @@ import { components, internal } from "./_generated/api";
 import { httpAction } from "./_generated/server";
 import { deliver, signatureValid } from "./github/webhook";
 import { clerkWebhook } from "./identity";
+import { workspaceEventOf } from "./teamBilling";
 
 /**
  * The deployment as an OIDC issuer, for operator stand-in sessions.
@@ -78,7 +79,15 @@ http.route({ path: "/clerk/webhook", method: "POST", handler: clerkWebhook });
  */
 registerRoutes(http, components.stripe, {
   onEvent: async (ctx, event) => {
-    const object = event.data.object as { metadata?: Record<string, string> };
+    const object = event.data.object as { metadata?: Record<string, string> | null };
+    // A workspace's customer, checkout and subscription name it as `orgId`
+    // (`billing.startTeamCheckout`), and are never anybody's own: its mirror
+    // is `teamBilling.mirror`, which reads Stripe for both of its items.
+    if (object.metadata?.orgId) {
+      const target = workspaceEventOf(object);
+      if (target) await ctx.runAction(internal.teamBilling.mirror, target);
+      return;
+    }
     // Written by `billing.startCheckout` as `subscriptionMetadata`, which is
     // also how the component links its own rows to a user.
     const userId = object.metadata?.userId;
