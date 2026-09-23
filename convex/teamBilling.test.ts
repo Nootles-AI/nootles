@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import schema from "./schema";
+import { signCall } from "./ai/callSignature";
 import {
   bestSubscription,
   nextReport,
@@ -719,35 +720,77 @@ describe("the usage report", () => {
 });
 
 describe("the billing screen", () => {
+  const SECRET = "a-shared-ledger-secret";
+
+  /** A workspace project the guest was let into with an editor link. */
+  const project = (t: T, workspaceId: Id<"workspaces">) =>
+    t.run(async (ctx) => {
+      const projectId = await ctx.db.insert("projects", {
+        ownerId: MEMBER.subject,
+        title: "Roadmap",
+        createdAt: 1,
+        workspaceId,
+        editShareToken: "edit-token",
+      });
+      await ctx.db.insert("shareClaims", {
+        projectId,
+        granteeId: GUEST.subject,
+        role: "editor",
+        createdAt: 1,
+      });
+      return projectId;
+    });
+
+  /** One model call, recorded as a route records it: signed, unless told not to be. */
+  async function spend(
+    t: T,
+    who: Identity,
+    projectId: Id<"projects">,
+    costUsd: number,
+    { signed = true } = {},
+  ) {
+    const row = {
+      feature: "chat" as const,
+      model: "m",
+      projectId,
+      costUsd,
+      latencyMs: 1,
+      status: "ok" as const,
+    };
+    const signedAt = Date.now();
+    await t.withIdentity(who).mutation(
+      api.ai.calls.record,
+      signed
+        ? {
+            ...row,
+            signedAt,
+            signature: await signCall(SECRET, { ownerId: who.subject, ...row, signedAt }),
+          }
+        : row,
+    );
+  }
+
   test("members read the plan and this period's spend; guests read nothing", async () => {
+    vi.stubEnv("AI_LEDGER_SECRET", SECRET);
     const t = convexTest(schema, modules);
     const { workspaceId } = await world(t);
     const periodStart = NOW - 10 * DAY;
-    await billing(t, workspaceId, {
-      periodStart,
-      usageReportedThrough: NOW - 2 * DAY,
-      usagePeriod: {
-        start: periodStart,
-        end: NOW + 20 * DAY,
-        allowanceUsd: 30,
-        spentUsd: 12,
-        reportedCents: 0,
-      },
-    });
-    await call(t, workspaceId, 3, NOW - DAY);
-    await call(t, workspaceId, 50, NOW - DAY, false);
+    // Reported up to yesterday: the screen's figure does not depend on it.
+    await billing(t, workspaceId, { periodStart, usageReportedThrough: NOW - DAY });
+    const projectId = await project(t, workspaceId);
+
+    await spend(t, MEMBER, projectId, 3);
+    await spend(t, MEMBER, projectId, 2);
+    await spend(t, GUEST, projectId, 4);
+    await spend(t, MEMBER, projectId, 50, { signed: false });
+    // The period before this one is not this one's.
     await t.run(async (ctx) => {
-      await ctx.db.insert("guestAiSpend", {
+      await ctx.db.insert("workspaceSpend", {
         workspaceId,
-        day: new Date(NOW - DAY).toISOString().slice(0, 10),
-        userId: GUEST.subject,
-        costUsd: 4,
-      });
-      await ctx.db.insert("guestAiSpend", {
-        workspaceId,
-        day: new Date(periodStart - 3 * DAY).toISOString().slice(0, 10),
-        userId: GUEST.subject,
-        costUsd: 9,
+        periodStart: periodStart - 30 * DAY,
+        userId: MEMBER.subject,
+        seatUsd: 99,
+        guestUsd: 9,
       });
     });
 
@@ -761,12 +804,70 @@ describe("the billing screen", () => {
       subscription: { status: "active", live: true, seats: 3 },
       seatsInUse: 3,
       allowancePerSeatUsd: 10,
-      usage: { allowanceUsd: 30, spentUsd: 15, guestUsd: 4 },
+      usage: { allowanceUsd: 30, spentUsd: 9, guestUsd: 4 },
     });
     expect(
       (await t.withIdentity(ADMIN).query(api.teamBilling.summary, { workspaceId }))?.canManage,
     ).toBe(true);
     expect(await t.withIdentity(GUEST).query(api.teamBilling.summary, { workspaceId })).toBeNull();
+  });
+
+  test("the period's spend is a row per person, not a scan of the ledger", async () => {
+    vi.stubEnv("AI_LEDGER_SECRET", SECRET);
+    const t = convexTest(schema, modules);
+    const { workspaceId } = await world(t);
+    await billing(t, workspaceId);
+    const projectId = await project(t, workspaceId);
+
+    for (let i = 0; i < 5; i++) await spend(t, MEMBER, projectId, 0.5);
+    await spend(t, GUEST, projectId, 0.25);
+
+    const rows = await t.run(async (ctx) => await ctx.db.query("workspaceSpend").collect());
+    expect(rows).toHaveLength(2);
+    expect(rows.find((row) => row.userId === MEMBER.subject)).toMatchObject({
+      periodStart: NOW - 10 * DAY,
+      seatUsd: 2.5,
+      guestUsd: 0,
+    });
+    expect(rows.find((row) => row.userId === GUEST.subject)).toMatchObject({
+      seatUsd: 0,
+      guestUsd: 0.25,
+    });
+  });
+
+  test("spend before a workspace has a subscription is counted in no period", async () => {
+    vi.stubEnv("AI_LEDGER_SECRET", SECRET);
+    const t = convexTest(schema, modules);
+    const { workspaceId } = await world(t);
+    await billing(t, workspaceId, {
+      subscriptionId: undefined,
+      status: "none",
+      periodStart: 0,
+      periodEnd: 0,
+    });
+    await spend(t, MEMBER, await project(t, workspaceId), 3);
+    expect(await t.run(async (ctx) => await ctx.db.query("workspaceSpend").collect())).toEqual([]);
+  });
+
+  test("the home asks an admin to start the plan only while the workspace has none", async () => {
+    const t = convexTest(schema, modules);
+    const { workspaceId } = await world(t);
+    const unpaid = (who: Identity) =>
+      t.withIdentity(who).query(api.teamBilling.unpaid, { workspaceId });
+
+    expect(await unpaid(ADMIN)).toBe(true);
+    expect(await unpaid(OWNER)).toBe(true);
+    // A member can do nothing with it, and a guest or a stranger has no business knowing.
+    expect(await unpaid(MEMBER)).toBe(false);
+    expect(await unpaid(GUEST)).toBe(false);
+    expect(await unpaid(STRANGER)).toBe(false);
+
+    vi.stubEnv("STRIPE_TEAM_METER_EVENT", "");
+    expect(await unpaid(ADMIN)).toBe(false);
+    vi.stubEnv("STRIPE_TEAM_METER_EVENT", METER);
+
+    await billing(t, workspaceId);
+    expect(await unpaid(ADMIN)).toBe(false);
   });
 
   test("an unpaid workspace on a deployment without Team says both", async () => {

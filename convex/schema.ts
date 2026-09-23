@@ -368,6 +368,24 @@ export default defineSchema({
     costUsd: v.number(),
   }).index("by_workspace_and_day_and_user", ["workspaceId", "day", "userId"]),
 
+  /**
+   * What one person spent of a workspace's AI in one billing period, from
+   * signed ledger rows, split by whether they held a seat when they spent it.
+   * Kept as calls are recorded so the billing screen reads a row per person
+   * rather than a period of calls; a row per person, not per workspace, so
+   * two people's calls never contend for one document. The nightly report
+   * still sums the ledger itself (`teamBilling.signedSpend`) — this is the
+   * screen's figure, not the bill.
+   */
+  workspaceSpend: defineTable({
+    workspaceId: v.id("workspaces"),
+    /** `workspaceBilling.periodStart` when the spend was recorded. */
+    periodStart: v.number(),
+    userId: v.string(),
+    seatUsd: v.number(),
+    guestUsd: v.number(),
+  }).index("by_workspace_and_period_and_user", ["workspaceId", "periodStart", "userId"]),
+
   projects: defineTable({
     /**
      * The creator. In a personal project that is also the owner; in a
