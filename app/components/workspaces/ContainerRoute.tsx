@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useSyncExternalStore, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
@@ -32,6 +32,13 @@ const noop = () => () => {};
  * rename made while someone is here changes only what their address bar says
  * (`addressMove`). An address that is not a workspace the caller sits in
  * reads exactly like one that was never taken: `bySlug` says null for both.
+ *
+ * Except one that answered and then stopped: the workspace was deleted, or
+ * left, or its seat taken away, while someone was in it. That is not an
+ * address that leads nowhere — it is a place that has just gone — so they
+ * are taken home, not told the address is wrong. Deleting and leaving go home
+ * themselves, but only once the mutation has answered, and by then this
+ * answer has already come back null.
  */
 export function ContainerRoute({ slug, children }: { slug: string; children: ReactNode }) {
   const router = useRouter();
@@ -60,6 +67,15 @@ export function ContainerRoute({ slug, children }: { slug: string; children: Rea
   const seen = hydrated && userId ? seenWorkspace(userId, slug) : null;
   const container = resolved === undefined ? seen : resolved;
 
+  // The address that has resolved while this was open — kept from an earlier
+  // render, which is what tells a workspace gone from one never here.
+  const [held, setHeld] = useState<string | null>(null);
+  if (resolved && held !== slug) setHeld(slug);
+  const gone = resolved === null && held === slug;
+  useEffect(() => {
+    if (gone) router.replace(homePath(null));
+  }, [gone, router]);
+
   useEffect(() => {
     if (userId && resolved !== undefined) rememberWorkspace(userId, slug, resolved);
   }, [userId, slug, resolved]);
@@ -78,6 +94,7 @@ export function ContainerRoute({ slug, children }: { slug: string; children: Rea
     else window.history.replaceState(null, "", `${move.to}${search}${hash}`);
   }, [canonical, slug, pathname, router]);
 
+  if (gone) return <div className="flex-1" aria-busy="true" />;
   if (resolved === null) return <Nowhere projectId={projectIdIn(pathname)} />;
   if (!container) {
     return hydrated && pathname === homePath(slug) ? (
