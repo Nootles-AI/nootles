@@ -11,7 +11,7 @@ import {
   type QueryCtx,
 } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
-import { atLeast, requireWorkspaceRole, workspaceRole } from "./auth";
+import { atLeast, requireWorkspaceRole, workspaceRole, type WorkspaceRole } from "./auth";
 import { isLiveStatus, workspaceStanding, workspaceSubscriptionLive } from "./entitlements";
 
 /**
@@ -127,6 +127,8 @@ export function seatSyncWaiting(
   );
 }
 
+const SEAT_ROLES = ["owner", "admin", "member"] as const satisfies readonly WorkspaceRole[];
+
 async function billingOf(
   ctx: QueryCtx,
   workspaceId: Id<"workspaces">,
@@ -139,16 +141,21 @@ async function billingOf(
 
 /**
  * The seats a workspace pays for: everyone with a live seat of member or
- * above — `holdsSeat`'s definition. Guests and open invitations cost nothing.
+ * above — `holdsSeat`'s definition. Guests and open invitations cost nothing,
+ * so they are never read: one index range per seat-holding role.
  */
 export async function seatsInUse(ctx: QueryCtx, workspaceId: Id<"workspaces">): Promise<number> {
-  const seats = await ctx.db
-    .query("memberships")
-    .withIndex("by_workspace_status_role", (q) =>
-      q.eq("workspaceId", workspaceId).eq("status", "active"),
-    )
-    .collect();
-  return seats.filter((seat) => atLeast(seat.role, "member")).length;
+  let seats = 0;
+  for (const role of SEAT_ROLES) {
+    const holders = await ctx.db
+      .query("memberships")
+      .withIndex("by_workspace_status_role", (q) =>
+        q.eq("workspaceId", workspaceId).eq("status", "active").eq("role", role),
+      )
+      .collect();
+    seats += holders.length;
+  }
+  return seats;
 }
 
 /**
@@ -818,9 +825,10 @@ export const reportWorkspaceUsage = internalAction({
 
 /**
  * The nightly run: a usage report for every workspace with a live
- * subscription, and a seat sync for any whose seats have drifted from what
- * Stripe was last told — a sync that failed is retried here rather than in a
- * loop of its own. A page of workspaces at a time.
+ * subscription, and a seat check for each — a sync that failed is retried
+ * there rather than in a loop of its own. A page of billing rows at a time;
+ * anything that reads a workspace's members runs in a transaction of its own,
+ * so the page's cost never grows with the size of the workspaces on it.
  */
 export const reportUsage = internalMutation({
   args: { cursor: v.optional(v.string()) },
@@ -833,17 +841,14 @@ export const reportUsage = internalMutation({
     const reporting = !!process.env.STRIPE_TEAM_METER_EVENT;
     for (const billing of page.page) {
       if (!workspaceSubscriptionLive(billing, now)) continue;
+      const { workspaceId } = billing;
       if (reporting && billing.usageItemId) {
         await ctx.scheduler.runAfter(0, internal.teamBilling.reportWorkspaceUsage, {
-          workspaceId: billing.workspaceId,
+          workspaceId,
         });
       }
-      if (
-        billing.seatItemId &&
-        !seatSyncWaiting(billing, now) &&
-        (await seatsInUse(ctx, billing.workspaceId)) !== billing.seats
-      ) {
-        await scheduleSeatSync(ctx, billing.workspaceId);
+      if (billing.seatItemId && !seatSyncWaiting(billing, now)) {
+        await ctx.scheduler.runAfter(0, internal.teamBilling.checkSeats, { workspaceId });
       }
     }
     if (!page.isDone) {
@@ -851,6 +856,18 @@ export const reportUsage = internalMutation({
         cursor: page.continueCursor,
       });
     }
+    return null;
+  },
+});
+
+/** Schedules a seat sync when the seats held have drifted from what Stripe was last told. */
+export const checkSeats = internalMutation({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.null(),
+  handler: async (ctx, { workspaceId }) => {
+    const billing = await billingOf(ctx, workspaceId);
+    if (!billing || (await seatsInUse(ctx, workspaceId)) === billing.seats) return null;
+    await scheduleSeatSync(ctx, workspaceId);
     return null;
   },
 });
