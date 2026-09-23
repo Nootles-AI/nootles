@@ -387,9 +387,10 @@ export const AI = {
     /**
      * It runs beside the context read, so this is roughly the most it can add
      * to a turn's first token. Past it the turn goes on without comments — the
-     * ledger's `timeout` rows say whether it is too tight.
+     * ledger's `timeout` rows say whether it is too tight. The 2026-09-23
+     * live check answered in 974–1434 ms with thinking, too close to 1500.
      */
-    timeoutMs: 1500,
+    timeoutMs: 2500,
     /** How much of the user's message it is shown. */
     messageChars: 600,
     /** Open threads shown, a line each, and how long each line may be. */
