@@ -193,6 +193,12 @@ export default defineSchema({
     invitedBy: v.optional(v.string()),
     joinedAt: v.number(),
     removedAt: v.optional(v.number()),
+    /**
+     * Who took the seat away: the person themselves when they left. Someone
+     * an admin removed does not walk back in through a join domain; it takes
+     * a fresh invitation.
+     */
+    removedBy: v.optional(v.string()),
     /** When the GitHub organisation rule last passed for this person. */
     githubOrgVerifiedAt: v.optional(v.number()),
   })
@@ -221,6 +227,18 @@ export default defineSchema({
     .index("by_token", ["token"])
     .index("by_workspace", ["workspaceId"])
     .index("by_email", ["email"]),
+
+  /**
+   * `settings.joinDomains`, one row per domain, so someone signing in can find
+   * the workspaces their address may join without reading every workspace.
+   * Written in the same mutation as the settings it mirrors.
+   */
+  workspaceDomains: defineTable({
+    domain: v.string(),
+    workspaceId: v.id("workspaces"),
+  })
+    .index("by_domain", ["domain"])
+    .index("by_workspace", ["workspaceId"]),
 
   projects: defineTable({
     /**

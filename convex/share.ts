@@ -11,6 +11,7 @@ import {
   requireOwner,
   roleForProject,
 } from "./auth";
+import { ensureArrivalProfile } from "./profiles";
 
 /**
  * Link sharing, one link per role. Security is capability-based: each token is
@@ -138,15 +139,9 @@ export const view = query({
  * editor link is promoted, never demoted. Whoever already owns the project
  * passes through unrecorded; nothing a link grants is more than they have.
  *
- * An account whose first act is a claim was CREATED by this document, and the
- * survey-and-seed welcome is for people starting from nothing — so the claim
- * writes the profile row first run reads as "not new", in the same terminal
- * state as declining the guided start. An account already mid-survey keeps
- * its own state; joining a doc is not an answer to the survey.
- *
- * The founder's letter is retired on the same row and for the same reason: it
- * asks the reader to report what they think of Nootles, and someone who came
- * here to read one shared document has not met it yet.
+ * An account whose first act is a claim was CREATED by this document, so the
+ * claim writes the profile row first run reads as "not new"
+ * (`ensureArrivalProfile`).
  */
 export const claim = mutation({
   args: { token: v.string() },
@@ -155,19 +150,7 @@ export const claim = mutation({
     const found = await projectForToken(ctx, args.token);
     if (!found) throw new Error("Not found");
 
-    const profile = await ctx.db
-      .query("profiles")
-      .withIndex("by_owner", (q) => q.eq("ownerId", me))
-      .unique();
-    if (!profile) {
-      await ctx.db.insert("profiles", {
-        ownerId: me,
-        status: "skipped",
-        hints: ["tester-note"],
-        createdAt: Date.now(),
-        completedAt: Date.now(),
-      });
-    }
+    await ensureArrivalProfile(ctx, me);
 
     if ((await roleForProject(ctx, found.project)) === "owner") return found.project._id;
     const existing = await ctx.db

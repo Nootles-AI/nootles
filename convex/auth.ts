@@ -248,12 +248,66 @@ export async function requireWorkspaceRole(
       ? await activeMembership(ctx, workspaceId, me)
       : null;
   if (!workspace || !membership) throw new Error("Not found");
-  if (RANK[membership.role] < RANK[min]) {
+  if (!atLeast(membership.role, min)) {
     throw new ConvexError(
       min === "member" ? "A guest can’t do that here." : `Only a workspace ${min} can do that.`,
     );
   }
   return { workspace, membership };
+}
+
+/** Whether a seat reaches `min`. No seat reaches anything. */
+export function atLeast(role: WorkspaceRole | null, min: WorkspaceRole): boolean {
+  return role !== null && RANK[role] >= RANK[min];
+}
+
+/**
+ * Whether a seat of rank `actor` may move someone's seat from `from` to `to`.
+ * An invitation is a seat from nobody (`from` null) and a removal a seat to
+ * nobody (`to` null). Admins run the members and the guests; admins and
+ * owners are the owners' to appoint and dismiss, so no admin promotes someone
+ * to their own rank or removes a peer.
+ */
+export function mayAssignSeat(
+  actor: WorkspaceRole,
+  from: WorkspaceRole | null,
+  to: WorkspaceRole | null,
+): boolean {
+  if (actor === "owner") return true;
+  const belowAdmin = (role: WorkspaceRole | null) => role === null || !atLeast(role, "admin");
+  return actor === "admin" && belowAdmin(from) && belowAdmin(to);
+}
+
+/**
+ * The caller's email address, lowercased, when their sign-in vouches for it.
+ * This is what an invitation is bound to and what proves a join domain, so an
+ * identity that says its address is unverified has none.
+ */
+export async function verifiedEmail(ctx: { auth: Auth }): Promise<string | null> {
+  const identity = await ctx.auth.getUserIdentity();
+  if (!identity?.email || identity.emailVerified === false) return null;
+  return identity.email.trim().toLowerCase();
+}
+
+export function domainOf(email: string): string {
+  return email.slice(email.lastIndexOf("@") + 1);
+}
+
+/**
+ * Whether someone may take a member's seat without an invitation: auto-join
+ * is on and their verified address is on one of the workspace's domains.
+ * `seat` is their row, whatever its status. Someone who left may come back
+ * this way; someone an admin removed may not — being on the domain is what
+ * let them in the first time, so it cannot be what overrules the removal.
+ */
+export function joinsByDomain(
+  workspace: Doc<"workspaces">,
+  email: string | null,
+  seat: Doc<"memberships"> | null,
+): boolean {
+  if (!email || workspace.deletedAt !== undefined || !workspace.settings.autoJoin) return false;
+  if (!workspace.settings.joinDomains.includes(domainOf(email))) return false;
+  return !seat || seat.status === "active" || seat.removedBy === seat.userId;
 }
 
 export type ProjectRole = "owner" | "editor" | "viewer";

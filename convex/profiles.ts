@@ -60,6 +60,33 @@ async function ensure(ctx: MutationCtx) {
 }
 
 /**
+ * The row for an account whose first act is arriving through someone else's
+ * door — a share link, an invitation, a join domain. The survey-and-seed
+ * welcome is for people starting from nothing, so the row lands in the same
+ * terminal state as declining the guided start. An account already
+ * mid-survey keeps its own state; arriving is not an answer to the survey.
+ *
+ * The founder's letter is retired on the same row and for the same reason: it
+ * asks the reader to report what they think of Nootles, and someone who came
+ * here for one team's or one person's work has not met it yet.
+ */
+export async function ensureArrivalProfile(ctx: MutationCtx, ownerId: string) {
+  const profile = await ctx.db
+    .query("profiles")
+    .withIndex("by_owner", (q) => q.eq("ownerId", ownerId))
+    .unique();
+  if (profile) return;
+  const now = Date.now();
+  await ctx.db.insert("profiles", {
+    ownerId,
+    status: "skipped",
+    hints: ["tester-note"],
+    createdAt: now,
+    completedAt: now,
+  });
+}
+
+/**
  * Leaving first run from the welcome screen.
  *
  * Terminal on purpose: someone who declined the guided start once should not
