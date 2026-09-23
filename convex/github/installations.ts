@@ -210,16 +210,27 @@ export const onPush = internalMutation({
   },
 });
 
+/**
+ * How many windows a push waits out a run already under way. An hour is far
+ * past any action's time limit, so a run still "indexing" by then was killed
+ * before it could say so, and waiting longer would wait forever.
+ */
+export const PUSH_MAX_WAITS = 6;
+
 /** The debounced half of `onPush`. A run already under way is waited out. */
 export const pushReindex = internalMutation({
-  args: { repoId: v.id("projectRepos") },
+  args: { repoId: v.id("projectRepos"), waited: v.optional(v.number()) },
   handler: async (ctx, args) => {
     const repo = await ctx.db.get(args.repoId);
     if (!repo) return;
     const state = repo.index?.state;
-    if (state === "queued" || state === "indexing") {
+    const waited = args.waited ?? 0;
+    if ((state === "queued" || state === "indexing") && waited < PUSH_MAX_WAITS) {
       await ctx.db.patch(repo._id, { pushReindexAt: Date.now() + PUSH_DEBOUNCE_MS });
-      await ctx.scheduler.runAfter(PUSH_DEBOUNCE_MS, internal.github.installations.pushReindex, args);
+      await ctx.scheduler.runAfter(PUSH_DEBOUNCE_MS, internal.github.installations.pushReindex, {
+        repoId: repo._id,
+        waited: waited + 1,
+      });
       return;
     }
     await ctx.db.patch(repo._id, {
