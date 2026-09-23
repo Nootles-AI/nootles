@@ -95,6 +95,13 @@ Where the code disagreed with this design, these decisions were made and are wha
     therefore redrawn by stage 2 or 3 on each load until another client next edits, rather
     than rewritten on a guess; readers without an editor (the panel's fallback, the digest)
     see the stored anchor until then.
+  - The same holds for a range another client's edit took away: only the client that made
+    an edit settles it (orphan, fuzzy rewrite, re-home); a replica the edit reached from
+    elsewhere holds what it finds like a first sight. Found on CI: a cut and paste's other
+    half arrived late at a reader, whose settle wrote an orphan mark that landed after the
+    editor's re-home and stuck (`orphanedAt` on a re-homed thread).
+  - `authors` answers keep the last known names on the cards while a new signer's question is
+    in flight, so a resolve or a new author does not blank every name for a round trip.
   - With `authors` no longer the roster, a viewer's card highlights an `@name` only for
     someone who signed a comment on the page (commenters still have `mentionable`'s names).
 - **Review fixes (the assistant's comments).**

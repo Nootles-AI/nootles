@@ -329,6 +329,39 @@ describe("when the range is deleted", () => {
     expect([...writesOf(state)]).toEqual([["t1", { orphaned: true }]]);
   });
 
+  it("own local edit's re-resolution persists without any remote change: a cut, a settle, a paste elsewhere", () => {
+    let state = stateFor();
+    state = withThreads(state, [thread("t1", state.doc, "p1", "by Friday")]);
+    const { from, to } = commentRanges(state).get("t1")!;
+    const cut = state.doc.textBetween(from, to);
+    state = state.apply(state.tr.delete(from, to));
+    // The edits pause mid-move: the orphan is this client's to record.
+    state = meta(state, { settle: true });
+    expect([...writesOf(state)]).toEqual([["t1", { orphaned: true }]]);
+    state = withThreads(state, [{ ...commentKey.getState(state)!.tracked.get("t1")!.thread, orphanedAt: 5 }]);
+    const tail = pmBlockTexts(state.doc).at(-1)!;
+    state = state.apply(state.tr.insertText(cut, tail.end));
+    state = meta(state, { settle: true });
+    const write = writesOf(state).get("t1")!;
+    expect([write.anchor?.blockId, write.anchor?.exact, write.orphaned]).toEqual([tail.blockId, "by Friday", false]);
+  });
+
+  it("another client's cut is held here, so a stale orphan mark never lands after their re-home", () => {
+    let state = stateFor();
+    state = withThreads(state, [thread("t1", state.doc, "p1", "by Friday")]);
+    const { from, to } = commentRanges(state).get("t1")!;
+    const cut = state.doc.textBetween(from, to);
+    state = state.apply(asRemote(state, (tr) => tr.delete(from, to)));
+    expect(commentRanges(state).get("t1")).toBeNull();
+    // Their paste has not arrived when the edits pause here: nothing is written.
+    state = meta(state, { settle: true });
+    expect(writesOf(state).size).toBe(0);
+    const tail = pmBlockTexts(state.doc).at(-1)!;
+    state = state.apply(asRemote(state, (tr) => tr.insertText(cut, tail.end)));
+    expect(rangeText(state, "t1")).toBe("by Friday");
+    expect(writesOf(state).size).toBe(0);
+  });
+
   it("re-anchors when the words come back, clearing the orphan mark", () => {
     let state = stateFor();
     const t1 = thread("t1", state.doc, "p1", "by Friday");
@@ -524,7 +557,11 @@ describe("remote changes (one whole-document step)", () => {
     expect(rangeText(state, "t1")).toBe("by friday");
     expect(commentResolveCount(state)).toBe(2);
     expect(writesOf(state).size).toBe(0);
+    // The typist settles their own edit; here it is only held...
     state = meta(state, { settle: true });
+    expect(writesOf(state).size).toBe(0);
+    // ...until a later remote change and settle find the same answer.
+    state = settleAfterRemote(state);
     expect(writesOf(state).get("t1")?.anchor?.exact).toBe("by friday");
   });
 

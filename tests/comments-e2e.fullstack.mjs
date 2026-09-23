@@ -222,12 +222,50 @@ try {
         context.setDefaultNavigationTimeout(30_000);
         await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin });
         await page.addInitScript((cfg) => { window.__e2e = cfg; }, { url: CONVEX_URL, jwt: token ?? null, identity: identity ?? null });
+        // Every socket frame held this long each way, in order — the latency a
+        // runner's loaded loopback adds, which reorders one client's writes
+        // against another's the way a quick local run never does.
+        const latency = Number(process.env.E2E_LATENCY_MS ?? 0);
+        if (latency > 0) {
+          await page.addInitScript((ms) => {
+            const Native = window.WebSocket;
+            window.WebSocket = class extends Native {
+              constructor(...args) {
+                super(...args);
+                const deliver = (listener) => (event) => setTimeout(() => listener.call(this, event), ms);
+                const add = this.addEventListener.bind(this);
+                this.addEventListener = (type, listener, options) =>
+                  add(type, type === "message" ? deliver(listener) : listener, options);
+                let onmessage = null;
+                Object.defineProperty(this, "onmessage", {
+                  get: () => onmessage,
+                  set: (listener) => {
+                    onmessage = listener;
+                    add("message", deliver((event) => onmessage?.(event)));
+                  },
+                });
+              }
+              send(data) {
+                setTimeout(() => {
+                  if (this.readyState === Native.OPEN) super.send(data);
+                }, ms);
+              }
+            };
+          }, latency);
+        }
         page.on("response", (response) => {
           if (response.status() >= 400 && response.url().startsWith(origin)) failures.push(`[${key}] ${response.status()} for ${response.url()}`);
         });
         if (chat) await page.route(`${origin}/api/chat`, chat);
       },
     });
+    // A shared CI runner's timing, on a fast machine: E2E_CPU_THROTTLE=4 slows
+    // every tab's CPU fourfold; E2E_LATENCY_MS=300 is set up in `setup` below.
+    const throttle = Number(process.env.E2E_CPU_THROTTLE ?? 1);
+    if (throttle > 1) {
+      const cdp = await tab.page.context().newCDPSession(tab.page);
+      await cdp.send("Emulation.setCPUThrottlingRate", { rate: throttle });
+    }
     tabs[key] = tab;
     return tab;
   }
@@ -395,7 +433,7 @@ try {
   await O.waitForSelector(".nt-comments-panel");
   const panelIds = (P, kind) => P.$$eval(`.nt-comments-panel [data-section="${kind}"] [data-thread-card]`, (els) => els.map((el) => el.dataset.threadCard));
   check("[olive] the panel lists it under Resolved, by Eddie", [await panelIds(O, "resolved"),
-    await O.$eval(`.nt-comments-panel [data-thread-card="${friday.id}"]`, (el) => el.textContent.includes("Resolved by Eddie Editor"))], [[friday.id], true]);
+    await waitFor(O, (id) => document.querySelector(`.nt-comments-panel [data-thread-card="${id}"]`)?.textContent.includes("Resolved by Eddie Editor"), friday.id)], [[friday.id], true]);
   await shot(O, "06-olive-panel-resolved");
   await O.click('[aria-label="Close comments"]');
   check("[cora] she is told her thread was resolved", (await until(() => as("cora").query(anyApi.commentNotices.inbox, {}), (n) => n.some((x) => x.kind === "resolved"))).map((n) => n.kind), ["resolved"]);
