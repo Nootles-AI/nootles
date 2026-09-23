@@ -66,6 +66,8 @@ export const begin = internalMutation({
     });
     // A stand-in reads every workspace its subject sits in, so each of them
     // hears of it: an admin reads their own workspace's log, not the others'.
+    // The reason stays on the operator-only row above — it is usually about
+    // one tenant, and every other workspace's admins would read it here.
     const seats = await ctx.db
       .query("memberships")
       .withIndex("by_user_status", (q) => q.eq("userId", args.subject).eq("status", "active"))
@@ -78,7 +80,7 @@ export const begin = internalMutation({
         action: "operator.standIn",
         subjectKind: "user",
         subjectId: args.subject,
-        meta: { reason, expiresAt, sessionId: jti },
+        meta: { expiresAt, sessionId: jti },
       });
     }
     return { jti, issuedAt, expiresAt };
