@@ -52,13 +52,23 @@ const PRUNE_BATCH = 500;
 /** Rows one page of an export carries. */
 const EXPORT_PAGE = 500;
 
+/** Kinds an admin looks for as one: what connects a project outside, and what it costs. */
+const GROUPS: Record<string, string> = {
+  repo: "integration",
+  github: "integration",
+  notion: "integration",
+  entitlement: "billing",
+};
+
 /**
- * The index range an action is read through: its first segment, except that
- * edits are a kind of their own, so "Pages" is not buried under them.
+ * The index range an action is read through: its first segment, grouped as
+ * the log's filter offers it, except that edits are a kind of their own, so
+ * "Pages" is not buried under them.
  */
 function categoryOf(action: string): string {
   if (action === EDIT || action.startsWith(`${EDIT}.`)) return "edit";
-  return action.split(".")[0];
+  const head = action.split(".")[0];
+  return GROUPS[head] ?? head;
 }
 
 /** `undefined` dropped: a field that says nothing is left out rather than stored. */

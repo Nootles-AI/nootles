@@ -6,8 +6,8 @@ import { api, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import schema from "./schema";
 import componentSchema from "../node_modules/@convex-dev/prosemirror-sync/src/component/schema";
-import { EDIT_WINDOW_MS, RETAIN_MS, matching } from "./audit";
-import type { QueryCtx } from "./_generated/server";
+import { EDIT_WINDOW_MS, RETAIN_MS, matching, record } from "./audit";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
 
 /**
  * A workspace's audit log: every discrete change writes exactly one row, by
@@ -1356,6 +1356,28 @@ describe("kinds of event", () => {
     expect(await list({ actorId: MEMBER.subject, action: "page.edit" })).toHaveLength(3);
     expect(await list({ actorId: MEMBER.subject, action: "member" })).toEqual([]);
     expect(await list({ actorId: ADMIN.subject, action: "member.invite" })).toEqual(["member.invite"]);
+  });
+
+  test("Integrations and Billing each gather the kinds an admin looks for as one", async () => {
+    const t = harness();
+    const { workspaceId } = await world(t);
+    await t.run(async (ctx) => {
+      for (const action of ["repo.link", "github.orgRule", "notion.unlink", "billing.seats", "entitlement.set"]) {
+        await record(ctx as MutationCtx, { workspaceId, actorId: OWNER.subject, action });
+        vi.advanceTimersByTime(1000);
+      }
+    });
+    const list = async (action: string) =>
+      (
+        await t.withIdentity(ADMIN).query(api.audit.list, {
+          workspaceId,
+          paginationOpts: { numItems: 20, cursor: null },
+          filters: { action },
+        })
+      ).page.map((row) => row.action);
+    expect(await list("integration")).toEqual(["notion.unlink", "github.orgRule", "repo.link"]);
+    expect(await list("billing")).toEqual(["entitlement.set", "billing.seats"]);
+    expect(await list("repo")).toEqual(["repo.link"]);
   });
 
   test("a person and a kind together read through one index, with no filter over the person's other rows", async () => {
