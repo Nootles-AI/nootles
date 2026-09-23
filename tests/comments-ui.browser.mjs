@@ -7,7 +7,8 @@
  * read-only page's floating button and from ⌘⌥M; @-mentioning someone and
  * the notice that follows; the card appearing level with its paragraph for
  * both people, with its highlight; replying, resolving (the card leaves both
- * margins for the panel's Resolved section) and reopening; editing and
+ * margins for the panel's Resolved section) and reopening — by replying, as in
+ * Docs, or with Reopen; editing and
  * deleting one's own comment; deleting a thread; ⌘Z on a card; Escape;
  * nearby threads stacking without overlap and the focused one taking its own
  * place; a narrow window's dots and panel; `?thread=` opening a thread and
@@ -259,7 +260,7 @@ try {
   await shot(C, "07-cam-replied");
 
   // ---- 6. Resolve and reopen -------------------------------------------------
-  console.log("\n6. Ada resolves the thread; it leaves both margins for the panel, and comes back");
+  console.log("\n6. Ada resolves the thread; it leaves both margins for the panel, and a reply brings it back");
   await A.click(`.nt-comment-layer [data-thread-card="${first.id}"] .nt-comment-body`);
   await wait(150);
   await A.click(`.nt-comment-layer [data-thread-card="${first.id}"] button[aria-label="Resolve"]`);
@@ -278,10 +279,24 @@ try {
   await shot(A, "08-ada-panel-resolved");
   await A.click(`.nt-comments-panel [data-thread-card="${first.id}"]`);
   await wait(150);
-  await A.click(`.nt-comments-panel [data-thread-card="${first.id}"] button[aria-label="Reopen"]`);
+  const resolvedCard = `.nt-comments-panel [data-thread-card="${first.id}"]`;
+  check("[ada] the resolved card offers Reopen and a reply box", [
+    await A.locator(`${resolvedCard} button[aria-label="Reopen"]`).count(),
+    await A.locator(`${resolvedCard} textarea[aria-label="Reply"]`).getAttribute("placeholder"),
+  ], [1, "Reply to reopen…"]);
+  await shot(A, "08b-ada-resolved-reply-box");
+  const beforeReopen = notices.length;
+  await A.click(`${resolvedCard} textarea[aria-label="Reply"]`);
+  await A.keyboard.type("Reopening: QA slipped a day.", { delay: 5 });
+  await A.keyboard.press("Enter");
   const back = (page) => waitFor(page, (id) => !!document.querySelector(`.nt-comment-layer [data-thread-card="${id}"]`), first.id);
-  check("[ada] reopened, it is back in her margin", await back(A), true);
+  check("[ada] her reply reopened it: back in her margin", await back(A), true);
   check("[cam] and in his", await back(C), true);
+  check("[ada] stored open, with her reply last", await waitFor(A, (id) => {
+    const t = window.ui.stored().find((x) => x.id === id);
+    return t?.status === "open" && t.comments.at(-1).text === "Reopening: QA slipped a day.";
+  }, first.id), true);
+  check("[ada] one notice, the reply's, telling Cam", notices.slice(beforeReopen).filter((n) => n.fn === "commentNotices:event").map((n) => [n.kind, n.participants]), [["reply", ["user_ada", "user_cam"]]]);
   await A.click('[aria-label="Close comments"]');
 
   // ---- 7. Edit and delete one's own comment -----------------------------------
@@ -309,7 +324,7 @@ try {
   await replyRow.hover();
   await replyRow.locator('button[aria-label="More actions"]').click();
   await C.getByRole("menuitem", { name: "Delete", exact: true }).click();
-  check("[ada] the deleted reply leaves her card", await waitFor(A, (id) => window.ui.stored().find((x) => x.id === id)?.comments.length === 1, first.id), true);
+  check("[ada] the deleted reply leaves her card", await waitFor(A, (id) => window.ui.stored().find((x) => x.id === id)?.comments.length === 2, first.id), true);
 
   // ---- 8. ⌘Z on a card ----------------------------------------------------------
   console.log("\n8. Ada replies, clicks her card, and ⌘Z takes the reply back");
@@ -390,6 +405,29 @@ try {
   check("[cam] his card says via assistant", await waitFor(C, (id) => document.querySelector(`.nt-comment-layer [data-thread-card="${id}"]`)?.textContent.includes("via assistant"), byModel.id), true);
   check("[cam] under Ada's name", (await cardFor(C, byModel.id)).text.includes("Ada Editor"), true);
   await shot(C, "12-cam-via-assistant");
+  // The header gives the name its room: the meta wraps under a name it cannot
+  // sit beside, and only a name wider than the card is cut.
+  const viaRow = `.nt-comment-layer [data-thread-card="${byModel.id}"] .nt-comment`;
+  const header = () => C.$eval(viaRow, (row) => {
+    const box = (el) => el.getBoundingClientRect();
+    const name = row.querySelector(".nt-comment-name");
+    const meta = row.querySelector(".nt-comment-meta");
+    return {
+      nameCut: name.scrollWidth > name.clientWidth,
+      nameShare: box(name).width / box(row.querySelector(".nt-comment-who")).width,
+      metaWhole: meta.scrollWidth <= Math.ceil(box(meta).width),
+      metaBelow: box(meta).top >= box(name).bottom - 2,
+    };
+  });
+  const short = await header();
+  check("[cam] a short name is whole, and so is its meta", [short.nameCut, short.metaWhole], [false, true]);
+  await C.locator(viaRow).first().screenshot({ path: path.join(shots, "12b-via-short-name.png") });
+  const setName = (text) => C.$eval(`${viaRow} .nt-comment-name`, (el, t) => { el.firstChild.nodeValue = t; }, text);
+  await setName("Maximiliana Wolkenstein-Fairweather");
+  const long = await header();
+  check("[cam] a long name takes the whole line, the meta wraps under it whole", [long.nameShare > 0.95, long.metaWhole, long.metaBelow], [true, true, true]);
+  await C.locator(viaRow).first().screenshot({ path: path.join(shots, "12c-via-long-name.png") });
+  await setName("Ada Editor");
 
   // ---- 13. Mentioning someone who cannot open the project ----------------------------
   console.log("\n13. A mention of someone the project cannot reach");
@@ -476,6 +514,10 @@ try {
   const C3 = cam3.page;
   check("[cam] a resolved thread's link opens it in the panel", await waitFor(C3, (id) => document.querySelector(`.nt-comments-panel [data-thread-card="${id}"]`)?.hasAttribute("data-focused"), first.id, 8000), true);
   check("[cam] and the address lets go of it too", await C3.evaluate(() => new URL(location.href).searchParams.has("thread")), false);
+  const beforeButton = notices.length;
+  await C3.click(`.nt-comments-panel [data-thread-card="${first.id}"] button[aria-label="Reopen"]`);
+  check("[cam] Reopen reopens it without a word", await waitFor(C3, (id) => window.ui.stored().find((t) => t.id === id)?.status === "open", first.id), true);
+  check("[cam] with a reopen notice", notices.slice(beforeButton).filter((n) => n.fn === "commentNotices:event").map((n) => n.kind), ["reopen"]);
 
   // ---- 17. A signed-out guest on a comment link -------------------------------------------
   console.log("\n17. A signed-out guest selecting words is offered sign-in");

@@ -26,8 +26,15 @@ import type { Thread } from "@/app/lib/comments/types";
  * mapping itself asks for: once the edits pause, words this editor typed or
  * deleted inside a range become the stored quotation, so a reload finds the
  * range the mapping had instead of chasing the old words. Only the editing
- * client writes it; other replicas keep their mapped ranges and take the new
- * anchor as data. Two rules keep all of this honest:
+ * client writes it.
+ *
+ * The stored anchor is what every replica agrees on, so when it changes under
+ * a replica that is not mid-edit on those words — another client settled,
+ * re-homed or rewrote it — and no longer quotes its live range, the replica
+ * moves the range to where the new anchor quotes verbatim. That is display
+ * only: the writer already wrote. If the words it quotes have not arrived yet
+ * (the page and its comments sync separately), the mapped range stays and the
+ * move is tried again as remote changes land. Two rules keep all of this honest:
  *
  * - **Under a review fork nothing is resolved from the fork's text.** A range
  *   the proposal rewrites any of shows as unanchored and is left there; when
@@ -61,6 +68,8 @@ type CommentsState = {
   edited: ReadonlySet<string>;
   /** Threads re-resolved mid-edit for display only; the settle pass decides. */
   unsettled: ReadonlySet<string>;
+  /** Threads whose new stored anchor quotes words this document has not received yet. */
+  awaiting: ReadonlySet<string>;
   /** Selector resolutions run so far — the count the tests hold down. */
   resolves: number;
 };
@@ -210,19 +219,32 @@ function sameAnchor(a: Thread, b: Thread): boolean {
   );
 }
 
-/**
- * The anchor the live range would mint now, when its words are no longer the
- * stored quotation — the edit the mapping followed, made durable. Context
- * drifting alone is not worth a write: the quotation still finds itself.
- */
-function refreshed(entry: Tracked, blocks: readonly PmBlockText[]): ResolutionWrite | null {
-  const { range, thread } = entry;
-  if (!range) return null;
+/** The anchor `range` would mint now, or null if it quotes nothing. */
+function mintedAt(range: CommentRange, blocks: readonly PmBlockText[]) {
   const block = blocks.find((candidate) => candidate.start <= range.from && range.to <= candidate.end);
   if (!block) return null;
   const anchor = anchorAt(block, offsetAt(block, range.from), offsetAt(block, range.to));
-  if (anchor.exact.trim() === "") return null;
-  if (anchor.exact === thread.anchor.exact && anchor.blockId === thread.anchor.blockId) return null;
+  return anchor.exact.trim() === "" ? null : anchor;
+}
+
+/**
+ * Whether the stored anchor already quotes the live range. Context drifting
+ * alone does not count: the quotation still finds itself.
+ */
+function quotes(entry: Tracked, blocks: readonly PmBlockText[]): boolean {
+  const anchor = entry.range && mintedAt(entry.range, blocks);
+  return !!anchor && anchor.exact === entry.thread.anchor.exact && anchor.blockId === entry.thread.anchor.blockId;
+}
+
+/**
+ * The anchor the live range would mint now, when its words are no longer the
+ * stored quotation — the edit the mapping followed, made durable.
+ */
+function refreshed(entry: Tracked, blocks: readonly PmBlockText[]): ResolutionWrite | null {
+  const { range, thread } = entry;
+  if (!range || quotes(entry, blocks)) return null;
+  const anchor = mintedAt(range, blocks);
+  if (!anchor) return null;
   const check = validateAnchor(anchor, blocks);
   const ambiguous = check.ok && check.ambiguous;
   return { anchor, ...(ambiguous !== thread.ambiguous ? { ambiguous } : {}) };
@@ -244,13 +266,20 @@ function apply(tr: Transaction, prev: CommentsState): CommentsState {
   let tracked = new Map(prev.tracked);
   let edited = prev.edited;
   let unsettled = prev.unsettled;
+  let awaiting = prev.awaiting;
   let draft = meta?.draft !== undefined ? meta.draft : prev.draft;
   if (draft !== prev.draft) changed = true;
   /** Threads to resolve, and whether what is found may be written now. */
   const toResolve = new Map<string, { persist: boolean }>();
+  /** Threads to move to where their stored anchor quotes verbatim, if it does yet. */
+  const toFollow = new Set<string>();
+  let blocks: PmBlockText[] | null = null;
+  const blocksNow = () => (blocks ??= pmBlockTexts(tr.doc));
 
   if (tr.docChanged) {
     const { maps, exact } = mapsOf(tr);
+    // The words a new stored anchor quotes come from another client.
+    if (!exact && !forked) for (const id of awaiting) toFollow.add(id);
     if (draft) {
       const mapped = mapRange(draft, maps);
       if (mapped !== draft) changed = true;
@@ -292,9 +321,33 @@ function apply(tr: Transaction, prev: CommentsState): CommentsState {
       // tried again if its anchor moved: another client may have re-homed it.
       if (!known || (!known.range && !sameAnchor(known.thread, thread))) {
         toResolve.set(thread.id, { persist: true });
+      } else if (!forked && known.range && !sameAnchor(known.thread, thread)) {
+        toFollow.add(thread.id);
       }
     }
     tracked = next;
+  }
+
+  let resolves = prev.resolves;
+  if (toFollow.size) {
+    const waiting = new Set([...awaiting].filter((id) => !toFollow.has(id)));
+    for (const id of toFollow) {
+      const entry = tracked.get(id);
+      // Mid-edit, this client's own settle pass will write the words it has.
+      if (!entry?.range || toResolve.has(id) || edited.has(id) || unsettled.has(id)) continue;
+      if (quotes(entry, blocksNow())) continue;
+      // Verbatim only: the writer already chose the words; fuzzy or re-homed
+      // guesses here would be this replica's own, and differ.
+      const check = validateAnchor(entry.thread.anchor, blocksNow());
+      const range = check.ok ? pmRange(blocksNow(), entry.thread.anchor.blockId, check.from, check.to) : null;
+      if (range && range.to > range.from) {
+        tracked.set(id, { ...entry, range });
+        changed = true;
+      } else waiting.add(id);
+    }
+    if (waiting.size !== awaiting.size || [...waiting].some((id) => !awaiting.has(id))) {
+      awaiting = waiting.size ? waiting : NONE;
+    }
   }
 
   const settling = meta?.settle === true && !forked;
@@ -303,32 +356,29 @@ function apply(tr: Transaction, prev: CommentsState): CommentsState {
       if (meta?.resolve === "all" || !entry.range || unsettled.has(id)) toResolve.set(id, { persist: true });
     }
     unsettled = NONE;
+    if (meta?.resolve === "all") awaiting = NONE;
   }
 
-  let resolves = prev.resolves;
   const found = new Map<string, ResolutionWrite>();
-  let blocks: PmBlockText[] | null = null;
   if (toResolve.size) {
     changed = true;
-    blocks = pmBlockTexts(tr.doc);
     for (const [id, { persist }] of toResolve) {
       const entry = tracked.get(id);
       if (!entry) continue;
       resolves++;
-      const resolution = resolveAnchor(entry.thread, blocks);
+      const resolution = resolveAnchor(entry.thread, blocksNow());
       const range =
         resolution.kind === "anchored"
-          ? pmRange(blocks, resolution.blockId, resolution.from, resolution.to)
+          ? pmRange(blocksNow(), resolution.blockId, resolution.from, resolution.to)
           : null;
       tracked.set(id, { ...entry, range: range && range.to > range.from ? range : null });
       if (!forked && persist && hasWrites(resolution.writes)) found.set(id, resolution.writes);
     }
   }
   if (settling && edited.size) {
-    blocks ??= pmBlockTexts(tr.doc);
     for (const id of edited) {
       const entry = tracked.get(id);
-      const write = entry && !toResolve.has(id) ? refreshed(entry, blocks) : null;
+      const write = entry && !toResolve.has(id) ? refreshed(entry, blocksNow()) : null;
       if (write) found.set(id, write);
     }
     edited = NONE;
@@ -343,7 +393,15 @@ function apply(tr: Transaction, prev: CommentsState): CommentsState {
   if (active !== null && !tracked.has(active)) active = null;
   if (active !== prev.active) changed = true;
 
-  if (!changed && edited === prev.edited && unsettled === prev.unsettled && writes === NO_WRITES) return prev;
+  if (
+    !changed &&
+    edited === prev.edited &&
+    unsettled === prev.unsettled &&
+    awaiting === prev.awaiting &&
+    resolves === prev.resolves &&
+    writes === NO_WRITES
+  )
+    return prev;
   return {
     tracked,
     active,
@@ -353,6 +411,7 @@ function apply(tr: Transaction, prev: CommentsState): CommentsState {
     writes,
     edited,
     unsettled,
+    awaiting,
     resolves,
   };
 }
@@ -402,6 +461,7 @@ export function commentDecorationsPlugin(): Plugin<CommentsState> {
         writes: NO_WRITES,
         edited: NONE,
         unsettled: NONE,
+        awaiting: NONE,
         resolves: 0,
       }),
       apply,

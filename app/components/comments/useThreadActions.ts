@@ -19,6 +19,7 @@ import type { PageComments } from "./PageComments";
  */
 export type ThreadActions = {
   create(input: { anchor: CommentAnchor; body: string; mentions: string[] }): Promise<Written & { threadId: string }>;
+  /** On a resolved thread this reopens it too, in the reply's one transaction — so one `reply` notice. */
   reply(thread: Thread, body: string, mentions: string[]): Promise<Written>;
   edit(commentId: string, body: string): Promise<void>;
   deleteComment(thread: Thread, commentId: string): Promise<void>;
