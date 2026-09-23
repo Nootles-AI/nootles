@@ -160,7 +160,7 @@ describe("who a link opens to", () => {
     for (const who of [null, STRANGER]) {
       const shown = await as(t, who).query(api.share.view, { token: "p-view" });
       expect(shown).toMatchObject({ access: "tree", title: "Diary", role: "viewer" });
-      expect(shown?.pages.map((p) => p.docId)).toEqual([w.personal.docId]);
+      expect(shown?.access === "paused" ? null : shown?.pages.map((p) => p.docId)).toEqual([w.personal.docId]);
       await readsAll(as(t, who), w.personal.docId);
     }
   });
@@ -189,7 +189,7 @@ describe("who a link opens to", () => {
     await stranger.mutation(api.share.claim, { token: "w-view" });
     const shown = await stranger.query(api.share.view, { token: "w-view" });
     expect(shown?.access).toBe("tree");
-    expect(shown?.pages.map((p) => p.docId)).toEqual([w.team.docId]);
+    expect(shown?.access === "paused" ? null : shown?.pages.map((p) => p.docId)).toEqual([w.team.docId]);
     expect(await stranger.query(api.projects.myRole, { projectId: w.team.projectId })).toBe(
       "viewer",
     );
@@ -235,14 +235,20 @@ describe("a workspace that allows no links", () => {
     expect(await role(STRANGER)).toBeNull();
     expect(await role(GUEST)).toBeNull();
     await readsNone(t.withIdentity(STRANGER), w.team.docId);
-    expect(await t.query(api.share.view, { token: "w-view" })).toBeNull();
-    expect(await t.withIdentity(STRANGER).query(api.share.view, { token: "w-edit" })).toBeNull();
+    // Paused, and said to be, with nothing else about the project.
+    expect(await t.query(api.share.view, { token: "w-view" })).toEqual({ access: "paused" });
+    expect(await t.withIdentity(STRANGER).query(api.share.view, { token: "w-edit" })).toEqual({
+      access: "paused",
+    });
     await expect(
       t.withIdentity(LATECOMER).mutation(api.share.claim, { token: "w-view" }),
     ).rejects.toThrow("Not found");
-    expect(
-      await t.withIdentity(ADMIN).query(api.share.collaborators, { projectId: w.team.projectId }),
-    ).toEqual([]);
+    // Still listed, marked paused, so a manager can let one go before they return.
+    const waiting = await t
+      .withIdentity(ADMIN)
+      .query(api.share.collaborators, { projectId: w.team.projectId });
+    expect(waiting).toHaveLength(2);
+    expect(waiting.every((p) => p.paused)).toBe(true);
     expect(
       await t.withIdentity(ADMIN).query(api.share.links, { projectId: w.team.projectId }),
     ).toMatchObject({ allowed: false });

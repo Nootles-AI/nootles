@@ -184,8 +184,8 @@ async function carryExpiry(
 
 /**
  * What a link opens onto, before any sign-in: the project's tree, as the
- * sidebar would draw it. Null for a link that is off, has run out, or belongs
- * to a workspace that allows no links.
+ * sidebar would draw it. Null for a link that is off or has run out;
+ * `{ access: "paused" }` for a live one in a workspace that allows no links.
  *
  * `access` is `linkShows`'s answer. A workspace project's link opens to
  * nobody signed out ("sign-in": no title, no pages), and to someone signed in
@@ -195,7 +195,10 @@ export const view = query({
   args: { token: v.string() },
   handler: async (ctx, args) => {
     const found = await projectForToken(ctx, args.token, Date.now());
-    if (!found || !(await linksOpen(ctx, found.project))) return null;
+    if (!found) return null;
+    // Paused, not dead: it works again, as it was, when the workspace allows
+    // links. Said as that alone — nothing about the project or its workspace.
+    if (!(await linksOpen(ctx, found.project))) return { access: "paused" as const };
     const access = await linkShows(ctx, found.project);
     const tree = access === "tree";
     // Both ordered by the index (projectId, order) — the sidebar's own order,
@@ -293,6 +296,8 @@ export const claim = mutation({
  * On a workspace project each person says whether they are one of its
  * guests, and whether a manager let them see its code (`setCodeAccess`).
  * `expiresAt` is when their access through the link runs out; null is never.
+ * `paused` while the workspace allows no links: they hold nothing now, and
+ * get `role` back when links are turned on.
  */
 /** Reads, so `readManageable` — see `links` above. */
 export const collaborators = query({
@@ -300,7 +305,9 @@ export const collaborators = query({
   handler: async (ctx, args) => {
     const project = await readManageable(ctx, "projects", args.projectId);
     if (!project) throw new Error("Not found");
-    if (!(await linksOpen(ctx, project))) return [];
+    // Paused links keep their people, who come back as they were when links
+    // are on again: they are listed, marked, so a manager can let one go first.
+    const paused = !(await linksOpen(ctx, project));
     const claims = await ctx.db
       .query("shareClaims")
       .withIndex("by_project_and_grantee", (q) =>
@@ -329,6 +336,7 @@ export const collaborators = query({
           expiresAt: claim.grantedRole ? null : (claim.expiresAt ?? null),
           guest: seat?.role === "guest",
           codeAccess: claim.codeAccess === true,
+          paused,
         };
       }),
     );

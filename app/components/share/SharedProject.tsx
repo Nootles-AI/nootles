@@ -44,7 +44,9 @@ const INDENT = 12;
  * the project for them and carries them to the real workspace.
  */
 export function SharedProject({ token }: { token: string }) {
-  const shared = useQuery(api.share.view, { token });
+  const view = useQuery(api.share.view, { token });
+  const paused = view?.access === "paused";
+  const shared = view?.access === "paused" ? null : view;
   const { isLoaded, isSignedIn } = useAuth();
   const claim = useMutation(api.share.claim);
   const requestEdit = useMutation(api.share.requestEdit);
@@ -133,15 +135,27 @@ export function SharedProject({ token }: { token: string }) {
   // answers if the auth script is slow or blocked.
   if (shared === null) {
     return (
-      <div className="flex h-screen flex-col items-center justify-center gap-2 px-6 text-center">
+      <div className="nt-kept-out flex h-screen flex-col items-center justify-center gap-2 px-6 text-center">
         <Link href="/" aria-label="Nootles" className="mb-4">
           <Wordmark className="text-muted" />
         </Link>
-        <p className="text-sm font-medium">This link isn’t working</p>
-        <p className="max-w-xs text-sm text-muted">
-          It may have expired or been turned off. Ask whoever sent it for a new
-          one.
-        </p>
+        {paused ? (
+          <>
+            <p className="text-sm font-medium">Sharing is paused</p>
+            <p className="max-w-xs text-pretty text-sm text-muted">
+              Links to this project are turned off for now. This one will work
+              again when they’re back on.
+            </p>
+          </>
+        ) : (
+          <>
+            <p className="text-sm font-medium">This link isn’t working</p>
+            <p className="max-w-xs text-pretty text-sm text-muted">
+              It may have expired or been turned off. Ask whoever sent it for a
+              new one.
+            </p>
+          </>
+        )}
       </div>
     );
   }

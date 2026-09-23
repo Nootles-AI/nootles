@@ -284,6 +284,11 @@ body {
     animation: nt-fade-in var(--dur-fast) var(--ease);
   }
 }
+/* Why a project won't open, said in place of it: it arrives from nothing, so
+   it settles in rather than appearing. */
+.nt-kept-out {
+  animation: nt-fade-in var(--dur-slow) var(--ease) backwards;
+}
 
 .nt-panel-head {
   display: flex;
