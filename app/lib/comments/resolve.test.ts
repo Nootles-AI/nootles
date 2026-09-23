@@ -6,7 +6,7 @@ import {
   hasWrites,
   resolveAnchor,
   validateAnchor,
-  type AnchorWrite,
+  type ResolutionWrite,
   type ResolveInput,
   type Resolution,
 } from "./resolve";
@@ -22,7 +22,7 @@ function anchorOf(block: BlockText, quote: string, nth = 0): CommentAnchor {
 }
 
 /** What the comments store does with a resolution's writes. */
-function apply(input: ResolveInput, writes: AnchorWrite, now = 1_000): ResolveInput {
+function apply(input: ResolveInput, writes: ResolutionWrite, now = 1_000): ResolveInput {
   const next: ResolveInput = { ...input, anchor: writes.anchor ?? input.anchor };
   if (writes.orphaned === true) next.orphanedAt = input.orphanedAt ?? now;
   if (writes.orphaned === false) delete next.orphanedAt;

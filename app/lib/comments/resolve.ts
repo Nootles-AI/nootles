@@ -37,8 +37,11 @@ export type ResolveInput = Pick<Thread, "anchor" | "orphanedAt"> & { ambiguous?:
  *
  * A resolve against a review's fork must apply none of it: the fork's text is
  * a proposal, and Discard puts the words back.
+ *
+ * `orphaned` is a flag rather than a time so two clients' resolutions compare
+ * equal; `anchorWrite.persistable` turns it into the store's `orphanedAt`.
  */
-export type AnchorWrite = { anchor?: CommentAnchor; orphaned?: boolean; ambiguous?: boolean };
+export type ResolutionWrite = { anchor?: CommentAnchor; orphaned?: boolean; ambiguous?: boolean };
 
 export type Resolution =
   | {
@@ -51,11 +54,11 @@ export type Resolution =
       to: number;
       /** The quote appears more than once and its context could not tell which. */
       ambiguous: boolean;
-      writes: AnchorWrite;
+      writes: ResolutionWrite;
     }
-  | { kind: "orphaned"; writes: AnchorWrite };
+  | { kind: "orphaned"; writes: ResolutionWrite };
 
-export function hasWrites(writes: AnchorWrite): boolean {
+export function hasWrites(writes: ResolutionWrite): boolean {
   return writes.anchor !== undefined || writes.orphaned !== undefined || writes.ambiguous !== undefined;
 }
 
