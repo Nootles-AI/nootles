@@ -3433,6 +3433,13 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar) .nt-reformat-switcher {
   width: var(--open-w);
   filter: drop-shadow(0 12px 20px oklch(0.25 0.005 90 / 0));
   transition: filter 240ms var(--ease);
+  /* The open panel's size even when closed: it would catch every press meant
+     for what sits beside or below the button. The surface answers instead,
+     and only where its clip shows it. */
+  pointer-events: none;
+}
+.nt-create-surface {
+  pointer-events: auto;
 }
 .nt-create[data-open="true"] .nt-create-lift {
   filter: drop-shadow(0 18px 28px oklch(0.25 0.005 90 / 0.32));
