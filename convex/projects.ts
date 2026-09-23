@@ -19,6 +19,7 @@ import {
   workspaceRole,
 } from "./auth";
 import { ABOUT, BACKGROUND } from "./ai/questions";
+import { recordInProject } from "./audit";
 import { requireQuota, requireQuotaIn } from "./entitlements";
 import { attachFile, contextFileRef } from "./files/context";
 import { add as addRepos } from "./github/repos";
@@ -327,6 +328,18 @@ export const create = mutation({
         ? { workspaceId: args.workspaceId, visibility: args.visibility }
         : {}),
     });
+    const project = (await ctx.db.get(projectId))!;
+    await recordInProject(
+      ctx,
+      project,
+      {
+        action: "project.create",
+        subjectKind: "project",
+        subjectId: projectId,
+        meta: { visibility: project.visibility ?? "workspace" },
+      },
+      ownerId,
+    );
 
     // What the user said when they made the project IS the project's context —
     // the sheet is what primes every LLM request, so anything that stopped at
@@ -459,8 +472,15 @@ export const listForScreen = query({
 export const rename = mutation({
   args: { projectId: v.id("projects"), title: v.string() },
   handler: async (ctx, args) => {
-    await requireManageable(ctx, "projects", args.projectId);
+    const project = await requireManageable(ctx, "projects", args.projectId);
+    if (project.title === args.title) return;
     await ctx.db.patch(args.projectId, { title: args.title });
+    await recordInProject(ctx, project, {
+      action: "project.rename",
+      subjectKind: "project",
+      subjectId: project._id,
+      meta: { from: project.title, to: args.title },
+    });
   },
 });
 
@@ -473,8 +493,13 @@ export const rename = mutation({
 export const remove = mutation({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
-    await requireManageable(ctx, "projects", args.projectId);
+    const project = await requireManageable(ctx, "projects", args.projectId);
     await ctx.db.patch(args.projectId, { deletedAt: Date.now() });
+    await recordInProject(ctx, project, {
+      action: "project.delete",
+      subjectKind: "project",
+      subjectId: project._id,
+    });
   },
 });
 

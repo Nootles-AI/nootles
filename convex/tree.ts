@@ -1,6 +1,7 @@
 import { mutation, type MutationCtx } from "./_generated/server";
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
+import { recordInProject } from "./audit";
 import { isTrashed, mayCarryOut, readVisible, requireEditable } from "./auth";
 import { cloneFolder, softRemoveFolderCascade } from "./folders";
 import { clonePage, folderIn, levelOf, placeBetween } from "./pages";
@@ -273,11 +274,13 @@ export const copyTo = mutation({
       }
     }
     if (!sources.length) return;
+    const fromProjects = new Map<Id<"projects">, Doc<"projects">>();
     for (const projectId of new Set(sources.map((s) => s.doc.projectId))) {
       const from = await ctx.db.get(projectId);
       if (from && !(await mayCarryOut(ctx, from, project))) {
         throw new ConvexError("Only the workspace’s members can take its pages out of it.");
       }
+      if (from) fromProjects.set(projectId, from);
     }
 
     // Every tree is loaded once, before any insert: the destination's for the
@@ -323,6 +326,22 @@ export const copyTo = mutation({
       }
     }
 
+    // What leaves a workspace is on its log, whether it is copied or moved.
+    for (const src of sources) {
+      const from = fromProjects.get(src.doc.projectId);
+      if (!from?.workspaceId || from.workspaceId === project.workspaceId) continue;
+      await recordInProject(ctx, from, {
+        action: `${src.kind}.carryOut`,
+        subjectKind: src.kind,
+        subjectId: src.doc._id,
+        meta: {
+          [src.kind]: src.doc.title,
+          to: project.workspaceId ? "workspace" : "personal",
+          move: !!args.move,
+        },
+      });
+    }
+
     const removed: { pages: Id<"pages">[]; folders: Id<"folders">[] } = {
       pages: [],
       folders: [],
@@ -333,6 +352,15 @@ export const copyTo = mutation({
       for (const src of sources) {
         const live = await ctx.db.get(src.doc._id);
         if (!live || isTrashed(live)) continue;
+        const from = fromProjects.get(src.doc.projectId);
+        if (from) {
+          await recordInProject(ctx, from, {
+            action: `${src.kind}.delete`,
+            subjectKind: src.kind,
+            subjectId: src.doc._id,
+            meta: { [src.kind]: src.doc.title, movedTo: args.projectId },
+          });
+        }
         if (src.kind === "page") {
           await ctx.db.patch(src.doc._id, { deletedAt: Date.now() });
           removed.pages.push(src.doc._id as Id<"pages">);

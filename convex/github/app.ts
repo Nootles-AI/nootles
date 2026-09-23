@@ -9,6 +9,7 @@ import {
   requireWorkspaceRole,
   workspaceRole,
 } from "../auth";
+import { recordByCaller } from "../audit";
 import { withInstallation } from "./credential";
 import { installationsOf, unusable } from "./installations";
 import { listed, type Listed, type Repo } from "./repos";
@@ -313,6 +314,14 @@ export const setOrgRule = mutation({
     }
     const before = workspace.settings.requireGithubOrg;
     await ctx.db.patch(workspace._id, { settings: { ...workspace.settings, requireGithubOrg: org } });
+    if (before !== org) {
+      await recordByCaller(ctx, workspace._id, {
+        action: "github.orgRule",
+        subjectKind: "workspace",
+        subjectId: workspace._id,
+        meta: { from: before ?? null, to: org ?? null },
+      });
+    }
     if (org === undefined || before?.toLowerCase() === org.toLowerCase()) return null;
     const seats = await ctx.db
       .query("memberships")

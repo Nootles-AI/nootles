@@ -2,6 +2,7 @@ import { components } from "./_generated/api";
 import { ProsemirrorSync } from "@convex-dev/prosemirror-sync";
 import type { DataModel } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
+import { recordDocumentEdit } from "./audit";
 import { isTrashed, readsDocuments, refuseStandIn, roleForProject, standInActor } from "./auth";
 
 /**
@@ -96,13 +97,17 @@ async function touchPage(ctx: MutationCtx, id: string) {
  * not write steps nobody will ever read. Reads stay open for the migration
  * fetch itself and for viewers who haven't flipped over yet.
  */
-async function checkLegacyWrite(ctx: QueryCtx, id: string) {
+async function checkLegacyWrite(ctx: MutationCtx, id: string) {
   await checkWrite(ctx, id);
   const migrated = await ctx.db
     .query("ydocs")
     .withIndex("by_doc", (q) => q.eq("docId", id))
     .unique();
   if (migrated) throw new Error("This page has moved to Yjs sync — reload.");
+  // The gate is the one hook this pipeline gives that knows the writer. It
+  // runs for snapshots as well as steps, so a legacy page counts a little
+  // high: the same person in the same window either way.
+  await recordDocumentEdit(ctx, id);
 }
 
 export const { getSnapshot, submitSnapshot, latestVersion, getSteps, submitSteps } =
