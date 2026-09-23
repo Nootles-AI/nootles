@@ -23,25 +23,27 @@ export const get = query({
 });
 
 /**
- * Keeps the profile's email current from the verified identity. Patch-only:
- * a missing row is first run's signal, and this must never fake one.
+ * What to call someone to the people they work with. `identities` is what
+ * Clerk last vouched for; the profile's copy is the fallback, for an account
+ * whose sign-in has not been confirmed since that table began.
  */
-export const stampEmail = mutation({
-  args: {},
-  handler: async (ctx) => {
-    const row = await mine(ctx);
-    if (!row) return;
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) return;
-    const patch: { email?: string; name?: string; imageUrl?: string } = {};
-    if (identity.email && row.email !== identity.email) patch.email = identity.email;
-    if (identity.name && row.name !== identity.name) patch.name = identity.name;
-    if (identity.pictureUrl && row.imageUrl !== identity.pictureUrl) {
-      patch.imageUrl = identity.pictureUrl;
-    }
-    if (Object.keys(patch).length) await ctx.db.patch(row._id, patch);
-  },
-});
+export async function personOf(ctx: QueryCtx, ownerId: string) {
+  const [profile, identity] = await Promise.all([
+    ctx.db
+      .query("profiles")
+      .withIndex("by_owner", (q) => q.eq("ownerId", ownerId))
+      .unique(),
+    ctx.db
+      .query("identities")
+      .withIndex("by_owner", (q) => q.eq("ownerId", ownerId))
+      .unique(),
+  ]);
+  return {
+    name: identity?.name ?? profile?.name ?? null,
+    email: identity?.verifiedEmail ?? profile?.email ?? null,
+    imageUrl: identity?.imageUrl ?? profile?.imageUrl ?? null,
+  };
+}
 
 /**
  * Writes the row if it is missing so every later call can assume one. Returns

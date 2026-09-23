@@ -11,7 +11,7 @@ import {
   requireOwner,
   roleForProject,
 } from "./auth";
-import { ensureArrivalProfile } from "./profiles";
+import { ensureArrivalProfile, personOf } from "./profiles";
 
 /**
  * Link sharing, one link per role. Security is capability-based: each token is
@@ -197,17 +197,7 @@ export const collaborators = query({
         // same as it takes away their access.
         const role = claimRole(project, claim);
         if (!role) return null;
-        const profile = await ctx.db
-          .query("profiles")
-          .withIndex("by_owner", (q) => q.eq("ownerId", claim.granteeId))
-          .unique();
-        return {
-          granteeId: claim.granteeId,
-          role,
-          name: profile?.name ?? null,
-          email: profile?.email ?? null,
-          imageUrl: profile?.imageUrl ?? null,
-        };
+        return { granteeId: claim.granteeId, role, ...(await personOf(ctx, claim.granteeId)) };
       }),
     );
     return people.filter((person) => person !== null);
@@ -226,18 +216,15 @@ export const collaborators = query({
 
 /** Who is asking, as the owner's toast draws them. */
 async function requesterCard(ctx: QueryCtx, request: Doc<"accessRequests">) {
-  const profile = await ctx.db
-    .query("profiles")
-    .withIndex("by_owner", (q) => q.eq("ownerId", request.requesterId))
-    .unique();
-  const project = await ctx.db.get(request.projectId);
+  const [person, project] = await Promise.all([
+    personOf(ctx, request.requesterId),
+    ctx.db.get(request.projectId),
+  ]);
   return {
     requestId: request._id,
     projectId: request.projectId,
     projectTitle: project?.title ?? "",
-    name: profile?.name ?? null,
-    email: profile?.email ?? null,
-    imageUrl: profile?.imageUrl ?? null,
+    ...person,
     createdAt: request.createdAt,
   };
 }

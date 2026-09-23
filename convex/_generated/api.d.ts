@@ -59,6 +59,7 @@ import type * as github_repos from "../github/repos.js";
 import type * as github_rest from "../github/rest.js";
 import type * as github_seal from "../github/seal.js";
 import type * as http from "../http.js";
+import type * as identity from "../identity.js";
 import type * as imageMeta from "../imageMeta.js";
 import type * as impersonation from "../impersonation.js";
 import type * as impersonationMint from "../impersonationMint.js";
@@ -156,6 +157,7 @@ declare const fullApi: ApiFromModules<{
   "github/rest": typeof github_rest;
   "github/seal": typeof github_seal;
   http: typeof http;
+  identity: typeof identity;
   imageMeta: typeof imageMeta;
   impersonation: typeof impersonation;
   impersonationMint: typeof impersonationMint;

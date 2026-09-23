@@ -281,12 +281,23 @@ export function mayAssignSeat(
 /**
  * The caller's email address, lowercased, when their sign-in vouches for it.
  * This is what an invitation is bound to and what proves a join domain, so an
- * identity that says its address is unverified has none.
+ * address the token calls unverified is no answer.
+ *
+ * The token speaks first, when it carries the claim at all. A session token
+ * with no email in it — Clerk's default — falls back to what `identity.sync`
+ * last confirmed with Clerk itself, which the client has no way to write.
  */
-export async function verifiedEmail(ctx: { auth: Auth }): Promise<string | null> {
+export async function verifiedEmail(ctx: QueryCtx): Promise<string | null> {
   const identity = await ctx.auth.getUserIdentity();
-  if (!identity?.email || identity.emailVerified === false) return null;
-  return identity.email.trim().toLowerCase();
+  if (!identity) return null;
+  if (identity.email && identity.emailVerified !== false) {
+    return identity.email.trim().toLowerCase();
+  }
+  const stamped = await ctx.db
+    .query("identities")
+    .withIndex("by_owner", (q) => q.eq("ownerId", identity.subject))
+    .unique();
+  return stamped?.verifiedEmail ?? null;
 }
 
 export function domainOf(email: string): string {

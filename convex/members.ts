@@ -18,7 +18,7 @@ import {
 } from "./auth";
 import { unlinkRepo } from "./github/repos";
 import { unlinkPage } from "./notion/context";
-import { ensureArrivalProfile } from "./profiles";
+import { ensureArrivalProfile, personOf } from "./profiles";
 import { invitedRole, memberRole } from "./schema";
 
 /**
@@ -33,13 +33,6 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** The people list's order: owners first, guests last. */
 const LISTED: WorkspaceRole[] = ["owner", "admin", "member", "guest"];
-
-async function profileOf(ctx: QueryCtx, userId: string) {
-  return await ctx.db
-    .query("profiles")
-    .withIndex("by_owner", (q) => q.eq("ownerId", userId))
-    .unique();
-}
 
 /** Someone's row in a workspace whatever its status — the one row per person. */
 async function seatOf(ctx: QueryCtx, workspaceId: Id<"workspaces">, userId: string) {
@@ -258,14 +251,12 @@ export const list = query({
       .collect();
     const members = await Promise.all(
       seats.map(async (seat) => {
-        const profile = await profileOf(ctx, seat.userId);
+        const person = await personOf(ctx, seat.userId);
         return {
           userId: seat.userId,
           role: seat.role,
           joinedAt: seat.joinedAt,
-          name: profile?.name ?? null,
-          email: profile?.email ?? null,
-          imageUrl: profile?.imageUrl ?? null,
+          ...person,
           isMe: seat.userId === me,
         };
       }),
@@ -333,7 +324,7 @@ export const invite = mutation({
       )
       .collect();
     for (const seat of seats) {
-      if ((await profileOf(ctx, seat.userId))?.email?.toLowerCase() === email) {
+      if ((await personOf(ctx, seat.userId)).email?.toLowerCase() === email) {
         throw new ConvexError(`${email} is already in ${workspace.name}.`);
       }
     }
@@ -427,13 +418,13 @@ export const invitation = query({
               : invitation.expiresAt <= Date.now()
                 ? ("expired" as const)
                 : ("valid" as const);
-    const inviter = await profileOf(ctx, invitation.invitedBy);
+    const inviter = await personOf(ctx, invitation.invitedBy);
     return {
       state,
       email: invitation.email,
       role: role ?? invitation.role,
       workspaceName: workspace.name,
-      inviterName: inviter?.name ?? inviter?.email ?? null,
+      inviterName: inviter.name ?? inviter.email,
       // Where to go once in: only for someone who is.
       slug:
         state === "accepted" && (await workspaceRole(ctx, workspace._id))

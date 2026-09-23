@@ -376,8 +376,9 @@ export default defineSchema({
   profiles: defineTable({
     ownerId: v.string(),
     /**
-     * Stamped from the verified Clerk identity once per session — never from
-     * the client — so the operator dashboard can put a face to an id.
+     * Copied from `identities` by `identity.sync` — never from the client —
+     * so the operator dashboard can put a face to an id. People lists read
+     * `profiles.personOf`, which prefers the source.
      */
     email: v.optional(v.string()),
     name: v.optional(v.string()),
@@ -416,6 +417,25 @@ export default defineSchema({
     ),
     createdAt: v.number(),
     completedAt: v.optional(v.number()),
+  }).index("by_owner", ["ownerId"]),
+
+  /**
+   * What the sign-in provider vouches for about an account, written only by
+   * `identity.sync` — from the session token when it carries the claims, or
+   * else from Clerk's Backend API — and never from anything a client sends.
+   *
+   * Beside `profiles` rather than on it, because a profile row's absence is
+   * first run's signal and nothing may create one speculatively, while an
+   * invitation's very first visit has to confirm an address before any
+   * profile exists.
+   */
+  identities: defineTable({
+    ownerId: v.string(),
+    /** Lowercased. Only ever a primary address the provider marks verified. */
+    verifiedEmail: v.optional(v.string()),
+    verifiedEmailAt: v.optional(v.number()),
+    name: v.optional(v.string()),
+    imageUrl: v.optional(v.string()),
   }).index("by_owner", ["ownerId"]),
 
   /**

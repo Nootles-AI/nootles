@@ -22,6 +22,7 @@ import { attachFile, contextFileRef } from "./files/context";
 import { add as addRepos } from "./github/repos";
 import { linkPages, notionPageRef } from "./notion/context";
 import { deletePreview } from "./previews";
+import { personOf } from "./profiles";
 import { repoRef } from "./schema";
 
 /**
@@ -217,18 +218,15 @@ export const sharedWithMe = query({
         // already listed under "mine", so here it would only duplicate it
         // under a role label that lies.
         if (!role || role === "owner") return null;
-        const [summary, ownerProfile] = await Promise.all([
+        const [summary, owner] = await Promise.all([
           pageSummary(ctx, project),
-          ctx.db
-            .query("profiles")
-            .withIndex("by_owner", (q) => q.eq("ownerId", project.ownerId))
-            .unique(),
+          personOf(ctx, project.ownerId),
         ]);
         return {
           _id: project._id,
           title: project.title,
           role,
-          ownerName: ownerProfile?.name ?? ownerProfile?.email ?? null,
+          ownerName: owner.name ?? owner.email,
           ...summary,
         };
       }),
