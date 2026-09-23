@@ -173,3 +173,54 @@ body:has(.nt-fixed) .nt-asks {
   left: auto;
   right: 0;
 }
+
+/* ---- Who has access, in the share popover -------------------------------
+   A person's ⋯ takes the seat of what they hold rather than one of its own,
+   so every role in the list ends on the popover's edge, like the workspace's
+   row above it. Where nothing hovers, the ⋯ is always there, beside it. */
+
+.nt-share-hold {
+  display: grid;
+  flex: none;
+  align-items: center;
+  justify-items: end;
+}
+.nt-share-hold > * {
+  grid-area: 1 / 1;
+}
+.nt-share-hold-text {
+  transition: opacity var(--dur-fast) var(--ease);
+}
+.nt-share-people > li:hover .nt-share-hold-text,
+.nt-share-people > li:focus-within .nt-share-hold-text,
+.nt-share-hold:has([aria-expanded="true"]) .nt-share-hold-text {
+  opacity: 0;
+}
+@media (hover: none) {
+  .nt-share-hold {
+    display: flex;
+    gap: 8px;
+  }
+  .nt-share-people > li .nt-share-hold > .nt-share-hold-text {
+    opacity: 1;
+  }
+}
+
+/* Someone whose access was taken away fades, then their row closes up, so
+   the list shortens rather than snapping when the server agrees. */
+.nt-share-people > li {
+  transition:
+    opacity 220ms var(--ease),
+    transform 220ms cubic-bezier(0.7, 0, 0.84, 0),
+    height var(--dur) var(--ease) 140ms;
+}
+.nt-share-people > li.is-leaving {
+  height: 0;
+  overflow: hidden;
+}
+@media (prefers-reduced-motion: reduce) {
+  .nt-share-people > li,
+  .nt-share-hold-text {
+    transition: none;
+  }
+}
