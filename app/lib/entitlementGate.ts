@@ -1,6 +1,6 @@
 import { api } from "@/convex/_generated/api";
 import type { Meter, RefusedMeter, Standing } from "@/convex/entitlements";
-import { utcDay } from "@/convex/plans";
+import { guestDaySpent } from "@/convex/plans";
 import { asUser } from "./convexServer";
 
 /**
@@ -129,11 +129,7 @@ export async function refuseIfSpent(
   if (!meter && !projectId) return null;
   const standing = await standingFor(token, projectId).catch(() => null);
   if (!standing) return null;
-  const guest = standing.guestAi;
-  // A day counted before midnight says nothing about the day after it.
-  if (guest && guest.day === utcDay(Date.now()) && guest.spentUsd >= guest.capUsd) {
-    return quotaResponse("guestAi");
-  }
+  if (guestDaySpent(standing.guestAi, Date.now())) return quotaResponse("guestAi");
   const left = standing.entitlement.left;
   return meter && left && left[meter] <= 0 ? quotaResponse(meter) : null;
 }
