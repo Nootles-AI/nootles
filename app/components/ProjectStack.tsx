@@ -73,20 +73,30 @@ function InItsHome({ projectId, children }: { projectId: string; children: React
   }, [elsewhere, router]);
 
   if (elsewhere) return <div className="flex-1" aria-busy="true" />;
-  if (home === null) return <NoAccess />;
+  if (home === null) return <NoAccess projectId={projectId} />;
   return <>{children}</>;
 }
 
-function NoAccess() {
+/**
+ * Said in place of a project the caller cannot open. Links a workspace has
+ * paused are the one way out that passes on its own — nothing to ask anyone
+ * for — so that is said by name; every other way is said the same.
+ */
+function NoAccess({ projectId }: { projectId: string }) {
+  const paused = useQuery(api.projects.pausedBy, { projectId });
+  if (paused === undefined) return <div className="flex-1" aria-busy="true" />;
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 py-16 text-center">
       <Link href="/" aria-label="Nootles" className="mb-4">
         <Wordmark className="text-muted" />
       </Link>
-      <p className="text-sm font-medium">You don’t have access to this project</p>
-      <p className="max-w-xs text-sm text-muted">
-        Whoever shared it may have removed you or turned off its link, or it
-        may have been deleted. Ask them to share it again.
+      <p className="text-sm font-medium">
+        {paused ? "Sharing is paused" : "You don’t have access to this project"}
+      </p>
+      <p className="max-w-xs text-pretty text-sm text-muted">
+        {paused
+          ? `${paused} has turned off share links for now. You’ll get back in when they’re turned on again.`
+          : "It may have been deleted, or the person who shared it removed you or turned off the link. Ask them for a new link."}
       </p>
       <Link href="/" className="nt-row mt-2 px-2.5">
         Back to your projects

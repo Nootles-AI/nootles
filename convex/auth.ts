@@ -460,6 +460,28 @@ export async function linksOpen(ctx: QueryCtx, project: Doc<"projects">): Promis
   return !!workspace && workspace.deletedAt === undefined && workspace.settings.linkSharing;
 }
 
+/**
+ * The workspace whose paused share links are all that keep the caller out of
+ * a project: they hold a claim that would admit them again the moment its
+ * admins turn links back on. Null for anyone kept out by anything else. It
+ * tells them nothing they did not hold already, since the claim is theirs.
+ */
+export async function pausedFor(
+  ctx: QueryCtx,
+  project: Doc<"projects">,
+): Promise<Doc<"workspaces"> | null> {
+  if (!project.workspaceId || isTrashed(project)) return null;
+  const me = await ownerId(ctx);
+  if (!me || (await containerRole(ctx, project, me))) return null;
+  const claim = await claimOf(ctx, project._id, me);
+  if (!claim || !claimRole(project, claim, Date.now())) return null;
+  const workspace = await ctx.db.get(project.workspaceId);
+  if (!workspace || workspace.deletedAt !== undefined || workspace.settings.linkSharing) {
+    return null;
+  }
+  return workspace;
+}
+
 /** The role a project's container gives someone, before any share link is asked. */
 export async function containerRole(
   ctx: QueryCtx,
