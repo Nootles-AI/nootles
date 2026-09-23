@@ -827,6 +827,76 @@ describe("changing a role", () => {
     await setRole(t, ADMIN, w, MEMBER, "member");
     expect(await seatOf(t, w.workspaceId, MEMBER)).toMatchObject({ role: "member" });
   });
+
+  describe("takes back the invitations the old rank sent", () => {
+    /** Someone off the domain an owner might ask in — say, an account of their own. */
+    const ALT = { subject: "user_alt", email: "alt@elsewhere.org" };
+    const send = (t: T, who: Identity, w: World, email: string, role: "admin" | "member" | "guest") =>
+      t.withIdentity(who).mutation(api.members.invite, { workspaceId: w.workspaceId, email, role });
+    const open = async (t: T, w: World) =>
+      (await t.withIdentity(ADMIN).query(api.members.list, { workspaceId: w.workspaceId }))!
+        .invitations.map((i) => [i.email, i.role])
+        .sort();
+
+    test("so an owner demoted before an admin's invitation is answered seats no admin", async () => {
+      const t = harness();
+      const w = await world(t);
+      await setRole(t, OWNER, w, ADMIN, "owner");
+      const { token } = await send(t, OWNER, w, ALT.email, "admin");
+      const alt = t.withIdentity(ALT);
+      expect(await alt.query(api.members.invitation, { token })).toMatchObject({
+        state: "valid",
+        role: "admin",
+      });
+      expect(await alt.query(api.members.joinable, {})).toMatchObject([
+        { role: "admin", via: "invitation", token },
+      ]);
+
+      await setRole(t, ADMIN, w, OWNER, "member");
+
+      expect(await alt.query(api.members.invitation, { token })).toMatchObject({
+        state: "revoked",
+      });
+      expect(await alt.query(api.members.joinable, {})).toEqual([]);
+      await expect(alt.mutation(api.members.acceptInvite, { token })).rejects.toThrow(
+        "This invitation was withdrawn.",
+      );
+      expect(await seatOf(t, w.workspaceId, ALT)).toBeNull();
+      // Given the rank back, they are given none of what it sent.
+      await setRole(t, ADMIN, w, OWNER, "owner");
+      await expect(alt.mutation(api.members.acceptInvite, { token })).rejects.toThrow(
+        "This invitation was withdrawn.",
+      );
+    });
+
+    test("and only those: each step down takes what the rank below could not send", async () => {
+      const t = harness();
+      const w = await world(t);
+      await send(t, ADMIN, w, "ari@acme.com", "member");
+      // A promotion takes nothing back.
+      await setRole(t, OWNER, w, ADMIN, "owner");
+      await send(t, OWNER, w, ALT.email, "admin");
+      await send(t, OWNER, w, "mo@acme.com", "member");
+      await send(t, OWNER, w, "gia@partner.io", "guest");
+      expect(await open(t, w)).toEqual([
+        [ALT.email, "admin"],
+        ["ari@acme.com", "member"],
+        ["gia@partner.io", "guest"],
+        ["mo@acme.com", "member"],
+      ]);
+
+      await setRole(t, ADMIN, w, OWNER, "admin");
+      expect(await open(t, w)).toEqual([
+        ["ari@acme.com", "member"],
+        ["gia@partner.io", "guest"],
+        ["mo@acme.com", "member"],
+      ]);
+
+      // A member invites no one; what someone else sent is theirs.
+      await setRole(t, ADMIN, w, OWNER, "member");
+      expect(await open(t, w)).toEqual([["ari@acme.com", "member"]]);
+    });
+  });
 });
 
 describe("taking a seat away", () => {

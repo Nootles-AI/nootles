@@ -192,14 +192,30 @@ async function unseat(
     if (await inWorkspace(request.projectId)) await ctx.db.delete(request._id);
   }
 
+  await withdrawSent(ctx, workspaceId, userId, null);
+}
+
+/**
+ * Withdraws the open invitations someone sent that a seat of rank `role`
+ * could not send — every one, once they hold no seat. An invitation speaks
+ * with its sender's authority only while they still have it: kept past a
+ * demotion, it would go on handing out the rank the demotion took away.
+ */
+async function withdrawSent(
+  ctx: MutationCtx,
+  workspaceId: Id<"workspaces">,
+  userId: string,
+  role: WorkspaceRole | null,
+) {
   const invitations = await ctx.db
     .query("invitations")
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
     .collect();
+  const now = Date.now();
   for (const invitation of invitations) {
-    if (invitation.invitedBy === userId && pending(invitation)) {
-      await ctx.db.patch(invitation._id, { revokedAt: now });
-    }
+    if (invitation.invitedBy !== userId || !pending(invitation)) continue;
+    if (role && mayAssignSeat(role, null, invitation.role)) continue;
+    await ctx.db.patch(invitation._id, { revokedAt: now });
   }
 }
 
@@ -532,7 +548,9 @@ export const joinByDomain = mutation({
 /**
  * Changes someone's role. Admins move people between member and guest;
  * making or unmaking an admin or an owner is an owner's. A workspace always
- * keeps an owner: an owner can step down only once there is another.
+ * keeps an owner: an owner can step down only once there is another. The
+ * invitations they sent that their new rank could not send go with the old
+ * one.
  */
 export const setRole = mutation({
   args: { workspaceId: v.id("workspaces"), userId: v.string(), role: memberRole },
@@ -552,6 +570,7 @@ export const setRole = mutation({
       throw new ConvexError("A workspace needs an owner. Make someone else an owner first.");
     }
     await ctx.db.patch(target._id, { role: args.role });
+    await withdrawSent(ctx, args.workspaceId, target.userId, args.role);
     return null;
   },
 });
