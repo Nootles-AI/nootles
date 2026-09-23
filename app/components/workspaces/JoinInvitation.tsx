@@ -9,7 +9,7 @@ import { api } from "@/convex/_generated/api";
 import { homePath } from "@/app/lib/containerPaths";
 import { rememberWorkspace } from "@/app/lib/projectsCache";
 import { Wordmark } from "../Brand";
-import { useConfirmedEmail } from "../IdentitySync";
+import { useConfirmedEmail, useIdentityCheck } from "../IdentitySync";
 import { Mail } from "../Icons";
 import { initial } from "./people";
 import { refusal } from "./refusal";
@@ -26,7 +26,8 @@ const an = (role: string) => (role === "admin" ? "an admin" : `a ${role}`);
  * for, in outline — so that state offers the one useful move, signing out to
  * come back as the right account, with this page as the way back. A sign-in
  * that told Nootles no address at all is not called the wrong account: it
- * may be the right one, so it is asked to sign in again instead.
+ * may be the right one, so it is asked to sign in again instead — or, when
+ * the check itself went unanswered, simply to try it again.
  */
 export function JoinInvitation({ token }: { token: string }) {
   const router = useRouter();
@@ -35,6 +36,7 @@ export function JoinInvitation({ token }: { token: string }) {
   const { signOut } = useClerk();
   const live = useQuery(api.members.invitation, { token });
   const confirmed = useConfirmedEmail();
+  const { answered, checking, recheck } = useIdentityCheck();
   // On a first visit the server is still confirming the address with Clerk,
   // and until it has, "no address" and "someone else's" are not yet answers.
   // An address it did confirm is waited on until the query has caught up.
@@ -80,27 +82,46 @@ export function JoinInvitation({ token }: { token: string }) {
 
   let card: ReactNode = null;
   if (invitation?.state === "unconfirmed") {
+    const tryAgain = (
+      <button
+        type="button"
+        onClick={recheck}
+        disabled={checking}
+        className={`nt-row px-3 font-medium${answered ? "" : " nt-solid"}`}
+      >
+        {checking ? "Checking…" : "Try again"}
+      </button>
+    );
+    const signInAgain = (
+      <button
+        type="button"
+        onClick={switchAccount}
+        className={`nt-row px-3 font-medium${answered ? " nt-solid" : ""}`}
+      >
+        Sign in again
+      </button>
+    );
     card = (
       <Card
-        title="We couldn’t confirm your email address"
+        title={
+          answered
+            ? "We couldn’t confirm your email address"
+            : "We couldn’t check your email address"
+        }
         tile={<Envelope />}
         actions={
           <>
-            <button
-              type="button"
-              onClick={switchAccount}
-              className="nt-row nt-solid px-3 font-medium"
-            >
-              Sign in again
-            </button>
+            {answered ? signInAgain : tryAgain}
+            {answered ? tryAgain : signInAgain}
             <Link href="/" className="nt-row px-2.5">
               Not now
             </Link>
           </>
         }
       >
-        This invitation opens only for the address it was sent to, and your sign-in didn’t
-        tell us yours. Signing in again brings you back here.
+        {answered
+          ? "This invitation opens only for the address it was sent to, and your sign-in didn’t tell us yours. Signing in again brings you back here."
+          : "This invitation opens only for the address it was sent to, and we couldn’t reach our sign-in service to check yours just now. Try again in a moment."}
       </Card>
     );
   } else if (invitation === null) {
