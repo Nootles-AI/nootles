@@ -38,11 +38,10 @@ export const tree = action({
     const { ownerId, repo } = await permitted(ctx, args.projectId, args.repo);
     const path = clean(args.path);
     return await withToken(ctx, ownerId, async (token) => {
-      const found = await json<Entry[] | Entry>(
-        token,
-        `/repos/${repo.fullName}/contents/${path}`,
-        { query: { ref: args.ref }, allowMissing: true },
-      );
+      const found = await json<Entry[] | Entry>(token, contents(repo, path), {
+        query: { ref: args.ref },
+        allowMissing: true,
+      });
       if (!found) return { repo: repo.fullName, path, missing: true as const };
       // GitHub answers a file path with the file, not with a one-item listing.
       if (!Array.isArray(found)) {
@@ -81,7 +80,7 @@ export const file = action({
     const path = clean(args.path);
     if (!path) throw new ConvexError("A file path is required.");
     return await withToken(ctx, ownerId, async (token) => {
-      const body = await text(token, `/repos/${repo.fullName}/contents/${path}`, {
+      const body = await text(token, contents(repo, path), {
         query: { ref: args.ref },
         allowMissing: true,
       });
@@ -124,7 +123,7 @@ export const nodeFile = action({
     if (!found) throw new ConvexError("That file is not in this project's context.");
     const { repo, path } = found;
     return await withToken(ctx, repo.ownerId, async (token) => {
-      const body = await text(token, `/repos/${repo.fullName}/contents/${path}`, {
+      const body = await text(token, contents(repo, path), {
         query: { ref: repo.defaultBranch },
         allowMissing: true,
       });
@@ -148,12 +147,16 @@ type NodeFile =
   | { repo: string; path: string; binary: true }
   | { repo: string; path: string; url: string | null; content: string; truncated?: string };
 
+/** A qualifier that widens a code search beyond the repositories it names. */
+const SCOPE_QUALIFIER = /\b(?:repo|org|user):/i;
+
 /**
  * GitHub's code search, confined to this project's repositories.
  *
  * The `repo:` qualifiers are not a filter applied afterwards — they are what
  * stops the query reaching across every repository the token can see, which for
- * an organisation token is the entire organisation.
+ * an organisation token is the entire organisation. So the query may not bring
+ * qualifiers of its own: GitHub reads a second `repo:` as "or that one too".
  */
 export const search = action({
   args: {
@@ -163,6 +166,12 @@ export const search = action({
   },
   handler: async (ctx, args) => {
     await requireOwner(ctx);
+    if (SCOPE_QUALIFIER.test(args.query)) {
+      throw new ConvexError(
+        "Search already covers only this project's repositories. Leave out repo:, " +
+          "org: and user:, and name one repository to search just that one.",
+      );
+    }
     const repos: Doc<"projectRepos">[] = await ctx.runQuery(
       internal.github.repos.access,
       { projectId: args.projectId, ...(args.repo ? { fullName: args.repo } : {}) },
@@ -174,8 +183,8 @@ export const search = action({
     const byLinker = new Map<string, Doc<"projectRepos">[]>();
     for (const r of repos) byLinker.set(r.ownerId, [...(byLinker.get(r.ownerId) ?? []), r]);
     const found = await Promise.all(
-      [...byLinker].map(([linker, linked]) =>
-        withToken(ctx, linker, (token) =>
+      [...byLinker].map(async ([linker, linked]) => {
+        const answer = await withToken(ctx, linker, (token) =>
           json<{ total_count: number; items: Hit[] }>(token, "/search/code", {
             accept: "application/vnd.github.text-match+json",
             query: {
@@ -183,16 +192,25 @@ export const search = action({
               per_page: RESULTS,
             },
           }),
-        ),
-      ),
+        );
+        // Whatever reached past the linked repositories is someone else's
+        // code, and so is the count that includes it.
+        const names = new Set(linked.map((r) => r.fullName.toLowerCase()));
+        const items = answer?.items ?? [];
+        const hits = items.filter((hit) => names.has(hit.repository.full_name.toLowerCase()));
+        return {
+          hits,
+          total: hits.length === items.length ? (answer?.total_count ?? 0) : hits.length,
+        };
+      }),
     );
     return {
-      total: found.reduce((sum, f) => sum + (f?.total_count ?? 0), 0),
+      total: found.reduce((sum, f) => sum + f.total, 0),
       // Search only ever covers the default branch — worth saying, because a
       // model that finds nothing should not conclude the code isn't there.
       searched: repos.map((r) => `${r.fullName}@${r.defaultBranch}`),
       results: found
-        .flatMap((f) => f?.items ?? [])
+        .flatMap((f) => f.hits)
         .slice(0, RESULTS)
         .map((hit) => ({
           repo: hit.repository.full_name,
@@ -232,8 +250,37 @@ const unlinked = (fullName?: string) =>
       "repositories listed in the project's context can be read."
     : "This project has no linked repositories.";
 
-/** Leading and trailing slashes are how a model writes a path; GitHub is not. */
-const clean = (path?: string) => (path ?? "").trim().replace(/^\/+|\/+$/g, "");
+/**
+ * A path inside the repository, or a refusal. Leading and trailing slashes
+ * are how a model writes a path; GitHub is not. A `.` or `..` segment is how
+ * one leaves the repository — `new URL` resolves them, and the linker's token
+ * would go wherever they point — so neither is a name, spelled out or
+ * percent-encoded.
+ */
+function clean(path?: string): string {
+  const trimmed = (path ?? "").trim().replace(/^\/+|\/+$/g, "");
+  if (trimmed && trimmed.split("/").some((segment) => !segment || isDots(segment))) {
+    throw new ConvexError(`"${path}" is not a path inside the repository.`);
+  }
+  return trimmed;
+}
+
+function isDots(segment: string): boolean {
+  let decoded = segment;
+  try {
+    decoded = decodeURIComponent(segment);
+  } catch {
+    // Not percent-encoding at all: a name with a `%` in it.
+  }
+  return [segment, decoded].some((name) => name === "." || name === "..");
+}
+
+/**
+ * Where GitHub keeps a path's contents. Each segment is sent as the literal
+ * name a listing gives, so a `?`, `#` or `%` in a filename stays part of it.
+ */
+const contents = (repo: Doc<"projectRepos">, path: string) =>
+  `/repos/${repo.fullName}/contents/${path.split("/").map(encodeURIComponent).join("/")}`;
 
 type Entry = { path: string; type: string; size?: number };
 type Hit = {

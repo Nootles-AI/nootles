@@ -295,6 +295,7 @@ describe("the role a seat gives", () => {
     expect(
       await t.withIdentity(ADMIN).query(api.projects.myRole, { projectId: w.binned.projectId }),
     ).toBeNull();
+
   });
 });
 
@@ -590,7 +591,7 @@ describe("the repository tools", () => {
   const KEY = btoa(String.fromCharCode(...new Uint8Array(32).fill(7)));
 
   /** GitHub, played by a recorder: who asked, with which token, for what. */
-  function github() {
+  function github(searched: { total_count: number; items: unknown[] } = { total_count: 1, items: [] }) {
     const asked: { url: string; token: string | null }[] = [];
     vi.stubGlobal(
       "fetch",
@@ -598,7 +599,7 @@ describe("the repository tools", () => {
         const token = new Headers(init?.headers).get("Authorization");
         asked.push({ url: String(url), token });
         return String(url).includes("/search/code")
-          ? Response.json({ total_count: 1, items: [] })
+          ? Response.json(searched)
           : new Response("export const ok = true;", { status: 200 });
       }),
     );
@@ -670,6 +671,79 @@ describe("the repository tools", () => {
       ["watchdog repo:acme/api", "Bearer creator-token"],
       ["watchdog repo:acme/web", "Bearer admin-token"],
     ]);
+  });
+
+  test("a path never leads out of the repository it names", async () => {
+    vi.stubEnv("GITHUB_TOKEN_KEY", KEY);
+    const t = harness();
+    const w = await world(t);
+    await connect(t, CREATOR, "creator-token");
+    const asked = github();
+    const member = t.withIdentity(MEMBER);
+    const at = (path: string) => ({ projectId: w.open.projectId, repo: "acme/api", path });
+
+    for (const path of [
+      "../../../victim/secret/contents/.env",
+      "../../../../user/emails",
+      "%2e%2e/%2e%2e/%2e%2e/%2e%2e/user/emails",
+      "src/../../../../user",
+      "src/./index.ts",
+      "src//index.ts",
+    ]) {
+      await expect(member.action(api.github.read.file, at(path))).rejects.toThrow(
+        "is not a path inside the repository",
+      );
+      await expect(member.action(api.github.read.tree, at(path))).rejects.toThrow(
+        "is not a path inside the repository",
+      );
+    }
+    expect(asked).toEqual([]);
+
+    // Whatever else a name holds is sent as part of the name.
+    for (const path of ["/docs/a b#c?.md/", "docs/100%.md", "docs\\..\\..\\user"]) {
+      await member.action(api.github.read.file, { ...at(path), ref: "main" });
+    }
+    expect(asked.map((a) => a.url)).toEqual([
+      "https://api.github.com/repos/acme/api/contents/docs/a%20b%23c%3F.md?ref=main",
+      "https://api.github.com/repos/acme/api/contents/docs/100%25.md?ref=main",
+      "https://api.github.com/repos/acme/api/contents/docs%5C..%5C..%5Cuser?ref=main",
+    ]);
+  });
+
+  test("a search brings no scope of its own, and keeps nothing past the linked repositories", async () => {
+    vi.stubEnv("GITHUB_TOKEN_KEY", KEY);
+    const t = harness();
+    const w = await world(t);
+    await connect(t, CREATOR, "creator-token");
+    const hit = (repo: string, path: string) => ({
+      path,
+      repository: { full_name: repo },
+      text_matches: [{ fragment: `password in ${repo}` }],
+    });
+    const asked = github({
+      total_count: 40,
+      items: [hit("Acme/API", "src/db.ts"), hit("victim/infra", ".env")],
+    });
+    const member = t.withIdentity(MEMBER);
+    const search = (query: string) =>
+      member.action(api.github.read.search, { projectId: w.open.projectId, query });
+
+    for (const query of [
+      "password repo:victim/infra",
+      "password org:victim",
+      "password -user:someone",
+      "password (REPO:victim/infra)",
+    ]) {
+      await expect(search(query)).rejects.toThrow("Leave out repo:, org: and user:");
+    }
+    expect(asked).toEqual([]);
+
+    // However a search reached past its qualifiers, nothing it found there —
+    // not a fragment, not the count — comes back.
+    expect(await search("password")).toMatchObject({
+      total: 1,
+      results: [{ repo: "Acme/API", path: "src/db.ts", matches: ["password in Acme/API"] }],
+    });
   });
 
   test("anyone who cannot edit the project is told it is not linked", async () => {
