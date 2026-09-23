@@ -432,6 +432,60 @@ describe("a link that runs out", () => {
   });
 });
 
+describe("a project row", () => {
+  const LINK_FIELDS = ["shareToken", "editShareToken", "shareExpiresAt", "editShareExpiresAt"];
+
+  test("never carries its links, whoever reads it and wherever it is listed", async () => {
+    const t = harness();
+    const w = await world(t);
+    await t.run(async (ctx) => {
+      for (const { projectId } of [w.team, w.personal]) {
+        await ctx.db.patch(projectId, { shareExpiresAt: T0 + DAY, editShareExpiresAt: T0 + DAY });
+      }
+    });
+    await claimed(t, w.personal.projectId, STRANGER, { role: "editor" });
+    await claimed(t, w.team.projectId, GUEST);
+
+    const rows: object[] = [];
+    for (const [who, projectId] of [
+      [OWNER, w.personal.projectId],
+      [STRANGER, w.personal.projectId],
+      [ADMIN, w.team.projectId],
+      [MEMBER, w.team.projectId],
+      [GUEST, w.team.projectId],
+    ] as const) {
+      const row = await t.withIdentity(who).query(api.projects.get, { projectId });
+      expect(row?._id).toBe(projectId);
+      rows.push(row!);
+    }
+    rows.push(...(await t.withIdentity(OWNER).query(api.projects.list, {})));
+    rows.push(...(await t.withIdentity(OWNER).query(api.projects.listForScreen, {})));
+    rows.push(
+      ...(await t.withIdentity(ADMIN).query(api.workspaces.projectsFor, {
+        workspaceId: w.workspaceId,
+      })),
+    );
+    expect(rows).toHaveLength(8);
+    for (const row of rows) {
+      for (const field of LINK_FIELDS) expect(row).not.toHaveProperty(field);
+    }
+
+    // The links themselves are the managers' to read, and theirs alone.
+    expect(
+      await t.withIdentity(OWNER).query(api.share.links, { projectId: w.personal.projectId }),
+    ).toMatchObject({ viewer: "p-view", editor: "p-edit" });
+    for (const [who, projectId] of [
+      [STRANGER, w.personal.projectId],
+      [MEMBER, w.team.projectId],
+      [GUEST, w.team.projectId],
+    ] as const) {
+      await expect(t.withIdentity(who).query(api.share.links, { projectId })).rejects.toThrow(
+        "Not found",
+      );
+    }
+  });
+});
+
 describe("taking one person's access away", () => {
   test("removes them, and what they asked for, and nobody else", async () => {
     const t = harness();
