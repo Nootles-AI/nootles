@@ -204,7 +204,7 @@ function Loading({ invites }: { invites: boolean }) {
 }
 
 /** A bar in the line box of the 13px text it stands for. */
-function Bone({ bar, className = "" }: { bar: string; className?: string }) {
+export function Bone({ bar, className = "" }: { bar: string; className?: string }) {
   return (
     <div className={`nt-ws-bone flex h-[19.5px] items-center ${className}`}>
       <div className={`nt-skeleton ${bar}`} />
