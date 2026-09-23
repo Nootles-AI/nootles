@@ -6,6 +6,7 @@ import {
   NML_LIMITS,
   NML_MARKS,
   nmlDocumentSchema,
+  nmlProfileViolations,
   type NmlBlock,
   type NmlDocument,
   type NmlInlineContent,
@@ -457,13 +458,18 @@ function blockToY(block: NmlBlock): Y.Map<unknown> {
   return map;
 }
 
+/** Block types whose body is collaborative inline content. */
+const INLINE_BLOCK_TYPES: readonly string[] = [
+  "paragraph", "quote", "heading", "bulletListItem", "numberedListItem", "checkListItem", "toggleListItem", "comment",
+];
+
 function blockFromY(value: unknown, path: Array<string | number>): unknown {
   const map = expectMap(value, path);
   const type = expectString(map.get("type"), [...path, "type"]);
   const domainKeys = type === "table" ? ["columns", "rows"] :
     type === "codeBlock" ? ["code"] : type === "mathBlock" ? ["rows"] :
     type === "canvas" ? ["scene"] : ["album", "storyboard", "location"].includes(type) ? ["domain", "legacyMarkup"] :
-    ["paragraph", "quote", "heading", "bulletListItem", "numberedListItem", "checkListItem", "toggleListItem"].includes(type) ? ["content"] : [];
+    INLINE_BLOCK_TYPES.includes(type) ? ["content"] : [];
   assertKeys(map, ["id", "type", "props", "children", ...domainKeys], path);
   const base: JsonObject = {
     id: expectString(map.get("id"), [...path, "id"]),
@@ -471,7 +477,7 @@ function blockFromY(value: unknown, path: Array<string | number>): unknown {
     props: plainValue(expectMap(map.get("props"), [...path, "props"])),
     children: expectArray(map.get("children"), [...path, "children"]).toArray().map((child, index) => blockFromY(child, [...path, "children", index])),
   };
-  if (["paragraph", "quote", "heading", "bulletListItem", "numberedListItem", "checkListItem", "toggleListItem"].includes(type)) {
+  if (INLINE_BLOCK_TYPES.includes(type)) {
     base.content = inlineFromY(map.get("content"), [...path, "content"]);
   } else if (type === "table") {
     const columns = plainValue(expectArray(map.get("columns"), [...path, "columns"])) as Array<{ id?: unknown }>;
@@ -568,12 +574,14 @@ export function createNmlYDoc(document: NmlDocument, origin?: NmlTransactionOrig
 
 export function writeNmlDocument(doc: Y.Doc, document: NmlDocument, origin?: NmlTransactionOrigin): void {
   const normalized = normalizeDocument(nmlDocumentSchema.parse(document));
+  if (nmlProfileViolations(normalized).length) throw new Error("Blocks do not fit the document's kind.");
   const root = doc.getMap<unknown>(NML_YJS_ROOT);
   if (root.size > 0) throw new Error("Canonical NML root already exists; mutate it through the semantic executor.");
   doc.transact(() => {
     root.set("encodingVersion", NML_YJS_ENCODING_VERSION);
     root.set("schemaVersion", normalized.schemaVersion);
     root.set("documentId", normalized.documentId);
+    if (normalized.kind) root.set("kind", normalized.kind);
     const blocks = new Y.Array<Y.Map<unknown>>();
     blocks.insert(0, normalized.blocks.map(blockToY));
     root.set("blocks", blocks);
@@ -929,7 +937,7 @@ export class NmlYjsIndex {
 
 export function decodeNmlDocument(doc: Y.Doc): NmlDocument {
   const root = doc.getMap<unknown>(NML_YJS_ROOT);
-  assertKeys(root, ["encodingVersion", "schemaVersion", "documentId", "blocks", NML_YJS_STRUCTURE_KEY], [NML_YJS_ROOT]);
+  assertKeys(root, ["encodingVersion", "schemaVersion", "documentId", "kind", "blocks", NML_YJS_STRUCTURE_KEY], [NML_YJS_ROOT]);
   if (root.get("encodingVersion") !== NML_YJS_ENCODING_VERSION) {
     throw decodeFailure([NML_YJS_ROOT, "encodingVersion"], "Unsupported NML Yjs encoding version.");
   }
@@ -937,8 +945,9 @@ export function decodeNmlDocument(doc: Y.Doc): NmlDocument {
   const candidate = {
     schemaVersion: root.get("schemaVersion"),
     documentId: root.get("documentId"),
+    ...(root.has("kind") ? { kind: root.get("kind") } : {}),
     blocks: root.has(NML_YJS_STRUCTURE_KEY)
-      ? structuredBlocks(root.get(NML_YJS_STRUCTURE_KEY), legacyBlocks)
+      ? structuredBlocks(root.get(NML_YJS_STRUCTURE_KEY), legacyBlocks, root.get("kind") === "comments")
       : legacyBlocks.toArray().map((block, index) => blockFromY(block, ["blocks", index])),
   };
   const parsed = nmlDocumentSchema.safeParse(candidate);
@@ -953,7 +962,7 @@ export function decodeNmlDocument(doc: Y.Doc): NmlDocument {
   return normalizeDocument(parsed.data);
 }
 
-function structuredBlocks(value: unknown, legacy: Y.Array<unknown>): unknown[] {
+function structuredBlocks(value: unknown, legacy: Y.Array<unknown>, dropOrphans: boolean): unknown[] {
   const structure = expectMap(value, [NML_YJS_ROOT, NML_YJS_STRUCTURE_KEY]);
   assertKeys(structure, ["registry", "placements", "deletions"], [NML_YJS_ROOT, NML_YJS_STRUCTURE_KEY]);
   const registry = expectMap(structure.get("registry"), [NML_YJS_ROOT, NML_YJS_STRUCTURE_KEY, "registry"]);
@@ -984,7 +993,10 @@ function structuredBlocks(value: unknown, legacy: Y.Array<unknown>): unknown[] {
   const live = new Set(rows.map((row) => row.id));
   const byParent = new Map<string | null, Row[]>();
   for (const row of rows) {
-    // A concurrent insertion into a deleted/missing parent survives in recovery at root.
+    // A concurrent insertion into a deleted/missing parent survives in recovery at root —
+    // except in a comments document, where the only such orphan is a reply racing its
+    // thread's deletion, and the deletion is the intent: the reply goes with the thread.
+    if (dropOrphans && row.parentId !== null && !live.has(row.parentId)) continue;
     const parentId = row.parentId !== null && live.has(row.parentId) ? row.parentId : null;
     const list = byParent.get(parentId) ?? [];
     list.push(row);

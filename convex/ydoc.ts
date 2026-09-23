@@ -4,7 +4,7 @@ import * as Y from "yjs";
 import { components, internal } from "./_generated/api";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
-import { checkRead, checkWrite, pageForDoc } from "./prosemirror";
+import { ANY_CHANNEL, checkRead, checkWrite, pageForDoc } from "./prosemirror";
 import { stampProject } from "./projects";
 import { joinUpdateRows, UPDATE_CHUNK_BYTES } from "./yshape";
 
@@ -22,7 +22,10 @@ import { joinUpdateRows, UPDATE_CHUNK_BYTES } from "./yshape";
  *
  * Access control is exactly the legacy pipeline's: `checkRead` / `checkWrite`
  * from `prosemirror.ts`, so a share link admits the same readers and an
- * editor role admits the same writers on both pipelines.
+ * editor role admits the same writers on both pipelines. This log is the one
+ * pipeline that also carries a page's comments document — it never looks
+ * inside an update — so it asks the gate for both channels, and the gate
+ * applies each channel's own rule.
  */
 
 /** Fold the log into a fresh snapshot once it holds this many updates. */
@@ -67,13 +70,17 @@ export const state = query({
   args: { docId: v.string() },
   returns: v.union(v.literal("yjs"), v.literal("legacy"), v.literal("empty")),
   handler: async (ctx, args) => {
-    await checkRead(ctx, args.docId);
+    const { page, channel } = await checkRead(ctx, args.docId, ANY_CHANNEL);
+    // A comments document is born on Yjs by `comments.ensureDoc` and never had
+    // a legacy pipeline to ask about; `page.yjs` is the page document's flag.
+    if (channel === "comments") {
+      return (await ydocRow(ctx, args.docId)) ? "yjs" : "empty";
+    }
     // The page's own flag first: this query is subscribed to for the life of
     // every open editor, and the `ydocs` row it would otherwise read is
     // rewritten by every flush — an invalidation twice a second for an answer
     // that changes once in a document's life. `append` stamps the flag.
-    const page = await pageForDoc(ctx, args.docId);
-    if (page?.yjs) return "yjs";
+    if (page.yjs) return "yjs";
     if (await ydocRow(ctx, args.docId)) return "yjs";
     const legacy: number | null = await ctx.runQuery(
       components.prosemirrorSync.lib.latestVersion,
@@ -99,7 +106,7 @@ export const meta = query({
     }),
   ),
   handler: async (ctx, args) => {
-    await checkRead(ctx, args.docId);
+    await checkRead(ctx, args.docId, ANY_CHANNEL);
     const row = await ydocRow(ctx, args.docId);
     if (!row) return null;
     return {
@@ -114,7 +121,7 @@ export const snapshot = query({
   args: { docId: v.string(), gen: v.number(), part: v.number() },
   returns: v.union(v.null(), v.bytes()),
   handler: async (ctx, args) => {
-    await checkRead(ctx, args.docId);
+    await checkRead(ctx, args.docId, ANY_CHANNEL);
     const chunk = await ctx.db
       .query("ySnapshots")
       .withIndex("by_doc_and_gen_and_part", (q) =>
@@ -171,7 +178,7 @@ export const updatesSince = query({
   args: { docId: v.string(), afterSeq: v.number() },
   returns: v.array(updateRow),
   handler: async (ctx, args) => {
-    await checkRead(ctx, args.docId);
+    await checkRead(ctx, args.docId, ANY_CHANNEL);
     return await readLog(ctx, args.docId, args.afterSeq, READ_BUDGET);
   },
 });
@@ -205,7 +212,7 @@ export const load = query({
     }),
   ),
   handler: async (ctx, args) => {
-    await checkRead(ctx, args.docId);
+    await checkRead(ctx, args.docId, ANY_CHANNEL);
     const row = await ydocRow(ctx, args.docId);
     if (!row) return null;
     const meta = {
@@ -263,7 +270,7 @@ export const append = mutation({
   },
   returns: v.number(),
   handler: async (ctx, args) => {
-    await checkWrite(ctx, args.docId);
+    await checkWrite(ctx, args.docId, ANY_CHANNEL);
     const chunks =
       args.chunks ?? (args.update !== undefined ? [args.update] : []);
     return await appendYUpdate(ctx, args.docId, chunks);
@@ -301,6 +308,8 @@ export async function appendYUpdate(
   // The same coarse edited-stamp the legacy pipeline hung on snapshots, plus
   // the pipeline flag `state` reads — stamped here rather than in `init`
   // because docs that migrated before the flag existed would never get it.
+  // A comments document matches no page here (`pageForDoc` is the document
+  // channel), so a thread written is not the page edited.
   const page = await pageForDoc(ctx, docId);
   if (page) {
     const touched = now - (page.updatedAt ?? 0) > TOUCH_EVERY_MS;
@@ -350,6 +359,8 @@ export const init = mutation({
   },
   returns: v.object({ migrated: v.boolean() }),
   handler: async (ctx, args) => {
+    // The document channel only: a comments document is born with its root
+    // already in it (`comments.ensureDoc`), so no client ever races to init one.
     await checkWrite(ctx, args.docId);
     if (await ydocRow(ctx, args.docId)) return { migrated: false };
     await ctx.db.insert("ydocs", {
@@ -374,18 +385,25 @@ export const init = mutation({
 });
 
 /**
- * Registers a brand-new page's doc as Yjs-native before any client has state
- * to `init` with. A helper, not a mutation: only `pages.create` (which has
- * already authorized the project) may call it.
+ * Registers a brand-new doc as Yjs-native before any client has state to
+ * `init` with, optionally born holding `initial` as update #1 — which is how a
+ * document whose root must exist exactly once gets it without two clients
+ * racing to write it. A helper, not a mutation: callers have authorized the
+ * page first (`comments.ensureDoc`).
  */
-export async function registerYDoc(ctx: MutationCtx, docId: string) {
+export async function registerYDoc(
+  ctx: MutationCtx,
+  docId: string,
+  initial?: ArrayBuffer,
+) {
   await ctx.db.insert("ydocs", {
     docId,
-    seq: 0,
+    seq: initial ? 1 : 0,
     snapshotSeq: 0,
     snapshotParts: 0,
     updatedAt: Date.now(),
   });
+  if (initial) await ctx.db.insert("yUpdates", { docId, seq: 1, update: initial });
 }
 
 /**

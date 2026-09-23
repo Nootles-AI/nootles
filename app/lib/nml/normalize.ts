@@ -56,6 +56,7 @@ function normalizeBlock(block: NmlBlock): NmlBlock {
     case "numberedListItem":
     case "checkListItem":
     case "toggleListItem":
+    case "comment":
       return { ...block, content: normalizeInline(block.content), children };
     case "table":
       return {
@@ -92,6 +93,7 @@ export function normalizeDocument(document: NmlDocument): NmlDocument {
   return {
     schemaVersion: document.schemaVersion,
     documentId: document.documentId,
+    ...(document.kind ? { kind: document.kind } : {}),
     blocks: document.blocks.map(normalizeBlock),
   };
 }

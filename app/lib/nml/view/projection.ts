@@ -1,10 +1,11 @@
 import { Fragment, Schema, type Node as PmNode, type NodeSpec, type DOMOutputSpec } from "prosemirror-model";
-import { NML_MARKS, type NmlBlock, type NmlDocument, type NmlInlineContent, type NmlMark } from "../schema";
+import { NML_MARKS, nmlDocumentKind, type NmlBlock, type NmlDocument, type NmlInlineContent, type NmlMark, type NmlPageBlock } from "../schema";
 import { normalizeDocument, normalizeInline } from "../normalize";
 import { validateDocument } from "../validate";
 
-export const BLOCK_TYPES = ["paragraph", "heading", "quote", "bulletListItem", "numberedListItem", "checkListItem", "toggleListItem", "table", "codeBlock", "mathBlock", "divider", "image", "video", "audio", "file", "canvas", "album", "storyboard", "location", "notionStub"] as const satisfies readonly NmlBlock["type"][];
-const _coverage: Exclude<NmlBlock["type"], typeof BLOCK_TYPES[number]> extends never ? true : never = true;
+/** The page vocabulary: a comments document never projects into the page editor. */
+export const BLOCK_TYPES = ["paragraph", "heading", "quote", "bulletListItem", "numberedListItem", "checkListItem", "toggleListItem", "table", "codeBlock", "mathBlock", "divider", "image", "video", "audio", "file", "canvas", "album", "storyboard", "location", "notionStub"] as const satisfies readonly NmlPageBlock["type"][];
+const _coverage: Exclude<NmlPageBlock["type"], typeof BLOCK_TYPES[number]> extends never ? true : never = true;
 void _coverage;
 export const NML_LIST_TYPES = new Set<string>(["bulletListItem", "numberedListItem", "checkListItem", "toggleListItem"]);
 export const NML_PROSE_TYPES = new Set<string>(["paragraph", "heading", "quote"]);
@@ -228,6 +229,7 @@ export class NmlProjection {
   constructor(registry = new NodeAdapterRegistry()) { this.registry = registry; this.schema = createProjectionSchema(registry); }
   project(input: NmlDocument): PmNode {
     if (validateDocument(input).length) throw new Error("Invalid canonical document for projection");
+    if (nmlDocumentKind(input) !== "page") throw new Error("Only a page document projects into the page editor");
     const document = normalizeDocument(input);
     const blocks = canonicalBlocks(document);
     const context: ProjectionContext = { schema: this.schema, registry: this.registry, getBlock: (id) => blocks.get(id) };

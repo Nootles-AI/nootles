@@ -398,7 +398,7 @@ export async function purgeProject(ctx: MutationCtx, projectId: Id<"projects">) 
       .collect();
 
     for (const page of pages) {
-      for (const table of ["opLog", "checkpoints", "suggestionLog"] as const) {
+      for (const table of ["opLog", "checkpoints", "suggestionLog", "commentNotices"] as const) {
         const rows = await ctx.db
           .query(table)
           .withIndex("by_page", (q) => q.eq("pageId", page._id))

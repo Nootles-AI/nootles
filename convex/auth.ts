@@ -133,7 +133,13 @@ export async function requireOwned<T extends Owned>(
   return doc;
 }
 
-export type ProjectRole = "owner" | "editor" | "viewer";
+/**
+ * Ranked owner > editor > commenter > viewer. A commenter reads everything a
+ * viewer does and may write one thing more: the threads in a page's comments
+ * document (`prosemirror.channelAdmits`) — never the page itself, which is why
+ * `requireEditable` does not admit them. No claim resolves to it yet.
+ */
+export type ProjectRole = "owner" | "editor" | "commenter" | "viewer";
 
 /**
  * What the caller is to a loaded project.
@@ -176,10 +182,54 @@ export function claimRole(
   project: Doc<"projects">,
   claim: Doc<"shareClaims">,
 ): "editor" | "viewer" | null {
-  if (!project.shareToken && !project.editShareToken) return null;
+  if (!hasLiveLink(project)) return null;
   if (claim.grantedRole === "editor") return "editor";
   if (claim.role === "editor" && project.editShareToken) return "editor";
   return "viewer";
+}
+
+/**
+ * Which of a page's two Yjs documents a docId names: the page itself, or its
+ * comment threads. Decided by `prosemirror.pageAndChannelForDoc` from which
+ * index matched — never from the id's spelling.
+ */
+export type DocChannel = "document" | "comments";
+
+/**
+ * The whole rule for reaching a page's documents, as a pure decision so it can
+ * be read in one place and tested without a database.
+ *
+ * - Any resolved role reads either channel.
+ * - The document channel writes for editor and owner; the comments channel for
+ *   commenter, editor and owner.
+ * - With no role, a live share link still admits a READ of the document —
+ *   the docId is the capability there (see `prosemirror.checkRead`) — but
+ *   never of the comments. A signed-out link visitor has no identity to be
+ *   answerable for a conversation with, so comments fail closed until links
+ *   require sign-in.
+ *
+ * The stand-in rule is not here: it depends on the session, not the role, and
+ * the gates apply it before asking this.
+ */
+export function channelAdmits(request: {
+  channel: DocChannel;
+  access: "read" | "write";
+  role: ProjectRole | null;
+  /** Whether the project has any live share link. */
+  linkLive: boolean;
+}): boolean {
+  const { channel, access, role, linkLive } = request;
+  if (access === "read") return role !== null || (channel === "document" && linkLive);
+  if (role === "owner" || role === "editor") return true;
+  return channel === "comments" && role === "commenter";
+}
+
+/**
+ * Whether any share link on the project is live — the condition every claim
+ * and the anonymous document read are contingent on.
+ */
+export function hasLiveLink(project: Doc<"projects">): boolean {
+  return Boolean(project.shareToken || project.editShareToken || project.commentShareToken);
 }
 
 /** The caller's role in a project named by id, or null for missing/stranger. */
@@ -241,6 +291,30 @@ export async function requireEditable<T extends Shared>(
     if (project && !isTrashed(project)) {
       const role = await roleForProject(ctx, project);
       if (role === "owner" || role === "editor") return doc;
+    }
+  }
+  throw new Error("Not found");
+}
+
+/**
+ * The page and its project, provided the caller may write its comments —
+ * commenter, editor or owner. The comments document's own gate is the
+ * channel check in `prosemirror.ts`; this is its sibling for the mutations
+ * that act on a page's comments by page id rather than by docId.
+ */
+export async function requireCommentable(
+  ctx: QueryCtx,
+  pageId: Id<"pages">,
+): Promise<{ page: Doc<"pages">; project: Doc<"projects"> }> {
+  await refuseStandIn(ctx);
+  const page = await ctx.db.get(pageId);
+  if (page && !isTrashed(page)) {
+    const project = await ctx.db.get(page.projectId);
+    if (project && !isTrashed(project)) {
+      const role = await roleForProject(ctx, project);
+      if (channelAdmits({ channel: "comments", access: "write", role, linkLive: false })) {
+        return { page, project };
+      }
     }
   }
   throw new Error("Not found");

@@ -38,8 +38,8 @@ export class NmlParseError extends Error {
   }
 }
 
-const blockTags = new Set(["p", "blockquote", "ul", "ol", "details", "table", "hr", "nt-code-block", "nt-math-block", "img", "video", "audio", "nt-file", "nt-diagram", "nt-album", "nt-storyboard", "nt-location", "nt-notion-stub"]);
-const aliases: Record<string, string> = { paragraph: "p", quote: "blockquote", code: "nt-code-block", math: "nt-math-block", diagram: "nt-diagram", canvas: "nt-diagram", album: "nt-album", gallery: "nt-album", storyboard: "nt-storyboard", location: "nt-location", place: "nt-location" };
+const blockTags = new Set(["p", "blockquote", "ul", "ol", "details", "table", "hr", "nt-code-block", "nt-math-block", "img", "video", "audio", "nt-file", "nt-diagram", "nt-album", "nt-storyboard", "nt-location", "nt-notion-stub", "nt-thread", "nt-comment"]);
+const aliases: Record<string, string> = { paragraph: "p", quote: "blockquote", code: "nt-code-block", math: "nt-math-block", diagram: "nt-diagram", canvas: "nt-diagram", album: "nt-album", gallery: "nt-album", storyboard: "nt-storyboard", location: "nt-location", place: "nt-location", thread: "nt-thread", comment: "nt-comment" };
 const markForTag: Record<string, NmlMark> = { code: "code", strong: "bold", b: "bold", em: "italic", i: "italic", s: "strike", strike: "strike", u: "underline" };
 
 const defaultParseHtml = (html: string): Document => parseHTML(html).document as unknown as Document;
@@ -198,6 +198,48 @@ export function parseDocument(source: string, options: NmlParseOptions = {}): Nm
       const domain = parseLocation(el.outerHTML, parseHtml);
       return { id: id(), type: "location", props: {}, domain, ...importedLegacy(el, serializeLocation(domain), path), ...legacyMarkup(el), children: [] };
     }
+    if (tag === "nt-thread") {
+      // Quotations keep their exact whitespace: `attr` trims, and a prefix
+      // ending in a space is the whole point of a prefix.
+      const quote = (name: string) => el.getAttribute(name) ?? "";
+      const stamp = (name: string) => (el.hasAttribute(name) ? integer(el, name, -1) : undefined);
+      const resolvedBy = attr(el, "resolved-by");
+      const resolvedAt = stamp("resolved-at");
+      const orphanedAt = stamp("orphaned-at");
+      return {
+        id: id(),
+        type: "commentThread",
+        props: {
+          anchor: {
+            blockId: attr(el, "block-id") ?? "",
+            exact: quote("exact"),
+            prefix: quote("prefix"),
+            suffix: quote("suffix"),
+            offsetHint: integer(el, "offset-hint", 0),
+          },
+          status: el.getAttribute("status") === "resolved" ? "resolved" : "open",
+          ...(resolvedBy !== undefined ? { resolvedBy } : {}),
+          ...(resolvedAt !== undefined ? { resolvedAt } : {}),
+          ...(orphanedAt !== undefined ? { orphanedAt } : {}),
+          ...(el.getAttribute("ambiguous") === "true" ? { ambiguous: true as const } : {}),
+        },
+        children: childBlocks(el, [...path, "children"]),
+      };
+    }
+    if (tag === "nt-comment") {
+      const editedAt = el.hasAttribute("edited-at") ? integer(el, "edited-at", -1) : undefined;
+      return {
+        id: id(),
+        type: "comment",
+        props: {
+          authorId: attr(el, "author-id") ?? "",
+          createdAt: integer(el, "created-at", -1),
+          ...(editedAt !== undefined ? { editedAt } : {}),
+        },
+        content: inline(el, [...path, "content"]),
+        children: [],
+      };
+    }
     if (tag === "nt-notion-stub") return {
       id: id(),
       type: "notionStub",
@@ -244,7 +286,17 @@ export function parseDocument(source: string, options: NmlParseOptions = {}): Nm
     report("migration_required", ["schemaVersion"], `Schema version ${version} must be migrated before parsing as v${NML_SCHEMA_VERSION}.`, "error");
     return { diagnostics, quarantine };
   }
-  const document = normalizeDocument({ schemaVersion: NML_SCHEMA_VERSION, documentId: attr(root, "id") ?? createId(), blocks: childBlocks(root, ["blocks"]) });
+  const kind = root.getAttribute("kind");
+  if (kind !== null && kind !== "comments") {
+    report("unknown_document_kind", ["kind"], `Unknown document kind "${kind}".`, "error");
+    return { diagnostics, quarantine };
+  }
+  const document = normalizeDocument({
+    schemaVersion: NML_SCHEMA_VERSION,
+    documentId: attr(root, "id") ?? createId(),
+    ...(kind ? { kind } : {}),
+    blocks: childBlocks(root, ["blocks"]),
+  });
   diagnostics.push(...validateDocument(document));
   if (mode === "canonical" && !diagnostics.some((entry) => entry.severity === "error")) {
     try {

@@ -2,9 +2,57 @@
 
 Technical design · 22 September 2026 · against `main` @ `fdc3c84`
 
-Status: **nothing is implemented.** There is no comment code, table, route or role in the
-repository today. This document chooses the anchor format and the storage split, and sizes
-the work as five shippable pull requests.
+## Status & deviations
+
+**Implementation is in progress on the `comments/integration` branch**, in waves of unit
+pull requests that merge there; one integration → `main` pull request lands the whole of it.
+Wave 0 (the channel and its contracts) lays down the schema, the channel gate, the
+`commenter` role as a type, comments-document minting, the audit and entitlement seams, the
+NML thread types and the provider opt-outs. Nothing is on `main` yet.
+
+Where the code disagreed with this design, these decisions were made and are what is built:
+
+- **Teams is not on any branch, so its seams are minimal.**
+  - `mentionablePeople` has the personal branch only (the owner plus share claims), behind
+    one resolver with a workspace hook.
+  - `auditEvents` takes the Teams design's exact shape, with `workspaceId` optional and a
+    plain string until a `workspaces` table exists. `meta` is typed to ids and counts
+    (`{ids?, counts?}`); `audit.recordAudit` is its only writer and refuses anything that is
+    not id-shaped.
+  - A single `comments` entitlement flag (`entitlements.PLAN_FEATURES`), on for every plan.
+    `commentsEnabled` is asked by minting, by discovery and by the comments channel of the
+    gate itself, so turning it off closes existing comments documents too.
+- **NML has no container block, and paragraph props must be `{}`** — so §4's "a thread is a
+  container block, a comment a paragraph" is not buildable as written. Two comment-only NML
+  block types are added instead: `commentThread` (props `anchor`, `status`, `resolvedBy?`,
+  `resolvedAt?`, `orphanedAt?`, `ambiguous?`; children `comment[]` only) and `comment`
+  (props `authorId`, `createdAt`, `editedAt?`; inline content). They are valid only in a
+  document whose `kind` is `"comments"`: a page document refuses them anywhere, and a
+  comments document refuses every page block type. `NML_MARKS` and the inline grammar are
+  untouched, as §6 requires. The placement rule is enforced by validation (and so by the
+  command executor), not by decoding: a merge can always be read. When a thread is deleted
+  while someone replies to it, the orphaned reply is dropped when the comments document is
+  decoded. A page's orphans still recover at the root.
+- **`reviewDecorations.ts` recomputes; it does not map.** The live-range model to copy is
+  `app/components/editor/arrivalFlash.ts` (`set.map(tr.mapping, tr.doc)`);
+  `reviewDecorations`' block-position walk supplies the id → position lookup.
+- **The "NT-52 overlay layer" is a convention, not a component.** Cards portal to
+  `document.body` and use the `--z-*` tokens.
+- **Smaller gaps closed in wave 0.**
+  - `YConvexProvider` can opt a document out of derived writes and presence
+    (`acquireProvider(client, docId, { derived: false, presence: false })`).
+  - The comments document is born server-side: `comments.ensureDoc` mints `commentsDocId`
+    and writes its empty NML root as update #1 through `ydoc.registerYDoc`, so no two
+    clients ever race to create the root.
+  - The gate's channels default to the page document alone; only the content-blind Yjs log
+    (`ydoc.ts`) accepts both. Presence, previews, the context digest, the NML migrator and
+    the legacy ProseMirror sync API therefore refuse a comments docId without special cases.
+  - `ydoc.init` stays document-channel only.
+  - `MentionPick` has no person kind yet (wave 1).
+- **Delivery is by waves, not the five PRs of §11**, all behind the same entitlement flag.
+
+Original status line (22 September 2026): nothing was implemented. This document chooses the
+anchor format and the storage split, and sizes the work as five shippable pull requests.
 
 It is written to sit beside [Teams in Nootles](../../Teams%20in%20Nootles.html), which is
 being implemented in parallel. §10 says where the two meet.

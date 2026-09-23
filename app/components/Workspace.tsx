@@ -541,7 +541,9 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
   // editors write, only the owner shares and administers. The same surface
   // serves all three — a shared project must not feel like a lesser app.
   const role = useQuery(api.projects.myRole, { projectId });
-  const viewer = role === "viewer";
+  // Any resolved role without the pen reads — a commenter included — so a
+  // role added later fails closed to read-only rather than open to editing.
+  const viewer = role != null && role !== "owner" && role !== "editor";
   const sortedPages = useMemo(
     () => (pages ? [...pages].sort((a, b) => a.order - b.order) : undefined),
     [pages],

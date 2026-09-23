@@ -26,6 +26,20 @@ function attr(name: string, value: string | number): string {
   return ` ${name}="${escAttr(String(value))}"`;
 }
 
+/**
+ * A quoted span of the page, spelled so that a newline or tab in it survives
+ * the round trip: HTML normalizes raw line breaks inside attribute values, a
+ * character reference it leaves alone.
+ */
+function quoteAttr(name: string, value: string): string {
+  const escaped = escAttr(value).replace(/[\t\n\r]/g, (char) => `&#${char.charCodeAt(0)};`);
+  return ` ${name}="${escaped}"`;
+}
+
+function optionalAttr(name: string, value: string | number | undefined): string {
+  return value === undefined ? "" : attr(name, value);
+}
+
 function inlineHtml(content: NmlInlineContent): string {
   return normalizeInline(content)
     .map((node) => {
@@ -116,6 +130,18 @@ function blockHtml(block: NmlBlock, depth: number): string {
       return indent(withLegacyMarkup(serializeStoryboard({ ...block.domain, id: block.id }), "nt-storyboard", block.legacyMarkup), depth);
     case "location":
       return indent(withLegacyMarkup(serializeLocation({ ...block.domain, id: block.id }), "nt-location", block.legacyMarkup), depth);
+    case "commentThread": {
+      const { anchor, status, resolvedBy, resolvedAt, orphanedAt, ambiguous } = block.props;
+      const open =
+        `${pad}<nt-thread${attr("id", block.id)}${attr("block-id", anchor.blockId)}` +
+        `${quoteAttr("exact", anchor.exact)}${quoteAttr("prefix", anchor.prefix)}${quoteAttr("suffix", anchor.suffix)}` +
+        `${attr("offset-hint", anchor.offsetHint)}${attr("status", status)}` +
+        `${optionalAttr("resolved-by", resolvedBy)}${optionalAttr("resolved-at", resolvedAt)}` +
+        `${optionalAttr("orphaned-at", orphanedAt)}${ambiguous ? attr("ambiguous", "true") : ""}>`;
+      return `${open}${block.children.length ? `${children()}\n${pad}` : ""}</nt-thread>`;
+    }
+    case "comment":
+      return `${pad}<nt-comment${attr("id", block.id)}${attr("author-id", block.props.authorId)}${attr("created-at", block.props.createdAt)}${optionalAttr("edited-at", block.props.editedAt)}>${inlineHtml(block.content)}</nt-comment>`;
     case "notionStub":
       return `${pad}<nt-notion-stub${attr("id", block.id)}${attr("notion-type", block.props.notionType)}${attr("notion-id", block.props.notionId)}${attr("href", block.props.href)}>${escText(block.props.raw)}</nt-notion-stub>`;
   }
@@ -157,6 +183,7 @@ export function serializeDocument(document: NmlDocument): string {
   const normalized = normalizeDocument(document);
   assertValidDocument(normalized);
   const body = blocksHtml(normalized.blocks, 1);
-  const open = `<nt-document${attr("id", normalized.documentId)}${attr("schema-version", NML_SCHEMA_VERSION)}>`;
+  const kind = normalized.kind ? attr("kind", normalized.kind) : "";
+  const open = `<nt-document${attr("id", normalized.documentId)}${attr("schema-version", NML_SCHEMA_VERSION)}${kind}>`;
   return `${open}${body.length ? `\n${body.join("\n")}\n` : ""}</nt-document>\n`;
 }
