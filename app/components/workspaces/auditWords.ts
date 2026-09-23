@@ -60,6 +60,13 @@ const plural = (n: number, one: string, many = `${one}s`) =>
 const statusWord = (status: unknown) =>
   status === "none" || status == null ? "none" : String(status).replaceAll("_", " ");
 
+/** A page or folder as a sentence names it: the page “Launch”. */
+const nameOf = (row: AuditRow) => `the ${row.subjectKind} ${quoted(row.meta[row.subjectKind ?? ""])}`;
+
+/** A folder's pages, when it carried any. */
+const withPages = (m: AuditRow["meta"]) =>
+  typeof m.pages === "number" && m.pages > 0 ? [`, with ${plural(m.pages, "page")}`] : [];
+
 function subjectName(row: AuditRow): string {
   return row.subject?.name ?? row.subject?.email ?? "someone";
 }
@@ -156,16 +163,28 @@ export function whatParts(row: AuditRow, workspaceName: string): Part[] {
       ];
     case "page.delete":
     case "folder.delete":
-      return [`deleted the ${row.subjectKind} ${quoted(m[row.subjectKind ?? ""])} from `, project];
+      return [`deleted ${nameOf(row)} from `, project, ...withPages(m)];
     case "page.restore":
     case "folder.restore":
-      return [`restored the ${row.subjectKind} ${quoted(m[row.subjectKind ?? ""])} in `, project];
+      return [`restored ${nameOf(row)} in `, project, ...withPages(m)];
+    case "page.move":
+    case "folder.move":
+      return [
+        `moved ${nameOf(row)} from `,
+        project,
+        " to ",
+        typeof m.toProjectId === "string"
+          ? { project: m.toProjectId, title: String(m.toProject ?? "a project") }
+          : String(m.toProject ?? "another project"),
+        ...withPages(m),
+      ];
     case "page.carryOut":
     case "folder.carryOut":
       return [
-        `${m.move ? "moved" : "copied"} the ${row.subjectKind} ${quoted(m[row.subjectKind ?? ""])} out of `,
+        `${m.move ? "moved" : "copied"} ${nameOf(row)} out of `,
         project,
         m.to === "personal" ? ", into a personal project" : ", into another workspace",
+        ...withPages(m),
       ];
 
     case "file.add":
