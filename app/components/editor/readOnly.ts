@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext } from "react";
-import type { ProjectRole } from "@/convex/auth";
+import type { ProjectRole } from "@/convex/roles";
 
 /**
  * Whether the surrounding editor is a reader, not an author — the share route,

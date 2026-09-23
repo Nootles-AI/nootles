@@ -5,6 +5,8 @@ import {
   CONTEXT_CHARS,
   commentText,
   emptyCommentsDocument,
+  MAX_SIGNERS,
+  signers,
   threadBlock,
   threadFromBlock,
   threadsOf,
@@ -89,5 +91,30 @@ describe("comment view types", () => {
 
   it("keeps 32 characters of context", () => {
     expect(CONTEXT_CHARS).toBe(32);
+  });
+});
+
+describe("signers", () => {
+  const thread = (id: string, authors: string[], resolvedBy?: string): Thread => ({
+    id,
+    anchor: { blockId: "p1", exact: "x", prefix: "", suffix: "", offsetHint: 0 },
+    status: resolvedBy ? "resolved" : "open",
+    ...(resolvedBy ? { resolvedBy } : {}),
+    ambiguous: false,
+    comments: authors.map((authorId, i) => ({ id: `${id}-${i}`, authorId, createdAt: i, content: [] })),
+  });
+
+  it("names me first, then every author and resolver once, sorted", () => {
+    const threads = [thread("t1", ["user_c", "user_a", "user_c"], "user_d"), thread("t2", ["user_me", "user_b"])];
+    expect(signers(threads, "user_me")).toEqual(["user_me", "user_a", "user_b", "user_c", "user_d"]);
+    expect(signers(threads, null)).toEqual(["user_a", "user_b", "user_c", "user_d", "user_me"]);
+    expect(signers([], "user_me")).toEqual(["user_me"]);
+  });
+
+  it(`asks for at most ${MAX_SIGNERS}`, () => {
+    const many = [thread("t1", Array.from({ length: MAX_SIGNERS + 5 }, (_, i) => `user_${String(i).padStart(3, "0")}`))];
+    const named = signers(many, "user_me");
+    expect(named).toHaveLength(MAX_SIGNERS);
+    expect(named[0]).toBe("user_me");
   });
 });

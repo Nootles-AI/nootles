@@ -1,6 +1,6 @@
 import { createRoot, type Root } from "react-dom/client";
 import type { Doc, Id } from "../convex/_generated/dataModel";
-import { claimRole } from "../convex/auth";
+import { claimRole } from "../convex/roles";
 import { SharePopover } from "../app/components/SharePopover";
 import { SharedProject } from "../app/components/share/SharedProject";
 import { OpenPageProvider } from "../app/components/OpenPageContext";

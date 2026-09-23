@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext } from "react";
-import type { ProjectRole } from "@/convex/auth";
+import type { ProjectRole } from "@/convex/roles";
 
 /**
  * What the surrounding surface may do with a page's comments — the client's

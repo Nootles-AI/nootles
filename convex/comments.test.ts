@@ -461,19 +461,39 @@ describe("pipelines that serve only the page refuse a comments docId", () => {
     const w = await world(t);
     const docId = await mint(t, w);
     const as = t.withIdentity(OWNER);
-    await expect(
-      as.mutation(api.presence.heartbeat, {
+    // A heartbeat is declined without a throw — it writes nothing either way.
+    expect(
+      await as.mutation(api.presence.heartbeat, {
         docId,
         sessionId: "s1",
         clientId: 1,
         user: { name: "O", color: "#000000" },
         state: new ArrayBuffer(1),
       }),
-    ).rejects.toThrow("Not found");
+    ).toBeNull();
     await expect(as.query(api.presence.list, { docId })).rejects.toThrow("Not found");
     await expect(as.query(api.presence.roster, { docId })).rejects.toThrow("Not found");
     const rows = await t.run(async (ctx) => ctx.db.query("presence").collect());
     expect(rows).toHaveLength(0);
+  });
+
+  test("presence: a tab whose links were just turned off has its last heartbeat declined, not thrown", async () => {
+    const t = harness();
+    const w = await world(t);
+    const beat = () =>
+      t.withIdentity(VIEWER).mutation(api.presence.heartbeat, {
+        docId: w.docId,
+        sessionId: "s_viewer",
+        clientId: 7,
+        user: { name: "V", color: "#000000" },
+        state: new ArrayBuffer(1),
+      });
+    expect(await beat()).toBeNull();
+    await t.run((ctx) => ctx.db.patch(w.projectId, { shareToken: undefined, editShareToken: undefined }));
+    const before = await t.run(async (ctx) => (await ctx.db.query("presence").unique())!.updatedAt);
+    expect(await beat()).toBeNull();
+    expect(await t.run(async (ctx) => (await ctx.db.query("presence").unique())!.updatedAt)).toBe(before);
+    await expect(t.withIdentity(VIEWER).query(api.presence.list, { docId: w.docId })).rejects.toThrow("Not found");
   });
 
   test("previews: nothing to read, and an offer is quietly declined", async () => {

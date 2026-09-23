@@ -5,7 +5,7 @@ import { blocksToYDoc } from "@blocknote/core/yjs";
 import { getFunctionName } from "convex/server";
 import { ConvexProvider, type ConvexReactClient } from "convex/react";
 import type { Doc, Id } from "../convex/_generated/dataModel";
-import { channelAdmits, type ProjectRole } from "../convex/auth";
+import { channelAdmits, type ProjectRole } from "../convex/roles";
 import { schema } from "../app/components/editor/schema";
 import { EditorRegistryProvider } from "../app/components/editor/EditorRegistry";
 import { PageCommentsRegistryProvider } from "../app/components/comments/registry";

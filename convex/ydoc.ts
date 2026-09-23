@@ -407,6 +407,50 @@ export async function registerYDoc(
 }
 
 /**
+ * A document's whole stored state, rebuilt — for the rare server read that
+ * must know what a document says rather than relay its bytes. Null when there
+ * is no such document, or when snapshot and log together outweigh one read.
+ */
+export async function readYDoc(ctx: QueryCtx, docId: string): Promise<Y.Doc | null> {
+  const row = await ydocRow(ctx, docId);
+  if (!row) return null;
+  let bytes = 0;
+  const chunks: Doc<"ySnapshots">[] = [];
+  if (row.snapshotParts > 0) {
+    for await (const chunk of ctx.db
+      .query("ySnapshots")
+      .withIndex("by_doc_and_gen_and_part", (q) => q.eq("docId", docId).eq("gen", row.snapshotSeq))) {
+      bytes += chunk.data.byteLength;
+      if (bytes > READ_BUDGET) return null;
+      chunks.push(chunk);
+    }
+    // A short count means the row and its chunks disagree; half a snapshot is not a document.
+    if (chunks.length !== row.snapshotParts) return null;
+  }
+  const log: Doc<"yUpdates">[] = [];
+  for await (const update of ctx.db
+    .query("yUpdates")
+    .withIndex("by_doc_and_seq", (q) => q.eq("docId", docId).gt("seq", row.snapshotSeq))) {
+    bytes += update.update.byteLength;
+    if (bytes > READ_BUDGET) return null;
+    log.push(update);
+  }
+  const doc = new Y.Doc();
+  if (chunks.length) {
+    // Index order is part order; the chunks are slices of one update.
+    const whole = new Uint8Array(chunks.reduce((n, c) => n + c.data.byteLength, 0));
+    let at = 0;
+    for (const chunk of chunks) {
+      whole.set(new Uint8Array(chunk.data), at);
+      at += chunk.data.byteLength;
+    }
+    Y.applyUpdate(doc, whole);
+  }
+  for (const u of joinUpdateRows(log)) Y.applyUpdate(doc, u.update);
+  return doc;
+}
+
+/**
  * Folds the log into a fresh snapshot. A mutation on purpose: transactional
  * isolation is what erases the compactor/writer race, and yjs is pure JS
  * that runs fine in the default runtime. GC happens by construction — a doc
