@@ -20,6 +20,8 @@ import { track } from "@/app/lib/telemetry";
 import { useOpenPage } from "@/app/components/OpenPageContext";
 import { useReview } from "@/app/components/ReviewContext";
 import { useEditorRegistry } from "@/app/components/editor/EditorRegistry";
+import { usePageCommentsRegistry } from "@/app/components/comments/registry";
+import { AI } from "../aiConfig";
 import {
   BrowserChat,
   ChatStore,
@@ -28,6 +30,7 @@ import {
 } from "./BrowserChat";
 import { withAttachmentUrls } from "./attachments";
 import { runClientTool, type ToolContext } from "./clientTools";
+import { chatDigest, type Person } from "./commentTools";
 import { duplicateMutationResult, isRepeatedMutation } from "./toolReplay";
 import type { DrawChoice } from "../drawStyles";
 import { resolveMentions } from "./mentions";
@@ -73,6 +76,12 @@ export function useProjectChat({
   const { open } = useOpenPage();
   const registry = useEditorRegistry();
   const review = useReview();
+  const comments = usePageCommentsRegistry();
+  // Who a comment on the open page may name, and what each is called — so the
+  // model reads names rather than account ids, and mentions by name.
+  // The answer is the project's, whichever page asks, so the last one stands in
+  // while a newly opened page's copy loads.
+  const mentionable = useQuery(api.commentNotices.mentionable, pageId ? { pageId } : "skip");
 
   const [built, setBuilt] = useState<{ key: string; chat: BrowserChat } | null>(
     null,
@@ -97,6 +106,8 @@ export function useProjectChat({
     open,
     registry,
     review,
+    comments,
+    people: mentionable ?? NO_PEOPLE,
   });
   useEffect(() => {
     latest.current = {
@@ -111,6 +122,8 @@ export function useProjectChat({
       open,
       registry,
       review,
+      comments,
+      people: mentionable ?? latest.current.people,
     };
   });
 
@@ -137,6 +150,9 @@ export function useProjectChat({
       openPageId: () => latest.current.pageId,
       openPage: latest.current.open,
       editorFor: (pageId) => latest.current.registry.editorFor(pageId),
+      commentsFor: async (pageId) =>
+        (await latest.current.comments?.settled(pageId, AI.chat.editorWaitMs)) ?? null,
+      people: () => latest.current.people,
     }),
     [],
   );
@@ -178,22 +194,29 @@ export function useProjectChat({
       store: new ChatStore(initial),
       transport: new DefaultChatTransport({
         api: "/api/chat",
-        prepareSendMessagesRequest: ({ messages }) => ({
-          body: {
-            messages,
-            projectId: latest.current.projectId,
-            pageId: latest.current.pageId,
-            // What the conversation is charged against. Bound like `persist`'s
-            // copy rather than read from `latest`: a request must be billed to
-            // the thread that sent it, not to whichever one is open when it
-            // lands.
-            threadId: boundThreadId,
-            // The style the picker settled, if any turn here has drawn: the
-            // approved draw calls execute on the resume request, and this is
-            // how the route knows what the user chose.
-            ...(drawStyle.current ? { drawStyle: drawStyle.current } : {}),
-          },
-        }),
+        prepareSendMessagesRequest: ({ messages }) => {
+          const { pageId: page, comments: registry, people: named } = latest.current;
+          // The open page's threads, for the route's comments gate to take or
+          // leave. Read per request: a resumed turn may be on another page.
+          const digest = chatDigest(page ? (registry?.current(page) ?? null) : null, named);
+          return {
+            body: {
+              messages,
+              projectId: latest.current.projectId,
+              pageId: page,
+              // What the conversation is charged against. Bound like `persist`'s
+              // copy rather than read from `latest`: a request must be billed to
+              // the thread that sent it, not to whichever one is open when it
+              // lands.
+              threadId: boundThreadId,
+              // The style the picker settled, if any turn here has drawn: the
+              // approved draw calls execute on the resume request, and this is
+              // how the route knows what the user chose.
+              ...(drawStyle.current ? { drawStyle: drawStyle.current } : {}),
+              ...(digest ? { comments: digest } : {}),
+            },
+          };
+        },
       }),
       // Fires for every tool call, including the ones the route answered
       // itself — those already have their result and must be left alone.
@@ -590,7 +613,9 @@ async function toolOutput(
   try {
     return {
       ...call,
-      output: await runClientTool(toolCall.toolName, toolCall.input, ctx),
+      output: await runClientTool(toolCall.toolName, toolCall.input, ctx, {
+        toolCallId: toolCall.toolCallId,
+      }),
     };
   } catch (e) {
     // A model recovers from a tool that failed; it cannot recover from one that
@@ -600,3 +625,5 @@ async function toolOutput(
 }
 
 const noop = () => {};
+
+const NO_PEOPLE: Person[] = [];

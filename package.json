@@ -23,7 +23,8 @@
     "test:comments:inbox": "node tests/comments-inbox.browser.mjs",
     "test:comments:share": "node tests/comments-share.browser.mjs",
     "test:comments:store": "node tests/comments-store.browser.mjs",
-    "test:comments:anchor": "node tests/comments-anchor.browser.mjs"
+    "test:comments:anchor": "node tests/comments-anchor.browser.mjs",
+    "test:comments:assistant": "node tests/comments-assistant.browser.mjs"
   },
   "dependencies": {
     "@ai-sdk/google": "^4.0.44",

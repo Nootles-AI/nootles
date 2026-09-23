@@ -64,7 +64,10 @@ export function isRepeatedMutation(
 function allowsExactRetry(output: unknown): boolean {
   return (
     typeof output === "string" &&
-    /call edit_page once more with the\s+same content/i.test(output)
+    // A refusal wrote nothing, so the same call later is not a repeat — a
+    // comment refused under a review is fair to retry once the review is kept.
+    (/call edit_page once more with the\s+same content/i.test(output) ||
+      output.startsWith("Nothing was written."))
   );
 }
 

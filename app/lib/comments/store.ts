@@ -378,9 +378,14 @@ export class CommentsStore {
     return commit(this.doc, this.options, plan);
   }
 
-  /** Start a thread on `anchor` with its first comment; resolves the thread's id. */
+  /**
+   * Start a thread on `anchor` with its first comment; resolves the thread's id.
+   * `ambiguous` records that the anchor's words appear more than once with the
+   * same context — what `anchorForQuote` says of an anchor it mints.
+   */
   async createThread(input: {
     anchor: CommentAnchor;
+    ambiguous?: boolean;
     body: CommentBody;
     authorId: string;
     threadId?: string;
@@ -403,7 +408,7 @@ export class CommentsStore {
           nodes: [{
             id: threadId,
             type: "commentThread",
-            props: { anchor: { ...input.anchor }, status: "open" },
+            props: { anchor: { ...input.anchor }, status: "open", ...(input.ambiguous ? { ambiguous: true as const } : {}) },
             children: [{ id: commentId, type: "comment", props: { authorId: input.authorId, createdAt }, content, children: [] }],
           }],
         }],

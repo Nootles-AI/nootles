@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useMemo, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, type ReactNode } from "react";
 import { useAuth } from "@clerk/nextjs";
 import type * as Y from "yjs";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -8,6 +8,7 @@ import { CommentsStore } from "@/app/lib/comments/store";
 import type { Thread } from "@/app/lib/comments/types";
 import { useCommentsDoc } from "@/app/lib/comments/useCommentsDoc";
 import { useCommentAccess, type CommentAccess } from "./access";
+import { usePageCommentsRegistry } from "./registry";
 
 /**
  * One page's comments, as every comment surface sees them: the decorations in
@@ -81,6 +82,15 @@ export function PageCommentsProvider({ pageId, children }: { pageId: Id<"pages">
     }),
     [pageId, access, userId, comments.status, comments.threads, doc, store, canComment, ensure],
   );
+
+  // Published for the chat, which sits beside the page rather than inside it.
+  const registry = usePageCommentsRegistry();
+  const latest = useRef(value);
+  useEffect(() => {
+    latest.current = value;
+    registry?.changed();
+  });
+  useEffect(() => registry?.publish(pageId, () => latest.current), [registry, pageId]);
 
   return <PageCommentsContext value={value}>{children}</PageCommentsContext>;
 }
