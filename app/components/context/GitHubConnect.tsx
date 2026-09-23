@@ -72,3 +72,52 @@ export function GitHubConnect({
     </div>
   );
 }
+
+/**
+ * A workspace that reads code only through its GitHub App, before anyone has
+ * installed it: the same two marks with nothing yet between them. An admin
+ * installs it here, in a window of its own like connecting, so the form
+ * behind is kept; the list arrives when the installation does. Anyone else
+ * is told who can.
+ */
+export function GitHubAppMissing({
+  titleId,
+  canInstall,
+  unconfigured,
+  onInstall,
+}: {
+  titleId: string;
+  canInstall: boolean;
+  unconfigured: boolean;
+  onInstall: () => void;
+}) {
+  return (
+    <div className="nt-nc">
+      <div className="nt-nc-art" aria-hidden="true">
+        <span className="nt-nc-tile">
+          <GitHubMark width={28} height={28} />
+        </span>
+        <span className="nt-nc-track" />
+        <span className="nt-nc-tile is-ours">
+          <Brandmark width={24} height={30} />
+        </span>
+      </div>
+      <h2 id={titleId} className="nt-nc-title">
+        This workspace reads code through its GitHub App
+      </h2>
+      <p className="nt-nc-note">
+        {unconfigured
+          ? "The GitHub App isn’t set up on this deployment, so no repository can be linked here yet."
+          : canInstall
+            ? "It isn’t installed yet. Install it on your organisation and choose the repositories it may read; it never writes to them."
+            : "It isn’t installed yet. Ask an owner or an admin to install it."}
+      </p>
+      {canInstall && (
+        <button type="button" className="nt-nc-go" onClick={onInstall}>
+          <GitHubMark width={15} height={15} />
+          Install the Nootles GitHub App
+        </button>
+      )}
+    </div>
+  );
+}

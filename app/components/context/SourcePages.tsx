@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useAction, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
 import type { Listed } from "@/convex/github/repos";
 import type { PageNode } from "@/convex/notion/pages";
 import { reason } from "@/app/lib/github";
@@ -12,7 +13,8 @@ import { ProgressBar } from "../notion/Progress";
 import { matchingPages, NotionPageTree } from "../notion/NotionPageTree";
 import { PaletteShell, PALETTE_TITLE_ID } from "../notion/PaletteShell";
 import { openConnectWindow } from "./connectWindow";
-import { GitHubConnect } from "./GitHubConnect";
+import { GitHubAppMissing, GitHubConnect } from "./GitHubConnect";
+import { installPath, type GitHubDoor } from "./useGitHubDoor";
 import type { NotionChoice } from "./NotionPicker";
 import "./sources.css";
 
@@ -50,74 +52,106 @@ function Reading({ what, fetching, onBack }: { what: string; fetching: boolean; 
 }
 
 export function GitHubSourcePage({
+  door,
   chosen,
   search,
   onChoose,
   onBack,
 }: {
+  /** Where the project's repositories come from (`useGitHubDoor`). */
+  door: GitHubDoor;
   /** What the project has now — ticked when the page opens. */
   chosen: readonly Listed[];
   search: string;
   onChoose: (repos: Listed[]) => void;
   onBack: () => void;
 }) {
-  const status = useQuery(api.github.account.status);
-  const connected = !!status?.account && !status.account.invalidAt;
-
-  if (!status) return <Reading what="repositories" fetching={false} onBack={onBack} />;
-  if (!connected) {
+  if (door.via === "loading") return <Reading what="repositories" fetching={false} onBack={onBack} />;
+  if (door.via === "shut") {
+    return (
+      <PaletteShell said="The GitHub App is not installed." title="" foot={<Leave onClick={onBack} />}>
+        <GitHubAppMissing
+          titleId={PALETTE_TITLE_ID}
+          canInstall={door.canInstall}
+          unconfigured={door.unconfigured}
+          onInstall={() => openConnectWindow(installPath(door.workspaceId))}
+        />
+      </PaletteShell>
+    );
+  }
+  if (door.via === "personal" && (!door.account || door.account.invalidAt)) {
     return (
       <PaletteShell said="GitHub is not connected." title="" foot={<Leave onClick={onBack} />}>
         <GitHubConnect
           titleId={PALETTE_TITLE_ID}
-          stale={!!status.account?.invalidAt}
-          blocker={status.ready ? null : status.blocker}
+          stale={!!door.account?.invalidAt}
+          blocker={door.ready ? null : door.blocker}
           onConnect={() => openConnectWindow("/api/github/connect")}
         />
       </PaletteShell>
     );
   }
-  return <Repositories chosen={chosen} search={search} onChoose={onChoose} onBack={onBack} />;
+  return (
+    <Repositories
+      through={door.via === "app" ? { app: door.workspaceId } : { forWorkspace: door.forWorkspace }}
+      chosen={chosen}
+      search={search}
+      onChoose={onChoose}
+      onBack={onBack}
+    />
+  );
 }
 
+/**
+ * What the list is read through: a workspace's GitHub App installations, or
+ * the person's own connection — for a workspace project, only until its App
+ * is installed.
+ */
+type Through = { app: Id<"workspaces"> } | { forWorkspace: boolean };
+
 function Repositories({
+  through,
   chosen,
   search,
   onChoose,
   onBack,
 }: {
+  through: Through;
   chosen: readonly Listed[];
   search: string;
   onChoose: (repos: Listed[]) => void;
   onBack: () => void;
 }) {
-  const available = useAction(api.github.repos.available);
+  const personal = useAction(api.github.repos.available);
+  const installed = useAction(api.github.app.available);
   const lookup = useAction(api.github.repos.lookup);
   const [list, setList] = useState<Listed[] | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   const [picked, setPicked] = useState<Map<string, Listed>>(
     () => new Map(chosen.map((r) => [r.fullName, r])),
   );
+  const app = "app" in through ? through.app : null;
 
   // Asked once per visit: a call outside React, made when the page opens.
   useEffect(() => {
     let alive = true;
-    available({})
+    (app ? installed({ workspaceId: app }) : personal({}))
       .then((rows) => alive && setList(rows))
       .catch((error) => alive && setFailure(reason(error)));
     return () => {
       alive = false;
     };
-  }, [available]);
+  }, [app, installed, personal]);
 
   const typed = search.trim();
   const shown = (list ?? []).filter((r) =>
     r.fullName.toLowerCase().includes(typed.toLowerCase()),
   );
   // A repository the page of recents did not reach looks like a typo until
-  // GitHub is asked for it by name.
+  // GitHub is asked for it by name. An installation's list is already the
+  // whole of what it may read.
   const nameable =
-    /^[\w.-]+\/[\w.-]+$/.test(typed) && !shown.some((r) => r.fullName === typed);
+    !app && /^[\w.-]+\/[\w.-]+$/.test(typed) && !shown.some((r) => r.fullName === typed);
 
   const toggle = (repo: Listed) =>
     setPicked((prev) => {
@@ -149,7 +183,13 @@ function Repositories({
     <PaletteShell
       said={list ? `${shown.length} repositories` : "Reading your repositories"}
       title="Choose repositories to read into context"
-      note="Nootles reads what you link and never writes to it."
+      note={
+        app
+          ? "Read through the workspace’s GitHub App, which never writes to them."
+          : "forWorkspace" in through && through.forWorkspace
+            ? "Read with your own GitHub connection until the workspace installs its GitHub App. Nootles never writes to them."
+            : "Nootles reads what you link and never writes to it."
+      }
       flush
       foot={
         <>
@@ -192,7 +232,13 @@ function Repositories({
         )}
         {list && !shown.length && !nameable && (
           <p className="nt-srcpage-empty">
-            {typed ? "Nothing matches. Type the full owner/name to fetch it directly." : "This connection cannot see any repositories."}
+            {typed
+              ? app
+                ? "Nothing matches among the repositories the GitHub App reads."
+                : "Nothing matches. Type the full owner/name to fetch it directly."
+              : app
+                ? "The GitHub App can’t read any repositories yet. An admin chooses which on GitHub."
+                : "This connection cannot see any repositories."}
           </p>
         )}
         {shown.map((repo) => {

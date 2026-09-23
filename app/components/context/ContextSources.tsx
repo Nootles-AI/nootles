@@ -11,6 +11,7 @@ import { fileSize, uploadContextFile } from "@/app/lib/contextFiles";
 import { when } from "@/app/lib/projectMeta";
 import { FileDoc, Quote, X } from "../Icons";
 import { NotionMark } from "../NotionMark";
+import { CodeGate } from "./CodeGate";
 import { GitHubPicker } from "./GitHubPicker";
 import { GitHubMark } from "./marks";
 import { NotionPicker, type NotionChoice } from "./NotionPicker";
@@ -295,6 +296,7 @@ export function useProjectSources(projectId: Id<"projects">) {
         defaultBranch: r.defaultBranch,
         private: r.private,
         ...(r.description ? { description: r.description } : {}),
+        ...(r.installationId !== undefined ? { installationId: r.installationId } : {}),
       }),
     ),
     pages: (pages ?? []).map(
@@ -340,17 +342,20 @@ export function useProjectSources(projectId: Id<"projects">) {
 export function ContextSources({ projectId }: { projectId: Id<"projects"> }) {
   const sources = useProjectSources(projectId);
   return (
-    <Sources
-      cards={sources.cards}
-      linkedRepos={new Set(sources.repos.map((r) => r.fullName))}
-      linkedPages={new Set(sources.pages.map((p) => p.pageId))}
-      busy={sources.uploading}
-      failure={sources.failure}
-      empty="Nothing added yet. Files, repositories and Notion pages added here are read before the assistant answers."
-      onFiles={sources.upload}
-      onRepo={(repo) => sources.linkRepos([repo])}
-      onPages={sources.linkPages}
-    />
+    <>
+      <Sources
+        cards={sources.cards}
+        linkedRepos={new Set(sources.repos.map((r) => r.fullName))}
+        linkedPages={new Set(sources.pages.map((p) => p.pageId))}
+        busy={sources.uploading}
+        failure={sources.failure}
+        empty="Nothing added yet. Files, repositories and Notion pages added here are read before the assistant answers."
+        onFiles={sources.upload}
+        onRepo={(repo) => sources.linkRepos([repo])}
+        onPages={sources.linkPages}
+      />
+      <CodeGate />
+    </>
   );
 }
 
@@ -462,5 +467,6 @@ export function repoRef(repo: Listed) {
     defaultBranch: repo.defaultBranch,
     ...(repo.description ? { description: repo.description } : {}),
     private: repo.private,
+    ...(repo.installationId !== undefined ? { installationId: repo.installationId } : {}),
   };
 }

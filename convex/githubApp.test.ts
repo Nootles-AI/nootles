@@ -592,6 +592,11 @@ describe("the GitHub organisation rule", () => {
     expect(await readsCode(t, MEMBER, projectId)).toBe(true);
     expect(await readsCode(t, ADMIN, projectId)).toBe(false);
     expect(await readsCode(t, GUEST, projectId)).toBe(false);
+    // The integrations screen and the context panel say the same, from the status.
+    const passes = async (who: { subject: string }) =>
+      (await t.withIdentity(who).query(api.github.app.status, { workspaceId }))?.orgProof.passes;
+    expect(await passes(MEMBER)).toBe(true);
+    expect(await passes(ADMIN)).toBe(false);
   });
 
   test("the rule names an organisation the App is installed on, and moving it starts proofs over", async () => {
