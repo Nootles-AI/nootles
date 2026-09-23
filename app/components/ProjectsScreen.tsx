@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useCallback, useEffect, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import { useConvex, useConvexAuth, useQuery, useMutation } from "convex/react";
@@ -27,6 +27,7 @@ import type { NewProject } from "./newProjectDraft";
 import { useNotionAvailable } from "./notion/NotionAvailable";
 import { ProjectPalette, useModKey, type Page as PalettePage } from "./ProjectPalette";
 import { ProjectsBoard } from "./ProjectsBoard";
+import { savedView, Skeletons, VIEW_KEY, VIEWS, type View } from "./ProjectsLoading";
 import {
   describeOutcome,
   useNotionOutcome,
@@ -51,20 +52,7 @@ import { slugOf, useContainer, type WorkspaceContainer } from "./workspaces/Cont
 import { ContainerSwitcher } from "./workspaces/ContainerSwitcher";
 import { InviteButton } from "./workspaces/Invite";
 import { MembersPile } from "./workspaces/MembersPile";
-
-type View = "grid" | "list" | "board";
-const VIEWS: View[] = ["grid", "list", "board"];
-const VIEW_KEY = "nt:projectsView";
-
-/** The view this browser left the screen in. */
-function savedView(): View {
-  try {
-    const saved = localStorage.getItem(VIEW_KEY) as View | null;
-    return saved && VIEWS.includes(saved) ? saved : "grid";
-  } catch {
-    return "grid";
-  }
-}
+import { useEvenSides } from "./workspaces/useEvenSides";
 
 /** A list item's place in its list, which is what staggers its entrance. */
 const nth = (i: number) => ({ "--i": i }) as React.CSSProperties;
@@ -114,6 +102,8 @@ export function ProjectsScreen() {
       rememberScreen(userId, home, liveProjects, liveOthers);
     }
   }, [userId, home, liveProjects, liveOthers]);
+  const head = useRef<HTMLElement>(null);
+  useEvenSides(head, !!workspace);
   const createProject = useMutation(api.projects.create);
   const convex = useConvex();
   const renameProject = useMutation(api.projects.rename);
@@ -342,6 +332,7 @@ export function ProjectsScreen() {
       {/* On the board the header lies over the canvas rather than above it, so
           it is lifted onto its own layer — see `.nt-board-host`. */}
       <header
+        ref={head}
         className={`nt-front-head${workspace ? " nt-ws-head" : ""}${view === "board" ? " nt-board-host" : ""}`}
       >
         <div className="nt-tools">
@@ -906,51 +897,6 @@ const SharedRow = memo(function SharedRow({
     </>
   );
 });
-
-/**
- * Loading takes the shape of the view it is loading into, so content swaps in
- * without the page rearranging under the cursor.
- */
-function Skeletons({ view }: { view: View }) {
-  // The board has no resting shape to hold: frames land on it as they arrive.
-  if (view === "board") return null;
-  if (view === "list") {
-    return (
-      <ul aria-busy="true" aria-label="Loading projects">
-        {[0, 1, 2, 3].map((i) => (
-          <li key={i} className="nt-list-row">
-            <span
-              className="nt-skeleton ml-2 h-4 flex-1"
-              style={{ maxWidth: `${[52, 38, 61, 45][i]}%`, animationDelay: `${i * 110}ms` }}
-            />
-            <span className="nt-skeleton nt-col-pages h-3" />
-            <span className="nt-skeleton nt-col-when h-3" />
-            <span className="nt-col-actions" />
-          </li>
-        ))}
-      </ul>
-    );
-  }
-  return (
-    <ul className="nt-grid" aria-busy="true" aria-label="Loading projects">
-      {[0, 1, 2, 3, 4, 5].map((i) => (
-        <li key={i}>
-          <div className="nt-card">
-            <span className="nt-card-well">
-              <span
-                className="nt-skeleton block aspect-[4/3] rounded-b-none"
-                style={{ animationDelay: `${i * 90}ms` }}
-              />
-            </span>
-            <div className="nt-card-foot">
-              <span className="nt-skeleton h-3.5 flex-1" style={{ maxWidth: "60%" }} />
-            </div>
-          </div>
-        </li>
-      ))}
-    </ul>
-  );
-}
 
 /**
  * Teaches what a project is — or, in a workspace, what a workspace is — and

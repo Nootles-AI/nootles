@@ -6,9 +6,10 @@ import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import { useConvexAuth, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import { addressMove, projectIdIn, projectPath } from "@/app/lib/containerPaths";
+import { addressMove, homePath, projectIdIn, projectPath } from "@/app/lib/containerPaths";
 import { rememberWorkspace, seenWorkspace } from "@/app/lib/projectsCache";
 import { Wordmark } from "../Brand";
+import { HomeLoading } from "../ProjectsLoading";
 import { ContainerProvider, type WorkspaceContainer } from "./ContainerContext";
 
 const noop = () => () => {};
@@ -22,7 +23,9 @@ const noop = () => () => {};
  * would answer as the operator. The wait that costs is covered the way the
  * projects screen covers its own: what this address last resolved to in this
  * browser (`projectsCache`) stands in until `bySlug` answers, and is replaced
- * by whatever it says.
+ * by whatever it says. The ways into a workspace tell the cache before they
+ * go — the switcher, making one, accepting an invitation — and an address
+ * this browser has never seen draws a home's frame while it waits.
  *
  * An old address is moved to the current one, the rest of the path kept, so a
  * link to a project from before a rename still opens that project — and a
@@ -76,7 +79,13 @@ export function ContainerRoute({ slug, children }: { slug: string; children: Rea
   }, [canonical, slug, pathname, router]);
 
   if (resolved === null) return <Nowhere projectId={projectIdIn(pathname)} />;
-  if (!container) return <div className="flex-1" aria-busy="true" />;
+  if (!container) {
+    return hydrated && pathname === homePath(slug) ? (
+      <HomeLoading />
+    ) : (
+      <div className="flex-1" aria-busy="true" />
+    );
+  }
   return <ContainerProvider value={container}>{children}</ContainerProvider>;
 }
 

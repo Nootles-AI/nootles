@@ -154,19 +154,20 @@
 
 /* ---- The switcher ----------------------------------------------------------
    The projects home's title, when there is somewhere else to go: the name of
-   whose place this is, and a quiet glyph saying it opens. The glyph has an
-   empty twin on the other side, so the name stays on the page's centre line
-   whether or not the glyph is there — it arrives once the account's
-   workspaces have answered, and nothing moves when it does. */
+   whose place this is, and a quiet glyph saying it opens. The wash hugs the
+   two, with the same padding at either end; the name stays on the page's
+   centre line because the box is set off by what the glyph and its gap add
+   on the right — as a margin, so the header reserves it — and nothing moves
+   when the glyph arrives, once the account's workspaces have answered. */
 
 .nt-ws-switch {
-  display: inline-grid;
-  grid-template-columns: 16px minmax(0, auto) 16px;
+  display: inline-flex;
   align-items: center;
   gap: 8px;
   max-width: min(32rem, 44vw);
   /* The wash reaches a little past the line; the header's row does not. */
   margin-block: -2px;
+  margin-left: 24px;
   padding: 2px 10px;
   vertical-align: top;
   border-radius: var(--radius-lg);
@@ -174,21 +175,22 @@
   letter-spacing: inherit;
   transition: background var(--dur-fast) var(--ease);
 }
-.nt-ws-switch::before {
-  content: "";
-}
 .nt-ws-switch:hover {
   background: var(--hover);
 }
-.nt-ws-switch:active,
 .nt-ws-switch[aria-expanded="true"] {
+  background: var(--selected);
+}
+.nt-ws-switch:active {
   background: var(--active);
 }
 .nt-ws-switch-name {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .nt-ws-switch-glyph {
+  flex: none;
   color: var(--muted);
   animation: nt-ws-glyph-in var(--dur-slow) var(--spring) backwards;
   transition: color var(--dur-fast) var(--ease);
@@ -203,15 +205,11 @@
     transform: scale(0.4);
   }
 }
-/* Where the title sits flush left, a twin would only indent it. */
+/* Where the title sits flush left, the name keeps to the tools' edge instead. */
 @media (max-width: 36rem) {
   .nt-ws-switch {
-    grid-template-columns: minmax(0, auto) 16px;
     max-width: 100%;
     margin-left: -10px;
-  }
-  .nt-ws-switch::before {
-    display: none;
   }
 }
 
@@ -299,16 +297,42 @@
 
 /* ---- A workspace's home header ------------------------------------------------
    More sits on its right than on anyone's own home — who is in it and the way
-   to invite — beside a title that is whatever the team called it. The outer
-   columns keep at least what they hold, so the title gives way, cut short,
-   before anything lands on anything else; with room to spare they are still
-   equal, and the title keeps to the page's centre line. */
+   to invite — beside a title that is whatever the team called it. Both outer
+   columns are at least as wide as the wider of the two sides (`--ws-side`,
+   measured by `useEvenSides`, since a grid cannot keep columns equal and each
+   at least what it holds), so the title keeps to the page's centre line
+   whatever the sides hold, and gives way, cut short, before anything lands on
+   anything else. Each side is only as wide as what it holds, which is what is
+   measured. */
 
 .nt-ws-head {
-  grid-template-columns: minmax(max-content, 1fr) minmax(0, auto) minmax(max-content, 1fr);
+  grid-template-columns:
+    minmax(var(--ws-side, max-content), 1fr)
+    minmax(0, auto)
+    minmax(var(--ws-side, max-content), 1fr);
+}
+.nt-ws-head > .nt-tools {
+  justify-self: start;
+}
+.nt-ws-head > .nt-front-new {
+  justify-self: end;
 }
 .nt-ws-head .nt-ws-switch {
-  max-width: min(32rem, 44vw, 100%);
+  max-width: min(32rem, 44vw, 100% - 24px);
+}
+/* The search field folds to its glyph sooner than on anyone's own home: open,
+   it makes the left side the wider one, and every pixel of that is taken from
+   the title twice. */
+@media (max-width: 72rem) {
+  .nt-ws-head .nt-find {
+    width: var(--control);
+    padding-inline: 0;
+    justify-content: center;
+  }
+  .nt-ws-head .nt-find > span,
+  .nt-ws-head .nt-find .nt-kbd {
+    display: none;
+  }
 }
 /* The title takes a line of its own sooner than on anyone's own home, since
    the row it leaves holds more (`.nt-front-head` at 36rem). */
@@ -322,12 +346,8 @@
     text-align: left;
   }
   .nt-ws-head .nt-ws-switch {
-    grid-template-columns: minmax(0, auto) 16px;
     max-width: 100%;
     margin-left: -10px;
-  }
-  .nt-ws-head .nt-ws-switch::before {
-    display: none;
   }
 }
 /* And at a phone's width the row under it has only the room anyone's own home
@@ -342,7 +362,9 @@
 /* ---- Members, on the home ----------------------------------------------------
    Who is in the workspace, as the presence pile draws people, and the way to
    the list of them. Pointing at it fans the faces apart a little, as if to
-   show there are people behind the first. */
+   show there are people behind the first: each moves out toward the title by
+   its place from the end (`--k`), so the pile spreads into the gap on its
+   left and its own box, which the header is laid out by, never changes. */
 
 .nt-ws-pile {
   display: flex;
@@ -351,17 +373,33 @@
   padding-inline: 4px;
   border-radius: 999px;
 }
-.nt-ws-pile .nt-face + .nt-face {
-  transition: margin-left var(--dur-slow) var(--ease);
+/* Its seat, held while the people are on their way. */
+.nt-ws-pile.is-waiting {
+  width: var(--control);
 }
-.nt-ws-pile:hover .nt-face + .nt-face,
-.nt-ws-pile:focus-visible .nt-face + .nt-face {
-  margin-left: -2px;
+.nt-ws-pile .nt-face {
+  transition: translate var(--dur-slow) var(--ease);
 }
-/* Beside the title on a narrow screen there is room for the verbs, not for
-   the people; the members list is still a menu away, under the switcher's
+.nt-ws-pile .nt-face:nth-last-child(2) {
+  --k: 1;
+}
+.nt-ws-pile .nt-face:nth-last-child(3) {
+  --k: 2;
+}
+.nt-ws-pile .nt-face:nth-last-child(4) {
+  --k: 3;
+}
+.nt-ws-pile .nt-face:nth-last-child(5) {
+  --k: 4;
+}
+.nt-ws-pile:hover .nt-face,
+.nt-ws-pile:focus-visible .nt-face {
+  translate: calc(var(--k, 0) * -4px) 0;
+}
+/* Beside the title there is room for the verbs before there is room for the
+   people; the members list is still a menu away, under the switcher's
    Workspace settings. */
-@media (max-width: 40rem) {
+@media (max-width: 60rem) {
   .nt-ws-pile {
     display: none;
   }
@@ -624,7 +662,7 @@
   .nt-monogram.nt-ws-join-tile {
     animation: nt-fade-in var(--dur-fast) var(--ease);
   }
-  .nt-ws-pile .nt-face + .nt-face,
+  .nt-ws-pile .nt-face,
   .nt-ws-saved,
   .nt-ws-person.is-leaving {
     transition: none;

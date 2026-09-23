@@ -6,6 +6,7 @@ import { api } from "@/convex/_generated/api";
 import { settingsPath } from "@/app/lib/containerPaths";
 import { Face } from "../presence/Facepile";
 import type { WorkspaceContainer } from "./ContainerContext";
+import { useNaming } from "./people";
 import "./workspaces.css";
 
 /** Faces before the rest become a count. */
@@ -19,18 +20,21 @@ const NAMED = 12;
  * everywhere else you see yourself; everyone else as their photo.
  *
  * Absent for a guest — `members.list` tells guests nothing about who else is
- * here — and for the moment before it answers.
+ * here. Until it answers, the first face's seat is held, so the faces land in
+ * room already made for them.
  */
 export function MembersPile({ workspace }: { workspace: WorkspaceContainer }) {
   const { isAuthenticated } = useConvexAuth();
+  const naming = useNaming();
   const people = useQuery(
     api.members.list,
     isAuthenticated ? { workspaceId: workspace.workspaceId } : "skip",
   );
+  if (people === undefined) return <span className="nt-ws-pile is-waiting" aria-hidden="true" />;
   if (!people) return null;
 
   const { members } = people;
-  const name = (m: (typeof members)[number]) => m.name ?? m.email ?? "Someone";
+  const name = (m: (typeof members)[number]) => naming(m).name;
   // "+1" would take the very seat the next face fits in; show the face.
   const shown = members.length <= SHOWN + 1 ? members : members.slice(0, SHOWN);
   const rest = members.slice(shown.length);

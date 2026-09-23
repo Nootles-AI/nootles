@@ -2,10 +2,12 @@
 
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
+import { useAuth } from "@clerk/nextjs";
 import { useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { normalizeSlug, typingSlug } from "@/convex/slugs";
 import { homePath } from "@/app/lib/containerPaths";
+import { rememberScreen, rememberWorkspace } from "@/app/lib/projectsCache";
 import { Dialog } from "../Dialog";
 import { refusal } from "./refusal";
 import { useSlugProblem } from "./useSlugProblem";
@@ -27,6 +29,7 @@ export function NewWorkspace({ onClose }: { onClose: () => void }) {
 
 function Form({ onCancel }: { onCancel: () => void }) {
   const router = useRouter();
+  const { userId } = useAuth();
   const create = useMutation(api.workspaces.create);
   const [name, setName] = useState("");
   // Null while the address follows the name.
@@ -46,6 +49,18 @@ function Form({ onCancel }: { onCancel: () => void }) {
     setFailure(null);
     try {
       const made = await create({ name: named, slug });
+      // All of it already known — whose it is, what it is called, that it is
+      // empty — so its home is told before it opens, and draws at once.
+      if (userId) {
+        rememberWorkspace(userId, made.slug, {
+          kind: "workspace",
+          workspaceId: made.workspaceId,
+          slug: made.slug,
+          name: named,
+          role: "owner",
+        });
+        rememberScreen(userId, made.workspaceId, [], []);
+      }
       // Left busy: the workspace's home replaces this screen, dialog and all.
       router.push(homePath(made.slug));
     } catch (error) {

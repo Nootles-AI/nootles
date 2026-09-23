@@ -1,23 +1,21 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { useUser } from "@clerk/nextjs";
+import { useAuth, useUser } from "@clerk/nextjs";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { homePath, joinPath, settingsPath } from "@/app/lib/containerPaths";
+import { rememberWorkspace } from "@/app/lib/projectsCache";
 import { Check, ChevronsUpDown, Plus, Settings } from "../Icons";
 import { Menu, MenuItem, MenuLink } from "../Menu";
 import { useStandIn } from "../StandIn";
 import { useContainer } from "./ContainerContext";
 import { NewWorkspace } from "./NewWorkspace";
+import { initial } from "./people";
 import { ROLE_LABEL } from "./seats";
 import "./workspaces.css";
-
-/** By code point, so a name that starts with an emoji keeps it whole. */
-const initial = (name: string | null | undefined) =>
-  (Array.from(name?.trim() ?? "")[0] ?? "?").toUpperCase();
 
 /**
  * The projects home's title — and, for anyone with somewhere else to be, the
@@ -28,11 +26,16 @@ const initial = (name: string | null | undefined) =>
  * title they always saw and nothing else: the menu is there only once there
  * is somewhere for it to lead. Its glyph arriving later than the title moves
  * nothing (`.nt-ws-switch`), so the wait for that answer is never seen.
+ *
+ * Every workspace it lists is told to this browser's cache as it answers, so
+ * whichever one is picked draws at once, as a home already visited does,
+ * rather than waiting to be told what its address is (`ContainerRoute`).
  */
 export function ContainerSwitcher({ onProblem }: { onProblem: (text: string) => void }) {
   const router = useRouter();
   const here = useContainer();
   const { user } = useUser();
+  const { userId } = useAuth();
   const { isAuthenticated } = useConvexAuth();
   const standIn = useStandIn();
   const ask = isAuthenticated ? {} : "skip";
@@ -42,6 +45,14 @@ export function ContainerSwitcher({ onProblem }: { onProblem: (text: string) => 
   const canCreate = useQuery(api.workspaces.canCreate, ask);
   const joinByDomain = useMutation(api.members.joinByDomain);
   const [making, setMaking] = useState(false);
+  const trigger = useRef<{ focus: () => void }>(null);
+
+  useEffect(() => {
+    if (!userId || !workspaces) return;
+    for (const { workspaceId, slug, name, role } of workspaces) {
+      rememberWorkspace(userId, slug, { kind: "workspace", workspaceId, slug, name, role });
+    }
+  }, [userId, workspaces]);
 
   const title = here.kind === "workspace" ? here.name : "My Nootles";
   const elsewhere =
@@ -56,7 +67,10 @@ export function ContainerSwitcher({ onProblem }: { onProblem: (text: string) => 
 
   const join = (workspaceId: Id<"workspaces">, name: string) =>
     joinByDomain({ workspaceId }).then(
-      ({ slug }) => router.push(homePath(slug)),
+      (joined) => {
+        if (userId) rememberWorkspace(userId, joined.slug, { kind: "workspace", ...joined });
+        router.push(homePath(joined.slug));
+      },
       () => onProblem(`Couldn’t join ${name}. Ask someone there for an invitation.`),
     );
 
@@ -67,6 +81,7 @@ export function ContainerSwitcher({ onProblem }: { onProblem: (text: string) => 
         side="bottom"
         align="center"
         className="nt-ws-switcher"
+        focusRef={trigger}
         trigger={(t) => (
           <button {...t} className="nt-ws-switch">
             <span className="nt-ws-switch-name">{title}</span>
@@ -149,7 +164,14 @@ export function ContainerSwitcher({ onProblem }: { onProblem: (text: string) => 
           </>
         )}
       </Menu>
-      {making && <NewWorkspace onClose={() => setMaking(false)} />}
+      {making && (
+        <NewWorkspace
+          onClose={() => {
+            setMaking(false);
+            trigger.current?.focus();
+          }}
+        />
+      )}
     </h1>
   );
 }
