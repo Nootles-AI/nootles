@@ -51,7 +51,9 @@ type WallProps = {
  * The wall in a workspace: the paywall's sheet and voice, at the sentence that
  * stopped them, but about the workspace's allowance rather than their own —
  * nothing here is for sale to one person. Whoever can start the Team plan is
- * taken to the workspace's billing; anyone else is told who can.
+ * taken to the workspace's billing; another member to its people, where the
+ * owners and admins who can are named; a guest, who can see neither, to
+ * whoever shared the project.
  *
  * Drawn once their seat is known, as `PlanWall` waits on the standing: the
  * sentence and the button that takes focus both depend on it, and neither may
@@ -132,21 +134,25 @@ function Sheet({ meter, name, back, onClose, seat }: WallProps & { seat: Seat | 
             <p className="nt-pw-lede">
               {said.body}{" "}
               {starts
-                ? `The Team plan lifts the limit for everyone in ${name}.`
+                ? "The Team plan lifts the limit for everyone in this workspace."
                 : seat
-                  ? `An owner or an admin of ${name} can start the Team plan, which lifts this limit for everyone. Let them know.`
-                  : `This project belongs to ${name}. Ask whoever shared it with you — ${name}’s Team plan lifts the limit.`}
+                  ? "Only an owner or an admin can start the Team plan, which lifts the limit for everyone in this workspace."
+                  : "This project belongs to that workspace. The person who shared it with you can ask one of its owners or admins to start the Team plan, which lifts the limit."}
             </p>
             <div className="mt-5">
               <Strip meter={meter} left={0} />
             </div>
             <div className="nt-pw-answers">
-              <button type="button" autoFocus={!starts} onClick={close} className="nt-pw-btn">
+              <button type="button" autoFocus={!seat} onClick={close} className="nt-pw-btn">
                 {back}
               </button>
-              {starts && seat && (
-                <Link ref={go} href={settingsPath(seat.slug, "billing")} className="nt-pw-btn is-solid">
-                  See the Team plan
+              {seat && (
+                <Link
+                  ref={go}
+                  href={settingsPath(seat.slug, starts ? "billing" : "members")}
+                  className="nt-pw-btn is-solid"
+                >
+                  {starts ? "See the Team plan" : "See who can start it"}
                 </Link>
               )}
             </div>
