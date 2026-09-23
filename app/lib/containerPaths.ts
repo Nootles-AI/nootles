@@ -8,6 +8,7 @@
  *   /w/<slug>              a workspace's projects
  *   /w/<slug>/p/<id>       one of those open
  *   /w/<slug>/settings/…   the workspace's settings
+ *   /w/join/<token>        an invitation into one
  */
 
 export type SettingsSection = "general" | "members";
@@ -24,6 +25,10 @@ export function projectPath(slug: string | null, projectId: string): string {
 export function settingsPath(slug: string, section: SettingsSection = "general"): string {
   const base = `/w/${slug}/settings`;
   return section === "general" ? base : `${base}/${section}`;
+}
+
+export function joinPath(token: string): string {
+  return `/w/join/${token}`;
 }
 
 /**

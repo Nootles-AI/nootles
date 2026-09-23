@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { homePath, projectPath, settingsPath, withSlug } from "./containerPaths";
+import { homePath, joinPath, projectPath, settingsPath, withSlug } from "./containerPaths";
 
 describe("container addresses", () => {
   test("your own container lives at the root", () => {
@@ -16,6 +16,10 @@ describe("container addresses", () => {
     expect(settingsPath("acme")).toBe("/w/acme/settings");
     expect(settingsPath("acme", "general")).toBe("/w/acme/settings");
     expect(settingsPath("acme", "members")).toBe("/w/acme/settings/members");
+  });
+
+  test("an invitation sits beside every workspace, never inside one", () => {
+    expect(joinPath("tok")).toBe("/w/join/tok");
   });
 });
 

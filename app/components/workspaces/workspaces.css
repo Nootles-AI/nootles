@@ -17,3 +17,154 @@
   gap: 2px;
   margin: 16px calc(-1 * var(--inset)) 0;
 }
+
+/* ---- The switcher ----------------------------------------------------------
+   The projects home's title, when there is somewhere else to go: the name of
+   whose place this is, and a quiet glyph saying it opens. The glyph has an
+   empty twin on the other side, so the name stays on the page's centre line
+   whether or not the glyph is there — it arrives once the account's
+   workspaces have answered, and nothing moves when it does. */
+
+.nt-ws-switch {
+  display: inline-grid;
+  grid-template-columns: 16px minmax(0, auto) 16px;
+  align-items: center;
+  gap: 8px;
+  max-width: min(32rem, 44vw);
+  /* The wash reaches a little past the line; the header's row does not. */
+  margin-block: -2px;
+  padding: 2px 10px;
+  vertical-align: top;
+  border-radius: var(--radius-lg);
+  font: inherit;
+  letter-spacing: inherit;
+  transition: background var(--dur-fast) var(--ease);
+}
+.nt-ws-switch::before {
+  content: "";
+}
+.nt-ws-switch:hover {
+  background: var(--hover);
+}
+.nt-ws-switch:active,
+.nt-ws-switch[aria-expanded="true"] {
+  background: var(--active);
+}
+.nt-ws-switch-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.nt-ws-switch-glyph {
+  color: var(--muted);
+  animation: nt-ws-glyph-in var(--dur-slow) var(--spring) backwards;
+  transition: color var(--dur-fast) var(--ease);
+}
+.nt-ws-switch:hover .nt-ws-switch-glyph,
+.nt-ws-switch[aria-expanded="true"] .nt-ws-switch-glyph {
+  color: var(--foreground);
+}
+@keyframes nt-ws-glyph-in {
+  from {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+}
+/* Where the title sits flush left, a twin would only indent it. */
+@media (max-width: 36rem) {
+  .nt-ws-switch {
+    grid-template-columns: minmax(0, auto) 16px;
+    max-width: 100%;
+    margin-left: -10px;
+  }
+  .nt-ws-switch::before {
+    display: none;
+  }
+}
+
+/* The menu it opens: each place a row with its tile, its name, what you are
+   there, and the tick on the one you are in. A person's tile is round, a
+   workspace's square — the same token, the shape saying which kind. */
+.nt-ws-switcher {
+  min-width: 15rem;
+  max-width: min(20rem, calc(100vw - 16px));
+}
+.nt-ws-switcher .nt-menu-item {
+  gap: 10px;
+}
+.nt-ws-tile {
+  flex: none;
+  transition: color var(--dur-fast) var(--ease);
+}
+.nt-menu-item:hover .nt-ws-tile,
+.nt-menu-item:focus-visible .nt-ws-tile {
+  color: var(--foreground);
+}
+.nt-monogram.nt-ws-tile.is-square {
+  border-radius: 5px;
+}
+/* A glyph given a tile's width, so every label in the menu starts on one line. */
+.nt-ws-slot {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 20px;
+}
+.nt-ws-menu-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.nt-ws-menu-meta {
+  flex: none;
+  font-size: var(--text-meta-lg);
+  color: var(--muted);
+}
+
+/* ---- New workspace -----------------------------------------------------------
+   The palette's details page, one column: the name leads at the query's size,
+   and the address answers beside its key, the part that stays the same set
+   down as ink that is not yours to edit. */
+
+.nt-ws-address {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+}
+.nt-ws-address-base {
+  flex: none;
+  font-size: var(--text-body);
+  line-height: 1.5;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.nt-ws-address .nt-pal-input {
+  min-width: 4ch;
+}
+.nt-ws-note {
+  margin-top: 2px;
+  font-size: var(--text-meta-lg);
+  line-height: 1.5;
+  color: var(--muted);
+  text-wrap: pretty;
+}
+.nt-ws-note.is-problem {
+  color: var(--danger);
+}
+/* The palette folds its footer away on a narrow screen, where it is only key
+   hints; here it holds the one way to finish. */
+@media (max-width: 48rem) {
+  .nt-ws-new .nt-pal-foot {
+    display: flex;
+  }
+  .nt-ws-new .nt-pal-foot > .nt-ws-hint {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nt-ws-switch-glyph {
+    animation: nt-fade-in var(--dur-fast) var(--ease);
+  }
+}

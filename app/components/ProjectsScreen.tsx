@@ -44,6 +44,7 @@ import {
 } from "./projectParts";
 import { useStandIn } from "./StandIn";
 import { AccessRequests } from "./share/AccessRequests";
+import { ContainerSwitcher } from "./workspaces/ContainerSwitcher";
 
 type View = "grid" | "list" | "board";
 const VIEWS: View[] = ["grid", "list", "board"];
@@ -344,7 +345,7 @@ export function ProjectsScreen() {
           </button>
         </div>
 
-        <h1 className="nt-front-title">My Nootles</h1>
+        <ContainerSwitcher onProblem={setFailure} />
 
         <div className="nt-front-new">
           {/* Nothing here belongs to a project, so no role gates it — an
