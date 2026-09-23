@@ -3,8 +3,10 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import type { Id } from "@/convex/_generated/dataModel";
+import { homePath } from "@/app/lib/containerPaths";
 import { Dialog } from "./Dialog";
 import { ArrowLeft, FileDoc, PanelLeft, PanelRight, Search } from "./Icons";
+import { slugOf, useContainer } from "./workspaces/ContainerContext";
 
 /** A keyboard, in the app's 24-grid stroke. */
 function Keyboard() {
@@ -82,6 +84,11 @@ function Body({
   close,
 }: Omit<Parameters<typeof WorkspacePalette>[0], "onClose"> & { close: () => void }) {
   const router = useRouter();
+  // Home is the list this project is in: yours, or its workspace's.
+  const container = useContainer();
+  const home = homePath(slugOf(container));
+  const homeName =
+    container.kind === "workspace" ? `All projects in ${container.name}` : "All projects";
   const [query, setQuery] = useState("");
   const [index, setIndex] = useState(0);
   const list = useRef<HTMLDivElement>(null);
@@ -125,14 +132,14 @@ function Body({
       {
         id: "home",
         group: "Go",
-        name: "All projects",
+        name: homeName,
         icon: <ArrowLeft width={16} height={16} />,
-        run: () => router.push("/"),
+        run: () => router.push(home),
       },
     ];
     const q = query.trim().toLowerCase();
     return q ? all.filter((r) => r.name.toLowerCase().includes(q)) : all;
-  }, [pages, currentPageId, leftOpen, rightOpen, canChat, query, onOpenPage, onToggleLeft, onToggleRight, onShowKeys, router]);
+  }, [pages, currentPageId, leftOpen, rightOpen, canChat, query, onOpenPage, onToggleLeft, onToggleRight, onShowKeys, router, home, homeName]);
 
   const at = Math.min(index, Math.max(rows.length - 1, 0));
   const current = rows.at(at);

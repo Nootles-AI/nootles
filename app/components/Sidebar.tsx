@@ -28,6 +28,7 @@ import {
   X,
 } from "./Icons";
 import { useModKey } from "@/app/lib/useModKey";
+import { homePath } from "@/app/lib/containerPaths";
 import { useNotionAvailable } from "./notion/NotionAvailable";
 import { NotionImport } from "./notion/NotionImport";
 import {
@@ -51,6 +52,7 @@ import { useHints } from "./hints/useHints";
 import { useSharedClip } from "./sidebarClipboard";
 import { useTreeDrag, type TreeRow } from "./sidebarDrag";
 import { useMarquee } from "./sidebarMarquee";
+import { slugOf, useContainer } from "./workspaces/ContainerContext";
 import {
   flattenTree,
   isInside as isInsideOf,
@@ -107,6 +109,7 @@ export function Sidebar({
   onShowKeys,
 }: Props) {
   const mod = useModKey();
+  const container = useContainer();
   // Back from Notion's consent screen, which the import dialog sent them to:
   // a grant reopens the dialog they left, and anything else is said under the
   // project's name. Initial state rather than an effect — the outcome is known
@@ -685,11 +688,18 @@ export function Sidebar({
   return (
     <aside style={{ width }} className="nt-panel nt-rail-l" aria-label="Pages">
       {/* Back to the project list, the way a docs app returns to your files —
-          there is no project switcher here because the route is the project. */}
+          there is no project switcher here because the route is the project.
+          It names the list it goes back to: yours, or the workspace's. */}
       <div className="nt-panel-head">
-        <Link href="/" className="nt-row nt-back min-w-0 flex-1 text-muted" title="All projects">
+        <Link
+          href={homePath(slugOf(container))}
+          className="nt-row nt-back min-w-0 flex-1 text-muted"
+          title={container.kind === "workspace" ? `All projects in ${container.name}` : "All projects"}
+        >
           <ArrowLeft width={14} height={14} className="shrink-0" />
-          <span className="nt-row-label">Projects</span>
+          <span className="nt-row-label">
+            {container.kind === "workspace" ? container.name : "Projects"}
+          </span>
         </Link>
         {owner && <SharePopover projectId={projectId} />}
         <AccountMenu align="start" onShowKeys={onShowKeys} />

@@ -4,11 +4,12 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
-import { useMutation, useQuery } from "convex/react";
+import { useConvex, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useMediaQuery } from "@/app/lib/useMediaQuery";
 import { track } from "@/app/lib/telemetry";
+import { projectPath } from "@/app/lib/containerPaths";
 import { Wordmark } from "../Brand";
 import { ArrowLeft, ChevronRight, FileDoc, Folder, PanelLeft } from "../Icons";
 import { CurrentPageProvider, useOpenPage } from "../OpenPageContext";
@@ -45,6 +46,7 @@ export function SharedProject({ token }: { token: string }) {
   const { isLoaded, isSignedIn } = useAuth();
   const claim = useMutation(api.share.claim);
   const requestEdit = useMutation(api.share.requestEdit);
+  const convex = useConvex();
   const router = useRouter();
   // One column here, so the workspace's second pane never comes into it.
   const { main, open, back } = useOpenPage();
@@ -97,7 +99,14 @@ export function SharedProject({ token }: { token: string }) {
           await requestEdit({ projectId }).catch(() => {});
           track("access_requested", { from: "share_link" });
         }
-        router.replace(`/p/${projectId}`);
+        // Straight to the address it answers to: a workspace project opens
+        // in its workspace for someone with a seat there, rather than taking
+        // the hop through `/p/`. Asking is not worth a failure of its own —
+        // `/p/` moves it there anyway.
+        const home = await convex
+          .query(api.projects.home, { projectId })
+          .catch(() => null);
+        router.replace(projectPath(home?.slug ?? null, projectId));
       })
       .catch(() => {
         // A link revoked mid-flight resolves itself: the query flips to null
@@ -107,7 +116,7 @@ export function SharedProject({ token }: { token: string }) {
         claimed.current = false;
         setClaimFailed(true);
       });
-  }, [isLoaded, isSignedIn, shared, claim, requestEdit, token, router, attempt]);
+  }, [isLoaded, isSignedIn, shared, claim, requestEdit, convex, token, router, attempt]);
 
   useEffect(() => {
     if (!drawer) return;
