@@ -256,6 +256,19 @@ export async function requireWorkspaceRole(
   return { workspace, membership };
 }
 
+/**
+ * Whether someone holds one of a workspace's paid seats — member or above.
+ * A guest does not, nor does anyone a share link let in: the people a
+ * workspace's guest cap is for.
+ */
+export async function holdsSeat(
+  ctx: QueryCtx,
+  workspaceId: Id<"workspaces">,
+  userId: string,
+): Promise<boolean> {
+  return atLeast((await activeMembership(ctx, workspaceId, userId))?.role ?? null, "member");
+}
+
 /** Whether a seat reaches `min`. No seat reaches anything. */
 export function atLeast(role: WorkspaceRole | null, min: WorkspaceRole): boolean {
   return role !== null && RANK[role] >= RANK[min];

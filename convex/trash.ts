@@ -2,7 +2,7 @@ import { v } from "convex/values";
 import { internalMutation, mutation } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { isTrashed, managesProject, projectRole, requireOwner } from "./auth";
-import { requireQuota } from "./entitlements";
+import { containerOf, requireQuotaIn } from "./entitlements";
 import { removePageCascade } from "./pages";
 import { purgeProject, refreshPageSummary } from "./projects";
 
@@ -31,9 +31,10 @@ export const restore = mutation({
       const project = await ctx.db.get(id);
       if (!project || !isTrashed(project)) continue;
       if (!(await managesProject(ctx, project))) throw new Error("Not found");
-      // A personal project coming back takes a free slot as surely as a new
-      // one; otherwise deleting, creating and undoing is a way past the limit.
-      if (!project.workspaceId) await requireQuota(ctx, caller, "projects");
+      // A project coming back takes a free slot as surely as a new one;
+      // otherwise deleting, creating and undoing is a way past the limit. Its
+      // container's slot: a workspace's own, never the restorer's.
+      await requireQuotaIn(ctx, containerOf(project, caller), "projects");
       await ctx.db.patch(id, { deletedAt: undefined });
     }
 

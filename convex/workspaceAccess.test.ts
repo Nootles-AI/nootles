@@ -56,6 +56,16 @@ async function world(t: T) {
       settings: { linkSharing: true, guestCodeAccess: false, joinDomains: [], autoJoin: false },
       createdAt: 1,
     });
+    // On the Team plan, so a restore meets the manage gate and not the free
+    // allowance's project limit, which the two live projects below fill.
+    await ctx.db.insert("workspaceEntitlements", {
+      workspaceId,
+      feature: "plan",
+      value: "team",
+      note: "test",
+      grantedBy: "test",
+      grantedAt: 1,
+    });
     const seat = (who: Identity, role: Doc<"memberships">["role"], removed = false) =>
       ctx.db.insert("memberships", {
         workspaceId,

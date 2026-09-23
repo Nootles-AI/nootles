@@ -143,7 +143,7 @@ export async function POST(req: Request) {
     try {
       await convex.mutation(api.entitlements.beginChat, { threadId, projectId });
     } catch (e) {
-      if (isQuotaRefusal(e)) return quotaResponse("chats");
+      if (isQuotaRefusal(e)) return quotaResponse(e.data.meter);
       throw e;
     }
   }
