@@ -799,12 +799,12 @@
 .nt-ws-swap {
   animation: nt-fade-in var(--dur) var(--ease);
 }
-/* AI past the allowance, on the next invoice. Neither left (full ink) nor
-   spent (a ghost): an outline, placed on the same fixed track, so the one
-   mark on the card that means money owed cannot read as allowance held. */
-.nt-ws-card .nt-pw-cell.is-owed {
-  background: transparent;
-  box-shadow: inset 0 0 0 1.5px var(--foreground);
+/* AI past the allowance: a figure in a strip's head, with no cells — it has
+   no ceiling for a strip to fill. Its gap to the strip above is inside the
+   fold, so it folds with it. */
+.nt-ws-card .nt-ws-over {
+  margin-bottom: 0;
+  padding-top: 15px;
 }
 
 /* ---- An unpaid workspace, said once under its title -------------------------
