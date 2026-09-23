@@ -124,14 +124,16 @@ export const search = query({
     const seen = await reader(ctx, args.projectId);
     if (!seen) return [];
     const limit = Math.min(10, Math.max(1, Math.floor(args.limit ?? 6)));
-    // Over-fetched, because a hit on a page in the trash is dropped after —
-    // and so is every hit on code, for a reader it is not open to.
+    // Over-fetched, because a hit on a page in the trash is dropped after.
+    // Code a reader may not see is left out by the index itself: dropped
+    // after too, a repository's hundreds of files could fill every slot.
     const hits = await ctx.db
       .query("contextNodeText")
-      .withSearchIndex("search_text", (q) =>
-        q.search("searchText", args.query).eq("projectId", args.projectId),
-      )
-      .take(limit * (seen.code ? 2 : 4));
+      .withSearchIndex("search_text", (q) => {
+        const inProject = q.search("searchText", args.query).eq("projectId", args.projectId);
+        return seen.code ? inProject : inProject.eq("code", false);
+      })
+      .take(limit * 2);
     const describe = describer(ctx, seen.code);
     const found: Described[] = [];
     for (const hit of hits) {

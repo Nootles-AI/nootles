@@ -1584,12 +1584,19 @@ export default defineSchema({
      */
     body: v.optional(v.string()),
     syncedAt: v.number(),
+    /**
+     * Whether the node is a repository's — code, which not every reader of the
+     * project may see (`canReadCode`). On the row so search can leave it out
+     * in the index rather than after. Absent only on rows older than the field
+     * (`migrations.markContextCode`).
+     */
+    code: v.optional(v.boolean()),
   })
     .index("by_nodeId", ["nodeId"])
     .index("by_project", ["projectId"])
     .searchIndex("search_text", {
       searchField: "searchText",
-      filterFields: ["projectId"],
+      filterFields: ["projectId", "code"],
     }),
 
   /**

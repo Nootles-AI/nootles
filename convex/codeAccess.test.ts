@@ -89,6 +89,7 @@ async function project(t: T, ownerId: string, extra: Partial<Doc<"projects">>) {
         searchText: title.toLowerCase(),
         contentHash: "",
         syncedAt: 1,
+        code: false,
       });
     }
     const repoId = await ctx.db.insert("projectRepos", {
@@ -341,6 +342,86 @@ describe("who reads a project's code", () => {
     expect((await access(MEMBER)).map((r) => r.fullName)).toEqual([FULL]);
     expect(await access(GUEST)).toEqual([]);
     expect(await access(STRANGER)).toEqual([]);
+  });
+});
+
+describe("searching past a repository's many files", () => {
+  /** More code hits on "watchdog" than the search reads, all of them ahead of the page and document. */
+  async function crowded(t: T) {
+    const w = await world(t, { guestCodeAccess: false });
+    const { projectId, repoId } = w.team;
+    await t.mutation(internal.github.graphStore.writeNodes, {
+      repoId,
+      nodes: Array.from({ length: 25 }, (_, i) =>
+        node({
+          kind: "file",
+          externalId: `${FULL}:src/watchdog${i}.c`,
+          parent: `${FULL}#concern:watchdog`,
+          title: `src/watchdog${i}.c`,
+          terms: "watchdog",
+        }),
+      ),
+    });
+    await t.run(async (ctx) => {
+      for (const row of await ctx.db
+        .query("contextNodeText")
+        .withIndex("by_project", (q) => q.eq("projectId", projectId))
+        .collect()) {
+        if (row.code) continue;
+        const { _id, _creationTime, ...rest } = row;
+        await ctx.db.delete(_id);
+        await ctx.db.insert("contextNodeText", rest);
+      }
+    });
+    return w;
+  }
+
+  const search = (t: T, who: Identity, projectId: Id<"projects">) =>
+    t.withIdentity(who).query(api.context.read.search, { projectId, query: "watchdog" });
+
+  test("a reader without code still finds the pages and documents", async () => {
+    const t = harness();
+    const w = await crowded(t);
+    const found = await search(t, GUEST, w.team.projectId);
+    expect(found.map((f) => f.title).sort()).toEqual(["Watchdog plan", "Watchdog spec"]);
+  });
+
+  test("a reader of the code gets the code first, as it ranks", async () => {
+    const t = harness();
+    const w = await crowded(t);
+    const found = await search(t, MEMBER, w.team.projectId);
+    expect(found).toHaveLength(6);
+    expect(found.every((f) => f.repo)).toBe(true);
+  });
+
+  test("rows written before `code` are stamped from their node, and found again", async () => {
+    const t = harness();
+    const w = await crowded(t);
+    await t.run(async (ctx) => {
+      for (const row of await ctx.db
+        .query("contextNodeText")
+        .withIndex("by_project", (q) => q.eq("projectId", w.team.projectId))
+        .collect()) {
+        await ctx.db.replace(row._id, { ...row, code: undefined });
+      }
+    });
+    expect(await search(t, GUEST, w.team.projectId)).toEqual([]);
+
+    await t.mutation(internal.migrations.markContextCode, {});
+    await t.finishAllScheduledFunctions(() => {});
+    expect((await search(t, GUEST, w.team.projectId)).map((f) => f.title).sort()).toEqual([
+      "Watchdog plan",
+      "Watchdog spec",
+    ]);
+    const code = await t.run(async (ctx) =>
+      (
+        await ctx.db
+          .query("contextNodeText")
+          .withIndex("by_project", (q) => q.eq("projectId", w.team.projectId))
+          .collect()
+      ).filter((row) => row.code === true).length,
+    );
+    expect(code).toBe(30);
   });
 });
 
