@@ -36,6 +36,7 @@ import { fileURLToPath } from "node:url";
 import {
   bundleSurfaces, serveBundle, ledger, guardedTab, waitFor, wait, wordBox, doubleClickWord, dragSelect, clickEndOf, UNDO,
 } from "./comments-surfaces.shared.mjs";
+import { launchBrowser } from "./comments-launch.mjs";
 
 for (const key of ["OPENAI_API_KEY", "OPENROUTER_API_KEY", "GOOGLE_GENERATIVE_AI_API_KEY", "MISTRAL_API_KEY", "RECRAFT_API_KEY"]) {
   delete process.env[key];
@@ -52,7 +53,6 @@ function swap(source, from, to) {
 }
 
 const output = await mkdtemp(path.join(tmpdir(), "comments-ui-"));
-const { chromium } = await import("playwright");
 await bundleSurfaces("tests/comments-ui.browser.tsx", output, {
   probe: false,
   rewrite: {
@@ -88,11 +88,7 @@ async function broadcast(from, fn, args) {
 
 let browser;
 try {
-  const channel = process.env.COMMENTS_BROWSER_CHANNEL || "chrome";
-  browser = await chromium.launch({
-    headless: true,
-    ...(process.env.COMMENTS_CHROME_PATH ? { executablePath: process.env.COMMENTS_CHROME_PATH } : { channel }),
-  });
+  browser = await launchBrowser();
 
   async function open(name, visitor, { query = "", viewport = { width: 1440, height: 900 } } = {}) {
     const tab = await guardedTab(browser, { origin, inert: true, label: name, failures });

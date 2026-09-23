@@ -150,7 +150,7 @@ keep them that way.
 
 ### Reading CI on a PR
 
-`.github/workflows/check.yml` has two jobs, and both are gates:
+`.github/workflows/check.yml` has four jobs, and all four are gates:
 
 - **`check`** — `tsc --noEmit`, `npm run lint`, `npm test`. **This is the bar.** It must be
   green, and it is what to fix if it is not.
@@ -159,6 +159,11 @@ keep them that way.
   red on every run from 2026-09-16 to 2026-09-21, which is how a genuine break in
   `canvas-stage` reached `main` unnoticed — so treat "it always fails" as a claim that has
   already cost this repo once.
+- **`comments-browser`** — `npm run test:comments:browser`: the hermetic comment harnesses
+  (stand-in Convex, real UI) under Playwright's Chromium. A red one is a real failure.
+- **`comments-fullstack`** — `npm run test:comments:fullstack`: the comment suites against a
+  throwaway `convex-local-backend` (pinned release, downloaded on the runner). A red one is a
+  real failure; the job uploads its screenshots either way.
 - **Vercel** (preview deployment, not this workflow) — **always fails on every PR.**
 
 So Vercel is the only mark to read past. Confirm rather than assume: compare against the

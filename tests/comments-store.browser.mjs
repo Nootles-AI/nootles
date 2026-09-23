@@ -24,10 +24,10 @@ import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { launchBrowser } from "./comments-launch.mjs";
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const output = await mkdtemp(path.join(tmpdir(), "comments-store-"));
-const { chromium } = await import("playwright");
 
 for (const key of ["OPENAI_API_KEY", "OPENROUTER_API_KEY", "GOOGLE_GENERATIVE_AI_API_KEY", "MISTRAL_API_KEY", "RECRAFT_API_KEY"]) {
   delete process.env[key];
@@ -76,11 +76,7 @@ const FORBIDDEN = ["presence:heartbeat", "presence:list", "presence:roster", "pr
 
 let browser;
 try {
-  const channel = process.env.COMMENTS_BROWSER_CHANNEL || "chrome";
-  browser = await chromium.launch({
-    headless: true,
-    ...(process.env.COMMENTS_CHROME_PATH ? { executablePath: process.env.COMMENTS_CHROME_PATH } : { channel }),
-  });
+  browser = await launchBrowser();
   const page = await browser.newPage({ viewport: { width: 1300, height: 800 } });
   page.on("pageerror", (error) => failures.push(`page error: ${error.message}`));
   page.on("console", (message) => {

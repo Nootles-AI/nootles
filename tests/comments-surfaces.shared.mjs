@@ -73,10 +73,12 @@ const PROBE = path.join(repo, "tests", "comments-surfaces.probe.tsx");
  * Build `entry` (repo-relative .tsx) into `output`, with `index.html` loading it.
  * `probe: false` keeps each page's real editor; `rewrite` maps a repo-relative
  * source path to a function over its text, for a harness that counts inside a
- * component without the component knowing.
+ * component without the component knowing; `fixtures` replaces a stand-in
+ * module's source by name (`clerk`, `navigation`, …).
  */
-export async function bundleSurfaces(entry, output, { probe = true, rewrite = {} } = {}) {
+export async function bundleSurfaces(entry, output, { probe = true, rewrite = {}, fixtures = {} } = {}) {
   const name = path.basename(entry, ".tsx");
+  const sources = { ...FIXTURES, ...fixtures };
   await build({
     absWorkingDir: repo, entryPoints: [entry], bundle: true, splitting: true,
     format: "esm", outdir: output, platform: "browser", conditions: ["browser", "import", "style"],
@@ -102,7 +104,7 @@ export async function bundleSurfaces(entry, output, { probe = true, rewrite = {}
         builder.onLoad({ filter }, async () => ({ contents: change(await readFile(absolute, "utf8")), loader: "tsx", resolveDir: path.dirname(absolute) }));
       }
       builder.onLoad({ filter: /^server-only$/, namespace: "fixture" }, () => ({ contents: 'exports.sync = () => { throw new Error("Next server-only gzip diagnostics reached in browser") };' }));
-      builder.onLoad({ filter: /.*/, namespace: "fixture" }, (args) => ({ contents: FIXTURES[args.path], loader: "js", resolveDir: repo }));
+      builder.onLoad({ filter: /.*/, namespace: "fixture" }, (args) => ({ contents: sources[args.path], loader: "js", resolveDir: repo }));
     } }],
     loader: { ".woff": "file", ".woff2": "file", ".ttf": "file", ".svg": "dataurl", ".png": "dataurl" }, logLevel: "warning",
   });
@@ -118,7 +120,8 @@ export async function serveBundle(output) {
     try {
       const pathname = new URL(request.url, "http://localhost").pathname;
       if (pathname === "/favicon.ico") { response.writeHead(204); return void response.end(); }
-      const file = pathname === "/" ? "index.html" : path.basename(pathname);
+      // An app route (no extension) is the app itself, as Next serves it.
+      const file = pathname === "/" || !path.extname(pathname) ? "index.html" : path.basename(pathname);
       const data = await readFile(path.join(output, file));
       response.setHeader("Content-Type", file.endsWith(".js") ? "text/javascript" : file.endsWith(".css") ? "text/css" : file.endsWith(".html") ? "text/html" : "application/octet-stream");
       response.end(data);
@@ -163,9 +166,11 @@ const BENIGN = [/Download the React DevTools/, /\[Fast Refresh\]/];
  * in `lanes`, so a run can assert which woke (a reader's none). `inert` swaps
  * the WebSocket for one that never connects. A console error matching
  * `expected` is collected in `expectedErrors` for the run to count, not failed.
+ * `setup(context, page)` runs before the first load (init scripts, routes,
+ * permissions), and `path` is where that load goes.
  */
-export async function guardedTab(browser, { origin, allow = [], inert, label, failures, expected }) {
-  const context = await browser.newContext({ viewport: { width: 1280, height: 820 } });
+export async function guardedTab(browser, { origin, allow = [], inert, label, failures, expected, viewport = { width: 1280, height: 820 }, setup, path: first = "" }) {
+  const context = await browser.newContext({ viewport });
   const page = await context.newPage();
   const lanes = [];
   const expectedErrors = [];
@@ -201,7 +206,8 @@ export async function guardedTab(browser, { origin, allow = [], inert, label, fa
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") window.__lastUndoKey = event;
     }, true);
   }, Boolean(inert));
-  await page.goto(origin, { waitUntil: "domcontentloaded" });
+  await setup?.(context, page);
+  await page.goto(origin + first, { waitUntil: "domcontentloaded" });
   return { page, context, lanes, expectedErrors };
 }
 

@@ -38,24 +38,20 @@ import {
   bundleSurfaces, serveBundle, ledger, guardedTab, lanesCheck, probe, threadCount, docText, domSelection,
   lastKeyClaimed, waitFor, wait, wordBox, doubleClickWord, dragSelect, clickEndOf, clickCard, startThread, UNDO, REDO,
 } from "./comments-surfaces.shared.mjs";
+import { launchBrowser } from "./comments-launch.mjs";
 
 for (const key of ["OPENAI_API_KEY", "OPENROUTER_API_KEY", "GOOGLE_GENERATIVE_AI_API_KEY", "MISTRAL_API_KEY", "RECRAFT_API_KEY"]) {
   delete process.env[key];
 }
 
 const output = await mkdtemp(path.join(tmpdir(), "comments-surfaces-"));
-const { chromium } = await import("playwright");
 await bundleSurfaces("tests/comments-surfaces.browser.tsx", output);
 const { origin, server } = await serveBundle(output);
 const { failures, check, finish } = ledger();
 
 let browser;
 try {
-  const channel = process.env.COMMENTS_BROWSER_CHANNEL || "chrome";
-  browser = await chromium.launch({
-    headless: true,
-    ...(process.env.COMMENTS_CHROME_PATH ? { executablePath: process.env.COMMENTS_CHROME_PATH } : { channel }),
-  });
+  browser = await launchBrowser();
 
   /** A fresh guarded tab with the visitor's surface mounted and settled. */
   async function open(visitor, options = {}) {

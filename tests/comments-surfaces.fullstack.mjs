@@ -25,155 +25,40 @@
  *
  *   node tests/comments-surfaces.fullstack.mjs
  *
- * Needs a convex-local-backend binary (`COMMENTS_BACKEND_BINARY`, else the
- * newest under ~/.cache/convex/binaries) and system Chrome.
+ * Needs a convex-local-backend binary (see tests/fullstack-backend.mjs) and
+ * system Chrome.
  */
-import { spawn, execFile } from "node:child_process";
-import { createServer } from "node:http";
-import { existsSync } from "node:fs";
-import { mkdtemp, readdir, rm } from "node:fs/promises";
-import { homedir, tmpdir } from "node:os";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
-import { promisify } from "node:util";
-import { createHash, generateKeyPairSync, randomBytes, sign } from "node:crypto";
-import { ConvexHttpClient } from "convex/browser";
 import { anyApi } from "convex/server";
 import {
   bundleSurfaces, serveBundle, ledger, guardedTab, lanesCheck, probe, threadCount, docText, domSelection,
   lastKeyClaimed, waitFor, wait, doubleClickWord, dragSelect, clickEndOf, clickCard, startThread, UNDO, REDO,
 } from "./comments-surfaces.shared.mjs";
-
-const execFileP = promisify(execFile);
-const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const AI_KEYS = ["OPENAI_API_KEY", "OPENROUTER_API_KEY", "GOOGLE_GENERATIVE_AI_API_KEY", "MISTRAL_API_KEY", "RECRAFT_API_KEY"];
-for (const key of AI_KEYS) delete process.env[key];
-
-const freePort = () => new Promise((resolve, reject) => {
-  const probeServer = createServer();
-  probeServer.once("error", reject);
-  probeServer.listen(0, "127.0.0.1", () => {
-    const { port } = probeServer.address();
-    probeServer.close(() => resolve(port));
-  });
-});
-
-async function backendBinary() {
-  if (process.env.COMMENTS_BACKEND_BINARY) return process.env.COMMENTS_BACKEND_BINARY;
-  const root = path.join(homedir(), ".cache", "convex", "binaries");
-  const versions = (await readdir(root)).filter((name) => name.startsWith("precompiled-")).sort();
-  for (const version of versions.reverse()) {
-    const binary = path.join(root, version, "convex-local-backend");
-    if (existsSync(binary)) return binary;
-  }
-  throw new Error("No convex-local-backend binary; set COMMENTS_BACKEND_BINARY.");
-}
-
-// ── A fake OIDC issuer the backend fetches to verify our tokens ──────────────
-const issuerPort = await freePort();
-const ISSUER = `http://127.0.0.1:${issuerPort}`;
-const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
-const jwk = publicKey.export({ format: "jwk" });
-const kid = createHash("sha256").update(JSON.stringify({ e: jwk.e, kty: jwk.kty, n: jwk.n })).digest("base64url");
-// It is also the backend's HTTP proxy, so every fetch the backend makes comes
-// here: its own discovery of this issuer is answered, anything else is refused
-// and fails the run — an action cannot reach a paid API, or anywhere at all.
-const outbound = [];
-const issuer = createServer((request, response) => {
-  response.setHeader("content-type", "application/json");
-  const target = request.url.startsWith("http") ? new URL(request.url) : null;
-  if (target && target.host !== `127.0.0.1:${issuerPort}`) {
-    outbound.push(request.url);
-    response.statusCode = 403;
-    return void response.end("{}");
-  }
-  const route = target ? target.pathname : request.url;
-  if (route.startsWith("/.well-known/openid-configuration")) {
-    response.end(JSON.stringify({
-      issuer: ISSUER, jwks_uri: `${ISSUER}/.well-known/jwks.json`, authorization_endpoint: `${ISSUER}/authorize`,
-      response_types_supported: ["id_token"], subject_types_supported: ["public"], id_token_signing_alg_values_supported: ["RS256"],
-    }));
-  } else if (route.startsWith("/.well-known/jwks.json")) {
-    response.end(JSON.stringify({ keys: [{ ...jwk, kid, use: "sig", alg: "RS256" }] }));
-  } else {
-    response.statusCode = 404;
-    response.end("{}");
-  }
-});
-issuer.on("connect", (request, socket) => {
-  outbound.push(`CONNECT ${request.url}`);
-  socket.end("HTTP/1.1 403 Forbidden\r\n\r\n");
-});
-await new Promise((resolve) => issuer.listen(issuerPort, "127.0.0.1", resolve));
-const b64url = (value) => Buffer.from(typeof value === "string" ? value : JSON.stringify(value)).toString("base64url");
-function mint(subject, name) {
-  const now = Math.floor(Date.now() / 1000);
-  const data = `${b64url({ alg: "RS256", typ: "JWT", kid })}.${b64url({
-    iss: ISSUER, aud: "convex", sub: subject, iat: now, exp: now + 3600, name, email: `${subject}@e2e.test`,
-  })}`;
-  return `${data}.${Buffer.from(sign("RSA-SHA256", Buffer.from(data), privateKey)).toString("base64url")}`;
-}
+import { launchBrowser } from "./comments-launch.mjs";
+import { startBackend } from "./fullstack-backend.mjs";
 
 const PEOPLE = {
   owner: { userId: "user_fs_owner", name: "Olive Owner" },
   commenter: { userId: "user_fs_commenter", name: "Cora Commenter" },
   viewer: { userId: "user_fs_viewer", name: "Vic Viewer" },
 };
-const jwt = Object.fromEntries(Object.entries(PEOPLE).map(([role, who]) => [role, mint(who.userId, who.name)]));
 
-// ── The throwaway backend ────────────────────────────────────────────────────
-const work = await mkdtemp(path.join(tmpdir(), "comments-fullstack-"));
-const [port, sitePort] = [await freePort(), await freePort()];
-const CONVEX_URL = `http://127.0.0.1:${port}`;
-const instanceName = "comments-surfaces-e2e";
-const instanceSecret = randomBytes(32).toString("hex");
-const binary = await backendBinary();
-const backendLog = [];
-const backend = spawn(binary, [
-  path.join(work, "db.sqlite3"),
-  "--interface", "127.0.0.1", "--port", String(port), "--site-proxy-port", String(sitePort),
-  "--instance-name", instanceName, "--instance-secret", instanceSecret,
-  "--local-storage", path.join(work, "storage"), "--disable-beacon",
-  "--convex-http-proxy", ISSUER,
-], { cwd: work, env: Object.fromEntries(Object.entries(process.env).filter(([key]) => !AI_KEYS.includes(key))) });
-backend.stdout.on("data", (chunk) => backendLog.push(String(chunk)));
-backend.stderr.on("data", (chunk) => backendLog.push(String(chunk)));
-
-const envLocal = path.join(repo, ".env.local");
-const hadEnvLocal = existsSync(envLocal);
 let browser;
 let bundleServer;
+let deployment;
+const work = await mkdtemp(path.join(tmpdir(), "comments-fullstack-"));
 const { failures, check, finish } = ledger();
 
 try {
-  for (let tries = 0; ; tries++) {
-    const up = await fetch(`${CONVEX_URL}/version`).then((r) => r.ok, () => false);
-    if (up) break;
-    if (tries > 100) throw new Error(`backend never came up:\n${backendLog.join("")}`);
-    await wait(200);
-  }
-  const { stdout: adminKey } = await execFileP(binary, ["keygen", "admin-key", "--instance-name", instanceName, "--instance-secret", instanceSecret]);
-
-  // Only the self-hosted variables name a deployment; `.env.local`'s cloud or
-  // local pointer is masked by an empty CONVEX_DEPLOYMENT.
-  const cliEnv = {
-    ...Object.fromEntries(Object.entries(process.env).filter(([key]) => key !== "CONVEX_DEPLOYMENT" && !AI_KEYS.includes(key))),
-    CONVEX_DEPLOYMENT: "",
-    CONVEX_SELF_HOSTED_URL: CONVEX_URL,
-    CONVEX_SELF_HOSTED_ADMIN_KEY: adminKey.trim(),
-  };
-  const convex = (args) => execFileP(path.join(repo, "node_modules", ".bin", "convex"), args, { cwd: repo, env: cliEnv, maxBuffer: 16 << 20 });
-  console.log(`backend ${CONVEX_URL}, issuer ${ISSUER}`);
-  await convex(["env", "set", "CLERK_JWT_ISSUER_DOMAIN", ISSUER]);
-  await convex(["dev", "--once", "--typecheck", "disable", "--codegen", "disable"]);
-  console.log("functions pushed");
+  deployment = await startBackend({ name: "comments-surfaces-e2e" });
+  const CONVEX_URL = deployment.url;
+  const jwt = Object.fromEntries(Object.entries(PEOPLE).map(([role, who]) => [role, deployment.mint(who.userId, who.name)]));
+  const outbound = deployment.outbound;
 
   // ── The owner's project, links and claims, over the real wire ──────────────
-  const as = (role) => {
-    const client = new ConvexHttpClient(CONVEX_URL);
-    client.setAuth(jwt[role]);
-    return client;
-  };
+  const as = (role) => deployment.client(jwt[role]);
   const owner = as("owner");
   const projectId = await owner.mutation(anyApi.projects.create, { title: "Launch plan" });
   const [page] = await owner.query(anyApi.pages.listByProject, { projectId });
@@ -184,18 +69,12 @@ try {
   await as("viewer").mutation(anyApi.share.claim, { token: viewerToken });
   check("the commenter's role, as the server resolves it", await as("commenter").query(anyApi.projects.myRole, { projectId }), "commenter");
   check("the viewer's role, as the server resolves it", await as("viewer").query(anyApi.projects.myRole, { projectId }), "viewer");
-
   // ── Browser ────────────────────────────────────────────────────────────────
   const output = path.join(work, "bundle");
   await bundleSurfaces("tests/comments-surfaces.fullstack.tsx", output);
   const served = await serveBundle(output);
   bundleServer = served.server;
-  const { chromium } = await import("playwright");
-  const channel = process.env.COMMENTS_BROWSER_CHANNEL || "chrome";
-  browser = await chromium.launch({
-    headless: true,
-    ...(process.env.COMMENTS_CHROME_PATH ? { executablePath: process.env.COMMENTS_CHROME_PATH } : { channel }),
-  });
+  browser = await launchBrowser();
   // The Convex client logs a refused mutation; the harness's own raw append is
   // the only one expected, and each tab counts that it saw exactly one.
   const REFUSED_APPEND = /M\(ydoc:append\)[\s\S]*Uncaught Error: Not found/;
@@ -308,12 +187,12 @@ try {
     await context.close();
   }
   check("the backend fetched nothing beyond its own issuer", outbound, []);
+} catch (error) {
+  failures.push(`harness threw: ${error.stack ?? error}`);
 } finally {
   await browser?.close();
   bundleServer?.close();
-  issuer.close();
-  backend.kill("SIGTERM");
-  if (!hadEnvLocal && existsSync(envLocal)) await rm(envLocal);
+  await deployment?.close();
   await rm(work, { recursive: true, force: true }).catch(() => {});
 }
 
