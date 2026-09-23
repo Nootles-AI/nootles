@@ -19,6 +19,7 @@ export function Segmented<T extends string>({
   value,
   onChange,
   tipUp,
+  chosenSaidBelow,
 }: {
   label: string;
   segments: readonly Segment<T>[];
@@ -26,6 +27,9 @@ export function Segmented<T extends string>({
   onChange: (value: T) => void;
   /** Set where an opening tooltip would otherwise be clipped by the viewport. */
   tipUp?: boolean;
+  /** Set where a note under the control already says the chosen segment's
+      hint, which its tooltip would only cover. */
+  chosenSaidBelow?: boolean;
 }) {
   const id = useId();
 
@@ -50,9 +54,9 @@ export function Segmented<T extends string>({
           aria-pressed={value === s.id}
           aria-describedby={`${id}-${s.id}`}
           data-tip={s.hint}
-          className={`nt-mode-btn nt-tip${tipUp ? " is-up" : ""}${
-            value === s.id ? " is-on" : ""
-          }`}
+          className={`nt-mode-btn${
+            chosenSaidBelow && value === s.id ? "" : ` nt-tip${tipUp ? " is-up" : ""}`
+          }${value === s.id ? " is-on" : ""}`}
         >
           {s.label}
           {/* The same words for a screen reader, which never sees the tooltip. */}

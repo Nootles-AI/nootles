@@ -729,8 +729,9 @@ function DetailsForm({
   // what the Visibility row goes on showing while it folds shut.
   const [visibility, setVisibility] = useState(workspace?.visibility ?? "workspace");
   const place = chosen?.name ?? "the workspace";
-  // What each answer means, said under the switch as well as in its hints:
-  // who can open the project is the one thing here that can't be guessed.
+  // What each answer means, the chosen one's said under the switch and the
+  // other's in its hint: who can open the project is the one thing here that
+  // can't be guessed.
   const seen = {
     workspace: `Everyone in ${place} can find it and edit it`,
     private: `Only you and ${place}’s owners and admins can open it`,
@@ -850,6 +851,7 @@ function DetailsForm({
                     { id: "private", label: "Private", hint: seen.private },
                   ]}
                   value={visibility}
+                  chosenSaidBelow
                   onChange={(next) => {
                     setVisibility(next);
                     if (workspace) setWorkspace({ ...workspace, visibility: next });
