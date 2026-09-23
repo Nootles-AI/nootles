@@ -117,7 +117,10 @@ function PlanSection({
   const { subscription, plan, source } = summary;
   const live = subscription?.live ?? false;
   const paid = source !== "none";
-  const starts = !paid && !summary.unsettled && summary.configured;
+  // Back from a paid checkout the mirror has not caught up with, a second
+  // press would open a second subscription.
+  const settling = told && outcome === "done";
+  const starts = !paid && !summary.unsettled && summary.configured && !settling;
 
   const leave = (what: "start" | "manage", go: Promise<{ url: string }>, fallback: string) => {
     setBusy(what);
@@ -283,8 +286,8 @@ function UsageSection({
   const left = Math.max(0, allowanceUsd - spentUsd);
   const lit = allowanceUsd > 0 ? Math.ceil((left / allowanceUsd) * USAGE_CELLS) : 0;
   const said = over
-    ? `${usd(spentUsd)} · ${usd(spentUsd - allowanceUsd)} past it`
-    : `${usd(spentUsd)} of ${usd(allowanceUsd)}`;
+    ? `${usd(spentUsd)} used · ${usd(spentUsd - allowanceUsd)} past it`
+    : `${usd(spentUsd)} used · ${usd(left)} left`;
   const guestShare = spentUsd > 0 ? guestUsd / spentUsd : 0;
   const period = summary.subscription
     ? `${DAY.format(summary.subscription.periodStart)} – ${DAY.format(summary.subscription.periodEnd)}`
