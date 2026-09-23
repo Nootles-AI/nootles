@@ -212,11 +212,12 @@ function Log({ workspace }: { workspace: WorkspaceContainer }) {
   const filtered = !!(person || kind || span.from !== undefined);
   const choices = usePersonChoices(members, person);
   const chosen = KINDS.find((k) => k.id === kind);
+  const narrowedTo = person ? choices.find((c) => c.id === person) : undefined;
   const said = filtered
     ? {
         headline: nothingFor(
           chosen,
-          person ? choices.find((c) => c.id === person)?.spoken : undefined,
+          narrowedTo && (narrowedTo.spoken ?? narrowedTo.label),
           SPANS.find((s) => s.id === span.id),
         ),
         hint: widen(chosen, !!person, span.from !== undefined),
