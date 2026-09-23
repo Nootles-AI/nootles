@@ -1,3 +1,14 @@
+const RESETS = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
+
+/**
+ * Also what the panel says when it knows ahead of sending. The day is the
+ * UTC day the server counts, said at the reader's own clock.
+ */
+export function guestDaySpent(now: Date = new Date()): string {
+  const resets = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1);
+  return `You’ve used today’s AI allowance for guests. It resets at ${RESETS.format(resets)}.`;
+}
+
 /**
  * A rate or infrastructure refusal, as a line to show the person who hit it.
  *
@@ -16,10 +27,6 @@
  * database, and the only thing missing is the answer. Wait the stated time and
  * send again; nothing was spent, duplicated, or lost.
  */
-/** Also what the panel says when it knows ahead of sending. */
-export const GUEST_DAY_SPENT =
-  "You’ve used today’s share of this workspace’s AI. It opens again at midnight UTC.";
-
 export function retryNotice(message: string): string | null {
   let data: unknown;
   try {
@@ -31,7 +38,7 @@ export function retryNotice(message: string): string | null {
 
   const code = (data as { code?: unknown }).code;
   if (code === "quota" && (data as { meter?: unknown }).meter === "guestAi") {
-    return GUEST_DAY_SPENT;
+    return guestDaySpent();
   }
   if (code === "limiter_unavailable") {
     return "The assistant is briefly unavailable. Try again in a moment.";
