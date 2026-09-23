@@ -79,6 +79,16 @@ describe("the sentence", () => {
     );
   });
 
+  test("an unlink a removal caused says why", () => {
+    const meta = { projectId: "p1", project: "Launch", reason: "linked by a member who left" };
+    expect(whatText(row({ action: "repo.unlink", meta: { ...meta, repo: "acme/rover" } }), "Acme")).toBe(
+      "unlinked acme/rover from Launch, as it was linked by a member who left",
+    );
+    expect(whatText(row({ action: "notion.unlink", meta: { ...meta, page: "Brief" } }), "Acme")).toBe(
+      "unlinked the Notion page “Brief” from Launch, as it was linked by a member who left",
+    );
+  });
+
   test("an unknown action is said as itself", () => {
     expect(whatText(row({ action: "something.new" }), "Acme")).toBe("something.new");
   });

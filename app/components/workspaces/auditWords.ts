@@ -206,7 +206,11 @@ export function whatParts(row: AuditRow, workspaceName: string): Part[] {
     case "notion.link":
       return [`linked the Notion page ${quoted(m.page)} to `, project];
     case "notion.unlink":
-      return [`unlinked the Notion page ${quoted(m.page)} from `, project];
+      return [
+        `unlinked the Notion page ${quoted(m.page)} from `,
+        project,
+        ...(m.reason ? [`, as it was ${m.reason}`] : []),
+      ];
 
     case "github.installation.record":
       return [
