@@ -178,6 +178,12 @@ export function JoinInvitation({ token }: { token: string }) {
           This invitation has already been used.
         </Card>
       );
+    } else if (invitation.state === "gone") {
+      card = (
+        <Card title={name} tile={tile} actions={home}>
+          This workspace has been deleted, so there’s nothing left to join.
+        </Card>
+      );
     } else if (invitation.state === "expired") {
       card = (
         <Card title={name} tile={tile} actions={home}>

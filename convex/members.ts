@@ -304,12 +304,13 @@ export const list = query({
  * invites an admin. Asking an address that already has an open invitation
  * renews that one — a new link, a fresh fortnight, the role asked for now —
  * so the old link stops working and the list never shows the same person
- * twice.
+ * twice. `replaced` says a link that still worked has stopped, so the inviter
+ * can be told the one they may have sent is dead.
  */
 export const invite = mutation({
   args: { workspaceId: v.id("workspaces"), email: v.string(), role: invitedRole },
   handler: async (ctx, args) => {
-    const { membership } = await requireWorkspaceRole(ctx, args.workspaceId, "admin");
+    const { workspace, membership } = await requireWorkspaceRole(ctx, args.workspaceId, "admin");
     const email = normalizeEmail(args.email);
     const open = (
       await ctx.db
@@ -333,7 +334,7 @@ export const invite = mutation({
       .collect();
     for (const seat of seats) {
       if ((await profileOf(ctx, seat.userId))?.email?.toLowerCase() === email) {
-        throw new ConvexError("Already a member.");
+        throw new ConvexError(`${email} is already in ${workspace.name}.`);
       }
     }
 
@@ -348,14 +349,19 @@ export const invite = mutation({
     };
     if (open) {
       await ctx.db.patch(open._id, fields);
-      return { invitationId: open._id, token, expiresAt: fields.expiresAt };
+      return {
+        invitationId: open._id,
+        token,
+        expiresAt: fields.expiresAt,
+        replaced: open.expiresAt > now,
+      };
     }
     const invitationId = await ctx.db.insert("invitations", {
       workspaceId: args.workspaceId,
       email,
       ...fields,
     });
-    return { invitationId, token, expiresAt: fields.expiresAt };
+    return { invitationId, token, expiresAt: fields.expiresAt, replaced: false };
   },
 });
 
@@ -407,16 +413,20 @@ export const invitation = query({
     // In the order `acceptInvite` asks, so the page says what accepting would.
     const seat = await seatOf(ctx, workspace._id, me);
     const role = invitedSeat(invitation, seat);
+    // A deleted workspace first: it withdrew every invitation as it went, and
+    // there is nobody left in it to ask for another.
     const state =
-      invitation.revokedAt !== undefined || workspace.deletedAt !== undefined
-        ? ("revoked" as const)
-        : invitation.acceptedAt !== undefined || seat?.status === "active"
-          ? ("accepted" as const)
-          : !role
-            ? ("revoked" as const)
-            : invitation.expiresAt <= Date.now()
-              ? ("expired" as const)
-              : ("valid" as const);
+      workspace.deletedAt !== undefined
+        ? ("gone" as const)
+        : invitation.revokedAt !== undefined
+          ? ("revoked" as const)
+          : invitation.acceptedAt !== undefined || seat?.status === "active"
+            ? ("accepted" as const)
+            : !role
+              ? ("revoked" as const)
+              : invitation.expiresAt <= Date.now()
+                ? ("expired" as const)
+                : ("valid" as const);
     const inviter = await profileOf(ctx, invitation.invitedBy);
     return {
       state,

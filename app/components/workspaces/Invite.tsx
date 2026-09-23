@@ -190,9 +190,12 @@ export function InviteForm({
   // The last problem, still said while its line folds away under a link:
   // cleared by typing, it would otherwise turn back into the how-to as it goes.
   const [said, setSaid] = useState<string | null>(null);
-  const [sent, setSent] = useState<{ email: string; token: string; days: number } | null>(
-    null,
-  );
+  const [sent, setSent] = useState<{
+    email: string;
+    token: string;
+    days: number;
+    replaced: boolean;
+  } | null>(null);
   const owner = workspace.role === "owner";
   // One line under the field, saying how inviting works until something goes
   // wrong and then what did — in place, so nothing below it moves.
@@ -213,6 +216,7 @@ export function InviteForm({
         email: to.toLowerCase(),
         token: made.token,
         days: Math.max(1, Math.round((made.expiresAt - Date.now()) / DAY_MS)),
+        replaced: made.replaced,
       });
       setProblem(null);
       setSaid(null);
@@ -382,7 +386,22 @@ export function inviteUrl(token: string): string {
   return `${window.location.origin}${joinPath(token)}`;
 }
 
-function InviteLink({ email, token, days }: { email: string; token: string; days: number }) {
+/**
+ * The link just made, to be handed on. Asking an address whose invitation was
+ * still open makes it a new link and the old one stops working, which the note
+ * says, since whoever holds the old one will find it dead.
+ */
+function InviteLink({
+  email,
+  token,
+  days,
+  replaced,
+}: {
+  email: string;
+  token: string;
+  days: number;
+  replaced: boolean;
+}) {
   const url = inviteUrl(token);
   const field = useRef<HTMLInputElement>(null);
   const [copied, copy] = useCopied();
@@ -417,6 +436,7 @@ function InviteLink({ email, token, days }: { email: string; token: string; days
       <p className="nt-note mt-2 text-pretty">
         Send it to {email} yourself. It opens only for someone signed in with that address,
         for the next {days} {days === 1 ? "day" : "days"}.
+        {replaced && " This link replaces the earlier one, which no longer works."}
       </p>
     </div>
   );

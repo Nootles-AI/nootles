@@ -247,7 +247,7 @@ describe("an invitation", () => {
     );
     // Profiles hold the address as the sign-in gave it; the match ignores case.
     await expect(invite(t, ADMIN, w, "Max@acme.com", "member")).rejects.toThrow(
-      "Already a member.",
+      "max@acme.com is already in Acme.",
     );
     // Someone who used to be here can be asked back.
     await expect(invite(t, ADMIN, w, REMOVED.email, "member")).resolves.toBeTruthy();
@@ -257,10 +257,13 @@ describe("an invitation", () => {
     const t = harness();
     const w = await world(t);
     const first = await invite(t, ADMIN, w, NEWCOMER.email, "guest");
+    expect(first.replaced).toBe(false);
     await t.run((ctx) => ctx.db.patch(first.invitationId, { expiresAt: 0 }));
     const second = await invite(t, ADMIN, w, NEWCOMER.email, "member");
     expect(second.invitationId).toBe(first.invitationId);
     expect(second.token).not.toBe(first.token);
+    // A lapsed link was dead already; only a live one is said to be replaced.
+    expect(second.replaced).toBe(false);
     const rows = await t.run((ctx) => ctx.db.query("invitations").collect());
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ role: "member", token: second.token });
@@ -274,6 +277,32 @@ describe("an invitation", () => {
     await expect(
       newcomer.mutation(api.members.acceptInvite, { token: second.token }),
     ).resolves.toEqual(arrived(w, "member"));
+  });
+
+  test("asked again while its link works, says that link is replaced", async () => {
+    const t = harness();
+    const w = await world(t);
+    const first = await invite(t, ADMIN, w, NEWCOMER.email, "member");
+    const second = await invite(t, ADMIN, w, NEWCOMER.email, "member");
+    expect(second).toMatchObject({ invitationId: first.invitationId, replaced: true });
+    expect(
+      await t.withIdentity(NEWCOMER).query(api.members.invitation, { token: first.token }),
+    ).toBeNull();
+  });
+
+  test("in a deleted workspace, says so rather than withdrawn", async () => {
+    const t = harness();
+    const w = await world(t);
+    const { token } = await invite(t, ADMIN, w, NEWCOMER.email, "member");
+    await t.withIdentity(OWNER).mutation(api.workspaces.remove, { workspaceId: w.workspaceId });
+    const newcomer = t.withIdentity(NEWCOMER);
+    expect(await newcomer.query(api.members.invitation, { token })).toMatchObject({
+      state: "gone",
+      workspaceName: "Acme",
+    });
+    await expect(newcomer.mutation(api.members.acceptInvite, { token })).rejects.toThrow(
+      "Not found",
+    );
   });
 
   test("withdrawn, admits no one", async () => {
