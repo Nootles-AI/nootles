@@ -518,6 +518,27 @@ export async function requireGuestRoom(
 }
 
 /**
+ * Adds signed spend to a guest's day. Called by the ledger for a row it has
+ * verified; the cap is read from here, never from the rows themselves.
+ */
+export async function spendGuestDay(
+  ctx: MutationCtx,
+  workspaceId: Id<"workspaces">,
+  userId: string,
+  day: string,
+  costUsd: number,
+): Promise<void> {
+  const row = await ctx.db
+    .query("guestAiSpend")
+    .withIndex("by_workspace_and_day_and_user", (q) =>
+      q.eq("workspaceId", workspaceId).eq("day", day).eq("userId", userId),
+    )
+    .unique();
+  if (row) await ctx.db.patch(row._id, { costUsd: row.costUsd + costUsd });
+  else await ctx.db.insert("guestAiSpend", { workspaceId, day, userId, costUsd });
+}
+
+/**
  * The gate. Throws `quotaRefusal` when the meter is spent, and otherwise
  * returns the entitlement so the caller does not read it twice.
  *

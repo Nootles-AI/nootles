@@ -11,6 +11,7 @@
 import type * as accessCodes from "../accessCodes.js";
 import type * as admin from "../admin.js";
 import type * as adminBilling from "../adminBilling.js";
+import type * as ai_callSignature from "../ai/callSignature.js";
 import type * as ai_calls from "../ai/calls.js";
 import type * as ai_checkpoints from "../ai/checkpoints.js";
 import type * as ai_context from "../ai/context.js";
@@ -118,6 +119,7 @@ declare const fullApi: ApiFromModules<{
   accessCodes: typeof accessCodes;
   admin: typeof admin;
   adminBilling: typeof adminBilling;
+  "ai/callSignature": typeof ai_callSignature;
   "ai/calls": typeof ai_calls;
   "ai/checkpoints": typeof ai_checkpoints;
   "ai/context": typeof ai_context;

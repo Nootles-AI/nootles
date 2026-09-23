@@ -3,7 +3,7 @@ import { describeSheet } from "@/app/lib/ai/albumIndex";
 import { recordAiCall } from "@/app/lib/ai/recordCall";
 import { asUser } from "@/app/lib/convexServer";
 import { refuseIfLimited } from "@/app/lib/requestLimitGate";
-import { sessionToken } from "@/app/lib/session";
+import { session } from "@/app/lib/session";
 
 /**
  * Describes one contact sheet of an album's pictures.
@@ -21,8 +21,9 @@ import { sessionToken } from "@/app/lib/session";
 const MAX_SHEET_CHARS = 8_000_000;
 
 export async function POST(req: Request) {
-  const token = await sessionToken();
-  if (!token) return new Response("Unauthorized", { status: 401 });
+  const caller = await session();
+  if (!caller) return new Response("Unauthorized", { status: 401 });
+  const { token } = caller;
 
   let body: unknown;
   try {
@@ -61,6 +62,7 @@ export async function POST(req: Request) {
       req.signal,
     );
     recordAiCall(convex, {
+      ownerId: caller.userId,
       feature: "album",
       model: AI.album.model,
       ...usage,
@@ -71,6 +73,7 @@ export async function POST(req: Request) {
   } catch (e) {
     if ((e as Error).name === "AbortError") return new Response(null, { status: 204 });
     recordAiCall(convex, {
+      ownerId: caller.userId,
       feature: "album",
       model: AI.album.model,
       latencyMs: Date.now() - started,
