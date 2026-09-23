@@ -26,7 +26,9 @@ describe("the sentence", () => {
       "Nootles support put this workspace on the Team plan",
     );
     const clear = row({ action: "entitlement.clear", meta: { feature: "plan" } });
-    expect(whatText(clear, "Acme")).toBe("took this workspace off the plan it was given");
+    expect(whatText(clear, "Acme")).toBe(
+      "removed the plan Nootles support had set for this workspace",
+    );
   });
 
   test("any other override names the feature, never its key", () => {
@@ -39,7 +41,7 @@ describe("the sentence", () => {
       "set the guests’ daily AI allowance to $5",
     );
     expect(say({ feature: "unmetered" }, "entitlement.clear")).toBe(
-      "gave unmetered AI back to what the plan sets",
+      "reset unmetered AI to what the plan includes",
     );
   });
 
@@ -83,19 +85,38 @@ describe("the sentence", () => {
       count: 37,
     });
     expect(whatParts(r, "Acme")).toEqual([
-      "edited “Roadmap” in ",
+      "edited ",
+      { name: "Roadmap" },
+      " in ",
       { project: "p1", title: "Launch" },
       " · 37 changes",
     ]);
-    expect(whatText({ ...r, count: 1 }, "Acme")).toBe("edited “Roadmap” in Launch");
+    expect(whatText({ ...r, count: 1 }, "Acme")).toBe("edited Roadmap in Launch");
   });
 
-  test("a rename links the project under its new name", () => {
+  test("a rename quotes the former name and names the current one, project or workspace", () => {
     const r = row({
       action: "project.rename",
       meta: { projectId: "p1", project: "Old", from: "Old", to: "New" },
     });
-    expect(whatParts(r, "Acme")).toEqual(["renamed the project “Old” to ", { project: "p1", title: "New" }]);
+    expect(whatParts(r, "Acme")).toEqual([
+      "renamed the project from “Old” to ",
+      { project: "p1", title: "New" },
+    ]);
+    const w = row({ action: "workspace.rename", meta: { from: "Larch", to: "Larch & Co" } });
+    expect(whatParts(w, "Larch & Co")).toEqual([
+      "renamed the workspace from “Larch” to ",
+      { name: "Larch & Co" },
+    ]);
+  });
+
+  test("a person, an email and a workspace are names of their own", () => {
+    const invite = row({ action: "member.invite", meta: { email: "tom@acme.com", role: "member" } });
+    expect(whatParts(invite, "Acme")).toEqual(["invited ", { name: "tom@acme.com" }, " as a member"]);
+    const created = row({ action: "workspace.create", meta: { name: "Acme" } });
+    expect(whatParts(created, "Acme")).toEqual(["created the workspace ", { name: "Acme" }]);
+    const gone = row({ action: "member.remove", subjectKind: "user", subjectId: "u", subject: null });
+    expect(whatParts(gone, "Acme")).toEqual(["removed ", "someone", " from ", { name: "Acme" }]);
   });
 
   test("each setting reads as its own change", () => {
@@ -112,7 +133,10 @@ describe("the sentence", () => {
       meta: { projectId: "p1", project: "Launch", page: "Roadmap", toProjectId: "p2", toProject: "Ops" },
     });
     expect(whatParts(moved, "Acme")).toEqual([
-      "moved the page “Roadmap” from ",
+      "moved ",
+      "the page ",
+      { name: "Roadmap" },
+      " from ",
       { project: "p1", title: "Launch" },
       " to ",
       { project: "p2", title: "Ops" },
@@ -122,9 +146,9 @@ describe("the sentence", () => {
       subjectKind: "folder",
       meta: { projectId: "p1", project: "Launch", folder: "Specs", pages: 30 },
     });
-    expect(whatText(restored, "Acme")).toBe("restored the folder “Specs” in Launch, with 30 pages");
+    expect(whatText(restored, "Acme")).toBe("restored the folder Specs in Launch, with 30 pages");
     expect(whatText({ ...restored, meta: { ...restored.meta, pages: 0 } }, "Acme")).toBe(
-      "restored the folder “Specs” in Launch",
+      "restored the folder Specs in Launch",
     );
   });
 
@@ -134,7 +158,7 @@ describe("the sentence", () => {
       "unlinked acme/rover from Launch, as it was linked by a member who left",
     );
     expect(whatText(row({ action: "notion.unlink", meta: { ...meta, page: "Brief" } }), "Acme")).toBe(
-      "unlinked the Notion page “Brief” from Launch, as it was linked by a member who left",
+      "unlinked the Notion page Brief from Launch, as it was linked by a member who left",
     );
   });
 
@@ -184,7 +208,7 @@ describe("when", () => {
     const lastAug = Date.UTC(2025, 7, 1, 12);
     expect(ago(aug, now)).toBe(new Intl.DateTimeFormat(undefined, day).format(aug));
     expect(ago(lastAug, now)).toBe(
-      new Intl.DateTimeFormat(undefined, { ...day, year: "numeric" }).format(lastAug),
+      new Intl.DateTimeFormat(undefined, { month: "short", year: "2-digit" }).format(lastAug),
     );
   });
 });
