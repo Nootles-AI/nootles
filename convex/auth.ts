@@ -241,6 +241,19 @@ export async function requireWorkspaceRole(
   min: WorkspaceRole,
 ): Promise<{ workspace: Doc<"workspaces">; membership: Doc<"memberships"> }> {
   await refuseStandIn(ctx);
+  return await readWorkspaceAs(ctx, workspaceId, min);
+}
+
+/**
+ * {@link requireWorkspaceRole}'s read half, for queries that throw rather
+ * than answer null: the same seat and the same refusals, but an operator's
+ * stand-in may look, as it may everywhere else it only reads.
+ */
+export async function readWorkspaceAs(
+  ctx: QueryCtx,
+  workspaceId: Id<"workspaces">,
+  min: WorkspaceRole,
+): Promise<{ workspace: Doc<"workspaces">; membership: Doc<"memberships"> }> {
   const me = await ownerId(ctx);
   const workspace = await ctx.db.get(workspaceId);
   const membership =

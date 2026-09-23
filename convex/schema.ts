@@ -383,6 +383,39 @@ export default defineSchema({
     guestUsd: v.number(),
   }).index("by_workspace_and_period_and_user", ["workspaceId", "periodStart", "userId"]),
 
+  /**
+   * A workspace's audit log (`audit.ts`): who did what, and when. A discrete
+   * event is one row, written in the mutation that made the change. Editing
+   * is coalesced — one row per page, person and ten-minute window, keyed by
+   * `windowKey`, with `count` the edits it stands for. `meta` holds ids,
+   * titles, roles and counts, never a document's text, so the log is not a
+   * second copy of the content under different rules. Kept a year.
+   */
+  auditEvents: defineTable({
+    workspaceId: v.id("workspaces"),
+    /** A Clerk subject; an operator session's id; or the system that acted. */
+    actorId: v.string(),
+    actorKind: v.union(v.literal("user"), v.literal("operator"), v.literal("system")),
+    /** Dotted, noun first: "member.remove", "share.link.on", "page.edit". */
+    action: v.string(),
+    /** The action's first segment, so the log filters by kind of event through an index. */
+    category: v.string(),
+    subjectKind: v.optional(v.string()),
+    subjectId: v.optional(v.string()),
+    meta: v.optional(
+      v.record(v.string(), v.union(v.string(), v.number(), v.boolean(), v.null())),
+    ),
+    at: v.number(),
+    windowKey: v.optional(v.string()),
+    count: v.optional(v.number()),
+  })
+    .index("by_workspace_at", ["workspaceId", "at"])
+    .index("by_workspace_actor_at", ["workspaceId", "actorId", "at"])
+    .index("by_workspace_category_at", ["workspaceId", "category", "at"])
+    .index("by_window", ["windowKey"])
+    .index("by_subject", ["subjectKind", "subjectId", "at"])
+    .index("by_at", ["at"]),
+
   projects: defineTable({
     /**
      * The creator. In a personal project that is also the owner; in a

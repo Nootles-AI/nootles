@@ -22,6 +22,7 @@ import type * as ai_operations from "../ai/operations.js";
 import type * as ai_questions from "../ai/questions.js";
 import type * as ai_suggestions from "../ai/suggestions.js";
 import type * as albums from "../albums.js";
+import type * as audit from "../audit.js";
 import type * as auth from "../auth.js";
 import type * as billing from "../billing.js";
 import type * as chat_attachments from "../chat/attachments.js";
@@ -131,6 +132,7 @@ declare const fullApi: ApiFromModules<{
   "ai/questions": typeof ai_questions;
   "ai/suggestions": typeof ai_suggestions;
   albums: typeof albums;
+  audit: typeof audit;
   auth: typeof auth;
   billing: typeof billing;
   "chat/attachments": typeof chat_attachments;
