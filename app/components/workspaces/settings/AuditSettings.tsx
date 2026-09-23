@@ -160,6 +160,7 @@ function Log({ workspace }: { workspace: WorkspaceContainer }) {
         </h2>
         <Export
           workspace={workspace}
+          me={me}
           person={person}
           kind={kind}
           from={span.from}
@@ -421,19 +422,38 @@ function PersonFilter({
  */
 function Export({
   workspace,
+  me,
   person,
   kind,
   from,
   onProblem,
 }: {
   workspace: WorkspaceContainer;
+  me: string | null;
   person: string | null;
   kind: string | null;
   from: number | undefined;
   onProblem: (text: string | null) => void;
 }) {
   const convex = useConvex();
+  const naming = useNaming();
   const [count, setCount] = useState<number | null>(null);
+
+  // The file names you as the screen and the members list do, even while
+  // your profile has not caught up with your sign-in.
+  const yours = (person: AuditRow["actor"]): AuditRow["actor"] => {
+    const named = naming({ name: person?.name ?? null, email: person?.email ?? null, isMe: true });
+    if (!named.known) return person;
+    return {
+      name: named.name,
+      email: named.mail ?? person?.email ?? (named.name.includes("@") ? named.name : null),
+    };
+  };
+  const known = (row: AuditRow): AuditRow => ({
+    ...row,
+    actor: row.actorKind === "user" && row.actorId === me ? yours(row.actor) : row.actor,
+    subject: row.subjectKind === "user" && row.subjectId === me ? yours(row.subject) : row.subject,
+  });
 
   const run = async () => {
     onProblem(null);
@@ -456,7 +476,7 @@ function Export({
             cursor,
           },
         );
-        rows.push(...page.rows);
+        rows.push(...page.rows.map(known));
         setCount(rows.length);
         if (page.done) break;
         cursor = page.cursor;
