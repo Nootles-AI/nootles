@@ -86,6 +86,7 @@ import type * as projects from "../projects.js";
 import type * as prosemirror from "../prosemirror.js";
 import type * as requestLimits from "../requestLimits.js";
 import type * as share from "../share.js";
+import type * as slugs from "../slugs.js";
 import type * as surveys from "../surveys.js";
 import type * as teamsRollout from "../teamsRollout.js";
 import type * as tickets from "../tickets.js";
@@ -181,6 +182,7 @@ declare const fullApi: ApiFromModules<{
   prosemirror: typeof prosemirror;
   requestLimits: typeof requestLimits;
   share: typeof share;
+  slugs: typeof slugs;
   surveys: typeof surveys;
   teamsRollout: typeof teamsRollout;
   tickets: typeof tickets;

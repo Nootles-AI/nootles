@@ -3,6 +3,7 @@ import { mutation, query } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import {
+  atLeast,
   domainOf,
   isTrashed,
   ownerId as currentOwner,
@@ -15,6 +16,7 @@ import {
 } from "./auth";
 import { pageSummary } from "./projects";
 import { workspaceSettings } from "./schema";
+import { normalizeSlug, SLUG_TAKEN, slugProblem } from "./slugs";
 import { teamsEnabledFor } from "./teamsRollout";
 
 /**
@@ -27,30 +29,7 @@ import { teamsEnabledFor } from "./teamsRollout";
  * name that still has links pointing at it — the same holds after deletion.
  */
 
-const SLUG_MIN = 3;
-const SLUG_MAX = 32;
 const NAME_MAX = 64;
-
-/** Addresses that would read as one of `/w/`'s own pages rather than a workspace. */
-const RESERVED = new Set([
-  "new",
-  "join",
-  "invite",
-  "settings",
-  "members",
-  "billing",
-  "audit",
-  "integrations",
-  "api",
-  "p",
-  "w",
-  "admin",
-  "help",
-  "support",
-  "www",
-  "app",
-  "nootles",
-]);
 
 /**
  * Anyone can hold an address on these, so proving you hold one proves nothing
@@ -73,31 +52,6 @@ const PERSONAL_DOMAINS = new Set([
   "gmx.com",
   "mail.com",
 ]);
-
-/**
- * What an address becomes: lowercase letters, digits and single dashes, at
- * most 32 characters. Exported so the client previews exactly the address the
- * server will keep.
- */
-export function normalizeSlug(raw: string): string {
-  return raw
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+/, "")
-    .slice(0, SLUG_MAX)
-    .replace(/-+$/, "");
-}
-
-/** Why a normalized address cannot be used, in words, or null if it can. */
-export function slugProblem(slug: string): string | null {
-  if (slug.length < SLUG_MIN) {
-    return `A workspace address needs at least ${SLUG_MIN} letters or numbers.`;
-  }
-  if (RESERVED.has(slug)) return `“${slug}” is reserved. Try another address.`;
-  return null;
-}
 
 function cleanName(raw: string): string {
   const name = raw.trim();
@@ -130,7 +84,7 @@ async function vetSlug(
   if (problem) throw new ConvexError(problem);
   const row = await slugRow(ctx, slug);
   if (row && row.workspaceId !== workspaceId) {
-    throw new ConvexError("That address is taken. Try another.");
+    throw new ConvexError(SLUG_TAKEN);
   }
   return { slug, row };
 }
@@ -143,6 +97,30 @@ export const canCreate = query({
   args: {},
   handler: async (ctx) =>
     !(await standInActor(ctx)) && teamsEnabledFor(await currentOwner(ctx)),
+});
+
+/**
+ * What `create` (or, with `workspaceId`, `setSlug`) would say about an
+ * address, asked while it is still being typed. Only for someone who could
+ * then use it — the rollout for a new workspace, an admin's seat for a
+ * renamed one — and null for anyone else, so it tells nobody more than
+ * pressing the button would.
+ */
+export const checkSlug = query({
+  args: { slug: v.string(), workspaceId: v.optional(v.id("workspaces")) },
+  handler: async (ctx, args) => {
+    if (await standInActor(ctx)) return null;
+    if (args.workspaceId) {
+      if (!atLeast(await workspaceRole(ctx, args.workspaceId), "admin")) return null;
+    } else if (!teamsEnabledFor(await currentOwner(ctx))) {
+      return null;
+    }
+    const slug = normalizeSlug(args.slug);
+    const problem = slugProblem(slug);
+    if (problem) return { slug, problem };
+    const row = await slugRow(ctx, slug);
+    return { slug, problem: row && row.workspaceId !== args.workspaceId ? SLUG_TAKEN : null };
+  },
 });
 
 export const create = mutation({

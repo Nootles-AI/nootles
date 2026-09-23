@@ -6,7 +6,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import schema from "./schema";
 import componentSchema from "../node_modules/@convex-dev/prosemirror-sync/src/component/schema";
 import { teamsEnabledFor } from "./teamsRollout";
-import { normalizeSlug, slugProblem } from "./workspaces";
+import { normalizeSlug, slugProblem, typingSlug } from "./slugs";
 
 /**
  * Making, finding, naming, configuring and deleting a workspace. The rules
@@ -306,6 +306,54 @@ describe("slug helpers", () => {
     expect(slugProblem("acme")).toBeNull();
     expect(slugProblem("ab")).toMatch("at least 3");
     expect(slugProblem("billing")).toMatch("reserved");
+  });
+
+  test("while typing, a separator waits for the next word", () => {
+    expect(typingSlug("Acme ")).toBe("acme-");
+    expect(typingSlug("acme-c")).toBe("acme-c");
+    expect(typingSlug(" -Zürich")).toBe("zurich");
+    expect(normalizeSlug(typingSlug("Acme "))).toBe("acme");
+  });
+});
+
+describe("checking an address before it is used", () => {
+  test("says what create would, to someone who may create", async () => {
+    vi.stubEnv("TEAMS_ROLLOUT", "on");
+    const t = harness();
+    await world(t);
+    const stranger = t.withIdentity(STRANGER);
+    expect(await stranger.query(api.workspaces.checkSlug, { slug: "Acme Two" })).toEqual({
+      slug: "acme-two",
+      problem: null,
+    });
+    expect(await stranger.query(api.workspaces.checkSlug, { slug: "acme" })).toEqual({
+      slug: "acme",
+      problem: "That address is taken. Try another.",
+    });
+    expect((await stranger.query(api.workspaces.checkSlug, { slug: "ab" }))?.problem).toMatch(
+      "at least 3",
+    );
+  });
+
+  test("tells nobody anything while the rollout says no, nor a stand-in", async () => {
+    const t = harness();
+    await world(t);
+    expect(await t.withIdentity(STRANGER).query(api.workspaces.checkSlug, { slug: "acme" })).toBeNull();
+    vi.stubEnv("TEAMS_ROLLOUT", "on");
+    expect(await t.withIdentity(STAND_IN).query(api.workspaces.checkSlug, { slug: "acme" })).toBeNull();
+    expect(await t.query(api.workspaces.checkSlug, { slug: "acme" })).toBeNull();
+  });
+
+  test("for a workspace's own new address, its admins alone, and its old ones are free", async () => {
+    const t = harness();
+    const { workspaceId } = await world(t);
+    await t.withIdentity(ADMIN).mutation(api.workspaces.setSlug, { workspaceId, slug: "acme-hq" });
+    const check = (who: Identity, slug: string) =>
+      t.withIdentity(who).query(api.workspaces.checkSlug, { slug, workspaceId });
+    expect(await check(ADMIN, "acme")).toEqual({ slug: "acme", problem: null });
+    expect(await check(OWNER, "acme-hq")).toEqual({ slug: "acme-hq", problem: null });
+    expect(await check(MEMBER, "acme")).toBeNull();
+    expect(await check(STRANGER, "acme")).toBeNull();
   });
 });
 
