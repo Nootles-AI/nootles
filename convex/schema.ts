@@ -438,6 +438,10 @@ export default defineSchema({
     verifiedEmail: v.optional(v.string()),
     /** When Clerk last vouched for it; `identity.expire` lapses it past `STAMP_MAX_AGE_MS`. */
     verifiedEmailAt: v.optional(v.number()),
+    /** When Clerk was last asked, answered or not; `identity.sync`'s throttle. */
+    checkedAt: v.optional(v.number()),
+    /** When a source last answered, even with no address; unset, nobody has. */
+    answeredAt: v.optional(v.number()),
     name: v.optional(v.string()),
     imageUrl: v.optional(v.string()),
   })

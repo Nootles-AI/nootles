@@ -224,7 +224,6 @@ describe("sync", () => {
   });
 
   test("stamps no address when the primary one is unverified or missing", async () => {
-    const t = harness();
     const unverified = clerkUser({
       email_addresses: [
         {
@@ -245,8 +244,10 @@ describe("sync", () => {
       clerkUser({ primary_email_address_id: "idn_gone" }),
       clerkUser({ email_addresses: [] }),
     ]) {
-      stubClerk(answer);
+      const t = harness();
+      const fetch = stubClerk(answer);
       await expect(sync(t, NIA)).resolves.toBeNull();
+      expect(fetch).toHaveBeenCalledOnce();
       expect((await stampOf(t, NIA.subject))?.verifiedEmail).toBeUndefined();
     }
   });
@@ -284,31 +285,31 @@ describe("sync", () => {
   });
 
   test("treats Clerk failing as no answer: nothing crashes and the old stamp stands", async () => {
-    const t = harness();
-    await t.run((ctx) =>
-      ctx.db.insert("identities", {
-        ownerId: NIA.subject,
-        verifiedEmail: "nia@acme.com",
-        verifiedEmailAt: Date.now() - 25 * HOUR,
-      }),
-    );
-    for (const answer of [500, 404, new Error("network down"), { email_addresses: "?" }]) {
-      stubClerk(answer);
+    for (const answer of [500, 404, 429, new Error("network down"), { email_addresses: "?" }]) {
+      const t = harness();
+      await stampAged(t, NIA.subject, "nia@acme.com", 25 * HOUR);
+      const fetch = stubClerk(answer);
       await expect(sync(t, NIA)).resolves.toBe("nia@acme.com");
+      expect(fetch).toHaveBeenCalledOnce();
       expect(await stampOf(t, NIA.subject)).toMatchObject({ verifiedEmail: "nia@acme.com" });
     }
+  });
+
+  test("with nothing answered before, says Clerk gave no answer rather than that there is no address", async () => {
+    const t = harness();
     stubClerk(500);
-    await expect(sync(t, SAL)).resolves.toBeNull();
-    expect(await stampOf(t, SAL.subject)).toBeNull();
+    await expect(sync(t, SAL)).rejects.toMatchObject({ data: { code: "unanswered" } });
+    expect((await stampOf(t, SAL.subject))?.verifiedEmail).toBeUndefined();
+    expect((await stampOf(t, SAL.subject))?.answeredAt).toBeUndefined();
   });
 
   test("asks nobody without CLERK_SECRET_KEY", async () => {
     const t = harness();
     vi.stubEnv("CLERK_SECRET_KEY", "");
     const fetch = stubClerk();
-    await expect(sync(t, NIA)).resolves.toBeNull();
+    await expect(sync(t, NIA)).rejects.toMatchObject({ data: { code: "unanswered" } });
     expect(fetch).not.toHaveBeenCalled();
-    expect(await stampOf(t, NIA.subject)).toBeNull();
+    expect((await stampOf(t, NIA.subject))?.verifiedEmail).toBeUndefined();
   });
 
   test("is refused to an operator standing in, and to nobody signed in", async () => {
@@ -321,6 +322,93 @@ describe("sync", () => {
     await expect(t.action(api.identity.sync, {})).rejects.toThrow("Not signed in");
     expect(fetch).not.toHaveBeenCalled();
     expect(await stampOf(t, NIA.subject)).toBeNull();
+  });
+});
+
+describe("how often Clerk is asked", () => {
+  /** Moves the last ask `by` into the past, as if that long had gone by. */
+  const age = async (t: T, ownerId: string, by: number) => {
+    const row = await stampOf(t, ownerId);
+    await t.run((ctx) => ctx.db.patch(row!._id, { checkedAt: row!.checkedAt! - by }));
+  };
+  const noVerifiedPrimary = () => clerkUser({ primary_email_address_id: null });
+
+  test("an answer of no address is kept for a minute, not asked for on every call", async () => {
+    const t = harness();
+    const fetch = stubClerk(noVerifiedPrimary());
+    for (let i = 0; i < 20; i++) await expect(sync(t, NIA)).resolves.toBeNull();
+    expect(fetch).toHaveBeenCalledOnce();
+
+    await age(t, NIA.subject, 59_000);
+    await expect(sync(t, NIA)).resolves.toBeNull();
+    expect(fetch).toHaveBeenCalledOnce();
+
+    await age(t, NIA.subject, 2_000);
+    stubClerk();
+    await expect(sync(t, NIA)).resolves.toBe("nia@acme.com");
+  });
+
+  test("so is a lapsed address, which is asked about at most once a minute", async () => {
+    const t = harness();
+    await stampAged(t, NIA.subject, "nia@acme.com", 4 * DAY);
+    await t.mutation(internal.identity.expire, {});
+    const fetch = stubClerk(noVerifiedPrimary());
+    for (let i = 0; i < 5; i++) await expect(sync(t, NIA)).resolves.toBeNull();
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
+  test("while Clerk fails, an account asks at most once every five seconds", async () => {
+    const t = harness();
+    const failing = stubClerk(429);
+    for (let i = 0; i < 10; i++) {
+      await expect(sync(t, NIA)).rejects.toMatchObject({ data: { code: "unanswered" } });
+    }
+    expect(failing).toHaveBeenCalledOnce();
+
+    await age(t, NIA.subject, 5_000);
+    const fetch = stubClerk();
+    await expect(sync(t, NIA)).resolves.toBe("nia@acme.com");
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
+  test("a failed ask on an answered account gives the last answer, and waits too", async () => {
+    const t = harness();
+    stubClerk(noVerifiedPrimary());
+    await sync(t, NIA);
+    await age(t, NIA.subject, 61_000);
+    const failing = stubClerk(503);
+    await expect(sync(t, NIA)).resolves.toBeNull();
+    await expect(sync(t, NIA)).resolves.toBeNull();
+    expect(failing).toHaveBeenCalledOnce();
+  });
+
+  test("calls that race each other before the first answer ask once between them", async () => {
+    const t = harness();
+    const fetch = stubClerk();
+    const results = await Promise.allSettled(Array.from({ length: 6 }, () => sync(t, NIA)));
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(results.filter((r) => r.status === "fulfilled")).toEqual([
+      { status: "fulfilled", value: "nia@acme.com" },
+    ]);
+    await expect(sync(t, NIA)).resolves.toBe("nia@acme.com");
+  });
+
+  test("the token's own address is taken even while Clerk is being waited on", async () => {
+    const t = harness();
+    await t.run((ctx) =>
+      ctx.db.insert("identities", { ownerId: NIA.subject, checkedAt: Date.now() }),
+    );
+    const fetch = stubClerk();
+    await expect(sync(t, { ...NIA, email: "nia@acme.com" })).resolves.toBe("nia@acme.com");
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  test("a stamp the webhook just made is answered from, not asked about", async () => {
+    const t = harness();
+    await t.mutation(internal.identity.stamp, { ownerId: NIA.subject, email: null });
+    const fetch = stubClerk();
+    await expect(sync(t, NIA)).resolves.toBeNull();
+    expect(fetch).not.toHaveBeenCalled();
   });
 });
 
@@ -340,7 +428,7 @@ describe("what a client can reach", () => {
     ) as [string, { isPublic?: boolean; isInternal?: boolean }][];
     expect(exported.filter(([, fn]) => fn.isPublic).map(([name]) => name)).toEqual(["sync"]);
     expect(identityModule.stamp.isInternal).toBe(true);
-    expect(identityModule.stamped.isInternal).toBe(true);
+    expect(identityModule.begin.isInternal).toBe(true);
     expect(identityModule.forget.isInternal).toBe(true);
     expect(identityModule.expire.isInternal).toBe(true);
     // The webhook's door is HTTP, and opens only to what Clerk signed.

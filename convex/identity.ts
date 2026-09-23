@@ -1,6 +1,6 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import type { UserIdentity } from "convex/server";
-import { action, httpAction, internalMutation, internalQuery } from "./_generated/server";
+import { action, httpAction, internalMutation } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { requireOwner, STAMP_MAX_AGE_MS } from "./auth";
 import { faceOf, identityOf } from "./profiles";
@@ -14,8 +14,9 @@ import { verifySvix } from "./svix";
  *
  * Clerk's default session token carries none of it, only the subject. So when
  * the token is silent this asks Clerk's Backend API with the deployment's own
- * secret key: when the account's app asks and its stamp is a day old, and
- * whenever Clerk's webhook says the account changed. An address Clerk has not
+ * secret key: when the account's app asks and its stamp is a day old — never
+ * more than once a minute, whatever the answer — and whenever Clerk's webhook
+ * says the account changed. An address Clerk has not
  * vouched for in `STAMP_MAX_AGE_MS` admits nobody. Nothing here takes a value
  * from the client: the one public function has no arguments, and the webhook
  * takes only what Clerk has signed.
@@ -23,9 +24,20 @@ import { verifySvix } from "./svix";
 
 /** How old a stamp may be before the account's own app asks Clerk again. */
 const FRESH_MS = 24 * 60 * 60 * 1000;
+/**
+ * How long after asking Clerk an account's app is given the last answer
+ * rather than asking again. A day's freshness covers only a stamped address;
+ * this bounds everything else — an account with no verified address, a
+ * lapsed stamp, a client in a loop — to one Clerk call a minute.
+ */
+const ANSWERED_MS = 60 * 1000;
 /** Stamps lapsed per run of `expire`, which goes again while there are more. */
 const EXPIRE_BATCH = 100;
-/** The invitation page waits on this; a stalled Clerk must not hold it. */
+/**
+ * The invitation page waits on this; a stalled Clerk must not hold it. Also
+ * the wait after an ask that has not answered, so an account has at most one
+ * outstanding while Clerk is slow or failing, and its app can soon retry.
+ */
 const CLERK_TIMEOUT_MS = 5000;
 
 /** What a source vouched for. A null `email` is an answer: none verified. */
@@ -34,7 +46,9 @@ type Vouched = { email: string | null; name?: string; imageUrl?: string };
 /**
  * Brings the caller's stamp up to date, and answers the address
  * `auth.verifiedEmail` will now give them — null for none. A failure to reach
- * Clerk is no answer, so whatever was stamped before stands.
+ * Clerk is no answer, so whatever was stamped before stands; with nothing
+ * stamped before, it throws `{ code: "unanswered" }` rather than claim there
+ * is no address, and the app asks again.
  */
 export const sync = action({
   args: {},
@@ -43,23 +57,52 @@ export const sync = action({
     const ownerId = await requireOwner(ctx);
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) return null;
-    const stamped = await ctx.runQuery(internal.identity.stamped, { ownerId });
-    if (stamped && Date.now() - stamped.at < FRESH_MS) return stamped.email;
+    const check = await ctx.runMutation(internal.identity.begin, { ownerId });
 
-    const vouched = fromToken(identity) ?? (await fromClerk(ownerId));
-    if (!vouched) return stamped?.email ?? null;
-    await ctx.runMutation(internal.identity.stamp, { ownerId, ...vouched });
-    return vouched.email;
+    // Only Clerk is rationed: the token's own word costs nothing to take.
+    const token = fromToken(identity);
+    const vouched = check.ask
+      ? (token ?? (await fromClerk(ownerId)))
+      : check.known === undefined
+        ? token
+        : undefined;
+    if (vouched) {
+      await ctx.runMutation(internal.identity.stamp, { ownerId, ...vouched });
+      return vouched.email;
+    }
+    if (check.known === undefined) throw new ConvexError({ code: "unanswered" });
+    return check.known;
   },
 });
 
-export const stamped = internalQuery({
+/**
+ * Whether this call may ask, decided and recorded in one transaction so that
+ * calls racing each other — a first visit's, or a loop's — ask once between
+ * them. `known` is what was answered last: an address, null for none, or
+ * undefined when nothing has been.
+ */
+export const begin = internalMutation({
   args: { ownerId: v.string() },
-  returns: v.union(v.object({ email: v.string(), at: v.number() }), v.null()),
+  returns: v.object({
+    ask: v.boolean(),
+    known: v.optional(v.union(v.string(), v.null())),
+  }),
   handler: async (ctx, { ownerId }) => {
+    const now = Date.now();
     const row = await identityOf(ctx, ownerId);
-    if (!row?.verifiedEmail || row.verifiedEmailAt === undefined) return null;
-    return { email: row.verifiedEmail, at: row.verifiedEmailAt };
+    const known = row?.verifiedEmail ?? (row?.answeredAt === undefined ? undefined : null);
+    if (row?.verifiedEmail && now - (row.verifiedEmailAt ?? 0) < FRESH_MS) {
+      return { ask: false, known };
+    }
+    if (row?.checkedAt !== undefined) {
+      const answered = (row.answeredAt ?? -1) >= row.checkedAt;
+      if (now - row.checkedAt < (answered ? ANSWERED_MS : CLERK_TIMEOUT_MS)) {
+        return { ask: false, known };
+      }
+    }
+    if (row) await ctx.db.patch(row._id, { checkedAt: now });
+    else await ctx.db.insert("identities", { ownerId, checkedAt: now });
+    return { ask: true, known };
   },
 });
 
@@ -79,9 +122,12 @@ export const stamp = internalMutation({
   },
   returns: v.null(),
   handler: async (ctx, { ownerId, email, name, imageUrl }) => {
+    const now = Date.now();
     const fields = {
       verifiedEmail: email ?? undefined,
-      verifiedEmailAt: email ? Date.now() : undefined,
+      verifiedEmailAt: email ? now : undefined,
+      checkedAt: now,
+      answeredAt: now,
       name,
       imageUrl,
     };

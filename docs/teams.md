@@ -22,9 +22,15 @@ npx convex env set CLERK_SECRET_KEY sk_live_… --prod   # prod
 When a signed-in session starts, and when a tab comes back into view an hour
 or more later, the app calls `identity.sync`. That asks Clerk's Backend API
 (`GET /v1/users/{id}`) for the account's **primary** address and stamps it
-only if Clerk marks it verified, with the name and picture. Clerk is asked
-again only once a stamp is a day old, so this is at most one Clerk call per
-active account per day. If Clerk is down, the previous stamp stands.
+only if Clerk marks it verified, with the name and picture. A verified stamp
+is trusted for a day before Clerk is asked again. Whatever Clerk answered —
+including "no verified address" — an account is not asked about again within
+a minute of the last ask, or within five seconds of one Clerk never answered.
+However often its client calls, an account costs at most one Clerk call a
+minute while Clerk answers, and one every five seconds while it doesn't. An account with a verified address typically costs one a day. If Clerk
+is down, the previous stamp stands; with no previous stamp, `identity.sync`
+says it got no answer, and the app retries a couple of times before offering
+"Try again".
 
 The account's own app decides whether it calls `identity.sync`, so the
 re-check is the app's courtesy, not a guarantee. What is enforced is an upper
