@@ -8,7 +8,7 @@ import schema from "./schema";
 import { controlsAccount, reachableInstallation, REPOSITORY_PAGES } from "./github/app";
 import { appJwt } from "./github/appAuth";
 import { APP_TOKEN_REFUSED } from "./github/credential";
-import { PUSH_DEBOUNCE_MS } from "./github/installations";
+import { PUSH_DEBOUNCE_MS, PUSH_MAX_WAITS } from "./github/installations";
 import { open, seal } from "./github/seal";
 import { signatureValid } from "./github/webhook";
 
@@ -551,6 +551,46 @@ describe("installing", () => {
     ]);
   });
 
+  test("installing again after an uninstall brings the one row back into use", async () => {
+    const t = convexTest(schema, modules);
+    const { workspaceId, projectId } = await world(t);
+    await installation(t, workspaceId, {
+      removedAt: 5,
+      suspendedAt: 5,
+      token: { sealed: "x", expiresAt: Date.now() + 3600_000 },
+      installedBy: OWNER.subject,
+    });
+    const link = () =>
+      t.withIdentity(ADMIN).mutation(api.github.repos.link, {
+        projectId,
+        repos: [{ fullName: FULL, defaultBranch: "main", private: true, installationId: INSTALLATION }],
+      });
+    await expect(link()).rejects.toThrow(/uninstalled/);
+
+    github([{ id: INSTALLATION }]);
+    await t
+      .withIdentity(ADMIN)
+      .action(api.github.app.install, { workspaceId, installationId: INSTALLATION, code: "c0de" });
+    const rows = await t.run(async (ctx) => ctx.db.query("githubInstallations").collect());
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ repositorySelection: "all", installedBy: OWNER.subject });
+    expect(rows[0].removedAt).toBeUndefined();
+    expect(rows[0].suspendedAt).toBeUndefined();
+    expect(rows[0].token).toBeUndefined();
+
+    await link();
+    expect(
+      await t.run(async (ctx) =>
+        ctx.db
+          .query("projectRepos")
+          .withIndex("by_installation_and_fullName", (q) =>
+            q.eq("installationId", INSTALLATION).eq("fullName", FULL),
+          )
+          .collect(),
+      ),
+    ).toHaveLength(1);
+  });
+
   test("an id GitHub doesn't list for them is refused", async () => {
     const t = convexTest(schema, modules);
     const { workspaceId } = await world(t);
@@ -677,6 +717,43 @@ describe("the webhook", () => {
     const after = await t.run(async (ctx) => ctx.db.get(repoId));
     expect(after?.index?.state).toBe("queued");
     expect(after?.pushReindexAt).toBeUndefined();
+  });
+
+  test("a push waits out a run under way, but not one that died without saying so", async () => {
+    const t = convexTest(schema, modules);
+    const { workspaceId, projectId } = await world(t);
+    await installation(t, workspaceId);
+    const repoId = await repo(t, projectId, { installationId: INSTALLATION, index: { state: "indexing" } });
+    const waits = async () =>
+      (await t.run(async (ctx) => ctx.db.system.query("_scheduled_functions").collect()))
+        .filter((s) => s.name.includes("pushReindex") && s.state.kind === "pending")
+        .map((s) => (s.args[0] as { waited?: number }).waited);
+    const runs = async () =>
+      (await t.run(async (ctx) => ctx.db.system.query("_scheduled_functions").collect())).filter(
+        (s) => s.name.includes("indexer") && s.name.includes("run"),
+      );
+
+    await t.mutation(internal.github.installations.pushReindex, { repoId });
+    expect(await waits()).toEqual([1]);
+    expect((await t.run(async (ctx) => ctx.db.get(repoId)))?.index?.state).toBe("indexing");
+
+    for (let waited = 1; waited < PUSH_MAX_WAITS; waited += 1) {
+      await t.mutation(internal.github.installations.pushReindex, { repoId, waited });
+    }
+    expect(await runs()).toHaveLength(0);
+
+    // An hour of "indexing" is a run killed before its catch could run.
+    await t.run(async (ctx) => {
+      for (const s of await ctx.db.system.query("_scheduled_functions").collect()) {
+        await ctx.scheduler.cancel(s._id);
+      }
+    });
+    await t.mutation(internal.github.installations.pushReindex, { repoId, waited: PUSH_MAX_WAITS });
+    const after = await t.run(async (ctx) => ctx.db.get(repoId));
+    expect(after?.index?.state).toBe("queued");
+    expect(after?.pushReindexAt).toBeUndefined();
+    expect(await waits()).toEqual([]);
+    expect(await runs()).toHaveLength(1);
   });
 
   test("an uninstall marks the installation removed and unlinks its repositories", async () => {
