@@ -384,12 +384,31 @@ describe("how often Clerk is asked", () => {
 
   test("calls that race each other before the first answer ask once between them", async () => {
     const t = harness();
-    const fetch = stubClerk();
-    const results = await Promise.allSettled(Array.from({ length: 6 }, () => sync(t, NIA)));
+    // Clerk holds its answer until every other call has been turned away, so
+    // the race runs the same on any machine.
+    let answer!: () => void;
+    const held = new Promise<void>((resolve) => (answer = resolve));
+    const fetch = vi.fn(async () => {
+      await held;
+      return new Response(JSON.stringify(clerkUser()), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetch);
+
+    let settled = 0;
+    const racing = Promise.allSettled(
+      Array.from({ length: 6 }, () => sync(t, NIA).finally(() => settled++)),
+    );
+    await vi.waitFor(() => expect(settled).toBe(5));
     expect(fetch).toHaveBeenCalledOnce();
+    answer();
+
+    const results = await racing;
     expect(results.filter((r) => r.status === "fulfilled")).toEqual([
       { status: "fulfilled", value: "nia@acme.com" },
     ]);
+    for (const r of results.filter((r) => r.status === "rejected")) {
+      expect(r.reason).toMatchObject({ data: { code: "unanswered" } });
+    }
     await expect(sync(t, NIA)).resolves.toBe("nia@acme.com");
   });
 
