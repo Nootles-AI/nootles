@@ -132,10 +132,16 @@ export function Menu({
     };
   }, [open, place]);
 
-  // Move focus into the menu once it's placed, so arrows work immediately.
+  // Move focus into the menu once it's placed, so arrows work immediately —
+  // onto the ticked choice where there is one, as a select opens on its value.
   useEffect(() => {
     if (!open) return;
-    menuRef.current?.querySelector<HTMLElement>("[role='menuitem']")?.focus();
+    const menu = menuRef.current;
+    const item =
+      menu?.querySelector<HTMLElement>("[role='menuitem']:has(.nt-menu-check.is-on)") ??
+      menu?.querySelector<HTMLElement>("[role='menuitem']");
+    item?.focus({ preventScroll: true });
+    item?.scrollIntoView({ block: "nearest" });
   }, [open]);
 
   const z = `var(--z-${layer})`;
