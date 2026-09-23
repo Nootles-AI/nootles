@@ -13,9 +13,11 @@ import { v } from "convex/values";
  * and the AI substrate tables (operation log, checkpoints, context sheet).
  *
  * Tenancy: every top-level row carries `ownerId` — the Clerk subject that
- * created it. Access beyond the owner is granted per project through share
- * links and the claims they leave behind (`shareClaims`); resolution lives in
- * `auth.ts`, never at call sites.
+ * created it. A project lives in a container: its creator's account, or a
+ * workspace (`projects.workspaceId`), whose members reach it by their seat.
+ * Access beyond that is granted per project through share links and the
+ * claims they leave behind (`shareClaims`); resolution lives in `auth.ts`,
+ * never at call sites.
  */
 
 /**
@@ -113,8 +115,119 @@ export const repoRef = v.object({
   private: v.boolean(),
 });
 
+/** A seat in a workspace, highest first. `auth.ts` ranks them. */
+export const memberRole = v.union(
+  v.literal("owner"),
+  v.literal("admin"),
+  v.literal("member"),
+  v.literal("guest"),
+);
+
+/** What an invitation can hand out: ownership is given by an owner, never by mail. */
+export const invitedRole = v.union(
+  v.literal("admin"),
+  v.literal("member"),
+  v.literal("guest"),
+);
+
+export const workspaceSettings = v.object({
+  /** Whether projects here may have share links at all. Default on. */
+  linkSharing: v.boolean(),
+  /** Whether a guest may be granted the repository half of a project's context. Default off. */
+  guestCodeAccess: v.boolean(),
+  /** Email domains an admin has proved they hold, lowercased. */
+  joinDomains: v.array(v.string()),
+  /** A signed-in address on a join domain joins without an invitation. */
+  autoJoin: v.boolean(),
+  /** A GitHub organisation every non-guest must belong to, when set. */
+  requireGithubOrg: v.optional(v.string()),
+  /** The expiry a new share link starts with, in days. Absent is no expiry. */
+  linkTtlDays: v.optional(v.number()),
+});
+
 export default defineSchema({
+  /**
+   * A team's home for projects, beside the personal account. The row is read
+   * for settings and naming only — never on a document's access path (see
+   * `auth.ts`), so an admin editing a setting does not re-run every open
+   * document subscription in the workspace.
+   */
+  workspaces: defineTable({
+    /** The current slug, mirrored from `workspaceSlugs` for display. */
+    slug: v.string(),
+    name: v.string(),
+    /** Clerk subject of whoever made it. */
+    createdBy: v.string(),
+    plan: v.union(v.literal("team"), v.literal("enterprise")),
+    settings: workspaceSettings,
+    createdAt: v.number(),
+    /**
+     * Soft delete. The deleting mutation also trashes every project and
+     * retires every membership, so nothing downstream has to read this.
+     */
+    deletedAt: v.optional(v.number()),
+  }).index("by_slug", ["slug"]),
+
+  /**
+   * Every slug a workspace has answered to. The current one has no
+   * `retiredAt`; old ones stay so `/w/<old>` keeps redirecting and no other
+   * workspace can claim a name that still has links pointing at it.
+   */
+  workspaceSlugs: defineTable({
+    slug: v.string(),
+    workspaceId: v.id("workspaces"),
+    retiredAt: v.optional(v.number()),
+  }).index("by_slug", ["slug"]),
+
+  /**
+   * One row per person per workspace, reused rather than appended to: leaving
+   * and coming back reactivates the row. Removal is a status, not a delete, so
+   * the record of who was here survives them.
+   */
+  memberships: defineTable({
+    workspaceId: v.id("workspaces"),
+    /** Clerk subject. */
+    userId: v.string(),
+    role: memberRole,
+    status: v.union(v.literal("active"), v.literal("removed")),
+    invitedBy: v.optional(v.string()),
+    joinedAt: v.number(),
+    removedAt: v.optional(v.number()),
+    /** When the GitHub organisation rule last passed for this person. */
+    githubOrgVerifiedAt: v.optional(v.number()),
+  })
+    .index("by_workspace_user", ["workspaceId", "userId"])
+    .index("by_user_status", ["userId", "status"])
+    .index("by_workspace_status_role", ["workspaceId", "status", "role"]),
+
+  /**
+   * An email address asked in. The token is the capability; the address is
+   * what binds it to one person — accepting needs a verified identity with
+   * that email, so a forwarded link is worth nothing to anyone else.
+   */
+  invitations: defineTable({
+    workspaceId: v.id("workspaces"),
+    /** Lowercased. */
+    email: v.string(),
+    role: invitedRole,
+    token: v.string(),
+    invitedBy: v.string(),
+    createdAt: v.number(),
+    expiresAt: v.number(),
+    acceptedAt: v.optional(v.number()),
+    acceptedBy: v.optional(v.string()),
+    revokedAt: v.optional(v.number()),
+  })
+    .index("by_token", ["token"])
+    .index("by_workspace", ["workspaceId"])
+    .index("by_email", ["email"]),
+
   projects: defineTable({
+    /**
+     * The creator. In a personal project that is also the owner; in a
+     * workspace project it confers nothing — who may manage it is the
+     * workspace's answer (`auth.ts`).
+     */
     ownerId: v.string(),
     title: v.string(),
     // Optional short description that seeds the Context Sheet.
@@ -147,11 +260,20 @@ export default defineSchema({
      */
     deletedAt: v.optional(v.number()),
     createdAt: v.number(),
+    /** The workspace this project lives in. Absent is a personal project. */
+    workspaceId: v.optional(v.id("workspaces")),
+    /**
+     * Who in the workspace sees it: every member (absent or "workspace"), or
+     * only its admins and its creator ("private"). Meaningless on a personal
+     * project.
+     */
+    visibility: v.optional(v.union(v.literal("workspace"), v.literal("private"))),
   })
     .index("by_owner", ["ownerId"])
     .index("by_share_token", ["shareToken"])
     .index("by_edit_share_token", ["editShareToken"])
-    .index("by_deleted", ["deletedAt"]),
+    .index("by_deleted", ["deletedAt"])
+    .index("by_workspace", ["workspaceId"]),
 
   /**
    * What visiting a share link while signed in leaves behind: a bookmark plus
@@ -194,12 +316,16 @@ export default defineSchema({
    * Deliberately not named `ownerId`: that field name would enroll this table
    * in the `Owned` union in `auth.ts`, and these rows are not the owner's to
    * read as their own — they are correspondence between two people.
+   *
+   * A workspace project's requests are answered by any of its admins, not
+   * by its creator, so they carry `workspaceId` for the same one-read inbox.
    */
   accessRequests: defineTable({
     projectId: v.id("projects"),
     /** The Clerk subject asking, always derived server-side. */
     requesterId: v.string(),
     projectOwnerId: v.string(),
+    workspaceId: v.optional(v.id("workspaces")),
     status: v.union(
       v.literal("pending"),
       v.literal("granted"),
@@ -213,7 +339,8 @@ export default defineSchema({
   })
     .index("by_project_and_requester", ["projectId", "requesterId"])
     .index("by_owner_and_status", ["projectOwnerId", "status"])
-    .index("by_requester_and_status", ["requesterId", "status"]),
+    .index("by_requester_and_status", ["requesterId", "status"])
+    .index("by_workspace_and_status", ["workspaceId", "status"]),
 
   /**
    * Per-account settings. Exists at all because first run needs somewhere to
