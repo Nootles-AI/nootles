@@ -168,6 +168,10 @@ const scheduled = (t: T, name: string) =>
     ),
   );
 
+/** The workspace's audit log, oldest first. */
+const auditLog = (t: T) =>
+  t.run(async (ctx) => await ctx.db.query("auditEvents").withIndex("by_at").collect());
+
 /** The nightly run, with the seat checks it schedules run as they would at once. */
 async function night(t: T) {
   await t.mutation(internal.teamBilling.reportUsage, {});
@@ -186,6 +190,16 @@ describe("checkout", () => {
       .action(api.billing.startTeamCheckout, { workspaceId });
 
     expect(url).toBe("https://pay.test/cs_1");
+    // Logged by the admin who opened it, once Stripe has handed back a session.
+    const checkout = {
+      action: "billing.checkout",
+      actorKind: "user",
+      subjectKind: "workspace",
+      subjectId: workspaceId,
+      workspaceId,
+      meta: { seats: 3 },
+    };
+    expect(await auditLog(t)).toEqual([expect.objectContaining({ ...checkout, actorId: ADMIN.subject })]);
     expect(stripe.createCustomer).toHaveBeenCalledOnce();
     const customer = stripe.createCustomer.mock.calls[0][1];
     // No email: the component's personal lookup matches customers by it.
@@ -225,6 +239,10 @@ describe("checkout", () => {
     await t.withIdentity(OWNER).action(api.billing.startTeamCheckout, { workspaceId });
     expect(stripe.createCustomer).toHaveBeenCalledOnce();
     expect(stripe.createCheckoutSession.mock.calls[1][1].customerId).toBe("cus_ws");
+    expect(await auditLog(t)).toEqual([
+      expect.objectContaining({ ...checkout, actorId: ADMIN.subject }),
+      expect.objectContaining({ ...checkout, actorId: OWNER.subject }),
+    ]);
   });
 
   test("a member, a guest, a stranger and an operator standing in are all refused", async () => {
@@ -239,6 +257,7 @@ describe("checkout", () => {
     await expect(checkout({ ...OWNER, act: "ops_session" })).rejects.toThrow("Read-only");
     expect(stripe.createCustomer).not.toHaveBeenCalled();
     expect(stripe.createCheckoutSession).not.toHaveBeenCalled();
+    expect(await auditLog(t)).toEqual([]);
   });
 
   test("a deployment without Team's prices and meter says so", async () => {
@@ -257,6 +276,7 @@ describe("checkout", () => {
     await expect(
       t.withIdentity(OWNER).action(api.billing.startTeamCheckout, { workspaceId }),
     ).rejects.toThrow("Acme is already on the Team plan.");
+    expect(await auditLog(t)).toEqual([]);
   });
 
   test("a workspace whose subscription Stripe still holds open is sent to settle it, not sold another", async () => {
@@ -268,6 +288,7 @@ describe("checkout", () => {
       await expect(
         t.withIdentity(OWNER).action(api.billing.startTeamCheckout, { workspaceId }),
       ).rejects.toThrow("Acme already has a subscription in Stripe that needs attention. Fix it in Manage billing.");
+      expect(await auditLog(t)).toEqual([]);
     }
     expect(stripe.createCheckoutSession).not.toHaveBeenCalled();
     expect(stripe.createCustomer).not.toHaveBeenCalled();
