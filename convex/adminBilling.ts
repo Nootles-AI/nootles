@@ -1,16 +1,26 @@
 import { ConvexError, v } from "convex/values";
 import StripeSDK from "stripe";
 import { internal } from "./_generated/api";
-import { action, internalQuery, mutation, query } from "./_generated/server";
-import type { QueryCtx } from "./_generated/server";
+import {
+  action,
+  internalMutation,
+  internalQuery,
+  mutation,
+  query,
+} from "./_generated/server";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
 import { requireAdmin } from "./admin";
 import { normalizeCode } from "./accessCodes";
 import {
   entitlementOf,
   ensureAccount,
   paidThrough,
+  workspaceStanding,
   type Entitlement,
 } from "./entitlements";
+import { isFeature, isPlanName, PLAN_OVERRIDE, PLANS } from "./plans";
+import { normalizeSlug } from "./slugs";
 
 /**
  * Billing as the operator sees it: who is paying, who was let in for free, and
@@ -196,6 +206,177 @@ export const setVip = mutation({
       // someone WAS let in outlives the letting in.
       ...(args.vip ? { vipNote: note, vipSetAt: Date.now(), vipSetBy: session._id } : {}),
     });
+    return null;
+  },
+});
+
+// ---- Workspace entitlements -----------------------------------------------
+
+/**
+ * One feature decided for one workspace, against its plan — the workspace
+ * side's VIP. Most workspaces have none. `plan` is the one that matters most:
+ * granted, a workspace is on that plan without a subscription, which is what
+ * internal testers run on (`docs/billing.md`).
+ */
+
+const overrideValue = v.union(v.boolean(), v.number(), v.string());
+
+/** Why `value` cannot be what `feature` holds, or null when it can. */
+function overrideProblem(feature: string, value: boolean | number | string): string | null {
+  if (feature === PLAN_OVERRIDE) {
+    return isPlanName(value) ? null : `A plan is one of ${Object.keys(PLANS).join(", ")}.`;
+  }
+  if (!isFeature(feature)) return `There is no feature called “${feature}”.`;
+  const takes = typeof PLANS.free[feature];
+  if (typeof value !== takes) return `${feature} takes a ${takes}.`;
+  if (typeof value === "number" && !(Number.isFinite(value) && value >= 0)) {
+    return `${feature} takes a number no less than zero.`;
+  }
+  return null;
+}
+
+/** Sets one override, replacing whatever that feature had. */
+async function writeOverride(
+  ctx: MutationCtx,
+  args: {
+    workspaceId: Id<"workspaces">;
+    feature: string;
+    value: boolean | number | string;
+    note: string;
+    expiresAt?: number;
+  },
+  grantedBy: string,
+): Promise<void> {
+  const note = args.note.trim();
+  if (!note) throw new ConvexError("Say why this workspace gets it, and who asked.");
+  const problem = overrideProblem(args.feature, args.value);
+  if (problem) throw new ConvexError(problem);
+  if (!(await ctx.db.get(args.workspaceId))) throw new ConvexError("There is no such workspace.");
+  const row = {
+    workspaceId: args.workspaceId,
+    feature: args.feature,
+    value: args.value,
+    note,
+    grantedBy,
+    grantedAt: Date.now(),
+    expiresAt: args.expiresAt,
+  };
+  const existing = await ctx.db
+    .query("workspaceEntitlements")
+    .withIndex("by_workspace_and_feature", (q) =>
+      q.eq("workspaceId", args.workspaceId).eq("feature", args.feature),
+    )
+    .unique();
+  if (existing) await ctx.db.replace(existing._id, row);
+  else await ctx.db.insert("workspaceEntitlements", row);
+}
+
+/** Every workspace, and what it stands on — the way into one's overrides. */
+export const workspaceList = query({
+  args: { token: v.string() },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx, args.token);
+    const rows = await ctx.db.query("workspaces").order("desc").take(CAP);
+    return await Promise.all(
+      rows.map(async (row) => {
+        const standing = await workspaceStanding(ctx, row._id);
+        return {
+          id: row._id,
+          slug: row.slug,
+          name: row.name,
+          createdAt: row.createdAt,
+          deletedAt: row.deletedAt ?? null,
+          plan: standing.plan,
+          source: standing.source,
+          expiresAt: standing.expiresAt ?? null,
+        };
+      }),
+    );
+  },
+});
+
+/** One workspace's overrides, expired ones included, and what they add up to. */
+export const workspaceOverrides = query({
+  args: { token: v.string(), workspaceId: v.id("workspaces") },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx, args.token);
+    const rows = await ctx.db
+      .query("workspaceEntitlements")
+      .withIndex("by_workspace_and_feature", (q) => q.eq("workspaceId", args.workspaceId))
+      .take(CAP);
+    const now = Date.now();
+    return {
+      standing: await workspaceStanding(ctx, args.workspaceId),
+      overrides: rows.map((row) => ({
+        feature: row.feature,
+        value: row.value,
+        note: row.note,
+        grantedBy: row.grantedBy,
+        grantedAt: row.grantedAt,
+        expiresAt: row.expiresAt ?? null,
+        // Decided here for the same reason `codeList` decides `redeemable`.
+        live: row.expiresAt === undefined || row.expiresAt > now,
+      })),
+    };
+  },
+});
+
+export const workspaceOverrideSet = mutation({
+  args: {
+    token: v.string(),
+    workspaceId: v.id("workspaces"),
+    /** A key of `Features`, or "plan" with a plan's name. */
+    feature: v.string(),
+    value: overrideValue,
+    note: v.string(),
+    /** Absent = until cleared. */
+    expiresAt: v.optional(v.number()),
+  },
+  returns: v.null(),
+  handler: async (ctx, { token, ...args }) => {
+    const session = await requireAdmin(ctx, token);
+    await writeOverride(ctx, args, session._id);
+    return null;
+  },
+});
+
+export const workspaceOverrideClear = mutation({
+  args: { token: v.string(), workspaceId: v.id("workspaces"), feature: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx, args.token);
+    const row = await ctx.db
+      .query("workspaceEntitlements")
+      .withIndex("by_workspace_and_feature", (q) =>
+        q.eq("workspaceId", args.workspaceId).eq("feature", args.feature),
+      )
+      .unique();
+    if (row) await ctx.db.delete(row._id);
+    return null;
+  },
+});
+
+/**
+ * {@link workspaceOverrideSet} for `npx convex run`, by the workspace's
+ * address rather than its id — what an operator without the dashboard has.
+ * An old address finds the workspace too.
+ */
+export const grantWorkspaceOverride = internalMutation({
+  args: {
+    slug: v.string(),
+    feature: v.string(),
+    value: overrideValue,
+    note: v.string(),
+    expiresAt: v.optional(v.number()),
+  },
+  returns: v.null(),
+  handler: async (ctx, { slug, ...args }) => {
+    const row = await ctx.db
+      .query("workspaceSlugs")
+      .withIndex("by_slug", (q) => q.eq("slug", normalizeSlug(slug)))
+      .unique();
+    if (!row) throw new ConvexError(`No workspace answers to “${slug}”.`);
+    await writeOverride(ctx, { workspaceId: row.workspaceId, ...args }, "convex run");
     return null;
   },
 });

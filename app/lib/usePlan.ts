@@ -21,7 +21,7 @@ import type { Entitlement, Meter } from "@/convex/entitlements";
  * never flashes a paywall at somebody who has paid.
  *
  * Inside a project, pass it: the walls there are the allowance that governs
- * work in that project (`entitlements.forProject`) — a workspace's in a
+ * work in that project (`entitlements.forContainer`) — a workspace's in a
  * workspace project the caller writes in, their own anywhere else — so a
  * member whose own free allowance is spent is not walled in the team's
  * projects. Without one it is the account's own, which is what the account
@@ -31,12 +31,9 @@ export function usePlan(projectId?: Id<"projects"> | null) {
   // `undefined` is still arriving; `null` is nobody signed in — a share-link
   // visitor, or the moment before Clerk resolves. Neither is an account with a
   // spent allowance, and both must draw exactly like an account with room.
-  const own = useQuery(api.entitlements.mine, projectId ? "skip" : {});
-  const inProject = useQuery(
-    api.entitlements.forProject,
-    projectId ? { projectId } : "skip",
-  );
-  const entitlement = (projectId ? inProject : own) as Entitlement | null | undefined;
+  const standing = useQuery(api.entitlements.forContainer, projectId ? { projectId } : {});
+  const entitlement: Entitlement | null | undefined =
+    standing === undefined ? undefined : (standing?.entitlement ?? null);
 
   const room = useCallback(
     (meter: Meter): boolean =>

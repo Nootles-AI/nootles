@@ -89,6 +89,38 @@ Swap the key and the price ids for their live-mode equivalents and create a
 live webhook endpoint (test and live have separate signing secrets). One real
 purchase, immediately refunded, is worth doing before you tell anyone.
 
+## 5. Workspaces: the Team plan
+
+A workspace is on its own plan, never a member's. It has Team — unmetered AI,
+the audit log — while its subscription is live or an operator has granted it,
+and otherwise it is on the free allowance: the same `FREE_LIMITS`, counted once
+for the whole workspace. The plan matrix is `PLANS` in `convex/plans.ts`; the
+resolver is `workspaceStanding` in `convex/entitlements.ts`.
+
+**Workspaces that exist before this ships** were unlimited, and would drop to
+the free allowance on deploy. Keep them on Team, once, right after deploying:
+
+```
+npx convex run migrations:grandfatherWorkspaces '{"note":"Made before Team billing"}' --prod
+```
+
+Idempotent; re-run with the returned `cursor` until `done` is true.
+
+**An internal tester's workspace**, or one promised something without a card,
+gets an override — from ops (`adminBilling.workspaceOverrideSet`), or from
+here by its address:
+
+```
+npx convex run adminBilling:grantWorkspaceOverride \
+  '{"slug":"acme","feature":"plan","value":"team","note":"Internal tester"}' --prod
+```
+
+`feature` is `plan` (a plan's name) or a key of `Features` — `unmetered`,
+`auditLog`, `guestDailyAiUsd` (dollars a guest may spend of the workspace's AI
+in a UTC day; 1 by default, 0 for none). Add `"expiresAt": <ms>` for one that
+lapses. A plan override outranks the subscription, so clear it
+(`adminBilling.workspaceOverrideClear`) once the workspace pays.
+
 ## What is where
 
 - **Free allowance** — `FREE_LIMITS` in `convex/entitlements.ts`. Change the
@@ -99,3 +131,5 @@ purchase, immediately refunded, is worth doing before you tell anyone.
   minted from ops → Billing, typed by the customer on Stripe's own checkout.
 - **VIP** — ops → Users → the person → Plan. Outranks everything, including a
   lapsed card.
+- **Workspace plans** — `PLANS` in `convex/plans.ts`, and one workspace's
+  exceptions in `workspaceEntitlements` (section 5).

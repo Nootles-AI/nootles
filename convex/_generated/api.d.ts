@@ -86,6 +86,7 @@ import type * as notion_rest from "../notion/rest.js";
 import type * as notion_seal from "../notion/seal.js";
 import type * as onboarding from "../onboarding.js";
 import type * as pages from "../pages.js";
+import type * as plans from "../plans.js";
 import type * as presence from "../presence.js";
 import type * as previewShape from "../previewShape.js";
 import type * as previews from "../previews.js";
@@ -192,6 +193,7 @@ declare const fullApi: ApiFromModules<{
   "notion/seal": typeof notion_seal;
   onboarding: typeof onboarding;
   pages: typeof pages;
+  plans: typeof plans;
   presence: typeof presence;
   previewShape: typeof previewShape;
   previews: typeof previews;

@@ -264,6 +264,81 @@ export default defineSchema({
     .index("by_domain", ["domain"])
     .index("by_workspace", ["workspaceId"]),
 
+  /**
+   * One feature, decided for one workspace against its plan (`plans.ts`) —
+   * what sales promised one customer, or a tester's plan without a card
+   * (`feature: "plan"`). Most workspaces have none. One row per feature,
+   * replaced rather than appended to; expired rows are ignored, not deleted.
+   */
+  workspaceEntitlements: defineTable({
+    workspaceId: v.id("workspaces"),
+    /** A key of `Features`, or "plan". */
+    feature: v.string(),
+    value: v.union(v.boolean(), v.number(), v.string()),
+    /** Why, and who asked — required, as a VIP note is. */
+    note: v.string(),
+    /** The operator session that set it, or "convex run". */
+    grantedBy: v.string(),
+    grantedAt: v.number(),
+    expiresAt: v.optional(v.number()),
+  }).index("by_workspace_and_feature", ["workspaceId", "feature"]),
+
+  /**
+   * A workspace's Team subscription as Stripe last reported it: one customer
+   * per workspace, never a member's own, and one subscription with two items,
+   * seats and metered AI usage. Instants are milliseconds, unlike the personal
+   * mirror's verbatim seconds.
+   */
+  workspaceBilling: defineTable({
+    workspaceId: v.id("workspaces"),
+    stripeCustomerId: v.string(),
+    subscriptionId: v.optional(v.string()),
+    seatItemId: v.optional(v.string()),
+    usageItemId: v.optional(v.string()),
+    /** Stripe's own status word, stored verbatim — see `entitlements.ts`. */
+    status: v.string(),
+    /** The seat quantity last pushed to Stripe. */
+    seats: v.number(),
+    periodStart: v.number(),
+    periodEnd: v.number(),
+    /** AI spend included in the period before usage is billed, in dollars. */
+    aiAllowanceUsd: v.number(),
+    /** Signed spend up to here has been reported as usage. */
+    usageReportedThrough: v.optional(v.number()),
+    updatedAt: v.number(),
+  })
+    .index("by_workspace", ["workspaceId"])
+    .index("by_customer", ["stripeCustomerId"])
+    .index("by_subscription", ["subscriptionId"]),
+
+  /**
+   * A workspace's free allowance while it has no live plan: `FREE_LIMITS`,
+   * counted once for the whole workspace rather than per person. Its own table
+   * rather than a field on the workspace, which every settings screen reads.
+   * Projects are counted live, as an account's are.
+   */
+  workspaceMeters: defineTable({
+    workspaceId: v.id("workspaces"),
+    acceptedCompletions: v.number(),
+    chatConversations: v.number(),
+    createdAt: v.number(),
+  }).index("by_workspace", ["workspaceId"]),
+
+  /**
+   * What someone without a paid seat — a guest, or anyone an editor link let
+   * in — spent of a workspace's AI in one UTC day, from signed ledger rows.
+   * The guest cap reads one row here rather than summing a day of calls on the
+   * path of every completion. `userId`, not `ownerId`, so the row stays out of
+   * `auth.ts`'s owned tables.
+   */
+  guestAiSpend: defineTable({
+    workspaceId: v.id("workspaces"),
+    /** `YYYY-MM-DD`, UTC (`plans.utcDay`). */
+    day: v.string(),
+    userId: v.string(),
+    costUsd: v.number(),
+  }).index("by_workspace_and_day_and_user", ["workspaceId", "day", "userId"]),
+
   projects: defineTable({
     /**
      * The creator. In a personal project that is also the owner; in a
@@ -325,7 +400,10 @@ export default defineSchema({
     .index("by_share_token", ["shareToken"])
     .index("by_edit_share_token", ["editShareToken"])
     .index("by_deleted", ["deletedAt"])
-    .index("by_workspace", ["workspaceId"]),
+    .index("by_workspace", ["workspaceId"])
+    // A workspace's live projects, for its free limit — filtered before the
+    // cut, as an account's are.
+    .index("by_workspace_and_deleted", ["workspaceId", "deletedAt"]),
 
   /**
    * What visiting a share link while signed in leaves behind: a bookmark plus
