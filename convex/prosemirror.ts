@@ -68,7 +68,7 @@ export async function pageAndChannelForDoc(
  * The channels a caller serves. The default everywhere is the document alone,
  * so a pipeline written before comments — presence, previews, the legacy sync
  * API, the NML migrator — refuses a comments docId without knowing it exists.
- * Only `ydoc.ts`, whose log is content-blind, opts into both.
+ * Only `ydoc.ts`, whose one log carries both documents, opts into both.
  */
 export const DOCUMENT_ONLY: readonly DocChannel[] = ["document"];
 export const ANY_CHANNEL: readonly DocChannel[] = ["document", "comments"];

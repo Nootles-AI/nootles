@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
 import { getFunctionName } from "convex/server";
+import { ConvexError } from "convex/values";
+import { COMMENTS_REFUSED } from "@/app/lib/comments/policy";
 import type { ConvexReactClient } from "convex/react";
 import { acquireProvider, releaseProvider, YConvexProvider, type ProviderOptions } from "./YConvexProvider";
 
@@ -18,6 +20,8 @@ class Backend {
   calls: string[] = [];
   /** The caller has lost the page: its presence query answers with an error. */
   revoked = false;
+  /** How the next append fails: refused by the comments policy, or lost on the wire. */
+  failNext: "refuse" | "offline" | null = null;
   private watchers = new Set<() => void>();
 
   poke() {
@@ -62,6 +66,10 @@ class Backend {
         const name = getFunctionName(reference as never);
         this.calls.push(`mutation ${name}`);
         if (name === "ydoc:append") {
+          const failure = this.failNext;
+          this.failNext = null;
+          if (failure === "refuse") throw new ConvexError({ code: COMMENTS_REFUSED, message: "Only a comment's author can change it." });
+          if (failure === "offline") throw new Error("[CONVEX M(ydoc:append)] Connection lost");
           this.seq += 1;
           this.log.push({ seq: this.seq, update: args.update as ArrayBuffer });
           for (const watcher of this.watchers) watcher();
@@ -153,6 +161,64 @@ describe("a comments document's provider", () => {
     a.doc.getText("t").insert(0, "from A");
     await settle(1_000);
     expect(b.doc.getText("t").toString()).toBe("from A");
+  });
+});
+
+describe("a change the server refuses outright", () => {
+  it("is dropped with a fresh doc synced from the server, and said, until the next change lands", async () => {
+    const provider = open(COMMENTS);
+    provider.connect();
+    await provider.whenSynced;
+    provider.doc.getText("t").insert(0, "kept");
+    await settle(1_000);
+    const before = provider.doc;
+    const heard = vi.fn();
+    provider.subscribe(heard);
+
+    backend.failNext = "refuse";
+    provider.doc.getText("t").insert(0, "forged ");
+    await settle(1_000);
+    expect(provider.doc).not.toBe(before);
+    expect(provider.refusal).toBe("Only a comment's author can change it.");
+    expect(heard).toHaveBeenCalled();
+    await provider.whenSynced;
+    expect(provider.doc.getText("t").toString()).toBe("kept");
+    expect(backend.log).toHaveLength(1);
+    expect(provider.hasUnsyncedChanges).toBe(false);
+
+    // The fresh doc writes as any other; landing clears the refusal.
+    provider.doc.getText("t").insert(4, " and more");
+    await settle(1_000);
+    expect(backend.log).toHaveLength(2);
+    expect(provider.refusal).toBeNull();
+    const peer = new Y.Doc();
+    for (const row of backend.log) Y.applyUpdate(peer, new Uint8Array(row.update));
+    expect(peer.getText("t").toString()).toBe("kept and more");
+  });
+
+  it("can be dismissed", async () => {
+    const provider = open(COMMENTS);
+    provider.connect();
+    await provider.whenSynced;
+    backend.failNext = "refuse";
+    provider.doc.getText("t").insert(0, "x");
+    await settle(1_000);
+    expect(provider.refusal).not.toBeNull();
+    provider.dismissRefusal();
+    expect(provider.refusal).toBeNull();
+  });
+
+  it("any other failure keeps the change and retries it, as before", async () => {
+    const provider = open(COMMENTS);
+    provider.connect();
+    await provider.whenSynced;
+    const doc = provider.doc;
+    backend.failNext = "offline";
+    doc.getText("t").insert(0, "offline edit");
+    await settle(5_000);
+    expect(provider.doc).toBe(doc);
+    expect(provider.refusal).toBeNull();
+    expect(backend.log).toHaveLength(1);
   });
 });
 

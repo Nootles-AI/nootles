@@ -368,6 +368,14 @@ export function CommentsLayer({ linked, children }: { linked: boolean; children:
         />
       )}
       {readOnly && selection && !draft && view && <SelectionAffordance view={view} selection={selection} onComment={start} />}
+      {comments?.refusal && canRead && (
+        <div className="nt-update nt-comment-refused" role="alert">
+          <span>Your comment change was not saved. {comments.refusal}</span>
+          <button className="nt-update-x" aria-label="Dismiss" onClick={comments.dismissRefusal}>
+            ×
+          </button>
+        </div>
+      )}
       {(panel.open || (draft && mode === "dots")) && ctx && canRead && view && (
         <CommentsPanel
           view={view}

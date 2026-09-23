@@ -8,6 +8,7 @@ import schema from "./schema";
 import { recordAudit, RETENTION_MS, SWEEP_BATCH, type AuditEvent } from "./audit";
 import { commentsEnabled } from "./entitlements";
 import { purgeProject } from "./projects";
+import { noChange } from "@/app/lib/comments/updates.fixture";
 import componentSchema from "../node_modules/@convex-dev/prosemirror-sync/src/component/schema";
 
 /**
@@ -394,7 +395,7 @@ describe("entitlement overrides — switching comments off", () => {
 
     await override(t, { scope: "project", scopeId: w.projectId, value: null });
     expect(await enabled(t, w.projectId)).toBe(true);
-    await t.withIdentity(EDITOR).mutation(api.ydoc.append, { docId: commentsDoc, update: textUpdate("back") });
+    await t.withIdentity(EDITOR).mutation(api.ydoc.append, { docId: commentsDoc, update: noChange() });
     expect(await t.withIdentity(OWNER).query(api.comments.docFor, { pageId: w.pageId })).toBe(commentsDoc);
   });
 

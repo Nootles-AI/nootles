@@ -1,4 +1,5 @@
 import type { ConvexReactClient } from "convex/react";
+import { ConvexError } from "convex/values";
 import * as Y from "yjs";
 import {
   applyAwarenessUpdate,
@@ -10,6 +11,7 @@ import { api } from "@/convex/_generated/api";
 import type { PageDigest } from "@/convex/context/shape";
 import { encodePreview } from "@/convex/previewShape";
 import { splitUpdate } from "@/convex/yshape";
+import { COMMENTS_REFUSED } from "@/app/lib/comments/policy";
 import { openYDoc } from "./ydocRead";
 
 /**
@@ -56,6 +58,13 @@ const PRESENCE_STALE_MS = 30_000;
 
 type Listener = () => void;
 
+/** The server's reason when it refused an append outright, or null for any other failure. */
+function refusalOf(error: unknown): string | null {
+  if (!(error instanceof ConvexError)) return null;
+  const data = error.data as { code?: unknown; message?: unknown } | null;
+  return data?.code === COMMENTS_REFUSED && typeof data.message === "string" ? data.message : null;
+}
+
 /**
  * What a provider does beyond syncing its document. Both default on, which is
  * a page: its flushes leave a preview and a context digest behind, and its
@@ -75,8 +84,8 @@ function withDefaults(options: ProviderOptions): Readonly<Required<ProviderOptio
 }
 
 export class YConvexProvider {
-  readonly doc: Y.Doc;
-  readonly awareness: Awareness;
+  private currentDoc: Y.Doc;
+  private currentAwareness: Awareness;
   /** One per instance — the identity of THIS tab's presence row. */
   readonly sessionId = crypto.randomUUID();
 
@@ -87,7 +96,9 @@ export class YConvexProvider {
   private connected = false;
   private syncedFlag = false;
   private resolveSynced!: () => void;
-  readonly whenSynced: Promise<void>;
+  private synchronizing = this.untilSynced();
+  /** Why the server last refused this tab's changes outright; null once a flush lands. */
+  private refused: string | null = null;
 
   /** Highest seq applied locally — the fetch cursor. */
   private cursor = 0;
@@ -125,17 +136,55 @@ export class YConvexProvider {
   ) {
     this.client = client;
     this.docId = docId;
-    this.doc = doc;
     this.options = withDefaults(options);
-    this.awareness = new Awareness(doc);
-    this.whenSynced = new Promise((r) => (this.resolveSynced = r));
+    this.currentDoc = doc;
+    this.currentAwareness = this.adopt(doc);
+  }
+
+  /** Listens to a doc as this provider's own, returning its awareness. */
+  private adopt(doc: Y.Doc): Awareness {
+    const awareness = new Awareness(doc);
     doc.on("update", this.onDocUpdate);
-    this.awareness.on("update", this.onAwareness);
+    awareness.on("update", this.onAwareness);
     byDoc.set(doc, this);
+    return awareness;
+  }
+
+  /**
+   * The synced document. Replaced only after the server refuses a change
+   * outright (see `restart`), so a holder that re-reads it on `subscribe`
+   * always has the live one.
+   */
+  get doc(): Y.Doc {
+    return this.currentDoc;
+  }
+
+  get awareness(): Awareness {
+    return this.currentAwareness;
   }
 
   get synced(): boolean {
     return this.syncedFlag;
+  }
+
+  /** Resolves once `doc` has caught up with the server. */
+  get whenSynced(): Promise<void> {
+    return this.synchronizing;
+  }
+
+  private untilSynced(): Promise<void> {
+    return new Promise((resolve) => (this.resolveSynced = resolve));
+  }
+
+  /** Why the server last refused this tab's changes outright, until one lands or it is dismissed. */
+  get refusal(): string | null {
+    return this.refused;
+  }
+
+  dismissRefusal() {
+    if (this.refused === null) return;
+    this.refused = null;
+    this.emit();
   }
 
   get hasUnsyncedChanges(): boolean {
@@ -269,12 +318,18 @@ export class YConvexProvider {
           });
           if (!meta || this.cursor >= meta.seq) continue;
         }
+        const doc = this.doc;
         const opened = await openYDoc(
           this.client,
           this.docId,
           this.cursor,
-          (update) => Y.applyUpdate(this.doc, update, this),
+          (update) => Y.applyUpdate(doc, update, this),
         );
+        // Restarted meanwhile: that cursor belonged to the doc it replaced.
+        if (doc !== this.doc) {
+          this.pullAgain = true;
+          continue;
+        }
         if (!opened) continue; // not Yjs-native (yet); the watch will say when
         this.cursor = opened.cursor;
         if (opened.torn) {
@@ -464,9 +519,15 @@ export class YConvexProvider {
         if (seq === this.cursor + 1) this.cursor = seq;
       }
       this.retryMs = 0;
+      this.refused = null;
       this.lastFlushAt = Date.now();
       this.scheduleDerived();
-    } catch {
+    } catch (error) {
+      const refusal = refusalOf(error);
+      if (refusal !== null) {
+        this.restart(refusal);
+        return;
+      }
       // Everything unsent goes back to the front, coalesced, and retries on
       // a doubling delay — the queue is the offline buffer.
       this.queue = [merged, ...this.queue];
@@ -479,6 +540,37 @@ export class YConvexProvider {
         this.scheduleFlush(FLUSH_MS);
       }
     }
+  }
+
+  /**
+   * The server refused a flush for what it says, not for who or when — a
+   * comments write its policy will never take (`comments/policy.ts`). A retry
+   * cannot land it, and this doc now holds changes the server will never
+   * have: every later edit here would build on them and be refused in turn.
+   * So the doc is swapped for a fresh one synced from the server, which
+   * leaves this tab exactly where everyone else is, and the refusal is kept
+   * for the surface to say why its change went.
+   */
+  private restart(refusal: string) {
+    const old = this.currentDoc;
+    old.off("update", this.onDocUpdate);
+    this.currentAwareness.off("update", this.onAwareness);
+    this.currentAwareness.destroy();
+    byDoc.delete(old);
+    this.queue = [];
+    if (this.flushTimer) {
+      clearTimeout(this.flushTimer);
+      this.flushTimer = null;
+    }
+    this.retryMs = 0;
+    this.cursor = 0;
+    this.syncedFlag = false;
+    this.synchronizing = this.untilSynced();
+    this.refused = refusal;
+    this.currentDoc = new Y.Doc();
+    this.currentAwareness = this.adopt(this.currentDoc);
+    this.emit();
+    this.wake();
   }
 
   // ---- Derived data -------------------------------------------------------

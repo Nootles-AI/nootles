@@ -6,7 +6,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { isTrashed, readVisible, requireEditable, requireOwner } from "./auth";
 import { removePageNode, retitlePageNode } from "./context/pages";
 import { copyPreview, deletePreview } from "./previews";
-import { refreshPageSummary, stampProject } from "./projects";
+import { purgeCommentsDoc, refreshPageSummary, stampProject } from "./projects";
 import { rowIcon } from "./schema";
 
 export const listByProject = query({
@@ -384,6 +384,7 @@ export async function removePageCascade(ctx: MutationCtx, page: Doc<"pages">) {
 
   await forgetTurns(ctx, page);
   await deletePreview(ctx, page.docId);
+  await purgeCommentsDoc(ctx, page);
   await removePageNode(ctx, page);
   await ctx.db.delete(page._id);
 }

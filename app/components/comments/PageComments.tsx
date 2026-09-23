@@ -35,6 +35,9 @@ export type PageComments = {
    * undoes. ⌘Z reaches it from inside a `commentsScope(pageId)` surface.
    */
   history: CommentsHistory | null;
+  /** Why the server refused this person's last comment change, which has been undone; see `useCommentsDoc`. */
+  refusal: string | null;
+  dismissRefusal: () => void;
   /**
    * The store, minting the comments document first when the page has none —
    * for the first comment. Rejects when the person may not comment.
@@ -79,7 +82,7 @@ export function PageCommentsProvider({ pageId, children }: { pageId: Id<"pages">
   const canComment = access.canComment && Boolean(userId);
   const comments = useCommentsDoc(pageId, { canRead: access.canRead, canComment });
   const doc = access.canRead ? (comments.doc ?? null) : null;
-  const { ensure } = comments;
+  const { ensure, refusal, dismissRefusal } = comments;
 
   const [store, history] = useMemo<[CommentsStore, CommentsHistory] | [null, null]>(
     () => (doc && userId && canComment ? [storeFor(doc, userId), historyFor(doc, userId)] : [null, null]),
@@ -98,6 +101,8 @@ export function PageCommentsProvider({ pageId, children }: { pageId: Id<"pages">
       threads: access.canRead ? comments.threads : NO_THREADS,
       store,
       history,
+      refusal,
+      dismissRefusal,
       ensureStore: async () => {
         if (!userId || !canComment) throw new Error("You can read these comments but not add to them.");
         if (store) return store;
@@ -106,7 +111,7 @@ export function PageCommentsProvider({ pageId, children }: { pageId: Id<"pages">
         return storeFor(minted, userId);
       },
     }),
-    [pageId, access, userId, comments.status, comments.threads, doc, store, history, canComment, ensure],
+    [pageId, access, userId, comments.status, comments.threads, doc, store, history, refusal, dismissRefusal, canComment, ensure],
   );
 
   // Published for the chat, which sits beside the page rather than inside it.

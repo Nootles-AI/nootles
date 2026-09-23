@@ -25,6 +25,13 @@ export type CommentsDocState = {
   doc?: Y.Doc;
   threads: Thread[];
   /**
+   * Why the server refused this tab's last change, which the document has
+   * since dropped for the server's state (`YConvexProvider.restart`); null
+   * once a change lands or it is dismissed.
+   */
+  refusal: string | null;
+  dismissRefusal: () => void;
+  /**
    * The synced comments document, minting it first if the page has none —
    * for the moment someone writes the first comment. Refused without
    * `canComment`.
@@ -72,6 +79,14 @@ export function useCommentsDoc(
     },
     () => null,
   );
+  const refusal = useSyncExternalStore(
+    subscribeProvider,
+    () => (docId ? peekProvider(docId)?.refusal ?? null : null),
+    () => null,
+  );
+  const dismissRefusal = useCallback(() => {
+    if (docId) peekProvider(docId)?.dismissRefusal();
+  }, [docId]);
 
   const subscribeThreads = useCallback(
     (listener: () => void) => (doc ? observeThreads(doc, listener) : noSubscription()),
@@ -124,6 +139,8 @@ export function useCommentsDoc(
     ...(docId ? { docId } : {}),
     ...(doc ? { doc } : {}),
     threads,
+    refusal,
+    dismissRefusal,
     ensure,
   };
 }

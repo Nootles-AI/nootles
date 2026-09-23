@@ -419,6 +419,7 @@ try {
   const forged = (who) => reader.forgedUpdate(who);
   // The server's own words: a ConvexError's data, else the thrown message under the request line.
   const reason = (error) => typeof error.data === "string" ? error.data
+    : typeof error.data?.message === "string" ? error.data.message
     : (/Uncaught (?:\w*Error): ([^\n]*)/.exec(error.message)?.[1] ?? error.message).trim();
   const attempt = (promise) => promise.then(() => "accepted", (error) => `refused: ${reason(error)}`);
   const seq = async (docId) => (await olive.query(anyApi.ydoc.meta, { docId }))?.seq ?? 0;
@@ -439,6 +440,19 @@ try {
   const commentsSeq = await seq(commentsDocId);
   check("[vic] his raw append to the comments document is refused", await attempt(as("vic").mutation(anyApi.ydoc.append, { docId: commentsDocId, update: forged("vic") })), "refused: Not found");
   check("[server] the comments document is untouched", await seq(commentsDocId), commentsSeq);
+
+  // Cora may write the comments document, but not in someone else's name: the
+  // server reads what a comments append would change and refuses a forgery.
+  const forgery = "Olive signs off on Friday.";
+  const signedAsOlive = await reader.forgedReply(as("cora"), commentsDocId, friday.id, PEOPLE.olive.userId, forgery);
+  check("[cora] her raw append of a reply signed as Olive is refused",
+    await attempt(as("cora").mutation(anyApi.ydoc.append, { docId: commentsDocId, update: signedAsOlive })),
+    "refused: A comment can only be written in your own name.");
+  check("[server] nothing landed", [await seq(commentsDocId), (await serverThreads())[0].comments.some((c) => c.text === forgery)], [commentsSeq, false]);
+  await wait(1500);
+  check("[olive, eddie, cora, vic] no screen shows it",
+    await Promise.all([O, E, C, V].map((P) => P.evaluate((text) => document.body.textContent.includes(text), forgery))),
+    [false, false, false, false]);
 
   const sam = as("sam");
   // A live link still opens the page's document to anyone (the document

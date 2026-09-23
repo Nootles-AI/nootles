@@ -229,6 +229,16 @@ export function channelAdmits(request: {
 }
 
 /**
+ * Whether a role may remove other people's comments and threads: whoever
+ * holds the pen on the page. Nobody may rewrite another person's words; what
+ * else a comments append may change is `comments/policy.ts`, asked by
+ * `ydoc.append` with this answer.
+ */
+export function moderatesComments(role: ProjectRole | null): boolean {
+  return role === "owner" || role === "editor";
+}
+
+/**
  * Whether any share link on the project is live — the condition every claim
  * and the anonymous document read are contingent on.
  */
