@@ -437,6 +437,32 @@
   }
 }
 
+/* The popover's way on to the members screen, under a hairline: a row with
+   somewhere to go, laid out as a menu's last item is, so it reads as a
+   destination rather than one more line of the notes above it. Its chevron
+   leans the way it goes, as the back link's arrow leans back. */
+.nt-ws-onward-glyph {
+  flex: none;
+  color: var(--muted);
+  transition:
+    color var(--dur-fast) var(--ease),
+    translate var(--dur-slow) var(--spring);
+}
+.nt-ws-onward:hover .nt-ws-onward-glyph,
+.nt-ws-onward:focus-visible .nt-ws-onward-glyph {
+  color: var(--foreground);
+  translate: 2px 0;
+}
+
+/* A switch at the right end of its row opens its hints leftward, from its
+   right edge, so they stay inside the popover and the page rather than
+   running off them — and, laid out even while hidden, widening them. */
+.nt-ws-invite-pop .nt-tip::after,
+.nt-ws-set-head .nt-tip::after {
+  left: auto;
+  right: 0;
+}
+
 /* An invitation just made: its link arrives under the form, the way a row
    arrives in a list. */
 .nt-ws-sent {
@@ -723,6 +749,7 @@
     animation: nt-fade-in var(--dur-fast) var(--ease);
   }
   .nt-ws-pile .nt-face,
+  .nt-ws-onward-glyph,
   .nt-ws-fold,
   .nt-ws-saved,
   .nt-ws-person.is-leaving {

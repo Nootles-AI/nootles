@@ -16,7 +16,7 @@ import { useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { WorkspaceRole } from "@/convex/auth";
 import { joinPath, settingsPath } from "@/app/lib/containerPaths";
-import { Check, ChevronsUpDown, Copy } from "../Icons";
+import { Check, ChevronRight, ChevronsUpDown, Copy } from "../Icons";
 import { Menu, MenuItem } from "../Menu";
 import { Segmented, type Segment } from "../Segmented";
 import type { WorkspaceContainer } from "./ContainerContext";
@@ -129,12 +129,13 @@ function InvitePopover({
             onClose();
           }
         }}
-        className="nt-menu fixed w-[22rem] max-w-[calc(100vw-1rem)] overflow-y-auto p-3"
+        // Never a scroller: what it holds is a form and a link, which fit any
+        // window, and a scroller would clip the role switch's hints.
+        className="nt-menu nt-ws-invite-pop fixed w-[22rem] max-w-[calc(100vw-1rem)] p-3"
         style={
           {
             top: pos?.top ?? 0,
             left: pos?.left ?? 0,
-            maxHeight: pos ? `calc(100dvh - ${pos.top + 8}px)` : undefined,
             visibility: pos ? undefined : "hidden",
             "--origin": "top right",
           } as React.CSSProperties
@@ -142,11 +143,15 @@ function InvitePopover({
       >
         {/* Mounted once placed: a hidden field refuses the focus it asks for. */}
         {pos && <InviteForm workspace={workspace} autoFocus />}
+        {/* The way on to everyone, set apart from the notes above it as a
+            row with somewhere to go. */}
+        <div className="nt-menu-sep mx-0 mt-3" />
         <Link
           href={settingsPath(workspace.slug, "members")}
-          className="nt-note mt-3 inline-block hover:underline"
+          className="nt-row nt-ws-onward -mx-2 -mb-2 w-[calc(100%+1rem)] justify-between px-2"
         >
           Members and invitations
+          <ChevronRight width={14} height={14} aria-hidden="true" className="nt-ws-onward-glyph" />
         </Link>
       </div>
     </>,
