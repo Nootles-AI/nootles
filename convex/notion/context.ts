@@ -1,6 +1,13 @@
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
-import { internalMutation, internalQuery, mutation, query } from "../_generated/server";
+import type { Doc } from "../_generated/dataModel";
+import {
+  internalMutation,
+  internalQuery,
+  mutation,
+  query,
+  type MutationCtx,
+} from "../_generated/server";
 import { readManageable, requireManageable, requireOwner } from "../auth";
 import { removeDocument, upsertDocument } from "../context/documents";
 
@@ -63,11 +70,15 @@ export const link = mutation({
 export const unlink = mutation({
   args: { rowId: v.id("projectNotion") },
   handler: async (ctx, args) => {
-    const row = await requireManageable(ctx, "projectNotion", args.rowId);
-    await ctx.db.delete(row._id);
-    await removeDocument(ctx, row.projectId, externalIdOf(row.pageId));
+    await unlinkPage(ctx, await requireManageable(ctx, "projectNotion", args.rowId));
   },
 });
+
+/** Unlinks a page, and its document in the context graph with it. */
+export async function unlinkPage(ctx: MutationCtx, row: Doc<"projectNotion">) {
+  await ctx.db.delete(row._id);
+  await removeDocument(ctx, row.projectId, externalIdOf(row.pageId));
+}
 
 /** Read the page again. Refused while a read is waiting or running. */
 export const reindex = mutation({

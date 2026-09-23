@@ -16,6 +16,8 @@ import {
   workspaceRole,
   type WorkspaceRole,
 } from "./auth";
+import { unlinkRepo } from "./github/repos";
+import { unlinkPage } from "./notion/context";
 import { ensureArrivalProfile } from "./profiles";
 import { invitedRole, memberRole } from "./schema";
 
@@ -123,6 +125,9 @@ async function giveSeat(
  *   requests waiting on those projects, so the creator's own inbox stops
  *   finding them. Pages and folders keep their `ownerId`: nothing reads it
  *   for access, and NML migration keys on it.
+ * - Repositories and Notion pages they linked are unlinked. Each is read with
+ *   its linker's own connection, which stops serving the workspace when they
+ *   stop being in it — and which they could no longer unlink themselves.
  * - Their share-link claims and access requests on the workspace's projects
  *   go, or the link path would hand back what the seat just lost. Claims on
  *   anyone else's projects stay.
@@ -146,6 +151,21 @@ async function unseat(
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
     .collect();
   for (const project of projects) {
+    const repos = await ctx.db
+      .query("projectRepos")
+      .withIndex("by_project", (q) => q.eq("projectId", project._id))
+      .collect();
+    for (const repo of repos) {
+      if (repo.ownerId === userId) await unlinkRepo(ctx, repo._id);
+    }
+    const pages = await ctx.db
+      .query("projectNotion")
+      .withIndex("by_project", (q) => q.eq("projectId", project._id))
+      .collect();
+    for (const page of pages) {
+      if (page.ownerId === userId) await unlinkPage(ctx, page);
+    }
+
     if (project.ownerId !== userId) continue;
     await ctx.db.patch(project._id, { ownerId: heir });
     const requests = await ctx.db

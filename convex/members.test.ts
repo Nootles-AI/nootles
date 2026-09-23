@@ -811,6 +811,105 @@ describe("taking a seat away", () => {
     ).toContain(w.open.projectId);
   });
 
+  test("unlinks what they linked, since each is read with their own connection", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("No network in tests");
+      }),
+    );
+    const t = harness();
+    const w = await world(t);
+    const linked = await t.run(async (ctx) => {
+      const repo = (who: Identity, projectId: Id<"projects">, fullName: string) =>
+        ctx.db.insert("projectRepos", {
+          ownerId: who.subject,
+          projectId,
+          fullName,
+          defaultBranch: "main",
+          private: true,
+          addedAt: 1,
+        });
+      const page = (who: Identity, projectId: Id<"projects">, pageId: string) =>
+        ctx.db.insert("projectNotion", {
+          ownerId: who.subject,
+          projectId,
+          pageId,
+          title: pageId,
+          index: { state: "ready" },
+          addedAt: 1,
+        });
+      const node = (projectId: Id<"projects">, externalId: string, repoId?: Id<"projectRepos">) =>
+        ctx.db.insert("contextNodes", {
+          projectId,
+          source: repoId ? "github" : "notion",
+          ...(repoId ? { repoId } : {}),
+          tier: "source",
+          kind: repoId ? "repo" : "document",
+          externalId,
+          title: externalId,
+          brief: "",
+          owner: {},
+        });
+      const diary = await ctx.db.insert("projects", {
+        ownerId: CREATOR.subject,
+        title: "Diary",
+        createdAt: 1,
+      });
+      const cyRepo = await repo(CREATOR, w.open.projectId, "acme/api");
+      return {
+        repos: {
+          cy: cyRepo,
+          cyInTrash: await repo(CREATOR, w.binned.projectId, "acme/old"),
+          cyOutside: await repo(CREATOR, diary, "cy/dotfiles"),
+          ada: await repo(ADMIN, w.open.projectId, "acme/web"),
+        },
+        pages: {
+          cy: await page(CREATOR, w.secret.projectId, "brief"),
+          ada: await page(ADMIN, w.open.projectId, "handbook"),
+        },
+        nodes: {
+          cyRepo: await node(w.open.projectId, "github:acme/api", cyRepo),
+          cyPage: await node(w.secret.projectId, "notion:brief"),
+        },
+      };
+    });
+    /** Which of those rows are still there. */
+    const still = () =>
+      t.run(async (ctx) => {
+        const here = async (ids: Record<string, Id<"projectRepos" | "projectNotion" | "contextNodes">>) =>
+          Object.fromEntries(
+            await Promise.all(
+              Object.entries(ids).map(async ([name, id]) => [name, !!(await ctx.db.get(id))]),
+            ),
+          );
+        return {
+          repos: await here(linked.repos),
+          pages: await here(linked.pages),
+          nodes: await here(linked.nodes),
+        };
+      });
+
+    await t.withIdentity(ADMIN).mutation(api.members.remove, {
+      workspaceId: w.workspaceId,
+      userId: CREATOR.subject,
+    });
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    expect(await still()).toEqual({
+      repos: { cy: false, cyInTrash: false, cyOutside: true, ada: true },
+      pages: { cy: false, ada: true },
+      nodes: { cyRepo: false, cyPage: false },
+    });
+
+    // Leaving takes them just the same.
+    await t.withIdentity(ADMIN).mutation(api.members.leave, { workspaceId: w.workspaceId });
+    expect(await still()).toMatchObject({
+      repos: { ada: false, cyOutside: true },
+      pages: { ada: false },
+    });
+  });
+
   test("an admin removes members and guests; admins and owners are an owner's", async () => {
     const t = harness();
     const w = await world(t);

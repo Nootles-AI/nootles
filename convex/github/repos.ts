@@ -106,9 +106,7 @@ export const unlink = mutation({
   args: { repoId: v.id("projectRepos") },
   handler: async (ctx, args) => {
     await requireManageable(ctx, "projectRepos", args.repoId);
-    await ctx.db.delete(args.repoId);
-    // Its place in the context graph goes with it, in batches of its own.
-    await ctx.scheduler.runAfter(0, internal.github.graphStore.forget, args);
+    await unlinkRepo(ctx, args.repoId);
   },
 });
 
@@ -228,6 +226,12 @@ export const writeSummary = internalMutation({
 });
 
 // ---- Shared --------------------------------------------------------------
+
+/** Unlinks a repository. Its place in the context graph goes with it, in batches of its own. */
+export async function unlinkRepo(ctx: MutationCtx, repoId: Id<"projectRepos">) {
+  await ctx.db.delete(repoId);
+  await ctx.scheduler.runAfter(0, internal.github.graphStore.forget, { repoId });
+}
 
 /**
  * Link repositories to a project and start reading them.
