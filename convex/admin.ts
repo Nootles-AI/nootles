@@ -2,6 +2,7 @@ import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import { mutation, query, type QueryCtx } from "./_generated/server";
+import { hasLiveLink } from "./auth";
 import { feedbackCategory, feedbackStatus } from "./schema";
 import { setDuplicate, setStatus } from "./tickets";
 
@@ -637,7 +638,7 @@ export const userDetail = query({
         id: p._id,
         title: p.title,
         createdAt: p.createdAt,
-        shared: !!p.shareToken,
+        shared: hasLiveLink(p),
       })),
       pageCount,
       suggestionKinds: [...kinds.entries()]

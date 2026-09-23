@@ -18,7 +18,7 @@ import { Check, LinkIcon } from "./Icons";
 import { Segmented, type Segment } from "./Segmented";
 import "./share/access.css";
 
-type LinkRole = "editor" | "viewer";
+type LinkRole = "editor" | "commenter" | "viewer";
 
 /** By code point, not char: a name starting with an emoji keeps it whole. */
 /** Two sheets, one over the other, in the app's 24-grid stroke. */
@@ -51,17 +51,42 @@ const TABS: readonly Segment<LinkRole>[] = [
     hint: "Anyone with it can view; signing in lets them edit",
   },
   {
+    id: "commenter",
+    label: "Commenter link",
+    hint: "Anyone with it can view; signing in lets them comment",
+  },
+  {
     id: "viewer",
     label: "Viewer link",
     hint: "Anyone with it can view. Nobody can edit through it",
   },
 ];
 
+/** Each link in words: its name, and what it does while on and while off. */
+const LINKS: Record<LinkRole, { name: string; on: string; off: string }> = {
+  editor: {
+    name: "Editor",
+    on: "Anyone with this link can view; signing in lets them edit.",
+    off: "Off. Nobody can view or edit through an editor link.",
+  },
+  commenter: {
+    name: "Commenter",
+    on: "Anyone with this link can view; signing in lets them comment.",
+    off: "Off. Nobody can view or comment through a commenter link.",
+  },
+  viewer: {
+    name: "Viewer",
+    on: "Anyone with this link can view. Nobody can edit through it.",
+    off: "Off. Nobody can view through a viewer link.",
+  },
+};
+
 /**
- * Sharing, from the sidebar head: one link per role, each its own tab.
+ * Sharing, from the sidebar head: one link per role — editor, commenter,
+ * viewer — each its own tab.
  *
  * A popover on the Share button rather than a modal — sharing is a capability
- * you flip and copy, not a task that needs the page taken away. The two links
+ * you flip and copy, not a task that needs the page taken away. The links
  * are deliberately separate capabilities rather than one link with a setting —
  * which URL you paste IS the decision, so handing someone view access can
  * never quietly become handing them the pen. Turning a link off revokes it:
@@ -258,7 +283,7 @@ function SharePopoverBody({
               <input
                 ref={inputRef}
                 readOnly
-                aria-label={`${role === "editor" ? "Editor" : "Viewer"} link`}
+                aria-label={`${LINKS[role].name} link`}
                 value={`${window.location.origin}/share/${token}`}
                 onFocus={(e) => e.currentTarget.select()}
                 className="nt-input min-w-0 flex-1"
@@ -278,11 +303,7 @@ function SharePopoverBody({
                 {copied === role ? "Copied" : "Copy"}
               </button>
             </div>
-            <p className="nt-note mt-2 text-pretty">
-              {role === "editor"
-                ? "Anyone with this link can view; signing in lets them edit."
-                : "Anyone with this link can view. Nobody can edit through it."}
-            </p>
+            <p className="nt-note mt-2 text-pretty">{LINKS[role].on}</p>
             <button
               onClick={() => {
                 void setLink({ projectId, role, enabled: false });
@@ -302,11 +323,7 @@ function SharePopoverBody({
           </>
         ) : (
           <>
-            <p className="nt-note mt-3 text-pretty">
-              {role === "editor"
-                ? "Off. Nobody can view or edit through an editor link."
-                : "Off. Nobody can view through a viewer link."}
-            </p>
+            <p className="nt-note mt-3 text-pretty">{LINKS[role].off}</p>
             <button
               onClick={() => {
                 void setLink({ projectId, role, enabled: true }).then((t) => {
@@ -429,7 +446,7 @@ function SharePopoverBody({
                     {person.name ?? person.email ?? "Someone"}
                   </span>
                   <span className="shrink-0 text-[13px] text-muted">
-                    {person.role === "editor" ? "Editor" : "Viewer"}
+                    {LINKS[person.role].name}
                   </span>
                 </li>
               ))}
