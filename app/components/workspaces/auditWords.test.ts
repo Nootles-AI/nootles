@@ -94,6 +94,23 @@ describe("the sentence", () => {
   });
 });
 
+describe("a stand-in", () => {
+  test("names whose account, and never an operator's reason", () => {
+    const r = row({
+      action: "operator.standIn",
+      actorKind: "operator",
+      actorId: "s1",
+      actor: null,
+      subjectKind: "user",
+      subjectId: "user_tom",
+      subject: { name: "Tom", email: null },
+      meta: { sessionId: "j1", reason: "Acme reports a billing bug" },
+    });
+    expect(whatText(r, "Acme")).toBe("stood in for Tom");
+    expect(toCsv([r], "Acme")).not.toContain("billing bug");
+  });
+});
+
 describe("who acted", () => {
   test("you, a system by its name, an operator as support", () => {
     expect(actorName(row({}), "user_maya")).toBe("You");
@@ -137,5 +154,25 @@ describe("the file", () => {
         '"Maya created =HYPERLINK(""x""), ""a""",,,p1,',
     );
     expect(end).toBe("");
+  });
+
+  test("a field that opens like a formula is prefixed so a spreadsheet reads text", () => {
+    const hostile = row({
+      actor: { name: '=cmd|"/c calc"!A1', email: "+1@x.io" },
+    });
+    const line = toCsv([hostile], "Acme").split("\r\n")[1];
+    const fields = line.split(",");
+    expect(fields[1]).toBe(`"'=cmd|""/c calc""!A1"`);
+    expect(fields[2]).toBe("'+1@x.io");
+    expect(fields[5].startsWith(`"'=cmd`)).toBe(true);
+
+    const [dash, at, plain] = [
+      { name: "-2+3", email: "@home" },
+      { name: "@SUM(A1)", email: "maya@acme.com" },
+      { name: "Maya", email: "maya@acme.com" },
+    ].map((actor) => toCsv([row({ actor })], "Acme").split("\r\n")[1].split(","));
+    expect(dash.slice(1, 3)).toEqual(["'-2+3", "'@home"]);
+    expect(at[1]).toBe("'@SUM(A1)");
+    expect(plain.slice(1, 3)).toEqual(["Maya", "maya@acme.com"]);
   });
 });

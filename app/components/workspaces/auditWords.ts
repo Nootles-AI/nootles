@@ -253,7 +253,7 @@ export function whatParts(row: AuditRow, workspaceName: string): Part[] {
     case "entitlement.clear":
       return [`cleared the override of ${m.feature}`];
     case "operator.standIn":
-      return [`stood in for ${who}`, ...(m.reason ? [`: ${quoted(m.reason)}`] : [])];
+      return [`stood in for ${who}`];
 
     default:
       return [row.action];
