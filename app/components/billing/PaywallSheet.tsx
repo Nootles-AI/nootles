@@ -116,7 +116,7 @@ function destinationOf(intent: BillingIntent | null): string {
  * it does not open the dialog or send the message, because nothing was bought.
  * Promising the action here would be the one lie the flow cannot afford.
  */
-function dismissalOf(intent: BillingIntent | null): string {
+export function dismissalOf(intent: BillingIntent | null): string {
   switch (intent?.kind) {
     case "chatSend":
       return "Back to your conversation";

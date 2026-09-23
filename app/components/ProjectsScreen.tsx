@@ -611,6 +611,8 @@ export function ProjectsScreen() {
       {walled && (
         <PlanWall
           meter="projects"
+          // A project being made in a workspace meets that workspace's wall.
+          workspaceId={walled.project?.workspace?.workspaceId ?? workspace?.workspaceId}
           intent={{ kind: "newProject", project: walled.project }}
           // Dismissed, it closes onto the palette still holding the form.
           onClose={() => setWalled(null)}
