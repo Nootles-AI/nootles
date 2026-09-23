@@ -249,6 +249,7 @@ export function ChatPanel({
       {walled && (
         <PlanWall
           meter="chats"
+          projectId={projectId}
           intent={{ kind: "chatSend", projectId, pageId, draft: walled }}
           onClose={() => setWalled(null)}
           onResume={() => {
