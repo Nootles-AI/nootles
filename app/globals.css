@@ -392,6 +392,13 @@ body {
   background: var(--selected);
   color: var(--foreground);
 }
+/* A row that opens a popup stays washed while it is open, as a latched icon
+   button does — the popup's catcher takes the pointer, so hover alone would
+   let go of it the moment the popup arrives. */
+.nt-row[aria-haspopup][aria-expanded="true"] {
+  background: var(--selected);
+  color: var(--foreground);
+}
 /* The document actually open, which is not the same question as what is
    selected — you can sweep a selection across the list without leaving the page
    you are typing in. Weight rather than another wash, so the two can be true of
@@ -3132,9 +3139,12 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar) .nt-reformat-switcher {
   font-weight: 500;
   color: var(--foreground);
 }
+/* Wraps between its facts rather than inside one: a line too long for the
+   column breaks after "1 page", never inside it. */
 .nt-card-meta {
   display: flex;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 2px 8px;
   margin-top: 1px;
   font-family: var(--font-mono), ui-monospace, monospace;
   font-size: var(--text-meta);
@@ -3142,6 +3152,10 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar) .nt-reformat-switcher {
   text-transform: uppercase;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
+}
+.nt-card-meta > * {
+  flex: none;
+  white-space: nowrap;
 }
 /* A private workspace project's lock, beside its name or its facts. Lifted over
    the stretched link so the tooltip saying what it means can be found; the
