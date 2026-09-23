@@ -1,3 +1,5 @@
+import { returnPath } from "@/app/lib/returnPath";
+
 /**
  * The facts both halves of the GitHub OAuth dance need to agree on — the same
  * shape as `app/api/notion/oauth.ts`, and for the same reasons.
@@ -71,7 +73,11 @@ export async function exchangeCode(config: GitHubOAuthConfig, code: string): Pro
 /** Why a connection did not happen, as the callback writes it into `?reason=`. */
 export type FailureReason = "state" | "no_code" | "exchange" | "unconfigured";
 
-/** Only ever bounce back inside this app, whatever the cookie says. */
+/**
+ * Only ever bounce back inside this app, whatever the cookie says — judged by
+ * where the value resolves, since `/\host` and `/<tab>/host` start with one
+ * slash and still land on another host.
+ */
 export function safeReturn(value: string | undefined): string {
-  return value && value.startsWith("/") && !value.startsWith("//") ? value : "/";
+  return value?.startsWith("/") ? returnPath(value) : "/";
 }

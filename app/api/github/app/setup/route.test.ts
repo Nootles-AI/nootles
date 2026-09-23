@@ -121,6 +121,21 @@ describe("a round trip that matches", () => {
     expect(install).not.toHaveBeenCalled();
   });
 
+  test.each([
+    ["a backslash", "/\\evil.example/x"],
+    ["a tab", "/\t/evil.example"],
+    ["a newline", "/\n/evil.example"],
+    ["two slashes", "//evil.example"],
+    ["another origin", "https://evil.example/"],
+  ])("a return that resolves off this app through %s lands here instead", async (_, returnTo) => {
+    for (const query of [good, { ...good, state: "s-other" }, { state: BINDING.state, setup_action: "request" }]) {
+      const res = await GET(setup(query, sealBinding({ ...BINDING, returnTo })));
+      const location = new URL(res.headers.get("location")!);
+      expect(location.origin).toBe("http://test");
+      expect(location.pathname).toBe("/");
+    }
+  });
+
   test("GitHub not confirming the installation is said as verify", async () => {
     install.mockRejectedValue(new Error("not reachable"));
     const res = await GET(setup(good, cookie));
