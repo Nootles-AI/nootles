@@ -196,12 +196,23 @@ describe("who a link opens to", () => {
     await readsAll(stranger, w.team.docId);
   });
 
-  test("a member opens it without claiming anything", async () => {
+  test("a member opens it without claiming anything, though the page claims for everyone", async () => {
     const t = harness();
     const w = await world(t);
-    const shown = await t.withIdentity(MEMBER).query(api.share.view, { token: "w-view" });
+    const member = t.withIdentity(MEMBER);
+    const shown = await member.query(api.share.view, { token: "w-view" });
     expect(shown?.access).toBe("tree");
-    await readsAll(t.withIdentity(MEMBER), w.team.docId);
+    for (const [who, token] of [
+      [MEMBER, "w-view"],
+      [MEMBER, "w-edit"],
+      [ADMIN, "w-view"],
+    ] as const) {
+      await t.withIdentity(who).mutation(api.share.claim, { token });
+    }
+    const claims = await t.run((ctx) => ctx.db.query("shareClaims").collect());
+    expect(claims).toEqual([]);
+    expect(await member.query(api.projects.myRole, { projectId: w.team.projectId })).toBe("editor");
+    await readsAll(member, w.team.docId);
   });
 });
 
@@ -535,6 +546,48 @@ describe("taking one person's access away", () => {
     await revoke(ADMIN);
     expect(await t.withIdentity(STRANGER).query(api.projects.myRole, { projectId })).toBeNull();
     expect(await t.withIdentity(GUEST).query(api.projects.myRole, { projectId })).toBe("viewer");
+  });
+});
+
+describe("who a workspace project's people with access are", () => {
+  test("only those in by a link: a seat's old claim is not listed, so no one is offered its removal", async () => {
+    const t = harness();
+    const w = await world(t);
+    const projectId = w.team.projectId;
+    // Written before `claim` passed seats by: the member's through the viewer link.
+    await claimed(t, projectId, MEMBER);
+    await claimed(t, projectId, ADMIN);
+    await claimed(t, projectId, GUEST);
+    await t.withIdentity(STRANGER).mutation(api.share.claim, { token: "w-view" });
+
+    const people = await t.withIdentity(ADMIN).query(api.share.collaborators, { projectId });
+    expect(people.map((p) => [p.granteeId, p.role, p.guest]).sort()).toEqual(
+      [
+        [GUEST.subject, "viewer", true],
+        [STRANGER.subject, "viewer", false],
+      ].sort(),
+    );
+    expect(await t.withIdentity(MEMBER).query(api.projects.myRole, { projectId })).toBe("editor");
+  });
+
+  test("a member is in by a link on a private project that isn't theirs, and can be let go", async () => {
+    const t = harness();
+    const w = await world(t);
+    const projectId = w.team.projectId;
+    await t.run((ctx) => ctx.db.patch(projectId, { visibility: "private", ownerId: ADMIN.subject }));
+    await t.withIdentity(MEMBER).mutation(api.share.claim, { token: "w-view" });
+    expect(await t.withIdentity(MEMBER).query(api.projects.myRole, { projectId })).toBe("viewer");
+    expect(
+      (await t.withIdentity(ADMIN).query(api.share.collaborators, { projectId })).map(
+        (p) => p.granteeId,
+      ),
+    ).toEqual([MEMBER.subject]);
+
+    await t
+      .withIdentity(ADMIN)
+      .mutation(api.share.revokeClaim, { projectId, granteeId: MEMBER.subject });
+    expect(await t.withIdentity(MEMBER).query(api.projects.myRole, { projectId })).toBeNull();
+    expect(await t.withIdentity(ADMIN).query(api.share.collaborators, { projectId })).toEqual([]);
   });
 });
 
