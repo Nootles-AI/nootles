@@ -1,14 +1,17 @@
 "use client";
 
-import { createContext, useContext, useEffect, useMemo, useRef, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useAuth } from "@clerk/nextjs";
 import type * as Y from "yjs";
 import type { Id } from "@/convex/_generated/dataModel";
+import { commentsHistoryFor, type CommentsHistory } from "@/app/lib/comments/history";
 import { CommentsStore } from "@/app/lib/comments/store";
 import type { Thread } from "@/app/lib/comments/types";
 import { useCommentsDoc } from "@/app/lib/comments/useCommentsDoc";
 import { useCommentAccess, type CommentAccess } from "./access";
+import { CommentsEditorContext, CommentsEditorSlot } from "./editorSlot";
 import { usePageCommentsRegistry } from "./registry";
+import { useCommentsUndo } from "./useCommentsUndo";
 
 /**
  * One page's comments, as every comment surface sees them: the decorations in
@@ -28,6 +31,11 @@ export type PageComments = {
   /** The person's hands on the document once it exists and they may write. */
   store: CommentsStore | null;
   /**
+   * This person's undo over their own comment actions, beside the store it
+   * undoes. ⌘Z reaches it from inside a `commentsScope(pageId)` surface.
+   */
+  history: CommentsHistory | null;
+  /**
    * The store, minting the comments document first when the page has none —
    * for the first comment. Rejects when the person may not comment.
    */
@@ -46,25 +54,39 @@ function storeFor(doc: Y.Doc, userId: string): CommentsStore {
   return new CommentsStore(doc, { actor: { userId, kind: "human" }, authorize: () => true });
 }
 
+/**
+ * Made with the store, because a history hears only what lands after it
+ * exists: a comment written first would be one ⌘Z could never reach.
+ */
+function historyFor(doc: Y.Doc, userId: string): CommentsHistory {
+  return commentsHistoryFor(doc, { localUserId: userId });
+}
+
 const NO_THREADS: Thread[] = [];
 
 /**
  * Provides {@link usePageComments} for one page. Mounting it mints nothing: it
- * asks only whether the page has a comments document, and a reader without a
- * role learns nothing (`comments.docFor` answers null to them).
+ * asks only whether the page has a comments document, and only a reader with
+ * a role asks at all — a signed-out visitor never reaches `comments.docFor`.
+ *
+ * It also answers ⌘Z for the page's comment surfaces (`useCommentsUndo`) and
+ * holds the slot the page's editor reports itself into, from which
+ * `useCommentableSelection` reads the words a comment would hang off.
  */
 export function PageCommentsProvider({ pageId, children }: { pageId: Id<"pages">; children: ReactNode }) {
   const access = useCommentAccess();
   const { userId } = useAuth();
   const canComment = access.canComment && Boolean(userId);
-  const comments = useCommentsDoc(pageId, { canComment });
+  const comments = useCommentsDoc(pageId, { canRead: access.canRead, canComment });
   const doc = access.canRead ? (comments.doc ?? null) : null;
   const { ensure } = comments;
 
-  const store = useMemo(
-    () => (doc && userId && canComment ? storeFor(doc, userId) : null),
+  const [store, history] = useMemo<[CommentsStore, CommentsHistory] | [null, null]>(
+    () => (doc && userId && canComment ? [storeFor(doc, userId), historyFor(doc, userId)] : [null, null]),
     [doc, userId, canComment],
   );
+  useCommentsUndo(pageId, history);
+  const [editorSlot] = useState(() => new CommentsEditorSlot());
 
   const value = useMemo<PageComments>(
     () => ({
@@ -75,12 +97,16 @@ export function PageCommentsProvider({ pageId, children }: { pageId: Id<"pages">
       doc,
       threads: access.canRead ? comments.threads : NO_THREADS,
       store,
+      history,
       ensureStore: async () => {
         if (!userId || !canComment) throw new Error("You can read these comments but not add to them.");
-        return store ?? storeFor(await ensure(), userId);
+        if (store) return store;
+        const minted = await ensure();
+        historyFor(minted, userId);
+        return storeFor(minted, userId);
       },
     }),
-    [pageId, access, userId, comments.status, comments.threads, doc, store, canComment, ensure],
+    [pageId, access, userId, comments.status, comments.threads, doc, store, history, canComment, ensure],
   );
 
   // Published for the chat, which sits beside the page rather than inside it.
@@ -92,5 +118,9 @@ export function PageCommentsProvider({ pageId, children }: { pageId: Id<"pages">
   });
   useEffect(() => registry?.publish(pageId, () => latest.current), [registry, pageId]);
 
-  return <PageCommentsContext value={value}>{children}</PageCommentsContext>;
+  return (
+    <PageCommentsContext value={value}>
+      <CommentsEditorContext value={editorSlot}>{children}</CommentsEditorContext>
+    </PageCommentsContext>
+  );
 }

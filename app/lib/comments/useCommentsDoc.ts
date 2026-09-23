@@ -37,14 +37,16 @@ type Waiter = { pageId: string; docId: string; resolve: (doc: Y.Doc) => void; re
 /**
  * A page's comments document, synced. Reading never creates anything: a
  * viewer opening a page learns only whether comments exist, and the document
- * is minted by `ensure()` on the first write, never on mount.
+ * is minted by `ensure()` on the first write, never on mount. Without
+ * `canRead` it asks nothing at all, so a signed-out visitor never reaches
+ * `docFor`.
  */
 export function useCommentsDoc(
   pageId: Id<"pages">,
-  { canComment }: { canComment: boolean },
+  { canRead = true, canComment }: { canRead?: boolean; canComment: boolean },
 ): CommentsDocState {
   const client = useConvex();
-  const queried = useQuery(api.comments.docFor, { pageId });
+  const queried = useQuery(api.comments.docFor, canRead ? { pageId } : "skip");
   const ensureDoc = useMutation(api.comments.ensureDoc);
   const docId = queried ?? null;
 
@@ -116,7 +118,7 @@ export function useCommentsDoc(
     });
   }, [canComment, ensureDoc, pageId]);
 
-  const status = doc ? "ready" : docId || queried === undefined ? "loading" : "absent";
+  const status = doc ? "ready" : canRead && (docId || queried === undefined) ? "loading" : "absent";
   return {
     status,
     ...(docId ? { docId } : {}),

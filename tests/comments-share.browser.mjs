@@ -52,7 +52,10 @@ const FIXTURES = {
       const name = getFunctionName(ref);
       return useCallback((args) => backend().mutate(name, args), [name]);
     }
-    export function useConvex() { throw new Error("useConvex reached the share fixture"); }
+    // Held by the page's comments provider, which must never use it for a
+    // signed-out visitor: any touch fails the run.
+    const inertClient = new Proxy({}, { get(_, key) { throw new Error("the share fixture's Convex client was used: " + String(key)); } });
+    export function useConvex() { return inertClient; }
   `,
   clerk: `
     const user = { fullName: "Olive Owner", primaryEmailAddress: { emailAddress: "olive@example.test" } };

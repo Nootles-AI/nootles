@@ -11,6 +11,7 @@ const value = (status: PageComments["status"]): PageComments => ({
   doc: null,
   threads: [],
   store: null,
+  history: null,
   ensureStore: async () => {
     throw new Error("unused");
   },

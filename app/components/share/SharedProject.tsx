@@ -16,6 +16,7 @@ import { PagesProvider } from "../PagesContext";
 import { flattenTree } from "../sidebarTree";
 import { ReadOnlyContext } from "../editor/readOnly";
 import { CommentAccessContext, NO_COMMENT_ACCESS, type CommentAccess } from "../comments/access";
+import { PageCommentsProvider } from "../comments/PageComments";
 import { Facepile } from "../presence/Facepile";
 import { GuestChatRail } from "./GuestChatRail";
 import { SharedEditor } from "./SharedEditor";
@@ -438,7 +439,9 @@ export function SharedProject({ token }: { token: string }) {
                   <ReadOnlyContext value={true}>
                     <CommentAccessContext value={commentable ? guestAccess : NO_COMMENT_ACCESS}>
                       <CurrentPageProvider pageId={current._id}>
-                        <SharedEditor key={current.docId} docId={current.docId} />
+                        <PageCommentsProvider key={current._id} pageId={current._id}>
+                          <SharedEditor key={current.docId} docId={current.docId} />
+                        </PageCommentsProvider>
                       </CurrentPageProvider>
                     </CommentAccessContext>
                   </ReadOnlyContext>

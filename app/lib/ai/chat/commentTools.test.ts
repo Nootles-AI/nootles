@@ -103,6 +103,7 @@ function comments(access: CommentAccess = FULL, overrides: Partial<PageComments>
     doc: present,
     threads: present ? threadsSnapshot(present) : [],
     store: null,
+    history: null,
     ensureStore: async () => {
       throw new Error("the document already exists");
     },

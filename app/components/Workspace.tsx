@@ -51,7 +51,7 @@ import { PanelsProvider } from "./PanelsContext";
 import { PagesProvider, type PageRef } from "./PagesContext";
 import { CompletionContextProvider } from "./editor/ai/CompletionContext";
 import { useRepoNaming } from "./context/useRepoNaming";
-import { ReadOnlyContext } from "./editor/readOnly";
+import { ReadOnlyContext, readsOnly } from "./editor/readOnly";
 import { CommentAccessContext, commentAccessFor } from "./comments/access";
 import { Facepile } from "./presence/Facepile";
 import { Hints } from "./hints/Hints";
@@ -546,9 +546,9 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
   // editors write, only the owner shares and administers. The same surface
   // serves all three — a shared project must not feel like a lesser app.
   const role = useQuery(api.projects.myRole, { projectId });
-  // Any resolved role without the pen reads — a commenter included — so a
-  // role added later fails closed to read-only rather than open to editing.
-  const viewer = role != null && role !== "owner" && role !== "editor";
+  // Any resolved role without the pen reads — a commenter and a stand-in
+  // included — while still selecting text, which is how a commenter comments.
+  const viewer = readsOnly(role);
   const sortedPages = useMemo(
     () => (pages ? [...pages].sort((a, b) => a.order - b.order) : undefined),
     [pages],
