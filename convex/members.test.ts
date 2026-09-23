@@ -5,6 +5,7 @@ import { api } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import schema from "./schema";
 import componentSchema from "../node_modules/@convex-dev/prosemirror-sync/src/component/schema";
+import type { WorkspaceRole } from "./auth";
 import { maskEmail } from "./members";
 
 /**
@@ -50,6 +51,14 @@ afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
+});
+
+/** Where accepting or joining lands someone in `world`'s workspace. */
+const arrived = (w: { workspaceId: Id<"workspaces"> }, role: WorkspaceRole) => ({
+  workspaceId: w.workspaceId,
+  slug: "acme",
+  name: "Acme",
+  role,
 });
 
 async function world(t: T) {
@@ -264,7 +273,7 @@ describe("an invitation", () => {
     ).rejects.toThrow("Not found");
     await expect(
       newcomer.mutation(api.members.acceptInvite, { token: second.token }),
-    ).resolves.toEqual({ slug: "acme" });
+    ).resolves.toEqual(arrived(w, "member"));
   });
 
   test("withdrawn, admits no one", async () => {
@@ -344,10 +353,17 @@ describe("an invitation", () => {
       const t = harness();
       const w = await world(t);
       const { token } = await invite(t, ADMIN, w, NEWCOMER.email, "member");
-      for (const who of [STRANGER, MEMBER, { ...NEWCOMER, emailVerified: false }]) {
+      for (const who of [STRANGER, MEMBER]) {
         expect(await t.withIdentity(who).query(api.members.invitation, { token })).toEqual({
           state: "wrong-account",
           email: "n••@acme.com",
+        });
+      }
+      // A sign-in that vouches for no address may be the right person, so it
+      // is not told the invitation is someone else's — and learns no more.
+      for (const who of [{ ...NEWCOMER, emailVerified: false }, { subject: NEWCOMER.subject }]) {
+        expect(await t.withIdentity(who).query(api.members.invitation, { token })).toEqual({
+          state: "unconfirmed",
         });
       }
       expect(await t.query(api.members.invitation, { token })).toBeNull();
@@ -369,9 +385,9 @@ describe("an invitation", () => {
       const w = await world(t);
       const { token } = await invite(t, ADMIN, w, NEWCOMER.email, "guest");
       const newcomer = t.withIdentity({ ...NEWCOMER, email: "Nia@Acme.com" });
-      await expect(newcomer.mutation(api.members.acceptInvite, { token })).resolves.toEqual({
-        slug: "acme",
-      });
+      await expect(newcomer.mutation(api.members.acceptInvite, { token })).resolves.toEqual(
+        arrived(w, "guest"),
+      );
 
       expect(await seatOf(t, w.workspaceId, NEWCOMER)).toMatchObject({
         role: "guest",
@@ -390,9 +406,9 @@ describe("an invitation", () => {
       expect(after.profile).toMatchObject({ status: "skipped", hints: ["tester-note"] });
 
       // Twice is the same answer; nobody else can use it after.
-      await expect(newcomer.mutation(api.members.acceptInvite, { token })).resolves.toEqual({
-        slug: "acme",
-      });
+      await expect(newcomer.mutation(api.members.acceptInvite, { token })).resolves.toEqual(
+        arrived(w, "guest"),
+      );
       await expect(
         t.withIdentity({ subject: "user_twin", email: NEWCOMER.email }).mutation(
           api.members.acceptInvite,
@@ -467,9 +483,9 @@ describe("an invitation", () => {
         role: "guest",
         slug: "acme",
       });
-      await expect(nia.mutation(api.members.acceptInvite, { token })).resolves.toEqual({
-        slug: "acme",
-      });
+      await expect(nia.mutation(api.members.acceptInvite, { token })).resolves.toEqual(
+        arrived(w, "guest"),
+      );
       expect(await seatOf(t, w.workspaceId, NEWCOMER)).toMatchObject({
         status: "active",
         role: "guest",
@@ -520,7 +536,7 @@ describe("joining by domain", () => {
     ]);
     await expect(
       newcomer.mutation(api.members.joinByDomain, { workspaceId: w.workspaceId }),
-    ).resolves.toEqual({ slug: "acme" });
+    ).resolves.toEqual(arrived(w, "member"));
     expect(await seatOf(t, w.workspaceId, NEWCOMER)).toMatchObject({
       role: "member",
       status: "active",
@@ -528,7 +544,7 @@ describe("joining by domain", () => {
     expect(await newcomer.query(api.members.joinable, {})).toEqual([]);
     await expect(
       newcomer.mutation(api.members.joinByDomain, { workspaceId: w.workspaceId }),
-    ).resolves.toEqual({ slug: "acme" });
+    ).resolves.toEqual(arrived(w, "member"));
   });
 
   test("admits no one off the domain, unverified, or while auto-join is off", async () => {
@@ -619,9 +635,9 @@ describe("joining by domain", () => {
       userId: NEWCOMER.subject,
       role: "guest",
     });
-    await expect(nia.mutation(api.members.acceptInvite, { token })).resolves.toEqual({
-      slug: "acme",
-    });
+    await expect(nia.mutation(api.members.acceptInvite, { token })).resolves.toEqual(
+      arrived(w, "guest"),
+    );
     expect(await seatOf(t, w.workspaceId, NEWCOMER)).toMatchObject({
       status: "active",
       role: "guest",

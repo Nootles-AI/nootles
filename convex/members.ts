@@ -117,6 +117,24 @@ async function giveSeat(
 }
 
 /**
+ * Where someone just let in lands, as the switcher lists a workspace — enough
+ * for the page they go to next to draw before it has asked for itself. A seat
+ * already held keeps its rank (`giveSeat`), so that is the rank reported.
+ */
+function arrival(
+  workspace: Doc<"workspaces">,
+  seat: Doc<"memberships"> | null,
+  role: WorkspaceRole,
+) {
+  return {
+    workspaceId: workspace._id,
+    slug: workspace.slug,
+    name: workspace.name,
+    role: seat?.status === "active" ? seat.role : role,
+  };
+}
+
+/**
  * Takes a seat away, and with it everything that seat was the reason for.
  *
  * - Projects they made in the workspace pass to `heir`, and so do the access
@@ -364,8 +382,10 @@ export const revokeInvite = mutation({
  * What the invitation page shows. Someone signed in as anyone but the address
  * it was sent to learns only that it is for another account, and which one in
  * outline — not the workspace, not who sent it — so a forwarded or leaked
- * link reveals nothing. Null for a token that names no invitation, or nobody
- * signed in.
+ * link reveals nothing. A sign-in that vouches for no address at all — none
+ * given, or one not verified — is told that instead, since it may well be the
+ * right person, and learns no more. Null for a token that names no
+ * invitation, or nobody signed in.
  */
 export const invitation = query({
   args: { token: v.string() },
@@ -379,7 +399,9 @@ export const invitation = query({
     const workspace = invitation && (await ctx.db.get(invitation.workspaceId));
     if (!invitation || !workspace) return null;
 
-    if ((await verifiedEmail(ctx)) !== invitation.email) {
+    const email = await verifiedEmail(ctx);
+    if (email === null) return { state: "unconfirmed" as const };
+    if (email !== invitation.email) {
       return { state: "wrong-account" as const, email: maskEmail(invitation.email) };
     }
     // In the order `acceptInvite` asks, so the page says what accepting would.
@@ -439,7 +461,7 @@ export const acceptInvite = mutation({
     const seat = await seatOf(ctx, workspace._id, me);
     if (invitation.acceptedAt !== undefined) {
       if (invitation.acceptedBy === me && seat?.status === "active") {
-        return { slug: workspace.slug };
+        return arrival(workspace, seat, seat.role);
       }
       throw new ConvexError("This invitation has already been used.");
     }
@@ -452,7 +474,7 @@ export const acceptInvite = mutation({
     await giveSeat(ctx, seat, workspace._id, me, role, invitation.invitedBy);
     await ctx.db.patch(invitation._id, { acceptedAt: Date.now(), acceptedBy: me });
     await ensureArrivalProfile(ctx, me);
-    return { slug: workspace.slug };
+    return arrival(workspace, seat, role);
   },
 });
 
@@ -541,7 +563,7 @@ export const joinByDomain = mutation({
       }
     }
     await ensureArrivalProfile(ctx, me);
-    return { slug: workspace.slug };
+    return arrival(workspace, seat, role);
   },
 });
 

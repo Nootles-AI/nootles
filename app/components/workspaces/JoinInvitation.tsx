@@ -3,18 +3,17 @@
 import { useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useClerk, useUser } from "@clerk/nextjs";
+import { useAuth, useClerk, useUser } from "@clerk/nextjs";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { homePath } from "@/app/lib/containerPaths";
+import { rememberWorkspace } from "@/app/lib/projectsCache";
 import { Wordmark } from "../Brand";
 import { Mail } from "../Icons";
+import { initial } from "./people";
 import { refusal } from "./refusal";
 import "../settings/settings.css";
 import "./workspaces.css";
-
-/** By code point, so a name that starts with an emoji keeps it whole. */
-const initial = (name: string) => (Array.from(name.trim())[0] ?? "?").toUpperCase();
 
 const an = (role: string) => (role === "admin" ? "an admin" : `a ${role}`);
 
@@ -23,11 +22,14 @@ const an = (role: string) => (role === "admin" ? "an admin" : `a ${role}`);
  * takes the seat. Everything it can say comes from `members.invitation`,
  * which tells an account the invitation is not for only which address it is
  * for, in outline — so that state offers the one useful move, signing out to
- * come back as the right account, with this page as the way back.
+ * come back as the right account, with this page as the way back. A sign-in
+ * that told Nootles no address at all is not called the wrong account: it
+ * may be the right one, so it is asked to sign in again instead.
  */
 export function JoinInvitation({ token }: { token: string }) {
   const router = useRouter();
   const { user } = useUser();
+  const { userId } = useAuth();
   const { signOut } = useClerk();
   const invitation = useQuery(api.members.invitation, { token });
   const accept = useMutation(api.members.acceptInvite);
@@ -38,9 +40,11 @@ export function JoinInvitation({ token }: { token: string }) {
     setGoing(true);
     setFailure(null);
     try {
-      const { slug } = await accept({ token });
-      // Left going: the workspace's home replaces this page.
-      router.replace(homePath(slug));
+      const joined = await accept({ token });
+      // Told to the cache first, so the home draws at once rather than
+      // waiting to learn what its address is. Left going: it replaces this page.
+      if (userId) rememberWorkspace(userId, joined.slug, { kind: "workspace", ...joined });
+      router.replace(homePath(joined.slug));
     } catch (error) {
       setGoing(false);
       setFailure(refusal(error, "That didn’t go through. Try again in a moment."));
@@ -59,7 +63,31 @@ export function JoinInvitation({ token }: { token: string }) {
   );
 
   let card: ReactNode = null;
-  if (invitation === null) {
+  if (invitation?.state === "unconfirmed") {
+    card = (
+      <Card
+        title="We couldn’t confirm your email address"
+        tile={<Envelope />}
+        actions={
+          <>
+            <button
+              type="button"
+              onClick={switchAccount}
+              className="nt-row nt-solid px-3 font-medium"
+            >
+              Sign in again
+            </button>
+            <Link href="/" className="nt-row px-2.5">
+              Not now
+            </Link>
+          </>
+        }
+      >
+        This invitation opens only for the address it was sent to, and your sign-in didn’t
+        tell us yours. Signing in again brings you back here.
+      </Card>
+    );
+  } else if (invitation === null) {
     card = (
       <Card title="This invitation isn’t here" tile={<Envelope />} actions={home}>
         The link may be mistyped, or replaced by a newer one. Ask whoever sent it for
