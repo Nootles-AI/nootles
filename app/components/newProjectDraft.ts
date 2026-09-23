@@ -1,7 +1,19 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
+import type { Id } from "@/convex/_generated/dataModel";
 import type { DraftSourcesValue } from "./context/ContextSources";
+
+/**
+ * The workspace a new project is made in, and who in it sees the project.
+ * Plain JSON, like the rest of the draft: it rides the paywall's round trip.
+ */
+export type ProjectHome = {
+  workspaceId: Id<"workspaces">;
+  /** Where it opens once made; an address retired meanwhile still arrives. */
+  slug: string;
+  visibility: "workspace" | "private";
+};
 
 export type NewProject = {
   title: string;
@@ -10,6 +22,8 @@ export type NewProject = {
   sources: DraftSourcesValue;
   /** An `app/lib/templates` id; absent means blank. */
   template?: string;
+  /** Absent means the person's own projects. */
+  workspace?: ProjectHome;
 };
 
 /**
@@ -29,8 +43,11 @@ export function useNewProjectDraft(
    *  and the form is handed back as it was, to send again. */
   onCreate: (project: NewProject) => Promise<boolean | void>,
   template?: string,
+  /** Where it goes unless they choose otherwise: the home it was started from. */
+  home?: ProjectHome,
 ) {
   const [title, setTitle] = useState("");
+  const [workspace, setWorkspace] = useState(home);
   const [description, setDescription] = useState("");
   const [sources, setSources] = useState<DraftSourcesValue>({ repos: [], files: [], pages: [] });
   const [busy, setBusy] = useState(false);
@@ -50,6 +67,7 @@ export function useNewProjectDraft(
       description: description.trim(),
       sources,
       template,
+      ...(workspace ? { workspace } : {}),
     })
       .then((made) => {
         if (made === false) setBusy(false);
@@ -62,6 +80,6 @@ export function useNewProjectDraft(
 
   return {
     title, setTitle, description, setDescription, sources, setSources,
-    busy, failure, named, submit,
+    workspace, setWorkspace, busy, failure, named, submit,
   };
 }

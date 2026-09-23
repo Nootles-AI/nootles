@@ -330,14 +330,14 @@ export const invite = mutation({
     };
     if (open) {
       await ctx.db.patch(open._id, fields);
-      return { invitationId: open._id, token };
+      return { invitationId: open._id, token, expiresAt: fields.expiresAt };
     }
     const invitationId = await ctx.db.insert("invitations", {
       workspaceId: args.workspaceId,
       email,
       ...fields,
     });
-    return { invitationId, token };
+    return { invitationId, token, expiresAt: fields.expiresAt };
   },
 });
 

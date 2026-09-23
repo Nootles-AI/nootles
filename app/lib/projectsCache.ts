@@ -60,6 +60,7 @@ const mine = (p: Project) =>
     firstPageDocId: p.firstPageDocId,
     updatedAt: p.updatedAt,
     visibility: p.visibility,
+    role: p.role,
   }) as Project;
 
 let user: string | null = null;

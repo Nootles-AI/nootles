@@ -163,8 +163,46 @@
   }
 }
 
+/* ---- Members, on the home ----------------------------------------------------
+   Who is in the workspace, as the presence pile draws people, and the way to
+   the list of them. Pointing at it fans the faces apart a little, as if to
+   show there are people behind the first. */
+
+.nt-ws-pile {
+  display: flex;
+  align-items: center;
+  height: var(--control);
+  padding-inline: 4px;
+  border-radius: 999px;
+}
+.nt-ws-pile .nt-face + .nt-face {
+  transition: margin-left var(--dur-slow) var(--ease);
+}
+.nt-ws-pile:hover .nt-face + .nt-face,
+.nt-ws-pile:focus-visible .nt-face + .nt-face {
+  margin-left: -2px;
+}
+/* Beside the title on a narrow screen there is room for the verbs, not for
+   the people; the members list is still a menu away, under the switcher's
+   Workspace settings. */
+@media (max-width: 40rem) {
+  .nt-ws-pile {
+    display: none;
+  }
+}
+
+/* An invitation just made: its link arrives under the form, the way a row
+   arrives in a list. */
+.nt-ws-sent {
+  animation: nt-row-in 360ms var(--ease) backwards;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .nt-ws-switch-glyph {
+  .nt-ws-switch-glyph,
+  .nt-ws-sent {
     animation: nt-fade-in var(--dur-fast) var(--ease);
+  }
+  .nt-ws-pile .nt-face + .nt-face {
+    transition: none;
   }
 }

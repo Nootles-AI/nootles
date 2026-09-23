@@ -9,6 +9,7 @@ import { Id } from "@/convex/_generated/dataModel";
 import { findTemplate } from "@/app/lib/templates";
 import { track } from "@/app/lib/telemetry";
 import { pages, when } from "@/app/lib/projectMeta";
+import { projectPath } from "@/app/lib/containerPaths";
 import { ACCOUNT, rememberScreen, seenScreen } from "@/app/lib/projectsCache";
 import { uploadContextFile } from "@/app/lib/contextFiles";
 import { repoRef } from "./context/ContextSources";
@@ -33,8 +34,10 @@ import {
 } from "@/app/lib/notion/outcome";
 import { PagePreview } from "./PagePreview";
 import {
+  manages,
   NameField,
   OpenProject,
+  PrivateMark,
   RowMenu,
   ProjectActions,
   roleLabel,
@@ -44,7 +47,10 @@ import {
 } from "./projectParts";
 import { useStandIn } from "./StandIn";
 import { AccessRequests } from "./share/AccessRequests";
+import { slugOf, useContainer, type WorkspaceContainer } from "./workspaces/ContainerContext";
 import { ContainerSwitcher } from "./workspaces/ContainerSwitcher";
+import { InviteButton } from "./workspaces/Invite";
+import { MembersPile } from "./workspaces/MembersPile";
 
 type View = "grid" | "list" | "board";
 const VIEWS: View[] = ["grid", "list", "board"];
@@ -63,9 +69,26 @@ function savedView(): View {
 /** A list item's place in its list, which is what staggers its entrance. */
 const nth = (i: number) => ({ "--i": i }) as React.CSSProperties;
 
+/** A workspace's home has no "Shared with me": what was shared there is on its list. */
+const NONE: SharedProject[] = [];
+
+/**
+ * A home's projects: your own at `/`, or one workspace's at `/w/<slug>` —
+ * whichever container this is rendered in (`useContainer`). The same screen
+ * either way, so the two can never drift apart; what differs is whose
+ * projects it lists, what it is called, where a new project goes, and — in a
+ * workspace — the people in it.
+ */
 export function ProjectsScreen() {
   const router = useRouter();
   const standIn = useStandIn();
+  const container = useContainer();
+  const workspace = container.kind === "workspace" ? container : null;
+  const slug = slugOf(container);
+  const home = workspace ? workspace.workspaceId : ACCOUNT;
+  // A guest was let into projects, not into the workspace: nothing is made
+  // there by them, and the server says so (`projects.create`).
+  const canCreate = !standIn && workspace?.role !== "guest";
   /*
    * What this browser last saw stands in until the live lists arrive
    * (`projectsCache`) — and for a returning visitor this screen is up before
@@ -75,16 +98,22 @@ export function ProjectsScreen() {
    */
   const { isAuthenticated: live } = useConvexAuth();
   const { userId } = useAuth();
-  const [seen] = useState(() => (userId ? seenScreen(userId) : null));
-  const liveProjects = useQuery(api.projects.listForScreen, live ? {} : "skip");
-  const liveShared = useQuery(api.projects.sharedWithMe, live ? {} : "skip");
+  const [seen] = useState(() => (userId ? seenScreen(userId, home) : null));
+  const liveMine = useQuery(api.projects.listForScreen, live && !workspace ? {} : "skip");
+  const liveHere = useQuery(
+    api.workspaces.projectsFor,
+    live && workspace ? { workspaceId: workspace.workspaceId } : "skip",
+  );
+  const liveShared = useQuery(api.projects.sharedWithMe, live && !workspace ? {} : "skip");
+  const liveProjects: Project[] | undefined = workspace ? liveHere : liveMine;
   const projects = liveProjects ?? seen?.projects;
-  const shared = liveShared ?? seen?.shared;
+  const shared = workspace ? NONE : (liveShared ?? seen?.shared);
+  const liveOthers = workspace ? NONE : liveShared;
   useEffect(() => {
-    if (userId && liveProjects && liveShared) {
-      rememberScreen(userId, ACCOUNT, liveProjects, liveShared);
+    if (userId && liveProjects && liveOthers) {
+      rememberScreen(userId, home, liveProjects, liveOthers);
     }
-  }, [userId, liveProjects, liveShared]);
+  }, [userId, home, liveProjects, liveOthers]);
   const createProject = useMutation(api.projects.create);
   const linkPages = useMutation(api.notion.context.link);
   const convex = useConvex();
@@ -151,6 +180,9 @@ export function ProjectsScreen() {
       page === "notion" && !hasRoom ? setWalled({}) : setFinding(page),
     [hasRoom],
   );
+  // An import makes projects of your own, so a workspace's home does not
+  // offer one as a way to start.
+  const importable = notionAvailable === true && !workspace;
 
   // ⌘K from anywhere on the screen, a rename field included — it is a chord, so
   // it cannot be mistaken for typing. N starts a project, and being a bare key
@@ -167,7 +199,7 @@ export function ProjectsScreen() {
       if (key === "k" && mod) {
         e.preventDefault();
         setFinding((f) => (f ? null : "root"));
-      } else if (key === "n" && !standIn && !finding) {
+      } else if (key === "n" && canCreate && !finding) {
         const typing = (e.target as HTMLElement).closest("input, textarea, [contenteditable]");
         if (!mod && typing) return;
         e.preventDefault();
@@ -176,14 +208,14 @@ export function ProjectsScreen() {
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [busy, finding, standIn, start]);
+  }, [busy, finding, canCreate, start]);
 
   // Stable so the memoized cards and rows sit out this screen's re-renders —
   // every one of them carries a live PagePreview, and a rename keystroke was
   // re-rendering the lot.
   const open = useCallback(
-    (id: Id<"projects">) => router.push(`/p/${id}`),
-    [router],
+    (id: Id<"projects">) => router.push(projectPath(slug, id)),
+    [router, slug],
   );
   const startRename = useCallback((p: Project) => setEditingId(p._id), []);
   const cancelRename = useCallback(() => setEditingId(null), []);
@@ -229,6 +261,12 @@ export function ProjectsScreen() {
       ...(project.description ? { description: project.description } : {}),
       ...(repos.length ? { repos: repos.map(repoRef) } : {}),
       ...(seed ? { seed } : {}),
+      ...(project.workspace
+        ? {
+            workspaceId: project.workspace.workspaceId,
+            visibility: project.workspace.visibility,
+          }
+        : {}),
     });
     // What only exists once the project does. Not awaited in full: the project
     // opens now, and a card for each source shows its reading as it lands.
@@ -239,17 +277,19 @@ export function ProjectsScreen() {
       });
     }
     track("project_created", {});
-    router.push(`/p/${id}`);
+    // Straight to its own address, not through `/p/`'s redirect to it.
+    router.push(projectPath(project.workspace?.slug ?? null, id));
   };
 
   /**
    * The Create button. Out of projects, nothing is made and nothing is lost:
    * the wall comes up over the form, which is handed back as it was, and the
    * project rides along to be made on the way back. The server has the last
-   * word either way — a refusal it sends is the same wall.
+   * word either way — a refusal it sends is the same wall. A workspace's
+   * projects are the workspace's, and never count against your own.
    */
   const create = async (project: NewProject): Promise<boolean> => {
-    if (!hasRoom) {
+    if (!project.workspace && !hasRoom) {
       setWalled({ project });
       return false;
     }
@@ -347,19 +387,26 @@ export function ProjectsScreen() {
 
         <ContainerSwitcher onProblem={setFailure} />
 
-        <div className="nt-front-new">
-          {/* Nothing here belongs to a project, so no role gates it — an
-              operator standing in would be offered a button the server is
-              about to refuse. */}
+        <div className={`nt-front-new${workspace ? " items-center gap-2" : ""}`}>
+          {/* In a workspace, who is in it comes first — and, for whoever may
+              let someone in, the way to. */}
+          {workspace && <MembersPile workspace={workspace} />}
+          {workspace && !standIn && (workspace.role === "owner" || workspace.role === "admin") && (
+            <InviteButton workspace={workspace} />
+          )}
+          {/* Nothing here belongs to a project, so no project's role gates
+              it — only whether anything may be made here at all: not by an
+              operator standing in, nor by a workspace's guest, each of whom
+              would be offered a button the server is about to refuse. */}
           {/* The button never disappears when the free projects are gone — it
               opens the wall instead. An affordance that vanishes reads as a
               bug; one that explains itself reads as a limit. */}
           {/* One filled control with the rarer doors inside it: a blank project
               is one click, and importing is a part of creating rather than a
               second button competing with it. */}
-          {!standIn && (
+          {canCreate && (
             <CreateProject
-              notion={notionAvailable === true}
+              notion={importable}
               onNew={() => start("create")}
               onBlank={() => start("details")}
               onTemplate={() => start("template")}
@@ -387,7 +434,7 @@ export function ProjectsScreen() {
         {projects === undefined ? (
           <Skeletons view={view} />
         ) : projects.length === 0 ? (
-          <Empty onCreate={() => start("create")} />
+          <Empty workspace={workspace} onCreate={canCreate ? () => start("create") : null} />
         ) : view === "board" ? (
           <ProjectsBoard
             projects={projects}
@@ -521,6 +568,7 @@ export function ProjectsScreen() {
         >
           <ProjectActions
             close={() => setCtx(null)}
+            manage={manages(ctx.project)}
             onOpen={() => open(ctx.project._id)}
             onRename={() => startRename(ctx.project)}
             onDelete={() => setConfirming(ctx.project)}
@@ -535,9 +583,9 @@ export function ProjectsScreen() {
           start={finding}
           projects={projects ?? []}
           shared={shared ?? []}
-          canCreate={!standIn}
+          canCreate={canCreate}
           room={hasRoom}
-          notion={notionAvailable === true}
+          notion={importable}
           onOpen={open}
           onWall={() => setWalled({})}
           onCreate={create}
@@ -628,6 +676,7 @@ const Lead = memo(function Lead({
         )}
         {project.description && <p className="nt-lead-line">{project.description}</p>}
         <p className="nt-card-meta">
+          {project.visibility === "private" && <PrivateMark />}
           <span>{pages(project.pageCount)}</span>
           <span aria-hidden="true">·</span>
           <span>edited {when(project.updatedAt)}</span>
@@ -687,6 +736,7 @@ const Card = memo(function Card({
             </OpenProject>
           )}
           <p className="nt-card-meta">
+            {project.visibility === "private" && <PrivateMark />}
             <span>{pages(project.pageCount)}</span>
             <span aria-hidden="true">·</span>
             <span>{when(project.updatedAt)}</span>
@@ -739,7 +789,14 @@ const Row = memo(function Row({
           id={project._id}
           className="nt-row nt-row-open min-w-0 flex-1 font-medium"
         >
-          <span className="nt-row-label">{name}</span>
+          {project.visibility === "private" ? (
+            <>
+              <span className="nt-row-label flex-initial">{name}</span>
+              <PrivateMark />
+            </>
+          ) : (
+            <span className="nt-row-label">{name}</span>
+          )}
         </OpenProject>
       )}
       {/* Held in the layout while renaming rather than unmounted, so the row
@@ -888,17 +945,30 @@ function Skeletons({ view }: { view: View }) {
   );
 }
 
-/** Teaches what a project is, and offers the one action worth taking. */
-function Empty({ onCreate }: { onCreate: () => void }) {
-  const standIn = useStandIn();
+/**
+ * Teaches what a project is — or, in a workspace, what a workspace is — and
+ * offers the one action worth taking, to whoever may take it.
+ */
+function Empty({
+  workspace,
+  onCreate,
+}: {
+  workspace: WorkspaceContainer | null;
+  onCreate: (() => void) | null;
+}) {
   return (
     <div className="rounded-lg bg-surface px-6 py-16 text-center">
-      <p className="text-sm font-medium">No projects yet</p>
-      <p className="mx-auto mt-1.5 max-w-sm text-[13px] text-muted">
-        A project holds a set of pages — prose, diagrams and maths in one place.
-        The first one arrives with a blank page ready to go.
+      <p className="text-sm font-medium">
+        {workspace ? `No projects in ${workspace.name} yet` : "No projects yet"}
       </p>
-      {!standIn && (
+      <p className="mx-auto mt-1.5 max-w-sm text-[13px] text-muted">
+        {!workspace
+          ? "A project holds a set of pages — prose, diagrams and maths in one place. The first one arrives with a blank page ready to go."
+          : workspace.role === "guest"
+            ? `Projects in ${workspace.name} that are shared with you will be here.`
+            : `A workspace is where a team keeps its projects together. Everyone in ${workspace.name} can open what’s made here, unless it’s made private.`}
+      </p>
+      {onCreate && (
         <button
           onClick={onCreate}
           className="nt-row mx-auto mt-5 gap-1.5 bg-background px-3 font-medium"

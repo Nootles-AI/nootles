@@ -3132,6 +3132,17 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar) .nt-reformat-switcher {
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
+/* A private workspace project's lock, beside its name or its facts. Lifted over
+   the stretched link so the tooltip saying what it means can be found; the
+   rest of the card or row still opens the project. */
+.nt-private {
+  position: relative;
+  z-index: var(--z-base);
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  color: var(--muted);
+}
 /* Where there is a pointer the ⋯ waits for it; where there is not, it has to be
    there already, because there is no hover to summon it with. */
 @media (hover: hover) {

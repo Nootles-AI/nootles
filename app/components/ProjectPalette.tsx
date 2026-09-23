@@ -14,10 +14,12 @@ import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { pages, when } from "@/app/lib/projectMeta";
+import { projectPath } from "@/app/lib/containerPaths";
 import { Dialog } from "./Dialog";
 import { PROJECT_TEMPLATES, pagePicture, type ProjectTemplate } from "@/app/lib/templates";
 import { ChevronRight, FileDoc, Folder, Plus, Sparkles, Template } from "./Icons";
-import { useNewProjectDraft, type NewProject } from "./newProjectDraft";
+import { useNewProjectDraft, type NewProject, type ProjectHome } from "./newProjectDraft";
+import { slugOf, useContainer } from "./workspaces/ContainerContext";
 import { NotionMark } from "./NotionMark";
 import { NotionPort } from "./NotionPort";
 import { BlankStart } from "./BlankStart";
@@ -171,15 +173,23 @@ function Palette({
   onDone: () => void;
 }) {
   const router = useRouter();
+  const here = useContainer();
   const [page, setPage] = useState<Page>(start);
   // What the details page is making: a template, or null for blank.
   const [template, setTemplate] = useState<{ id: string; name: string } | null>(null);
   const [query, setQuery] = useState("");
   const [index, setIndex] = useState(0);
   const list = useRef<HTMLDivElement>(null);
+  // A project started on a workspace's home is that workspace's unless its
+  // maker says otherwise — and a guest, who makes nothing there, starts one
+  // of their own.
+  const home: ProjectHome | undefined =
+    here.kind === "workspace" && here.role !== "guest"
+      ? { workspaceId: here.workspaceId, slug: here.slug, visibility: "workspace" }
+      : undefined;
   // Held here rather than in the form: the form's source doors are pages of
   // their own, and what was typed has to be there when they step back.
-  const draft = useNewProjectDraft(onCreate, template?.id);
+  const draft = useNewProjectDraft(onCreate, template?.id, home);
 
   const go = (to: Page) => {
     setPage(to);
@@ -219,10 +229,11 @@ function Palette({
 
   // Anyone not on Pro is offered it first — once the plan has answered, so an
   // account that has paid never sees it flash. Not to a stand-in operator,
-  // who is not the one who would be paying.
+  // who is not the one who would be paying, and not on a workspace's home,
+  // where the plan that matters is the workspace's.
   const { left } = usePlan();
   const root: Row[] = [
-    ...(canCreate && left
+    ...(canCreate && left && here.kind === "account"
       ? [
           {
             id: "upgrade",
@@ -254,7 +265,7 @@ function Palette({
       : []),
     ...projects.map((p) => ({
       id: p._id,
-      group: "Yours",
+      group: here.kind === "workspace" ? here.name : "Yours",
       name: p.title || "Untitled project",
       line: `${pages(p.pageCount)} · ${when(p.updatedAt)}`,
       icon: <Folder />,
@@ -347,14 +358,15 @@ function Palette({
   // arrow key would otherwise mount a live thumbnail, and fetch the editor's
   // bundle, for every row on the way past.
   const currentProject = current?.project;
+  const slug = slugOf(here);
   const [shown, setShown] = useState(currentProject);
   useEffect(() => {
     const t = setTimeout(() => {
       setShown(currentProject);
-      if (currentProject) router.prefetch(`/p/${currentProject._id}`);
+      if (currentProject) router.prefetch(projectPath(slug, currentProject._id));
     }, 110);
     return () => clearTimeout(t);
-  }, [currentProject, router]);
+  }, [currentProject, router, slug]);
 
   // Resting on the Notion row is the cue to fetch what choosing it will need.
   const onNotionRow = current?.picture === "notion";

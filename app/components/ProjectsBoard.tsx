@@ -8,6 +8,7 @@ import { PagePreview } from "./PagePreview";
 import {
   NameField,
   OpenProject,
+  PrivateMark,
   RowMenu,
   roleLabel,
   sameProjectProps,
@@ -391,6 +392,7 @@ const Frame = memo(function Frame({
             {project.title || "Untitled project"}
           </OpenProject>
         )}
+        {project.visibility === "private" && <PrivateMark />}
         <span className="nt-board-meta">
           {pages(project.pageCount)} · {when(project.updatedAt)}
         </span>

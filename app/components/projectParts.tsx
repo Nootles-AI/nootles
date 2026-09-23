@@ -6,10 +6,14 @@ import { useRouter } from "next/navigation";
 import type { useQuery } from "convex/react";
 import type { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import type { ProjectRole } from "@/convex/auth";
+import { projectPath } from "@/app/lib/containerPaths";
 import { Editable } from "./Editable";
-import { MoreHorizontal } from "./Icons";
+import { Lock, MoreHorizontal } from "./Icons";
 import { Menu, MenuItem } from "./Menu";
 import { useStandIn } from "./StandIn";
+import { Tooltip } from "./Tooltip";
+import { slugOf, useContainer } from "./workspaces/ContainerContext";
 
 /**
  * What every view of the projects screen is made of — the link that opens a
@@ -17,9 +21,14 @@ import { useStandIn } from "./StandIn";
  * and the board cannot drift apart.
  */
 
+/**
+ * A project a home lists: one of yours, or one of a workspace's — which also
+ * says what you are in it, since there not everything listed is yours to
+ * rename or delete.
+ */
 export type Project = NonNullable<
   ReturnType<typeof useQuery<typeof api.projects.listForScreen>>
->[number];
+>[number] & { role?: ProjectRole };
 export type SharedProject = NonNullable<
   ReturnType<typeof useQuery<typeof api.projects.sharedWithMe>>
 >[number];
@@ -46,7 +55,24 @@ export function sameProjectProps<P extends { project: Project }>(prev: P, next: 
       a.description === b.description &&
       a.pageCount === b.pageCount &&
       a.updatedAt === b.updatedAt &&
-      a.firstPageDocId === b.firstPageDocId)
+      a.firstPageDocId === b.firstPageDocId &&
+      a.visibility === b.visibility &&
+      a.role === b.role)
+  );
+}
+
+/** Whether the rename and delete verbs are yours: always on your own home. */
+export const manages = (p: Project) => p.role === undefined || p.role === "owner";
+
+/**
+ * What a private workspace project wears wherever it is listed. Raised over
+ * the stretched link (`nt-private`) so its tooltip can be found.
+ */
+export function PrivateMark() {
+  return (
+    <Tooltip label="Private — hidden from the rest of the workspace" className="nt-private">
+      <Lock width={12} height={12} role="img" aria-label="Private" />
+    </Tooltip>
   );
 }
 
@@ -77,7 +103,8 @@ export function OpenProject({
   children: React.ReactNode;
 }) {
   const router = useRouter();
-  const href = `/p/${id}`;
+  const container = useContainer();
+  const href = projectPath(slugOf(container), id);
   return (
     <Link
       href={href}
@@ -123,6 +150,7 @@ export function RowMenu({
       {(close) => (
         <ProjectActions
           close={close}
+          manage={manages(project)}
           onOpen={onOpen}
           onRename={onRename}
           onDelete={onDelete}
@@ -142,17 +170,21 @@ export function RowMenu({
  */
 export function ProjectActions({
   close,
+  manage,
   onOpen,
   onRename,
   onDelete,
 }: {
   close: (opts?: { restoreFocus?: boolean }) => void;
+  /** Whether the project is the caller's to rename and delete (`manages`). */
+  manage: boolean;
   onOpen: () => void;
   onRename: () => void;
   onDelete: () => void;
 }) {
   // An operator standing in keeps Open — looking is the whole point — and
-  // loses the two verbs the server would refuse.
+  // loses the two verbs the server would refuse, as does anyone the project
+  // is not theirs to manage.
   const standIn = useStandIn();
   return (
     <>
@@ -164,7 +196,7 @@ export function ProjectActions({
       >
         Open
       </MenuItem>
-      {!standIn && (
+      {!standIn && manage && (
         <>
           <MenuItem
             onClick={() => {
