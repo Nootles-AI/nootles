@@ -13,7 +13,7 @@ import { refusal } from "../refusal";
 type Switch = "off" | "on";
 
 const LINKS: readonly Segment<Switch>[] = [
-  { id: "off", label: "Off", hint: "No project here opens through a link" },
+  { id: "off", label: "Off", hint: "Every link stops, and guests lose access until it’s back on" },
   { id: "on", label: "On", hint: "Owners and admins can share projects by link" },
 ];
 
@@ -80,7 +80,7 @@ export function SharingSettings({ workspace }: { workspace: WorkspaceContainer }
               <div className="nt-set-name">Share links</div>
               <p className="nt-set-note">
                 {linkSharing
-                  ? "Owners and admins can share projects by link with anyone who signs in. Turn this off to stop every link at once. Nothing is deleted."
+                  ? "Owners and admins can share projects by link with anyone who signs in. Turning this off pauses every link and locks out everyone who joined by one. Nothing is deleted."
                   : `No project in ${workspace.name} can be opened by link right now. Turn this back on to restore every link and the people who joined through them.`}
               </p>
             </div>
@@ -121,7 +121,7 @@ export function SharingSettings({ workspace }: { workspace: WorkspaceContainer }
                     aria-label={`Link expiry, ${lifetimeLabel(lifetime)}`}
                     // Its glyph on the segmented controls' edge; the hover
                     // wash pads out past it.
-                    className="nt-row nt-ws-pick -mr-2.5 gap-1.5 px-2.5"
+                    className="nt-row nt-ws-pick -mr-2 gap-1.5 px-2"
                   >
                     {lifetimeLabel(lifetime)}
                     <ChevronsUpDown
