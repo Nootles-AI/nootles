@@ -769,6 +769,43 @@
   margin-top: 24px;
 }
 
+/* ---- Billing ---------------------------------------------------------------
+   The paywall's strips set on a settings card: the card's padding is their
+   margin, and the notes under a card or a table keep one gap from it. The
+   paywall's sheet and settings' notes are unlayered, so these are spelled out
+   rather than left to spacing utilities, which they would beat. */
+
+.nt-ws-card > .nt-pw-strips {
+  margin-top: 0;
+}
+.nt-ws-notes {
+  margin-top: 8px;
+}
+.nt-ws-card > .nt-ws-notes {
+  margin-top: 12px;
+}
+
+/* ---- An unpaid workspace, said once under its title -------------------------
+   On the title's centre line, in the note's voice: a fact about the place with
+   the way on beside it, not a banner. Only its link is underlined, and only
+   when pointed at, as every quiet link in the chrome is. */
+
+.nt-ws-unpaid {
+  margin-top: 6px;
+  font-size: var(--text-ui);
+  line-height: 1.5;
+  color: var(--muted);
+  text-align: center;
+  text-wrap: balance;
+}
+.nt-ws-unpaid-go {
+  color: var(--foreground);
+  text-underline-offset: 3px;
+}
+.nt-ws-unpaid-go:hover {
+  text-decoration: underline;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .nt-ws-switch-glyph,
   .nt-ws-sent,

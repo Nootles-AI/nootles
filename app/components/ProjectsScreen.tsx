@@ -52,6 +52,7 @@ import { slugOf, useContainer, type WorkspaceContainer } from "./workspaces/Cont
 import { ContainerSwitcher } from "./workspaces/ContainerSwitcher";
 import { InviteButton } from "./workspaces/Invite";
 import { MembersPile } from "./workspaces/MembersPile";
+import { UnpaidLine } from "./workspaces/UnpaidLine";
 import { useEvenSides } from "./workspaces/useEvenSides";
 
 /** A list item's place in its list, which is what staggers its entrance. */
@@ -425,6 +426,10 @@ export function ProjectsScreen() {
           )}
         </div>
       </header>
+
+      {workspace && (
+        <UnpaidLine workspace={workspace} className={view === "board" ? "nt-board-host" : ""} />
+      )}
 
       {/* One place for anything worth a sentence — a mutation that failed, a
           connection that was cancelled — rather than either happening in

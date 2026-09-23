@@ -508,7 +508,7 @@ function Roster({
  * photo. The monogram is the first letter of what the row calls them, which
  * is what the home's pile draws too.
  */
-function Avatar({ member, named }: { member: Member; named: Named }) {
+export function Avatar({ member, named }: { member: Member; named: Named }) {
   if (member.imageUrl && !member.isMe) {
     return (
       // Not next/image: Clerk's avatar hosts are not the optimizer's to fetch.
