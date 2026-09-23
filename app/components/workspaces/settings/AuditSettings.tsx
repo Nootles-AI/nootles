@@ -10,10 +10,12 @@ import { projectPath, settingsPath } from "@/app/lib/containerPaths";
 import { Check, ChevronsUpDown, Download } from "../../Icons";
 import { Menu, MenuItem } from "../../Menu";
 import { Tooltip } from "../../Tooltip";
+import { useMoment } from "../useMoment";
 import { useContainer, type WorkspaceContainer } from "../ContainerContext";
 import { actorName, ago, toCsv, whatParts, type AuditRow } from "../auditWords";
 import { initial, useNaming } from "../people";
 import { refusal } from "../refusal";
+import { Bone } from "./MembersSettings";
 
 type Event = FunctionReturnType<typeof api.audit.list>["page"][number];
 type Member = NonNullable<FunctionReturnType<typeof api.members.list>>["members"][number];
@@ -34,34 +36,33 @@ const FULL = new Intl.DateTimeFormat(undefined, {
 const nth = (i: number) => ({ "--i": i % PAGE }) as CSSProperties;
 
 /**
- * Kinds of event, each an action prefix the server narrows by. Edits are a
- * kind of their own on the server, so "Pages" means a page's structural events.
+ * Kinds of event, in the order an admin looks for them, each a kind the
+ * server narrows by. Edits are a kind of their own on the server, so pages
+ * moved or deleted are a page's other events. `none` finishes "No …" when
+ * the log has nothing of the kind.
  */
-const KINDS: readonly { id: string; label: string }[] = [
-  { id: "page.edit", label: "Edits" },
-  { id: "member", label: "Members" },
-  { id: "share", label: "Sharing" },
-  { id: "project", label: "Projects" },
-  { id: "page", label: "Pages" },
-  { id: "folder", label: "Folders" },
-  { id: "file", label: "Files" },
-  { id: "repo", label: "Repositories" },
-  { id: "github", label: "GitHub App" },
-  { id: "notion", label: "Notion" },
-  { id: "workspace", label: "Workspace" },
-  { id: "billing", label: "Billing" },
-  { id: "entitlement", label: "Plan overrides" },
-  { id: "operator", label: "Support access" },
+const KINDS: readonly { id: string; label: string; none: string }[] = [
+  { id: "member", label: "Members", none: "membership events" },
+  { id: "share", label: "Sharing", none: "sharing events" },
+  { id: "page.edit", label: "Page edits", none: "page edits" },
+  { id: "page", label: "Pages moved or deleted", none: "pages moved or deleted" },
+  { id: "folder", label: "Folders", none: "folder events" },
+  { id: "file", label: "Files", none: "file events" },
+  { id: "project", label: "Projects", none: "project events" },
+  { id: "integration", label: "Integrations", none: "integration events" },
+  { id: "billing", label: "Billing and plan", none: "billing or plan events" },
+  { id: "workspace", label: "Workspace", none: "workspace changes" },
+  { id: "operator", label: "Support access", none: "support access" },
 ];
 
 type Span = "all" | "today" | "7" | "30" | "90";
 
-const SPANS: readonly { id: Span; label: string }[] = [
-  { id: "all", label: "Any time" },
-  { id: "today", label: "Today" },
-  { id: "7", label: "Past 7 days" },
-  { id: "30", label: "Past 30 days" },
-  { id: "90", label: "Past 90 days" },
+const SPANS: readonly { id: Span; label: string; during: string }[] = [
+  { id: "all", label: "Any time", during: "" },
+  { id: "today", label: "Today", during: " today" },
+  { id: "7", label: "Past 7 days", during: " in the past 7 days" },
+  { id: "30", label: "Past 30 days", during: " in the past 30 days" },
+  { id: "90", label: "Past 90 days", during: " in the past 90 days" },
 ];
 
 /**
@@ -106,9 +107,11 @@ function Audit({ workspace }: { workspace: WorkspaceContainer }) {
 function NotIncluded({ workspace }: { workspace: WorkspaceContainer }) {
   return (
     <section className="nt-set-section" aria-labelledby="nt-ws-audit">
-      <h2 id="nt-ws-audit" className="nt-set-label">
-        Audit log
-      </h2>
+      <div className="nt-ws-set-head">
+        <h2 id="nt-ws-audit" className="nt-set-label">
+          Audit log
+        </h2>
+      </div>
       <ul className="nt-set-list">
         <li className="nt-set-row">
           <div className="nt-set-body-col">
@@ -151,6 +154,28 @@ function Log({ workspace }: { workspace: WorkspaceContainer }) {
     { initialNumItems: PAGE },
   );
   const filtered = !!(person || kind || span.from !== undefined);
+  const choices = usePersonChoices(members, person);
+  const said = filtered
+    ? nothingFor(
+        KINDS.find((k) => k.id === kind),
+        person ? choices.find((c) => c.id === person)?.label : undefined,
+        SPANS.find((s) => s.id === span.id),
+      )
+    : null;
+
+  // A new filter is a new query, which starts from no rows: the last ones
+  // stay on screen, dimmed, until the first page of the new one lands.
+  const settled = status !== "LoadingFirstPage";
+  const [held, setHeld] = useState<{ results: Event[]; said: string | null } | null>(null);
+  if (settled && held?.results !== results) setHeld({ results, said });
+  const shown = settled ? { results, said } : held;
+  const stale = !settled && held !== null;
+
+  const clear = () => {
+    setPerson(null);
+    setKind(null);
+    setSpan({ id: "all" });
+  };
 
   return (
     <section className="nt-set-section" aria-labelledby="nt-ws-audit">
@@ -167,8 +192,17 @@ function Log({ workspace }: { workspace: WorkspaceContainer }) {
           onProblem={setProblem}
         />
       </div>
+      <p className="nt-set-note nt-ws-audit-note">
+        Events are kept for a year. One person’s edits to a page within ten minutes show as a
+        single row.
+      </p>
+      {problem && (
+        <p role="alert" className="nt-set-problem mb-2">
+          {problem}
+        </p>
+      )}
       <div className="nt-ws-filters" role="group" aria-label="Filter the log">
-        <PersonFilter members={members} value={person} onChange={setPerson} />
+        <Picker label="Person" value={person} choices={choices} onChange={setPerson} />
         <Picker
           label="Kind of event"
           value={kind}
@@ -182,25 +216,32 @@ function Log({ workspace }: { workspace: WorkspaceContainer }) {
           onChange={(id: Span) => setSpan({ id, from: spanStart(id) })}
         />
       </div>
-      <div className="nt-ws-table">
+      <div className="nt-ws-table" data-stale={stale || undefined} aria-busy={stale || undefined}>
         <Head />
-        {status === "LoadingFirstPage" ? (
+        {shown === null ? (
           <Bones />
-        ) : results.length === 0 ? (
-          <div className="nt-ws-empty">
-            <p className="text-[13px] font-medium">
-              {filtered ? "Nothing matches" : "Nothing here yet"}
-            </p>
-            <p className="mt-1 text-[13px] text-muted">
-              {filtered
-                ? "Try everyone, every kind of event, or a longer stretch of time."
-                : "Joins, sharing, projects and edits are written here as they happen."}
-            </p>
-          </div>
+        ) : shown.results.length === 0 ? (
+          shown.said ? (
+            <div className="nt-ws-empty">
+              <p className="text-[13px] font-medium">{shown.said}</p>
+              <div className="mt-3 flex justify-center">
+                <button type="button" onClick={clear} className="nt-row px-2.5">
+                  Clear filters
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="nt-ws-empty">
+              <p className="text-[13px] font-medium">Nothing here yet</p>
+              <p className="mt-1 text-[13px] text-muted">
+                Joins, sharing, projects and edits are written here as they happen.
+              </p>
+            </div>
+          )
         ) : (
           <Events
             workspace={workspace}
-            events={results}
+            events={shown.results}
             me={me}
             live={live}
             more={status === "CanLoadMore" ? () => loadMore(PAGE) : null}
@@ -208,14 +249,6 @@ function Log({ workspace }: { workspace: WorkspaceContainer }) {
           />
         )}
       </div>
-      <p className="nt-ws-notes nt-set-note">
-        Kept for a year. Edits are counted per page and person, ten minutes at a time.
-      </p>
-      {problem && (
-        <p role="alert" className="nt-set-problem">
-          {problem}
-        </p>
-      )}
     </section>
   );
 }
@@ -298,7 +331,7 @@ function Events({
                   <Link
                     key={n}
                     href={projectPath(workspace.slug, part.project)}
-                    className="nt-ws-ev-link"
+                    className="nt-ws-aside-link nt-ws-ev-link"
                   >
                     {part.title}
                   </Link>
@@ -355,13 +388,13 @@ function Picker<T extends string | null>({
       label={label}
       side="bottom"
       align="start"
-      className="nt-ws-choices nt-ws-filter-menu"
+      className="nt-ws-filter-menu"
       trigger={(t) => (
         <button
           {...t}
           type="button"
           aria-label={`${label}: ${current.label}`}
-          className="nt-row nt-ws-pick gap-1.5 px-2.5"
+          className="nt-row nt-ws-pick gap-1.5 px-2"
         >
           <span className="nt-ws-filter-value">{current.label}</span>
           <ChevronsUpDown width={14} height={14} aria-hidden="true" className="nt-ws-pick-glyph" />
@@ -391,26 +424,32 @@ function Picker<T extends string | null>({
   );
 }
 
-/** Everyone, or one member, called what the members list calls them. */
-function PersonFilter({
-  members,
-  value,
-  onChange,
-}: {
-  members: Member[];
-  value: string | null;
-  onChange: (userId: string | null) => void;
-}) {
+/**
+ * Everyone, or one member: you as the rows call you, first; the rest as the
+ * members list calls them.
+ */
+function usePersonChoices(members: Member[], value: string | null): Choice<string | null>[] {
   const naming = useNaming();
   const choices: Choice<string | null>[] = [
     { id: null, label: "Everyone" },
-    ...members.map((m) => ({ id: m.userId, label: naming(m).name })),
+    ...members.filter((m) => m.isMe).map((m) => ({ id: m.userId, label: "You" })),
+    ...members.filter((m) => !m.isMe).map((m) => ({ id: m.userId, label: naming(m).name })),
   ];
   // Someone chosen who has since left is still who the log is narrowed to.
   if (value && !members.some((m) => m.userId === value)) {
     choices.push({ id: value, label: "Former member" });
   }
-  return <Picker label="Person" value={value} choices={choices} onChange={onChange} />;
+  return choices;
+}
+
+/** What an empty, narrowed log says: only the filters that narrow it. */
+function nothingFor(
+  kind: { none: string } | undefined,
+  person: string | undefined,
+  span: { during: string } | undefined,
+): string {
+  const who = person === undefined ? "" : person === "You" ? " from you" : ` from ${person}`;
+  return `${kind ? `No ${kind.none}` : "Nothing"}${who}${span?.during ?? ""}`;
 }
 
 // ---- Export ------------------------------------------------------------------
@@ -437,7 +476,12 @@ function Export({
 }) {
   const convex = useConvex();
   const naming = useNaming();
+  const [running, setRunning] = useState(false);
+  // How many rows so far, said only once an export is slow enough to wait on.
   const [count, setCount] = useState<number | null>(null);
+  const [done, flash] = useMoment();
+  const slow = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(slow.current), []);
 
   // The file names you as the screen and the members list do, even while
   // your profile has not caught up with your sign-in.
@@ -456,10 +500,12 @@ function Export({
   });
 
   const run = async () => {
+    if (running) return;
     onProblem(null);
-    setCount(0);
+    setRunning(true);
     const to = Date.now();
     const rows: AuditRow[] = [];
+    slow.current = setTimeout(() => setCount(rows.length), 400);
     try {
       let cursor: string | null = null;
       for (;;) {
@@ -477,7 +523,7 @@ function Export({
           },
         );
         rows.push(...page.rows.map(known));
-        setCount(rows.length);
+        setCount((shown) => (shown === null ? null : rows.length));
         if (page.done) break;
         cursor = page.cursor;
       }
@@ -485,24 +531,43 @@ function Export({
         `${workspace.slug}-audit-${new Date(to).toISOString().slice(0, 10)}.csv`,
         toCsv(rows, workspace.name),
       );
+      flash();
     } catch (error) {
       onProblem(refusal(error, "Couldn’t export the log. Try again in a moment."));
     } finally {
+      clearTimeout(slow.current);
+      setRunning(false);
       setCount(null);
     }
   };
 
   return (
-    <button
-      type="button"
-      onClick={() => void run()}
-      disabled={count !== null}
-      aria-live="polite"
-      className="nt-row nt-ws-export gap-1.5 px-2.5"
-    >
-      <Download width={14} height={14} aria-hidden="true" />
-      {count === null ? "Export CSV" : `Exporting… ${count.toLocaleString()}`}
-    </button>
+    <>
+      <button
+        type="button"
+        onClick={() => void run()}
+        aria-disabled={running || undefined}
+        data-done={done || undefined}
+        className="nt-row nt-ws-export gap-1.5 px-2"
+      >
+        <span className="nt-swap" aria-hidden="true">
+          <Download width={14} height={14} />
+          <Check width={14} height={14} />
+        </span>
+        {count !== null ? (
+          <span>
+            Exporting… <span className="tabular-nums">{count.toLocaleString()}</span>
+          </span>
+        ) : done ? (
+          "Exported"
+        ) : (
+          "Export CSV"
+        )}
+      </button>
+      <span role="status" className="sr-only">
+        {running ? "Exporting the log" : done ? "Exported" : ""}
+      </span>
+    </>
   );
 }
 
@@ -525,12 +590,19 @@ function Loading() {
   return (
     <section className="nt-set-section" aria-busy="true" aria-label="Audit log">
       <div className="nt-ws-set-head">
-        <div className="nt-skeleton h-3.5 w-20" />
-        <div className="nt-skeleton h-8 w-28" />
+        <Bone bar="h-3.5 w-20" />
+        <div className="nt-ws-export flex h-8 items-center gap-1.5 px-2" aria-hidden="true">
+          <div className="nt-skeleton h-3.5 w-3.5" />
+          <div className="nt-skeleton h-3.5 w-16" />
+        </div>
       </div>
+      <Bone bar="h-3.5 w-[26rem] max-w-full" className="nt-ws-audit-note" />
       <div className="nt-ws-filters" aria-hidden="true">
-        {["w-24", "w-24", "w-20"].map((w, i) => (
-          <div key={i} className={`nt-skeleton h-8 ${w}`} />
+        {["w-16", "w-16", "w-14"].map((w, i) => (
+          <div key={i} className="flex h-8 items-center gap-1.5 px-2">
+            <div className={`nt-skeleton h-3.5 ${w}`} />
+            <div className="nt-skeleton h-3.5 w-3.5" />
+          </div>
         ))}
       </div>
       <div className="nt-ws-table">
@@ -563,17 +635,8 @@ function BoneRows({ count }: { count: number }) {
         <Bone bar="h-3.5 w-20" />
       </span>
       <span className="nt-ws-ev-what">
-        <Bone bar={`h-3.5 ${SENTENCES[i % SENTENCES.length]}`} />
+        <Bone bar={`h-3.5 ${SENTENCES[i % SENTENCES.length]}`} className="w-full" />
       </span>
     </li>
   ));
-}
-
-/** A bar in the line box of the 13px text it stands for. */
-function Bone({ bar }: { bar: string }) {
-  return (
-    <div className="nt-ws-bone flex h-5 w-full items-center">
-      <div className={`nt-skeleton ${bar}`} />
-    </div>
-  );
 }
