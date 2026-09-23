@@ -225,11 +225,17 @@ export function MenuItem({
   onClick,
   children,
   danger,
+  disabled,
+  className,
   ref,
 }: {
   onClick: () => void;
   children: ReactNode;
   danger?: boolean;
+  /** Refused rather than left out, for a menu that says why beside it. It
+   *  stays in the arrow keys' reach so the reason can be read. */
+  disabled?: boolean;
+  className?: string;
   /** For a menu that has to move focus between its own items itself. */
   ref?: Ref<HTMLButtonElement>;
 }) {
@@ -237,8 +243,9 @@ export function MenuItem({
     <button
       ref={ref}
       role="menuitem"
-      onClick={onClick}
-      className={`nt-menu-item${danger ? " is-danger" : ""}`}
+      aria-disabled={disabled || undefined}
+      onClick={disabled ? undefined : onClick}
+      className={`nt-menu-item${danger ? " is-danger" : ""}${className ? ` ${className}` : ""}`}
     >
       {children}
     </button>

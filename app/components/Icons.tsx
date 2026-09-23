@@ -89,6 +89,26 @@ export function Copy(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+/** An envelope, for someone asked in who has not arrived yet. */
+export function Mail(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <rect x="3" y="5" width="18" height="14" rx="2.5" />
+      <path d="m3.5 7.5 8.5 6 8.5-6" />
+    </svg>
+  );
+}
+
+/** The part of an address after the @: a domain, and whoever is on it. */
+export function AtSign(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <circle cx="12" cy="12" r="4" />
+      <path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8" />
+    </svg>
+  );
+}
+
 export function Settings(props: SVGProps<SVGSVGElement>) {
   return (
     <svg {...base} {...props}>

@@ -980,6 +980,17 @@ body[data-resizing] .nt-rail-face {
 .nt-menu-item.is-danger {
   color: var(--danger);
 }
+/* Refused: muted ink and no wash under the pointer. Keyboard focus keeps its
+   wash, so the arrows still show where they are. After `.is-danger`, which a
+   refused removal must not keep. */
+.nt-menu-item[aria-disabled="true"] {
+  color: var(--muted);
+  cursor: default;
+}
+.nt-menu-item[aria-disabled="true"]:hover:not(:focus-visible),
+.nt-menu-item[aria-disabled="true"]:active {
+  background: none;
+}
 .nt-menu-sep {
   height: 1px;
   margin: 4px var(--inset);
