@@ -784,31 +784,60 @@
 .nt-ws-card > .nt-ws-notes {
   margin-top: 12px;
 }
+/* Under a table's rows, at the rows' own inset rather than hung outside it. */
+.nt-ws-table > .nt-ws-notes {
+  margin-top: 0;
+  padding: 4px 12px 12px;
+}
+/* A sentence an admin should act on: the note's size, the ink's weight — not
+   danger, since nothing has failed. */
+.nt-set-note.nt-ws-heed {
+  color: var(--foreground);
+}
+/* A section that takes another's place while the page is open. */
+.nt-ws-arrive {
+  animation: nt-row-in 360ms var(--ease) backwards;
+}
 
 /* ---- An unpaid workspace, said once under its title -------------------------
    On the title's centre line, in the note's voice: a fact about the place with
-   the way on beside it, not a banner. Only its link is underlined, and only
-   when pointed at, as every quiet link in the chrome is. */
+   the way on beside it, not a banner. It folds open (`.nt-ws-fold`), so its
+   gap is padding inside the fold's body, clipped with it. Its link is
+   underlined only when pointed at, the underline easing in as the aside
+   link's colour does. */
 
 .nt-ws-unpaid {
-  margin-top: 6px;
+  padding-top: 6px;
   font-size: var(--text-ui);
   line-height: 1.5;
   color: var(--muted);
   text-align: center;
   text-wrap: balance;
+  animation: nt-row-in 360ms var(--ease) backwards;
 }
 .nt-ws-unpaid-go {
   color: var(--foreground);
-  text-underline-offset: 3px;
-}
-.nt-ws-unpaid-go:hover {
   text-decoration: underline;
+  text-decoration-color: transparent;
+  text-underline-offset: 3px;
+  transition: text-decoration-color var(--dur-fast) var(--ease);
+}
+.nt-ws-unpaid-go:hover,
+.nt-ws-unpaid-go:focus-visible {
+  text-decoration-color: currentColor;
+}
+/* Where the title leaves the centre for its own left-aligned row. */
+@media (max-width: 48rem) {
+  .nt-ws-unpaid {
+    text-align: left;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .nt-ws-switch-glyph,
   .nt-ws-sent,
+  .nt-ws-unpaid,
+  .nt-ws-arrive,
   .nt-ws-join,
   .nt-monogram.nt-ws-join-tile {
     animation: nt-fade-in var(--dur-fast) var(--ease);
@@ -817,7 +846,8 @@
   .nt-ws-onward-glyph,
   .nt-ws-fold,
   .nt-ws-saved,
-  .nt-ws-person.is-leaving {
+  .nt-ws-person.is-leaving,
+  .nt-ws-unpaid-go {
     transition: none;
   }
 }
