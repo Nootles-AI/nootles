@@ -1021,7 +1021,7 @@ export function Sidebar({
       {owner ? (
         <SidebarContext projectId={projectId} onOpen={(focus) => setShowingContext({ focus })} />
       ) : (
-        <CodeGate frame="nt-sbctx" />
+        <CodeGate frame />
       )}
 
       <DropLabel
