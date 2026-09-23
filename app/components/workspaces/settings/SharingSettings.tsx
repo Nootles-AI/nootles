@@ -104,8 +104,8 @@ export function SharingSettings({ workspace }: { workspace: WorkspaceContainer }
               <div className="nt-set-name">Link expiry</div>
               <p className="nt-set-note">
                 {lifetime === null
-                  ? "New links work until they’re turned off."
-                  : `New links stop working ${lifetimeLabel(lifetime)} after they’re made.`}{" "}
+                  ? "New links never expire."
+                  : `New links expire ${lifetimeLabel(lifetime)} after they’re made.`}{" "}
                 Whoever shares one can change its own; links already made keep theirs.
               </p>
             </div>
@@ -118,7 +118,9 @@ export function SharingSettings({ workspace }: { workspace: WorkspaceContainer }
                   <button
                     {...t}
                     aria-label={`Link expiry, ${lifetimeLabel(lifetime)}`}
-                    className="nt-row nt-ws-pick gap-1.5 px-2.5"
+                    // Its glyph on the segmented controls' edge; the hover
+                    // wash pads out past it.
+                    className="nt-row nt-ws-pick -mr-2.5 gap-1.5 px-2.5"
                   >
                     {lifetimeLabel(lifetime)}
                     <ChevronsUpDown

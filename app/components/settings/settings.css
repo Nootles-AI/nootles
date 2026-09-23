@@ -214,6 +214,11 @@
   .nt-set-row {
     flex-wrap: wrap;
   }
+  /* Sized from nothing rather than its one-line width, so a long note wraps
+     beside the glyph instead of leaving it on a line of its own. */
+  .nt-set-body-col {
+    flex-basis: 0;
+  }
   .nt-set-actions {
     width: 100%;
     justify-content: flex-end;
