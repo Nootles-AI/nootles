@@ -326,21 +326,36 @@ export const copyTo = mutation({
       }
     }
 
-    // What leaves a workspace is on its log, whether it is copied or moved.
-    for (const src of sources) {
+    // Each source is at most one event on its workspace's log: carried out of
+    // the workspace, copied or moved, or moved between two of its projects.
+    // A copy that stays inside takes nothing from it, and a move's delete is
+    // the move, not a deletion of its own.
+    const recordLeaving = async (src: Moving, pages?: number) => {
       const from = fromProjects.get(src.doc.projectId);
-      if (!from?.workspaceId || from.workspaceId === project.workspaceId) continue;
-      await recordInProject(ctx, from, {
-        action: `${src.kind}.carryOut`,
-        subjectKind: src.kind,
-        subjectId: src.doc._id,
-        meta: {
-          [src.kind]: src.doc.title,
-          to: project.workspaceId ? "workspace" : "personal",
-          move: !!args.move,
-        },
-      });
-    }
+      if (!from?.workspaceId || from._id === project._id) return;
+      const title = { [src.kind]: src.doc.title };
+      if (from.workspaceId !== project.workspaceId) {
+        await recordInProject(ctx, from, {
+          action: `${src.kind}.carryOut`,
+          subjectKind: src.kind,
+          subjectId: src.doc._id,
+          meta: {
+            ...title,
+            to: project.workspaceId ? "workspace" : "personal",
+            move: !!args.move,
+            pages,
+          },
+        });
+      } else if (args.move) {
+        await recordInProject(ctx, from, {
+          action: `${src.kind}.move`,
+          subjectKind: src.kind,
+          subjectId: src.doc._id,
+          meta: { ...title, toProjectId: project._id, toProject: project.title, pages },
+        });
+      }
+    };
+    if (!args.move) for (const src of sources) await recordLeaving(src);
 
     const removed: { pages: Id<"pages">[]; folders: Id<"folders">[] } = {
       pages: [],
@@ -352,18 +367,10 @@ export const copyTo = mutation({
       for (const src of sources) {
         const live = await ctx.db.get(src.doc._id);
         if (!live || isTrashed(live)) continue;
-        const from = fromProjects.get(src.doc.projectId);
-        if (from) {
-          await recordInProject(ctx, from, {
-            action: `${src.kind}.delete`,
-            subjectKind: src.kind,
-            subjectId: src.doc._id,
-            meta: { [src.kind]: src.doc.title, movedTo: args.projectId },
-          });
-        }
         if (src.kind === "page") {
           await ctx.db.patch(src.doc._id, { deletedAt: Date.now() });
           removed.pages.push(src.doc._id as Id<"pages">);
+          await recordLeaving(src);
         } else {
           const affected = await softRemoveFolderCascade(
             ctx,
@@ -371,6 +378,7 @@ export const copyTo = mutation({
           );
           removed.pages.push(...affected.pages);
           removed.folders.push(...affected.folders);
+          await recordLeaving(src, affected.pages.length);
         }
       }
     }
