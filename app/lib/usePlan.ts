@@ -4,6 +4,7 @@ import { useCallback, useMemo } from "react";
 import { useQuery } from "convex/react";
 import { ConvexError } from "convex/values";
 import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
 import type { Entitlement, Meter } from "@/convex/entitlements";
 
 /**
@@ -18,15 +19,24 @@ import type { Entitlement, Meter } from "@/convex/entitlements";
  * and in the API routes; this only decides what to DRAW, which is why it errs
  * open: while the answer is still arriving, `room` is true, and a slow query
  * never flashes a paywall at somebody who has paid.
+ *
+ * Inside a project, pass it: the walls there are the allowance that governs
+ * work in that project (`entitlements.forProject`) — a workspace's in a
+ * workspace project the caller writes in, their own anywhere else — so a
+ * member whose own free allowance is spent is not walled in the team's
+ * projects. Without one it is the account's own, which is what the account
+ * menu's plan line and the paywall itself speak about.
  */
-export function usePlan() {
+export function usePlan(projectId?: Id<"projects"> | null) {
   // `undefined` is still arriving; `null` is nobody signed in — a share-link
   // visitor, or the moment before Clerk resolves. Neither is an account with a
   // spent allowance, and both must draw exactly like an account with room.
-  const entitlement = useQuery(api.entitlements.mine, {}) as
-    | Entitlement
-    | null
-    | undefined;
+  const own = useQuery(api.entitlements.mine, projectId ? "skip" : {});
+  const inProject = useQuery(
+    api.entitlements.forProject,
+    projectId ? { projectId } : "skip",
+  );
+  const entitlement = (projectId ? inProject : own) as Entitlement | null | undefined;
 
   const room = useCallback(
     (meter: Meter): boolean =>

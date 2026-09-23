@@ -545,7 +545,11 @@ export function useTabCompletion(
   /** The sync doc, so an accept can announce itself to collaborators. */
   docId?: string,
 ) {
-  const { left } = usePlan();
+  // Sent with a diagram's brief, so the builder can draw in the product's look,
+  // and with every completion, so it is charged to the project's container —
+  // whose allowance is also the one that decides whether this lane is walled.
+  const projectId = useCompletionProject();
+  const { left } = usePlan(projectId);
   /**
    * The wall this lane raises, held here and drawn by the editor.
    *
@@ -567,9 +571,6 @@ export function useTabCompletion(
   // should carry the latest context without a changed sheet restarting the
   // whole lane.
   const contextSeed = useCompletionContext(pageId);
-  // Sent with a diagram's brief, so the builder can draw in the product's look,
-  // and with every completion, so it is charged to the project's container.
-  const projectId = useCompletionProject();
   const projectRef = useRef(projectId);
   const appendRef = useRef(appendBatch);
   const logRef = useRef(logSuggestion);

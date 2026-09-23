@@ -48,7 +48,7 @@ export function ChatPanel({
   const [picked, setPicked] = useState<Id<"chatThreads"> | null>(null);
   const [picking, setPicking] = useState(false);
   const [walled, setWalled] = useState<ChatDraft | null>(null);
-  const { room } = usePlan();
+  const { room } = usePlan(projectId);
   /**
    * A rewind being decided: which message it winds back to, what it covers, and
    * where each page stood before it was previewed. Nothing here has happened to
