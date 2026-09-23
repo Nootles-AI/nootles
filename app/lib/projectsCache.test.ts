@@ -122,4 +122,18 @@ describe("the projects cache", () => {
     settle();
     expect(stored.get(KEY)).not.toContain("secret");
   });
+
+  test("a workspace row keeps what decides its verbs and its lock", async () => {
+    const first = await visit();
+    const row = { ...project("p1", "Notes"), role: "editor", visibility: "private" } as Project;
+    first.rememberScreen("u", WS, [row], []);
+    settle();
+
+    vi.resetModules();
+    const cache = await visit();
+    expect(cache.seenScreen("u", WS)?.projects[0]).toMatchObject({
+      role: "editor",
+      visibility: "private",
+    });
+  });
 });
