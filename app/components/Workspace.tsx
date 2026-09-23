@@ -56,7 +56,8 @@ import { Facepile } from "./presence/Facepile";
 import { Hints } from "./hints/Hints";
 import { Feedback } from "./feedback/Feedback";
 import { FixedToast } from "./feedback/FixedToast";
-import { AccessRequests } from "./share/AccessRequests";
+import { Correspondence } from "./share/AccessRequests";
+import { useLinkedPage } from "./comments/useLinkedPage";
 import { TesterNote } from "./feedback/TesterNote";
 import { PmfSurvey } from "./feedback/PmfSurvey";
 import { DismissSampler } from "./feedback/DismissSampler";
@@ -193,6 +194,9 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
     canvasRef.current = canvas;
     placeRef.current = place;
   });
+
+  // Through the sidebar's own selection: one way to choose a page.
+  useLinkedPage(open);
 
   useEffect(() => {
     if (!spine) return;
@@ -964,7 +968,7 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
         {/* The answer to what that button sent, in the corner it left from. */}
         <FixedToast />
         {/* Not this project's — the caller's, wherever they are standing. */}
-        <AccessRequests />
+        <Correspondence projectId={projectId} />
         <TesterNote projectId={projectId} />
         <PmfSurvey />
         <DismissSampler />

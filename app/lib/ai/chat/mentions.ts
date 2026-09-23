@@ -15,7 +15,9 @@ import type { MentionData } from "./parts";
 
 export type MentionPick =
   | { kind: "page"; pageId: Id<"pages">; title: string }
-  | { kind: "file"; filename: string };
+  | { kind: "file"; filename: string }
+  /** Somebody the project's container knows — a comment's @, never the chat's. */
+  | { kind: "person"; userId: string; name: string };
 
 export type MentionItem = {
   key: string;
@@ -29,7 +31,25 @@ export type MentionTrigger = { start: number; query: string };
 
 /** How a pick reads inside the sentence the user is writing. */
 export function mentionLabel(pick: MentionPick): string {
-  return pick.kind === "page" ? pick.title.trim() || "Untitled" : pick.filename;
+  switch (pick.kind) {
+    case "page":
+      return pick.title.trim() || "Untitled";
+    case "file":
+      return pick.filename;
+    case "person":
+      return pick.name.trim() || "Unnamed person";
+  }
+}
+
+function pickKey(pick: MentionPick): string {
+  switch (pick.kind) {
+    case "page":
+      return pick.pageId;
+    case "file":
+      return `file:${pick.filename}`;
+    case "person":
+      return `person:${pick.userId}`;
+  }
 }
 
 /**
@@ -75,7 +95,7 @@ export function insertMention(
 export function keptMentions(picks: MentionPick[], text: string): MentionPick[] {
   const seen = new Set<string>();
   return picks.filter((pick) => {
-    const key = pick.kind === "page" ? pick.pageId : pick.filename;
+    const key = pickKey(pick);
     if (seen.has(key) || !text.includes(`@${mentionLabel(pick)}`)) return false;
     seen.add(key);
     return true;
@@ -128,6 +148,29 @@ export function filterMentions(items: MentionItem[], query: string): MentionItem
 }
 
 /**
+ * The people an @ in a comment may name, as menu rows filtered by what has
+ * been typed. The list is `commentNotices.mentionable`'s — everyone who can
+ * open the project but the writer — so every row is somebody a notice reaches.
+ */
+export function personMentionItems(
+  people: { userId: string; name: string | null }[],
+  query: string,
+): MentionItem[] {
+  return filterMentions(
+    people.map((person) => {
+      const pick = { kind: "person" as const, userId: person.userId, name: person.name ?? "" };
+      return { key: pickKey(pick), label: mentionLabel(pick), pick };
+    }),
+    query,
+  );
+}
+
+/** Who a comment's kept mentions name — what `commentNotices.event` takes as `mentions`. */
+export function mentionedPeople(picks: MentionPick[]): string[] {
+  return [...new Set(picks.flatMap((pick) => (pick.kind === "person" ? [pick.userId] : [])))];
+}
+
+/**
  * What each mention was pointing at, read when the message is sent.
  *
  * A page goes through the same two tools the agent reads pages with, and for the
@@ -143,8 +186,10 @@ export async function resolveMentions(
   picks: MentionPick[],
   ctx: ToolContext,
 ): Promise<MentionData[]> {
+  // A person is somebody to tell, not something for the model to read.
+  const readable = picks.filter((pick) => pick.kind !== "person");
   return await Promise.all(
-    picks.map(async (pick): Promise<MentionData> => {
+    readable.map(async (pick): Promise<MentionData> => {
       if (pick.kind === "file") return { kind: "file", filename: pick.filename };
       const live = ctx.openPageId() === pick.pageId;
       const content = await runClientTool(
