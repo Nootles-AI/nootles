@@ -839,10 +839,7 @@ try {
   assert.equal(await shotShapes(), 1);
   assert.equal(await noteShown(), "Opening wide shot landed!");
 
-  // A width the document refused does not stay behind on the element. (The
-  // rendered width is not asserted: a board in this host is a flex item sized
-  // from its own last measurement, and keeps it even when a fit is accepted —
-  // NT-78.)
+  // A width the document refused does not stay behind on the element.
   const dragGrip = async (selector, dx) => {
     await page.$eval(selector, (grip) => grip.scrollIntoView({ block: "center" }));
     const box = await (await page.$(selector)).boundingBox();
@@ -859,7 +856,8 @@ try {
   await settled(before, "rejected");
   await page.waitForFunction((inline) => document.querySelector("#bridge .nt-sb-wrap").style.width === inline, {}, boardBefore.inline);
   await quiet();
-  assert.equal((await boardWidth()).inline, boardBefore.inline);
+  await page.waitForFunction((width) => document.querySelector("#bridge .nt-sb-wrap").offsetWidth === width, {}, boardBefore.width);
+  assert.deepEqual(await boardWidth(), boardBefore);
   assert.equal((await domainOf("storyboard")).w, undefined);
 
   // The album: a reorder, a picture's width and the album's own width.
@@ -968,6 +966,58 @@ try {
   await page.evaluate(() => window.nmlHarness.setAuthorization("allow"));
   await page.screenshot({ path: path.join(output, "math-focus-desktop.png"), fullPage: true });
 
+  // A board that has no width of its own takes its column, in a host that lays
+  // a block's content out in a flex row, and takes it again when a fit hands
+  // the width back. Sized from its own last measurement it kept whatever it
+  // had been, and a relayout shrank it a column at a time (NT-78).
+  await page.evaluate(() => window.nmlHarness.mountRichEditable());
+  await page.waitForSelector("#bridge .nt-sb-grip");
+  await page.waitForSelector("#bridge .nt-album");
+  const widthOf = (selector) => page.$eval(selector, (element) => ({ width: element.offsetWidth, column: element.parentElement.clientWidth }));
+  const fillsColumn = (selector) => page.waitForFunction((selector) => {
+    const element = document.querySelector(selector);
+    return element.offsetWidth === element.parentElement.clientWidth;
+  }, {}, selector);
+  const gripDrag = async (selector, dx) => {
+    await page.$eval(selector, (grip) => grip.scrollIntoView({ block: "center" }));
+    const box = await (await page.$(selector)).boundingBox();
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width / 2 + dx, box.y + box.height / 2, { steps: 6 });
+    await page.mouse.up();
+  };
+  const gripFit = async (selector) => {
+    const box = await (await page.$(selector)).boundingBox();
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2, { clickCount: 1 });
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2, { clickCount: 2 });
+  };
+  const domainWidth = (type) => page.evaluate((type) => window.nmlHarness.inspect().ast.blocks.find((block) => block.type === type).domain.w, type);
+  const boardColumns = () => page.$eval("#bridge .nt-sb", (grid) => getComputedStyle(grid).gridTemplateColumns.split(" ").length);
+
+  for (const [type, surface, grip] of [["storyboard", "#bridge .nt-sb-wrap", "#bridge .nt-sb-grip"], ["album", "#bridge .nt-album", '#bridge [aria-label="Resize album width"]']]) {
+    const start = await widthOf(surface);
+    assert.equal(start.width, start.column, `${type} starts at its column`);
+    await gripDrag(grip, -120);
+    await page.waitForFunction((type) => window.nmlHarness.inspect().ast.blocks.find((block) => block.type === type).domain.w !== undefined, {}, type);
+    const pinned = await domainWidth(type);
+    assert.ok(pinned < start.column, `${type} pinned narrower`);
+    assert.equal((await widthOf(surface)).width, pinned);
+    await gripFit(grip);
+    await page.waitForFunction((type) => window.nmlHarness.inspect().ast.blocks.find((block) => block.type === type).domain.w === undefined, {}, type);
+    await fillsColumn(surface);
+    // A relayout — here a full-page capture resizing the viewport — leaves it there.
+    await page.screenshot({ path: path.join(output, `${type}-fit-desktop.png`), fullPage: true });
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    assert.deepEqual(await widthOf(surface), start, `${type} back at its column`);
+    // Widened into the margin, it is as wide as the document says.
+    await gripDrag(grip, 150);
+    await page.waitForFunction((type, column) => (window.nmlHarness.inspect().ast.blocks.find((block) => block.type === type).domain.w ?? 0) > column, {}, type, start.column);
+    assert.equal((await widthOf(surface)).width, await domainWidth(type));
+    await gripFit(grip);
+    await fillsColumn(surface);
+  }
+  assert.equal(await boardColumns(), 2);
+
   await page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true });
   await page.evaluate(() => window.nmlHarness.mount("rich"));
   await page.waitForSelector("#bridge .nt-nml-view");
@@ -982,5 +1032,5 @@ try {
   await page.evaluate(() => window.nmlHarness.destroy());
   assert.deepEqual(errors, []);
   assert.deepEqual(paidRequests, []);
-  console.log(JSON.stringify({ result: "passed", fixtures: 8, editableWorkflows: 10, canonicalHistory: true, refusedDomainWrites: true, refusedBoardWrites: true, mathFocus: true, desktop: "1440x1100", mobile: "390x844", screenshots: output, browserErrors: errors.length, paidRequests: paidRequests.length }, null, 2));
+  console.log(JSON.stringify({ result: "passed", fixtures: 8, editableWorkflows: 10, canonicalHistory: true, refusedDomainWrites: true, refusedBoardWrites: true, mathFocus: true, domainWidths: true, desktop: "1440x1100", mobile: "390x844", screenshots: output, browserErrors: errors.length, paidRequests: paidRequests.length }, null, 2));
 } finally { await browser?.close(); await new Promise((resolve) => server.close(resolve)); }

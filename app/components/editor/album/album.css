@@ -11,6 +11,9 @@
 
 .nt-album {
   position: relative;
+  /* A host that lays the block out in a flex row must not squeeze an album
+     widened into the margin back to the column. */
+  flex: none;
   width: 100%;
   margin: 4px 0;
 }
