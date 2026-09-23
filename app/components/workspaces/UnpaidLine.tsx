@@ -24,11 +24,11 @@ export function UnpaidLine({
 }) {
   const standIn = useStandIn();
   const asks = !standIn && atLeast(workspace.role, "admin");
-  const summary = useQuery(
-    api.teamBilling.summary,
+  const unpaid = useQuery(
+    api.teamBilling.unpaid,
     asks ? { workspaceId: workspace.workspaceId } : "skip",
   );
-  if (!summary?.configured || summary.source !== "none") return null;
+  if (!unpaid) return null;
 
   return (
     <p className={`nt-ws-unpaid ${className}`}>
