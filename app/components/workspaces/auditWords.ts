@@ -35,7 +35,7 @@ export function actorName(row: AuditRow, me: string | null): string {
   return row.actor?.name ?? row.actor?.email ?? "Someone";
 }
 
-const DATE = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric" });
+const DATE = new Intl.DateTimeFormat(undefined, { day: "numeric", month: "short", year: "numeric" });
 
 const quoted = (value: unknown) => `“${String(value ?? "")}”`;
 
@@ -48,17 +48,42 @@ const ROLE: Record<string, string> = {
   viewer: "a viewer",
 };
 const roleWord = (role: unknown) => ROLE[String(role)] ?? String(role);
-const Role = (role: unknown) => {
+const Title = (role: unknown) => {
   const word = String(role ?? "");
   return word.charAt(0).toUpperCase() + word.slice(1);
 };
 
 const plural = (n: number, one: string, many = `${one}s`) =>
-  `${n.toLocaleString("en-GB")} ${n === 1 ? one : many}`;
+  `${n.toLocaleString()} ${n === 1 ? one : many}`;
 
-/** A Stripe status as a sentence says it: "past due", "no subscription". */
-const statusWord = (status: unknown) =>
-  status === "none" || status == null ? "none" : String(status).replaceAll("_", " ");
+const unsubscribed = (status: unknown) => status === "none" || status == null;
+
+/** A change of Stripe status, named by where it landed: "marked the subscription past due". */
+function subscription(from: unknown, to: unknown): string {
+  if (unsubscribed(to) || to === "canceled") return "ended the subscription";
+  if (to === "active" && unsubscribed(from)) return "started the subscription";
+  if (to === "trialing" && unsubscribed(from)) return "started a trial of the subscription";
+  return `marked the subscription ${String(to).replaceAll("_", " ")}`;
+}
+
+/** What a plan override is called in a sentence, for the features a plan sets. */
+const FEATURE: Record<string, string> = {
+  auditLog: "the audit log",
+  unmetered: "unmetered AI",
+  guestDailyAiUsd: "the guests’ daily AI allowance",
+};
+const featureName = (feature: unknown) => FEATURE[String(feature)] ?? "a plan feature";
+const dollars = (n: number) => `$${Number.isInteger(n) ? n : n.toFixed(2)}`;
+
+function override(feature: unknown, value: unknown): string {
+  if (feature === "plan") return `put this workspace on the ${Title(value)} plan`;
+  const name = featureName(feature);
+  if (typeof value === "boolean") return `turned ${value ? "on" : "off"} ${name} for this workspace`;
+  if (typeof value === "number" && feature === "guestDailyAiUsd") {
+    return `set ${name} to ${dollars(value)}`;
+  }
+  return `set ${name} to ${value}`;
+}
 
 /** A page or folder as a sentence names it: the page “Launch”. */
 const nameOf = (row: AuditRow) => `the ${row.subjectKind} ${quoted(row.meta[row.subjectKind ?? ""])}`;
@@ -80,12 +105,12 @@ export function whatParts(row: AuditRow, workspaceName: string): Part[] {
   const projectId = typeof m.projectId === "string" ? m.projectId : null;
   const projectTitle = String(m.project ?? "a project");
   const project: Part = projectId ? { project: projectId, title: projectTitle } : projectTitle;
-  const link = String(m.role) === "editor" ? "edit link" : "view link";
+  const link = String(m.role) === "editor" ? "editor link" : "viewer link";
   const who = subjectName(row);
 
   switch (row.action) {
     case "workspace.create":
-      return [`created ${m.name ?? workspaceName}`];
+      return [`created the workspace ${m.name ?? workspaceName}`];
     case "workspace.rename":
       return [`renamed the workspace from ${quoted(m.from)} to ${quoted(m.to)}`];
     case "workspace.slug":
@@ -94,7 +119,7 @@ export function whatParts(row: AuditRow, workspaceName: string): Part[] {
       return [setting(m)];
     case "workspace.delete":
       return [
-        `deleted ${m.name ?? workspaceName}`,
+        `deleted the workspace ${m.name ?? workspaceName}`,
         ...(typeof m.projects === "number" ? [`, with ${plural(m.projects, "project")}`] : []),
       ];
 
@@ -112,7 +137,7 @@ export function whatParts(row: AuditRow, workspaceName: string): Part[] {
         m.via === "domain" ? " through their email’s domain" : " by invitation",
       ];
     case "member.role":
-      return [`changed ${who}’s role from ${Role(m.from)} to ${Role(m.to)}`];
+      return [`changed ${who}’s role from ${m.from} to ${m.to}`];
     case "member.remove":
       return [`removed ${who} from ${workspaceName}`];
     case "member.leave":
@@ -128,8 +153,8 @@ export function whatParts(row: AuditRow, workspaceName: string): Part[] {
       return [`turned off the ${link} for `, project];
     case "share.link.expiry":
       return typeof m.expiresAt === "number"
-        ? [`set the ${link} for `, project, ` to run out on ${DATE.format(m.expiresAt)}`]
-        : [`set the ${link} for `, project, " to never run out"];
+        ? [`set the ${link} for `, project, ` to expire on ${DATE.format(m.expiresAt)}`]
+        : [`set the ${link} for `, project, " to never expire"];
     case "share.claim":
       return [m.renewed ? "came back to " : "opened ", project, ` with its ${link}`];
     case "share.claim.revoke":
@@ -144,16 +169,16 @@ export function whatParts(row: AuditRow, workspaceName: string): Part[] {
       return [`turned down ${who}’s request to edit `, project];
 
     case "project.create":
-      return ["created ", project, ...(m.visibility === "private" ? [", as a private project"] : [])];
+      return [m.visibility === "private" ? "created the private project " : "created the project ", project];
     case "project.rename":
       return [
-        `renamed ${quoted(m.from)} to `,
+        `renamed the project ${quoted(m.from)} to `,
         projectId ? { project: projectId, title: String(m.to) } : String(m.to),
       ];
     case "project.delete":
-      return ["deleted ", project];
+      return ["deleted the project ", project];
     case "project.restore":
-      return ["restored ", project];
+      return ["restored the project ", project];
 
     case "page.edit":
       return [
@@ -241,28 +266,26 @@ export function whatParts(row: AuditRow, workspaceName: string): Part[] {
         ...(typeof m.seats === "number" ? [`, ${plural(m.seats, "seat")}`] : []),
       ];
     case "billing.subscription":
-      return [`moved the subscription from ${statusWord(m.from)} to ${statusWord(m.to)}`];
+      return [subscription(m.from, m.to)];
     case "billing.seats":
       return [`changed the seats billed from ${m.from ?? 0} to ${m.to}`];
 
     case "entitlement.set":
       return [
-        m.feature === "plan"
-          ? `put this workspace on the ${Role(m.value)} plan`
-          : `set ${m.feature} to ${m.value} for this workspace`,
+        override(m.feature, m.value),
         ...(typeof m.expiresAt === "number" ? [`, until ${DATE.format(m.expiresAt)}`] : []),
       ];
     case "entitlement.clear":
       return [
         m.feature === "plan"
           ? "took this workspace off the plan it was given"
-          : `cleared the override of ${m.feature}`,
+          : `gave ${featureName(m.feature)} back to what the plan sets`,
       ];
     case "operator.standIn":
-      return [`stood in for ${who}`];
+      return [`viewed the workspace as ${who}`];
 
     default:
-      return [row.action];
+      return [`made a change (${row.action})`];
   }
 }
 
@@ -285,10 +308,10 @@ function setting(m: AuditRow["meta"]): string {
       return on ? "allowed personal GitHub connections" : "stopped personal GitHub connections";
     case "linkTtlDays":
       return typeof m.to === "number"
-        ? `set new share links to run out after ${plural(m.to, "day")}`
-        : "set new share links to never run out";
+        ? `set new share links to expire after ${plural(m.to, "day")}`
+        : "set new share links to never expire";
     default:
-      return `changed the setting ${m.setting}`;
+      return `changed a setting (${m.setting})`;
   }
 }
 
@@ -302,7 +325,7 @@ export function whatText(row: AuditRow, workspaceName: string): string {
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
-const SHORT = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short" });
+const SHORT = new Intl.DateTimeFormat(undefined, { day: "numeric", month: "short" });
 
 /** "now", "5m", "3h", "2d" within a week; then the date, with the year once it is another. */
 export function ago(at: number, now: number): string {
