@@ -11,7 +11,13 @@ import {
   type ActionCtx,
   type MutationCtx,
 } from "../_generated/server";
-import { readManageable, readsLinkedCode, requireManageable, requireOwner } from "../auth";
+import {
+  canReadCode,
+  readManageable,
+  readsLinkedCode,
+  requireManageable,
+  requireOwner,
+} from "../auth";
 import { repoRef } from "../schema";
 import { json, text } from "./rest";
 import { withToken } from "./account";
@@ -35,7 +41,8 @@ const TOP_LEVEL = 80;
 export const listForProject = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
-    if (!(await readManageable(ctx, "projects", args.projectId))) return [];
+    const project = await readManageable(ctx, "projects", args.projectId);
+    if (!project || !(await canReadCode(ctx, project))) return [];
     return await ctx.db
       .query("projectRepos")
       .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
@@ -171,10 +178,14 @@ export const row = internalQuery({
   },
 });
 
-/** The repository, if the calling user manages its project. */
+/** The repository, if the calling user manages its project and reads its code. */
 export const manageable = internalQuery({
   args: { repoId: v.id("projectRepos") },
-  handler: async (ctx, args) => await readManageable(ctx, "projectRepos", args.repoId),
+  handler: async (ctx, args) => {
+    const repo = await readManageable(ctx, "projectRepos", args.repoId);
+    const project = repo && (await ctx.db.get(repo.projectId));
+    return project && (await canReadCode(ctx, project)) ? repo : null;
+  },
 });
 
 /**
