@@ -42,6 +42,17 @@ crons.interval(
  */
 crons.interval("purge the trash", { hours: 24 }, internal.trash.purge, {});
 
+/**
+ * The audit log's one-year retention, on the same daily clock as the trash —
+ * a separate job so neither purge failing holds the other up.
+ */
+crons.interval(
+  "sweep expired audit events",
+  { hours: 24 },
+  internal.audit.sweepExpired,
+  {},
+);
+
 crons.interval("prune the op log", { hours: 1 }, internal.ai.opLog.purgeOld, {});
 crons.interval(
   "prune old checkpoints",

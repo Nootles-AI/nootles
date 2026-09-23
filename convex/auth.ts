@@ -2,6 +2,10 @@ import { ConvexError } from "convex/values";
 import type { Auth, UserIdentity } from "convex/server";
 import type { Doc, Id, TableNames } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
+import { commentsEnabled } from "./entitlements";
+import { channelAdmits, claimRole, type ProjectRole } from "./roles";
+
+export { channelAdmits, claimRole, hasLiveLink, moderatesComments, type DocChannel, type ProjectRole } from "./roles";
 
 /**
  * All tenancy lives here: every row carries the Clerk subject that created it,
@@ -133,17 +137,16 @@ export async function requireOwned<T extends Owned>(
   return doc;
 }
 
-export type ProjectRole = "owner" | "editor" | "viewer";
 
 /**
  * What the caller is to a loaded project.
  *
  * A claim names the role of the link it came through, but permission is always
- * re-derived against the tokens that are live NOW: killing the editor link
- * demotes its claimants to viewers while any link is still on (the same move
- * as Google downgrading a link from editor to viewer), and killing both links
- * closes the project to everyone but the owner. A claim row alone admits
- * nobody.
+ * re-derived against the tokens that are live NOW: killing the editor or the
+ * comment link demotes its claimants to viewers while any link is still on
+ * (the same move as Google downgrading a link from editor to viewer), and
+ * killing every link closes the project to everyone but the owner. A claim row
+ * alone admits nobody.
  *
  * `grantedRole` is the one thing a link does not decide: the owner answering
  * an access request hands the pen to one person, and no link turns on for it.
@@ -167,20 +170,6 @@ export async function roleForProject(
   return claim ? claimRole(project, claim) : null;
 }
 
-/**
- * What a claim grants on its project now — `roleForProject` for someone other
- * than the caller, so the owner's list of who has access gives the same answer
- * each claimant's own session gets.
- */
-export function claimRole(
-  project: Doc<"projects">,
-  claim: Doc<"shareClaims">,
-): "editor" | "viewer" | null {
-  if (!project.shareToken && !project.editShareToken) return null;
-  if (claim.grantedRole === "editor") return "editor";
-  if (claim.role === "editor" && project.editShareToken) return "editor";
-  return "viewer";
-}
 
 /** The caller's role in a project named by id, or null for missing/stranger. */
 export async function projectRole(
@@ -189,6 +178,24 @@ export async function projectRole(
 ): Promise<ProjectRole | null> {
   const project = await ctx.db.get(projectId);
   return project ? await roleForProject(ctx, project) : null;
+}
+
+/**
+ * Whether the caller may read a project's audit log: its owner, in their own
+ * session. Not editors or commenters — the log names who did what across
+ * everyone's access, which is the owner's to hold — and not an operator
+ * standing in, whose reading someone's record is not something the owner's
+ * token should vouch for. A trashed project has no log to read.
+ *
+ * The one place the answer lives, so the Teams workspace branch (a
+ * workspace's admins read its projects' logs) is one more clause here.
+ */
+export async function mayReadAudit(
+  ctx: QueryCtx,
+  project: Doc<"projects">,
+): Promise<boolean> {
+  if (isTrashed(project) || (await standInActor(ctx))) return false;
+  return (await roleForProject(ctx, project)) === "owner";
 }
 
 /** Tables that resolve their access through a project's role. */
@@ -241,6 +248,63 @@ export async function requireEditable<T extends Shared>(
     if (project && !isTrashed(project)) {
       const role = await roleForProject(ctx, project);
       if (role === "owner" || role === "editor") return doc;
+    }
+  }
+  throw new Error("Not found");
+}
+
+/** The page's project, provided neither is trashed. */
+export async function liveProject(ctx: QueryCtx, page: Doc<"pages">): Promise<Doc<"projects"> | null> {
+  if (isTrashed(page)) return null;
+  const project = await ctx.db.get(page.projectId);
+  return project && !isTrashed(project) ? project : null;
+}
+
+/** The page's live project, provided its comments are turned on. */
+export async function commentsProject(ctx: QueryCtx, page: Doc<"pages">): Promise<Doc<"projects"> | null> {
+  const project = await liveProject(ctx, page);
+  return project && (await commentsEnabled(ctx, project)) ? project : null;
+}
+
+/**
+ * The page, its project and the caller's role, provided the caller may read
+ * the page's comments — any role, never a signed-out link visitor — and they
+ * are turned on. Null otherwise: the one answer every comments reader asks
+ * for by page id (`comments.docFor`, the people queries in `commentNotices`).
+ */
+export async function readableComments(
+  ctx: QueryCtx,
+  pageId: Id<"pages">,
+): Promise<{ page: Doc<"pages">; project: Doc<"projects">; role: ProjectRole } | null> {
+  const page = await ctx.db.get(pageId);
+  const project = page && (await liveProject(ctx, page));
+  if (!page || !project) return null;
+  const role = await roleForProject(ctx, project);
+  if (!role || !channelAdmits({ channel: "comments", access: "read", role, linkLive: false })) return null;
+  return (await commentsEnabled(ctx, project)) ? { page, project, role } : null;
+}
+
+const COMMENTS_OFF = () => new ConvexError("Comments are turned off for this project.");
+
+/**
+ * The page and its project, provided the caller may write its comments —
+ * commenter, editor or owner. The comments document's own gate is the
+ * channel check in `prosemirror.ts`; this is its sibling for the mutations
+ * that act on a page's comments by page id rather than by docId. Refused as
+ * "Not found" without the role, and said outright when comments are off.
+ */
+export async function requireCommentable(
+  ctx: QueryCtx,
+  pageId: Id<"pages">,
+): Promise<{ page: Doc<"pages">; project: Doc<"projects"> }> {
+  await refuseStandIn(ctx);
+  const page = await ctx.db.get(pageId);
+  const project = page && (await liveProject(ctx, page));
+  if (page && project) {
+    const role = await roleForProject(ctx, project);
+    if (channelAdmits({ channel: "comments", access: "write", role, linkLive: false })) {
+      if (!(await commentsEnabled(ctx, project))) throw COMMENTS_OFF();
+      return { page, project };
     }
   }
   throw new Error("Not found");

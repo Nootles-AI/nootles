@@ -47,6 +47,7 @@ import type { LegacyBlock } from "@/app/lib/nml/legacy";
 import { BlockSideMenu, editorPortalElements } from "./BlockSideMenu";
 import { PageTitleProvider } from "./PageTitleContext";
 import { InlineCodeButton } from "./InlineCodeButton";
+import { CommentToolbarButton } from "../comments/CommentToolbarButton";
 import { completionExtension } from "./ai/completionExtension";
 import { hintExtension } from "./ai/hintText";
 import { reviewExtension } from "./ai/reviewExtension";
@@ -61,11 +62,14 @@ import { StageDirector } from "./ai/StageDirector";
 import { notionLinkClick, useNotionLinks } from "@/app/components/notion/NotionLinks";
 import { ReformatBar } from "./ai/ReformatBar";
 import { arrivalFlashExtension } from "./arrivalFlash";
+import { commentExtension } from "./comments/commentExtension";
+import { CommentDecorationsBridge } from "./comments/CommentDecorationsBridge";
 import { blockSelection, blockSelectionExtension } from "./blockSelection";
 import { useBlockMarquee } from "./useBlockMarquee";
 import { PageMentionMenu, SlashMenu } from "./SlashMenu";
 import * as Icon from "../Icons";
 import { useReadOnly } from "./readOnly";
+import { useAttachCommentsEditor } from "../comments/editorSlot";
 import { trailingParagraphExtension } from "./trailingParagraph";
 import { dropDeadSelectors } from "./deadSelectors";
 import "./editor.css";
@@ -96,6 +100,7 @@ function Toolbar() {
       {i === -1
         ? [...items, code]
         : [...items.slice(0, i + 1), code, ...items.slice(i + 1)]}
+      <CommentToolbarButton key="commentButton" />
     </FormattingToolbar>
   );
 }
@@ -516,6 +521,7 @@ const EXTENSIONS = [
   hintExtension,
   arrivalFlashExtension,
   blockSelectionExtension,
+  commentExtension,
 ];
 
 const placeholder = <div className="min-h-[40vh]" aria-hidden />;
@@ -720,6 +726,7 @@ function EditorSurface({
   useInsertionEffect(dropDeadSelectors, []);
 
   useRegisterEditor(pageId, editor, docId, pipeline);
+  useAttachCommentsEditor(editor);
   const completion = useTabCompletion(readOnly ? null : editor, pageId, title, mode, docId);
   const reformat = useReformat(readOnly ? null : editor, pageId);
 
@@ -804,6 +811,7 @@ function EditorSurface({
         />
       )}
       {!readOnly && pageId && <ReviewOverlay editor={editor} pageId={pageId} />}
+      {pageId && <CommentDecorationsBridge editor={editor} />}
       {!readOnly && reformat.state && (
         <ReformatBar
           editor={editor}

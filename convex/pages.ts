@@ -6,7 +6,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { isTrashed, readVisible, requireEditable, requireOwner } from "./auth";
 import { removePageNode, retitlePageNode } from "./context/pages";
 import { copyPreview, deletePreview } from "./previews";
-import { refreshPageSummary, stampProject } from "./projects";
+import { purgeCommentsDoc, refreshPageSummary, stampProject } from "./projects";
 import { rowIcon } from "./schema";
 
 export const listByProject = query({
@@ -215,6 +215,8 @@ export async function clonePage(
   const yjs = await copyDoc(ctx, page.docId, docId);
   // A copy is made by whoever copied it, not by whoever wrote the original.
   const createdBy = await requireOwner(ctx);
+  // No `commentsDocId`: a copy is new writing, and the conversation about the
+  // original — anchored to the original's block ids — stays with it.
   return await ctx.db.insert("pages", {
     ownerId: home.ownerId,
     createdBy,
@@ -372,7 +374,7 @@ export const remove = mutation({
  * page a deleted folder holds). Caller has authorized the page.
  */
 export async function removePageCascade(ctx: MutationCtx, page: Doc<"pages">) {
-  for (const table of ["opLog", "checkpoints", "suggestionLog"] as const) {
+  for (const table of ["opLog", "checkpoints", "suggestionLog", "commentNotices"] as const) {
     const rows = await ctx.db
       .query(table)
       .withIndex("by_page", (q) => q.eq("pageId", page._id))
@@ -382,6 +384,7 @@ export async function removePageCascade(ctx: MutationCtx, page: Doc<"pages">) {
 
   await forgetTurns(ctx, page);
   await deletePreview(ctx, page.docId);
+  await purgeCommentsDoc(ctx, page);
   await removePageNode(ctx, page);
   await ctx.db.delete(page._id);
 }

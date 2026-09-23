@@ -1,13 +1,14 @@
 import { internalMutation, mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { ownerId, standInActor } from "./auth";
-import { checkRead } from "./prosemirror";
+import { checkRead, mayRead } from "./prosemirror";
 
 /**
  * The presence channel: who is on a doc, and where their caret is. Announcing
  * yourself is a read-level act — a share-link viewer's cursor is as real as
  * an editor's — so everything here is gated by the same `checkRead` the doc
- * itself is.
+ * itself is. That gate defaults to the document channel, and nothing here
+ * widens it: a comments document has no carets, so its docId is refused.
  *
  * Liveness is time-based, never event-based: a closed laptop sends no
  * goodbye. `leave` is a courtesy for the common case; the truth is
@@ -38,12 +39,11 @@ export const heartbeat = mutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    await checkRead(ctx, args.docId);
-    // The one write an operator's stand-in is refused quietly rather than
-    // loudly: announcing yourself is read-level everywhere else, but here it
-    // would put the user's own face in their own facepile. Watching is not
-    // being there, and a heartbeat that threw would only retry forever.
-    if (await standInActor(ctx)) return null;
+    // Declined quietly, never thrown: a tab whose access just ended (a link
+    // turned off) still sends a last heartbeat or two, and an operator's
+    // stand-in must not put the user's own face in their own facepile —
+    // watching is not being there. Either way nothing is written.
+    if (!(await mayRead(ctx, args.docId)) || (await standInActor(ctx))) return null;
     const me = await ownerId(ctx);
     const existing = await ctx.db
       .query("presence")

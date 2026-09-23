@@ -279,6 +279,8 @@ function toolContext(): ToolContext {
     openPageId: () => PAGE,
     openPage: () => {},
     editorFor: async () => editor as unknown as LiveEditor,
+    commentsFor: async () => null,
+    people: () => [],
   };
 }
 

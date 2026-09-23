@@ -7,7 +7,8 @@ import { checkRead, mayWrite } from "./prosemirror";
 /**
  * Stored page previews — see `schema.pagePreviews` for why they exist and who
  * writes them. Access is the document's own: whoever may read the page may
- * read its preview, and only a writer may leave one.
+ * read its preview, and only a writer may leave one. The gates' default is
+ * the document channel, so a comments docId has no preview to read or leave.
  */
 
 async function previewRow(ctx: { db: QueryCtx["db"] }, docId: string) {

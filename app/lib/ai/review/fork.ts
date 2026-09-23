@@ -31,7 +31,7 @@ import { replayable, replayOwnEdits } from "./undo";
  */
 
 type ForkApi = {
-  store: { state: { isForked: boolean } };
+  store: { state: { isForked: boolean }; subscribe: (listener: () => void) => () => void };
   fork: (opts?: { initialUpdate?: Uint8Array }) => void;
   merge: (opts: { keepChanges: boolean }) => void;
 };
@@ -52,6 +52,15 @@ function forkApi(editor: LiveEditor): ForkApi | null {
 
 export function isForked(editor: LiveEditor): boolean {
   return forkApi(editor)?.store.state.isForked ?? false;
+}
+
+/**
+ * Hears every fork and merge, synchronously inside them; null on the legacy
+ * pipeline, which never forks.
+ */
+export function forkStore(editor: LiveEditor): { subscribe: (listener: () => void) => () => void } | null {
+  const store = forkApi(editor)?.store;
+  return store ? { subscribe: (listener) => store.subscribe(listener) } : null;
 }
 
 /**

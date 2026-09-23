@@ -16,6 +16,9 @@ import { ModeToggle } from "./ModeToggle";
 import { CurrentPageProvider, useOpenPage, type Pane } from "./OpenPageContext";
 import { ArrowLeft, X } from "./Icons";
 import { useReadOnly } from "./editor/readOnly";
+import { PageCommentsProvider } from "./comments/PageComments";
+import { CommentsLayer } from "./comments/CommentsLayer";
+import { CommentsButton } from "./comments/CommentsButton";
 import type { PageMode } from "./editor/ai/useTabCompletion";
 
 export function PageSurface({
@@ -173,6 +176,8 @@ export function PageSurface({
         className="flex w-full flex-1 flex-col px-6 py-12 sm:px-14 sm:py-20"
         style={{ maxWidth: "calc(var(--measure) + 7rem)" }}
       >
+        <PageCommentsProvider pageId={pageId}>
+        <CommentsLayer linked={pane === "main"}>
         <div className="mb-6 flex items-center justify-start gap-2">
           {/* Following a chip somewhere needs a way home. Present only once
               there is a "back" to mean — a standing button would be chrome. */}
@@ -200,16 +205,19 @@ export function PageSurface({
               }}
             />
           )}
-          {pane === "aside" && (
-            <button
-              onClick={closeAside}
-              aria-label="Close split"
-              title="Close split"
-              className="nt-icon-btn ml-auto"
-            >
-              <X />
-            </button>
-          )}
+          <div className="ml-auto flex items-center gap-1">
+            <CommentsButton />
+            {pane === "aside" && (
+              <button
+                onClick={closeAside}
+                aria-label="Close split"
+                title="Close split"
+                className="nt-icon-btn"
+              >
+                <X />
+              </button>
+            )}
+          </div>
         </div>
         {readOnly ? (
           <h1
@@ -257,6 +265,8 @@ export function PageSurface({
             yjs={page.yjs}
           />
         </div>
+        </CommentsLayer>
+        </PageCommentsProvider>
       </div>
     </main>
     </CurrentPageProvider>

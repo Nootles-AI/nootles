@@ -17,7 +17,20 @@
     "test:canvas:camera": "node tests/canvas-camera.browser.mjs",
     "test:canvas:camera:record": "node tests/canvas-camera.browser.mjs --record",
     "test:canvas:picking": "node tests/canvas-picking.browser.mjs",
-    "test:canvas:stage": "node tests/canvas-stage.browser.mjs"
+    "test:canvas:stage": "node tests/canvas-stage.browser.mjs",
+    "test:comments:channel": "node tests/comments-channel.browser.mjs",
+    "test:comments:audit": "node tests/comments-audit.browser.mjs",
+    "test:comments:inbox": "node tests/comments-inbox.browser.mjs",
+    "test:comments:share": "node tests/comments-share.browser.mjs",
+    "test:comments:store": "node tests/comments-store.browser.mjs",
+    "test:comments:anchor": "node tests/comments-anchor.browser.mjs",
+    "test:comments:assistant": "node tests/comments-assistant.browser.mjs",
+    "test:comments:surfaces": "node tests/comments-surfaces.browser.mjs",
+    "test:comments:surfaces:fullstack": "node tests/comments-surfaces.fullstack.mjs",
+    "test:comments:ui": "node tests/comments-ui.browser.mjs",
+    "test:comments:e2e": "node tests/comments-e2e.fullstack.mjs",
+    "test:comments:browser": "node tests/comments-browser.mjs",
+    "test:comments:fullstack": "node tests/comments-browser.mjs --fullstack"
   },
   "dependencies": {
     "@ai-sdk/google": "^4.0.44",

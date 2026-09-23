@@ -1,4 +1,4 @@
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import { mutation, query } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -386,6 +386,18 @@ export const remove = mutation({
 });
 
 /**
+ * Schedules the page's comments document out of the Yjs tables. Its rows are
+ * keyed by an id nothing else names and can outweigh one transaction, so
+ * `ydoc.purge` takes them in bites. The page document's own rows are not
+ * purged here or anywhere yet — a gap older than comments.
+ */
+export async function purgeCommentsDoc(ctx: MutationCtx, page: Doc<"pages">) {
+  if (page.commentsDocId) {
+    await ctx.scheduler.runAfter(0, internal.ydoc.purge, { docId: page.commentsDocId });
+  }
+}
+
+/**
  * The hard cascade, now the purge's. The hierarchy is bounded (project → page
  * → its substrate rows) so this terminates, but it is a lot of rows: a very
  * large project could approach Convex's per-mutation write limit, at which
@@ -398,7 +410,7 @@ export async function purgeProject(ctx: MutationCtx, projectId: Id<"projects">) 
       .collect();
 
     for (const page of pages) {
-      for (const table of ["opLog", "checkpoints", "suggestionLog"] as const) {
+      for (const table of ["opLog", "checkpoints", "suggestionLog", "commentNotices"] as const) {
         const rows = await ctx.db
           .query(table)
           .withIndex("by_page", (q) => q.eq("pageId", page._id))
@@ -407,6 +419,7 @@ export async function purgeProject(ctx: MutationCtx, projectId: Id<"projects">) 
       }
 
       await deletePreview(ctx, page.docId);
+      await purgeCommentsDoc(ctx, page);
       await ctx.db.delete(page._id);
     }
 
@@ -429,6 +442,11 @@ export async function purgeProject(ctx: MutationCtx, projectId: Id<"projects">) 
       .withIndex("by_project_and_externalId", (q) => q.eq("projectId", projectId))
       .collect();
     await Promise.all(nodes.map((n) => ctx.db.delete(n._id)));
+    const overrides = await ctx.db
+      .query("entitlementOverrides")
+      .withIndex("by_scope_and_feature", (q) => q.eq("scope", "project").eq("scopeId", projectId))
+      .collect();
+    await Promise.all(overrides.map((o) => ctx.db.delete(o._id)));
 
     // The conversations about a project go with it. Turns in particular outlive
     // the pages they edited — they are what a reload reads to find changes still

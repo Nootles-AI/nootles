@@ -1,8 +1,9 @@
 name: check
 
-# The project's stated quality gates, enforced. There is no test suite, so this
-# is the whole automated bar — which is also why an agent-filed PR must clear it
-# before anyone reads it.
+# The project's stated quality gates, enforced: typecheck, lint and the unit
+# suite (vitest + convex-test), then the browser harnesses that exercise the
+# canvas and commenting in real Chromium. An agent-filed PR must clear all of
+# it before anyone reads it.
 on:
   pull_request:
   push:
@@ -21,7 +22,7 @@ jobs:
       # convex/_generated is committed, so typechecking needs no deployment.
       - run: npx tsc --noEmit
       - run: npm run lint
-      - run: npm test # vitest run — now includes tests/canvas-fixtures.test.ts
+      - run: npm test # vitest run — unit tests and convex-test suites
 
   # Correctness-only: zero scene notifications, identical DOM, layout
   # agreement, xfail truthfulness, network guards. Timing is a local,
@@ -49,4 +50,77 @@ jobs:
         if: always()
         with:
           name: canvas-browser-artifacts
+          path: tests/.artifacts/
+
+  # The comment harnesses that need no backend: the real comment UI, stores
+  # and gates over a stand-in Convex, every off-origin request failing the
+  # run, no model and no key. Playwright's own Chromium stands in for the
+  # system Chrome they launch locally.
+  comments-browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:comments:browser
+        env:
+          COMMENTS_BROWSER_CHANNEL: chromium
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: comments-browser-artifacts
+          path: tests/.artifacts/
+
+  # Commenting end to end against a real Convex: a throwaway
+  # convex-local-backend on the runner (the release pinned below, the one the
+  # suite was written against), this repo's functions pushed to it, and one
+  # browser per person. It reaches no cloud deployment and no paid API: the
+  # backend's outbound fetches are refused and fail the run.
+  comments-fullstack:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CONVEX_LOCAL_BACKEND: precompiled-2026-09-18-cf8398b
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+      - run: npx playwright install --with-deps chromium
+      - uses: actions/cache@v4
+        id: backend
+        with:
+          path: ~/.cache/convex/binaries/${{ env.CONVEX_LOCAL_BACKEND }}
+          key: convex-local-backend-${{ runner.os }}-${{ env.CONVEX_LOCAL_BACKEND }}
+      - if: steps.backend.outputs.cache-hit != 'true'
+        run: |
+          dir="$HOME/.cache/convex/binaries/$CONVEX_LOCAL_BACKEND"
+          mkdir -p "$dir"
+          curl -fsSL --retry 3 -o /tmp/backend.zip \
+            "https://github.com/get-convex/convex-backend/releases/download/$CONVEX_LOCAL_BACKEND/convex-local-backend-x86_64-unknown-linux-gnu.zip"
+          unzip -o /tmp/backend.zip -d "$dir"
+          chmod +x "$dir/convex-local-backend"
+      - run: npm run test:comments:fullstack
+        env:
+          COMMENTS_BROWSER_CHANNEL: chromium
+          CONVEX_LOCAL_BACKEND_BINARY: /home/runner/.cache/convex/binaries/${{ env.CONVEX_LOCAL_BACKEND }}/convex-local-backend
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: comments-fullstack-artifacts
           path: tests/.artifacts/

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
@@ -15,10 +15,13 @@ import { CurrentPageProvider, useOpenPage } from "../OpenPageContext";
 import { PagesProvider } from "../PagesContext";
 import { flattenTree } from "../sidebarTree";
 import { ReadOnlyContext } from "../editor/readOnly";
+import { CommentAccessContext, NO_COMMENT_ACCESS, type CommentAccess } from "../comments/access";
+import { PageCommentsProvider } from "../comments/PageComments";
+import { CommentsLayer } from "../comments/CommentsLayer";
 import { Facepile } from "../presence/Facepile";
 import { GuestChatRail } from "./GuestChatRail";
 import { SharedEditor } from "./SharedEditor";
-import { SignInToEdit } from "./SignInToEdit";
+import { SignInToEdit, type SignInIntent } from "./SignInToEdit";
 import { following, writingKey } from "./intent";
 
 /* The same threshold as the workspace: below it the rails become drawers. */
@@ -30,12 +33,18 @@ const INDENT = 12;
 /**
  * One project reached by share link, before any sign-in.
  *
- * Two faces, decided by which link this is. A viewer link is the quiet
- * read-only page it always was. An editor link dresses as the workspace —
- * rail, document, chat — because that is what it becomes the moment the guest
- * signs in; the banner says so, and any reach for the pen (a press into the
+ * Faces decided by which link this is. A viewer link is the quiet read-only
+ * page it always was. An editor link dresses as the workspace — rail,
+ * document, chat — because that is what it becomes the moment the guest signs
+ * in; the banner says so, and any reach for the pen (a press into the
  * document, the chat, a key) answers with the sign-in modal instead of
- * silence.
+ * silence. A comment link reads like the viewer link — the page is not theirs
+ * to write even signed in, and a read-only page takes no keystrokes to
+ * intercept — but it says what signing in gives, and hands the page a
+ * `CommentAccess` whose `signIn` opens the same door, for the comment
+ * affordance to reach for. Comments themselves stay out of reach until then:
+ * they need a name to be answerable under, so a signed-out visitor never
+ * reads them either.
  *
  * A visitor who is already signed in never sees any of it: the link claims
  * the project for them and carries them to the real workspace.
@@ -54,8 +63,14 @@ export function SharedProject({ token }: { token: string }) {
   // read in one sitting, and it should always open showing the whole shape.
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
   // Which door is open, and on whose behalf: an editor link's guest signs in
-  // to write, a viewer link's guest signs in to ask.
-  const [asking, setAsking] = useState<"edit" | "request" | null>(null);
+  // to write, a comment link's to comment, a viewer link's to ask.
+  const [asking, setAsking] = useState<SignInIntent | null>(null);
+  // A comment link's guest may not read or write comments until signed in;
+  // what a comment affordance can do for them is open this door.
+  const guestAccess = useMemo<CommentAccess>(
+    () => ({ ...NO_COMMENT_ACCESS, signIn: () => setAsking("comment") }),
+    [],
+  );
   const [claimFailed, setClaimFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
   // What kind of press is in flight, so a touch can be told apart from a
@@ -202,6 +217,7 @@ export function SharedProject({ token }: { token: string }) {
   }
 
   const editable = shared.role === "editor";
+  const commentable = shared.role === "commenter";
   const pages = shared.pages;
   // Resolved the way the workspace resolves it: a stale or foreign id falls
   // back to the first page rather than blanking the surface.
@@ -325,9 +341,9 @@ export function SharedProject({ token }: { token: string }) {
         </span>
         <div className="ml-auto flex shrink-0 items-center gap-2">
           <Facepile docId={current?.docId ?? null} />
-          {editable ? (
+          {editable || commentable ? (
             <button
-              onClick={() => setAsking("edit")}
+              onClick={() => setAsking(editable ? "edit" : "comment")}
               className="nt-row shrink-0 px-2.5 text-muted"
             >
               Sign in
@@ -352,6 +368,12 @@ export function SharedProject({ token }: { token: string }) {
         <div className="nt-guest-banner">
           <span>This project is editable.</span>
           <button onClick={() => setAsking("edit")}>Sign in to edit</button>
+        </div>
+      )}
+      {commentable && (
+        <div className="nt-guest-banner">
+          <span>This project is open for comments.</span>
+          <button onClick={() => setAsking("comment")}>Sign in to comment</button>
         </div>
       )}
 
@@ -416,9 +438,15 @@ export function SharedProject({ token }: { token: string }) {
                 </h1>
                 <div className="mt-8">
                   <ReadOnlyContext value={true}>
-                    <CurrentPageProvider pageId={current._id}>
-                      <SharedEditor key={current.docId} docId={current.docId} />
-                    </CurrentPageProvider>
+                    <CommentAccessContext value={commentable ? guestAccess : NO_COMMENT_ACCESS}>
+                      <CurrentPageProvider pageId={current._id}>
+                        <PageCommentsProvider key={current._id} pageId={current._id}>
+                          <CommentsLayer linked>
+                            <SharedEditor key={current.docId} docId={current.docId} />
+                          </CommentsLayer>
+                        </PageCommentsProvider>
+                      </CurrentPageProvider>
+                    </CommentAccessContext>
                   </ReadOnlyContext>
                 </div>
               </div>

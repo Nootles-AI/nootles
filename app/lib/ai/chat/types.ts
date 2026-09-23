@@ -15,6 +15,12 @@ export type AbMetadata = {
   pageIdAtSend?: Id<"pages">;
   /** Links a turn to its checkpoints and op-log rows. */
   chatPromptId?: string;
+  /**
+   * On an answer: whether the comments gate let this page's comments into the
+   * turn. Written by the route and read back on the requests that resume the
+   * turn, so one turn asks the gate once per page it works on.
+   */
+  commentsGate?: { pageId: string; include: boolean };
 };
 
 export type AbMessage = UIMessage<AbMetadata, AbDataParts>;

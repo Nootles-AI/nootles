@@ -10,6 +10,7 @@ import { useYjsEditor } from "@/app/lib/sync/useYjsEditor";
 import { guestIdentity } from "@/app/lib/sync/colors";
 import { arrivalFlashExtension } from "../editor/arrivalFlash";
 import { schema } from "../editor/schema";
+import { useAttachCommentsEditor } from "../comments/editorSlot";
 import "../editor/editor.css";
 
 type EditorInstance = typeof schema.BlockNoteEditor;
@@ -65,6 +66,9 @@ function SharedLegacy({ docId }: { docId: string }) {
 }
 
 function ReadOnlyView({ editor }: { editor: EditorInstance }) {
+  // Read-only still selects words, and a comment link's guest selects them
+  // to be offered the sign-in that would let them comment.
+  useAttachCommentsEditor(editor);
   return (
     <BlockNoteView
       editor={editor}

@@ -105,6 +105,17 @@ export const rowIcon = v.union(
   }),
 );
 
+/**
+ * What an audit event may carry besides its columns: identifiers and counts,
+ * each keyed by name. There is no free-text field on purpose — see
+ * `auditEvents`. `audit.recordAudit` further refuses an id that is not
+ * id-shaped, so prose cannot ride in through `ids` either.
+ */
+export const auditMeta = v.object({
+  ids: v.optional(v.record(v.string(), v.string())),
+  counts: v.optional(v.record(v.string(), v.number())),
+});
+
 export const repoRef = v.object({
   /** "owner/name", the way GitHub writes it and the way the agent names it. */
   fullName: v.string(),
@@ -129,6 +140,13 @@ export default defineSchema({
     shareToken: v.optional(v.string()),
     editShareToken: v.optional(v.string()),
     /**
+     * The third link: admits commenters, who may read the pages and write
+     * threads in their comments documents but never the pages themselves.
+     * Ranked between the other two; minted and revoked like them, by
+     * `share.setLink`.
+     */
+    commentShareToken: v.optional(v.string()),
+    /**
      * What the projects screen draws about this project's pages, denormalized
      * so the screen's read set stops covering every page of every project.
      * Maintained by `projects.refreshPageSummary`; absent on projects written
@@ -151,6 +169,7 @@ export default defineSchema({
     .index("by_owner", ["ownerId"])
     .index("by_share_token", ["shareToken"])
     .index("by_edit_share_token", ["editShareToken"])
+    .index("by_comment_share_token", ["commentShareToken"])
     .index("by_deleted", ["deletedAt"]),
 
   /**
@@ -168,7 +187,7 @@ export default defineSchema({
   shareClaims: defineTable({
     projectId: v.id("projects"),
     granteeId: v.string(),
-    role: v.union(v.literal("viewer"), v.literal("editor")),
+    role: v.union(v.literal("viewer"), v.literal("commenter"), v.literal("editor")),
     /**
      * The pen, handed to this person by name — what the owner granting an
      * access request writes. Separate from `role` because that field records
@@ -214,6 +233,67 @@ export default defineSchema({
     .index("by_project_and_requester", ["projectId", "requesterId"])
     .index("by_owner_and_status", ["projectOwnerId", "status"])
     .index("by_requester_and_status", ["requesterId", "status"]),
+
+  /**
+   * A person told that a comment concerns them: one row per recipient per
+   * event, modelled on `accessRequests` — `seenAt` records being told, and the
+   * index makes a recipient's unread inbox one read wherever they stand.
+   *
+   * Notification, not content: the thread itself lives in the page's comments
+   * document, and `threadId` is its NML block id. Nothing here quotes a body.
+   * Named `recipientId`, not `ownerId`, for the same reason `accessRequests`
+   * is: these rows are correspondence, not the recipient's own records.
+   */
+  commentNotices: defineTable({
+    /** Clerk subject told. */
+    recipientId: v.string(),
+    projectId: v.id("projects"),
+    pageId: v.id("pages"),
+    threadId: v.string(),
+    /** Clerk subject whose comment caused it. */
+    actorId: v.string(),
+    kind: v.union(v.literal("mention"), v.literal("reply"), v.literal("resolved")),
+    createdAt: v.number(),
+    seenAt: v.optional(v.number()),
+  })
+    .index("by_recipient_unseen", ["recipientId", "seenAt"])
+    .index("by_recipient_page_unseen", ["recipientId", "pageId", "seenAt"])
+    /** A page's notices; by thread and unseen, so a deleted thread's are one read. */
+    .index("by_page", ["pageId", "threadId", "seenAt"])
+    /** One unseen notice per person per thread per kind: a second event
+     *  refreshes it (`commentNotices.event`) rather than piling up. */
+    .index("by_recipient_thread_unseen", ["recipientId", "threadId", "seenAt"]),
+
+  /**
+   * Who did what, and when — the Teams design's audit shape (its decision 23),
+   * landed ahead of workspaces so comments can record into it now.
+   *
+   * Discrete events are one row each; edit activity is coalesced by
+   * `windowKey` into one row per (page, actor, window) carrying `count`.
+   * `meta` holds ids and counts ONLY — never document or comment text, which
+   * would make this a second copy of the content under different access rules.
+   * `audit.recordAudit` is the one writer and enforces that shape.
+   *
+   * `workspaceId` is a plain string until the `workspaces` table exists.
+   */
+  auditEvents: defineTable({
+    workspaceId: v.optional(v.string()),
+    projectId: v.optional(v.id("projects")),
+    actorId: v.string(),
+    actorKind: v.union(v.literal("user"), v.literal("operator"), v.literal("system")),
+    /** Dotted verb, e.g. "comment.create". */
+    action: v.string(),
+    subjectKind: v.optional(v.string()),
+    subjectId: v.optional(v.string()),
+    meta: v.optional(auditMeta),
+    at: v.number(),
+    windowKey: v.optional(v.string()),
+    count: v.optional(v.number()),
+  })
+    .index("by_project_at", ["projectId", "at"])
+    .index("by_workspace_at", ["workspaceId", "at"])
+    /** The retention sweep's horizon: every row older than a year, across tenants. */
+    .index("by_at", ["at"]),
 
   /**
    * Per-account settings. Exists at all because first run needs somewhere to
@@ -326,6 +406,17 @@ export default defineSchema({
     // prosemirror-sync document id for this page's block flow.
     docId: v.string(),
     /**
+     * The page's second Yjs document: its comment threads, NML with a
+     * `comments` document kind. Minted lazily by `comments.ensureDoc`, so a
+     * page nobody has commented on has none.
+     *
+     * A column rather than a derivation of `docId` because the column is the
+     * gate: `prosemirror.pageAndChannelForDoc` decides which channel a docId
+     * is on by which index matched it, so a caller cannot choose the channel
+     * by how they spell the id. Never copied with the page.
+     */
+    commentsDocId: v.optional(v.string()),
+    /**
      * Set once this page's document moved to the Yjs pipeline — the same fact
      * as a `ydocs` row, kept here so `ydoc.state` can answer without reading a
      * row that every flush rewrites. Absent until the doc's next append, which
@@ -349,6 +440,7 @@ export default defineSchema({
   })
     .index("by_project", ["projectId", "order"])
     .index("by_doc", ["docId"])
+    .index("by_comments_doc", ["commentsDocId"])
     .index("by_deleted", ["deletedAt"]),
 
   // ---- Document sync (Yjs) ------------------------------------------------
@@ -776,6 +868,7 @@ export default defineSchema({
       v.literal("feedback"),
       v.literal("album"),
       v.literal("context"),
+      v.literal("commentsGate"),
     ),
     model: v.string(),
     promptTokens: v.optional(v.number()),
@@ -1141,6 +1234,30 @@ export default defineSchema({
     .index("by_owner", ["ownerId"])
     .index("by_code", ["codeId"])
     .index("by_owner_and_code", ["ownerId", "codeId"]),
+
+  /**
+   * One feature, forced on or off for one project or one account, over what
+   * the owner's plan says — the Teams design's override table (its decision
+   * 19) for the containers that exist before workspaces do. Most accounts have
+   * no rows and run on `PLAN_FEATURES` alone; a row exists when a feature has
+   * to be turned off for an abuse case, or on for a promise.
+   *
+   * `scopeId` is the project's id for `project`, the owner's Clerk subject for
+   * `account`. A project row outranks its owner's account row. Written only by
+   * `entitlements.setOverride` (internal); read by `entitlements.feature`.
+   */
+  entitlementOverrides: defineTable({
+    scope: v.union(v.literal("project"), v.literal("account")),
+    scopeId: v.string(),
+    feature: v.literal("comments"),
+    value: v.boolean(),
+    /** Why, and who asked. */
+    note: v.string(),
+    grantedBy: v.string(),
+    grantedAt: v.number(),
+    /** When the override lapses and the plan answers again; absent = never. */
+    expiresAt: v.optional(v.number()),
+  }).index("by_scope_and_feature", ["scope", "scopeId", "feature"]),
 
   // ---- GitHub -------------------------------------------------------------
 

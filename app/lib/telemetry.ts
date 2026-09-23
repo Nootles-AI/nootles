@@ -43,9 +43,9 @@ type EventMap = {
   /** Whether being told a report was fixed is worth reading, or just closed. */
   fix_toast_opened: { count: number };
   fix_toast_dismissed: { count: number };
-  share_link_toggled: { role: "viewer" | "editor"; on: boolean };
-  share_link_copied: { role: "viewer" | "editor" };
-  share_claimed: { role: "viewer" | "editor" };
+  share_link_toggled: { role: "viewer" | "commenter" | "editor"; on: boolean };
+  share_link_copied: { role: "viewer" | "commenter" | "editor" };
+  share_claimed: { role: "viewer" | "commenter" | "editor" };
   access_requested: { from: "share_link" | "workspace" };
   access_request_decided: { grant: boolean };
   survey_answered: { survey: string; answered: boolean };

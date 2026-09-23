@@ -1,4 +1,5 @@
 import type { ConvexReactClient } from "convex/react";
+import { ConvexError } from "convex/values";
 import * as Y from "yjs";
 import {
   applyAwarenessUpdate,
@@ -10,6 +11,7 @@ import { api } from "@/convex/_generated/api";
 import type { PageDigest } from "@/convex/context/shape";
 import { encodePreview } from "@/convex/previewShape";
 import { splitUpdate } from "@/convex/yshape";
+import { COMMENTS_REFUSED } from "@/app/lib/comments/policy";
 import { openYDoc } from "./ydocRead";
 
 /**
@@ -56,19 +58,47 @@ const PRESENCE_STALE_MS = 30_000;
 
 type Listener = () => void;
 
+/** The server's reason when it refused an append outright, or null for any other failure. */
+function refusalOf(error: unknown): string | null {
+  if (!(error instanceof ConvexError)) return null;
+  const data = error.data as { code?: unknown; message?: unknown } | null;
+  return data?.code === COMMENTS_REFUSED && typeof data.message === "string" ? data.message : null;
+}
+
+/**
+ * What a provider does beyond syncing its document. Both default on, which is
+ * a page: its flushes leave a preview and a context digest behind, and its
+ * awareness rides the presence table. A page's comments document turns both
+ * off — it is not a page to preview or digest, and it has no carets — and the
+ * server refuses it on both channels anyway.
+ */
+export type ProviderOptions = {
+  /** Write the preview and context digest behind flushes. */
+  derived?: boolean;
+  /** Watch and announce presence. */
+  presence?: boolean;
+};
+
+function withDefaults(options: ProviderOptions): Readonly<Required<ProviderOptions>> {
+  return { derived: options.derived ?? true, presence: options.presence ?? true };
+}
+
 export class YConvexProvider {
-  readonly doc: Y.Doc;
-  readonly awareness: Awareness;
+  private currentDoc: Y.Doc;
+  private currentAwareness: Awareness;
   /** One per instance — the identity of THIS tab's presence row. */
   readonly sessionId = crypto.randomUUID();
 
   private client: ConvexReactClient;
   private docId: string;
+  readonly options: Readonly<Required<ProviderOptions>>;
 
   private connected = false;
   private syncedFlag = false;
   private resolveSynced!: () => void;
-  readonly whenSynced: Promise<void>;
+  private synchronizing = this.untilSynced();
+  /** Why the server last refused this tab's changes outright; null once a flush lands. */
+  private refused: string | null = null;
 
   /** Highest seq applied locally — the fetch cursor. */
   private cursor = 0;
@@ -98,19 +128,63 @@ export class YConvexProvider {
   private announced = false;
   private onPageHide = () => void this.sendLeave();
 
-  constructor(client: ConvexReactClient, docId: string, doc: Y.Doc) {
+  constructor(
+    client: ConvexReactClient,
+    docId: string,
+    doc: Y.Doc,
+    options: ProviderOptions = {},
+  ) {
     this.client = client;
     this.docId = docId;
-    this.doc = doc;
-    this.awareness = new Awareness(doc);
-    this.whenSynced = new Promise((r) => (this.resolveSynced = r));
+    this.options = withDefaults(options);
+    this.currentDoc = doc;
+    this.currentAwareness = this.adopt(doc);
+  }
+
+  /** Listens to a doc as this provider's own, returning its awareness. */
+  private adopt(doc: Y.Doc): Awareness {
+    const awareness = new Awareness(doc);
     doc.on("update", this.onDocUpdate);
-    this.awareness.on("update", this.onAwareness);
+    awareness.on("update", this.onAwareness);
     byDoc.set(doc, this);
+    return awareness;
+  }
+
+  /**
+   * The synced document. Replaced only after the server refuses a change
+   * outright (see `restart`), so a holder that re-reads it on `subscribe`
+   * always has the live one.
+   */
+  get doc(): Y.Doc {
+    return this.currentDoc;
+  }
+
+  get awareness(): Awareness {
+    return this.currentAwareness;
   }
 
   get synced(): boolean {
     return this.syncedFlag;
+  }
+
+  /** Resolves once `doc` has caught up with the server. */
+  get whenSynced(): Promise<void> {
+    return this.synchronizing;
+  }
+
+  private untilSynced(): Promise<void> {
+    return new Promise((resolve) => (this.resolveSynced = resolve));
+  }
+
+  /** Why the server last refused this tab's changes outright, until one lands or it is dismissed. */
+  get refusal(): string | null {
+    return this.refused;
+  }
+
+  dismissRefusal() {
+    if (this.refused === null) return;
+    this.refused = null;
+    this.emit();
   }
 
   get hasUnsyncedChanges(): boolean {
@@ -133,20 +207,29 @@ export class YConvexProvider {
     // Subscribe first: a change that lands during the initial load just
     // schedules a pull that the idempotence makes safe.
     const watch = this.client.watchQuery(api.ydoc.meta, { docId: this.docId });
-    this.unwatch = watch.onUpdate(() => void this.pull());
-    void this.pull();
+    this.unwatch = watch.onUpdate(this.wake);
+    this.wake();
+    if (!this.options.presence) return;
 
     const presence = this.client.watchQuery(api.presence.list, {
       docId: this.docId,
     });
-    this.unwatchPresence = presence.onUpdate(() =>
-      this.applyPresence(presence.localQueryResult() ?? []),
-    );
+    // A query that errors rethrows from `localQueryResult`. Losing the page
+    // (its last link turned off under a collaborator) is such an error, and
+    // the answer to it is an empty room, not an uncaught throw every tick.
+    const roster = () => {
+      try {
+        return presence.localQueryResult() ?? [];
+      } catch {
+        return [];
+      }
+    };
+    this.unwatchPresence = presence.onUpdate(() => this.applyPresence(roster()));
     this.keepaliveTimer = setInterval(() => {
       this.sendAwareness();
       // Re-judge staleness on our own clock too: if everyone left without a
       // goodbye, no list update arrives to take their carets down.
-      this.applyPresence(presence.localQueryResult() ?? []);
+      this.applyPresence(roster());
     }, KEEPALIVE_MS);
     if (typeof window !== "undefined") {
       window.addEventListener("pagehide", this.onPageHide);
@@ -184,7 +267,7 @@ export class YConvexProvider {
     if (typeof window !== "undefined") {
       window.removeEventListener("pagehide", this.onPageHide);
     }
-    void this.sendLeave();
+    if (this.options.presence) void this.sendLeave();
     // A parting attempt at anything unsent; the queue survives failure and
     // ships on reconnect.
     if (this.queue.length) void this.flush();
@@ -204,6 +287,16 @@ export class YConvexProvider {
    * Bring the doc up to the server's seq. Serialized by a latch — a second
    * wake-up during a pull runs one more pull after, never two at once.
    */
+  /**
+   * A pull, from a watch or on connect. One that fails is a document that has
+   * stopped answering this caller — the page's last link turned off under
+   * them — and waits quietly for the next wake rather than surfacing as an
+   * unhandled rejection on every change.
+   */
+  private wake = () => {
+    this.pull().catch(() => {});
+  };
+
   private async pull() {
     if (!this.connected) return;
     if (this.pulling) {
@@ -225,12 +318,18 @@ export class YConvexProvider {
           });
           if (!meta || this.cursor >= meta.seq) continue;
         }
+        const doc = this.doc;
         const opened = await openYDoc(
           this.client,
           this.docId,
           this.cursor,
-          (update) => Y.applyUpdate(this.doc, update, this),
+          (update) => Y.applyUpdate(doc, update, this),
         );
+        // Restarted meanwhile: that cursor belonged to the doc it replaced.
+        if (doc !== this.doc) {
+          this.pullAgain = true;
+          continue;
+        }
         if (!opened) continue; // not Yjs-native (yet); the watch will say when
         this.cursor = opened.cursor;
         if (opened.torn) {
@@ -268,7 +367,7 @@ export class YConvexProvider {
     { added, updated, removed }: { added: number[]; updated: number[]; removed: number[] },
     origin: unknown,
   ) => {
-    if (origin === "remote" || !this.connected) return;
+    if (origin === "remote" || !this.connected || !this.options.presence) return;
     const mine = this.doc.clientID;
     if (![...added, ...updated, ...removed].includes(mine)) return;
     if (this.announced && this.peers === 0) return;
@@ -280,7 +379,7 @@ export class YConvexProvider {
   };
 
   private sendAwareness() {
-    if (!this.connected) return;
+    if (!this.connected || !this.options.presence) return;
     const local = this.awareness.getLocalState();
     if (!local) return;
     const user = (local.user ?? {}) as {
@@ -420,9 +519,15 @@ export class YConvexProvider {
         if (seq === this.cursor + 1) this.cursor = seq;
       }
       this.retryMs = 0;
+      this.refused = null;
       this.lastFlushAt = Date.now();
       this.scheduleDerived();
-    } catch {
+    } catch (error) {
+      const refusal = refusalOf(error);
+      if (refusal !== null) {
+        this.restart(refusal);
+        return;
+      }
       // Everything unsent goes back to the front, coalesced, and retries on
       // a doubling delay — the queue is the offline buffer.
       this.queue = [merged, ...this.queue];
@@ -437,6 +542,37 @@ export class YConvexProvider {
     }
   }
 
+  /**
+   * The server refused a flush for what it says, not for who or when — a
+   * comments write its policy will never take (`comments/policy.ts`). A retry
+   * cannot land it, and this doc now holds changes the server will never
+   * have: every later edit here would build on them and be refused in turn.
+   * So the doc is swapped for a fresh one synced from the server, which
+   * leaves this tab exactly where everyone else is, and the refusal is kept
+   * for the surface to say why its change went.
+   */
+  private restart(refusal: string) {
+    const old = this.currentDoc;
+    old.off("update", this.onDocUpdate);
+    this.currentAwareness.off("update", this.onAwareness);
+    this.currentAwareness.destroy();
+    byDoc.delete(old);
+    this.queue = [];
+    if (this.flushTimer) {
+      clearTimeout(this.flushTimer);
+      this.flushTimer = null;
+    }
+    this.retryMs = 0;
+    this.cursor = 0;
+    this.syncedFlag = false;
+    this.synchronizing = this.untilSynced();
+    this.refused = refusal;
+    this.currentDoc = new Y.Doc();
+    this.currentAwareness = this.adopt(this.currentDoc);
+    this.emit();
+    this.wake();
+  }
+
   // ---- Derived data -------------------------------------------------------
 
   /**
@@ -448,7 +584,7 @@ export class YConvexProvider {
    * change that writes what is derived from it.
    */
   private scheduleDerived() {
-    if (this.derivedTimer) return;
+    if (this.derivedTimer || !this.options.derived) return;
     this.derivedTimer = setTimeout(() => {
       this.derivedTimer = null;
       void this.writeDerived();
@@ -456,6 +592,7 @@ export class YConvexProvider {
   }
 
   private async writeDerived({ preview = true } = {}) {
+    if (!this.options.derived) return;
     // BlockNote's schema is what reads a Y.Doc as blocks; imported here so
     // a surface that only syncs never pays for it.
     try {
@@ -547,17 +684,25 @@ export function providerForDoc(doc: Y.Doc): YConvexProvider | null {
 export function acquireProvider(
   client: ConvexReactClient,
   docId: string,
+  options: ProviderOptions = {},
 ): YConvexProvider {
   if (recentClient !== client) {
     for (const [id, provider] of recent) forget(id, provider);
     recentClient = client;
+  }
+  // A docId is one kind of document for life, so a second opinion about what
+  // its provider does is a caller bug — not something to settle by first come.
+  const existing = held.get(docId)?.provider ?? recent.get(docId);
+  const wanted = withDefaults(options);
+  if (existing && (existing.options.derived !== wanted.derived || existing.options.presence !== wanted.presence)) {
+    throw new Error(`Provider for ${docId} is already held with different options.`);
   }
   let entry = held.get(docId);
   if (!entry) {
     const warm = recent.get(docId);
     recent.delete(docId);
     entry = {
-      provider: warm ?? new YConvexProvider(client, docId, new Y.Doc()),
+      provider: warm ?? new YConvexProvider(client, docId, new Y.Doc(), options),
       refs: 0,
     };
     held.set(docId, entry);
