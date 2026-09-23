@@ -19,7 +19,9 @@
     "test:canvas:picking": "node tests/canvas-picking.browser.mjs",
     "test:canvas:stage": "node tests/canvas-stage.browser.mjs",
     "test:comments:channel": "node tests/comments-channel.browser.mjs",
-    "test:comments:audit": "node tests/comments-audit.browser.mjs"
+    "test:comments:audit": "node tests/comments-audit.browser.mjs",
+    "test:comments:inbox": "node tests/comments-inbox.browser.mjs",
+    "test:comments:share": "node tests/comments-share.browser.mjs"
   },
   "dependencies": {
     "@ai-sdk/google": "^4.0.44",

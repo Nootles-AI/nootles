@@ -44,7 +44,7 @@ import {
   type SharedProject,
 } from "./projectParts";
 import { useStandIn } from "./StandIn";
-import { AccessRequests } from "./share/AccessRequests";
+import { Correspondence } from "./share/AccessRequests";
 
 type View = "grid" | "list" | "board";
 const VIEWS: View[] = ["grid", "list", "board"];
@@ -595,9 +595,10 @@ export function ProjectsScreen() {
           already allows. */}
       {live && <Feedback />}
       {live && <FixedToast />}
-      {/* Same reasoning: someone asking to edit should reach the owner here
-          too, not only inside whichever project they happen to open. */}
-      {live && <AccessRequests />}
+      {/* Same reasoning: someone asking to edit, or a comment that concerns
+          you, should reach you here too, not only inside whichever project
+          you happen to open. */}
+      {live && <Correspondence />}
     </main>
   );
 }

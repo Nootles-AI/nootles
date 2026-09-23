@@ -6,6 +6,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { track } from "@/app/lib/telemetry";
 import { FountainPen, X } from "../Icons";
+import { CommentInbox } from "../comments/CommentInbox";
 import "./access.css";
 
 /** By code point, not char: a name starting with an emoji keeps it whole. */
@@ -53,7 +54,7 @@ export function AccessRequests() {
   if (!incoming.length && !news.length) return null;
 
   return (
-    <div className="nt-asks">
+    <>
       {news.length > 0 && (
         <div className="nt-ask" role="status">
           <span className="nt-ask-pen" aria-hidden>
@@ -118,6 +119,20 @@ export function AccessRequests() {
           </span>
         </div>
       ))}
+    </>
+  );
+}
+
+/**
+ * The corner itself: access requests and comment notices, one stack, so the
+ * two never land on top of each other. Requests sit nearest the corner — they
+ * are waiting on an answer; a notice is only news.
+ */
+export function Correspondence({ projectId }: { projectId?: Id<"projects"> }) {
+  return (
+    <div className="nt-asks">
+      <AccessRequests />
+      <CommentInbox projectId={projectId} />
     </div>
   );
 }

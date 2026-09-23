@@ -7,6 +7,7 @@ import {
   toUIMessageStream,
   type LanguageModelUsage,
   type SystemModelMessage,
+  type ToolSet,
 } from "ai";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -20,7 +21,9 @@ import {
   SYSTEM,
   openPageNote,
 } from "@/app/lib/ai/chat/prompt";
-import { pagePack, projectPack } from "@/app/lib/ai/context/pack";
+import { commentsPack, pagePack, projectPack } from "@/app/lib/ai/context/pack";
+import { commentsGate } from "@/app/lib/ai/commentsGate";
+import { gateSummary, parseDigest, type CommentsDigest } from "@/app/lib/comments/digest";
 import { chatTools } from "@/app/lib/ai/chat/serverTools";
 import { stageTurn } from "@/app/lib/ai/staged/stage";
 import {
@@ -60,12 +63,13 @@ export async function POST(req: Request) {
     return new Response("Invalid JSON", { status: 400 });
   }
 
-  const { messages, projectId, pageId, threadId, drawStyle } = (body ?? {}) as {
+  const { messages, projectId, pageId, threadId, drawStyle, comments } = (body ?? {}) as {
     messages?: AbMessage[];
     projectId?: Id<"projects">;
     pageId?: Id<"pages">;
     threadId?: Id<"chatThreads">;
     drawStyle?: unknown;
+    comments?: unknown;
   };
   if (!Array.isArray(messages)) {
     return new Response("`messages` must be an array", { status: 400 });
@@ -79,6 +83,14 @@ export async function POST(req: Request) {
   // draft until one exists (`ChatPanel`) — so nothing legitimate arrives without.
   if (!threadId) {
     return new Response("`threadId` is required", { status: 400 });
+  }
+  // The open page's comments, as the browser holding them digested them. Its
+  // own words about comments it could already read, so nothing to authorize —
+  // only to bound. `toDigest` never builds what this refuses, so a refusal is a
+  // client from another build, and costs it the comments rather than the turn.
+  const digest = comments === undefined ? undefined : parseDigest(comments);
+  if (digest && !digest.ok && process.env.NODE_ENV !== "production") {
+    console.warn(`[chat] comments digest ignored: ${digest.reason}`);
   }
 
   // A call whose result never arrived — an abandoned turn, a closed tab — is
@@ -152,9 +164,20 @@ export async function POST(req: Request) {
   // the project is a living thing, and it is one round trip: without it the
   // agent writes into every project as if it were the same project.
   const note = openPageNote(pageId);
-  const inputs = await convex
-    .query(api.context.read.packInputs, { projectId, ...(note ? { pageId } : {}) })
-    .catch(() => null);
+  // Only a digest of the page the note names: "this page" has to mean one page.
+  // A staged turn is a script, and asks nothing of a real model.
+  const pageComments =
+    digest?.ok && note && digest.digest.pageId === pageId && !staged ? digest.digest : null;
+  // The gate runs beside the context read, so it adds to the first token only
+  // what it takes past that round trip.
+  const [inputs, withComments] = await Promise.all([
+    convex
+      .query(api.context.read.packInputs, { projectId, ...(note ? { pageId } : {}) })
+      .catch(() => null),
+    pageComments
+      ? commentsWanted(convex, messages, pageComments, req.signal).catch(() => false)
+      : false,
+  ]);
   const about = inputs ? projectPack(inputs, AI.chat.context.projectTokens) : "";
 
   // Separate instructions, not one concatenated string. The breakpoint goes on
@@ -167,7 +190,11 @@ export async function POST(req: Request) {
   instructions[instructions.length - 1].providerOptions = cached();
 
   const around = inputs && note ? pagePack(inputs, pageId, AI.chat.context.pageTokens) : "";
-  const open = [note, around].filter(Boolean).join("\n\n");
+  const discussed =
+    pageComments && withComments
+      ? commentsPack(pageComments, AI.chat.context.commentsTokens)
+      : "";
+  const open = [note, around, discussed].filter(Boolean).join("\n\n");
   if (open) instructions.push({ role: "system", content: open });
 
   // Taken apart rather than spread: this call's tool typing is what the step
@@ -215,8 +242,47 @@ export async function POST(req: Request) {
   });
 
   return createUIMessageStreamResponse({
-    stream: toUIMessageStream({ stream: result.stream }),
+    stream: toUIMessageStream<ToolSet, AbMessage>({
+      stream: result.stream,
+      // The gate's answer rides the answer's metadata, so the requests that
+      // resume this turn read it back instead of asking again.
+      ...(pageComments
+        ? {
+            messageMetadata: ({ part }) =>
+              part.type === "start"
+                ? { commentsGate: { pageId: pageComments.pageId, include: withComments } }
+                : undefined,
+          }
+        : {}),
+    }),
   });
+}
+
+/**
+ * Whether this turn reads the page's comments. A turn resumed after a client
+ * tool already asked about this page, and its answer is on the message being
+ * continued; the request that opens a turn, one that has moved to another
+ * page, or one whose answer was lost asks the gate.
+ */
+async function commentsWanted(
+  convex: ReturnType<typeof asSession>,
+  messages: AbMessage[],
+  digest: CommentsDigest,
+  signal: AbortSignal,
+): Promise<boolean> {
+  const last = messages[messages.length - 1];
+  const asked = last?.role === "assistant" ? last.metadata?.commentsGate : undefined;
+  if (asked?.pageId === digest.pageId && typeof asked.include === "boolean") return asked.include;
+  const summary = gateSummary(digest, AI.commentsGate);
+  return commentsGate(convex, { message: latestUserText(messages), ...summary }, signal);
+}
+
+/** The words of the user's latest message, without its attachments or mentions. */
+function latestUserText(messages: AbMessage[]): string {
+  const user = messages.findLast((message) => message.role === "user");
+  return (user?.parts ?? [])
+    .flatMap((part) => (part.type === "text" ? [part.text] : []))
+    .join("\n");
 }
 
 /**

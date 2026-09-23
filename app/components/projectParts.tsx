@@ -50,8 +50,8 @@ export function sameProjectProps<P extends { project: Project }>(prev: P, next: 
   );
 }
 
-export const roleLabel = (p: SharedProject) =>
-  p.role === "editor" ? "can edit" : "view only";
+export const roleLabel = (p: Pick<SharedProject, "role">) =>
+  p.role === "editor" ? "can edit" : p.role === "commenter" ? "can comment" : "view only";
 
 /**
  * The link that opens a project, in both views.

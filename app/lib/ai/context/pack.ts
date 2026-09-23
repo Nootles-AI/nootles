@@ -1,5 +1,6 @@
 import type { FunctionReturnType } from "convex/server";
 import type { api } from "@/convex/_generated/api";
+import { formatDigest, type CommentsDigest } from "@/app/lib/comments/digest";
 
 /**
  * The context pack: the project as each AI lane is told about it, rendered
@@ -188,6 +189,15 @@ export function pagePack(
     "read_page has any of them whole.",
     ...out,
   ].join("\n");
+}
+
+/**
+ * The open page's comments, for a turn the comments gate let them into. Below
+ * the cache breakpoint beside `pagePack`, since they move with the page and
+ * with every reply.
+ */
+export function commentsPack(digest: CommentsDigest, budgetTokens: number): string {
+  return formatDigest(digest, budgetTokens * CHARS_PER_TOKEN);
 }
 
 /**
