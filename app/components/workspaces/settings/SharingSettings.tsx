@@ -80,8 +80,8 @@ export function SharingSettings({ workspace }: { workspace: WorkspaceContainer }
               <div className="nt-set-name">Share links</div>
               <p className="nt-set-note">
                 {linkSharing
-                  ? "Owners and admins can share a project by link, with people who sign in. Turning this off stops every link at once, and whoever came in through one loses access until it’s back on."
-                  : `No project in ${workspace.name} opens through a link. Nothing is deleted: turning this back on brings every link back, and the people who came in by one.`}
+                  ? "Owners and admins can share projects by link with anyone who signs in. Turn this off to stop every link at once. Nothing is deleted."
+                  : `No project in ${workspace.name} can be opened by link right now. Turn this back on to restore every link and the people who joined through them.`}
               </p>
             </div>
             <div className="nt-set-actions">
@@ -106,7 +106,7 @@ export function SharingSettings({ workspace }: { workspace: WorkspaceContainer }
                 {lifetime === null
                   ? "New links never expire."
                   : `New links expire ${lifetimeLabel(lifetime)} after they’re made.`}{" "}
-                Whoever shares one can change its own; links already made keep theirs.
+                Existing links keep their own, and whoever shares a link can change it.
               </p>
             </div>
             <div className="nt-set-actions">
@@ -114,6 +114,7 @@ export function SharingSettings({ workspace }: { workspace: WorkspaceContainer }
                 label="Link expiry"
                 side="bottom"
                 align="end"
+                className="nt-ws-choices"
                 trigger={(t) => (
                   <button
                     {...t}
@@ -136,12 +137,20 @@ export function SharingSettings({ workspace }: { workspace: WorkspaceContainer }
                   LIFETIMES.map((days) => (
                     <MenuItem
                       key={days ?? "never"}
+                      className="nt-ws-choice"
                       onClick={() => {
                         close();
                         if (days !== lifetime) save({ linkTtlDays: days });
                       }}
                     >
-                      <span className="flex-1">{lifetimeLabel(days)}</span>
+                      <span className="nt-ws-choice-text">
+                        <span>{lifetimeLabel(days)}</span>
+                        <span className="nt-ws-choice-hint">
+                          {days === null
+                            ? "Links last until they’re turned off"
+                            : `Links expire ${lifetimeLabel(days)} after they’re made`}
+                        </span>
+                      </span>
                       <Check
                         width={14}
                         height={14}
