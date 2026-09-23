@@ -7,7 +7,7 @@ import { stagedDiagram } from "@/app/lib/ai/staged/diagram";
 import { asUser } from "@/app/lib/convexServer";
 import { refuseIfSpent } from "@/app/lib/entitlementGate";
 import { refuseIfLimited } from "@/app/lib/requestLimitGate";
-import { sessionToken } from "@/app/lib/session";
+import { session } from "@/app/lib/session";
 
 /**
  * Expands one `<nt-build-diagram>` into canvas HTML.
@@ -23,8 +23,9 @@ export const maxDuration = 60;
 const LOOK_CHARS = 2400;
 
 export async function POST(req: Request) {
-  const token = await sessionToken();
-  if (!token) return new Response("Unauthorized", { status: 401 });
+  const caller = await session();
+  if (!caller) return new Response("Unauthorized", { status: 401 });
+  const { token } = caller;
 
   let body: unknown;
   try {
@@ -86,6 +87,7 @@ export async function POST(req: Request) {
       req.signal,
       ({ usage, latencyMs }) =>
         recordAiCall(convex, {
+          ownerId: caller.userId,
           feature: "diagram",
           model: AI.diagram.model,
           projectId: named,

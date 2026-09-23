@@ -1096,10 +1096,20 @@ export default defineSchema({
      * request. Absent is the caller's own account.
      */
     workspaceId: v.optional(v.id("workspaces")),
+    /**
+     * The Next server vouched for this row with `AI_LEDGER_SECRET`
+     * (`ai/callSignature.ts`). Absent is unsigned — written before signing,
+     * on a deployment without the secret, or by anyone calling the mutation
+     * directly — and an unsigned row is never billed or counted against a
+     * cap, whatever cost it claims.
+     */
+    signed: v.optional(v.boolean()),
     createdAt: v.number(),
   })
     .index("by_owner", ["ownerId", "createdAt"])
-    .index("by_feature", ["feature", "createdAt"]),
+    .index("by_feature", ["feature", "createdAt"])
+    .index("by_workspace_and_createdAt", ["workspaceId", "createdAt"])
+    .index("by_workspace_and_ownerId_and_createdAt", ["workspaceId", "ownerId", "createdAt"]),
 
   /** In-app "report issue / suggest feature" submissions, with their context. */
   feedback: defineTable({

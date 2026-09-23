@@ -3,7 +3,7 @@ import { streamFim } from "@/app/lib/ai/fim";
 import { recordAiCall } from "@/app/lib/ai/recordCall";
 import { asUser } from "@/app/lib/convexServer";
 import { refuseIfSpent } from "@/app/lib/entitlementGate";
-import { sessionToken } from "@/app/lib/session";
+import { session } from "@/app/lib/session";
 
 /**
  * Inline completion. The caller sends the document split at the caret in the
@@ -16,8 +16,9 @@ import { sessionToken } from "@/app/lib/session";
  * next, exactly as it behaves in code.
  */
 export async function POST(req: Request) {
-  const token = await sessionToken();
-  if (!token) return new Response("Unauthorized", { status: 401 });
+  const caller = await session();
+  if (!caller) return new Response("Unauthorized", { status: 401 });
+  const { token } = caller;
 
   let body: unknown;
   try {
@@ -61,6 +62,7 @@ export async function POST(req: Request) {
     signal: req.signal,
     onDone: (r) =>
       recordAiCall(asUser(token), {
+        ownerId: caller.userId,
         feature: "fim",
         model: AI.fim.model,
         projectId,

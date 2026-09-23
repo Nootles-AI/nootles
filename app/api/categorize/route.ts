@@ -2,7 +2,7 @@ import { AI } from "@/app/lib/ai/aiConfig";
 import { categorizeFeedback } from "@/app/lib/ai/categorize";
 import { recordAiCall } from "@/app/lib/ai/recordCall";
 import { asUser } from "@/app/lib/convexServer";
-import { sessionToken } from "@/app/lib/session";
+import { session } from "@/app/lib/session";
 
 /**
  * Suggests a category for a feedback report as it is being written. Cheap and
@@ -10,8 +10,9 @@ import { sessionToken } from "@/app/lib/session";
  * user's hands either way.
  */
 export async function POST(req: Request) {
-  const token = await sessionToken();
-  if (!token) return new Response("Unauthorized", { status: 401 });
+  const caller = await session();
+  if (!caller) return new Response("Unauthorized", { status: 401 });
+  const { token } = caller;
 
   let body: unknown;
   try {
@@ -40,6 +41,7 @@ export async function POST(req: Request) {
       req.signal,
     );
     recordAiCall(asUser(token), {
+      ownerId: caller.userId,
       feature: "categorize",
       model: AI.reformat.model,
       ...usage,
