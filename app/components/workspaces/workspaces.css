@@ -886,3 +886,123 @@
 .nt-ws-gh-avatar.is-round {
   border-radius: 50%;
 }
+
+/* ---- Audit -------------------------------------------------------------------
+   The members' table, read as a sentence across it: when, who, what — so a row
+   says "3h · Maya · removed Tom from Acme" in the order it would be told. A
+   sentence that runs long wraps under itself; its first line keeps to the
+   line the time and the name sit on. */
+
+.nt-ws-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  margin: 0 0 8px calc(-1 * var(--inset));
+}
+.nt-ws-filter-value {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.nt-ws-filters .nt-ws-pick {
+  max-width: 14rem;
+}
+.nt-ws-filter-menu {
+  max-height: min(24rem, 70vh);
+  overflow-y: auto;
+}
+.nt-ws-export {
+  flex: none;
+}
+.nt-ws-set-head > .nt-skeleton,
+.nt-ws-filters > .nt-skeleton {
+  background: var(--sunken);
+}
+
+.nt-ws-event {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  min-height: 40px;
+  padding: 10px 8px;
+  font-size: var(--text-ui);
+  line-height: 20px;
+}
+.nt-ws-ev-when {
+  flex: none;
+  width: 56px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.nt-ws-event > .nt-ws-ev-when {
+  font-size: var(--text-meta-lg);
+}
+.nt-ws-ev-who {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  width: 10rem;
+  min-width: 0;
+}
+.nt-ws-ev-name {
+  overflow: hidden;
+  font-weight: 500;
+  color: var(--foreground);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.nt-ws-ev-what {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  color: var(--foreground);
+  overflow-wrap: anywhere;
+  text-wrap: pretty;
+}
+.nt-ws-ev-link {
+  font-weight: 500;
+  color: var(--foreground);
+  text-underline-offset: 3px;
+}
+.nt-ws-ev-link:hover {
+  text-decoration: underline;
+}
+/* A project that no longer opens — deleted since — is named, not linked. */
+.nt-ws-ev-gone {
+  font-weight: 500;
+}
+.nt-ws-ev-end {
+  height: 1px;
+}
+.nt-ws-empty {
+  padding: 40px 24px;
+  text-align: center;
+  text-wrap: balance;
+}
+
+/* On a phone the head goes and a row folds in two: who and when on one line,
+   what under it, set in from the face. */
+@media (max-width: 36rem) {
+  .nt-ws-ev-head {
+    display: none;
+  }
+  .nt-ws-event {
+    flex-wrap: wrap;
+    gap: 2px 12px;
+  }
+  .nt-ws-event > .nt-ws-ev-who {
+    flex: 1 1 auto;
+    width: auto;
+  }
+  .nt-ws-event > .nt-ws-ev-when {
+    order: 1;
+    width: auto;
+    text-align: right;
+  }
+  .nt-ws-event > .nt-ws-ev-what {
+    order: 2;
+    flex-basis: 100%;
+    padding-left: 28px;
+  }
+}

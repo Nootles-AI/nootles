@@ -99,6 +99,17 @@ export function Mail(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+/** Down onto a tray: a file taken away. */
+export function Download(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M12 4v11" />
+      <path d="m7 10 5 5 5-5" />
+      <path d="M5 19h14" />
+    </svg>
+  );
+}
+
 /** The part of an address after the @: a domain, and whoever is on it. */
 export function AtSign(props: SVGProps<SVGSVGElement>) {
   return (

@@ -15,7 +15,8 @@ export type SettingsSection =
   | "general"
   | "members"
   | "integrations"
-  | "billing";
+  | "billing"
+  | "audit";
 
 export function homePath(slug: string | null): string {
   return slug === null ? "/" : `/w/${slug}`;
