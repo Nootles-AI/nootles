@@ -3157,6 +3157,15 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar) .nt-reformat-switcher {
   flex: none;
   white-space: nowrap;
 }
+/* A shared card's "by <owner>" is the one fact that gives way: it truncates,
+   and its line stays whole, rather than running out of the card. */
+.nt-card-meta:has(> .truncate) {
+  flex-wrap: nowrap;
+}
+.nt-card-meta > .truncate {
+  flex: 0 1 auto;
+  min-width: 0;
+}
 /* A private workspace project's lock, beside its name or its facts. Lifted over
    the stretched link so the tooltip saying what it means can be found; the
    rest of the card or row still opens the project. */
