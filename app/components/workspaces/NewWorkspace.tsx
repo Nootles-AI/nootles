@@ -125,7 +125,8 @@ function Form({ onCancel }: { onCancel: () => void }) {
                 aria-live="polite"
                 className={`nt-ws-note${problem ? " is-problem" : ""}`}
               >
-                {problem ?? "Where your team finds it. You can change it later; old links keep working."}
+                {problem ??
+                  "Where your team finds it. Links to the old address keep working if you change it later."}
               </p>
             </div>
           </div>

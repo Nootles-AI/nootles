@@ -144,7 +144,9 @@ function NameField({ workspace, edits }: { workspace: WorkspaceContainer; edits:
 /**
  * The address, judged as it is typed by the rules the server keeps it by
  * (`useSlugProblem`). Saving moves this page to the new address in place — the
- * old one keeps arriving, which is what the note under it promises.
+ * old one keeps arriving, which is what the note under it promises, and says
+ * again for a moment once it has moved, naming the address that still leads
+ * here.
  */
 function AddressField({ workspace, edits }: { workspace: WorkspaceContainer; edits: boolean }) {
   const { userId } = useAuth();
@@ -153,6 +155,8 @@ function AddressField({ workspace, edits }: { workspace: WorkspaceContainer; edi
   const [typed, setTyped] = useState<string | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [from, setFrom] = useState<string | null>(null);
+  const [moved, flashMoved] = useMoment(5000);
   const dropped = useRef(false);
 
   const slug = normalizeSlug(typed ?? workspace.slug);
@@ -175,14 +179,16 @@ function AddressField({ workspace, edits }: { workspace: WorkspaceContainer; edi
     if (problem || busy) return;
     setBusy(true);
     try {
-      const moved = await setSlug({ workspaceId: workspace.workspaceId, slug });
+      const next = await setSlug({ workspaceId: workspace.workspaceId, slug });
       // What the new address resolves to is already known, so the next page
       // opened there draws at once rather than waiting to be told. This one
       // stays put: `ContainerRoute` rewrites its address, as it does for
       // everyone else here.
-      if (userId) rememberWorkspace(userId, moved.slug, { ...workspace, slug: moved.slug });
+      if (userId) rememberWorkspace(userId, next.slug, { ...workspace, slug: next.slug });
       setTyped(null);
       setFailure(null);
+      setFrom(workspace.slug);
+      flashMoved();
     } catch (error) {
       setFailure(refusal(error, "That address didn’t save. Try again in a moment."));
     }
@@ -193,9 +199,11 @@ function AddressField({ workspace, edits }: { workspace: WorkspaceContainer; edi
     ? problem
     : busy
       ? "Moving…"
-      : edits
-        ? "Change it and links to the old address keep working."
-        : "Where everyone here finds its projects.";
+      : moved && from && typed === null
+        ? `Moved. ${host}/w/${from} still leads here.`
+        : edits
+          ? "Links to the old address keep working if you change it."
+          : "Where everyone here finds its projects.";
 
   return (
     <div className="nt-ws-fld">
