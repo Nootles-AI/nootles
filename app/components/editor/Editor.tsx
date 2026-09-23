@@ -68,6 +68,7 @@ import { useBlockMarquee } from "./useBlockMarquee";
 import { PageMentionMenu, SlashMenu } from "./SlashMenu";
 import * as Icon from "../Icons";
 import { useReadOnly } from "./readOnly";
+import { useAttachCommentsEditor } from "../comments/editorSlot";
 import { trailingParagraphExtension } from "./trailingParagraph";
 import { dropDeadSelectors } from "./deadSelectors";
 import "./editor.css";
@@ -723,6 +724,7 @@ function EditorSurface({
   useInsertionEffect(dropDeadSelectors, []);
 
   useRegisterEditor(pageId, editor, docId, pipeline);
+  useAttachCommentsEditor(editor);
   const completion = useTabCompletion(readOnly ? null : editor, pageId, title, mode, docId);
   const reformat = useReformat(readOnly ? null : editor, pageId);
 

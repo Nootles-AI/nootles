@@ -24,7 +24,9 @@
     "test:comments:share": "node tests/comments-share.browser.mjs",
     "test:comments:store": "node tests/comments-store.browser.mjs",
     "test:comments:anchor": "node tests/comments-anchor.browser.mjs",
-    "test:comments:assistant": "node tests/comments-assistant.browser.mjs"
+    "test:comments:assistant": "node tests/comments-assistant.browser.mjs",
+    "test:comments:surfaces": "node tests/comments-surfaces.browser.mjs",
+    "test:comments:surfaces:fullstack": "node tests/comments-surfaces.fullstack.mjs"
   },
   "dependencies": {
     "@ai-sdk/google": "^4.0.44",
