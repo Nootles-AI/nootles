@@ -431,3 +431,55 @@ describe("a link that runs out", () => {
     await setLink(t, OWNER, w.personal.projectId, "viewer", 365);
   });
 });
+
+describe("taking one person's access away", () => {
+  test("removes them, and what they asked for, and nobody else", async () => {
+    const t = harness();
+    const w = await world(t);
+    const projectId = w.personal.projectId;
+    await claimed(t, projectId, STRANGER);
+    await claimed(t, projectId, LATECOMER);
+    await t.withIdentity(STRANGER).mutation(api.share.requestEdit, { projectId });
+
+    await t
+      .withIdentity(OWNER)
+      .mutation(api.share.revokeClaim, { projectId, granteeId: STRANGER.subject });
+    expect(await t.withIdentity(STRANGER).query(api.projects.myRole, { projectId })).toBeNull();
+    expect(await t.withIdentity(LATECOMER).query(api.projects.myRole, { projectId })).toBe(
+      "viewer",
+    );
+    expect(await t.withIdentity(OWNER).query(api.share.incomingRequests, {})).toEqual([]);
+    expect(
+      (await t.withIdentity(OWNER).query(api.share.collaborators, { projectId })).map(
+        (c) => c.granteeId,
+      ),
+    ).toEqual([LATECOMER.subject]);
+    expect(await t.withIdentity(STRANGER).query(api.share.myEditRequest, { projectId })).toBeNull();
+
+    // The link stays on: whoever still holds it can come back by it.
+    await t.withIdentity(STRANGER).mutation(api.share.claim, { token: "p-view" });
+    expect(await t.withIdentity(STRANGER).query(api.projects.myRole, { projectId })).toBe(
+      "viewer",
+    );
+  });
+
+  test("is a workspace project's managers' to do, and no one else's", async () => {
+    const t = harness();
+    const w = await world(t);
+    const projectId = w.team.projectId;
+    await claimed(t, projectId, GUEST);
+    await claimed(t, projectId, STRANGER);
+    const revoke = (who: Identity) =>
+      t.withIdentity(who).mutation(api.share.revokeClaim, { projectId, granteeId: STRANGER.subject });
+
+    for (const who of [MEMBER, GUEST, STRANGER]) {
+      await expect(revoke(who)).rejects.toThrow("Not found");
+    }
+    expect(await t.withIdentity(STRANGER).query(api.projects.myRole, { projectId })).toBe(
+      "viewer",
+    );
+    await revoke(ADMIN);
+    expect(await t.withIdentity(STRANGER).query(api.projects.myRole, { projectId })).toBeNull();
+    expect(await t.withIdentity(GUEST).query(api.projects.myRole, { projectId })).toBe("viewer");
+  });
+});
