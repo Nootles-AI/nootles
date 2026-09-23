@@ -283,9 +283,8 @@ export const claim = mutation({
 
 /**
  * Who holds a role in this project through a claim, for the share dialog's
- * access list. Whoever manages the project, and read-only in v1 — removing
- * someone means revoking the link they came by. `expiresAt` is when their
- * access through the link runs out; null is never.
+ * access list. Whoever manages the project. `expiresAt` is when their access
+ * through the link runs out; null is never.
  */
 /** Reads, so `readManageable` — see `links` above. */
 export const collaborators = query({
@@ -317,6 +316,28 @@ export const collaborators = query({
       }),
     );
     return people.filter((person) => person !== null);
+  },
+});
+
+/**
+ * Takes one person's access away: their claim, and whatever they asked for.
+ * Whoever manages the project. The link they came by stays on — while it is
+ * live they can come back through it, which is what revoking the link is for.
+ */
+export const revokeClaim = mutation({
+  args: { projectId: v.id("projects"), granteeId: v.string() },
+  handler: async (ctx, args) => {
+    await requireManageable(ctx, "projects", args.projectId);
+    const claim = await claimOf(ctx, args.projectId, args.granteeId);
+    if (claim) await ctx.db.delete(claim._id);
+    const request = await ctx.db
+      .query("accessRequests")
+      .withIndex("by_project_and_requester", (q) =>
+        q.eq("projectId", args.projectId).eq("requesterId", args.granteeId),
+      )
+      .unique();
+    if (request) await ctx.db.delete(request._id);
+    return null;
   },
 });
 
