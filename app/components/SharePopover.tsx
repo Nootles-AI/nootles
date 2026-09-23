@@ -253,7 +253,7 @@ function SharePopoverBody({
         {links === undefined ? (
           // The shape of the link row, so the popover opens at its size
           // instead of growing under the pointer when the query lands.
-          <div aria-hidden className="nt-skeleton mt-3 h-9" />
+          <div aria-hidden className="nt-skeleton mt-3 h-8" />
         ) : token ? (
           <>
             <div className="mt-3 flex items-center gap-1.5">
@@ -263,7 +263,7 @@ function SharePopoverBody({
                 aria-label={`${role === "editor" ? "Editor" : "Viewer"} link`}
                 value={`${window.location.origin}/share/${token}`}
                 onFocus={(e) => e.currentTarget.select()}
-                className="nt-input min-w-0 flex-1"
+                className="nt-input h-8 min-w-0 flex-1 py-0"
               />
               <button
                 onClick={() => void copy(token, role)}

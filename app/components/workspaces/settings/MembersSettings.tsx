@@ -68,10 +68,24 @@ function Members({ workspace }: { workspace: WorkspaceContainer }) {
   }
   // A guest, or a seat that has just gone: the frame moves them on.
   if (people === null) return null;
-
   // An operator standing in reads; the server refuses their writes anyway.
-  const actor = standIn ? null : people.role;
+  return <Sections workspace={workspace} people={people} actor={standIn ? null : people.role} />;
+}
+
+function Sections({
+  workspace,
+  people,
+  actor,
+}: {
+  workspace: WorkspaceContainer;
+  people: People;
+  actor: WorkspaceRole | null;
+}) {
   const runs = actor !== null && atLeast(actor, "admin");
+  // Whether the page opened with invitations to list. A list that arrives
+  // later, with the first one sent from the form above it, folds open instead
+  // of landing, so the people under it are moved down rather than thrown.
+  const [listed] = useState(() => people.invitations.length > 0);
 
   return (
     <>
@@ -86,7 +100,11 @@ function Members({ workspace }: { workspace: WorkspaceContainer }) {
         </section>
       )}
       {runs && people.invitations.length > 0 && (
-        <Invitations workspace={workspace} actor={actor} invitations={people.invitations} />
+        <div className={`nt-ws-fold${listed ? "" : " is-arriving"}`}>
+          <div className="nt-ws-fold-body">
+            <Invitations workspace={workspace} actor={actor} invitations={people.invitations} />
+          </div>
+        </div>
       )}
       <Roster workspace={workspace} actor={runs ? actor : null} members={people.members} />
       {runs && <JoinByDomain workspace={workspace} />}
@@ -106,7 +124,7 @@ function Loading({ invites }: { invites: boolean }) {
         <section className="nt-set-section" aria-hidden="true">
           <Bone bar="h-3.5 w-24" className="mb-2" />
           <div className="nt-ws-card">
-            <div className="nt-skeleton h-[35.5px]" />
+            <div className="nt-skeleton h-8" />
             <div className="mt-2">
               <Bone bar="h-3 w-[92%]" />
               <Bone bar="h-3 w-3/5" />

@@ -411,6 +411,39 @@
   animation: nt-row-in 360ms var(--ease) backwards;
 }
 
+/* ---- Folds ----------------------------------------------------------------------
+   Something that comes and goes on a page with more under it — a note, a
+   link, a list — takes its room over time rather than in a frame: its track
+   runs between 0fr and 1fr, the body clipped as it goes, as `.nt-ctl-fold`
+   does in the canvas panels. Shut, it holds its place in the markup; one that
+   `is-arriving` opens from shut as it mounts. Two folds moving at once, one
+   shutting as the other opens, sum to one smooth change of height. Spacing
+   belongs inside the body, where it is clipped with it. */
+
+.nt-ws-fold {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition:
+    grid-template-rows var(--dur-slow) var(--ease),
+    opacity var(--dur) var(--ease);
+}
+.nt-ws-fold[data-open="false"] {
+  grid-template-rows: 0fr;
+  opacity: 0;
+}
+@starting-style {
+  .nt-ws-fold.is-arriving {
+    grid-template-rows: 0fr;
+    opacity: 0;
+  }
+}
+.nt-ws-fold-body {
+  min-height: 0;
+  overflow: clip;
+  /* Room for a button's focus ring, which sits 3px outside the body's edge. */
+  overflow-clip-margin: 3px;
+}
+
 /* ---- Role menus ---------------------------------------------------------------
    A seat and what it may do, two lines to an item; where this seat may not
    give it, the reason takes the description's place. The tick stays centred
@@ -654,6 +687,7 @@
     animation: nt-fade-in var(--dur-fast) var(--ease);
   }
   .nt-ws-pile .nt-face,
+  .nt-ws-fold,
   .nt-ws-saved,
   .nt-ws-person.is-leaving {
     transition: none;

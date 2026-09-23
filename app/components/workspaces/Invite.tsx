@@ -27,6 +27,9 @@ import "./workspaces.css";
 
 const DAY_MS = 86_400_000;
 
+const HOW =
+  "You’ll get a link to send them yourself. It opens only for someone signed in with that address.";
+
 const ROLES: readonly Segment<Invited>[] = INVITED.map((role) => ({
   id: role,
   label: ROLE_LABEL[role],
@@ -179,17 +182,22 @@ export function InviteForm({
   const [role, setRole] = useState<Invited>("member");
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
+  // The last problem, still said while its line folds away under a link:
+  // cleared by typing, it would otherwise turn back into the how-to as it goes.
+  const [said, setSaid] = useState<string | null>(null);
   const [sent, setSent] = useState<{ email: string; token: string; days: number } | null>(
     null,
   );
   const owner = workspace.role === "owner";
+  // One line under the field, saying how inviting works until something goes
+  // wrong and then what did — in place, so nothing below it moves.
+  const note = problem ?? (sent && said) ?? HOW;
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     const to = email.trim();
     if (!to || busy) return;
     setBusy(true);
-    setProblem(null);
     try {
       const made = await invite({
         workspaceId: workspace.workspaceId,
@@ -201,9 +209,13 @@ export function InviteForm({
         token: made.token,
         days: Math.max(1, Math.round((made.expiresAt - Date.now()) / DAY_MS)),
       });
+      setProblem(null);
+      setSaid(null);
       setEmail("");
     } catch (error) {
-      setProblem(refusal(error, "That invitation didn’t go through. Try again in a moment."));
+      const text = refusal(error, "That invitation didn’t go through. Try again in a moment.");
+      setProblem(text);
+      setSaid(text);
     } finally {
       setBusy(false);
     }
@@ -218,7 +230,7 @@ export function InviteForm({
       ) : (
         <div className="mb-1.5 flex items-center justify-between gap-3">
           <label htmlFor={`${id}-email`} className="nt-field-label mb-0">
-            Invite by email
+            Invite someone
           </label>
           {owner && <Segmented label="Invite as" segments={ROLES} value={role} onChange={setRole} />}
         </div>
@@ -234,12 +246,12 @@ export function InviteForm({
           placeholder="name@company.com"
           value={email}
           aria-invalid={!!problem}
-          aria-describedby={problem ? `${id}-problem` : undefined}
+          aria-describedby={`${id}-note`}
           onChange={(e) => {
             setEmail(e.target.value);
             setProblem(null);
           }}
-          className="nt-input min-w-0 flex-1"
+          className="nt-input h-8 min-w-0 flex-1 py-0"
         />
         {inline && <RoleChoice actor={workspace.role} value={role} onChange={setRole} />}
         <button
@@ -250,20 +262,26 @@ export function InviteForm({
           {busy ? "Inviting…" : "Invite"}
         </button>
       </div>
-      {problem && (
-        <p id={`${id}-problem`} role="alert" className="nt-note mt-2 text-danger">
-          {problem}
-        </p>
-      )}
-      {sent ? (
-        <InviteLink key={sent.token} {...sent} />
-      ) : (
-        inline && (
-          <p className="nt-note mt-2 text-pretty">
-            You’ll get a link to send them yourself. It opens only for someone signed in with
-            the address you enter.
+      {/* Once there is a link, the how-to folds away as the link folds in, the
+          two at one pace, so the form grows by the difference and nothing
+          below it jumps. A problem after that folds back in above the link. */}
+      <div className="nt-ws-fold" data-open={!sent || !!problem}>
+        <div className="nt-ws-fold-body">
+          <p
+            id={`${id}-note`}
+            aria-live="polite"
+            className={`nt-note pt-2 text-pretty${problem ? " text-danger" : ""}`}
+          >
+            {note}
           </p>
-        )
+        </div>
+      </div>
+      {sent && (
+        <div className="nt-ws-fold is-arriving">
+          <div className="nt-ws-fold-body">
+            <InviteLink key={sent.token} {...sent} />
+          </div>
+        </div>
       )}
     </form>
   );
@@ -365,7 +383,7 @@ function InviteLink({ email, token, days }: { email: string; token: string; days
   const [copied, copy] = useCopied();
 
   return (
-    <div className="nt-ws-sent mt-4">
+    <div className="nt-ws-sent pt-4">
       <div className="nt-field-label">Invitation link</div>
       <div className="flex items-center gap-1.5">
         <input
@@ -374,7 +392,7 @@ function InviteLink({ email, token, days }: { email: string; token: string; days
           aria-label={`Invitation link for ${email}`}
           value={url}
           onFocus={(e) => e.currentTarget.select()}
-          className="nt-input min-w-0 flex-1"
+          className="nt-input h-8 min-w-0 flex-1 py-0"
         />
         <button
           type="button"
