@@ -38,9 +38,10 @@ export async function GET(req: Request) {
   if (!status.ready) return new Response(status.blocker, { status: 503 });
 
   const state = crypto.randomUUID();
-  const returnTo = safeReturn(
-    url.searchParams.get("returnTo") ?? `/w/${status.slug}/settings/integrations`,
-  );
+  const integrations = `/w/${status.slug}/settings/integrations`;
+  // A return that would leave the app lands where the outcome is shown instead.
+  const asked = safeReturn(url.searchParams.get("returnTo") ?? integrations);
+  const returnTo = asked === "/" ? integrations : asked;
   const res = NextResponse.redirect(installUrl(slug, state));
   res.cookies.set(
     INSTALL_COOKIE,
