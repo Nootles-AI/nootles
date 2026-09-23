@@ -23,7 +23,7 @@ import { CreateProject } from "./CreateProject";
 import { ContextMenu } from "./ContextMenu";
 import { Feedback } from "./feedback/Feedback";
 import { FixedToast } from "./feedback/FixedToast";
-import type { NewProject } from "./newProjectDraft";
+import { wallOf, type NewProject } from "./newProjectDraft";
 import { useNotionAvailable } from "./notion/NotionAvailable";
 import { ProjectPalette, useModKey, type Page as PalettePage } from "./ProjectPalette";
 import { ProjectsBoard } from "./ProjectsBoard";
@@ -611,8 +611,7 @@ export function ProjectsScreen() {
       {walled && (
         <PlanWall
           meter="projects"
-          // A project being made in a workspace meets that workspace's wall.
-          workspaceId={walled.project?.workspace?.workspaceId ?? workspace?.workspaceId}
+          workspaceId={wallOf(walled.project)}
           intent={{ kind: "newProject", project: walled.project }}
           // Dismissed, it closes onto the palette still holding the form.
           onClose={() => setWalled(null)}
