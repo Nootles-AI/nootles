@@ -2,6 +2,21 @@ import { ConvexError } from "convex/values";
 import type { Auth, UserIdentity } from "convex/server";
 import type { Doc, Id, TableNames } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
+import { commentsEnabled } from "./entitlements";
+import { channelAdmits, claimRole, hasLiveLink, type ProjectRole } from "./roles";
+
+export {
+  channelAdmits,
+  claimRole,
+  hasLiveLink,
+  isShared,
+  LINK_FIELDS,
+  linkLive,
+  moderatesComments,
+  type DocChannel,
+  type LinkRole,
+  type ProjectRole,
+} from "./roles";
 
 /**
  * All tenancy lives here: every row carries the Clerk subject that created it,
@@ -397,7 +412,6 @@ export function invitedSeat(
   return atLeast(invitation.role, left) ? left : invitation.role;
 }
 
-export type ProjectRole = "owner" | "editor" | "viewer";
 
 /**
  * What the caller is to a loaded project.
@@ -412,11 +426,11 @@ export type ProjectRole = "owner" | "editor" | "viewer";
  * Share links answer for everyone the container did not, signed in, and only
  * while the project's links admit anyone at all (`linksOpen`). A claim names
  * the role of the link it came through, but permission is always
- * re-derived against the tokens that are live NOW: killing the editor link
- * demotes its claimants to viewers while any link is still on (the same move
- * as Google downgrading a link from editor to viewer), and killing both links
- * closes the project to everyone but the owner. A claim row alone admits
- * nobody.
+ * re-derived against the tokens that are live NOW: killing the editor or the
+ * comment link demotes its claimants to viewers while any link is still on
+ * (the same move as Google downgrading a link from editor to viewer), and
+ * killing every link closes the project to everyone but the owner. A claim row
+ * alone admits nobody.
  *
  * `grantedRole` is the one thing a link does not decide: the owner answering
  * an access request hands the pen to one person, and no link turns on for it.
@@ -454,21 +468,6 @@ export async function claimOf(
       q.eq("projectId", projectId).eq("granteeId", granteeId),
     )
     .unique();
-}
-
-export type LinkRole = "viewer" | "editor";
-
-/** Where each link keeps its token and its expiry on the project row. */
-export const LINK_FIELDS = {
-  viewer: { token: "shareToken", expiresAt: "shareExpiresAt" },
-  editor: { token: "editShareToken", expiresAt: "editShareExpiresAt" },
-} as const;
-
-/** Whether a project's link of this role is on and has not run out. */
-export function linkLive(project: Doc<"projects">, role: LinkRole, now: number): boolean {
-  const { token, expiresAt } = LINK_FIELDS[role];
-  const until = project[expiresAt];
-  return !!project[token] && (until === undefined || until > now);
 }
 
 /**
@@ -644,30 +643,6 @@ export async function codeGrantRefusal(
 }
 
 /**
- * What a claim grants on its project at `now` — `roleForProject` for someone
- * other than the caller, so the owner's list of who has access gives the same
- * answer each claimant's own session gets. Whether the project's links admit
- * anyone at all (`linksOpen`) is the caller's to have asked first.
- *
- * A claim that has run out grants nothing, and neither does one whose link has
- * run out — a revoked link is different: its claimants are still viewers
- * while the other link is on.
- */
-export function claimRole(
-  project: Doc<"projects">,
-  claim: Doc<"shareClaims">,
-  now: number,
-): "editor" | "viewer" | null {
-  if (!project.shareToken && !project.editShareToken) return null;
-  if (claim.grantedRole === "editor") return "editor";
-  if (claim.expiresAt !== undefined && claim.expiresAt <= now) return null;
-  const cameBy = project[LINK_FIELDS[claim.role].expiresAt];
-  if (cameBy !== undefined && cameBy <= now) return null;
-  if (claim.role === "editor" && linkLive(project, "editor", now)) return "editor";
-  return linkLive(project, "viewer", now) || linkLive(project, "editor", now) ? "viewer" : null;
-}
-
-/**
  * Whether the caller may read a project's documents — the check every sync
  * endpoint makes, since those are reached by docId rather than through a
  * page row. Anyone with a role may. So may anyone at all holding the docId of
@@ -679,9 +654,17 @@ export function claimRole(
 export async function readsDocuments(ctx: QueryCtx, project: Doc<"projects">): Promise<boolean> {
   if (isTrashed(project)) return false;
   if (await roleForProject(ctx, project)) return true;
-  if (project.workspaceId) return false;
-  const now = Date.now();
-  return linkLive(project, "viewer", now) || linkLive(project, "editor", now);
+  return anonymousLinkRead(project);
+}
+
+/**
+ * Whether a live link alone lets someone read a project's documents by docId
+ * — the roleless half of `readsDocuments`, and the `linkLive` every channel
+ * check is asked with. Only a personal project's: a workspace project's
+ * documents open to no one without a role.
+ */
+export function anonymousLinkRead(project: Doc<"projects">): boolean {
+  return !project.workspaceId && hasLiveLink(project, Date.now());
 }
 
 /**
@@ -728,6 +711,24 @@ export async function projectRole(
 ): Promise<ProjectRole | null> {
   const project = await ctx.db.get(projectId);
   return project && !isTrashed(project) ? await roleForProject(ctx, project) : null;
+}
+
+/**
+ * Whether the caller may read a project's audit log: its owner, in their own
+ * session. Not editors or commenters — the log names who did what across
+ * everyone's access, which is the owner's to hold — and not an operator
+ * standing in, whose reading someone's record is not something the owner's
+ * token should vouch for. A trashed project has no log to read.
+ *
+ * The one place the answer lives, so the Teams workspace branch (a
+ * workspace's admins read its projects' logs) is one more clause here.
+ */
+export async function mayReadAudit(
+  ctx: QueryCtx,
+  project: Doc<"projects">,
+): Promise<boolean> {
+  if (isTrashed(project) || (await standInActor(ctx))) return false;
+  return (await roleForProject(ctx, project)) === "owner";
 }
 
 /** Tables that resolve their access through a project's role. */
@@ -847,4 +848,61 @@ export async function managesProject(
   project: Doc<"projects">,
 ): Promise<boolean> {
   return (await roleForProject(ctx, project)) === "owner";
+}
+
+/** The page's project, provided neither is trashed. */
+export async function liveProject(ctx: QueryCtx, page: Doc<"pages">): Promise<Doc<"projects"> | null> {
+  if (isTrashed(page)) return null;
+  const project = await ctx.db.get(page.projectId);
+  return project && !isTrashed(project) ? project : null;
+}
+
+/** The page's live project, provided its comments are turned on. */
+export async function commentsProject(ctx: QueryCtx, page: Doc<"pages">): Promise<Doc<"projects"> | null> {
+  const project = await liveProject(ctx, page);
+  return project && (await commentsEnabled(ctx, project)) ? project : null;
+}
+
+/**
+ * The page, its project and the caller's role, provided the caller may read
+ * the page's comments — any role, never a signed-out link visitor — and they
+ * are turned on. Null otherwise: the one answer every comments reader asks
+ * for by page id (`comments.docFor`, the people queries in `commentNotices`).
+ */
+export async function readableComments(
+  ctx: QueryCtx,
+  pageId: Id<"pages">,
+): Promise<{ page: Doc<"pages">; project: Doc<"projects">; role: ProjectRole } | null> {
+  const page = await ctx.db.get(pageId);
+  const project = page && (await liveProject(ctx, page));
+  if (!page || !project) return null;
+  const role = await roleForProject(ctx, project);
+  if (!role || !channelAdmits({ channel: "comments", access: "read", role, linkLive: false })) return null;
+  return (await commentsEnabled(ctx, project)) ? { page, project, role } : null;
+}
+
+const COMMENTS_OFF = () => new ConvexError("Comments are turned off for this project.");
+
+/**
+ * The page and its project, provided the caller may write its comments —
+ * commenter, editor or owner. The comments document's own gate is the
+ * channel check in `prosemirror.ts`; this is its sibling for the mutations
+ * that act on a page's comments by page id rather than by docId. Refused as
+ * "Not found" without the role, and said outright when comments are off.
+ */
+export async function requireCommentable(
+  ctx: QueryCtx,
+  pageId: Id<"pages">,
+): Promise<{ page: Doc<"pages">; project: Doc<"projects"> }> {
+  await refuseStandIn(ctx);
+  const page = await ctx.db.get(pageId);
+  const project = page && (await liveProject(ctx, page));
+  if (page && project) {
+    const role = await roleForProject(ctx, project);
+    if (channelAdmits({ channel: "comments", access: "write", role, linkLive: false })) {
+      if (!(await commentsEnabled(ctx, project))) throw COMMENTS_OFF();
+      return { page, project };
+    }
+  }
+  throw new Error("Not found");
 }

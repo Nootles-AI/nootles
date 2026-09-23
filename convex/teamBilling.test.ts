@@ -170,7 +170,7 @@ const scheduled = (t: T, name: string) =>
 
 /** The workspace's audit log, oldest first. */
 const auditLog = (t: T) =>
-  t.run(async (ctx) => await ctx.db.query("auditEvents").withIndex("by_at").collect());
+  t.run(async (ctx) => await ctx.db.query("workspaceAuditEvents").withIndex("by_at").collect());
 
 /** The nightly run, with the seat checks it schedules run as they would at once. */
 async function night(t: T) {

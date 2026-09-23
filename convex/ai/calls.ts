@@ -47,6 +47,7 @@ export const record = mutation({
       v.literal("feedback"),
       v.literal("album"),
       v.literal("context"),
+      v.literal("commentsGate"),
     ),
     model: v.string(),
     promptTokens: v.optional(v.number()),

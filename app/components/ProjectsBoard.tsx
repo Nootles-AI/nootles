@@ -67,6 +67,7 @@ export function ProjectsBoard({
   onRename,
   onCommit,
   onCancel,
+  onExport,
   onDelete,
   onContext,
 }: {
@@ -77,6 +78,7 @@ export function ProjectsBoard({
   onRename: (project: Project) => void;
   onCommit: (id: Id<"projects">, name: string) => void;
   onCancel: () => void;
+  onExport: (project: Project) => void;
   onDelete: (project: Project) => void;
   onContext: (project: Project, x: number, y: number) => void;
 }) {
@@ -298,6 +300,7 @@ export function ProjectsBoard({
             onRename={onRename}
             onCommit={onCommit}
             onCancel={onCancel}
+            onExport={onExport}
             onDelete={onDelete}
             onContext={onContext}
           />
@@ -353,6 +356,7 @@ const Frame = memo(function Frame({
   onRename,
   onCommit,
   onCancel,
+  onExport,
   onDelete,
   onContext,
 }: {
@@ -366,6 +370,7 @@ const Frame = memo(function Frame({
   onRename: (project: Project) => void;
   onCommit: (id: Id<"projects">, name: string) => void;
   onCancel: () => void;
+  onExport: (project: Project) => void;
   onDelete: (project: Project) => void;
   onContext: (project: Project, x: number, y: number) => void;
 }) {
@@ -400,6 +405,7 @@ const Frame = memo(function Frame({
           project={project}
           onOpen={() => onOpen(project._id)}
           onRename={() => onRename(project)}
+          onExport={() => onExport(project)}
           onDelete={() => onDelete(project)}
           className="is-sm"
         />

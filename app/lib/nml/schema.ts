@@ -108,7 +108,53 @@ export type NmlNotionStubBlock = Base<"notionStub", {
   raw: string;
 }>;
 
+/**
+ * Where a comment thread points: a quotation narrowed by the page block it was
+ * made in — the W3C `TextQuoteSelector` shape. Text rather than a position, so
+ * it survives reloads, resolves on any client and can be minted by a model.
+ * `blockId` names a block of the PAGE document, not of the comments document
+ * holding the thread.
+ */
+export type NmlCommentAnchor = {
+  blockId: string;
+  exact: string;
+  prefix: string;
+  suffix: string;
+  offsetHint: number;
+};
+/**
+ * A comment thread: an anchor, a status and its comments as children. Valid
+ * only at the top of a comments document (see `nmlDocumentKind`). `ambiguous`
+ * is `true` or absent — one spelling per state — and says the quotation
+ * matched more than once when last resolved.
+ */
+export type NmlCommentThreadBlock = Base<"commentThread", {
+  anchor: NmlCommentAnchor;
+  status: "open" | "resolved";
+  resolvedBy?: string;
+  resolvedAt?: number;
+  orphanedAt?: number;
+  ambiguous?: true;
+}>;
+/**
+ * One comment: a paragraph's inline content with an author. Only inside a
+ * thread. `via` is `"assistant"` or absent: the assistant writes under the
+ * person it acts for (`authorId` is theirs), and says so here.
+ */
+export type NmlCommentBlock = Base<"comment", {
+  authorId: string;
+  createdAt: number;
+  editedAt?: number;
+  via?: "assistant";
+}> & { content: NmlInlineContent };
+
+/** The block types only a comments document holds. */
+export const NML_COMMENT_BLOCK_TYPES = ["commentThread", "comment"] as const;
+export type NmlCommentBlockType = (typeof NML_COMMENT_BLOCK_TYPES)[number];
+
 export type NmlBlock =
+  | NmlCommentThreadBlock
+  | NmlCommentBlock
   | NmlTextBlock
   | NmlHeadingBlock
   | NmlListBlock
@@ -122,6 +168,9 @@ export type NmlBlock =
   | NmlStoryboardBlock
   | NmlLocationBlock
   | NmlNotionStubBlock;
+
+/** The blocks a page document may hold. */
+export type NmlPageBlock = Exclude<NmlBlock, { type: NmlCommentBlockType }>;
 
 const emptyProps = z.object({}).strict();
 const leafBase = { id: idSchema, children: z.array(z.never()).max(0) };
@@ -188,6 +237,46 @@ const blockSchemaImpl: z.ZodType<NmlBlock> = z.lazy(() =>
     z.object({ ...leafBase, type: z.literal("album"), props: emptyProps, domain: albumSchema, legacyMarkup: z.string().optional() }).strict(),
     z.object({ ...leafBase, type: z.literal("storyboard"), props: emptyProps, domain: storyboardSchema, legacyMarkup: z.string().optional() }).strict(),
     z.object({ ...leafBase, type: z.literal("location"), props: emptyProps, domain: locationSchema, legacyMarkup: z.string().optional() }).strict(),
+    z
+      .object({
+        id: idSchema,
+        type: z.literal("commentThread"),
+        props: z
+          .object({
+            anchor: z
+              .object({
+                blockId: idSchema,
+                exact: z.string().min(1),
+                prefix: z.string(),
+                suffix: z.string(),
+                offsetHint: z.number().int().nonnegative(),
+              })
+              .strict(),
+            status: z.enum(["open", "resolved"]),
+            resolvedBy: idSchema.optional(),
+            resolvedAt: z.number().int().nonnegative().optional(),
+            orphanedAt: z.number().int().nonnegative().optional(),
+            ambiguous: z.literal(true).optional(),
+          })
+          .strict(),
+        children: z.array(blockSchemaImpl),
+      })
+      .strict(),
+    z
+      .object({
+        ...leafBase,
+        ...content,
+        type: z.literal("comment"),
+        props: z
+          .object({
+            authorId: idSchema,
+            createdAt: z.number().int().nonnegative(),
+            editedAt: z.number().int().nonnegative().optional(),
+            via: z.literal("assistant").optional(),
+          })
+          .strict(),
+      })
+      .strict(),
     z.object({
       ...leafBase,
       type: z.literal("notionStub"),
@@ -197,13 +286,60 @@ const blockSchemaImpl: z.ZodType<NmlBlock> = z.lazy(() =>
 );
 
 export const nmlBlockSchema = blockSchemaImpl;
+
+/**
+ * What a document is for, which decides the blocks it may hold. A page holds
+ * the page vocabulary and never a comment; a page's comments document holds
+ * comment threads at its top level, comments inside them, and nothing else.
+ * Absent `kind` is a page, so every page document ever written is unchanged.
+ */
+export type NmlDocumentKind = "page" | "comments";
 export type NmlDocument = {
   schemaVersion: typeof NML_SCHEMA_VERSION;
   documentId: string;
+  kind?: "comments";
   blocks: NmlBlock[];
 };
+
+export function nmlDocumentKind(document: Pick<NmlDocument, "kind">): NmlDocumentKind {
+  return document.kind ?? "page";
+}
+
+/** The issue code a document profile violation carries through validation. */
+export const NML_PROFILE_ISSUE = "document_profile" as const;
+
+/** Where each block sits against its document's kind; empty when all is well. */
+export function nmlProfileViolations(
+  document: NmlDocument,
+): Array<{ path: Array<string | number>; message: string; nodeId: string }> {
+  const comments = nmlDocumentKind(document) === "comments";
+  const violations: Array<{ path: Array<string | number>; message: string; nodeId: string }> = [];
+  const visit = (blocks: NmlBlock[], path: Array<string | number>, parent: NmlBlock | null) =>
+    blocks.forEach((block, index) => {
+      const here = [...path, index];
+      const message = !comments
+        ? block.type === "commentThread" || block.type === "comment"
+          ? `A ${block.type} belongs only in a comments document.`
+          : null
+        : parent === null
+          ? block.type === "commentThread" ? null : `A comments document holds only comment threads at its top level, not ${block.type}.`
+          : parent.type === "commentThread" && block.type === "comment"
+            ? null
+            : `A comment thread holds only comments, not ${block.type}.`;
+      if (message) violations.push({ path: [...here, "type"], message, nodeId: block.id });
+      visit(block.children, [...here, "children"], block);
+    });
+  visit(document.blocks, ["blocks"], null);
+  return violations;
+}
+
 export const nmlDocumentSchema: z.ZodType<NmlDocument> = z
-  .object({ schemaVersion: z.literal(NML_SCHEMA_VERSION), documentId: idSchema, blocks: z.array(nmlBlockSchema) })
+  .object({
+    schemaVersion: z.literal(NML_SCHEMA_VERSION),
+    documentId: idSchema,
+    kind: z.literal("comments").optional(),
+    blocks: z.array(nmlBlockSchema),
+  })
   .strict();
 
 export type NmlIssue = {

@@ -1,0 +1,32 @@
+/* Comment notices: cards in the access-request corner (`share/access.css`),
+   the whole message one target — reading it is opening it. */
+
+.nt-notice {
+  padding: 4px 6px 4px 4px;
+  gap: 2px;
+}
+
+.nt-notice-open {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;
+  padding: 4px 8px;
+  border-radius: 8px;
+  text-align: left;
+  transition: background var(--dur-fast) var(--ease);
+}
+.nt-notice-open:hover {
+  background: var(--sunken);
+}
+
+.nt-notice-where {
+  color: var(--muted);
+}
+
+.nt-notice-more {
+  padding: 6px 8px 6px 12px;
+  gap: 12px;
+  color: var(--muted);
+}

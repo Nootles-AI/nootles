@@ -28,7 +28,7 @@ import { useMoment } from "./workspaces/useMoment";
 import "./share/access.css";
 import "./workspaces/workspaces.css";
 
-type LinkRole = "editor" | "viewer";
+type LinkRole = "editor" | "commenter" | "viewer";
 type Collaborator = FunctionReturnType<typeof api.share.collaborators>[number];
 
 /** Someone on their way out of the list, as their row was, and the row it followed. */
@@ -70,8 +70,8 @@ function initial(name: string | null | undefined) {
  * there says the same kind of thing; elsewhere the three roles are named.
  */
 const HOLDS = {
-  role: { owner: "Owner", editor: "Editor", viewer: "Viewer" },
-  can: { owner: "Can manage", editor: "Can edit", viewer: "Can view" },
+  role: { owner: "Owner", editor: "Editor", commenter: "Commenter", viewer: "Viewer" },
+  can: { owner: "Can manage", editor: "Can edit", commenter: "Can comment", viewer: "Can view" },
 } as const;
 
 /**
@@ -81,10 +81,12 @@ const HOLDS = {
 const SAYS = {
   anyone: {
     editor: "Anyone with this link can view; signing in lets them edit.",
+    commenter: "Anyone with this link can view; signing in lets them comment.",
     viewer: "Anyone with this link can view. Nobody can edit through it.",
   },
   signedIn: {
     editor: "Anyone signed in who has this link can edit.",
+    commenter: "Anyone signed in who has this link can comment.",
     viewer: "Anyone signed in who has this link can view. Nobody can edit through it.",
   },
 } as const;
@@ -93,10 +95,12 @@ const SAYS = {
 const WOULD = {
   anyone: {
     editor: "anyone who has it can view, and edit once signed in",
+    commenter: "anyone who has it can view, and comment once signed in",
     viewer: "anyone who has it can view",
   },
   signedIn: {
     editor: "anyone signed in who has it can edit",
+    commenter: "anyone signed in who has it can comment",
     viewer: "anyone signed in who has it can view",
   },
 } as const;
@@ -104,10 +108,16 @@ const WOULD = {
 const TABS: Record<keyof typeof SAYS, readonly Segment<LinkRole>[]> = {
   anyone: [
     { id: "editor", label: "Editor link", hint: "Anyone with it can view; signing in lets them edit" },
+    {
+      id: "commenter",
+      label: "Commenter link",
+      hint: "Anyone with it can view; signing in lets them comment",
+    },
     { id: "viewer", label: "Viewer link", hint: "Anyone with it can view. Nobody can edit through it" },
   ],
   signedIn: [
     { id: "editor", label: "Editor link", hint: "Anyone signed in who has it can edit" },
+    { id: "commenter", label: "Commenter link", hint: "Anyone signed in who has it can comment" },
     {
       id: "viewer",
       label: "Viewer link",
@@ -121,7 +131,8 @@ const ROW_MENU =
   "nt-icon-btn is-sm nt-ws-row-menu opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 aria-expanded:opacity-100";
 
 /**
- * Sharing, from the sidebar head: one link per role, each its own tab.
+ * Sharing, from the sidebar head: one link per role — editor, commenter,
+ * viewer — each its own tab.
  *
  * A popover on the Share button rather than a modal — sharing is a capability
  * you flip and copy, not a task that needs the page taken away. The two links
@@ -365,7 +376,7 @@ function SharePopoverBody({
   // live link, not only the one it came through.
   const liveLinks =
     links && links.allowed !== false
-      ? (["editor", "viewer"] as const).filter(
+      ? (["editor", "commenter", "viewer"] as const).filter(
           (r) => !!links[r] && (links.expiresAt[r] === null || links.expiresAt[r] > now),
         )
       : [];
@@ -508,7 +519,7 @@ function SharePopoverBody({
                   <input
                     ref={inputRef}
                     readOnly
-                    aria-label={`${role === "editor" ? "Editor" : "Viewer"} link`}
+                    aria-label={`${HOLDS.role[role]} link`}
                     value={`${window.location.origin}/share/${token}`}
                     onFocus={(e) => e.currentTarget.select()}
                     className="nt-input h-8 min-w-0 flex-1 py-0"
@@ -601,7 +612,11 @@ function SharePopoverBody({
                 <p className="nt-note mt-3 text-pretty">
                   {ranOut !== null
                     ? `Expired on ${dayOf(ranOut, now)}. Nobody can ${
-                        role === "editor" ? "view or edit" : "view"
+                        role === "editor"
+                          ? "view or edit"
+                          : role === "commenter"
+                            ? "view or comment"
+                            : "view"
                       } through it now.`
                     : `There’s no ${role} link. Once one is made, ${WOULD[says][role]}.`}
                   {links.defaultDays !== null &&
@@ -738,7 +753,7 @@ function SharePopoverBody({
                   projectId={projectId}
                   person={person}
                   holds={
-                    person.paused ? "Paused" : person.role === "editor" ? holds.editor : holds.viewer
+                    person.paused ? "Paused" : holds[person.role]
                   }
                   offersCode={offersCode && person.guest && !person.paused}
                   liveLinks={liveLinks}
@@ -895,8 +910,10 @@ function LinkLifetime({
 /** What Remove access leaves open: the links that would let them straight back. */
 function rejoinHint(live: readonly LinkRole[]): string {
   if (live.length === 0) return "They lose access now";
-  if (live.length === 2) {
-    return "They lose access now, but can rejoin through the editor or viewer link while either is on. Turn both off to keep them out";
+  if (live.length > 1) {
+    const which = `${live.slice(0, -1).join(", ")} or ${live[live.length - 1]}`;
+    const [any, every] = live.length === 2 ? ["either", "both"] : ["any", "them all"];
+    return `They lose access now, but can rejoin through the ${which} link while ${any} is on. Turn ${every} off to keep them out`;
   }
   return `They lose access now, but can rejoin through the ${live[0]} link while it’s on. Turn it off to keep them out`;
 }

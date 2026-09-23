@@ -9,7 +9,7 @@ import {
   type MutationCtx,
 } from "../_generated/server";
 import { readManageable, requireManageable, requireOwner } from "../auth";
-import { recordInProject } from "../audit";
+import { recordInProject } from "../workspaceAudit";
 import { removeDocument, upsertDocument } from "../context/documents";
 
 /**

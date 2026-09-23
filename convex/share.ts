@@ -21,7 +21,7 @@ import {
   roleForProject,
   seatRole,
 } from "./auth";
-import { recordInProject } from "./audit";
+import { recordInProject } from "./workspaceAudit";
 import { ensureArrivalProfile, personOf } from "./profiles";
 
 /**
@@ -39,9 +39,12 @@ import { ensureArrivalProfile, personOf } from "./profiles";
  * which is also what puts the project under "Shared with me".
  */
 
-const role = v.union(v.literal("viewer"), v.literal("editor"));
+const role = v.union(v.literal("viewer"), v.literal("commenter"), v.literal("editor"));
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** Each link grants everything the one before it does, and one thing more. */
+const RANK: Record<LinkRole, number> = { viewer: 0, commenter: 1, editor: 2 };
 
 /** The project a live token names, and which role that token grants. */
 async function projectForToken(
@@ -50,19 +53,22 @@ async function projectForToken(
   now: number,
 ): Promise<{ project: Doc<"projects">; role: LinkRole } | null> {
   if (!token) return null;
-  const asViewer = await ctx.db
-    .query("projects")
-    .withIndex("by_share_token", (q) => q.eq("shareToken", token))
-    .unique();
-  const asEditor = asViewer
-    ? null
-    : await ctx.db
-        .query("projects")
-        .withIndex("by_edit_share_token", (q) => q.eq("editShareToken", token))
-        .unique();
-  const found = asViewer
-    ? { project: asViewer, role: "viewer" as const }
-    : asEditor && { project: asEditor, role: "editor" as const };
+  const found =
+    (await ctx.db
+      .query("projects")
+      .withIndex("by_share_token", (q) => q.eq("shareToken", token))
+      .unique()
+      .then((project) => project && { project, role: "viewer" as const })) ??
+    (await ctx.db
+      .query("projects")
+      .withIndex("by_comment_share_token", (q) => q.eq("commentShareToken", token))
+      .unique()
+      .then((project) => project && { project, role: "commenter" as const })) ??
+    (await ctx.db
+      .query("projects")
+      .withIndex("by_edit_share_token", (q) => q.eq("editShareToken", token))
+      .unique()
+      .then((project) => project && { project, role: "editor" as const }));
   if (!found || isTrashed(found.project) || !linkLive(found.project, found.role, now)) return null;
   return found;
 }
@@ -73,7 +79,7 @@ async function defaultDays(ctx: QueryCtx, project: Doc<"projects">): Promise<num
   return (await ctx.db.get(project.workspaceId))?.settings.linkTtlDays ?? null;
 }
 
-/** Both links as the share dialog draws them. Whoever manages the project. */
+/** Every link as the share dialog draws them. Whoever manages the project. */
 /**
  * `readManageable` plus the throw, rather than `requireManageable`: this
  * reads, and `requireManageable` is a write gate — it refuses an operator's
@@ -91,9 +97,11 @@ export const links = query({
     if (!project) throw new Error("Not found");
     return {
       viewer: project.shareToken ?? null,
+      commenter: project.commentShareToken ?? null,
       editor: project.editShareToken ?? null,
       expiresAt: {
         viewer: project.shareExpiresAt ?? null,
+        commenter: project.commentShareExpiresAt ?? null,
         editor: project.editShareExpiresAt ?? null,
       },
       allowed: await linksOpen(ctx, project),
@@ -263,11 +271,14 @@ export const view = query({
 /**
  * What signing in through a link does: records who came, at the role the link
  * grants and until the link runs out. Idempotent, upserting to the higher role
- * — a viewer later handed the editor link is promoted, never demoted — and a
- * claim that had run out starts again from the link it came back by. Whoever
- * the project's container already gives a role — its owner, or a seat in its
- * workspace — passes through unrecorded: they are not in by the link, and a
- * claim would list them among its people as if they were.
+ * in `RANK` — a viewer later handed the comment or editor link is promoted,
+ * and a commenter who opens the viewer link is never demoted by it. "Higher"
+ * is judged against what the claim grants now, so an editor whose link was
+ * turned off, handed the live comment link instead, becomes its commenter; and
+ * a claim that had run out starts again from the link it came back by.
+ * Whoever the project's container already gives a role — its owner, or a seat
+ * in its workspace — passes through unrecorded: they are not in by the link,
+ * and a claim would list them among its people as if they were.
  *
  * An account whose first act is a claim was CREATED by this document, so the
  * claim writes the profile row first run reads as "not new"
@@ -304,9 +315,12 @@ export const claim = mutation({
       await logClaim();
     } else {
       const lapsed = existing.expiresAt !== undefined && existing.expiresAt <= now;
-      if (lapsed || existing.role === found.role || found.role === "editor") {
+      // Ranked by what the claim grants now: a role whose link has died
+      // stands as a viewer's, so a live lower link still lifts it.
+      const standing = linkLive(found.project, existing.role, now) ? existing.role : "viewer";
+      if (lapsed || existing.role === found.role || RANK[found.role] > RANK[standing]) {
         await ctx.db.patch(existing._id, { role: found.role, expiresAt });
-        // Visiting again is not news; coming back after running out, or up to the pen, is.
+        // Visiting again is not news; coming back after running out, or up a rank, is.
         if (lapsed || existing.role !== found.role) await logClaim();
       }
     }
@@ -433,7 +447,7 @@ export const setCodeAccess = mutation({
  * see the project can ask about it, and granting reaches for `grantedRole` on
  * the claim they already have — so the answer promotes one person rather than
  * widening a link. Nothing here is a door: a denial leaves them exactly the
- * viewer they were.
+ * viewer or commenter they were.
  */
 
 /** Who is asking, as the owner's toast draws them. */
@@ -452,7 +466,8 @@ async function requesterCard(ctx: QueryCtx, request: Doc<"accessRequests">) {
 }
 
 /**
- * "May I edit this?" — only a viewer has anything to ask, and asking twice is
+ * "May I edit this?" — only someone without the pen — a viewer or a
+ * commenter — has anything to ask, and asking twice is
  * the same question: the row is reused rather than appended to, so an owner who
  * dismissed one never faces a pile of it. A previously declined request goes
  * back to pending, which is the whole of what a decline means.
@@ -468,7 +483,7 @@ export const requestEdit = mutation({
     const role = await roleForProject(ctx, project);
     if (!role) throw new Error("Not found");
     // Owners and editors have the pen already; nothing to ask for.
-    if (role !== "viewer") return null;
+    if (role === "owner" || role === "editor") return null;
 
     const existing = await ctx.db
       .query("accessRequests")

@@ -56,8 +56,8 @@
      decoration, never a selection ring on a block or shape.
 
      One sanctioned exception, decided 2026-08 with the sharing work: the guest
-     banner on an editable share link (`.nt-guest-banner`) wears the amber as a
-     standing invitation to sign in. Nothing else joins it.
+     banner on an editor or comment share link (`.nt-guest-banner`) wears the
+     amber as a standing invitation to sign in. Nothing else joins it.
 
      Amber, because a glow is warm light. The accent itself darkens to ochre to
      clear AA as text; the glow keeps the gold, and nothing reads it as text. */
@@ -87,6 +87,12 @@
   --selected: oklch(0.25 0.005 90 / 0.065);
   --hover-on-dark: oklch(1 0 90 / 0.07);
   --active-on-dark: oklch(1 0 90 / 0.1);
+
+  /* Commented words: the house grey warmed a little, so a highlight reads as
+     paper marked in pencil — never the amber, which means AI activity. */
+  --comment-hl: oklch(0.6 0.03 80 / 0.16);
+  --comment-hl-line: oklch(0.6 0.03 80 / 0.55);
+  --comment-hl-active: oklch(0.6 0.03 80 / 0.3);
 
   /* Code surfaces */
   --code-bg: oklch(0.255 0.005 90);

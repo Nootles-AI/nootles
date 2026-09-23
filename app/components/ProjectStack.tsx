@@ -9,6 +9,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { projectPath } from "@/app/lib/containerPaths";
 import { Authed } from "./Authed";
 import { Wordmark } from "./Brand";
+import { PageCommentsRegistryProvider } from "./comments/registry";
 import { EditorRegistryProvider } from "./editor/EditorRegistry";
 import { OpenPageProvider } from "./OpenPageContext";
 import { ReviewProvider } from "./ReviewContext";
@@ -20,7 +21,7 @@ import { slugOf, useContainer } from "./workspaces/ContainerContext";
  * `/w/<slug>/p/<id>`, so a project cannot look or behave differently for
  * which of its addresses it was reached at.
  *
- * All three providers sit above the workspace because the chat panel is a
+ * All four providers sit above the workspace because the chat panel is a
  * sibling of the document, not a parent of it: this is where they meet.
  */
 export function ProjectStack({ projectId }: { projectId: string }) {
@@ -31,11 +32,13 @@ export function ProjectStack({ projectId }: { projectId: string }) {
     <Authed>
       <InItsHome projectId={projectId}>
         <EditorRegistryProvider>
-          <OpenPageProvider>
-            <ReviewProvider projectId={id}>
-              <Workspace projectId={id} />
-            </ReviewProvider>
-          </OpenPageProvider>
+          <PageCommentsRegistryProvider>
+            <OpenPageProvider>
+              <ReviewProvider projectId={id}>
+                <Workspace projectId={id} />
+              </ReviewProvider>
+            </OpenPageProvider>
+          </PageCommentsRegistryProvider>
         </EditorRegistryProvider>
       </InItsHome>
     </Authed>

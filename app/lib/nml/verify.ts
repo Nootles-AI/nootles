@@ -1,5 +1,5 @@
 import * as Y from "yjs";
-import type { NmlIssue } from "./schema";
+import { nmlDocumentKind, type NmlIssue } from "./schema";
 import { validateDocument } from "./validate";
 import {
   decodeNmlDocument,
@@ -98,7 +98,9 @@ export function verifyStoredNmlRoot(updates: readonly Uint8Array[]): NmlRootVeri
     // schema version rides on the decoded document.
     const { limitViolations, conversionErrors } = partitionDiagnostics(validateDocument(document));
     const limitCodes = [...new Set(limitViolations.map((issue) => issue.code))];
-    const errorCodes = [...new Set(conversionErrors.map((issue) => issue.code))];
+    // What is verified here is a page's root; a comments document is never one.
+    const kindCodes = nmlDocumentKind(document) === "page" ? [] : ["document_kind"];
+    const errorCodes = [...new Set([...conversionErrors.map((issue) => issue.code), ...kindCodes])];
     const ok = limitCodes.length === 0 && errorCodes.length === 0;
     return {
       ok,

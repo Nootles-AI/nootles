@@ -1,6 +1,6 @@
 import { ConvexError, v } from "convex/values";
 import { requireAdmin } from "./admin";
-import { record } from "./audit";
+import { record } from "./workspaceAudit";
 import { standInActor } from "./auth";
 import { internalMutation, query } from "./_generated/server";
 

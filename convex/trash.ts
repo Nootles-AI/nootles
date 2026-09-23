@@ -2,7 +2,7 @@ import { v } from "convex/values";
 import { internalMutation, mutation, type MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { isTrashed, managesProject, projectRole, requireOwner } from "./auth";
-import { recordInProject } from "./audit";
+import { recordInProject } from "./workspaceAudit";
 import { containerOf, requireQuotaIn } from "./entitlements";
 import { removePageCascade } from "./pages";
 import { purgeProject, refreshPageSummary } from "./projects";

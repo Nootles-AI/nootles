@@ -8,7 +8,7 @@ import {
   type QueryCtx,
 } from "../_generated/server";
 import { isTrashed, requireGithubCodeSeat, requireWorkspaceRole } from "../auth";
-import { record as audit } from "../audit";
+import { record as audit } from "../workspaceAudit";
 import { memberRole } from "../schema";
 import { unlinkRepo } from "./repos";
 

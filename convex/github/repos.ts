@@ -18,7 +18,7 @@ import {
   requireManageable,
   requireOwner,
 } from "../auth";
-import { recordInProject } from "../audit";
+import { recordInProject } from "../workspaceAudit";
 import { repoRef } from "../schema";
 import { json, text } from "./rest";
 import { withToken } from "./account";

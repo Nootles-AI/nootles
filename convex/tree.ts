@@ -1,7 +1,7 @@
 import { mutation, type MutationCtx } from "./_generated/server";
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import { recordInProject } from "./audit";
+import { recordInProject } from "./workspaceAudit";
 import { isTrashed, mayCarryOut, readVisible, requireEditable } from "./auth";
 import { cloneFolder, softRemoveFolderCascade } from "./folders";
 import { clonePage, folderIn, levelOf, placeBetween } from "./pages";

@@ -45,7 +45,8 @@ type Row = {
     | "categorize"
     | "feedback"
     | "album"
-    | "context";
+    | "context"
+    | "commentsGate";
   model: string;
   latencyMs: number;
   ttfbMs?: number;

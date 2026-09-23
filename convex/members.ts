@@ -16,7 +16,7 @@ import {
   workspaceRole,
   type WorkspaceRole,
 } from "./auth";
-import { record, recordInProject } from "./audit";
+import { record, recordInProject } from "./workspaceAudit";
 import { unlinkRepo } from "./github/repos";
 import { unlinkPage } from "./notion/context";
 import { ensureArrivalProfile, personOf } from "./profiles";

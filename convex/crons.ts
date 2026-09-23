@@ -49,6 +49,17 @@ crons.interval("lapse stale identity stamps", { hours: 1 }, internal.identity.ex
  */
 crons.interval("purge the trash", { hours: 24 }, internal.trash.purge, {});
 
+/**
+ * The audit log's one-year retention, on the same daily clock as the trash —
+ * a separate job so neither purge failing holds the other up.
+ */
+crons.interval(
+  "sweep expired audit events",
+  { hours: 24 },
+  internal.audit.sweepExpired,
+  {},
+);
+
 crons.interval("prune the op log", { hours: 1 }, internal.ai.opLog.purgeOld, {});
 crons.interval(
   "prune old checkpoints",
@@ -64,7 +75,7 @@ crons.interval(
  */
 crons.cron("report Team usage", "0 7 * * *", internal.teamBilling.reportUsage, {});
 
-/** Workspace audit events past their year (`audit.prune` goes on in batches). */
-crons.interval("prune the audit log", { hours: 24 }, internal.audit.prune, {});
+/** Workspace audit events past their year (`workspaceAudit.prune` goes on in batches). */
+crons.interval("prune the workspace audit log", { hours: 24 }, internal.workspaceAudit.prune, {});
 
 export default crons;

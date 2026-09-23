@@ -14,7 +14,7 @@ import {
   verifiedEmail,
   workspaceRole,
 } from "./auth";
-import { record, recordByCaller } from "./audit";
+import { record, recordByCaller } from "./workspaceAudit";
 import { isPersonalDomain } from "./joinDomains";
 import { pageSummary, withoutLinks } from "./projects";
 import { workspaceSettings } from "./schema";

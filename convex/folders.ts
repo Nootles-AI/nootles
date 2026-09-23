@@ -1,7 +1,7 @@
 import { mutation, query, type MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import { recordInProject } from "./audit";
+import { recordInProject } from "./workspaceAudit";
 import { isTrashed, readVisible, requireEditable } from "./auth";
 import { clonePage, endOrder, folderIn, levelOf } from "./pages";
 import { refreshPageSummary } from "./projects";

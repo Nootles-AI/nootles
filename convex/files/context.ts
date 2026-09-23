@@ -8,7 +8,7 @@ import {
   type MutationCtx,
 } from "../_generated/server";
 import { projectRole, readManageable, requireManageable, requireOwner } from "../auth";
-import { recordInProject } from "../audit";
+import { recordInProject } from "../workspaceAudit";
 import { removeDocument, upsertDocument } from "../context/documents";
 import type { Id } from "../_generated/dataModel";
 import { uploadUrl } from "../uploads";

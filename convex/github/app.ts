@@ -9,7 +9,7 @@ import {
   requireWorkspaceRole,
   workspaceRole,
 } from "../auth";
-import { recordByCaller } from "../audit";
+import { recordByCaller } from "../workspaceAudit";
 import { withInstallation } from "./credential";
 import { installationsOf, unusable } from "./installations";
 import { listed, type Listed, type Repo } from "./repos";

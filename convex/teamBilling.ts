@@ -11,7 +11,7 @@ import {
   type QueryCtx,
 } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
-import { record } from "./audit";
+import { record } from "./workspaceAudit";
 import { atLeast, requireWorkspaceRole, workspaceRole, type WorkspaceRole } from "./auth";
 import { isLiveStatus, workspaceStanding, workspaceSubscriptionLive } from "./entitlements";
 

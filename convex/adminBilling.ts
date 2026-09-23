@@ -11,7 +11,7 @@ import {
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { requireAdmin } from "./admin";
-import { record } from "./audit";
+import { record } from "./workspaceAudit";
 import { normalizeCode } from "./accessCodes";
 import {
   entitlementOf,

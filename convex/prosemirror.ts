@@ -1,9 +1,19 @@
 import { components } from "./_generated/api";
 import { ProsemirrorSync } from "@convex-dev/prosemirror-sync";
-import type { DataModel } from "./_generated/dataModel";
+import type { DataModel, Doc } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { recordDocumentEdit } from "./audit";
-import { isTrashed, readsDocuments, refuseStandIn, roleForProject, standInActor } from "./auth";
+import { recordDocumentEdit } from "./workspaceAudit";
+import {
+  anonymousLinkRead,
+  channelAdmits,
+  commentsProject,
+  liveProject,
+  refuseStandIn,
+  roleForProject,
+  standInActor,
+  type DocChannel,
+  type ProjectRole,
+} from "./auth";
 
 /**
  * Collaborative sync for each page's block flow. The client (BlockNote) talks to
@@ -22,6 +32,10 @@ const prosemirrorSync = new ProsemirrorSync(components.prosemirrorSync);
  * `docId` server-side, so the row always exists before the editor is handed one.
  * A doc with no page is either another tenant's or one orphaned by `pages.remove`
  * — neither is readable.
+ *
+ * The DOCUMENT channel only: a comments docId never matches `by_doc`, so every
+ * caller that stamps, previews or migrates "the page this doc is" reaches
+ * nothing for one. {@link pageAndChannelForDoc} is the lookup that sees both.
  */
 export async function pageForDoc(ctx: QueryCtx, id: string) {
   return await ctx.db
@@ -31,37 +45,137 @@ export async function pageForDoc(ctx: QueryCtx, id: string) {
 }
 
 /**
- * Reads are open to whoever `readsDocuments` admits: anyone with a role, and
- * on a personal project anonymous holders of a live share link too. Revoking
- * the last link closes that door.
+ * Which page a docId belongs to, and which of its two documents it names.
+ *
+ * The channel is whichever index matched, so it is the database's answer
+ * rather than the caller's: a docId cannot be spelled into the comments
+ * channel, and a commenter handed the page's own docId is on the document
+ * channel whatever they meant by it.
  */
-export async function checkRead(ctx: QueryCtx, id: string) {
+export async function pageAndChannelForDoc(
+  ctx: QueryCtx,
+  id: string,
+): Promise<{ page: Doc<"pages">; channel: DocChannel } | null> {
   const page = await pageForDoc(ctx, id);
-  if (!page || isTrashed(page)) throw new Error("Not found");
-  const project = await ctx.db.get(page.projectId);
-  if (!project || !(await readsDocuments(ctx, project))) throw new Error("Not found");
+  if (page) return { page, channel: "document" };
+  const commented = await ctx.db
+    .query("pages")
+    .withIndex("by_comments_doc", (q) => q.eq("commentsDocId", id))
+    .unique();
+  return commented ? { page: commented, channel: "comments" } : null;
 }
 
 /**
- * Writes need a writing role — the owner, or an editor-link claimant.
- *
- * The fourth write gate, alongside the three in `auth.ts`: document content
- * reaches this without passing through any of them, so an operator's stand-in
- * is refused here too. Both sync pipelines land on it, so one check covers
- * every step and every Yjs update.
+ * The channels a caller serves. The default everywhere is the document alone,
+ * so a pipeline written before comments — presence, previews, the legacy sync
+ * API, the NML migrator — refuses a comments docId without knowing it exists.
+ * Only `ydoc.ts`, whose one log carries both documents, opts into both.
  */
-export async function checkWrite(ctx: QueryCtx, id: string) {
-  await refuseStandIn(ctx);
-  if (!(await hasWriteRole(ctx, id))) throw new Error("Not found");
+export const DOCUMENT_ONLY: readonly DocChannel[] = ["document"];
+export const ANY_CHANNEL: readonly DocChannel[] = ["document", "comments"];
+
+/** What an admitted docId resolved to. */
+export type DocAccess = {
+  page: Doc<"pages">;
+  project: Doc<"projects">;
+  channel: DocChannel;
+  role: ProjectRole | null;
+};
+
+/**
+ * The page, its live project and the caller's role on it, or null for a
+ * docId that names nothing live on an accepted channel — or a comments docId
+ * on a project whose comments are turned off.
+ */
+async function resolveDoc(
+  ctx: QueryCtx,
+  id: string,
+  channels: readonly DocChannel[],
+): Promise<DocAccess | null> {
+  const found = await pageAndChannelForDoc(ctx, id);
+  if (!found || !channels.includes(found.channel)) return null;
+  const project =
+    found.channel === "comments" ? await commentsProject(ctx, found.page) : await liveProject(ctx, found.page);
+  if (!project) return null;
+  return { ...found, project, role: await roleForProject(ctx, project) };
 }
 
-async function hasWriteRole(ctx: QueryCtx, id: string): Promise<boolean> {
-  const page = await pageForDoc(ctx, id);
-  if (!page || isTrashed(page)) return false;
-  const project = await ctx.db.get(page.projectId);
-  if (!project || isTrashed(project)) return false;
-  const role = await roleForProject(ctx, project);
-  return role === "owner" || role === "editor";
+/**
+ * Reads are open to anyone with a role on the project, and — on the document
+ * channel of a personal project only — to anonymous holders of a live share
+ * link (`auth.anonymousLinkRead`). There is no token
+ * to inspect here — the sync API's args are just the docId — so for the
+ * anonymous case the capability IS the docId: a server-minted UUID that
+ * `share.view` discloses only while a link is live. Revoking the last link
+ * closes this door too. The comments channel takes no such fallback
+ * (`auth.channelAdmits`).
+ */
+export async function checkRead(
+  ctx: QueryCtx,
+  id: string,
+  channels: readonly DocChannel[] = DOCUMENT_ONLY,
+): Promise<DocAccess> {
+  const access = await readAccess(ctx, id, channels);
+  if (!access) throw new Error("Not found");
+  return access;
+}
+
+/**
+ * {@link checkRead} as a question, for the one read-level write that must bend
+ * rather than break: a presence heartbeat. Access can end while a tab is still
+ * announcing itself — a link turned off mid-session — and that tab's last
+ * heartbeat is routine, not a server error.
+ */
+export async function mayRead(
+  ctx: QueryCtx,
+  id: string,
+  channels: readonly DocChannel[] = DOCUMENT_ONLY,
+): Promise<boolean> {
+  return (await readAccess(ctx, id, channels)) !== null;
+}
+
+async function readAccess(
+  ctx: QueryCtx,
+  id: string,
+  channels: readonly DocChannel[],
+): Promise<DocAccess | null> {
+  const access = await resolveDoc(ctx, id, channels);
+  return access &&
+    channelAdmits({ channel: access.channel, access: "read", role: access.role, linkLive: anonymousLinkRead(access.project) })
+    ? access
+    : null;
+}
+
+/**
+ * Writes need a writing role for the channel — owner or editor on the page
+ * itself, and commenters as well on its comments.
+ *
+ * The fourth write gate, alongside the ones in `auth.ts`: document content
+ * reaches this without passing through any of them, so an operator's stand-in
+ * is refused here too, on both channels. Both sync pipelines land on it, so
+ * one check covers every step and every Yjs update.
+ */
+export async function checkWrite(
+  ctx: QueryCtx,
+  id: string,
+  channels: readonly DocChannel[] = DOCUMENT_ONLY,
+): Promise<DocAccess> {
+  await refuseStandIn(ctx);
+  const access = await hasWriteRole(ctx, id, channels);
+  if (!access) throw new Error("Not found");
+  return access;
+}
+
+async function hasWriteRole(
+  ctx: QueryCtx,
+  id: string,
+  channels: readonly DocChannel[] = DOCUMENT_ONLY,
+): Promise<DocAccess | null> {
+  const access = await resolveDoc(ctx, id, channels);
+  return access &&
+    channelAdmits({ channel: access.channel, access: "write", role: access.role, linkLive: false })
+    ? access
+    : null;
 }
 
 /**
@@ -70,9 +184,13 @@ async function hasWriteRole(ctx: QueryCtx, id: string): Promise<boolean> {
  * behind (`previews.set`). A viewer's card making that offer is routine, and
  * routine must not be a thrown server error. Same gate, same stand-in rule.
  */
-export async function mayWrite(ctx: QueryCtx, id: string): Promise<boolean> {
+export async function mayWrite(
+  ctx: QueryCtx,
+  id: string,
+  channels: readonly DocChannel[] = DOCUMENT_ONLY,
+): Promise<boolean> {
   if (await standInActor(ctx)) return false;
-  return await hasWriteRole(ctx, id);
+  return (await hasWriteRole(ctx, id, channels)) !== null;
 }
 
 /**
@@ -98,7 +216,7 @@ async function touchPage(ctx: MutationCtx, id: string) {
  * fetch itself and for viewers who haven't flipped over yet.
  */
 async function checkLegacyWrite(ctx: MutationCtx, id: string) {
-  await checkWrite(ctx, id);
+  await checkWrite(ctx, id, DOCUMENT_ONLY);
   const migrated = await ctx.db
     .query("ydocs")
     .withIndex("by_doc", (q) => q.eq("docId", id))
@@ -110,9 +228,14 @@ async function checkLegacyWrite(ctx: MutationCtx, id: string) {
   await recordDocumentEdit(ctx, id);
 }
 
+/** Comments documents are born on Yjs and never had a legacy pipeline. */
+async function checkLegacyRead(ctx: QueryCtx, id: string) {
+  await checkRead(ctx, id, DOCUMENT_ONLY);
+}
+
 export const { getSnapshot, submitSnapshot, latestVersion, getSteps, submitSteps } =
   prosemirrorSync.syncApi<DataModel>({
-    checkRead,
+    checkRead: checkLegacyRead,
     checkWrite: checkLegacyWrite,
     onSnapshot: touchPage,
   });

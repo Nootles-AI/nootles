@@ -23,6 +23,16 @@ import { blocksFromSnapshot, yReader } from "../snapshot";
 import { resolveBatch, warnRejected } from "../validate";
 import { toCanvasHost } from "../canvas/chatHost";
 import { runCanvasTool } from "../canvas/execute";
+import type { PageComments } from "@/app/components/comments/PageComments";
+import {
+  createComment,
+  pageText,
+  readComments,
+  replyComment,
+  resolveComment,
+  type CommentsScope,
+  type Person,
+} from "./commentTools";
 import { CANVAS_TOOLS, noSuchPage, TOOLS, type CanvasToolName, type ClientToolName } from "./tools";
 import { lastContentBlock } from "@/app/lib/documentTail";
 
@@ -41,7 +51,17 @@ export type ToolContext = {
   openPageId: () => Id<"pages"> | null;
   openPage: (pageId: Id<"pages">) => void;
   editorFor: (pageId: Id<"pages">) => Promise<LiveEditor>;
+  /**
+   * A page's comments, as its own comment surfaces see them, once loaded.
+   * Null where nothing publishes them — outside a workspace.
+   */
+  commentsFor: (pageId: Id<"pages">) => Promise<PageComments | null>;
+  /** The people a comment on the open page may name, with their names. */
+  people: () => readonly Person[];
 };
+
+/** Which call an executor is answering — the identity a replayed call is known by. */
+export type ToolCallInfo = { toolCallId: string };
 
 /** `<nt-diagram ref="d3"></nt-diagram>` — a drawing placed by name. */
 const REF = /<nt-diagram\b[^>]*\bref="([^"]+)"[^>]*>\s*<\/nt-diagram\s*>/gi;
@@ -96,7 +116,7 @@ export function expandRefs(html: string, drawings: ReadonlyMap<string, string>):
 }
 
 /** One tool's browser-side body: parse `input`, do the work. */
-type Executor = (input: unknown, ctx: ToolContext) => Promise<unknown>;
+type Executor = (input: unknown, ctx: ToolContext, call: ToolCallInfo) => Promise<unknown>;
 
 /**
  * The browser's half of the tool set, one entry per {@link ClientToolName} —
@@ -134,10 +154,33 @@ const CLIENT_EXECUTORS: Record<ClientToolName, Executor> = {
     const { blockId, items } = TOOLS.look_at.inputSchema.parse(input);
     return await lookAt(ctx, blockId, items);
   },
+  read_comments: async (input, ctx) => {
+    const { pageId, includeResolved } = TOOLS.read_comments.inputSchema.parse(input ?? {});
+    const { scope } = await commentsScope(ctx, pageId, { navigate: false });
+    return readComments(scope, { includeResolved }, AI.chat.maxPageChars);
+  },
+  create_comment: async (input, ctx, call) => {
+    const { pageId, ...rest } = TOOLS.create_comment.inputSchema.parse(input);
+    const { scope, pageId: page } = await commentsScope(ctx, pageId);
+    // Checked against the page as it stands in the editor, not the stored
+    // copy — the words the model read are the ones on screen.
+    const text = pageText(await ctx.editorFor(page));
+    return await createComment(scope, rest, text, call.toolCallId);
+  },
+  reply_comment: async (input, ctx, call) => {
+    const { pageId, ...rest } = TOOLS.reply_comment.inputSchema.parse(input);
+    const { scope } = await commentsScope(ctx, pageId);
+    return await replyComment(scope, rest, call.toolCallId);
+  },
+  resolve_comment: async (input, ctx) => {
+    const { pageId, threadId } = TOOLS.resolve_comment.inputSchema.parse(input);
+    const { scope } = await commentsScope(ctx, pageId);
+    return await resolveComment(scope, { threadId });
+  },
   ...(Object.fromEntries(
-    CANVAS_TOOLS.map((name) => [
+    CANVAS_TOOLS.map((name): [CanvasToolName, Executor] => [
       name,
-      (input: unknown, ctx: ToolContext) => runCanvasTool(name, input, toCanvasHost(ctx)),
+      (input, ctx) => runCanvasTool(name, input, toCanvasHost(ctx)),
     ]),
   ) as Record<CanvasToolName, Executor>),
 };
@@ -151,10 +194,47 @@ export async function runClientTool(
   name: string,
   input: unknown,
   ctx: ToolContext,
+  call: ToolCallInfo = { toolCallId: crypto.randomUUID() },
 ): Promise<unknown> {
   const executor = (CLIENT_EXECUTORS as Record<string, Executor | undefined>)[name];
   if (!executor) throw new Error(`No client tool named ${name}`);
-  return await executor(input, ctx);
+  return await executor(input, ctx, call);
+}
+
+/**
+ * The comments a comment tool acts on: the named page's, or the open one's.
+ * A write to a page that is not on screen opens it first, as `edit_page`
+ * does — its comments document is held by the page, and only a page on
+ * screen has one. A read does not navigate; it asks for the page instead.
+ */
+async function commentsScope(
+  ctx: ToolContext,
+  pageId: string | undefined,
+  { navigate = true }: { navigate?: boolean } = {},
+): Promise<{ scope: CommentsScope; pageId: Id<"pages"> }> {
+  const open = ctx.openPageId();
+  const page = (pageId ?? open) as Id<"pages"> | null;
+  if (!page) throw new Error("No page is open. Call list_pages, then open_page.");
+  if (page !== open) {
+    // A read never moves what the user is looking at.
+    if (!navigate) {
+      throw new Error(
+        "Comments can be read only on the open page. Open that page with open_page first, if the user wants to work there.",
+      );
+    }
+    await fetchPage(ctx, page);
+    ctx.openPage(page);
+  }
+  const comments = await ctx.commentsFor(page);
+  if (!comments) throw new Error("Comments are not available here.");
+  return {
+    pageId: page,
+    scope: {
+      comments,
+      people: ctx.people(),
+      notify: (event) => ctx.convex.mutation(api.commentNotices.event, event),
+    },
+  };
 }
 
 /**

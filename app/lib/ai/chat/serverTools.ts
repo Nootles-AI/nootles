@@ -101,6 +101,10 @@ export function chatTools(
     read_open_page: tool(TOOLS.read_open_page),
     edit_page: tool(TOOLS.edit_page),
     album_edit: tool(TOOLS.album_edit),
+    read_comments: tool(TOOLS.read_comments),
+    create_comment: tool(TOOLS.create_comment),
+    reply_comment: tool(TOOLS.reply_comment),
+    resolve_comment: tool(TOOLS.resolve_comment),
     // The 13 node-level diagram tools (TOOLS.md §5) — client-side like
     // `edit_page`, for the same reason: each acts on the live `SceneStore` or
     // the live editor, neither of which this route has.

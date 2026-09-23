@@ -17,7 +17,7 @@ import { initial, useNaming } from "../people";
 import { refusal } from "../refusal";
 import { Bone } from "./MembersSettings";
 
-type Event = FunctionReturnType<typeof api.audit.list>["page"][number];
+type Event = FunctionReturnType<typeof api.workspaceAudit.list>["page"][number];
 type Member = NonNullable<FunctionReturnType<typeof api.members.list>>["members"][number];
 
 /** The log's heading: where focus goes when the control it was on has gone. */
@@ -152,7 +152,7 @@ export function AuditSettings() {
 
 function Audit({ workspace }: { workspace: WorkspaceContainer }) {
   const router = useRouter();
-  const access = useQuery(api.audit.access, { workspaceId: workspace.workspaceId });
+  const access = useQuery(api.workspaceAudit.access, { workspaceId: workspace.workspaceId });
 
   useEffect(() => {
     if (access === null) router.replace(settingsPath(workspace.slug));
@@ -212,7 +212,7 @@ function Log({ workspace }: { workspace: WorkspaceContainer }) {
     ...(span.from !== undefined ? { from: span.from } : {}),
   };
   const { results, status, loadMore } = usePaginatedQuery(
-    api.audit.list,
+    api.workspaceAudit.list,
     { workspaceId: workspace.workspaceId, filters },
     { initialNumItems: PAGE },
   );
@@ -627,8 +627,8 @@ function Export({
     try {
       let cursor: string | null = null;
       for (;;) {
-        const page: FunctionReturnType<typeof api.audit.exportRows> = await convex.query(
-          api.audit.exportRows,
+        const page: FunctionReturnType<typeof api.workspaceAudit.exportRows> = await convex.query(
+          api.workspaceAudit.exportRows,
           {
             workspaceId: workspace.workspaceId,
             from: from ?? 0,

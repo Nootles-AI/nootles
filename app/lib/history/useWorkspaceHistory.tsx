@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import { spineForProject, WorkspaceHistory } from "./spine";
+import { currentUndoRoute, undoKeyOf, UNDO_SCOPE_ATTR } from "./undoRoute";
 
 /**
  * The spine, as React sees it: one context, one global key handler, and a
@@ -26,9 +27,10 @@ import { spineForProject, WorkspaceHistory } from "./spine";
  * canvas (shape labels), the panels whose commits land in a tracked store.
  * Focus in an UNMARKED input keeps the browser's native undo: the chat
  * composer, a search box, a sidebar rename mid-edit are local drafts, and
- * hijacking ⌘Z there to revert a document edit would be hostile.
+ * hijacking ⌘Z there to revert a document edit would be hostile. A comment
+ * surface is neither: it answers to its own history (see `undoRoute.ts`).
  */
-export const UNDO_SCOPE_ATTR = "data-nt-undo";
+export { UNDO_SCOPE_ATTR };
 
 /** Spread onto the root of any surface whose edits are spine-tracked. */
 export const undoScope = { [UNDO_SCOPE_ATTR]: "" } as const;
@@ -51,25 +53,11 @@ export function WorkspaceHistoryProvider({
   useEffect(() => {
     if (!spine) return;
     const onKey = (event: KeyboardEvent) => {
-      if (!event.metaKey && !event.ctrlKey) return;
-      if (event.altKey) return;
-      const key = event.key.toLowerCase();
-      const isUndo = key === "z" && !event.shiftKey;
-      const isRedo = (key === "z" && event.shiftKey) || key === "y";
-      if (!isUndo && !isRedo) return;
-
-      const active = document.activeElement;
-      if (
-        active instanceof HTMLElement &&
-        isTextEntry(active) &&
-        !active.closest(`[${UNDO_SCOPE_ATTR}]`)
-      ) {
-        return;
-      }
-
+      const key = undoKeyOf(event);
+      if (!key || currentUndoRoute().to !== "spine") return;
       event.preventDefault();
       event.stopPropagation();
-      void (isUndo ? spine.undo() : spine.redo());
+      void (key === "undo" ? spine.undo() : spine.redo());
     };
     document.addEventListener("keydown", onKey, true);
     return () => document.removeEventListener("keydown", onKey, true);
@@ -78,12 +66,6 @@ export function WorkspaceHistoryProvider({
   return (
     <WorkspaceHistoryContext value={spine}>{children}</WorkspaceHistoryContext>
   );
-}
-
-function isTextEntry(el: HTMLElement): boolean {
-  if (el.isContentEditable) return true;
-  const tag = el.tagName;
-  return tag === "INPUT" || tag === "TEXTAREA" || tag === "MATH-FIELD";
 }
 
 /** The spine, or null outside the workspace (the share route, legacy sync). */

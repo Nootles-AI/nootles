@@ -256,7 +256,7 @@ export const startTeamCheckout = action({
       },
     });
     if (!session.url) throw new ConvexError("Couldn’t open checkout. Try again in a moment.");
-    await ctx.runMutation(internal.audit.recordAsCaller, {
+    await ctx.runMutation(internal.workspaceAudit.recordAsCaller, {
       workspaceId: args.workspaceId,
       action: "billing.checkout",
       subjectKind: "workspace",

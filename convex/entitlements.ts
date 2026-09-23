@@ -1,10 +1,13 @@
 import { ConvexError, v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import { internalMutation, mutation, query } from "./_generated/server";
+import { internal } from "./_generated/api";
+import { isAuditId, recordAudit } from "./audit";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import {
   ownerId as currentOwner,
   holdsSeat,
+  isTrashed,
   readEditable,
   requireEditable,
   requireOwned,
@@ -268,6 +271,190 @@ export async function entitlementOf(
     chats: account?.chatConversations ?? 0,
   });
 }
+
+/**
+ * Features a plan switches on or off, as opposed to meters it counts. Comments
+ * are on for every plan: commenting costs no model call and is not something
+ * to meter. The flag exists so every gate that asks — minting, discovery, and
+ * the comments channel itself — has one answer to ask for.
+ */
+export const PLAN_FEATURES = {
+  free: { comments: true },
+  pro: { comments: true },
+} as const satisfies Record<Plan, { comments: boolean }>;
+
+export type Feature = keyof (typeof PLAN_FEATURES)[Plan];
+
+const ON_EVERY_PLAN = (feature: Feature) =>
+  Object.values(PLAN_FEATURES).every((plan) => plan[feature]);
+
+type OverrideScope = Doc<"entitlementOverrides">["scope"];
+
+async function overrideRow(
+  ctx: QueryCtx,
+  scope: OverrideScope,
+  scopeId: string,
+  feature: Feature,
+): Promise<Doc<"entitlementOverrides"> | null> {
+  return await ctx.db
+    .query("entitlementOverrides")
+    .withIndex("by_scope_and_feature", (q) =>
+      q.eq("scope", scope).eq("scopeId", scopeId).eq("feature", feature),
+    )
+    .unique();
+}
+
+/**
+ * An override's answer for one scope, or null when there is none. A row that
+ * exists is standing: expiry deletes it (`expireOverride`, scheduled for
+ * `expiresAt`) rather than being compared against the clock here, because a
+ * subscribed query is not rerun when time passes and would go on answering
+ * with a lapsed override.
+ */
+async function overrideOf(
+  ctx: QueryCtx,
+  scope: OverrideScope,
+  scopeId: string,
+  feature: Feature,
+): Promise<boolean | null> {
+  return (await overrideRow(ctx, scope, scopeId, feature))?.value ?? null;
+}
+
+/**
+ * Whether a feature is on for a project: an override row for the project,
+ * else one for its owner's account, else the owner's plan. Decided by the
+ * project OWNER, never the caller: a free commenter on a paid project comments.
+ *
+ * Asked on every comments-channel read, so the common case stays two indexed
+ * point reads of rows that almost never exist. A feature on for every plan
+ * needs no plan at all — resolving it reads the owner's account and projects,
+ * and would put every open comments doc in their read set.
+ */
+export async function projectFeature(
+  ctx: QueryCtx,
+  project: Doc<"projects">,
+  feature: Feature,
+): Promise<boolean> {
+  const forced =
+    (await overrideOf(ctx, "project", project._id, feature)) ??
+    (await overrideOf(ctx, "account", project.ownerId, feature));
+  if (forced !== null) return forced;
+  if (ON_EVERY_PLAN(feature)) return true;
+  const { plan } = await entitlementOf(ctx, project.ownerId);
+  return PLAN_FEATURES[plan][feature];
+}
+
+/**
+ * Whether a project's pages may carry comments. On for every plan; an
+ * override row is how an abused project or account is switched off, and
+ * because minting, discovery and the comments channel of the gate all ask
+ * here, switching it off closes existing comments documents too.
+ */
+export async function commentsEnabled(
+  ctx: QueryCtx,
+  project: Doc<"projects">,
+): Promise<boolean> {
+  return await projectFeature(ctx, project, "comments");
+}
+
+/** A project override goes in that project's log, where its owner would look. */
+async function auditOverride(
+  ctx: MutationCtx,
+  row: Pick<Doc<"entitlementOverrides">, "scope" | "scopeId" | "feature">,
+  actor: { actorId: string; actorKind: "operator" | "system" },
+  action: string,
+): Promise<void> {
+  if (row.scope !== "project") return;
+  const projectId = ctx.db.normalizeId("projects", row.scopeId);
+  if (!projectId) return;
+  await recordAudit(ctx, {
+    projectId,
+    ...actor,
+    action,
+    subjectKind: "feature",
+    subjectId: row.feature,
+  });
+}
+
+/**
+ * Forces a feature on or off for one project or account — or, with `value:
+ * null`, removes the override so the plan answers again. `expiresAt` schedules
+ * the removal. Internal: an operator runs it from the dashboard (`npx convex
+ * run`); nootles-ops has no wrapper for it yet.
+ *
+ * A project override is recorded in that project's audit log. An account
+ * override is not: it spans every project the account owns, and there is no
+ * account-level log for it to go in until workspaces bring one.
+ */
+export const setOverride = internalMutation({
+  args: {
+    scope: v.union(v.literal("project"), v.literal("account")),
+    scopeId: v.string(),
+    feature: v.literal("comments"),
+    value: v.union(v.boolean(), v.null()),
+    note: v.string(),
+    /** The operator's own id (their Clerk subject) — id-shaped, for the audit log. */
+    grantedBy: v.string(),
+    expiresAt: v.optional(v.number()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const { scope, scopeId, feature, value, note, grantedBy, expiresAt } = args;
+    if (!isAuditId(grantedBy)) {
+      throw new Error("grantedBy must be the operator's id, not a name or an address.");
+    }
+    if (scope === "project") {
+      const projectId = ctx.db.normalizeId("projects", scopeId);
+      const project = projectId ? await ctx.db.get(projectId) : null;
+      if (!project || isTrashed(project)) throw new Error("No live project has that id.");
+    }
+    if (expiresAt !== undefined && expiresAt <= Date.now()) {
+      throw new Error("An override cannot expire in the past.");
+    }
+
+    const existing = await overrideRow(ctx, scope, scopeId, feature);
+    if (value === null && !existing) return null;
+    if (existing) await ctx.db.delete(existing._id);
+    if (value !== null) {
+      const overrideId = await ctx.db.insert("entitlementOverrides", {
+        scope,
+        scopeId,
+        feature,
+        value,
+        note,
+        grantedBy,
+        grantedAt: Date.now(),
+        ...(expiresAt !== undefined ? { expiresAt } : {}),
+      });
+      if (expiresAt !== undefined) {
+        await ctx.scheduler.runAt(expiresAt, internal.entitlements.expireOverride, { overrideId });
+      }
+    }
+    await auditOverride(
+      ctx,
+      args,
+      { actorId: grantedBy, actorKind: "operator" },
+      value === null ? "entitlement.clear" : value ? "entitlement.grant" : "entitlement.revoke",
+    );
+    return null;
+  },
+});
+
+/**
+ * An override's lapse, run at its `expiresAt`. A row replaced since has a new
+ * id, so the job scheduled for the old one finds nothing and does nothing.
+ */
+export const expireOverride = internalMutation({
+  args: { overrideId: v.id("entitlementOverrides") },
+  returns: v.null(),
+  handler: async (ctx, { overrideId }) => {
+    const row = await ctx.db.get(overrideId);
+    if (!row) return null;
+    await ctx.db.delete(row._id);
+    await auditOverride(ctx, row, { actorId: "system", actorKind: "system" }, "entitlement.expire");
+    return null;
+  },
+});
 
 /** Whether one meter still has room. Pro always does. */
 export function hasRoom(entitlement: Entitlement, meter: Meter): boolean {

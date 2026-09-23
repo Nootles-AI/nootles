@@ -13,6 +13,7 @@ import {
   renderInline,
 } from "./previewWidgets";
 import type { ReviewVerdict } from "@/app/lib/ai/review/session";
+import { charMap, checkChar, type CharMap } from "@/app/lib/comments/pmText";
 
 /**
  * The pending change, drawn in the document.
@@ -269,43 +270,6 @@ function removalRuns(removed: AnyBlock[], place: Map<string, Seat>): AnyBlock[][
 
 // ---------------------------------------------------------------------------
 // Inline diff
-
-type CharMap = { text: string; posAt: number[] };
-
-/**
- * The two shapes a tick box takes in a diff. A box contributes ONE character
- * here where other atoms contribute none, because its state is the whole of
- * what it says: an agent that ticks a box in a tracker changes nothing else in
- * the cell, and a change the review cannot draw is a change the reader is asked
- * to approve blind. One character, so the positions after it do not shift.
- */
-const CHECK_CHAR = { on: "\u2611", off: "\u2610" } as const;
-const checkChar = (checked: unknown): string => (checked === true ? CHECK_CHAR.on : CHECK_CHAR.off);
-
-/**
- * The block's text with the document position of every character, so a diff
- * offset becomes a ProseMirror position. An inline maths node or a reference
- * occupies a position but contributes no characters, and treating one as a
- * character would slide every mark after it along by one; a tick box is the one
- * atom that does contribute, and it contributes exactly its own width.
- */
-function charMap(content: Node, start: number): CharMap {
-  let text = "";
-  const posAt: number[] = [];
-  content.forEach((child, offset) => {
-    if (child.type.name === "checkbox") {
-      posAt.push(start + offset);
-      text += checkChar(child.attrs.checked);
-      return;
-    }
-    if (!child.isText) return;
-    const value = child.text ?? "";
-    for (let i = 0; i < value.length; i++) posAt.push(start + offset + i);
-    text += value;
-  });
-  posAt.push(start + content.content.size);
-  return { text, posAt };
-}
 
 /** The same text, from a checkpoint block rather than from a live node. */
 function textOf(content: unknown): string {
