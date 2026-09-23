@@ -122,13 +122,16 @@ export async function stampProject(
 /**
  * A project row as a list or a reader gets it: without its share links, which
  * are its managers' to hand out through `share.links`. Anyone a link let in
- * could otherwise read the editor link off the row and claim the pen with it.
+ * could otherwise read the editor or comment link off the row and claim a
+ * higher role with it.
  */
 export function withoutLinks(project: Doc<"projects">) {
   const {
     shareToken: _viewer,
     editShareToken: _editor,
+    commentShareToken: _commenter,
     shareExpiresAt: _viewerExpiry,
+    commentShareExpiresAt: _commenterExpiry,
     editShareExpiresAt: _editorExpiry,
     ...row
   } = project;

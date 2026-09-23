@@ -450,14 +450,26 @@ describe("a link that runs out", () => {
 });
 
 describe("a project row", () => {
-  const LINK_FIELDS = ["shareToken", "editShareToken", "shareExpiresAt", "editShareExpiresAt"];
+  const LINK_FIELDS = [
+    "shareToken",
+    "commentShareToken",
+    "editShareToken",
+    "shareExpiresAt",
+    "commentShareExpiresAt",
+    "editShareExpiresAt",
+  ];
 
   test("never carries its links, whoever reads it and wherever it is listed", async () => {
     const t = harness();
     const w = await world(t);
     await t.run(async (ctx) => {
       for (const { projectId } of [w.team, w.personal]) {
-        await ctx.db.patch(projectId, { shareExpiresAt: T0 + DAY, editShareExpiresAt: T0 + DAY });
+        await ctx.db.patch(projectId, {
+          commentShareToken: `${projectId}-comment`,
+          shareExpiresAt: T0 + DAY,
+          commentShareExpiresAt: T0 + DAY,
+          editShareExpiresAt: T0 + DAY,
+        });
       }
     });
     await claimed(t, w.personal.projectId, STRANGER, { role: "editor" });
