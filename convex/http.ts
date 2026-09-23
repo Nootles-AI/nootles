@@ -2,6 +2,7 @@ import { httpRouter } from "convex/server";
 import { registerRoutes } from "@convex-dev/stripe";
 import { components, internal } from "./_generated/api";
 import { httpAction } from "./_generated/server";
+import { deliver, signatureValid } from "./github/webhook";
 import { clerkWebhook } from "./identity";
 
 /**
@@ -84,6 +85,36 @@ registerRoutes(http, components.stripe, {
     if (!userId) return;
     await ctx.runMutation(internal.billing.mirrorSubscription, { userId });
   },
+});
+
+/**
+ * The GitHub App's webhook (docs/github-app.md). Here rather than in Next
+ * because GitHub carries no Clerk session, and what it changes is internal.
+ * The signature is checked over the raw bytes before anything is parsed; a
+ * delivery that fails it learns nothing but 401.
+ */
+http.route({
+  path: "/github/webhook",
+  method: "POST",
+  handler: httpAction(async (ctx, req) => {
+    const secret = process.env.GITHUB_APP_WEBHOOK_SECRET;
+    if (!secret) return new Response("GitHub App webhook is not configured", { status: 503 });
+    const body = await req.arrayBuffer();
+    if (!(await signatureValid(secret, body, req.headers.get("x-hub-signature-256")))) {
+      return new Response("Bad signature", { status: 401 });
+    }
+    let payload: unknown;
+    try {
+      payload = JSON.parse(new TextDecoder().decode(body));
+    } catch {
+      return new Response("Body is not JSON", { status: 400 });
+    }
+    if (!payload || typeof payload !== "object") {
+      return new Response("Body is not an object", { status: 400 });
+    }
+    await deliver(ctx, req.headers.get("x-github-event") ?? "", payload);
+    return new Response(null, { status: 200 });
+  }),
 });
 
 export default http;

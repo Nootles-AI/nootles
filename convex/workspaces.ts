@@ -220,7 +220,8 @@ export const setSlug = mutation({
 
 /**
  * Settings an admin changes here. The GitHub organisation rule is not among
- * them: it arrives with the GitHub App, which is what can check it.
+ * them: it must name an organisation the GitHub App is installed on, which
+ * `github/app.setOrgRule` checks.
  *
  * A join domain lets anyone signed in on it walk in, so adding one needs proof
  * of holding it: it must be the domain of the acting admin's own verified

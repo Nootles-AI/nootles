@@ -555,16 +555,23 @@ export async function canReadCode(ctx: QueryCtx, project: Doc<"projects">): Prom
   return (await claimOf(ctx, project._id, me))?.codeAccess === true;
 }
 
+/** How long a member's proof of the GitHub organisation rule holds. */
+export const GITHUB_ORG_PROOF_MS = 14 * 24 * 60 * 60_000;
+
 /**
  * The workspace's GitHub organisation rule (`settings.requireGithubOrg`), for
- * a member about to read code. The hook the GitHub App fills in, since only it
- * can check the rule; until then every member passes.
+ * a member about to read code: off, everyone passes; on, a seat passes while
+ * its proof (`github/orgProof.verify`) is under two weeks old. The
+ * organisation's webhook clears a proof as soon as its login leaves.
  */
 async function passesGithubOrgRule(
-  _ctx: QueryCtx,
-  _seat: Doc<"memberships">,
+  ctx: QueryCtx,
+  seat: Doc<"memberships">,
 ): Promise<boolean> {
-  return true;
+  const workspace = await ctx.db.get(seat.workspaceId);
+  if (!workspace?.settings.requireGithubOrg) return true;
+  const at = seat.githubOrgVerifiedAt;
+  return at !== undefined && Date.now() - at < GITHUB_ORG_PROOF_MS;
 }
 
 /**
