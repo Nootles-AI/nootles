@@ -57,4 +57,11 @@ crons.interval(
   {},
 );
 
+/**
+ * Each Team workspace's AI spend past its seats' allowance, reported to
+ * Stripe's meter as the day's usage; and any seat count Stripe was not told.
+ * At a fixed hour rather than an interval, so a deploy never moves it.
+ */
+crons.cron("report Team usage", "0 7 * * *", internal.teamBilling.reportUsage, {});
+
 export default crons;

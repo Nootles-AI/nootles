@@ -4,6 +4,7 @@ import { StripeSubscriptions } from "@convex-dev/stripe";
 import { api, components, internal } from "./_generated/api";
 import { action, internalMutation, query } from "./_generated/server";
 import { ensureAccount, isLiveStatus, type Entitlement } from "./entitlements";
+import { isTeamPrice, teamBillingConfigured, teamPrices } from "./teamBilling";
 
 /**
  * Paying, and stopping paying.
@@ -106,19 +107,34 @@ export const startCheckout = action({
       throw new ConvexError("Read-only: this session is an operator standing in for you.");
     }
 
-    const customer = await stripe.getOrCreateCustomer(ctx, {
+    let { customerId } = await stripe.getOrCreateCustomer(ctx, {
       userId: identity.subject,
       email: identity.email,
       name: identity.name,
     });
+    // `getOrCreateCustomer` falls back to a match by email, and a workspace's
+    // customer can carry the address of whoever bought its Team plan. Their
+    // own plan is never the workspace's to pay.
+    if (
+      await ctx.runQuery(internal.teamBilling.isWorkspaceCustomer, {
+        stripeCustomerId: customerId,
+      })
+    ) {
+      ({ customerId } = await stripe.createCustomer(ctx, {
+        email: identity.email,
+        name: identity.name,
+        metadata: { userId: identity.subject },
+        idempotencyKey: identity.subject,
+      }));
+    }
     await ctx.runMutation(internal.billing.rememberCustomer, {
       userId: identity.subject,
-      stripeCustomerId: customer.customerId,
+      stripeCustomerId: customerId,
     });
 
     const session = await stripe.createCheckoutSession(ctx, {
       priceId: priceFor(args.interval),
-      customerId: customer.customerId,
+      customerId,
       mode: "subscription",
       successUrl: `${appUrl()}/upgrade?checkout=done`,
       cancelUrl: `${appUrl()}/upgrade?checkout=cancelled`,
@@ -161,6 +177,80 @@ export const manage = action({
 });
 
 /**
+ * Opens checkout for a workspace's Team plan. Returns the URL to send the
+ * browser to. An owner's or admin's to press, never a stand-in's
+ * (`teamBilling.desk`).
+ *
+ * The workspace gets a Stripe customer of its own the first time, made with
+ * `metadata.orgId` under an idempotency key per workspace — never
+ * `getOrCreateCustomer`, which matches by email and would hand back the
+ * buyer's own. Made with no email for the same reason: Checkout asks for the
+ * address the invoices go to. The subscription carries the workspace too, and
+ * no `userId`, so the personal mirror never mistakes it for anyone's Pro.
+ *
+ * Two line items: the seats, at the count of paid seats right now, and the
+ * metered usage, which has no quantity — its meter says what it bills.
+ */
+export const startTeamCheckout = action({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.object({ url: v.string() }),
+  handler: async (ctx, args): Promise<{ url: string }> => {
+    const prices = teamPrices();
+    if (!prices || !teamBillingConfigured()) {
+      throw new ConvexError("Team billing isn’t set up on this deployment.");
+    }
+    const desk = await ctx.runQuery(internal.teamBilling.desk, args);
+    if (desk.live) throw new ConvexError(`${desk.name} is already on the Team plan.`);
+
+    const orgId = args.workspaceId;
+    let customerId = desk.customerId;
+    if (!customerId) {
+      const created = await stripe.createCustomer(ctx, {
+        name: desk.name,
+        metadata: { orgId },
+        idempotencyKey: `workspace_${orgId}`,
+      });
+      customerId = await ctx.runMutation(internal.teamBilling.rememberCustomer, {
+        workspaceId: args.workspaceId,
+        stripeCustomerId: created.customerId,
+      });
+    }
+
+    const back = `${appUrl()}/w/${desk.slug}/settings/billing`;
+    const session = await stripe.createCheckoutSession(ctx, {
+      priceId: prices.seat,
+      customerId,
+      mode: "subscription",
+      successUrl: `${back}?checkout=done`,
+      cancelUrl: `${back}?checkout=cancelled`,
+      metadata: { orgId },
+      subscriptionMetadata: { orgId },
+      params: {
+        line_items: [{ price: prices.seat, quantity: desk.seats }, { price: prices.usage }],
+        allow_promotion_codes: true,
+      },
+    });
+    if (!session.url) throw new ConvexError("Stripe returned no checkout URL.");
+    return { url: session.url };
+  },
+});
+
+/** Stripe's billing portal for a workspace's customer — {@link manage}, for Team. */
+export const manageTeam = action({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.object({ url: v.string() }),
+  handler: async (ctx, args): Promise<{ url: string }> => {
+    const desk = await ctx.runQuery(internal.teamBilling.desk, args);
+    if (!desk.customerId) throw new ConvexError("There is no billing to manage yet.");
+    const session = await stripe.createCustomerPortalSession(ctx, {
+      customerId: desk.customerId,
+      returnUrl: `${appUrl()}/w/${desk.slug}/settings/billing`,
+    });
+    return { url: session.url };
+  },
+});
+
+/**
  * Re-reads one account's subscription from the component and writes it onto
  * `billingAccounts`, which is where `entitlementOf` looks.
  *
@@ -173,10 +263,15 @@ export const mirrorSubscription = internalMutation({
   args: { userId: v.string() },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const rows = await ctx.runQuery(
-      components.stripe.public.listSubscriptionsByUserId,
-      { userId: args.userId },
-    );
+    // A workspace's subscription is never a person's, whoever bought it: it
+    // names its workspace, and it is on Team's prices. Filtered by what Team
+    // is rather than by what Pro is, so someone left on a Pro price since
+    // retired keeps what they pay for.
+    const rows = (
+      await ctx.runQuery(components.stripe.public.listSubscriptionsByUserId, {
+        userId: args.userId,
+      })
+    ).filter((row) => !row.orgId && !isTeamPrice(row.priceId));
     // The one that decides the answer. An account that resubscribed after
     // cancelling has two rows, and the dead one must not be the one that speaks
     // — even when its period reaches further, as it does whenever an annual
