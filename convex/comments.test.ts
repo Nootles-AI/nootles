@@ -255,7 +255,7 @@ describe("ensureDoc", () => {
     await expect(mint(t, b)).rejects.toThrow("Not found");
   });
 
-  test("a seeded commenter claim is only a viewer until the role resolves (fails closed)", async () => {
+  test("a commenter claim with its link off is only a viewer (fails closed)", async () => {
     const t = harness();
     const w = await world(t);
     await t.run(async (ctx) =>
@@ -416,7 +416,7 @@ describe("the comments channel on the Yjs pipeline", () => {
     ).rejects.toThrow("Not found");
   });
 
-  test("a seeded commenter claim reads both channels and writes neither, until the role resolves", async () => {
+  test("a commenter claim with its link off reads both channels and writes neither", async () => {
     const t = harness();
     const w = await world(t);
     const docId = await mint(t, w);
@@ -433,11 +433,9 @@ describe("the comments channel on the Yjs pipeline", () => {
   });
 
   test("an identity that may write the comments is still refused the page's own docId", async () => {
-    // The plan's negative test, as far as U0 can drive it: every identity the
-    // comments channel admits for writing, pointed at the PAGE docId, is judged
-    // by the document channel's rule. Editors and owners pass both; a viewer —
-    // and a commenter, by the pure rule above — passes neither the page nor,
-    // for a viewer, the comments.
+    // Every identity pointed at the PAGE docId is judged by the document
+    // channel's rule. The same test with a commenter who claimed a live comment
+    // link, end to end, is in `commenter.test.ts`.
     const t = harness();
     const w = await world(t);
     const docId = await mint(t, w);

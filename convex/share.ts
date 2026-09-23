@@ -24,33 +24,45 @@ import {
  * which is also what puts the project under "Shared with me".
  */
 
-const role = v.union(v.literal("viewer"), v.literal("editor"));
+const role = v.union(v.literal("viewer"), v.literal("commenter"), v.literal("editor"));
+
+type LinkRole = Doc<"shareClaims">["role"];
 
 const tokenField = {
   viewer: "shareToken",
+  commenter: "commentShareToken",
   editor: "editShareToken",
-} as const;
+} as const satisfies Record<LinkRole, keyof Doc<"projects">>;
+
+/** Each link grants everything the one before it does, and one thing more. */
+const RANK: Record<LinkRole, number> = { viewer: 0, commenter: 1, editor: 2 };
 
 /** The project a live token names, and which role that token grants. */
 async function projectForToken(
   ctx: QueryCtx,
   token: string,
-): Promise<{ project: Doc<"projects">; role: "viewer" | "editor" } | null> {
+): Promise<{ project: Doc<"projects">; role: LinkRole } | null> {
   if (!token) return null;
-  const asViewer = await ctx.db
-    .query("projects")
-    .withIndex("by_share_token", (q) => q.eq("shareToken", token))
-    .unique();
-  if (asViewer) return isTrashed(asViewer) ? null : { project: asViewer, role: "viewer" };
-  const asEditor = await ctx.db
-    .query("projects")
-    .withIndex("by_edit_share_token", (q) => q.eq("editShareToken", token))
-    .unique();
-  if (asEditor && isTrashed(asEditor)) return null;
-  return asEditor ? { project: asEditor, role: "editor" } : null;
+  const found =
+    (await ctx.db
+      .query("projects")
+      .withIndex("by_share_token", (q) => q.eq("shareToken", token))
+      .unique()
+      .then((project) => project && { project, role: "viewer" as const })) ??
+    (await ctx.db
+      .query("projects")
+      .withIndex("by_comment_share_token", (q) => q.eq("commentShareToken", token))
+      .unique()
+      .then((project) => project && { project, role: "commenter" as const })) ??
+    (await ctx.db
+      .query("projects")
+      .withIndex("by_edit_share_token", (q) => q.eq("editShareToken", token))
+      .unique()
+      .then((project) => project && { project, role: "editor" as const }));
+  return found && !isTrashed(found.project) ? found : null;
 }
 
-/** Both links as the share dialog draws them. Owner only. */
+/** Every link as the share dialog draws them. Owner only. */
 /**
  * `readOwned` plus the throw, rather than `requireOwned`: this reads, and
  * `requireOwned` is a write gate — it refuses an operator's stand-in, which
@@ -64,6 +76,7 @@ export const links = query({
     if (!project) throw new Error("Not found");
     return {
       viewer: project.shareToken ?? null,
+      commenter: project.commentShareToken ?? null,
       editor: project.editShareToken ?? null,
     };
   },
@@ -134,9 +147,12 @@ export const view = query({
 
 /**
  * What signing in through a link does: records who came, at the role the link
- * grants. Idempotent, upserting to the higher role — a viewer later handed the
- * editor link is promoted, never demoted. The owner passes through unrecorded;
- * their own project has nothing to claim.
+ * grants. Idempotent, upserting to the higher role in `RANK` — a viewer later
+ * handed the comment or editor link is promoted, and a commenter who opens the
+ * viewer link is never demoted by it. "Higher" is judged against what the
+ * claim grants now, so an editor whose link was turned off, handed the live
+ * comment link instead, becomes its commenter. The owner passes through
+ * unrecorded; their own project has nothing to claim.
  *
  * An account whose first act is a claim was CREATED by this document, and the
  * survey-and-seed welcome is for people starting from nothing — so the claim
@@ -183,8 +199,13 @@ export const claim = mutation({
         role: found.role,
         createdAt: Date.now(),
       });
-    } else if (existing.role === "viewer" && found.role === "editor") {
-      await ctx.db.patch(existing._id, { role: "editor" });
+    } else {
+      // Ranked by what the claim grants now: a role whose link has died
+      // stands as a viewer's, so a live lower link still lifts it.
+      const standing = found.project[tokenField[existing.role]] ? existing.role : "viewer";
+      if (RANK[found.role] > RANK[standing]) {
+        await ctx.db.patch(existing._id, { role: found.role });
+      }
     }
     return found.project._id;
   },
@@ -238,7 +259,7 @@ export const collaborators = query({
  * see the project can ask about it, and granting reaches for `grantedRole` on
  * the claim they already have — so the answer promotes one person rather than
  * widening a link. Nothing here is a door: a denial leaves them exactly the
- * viewer they were.
+ * viewer or commenter they were.
  */
 
 /** Who is asking, as the owner's toast draws them. */
@@ -260,7 +281,8 @@ async function requesterCard(ctx: QueryCtx, request: Doc<"accessRequests">) {
 }
 
 /**
- * "May I edit this?" — only a viewer has anything to ask, and asking twice is
+ * "May I edit this?" — only someone without the pen — a viewer or a
+ * commenter — has anything to ask, and asking twice is
  * the same question: the row is reused rather than appended to, so an owner who
  * dismissed one never faces a pile of it. A previously declined request goes
  * back to pending, which is the whole of what a decline means.
@@ -276,7 +298,7 @@ export const requestEdit = mutation({
     const role = await roleForProject(ctx, project);
     if (!role) throw new Error("Not found");
     // Owners and editors have the pen already; nothing to ask for.
-    if (role !== "viewer") return null;
+    if (role === "owner" || role === "editor") return null;
 
     const existing = await ctx.db
       .query("accessRequests")
