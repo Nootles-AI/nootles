@@ -138,6 +138,83 @@ is billed. With two different values every row is refused, and the Convex logs
 say "That ledger row’s signature doesn’t hold": fix the pair before switching
 usage billing on.
 
+## 7. Team billing in Stripe
+
+A workspace on Team pays for two things on one monthly subscription: a
+**seat** for every owner, admin and member (guests are free), and **AI usage**
+past what its seats include — `TEAM_AI_ALLOWANCE_USD` per seat per period,
+billed in cents through a Stripe Billing Meter. The code is
+`convex/teamBilling.ts`, plus `billing.startTeamCheckout` and
+`billing.manageTeam`.
+
+### One-time setup, in test mode first
+
+1. **The meter.** Billing → Meters → Create meter. Event name
+   `nootles_team_ai_cents` (any name; it goes in `STRIPE_TEAM_METER_EVENT`),
+   aggregation **Sum**, and leave the payload keys at their defaults:
+   `stripe_customer_id` for the customer, `value` for the amount. One unit is
+   one cent of overage.
+2. **The product and its two prices.** Make a product, "Nootles Team", with:
+   - a **seat** price: recurring, monthly, per unit — what one seat costs;
+   - a **usage** price: recurring, monthly, usage-based, on the meter from
+     step 1, at **$0.01 per unit**.
+
+   Same currency and interval for both: they are two items on one
+   subscription.
+3. **The customer portal** (Settings → Billing → Customer portal). Let
+   customers update payment methods, see invoices and cancel. Do **not** let
+   them change quantities or switch plans on Nootles Team: seats follow the
+   members list, and a quantity changed in the portal is put back by the next
+   sync.
+4. **The webhook** from section 3 already covers it. A workspace's events
+   carry `metadata.orgId` and go to `teamBilling.mirror`; a person's carry
+   `userId` and go to `billing.mirrorSubscription`, as before.
+
+### Environment
+
+On the **Convex** deployment, `--prod` as in section 2:
+
+| Name | What it is |
+|---|---|
+| `STRIPE_PRICE_TEAM_SEAT` | the seat price's API ID, `price_…` |
+| `STRIPE_PRICE_TEAM_USAGE` | the usage price's API ID |
+| `STRIPE_TEAM_METER_EVENT` | the meter's event name, e.g. `nootles_team_ai_cents` |
+| `TEAM_AI_ALLOWANCE_USD` | dollars of AI each seat includes per period; optional, 10 if unset |
+| `AI_LEDGER_SECRET` | section 6 — on Convex **and** Next. Usage is billed from signed ledger rows only, so without it Team bills seats and never usage |
+
+`APP_URL` and `STRIPE_SECRET_KEY` are shared with personal billing. Until the
+two prices, the meter event and `APP_URL` are all set, a workspace's billing
+screen says Team billing isn't set up on this deployment and checkout refuses.
+
+### How it runs
+
+- **Checkout** makes the workspace a Stripe customer of its own
+  (`metadata.orgId`, no email — the component matches a person's customer by
+  email, and must never find this one), then a subscription carrying
+  `metadata.orgId` with both items: seats at the current count, and usage.
+- **The mirror** re-reads the customer's subscriptions from Stripe on every
+  workspace event and finds the two items by price, into `workspaceBilling`.
+  A person's mirror ignores any subscription that names a workspace or is on
+  a Team price, so paying for a workspace never makes its buyer Pro.
+- **Seats**: joining, leaving, removal and role changes schedule a sync a
+  minute later — one for a burst of changes — which sets the seat item's
+  quantity, prorated. Deleting a workspace sets its subscription to end with
+  the period already paid for.
+- **Usage**: every night at 07:00 UTC (`crons.ts`) each live Team workspace's
+  signed AI spend since the last report is added up, and what the period owes
+  past its allowance goes to the meter as one event, in whole cents. Its
+  identifier, `<workspace>:<periodStart>:<through>`, is fixed before sending,
+  so a send that fails is retried as the same event rather than a second
+  charge. The same run re-syncs any seat count Stripe was not told.
+- Spend in the hours before a renewal is reported the night after it, onto the
+  new period's invoice, counted against the old period's allowance. Spend in
+  the last day of a subscription that ends is not billed.
+
+To check it end to end in test mode: buy Team with a test card from a
+workspace's billing screen, confirm its `workspaceBilling` row has a
+`seatItemId` and a `usageItemId`, add a member and watch the seat quantity
+change in the dashboard a minute later.
+
 ## What is where
 
 - **Free allowance** — `FREE_LIMITS` in `convex/entitlements.ts`. Change the
@@ -150,3 +227,5 @@ usage billing on.
   lapsed card.
 - **Workspace plans** — `PLANS` in `convex/plans.ts`, and one workspace's
   exceptions in `workspaceEntitlements` (section 5).
+- **Team subscriptions, seats and usage** — `convex/teamBilling.ts`, mirrored
+  into `workspaceBilling` (section 7).
