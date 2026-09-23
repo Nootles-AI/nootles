@@ -34,8 +34,8 @@ const FULL = new Intl.DateTimeFormat(undefined, {
 const nth = (i: number) => ({ "--i": i % PAGE }) as CSSProperties;
 
 /**
- * Kinds of event, each an action prefix the server narrows by. "Edits" is the
- * one action below its kind that someone asks for on its own.
+ * Kinds of event, each an action prefix the server narrows by. Edits are a
+ * kind of their own on the server, so "Pages" means a page's structural events.
  */
 const KINDS: readonly { id: string; label: string }[] = [
   { id: "page.edit", label: "Edits" },
