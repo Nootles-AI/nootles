@@ -9,18 +9,27 @@ import {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
+import Link from "next/link";
 import { useUser } from "@clerk/nextjs";
 import { useMutation, useQuery } from "convex/react";
+import type { FunctionReturnType } from "convex/server";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
+import { settingsPath } from "@/app/lib/containerPaths";
 import { track } from "@/app/lib/telemetry";
-import { Check, Copy, LinkIcon } from "./Icons";
+import { Check, ChevronsUpDown, Code, Copy, LinkIcon, MoreHorizontal } from "./Icons";
+import { Menu, MenuItem } from "./Menu";
 import { Segmented, type Segment } from "./Segmented";
+import { Tooltip } from "./Tooltip";
+import { dayOf, LIFETIMES, lifetimeLabel, runsOutAt } from "./share/expiry";
 import { useContainer } from "./workspaces/ContainerContext";
+import { refusal } from "./workspaces/refusal";
+import { useMoment } from "./workspaces/useMoment";
 import "./share/access.css";
 import "./workspaces/workspaces.css";
 
 type LinkRole = "editor" | "viewer";
+type Collaborator = FunctionReturnType<typeof api.share.collaborators>[number];
 
 /** By code point, not char: a name starting with an emoji keeps it whole. */
 function initial(name: string | null | undefined) {
@@ -37,18 +46,39 @@ const HOLDS = {
   can: { owner: "Can manage", editor: "Can edit", viewer: "Can view" },
 } as const;
 
-const TABS: readonly Segment<LinkRole>[] = [
-  {
-    id: "editor",
-    label: "Editor link",
-    hint: "Anyone with it can view; signing in lets them edit",
+/**
+ * What a link does, as its tab and the note under it say it. A workspace's
+ * links open only for someone signed in, so there is no viewing without it.
+ */
+const SAYS = {
+  anyone: {
+    editor: "Anyone with this link can view; signing in lets them edit.",
+    viewer: "Anyone with this link can view. Nobody can edit through it.",
   },
-  {
-    id: "viewer",
-    label: "Viewer link",
-    hint: "Anyone with it can view. Nobody can edit through it",
+  signedIn: {
+    editor: "Anyone signed in who has this link can edit.",
+    viewer: "Anyone signed in who has this link can view. Nobody can edit through it.",
   },
-];
+} as const;
+
+const TABS: Record<keyof typeof SAYS, readonly Segment<LinkRole>[]> = {
+  anyone: [
+    { id: "editor", label: "Editor link", hint: "Anyone with it can view; signing in lets them edit" },
+    { id: "viewer", label: "Viewer link", hint: "Anyone with it can view. Nobody can edit through it" },
+  ],
+  signedIn: [
+    { id: "editor", label: "Editor link", hint: "Anyone signed in who has it can edit" },
+    {
+      id: "viewer",
+      label: "Viewer link",
+      hint: "Anyone signed in who has it can view. Nobody can edit through it",
+    },
+  ],
+};
+
+/** A row's ⋯, there on hover or focus, and always where there is no hover. */
+const ROW_MENU =
+  "nt-icon-btn is-sm nt-ws-row-menu opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 aria-expanded:opacity-100";
 
 /**
  * Sharing, from the sidebar head: one link per role, each its own tab.
@@ -105,9 +135,9 @@ function SharePopoverBody({
   const links = useQuery(api.share.links, { projectId });
   const collaborators = useQuery(api.share.collaborators, { projectId });
   // In a workspace, most of who can reach a project is who is in it: the
-  // popover says so before the people let in by link. A private one is its
-  // maker's and the workspace's owners' and admins' — the maker named, when
-  // they are neither and not you.
+  // popover says so before the links, so nobody sends one to a teammate who
+  // needed none. A private one is its maker's and the workspace's owners' and
+  // admins' — the maker named, when they are neither and not you.
   const container = useContainer();
   const project = useQuery(api.projects.get, { projectId });
   const workspace =
@@ -123,6 +153,19 @@ function SharePopoverBody({
     ? people?.members.find((m) => m.userId === project.ownerId && !m.isMe && m.role === "member")
     : undefined;
   const holds = workspace ? HOLDS.can : HOLDS.role;
+  // A guest reads a project's code only where the workspace allows guests
+  // code at all and there is code linked to read; only then is it offered.
+  // The same subscription the workspace's route already holds.
+  const settings = useQuery(
+    api.workspaces.bySlug,
+    workspace ? { slug: workspace.slug } : "skip",
+  )?.workspace.settings;
+  const guests = !!collaborators?.some((person) => person.guest);
+  const repos = useQuery(
+    api.github.repos.listForProject,
+    guests && settings?.guestCodeAccess ? { projectId } : "skip",
+  );
+  const offersCode = !!settings?.guestCodeAccess && !!repos?.length;
   const setLink = useMutation(api.share.setLink);
   // The owner's whole inbox, narrowed here: the toast and this list are the
   // same question in two places, so they read the same query rather than two
@@ -136,6 +179,10 @@ function SharePopoverBody({
   const tipId = useId();
   const [role, setRole] = useState<LinkRole>("editor");
   const [copied, setCopied] = useState<LinkRole | null>(null);
+  // Fixed for the visit: a link's day does not need to tick.
+  const [now] = useState(() => Date.now());
+  const [linkProblem, setLinkProblem] = useState<string | null>(null);
+  const [peopleProblem, setPeopleProblem] = useState<string | null>(null);
   // An answered request is on its way out: it fades while the server agrees,
   // rather than sitting there looking unanswered until the list redraws.
   const [answered, setAnswered] = useState<ReadonlySet<string>>(new Set());
@@ -215,7 +262,27 @@ function SharePopoverBody({
     track("share_link_copied", { role: which });
   };
 
+  const create = () => {
+    setLinkProblem(null);
+    setLink({ projectId, role, enabled: true })
+      .then((t) => {
+        if (t) void copy(t, role);
+      })
+      .catch((error) =>
+        setLinkProblem(refusal(error, "That link wasn’t made. Try again in a moment.")),
+      );
+    track("share_link_toggled", { role, on: true });
+  };
+
   const token = links ? links[role] : null;
+  const until = links ? links.expiresAt[role] : null;
+  // A link that has run out admits nobody; turning it on again mints another.
+  const ranOut = token && until !== null && until <= now ? until : null;
+  const lapsed = ranOut !== null;
+  // Until the project says which home it is in, the page it is open in is
+  // the likely answer.
+  const inWorkspace = project ? !!project.workspaceId : container.kind === "workspace";
+  const says = inWorkspace ? "signedIn" : "anyone";
 
   return createPortal(
     <>
@@ -233,11 +300,15 @@ function SharePopoverBody({
         // Tabbing past the last control would strand focus behind the scrim,
         // on things only the keyboard can reach — so leaving closes, same as
         // Menu's Tab contract. `relatedTarget` is null on clicks into the
-        // popover's own padding; those must not count as leaving.
+        // popover's own padding; those must not count as leaving. Nor does
+        // going into a menu raised from a row here, which is portaled out of
+        // the popover's box but not out of it.
         onBlur={(e) => {
+          const to = e.relatedTarget;
           if (
-            e.relatedTarget instanceof Node &&
-            !e.currentTarget.contains(e.relatedTarget)
+            to instanceof Element &&
+            !e.currentTarget.contains(to) &&
+            !to.closest("[role='menu']")
           )
             onClose();
         }}
@@ -253,83 +324,157 @@ function SharePopoverBody({
           visibility: pos ? undefined : "hidden",
         }}
       >
-        <Segmented
-          label="Share links"
-          segments={TABS}
-          value={role}
-          onChange={setRole}
-        />
-
-        {links === undefined ? (
-          // The shape of the link row, so the popover opens at its size
-          // instead of growing under the pointer when the query lands.
-          <div aria-hidden className="nt-skeleton mt-3 h-8" />
-        ) : token ? (
-          <>
-            <div className="mt-3 flex items-center gap-1.5">
-              <input
-                ref={inputRef}
-                readOnly
-                aria-label={`${role === "editor" ? "Editor" : "Viewer"} link`}
-                value={`${window.location.origin}/share/${token}`}
-                onFocus={(e) => e.currentTarget.select()}
-                className="nt-input h-8 min-w-0 flex-1 py-0"
-              />
-              <button
-                onClick={() => void copy(token, role)}
-                aria-live="polite"
-                data-done={copied === role || undefined}
-                className="nt-row nt-solid min-w-[5.5rem] shrink-0 justify-center gap-1.5 px-3 font-medium"
-              >
-                {/* Two glyphs in one seat: the tick takes it while the word
-                    says so, and gives it back. */}
-                <span className="nt-swap" aria-hidden="true">
-                  <Copy width={14} height={14} />
-                  <Check width={14} height={14} />
+        {/* A workspace comes first, under its own label: everyone its
+            membership lets in, as one row, said before any link is offered —
+            and not among the people, whose count is of the rows under them. */}
+        {project === undefined && container.kind === "workspace" ? (
+          <div aria-hidden className="mb-4">
+            <div className="nt-skeleton h-3.5 w-20" />
+            <div className="nt-skeleton mt-2.5 h-8" />
+          </div>
+        ) : (
+          workspace && (
+            <div className="mb-4">
+              <div className="nt-field-label">Workspace</div>
+              <div className="flex h-8 items-center gap-2">
+                <span aria-hidden className="nt-monogram nt-ws-tile is-square shrink-0">
+                  {initial(workspace.name)}
                 </span>
-                {copied === role ? "Copied" : "Copy"}
-              </button>
+                <span className="min-w-0 flex-1 truncate text-[13px]">
+                  {hidden
+                    ? `${workspace.name}’s owners and admins`
+                    : `Everyone in ${workspace.name}`}
+                </span>
+                <span className="shrink-0 text-[13px] text-muted">
+                  {hidden ? "Can manage" : "Can edit"}
+                </span>
+              </div>
             </div>
-            <p className="nt-note mt-2 text-pretty">
-              {role === "editor"
-                ? "Anyone with this link can view; signing in lets them edit."
-                : "Anyone with this link can view. Nobody can edit through it."}
-            </p>
-            <button
-              onClick={() => {
-                void setLink({ projectId, role, enabled: false });
-                track("share_link_toggled", { role, on: false });
-              }}
-              aria-describedby={`${tipId}-off`}
-              data-tip="The link stops working, and everyone who signed in through it loses access"
-              className="nt-row nt-tip mt-1 -mx-2.5 px-2.5 text-danger"
-            >
-              Turn off link
-              {/* The same words for a screen reader, which never sees the tooltip. */}
-              <span id={`${tipId}-off`} className="sr-only">
-                The link stops working, and everyone who signed in through it
-                loses access
-              </span>
-            </button>
-          </>
+          )
+        )}
+
+        {links === undefined && container.kind === "workspace" ? (
+          // A workspace may allow no links at all, so not even the tabs are
+          // drawn before it has said.
+          <div aria-hidden>
+            <div className="nt-skeleton h-6 w-44" />
+            <div className="nt-skeleton mt-3 h-8" />
+          </div>
+        ) : links?.allowed === false ? (
+          // No links at all here: the tabs would offer what cannot be had.
+          <p className="nt-note text-pretty">
+            Share links are turned off in {workspace?.name ?? "this workspace"}, so nobody can
+            open this project through one.
+            {workspace && (
+              <>
+                {" "}
+                They can be turned back on in{" "}
+                <Link
+                  href={settingsPath(workspace.slug)}
+                  className="underline underline-offset-2 hover:text-foreground"
+                >
+                  workspace settings
+                </Link>
+                .
+              </>
+            )}
+          </p>
         ) : (
           <>
-            <p className="nt-note mt-3 text-pretty">
-              {role === "editor"
-                ? "Off. Nobody can view or edit through an editor link."
-                : "Off. Nobody can view through a viewer link."}
-            </p>
-            <button
-              onClick={() => {
-                void setLink({ projectId, role, enabled: true }).then((t) => {
-                  if (t) void copy(t, role);
-                });
-                track("share_link_toggled", { role, on: true });
+            <Segmented
+              label="Share links"
+              segments={TABS[says]}
+              value={role}
+              onChange={(next) => {
+                setRole(next);
+                setLinkProblem(null);
               }}
-              className="nt-row nt-solid mt-2 px-3 font-medium"
-            >
-              Create {role} link
-            </button>
+            />
+
+            {links === undefined ? (
+              // The shape of the link row, so the popover opens at its size
+              // instead of growing under the pointer when the query lands.
+              <div aria-hidden className="nt-skeleton mt-3 h-8" />
+            ) : token && !lapsed ? (
+              <>
+                <div className="mt-3 flex items-center gap-1.5">
+                  <input
+                    ref={inputRef}
+                    readOnly
+                    aria-label={`${role === "editor" ? "Editor" : "Viewer"} link`}
+                    value={`${window.location.origin}/share/${token}`}
+                    onFocus={(e) => e.currentTarget.select()}
+                    className="nt-input h-8 min-w-0 flex-1 py-0"
+                  />
+                  <button
+                    onClick={() => void copy(token, role)}
+                    aria-live="polite"
+                    data-done={copied === role || undefined}
+                    className="nt-row nt-solid min-w-[5.5rem] shrink-0 justify-center gap-1.5 px-3 font-medium"
+                  >
+                    {/* Two glyphs in one seat: the tick takes it while the word
+                        says so, and gives it back. */}
+                    <span className="nt-swap" aria-hidden="true">
+                      <Copy width={14} height={14} />
+                      <Check width={14} height={14} />
+                    </span>
+                    {copied === role ? "Copied" : "Copy"}
+                  </button>
+                </div>
+                <p className="nt-note mt-2 text-pretty">{SAYS[says][role]}</p>
+                <div className="nt-share-link-foot mt-1 -mx-2 flex items-center justify-between gap-2">
+                  <LinkLifetime
+                    // Each link its own: a tick given for one never shows on
+                    // the other's tab.
+                    key={role}
+                    projectId={projectId}
+                    role={role}
+                    until={until}
+                    now={now}
+                    onProblem={setLinkProblem}
+                  />
+                  <button
+                    onClick={() => {
+                      setLinkProblem(null);
+                      void setLink({ projectId, role, enabled: false });
+                      track("share_link_toggled", { role, on: false });
+                    }}
+                    aria-describedby={`${tipId}-off`}
+                    data-tip="The link stops working, and everyone who signed in through it loses access"
+                    className="nt-row nt-tip shrink-0 px-2 text-danger"
+                  >
+                    Turn off link
+                    {/* The same words for a screen reader, which never sees the tooltip. */}
+                    <span id={`${tipId}-off`} className="sr-only">
+                      The link stops working, and everyone who signed in through it
+                      loses access
+                    </span>
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="nt-note mt-3 text-pretty">
+                  {ranOut !== null
+                    ? `Ran out on ${dayOf(ranOut, now)}. Nobody can ${
+                        role === "editor" ? "view or edit" : "view"
+                      } through it now.`
+                    : role === "editor"
+                      ? "Off. Nobody can view or edit through an editor link."
+                      : "Off. Nobody can view through a viewer link."}
+                  {links.defaultDays !== null &&
+                    ` A new one runs out after ${lifetimeLabel(links.defaultDays)}.`}
+                </p>
+                <button onClick={create} className="nt-row nt-solid mt-2 px-3 font-medium">
+                  {lapsed ? `Create a new ${role} link` : `Create ${role} link`}
+                </button>
+              </>
+            )}
+            {linkProblem && (
+              <p role="alert" className="nt-note mt-2 text-pretty text-danger">
+                {linkProblem}
+              </p>
+            )}
           </>
         )}
 
@@ -395,117 +540,327 @@ function SharePopoverBody({
         {collaborators === undefined ||
         project === undefined ||
         (workspace && hidden && people === undefined) ? (
-          <div aria-hidden>
-            {/* The project is not in yet to say which home it is in; the
-                page it is open in is the likely answer. */}
-            {container.kind === "workspace" && (
-              <div className="mt-4">
-                <div className="nt-skeleton h-3.5 w-20" />
-                <div className="nt-skeleton mt-2.5 h-8" />
-              </div>
-            )}
-            <div className="mt-4">
-              <div className="nt-skeleton h-3.5 w-28" />
-              <div className="nt-skeleton mt-2.5 h-8" />
-            </div>
+          <div aria-hidden className="mt-4">
+            <div className="nt-skeleton h-3.5 w-28" />
+            <div className="nt-skeleton mt-2.5 h-8" />
           </div>
         ) : (
-          <>
-            {/* A workspace comes first, under its own label: everyone its
-                membership lets in, as one row. Among the people it would
-                make their count disagree with the rows under it. */}
-            {workspace && (
-              <div className="mt-4">
-                <div className="nt-field-label">Workspace</div>
-                <div className="flex h-8 items-center gap-2">
-                  <span aria-hidden className="nt-monogram nt-ws-tile is-square shrink-0">
-                    {initial(workspace.name)}
-                  </span>
-                  <span className="min-w-0 flex-1 truncate text-[13px]">
-                    {hidden
-                      ? `${workspace.name}’s owners and admins`
-                      : `Everyone in ${workspace.name}`}
-                  </span>
-                  <span className="shrink-0 text-[13px] text-muted">
-                    {hidden ? "Can manage" : "Can edit"}
-                  </span>
-                </div>
-              </div>
-            )}
-            <div className="mt-4">
-              <div className="nt-field-label">
-                People with access
-                <span className="nt-field-note">
-                  {collaborators.length + 1 + (maker ? 1 : 0)}
-                </span>
-              </div>
-              <ul
-                aria-label="People with access"
-                className="nt-share-people max-h-56 space-y-px overflow-y-auto"
-              >
-                {/* First the one person who always has access. Alone, the row
-                    is also the answer to "has anyone joined yet": only you. */}
-                <li className="flex h-8 items-center gap-2">
-                  <span aria-hidden className="nt-monogram shrink-0">
-                    {initial(
-                      me?.fullName?.trim() ||
-                        me?.primaryEmailAddress?.emailAddress,
-                    )}
-                  </span>
-                  <span className="min-w-0 flex-1 truncate text-[13px]">You</span>
-                  <span className="shrink-0 text-[13px] text-muted">{holds.owner}</span>
-                </li>
-                {maker && (
-                  <li className="flex h-8 items-center gap-2">
-                    {maker.imageUrl ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={maker.imageUrl}
-                        alt=""
-                        className="h-5 w-5 shrink-0 rounded-full"
-                      />
-                    ) : (
-                      <span aria-hidden className="nt-monogram shrink-0">
-                        {initial(maker.name ?? maker.email)}
-                      </span>
-                    )}
-                    <span className="min-w-0 flex-1 truncate text-[13px]">
-                      {maker.name ?? maker.email ?? "Someone"}
-                    </span>
-                    <span className="shrink-0 text-[13px] text-muted">{holds.editor}</span>
-                  </li>
-                )}
-                {collaborators.map((person) => (
-                  <li
-                    key={person.granteeId}
-                    className="flex h-8 items-center gap-2"
-                  >
-                    {person.imageUrl ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={person.imageUrl}
-                        alt=""
-                        className="h-5 w-5 shrink-0 rounded-full"
-                      />
-                    ) : (
-                      <span aria-hidden className="nt-monogram shrink-0">
-                        {initial(person.name ?? person.email)}
-                      </span>
-                    )}
-                    <span className="min-w-0 flex-1 truncate text-[13px]">
-                      {person.name ?? person.email ?? "Someone"}
-                    </span>
-                    <span className="shrink-0 text-[13px] text-muted">
-                      {person.role === "editor" ? holds.editor : holds.viewer}
-                    </span>
-                  </li>
-                ))}
-              </ul>
+          <div className="mt-4">
+            <div className="nt-field-label">
+              People with access
+              <span className="nt-field-note">
+                {collaborators.length + 1 + (maker ? 1 : 0)}
+              </span>
             </div>
-          </>
+            <ul
+              aria-label="People with access"
+              className="nt-share-people max-h-56 space-y-px overflow-y-auto"
+            >
+              {/* First the one person who always has access. Alone, the row
+                  is also the answer to "has anyone joined yet": only you. */}
+              <li className="flex h-8 items-center gap-2">
+                <span aria-hidden className="nt-monogram shrink-0">
+                  {initial(
+                    me?.fullName?.trim() ||
+                      me?.primaryEmailAddress?.emailAddress,
+                  )}
+                </span>
+                <span className="min-w-0 flex-1 truncate text-[13px]">You</span>
+                <span className="shrink-0 text-[13px] text-muted">{holds.owner}</span>
+                {/* The ⋯'s seat, so every row's role lines up down the list. */}
+                {collaborators.length > 0 && <span aria-hidden className="w-6 shrink-0" />}
+              </li>
+              {maker && (
+                <li className="flex h-8 items-center gap-2">
+                  {maker.imageUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={maker.imageUrl}
+                      alt=""
+                      className="h-5 w-5 shrink-0 rounded-full"
+                    />
+                  ) : (
+                    <span aria-hidden className="nt-monogram shrink-0">
+                      {initial(maker.name ?? maker.email)}
+                    </span>
+                  )}
+                  <span className="min-w-0 flex-1 truncate text-[13px]">
+                    {maker.name ?? maker.email ?? "Someone"}
+                  </span>
+                  <span className="shrink-0 text-[13px] text-muted">{holds.editor}</span>
+                  {collaborators.length > 0 && <span aria-hidden className="w-6 shrink-0" />}
+                </li>
+              )}
+              {collaborators.map((person) => (
+                <Person
+                  key={person.granteeId}
+                  projectId={projectId}
+                  person={person}
+                  holds={person.role === "editor" ? holds.editor : holds.viewer}
+                  offersCode={offersCode && person.guest}
+                  now={now}
+                  onProblem={setPeopleProblem}
+                  // Its row is going, ⋯ and all: focus waits on the popover.
+                  onGone={() => popRef.current?.focus()}
+                />
+              ))}
+            </ul>
+            {peopleProblem && (
+              <p role="alert" className="nt-note mt-2 text-pretty text-danger">
+                {peopleProblem}
+              </p>
+            )}
+          </div>
         )}
       </div>
     </>,
     document.body,
+  );
+}
+
+/**
+ * When a link runs out, and the choice of when: the day it does, in the
+ * metadata voice, as the trigger of a menu of lifetimes counted from now.
+ * A pick moves the link's day and its people's with it (`share.setLink`); the
+ * trigger's glyph turns to a tick for a moment once the server has it.
+ */
+function LinkLifetime({
+  projectId,
+  role,
+  until,
+  now,
+  onProblem,
+}: {
+  projectId: Id<"projects">;
+  role: LinkRole;
+  until: number | null;
+  now: number;
+  onProblem: (text: string | null) => void;
+}) {
+  const [saved, flash] = useMoment();
+  const setLifetime = useMutation(api.share.setLink).withOptimisticUpdate((store, args) => {
+    if (args.expiresInDays === undefined) return;
+    const shown = store.getQuery(api.share.links, { projectId: args.projectId });
+    if (!shown) return;
+    // From the popover's own moment rather than this one: close enough for
+    // the day it shows until the server's answer replaces it.
+    const at = args.expiresInDays === null ? null : runsOutAt(args.expiresInDays, now);
+    store.setQuery(
+      api.share.links,
+      { projectId: args.projectId },
+      { ...shown, expiresAt: { ...shown.expiresAt, [args.role]: at } },
+    );
+  });
+
+  const pick = (days: number | null) => {
+    onProblem(null);
+    setLifetime({ projectId, role, enabled: true, expiresInDays: days })
+      .then(flash)
+      .catch((error) =>
+        onProblem(refusal(error, "That expiry didn’t save. Try again in a moment.")),
+      );
+  };
+
+  const said = until === null ? "Never expires" : `Expires ${dayOf(until, now)}`;
+  return (
+    <Menu
+      label="When the link expires"
+      side="bottom"
+      align="start"
+      // Above the popover, and Escape closes this menu alone, not both.
+      layer="modal"
+      trigger={(t) => (
+        <button
+          {...t}
+          aria-label={`${said}. Change when the link expires`}
+          data-done={saved || undefined}
+          className="nt-row nt-ws-pick min-w-0 gap-1.5 px-2"
+        >
+          <span className="nt-meta truncate">{said}</span>
+          <span className="nt-swap nt-ws-pick-glyph" aria-hidden="true">
+            <ChevronsUpDown width={14} height={14} />
+            <Check width={14} height={14} />
+          </span>
+        </button>
+      )}
+    >
+      {(close) =>
+        LIFETIMES.map((days) => (
+          <MenuItem
+            key={days ?? "never"}
+            className="nt-ws-choice"
+            onClick={() => {
+              close();
+              pick(days);
+            }}
+          >
+            <span className="nt-ws-choice-text">
+              <span>{lifetimeLabel(days)}</span>
+              <span className="nt-ws-choice-hint">
+                {days === null ? "Until it’s turned off" : `Until ${dayOf(runsOutAt(days, now), now)}`}
+              </span>
+            </span>
+            <Check
+              width={14}
+              height={14}
+              aria-hidden="true"
+              className={`nt-menu-check${days === null && until === null ? " is-on" : ""}`}
+            />
+          </MenuItem>
+        ))
+      }
+    </Menu>
+  );
+}
+
+/**
+ * Someone let in through a link, with what they hold and a ⋯ of what can be
+ * done about it: their access taken away — the link stays, so while it works
+ * they can come back by it — and, for a workspace's guest where the workspace
+ * allows it and there is code linked, the project's code let in or out.
+ */
+function Person({
+  projectId,
+  person,
+  holds,
+  offersCode,
+  now,
+  onProblem,
+  onGone,
+}: {
+  projectId: Id<"projects">;
+  person: Collaborator;
+  /** What the row says they can do. */
+  holds: string;
+  offersCode: boolean;
+  now: number;
+  onProblem: (text: string | null) => void;
+  /** Moves focus off the row, which is on its way out. */
+  onGone: () => void;
+}) {
+  const revoke = useMutation(api.share.revokeClaim);
+  const setCode = useMutation(api.share.setCodeAccess).withOptimisticUpdate((store, args) => {
+    const list = store.getQuery(api.share.collaborators, { projectId: args.projectId });
+    if (!list) return;
+    store.setQuery(
+      api.share.collaborators,
+      { projectId: args.projectId },
+      list.map((p) => (p.granteeId === args.granteeId ? { ...p, codeAccess: args.allowed } : p)),
+    );
+  });
+  // Leaves at once; the list drops it when the server agrees, and it comes
+  // back if the server does not.
+  const [leaving, setLeaving] = useState(false);
+  const name = person.name ?? person.email ?? "Someone";
+
+  const remove = () => {
+    onProblem(null);
+    setLeaving(true);
+    onGone();
+    revoke({ projectId, granteeId: person.granteeId }).catch((error) => {
+      setLeaving(false);
+      onProblem(refusal(error, `Couldn’t remove ${name}’s access. Try again in a moment.`));
+    });
+  };
+
+  const toggleCode = () => {
+    onProblem(null);
+    setCode({ projectId, granteeId: person.granteeId, allowed: !person.codeAccess }).catch(
+      (error) =>
+        onProblem(refusal(error, `Couldn’t change ${name}’s code context. Try again in a moment.`)),
+    );
+  };
+
+  return (
+    <li className={`group flex h-8 items-center gap-2${leaving ? " is-leaving" : ""}`}>
+      {person.imageUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={person.imageUrl} alt="" className="h-5 w-5 shrink-0 rounded-full" />
+      ) : (
+        <span aria-hidden className="nt-monogram shrink-0">
+          {initial(person.name ?? person.email)}
+        </span>
+      )}
+      <span className="flex min-w-0 flex-1 items-center gap-1.5 text-[13px]">
+        <span className="truncate">{name}</span>
+        {offersCode && person.codeAccess && (
+          <Tooltip label="Sees code context" className="flex shrink-0 text-muted">
+            <Code width={14} height={14} aria-hidden="true" />
+            <span className="sr-only">, sees code context</span>
+          </Tooltip>
+        )}
+      </span>
+      <span className="shrink-0 text-[13px] text-muted">{holds}</span>
+      <Menu
+        label={`Access for ${name}`}
+        side="bottom"
+        align="end"
+        layer="modal"
+        className="nt-ws-choices"
+        trigger={(t) => (
+          <button {...t} aria-label={`Actions for ${name}`} className={ROW_MENU}>
+            <MoreHorizontal />
+          </button>
+        )}
+      >
+        {(close) => (
+          <>
+            {person.expiresAt !== null && (
+              <>
+                <p className="nt-menu-caption">
+                  Their access runs out with the link, on {dayOf(person.expiresAt, now)}.
+                </p>
+                <div className="nt-menu-sep" />
+              </>
+            )}
+            {offersCode && (
+              <>
+                <MenuItem
+                  className="nt-ws-choice"
+                  onClick={() => {
+                    close();
+                    toggleCode();
+                  }}
+                >
+                  <span className="nt-ws-choice-text">
+                    <span>
+                      Allow code context
+                      <span className="sr-only">{person.codeAccess ? ", on" : ", off"}</span>
+                    </span>
+                    <span className="nt-ws-choice-hint">
+                      Gives them the linked repositories as context too
+                    </span>
+                  </span>
+                  <Check
+                    width={14}
+                    height={14}
+                    aria-hidden="true"
+                    className={`nt-menu-check${person.codeAccess ? " is-on" : ""}`}
+                  />
+                </MenuItem>
+                <div className="nt-menu-sep" />
+              </>
+            )}
+            <MenuItem
+              danger
+              className="nt-ws-choice"
+              disabled={leaving}
+              onClick={() => {
+                // Not back to this ⋯: the row it is on is leaving.
+                close({ restoreFocus: false });
+                remove();
+              }}
+            >
+              <span className="nt-ws-choice-text">
+                <span>Remove access</span>
+                <span className="nt-ws-choice-hint">
+                  A link that still works lets them back in
+                </span>
+              </span>
+            </MenuItem>
+          </>
+        )}
+      </Menu>
+    </li>
   );
 }

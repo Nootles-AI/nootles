@@ -1340,20 +1340,24 @@ textarea.nt-input {
 .nt-share-people > li:nth-child(3) { animation-delay: 60ms; }
 .nt-share-people > li:nth-child(4) { animation-delay: 90ms; }
 .nt-share-people > li:nth-child(n + 5) { animation-delay: 120ms; }
-/* A request that has been answered leaves while the server agrees. */
-.nt-ask-row {
+/* A request that has been answered leaves while the server agrees, and so
+   does someone whose access was just taken away. */
+.nt-ask-row,
+.nt-share-people > li {
   transition:
     opacity 220ms var(--ease),
     transform 220ms cubic-bezier(0.7, 0, 0.84, 0);
 }
-.nt-ask-row.is-leaving {
+.nt-ask-row.is-leaving,
+.nt-share-people > li.is-leaving {
   opacity: 0;
   transform: scale(0.97);
   pointer-events: none;
 }
 @media (prefers-reduced-motion: reduce) {
   .nt-swap > *,
-  .nt-ask-row {
+  .nt-ask-row,
+  .nt-share-people > li {
     transition: none;
   }
   .nt-share-people > li {

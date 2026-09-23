@@ -163,3 +163,13 @@ body:has(.nt-fixed) .nt-asks {
   white-space: nowrap;
   font-size: 13px;
 }
+
+/* ---- A link's last line, in the share popover ---------------------------
+   When it runs out on the left, turning it off on the right. The tooltip of
+   the one at the right end opens leftward, from its right edge, so it stays
+   inside the popover rather than widening it into a sideways scroll. */
+
+.nt-share-link-foot .nt-tip::after {
+  left: auto;
+  right: 0;
+}
