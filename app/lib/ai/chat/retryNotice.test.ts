@@ -65,6 +65,18 @@ describe("a guest's spent day", () => {
     expect(guestDaySpent(new Date("2026-09-23T23:59:00Z"))).toContain(midnight);
     expect(guestDaySpent(new Date("2026-09-23T00:00:00Z"))).toContain(midnight);
   });
+
+  test("names the reader's day it opens on", () => {
+    for (const at of ["2026-09-23T00:00:00Z", "2026-09-23T12:00:00Z", "2026-09-23T23:59:00Z"]) {
+      const now = new Date(at);
+      const same = new Date(Date.UTC(2026, 8, 24)).toDateString() === now.toDateString();
+      expect(guestDaySpent(now)).toContain(same ? "resets today at" : "resets tomorrow at");
+    }
+  });
+
+  test("says how to stop being held to it", () => {
+    expect(guestDaySpent()).toContain("ask the person who shared this project to invite you");
+  });
 });
 
 describe("everything else is left as it was", () => {
