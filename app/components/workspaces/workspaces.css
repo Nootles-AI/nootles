@@ -784,3 +784,27 @@
     transition: none;
   }
 }
+
+/* ---- Integrations ------------------------------------------------------------
+   Nothing installed is the pickers' connect art, in the settings card: the
+   card clips the art's dotted field to its own corners, and the art keeps the
+   room it has in the palette. */
+
+.nt-ws-gh-install {
+  overflow: hidden;
+}
+.nt-ws-gh-install > .nt-nc {
+  padding: 32px 24px 28px;
+}
+
+/* An installation's account, drawn as GitHub draws it: a person round, an
+   organisation square. The ring keeps a white avatar off the white card. */
+.nt-ws-gh-avatar {
+  width: 20px;
+  height: 20px;
+  border-radius: var(--radius-sm);
+  box-shadow: 0 0 0 1px var(--border);
+}
+.nt-ws-gh-avatar.is-round {
+  border-radius: 50%;
+}
