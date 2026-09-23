@@ -12,12 +12,14 @@ import { useOrgProof } from "./useOrgProof";
  * that lets them in. Nothing for anyone the rule is not stopping: a guest's
  * code is a manager's grant, not this.
  */
-export function CodeGate() {
+export function CodeGate({ frame }: { frame?: string }) {
   const here = useContainer();
   const workspaceId = here.kind === "workspace" && here.role !== "guest" ? here.workspaceId : null;
   const status = useQuery(api.github.app.status, workspaceId ? { workspaceId } : "skip");
   if (!workspaceId || !status?.requireGithubOrg || status.orgProof.passes) return null;
-  return <Gate workspaceId={workspaceId} org={status.requireGithubOrg} lapsed={!!status.orgProof.verifiedAt} />;
+  const gate = <Gate workspaceId={workspaceId} org={status.requireGithubOrg} lapsed={!!status.orgProof.verifiedAt} />;
+  // Where no context panel surrounds it, it brings that panel's edge along.
+  return frame ? <div className={frame}>{gate}</div> : gate;
 }
 
 function Gate({
