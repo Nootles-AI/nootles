@@ -7,6 +7,7 @@ import {
   leaveProblem,
   removeProblem,
   roleChoices,
+  sayOnce,
 } from "./seats";
 
 const refused = (choices: { role: string; why: string | null }[]) =>
@@ -80,6 +81,38 @@ describe("removing, leaving and inviting", () => {
     expect(invitationProblem("admin", "admin")).toBe(
       "Only an owner can change an admin’s invitation.",
     );
+  });
+});
+
+describe("a menu says each refusal once", () => {
+  test("the one owner’s own row: one caption, and leaving keeps only the other door", () => {
+    const me = { role: "owner" as const, isMe: true };
+    expect(sayOnce(roleChoices("owner", me, 1), leaveProblem("owner", 1))).toEqual({
+      caption: "You’re the only owner. Make someone else an owner first.",
+      out: "Or delete the workspace.",
+    });
+  });
+
+  test("an admin’s own row: one caption, and leaving is theirs", () => {
+    const me = { role: "admin" as const, isMe: true };
+    expect(sayOnce(roleChoices("admin", me, 1), leaveProblem("admin", 1))).toEqual({
+      caption: "You can’t change your own role.",
+      out: null,
+    });
+  });
+
+  test("a different refusal for the way out is said in full", () => {
+    const peer = { role: "admin" as const, isMe: false };
+    expect(sayOnce(roleChoices("admin", peer, 1), removeProblem("admin", "admin"))).toEqual({
+      caption: "Only an owner can change an admin’s role.",
+      out: "Only an owner can remove an admin.",
+    });
+  });
+
+  test("reasons that differ stay with their seats", () => {
+    const member = { role: "member" as const, isMe: false };
+    expect(sayOnce(roleChoices("admin", member, 1), null)).toEqual({ caption: null, out: null });
+    expect(sayOnce(roleChoices("owner", member, 1), null)).toEqual({ caption: null, out: null });
   });
 });
 

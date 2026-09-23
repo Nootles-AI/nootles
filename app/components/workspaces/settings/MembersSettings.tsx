@@ -1,15 +1,17 @@
 "use client";
 
-import { useId, useState, type CSSProperties } from "react";
+import { useId, useRef, useState, type CSSProperties } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { FunctionReturnType } from "convex/server";
 import { atLeast, type WorkspaceRole } from "@/convex/auth";
-import { Check, Copy, Mail, MoreHorizontal } from "../../Icons";
+import { Check, Copy, Mail, MoreHorizontal, RotateCcw } from "../../Icons";
 import { Menu, MenuItem } from "../../Menu";
 import { useStandIn } from "../../StandIn";
+import { Tooltip } from "../../Tooltip";
 import { useContainer, type WorkspaceContainer } from "../ContainerContext";
 import { InviteForm, inviteUrl, useCopied } from "../Invite";
+import { initial, useNaming, type Named } from "../people";
 import { refusal } from "../refusal";
 import {
   expiresIn,
@@ -20,6 +22,7 @@ import {
   roleChoices,
   ROLE_HINT,
   ROLE_LABEL,
+  sayOnce,
 } from "../seats";
 import { ConfirmBox, LeaveWorkspace } from "./Confirm";
 import { JoinByDomain } from "./JoinByDomain";
@@ -37,10 +40,9 @@ const WHEN = new Intl.DateTimeFormat(undefined, {
 /** A row's place in its list, for the staggered entrance. */
 const nth = (i: number) => ({ "--i": i }) as CSSProperties;
 
-/** By code point, so a name that starts with an emoji keeps it whole. */
-const initial = (name: string | null) => (Array.from(name?.trim() ?? "")[0] ?? "?").toUpperCase();
-
-const nameOf = (m: Member) => m.name ?? m.email ?? "Someone";
+/** A row's ⋯, there on hover or focus, and always where there is no hover. */
+const ROW_MENU =
+  "nt-icon-btn nt-ws-row-menu opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 aria-expanded:opacity-100";
 
 /**
  * Who is in a workspace, and who has been asked.
@@ -61,7 +63,9 @@ function Members({ workspace }: { workspace: WorkspaceContainer }) {
   const standIn = useStandIn();
   const people = useQuery(api.members.list, { workspaceId: workspace.workspaceId });
 
-  if (people === undefined) return <Loading />;
+  if (people === undefined) {
+    return <Loading invites={!standIn && atLeast(workspace.role, "admin")} />;
+  }
   // A guest, or a seat that has just gone: the frame moves them on.
   if (people === null) return null;
 
@@ -90,23 +94,50 @@ function Members({ workspace }: { workspace: WorkspaceContainer }) {
   );
 }
 
-/** The roster's shape, while it is on its way. */
-function Loading() {
+/**
+ * The page's shape while it is on its way: the invite card first, for whoever
+ * the page will give one, then the roster — so nothing moves down when the
+ * people arrive. Each bar sits in the line box of the text it stands for.
+ */
+function Loading({ invites }: { invites: boolean }) {
   return (
-    <section className="nt-set-section" aria-busy="true" aria-label="Members">
-      <div className="nt-skeleton mb-2 h-3.5 w-20" />
-      <div className="nt-ws-table">
-        <div className="nt-list-head" />
-        <ul className="nt-ws-rows">
-          {[0, 1, 2].map((i) => (
-            <li key={i} className="nt-ws-person">
-              <span className="nt-skeleton h-8 w-8 shrink-0 rounded-full" />
-              <span className="nt-skeleton h-3.5 w-40" />
-            </li>
-          ))}
-        </ul>
-      </div>
-    </section>
+    <>
+      {invites && (
+        <section className="nt-set-section" aria-hidden="true">
+          <Bone bar="h-3.5 w-24" className="mb-2" />
+          <div className="nt-ws-card">
+            <div className="nt-skeleton h-[35.5px]" />
+            <div className="mt-2">
+              <Bone bar="h-3 w-[92%]" />
+              <Bone bar="h-3 w-3/5" />
+            </div>
+          </div>
+        </section>
+      )}
+      <section className="nt-set-section" aria-busy="true" aria-label="Members">
+        <Bone bar="h-3.5 w-20" className="mb-2" />
+        <div className="nt-ws-table">
+          <div className="nt-list-head" />
+          <ul className="nt-ws-rows">
+            {[0, 1, 2].map((i) => (
+              <li key={i} className="nt-ws-person">
+                <span className="nt-skeleton h-8 w-8 shrink-0 rounded-full" />
+                <span className="nt-skeleton h-3.5 w-40" />
+              </li>
+            ))}
+          </ul>
+        </div>
+      </section>
+    </>
+  );
+}
+
+/** A bar in the line box of the 13px text it stands for. */
+function Bone({ bar, className = "" }: { bar: string; className?: string }) {
+  return (
+    <div className={`flex h-[19.5px] items-center ${className}`}>
+      <div className={`nt-skeleton ${bar}`} />
+    </div>
   );
 }
 
@@ -137,7 +168,7 @@ function Invitations({
           <span className="flex-1">Email</span>
           <span className="nt-ws-col-role">Role</span>
           <span className="nt-ws-col-when">Expires</span>
-          <span className="nt-ws-col-invite" />
+          <span className="nt-ws-col-end" />
         </div>
         <ul className="nt-ws-rows" aria-label="Invitations">
           {newest.map((invitation, i) => (
@@ -165,7 +196,8 @@ function Invitations({
 /**
  * One address asked in. Its link can be copied again, since an admin's job
  * with an invitation is handing it on; once it has lapsed, renewing sends the
- * same seat again under a new link and a fresh fortnight.
+ * same seat again under a new link and a fresh fortnight. Withdrawing it is
+ * in its ⋯, a step away from the pointer that copies.
  */
 function InvitationRow({
   index,
@@ -188,6 +220,7 @@ function InvitationRow({
   const [copied, copy] = useCopied();
   const [leaving, setLeaving] = useState(false);
   const [renewing, setRenewing] = useState(false);
+  const { email } = invitation;
   const expired = invitation.expiresAt <= now;
   const why = invitationProblem(actor, invitation.role);
 
@@ -198,81 +231,96 @@ function InvitationRow({
     setLeaving(true);
     revoke({ invitationId: invitation.invitationId }).catch((error) => {
       setLeaving(false);
-      onProblem(refusal(error, `Couldn’t revoke the invitation for ${invitation.email}.`));
+      onProblem(refusal(error, `Couldn’t revoke the invitation for ${email}.`));
     });
   };
 
   const renew = () => {
     onProblem(null);
     setRenewing(true);
-    invite({ workspaceId: workspace.workspaceId, email: invitation.email, role: invitation.role })
-      .catch((error) =>
-        onProblem(refusal(error, `Couldn’t renew the invitation for ${invitation.email}.`)),
-      )
+    invite({ workspaceId: workspace.workspaceId, email, role: invitation.role })
+      .catch((error) => onProblem(refusal(error, `Couldn’t renew the invitation for ${email}.`)))
       .finally(() => setRenewing(false));
   };
 
   return (
     <li
       style={nth(index)}
-      className={`nt-list-row nt-ws-person${leaving ? " is-leaving" : ""}`}
+      className={`nt-list-row nt-ws-person group${leaving ? " is-leaving" : ""}`}
     >
       <span className="nt-monogram is-lg nt-ws-pending" aria-hidden="true">
         <Mail width={14} height={14} />
       </span>
       <div className="nt-ws-who">
-        <span className="nt-ws-who-name">{invitation.email}</span>
+        <span className="nt-ws-who-name" title={email}>
+          {email}
+        </span>
       </div>
       <span className="nt-ws-col-role">{ROLE_LABEL[invitation.role]}</span>
       <span className={`nt-ws-col-when nt-meta${expired ? " nt-ws-lapsed" : ""}`}>
         {expiresIn(invitation.expiresAt, now)}
       </span>
-      <span className="nt-ws-col-invite">
-        {!expired && (
-          <button
-            type="button"
-            onClick={() => void copy(inviteUrl(invitation.token))}
-            aria-live="polite"
-            aria-label={copied ? "Copied" : `Copy the invitation link for ${invitation.email}`}
-            data-done={copied || undefined}
-            className="nt-row gap-1.5 px-2"
-          >
-            <span className="nt-swap" aria-hidden="true">
-              <Copy width={14} height={14} />
-              <Check width={14} height={14} />
-            </span>
-            {copied ? "Copied" : "Copy link"}
-          </button>
-        )}
-        {/* A refused button hears no pointer, so the reason hangs on what
-            holds the refused ones. */}
-        <span
-          className={why ? "nt-tip nt-ws-tip-end nt-ws-refused" : "contents"}
-          data-tip={why ?? undefined}
-        >
-          {expired && (
+      <span className="nt-ws-col-end">
+        {expired ? (
+          // A refused button hears no pointer; the tooltip listens on what
+          // holds it, so the reason is still there to be found.
+          <Tooltip label={why ?? "Renew with a new link"}>
             <button
               type="button"
               onClick={renew}
               disabled={!!why || renewing}
               aria-describedby={why ? `${id}-why` : undefined}
-              aria-label={`Renew the invitation for ${invitation.email}`}
-              className="nt-row px-2"
+              aria-label={`Renew the invitation for ${email}`}
+              className="nt-icon-btn"
             >
-              {renewing ? "Renewing…" : "Renew"}
+              <RotateCcw />
+            </button>
+          </Tooltip>
+        ) : (
+          <Tooltip label="Copy link">
+            <button
+              type="button"
+              onClick={() => void copy(inviteUrl(invitation.token))}
+              aria-live="polite"
+              aria-label={copied ? "Copied" : `Copy the invitation link for ${email}`}
+              data-done={copied || undefined}
+              className="nt-icon-btn"
+            >
+              <span className="nt-swap" aria-hidden="true">
+                <Copy />
+                <Check />
+              </span>
+            </button>
+          </Tooltip>
+        )}
+        <Menu
+          label={`The invitation for ${email}`}
+          side="bottom"
+          align="end"
+          className={why ? "nt-ws-choices" : undefined}
+          trigger={(t) => (
+            <button {...t} aria-label={`Actions for the invitation to ${email}`} className={ROW_MENU}>
+              <MoreHorizontal />
             </button>
           )}
-          <button
-            type="button"
-            onClick={revokeIt}
-            disabled={!!why || leaving}
-            aria-describedby={why ? `${id}-why` : undefined}
-            aria-label={`Revoke the invitation for ${invitation.email}`}
-            className="nt-row px-2"
-          >
-            Revoke
-          </button>
-        </span>
+        >
+          {(close) => (
+            <MenuItem
+              danger
+              className="nt-ws-choice"
+              disabled={!!why || leaving}
+              onClick={() => {
+                close();
+                revokeIt();
+              }}
+            >
+              <span className="nt-ws-choice-text">
+                <span>Revoke invitation</span>
+                {why && <span className="nt-ws-choice-hint">{why}</span>}
+              </span>
+            </MenuItem>
+          )}
+        </Menu>
         {why && (
           <span id={`${id}-why`} className="sr-only">
             {why}
@@ -299,6 +347,7 @@ function Roster({
   members: Member[];
 }) {
   const [problem, setProblem] = useState<string | null>(null);
+  const naming = useNaming();
   const owners = members.filter((m) => m.role === "owner").length;
   const heir = heirOf(members);
 
@@ -313,37 +362,39 @@ function Roster({
           <span className="flex-1">Name</span>
           <span className="nt-ws-col-role">Role</span>
           <span className="nt-ws-col-when">Joined</span>
-          {actor && <span className="nt-col-actions" />}
+          {actor && <span className="nt-ws-col-end" />}
         </div>
         <ul className="nt-ws-rows" aria-label={`Members of ${workspace.name}`}>
-          {members.map((member, i) => (
-            <li key={member.userId} style={nth(i)} className="nt-list-row nt-ws-person group">
-              <Avatar member={member} />
-              <div className="nt-ws-who">
-                <span className="nt-ws-who-name">
-                  {nameOf(member)}
-                  {member.isMe && <span className="text-muted"> (you)</span>}
-                </span>
-                {member.name && member.email && (
-                  <span className="nt-ws-who-mail">{member.email}</span>
+          {members.map((member, i) => {
+            const named = naming(member);
+            return (
+              <li key={member.userId} style={nth(i)} className="nt-list-row nt-ws-person group">
+                <Avatar member={member} named={named} />
+                <div className="nt-ws-who">
+                  <span className="nt-ws-who-name">
+                    {named.name}
+                    {member.isMe && named.known && <span className="text-muted"> (you)</span>}
+                  </span>
+                  {named.mail && <span className="nt-ws-who-mail">{named.mail}</span>}
+                </div>
+                <span className="nt-ws-col-role">{ROLE_LABEL[member.role]}</span>
+                <span className="nt-ws-col-when nt-meta">{WHEN.format(member.joinedAt)}</span>
+                {actor && (
+                  <span className="nt-ws-col-end">
+                    <PersonMenu
+                      workspace={workspace}
+                      actor={actor}
+                      member={member}
+                      name={named.name}
+                      owners={owners}
+                      heir={heir && (heir.name ?? heir.email)}
+                      onProblem={setProblem}
+                    />
+                  </span>
                 )}
-              </div>
-              <span className="nt-ws-col-role">{ROLE_LABEL[member.role]}</span>
-              <span className="nt-ws-col-when nt-meta">{WHEN.format(member.joinedAt)}</span>
-              {actor && (
-                <span className="nt-col-actions">
-                  <PersonMenu
-                    workspace={workspace}
-                    actor={actor}
-                    member={member}
-                    owners={owners}
-                    heir={heir && (heir.name ?? heir.email)}
-                    onProblem={setProblem}
-                  />
-                </span>
-              )}
-            </li>
-          ))}
+              </li>
+            );
+          })}
         </ul>
       </div>
       {problem && (
@@ -355,8 +406,12 @@ function Roster({
   );
 }
 
-/** You as your monogram, as everywhere you see yourself; everyone else as their photo. */
-function Avatar({ member }: { member: Member }) {
+/**
+ * You as your monogram, as everywhere you see yourself; everyone else as their
+ * photo. The monogram is the first letter of what the row calls them, which
+ * is what the home's pile draws too.
+ */
+function Avatar({ member, named }: { member: Member; named: Named }) {
   if (member.imageUrl && !member.isMe) {
     return (
       // Not next/image: Clerk's avatar hosts are not the optimizer's to fetch.
@@ -366,7 +421,7 @@ function Avatar({ member }: { member: Member }) {
   }
   return (
     <span className="nt-monogram is-lg shrink-0" aria-hidden="true">
-      {initial(member.name ?? member.email)}
+      {initial(named.name)}
     </span>
   );
 }
@@ -380,16 +435,19 @@ type Asking =
  * The ⋯ on a person's row: the seats they could hold, ticked at theirs, and
  * the way out — removing them, or on your own row, leaving. What this seat
  * may not do stays in the menu, refused, with the reason where the
- * description would be.
+ * description would be — or, when every refusal has the same reason, said
+ * once above them (`sayOnce`).
  *
  * Most role changes happen on the pick. The two that cannot be taken back by
  * whoever made them ask first: making someone an owner, and stepping down
- * yourself.
+ * yourself. Those questions are asked after the menu has gone, so their
+ * answer hands focus back to the ⋯ itself.
  */
 function PersonMenu({
   workspace,
   actor,
   member,
+  name,
   owners,
   heir,
   onProblem,
@@ -397,17 +455,24 @@ function PersonMenu({
   workspace: WorkspaceContainer;
   actor: WorkspaceRole;
   member: Member;
+  /** What the row calls them. */
+  name: string;
   owners: number;
   heir: string | null;
   onProblem: (text: string | null) => void;
 }) {
   const setRole = useMutation(api.members.setRole);
   const remove = useMutation(api.members.remove);
+  const captionId = useId();
+  const trigger = useRef<{ focus: () => void }>(null);
   const [asking, setAsking] = useState<Asking | null>(null);
-  const name = nameOf(member);
   const choices = roleChoices(actor, member, owners);
   const out = member.isMe ? leaveProblem(member.role, owners) : removeProblem(actor, member.role);
-  const close = () => setAsking(null);
+  const said = sayOnce(choices, out);
+  const close = () => {
+    setAsking(null);
+    trigger.current?.focus();
+  };
 
   const change = (role: WorkspaceRole) =>
     setRole({ workspaceId: workspace.workspaceId, userId: member.userId, role });
@@ -431,27 +496,34 @@ function PersonMenu({
         side="bottom"
         align="end"
         className="nt-ws-choices"
+        focusRef={trigger}
         trigger={(t) => (
-          <button
-            {...t}
-            aria-label={`Actions for ${name}`}
-            className="nt-icon-btn nt-ws-row-menu opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 aria-expanded:opacity-100"
-          >
+          <button {...t} aria-label={`Actions for ${name}`} className={ROW_MENU}>
             <MoreHorizontal />
           </button>
         )}
       >
         {(closeMenu) => (
           <>
+            {said.caption && (
+              <>
+                <p id={captionId} className="nt-menu-caption">
+                  {said.caption}
+                </p>
+                <div className="nt-menu-sep" />
+              </>
+            )}
             {choices.map((choice) => {
               // A dialog takes focus as it opens; handed back to the trigger,
               // it would be taken straight away.
               const asks = choice.role !== member.role && (choice.role === "owner" || member.isMe);
+              const captioned = !!said.caption && !!choice.why;
               return (
                 <MenuItem
                   key={choice.role}
                   className="nt-ws-choice"
                   disabled={!!choice.why}
+                  describedBy={captioned ? captionId : undefined}
                   onClick={() => {
                     closeMenu(asks ? { restoreFocus: false } : undefined);
                     pick(choice.role);
@@ -459,9 +531,11 @@ function PersonMenu({
                 >
                   <span className="nt-ws-choice-text">
                     <span>{ROLE_LABEL[choice.role]}</span>
-                    <span className="nt-ws-choice-hint">
-                      {choice.why ?? ROLE_HINT[choice.role]}
-                    </span>
+                    {!captioned && (
+                      <span className="nt-ws-choice-hint">
+                        {choice.why ?? ROLE_HINT[choice.role]}
+                      </span>
+                    )}
                   </span>
                   <Check
                     width={14}
@@ -477,6 +551,7 @@ function PersonMenu({
               danger
               className="nt-ws-choice"
               disabled={!!out}
+              describedBy={out && said.out !== out ? captionId : undefined}
               onClick={() => {
                 closeMenu({ restoreFocus: false });
                 onProblem(null);
@@ -487,7 +562,7 @@ function PersonMenu({
                 <span>
                   {member.isMe ? `Leave ${workspace.name}` : `Remove from ${workspace.name}`}
                 </span>
-                {out && <span className="nt-ws-choice-hint">{out}</span>}
+                {said.out && <span className="nt-ws-choice-hint">{said.out}</span>}
               </span>
             </MenuItem>
           </>

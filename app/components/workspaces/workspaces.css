@@ -437,6 +437,17 @@
   color: var(--muted);
   text-wrap: pretty;
 }
+/* One reason for every seat the menu refuses, said once above them rather
+   than under each: a sentence, so it wraps where the caption's single line
+   would not. */
+.nt-ws-choices > .nt-menu-caption {
+  height: auto;
+  min-height: var(--control);
+  padding-block: 6px;
+  font-size: var(--text-meta-lg);
+  line-height: 1.4;
+  text-wrap: pretty;
+}
 /* The invite row's picker: a row button that reads as a choice, not a verb. */
 .nt-ws-pick-glyph {
   color: var(--muted);
@@ -444,10 +455,6 @@
 }
 .nt-ws-pick:hover .nt-ws-pick-glyph,
 .nt-ws-pick[aria-expanded="true"] .nt-ws-pick-glyph {
-  color: var(--foreground);
-}
-.nt-ws-pick[aria-expanded="true"] {
-  background: var(--selected);
   color: var(--foreground);
 }
 
@@ -501,9 +508,14 @@
   line-height: 1.4;
   color: var(--muted);
 }
+/* The columns are the same in both tables — head and rows, invitations and
+   members — so the two cards stacked on the page read down as one. A head's
+   labels keep the head's own type; only a row's role is set as a row's. */
 .nt-ws-col-role {
   flex: none;
   width: 64px;
+}
+.nt-ws-person > .nt-ws-col-role {
   font-size: var(--text-ui);
   color: var(--muted);
 }
@@ -512,16 +524,14 @@
   width: 96px;
   text-align: right;
 }
-.nt-ws-col-invite {
+/* Room for two icon buttons: an invitation's link and its menu, or a
+   member's menu alone at the end. */
+.nt-ws-col-end {
   display: flex;
   flex: none;
   justify-content: flex-end;
   gap: 2px;
-  width: 10.5rem;
-}
-.nt-ws-refused {
-  display: inline-flex;
-  gap: 2px;
+  width: calc(2 * var(--control) + 2px);
 }
 /* An invitation nobody answered: an envelope in the monogram's well, its ring
    dashed — somebody who has not arrived. */
@@ -551,29 +561,10 @@
     opacity: 1;
   }
 }
-/* A refusal's reason hangs from the right edge, where the buttons are. */
-.nt-ws-tip-end::after {
-  right: 0;
-  left: auto;
-}
-/* On a phone the date gives way, and an invitation's verbs take a line of
-   their own under the address rather than squeezing it to nothing. */
+/* On a phone the date gives way, so the name keeps the room. */
 @media (max-width: 36rem) {
-  .nt-ws-table .nt-ws-col-when,
-  .nt-ws-table > .nt-list-head > .nt-ws-col-invite {
+  .nt-ws-table .nt-ws-col-when {
     display: none;
-  }
-  .nt-ws-person {
-    flex-wrap: wrap;
-  }
-  .nt-ws-who {
-    flex-basis: 0;
-  }
-  .nt-ws-person > .nt-ws-col-invite {
-    width: 100%;
-    justify-content: flex-start;
-    margin-top: -4px;
-    padding-left: 36px;
   }
 }
 

@@ -71,6 +71,26 @@ function roleProblem(
   return null;
 }
 
+/**
+ * A person's menu's refusals, each said once. When every seat it refuses is
+ * refused for one reason, that reason heads the menu instead of repeating
+ * under each — and the way out, refused for that reason and something more,
+ * keeps only the more: the one owner's own row is refused everything because
+ * they are the one owner, and leaving can also be done by deleting.
+ */
+export function sayOnce(
+  choices: readonly Choice[],
+  out: string | null,
+): { caption: string | null; out: string | null } {
+  const reasons = choices.flatMap((c) => (c.why ? [c.why] : []));
+  const caption = reasons.length > 1 && reasons.every((r) => r === reasons[0]) ? reasons[0] : null;
+  if (!caption || !out) return { caption, out };
+  const stem = caption.replace(/\.$/, "");
+  if (!out.startsWith(stem)) return { caption, out };
+  const more = out.slice(stem.length).replace(/^[\s,;.]+/, "");
+  return { caption, out: more ? more[0].toUpperCase() + more.slice(1) : null };
+}
+
 /** Why `actor` may not take `target`'s seat away, or null when they may. */
 export function removeProblem(actor: WorkspaceRole, target: WorkspaceRole): string | null {
   return mayAssignSeat(actor, target, null) ? null : `Only an owner can remove ${an(target)}.`;
