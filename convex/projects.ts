@@ -119,28 +119,44 @@ export async function stampProject(
 }
 
 /**
- * The caller's live personal projects, whole rows and share tokens included.
- * Personal only: making a workspace project gives no hold on its links, which
- * are its managers' to hand out.
+ * A project row as a list or a reader gets it: without its share links, which
+ * are its managers' to hand out through `share.links`. Anyone a link let in
+ * could otherwise read the editor link off the row and claim the pen with it.
  */
+export function withoutLinks(project: Doc<"projects">) {
+  const {
+    shareToken: _viewer,
+    editShareToken: _editor,
+    shareExpiresAt: _viewerExpiry,
+    editShareExpiresAt: _editorExpiry,
+    ...row
+  } = project;
+  return row;
+}
+
+/** The caller's live personal projects. */
 export const list = query({
   args: {},
   handler: async (ctx) => {
     const owner = await currentOwner(ctx);
     if (!owner) return [];
-    return await ctx.db
+    const projects = await ctx.db
       .query("projects")
       .withIndex("by_owner_and_workspace_and_deleted", (q) =>
         q.eq("ownerId", owner).eq("workspaceId", undefined).eq("deletedAt", undefined),
       )
       .order("desc")
       .collect();
+    return projects.map(withoutLinks);
   },
 });
 
 export const get = query({
   args: { projectId: v.id("projects") },
-  handler: async (ctx, args) => await readVisible(ctx, "projects", args.projectId),
+  handler: async (ctx, args) => {
+    const project = await readVisible(ctx, "projects", args.projectId);
+    return project && withoutLinks(project);
+  },
 });
 
 /**
@@ -413,7 +429,7 @@ export const listForScreen = query({
       .collect();
 
     const rows = await Promise.all(
-      projects.map(async (p) => ({ ...p, ...(await pageSummary(ctx, p)) })),
+      projects.map(async (p) => ({ ...withoutLinks(p), ...(await pageSummary(ctx, p)) })),
     );
 
     // Most recently touched first. Sorted here rather than by an index because

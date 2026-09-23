@@ -15,7 +15,7 @@ import {
   workspaceRole,
 } from "./auth";
 import { isPersonalDomain } from "./joinDomains";
-import { pageSummary } from "./projects";
+import { pageSummary, withoutLinks } from "./projects";
 import { workspaceSettings } from "./schema";
 import { normalizeSlug, SLUG_TAKEN, slugProblem } from "./slugs";
 import { teamsEnabledFor } from "./teamsRollout";
@@ -361,8 +361,8 @@ export const remove = mutation({
  * them for its owners and admins, the shared ones and their own private ones
  * for a member, and for a guest whatever links they came in by.
  *
- * The share tokens are left off: they are the managers' to hand out, through
- * `share.links`, and a row on a home screen is not that door.
+ * The share links are left off (`withoutLinks`): a row on a home screen is
+ * not that door.
  */
 export const projectsFor = query({
   args: { workspaceId: v.id("workspaces") },
@@ -380,9 +380,8 @@ export const projectsFor = query({
       projects.map(async (p) => {
         const role = await roleForProject(ctx, p);
         if (!role) return null;
-        const { shareToken: _viewer, editShareToken: _editor, ...project } = p;
         return {
-          ...project,
+          ...withoutLinks(p),
           ...(await pageSummary(ctx, p)),
           // The same courtesy demotion as `projects.myRole`.
           role: standIn ? ("viewer" as const) : role,
