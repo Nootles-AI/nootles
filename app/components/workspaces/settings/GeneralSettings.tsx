@@ -327,10 +327,7 @@ function DangerZone({ workspace }: { workspace: WorkspaceContainer }) {
             <div className="nt-set-row">
               <div className="nt-set-body-col">
                 <div className="nt-set-name">Delete {workspace.name}</div>
-                <p className="nt-set-note">
-                  Everyone loses access, and its projects go to the trash for 30 days before
-                  they’re gone for good.
-                </p>
+                <p className="nt-set-note">Everyone loses access and its projects are deleted.</p>
               </div>
               <div className="nt-set-actions">
                 <button
@@ -366,8 +363,10 @@ function DangerZone({ workspace }: { workspace: WorkspaceContainer }) {
           }}
           onClose={() => setAsking(null)}
         >
-          Everyone here loses access at once. Its projects go to the trash, and are deleted
-          for good after 30 days.
+          {people.members.length > 1
+            ? `${people.members.length} people lose access at once, and all of its projects are deleted, private ones included.`
+            : "All of its projects are deleted, private ones included."}{" "}
+          This can’t be undone.
         </ConfirmBox>
       )}
     </section>
