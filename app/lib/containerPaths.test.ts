@@ -24,6 +24,7 @@ describe("container addresses", () => {
     expect(settingsPath("acme")).toBe("/w/acme/settings");
     expect(settingsPath("acme", "general")).toBe("/w/acme/settings");
     expect(settingsPath("acme", "members")).toBe("/w/acme/settings/members");
+    expect(settingsPath("acme", "billing")).toBe("/w/acme/settings/billing");
   });
 
   test("an invitation sits beside every workspace, never inside one", () => {
