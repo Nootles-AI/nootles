@@ -624,6 +624,19 @@
   gap: 2px;
   width: calc(2 * var(--control) + 2px);
 }
+/* The roster's heading takes focus only when a row it was on has gone, from
+   script; it is somewhere to be, not something to act on, so it takes no ring. */
+.nt-ws-label[tabindex="-1"]:focus-visible {
+  outline: none;
+}
+
+/* A skeleton bar set straight on the page, a label's: the page is --surface,
+   which is the bar's own fill, so it goes a step down to be seen. Bars on the
+   cards are on white and keep theirs. */
+.nt-set-section > .nt-ws-bone > .nt-skeleton {
+  background: var(--sunken);
+}
+
 /* An invitation nobody answered: an envelope in the monogram's well, its ring
    dashed — somebody who has not arrived. */
 .nt-monogram.nt-ws-pending {

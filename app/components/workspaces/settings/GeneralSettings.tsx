@@ -293,7 +293,7 @@ function DangerZone({ workspace }: { workspace: WorkspaceContainer }) {
   if (!people) return null;
   const owner = workspace.role === "owner";
   const owners = people.members.filter((m) => m.role === "owner").length;
-  const leaves = !leaveProblem(workspace.role, owners);
+  const leaves = !leaveProblem(workspace.role, { owners, people: people.members.length });
   const heir = heirOf(people.members);
   return (
     <section className="nt-set-section" aria-labelledby="nt-ws-danger">

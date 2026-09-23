@@ -24,6 +24,7 @@ import {
   ROLE_HINT,
   ROLE_LABEL,
   sayOnce,
+  type Headcount,
 } from "../seats";
 import { ConfirmBox, LeaveWorkspace } from "./Confirm";
 import { JoinByDomain } from "./JoinByDomain";
@@ -45,6 +46,32 @@ const nth = (i: number) => ({ "--i": i }) as CSSProperties;
 const ROW_MENU =
   "nt-icon-btn nt-ws-row-menu opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 aria-expanded:opacity-100";
 
+/** The ⋯ of the row for an invitation or a person, found by what the row is of. */
+const rowMenuId = (key: string) => `nt-ws-row-menu-${key}`;
+
+/** The roster's heading: where focus lands when no row is left to take it. */
+const ROSTER = "nt-ws-people";
+
+const toRoster = () => document.getElementById(ROSTER)?.focus();
+
+/**
+ * Focus, off a row on its way out of a list: to the ⋯ of the row after it,
+ * else of the one before, else the roster's heading — somewhere still on the
+ * page, rather than the page itself, where it falls when the row it was on
+ * goes. `keys` is the list in its drawn order.
+ */
+function focusBeside(keys: readonly string[], gone: string) {
+  const at = keys.indexOf(gone);
+  for (const key of [...keys.slice(at + 1), ...keys.slice(0, at).reverse()]) {
+    const menu = document.getElementById(rowMenuId(key));
+    if (menu && !menu.closest(".is-leaving")) {
+      menu.focus();
+      return;
+    }
+  }
+  toRoster();
+}
+
 /**
  * Who is in a workspace, and who has been asked.
  *
@@ -63,6 +90,9 @@ export function MembersSettings() {
 function Members({ workspace }: { workspace: WorkspaceContainer }) {
   const standIn = useStandIn();
   const people = useQuery(api.members.list, { workspaceId: workspace.workspaceId });
+  // Whether the skeleton has been up, which has no invitations to show.
+  const [cold, setCold] = useState(false);
+  if (people === undefined && !cold) setCold(true);
 
   if (people === undefined) {
     return <Loading invites={!standIn && atLeast(workspace.role, "admin")} />;
@@ -70,23 +100,37 @@ function Members({ workspace }: { workspace: WorkspaceContainer }) {
   // A guest, or a seat that has just gone: the frame moves them on.
   if (people === null) return null;
   // An operator standing in reads; the server refuses their writes anyway.
-  return <Sections workspace={workspace} people={people} actor={standIn ? null : people.role} />;
+  return (
+    <Sections
+      workspace={workspace}
+      people={people}
+      actor={standIn ? null : people.role}
+      cold={cold}
+    />
+  );
 }
 
 function Sections({
   workspace,
   people,
   actor,
+  cold,
 }: {
   workspace: WorkspaceContainer;
   people: People;
   actor: WorkspaceRole | null;
+  /** Drawn in place of the skeleton, which held no room for invitations. */
+  cold: boolean;
 }) {
   const runs = actor !== null && atLeast(actor, "admin");
-  // Whether the page opened with invitations to list. A list that arrives
-  // later, with the first one sent from the form above it, folds open instead
-  // of landing, so the people under it are moved down rather than thrown.
-  const [listed] = useState(() => people.invitations.length > 0);
+  // The invitations fold open as the first is sent and shut as the last goes,
+  // so the people under them are moved rather than thrown — and fold open
+  // too when they arrive after the skeleton. Shut, the fold goes on drawing
+  // the rows it last held, so they are still there as it closes.
+  const inviting = people.invitations.length > 0;
+  const [drawn, setDrawn] = useState(people.invitations);
+  if (inviting && drawn !== people.invitations) setDrawn(people.invitations);
+  const invitations = inviting ? people.invitations : drawn;
 
   return (
     <>
@@ -100,10 +144,16 @@ function Sections({
           </div>
         </section>
       )}
-      {runs && people.invitations.length > 0 && (
-        <div className={`nt-ws-fold${listed ? "" : " is-arriving"}`}>
+      {runs && (
+        <div
+          className={`nt-ws-fold${cold ? " is-arriving" : ""}`}
+          data-open={inviting}
+          inert={!inviting}
+        >
           <div className="nt-ws-fold-body">
-            <Invitations workspace={workspace} actor={actor} invitations={people.invitations} />
+            {invitations.length > 0 && (
+              <Invitations workspace={workspace} actor={actor} invitations={invitations} />
+            )}
           </div>
         </div>
       )}
@@ -116,7 +166,9 @@ function Sections({
 /**
  * The page's shape while it is on its way: the invite card first, for whoever
  * the page will give one, then the roster — so nothing moves down when the
- * people arrive. Each bar sits in the line box of the text it stands for.
+ * people arrive, and any invitations fold open between the two. Each bar sits
+ * in the line box of the text it stands for; the invite card's note is one
+ * line wherever the card is wide enough to hold it, and two below that.
  */
 function Loading({ invites }: { invites: boolean }) {
   return (
@@ -128,7 +180,7 @@ function Loading({ invites }: { invites: boolean }) {
             <div className="nt-skeleton h-8" />
             <div className="mt-2">
               <Bone bar="h-3 w-[92%]" />
-              <Bone bar="h-3 w-3/5" />
+              <Bone bar="h-3 w-3/5" className="sm:hidden" />
             </div>
           </div>
         </section>
@@ -154,7 +206,7 @@ function Loading({ invites }: { invites: boolean }) {
 /** A bar in the line box of the 13px text it stands for. */
 function Bone({ bar, className = "" }: { bar: string; className?: string }) {
   return (
-    <div className={`flex h-[19.5px] items-center ${className}`}>
+    <div className={`nt-ws-bone flex h-[19.5px] items-center ${className}`}>
       <div className={`nt-skeleton ${bar}`} />
     </div>
   );
@@ -199,6 +251,12 @@ function Invitations({
               invitation={invitation}
               now={now}
               onProblem={setProblem}
+              onGone={() =>
+                focusBeside(
+                  newest.map((n) => n.invitationId),
+                  invitation.invitationId,
+                )
+              }
             />
           ))}
         </ul>
@@ -225,6 +283,7 @@ function InvitationRow({
   invitation,
   now,
   onProblem,
+  onGone,
 }: {
   index: number;
   workspace: WorkspaceContainer;
@@ -232,6 +291,8 @@ function InvitationRow({
   invitation: Invitation;
   now: number;
   onProblem: (text: string | null) => void;
+  /** Moves focus off the row, which is on its way out. */
+  onGone: () => void;
 }) {
   const id = useId();
   const revoke = useMutation(api.members.revokeInvite);
@@ -245,6 +306,7 @@ function InvitationRow({
 
   const revokeIt = () => {
     onProblem(null);
+    onGone();
     // Leaves at once; the list drops it when the server agrees, and it comes
     // back if the server does not.
     setLeaving(true);
@@ -318,7 +380,12 @@ function InvitationRow({
           align="end"
           className={why ? "nt-ws-choices" : undefined}
           trigger={(t) => (
-            <button {...t} aria-label={`Actions for the invitation to ${email}`} className={ROW_MENU}>
+            <button
+              {...t}
+              id={rowMenuId(invitation.invitationId)}
+              aria-label={`Actions for the invitation to ${email}`}
+              className={ROW_MENU}
+            >
               <MoreHorizontal />
             </button>
           )}
@@ -329,7 +396,8 @@ function InvitationRow({
               className="nt-ws-choice"
               disabled={!!why || leaving}
               onClick={() => {
-                close();
+                // Not back to this ⋯: the row it is on is leaving.
+                close({ restoreFocus: false });
                 revokeIt();
               }}
             >
@@ -367,12 +435,16 @@ function Roster({
 }) {
   const [problem, setProblem] = useState<string | null>(null);
   const naming = useNaming();
-  const owners = members.filter((m) => m.role === "owner").length;
+  const count: Headcount = {
+    owners: members.filter((m) => m.role === "owner").length,
+    people: members.length,
+  };
   const heir = heirOf(members);
 
   return (
-    <section className="nt-set-section" aria-labelledby="nt-ws-people">
-      <h2 id="nt-ws-people" className="nt-set-label nt-ws-label">
+    <section className="nt-set-section" aria-labelledby={ROSTER}>
+      {/* Focusable by script only, for focus to land on when a row goes. */}
+      <h2 id={ROSTER} tabIndex={-1} className="nt-set-label nt-ws-label">
         Members
         <span className="nt-field-note">{members.length}</span>
       </h2>
@@ -405,9 +477,15 @@ function Roster({
                       actor={actor}
                       member={member}
                       name={named.name}
-                      owners={owners}
+                      count={count}
                       heir={heir && (heir.name ?? heir.email)}
                       onProblem={setProblem}
+                      onGone={() =>
+                        focusBeside(
+                          members.map((m) => m.userId),
+                          member.userId,
+                        )
+                      }
                     />
                   </span>
                 )}
@@ -460,33 +538,37 @@ type Asking =
  * Most role changes happen on the pick. The two that cannot be taken back by
  * whoever made them ask first: making someone an owner, and stepping down
  * yourself. Those questions are asked after the menu has gone, so their
- * answer hands focus back to the ⋯ itself.
+ * answer hands focus back to the ⋯ itself — or, where the answer takes the ⋯
+ * away with the row or with the seat that could use it, to what is left.
  */
 function PersonMenu({
   workspace,
   actor,
   member,
   name,
-  owners,
+  count,
   heir,
   onProblem,
+  onGone,
 }: {
   workspace: WorkspaceContainer;
   actor: WorkspaceRole;
   member: Member;
   /** What the row calls them. */
   name: string;
-  owners: number;
+  count: Headcount;
   heir: string | null;
   onProblem: (text: string | null) => void;
+  /** Moves focus off the row, which is on its way out. */
+  onGone: () => void;
 }) {
   const setRole = useMutation(api.members.setRole);
   const remove = useMutation(api.members.remove);
   const captionId = useId();
   const trigger = useRef<{ focus: () => void }>(null);
   const [asking, setAsking] = useState<Asking | null>(null);
-  const choices = roleChoices(actor, member, owners);
-  const out = member.isMe ? leaveProblem(member.role, owners) : removeProblem(actor, member.role);
+  const choices = roleChoices(actor, member, count);
+  const out = member.isMe ? leaveProblem(member.role, count) : removeProblem(actor, member.role);
   const said = sayOnce(choices, out, member.isMe ? LEAVE_INSTEAD : null);
   const close = () => {
     setAsking(null);
@@ -517,7 +599,12 @@ function PersonMenu({
         className="nt-ws-choices"
         focusRef={trigger}
         trigger={(t) => (
-          <button {...t} aria-label={`Actions for ${name}`} className={ROW_MENU}>
+          <button
+            {...t}
+            id={rowMenuId(member.userId)}
+            aria-label={`Actions for ${name}`}
+            className={ROW_MENU}
+          >
             <MoreHorizontal />
           </button>
         )}
@@ -596,7 +683,8 @@ function PersonMenu({
           busyAction="Removing…"
           onConfirm={async () => {
             await remove({ workspaceId: workspace.workspaceId, userId: member.userId });
-            close();
+            setAsking(null);
+            onGone();
           }}
           onClose={close}
         >
@@ -632,13 +720,18 @@ function PersonMenu({
           busyAction="Saving…"
           onConfirm={async () => {
             await change(asking.role);
-            close();
+            // A member runs no rows, so there is no ⋯ left to come back to.
+            if (asking.role === "admin") close();
+            else {
+              setAsking(null);
+              toRoster();
+            }
           }}
           onClose={close}
         >
           {asking.role === "admin"
-            ? `You’ll keep running ${workspace.name}’s people and settings, but not deleting it or appointing owners.`
-            : `You’ll stop running ${workspace.name}’s people and settings.`}{" "}
+            ? `You’ll keep managing ${workspace.name}’s people and settings, but not deleting it or appointing owners.`
+            : `You’ll stop managing ${workspace.name}’s people and settings, and you won’t be able to open private projects others made.`}{" "}
           Only an owner can make you one again.
         </ConfirmBox>
       )}

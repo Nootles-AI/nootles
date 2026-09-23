@@ -44,25 +44,37 @@ export type Choice = { role: WorkspaceRole; why: string | null };
 
 export type Person = { role: WorkspaceRole; isMe: boolean };
 
+/**
+ * How many owners a workspace has, since the last one is never unmade, and
+ * how many people in all, since the last one has nobody to hand it to.
+ */
+export type Headcount = { owners: number; people: number };
+
+/** Why the one owner can do nothing to their own seat. */
+function onlyOwner(count: Headcount): string {
+  return count.people < 2
+    ? "You’re the only one in this workspace. Invite someone and make them an owner first."
+    : "You’re the only owner. Make someone else an owner first.";
+}
+
 const an = (role: WorkspaceRole) =>
   `${role === "admin" || role === "owner" ? "an" : "a"} ${role}`;
 
 /**
  * The roles `actor` may move `target` between, in the order the menu lists
  * them — the one they hold included, and a guest's own seat kept on the list
- * so it has somewhere to be ticked. `owners` is how many owners the workspace
- * has, since the last one is never unmade.
+ * so it has somewhere to be ticked.
  */
-export function roleChoices(actor: WorkspaceRole, target: Person, owners: number): Choice[] {
+export function roleChoices(actor: WorkspaceRole, target: Person, count: Headcount): Choice[] {
   const roles = target.role === "guest" ? [...OFFERED, "guest" as const] : OFFERED;
-  return roles.map((role) => ({ role, why: roleProblem(actor, target, role, owners) }));
+  return roles.map((role) => ({ role, why: roleProblem(actor, target, role, count) }));
 }
 
 function roleProblem(
   actor: WorkspaceRole,
   target: Person,
   role: WorkspaceRole,
-  owners: number,
+  count: Headcount,
 ): string | null {
   if (role === target.role) return null;
   if (target.isMe && actor !== "owner") return "You can’t change your own role.";
@@ -71,9 +83,9 @@ function roleProblem(
       ? `Only an owner can change ${an(target.role)}’s role.`
       : `Only an owner can make someone ${an(role)}.`;
   }
-  if (target.role === "owner" && owners < 2) {
+  if (target.role === "owner" && count.owners < 2) {
     return target.isMe
-      ? "You’re the only owner. Make someone else an owner first."
+      ? onlyOwner(count)
       : "A workspace needs an owner. Make someone else an owner first.";
   }
   return null;
@@ -105,9 +117,9 @@ export function removeProblem(actor: WorkspaceRole, target: WorkspaceRole): stri
 }
 
 /** Why someone of rank `role` may not leave, or null when they may. */
-export function leaveProblem(role: WorkspaceRole, owners: number): string | null {
-  return role === "owner" && owners < 2
-    ? "You’re the only owner. Make someone else an owner first, or delete the workspace."
+export function leaveProblem(role: WorkspaceRole, count: Headcount): string | null {
+  return role === "owner" && count.owners < 2
+    ? `${onlyOwner(count).replace(/\.$/, "")}, or delete the workspace.`
     : null;
 }
 
