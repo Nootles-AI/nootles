@@ -8,7 +8,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import schema from "./schema";
 import { claimRole } from "./auth";
 import { isOutsiderRefusal, MAX_PEOPLE } from "./commentNotices";
-import { containerOf } from "./container";
+import { containerMembers, containerOf } from "./container";
 import { purgeProject } from "./projects";
 import { appendYUpdate, registerYDoc } from "./ydoc";
 import { CommentsStore } from "@/app/lib/comments/store";
@@ -179,11 +179,64 @@ describe("who can be mentioned", () => {
     expect(await t.withIdentity(OWNER).query(api.commentNotices.mentionable, { pageId: w.pageId })).toEqual([]);
   });
 
-  test("the container seam answers the personal branch today", async () => {
+  test("the container seam answers the personal branch", async () => {
     const t = convexTest(schema, modules);
     const w = await world(t);
     const project = await t.run(async (ctx) => (await ctx.db.get(w.projectId))!);
     expect(containerOf(project)).toEqual({ kind: "account", userId: OWNER.subject });
+  });
+
+  test("a workspace project's people are the seats it gives a role, then its link's claimants", async () => {
+    const t = convexTest(schema, modules);
+    const people = await t.run(async (ctx) => {
+      const workspaceId = await ctx.db.insert("workspaces", {
+        slug: "acme",
+        name: "Acme",
+        createdBy: OWNER.subject,
+        plan: "team",
+        settings: { linkSharing: true, guestCodeAccess: false, joinDomains: [], autoJoin: false },
+        createdAt: 1,
+      });
+      const seat = (userId: string, role: Doc<"memberships">["role"], status: "active" | "removed" = "active") =>
+        ctx.db.insert("memberships", { workspaceId, userId, role, status, joinedAt: 1 });
+      await seat(OWNER.subject, "admin");
+      await seat(EDITOR.subject, "member");
+      await seat(VIEWER.subject, "guest");
+      await seat("user_gone", "member", "removed");
+      const projectId = await ctx.db.insert("projects", {
+        ownerId: EDITOR.subject,
+        title: "P",
+        createdAt: 1,
+        workspaceId,
+        shareToken: "v",
+      });
+      await ctx.db.insert("shareClaims", { projectId, granteeId: VIEWER.subject, role: "viewer", createdAt: 1 });
+      // A member's claim adds nothing: their seat already says what they are.
+      await ctx.db.insert("shareClaims", { projectId, granteeId: EDITOR.subject, role: "viewer", createdAt: 1 });
+      const project = (await ctx.db.get(projectId))!;
+      expect(containerOf(project)).toEqual({ kind: "workspace", workspaceId });
+      const members = await containerMembers(ctx, project);
+      await ctx.db.patch(workspaceId, {
+        settings: { linkSharing: false, guestCodeAccess: false, joinDomains: [], autoJoin: false },
+      });
+      return { open: members, paused: await containerMembers(ctx, project) };
+    });
+    const sorted = (list: { userId: string; role: string }[]) =>
+      [...list].sort((a, b) => a.userId.localeCompare(b.userId));
+    expect(sorted(people.open)).toEqual(
+      sorted([
+        { userId: OWNER.subject, role: "owner" },
+        { userId: EDITOR.subject, role: "editor" },
+        { userId: VIEWER.subject, role: "viewer" },
+      ]),
+    );
+    // Links paused: the guest was in by the link alone.
+    expect(sorted(people.paused)).toEqual(
+      sorted([
+        { userId: OWNER.subject, role: "owner" },
+        { userId: EDITOR.subject, role: "editor" },
+      ]),
+    );
   });
 });
 
