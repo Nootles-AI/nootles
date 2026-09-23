@@ -48,7 +48,7 @@ const FIXTURES = {
     const router = { replace() {}, push() {}, prefetch() {}, back() {}, forward() {}, refresh() {} };
     export function useRouter() { return router; }
     export function usePathname() { return "/"; }
-    export function useSearchParams() { return new URLSearchParams(); }
+    export function useSearchParams() { return new URLSearchParams(window.location.search); }
     export function useParams() { return {}; }
     export function redirect() {}
     export function notFound() {}
@@ -69,8 +69,13 @@ const PAGE_SURFACE = path.join("app", "components", "PageSurface.tsx");
 const SHARED_PROJECT = path.join("app", "components", "share", "SharedProject.tsx");
 const PROBE = path.join(repo, "tests", "comments-surfaces.probe.tsx");
 
-/** Build `entry` (repo-relative .tsx) into `output`, with `index.html` loading it. */
-export async function bundleSurfaces(entry, output) {
+/**
+ * Build `entry` (repo-relative .tsx) into `output`, with `index.html` loading it.
+ * `probe: false` keeps each page's real editor; `rewrite` maps a repo-relative
+ * source path to a function over its text, for a harness that counts inside a
+ * component without the component knowing.
+ */
+export async function bundleSurfaces(entry, output, { probe = true, rewrite = {} } = {}) {
   const name = path.basename(entry, ".tsx");
   await build({
     absWorkingDir: repo, entryPoints: [entry], bundle: true, splitting: true,
@@ -87,8 +92,15 @@ export async function bundleSurfaces(entry, output) {
       builder.onResolve({ filter: /^next\/dynamic$/ }, to("dynamic"));
       builder.onResolve({ filter: /^next\/image$/ }, to("image"));
       builder.onResolve({ filter: /^@sentry\/nextjs$/ }, to("sentry"));
-      builder.onResolve({ filter: /^\.\/editor\/Editor$/ }, (args) => (args.importer.endsWith(PAGE_SURFACE) ? { path: PROBE } : undefined));
-      builder.onResolve({ filter: /^\.\/SharedEditor$/ }, (args) => (args.importer.endsWith(SHARED_PROJECT) ? { path: PROBE } : undefined));
+      if (probe) {
+        builder.onResolve({ filter: /^\.\/editor\/Editor$/ }, (args) => (args.importer.endsWith(PAGE_SURFACE) ? { path: PROBE } : undefined));
+        builder.onResolve({ filter: /^\.\/SharedEditor$/ }, (args) => (args.importer.endsWith(SHARED_PROJECT) ? { path: PROBE } : undefined));
+      }
+      for (const [file, change] of Object.entries(rewrite)) {
+        const absolute = path.join(repo, file);
+        const filter = new RegExp(`${absolute.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`);
+        builder.onLoad({ filter }, async () => ({ contents: change(await readFile(absolute, "utf8")), loader: "tsx", resolveDir: path.dirname(absolute) }));
+      }
       builder.onLoad({ filter: /^server-only$/, namespace: "fixture" }, () => ({ contents: 'exports.sync = () => { throw new Error("Next server-only gzip diagnostics reached in browser") };' }));
       builder.onLoad({ filter: /.*/, namespace: "fixture" }, (args) => ({ contents: FIXTURES[args.path], loader: "js", resolveDir: repo }));
     } }],

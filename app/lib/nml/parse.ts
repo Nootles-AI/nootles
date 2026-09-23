@@ -235,6 +235,7 @@ export function parseDocument(source: string, options: NmlParseOptions = {}): Nm
           authorId: attr(el, "author-id") ?? "",
           createdAt: integer(el, "created-at", -1),
           ...(editedAt !== undefined ? { editedAt } : {}),
+          ...(el.getAttribute("via") === "assistant" ? { via: "assistant" as const } : {}),
         },
         content: inline(el, [...path, "content"]),
         children: [],

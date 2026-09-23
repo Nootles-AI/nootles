@@ -845,3 +845,12 @@ export function Compass(props: SVGProps<SVGSVGElement>) {
     </svg>
   );
 }
+
+/** A speech bubble: a comment, or the place a page's comments are kept. */
+export function Comment(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M20 12a8 8 0 0 1-11.6 7.1L4 20l.9-4.4A8 8 0 1 1 20 12Z" />
+    </svg>
+  );
+}

@@ -46,6 +46,9 @@ import { commentText, threadsOf, type CommentAnchor, type Thread } from "./types
  *   `deleteThread` carries no author rule — who may remove a whole
  *   discussion depends on the viewer's role, which the caller knows and this
  *   module does not.
+ * - **The assistant's comments say so.** A store whose actor is the model
+ *   stamps every comment it writes `via: "assistant"`; the author is still
+ *   the person it acts for, as the transaction's origin already records.
  * - **Anchor maintenance is a system write.** Re-homing, rewriting `exact`
  *   and orphaning are the document keeping itself current, not anything a
  *   person did, so they carry a `system` origin that no undo tracks, write
@@ -378,6 +381,11 @@ export class CommentsStore {
     return commit(this.doc, this.options, plan);
   }
 
+  /** A new comment's props, marked when the assistant is the one writing. */
+  private commentProps(authorId: string, createdAt: number): NmlCommentBlock["props"] {
+    return { authorId, createdAt, ...(this.options.actor.kind === "model" ? { via: "assistant" as const } : {}) };
+  }
+
   /**
    * Start a thread on `anchor` with its first comment; resolves the thread's id.
    * `ambiguous` records that the anchor's words appear more than once with the
@@ -409,7 +417,7 @@ export class CommentsStore {
             id: threadId,
             type: "commentThread",
             props: { anchor: { ...input.anchor }, status: "open", ...(input.ambiguous ? { ambiguous: true as const } : {}) },
-            children: [{ id: commentId, type: "comment", props: { authorId: input.authorId, createdAt }, content, children: [] }],
+            children: [{ id: commentId, type: "comment", props: this.commentProps(input.authorId, createdAt), content, children: [] }],
           }],
         }],
       };
@@ -434,7 +442,7 @@ export class CommentsStore {
       const commands: NmlCommand[] = [{
         type: "insertNodes",
         parentId: thread.id,
-        nodes: [{ id: commentId, type: "comment", props: { authorId: input.authorId, createdAt }, content, children: [] }],
+        nodes: [{ id: commentId, type: "comment", props: this.commentProps(input.authorId, createdAt), content, children: [] }],
       }];
       if (thread.props.status === "resolved") commands.push({ type: "setNodeProps", nodeId: thread.id, patch: REOPEN });
       return { result: commentId, command: "comments.reply", idempotencyKey: `comments.reply:${commentId}`, commands };

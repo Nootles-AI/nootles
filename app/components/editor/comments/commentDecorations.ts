@@ -47,6 +47,12 @@ type Tracked = { thread: Thread; range: CommentRange | null };
 type CommentsState = {
   tracked: ReadonlyMap<string, Tracked>;
   active: string | null;
+  /**
+   * The words a comment is being written about, before its thread exists —
+   * shown as a focused highlight while the composer has the keyboard and the
+   * page's own selection is gone. Mapped like a thread's range; never written.
+   */
+  draft: CommentRange | null;
   isForked: () => boolean;
   decorations: DecorationSet;
   /** What this transaction asks the comments document to remember. */
@@ -62,6 +68,7 @@ type CommentsState = {
 type Meta = {
   threads?: readonly Thread[];
   active?: string | null;
+  draft?: CommentRange | null;
   /** Resolve every thread again. */
   resolve?: "all";
   /**
@@ -167,8 +174,16 @@ export function touches(range: CommentRange, maps: readonly StepMap[]): boolean 
 
 // ---- The plugin ---------------------------------------------------------------
 
-function decorationsFor(doc: Node, tracked: ReadonlyMap<string, Tracked>, active: string | null) {
+function decorationsFor(
+  doc: Node,
+  tracked: ReadonlyMap<string, Tracked>,
+  active: string | null,
+  draft: CommentRange | null,
+) {
   const decorations: Decoration[] = [];
+  if (draft) {
+    decorations.push(Decoration.inline(draft.from, draft.to, { class: "nt-comment-hl nt-comment-hl-active is-draft" }));
+  }
   for (const [id, { thread, range }] of tracked) {
     if (!range || thread.status !== "open") continue;
     decorations.push(
@@ -221,7 +236,7 @@ const caretMoved = (tr: Transaction) => tr.selectionSet && tr.getMeta(ySyncPlugi
 
 function apply(tr: Transaction, prev: CommentsState): CommentsState {
   const meta = tr.getMeta(commentKey) as Meta | undefined;
-  if (!meta && (!prev.tracked.size || (!tr.docChanged && !caretMoved(tr)))) return prev;
+  if (!meta && ((!prev.tracked.size && !prev.draft) || (!tr.docChanged && !caretMoved(tr)))) return prev;
 
   const isForked = meta?.isForked ?? prev.isForked;
   const forked = isForked();
@@ -229,11 +244,18 @@ function apply(tr: Transaction, prev: CommentsState): CommentsState {
   let tracked = new Map(prev.tracked);
   let edited = prev.edited;
   let unsettled = prev.unsettled;
+  let draft = meta?.draft !== undefined ? meta.draft : prev.draft;
+  if (draft !== prev.draft) changed = true;
   /** Threads to resolve, and whether what is found may be written now. */
   const toResolve = new Map<string, { persist: boolean }>();
 
   if (tr.docChanged) {
     const { maps, exact } = mapsOf(tr);
+    if (draft) {
+      const mapped = mapRange(draft, maps);
+      if (mapped !== draft) changed = true;
+      draft = mapped;
+    }
     // The agent's own writes into its fork. A range the proposal rewrote any of
     // has nowhere honest to be until the answer lands, however much of it the
     // steps happen to keep; the person's own typing in the fork maps as ever.
@@ -325,8 +347,9 @@ function apply(tr: Transaction, prev: CommentsState): CommentsState {
   return {
     tracked,
     active,
+    draft,
     isForked,
-    decorations: changed ? decorationsFor(tr.doc, tracked, active) : prev.decorations,
+    decorations: changed ? decorationsFor(tr.doc, tracked, active, draft) : prev.decorations,
     writes,
     edited,
     unsettled,
@@ -373,6 +396,7 @@ export function commentDecorationsPlugin(): Plugin<CommentsState> {
       init: () => ({
         tracked: new Map(),
         active: null,
+        draft: null,
         isForked: notForked,
         decorations: DecorationSet.empty,
         writes: NO_WRITES,
@@ -473,14 +497,25 @@ export function activeThread(state: EditorState): string | null {
   return commentKey.getState(state)?.active ?? null;
 }
 
+/** Highlight `range` as the words a comment is being written about; null clears it. */
+export function setCommentDraft(view: EditorView, range: CommentRange | null) {
+  const state = commentKey.getState(view.state);
+  if (state && (state.draft?.from !== range?.from || state.draft?.to !== range?.to)) send(view, { draft: range });
+}
+
+/** The draft's live range, or null once its words are gone or there is none. */
+export function commentDraft(state: EditorState): CommentRange | null {
+  return commentKey.getState(state)?.draft ?? null;
+}
+
 /** Selector resolutions this editor has run — how a test proves typing ran none. */
 export function commentResolveCount(state: EditorState): number {
   return commentKey.getState(state)?.resolves ?? 0;
 }
 
 /**
- * Calls `listener` once after each transaction that moved a range, changed the
- * set of threads or the focused one — never once per thread.
+ * Calls `listener` once after each transaction that moved a range or the
+ * draft, changed the set of threads or the focused one — never once per thread.
  */
 export function subscribeComments(view: EditorView, listener: (state: EditorState) => void): () => void {
   const { listeners } = hubFor(view);

@@ -1,0 +1,417 @@
+/* ---- Comments: the margin, the panel, the composer ----------------------
+   Neutral throughout. A thread is a conversation about the page, not part of
+   it, so its surfaces are the menus' — elevated paper with a soft shadow —
+   and its one mark on the page is the warm-grey highlight (`--comment-hl`).
+   No accent: nothing here is the system answering an input. */
+
+/* The layer is clipped to the page's pane, so a card never lies over the
+   rails; only what is on it takes the pointer. */
+.nt-comment-layer {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: var(--z-dropdown);
+  overflow: hidden;
+  pointer-events: none;
+  outline: none;
+}
+.nt-comment-track {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  will-change: transform;
+}
+
+.nt-comment-card {
+  font-size: var(--text-ui);
+  line-height: 1.5;
+  color: var(--foreground);
+  background: var(--elevated);
+  border-radius: var(--radius-lg);
+  outline: none;
+}
+.nt-comment-card.is-margin {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 264px;
+  padding: 10px 12px 12px;
+  pointer-events: auto;
+  cursor: default;
+  box-shadow:
+    0 0 0 1px oklch(0.25 0.005 90 / 0.06),
+    0 1px 2px oklch(0.25 0.005 90 / 0.04),
+    0 4px 12px -4px oklch(0.25 0.005 90 / 0.08);
+  animation: nt-comment-in var(--dur) var(--ease);
+  transition:
+    box-shadow var(--dur-fast) var(--ease),
+    opacity var(--dur-fast) var(--ease);
+}
+/* Only a card already in place glides; its first placement is not a move. */
+.nt-comment-card.is-margin[data-settled] {
+  transition:
+    transform 240ms var(--ease),
+    box-shadow var(--dur-fast) var(--ease),
+    opacity var(--dur-fast) var(--ease);
+}
+.nt-comment-card.is-margin:not([data-focused]) {
+  opacity: 0.92;
+}
+.nt-comment-card.is-margin:not([data-focused]):hover {
+  opacity: 1;
+}
+.nt-comment-card[data-focused] {
+  box-shadow:
+    0 0 0 1px oklch(0.25 0.005 90 / 0.1),
+    0 2px 4px oklch(0.25 0.005 90 / 0.05),
+    0 12px 32px -8px oklch(0.25 0.005 90 / 0.16);
+}
+@keyframes nt-comment-in {
+  from {
+    opacity: 0;
+  }
+}
+
+.nt-comment-card.is-panel {
+  padding: 10px 12px 12px;
+  border: 1px solid var(--border);
+  box-shadow: none;
+}
+.nt-comment-card.is-panel[data-focused] {
+  border-color: var(--border-strong);
+  box-shadow: 0 4px 16px -8px oklch(0.25 0.005 90 / 0.14);
+}
+.nt-comment-card.is-panel:not([data-focused]) {
+  cursor: pointer;
+}
+.nt-comment-card.is-panel:not([data-focused]):hover {
+  background: var(--background);
+  border-color: var(--border-strong);
+}
+
+.nt-comment-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.nt-comment-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+}
+.nt-comment-face {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+.nt-comment-who {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+.nt-comment-name {
+  overflow: hidden;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.nt-comment-meta {
+  flex: none;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--text-meta);
+  color: var(--muted);
+  white-space: nowrap;
+}
+/* A thread's tools wait until it is pointed at or chosen: a margin of cards
+   each wearing its buttons would be a toolbar, not a conversation. */
+.nt-comment-tools {
+  display: flex;
+  flex: none;
+  gap: 1px;
+  margin-right: -4px;
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease);
+}
+.nt-comment-card:hover .nt-comment-tools,
+.nt-comment-card:focus-within .nt-comment-tools,
+.nt-comment-card[data-focused] .nt-comment-tools,
+.nt-comment-tools:has([aria-expanded="true"]) {
+  opacity: 1;
+}
+.nt-comment-body {
+  margin: 4px 0 0 30px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.nt-comment-card:not([data-focused]) .nt-comment-body {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  overflow: hidden;
+}
+.nt-comment-mention {
+  font-weight: 500;
+}
+.nt-comment-more {
+  margin-left: 30px;
+  font-size: var(--text-meta-lg);
+  color: var(--muted);
+}
+.nt-comment-aside {
+  margin: 0 0 8px;
+  font-size: var(--text-meta-lg);
+  color: var(--muted);
+}
+.nt-comment-quote {
+  display: -webkit-box;
+  margin: 0 0 8px;
+  padding-left: 8px;
+  overflow: hidden;
+  border-left: 2px solid var(--comment-hl-line);
+  font-size: var(--text-meta-lg);
+  color: var(--muted);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.nt-comment-draft .nt-comment-head {
+  margin-bottom: 2px;
+}
+
+/* ---- The composer ------------------------------------------------------ */
+.nt-comment-composer {
+  margin-top: 10px;
+}
+.nt-comment-list + .nt-comment-composer {
+  margin-left: 30px;
+}
+.nt-comment-list .nt-comment-composer {
+  margin-top: 0;
+}
+.nt-comment-input {
+  display: block;
+  width: 100%;
+  min-height: 32px;
+  padding: 6px 8px;
+  resize: none;
+  font: inherit;
+  color: var(--foreground);
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  outline: none;
+  transition:
+    border-color var(--dur-fast) var(--ease),
+    box-shadow var(--dur-fast) var(--ease);
+}
+.nt-comment-input::placeholder {
+  color: var(--muted);
+}
+.nt-comment-input:focus {
+  border-color: var(--border-strong);
+  box-shadow: 0 0 0 3px oklch(0.25 0.005 90 / 0.05);
+}
+.nt-comment-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+  margin-top: 6px;
+}
+.nt-comment-btn {
+  height: 26px;
+  padding: 0 10px;
+  font-size: var(--text-ui);
+  font-weight: 500;
+  color: var(--foreground);
+  border-radius: var(--radius);
+  transition:
+    background var(--dur-fast) var(--ease),
+    opacity var(--dur-fast) var(--ease),
+    transform var(--dur) var(--ease);
+}
+.nt-comment-btn:hover {
+  background: var(--hover);
+}
+.nt-comment-btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+.nt-comment-btn.is-primary {
+  color: var(--background);
+  background: var(--foreground);
+}
+.nt-comment-btn.is-primary:hover {
+  background: color-mix(in oklch, var(--foreground) 88%, var(--background));
+}
+.nt-comment-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.nt-comment-note {
+  margin: 6px 0 0;
+  font-size: var(--text-meta-lg);
+  color: var(--muted);
+}
+.nt-comment-note[role="alert"] {
+  color: var(--danger);
+}
+
+/* ---- The narrow margin: a dot per thread -------------------------------- */
+.nt-comment-dot {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--text-meta);
+  color: var(--muted);
+  background: var(--elevated);
+  border-radius: 999px;
+  box-shadow:
+    0 0 0 1px oklch(0.25 0.005 90 / 0.1),
+    0 1px 3px oklch(0.25 0.005 90 / 0.08);
+  pointer-events: auto;
+  animation: nt-comment-in var(--dur) var(--ease);
+  transition:
+    color var(--dur-fast) var(--ease),
+    background var(--dur-fast) var(--ease);
+}
+.nt-comment-dot[data-settled] {
+  transition:
+    transform 240ms var(--ease),
+    color var(--dur-fast) var(--ease),
+    background var(--dur-fast) var(--ease);
+}
+.nt-comment-dot:hover,
+.nt-comment-dot[data-focused] {
+  color: var(--foreground);
+  background: var(--sunken);
+}
+
+/* ---- Read-only pages: a Comment button over the selection -------------- */
+.nt-comment-float {
+  position: fixed;
+  top: -100px;
+  left: 0;
+  z-index: var(--z-dropdown);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px 0 8px;
+  font-size: var(--text-ui);
+  font-weight: 500;
+  color: var(--foreground);
+  background: var(--elevated);
+  border-radius: var(--radius);
+  box-shadow:
+    0 0 0 1px oklch(0.25 0.005 90 / 0.08),
+    0 1px 2px oklch(0.25 0.005 90 / 0.05),
+    0 6px 16px -6px oklch(0.25 0.005 90 / 0.16);
+  animation: nt-menu-quick var(--dur) var(--ease);
+  transition: background var(--dur-fast) var(--ease);
+}
+.nt-comment-float:hover {
+  background: var(--hover);
+}
+.nt-comment-float svg {
+  color: var(--muted);
+}
+
+/* ---- The panel ---------------------------------------------------------- */
+.nt-comments-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  z-index: var(--z-dropdown);
+  display: flex;
+  flex-direction: column;
+  width: 360px;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  box-shadow: -12px 0 32px -20px oklch(0.25 0.005 90 / 0.2);
+  outline: none;
+  animation: nt-rail-in-r var(--dur) var(--ease);
+}
+.nt-comments-head {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--inset);
+}
+.nt-comments-body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 16px;
+  padding: 0 12px 16px;
+  overflow-y: auto;
+}
+.nt-comments-section .nt-section-label {
+  margin: 0 4px 8px;
+}
+.nt-comments-count {
+  margin-left: 4px;
+  color: var(--faint);
+}
+.nt-comments-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.nt-comments-empty {
+  margin: 24px 4px;
+  font-size: var(--text-ui);
+  color: var(--muted);
+}
+
+.nt-comments-toggle {
+  position: relative;
+}
+.nt-comments-toggle[aria-pressed="true"] {
+  color: var(--foreground);
+  background: var(--selected);
+}
+.nt-comments-badge {
+  position: absolute;
+  top: 3px;
+  right: 2px;
+  display: grid;
+  place-items: center;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--background);
+  background: var(--foreground);
+  border-radius: 999px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nt-comment-card.is-margin[data-settled],
+  .nt-comment-dot[data-settled] {
+    transition: none;
+  }
+  .nt-comments-panel {
+    animation: nt-fade-in var(--dur-fast) var(--ease);
+  }
+}
+
+/* A card whose words left the page this frame waits hidden for React. */
+.nt-comment-track > [hidden] {
+  display: none;
+}
