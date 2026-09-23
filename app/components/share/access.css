@@ -189,6 +189,8 @@ body:has(.nt-fixed) .nt-asks {
   grid-area: 1 / 1;
 }
 .nt-share-hold-text {
+  /* Fading paints it over the ⋯ it shares a seat with; clicks go through. */
+  pointer-events: none;
   transition: opacity var(--dur-fast) var(--ease);
 }
 .nt-share-people > li:hover .nt-share-hold-text,
