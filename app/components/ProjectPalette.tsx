@@ -700,16 +700,6 @@ function TemplatePreview({ template }: { template: ProjectTemplate }) {
 }
 
 /**
- * A name short enough to share a two-way switch with "Only me" — the switch's
- * halves are as wide as its longest, and a workspace may be called anything
- * up to 64 characters. The hint beside it says the whole name.
- */
-function clipped(name: string): string {
-  const chars = Array.from(name);
-  return chars.length > 24 ? `${chars.slice(0, 22).join("").trimEnd()}…` : name;
-}
-
-/**
  * The project's details, on the palette's last page. What it makes — blank, or
  * a template — is decided on the pages before it.
  */
@@ -828,22 +818,25 @@ function DetailsForm({
             </div>
           </div>
         )}
+        {/* Two short words, since the workspace is named just above; who
+            exactly each one means is in its hint, in the words the private
+            project's lock uses. */}
         {chosen && workspace && (
           <div className="nt-pal-fld">
-            <span className="nt-pal-key">Visible to</span>
-            <div className="min-w-0 pt-1">
+            <span className="nt-pal-key">Visibility</span>
+            <div className="min-w-0 pt-0.5">
               <Segmented
-                label="Who sees it"
+                label="Visibility"
                 segments={[
                   {
                     id: "workspace",
-                    label: `Everyone in ${clipped(chosen.name)}`,
+                    label: "Workspace",
                     hint: `Everyone in ${chosen.name} can find it and edit it`,
                   },
                   {
                     id: "private",
-                    label: "Only me",
-                    hint: `Only you and ${chosen.name}’s admins can open it`,
+                    label: "Private",
+                    hint: `Only you and ${chosen.name}’s owners and admins can open it`,
                   },
                 ]}
                 value={workspace.visibility}
