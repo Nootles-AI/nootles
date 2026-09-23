@@ -265,7 +265,7 @@ function Palette({
             id: "upgrade",
             group: "Pro",
             name: "Upgrade to Pro",
-            line: "Unlimited projects, completions and conversations",
+            line: "Unlimited projects, completions and chats",
             icon: <Sparkles />,
             picture: "pro" as const,
             run: () => {
