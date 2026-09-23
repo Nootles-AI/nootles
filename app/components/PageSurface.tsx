@@ -16,6 +16,7 @@ import { ModeToggle } from "./ModeToggle";
 import { CurrentPageProvider, useOpenPage, type Pane } from "./OpenPageContext";
 import { ArrowLeft, X } from "./Icons";
 import { useReadOnly } from "./editor/readOnly";
+import { PageCommentsProvider } from "./comments/PageComments";
 import type { PageMode } from "./editor/ai/useTabCompletion";
 
 export function PageSurface({
@@ -249,13 +250,15 @@ export function PageSurface({
         </div>
         )}
         <div className="nt-page-in mt-8" data-turn={turn}>
-          <Editor
-            docId={page.docId}
-            pageId={pageId}
-            title={page.title}
-            mode={(page.mode ?? "create") as PageMode}
-            yjs={page.yjs}
-          />
+          <PageCommentsProvider pageId={pageId}>
+            <Editor
+              docId={page.docId}
+              pageId={pageId}
+              title={page.title}
+              mode={(page.mode ?? "create") as PageMode}
+              yjs={page.yjs}
+            />
+          </PageCommentsProvider>
         </div>
       </div>
     </main>
