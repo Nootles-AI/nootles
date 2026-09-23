@@ -159,6 +159,12 @@ export function ProjectsScreen() {
   );
   const setFailure = useCallback((text: string) => setNotice({ text, problem: true }), []);
   const { room } = usePlan();
+  // What the wall at a workspace's Create asks, held open so the wall is
+  // answered from the cache the moment the refusal lands, not a round trip on.
+  useQuery(
+    api.entitlements.forContainer,
+    workspace && canCreate ? { workspaceId: workspace.workspaceId } : "skip",
+  );
 
   useEffect(() => {
     try {
