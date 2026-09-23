@@ -186,8 +186,9 @@ export const search = action({
       const key = r.installationId !== undefined ? `app:${r.installationId}` : `user:${r.ownerId}`;
       byCredential.set(key, [...(byCredential.get(key) ?? []), r]);
     }
-    const found = await Promise.all(
-      [...byCredential.values()].map(async (linked) => {
+    const groups = [...byCredential.values()];
+    const settled = await Promise.allSettled(
+      groups.map(async (linked) => {
         const answer = await withRepoToken(ctx, linked[0], (token) =>
           json<{ total_count: number; items: Hit[] }>(token, "/search/code", {
             accept: "application/vnd.github.text-match+json",
@@ -208,11 +209,28 @@ export const search = action({
         };
       }),
     );
+    // One credential refused — personal connections turned off, an
+    // installation suspended — leaves the others' repositories searchable,
+    // and says which were not.
+    const found: { hits: Hit[]; total: number }[] = [];
+    const searched: Doc<"projectRepos">[] = [];
+    const skipped: { repo: string; reason: string }[] = [];
+    settled.forEach((result, i) => {
+      if (result.status === "fulfilled") {
+        found.push(result.value);
+        searched.push(...groups[i]);
+      } else {
+        const why = reason(result.reason);
+        skipped.push(...groups[i].map((r) => ({ repo: r.fullName, reason: why })));
+      }
+    });
+    if (!found.length) throw (settled[0] as PromiseRejectedResult).reason;
     return {
       total: found.reduce((sum, f) => sum + f.total, 0),
       // Search only ever covers the default branch — worth saying, because a
       // model that finds nothing should not conclude the code isn't there.
-      searched: repos.map((r) => `${r.fullName}@${r.defaultBranch}`),
+      searched: searched.map((r) => `${r.fullName}@${r.defaultBranch}`),
+      ...(skipped.length ? { skipped } : {}),
       results: found
         .flatMap((f) => f.hits)
         .slice(0, RESULTS)
@@ -246,6 +264,10 @@ async function permitted(
   if (!repo) throw new ConvexError(unlinked(fullName));
   return repo;
 }
+
+/** A failure's sentence; anything that isn't one is said plainly. */
+const reason = (error: unknown) =>
+  error instanceof ConvexError ? String(error.data) : "GitHub could not be reached.";
 
 const unlinked = (fullName?: string) =>
   fullName
