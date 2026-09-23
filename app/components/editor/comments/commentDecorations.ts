@@ -33,10 +33,11 @@ import type { Thread } from "@/app/lib/comments/types";
  *   the proposal rewrites any of shows as unanchored and is left there; when
  *   the fork ends, every thread is resolved again against the shared
  *   document. No write is produced while a fork stands.
- * - **A live deletion never orphans on the spot.** Cut is half of cut-and-
- *   paste, so a range deleted by an edit is re-resolved at once for display,
- *   and an orphan is only recorded by the settle pass that follows the edits
- *   by `SETTLE_MS`.
+ * - **A live deletion writes nothing on the spot.** Cut is half of cut-and-
+ *   paste, so a range deleted by an edit is re-resolved at once for display
+ *   only; what it resolves to — an orphan, a fuzzy twin, a re-home — is
+ *   decided and written by the settle pass that follows the edits by
+ *   `SETTLE_MS`.
  */
 
 export type CommentRange = { from: number; to: number };
@@ -52,6 +53,8 @@ type CommentsState = {
   writes: ReadonlyMap<string, ResolutionWrite>;
   /** Threads whose words this editor has edited since the settle pass last ran. */
   edited: ReadonlySet<string>;
+  /** Threads re-resolved mid-edit for display only; the settle pass decides. */
+  unsettled: ReadonlySet<string>;
   /** Selector resolutions run so far — the count the tests hold down. */
   resolves: number;
 };
@@ -75,7 +78,7 @@ export const commentKey = new PluginKey<CommentsState>("nt-comments");
 export const SETTLE_MS = 600;
 
 const NO_WRITES: ReadonlyMap<string, ResolutionWrite> = new Map();
-const NONE_EDITED: ReadonlySet<string> = new Set();
+const NONE: ReadonlySet<string> = new Set();
 const notForked = () => false;
 
 // ---- Mapping ----------------------------------------------------------------
@@ -225,8 +228,9 @@ function apply(tr: Transaction, prev: CommentsState): CommentsState {
   let changed = isForked !== prev.isForked;
   let tracked = new Map(prev.tracked);
   let edited = prev.edited;
-  /** Threads to resolve, and whether an orphan found now may be recorded. */
-  const toResolve = new Map<string, { mayOrphan: boolean }>();
+  let unsettled = prev.unsettled;
+  /** Threads to resolve, and whether what is found may be written now. */
+  const toResolve = new Map<string, { persist: boolean }>();
 
   if (tr.docChanged) {
     const { maps, exact } = mapsOf(tr);
@@ -238,15 +242,20 @@ function apply(tr: Transaction, prev: CommentsState): CommentsState {
       if (!entry.range) continue;
       let range = mapRange(entry.range, maps);
       if (range && proposal && touches(entry.range, maps)) range = null;
+      // Checked before the unchanged-range skip: typing over a letter keeps
+      // both ends where they were and still rewrites the quotation.
+      const edit = !forked && exact && range !== null && touches(entry.range, maps);
+      if (edit && !edited.has(id)) edited = new Set(edited).add(id);
       if (range === entry.range) continue;
       changed = true;
       tracked.set(id, { ...entry, range });
       // The fork's text is a proposal: a range it took away waits for the answer.
       if (forked) continue;
+      // Mid-edit, a match elsewhere may be a phrase's twin while the phrase
+      // itself is on the clipboard: shown, but written only once edits pause.
       if (!range || (!exact && straddles(entry.range, maps))) {
-        toResolve.set(id, { mayOrphan: false });
-      } else if (exact && !edited.has(id) && touches(entry.range, maps)) {
-        edited = new Set(edited).add(id);
+        toResolve.set(id, { persist: false });
+        if (!unsettled.has(id)) unsettled = new Set(unsettled).add(id);
       }
     }
   }
@@ -260,7 +269,7 @@ function apply(tr: Transaction, prev: CommentsState): CommentsState {
       // Known threads keep the range their mapping has. One without a range is
       // tried again if its anchor moved: another client may have re-homed it.
       if (!known || (!known.range && !sameAnchor(known.thread, thread))) {
-        toResolve.set(thread.id, { mayOrphan: true });
+        toResolve.set(thread.id, { persist: true });
       }
     }
     tracked = next;
@@ -269,8 +278,9 @@ function apply(tr: Transaction, prev: CommentsState): CommentsState {
   const settling = meta?.settle === true && !forked;
   if (settling || (meta?.resolve === "all" && !forked)) {
     for (const [id, entry] of tracked) {
-      if (meta?.resolve === "all" || !entry.range) toResolve.set(id, { mayOrphan: true });
+      if (meta?.resolve === "all" || !entry.range || unsettled.has(id)) toResolve.set(id, { persist: true });
     }
+    unsettled = NONE;
   }
 
   let resolves = prev.resolves;
@@ -279,7 +289,7 @@ function apply(tr: Transaction, prev: CommentsState): CommentsState {
   if (toResolve.size) {
     changed = true;
     blocks = pmBlockTexts(tr.doc);
-    for (const [id, { mayOrphan }] of toResolve) {
+    for (const [id, { persist }] of toResolve) {
       const entry = tracked.get(id);
       if (!entry) continue;
       resolves++;
@@ -289,9 +299,7 @@ function apply(tr: Transaction, prev: CommentsState): CommentsState {
           ? pmRange(blocks, resolution.blockId, resolution.from, resolution.to)
           : null;
       tracked.set(id, { ...entry, range: range && range.to > range.from ? range : null });
-      if (forked || !hasWrites(resolution.writes)) continue;
-      if (resolution.kind === "orphaned" && !mayOrphan) continue;
-      found.set(id, resolution.writes);
+      if (!forked && persist && hasWrites(resolution.writes)) found.set(id, resolution.writes);
     }
   }
   if (settling && edited.size) {
@@ -301,7 +309,7 @@ function apply(tr: Transaction, prev: CommentsState): CommentsState {
       const write = entry && !toResolve.has(id) ? refreshed(entry, blocks) : null;
       if (write) found.set(id, write);
     }
-    edited = NONE_EDITED;
+    edited = NONE;
   }
   const writes = found.size ? found : NO_WRITES;
 
@@ -313,7 +321,7 @@ function apply(tr: Transaction, prev: CommentsState): CommentsState {
   if (active !== null && !tracked.has(active)) active = null;
   if (active !== prev.active) changed = true;
 
-  if (!changed && edited === prev.edited && writes === NO_WRITES) return prev;
+  if (!changed && edited === prev.edited && unsettled === prev.unsettled && writes === NO_WRITES) return prev;
   return {
     tracked,
     active,
@@ -321,6 +329,7 @@ function apply(tr: Transaction, prev: CommentsState): CommentsState {
     decorations: changed ? decorationsFor(tr.doc, tracked, active) : prev.decorations,
     writes,
     edited,
+    unsettled,
     resolves,
   };
 }
@@ -367,7 +376,8 @@ export function commentDecorationsPlugin(): Plugin<CommentsState> {
         isForked: notForked,
         decorations: DecorationSet.empty,
         writes: NO_WRITES,
-        edited: NONE_EDITED,
+        edited: NONE,
+        unsettled: NONE,
         resolves: 0,
       }),
       apply,
@@ -402,7 +412,10 @@ export function commentDecorationsPlugin(): Plugin<CommentsState> {
           if (view.state.doc === prevState.doc) return;
           if (settle !== null) clearTimeout(settle);
           settle = null;
-          const pending = state.edited.size > 0 || [...state.tracked.values()].some((entry) => !entry.range);
+          const pending =
+            state.edited.size > 0 ||
+            state.unsettled.size > 0 ||
+            [...state.tracked.values()].some((entry) => !entry.range);
           if (!pending) return;
           settle = setTimeout(() => {
             settle = null;

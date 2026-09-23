@@ -330,9 +330,43 @@ describe("when the range is deleted", () => {
     const { from, to } = commentRanges(state).get("t1")!;
     state = state.apply(state.tr.insertText("by friday", from, to));
     expect(rangeText(state, "t1")).toBe("by friday");
+    expect(writesOf(state).size).toBe(0);
+    state = meta(state, { settle: true });
     const write = writesOf(state).get("t1")!;
     expect(write.anchor?.exact).toBe("by friday");
     expect(write.anchor?.blockId).toBe("p1");
+  });
+
+  it("a twin found while the phrase is on the clipboard is shown but never written", () => {
+    let state = stateFor([
+      { id: "p", type: "paragraph", content: "Ship the beta on Friday. Ship the beta on Monday." },
+      { id: "tail", type: "paragraph", content: "" },
+    ]);
+    state = withThreads(state, [thread("t1", state.doc, "p", "beta on Friday")]);
+    const { from, to } = commentRanges(state).get("t1")!;
+    state = state.apply(state.tr.delete(from, to));
+    // Stage 2 finds "beta on Monday" for now; nothing is stored.
+    expect(rangeText(state, "t1")).toBe("beta on Monday");
+    expect(writesOf(state).size).toBe(0);
+    // Pasted back at the end of the sentence before the edits pause: the
+    // settle pass finds the words themselves, and the stored anchor never
+    // named the twin.
+    state = state.apply(state.tr.insertText(" Or beta on Friday.", blockText(state.doc, "p").end));
+    state = meta(state, { settle: true });
+    expect(rangeText(state, "t1")).toBe("beta on Friday");
+    expect(commentRanges(state).get("t1")!.from).toBe(pos(state.doc, "p", "Ship the . Ship the beta on Monday. Or ".length));
+    expect(writesOf(state).size).toBe(0);
+  });
+
+  it("typing over one letter keeps both ends and is still an edit of the quotation", () => {
+    let state = stateFor([{ id: "p", type: "paragraph", content: "the cat sat" }]);
+    state = withThreads(state, [thread("t1", state.doc, "p", "cat")]);
+    const a = pos(state.doc, "p", "the c".length);
+    const before = commentRanges(state).get("t1");
+    state = state.apply(state.tr.insertText("o", a, a + 1));
+    expect(commentRanges(state).get("t1")).toEqual(before);
+    state = meta(state, { settle: true });
+    expect(writesOf(state).get("t1")?.anchor?.exact).toBe("cot");
   });
 
   it("cut and pasted into a new block re-homes on the retry, with no orphan in between", () => {
@@ -396,6 +430,8 @@ describe("remote changes (one whole-document step)", () => {
     // Mapped, the span would have cut the range to "by "; the selector finds it whole.
     expect(rangeText(state, "t1")).toBe("by friday");
     expect(commentResolveCount(state)).toBe(2);
+    expect(writesOf(state).size).toBe(0);
+    state = meta(state, { settle: true });
     expect(writesOf(state).get("t1")?.anchor?.exact).toBe("by friday");
   });
 
