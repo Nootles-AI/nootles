@@ -4,12 +4,14 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { v } from "convex/values";
 import {
+  activeMembership,
   ownerId as currentOwner,
   isTrashed,
   projectRole,
   readVisible,
   requireManageable,
   requireOwner,
+  requireWorkspaceRole,
   roleForProject,
   standInActor,
 } from "./auth";
@@ -160,6 +162,9 @@ export const myRole = query({
  * role, joined to what the projects screen needs to draw a row. The owner's
  * name rides along because "by whom" is the one fact that distinguishes this
  * list from "mine".
+ *
+ * A project in a workspace the caller has a seat in is left to that
+ * workspace's home, which lists it already — a guest's link included.
  */
 export const sharedWithMe = query({
   args: {},
@@ -175,6 +180,9 @@ export const sharedWithMe = query({
       claims.map(async (claim) => {
         const project = await ctx.db.get(claim.projectId);
         if (!project || isTrashed(project)) return null;
+        if (project.workspaceId && (await activeMembership(ctx, project.workspaceId, me))) {
+          return null;
+        }
         const role = await roleForProject(ctx, project);
         // "owner" would mean a stray claim on the caller's own project —
         // already listed under "mine", so here it would only duplicate it
@@ -225,19 +233,32 @@ export const create = mutation({
      * learns what a template is. Absent or empty means one blank page.
      */
     seed: v.optional(v.array(seedRow)),
+    /** Where it lives. Absent is the caller's own account. */
+    workspaceId: v.optional(v.id("workspaces")),
+    /** Who in the workspace sees it; ignored on a personal project. */
+    visibility: v.optional(v.union(v.literal("workspace"), v.literal("private"))),
   },
   handler: async (ctx, args) => {
     const ownerId = await requireOwner(ctx);
-    // The free plan's project limit. Deliberately not in `onboarding.ts`: the
-    // tutorial's seeded project is the one project everybody gets regardless,
-    // and metering it would mean a new account walked into a wall on arrival.
-    await requireQuota(ctx, ownerId, "projects");
+    if (args.workspaceId) {
+      // Any seat but a guest's. A workspace's projects are the workspace's to
+      // pay for, so nobody's personal limit is asked.
+      await requireWorkspaceRole(ctx, args.workspaceId, "member");
+    } else {
+      // The free plan's project limit. Deliberately not in `onboarding.ts`: the
+      // tutorial's seeded project is the one project everybody gets regardless,
+      // and metering it would mean a new account walked into a wall on arrival.
+      await requireQuota(ctx, ownerId, "projects");
+    }
     const now = Date.now();
     const projectId = await ctx.db.insert("projects", {
       ownerId,
       title: args.title,
       description: args.description,
       createdAt: now,
+      ...(args.workspaceId
+        ? { workspaceId: args.workspaceId, visibility: args.visibility }
+        : {}),
     });
 
     // What the user said when they made the project IS the project's context —
@@ -346,12 +367,14 @@ export const listForScreen = query({
   handler: async (ctx) => {
     const owner = await currentOwner(ctx);
     if (!owner) return [];
-    const projects = (
-      await ctx.db
-        .query("projects")
-        .withIndex("by_owner", (q) => q.eq("ownerId", owner))
-        .collect()
-    ).filter((p) => !isTrashed(p));
+    // Personal and live only. A workspace project the caller made is the
+    // workspace's, and its home is where it is listed.
+    const projects = await ctx.db
+      .query("projects")
+      .withIndex("by_owner_and_workspace_and_deleted", (q) =>
+        q.eq("ownerId", owner).eq("workspaceId", undefined).eq("deletedAt", undefined),
+      )
+      .collect();
 
     const rows = await Promise.all(
       projects.map(async (p) => ({ ...p, ...(await pageSummary(ctx, p)) })),
