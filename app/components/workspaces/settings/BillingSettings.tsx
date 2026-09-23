@@ -92,22 +92,20 @@ function Billing({ workspace, outcome }: { workspace: WorkspaceContainer; outcom
   const standing = useQuery(api.entitlements.forContainer, args);
   const people = useQuery(api.members.list, args);
   const [told, setTold] = useState(outcome === "done" || outcome === "cancelled");
+  // Whether the page opened on its skeleton: the period's card, which the
+  // skeleton cannot guess, then folds open rather than landing.
+  const [cold] = useState(summary === undefined || standing === undefined);
 
   // Every section's shape depends on both answers, so the page is drawn once
   // it has them rather than growing a section at a time.
   if (summary === undefined || standing === undefined) {
-    return (
-      <Loading
-        notes={!standIn && atLeast(workspace.role, "admin") ? 2 : 3}
-        period={outcome !== "done"}
-      />
-    );
+    return <Loading notes={!standIn && atLeast(workspace.role, "admin") ? 2 : 3} />;
   }
   // A guest, or a seat that has just gone: the frame moves them on.
   if (summary === null) return null;
   const acts = !standIn && summary.canManage;
-  // Back from a paid checkout the mirror has not caught up with: Stripe has
-  // the payment and the page must not say Free, or offer a second checkout.
+  // Back from a checkout the mirror has not caught up with: the plan is still
+  // what the mirror says, but a second checkout must not be offered.
   const settling = told && outcome === "done";
 
   const dismiss = () => {
@@ -126,13 +124,14 @@ function Billing({ workspace, outcome }: { workspace: WorkspaceContainer; outcom
         onDismiss={dismiss}
       />
       <Period
+        cold={cold}
         workspace={workspace}
         summary={summary}
         acts={acts}
         left={settling && !summary.subscription?.live ? null : (standing?.entitlement.left ?? null)}
         guestCap={standing?.features.guestDailyAiUsd ?? null}
       />
-      <SeatsSection summary={summary} people={people ?? null} />
+      <SeatsSection summary={summary} people={people ?? null} acts={acts} />
     </>
   );
 }
@@ -204,8 +203,9 @@ function PlanSection({
       : outcome === "done"
         ? live
           ? `${workspace.name} is on the Team plan. Everything is open.`
-          : `Payment received. ${workspace.name} moves to the Team plan as soon as Stripe confirms it, ` +
-            "usually within a few seconds. If it hasn’t after a minute, reload this page." +
+          : `Checkout complete. ${workspace.name} switches to the Team plan as soon as Stripe ` +
+            "confirms the payment, usually within a few seconds. If nothing changes after a minute, " +
+            "reload this page." +
             (acts && summary.manageable
               ? " Still waiting after that? Manage billing shows whether the payment went through."
               : "")
@@ -220,8 +220,8 @@ function PlanSection({
       <ul className="nt-set-list">
         <li className="nt-set-row" tabIndex={-1}>
           <div className="nt-set-body-col">
-            <p className="nt-set-name">{PLAN_LABEL[settling ? "team" : plan]}</p>
-            <p className="nt-set-meta">{settling ? "Confirming payment…" : standingLine(summary)}</p>
+            <p className="nt-set-name">{PLAN_LABEL[plan]}</p>
+            <p className="nt-set-meta">{settling ? "Waiting for Stripe…" : standingLine(summary)}</p>
             {note && <p className="nt-set-note">{note}</p>}
             {priced && (
               <p className="nt-set-note">
@@ -231,10 +231,7 @@ function PlanSection({
               </p>
             )}
             {acts && !paid && !summary.configured && (
-              <p className="nt-set-note">
-                The Team plan isn’t open to new workspaces yet. Everyone keeps the free allowance
-                until it is.
-              </p>
+              <p className="nt-set-note">The Team plan isn’t open to new workspaces yet.</p>
             )}
             {!acts && !paid && summary.configured && (
               <p className="nt-set-note">
@@ -335,9 +332,9 @@ function Outcome({ line, onDismiss }: { line: string; onDismiss: (() => void) | 
 }
 
 /** The plan's state in one mono line: how it stands and until when. */
-function standingLine({ source, subscription, unsettled, configured }: Summary): string {
+function standingLine({ source, subscription, unsettled }: Summary): string {
   if (source === "override") return "Granted";
-  if (!subscription) return configured ? "Team plan not started" : "Team plan not available yet";
+  if (!subscription) return "Shared allowance";
   if (unsettled) return subscription.status === "paused" ? "Paused" : "Unpaid";
   const until = WHEN.format(subscription.periodEnd);
   if (!subscription.live) return `Ended ${until}`;
@@ -347,7 +344,8 @@ function standingLine({ source, subscription, unsettled, configured }: Summary):
   return `Renews ${until}`;
 }
 
-function planNote(workspace: WorkspaceContainer, summary: Summary, acts: boolean): string {
+/** Null on the free allowance, whose own card below says whose it is. */
+function planNote(workspace: WorkspaceContainer, summary: Summary, acts: boolean): string | null {
   const { source, subscription, unsettled } = summary;
   if (source === "override") return "Nootles granted this plan. Nothing here is billed.";
   if (unsettled) {
@@ -372,7 +370,7 @@ function planNote(workspace: WorkspaceContainer, summary: Summary, acts: boolean
       "AI past that is added to the next invoice."
     );
   }
-  return `Everyone in ${workspace.name} shares one free allowance.`;
+  return null;
 }
 
 /** What the Team plan would cost, in Stripe's own figure once Stripe has said it. */
@@ -397,12 +395,15 @@ function priceNote(summary: Summary, cost: Price | null): string {
  * seats below move once, smoothly, rather than jumping.
  */
 function Period({
+  cold,
   workspace,
   summary,
   acts,
   left,
   guestCap,
 }: {
+  /** Drawn after the skeleton, which had no card here: whichever comes folds open. */
+  cold: boolean;
   workspace: WorkspaceContainer;
   summary: Summary;
   acts: boolean;
@@ -410,7 +411,7 @@ function Period({
   guestCap: number | null;
 }) {
   const kind = summary.usage ? "usage" : left ? "free" : null;
-  const [first] = useState(kind);
+  const [first] = useState(cold ? null : kind);
   // The allowance as it last stood, so the card can fold shut showing it
   // after the entitlement has stopped reporting one.
   const [held, setHeld] = useState(left);
@@ -466,14 +467,16 @@ function UsageSection({
   // said only when it is so.
   const left = Math.max(0, allowanceUsd - spentUsd);
   const lit = allowanceUsd > 0 ? Math.ceil((left / allowanceUsd) * USAGE_CELLS) : 0;
-  // The overage at the same grain as the allowance, so a cell means the same
-  // amount in both strips; past a whole allowance over, every cell is owed.
-  const owed =
-    allowanceUsd > 0 ? Math.min(USAGE_CELLS, Math.ceil((over / allowanceUsd) * USAGE_CELLS)) : USAGE_CELLS;
+  // The overage has no ceiling to fill, so it is a figure rather than a strip.
+  // It folds in when spend passes the allowance with the page open, and holds
+  // its last figure while it folds shut again at a new period.
+  const [overOpened] = useState(over > 0);
+  const [heldOver, setHeldOver] = useState(over);
+  if (over > 0 && over !== heldOver) setHeldOver(over);
   // The strip stands for the allowance, so its count never says more than it holds.
   const said =
     over > 0 ? `All ${allowance(allowanceUsd)} used` : `${usd(spentUsd)} used · ${usd(left)} left`;
-  const pastSaid = `${usd(over)} on the next invoice`;
+  const pastSaid = `${usd(over > 0 ? over : heldOver)} on the next invoice`;
   const guestShare = spentUsd > 0 ? guestUsd / spentUsd : 0;
   const heed = acts && guestShare > GUEST_SHARE_ALERT;
   const period = summary.subscription
@@ -509,28 +512,18 @@ function UsageSection({
               ))}
             </div>
           </div>
-          {over > 0 && (
-            <div className="nt-pw-strip">
-              <div className="nt-pw-strip-head">
-                <span className="nt-pw-strip-name">Past the included AI</span>
-                <span className="nt-pw-strip-count">{pastSaid}</span>
-              </div>
-              <div
-                className="nt-pw-mask is-arriving"
-                style={mask}
-                role="img"
-                aria-label={`AI past the included amount: ${pastSaid}`}
-              >
-                {Array.from({ length: USAGE_CELLS }, (_, i) => (
-                  <span
-                    key={i}
-                    className={`nt-pw-cell${i < owed ? " is-owed" : " is-spent"}`}
-                    style={{ "--i": i + USAGE_CELLS } as CSSProperties}
-                  />
-                ))}
-              </div>
-            </div>
-          )}
+        </div>
+        <div
+          className={`nt-ws-fold${overOpened ? "" : " is-arriving"}`}
+          data-open={over > 0}
+          inert={over === 0}
+        >
+          <div className="nt-ws-fold-body">
+            <p className="nt-pw-strip-head nt-ws-over">
+              <span className="nt-pw-strip-name">Past the included AI</span>
+              <span className="nt-pw-strip-count">{pastSaid}</span>
+            </p>
+          </div>
         </div>
         <div className="nt-ws-notes">
           {heed ? (
@@ -580,7 +573,17 @@ function FreeSection({ workspace, left }: { workspace: WorkspaceContainer; left:
 
 // ---- Seats -----------------------------------------------------------------------
 
-function SeatsSection({ summary, people }: { summary: Summary; people: People | null }) {
+/** On the Members roster's columns, so its roles sit where that page's do. */
+function SeatsSection({
+  summary,
+  people,
+  acts,
+}: {
+  summary: Summary;
+  people: People | null;
+  /** Whether the roster has its menu column, which this keeps as room. */
+  acts: boolean;
+}) {
   const naming = useNaming();
   const counted = people?.members.filter((m) => atLeast(m.role, "member")) ?? null;
   const guests = people ? people.members.length - (counted?.length ?? 0) : 0;
@@ -596,6 +599,8 @@ function SeatsSection({ summary, people }: { summary: Summary; people: People | 
         <div className="nt-list-head" aria-hidden="true">
           <span className="flex-1">Who counts</span>
           <span className="nt-ws-col-role">Role</span>
+          <span className="nt-ws-col-when" />
+          {acts && <span className="nt-ws-col-end" />}
         </div>
         <ul className="nt-ws-rows" aria-label="Seats in use" aria-busy={counted === null || undefined}>
           {counted === null
@@ -615,10 +620,15 @@ function SeatsSection({ summary, people }: { summary: Summary; people: People | 
                   >
                     <Avatar member={member} named={named} />
                     <div className="nt-ws-who">
-                      <span className="nt-ws-who-name">{named.name}</span>
+                      <span className="nt-ws-who-name">
+                        {named.name}
+                        {member.isMe && named.known && <span className="text-muted"> (you)</span>}
+                      </span>
                       {named.mail && <span className="nt-ws-who-mail">{named.mail}</span>}
                     </div>
                     <span className="nt-ws-col-role">{ROLE_LABEL[member.role]}</span>
+                    <span className="nt-ws-col-when" />
+                    {acts && <span className="nt-ws-col-end" />}
                   </li>
                 );
               })}
@@ -644,13 +654,13 @@ function SeatsSection({ summary, people }: { summary: Summary; people: People | 
 // ---- Loading -------------------------------------------------------------------
 
 /**
- * The page's shape while it is on its way — the plan's row, an allowance card
- * and the seats table — so nothing lands below a section that is not there
- * yet. Each bar sits in the line box of the text it stands for. The plan's
- * notes are one more for someone who can only read the page; back from a
- * paid checkout there is no allowance card, since the plan's own is on its way.
+ * The page's shape while it is on its way — the plan's row and the seats
+ * table. Each bar sits in the line box of the text it stands for. The plan's
+ * notes are one more for someone who can only read the page. No card is
+ * guessed between them: whether there is one, and which, is the answer being
+ * waited on, so the period's card folds open once it is known (`Period`).
  */
-function Loading({ notes, period }: { notes: number; period: boolean }) {
+function Loading({ notes }: { notes: number }) {
   return (
     <>
       <section className="nt-set-section" aria-busy="true" aria-label="Plan">
@@ -671,25 +681,6 @@ function Loading({ notes, period }: { notes: number; period: boolean }) {
           </li>
         </ul>
       </section>
-      {period && (
-        <section className="nt-set-section" aria-hidden="true">
-          <Bone bar="h-3.5 w-28" className="mb-2" />
-          <div className="nt-ws-card">
-            <div className="nt-pw-strips">
-              {[0, 1, 2].map((i) => (
-                <div key={i}>
-                  <div className="mb-1.5 flex h-[19.5px] items-center justify-between">
-                    <div className="nt-skeleton h-3.5 w-24" />
-                    <div className="nt-skeleton h-3 w-10" />
-                  </div>
-                  <div className="nt-skeleton h-2.5" />
-                </div>
-              ))}
-            </div>
-            <Bone bar="h-3 w-3/5" className="mt-3" />
-          </div>
-        </section>
-      )}
       <section className="nt-set-section" aria-hidden="true">
         <Bone bar="h-3.5 w-14" className="mb-2" />
         <div className="nt-ws-table">
