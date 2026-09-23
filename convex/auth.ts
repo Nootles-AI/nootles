@@ -365,18 +365,8 @@ export async function roleForProject(
 ): Promise<ProjectRole | null> {
   const me = await ownerId(ctx);
   if (!me) return null;
-  if (project.workspaceId) {
-    const seat = await activeMembership(ctx, project.workspaceId, me);
-    if (seat?.role === "owner" || seat?.role === "admin") return "owner";
-    if (
-      seat?.role === "member" &&
-      (project.visibility !== "private" || project.ownerId === me)
-    ) {
-      return "editor";
-    }
-  } else if (project.ownerId === me) {
-    return "owner";
-  }
+  const role = await containerRole(ctx, project, me);
+  if (role) return role;
   const claim = await ctx.db
     .query("shareClaims")
     .withIndex("by_project_and_grantee", (q) =>
@@ -384,6 +374,39 @@ export async function roleForProject(
     )
     .unique();
   return claim ? claimRole(project, claim) : null;
+}
+
+/** The role a project's container gives someone, before any share link is asked. */
+async function containerRole(
+  ctx: QueryCtx,
+  project: Doc<"projects">,
+  me: string,
+): Promise<ProjectRole | null> {
+  if (!project.workspaceId) return project.ownerId === me ? "owner" : null;
+  const seat = await activeMembership(ctx, project.workspaceId, me);
+  if (seat?.role === "owner" || seat?.role === "admin") return "owner";
+  if (seat?.role === "member" && (project.visibility !== "private" || project.ownerId === me)) {
+    return "editor";
+  }
+  return null;
+}
+
+/**
+ * Whether the caller may read a project's linked repositories live — any
+ * path, any ref, a code search — with the connection of whoever linked each.
+ * That reaches past the context graph a share link reads (indexed files at
+ * the default branch), so it goes no further than the project's container:
+ * its owner, or a workspace seat that edits it. No share link, an editor's
+ * included, spends someone else's GitHub connection this way.
+ */
+export async function readsLinkedCode(
+  ctx: QueryCtx,
+  projectId: Id<"projects">,
+): Promise<boolean> {
+  const me = await ownerId(ctx);
+  const project = await ctx.db.get(projectId);
+  if (!me || !project || isTrashed(project)) return false;
+  return (await containerRole(ctx, project, me)) !== null;
 }
 
 /**

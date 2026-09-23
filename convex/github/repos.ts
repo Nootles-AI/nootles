@@ -11,7 +11,7 @@ import {
   type ActionCtx,
   type MutationCtx,
 } from "../_generated/server";
-import { projectRole, readManageable, requireManageable, requireOwner } from "../auth";
+import { readManageable, readsLinkedCode, requireManageable, requireOwner } from "../auth";
 import { repoRef } from "../schema";
 import { json, text } from "./rest";
 import { withToken } from "./account";
@@ -179,10 +179,10 @@ export const manageable = internalQuery({
 
 /**
  * The repositories the calling user may read through this project — the
- * permission check every tool in `read.ts` makes first. Anyone who can edit
- * the project may, whoever linked the repository; each row's `ownerId` is the
- * connection it is read with. Named, it is one row; unnamed, all of them,
- * which is what an unscoped code search is allowed to cover.
+ * permission check every tool in `read.ts` makes first. Who may is
+ * `readsLinkedCode`'s to say; each row's `ownerId` is the connection it is
+ * read with. Named, it is one row; unnamed, all of them, which is what an
+ * unscoped code search is allowed to cover.
  */
 export const access = internalQuery({
   args: {
@@ -190,8 +190,7 @@ export const access = internalQuery({
     fullName: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const role = await projectRole(ctx, args.projectId);
-    if (role !== "owner" && role !== "editor") return [];
+    if (!(await readsLinkedCode(ctx, args.projectId))) return [];
     return args.fullName
       ? await ctx.db
           .query("projectRepos")

@@ -13,8 +13,9 @@ import { withToken } from "./account";
  * leaves Convex: the route calls these as the signed-in user, and each one
  * checks that the repository is actually linked to the project the chat belongs
  * to before it fetches anything. Being named in a tool call is not permission;
- * being in `projectRepos` is. Anyone who can edit the project may read its
- * repositories, each with the connection of whoever linked it.
+ * being in `projectRepos` is. Its owner may read its repositories, and so may
+ * a workspace seat that edits it — each with the connection of whoever linked
+ * the repository. A share link does not reach this far (`readsLinkedCode`).
  *
  * Everything is capped. A model that asks for a 40,000-line generated file gets
  * the top of it and a note saying so, which is a better turn than one that

@@ -656,7 +656,7 @@ describe("the repository tools", () => {
     );
   }
 
-  test("an editor reads a repository with its linker's connection", async () => {
+  test("a member reads a repository with its linker's connection", async () => {
     vi.stubEnv("GITHUB_TOKEN_KEY", KEY);
     const t = harness();
     const w = await world(t);
@@ -780,6 +780,90 @@ describe("the repository tools", () => {
       total: 1,
       results: [{ repo: "Acme/API", path: "src/db.ts", matches: ["password in Acme/API"] }],
     });
+  });
+
+  test("a share link reads no repository live, on a personal project or a workspace's", async () => {
+    vi.stubEnv("GITHUB_TOKEN_KEY", KEY);
+    const t = harness();
+    const w = await world(t);
+    await connect(t, CREATOR, "creator-token");
+    const asked = github();
+    // Each project's editor link, claimed by someone its container gives
+    // nothing: a stranger on a personal project, a guest, and a member on a
+    // private project someone else made.
+    const side = await t.run(async (ctx) => {
+      const side = await ctx.db.insert("projects", {
+        ownerId: CREATOR.subject,
+        title: "Side project",
+        editShareToken: "edit-side",
+        createdAt: 1,
+      });
+      await ctx.db.insert("projectRepos", {
+        ownerId: CREATOR.subject,
+        projectId: side,
+        fullName: "cy/side",
+        defaultBranch: "main",
+        private: true,
+        addedAt: 1,
+      });
+      await ctx.db.insert("projectRepos", {
+        ownerId: CREATOR.subject,
+        projectId: w.secret.projectId,
+        fullName: "acme/offsite",
+        defaultBranch: "main",
+        private: true,
+        addedAt: 1,
+      });
+      await ctx.db.patch(w.open.projectId, { editShareToken: "edit-open" });
+      await ctx.db.patch(w.secret.projectId, { editShareToken: "edit-secret" });
+      for (const [projectId, who] of [
+        [side, STRANGER],
+        [w.open.projectId, GUEST],
+        [w.secret.projectId, MEMBER],
+      ] as const) {
+        await ctx.db.insert("shareClaims", {
+          projectId,
+          granteeId: who.subject,
+          role: "editor",
+          createdAt: 1,
+        });
+      }
+      return side;
+    });
+
+    for (const [who, projectId, repo] of [
+      [STRANGER, side, "cy/side"],
+      [GUEST, w.open.projectId, "acme/api"],
+      [MEMBER, w.secret.projectId, "acme/offsite"],
+    ] as const) {
+      const caller = t.withIdentity(who);
+      // The link makes them an editor of the project, not a user of its
+      // linker's GitHub.
+      expect(await caller.query(api.projects.myRole, { projectId })).toBe("editor");
+      await expect(
+        caller.action(api.github.read.file, { projectId, repo, path: ".env", ref: "unreleased" }),
+      ).rejects.toThrow("not one of this project's linked repositories");
+      await expect(caller.action(api.github.read.tree, { projectId, repo })).rejects.toThrow(
+        "not one of this project's linked repositories",
+      );
+      await expect(
+        caller.action(api.github.read.search, { projectId, query: "password" }),
+      ).rejects.toThrow("This project has no linked repositories.");
+    }
+    expect(asked).toEqual([]);
+
+    // A personal project's owner reads their own, as they always have.
+    await t.withIdentity(CREATOR).action(api.github.read.file, {
+      projectId: side,
+      repo: "cy/side",
+      path: ".env",
+    });
+    expect(asked).toEqual([
+      {
+        url: expect.stringContaining("/repos/cy/side/contents/.env"),
+        token: "Bearer creator-token",
+      },
+    ]);
   });
 
   test("anyone who cannot edit the project is told it is not linked", async () => {
