@@ -1,0 +1,19 @@
+/* Workspaces — the chrome around a team's projects: its settings, its people.
+
+   The same kind of surface as the account's settings, so the same rules:
+   neutral throughout, no accent (that means AI here), no brand (that means
+   identity), no --nt-select (that belongs to the canvas). Every selector is
+   scoped under an `nt-ws-` class, because this sheet is unlayered and a bare
+   one would reach the whole app. */
+
+/* ---- Settings sections -----------------------------------------------------
+   One row of section links under the title, drawn as the sidebar's rows so
+   "where you are" is the same wash and weight it is everywhere else. Pulled
+   out by the row's inset so the first label starts on the title's edge. */
+
+.nt-ws-set-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  margin: 16px calc(-1 * var(--inset)) 0;
+}
