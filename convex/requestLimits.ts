@@ -137,7 +137,9 @@ export const REQUEST_LIMITS = {
    * per turn, because every generation spends the key — and one chat turn runs
    * a tool loop up to `AI.chat.maxSteps` (24) generations long. Capacity is
    * four such turns, so the longest valid turn cannot block itself, and its
-   * continuations cannot either.
+   * continuations cannot either. The comments gate's classifier call rides the
+   * chat request that admitted it — at most one per request, in practice one
+   * per turn — and consumes nothing of its own.
    */
   agentGeneration: policy({
     kind: "token bucket",

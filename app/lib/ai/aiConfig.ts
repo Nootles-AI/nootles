@@ -185,6 +185,8 @@ export const AI = {
     context: {
       projectTokens: 2000,
       pageTokens: 600,
+      /** The open page's comments, when the comments gate lets them in. */
+      commentsTokens: 1500,
     },
     /** Cap on a single `read_page` result, so one long page can't eat the window. */
     maxPageChars: 24_000,
@@ -368,6 +370,31 @@ export const AI = {
     vector: {
       model: "recraft/recraft-v3",
     },
+  },
+
+  /**
+   * Whether a chat turn is one where the open page's comments matter — asked
+   * ahead of context assembly, so they reach the prompt only when they do.
+   * Comments are often ABOUT a document rather than in it, and poured into
+   * every prompt they cost tokens and mislead.
+   *
+   * The reformat lane's model, for its reason: a cheap, fast classifier. The
+   * answer is one word, and the input a few hundred tokens — the user's words
+   * and a line per open thread, never the digest itself.
+   */
+  commentsGate: {
+    model: "google/gemini-3.7-flash",
+    /**
+     * It runs beside the context read, so this is roughly the most it can add
+     * to a turn's first token. Past it the turn goes on without comments — the
+     * ledger's `timeout` rows say whether it is too tight.
+     */
+    timeoutMs: 1500,
+    /** How much of the user's message it is shown. */
+    messageChars: 600,
+    /** Open threads shown, a line each, and how long each line may be. */
+    snippets: 5,
+    snippetChars: 80,
   },
 
   review: {
