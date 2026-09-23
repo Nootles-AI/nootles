@@ -31,6 +31,7 @@ const OWNER = { subject: "user_owner", email: "olive@acme.com" };
 const NIA = { subject: "user_nia" };
 const SAL = { subject: "user_sal" };
 const HOUR = 60 * 60 * 1000;
+const DAY = 24 * HOUR;
 const KEY = "sk_test_identity";
 
 function harness() {
@@ -93,6 +94,44 @@ const profileOf = (t: T, subject: string) =>
 
 const sync = (t: T, who: Partial<UserIdentity>) =>
   t.withIdentity(who).action(api.identity.sync, {});
+
+/** Acme, with acme.com open to join and an invitation out to nia@acme.com. */
+async function invited(t: T) {
+  return await t.run(async (ctx) => {
+    const workspaceId: Id<"workspaces"> = await ctx.db.insert("workspaces", {
+      slug: "acme",
+      name: "Acme",
+      createdBy: OWNER.subject,
+      plan: "team",
+      settings: {
+        linkSharing: true,
+        guestCodeAccess: false,
+        joinDomains: ["acme.com"],
+        autoJoin: true,
+      },
+      createdAt: 1,
+    });
+    await ctx.db.insert("workspaceSlugs", { slug: "acme", workspaceId });
+    await ctx.db.insert("workspaceDomains", { domain: "acme.com", workspaceId });
+    await ctx.db.insert("memberships", {
+      workspaceId,
+      userId: OWNER.subject,
+      role: "owner",
+      status: "active",
+      joinedAt: 1,
+    });
+    await ctx.db.insert("invitations", {
+      workspaceId,
+      email: "nia@acme.com",
+      role: "member",
+      token: "tok_nia",
+      invitedBy: OWNER.subject,
+      createdAt: Date.now(),
+      expiresAt: Date.now() + 14 * DAY,
+    });
+    return workspaceId;
+  });
+}
 
 beforeEach(() => {
   vi.stubEnv("CLERK_SECRET_KEY", KEY);
@@ -295,43 +334,6 @@ describe("what a client can reach", () => {
 });
 
 describe("a stamped address", () => {
-  async function invited(t: T) {
-    return await t.run(async (ctx) => {
-      const workspaceId: Id<"workspaces"> = await ctx.db.insert("workspaces", {
-        slug: "acme",
-        name: "Acme",
-        createdBy: OWNER.subject,
-        plan: "team",
-        settings: {
-          linkSharing: true,
-          guestCodeAccess: false,
-          joinDomains: ["acme.com"],
-          autoJoin: true,
-        },
-        createdAt: 1,
-      });
-      await ctx.db.insert("workspaceSlugs", { slug: "acme", workspaceId });
-      await ctx.db.insert("workspaceDomains", { domain: "acme.com", workspaceId });
-      await ctx.db.insert("memberships", {
-        workspaceId,
-        userId: OWNER.subject,
-        role: "owner",
-        status: "active",
-        joinedAt: 1,
-      });
-      await ctx.db.insert("invitations", {
-        workspaceId,
-        email: "nia@acme.com",
-        role: "member",
-        token: "tok_nia",
-        invitedBy: OWNER.subject,
-        createdAt: Date.now(),
-        expiresAt: Date.now() + 14 * 24 * HOUR,
-      });
-      return workspaceId;
-    });
-  }
-
   test("opens an invitation to a token that names no address", async () => {
     const t = harness();
     const workspaceId = await invited(t);
@@ -416,5 +418,65 @@ describe("a stamped address", () => {
         role: "member",
       }),
     ).rejects.toThrow("sal@acme.com is already in Acme.");
+  });
+});
+
+describe("the profile's copy", () => {
+  // The order a new account really runs in: the app confirms who it is on
+  // the first signed-in render, and the profile row comes after.
+  test("an invitation's arrival row starts with what was confirmed before it", async () => {
+    const t = harness();
+    await invited(t);
+    stubClerk();
+    await sync(t, NIA);
+    expect(await profileOf(t, NIA.subject)).toBeNull();
+
+    await t.withIdentity(NIA).mutation(api.members.acceptInvite, { token: "tok_nia" });
+    expect(await profileOf(t, NIA.subject)).toMatchObject({
+      status: "skipped",
+      email: "nia@acme.com",
+      name: "Nia Newman",
+      imageUrl: "https://img.clerk.com/nia.png",
+    });
+  });
+
+  test("so do the rows first run makes, by skipping or by finishing", async () => {
+    const t = harness();
+    stubClerk();
+    await sync(t, NIA);
+    await t.withIdentity(NIA).mutation(api.profiles.skip, {});
+    expect(await profileOf(t, NIA.subject)).toMatchObject({
+      status: "skipped",
+      email: "nia@acme.com",
+      name: "Nia Newman",
+    });
+
+    stubClerk(
+      clerkUser({
+        id: SAL.subject,
+        email_addresses: [
+          {
+            id: "idn_primary",
+            email_address: "sal@acme.com",
+            verification: { status: "verified" },
+          },
+        ],
+        first_name: "Sal",
+        last_name: null,
+        has_image: false,
+      }),
+    );
+    await sync(t, SAL);
+    await t.withIdentity(SAL).mutation(api.onboarding.createSeededProject, {
+      title: "Tutorial",
+      template: "plan",
+      defaultMode: "create",
+      pages: [],
+      context: [],
+      priorChat: { title: "T", asked: "a", answered: "b" },
+    });
+    const sal = await profileOf(t, SAL.subject);
+    expect(sal).toMatchObject({ status: "touring", email: "sal@acme.com", name: "Sal" });
+    expect(sal?.imageUrl).toBeUndefined();
   });
 });

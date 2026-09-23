@@ -1,4 +1,5 @@
 import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
+import type { Doc } from "./_generated/dataModel";
 import { v } from "convex/values";
 import { ownerId as currentOwner, requireOwner } from "./auth";
 
@@ -33,15 +34,39 @@ export async function personOf(ctx: QueryCtx, ownerId: string) {
       .query("profiles")
       .withIndex("by_owner", (q) => q.eq("ownerId", ownerId))
       .unique(),
-    ctx.db
-      .query("identities")
-      .withIndex("by_owner", (q) => q.eq("ownerId", ownerId))
-      .unique(),
+    identityOf(ctx, ownerId),
   ]);
   return {
     name: identity?.name ?? profile?.name ?? null,
     email: identity?.verifiedEmail ?? profile?.email ?? null,
     imageUrl: identity?.imageUrl ?? profile?.imageUrl ?? null,
+  };
+}
+
+export async function identityOf(ctx: QueryCtx, ownerId: string) {
+  return await ctx.db
+    .query("identities")
+    .withIndex("by_owner", (q) => q.eq("ownerId", ownerId))
+    .unique();
+}
+
+/**
+ * The profile's copy of what `identities` holds, for the screens that read
+ * the profile. Only what is there: a copy never takes a value off the row.
+ *
+ * Every profile row is made with it, not just patched by later stamps. The
+ * app confirms who someone is on their first signed-in render, before any
+ * profile exists, and the next confirmation is a day away — so a row made
+ * without it would be faceless for that day, and forever for anyone who
+ * never came back.
+ */
+export function faceOf(
+  identity: Pick<Doc<"identities">, "verifiedEmail" | "name" | "imageUrl"> | null,
+) {
+  return {
+    ...(identity?.verifiedEmail && { email: identity.verifiedEmail }),
+    ...(identity?.name && { name: identity.name }),
+    ...(identity?.imageUrl && { imageUrl: identity.imageUrl }),
   };
 }
 
@@ -55,6 +80,7 @@ async function ensure(ctx: MutationCtx) {
   const ownerId = await requireOwner(ctx);
   const id = await ctx.db.insert("profiles", {
     ownerId,
+    ...faceOf(await identityOf(ctx, ownerId)),
     status: "surveying",
     createdAt: Date.now(),
   });
@@ -81,6 +107,7 @@ export async function ensureArrivalProfile(ctx: MutationCtx, ownerId: string) {
   const now = Date.now();
   await ctx.db.insert("profiles", {
     ownerId,
+    ...faceOf(await identityOf(ctx, ownerId)),
     status: "skipped",
     hints: ["tester-note"],
     createdAt: now,

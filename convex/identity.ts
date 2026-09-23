@@ -1,9 +1,9 @@
 import { v } from "convex/values";
 import type { UserIdentity } from "convex/server";
 import { action, internalMutation, internalQuery } from "./_generated/server";
-import type { QueryCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { requireOwner } from "./auth";
+import { faceOf, identityOf } from "./profiles";
 
 /**
  * Who an account is, as far as its sign-in will vouch: a verified address, a
@@ -61,7 +61,8 @@ export const stamped = internalQuery({
  * Writes what a source vouched for. An address it no longer vouches for is
  * taken off, not kept: a primary address changed or unverified since is not
  * one to join a domain with. The profile's copy only ever gains values — a
- * missing row stays missing, since that is first run's signal.
+ * missing row stays missing, since that is first run's signal, and is made
+ * with the copy when it is made.
  */
 export const stamp = internalMutation({
   args: {
@@ -86,22 +87,11 @@ export const stamp = internalMutation({
       .query("profiles")
       .withIndex("by_owner", (q) => q.eq("ownerId", ownerId))
       .unique();
-    const copy = {
-      ...(email && { email }),
-      ...(name && { name }),
-      ...(imageUrl && { imageUrl }),
-    };
+    const copy = faceOf(fields);
     if (profile && Object.keys(copy).length) await ctx.db.patch(profile._id, copy);
     return null;
   },
 });
-
-async function identityOf(ctx: QueryCtx, ownerId: string) {
-  return await ctx.db
-    .query("identities")
-    .withIndex("by_owner", (q) => q.eq("ownerId", ownerId))
-    .unique();
-}
 
 /** The session token's own claims, when it carries an address it doesn't disown. */
 function fromToken(identity: UserIdentity): Vouched | undefined {

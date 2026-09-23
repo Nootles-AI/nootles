@@ -376,9 +376,10 @@ export default defineSchema({
   profiles: defineTable({
     ownerId: v.string(),
     /**
-     * Copied from `identities` by `identity.sync` — never from the client —
-     * so the operator dashboard can put a face to an id. People lists read
-     * `profiles.personOf`, which prefers the source.
+     * Copied from `identities` — when the row is made, and by every stamp
+     * after — never from the client, so the operator dashboard can put a
+     * face to an id. People lists read `profiles.personOf`, which prefers the
+     * source.
      */
     email: v.optional(v.string()),
     name: v.optional(v.string()),
