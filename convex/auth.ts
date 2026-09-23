@@ -318,19 +318,27 @@ export function domainSeat(
 }
 
 /**
- * Whether a removal outranks an invitation to the person removed. An admin's
- * removal is the later word on every invitation sent before it, so only one
- * sent or renewed since brings them back. Leaving withdraws nothing.
+ * The seat an invitation gives the person it names, or null for none. `seat`
+ * is their row, whatever its status.
+ *
+ * An invitation is a way in, never a promotion: someone already in keeps the
+ * role they hold, which only `setRole` changes — or an invitation still open
+ * from before a demotion would undo it. Whatever happened to a seat since the
+ * invitation was sent is the later word on it: an admin's removal withdraws
+ * it, and leaving caps it where `domainSeat` would, so leaving and coming back
+ * undoes no demotion either. Only an invitation sent or renewed since gives
+ * all it names.
  */
-export function removedSince(
+export function invitedSeat(
   invitation: Doc<"invitations">,
   seat: Doc<"memberships"> | null,
-): boolean {
-  return (
-    seat?.status === "removed" &&
-    seat.removedBy !== seat.userId &&
-    invitation.createdAt < (seat.removedAt ?? Infinity)
-  );
+): WorkspaceRole | null {
+  if (!seat) return invitation.role;
+  if (seat.status === "active") return seat.role;
+  if (invitation.createdAt >= (seat.removedAt ?? Infinity)) return invitation.role;
+  if (seat.removedBy !== seat.userId) return null;
+  const left = seat.role === "guest" ? "guest" : "member";
+  return atLeast(invitation.role, left) ? left : invitation.role;
 }
 
 export type ProjectRole = "owner" | "editor" | "viewer";

@@ -424,7 +424,7 @@ describe("an invitation", () => {
       expect(await seatOf(t, w.workspaceId, NEWCOMER)).toBeNull();
     });
 
-    test("brings someone back on their old row, and never lowers a seat", async () => {
+    test("brings someone back on their old row", async () => {
       const t = harness();
       const w = await world(t);
       const back = await invite(t, ADMIN, w, REMOVED.email, "member");
@@ -441,6 +441,48 @@ describe("an invitation", () => {
       expect(seats[0]).toMatchObject({ status: "active", role: "member" });
       expect(seats[0].removedAt).toBeUndefined();
       expect(seats[0].removedBy).toBeUndefined();
+    });
+
+    test("is a way in, never a way up or down for a seat already held", async () => {
+      const t = harness();
+      const w = await world(t);
+      // Nia walks in by the domain. Her profile carries no address yet, so
+      // nothing stops an invitation to her while she is in — and an admin
+      // then makes her a guest.
+      await t.withIdentity(ADMIN).mutation(api.workspaces.updateSettings, {
+        workspaceId: w.workspaceId,
+        patch: { joinDomains: ["acme.com"], autoJoin: true },
+      });
+      const nia = t.withIdentity(NEWCOMER);
+      await nia.mutation(api.members.joinByDomain, { workspaceId: w.workspaceId });
+      const { token } = await invite(t, ADMIN, w, NEWCOMER.email, "member");
+      await t.withIdentity(ADMIN).mutation(api.members.setRole, {
+        workspaceId: w.workspaceId,
+        userId: NEWCOMER.subject,
+        role: "guest",
+      });
+
+      expect(await nia.query(api.members.invitation, { token })).toMatchObject({
+        state: "accepted",
+        role: "guest",
+        slug: "acme",
+      });
+      await expect(nia.mutation(api.members.acceptInvite, { token })).resolves.toEqual({
+        slug: "acme",
+      });
+      expect(await seatOf(t, w.workspaceId, NEWCOMER)).toMatchObject({
+        status: "active",
+        role: "guest",
+      });
+      // Answered, so it leaves the admins' list and is no way back in later.
+      expect(
+        (await t.withIdentity(ADMIN).query(api.members.list, { workspaceId: w.workspaceId }))
+          ?.invitations,
+      ).toEqual([]);
+      await nia.mutation(api.members.leave, { workspaceId: w.workspaceId });
+      await expect(nia.mutation(api.members.acceptInvite, { token })).rejects.toThrow(
+        "already been used",
+      );
 
       // An admin who signed up under a second address is not demoted by it.
       await t.run(async (ctx) => {
@@ -552,6 +594,115 @@ describe("joining by domain", () => {
     });
   });
 
+  test.each([
+    ["an admin's invitation to be a member", ADMIN, "member"],
+    ["an owner's invitation to be an admin", OWNER, "admin"],
+  ] as const)("answers %s, so it undoes no demotion later", async (_, inviter, role) => {
+    const t = harness();
+    const w = await world(t);
+    await openDomain(t, w);
+    const { token } = await t.withIdentity(inviter).mutation(api.members.invite, {
+      workspaceId: w.workspaceId,
+      email: NEWCOMER.email,
+      role,
+    });
+    const nia = t.withIdentity(NEWCOMER);
+    await nia.mutation(api.members.joinByDomain, { workspaceId: w.workspaceId });
+    expect(await seatOf(t, w.workspaceId, NEWCOMER)).toMatchObject({ role: "member" });
+    expect(
+      (await t.withIdentity(inviter).query(api.members.list, { workspaceId: w.workspaceId }))
+        ?.invitations,
+    ).toEqual([]);
+
+    await t.withIdentity(OWNER).mutation(api.members.setRole, {
+      workspaceId: w.workspaceId,
+      userId: NEWCOMER.subject,
+      role: "guest",
+    });
+    await expect(nia.mutation(api.members.acceptInvite, { token })).resolves.toEqual({
+      slug: "acme",
+    });
+    expect(await seatOf(t, w.workspaceId, NEWCOMER)).toMatchObject({
+      status: "active",
+      role: "guest",
+    });
+
+    // Nor, once they have left, does it bring them back.
+    await nia.mutation(api.members.leave, { workspaceId: w.workspaceId });
+    await expect(nia.mutation(api.members.acceptInvite, { token })).rejects.toThrow(
+      "already been used",
+    );
+  });
+
+  test("an invitation from before someone left brings them back no higher than they left", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const t = harness();
+    const w = await world(t);
+    // Open since before either left — sent while their profiles showed some
+    // other address, which is all `invite` has to check who is already in.
+    await t.run(async (ctx) => {
+      for (const [email, token] of [
+        ["max@acme.com", "for-max"],
+        ["ada@acme.com", "for-ada"],
+      ]) {
+        await ctx.db.insert("invitations", {
+          workspaceId: w.workspaceId,
+          email,
+          role: "admin",
+          token,
+          invitedBy: OWNER.subject,
+          createdAt: Date.now(),
+          expiresAt: Date.now() + 14 * 24 * 60 * 60 * 1000,
+        });
+      }
+    });
+    vi.setSystemTime(Date.now() + 60_000);
+    await t.withIdentity(ADMIN).mutation(api.members.setRole, {
+      workspaceId: w.workspaceId,
+      userId: MEMBER.subject,
+      role: "guest",
+    });
+    const max = t.withIdentity(MEMBER);
+    const ada = t.withIdentity(ADMIN);
+    vi.setSystemTime(Date.now() + 60_000);
+    await max.mutation(api.members.leave, { workspaceId: w.workspaceId });
+    await ada.mutation(api.members.leave, { workspaceId: w.workspaceId });
+
+    // A demoted guest comes back a guest; an admin who walked out, a member.
+    expect(await max.query(api.members.joinable, {})).toEqual([
+      { workspaceId: w.workspaceId, name: "Acme", role: "guest", via: "invitation", token: "for-max" },
+    ]);
+    expect(await max.query(api.members.invitation, { token: "for-max" })).toMatchObject({
+      state: "valid",
+      role: "guest",
+    });
+    await max.mutation(api.members.acceptInvite, { token: "for-max" });
+    await ada.mutation(api.members.acceptInvite, { token: "for-ada" });
+    expect(await seatOf(t, w.workspaceId, MEMBER)).toMatchObject({
+      status: "active",
+      role: "guest",
+    });
+    expect(await seatOf(t, w.workspaceId, ADMIN)).toMatchObject({
+      status: "active",
+      role: "member",
+    });
+
+    // Asked back since leaving, they get all the invitation names.
+    vi.setSystemTime(Date.now() + 60_000);
+    await max.mutation(api.members.leave, { workspaceId: w.workspaceId });
+    vi.setSystemTime(Date.now() + 60_000);
+    const { token } = await t.withIdentity(OWNER).mutation(api.members.invite, {
+      workspaceId: w.workspaceId,
+      email: MEMBER.email,
+      role: "admin",
+    });
+    await max.mutation(api.members.acceptInvite, { token });
+    expect(await seatOf(t, w.workspaceId, MEMBER)).toMatchObject({
+      status: "active",
+      role: "admin",
+    });
+  });
+
   test("an invitation sent before an admin removed someone does not bring them back", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     const t = harness();
@@ -563,10 +714,11 @@ describe("joining by domain", () => {
         email: NEWCOMER.email,
         role: "member",
       });
-    const { token } = await invite();
-    // In by the domain instead, with the invitation still open.
+    // In by the domain; her profile carries no address yet, so nothing stops
+    // an invitation to her while she is in.
     const nia = t.withIdentity(NEWCOMER);
     await nia.mutation(api.members.joinByDomain, { workspaceId: w.workspaceId });
+    const { token } = await invite();
     vi.setSystemTime(Date.now() + 60_000);
     await t.withIdentity(ADMIN).mutation(api.members.remove, {
       workspaceId: w.workspaceId,

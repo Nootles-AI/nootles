@@ -7,9 +7,9 @@ import {
   atLeast,
   domainOf,
   domainSeat,
+  invitedSeat,
   mayAssignSeat,
   ownerId as currentOwner,
-  removedSince,
   requireOwner,
   requireWorkspaceRole,
   verifiedEmail,
@@ -82,18 +82,18 @@ export function maskEmail(email: string): string {
 }
 
 /**
- * Puts someone in: a new row, or their old one back. A seat they already
- * hold is only ever raised, so an invitation to a lower role than they have
- * cannot demote them.
+ * Puts someone in: a new row, or their old one back. A seat already held is
+ * left as it is — a way in is never a way up, and `setRole` is the one place
+ * a seat changes rank.
  */
 async function giveSeat(
   ctx: MutationCtx,
+  seat: Doc<"memberships"> | null,
   workspaceId: Id<"workspaces">,
   userId: string,
   role: WorkspaceRole,
   invitedBy?: string,
 ) {
-  const seat = await seatOf(ctx, workspaceId, userId);
   const now = Date.now();
   if (!seat) {
     await ctx.db.insert("memberships", {
@@ -113,8 +113,6 @@ async function giveSeat(
       removedAt: undefined,
       removedBy: undefined,
     });
-  } else if (!atLeast(seat.role, role)) {
-    await ctx.db.patch(seat._id, { role });
   }
 }
 
@@ -369,12 +367,14 @@ export const invitation = query({
       return { state: "wrong-account" as const, email: maskEmail(invitation.email) };
     }
     // In the order `acceptInvite` asks, so the page says what accepting would.
+    const seat = await seatOf(ctx, workspace._id, me);
+    const role = invitedSeat(invitation, seat);
     const state =
       invitation.revokedAt !== undefined || workspace.deletedAt !== undefined
         ? ("revoked" as const)
-        : invitation.acceptedAt !== undefined
+        : invitation.acceptedAt !== undefined || seat?.status === "active"
           ? ("accepted" as const)
-          : removedSince(invitation, await seatOf(ctx, workspace._id, me))
+          : !role
             ? ("revoked" as const)
             : invitation.expiresAt <= Date.now()
               ? ("expired" as const)
@@ -383,7 +383,7 @@ export const invitation = query({
     return {
       state,
       email: invitation.email,
-      role: invitation.role,
+      role: role ?? invitation.role,
       workspaceName: workspace.name,
       inviterName: inviter?.name ?? inviter?.email ?? null,
       // Where to go once in: only for someone who is.
@@ -396,10 +396,11 @@ export const invitation = query({
 });
 
 /**
- * Takes the seat an invitation offers. The signed-in address must be the one
- * it was sent to, verified — the token alone is not enough, so a link that
- * travels further than intended admits no one else. Accepting twice is
- * answered with the workspace again.
+ * Takes the seat an invitation offers — `invitedSeat` says which. The
+ * signed-in address must be the one it was sent to, verified — the token
+ * alone is not enough, so a link that travels further than intended admits no
+ * one else. Accepting twice, or while already in, is answered with the
+ * workspace again.
  */
 export const acceptInvite = mutation({
   args: { token: v.string() },
@@ -419,20 +420,20 @@ export const acceptInvite = mutation({
     if (invitation.revokedAt !== undefined) {
       throw new ConvexError("This invitation was withdrawn.");
     }
+    const seat = await seatOf(ctx, workspace._id, me);
     if (invitation.acceptedAt !== undefined) {
-      if (invitation.acceptedBy === me && (await activeMembership(ctx, workspace._id, me))) {
+      if (invitation.acceptedBy === me && seat?.status === "active") {
         return { slug: workspace.slug };
       }
       throw new ConvexError("This invitation has already been used.");
     }
-    if (removedSince(invitation, await seatOf(ctx, workspace._id, me))) {
-      throw new ConvexError("This invitation was withdrawn.");
-    }
-    if (invitation.expiresAt <= Date.now()) {
+    const role = invitedSeat(invitation, seat);
+    if (!role) throw new ConvexError("This invitation was withdrawn.");
+    if (seat?.status !== "active" && invitation.expiresAt <= Date.now()) {
       throw new ConvexError("This invitation has expired. Ask for a new one.");
     }
 
-    await giveSeat(ctx, workspace._id, me, invitation.role, invitation.invitedBy);
+    await giveSeat(ctx, seat, workspace._id, me, role, invitation.invitedBy);
     await ctx.db.patch(invitation._id, { acceptedAt: Date.now(), acceptedBy: me });
     await ensureArrivalProfile(ctx, me);
     return { slug: workspace.slug };
@@ -468,11 +469,12 @@ export const joinable = query({
       const workspace = await ctx.db.get(invitation.workspaceId);
       if (!workspace || workspace.deletedAt !== undefined) continue;
       const seat = await seatOf(ctx, workspace._id, me);
-      if (seat?.status === "active" || removedSince(invitation, seat)) continue;
+      const role = invitedSeat(invitation, seat);
+      if (seat?.status === "active" || !role) continue;
       doors.push({
         workspaceId: workspace._id,
         name: workspace.name,
-        role: invitation.role,
+        role,
         via: "invitation",
         token: invitation.token,
       });
@@ -497,17 +499,31 @@ export const joinable = query({
 
 /**
  * Walks through a join domain, into the seat `domainSeat` names. Joining twice
- * is harmless.
+ * is harmless. An invitation still open to the same address is answered by
+ * the arrival: left open, it would be a second way in, waiting for whatever
+ * happens to the seat next.
  */
 export const joinByDomain = mutation({
   args: { workspaceId: v.id("workspaces") },
   handler: async (ctx, args) => {
     const me = await requireOwner(ctx);
+    const email = await verifiedEmail(ctx);
     const workspace = await ctx.db.get(args.workspaceId);
     const seat = await seatOf(ctx, args.workspaceId, me);
-    const role = workspace && domainSeat(workspace, await verifiedEmail(ctx), seat);
-    if (!workspace || !role) throw new Error("Not found");
-    if (seat?.status !== "active") await giveSeat(ctx, workspace._id, me, role);
+    const role = workspace && domainSeat(workspace, email, seat);
+    if (!workspace || !email || !role) throw new Error("Not found");
+    if (seat?.status !== "active") await giveSeat(ctx, seat, workspace._id, me, role);
+
+    const now = Date.now();
+    const invitations = await ctx.db
+      .query("invitations")
+      .withIndex("by_email", (q) => q.eq("email", email))
+      .collect();
+    for (const invitation of invitations) {
+      if (invitation.workspaceId === workspace._id && pending(invitation)) {
+        await ctx.db.patch(invitation._id, { acceptedAt: now, acceptedBy: me });
+      }
+    }
     await ensureArrivalProfile(ctx, me);
     return { slug: workspace.slug };
   },
