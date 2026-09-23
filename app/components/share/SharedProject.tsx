@@ -17,10 +17,12 @@ import { PagesProvider } from "../PagesContext";
 import { flattenTree } from "../sidebarTree";
 import { ReadOnlyContext } from "../editor/readOnly";
 import { Facepile } from "../presence/Facepile";
+import { GoogleButton } from "../signin/GoogleButton";
 import { GuestChatRail } from "./GuestChatRail";
 import { SharedEditor } from "./SharedEditor";
 import { SignInToEdit } from "./SignInToEdit";
 import { following, writingKey } from "./intent";
+import "@/app/sign-in/signin.css";
 
 /* The same threshold as the workspace: below it the rails become drawers. */
 const COMPACT = "(max-width: 1023px)";
@@ -206,6 +208,26 @@ export function SharedProject({ token }: { token: string }) {
         >
           Try again
         </button>
+      </div>
+    );
+  }
+
+  // A workspace's link shows nobody signed out anything of it, not even its
+  // name: the way in is the whole page, and the round trip lands back here,
+  // where the claim carries them on.
+  if (shared.access === "sign-in") {
+    return (
+      <div className="flex h-screen flex-col items-center justify-center gap-2 px-6 text-center">
+        <Link href="/" aria-label="Nootles" className="mb-4">
+          <Wordmark className="text-muted" />
+        </Link>
+        <p className="text-sm font-medium">Sign in to open this project</p>
+        <p className="max-w-xs text-sm text-muted">
+          It’s in a workspace, whose links open only for people who are signed in.
+        </p>
+        <div className="mt-3 w-full max-w-xs">
+          <GoogleButton compact redirectTo={`/share/${token}`} />
+        </div>
       </div>
     );
   }
