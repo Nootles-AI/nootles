@@ -208,6 +208,14 @@ body:has(.nt-fixed) .nt-asks {
   }
 }
 
+/* A scroll box clips on both axes, so the list keeps room at its sides for
+   the ⋯'s focus ring and gives it back, leaving the rows on the popover's
+   edge. */
+.nt-share-people {
+  padding-inline: 3px;
+  margin-inline: -3px;
+}
+
 /* Someone whose access was taken away fades, then their row closes up, so
    the list shortens rather than snapping when the server agrees. The row is
    kept until this ends: COLLAPSE_MS in SharePopover.tsx. */
