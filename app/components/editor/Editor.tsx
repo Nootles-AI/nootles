@@ -61,6 +61,8 @@ import { StageDirector } from "./ai/StageDirector";
 import { notionLinkClick, useNotionLinks } from "@/app/components/notion/NotionLinks";
 import { ReformatBar } from "./ai/ReformatBar";
 import { arrivalFlashExtension } from "./arrivalFlash";
+import { commentExtension } from "./comments/commentExtension";
+import { CommentDecorationsBridge } from "./comments/CommentDecorationsBridge";
 import { blockSelection, blockSelectionExtension } from "./blockSelection";
 import { useBlockMarquee } from "./useBlockMarquee";
 import { PageMentionMenu, SlashMenu } from "./SlashMenu";
@@ -516,6 +518,7 @@ const EXTENSIONS = [
   hintExtension,
   arrivalFlashExtension,
   blockSelectionExtension,
+  commentExtension,
 ];
 
 const placeholder = <div className="min-h-[40vh]" aria-hidden />;
@@ -804,6 +807,7 @@ function EditorSurface({
         />
       )}
       {!readOnly && pageId && <ReviewOverlay editor={editor} pageId={pageId} />}
+      {pageId && <CommentDecorationsBridge editor={editor} />}
       {!readOnly && reformat.state && (
         <ReformatBar
           editor={editor}
