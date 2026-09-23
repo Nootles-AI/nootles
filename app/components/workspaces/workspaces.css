@@ -794,17 +794,24 @@
 .nt-set-note.nt-ws-heed {
   color: var(--foreground);
 }
-/* A section that takes another's place while the page is open. */
-.nt-ws-arrive {
-  animation: nt-row-in 360ms var(--ease) backwards;
+/* Words that change in place once a figure arrives: the line keeps its room
+   and only the sentence settles in. */
+.nt-ws-swap {
+  animation: nt-fade-in var(--dur) var(--ease);
+}
+/* AI past the allowance, on the next invoice. Neither left (full ink) nor
+   spent (a ghost): an outline, placed on the same fixed track, so the one
+   mark on the card that means money owed cannot read as allowance held. */
+.nt-ws-card .nt-pw-cell.is-owed {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--foreground);
 }
 
 /* ---- An unpaid workspace, said once under its title -------------------------
    On the title's centre line, in the note's voice: a fact about the place with
    the way on beside it, not a banner. It folds open (`.nt-ws-fold`), so its
-   gap is padding inside the fold's body, clipped with it. Its link is
-   underlined only when pointed at, the underline easing in as the aside
-   link's colour does. */
+   gap is padding inside the fold's body, clipped with it. Its link is the
+   aside link, underlined at rest as every inline link on these pages is. */
 
 .nt-ws-unpaid {
   padding-top: 6px;
@@ -814,17 +821,6 @@
   text-align: center;
   text-wrap: balance;
   animation: nt-row-in 360ms var(--ease) backwards;
-}
-.nt-ws-unpaid-go {
-  color: var(--foreground);
-  text-decoration: underline;
-  text-decoration-color: transparent;
-  text-underline-offset: 3px;
-  transition: text-decoration-color var(--dur-fast) var(--ease);
-}
-.nt-ws-unpaid-go:hover,
-.nt-ws-unpaid-go:focus-visible {
-  text-decoration-color: currentColor;
 }
 /* Where the title leaves the centre for its own left-aligned row. */
 @media (max-width: 48rem) {
@@ -837,7 +833,7 @@
   .nt-ws-switch-glyph,
   .nt-ws-sent,
   .nt-ws-unpaid,
-  .nt-ws-arrive,
+  .nt-ws-swap,
   .nt-ws-join,
   .nt-monogram.nt-ws-join-tile {
     animation: nt-fade-in var(--dur-fast) var(--ease);
@@ -846,8 +842,7 @@
   .nt-ws-onward-glyph,
   .nt-ws-fold,
   .nt-ws-saved,
-  .nt-ws-person.is-leaving,
-  .nt-ws-unpaid-go {
+  .nt-ws-person.is-leaving {
     transition: none;
   }
 }
@@ -866,7 +861,8 @@
   text-underline-offset: 2px;
   transition: text-decoration-color var(--dur-fast) var(--ease);
 }
-.nt-ws-aside-link:hover {
+.nt-ws-aside-link:hover,
+.nt-ws-aside-link:focus-visible {
   text-decoration-color: currentColor;
 }
 
