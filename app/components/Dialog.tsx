@@ -201,7 +201,7 @@ const TABBABLE =
  * the page. The restore waits for the dialog to have actually left the page,
  * which is also what tells a real unmount from development's rehearsal of one.
  */
-function useModalFocus(ref: RefObject<HTMLElement | null>) {
+export function useModalFocus(ref: RefObject<HTMLElement | null>) {
   const [opener] = useState(() =>
     typeof document === "undefined" ? null : document.activeElement,
   );

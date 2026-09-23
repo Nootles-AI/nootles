@@ -1,17 +1,21 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState, type AnimationEvent } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import { useQuery } from "convex/react";
+import type { FunctionReturnType } from "convex/server";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { atLeast } from "@/convex/auth";
 import { FREE_LIMITS, type Meter } from "@/convex/limits";
 import { settingsPath } from "@/app/lib/containerPaths";
+import { useModalFocus } from "../Dialog";
 import { useStandIn } from "../StandIn";
 import { Strip } from "./Allowance";
 import "./paywall.css";
+
+type Seat = NonNullable<FunctionReturnType<typeof api.workspaces.listMine>>[number];
 
 /** What stopped them, said of the workspace whose allowance it was. */
 function stopped(meter: Meter, name: string): { title: string; body: string } {
@@ -28,41 +32,58 @@ function stopped(meter: Meter, name: string): { title: string; body: string } {
       };
     case "chats":
       return {
-        title: `${name} has used its ${FREE_LIMITS.chats} free chats`,
+        title: `${name} has used its ${FREE_LIMITS.chats} free conversations`,
         body: "The ones already started still work.",
       };
   }
 }
 
-/**
- * The wall in a workspace: the paywall's sheet and voice, at the sentence that
- * stopped them, but about the workspace's allowance rather than their own —
- * nothing here is for sale to one person. Whoever can start the Team plan is
- * taken to the workspace's billing; anyone else is told who can.
- */
-export function TeamWall({
-  meter,
-  workspaceId,
-  name,
-  back,
-  onClose,
-}: {
+type WallProps = {
   meter: Meter;
   workspaceId: Id<"workspaces">;
   name: string;
   /** The dismissal, named after the place it returns to. */
   back: string;
   onClose: () => void;
-}) {
-  const standIn = useStandIn();
+};
+
+/**
+ * The wall in a workspace: the paywall's sheet and voice, at the sentence that
+ * stopped them, but about the workspace's allowance rather than their own —
+ * nothing here is for sale to one person. Whoever can start the Team plan is
+ * taken to the workspace's billing; anyone else is told who can.
+ *
+ * Drawn once their seat is known, as `PlanWall` waits on the standing: the
+ * sentence and the button that takes focus both depend on it, and neither may
+ * change after the sheet has arrived.
+ */
+export function TeamWall(props: WallProps) {
   const seats = useQuery(api.workspaces.listMine, {});
-  const seat = seats?.find((s) => s.workspaceId === workspaceId) ?? null;
+  if (seats === undefined) return null;
+  const seat = seats?.find((s) => s.workspaceId === props.workspaceId) ?? null;
+  return <Sheet {...props} seat={seat} />;
+}
+
+function Sheet({ meter, name, back, onClose, seat }: WallProps & { seat: Seat | null }) {
+  const standIn = useStandIn();
   const starts = !standIn && seat !== null && atLeast(seat.role, "admin");
   const said = stopped(meter, name);
 
-  const closeRef = useRef(onClose);
+  const sheet = useRef<HTMLDivElement>(null);
+  const go = useRef<HTMLAnchorElement>(null);
+  const [closing, setClosing] = useState(false);
+  const close = () => {
+    // Without motion no animation ends, so there is nothing to wait for.
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) onClose();
+    else setClosing(true);
+  };
+  const gone = (e: AnimationEvent<HTMLDivElement>) => {
+    if (closing && e.target === e.currentTarget) onClose();
+  };
+
+  const closeRef = useRef(close);
   useEffect(() => {
-    closeRef.current = onClose;
+    closeRef.current = close;
   });
   useEffect(() => {
     // Heard first and kept, as the paywall's own: an Escape closes the wall
@@ -77,16 +98,33 @@ export function TeamWall({
     return () => document.removeEventListener("keydown", onKey, true);
   }, []);
 
+  // A link is not autofocused by React, and the way on is the one to land on.
+  // Before the modal's own focus, which would otherwise take the sheet.
+  useEffect(() => {
+    go.current?.focus();
+  }, []);
+  const keepFocus = useModalFocus(sheet);
+
   return createPortal(
     <>
       <button
         aria-label="Close"
-        onClick={onClose}
-        className="nt-pw-scrim"
+        onClick={close}
+        className={`nt-pw-scrim${closing ? " is-closing" : ""}`}
         style={{ zIndex: "var(--z-overlay)" }}
       />
       <div className="nt-pw-holder" style={{ zIndex: "var(--z-modal)" }}>
-        <div className="nt-pw-sheet" role="dialog" aria-modal aria-label={said.title}>
+        <div
+          ref={sheet}
+          className={`nt-pw-sheet${closing ? " is-closing" : ""}`}
+          role="dialog"
+          aria-modal
+          aria-label={said.title}
+          tabIndex={-1}
+          inert={closing}
+          onKeyDown={keepFocus}
+          onAnimationEnd={gone}
+        >
           <div className="nt-pw-field">
             <p className="nt-pw-title">{said.title}</p>
             <p className="nt-pw-lede">
@@ -101,21 +139,12 @@ export function TeamWall({
               <Strip meter={meter} left={0} />
             </div>
             <div className="nt-pw-answers">
-              <button
-                type="button"
-                autoFocus={!starts}
-                onClick={onClose}
-                className="nt-pw-btn"
-              >
+              <button type="button" autoFocus={!starts} onClick={close} className="nt-pw-btn">
                 {back}
               </button>
               {starts && seat && (
-                <Link
-                  href={settingsPath(seat.slug, "billing")}
-                  autoFocus
-                  className="nt-pw-btn is-solid"
-                >
-                  Start the Team plan
+                <Link ref={go} href={settingsPath(seat.slug, "billing")} className="nt-pw-btn is-solid">
+                  See the Team plan
                 </Link>
               )}
             </div>
