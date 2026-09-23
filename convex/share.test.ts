@@ -148,7 +148,7 @@ describe("decideRequest", () => {
     ).toBe("viewer");
     expect(
       await t.withIdentity(OWNER).query(api.share.links, { projectId }),
-    ).toEqual({ viewer: "v", editor: null });
+    ).toMatchObject({ viewer: "v", editor: null });
     // Answered, so it leaves the inbox.
     expect(
       await t.withIdentity(OWNER).query(api.share.incomingRequests, {}),

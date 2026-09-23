@@ -2,7 +2,7 @@ import { components } from "./_generated/api";
 import { ProsemirrorSync } from "@convex-dev/prosemirror-sync";
 import type { DataModel } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { isTrashed, refuseStandIn, roleForProject, standInActor } from "./auth";
+import { isTrashed, readsDocuments, refuseStandIn, roleForProject, standInActor } from "./auth";
 
 /**
  * Collaborative sync for each page's block flow. The client (BlockNote) talks to
@@ -30,20 +30,15 @@ export async function pageForDoc(ctx: QueryCtx, id: string) {
 }
 
 /**
- * Reads are open to anyone with a role on the project and to anonymous holders
- * of a live share link. There is no token to inspect here — the sync API's
- * args are just the docId — so for the anonymous case the capability IS the
- * docId: a server-minted UUID that `share.view` discloses only while a link is
- * live. Revoking the last link closes this door too.
+ * Reads are open to whoever `readsDocuments` admits: anyone with a role, and
+ * on a personal project anonymous holders of a live share link too. Revoking
+ * the last link closes that door.
  */
 export async function checkRead(ctx: QueryCtx, id: string) {
   const page = await pageForDoc(ctx, id);
   if (!page || isTrashed(page)) throw new Error("Not found");
   const project = await ctx.db.get(page.projectId);
-  if (!project || isTrashed(project)) throw new Error("Not found");
-  if (await roleForProject(ctx, project)) return;
-  if (project.shareToken || project.editShareToken) return;
-  throw new Error("Not found");
+  if (!project || !(await readsDocuments(ctx, project))) throw new Error("Not found");
 }
 
 /**

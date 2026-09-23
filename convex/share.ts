@@ -1,10 +1,16 @@
 import { mutation, query } from "./_generated/server";
-import { v } from "convex/values";
-import type { Doc } from "./_generated/dataModel";
-import type { QueryCtx } from "./_generated/server";
+import { ConvexError, v } from "convex/values";
+import type { Doc, Id } from "./_generated/dataModel";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
 import {
+  claimOf,
   claimRole,
   isTrashed,
+  LINK_FIELDS,
+  linkLive,
+  linkShows,
+  linksOpen,
+  type LinkRole,
   ownerId,
   readManageable,
   requireManageable,
@@ -21,34 +27,45 @@ import { ensureArrivalProfile, personOf } from "./profiles";
  * read through the ordinary sync endpoints, whose read check admits docs whose
  * project has a live link (see `prosemirror.ts`).
  *
+ * A link can be given an expiry, and a workspace can turn links off or open
+ * them only to people signed in — all of it decided in `auth.ts`.
+ *
  * Signing in through a link leaves a claim (`auth.ts` derives roles from it),
  * which is also what puts the project under "Shared with me".
  */
 
 const role = v.union(v.literal("viewer"), v.literal("editor"));
 
-const tokenField = {
-  viewer: "shareToken",
-  editor: "editShareToken",
-} as const;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** The project a live token names, and which role that token grants. */
 async function projectForToken(
   ctx: QueryCtx,
   token: string,
-): Promise<{ project: Doc<"projects">; role: "viewer" | "editor" } | null> {
+  now: number,
+): Promise<{ project: Doc<"projects">; role: LinkRole } | null> {
   if (!token) return null;
   const asViewer = await ctx.db
     .query("projects")
     .withIndex("by_share_token", (q) => q.eq("shareToken", token))
     .unique();
-  if (asViewer) return isTrashed(asViewer) ? null : { project: asViewer, role: "viewer" };
-  const asEditor = await ctx.db
-    .query("projects")
-    .withIndex("by_edit_share_token", (q) => q.eq("editShareToken", token))
-    .unique();
-  if (asEditor && isTrashed(asEditor)) return null;
-  return asEditor ? { project: asEditor, role: "editor" } : null;
+  const asEditor = asViewer
+    ? null
+    : await ctx.db
+        .query("projects")
+        .withIndex("by_edit_share_token", (q) => q.eq("editShareToken", token))
+        .unique();
+  const found = asViewer
+    ? { project: asViewer, role: "viewer" as const }
+    : asEditor && { project: asEditor, role: "editor" as const };
+  if (!found || isTrashed(found.project) || !linkLive(found.project, found.role, now)) return null;
+  return found;
+}
+
+/** A new link's expiry when none is asked for: its workspace's default, if it sets one. */
+async function defaultDays(ctx: QueryCtx, project: Doc<"projects">): Promise<number | null> {
+  if (!project.workspaceId) return null;
+  return (await ctx.db.get(project.workspaceId))?.settings.linkTtlDays ?? null;
 }
 
 /** Both links as the share dialog draws them. Whoever manages the project. */
@@ -57,6 +74,10 @@ async function projectForToken(
  * reads, and `requireManageable` is a write gate — it refuses an operator's
  * stand-in, which would blind the one session most likely to be asking who a
  * project is shared with.
+ *
+ * `allowed` is false while the project's workspace allows no links; the
+ * tokens then admit nobody, and `setLink` refuses to turn one on. An expiry
+ * in the past is a link that has run out.
  */
 export const links = query({
   args: { projectId: v.id("projects") },
@@ -66,52 +87,136 @@ export const links = query({
     return {
       viewer: project.shareToken ?? null,
       editor: project.editShareToken ?? null,
+      expiresAt: {
+        viewer: project.shareExpiresAt ?? null,
+        editor: project.editShareExpiresAt ?? null,
+      },
+      allowed: await linksOpen(ctx, project),
+      /** What a new link's expiry starts at, in days; null is never. */
+      defaultDays: await defaultDays(ctx, project),
     };
   },
 });
 
+/**
+ * Turns a link on or off, or changes when it runs out. `expiresInDays` is
+ * 1–365, or null for never; left out, a live link keeps its expiry and a new
+ * one starts at its workspace's default. A link that has run out is not
+ * revived: turning it on again mints a new one, so the old address stays dead.
+ */
 export const setLink = mutation({
-  args: { projectId: v.id("projects"), role, enabled: v.boolean() },
+  args: {
+    projectId: v.id("projects"),
+    role,
+    enabled: v.boolean(),
+    expiresInDays: v.optional(v.union(v.number(), v.null())),
+  },
   handler: async (ctx, args) => {
     const project = await requireManageable(ctx, "projects", args.projectId);
-    const field = tokenField[args.role];
+    const fields = LINK_FIELDS[args.role];
     if (!args.enabled) {
       // Disabling IS revoking: the token goes, the old URL dies, and everyone
       // who claimed through it loses the role it granted (see `auth.ts`).
-      await ctx.db.patch(args.projectId, { [field]: undefined });
+      await ctx.db.patch(args.projectId, {
+        [fields.token]: undefined,
+        [fields.expiresAt]: undefined,
+      });
       return null;
     }
-    const token = project[field] ?? crypto.randomUUID();
-    if (!project[field]) {
-      await ctx.db.patch(args.projectId, { [field]: token });
+    if (!(await linksOpen(ctx, project))) {
+      throw new ConvexError("Link sharing is turned off in this workspace.");
     }
+    const now = Date.now();
+    const live = linkLive(project, args.role, now);
+    const token = live ? project[fields.token]! : crypto.randomUUID();
+    const expiresAt =
+      args.expiresInDays === undefined && live
+        ? project[fields.expiresAt]
+        : expiryAfter(
+            args.expiresInDays === undefined ? await defaultDays(ctx, project) : args.expiresInDays,
+            now,
+          );
+    if (token !== project[fields.token] || expiresAt !== project[fields.expiresAt]) {
+      await ctx.db.patch(args.projectId, {
+        [fields.token]: token,
+        [fields.expiresAt]: expiresAt,
+      });
+    }
+    await carryExpiry(ctx, args.projectId, args.role, expiresAt, now);
     return token;
   },
 });
 
+function expiryAfter(days: number | null, now: number): number | undefined {
+  if (days === null) return undefined;
+  if (!Number.isInteger(days) || days < 1 || days > 365) {
+    throw new ConvexError("Links can expire after 1 to 365 days.");
+  }
+  return now + days * DAY_MS;
+}
+
+/**
+ * A claim keeps the expiry of the link it came through, so moving a link's
+ * date moves its people's with it. A claim that has already run out stays
+ * out: visiting the link again is how its holder comes back.
+ */
+async function carryExpiry(
+  ctx: MutationCtx,
+  projectId: Id<"projects">,
+  role: LinkRole,
+  expiresAt: number | undefined,
+  now: number,
+) {
+  const claims = await ctx.db
+    .query("shareClaims")
+    .withIndex("by_project_and_grantee", (q) => q.eq("projectId", projectId))
+    .collect();
+  for (const claim of claims) {
+    if (claim.role !== role || claim.expiresAt === expiresAt) continue;
+    if (claim.expiresAt !== undefined && claim.expiresAt <= now) continue;
+    await ctx.db.patch(claim._id, { expiresAt });
+  }
+}
+
+/**
+ * What a link opens onto, before any sign-in: the project's tree, as the
+ * sidebar would draw it. Null for a link that is off, has run out, or belongs
+ * to a workspace that allows no links.
+ *
+ * `access` is `linkShows`'s answer. A workspace project's link opens to
+ * nobody signed out ("sign-in": no title, no pages), and to someone signed in
+ * without a role only enough to claim it ("claim": no pages yet).
+ */
 export const view = query({
   args: { token: v.string() },
   handler: async (ctx, args) => {
-    const found = await projectForToken(ctx, args.token);
-    if (!found) return null;
+    const found = await projectForToken(ctx, args.token, Date.now());
+    if (!found || !(await linksOpen(ctx, found.project))) return null;
+    const access = await linkShows(ctx, found.project);
+    const tree = access === "tree";
     // Both ordered by the index (projectId, order) — the sidebar's own order,
     // one line per level shared by folders and pages alike.
-    const pages = (
-      await ctx.db
-        .query("pages")
-        .withIndex("by_project", (q) => q.eq("projectId", found.project._id))
-        .collect()
-    ).filter((p) => !isTrashed(p));
-    const folders = (
-      await ctx.db
-        .query("folders")
-        .withIndex("by_project", (q) => q.eq("projectId", found.project._id))
-        .collect()
-    ).filter((f) => !isTrashed(f));
+    const pages = tree
+      ? (
+          await ctx.db
+            .query("pages")
+            .withIndex("by_project", (q) => q.eq("projectId", found.project._id))
+            .collect()
+        ).filter((p) => !isTrashed(p))
+      : [];
+    const folders = tree
+      ? (
+          await ctx.db
+            .query("folders")
+            .withIndex("by_project", (q) => q.eq("projectId", found.project._id))
+            .collect()
+        ).filter((f) => !isTrashed(f))
+      : [];
     return {
       projectId: found.project._id,
       role: found.role,
-      title: found.project.title,
+      access,
+      title: access === "sign-in" ? "" : found.project.title,
       // A shared project keeps its shape: `folderId` and `order` are what let
       // the share rail rebuild the owner's tree from the same code the sidebar
       // uses. `_id` rides along for the mention chips too — a chip names a page
@@ -135,9 +240,11 @@ export const view = query({
 
 /**
  * What signing in through a link does: records who came, at the role the link
- * grants. Idempotent, upserting to the higher role — a viewer later handed the
- * editor link is promoted, never demoted. Whoever already owns the project
- * passes through unrecorded; nothing a link grants is more than they have.
+ * grants and until the link runs out. Idempotent, upserting to the higher role
+ * — a viewer later handed the editor link is promoted, never demoted — and a
+ * claim that had run out starts again from the link it came back by. Whoever
+ * already owns the project passes through unrecorded; nothing a link grants is
+ * more than they have.
  *
  * An account whose first act is a claim was CREATED by this document, so the
  * claim writes the profile row first run reads as "not new"
@@ -147,27 +254,28 @@ export const claim = mutation({
   args: { token: v.string() },
   handler: async (ctx, args) => {
     const me = await requireOwner(ctx);
-    const found = await projectForToken(ctx, args.token);
-    if (!found) throw new Error("Not found");
+    const now = Date.now();
+    const found = await projectForToken(ctx, args.token, now);
+    if (!found || !(await linksOpen(ctx, found.project))) throw new Error("Not found");
 
     await ensureArrivalProfile(ctx, me);
 
     if ((await roleForProject(ctx, found.project)) === "owner") return found.project._id;
-    const existing = await ctx.db
-      .query("shareClaims")
-      .withIndex("by_project_and_grantee", (q) =>
-        q.eq("projectId", found.project._id).eq("granteeId", me),
-      )
-      .unique();
+    const expiresAt = found.project[LINK_FIELDS[found.role].expiresAt];
+    const existing = await claimOf(ctx, found.project._id, me);
     if (!existing) {
       await ctx.db.insert("shareClaims", {
         projectId: found.project._id,
         granteeId: me,
         role: found.role,
-        createdAt: Date.now(),
+        ...(expiresAt !== undefined ? { expiresAt } : {}),
+        createdAt: now,
       });
-    } else if (existing.role === "viewer" && found.role === "editor") {
-      await ctx.db.patch(existing._id, { role: "editor" });
+    } else {
+      const lapsed = existing.expiresAt !== undefined && existing.expiresAt <= now;
+      if (lapsed || existing.role === found.role || found.role === "editor") {
+        await ctx.db.patch(existing._id, { role: found.role, expiresAt });
+      }
     }
     return found.project._id;
   },
@@ -176,7 +284,8 @@ export const claim = mutation({
 /**
  * Who holds a role in this project through a claim, for the share dialog's
  * access list. Whoever manages the project, and read-only in v1 — removing
- * someone means revoking the link they came by.
+ * someone means revoking the link they came by. `expiresAt` is when their
+ * access through the link runs out; null is never.
  */
 /** Reads, so `readManageable` — see `links` above. */
 export const collaborators = query({
@@ -184,20 +293,27 @@ export const collaborators = query({
   handler: async (ctx, args) => {
     const project = await readManageable(ctx, "projects", args.projectId);
     if (!project) throw new Error("Not found");
+    if (!(await linksOpen(ctx, project))) return [];
     const claims = await ctx.db
       .query("shareClaims")
       .withIndex("by_project_and_grantee", (q) =>
         q.eq("projectId", args.projectId),
       )
       .collect();
+    const now = Date.now();
     const people = await Promise.all(
       claims.map(async (claim) => {
         // What they are, not what let them in: the claim outlives the links,
         // so a revoked link has to take its people off this list too, the
         // same as it takes away their access.
-        const role = claimRole(project, claim);
+        const role = claimRole(project, claim, now);
         if (!role) return null;
-        return { granteeId: claim.granteeId, role, ...(await personOf(ctx, claim.granteeId)) };
+        return {
+          granteeId: claim.granteeId,
+          role,
+          ...(await personOf(ctx, claim.granteeId)),
+          expiresAt: claim.grantedRole ? null : (claim.expiresAt ?? null),
+        };
       }),
     );
     return people.filter((person) => person !== null);

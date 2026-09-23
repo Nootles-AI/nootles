@@ -383,8 +383,9 @@ export type ProjectRole = "owner" | "editor" | "viewer";
  * the whole difference between the two containers — and neither is anyone
  * whose seat was taken away, whatever the row says.
  *
- * Share links answer for everyone the container did not. A claim names the
- * role of the link it came through, but permission is always
+ * Share links answer for everyone the container did not, signed in, and only
+ * while the project's links admit anyone at all (`linksOpen`). A claim names
+ * the role of the link it came through, but permission is always
  * re-derived against the tokens that are live NOW: killing the editor link
  * demotes its claimants to viewers while any link is still on (the same move
  * as Google downgrading a link from editor to viewer), and killing both links
@@ -396,6 +397,11 @@ export type ProjectRole = "owner" | "editor" | "viewer";
  * It survives the editor link being revoked — it was never that link's doing —
  * but not the project being unshared entirely, so revoking is still the one
  * move that closes the door on everybody at once.
+ *
+ * The clock is read here, and only on this path: a seat never expires. A
+ * query is not re-run merely because time passes, so a link that runs out
+ * while a document is open refuses that session's next write at once, and
+ * its reads the next time anything they read changes or the page reloads.
  */
 export async function roleForProject(
   ctx: QueryCtx,
@@ -405,13 +411,53 @@ export async function roleForProject(
   if (!me) return null;
   const role = await containerRole(ctx, project, me);
   if (role) return role;
-  const claim = await ctx.db
+  const claim = await claimOf(ctx, project._id, me);
+  if (!claim || !(await linksOpen(ctx, project))) return null;
+  return claimRole(project, claim, Date.now());
+}
+
+/** Someone's claim on a project, whatever it grants now. */
+export async function claimOf(
+  ctx: QueryCtx,
+  projectId: Id<"projects">,
+  granteeId: string,
+): Promise<Doc<"shareClaims"> | null> {
+  return await ctx.db
     .query("shareClaims")
     .withIndex("by_project_and_grantee", (q) =>
-      q.eq("projectId", project._id).eq("granteeId", me),
+      q.eq("projectId", projectId).eq("granteeId", granteeId),
     )
     .unique();
-  return claim ? claimRole(project, claim) : null;
+}
+
+export type LinkRole = "viewer" | "editor";
+
+/** Where each link keeps its token and its expiry on the project row. */
+export const LINK_FIELDS = {
+  viewer: { token: "shareToken", expiresAt: "shareExpiresAt" },
+  editor: { token: "editShareToken", expiresAt: "editShareExpiresAt" },
+} as const;
+
+/** Whether a project's link of this role is on and has not run out. */
+export function linkLive(project: Doc<"projects">, role: LinkRole, now: number): boolean {
+  const { token, expiresAt } = LINK_FIELDS[role];
+  const until = project[expiresAt];
+  return !!project[token] && (until === undefined || until > now);
+}
+
+/**
+ * Whether a project's share links admit anyone at all. A personal project's
+ * always may. A workspace's may while its admins allow links there: turning
+ * that off stops every link and every claim made through one at once, and
+ * deletes nothing, so turning it back on restores them as they were.
+ *
+ * The one read of the workspace row on a document's access path, and only on
+ * the way in through a link — never for a seat (see `activeMembership`).
+ */
+export async function linksOpen(ctx: QueryCtx, project: Doc<"projects">): Promise<boolean> {
+  if (!project.workspaceId) return true;
+  const workspace = await ctx.db.get(project.workspaceId);
+  return !!workspace && workspace.deletedAt === undefined && workspace.settings.linkSharing;
 }
 
 /** The role a project's container gives someone, before any share link is asked. */
@@ -448,18 +494,60 @@ export async function readsLinkedCode(
 }
 
 /**
- * What a claim grants on its project now — `roleForProject` for someone other
- * than the caller, so the owner's list of who has access gives the same answer
- * each claimant's own session gets.
+ * What a claim grants on its project at `now` — `roleForProject` for someone
+ * other than the caller, so the owner's list of who has access gives the same
+ * answer each claimant's own session gets. Whether the project's links admit
+ * anyone at all (`linksOpen`) is the caller's to have asked first.
+ *
+ * A claim that has run out grants nothing, and neither does one whose link has
+ * run out — a revoked link is different: its claimants are still viewers
+ * while the other link is on.
  */
 export function claimRole(
   project: Doc<"projects">,
   claim: Doc<"shareClaims">,
+  now: number,
 ): "editor" | "viewer" | null {
   if (!project.shareToken && !project.editShareToken) return null;
   if (claim.grantedRole === "editor") return "editor";
-  if (claim.role === "editor" && project.editShareToken) return "editor";
-  return "viewer";
+  if (claim.expiresAt !== undefined && claim.expiresAt <= now) return null;
+  const cameBy = project[LINK_FIELDS[claim.role].expiresAt];
+  if (cameBy !== undefined && cameBy <= now) return null;
+  if (claim.role === "editor" && linkLive(project, "editor", now)) return "editor";
+  return linkLive(project, "viewer", now) || linkLive(project, "editor", now) ? "viewer" : null;
+}
+
+/**
+ * Whether the caller may read a project's documents — the check every sync
+ * endpoint makes, since those are reached by docId rather than through a
+ * page row. Anyone with a role may. So may anyone at all holding the docId of
+ * a personal project's page while one of its links is live: there is no token
+ * to inspect on those endpoints, so the docId, which `share.view` hands out
+ * only while a link is live, is the capability. A workspace project's
+ * documents open to no one signed out, and to no one without a role.
+ */
+export async function readsDocuments(ctx: QueryCtx, project: Doc<"projects">): Promise<boolean> {
+  if (isTrashed(project)) return false;
+  if (await roleForProject(ctx, project)) return true;
+  if (project.workspaceId) return false;
+  const now = Date.now();
+  return linkLive(project, "viewer", now) || linkLive(project, "editor", now);
+}
+
+/**
+ * What a live link shows the caller before anything is claimed. A personal
+ * project's shows its whole tree to anyone, signed in or not. A workspace
+ * project's shows nothing to someone signed out ("sign-in"), and to someone
+ * signed in without a role only enough to claim it ("claim"): its pages are
+ * for those who hold one.
+ */
+export async function linkShows(
+  ctx: QueryCtx,
+  project: Doc<"projects">,
+): Promise<"tree" | "claim" | "sign-in"> {
+  if (!project.workspaceId) return "tree";
+  if (!(await ownerId(ctx))) return "sign-in";
+  return (await roleForProject(ctx, project)) ? "tree" : "claim";
 }
 
 /**
