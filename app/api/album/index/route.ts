@@ -32,7 +32,12 @@ export async function POST(req: Request) {
     return new Response("Invalid JSON", { status: 400 });
   }
 
-  const { dataUri, handles } = (body ?? {}) as { dataUri?: unknown; handles?: unknown };
+  const { dataUri, handles, projectId: named } = (body ?? {}) as {
+    dataUri?: unknown;
+    handles?: unknown;
+    projectId?: unknown;
+  };
+  const projectId = typeof named === "string" ? named : undefined;
   if (
     typeof dataUri !== "string" ||
     !dataUri.startsWith("data:image/") ||
@@ -65,6 +70,7 @@ export async function POST(req: Request) {
       ownerId: caller.userId,
       feature: "album",
       model: AI.album.model,
+      projectId,
       ...usage,
       latencyMs: Date.now() - started,
       status: "ok",
@@ -76,6 +82,7 @@ export async function POST(req: Request) {
       ownerId: caller.userId,
       feature: "album",
       model: AI.album.model,
+      projectId,
       latencyMs: Date.now() - started,
       status: "error",
       errorCode: (e as Error).message.slice(0, 200),

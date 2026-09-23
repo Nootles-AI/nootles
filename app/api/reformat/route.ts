@@ -22,10 +22,12 @@ export async function POST(req: Request) {
     return new Response("Invalid JSON", { status: 400 });
   }
 
-  const { block } = (body ?? {}) as { block?: unknown };
+  const { block, projectId: named } = (body ?? {}) as { block?: unknown; projectId?: unknown };
   if (typeof block !== "string" || !block.trim()) {
     return new Response("`block` must be a non-empty string", { status: 400 });
   }
+  // Whose ledger the call lands in. Absent off the workspace.
+  const projectId = typeof named === "string" ? named : undefined;
 
   const started = Date.now();
   try {
@@ -34,6 +36,7 @@ export async function POST(req: Request) {
       ownerId: caller.userId,
       feature: "reformat",
       model: AI.reformat.model,
+      projectId,
       ...usage,
       latencyMs: Date.now() - started,
       // The user gets the same quiet 200 either way — an ambient suggestion has
@@ -49,6 +52,7 @@ export async function POST(req: Request) {
       ownerId: caller.userId,
       feature: "reformat",
       model: AI.reformat.model,
+      projectId,
       latencyMs: Date.now() - started,
       status: aborted ? "aborted" : "error",
       ...(aborted ? {} : { errorCode: "fetch-failed" }),

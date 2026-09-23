@@ -17,11 +17,12 @@ export async function POST(req: Request) {
     return new Response("Invalid JSON", { status: 400 });
   }
 
-  const { text, kind, ops, consoleTail } = (body ?? {}) as {
+  const { text, kind, ops, consoleTail, projectId } = (body ?? {}) as {
     text?: unknown;
     kind?: unknown;
     ops?: unknown;
     consoleTail?: unknown;
+    projectId?: unknown;
   };
   if (typeof text !== "string" || !text.trim()) {
     return new Response("`text` must be a non-empty string", { status: 400 });
@@ -42,6 +43,7 @@ export async function POST(req: Request) {
       ownerId: caller.userId,
       feature: "feedback",
       model: AI.reformat.model,
+      projectId: typeof projectId === "string" ? projectId : undefined,
       ...usage,
       latencyMs: Date.now() - started,
       // See the reformat route's note: no ghost text is a fine answer, and a
