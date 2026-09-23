@@ -4,6 +4,7 @@ import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { Account } from "@/convex/github/account";
+import { useContainer } from "../workspaces/ContainerContext";
 
 /**
  * Which GitHub a project's repositories come from, for every picker that
@@ -35,6 +36,8 @@ export type GitHubDoor =
       via: "shut";
       workspaceId: Id<"workspaces">;
       canInstall: boolean;
+      /** An owner or admin, who can turn personal connections back on. */
+      manages: boolean;
       /** This deployment has no GitHub App to install. */
       unconfigured: boolean;
     };
@@ -60,6 +63,7 @@ export function useGitHubDoor(workspaceId: Id<"workspaces"> | undefined, active 
           via: "shut",
           workspaceId,
           canInstall: app.canManage && app.ready,
+          manages: app.canManage,
           unconfigured: !app.ready,
         };
       }
@@ -78,6 +82,14 @@ export function useGitHubDoor(workspaceId: Id<"workspaces"> | undefined, active 
 /** Whether the door opens on a list to search, rather than on a way in. */
 export function searchable(door: GitHubDoor): boolean {
   return door.via === "app" || (door.via === "personal" && !!door.account && !door.account.invalidAt);
+}
+
+/** The integrations page of the workspace being viewed, where its door is set; null for any other. */
+export function useIntegrationsPath(workspaceId: Id<"workspaces">): string | null {
+  const here = useContainer();
+  return here.kind === "workspace" && here.workspaceId === workspaceId
+    ? `/w/${here.slug}/settings/integrations`
+    : null;
 }
 
 export function installPath(workspaceId: Id<"workspaces">): string {

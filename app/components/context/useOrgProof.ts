@@ -7,7 +7,8 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { reason } from "@/app/lib/github";
 import { openConnectWindow } from "./connectWindow";
 
-export type ProofLine = { text: string; problem: boolean };
+/** An answer to a press; `n` counts them, so a repeated answer is still a new one. */
+export type ProofLine = { text: string; problem: boolean; n: number };
 
 /**
  * Showing a workspace's GitHub organisation rule that you belong to `org`,
@@ -20,6 +21,10 @@ export type ProofLine = { text: string; problem: boolean };
  * `watch` hears a press start and settle: the rule's live answer can turn
  * before the action returns, so whatever the answer would take away holds
  * itself up across the press, and long enough after it for the line to be read.
+ *
+ * `said` is the answer to the last press, gone while another is on its way;
+ * `line` goes on holding it after, so the line that says it can fold shut
+ * rather than vanish.
  */
 export function useOrgProof(
   workspaceId: Id<"workspaces">,
@@ -30,6 +35,7 @@ export function useOrgProof(
   const verify = useAction(api.github.orgProof.verify);
   const [busy, setBusy] = useState(false);
   const [said, setSaid] = useState<ProofLine | null>(null);
+  const [line, setLine] = useState<ProofLine | null>(null);
 
   const account = personal?.account ?? null;
   const connected = !!account && !account.invalidAt;
@@ -40,20 +46,21 @@ export function useOrgProof(
     setSaid(null);
     watch?.onStart?.();
     let verified = false;
+    let answer: Omit<ProofLine, "n">;
     try {
-      const answer = await verify({ workspaceId });
-      verified = answer.verified;
-      setSaid(
-        answer.verified
-          ? { text: `Verified: GitHub lists @${account.login} in ${org}.`, problem: false }
-          : {
-              text: `GitHub doesn’t list @${account.login} as a member of ${org}.`,
-              problem: true,
-            },
-      );
+      verified = (await verify({ workspaceId })).verified;
+      answer = verified
+        ? { text: `Verified: GitHub lists @${account.login} in ${org}.`, problem: false }
+        : {
+            text: `GitHub doesn’t list @${account.login} as a member of ${org}. If you are one, check this is the GitHub account you’re in it with, and that you’ve accepted its invitation.`,
+            problem: true,
+          };
     } catch (error) {
-      setSaid({ text: reason(error), problem: true });
+      answer = { text: reason(error), problem: true };
     }
+    const next = { ...answer, n: (line?.n ?? 0) + 1 };
+    setSaid(next);
+    setLine(next);
     setBusy(false);
     watch?.onSettled?.(verified);
   };
@@ -77,5 +84,6 @@ export function useOrgProof(
     action,
     blocker: personal && !personal.ready ? personal.blocker : null,
     said,
+    line,
   };
 }

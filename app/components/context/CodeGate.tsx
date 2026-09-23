@@ -39,10 +39,26 @@ function Fold({ workspaceId, frame }: { workspaceId: Id<"workspaces">; frame: bo
   if (held && org && (drawn?.org !== org || drawn.lapsed !== lapsed)) setDrawn({ org, lapsed });
 
   const [holding, setHolding] = useState<"pressing" | "verified" | null>(null);
+  const fold = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (holding !== "verified") return;
-    const timer = setTimeout(() => setHolding(null), VERIFIED_MS);
-    return () => clearTimeout(timer);
+    const el = fold.current;
+    // Shutting goes inert, which would drop focus waiting in the gate to the
+    // page: past its time, the fold waits for focus to leave it first.
+    let due = false;
+    const timer = setTimeout(() => {
+      due = true;
+      if (!el?.contains(document.activeElement)) setHolding(null);
+    }, VERIFIED_MS);
+    const left = (e: FocusEvent) => {
+      if (!due || !document.hasFocus()) return;
+      if (!el?.contains(e.relatedTarget as Node | null)) setHolding(null);
+    };
+    el?.addEventListener("focusout", left);
+    return () => {
+      clearTimeout(timer);
+      el?.removeEventListener("focusout", left);
+    };
   }, [holding]);
 
   if (!drawn) return null;
@@ -56,7 +72,7 @@ function Fold({ workspaceId, frame }: { workspaceId: Id<"workspaces">; frame: bo
     />
   );
   return (
-    <div className="nt-codegate-fold is-arriving" data-open={open} inert={!open}>
+    <div ref={fold} className="nt-codegate-fold is-arriving" data-open={open} inert={!open}>
       <div className="nt-codegate-fold-body">
         {/* Where no context panel surrounds it, it brings that panel's edge
             and heading along, so it sits under a label like every rail block. */}
@@ -139,14 +155,17 @@ function Gate({
           </div>
         </div>
       )}
-      {proof.said && (
-        <div key={proof.said.text} className="nt-codegate-fold is-arriving">
+      {/* Shut while another press is on its way, holding the last answer; a
+          new one is a new line, so it is announced even when it repeats. */}
+      {proof.line && (
+        <div className="nt-codegate-fold is-arriving" data-open={!!proof.said} inert={!proof.said}>
           <div className="nt-codegate-fold-body">
             <p
-              role={proof.said.problem ? "alert" : "status"}
-              className={`nt-codegate-part${proof.said.problem ? " is-problem" : ""}`}
+              key={proof.line.n}
+              role={proof.line.problem ? "alert" : "status"}
+              className={`nt-codegate-part${proof.line.problem ? " is-problem" : ""}`}
             >
-              {proof.said.text}
+              {proof.line.text}
             </p>
           </div>
         </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode, type Ref } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
@@ -87,7 +87,7 @@ function Integrations({ workspace }: { workspace: WorkspaceContainer }) {
             </li>
           ) : live.length === 0 ? (
             <li>
-              <NotInstalled workspace={workspace} edits={edits} said={said} />
+              <NotInstalled workspace={workspace} edits={edits} personal={status.allowPersonalTokens} said={said} />
             </li>
           ) : (
             <>
@@ -211,10 +211,13 @@ function Bone({ bar, className = "" }: { bar: string; className?: string }) {
 function NotInstalled({
   workspace,
   edits,
+  personal,
   said,
 }: {
   workspace: WorkspaceContainer;
   edits: boolean;
+  /** Members may link repositories with their own connection meanwhile. */
+  personal: boolean;
   said: ReactNode;
 }) {
   return (
@@ -227,7 +230,9 @@ function NotInstalled({
         <p className="nt-set-note">
           {edits
             ? `Not installed. It reads only the repositories you choose, and never writes to them, so members link ${workspace.name}’s code without a GitHub connection of their own.`
-            : "Not installed yet. Ask an owner or an admin to install it."}
+            : personal
+              ? "Not installed yet. Until an owner or admin installs it, link repositories with your own GitHub connection from any project’s Context panel."
+              : "Not installed yet, so no project here can read code. Ask an owner or an admin to install it."}
         </p>
         {said}
       </div>
@@ -386,6 +391,8 @@ function CodeAccess({
   });
   const [problem, setProblem] = useState<string | null>(null);
   const [asking, setAsking] = useState<{ kind: "rule"; org: string } | { kind: "personal" } | null>(null);
+  const trigger = useRef<{ focus: () => void }>(null);
+  const proofPress = useRef<HTMLButtonElement>(null);
 
   const personal = status.allowPersonalTokens;
   const rule = status.requireGithubOrg;
@@ -429,12 +436,16 @@ function CodeAccess({
               <Said open={personal}>
                 {installed
                   ? "Members can also link repositories the GitHub App can’t reach, using their own GitHub connection. Turned off, those repositories stop being read."
-                  : "Members link repositories with their own GitHub connection. Install the GitHub App so linked code stays readable when that person leaves."}
+                  : status.ready
+                    ? "Members link repositories with their own GitHub connection. Install the GitHub App so linked code stays readable when that person leaves."
+                    : "Members link repositories with their own GitHub connection."}
               </Said>
               <Said open={!personal}>
                 {installed
                   ? "Only the GitHub App can link repositories."
-                  : "Only the GitHub App can link repositories. It isn’t installed, so no project here can read code yet."}
+                  : status.ready
+                    ? "Only the GitHub App can link repositories. It isn’t installed, so no project here can read code yet."
+                    : "Only the GitHub App can link repositories. No project here can read code while this is off."}
               </Said>
             </div>
             <div className="nt-set-actions">
@@ -457,13 +468,15 @@ function CodeAccess({
               <div className="nt-set-name">Require GitHub organisation membership</div>
               <Said open={!!rule}>
                 Only members of <Login>{named}</Login> on GitHub can read this workspace’s code, owners
-                and admins included. Each person verifies here or from a project’s context, every two
-                weeks.
+                and admins included, and anyone who leaves it loses access at once. Each person verifies
+                here or from a project’s context every two weeks. Guests aren’t affected.
               </Said>
               <Said open={!rule}>
                 {orgs.length
                   ? "Everyone in the workspace can read its linked code. Choose an organisation to limit it to that organisation’s members."
-                  : "Available once the GitHub App is installed on an organisation."}
+                  : status.ready
+                    ? "Available once the GitHub App is installed on an organisation."
+                    : "Available once Nootles can connect to GitHub."}
               </Said>
             </div>
             <div className="nt-set-actions">
@@ -471,6 +484,7 @@ function CodeAccess({
                 label="Required GitHub organisation"
                 side="bottom"
                 align="end"
+                focusRef={trigger}
                 trigger={(t) => (
                   <button
                     {...t}
@@ -488,7 +502,9 @@ function CodeAccess({
                     <MenuItem
                       key={org ?? "off"}
                       onClick={() => {
-                        close();
+                        // An organisation asks first, in a box that takes focus as it
+                        // opens; handed back to the trigger, it would be taken from it.
+                        close(org !== null && org !== rule ? { restoreFocus: false } : undefined);
                         if (org !== rule) chooseRule(org);
                       }}
                     >
@@ -511,7 +527,7 @@ function CodeAccess({
             <div className={`nt-ws-fold${ruleAtLoad ? "" : " is-arriving"}`} data-open={!!rule} inert={!rule}>
               <div className="nt-ws-fold-body">
                 <div className="nt-ws-gh-proof-row">
-                  <ProofRow workspaceId={workspace.workspaceId} org={named} status={status} />
+                  <ProofRow workspaceId={workspace.workspaceId} org={named} status={status} pressRef={proofPress} />
                 </div>
               </div>
             </div>
@@ -539,15 +555,23 @@ function CodeAccess({
           busyAction="Saving…"
           onConfirm={async () => {
             await setOrgRule({ workspaceId: workspace.workspaceId, org: asking.org });
+            // Verifying is the next step the box promised; its press is already open.
+            (proofPress.current ?? trigger.current)?.focus();
             setAsking(null);
           }}
-          onClose={() => setAsking(null)}
+          onClose={() => {
+            trigger.current?.focus();
+            setAsking(null);
+          }}
         >
-          Everyone in {workspace.name}, you included, stops reading its code until GitHub shows
-          they’re in <Login>{asking.org}</Login>. You can verify straight after, on this page.
-          {rule && <> Everyone verified for <Login>{rule}</Login> verifies again.</>} Anyone who
-          later leaves the organisation loses access straight away; guests keep what their project
-          grants them.
+          Everyone in {workspace.name}, including you, loses access to the workspace’s code until
+          they verify they’re in <Login>{asking.org}</Login> on GitHub
+          {rule && (
+            <>
+              , even anyone verified for <Login>{rule}</Login>
+            </>
+          )}
+          . You can verify on this page right after.
         </ConfirmBox>
       )}
       {asking?.kind === "personal" && (
@@ -562,8 +586,12 @@ function CodeAccess({
           }}
           onClose={() => setAsking(null)}
         >
-          Repositories members linked with their own connection stop being read in every project.
-          {!installed && " No project here will read code until the GitHub App is installed."}
+          Repositories that members linked with their own GitHub accounts stay linked, but no
+          project reads them while this is off. Turning it back on brings them back.
+          {!installed &&
+            (status.ready
+              ? " Until the GitHub App is installed, no project here reads code."
+              : " The GitHub App can’t be set up here, so no project here reads code.")}
         </ConfirmBox>
       )}
     </section>
@@ -601,10 +629,12 @@ function ProofRow({
   workspaceId,
   org,
   status,
+  pressRef,
 }: {
   workspaceId: Id<"workspaces">;
   org: string;
   status: Status;
+  pressRef?: Ref<HTMLButtonElement>;
 }) {
   const proof = useOrgProof(workspaceId, org);
   const { passes, verifiedAt, login } = status.orgProof;
@@ -639,13 +669,16 @@ function ProofRow({
             <p className="nt-set-problem">{proof.blocker}</p>
           </Fold>
         )}
-        {proof.said && (
-          <Fold arriving key={proof.said.text}>
+        {/* Shut while another press is on its way, holding the last answer; a
+            new one is a new line, so it is announced even when it repeats. */}
+        {proof.line && (
+          <Fold arriving open={!!proof.said}>
             <p
-              role={proof.said.problem ? "alert" : "status"}
-              className={`nt-set-outcome ${proof.said.problem ? "nt-set-problem" : "nt-set-note"}`}
+              key={proof.line.n}
+              role={proof.line.problem ? "alert" : "status"}
+              className={`nt-set-outcome ${proof.line.problem ? "nt-set-problem" : "nt-set-note"}`}
             >
-              <span>{proof.said.text}</span>
+              <span>{proof.line.text}</span>
             </p>
           </Fold>
         )}
@@ -653,6 +686,7 @@ function ProofRow({
       {proof.action && (
         <div className="nt-set-actions">
           <button
+            ref={pressRef}
             type="button"
             onClick={proof.action.run}
             // Not `disabled`: a disabled button drops the focus that pressed it.

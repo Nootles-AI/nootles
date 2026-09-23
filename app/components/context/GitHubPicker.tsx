@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
+import Link from "next/link";
 import { useAction, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -9,7 +10,7 @@ import { appAndOwn, reason } from "@/app/lib/github";
 import { openConnectWindow } from "./connectWindow";
 import { PickerReading } from "./PickerReading";
 import { GitHubMark } from "./marks";
-import { installPath, useGitHubDoor, type GitHubDoor } from "./useGitHubDoor";
+import { installPath, useGitHubDoor, useIntegrationsPath, type GitHubDoor } from "./useGitHubDoor";
 import { useContainer } from "../workspaces/ContainerContext";
 
 /**
@@ -55,6 +56,7 @@ export function GitHubPicker({
 
 /** The picker's size of `GitHubAppMissing`: who can install the App, and the press that does. */
 function AppMissing({ door }: { door: Extract<GitHubDoor, { via: "shut" }> }) {
+  const settings = useIntegrationsPath(door.workspaceId);
   return (
     <div className="nt-picker p-2.5">
       {door.canInstall && (
@@ -68,11 +70,28 @@ function AppMissing({ door }: { door: Extract<GitHubDoor, { via: "shut" }> }) {
         </button>
       )}
       <p className={`nt-note${door.canInstall ? " mt-2" : ""}`}>
-        {door.unconfigured
-          ? "GitHub isn’t available yet. Nootles can’t link repositories right now."
-          : door.canInstall
-            ? "Install the GitHub App to read this workspace’s code. It reads only the repositories you choose on your organisation or account, and never writes to them."
-            : "Install the GitHub App to read this workspace’s code. Only an owner or admin can install it. Ask one of them."}
+        {door.unconfigured ? (
+          door.manages ? (
+            <>
+              This workspace links code only through the GitHub App, which can’t be set up here.
+              Turn personal GitHub connections back on in{" "}
+              {settings ? (
+                <Link href={settings} className="underline underline-offset-2 hover:text-foreground">
+                  Settings › Integrations
+                </Link>
+              ) : (
+                "Settings › Integrations"
+              )}
+              .
+            </>
+          ) : (
+            "An owner or admin turned off personal GitHub connections for this workspace. Upload files or add Notion pages instead."
+          )
+        ) : door.canInstall ? (
+          "It reads this workspace’s code: only the repositories you choose, and never writes to them."
+        ) : (
+          "The GitHub App isn’t installed. An owner or admin installs it from Settings › Integrations. Until then, upload files or add Notion pages."
+        )}
       </p>
     </div>
   );
