@@ -103,11 +103,11 @@ export function GitHubAppMissing({
         </span>
       </div>
       <h2 id={titleId} className="nt-nc-title">
-        {unconfigured ? "GitHub isn’t available in this workspace yet" : "Install the GitHub App to read this workspace’s code"}
+        {unconfigured ? "GitHub isn’t available yet" : "Install the GitHub App to read this workspace’s code"}
       </h2>
       <p className="nt-nc-note">
         {unconfigured
-          ? "The GitHub App isn’t set up on this deployment, so no repository can be linked here yet."
+          ? "Nootles can’t link repositories right now. Upload files or add Notion pages instead."
           : canInstall
             ? "Choose which repositories on your GitHub organisation or account it may read. It never writes to them."
             : "Only an owner or admin can install it. Ask one of them."}
