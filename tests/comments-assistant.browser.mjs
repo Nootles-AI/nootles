@@ -22,7 +22,7 @@ import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { chromium } from "playwright";
+import { launchBrowser } from "./comments-launch.mjs";
 
 // Nothing here reaches a provider, and nothing launched from here may try.
 for (const key of [
@@ -227,7 +227,7 @@ function outputOf(body, toolCallId) {
 
 let browser;
 try {
-  browser = await chromium.launch({ channel: "chrome", headless: true });
+  browser = await launchBrowser();
   const page = await browser.newPage({ viewport: { width: 1200, height: 900 } });
   page.on("pageerror", (error) => failures.push(`page error: ${error.message}`));
   page.on("console", (message) => {

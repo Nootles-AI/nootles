@@ -65,6 +65,14 @@ Where the code disagreed with this design, these decisions were made and are wha
     leaves out the caller.
   - Model authorship is `comment.props.via: "assistant"`. The store stamps it whenever its
     actor is the model.
+- **Testing (wave 4).** §12 runs end to end in `tests/comments-e2e.fullstack.mjs`
+  (`npm run test:comments:e2e`): a throwaway `convex-local-backend`, the real app, one browser
+  per person (owner, editor, commenter, viewer, stranger, signed-out guest, and an operator
+  standing in with a token the deployment mints). CI runs it and the other comment harnesses
+  (`comments-browser`, `comments-fullstack` jobs). Two departures from §12's wording: a
+  resolved thread is reopened with Reopen (its card has no reply box), and after a review's
+  Keep the forking client re-resolves the thread from its stored quote while clients that never
+  forked map their live range through the kept edit — they can differ by a word until reload.
 
 Original status line (22 September 2026): nothing was implemented. This document chooses the
 anchor format and the storage split, and sizes the work as five shippable pull requests.
