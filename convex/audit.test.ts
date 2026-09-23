@@ -490,6 +490,172 @@ describe("projects, pages and folders", () => {
       await one(t, workspaceId, () => member.mutation(api.trash.restore, { folders: [folderId] })),
     ).toMatchObject({ action: "folder.restore", subjectId: folderId });
   });
+
+  test("a folder's delete, its undo and its redo are one row each, whatever it holds", async () => {
+    const t = harness();
+    const { workspaceId, projectId } = await world(t);
+    const member = t.withIdentity(MEMBER);
+    const { folderId, looseId } = await t.run(async (ctx) => {
+      const row = { ownerId: MEMBER.subject, projectId, createdAt: 1 };
+      const folderId = await ctx.db.insert("folders", { ...row, title: "Specs", order: 1 });
+      const subId = await ctx.db.insert("folders", { ...row, title: "Old", order: 0, parentId: folderId });
+      for (const [i, folder] of [folderId, folderId, subId].entries()) {
+        await ctx.db.insert("pages", {
+          ...row,
+          title: `Spec ${i}`,
+          order: i,
+          folderId: folder,
+          docId: crypto.randomUUID(),
+        });
+      }
+      const looseId = await ctx.db.insert("pages", {
+        ...row,
+        title: "Loose",
+        order: 2,
+        docId: crypto.randomUUID(),
+      });
+      return { folderId, looseId };
+    });
+
+    // The sidebar's undo and redo hand back exactly what the delete marked.
+    let marked!: { pages: Id<"pages">[]; folders: Id<"folders">[] };
+    expect(
+      await one(t, workspaceId, async () => {
+        marked = await member.mutation(api.folders.remove, { folderId });
+      }),
+    ).toMatchObject({ action: "folder.delete", subjectId: folderId, meta: { folder: "Specs", pages: 3 } });
+    expect(marked.pages).toHaveLength(3);
+    expect(marked.folders).toHaveLength(2);
+
+    const whole = { action: "folder.restore", subjectId: folderId, meta: { folder: "Specs", pages: 3 } };
+    expect(await one(t, workspaceId, () => member.mutation(api.trash.restore, marked))).toMatchObject(
+      whole,
+    );
+    expect(await one(t, workspaceId, () => member.mutation(api.trash.remove, marked))).toMatchObject({
+      ...whole,
+      action: "folder.delete",
+    });
+
+    // A page of the same call that sits outside the folder is its own event.
+    await member.mutation(api.pages.remove, { pageId: looseId });
+    const before = (await log(t, workspaceId)).length;
+    await member.mutation(api.trash.restore, { ...marked, pages: [...marked.pages, looseId] });
+    const added = (await log(t, workspaceId)).slice(before);
+    expect(added.map((row) => [row.action, row.subjectId])).toEqual([
+      ["folder.restore", folderId],
+      ["page.restore", looseId],
+    ]);
+  });
+});
+
+describe("carrying out and moving", () => {
+  /** A second Acme project, and the owner's personal one, to carry into. */
+  async function places(t: T, workspaceId: Id<"workspaces">) {
+    return await t.run(async (ctx) => ({
+      opsId: await ctx.db.insert("projects", {
+        ownerId: MEMBER.subject,
+        title: "Ops",
+        createdAt: 1,
+        workspaceId,
+        visibility: "workspace",
+      }),
+      memberOwnId: await ctx.db.insert("projects", {
+        ownerId: MEMBER.subject,
+        title: "Max’s",
+        createdAt: 1,
+      }),
+    }));
+  }
+
+  test("a copy out of the workspace is one row, and says it was a copy", async () => {
+    const t = harness();
+    const { workspaceId, projectId, pageId } = await world(t);
+    const { memberOwnId } = await places(t, workspaceId);
+    expect(
+      await one(t, workspaceId, () =>
+        t.withIdentity(MEMBER).mutation(api.tree.copyTo, {
+          items: [{ kind: "page", id: pageId }],
+          projectId: memberOwnId,
+        }),
+      ),
+    ).toMatchObject({
+      action: "page.carryOut",
+      actorId: MEMBER.subject,
+      subjectKind: "page",
+      subjectId: pageId,
+      meta: { page: "Launch", to: "personal", move: false, projectId, project: "Roadmap" },
+    });
+  });
+
+  test("a move out of the workspace is one row, not a carry and a delete", async () => {
+    const t = harness();
+    const { workspaceId, pageId } = await world(t);
+    const { memberOwnId } = await places(t, workspaceId);
+    expect(
+      await one(t, workspaceId, () =>
+        t.withIdentity(MEMBER).mutation(api.tree.copyTo, {
+          items: [{ kind: "page", id: pageId }],
+          projectId: memberOwnId,
+          move: true,
+        }),
+      ),
+    ).toMatchObject({
+      action: "page.carryOut",
+      subjectId: pageId,
+      meta: { page: "Launch", to: "personal", move: true },
+    });
+  });
+
+  test("a move between two of its projects is one move, and a folder counts its pages", async () => {
+    const t = harness();
+    const { workspaceId, projectId, pageId } = await world(t);
+    const { opsId } = await places(t, workspaceId);
+    const member = t.withIdentity(MEMBER);
+    expect(
+      await one(t, workspaceId, () =>
+        member.mutation(api.tree.copyTo, {
+          items: [{ kind: "page", id: pageId }],
+          projectId: opsId,
+          move: true,
+        }),
+      ),
+    ).toMatchObject({
+      action: "page.move",
+      actorId: MEMBER.subject,
+      subjectId: pageId,
+      meta: { page: "Launch", projectId, project: "Roadmap", toProjectId: opsId, toProject: "Ops" },
+    });
+
+    const folderId = await t.run(async (ctx) => {
+      const row = { ownerId: MEMBER.subject, projectId, createdAt: 1 };
+      const folderId = await ctx.db.insert("folders", { ...row, title: "Specs", order: 1 });
+      await ctx.db.insert("pages", { ...row, title: "Spec", order: 0, folderId, docId: crypto.randomUUID() });
+      return folderId;
+    });
+    expect(
+      await one(t, workspaceId, () =>
+        member.mutation(api.tree.copyTo, {
+          items: [{ kind: "folder", id: folderId }],
+          projectId: opsId,
+          move: true,
+        }),
+      ),
+    ).toMatchObject({ action: "folder.move", subjectId: folderId, meta: { folder: "Specs", pages: 1 } });
+
+    // A copy that stays inside the workspace takes nothing out of it.
+    const [spec] = await t.run((ctx) =>
+      ctx.db
+        .query("pages")
+        .withIndex("by_project", (q) => q.eq("projectId", opsId))
+        .collect(),
+    );
+    const before = (await log(t, workspaceId)).length;
+    await member.mutation(api.tree.copyTo, {
+      items: [{ kind: "page", id: spec._id }],
+      projectId,
+    });
+    expect(await log(t, workspaceId)).toHaveLength(before);
+  });
 });
 
 describe("integrations and context", () => {
@@ -615,19 +781,11 @@ describe("billing and operators", () => {
     cancelAtPeriodEnd: false,
   };
 
-  test("checkout, a change of subscription status, and a seat sync", async () => {
+  // Checkout is an action that reaches Stripe; its row is tested beside
+  // Stripe's mock, in teamBilling.test.ts.
+  test("a change of subscription status, and a seat sync", async () => {
     const t = harness();
     const { workspaceId } = await world(t);
-    expect(
-      await one(t, workspaceId, () =>
-        t.withIdentity(ADMIN).mutation(internal.audit.recordAsCaller, {
-          workspaceId,
-          action: "billing.checkout",
-          meta: { seats: 3 },
-        }),
-      ),
-    ).toMatchObject({ action: "billing.checkout", actorId: ADMIN.subject, category: "billing" });
-
     const mirror = (status: string) =>
       t.mutation(internal.teamBilling.applyMirror, {
         workspaceId,
@@ -651,7 +809,7 @@ describe("billing and operators", () => {
       ),
     ).toMatchObject({ action: "billing.seats", actorKind: "system", meta: { from: 3, to: 4 } });
     await t.mutation(internal.teamBilling.recordSeats, { workspaceId, seats: 4 });
-    expect(await log(t, workspaceId)).toHaveLength(4);
+    expect(await log(t, workspaceId)).toHaveLength(3);
   });
 
   test("an operator's override set and cleared", async () => {
@@ -772,6 +930,46 @@ describe("edit activity", () => {
       [ADMIN.subject, 1],
       [MEMBER.subject, 2],
     ]);
+  });
+
+  test("the legacy prosemirror path counts its snapshot and its steps, and carries no text", async () => {
+    const t = harness();
+    const { workspaceId, docId, pageId, personalDocId } = await world(t);
+    const content = JSON.stringify({
+      type: "doc",
+      content: [{ type: "paragraph", content: [{ type: "text", text: PROSE }] }],
+    });
+    const legacy = async (who: Identity, id: string) => {
+      const as = t.withIdentity(who);
+      await as.mutation(api.prosemirror.submitSnapshot, { id, version: 1, content });
+      await as.mutation(api.prosemirror.submitSteps, {
+        id,
+        version: 1,
+        clientId: "c1",
+        steps: [
+          JSON.stringify({
+            stepType: "replace",
+            from: 1,
+            to: 1,
+            slice: { content: [{ type: "text", text: PROSE }] },
+          }),
+        ],
+      });
+    };
+
+    await legacy(MEMBER, docId);
+    const rows = await log(t, workspaceId);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      action: "page.edit",
+      actorId: MEMBER.subject,
+      subjectId: pageId,
+      count: 2,
+    });
+    expect(JSON.stringify(rows)).not.toContain(PROSE);
+
+    await legacy(OWNER, personalDocId);
+    expect(await log(t)).toHaveLength(1);
   });
 
   test("an edit refused writes nothing", async () => {
@@ -937,6 +1135,28 @@ describe("reading the log", () => {
     });
     expect(exported.done).toBe(true);
     expect(exported.rows.map((row) => row.action)).toEqual(["share.link.on", "member.role"]);
+  });
+
+  test("an export is narrowed on the server, as the list is", async () => {
+    const t = harness();
+    const { workspaceId } = await seeded(t);
+    const admin = t.withIdentity(ADMIN);
+    const exported = async (filters: { actorId?: string; action?: string }) =>
+      (
+        await admin.query(api.audit.exportRows, {
+          workspaceId,
+          from: 0,
+          to: NOW * 2,
+          filters,
+          cursor: null,
+        })
+      ).rows.map((row) => row.action);
+    expect(await exported({})).toEqual(["share.link.on", "member.role", "member.invite", "share.link.off"]);
+    expect(await exported({ actorId: OWNER.subject })).toEqual(["member.role"]);
+    expect(await exported({ action: "member" })).toEqual(["member.role", "member.invite"]);
+    expect(await exported({ actorId: ADMIN.subject, action: "share.link.off" })).toEqual([
+      "share.link.off",
+    ]);
   });
 });
 
