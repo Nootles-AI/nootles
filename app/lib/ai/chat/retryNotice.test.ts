@@ -1,5 +1,5 @@
-import { describe, expect, test } from "vitest";
-import { GUEST_DAY_SPENT, retryNotice } from "./retryNotice";
+import { describe, expect, test, vi } from "vitest";
+import { guestDaySpent, retryNotice } from "./retryNotice";
 
 /**
  * The chat transport hands a failed turn's body to this as the error message.
@@ -48,9 +48,22 @@ describe("a limiter outage", () => {
 
 describe("a guest's spent day", () => {
   test("says when it opens again, rather than showing the body", () => {
-    expect(retryNotice(JSON.stringify({ code: "quota", meter: "guestAi", limit: 1 }))).toBe(
-      GUEST_DAY_SPENT,
+    vi.useFakeTimers({ now: new Date("2026-09-23T15:30:00Z") });
+    try {
+      expect(retryNotice(JSON.stringify({ code: "quota", meter: "guestAi", limit: 1 }))).toBe(
+        guestDaySpent(),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("opens again at the next UTC midnight, on the reader's clock", () => {
+    const midnight = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(
+      Date.UTC(2026, 8, 24),
     );
+    expect(guestDaySpent(new Date("2026-09-23T23:59:00Z"))).toContain(midnight);
+    expect(guestDaySpent(new Date("2026-09-23T00:00:00Z"))).toContain(midnight);
   });
 });
 

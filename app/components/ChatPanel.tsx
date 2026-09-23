@@ -14,7 +14,7 @@ import { PlanWall } from "./billing/PlanWall";
 import { usePlan } from "@/app/lib/usePlan";
 import { useResumeIntent } from "@/app/lib/billing/useResumeIntent";
 import { useProjectChat } from "@/app/lib/ai/chat/useProjectChat";
-import { GUEST_DAY_SPENT } from "@/app/lib/ai/chat/retryNotice";
+import { guestDaySpent } from "@/app/lib/ai/chat/retryNotice";
 import type { AbMessage, ChatDraft } from "@/app/lib/ai/chat/types";
 import type { ReturnPoint } from "@/app/lib/ai/review/session";
 
@@ -118,7 +118,7 @@ export function ChatPanel({
    * another way that gets past this is refused by the server in the same words.
    */
   const onCompose = async (draft: ChatDraft) => {
-    if (guestSpent()) throw new Error(GUEST_DAY_SPENT);
+    if (guestSpent()) throw new Error(guestDaySpent());
     await onSend(draft);
   };
 
