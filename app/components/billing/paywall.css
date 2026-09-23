@@ -189,6 +189,17 @@
     height var(--dur-slow) var(--ease);
 }
 
+/* Leaving as a dialog leaves: the sheet drops away on the exit curve and the
+   scrim fades under it, already out of the pointer's way. */
+.nt-pw-sheet.is-closing {
+  pointer-events: none;
+  animation: nt-dialog-out var(--dur) cubic-bezier(0.7, 0, 0.84, 0) forwards;
+}
+.nt-pw-scrim.is-closing {
+  pointer-events: none;
+  animation: nt-fade-out var(--dur) var(--ease) forwards;
+}
+
 .nt-pw-sheet.is-wide {
   max-width: 560px;
 }
