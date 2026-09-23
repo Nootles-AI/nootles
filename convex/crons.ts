@@ -76,4 +76,7 @@ crons.interval(
  */
 crons.cron("report Team usage", "0 7 * * *", internal.teamBilling.reportUsage, {});
 
+/** Workspace audit events past their year (`audit.prune` goes on in batches). */
+crons.interval("prune the audit log", { hours: 24 }, internal.audit.prune, {});
+
 export default crons;
