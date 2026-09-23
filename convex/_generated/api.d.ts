@@ -62,6 +62,7 @@ import type * as http from "../http.js";
 import type * as imageMeta from "../imageMeta.js";
 import type * as impersonation from "../impersonation.js";
 import type * as impersonationMint from "../impersonationMint.js";
+import type * as joinDomains from "../joinDomains.js";
 import type * as limits from "../limits.js";
 import type * as members from "../members.js";
 import type * as migrations from "../migrations.js";
@@ -158,6 +159,7 @@ declare const fullApi: ApiFromModules<{
   imageMeta: typeof imageMeta;
   impersonation: typeof impersonation;
   impersonationMint: typeof impersonationMint;
+  joinDomains: typeof joinDomains;
   limits: typeof limits;
   members: typeof members;
   migrations: typeof migrations;

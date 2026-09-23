@@ -6,21 +6,14 @@ import { useUser } from "@clerk/nextjs";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import type { WorkspaceRole } from "@/convex/auth";
 import { homePath, joinPath, settingsPath } from "@/app/lib/containerPaths";
 import { Check, ChevronsUpDown, Plus, Settings } from "../Icons";
 import { Menu, MenuItem, MenuLink } from "../Menu";
 import { useStandIn } from "../StandIn";
 import { useContainer } from "./ContainerContext";
 import { NewWorkspace } from "./NewWorkspace";
+import { ROLE_LABEL } from "./seats";
 import "./workspaces.css";
-
-const ROLE: Record<WorkspaceRole, string> = {
-  owner: "Owner",
-  admin: "Admin",
-  member: "Member",
-  guest: "Guest",
-};
 
 /** By code point, so a name that starts with an emoji keeps it whole. */
 const initial = (name: string | null | undefined) =>
@@ -99,7 +92,7 @@ export function ContainerSwitcher({ onProblem }: { onProblem: (text: string) => 
                 key={w.workspaceId}
                 href={homePath(w.slug)}
                 name={w.name}
-                meta={ROLE[w.role]}
+                meta={ROLE_LABEL[w.role]}
                 tile={<Tile name={w.name} />}
                 current={here.kind === "workspace" && here.workspaceId === w.workspaceId}
                 close={close}

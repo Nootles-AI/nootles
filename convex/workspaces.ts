@@ -14,6 +14,7 @@ import {
   verifiedEmail,
   workspaceRole,
 } from "./auth";
+import { isPersonalDomain } from "./joinDomains";
 import { pageSummary } from "./projects";
 import { workspaceSettings } from "./schema";
 import { normalizeSlug, SLUG_TAKEN, slugProblem } from "./slugs";
@@ -30,28 +31,6 @@ import { teamsEnabledFor } from "./teamsRollout";
  */
 
 const NAME_MAX = 64;
-
-/**
- * Anyone can hold an address on these, so proving you hold one proves nothing
- * about which team you are on.
- */
-const PERSONAL_DOMAINS = new Set([
-  "gmail.com",
-  "googlemail.com",
-  "outlook.com",
-  "hotmail.com",
-  "live.com",
-  "msn.com",
-  "yahoo.com",
-  "icloud.com",
-  "me.com",
-  "mac.com",
-  "aol.com",
-  "proton.me",
-  "protonmail.com",
-  "gmx.com",
-  "mail.com",
-]);
 
 function cleanName(raw: string): string {
   const name = raw.trim();
@@ -282,7 +261,7 @@ export const updateSettings = mutation({
       const email = await verifiedEmail(ctx);
       for (const domain of next) {
         if (had.has(domain)) continue;
-        if (PERSONAL_DOMAINS.has(domain)) {
+        if (isPersonalDomain(domain)) {
           throw new ConvexError(
             `${domain} is a personal email domain: anyone could join through it.`,
           );

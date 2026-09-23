@@ -1,0 +1,123 @@
+import { atLeast, mayAssignSeat, type WorkspaceRole } from "@/convex/auth";
+
+/**
+ * What the members screens offer whom, in words.
+ *
+ * The rules are `auth.ts`'s — `mayAssignSeat` is the one the server holds
+ * every invitation, role change and removal to — and these only read them
+ * ahead of time, so a choice the server would refuse is drawn refused, with
+ * its reason, rather than offered and then refused. Nothing here decides
+ * anything the server does not decide again.
+ */
+
+export const ROLE_LABEL: Record<WorkspaceRole, string> = {
+  owner: "Owner",
+  admin: "Admin",
+  member: "Member",
+  guest: "Guest",
+};
+
+export const ROLE_HINT: Record<WorkspaceRole, string> = {
+  owner: "Runs everything, down to deleting the workspace",
+  admin: "Invites people and runs the workspace’s settings",
+  member: "Sees the workspace’s projects and makes new ones",
+  guest: "Sees only the projects shared with them",
+};
+
+/** The seats a menu offers. Guests are in the schema, not in the menus. */
+const OFFERED: readonly WorkspaceRole[] = ["owner", "admin", "member"];
+
+/** What an invitation can ask someone in as, from this screen. */
+export const INVITED = ["member", "admin"] as const;
+export type Invited = (typeof INVITED)[number];
+
+/** A role on offer, and why it is refused — null when it is not. */
+export type Choice = { role: WorkspaceRole; why: string | null };
+
+export type Person = { role: WorkspaceRole; isMe: boolean };
+
+const an = (role: WorkspaceRole) =>
+  `${role === "admin" || role === "owner" ? "an" : "a"} ${role}`;
+
+/**
+ * The roles `actor` may move `target` between, in the order the menu lists
+ * them — the one they hold included, and a guest's own seat kept on the list
+ * so it has somewhere to be ticked. `owners` is how many owners the workspace
+ * has, since the last one is never unmade.
+ */
+export function roleChoices(actor: WorkspaceRole, target: Person, owners: number): Choice[] {
+  const roles = target.role === "guest" ? [...OFFERED, "guest" as const] : OFFERED;
+  return roles.map((role) => ({ role, why: roleProblem(actor, target, role, owners) }));
+}
+
+function roleProblem(
+  actor: WorkspaceRole,
+  target: Person,
+  role: WorkspaceRole,
+  owners: number,
+): string | null {
+  if (role === target.role) return null;
+  if (target.isMe && actor !== "owner") return "You can’t change your own role.";
+  if (!mayAssignSeat(actor, target.role, role)) {
+    return atLeast(target.role, "admin")
+      ? `Only an owner can change ${an(target.role)}’s role.`
+      : `Only an owner can make someone ${an(role)}.`;
+  }
+  if (target.role === "owner" && owners < 2) {
+    return target.isMe
+      ? "You’re the only owner. Make someone else an owner first."
+      : "A workspace needs an owner. Make someone else an owner first.";
+  }
+  return null;
+}
+
+/** Why `actor` may not take `target`'s seat away, or null when they may. */
+export function removeProblem(actor: WorkspaceRole, target: WorkspaceRole): string | null {
+  return mayAssignSeat(actor, target, null) ? null : `Only an owner can remove ${an(target)}.`;
+}
+
+/** Why someone of rank `role` may not leave, or null when they may. */
+export function leaveProblem(role: WorkspaceRole, owners: number): string | null {
+  return role === "owner" && owners < 2
+    ? "You’re the only owner. Make someone else an owner first, or delete the workspace."
+    : null;
+}
+
+/** Why `actor` may not ask someone in as `role`, or null when they may. */
+export function inviteProblem(actor: WorkspaceRole, role: WorkspaceRole): string | null {
+  return mayAssignSeat(actor, null, role) ? null : `Only an owner can invite ${an(role)}.`;
+}
+
+/**
+ * Why `actor` may not withdraw or renew an invitation for `role`, or null
+ * when they may. Renewing sends the same role again, which is the same
+ * question as sending it.
+ */
+export function invitationProblem(actor: WorkspaceRole, role: WorkspaceRole): string | null {
+  return mayAssignSeat(actor, role, null)
+    ? null
+    : `Only an owner can change ${an(role)}’s invitation.`;
+}
+
+/**
+ * Who inherits what a leaving member made: the longest-standing owner who is
+ * not them, as `members.leave` picks. Null while there is nobody else.
+ */
+export function heirOf<T extends Person & { joinedAt: number }>(people: readonly T[]): T | null {
+  return (
+    people
+      .filter((p) => p.role === "owner" && !p.isMe)
+      .sort((a, b) => a.joinedAt - b.joinedAt)[0] ?? null
+  );
+}
+
+const DAY_MS = 86_400_000;
+
+/** How long an invitation has left, as the list's column says it. */
+export function expiresIn(expiresAt: number, now: number): string {
+  const left = expiresAt - now;
+  if (left <= 0) return "Expired";
+  if (left < DAY_MS) return "Today";
+  const days = Math.round(left / DAY_MS);
+  return days === 1 ? "In 1 day" : `In ${days} days`;
+}
