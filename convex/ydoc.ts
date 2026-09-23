@@ -1,10 +1,12 @@
 import { internalMutation, mutation, query } from "./_generated/server";
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import * as Y from "yjs";
 import { components, internal } from "./_generated/api";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import type { Doc } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
+import { moderatesComments, ownerId, type ProjectRole } from "./auth";
 import { ANY_CHANNEL, checkRead, checkWrite, pageForDoc } from "./prosemirror";
+import { COMMENTS_REFUSED, refuseCommentsUpdate } from "@/app/lib/comments/policy";
 import { stampProject } from "./projects";
 import { joinUpdateRows, UPDATE_CHUNK_BYTES } from "./yshape";
 
@@ -23,9 +25,10 @@ import { joinUpdateRows, UPDATE_CHUNK_BYTES } from "./yshape";
  * Access control is exactly the legacy pipeline's: `checkRead` / `checkWrite`
  * from `prosemirror.ts`, so a share link admits the same readers and an
  * editor role admits the same writers on both pipelines. This log is the one
- * pipeline that also carries a page's comments document — it never looks
- * inside an update — so it asks the gate for both channels, and the gate
- * applies each channel's own rule.
+ * pipeline that also carries a page's comments document, so it asks the gate
+ * for both channels, and the gate applies each channel's own rule. A page's
+ * update is never looked inside; a comments update is, because a commenter's
+ * bytes could otherwise sign someone else's name (`comments/policy.ts`).
  */
 
 /** Fold the log into a fresh snapshot once it holds this many updates. */
@@ -270,12 +273,74 @@ export const append = mutation({
   },
   returns: v.number(),
   handler: async (ctx, args) => {
-    await checkWrite(ctx, args.docId, ANY_CHANNEL);
+    const access = await checkWrite(ctx, args.docId, ANY_CHANNEL);
     const chunks =
       args.chunks ?? (args.update !== undefined ? [args.update] : []);
+    if (access.channel === "comments") {
+      await judgeCommentsUpdate(ctx, args.docId, chunks, access.role);
+    }
     return await appendYUpdate(ctx, args.docId, chunks);
   },
 });
+
+function joinBytes(parts: readonly ArrayBuffer[]): Uint8Array {
+  const whole = new Uint8Array(parts.reduce((n, p) => n + p.byteLength, 0));
+  let at = 0;
+  for (const part of parts) {
+    whole.set(new Uint8Array(part), at);
+    at += part.byteLength;
+  }
+  return whole;
+}
+
+/** The chunks of a row's current snapshot, in part order (the index's). */
+async function readSnapshot(ctx: QueryCtx, row: Doc<"ydocs">) {
+  if (row.snapshotParts === 0) return [];
+  return await ctx.db
+    .query("ySnapshots")
+    .withIndex("by_doc_and_gen_and_part", (q) =>
+      q.eq("docId", row.docId).eq("gen", row.snapshotSeq),
+    )
+    .collect();
+}
+
+/**
+ * Refuses, with nothing written, a comments append that `comments/policy.ts`
+ * says may not land: the update is applied to the document as stored and the
+ * states before and after are compared. A comments document is small and
+ * folds every {@link COMPACT_EVERY} appends, so all of it is read; one past
+ * the read budget is refused rather than judged on part of itself.
+ */
+async function judgeCommentsUpdate(
+  ctx: MutationCtx,
+  docId: string,
+  chunks: ArrayBuffer[],
+  role: ProjectRole | null,
+) {
+  const refused = (message: string) => new ConvexError({ code: COMMENTS_REFUSED, message });
+  const userId = await ownerId(ctx);
+  const row = await ydocRow(ctx, docId);
+  if (!userId || !row) throw new Error("Not found");
+  const snapshot = await readSnapshot(ctx, row);
+  let bytes = snapshot.reduce((n, c) => n + c.data.byteLength, 0);
+  const log: Doc<"yUpdates">[] = [];
+  for await (const update of ctx.db
+    .query("yUpdates")
+    .withIndex("by_doc_and_seq", (q) => q.eq("docId", docId).gt("seq", row.snapshotSeq))) {
+    log.push(update);
+    bytes += update.update.byteLength;
+    if (bytes > READ_BUDGET) throw refused("These comments are too large to change.");
+  }
+  const state = [
+    ...(snapshot.length ? [joinBytes(snapshot.map((c) => c.data))] : []),
+    ...joinUpdateRows(log).map((u) => u.update),
+  ];
+  const refusal = refuseCommentsUpdate(state, joinBytes(chunks), {
+    userId,
+    moderator: moderatesComments(role),
+  });
+  if (refusal) throw refused(refusal.message);
+}
 
 /**
  * The append itself, after authorization: one merged update (already split
@@ -407,6 +472,44 @@ export async function registerYDoc(
 }
 
 /**
+ * Deletes a document's every row — snapshot chunks, log, then the `ydocs` row
+ * itself — once whatever named it is gone. One bite per transaction, measured
+ * in bytes as the readers are (a delete reads the row it removes), and
+ * rescheduled until nothing is left. Callers schedule it from their own purge.
+ */
+export const purge = internalMutation({
+  args: { docId: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    let bytes = 0;
+    const doomed: Array<Id<"ySnapshots"> | Id<"yUpdates">> = [];
+    const room = () => bytes < READ_BUDGET && doomed.length < MAX_ROWS;
+    for await (const chunk of ctx.db
+      .query("ySnapshots")
+      .withIndex("by_doc_and_gen_and_part", (q) => q.eq("docId", args.docId))) {
+      if (!room()) break;
+      doomed.push(chunk._id);
+      bytes += chunk.data.byteLength;
+    }
+    for await (const update of ctx.db
+      .query("yUpdates")
+      .withIndex("by_doc_and_seq", (q) => q.eq("docId", args.docId))) {
+      if (!room()) break;
+      doomed.push(update._id);
+      bytes += update.update.byteLength;
+    }
+    await Promise.all(doomed.map((id) => ctx.db.delete(id)));
+    if (!room()) {
+      await ctx.scheduler.runAfter(0, internal.ydoc.purge, args);
+      return null;
+    }
+    const row = await ydocRow(ctx, args.docId);
+    if (row) await ctx.db.delete(row._id);
+    return null;
+  },
+});
+
+/**
  * A document's whole stored state, rebuilt — for the rare server read that
  * must know what a document says rather than relay its bytes. Null when there
  * is no such document, or when snapshot and log together outweigh one read.
@@ -464,15 +567,7 @@ export const compact = internalMutation({
     const row = await ydocRow(ctx, args.docId);
     if (!row || args.targetSeq <= row.snapshotSeq) return null;
 
-    const oldChunks =
-      row.snapshotParts > 0
-        ? await ctx.db
-            .query("ySnapshots")
-            .withIndex("by_doc_and_gen_and_part", (q) =>
-              q.eq("docId", args.docId).eq("gen", row.snapshotSeq),
-            )
-            .collect()
-        : [];
+    const oldChunks = await readSnapshot(ctx, row);
     // As much of the log as fits beside the old snapshot, no more: a doc whose
     // updates outweigh one read is folded over several passes, each one a
     // whole transaction that leaves a usable snapshot behind. Folding all of
@@ -537,16 +632,7 @@ export const compact = internalMutation({
     const doc = new Y.Doc({ gc: true });
     // The old snapshot's chunks are byte slices of ONE encoded update —
     // rejoined before applying, half of one is not a smaller snapshot.
-    const ordered = [...oldChunks].sort((a, b) => a.part - b.part);
-    if (ordered.length) {
-      const whole = new Uint8Array(ordered.reduce((n, c) => n + c.data.byteLength, 0));
-      let at = 0;
-      for (const chunk of ordered) {
-        whole.set(new Uint8Array(chunk.data), at);
-        at += chunk.data.byteLength;
-      }
-      Y.applyUpdate(doc, whole);
-    }
+    if (oldChunks.length) Y.applyUpdate(doc, joinBytes(oldChunks.map((c) => c.data)));
     // Joined before applying: a chunked update's rows are byte slices, not
     // updates, and half of one is not a smaller edit — it is garbage.
     for (const u of joinUpdateRows(folded)) {

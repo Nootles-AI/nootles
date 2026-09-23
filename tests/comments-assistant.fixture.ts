@@ -70,6 +70,8 @@ export function useCommentsDoc(_pageId: string, { canComment }: { canComment: bo
     status: doc ? "ready" : "absent",
     ...(doc ? { docId: "comments-doc", doc } : {}),
     threads,
+    refusal: null,
+    dismissRefusal: () => {},
     ensure,
   };
 }

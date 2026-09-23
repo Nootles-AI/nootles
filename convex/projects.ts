@@ -1,4 +1,4 @@
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import { mutation, query } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -386,6 +386,18 @@ export const remove = mutation({
 });
 
 /**
+ * Schedules the page's comments document out of the Yjs tables. Its rows are
+ * keyed by an id nothing else names and can outweigh one transaction, so
+ * `ydoc.purge` takes them in bites. The page document's own rows are not
+ * purged here or anywhere yet — a gap older than comments.
+ */
+export async function purgeCommentsDoc(ctx: MutationCtx, page: Doc<"pages">) {
+  if (page.commentsDocId) {
+    await ctx.scheduler.runAfter(0, internal.ydoc.purge, { docId: page.commentsDocId });
+  }
+}
+
+/**
  * The hard cascade, now the purge's. The hierarchy is bounded (project → page
  * → its substrate rows) so this terminates, but it is a lot of rows: a very
  * large project could approach Convex's per-mutation write limit, at which
@@ -407,6 +419,7 @@ export async function purgeProject(ctx: MutationCtx, projectId: Id<"projects">) 
       }
 
       await deletePreview(ctx, page.docId);
+      await purgeCommentsDoc(ctx, page);
       await ctx.db.delete(page._id);
     }
 

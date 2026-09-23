@@ -44,8 +44,8 @@ Where the code disagreed with this design, these decisions were made and are wha
   - The comments document is born server-side: `comments.ensureDoc` mints `commentsDocId`
     and writes its empty NML root as update #1 through `ydoc.registerYDoc`, so no two
     clients ever race to create the root.
-  - The gate's channels default to the page document alone; only the content-blind Yjs log
-    (`ydoc.ts`) accepts both. Presence, previews, the context digest, the NML migrator and
+  - The gate's channels default to the page document alone; only the Yjs log (`ydoc.ts`)
+    accepts both (and, since the final review, judges what a comments append changes; below). Presence, previews, the context digest, the NML migrator and
     the legacy ProseMirror sync API therefore refuse a comments docId without special cases.
   - `ydoc.init` stays document-channel only.
   - `MentionPick` has no person kind yet (wave 1).
@@ -95,6 +95,13 @@ Where the code disagreed with this design, these decisions were made and are wha
     therefore redrawn by stage 2 or 3 on each load until another client next edits, rather
     than rewritten on a guess; readers without an editor (the panel's fallback, the digest)
     see the stored anchor until then.
+  - The same holds for a range another client's edit took away: only the client that made
+    an edit settles it (orphan, fuzzy rewrite, re-home); a replica the edit reached from
+    elsewhere holds what it finds like a first sight. Found on CI: a cut and paste's other
+    half arrived late at a reader, whose settle wrote an orphan mark that landed after the
+    editor's re-home and stuck (`orphanedAt` on a re-homed thread).
+  - `authors` answers keep the last known names on the cards while a new signer's question is
+    in flight, so a resolve or a new author does not blank every name for a round trip.
   - With `authors` no longer the roster, a viewer's card highlights an `@name` only for
     someone who signed a comment on the page (commenters still have `mentionable`'s names).
 - **Review fixes (the assistant's comments).**
@@ -129,6 +136,48 @@ Where the code disagreed with this design, these decisions were made and are wha
     comments on, a role the comments channel admits), used by `comments.docFor` and the
     people queries; the comments channel of the docId gate uses its `commentsProject` part,
     and `requireCommentable` now says "turned off" itself (one `COMMENTS_OFF`).
+
+- **The server judges comments appends (operator decision, after the final review).** This
+  reverses §2 and §5's "nothing needs to inspect the bytes" for the comments channel only. The
+  channel gate decides who may write; it cannot decide *what*, and the review showed what that
+  leaves open: a commenter's raw `ydoc.append` could sign a comment with someone else's
+  `authorId` or `via`, rewrite or delete other people's comments, resolve in another's name, or
+  write a root that no longer decodes and so hides every comment on the page. The operator chose
+  server-side validation over living with that. `ydoc.append` on a comments docId now applies
+  the update to the stored document (snapshot plus log) and compares the states before and after
+  by NML block id (`app/lib/comments/policy.ts`); a refused append throws a `ConvexError`
+  `{code: "comments_refused", message}` and persists nothing. The page channel is unchanged:
+  its bytes are never read.
+  - The result must decode as the same comments document and validate, holding no root but
+    `nml` and the executor's `nmlCommandReceipts`. `thread_resolution` is the one issue let
+    through, because honest concurrent resolve/reopen merge into it and the store's repair heals
+    it. An update whose structs depend on state the server lacks is refused, since it would
+    otherwise land unjudged later.
+  - A comment is written only in the caller's own name. The assistant writes as the signed-in
+    person, so `via: "assistant"` with the caller's `authorId` passes. Only a comment's author
+    changes its words, stamps, `via` or thread. Owners and editors cannot rewrite anyone's
+    words, as in Docs.
+  - A comment or thread is removed by its author (a thread's author is its first comment's) or
+    by an owner or editor (`auth.moderatesComments`). A thread's opening comment cannot be
+    swapped. Whoever may remove something may put it back unchanged, which is what undoing a
+    deletion writes.
+  - Anchor writes (`anchor`, `ambiguous`, `orphanedAt`), resolve, reopen and the store's
+    `comments.repair` are open to every commenter. A resolution must carry the caller's name
+    unless it puts back one the thread really had, which is what undoing a reopen (or a reply
+    that reopened) writes. That history is read off the Yjs item chain, so once a compaction has
+    collected it, an undo that far back is refused.
+  - Cost: one replay and two decodes per comments append. A 200-thread document (430 KB) is
+    judged in about 28 ms, and the whole append takes about 32 ms under `convex-test`. A comments
+    document heavier than the log's read budget is refused rather than judged in part.
+  - A client whose append is refused cannot retry it, and its Y.Doc now holds changes the server
+    will never have. `YConvexProvider` therefore swaps in a fresh doc synced from the server and
+    keeps the reason. Only this error code does that; any other failure still retries. The
+    comment layer shows the reason in a dismissable pill until the next change lands.
+- **Purging a page or project deletes its comments document.** `removePageCascade` and
+  `purgeProject` schedule `ydoc.purge` for `page.commentsDocId`. It deletes the snapshot chunks
+  and log in byte-bounded bites, rescheduling itself, and then the `ydocs` row. The page
+  document's own Yjs rows are still left behind by both purges. That gap predates comments and
+  is untouched here.
 
 Original status line (22 September 2026): nothing was implemented. This document chooses the
 anchor format and the storage split, and sizes the work as five shippable pull requests.

@@ -30,7 +30,8 @@ import {
   type NmlTransactionOrigin,
 } from "./yjs";
 
-const RECEIPTS_ROOT = "nmlCommandReceipts";
+/** The root the executor keeps its idempotency receipts in, beside the NML root. */
+export const NML_RECEIPTS_ROOT = "nmlCommandReceipts";
 
 export type NmlAnchor = { beforeId?: string; afterId?: string };
 export type NmlRange = { from: number; to: number };
@@ -1656,7 +1657,7 @@ function executePlainTextFast(
   if (root.get("documentId") !== options.documentId) {
     conflict("document_mismatch", "Authorized document does not match canonical state.");
   }
-  const receipts = options.doc.getMap<string>(RECEIPTS_ROOT);
+  const receipts = options.doc.getMap<string>(NML_RECEIPTS_ROOT);
   const rawFingerprint = fingerprint(options.commands);
   const prior = receipts.get(options.idempotencyKey);
   if (prior) {
@@ -1711,7 +1712,7 @@ export async function executeNmlCommands(
       "document_mismatch",
       "Authorized document does not match canonical state.",
     );
-  const receipts = options.doc.getMap<string>(RECEIPTS_ROOT);
+  const receipts = options.doc.getMap<string>(NML_RECEIPTS_ROOT);
   const prior = receipts.get(options.idempotencyKey);
   const rawFingerprint = fingerprint(options.commands);
   if (prior) {

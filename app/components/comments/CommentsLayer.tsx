@@ -99,8 +99,12 @@ export function CommentsLayer({ linked, children }: { linked: boolean; children:
   const canComment = Boolean(comments?.access.canComment && userId);
   const threads = comments?.threads;
   const named = useMemo(() => signers(threads ?? [], userId), [threads, userId]);
-  const authors =
-    useQuery(api.commentNotices.authors, pageId && canRead && userId ? { pageId, userIds: named } : "skip") ?? NO_PEOPLE;
+  const signed = useQuery(api.commentNotices.authors, pageId && canRead && userId ? { pageId, userIds: named } : "skip");
+  // A new signer changes the question; until it is answered the names already
+  // known stay on the cards rather than every one of them blinking out.
+  const [heldAuthors, setHeldAuthors] = useState<Person[]>(NO_PEOPLE);
+  if (signed !== undefined && signed !== heldAuthors) setHeldAuthors(signed);
+  const authors = signed ?? heldAuthors;
   const mentionable = useQuery(api.commentNotices.mentionable, pageId && canComment ? { pageId } : "skip") ?? NO_PEOPLE;
 
   const [draft, setDraft] = useState<SelectedWords | null>(null);
@@ -116,6 +120,7 @@ export function CommentsLayer({ linked, children }: { linked: boolean; children:
     setDraft(null);
     setPanel({ open: false, expanded: null });
     setNotices(NO_NOTICES);
+    setHeldAuthors(NO_PEOPLE);
   }
 
   const { margin, orphaned, resolved } = useMemo(() => {
@@ -370,6 +375,14 @@ export function CommentsLayer({ linked, children }: { linked: boolean; children:
         />
       )}
       {readOnly && selection && !draft && view && <SelectionAffordance view={view} selection={selection} onComment={start} />}
+      {comments?.refusal && canRead && (
+        <div className="nt-update nt-comment-refused" role="alert">
+          <span>Your comment change was not saved. {comments.refusal}</span>
+          <button className="nt-update-x" aria-label="Dismiss" onClick={comments.dismissRefusal}>
+            ×
+          </button>
+        </div>
+      )}
       {(panel.open || (draft && mode === "dots")) && ctx && canRead && view && (
         <CommentsPanel
           view={view}

@@ -3,6 +3,7 @@ import type { ConvexHttpClient } from "convex/browser";
 import { readYDocUpdates } from "../app/lib/sync/ydocRead";
 import { readThreads } from "../app/lib/comments/store";
 import { commentText } from "../app/lib/comments/types";
+import { comment, run, updateOf } from "../app/lib/comments/updates.fixture";
 import { decodeNmlDocument } from "../app/lib/nml/yjs";
 import { serializeDocument } from "../app/lib/nml/serialize";
 
@@ -65,6 +66,20 @@ export async function storedBlocks(client: ConvexHttpClient, docId: string): Pro
   walk(doc.getXmlFragment("prosemirror"));
   doc.destroy();
   return blocks;
+}
+
+/**
+ * A reply to `threadId` signed with `authorId`'s name, built on the stored
+ * comments document with the executor alone — no store to insist on the
+ * caller's own name, as a hostile client would build it.
+ */
+export async function forgedReply(client: ConvexHttpClient, docId: string, threadId: string, authorId: string, text: string): Promise<ArrayBuffer> {
+  const doc = await stored(client, docId);
+  const update = await updateOf(doc, () =>
+    run(doc, authorId, [{ type: "insertNodes", parentId: threadId, nodes: [comment(`forged-${threadId}`, authorId, text)] }]),
+  );
+  doc.destroy();
+  return update;
 }
 
 /** A well-formed update no app surface would write: what a raw `ydoc.append` carries. */

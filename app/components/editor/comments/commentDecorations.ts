@@ -44,7 +44,10 @@ import type { Thread } from "@/app/lib/comments/types";
  *   paste, so a range deleted by an edit is re-resolved at once for display
  *   only; what it resolves to — an orphan, a fuzzy twin, a re-home — is
  *   decided and written by the settle pass that follows the edits by
- *   `SETTLE_MS`.
+ *   `SETTLE_MS`, on the client that made them. A replica the edit reached
+ *   from elsewhere holds what it finds, as for a first sight (below): its
+ *   other half may still be on the way, and a stale orphan mark landing after
+ *   the editor's re-home would stick.
  * - **What another client's thread resolves to here is not written on first
  *   sight.** The page and its comments sync separately, so a thread can arrive
  *   before the words it quotes. A first sight that would write — a fuzzy
@@ -308,6 +311,7 @@ function apply(tr: Transaction, prev: CommentsState): CommentsState {
 
   if (tr.docChanged) {
     const { maps, exact } = mapsOf(tr);
+    const remote = isRemote(tr);
     // The words a new stored anchor quotes come from another client.
     if (!exact && !forked) for (const id of awaiting) toFollow.add(id);
     if (draft) {
@@ -332,17 +336,22 @@ function apply(tr: Transaction, prev: CommentsState): CommentsState {
       tracked.set(id, { ...entry, range });
       // The fork's text is a proposal: a range it took away waits for the answer.
       if (forked) continue;
-      // Mid-edit, a match elsewhere may be a phrase's twin while the phrase
-      // itself is on the clipboard: shown, but written only once edits pause.
       if (!range || (!exact && straddles(entry.range, maps))) {
-        toResolve.set(id, "display");
-        if (!unsettled.has(id)) unsettled = new Set(unsettled).add(id);
+        // Another client's edit is theirs to settle: its other half (the paste
+        // after a cut) may not be here yet, so what it leaves is only held.
+        if (remote) toResolve.set(id, "probe");
+        // Mid-edit, a match elsewhere may be a phrase's twin while the phrase
+        // itself is on the clipboard: shown, but written only once edits pause.
+        else {
+          toResolve.set(id, "display");
+          if (!unsettled.has(id)) unsettled = new Set(unsettled).add(id);
+        }
       }
     }
     // The words a held answer was missing may be what just arrived. Only
     // another client's change counts: an undo or a fork swap replaces the
     // whole document too, and brings nothing this replica lacked.
-    if (!forked && isRemote(tr)) for (const id of unconfirmed.keys()) if (!edited.has(id)) toResolve.set(id, "tick");
+    if (!forked && remote) for (const id of unconfirmed.keys()) if (!edited.has(id)) toResolve.set(id, "tick");
   }
 
   if (meta?.threads) {

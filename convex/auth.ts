@@ -5,7 +5,7 @@ import type { QueryCtx } from "./_generated/server";
 import { commentsEnabled } from "./entitlements";
 import { channelAdmits, claimRole, type ProjectRole } from "./roles";
 
-export { channelAdmits, claimRole, hasLiveLink, type DocChannel, type ProjectRole } from "./roles";
+export { channelAdmits, claimRole, hasLiveLink, moderatesComments, type DocChannel, type ProjectRole } from "./roles";
 
 /**
  * All tenancy lives here: every row carries the Clerk subject that created it,

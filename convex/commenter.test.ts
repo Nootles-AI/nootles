@@ -10,6 +10,7 @@ import componentSchema from "../node_modules/@convex-dev/prosemirror-sync/src/co
 import { joinUpdateRows } from "./yshape";
 import { decodeNmlDocument, executeNmlCommands, type NmlBlock } from "@/app/lib/nml";
 import { threadsOf } from "@/app/lib/comments/types";
+import { noChange } from "@/app/lib/comments/updates.fixture";
 
 /**
  * The commenter role (docs/commenting-plan.md §5, PR 3), driven the way a
@@ -550,7 +551,7 @@ describe("the gate, end to end with a real claim", () => {
     const w = await commented(t);
     const docId = await t.withIdentity(ADA).mutation(api.comments.ensureDoc, { pageId: w.pageId });
     // Admitted on the comments channel...
-    await t.withIdentity(ADA).mutation(api.ydoc.append, { docId, update: textUpdate("thread") });
+    await t.withIdentity(ADA).mutation(api.ydoc.append, { docId, update: noChange() });
     // ...and refused on the document channel, whatever the bytes are.
     await expect(
       t.withIdentity(ADA).mutation(api.ydoc.append, { docId: w.docId, update: textUpdate("edit") }),
@@ -634,7 +635,7 @@ describe("the gate, end to end with a real claim", () => {
     const w = await commented(t);
     await on(t, w, "viewer");
     const docId = await t.withIdentity(ADA).mutation(api.comments.ensureDoc, { pageId: w.pageId });
-    await t.withIdentity(ADA).mutation(api.ydoc.append, { docId, update: textUpdate("a") });
+    await t.withIdentity(ADA).mutation(api.ydoc.append, { docId, update: noChange() });
 
     await off(t, w, "commenter");
     await expect(

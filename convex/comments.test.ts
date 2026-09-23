@@ -1,8 +1,8 @@
 /// <reference types="vite/client" />
 import { convexTest, type TestConvex } from "convex-test";
-import { describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import * as Y from "yjs";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
 import { channelAdmits, type DocChannel, type ProjectRole } from "./auth";
@@ -15,6 +15,7 @@ import componentSchema from "../node_modules/@convex-dev/prosemirror-sync/src/co
 import { joinUpdateRows } from "./yshape";
 import { decodeNmlDocument, executeNmlCommands, type NmlBlock } from "@/app/lib/nml";
 import { threadsOf } from "@/app/lib/comments/types";
+import { startThread } from "@/app/lib/comments/updates.fixture";
 
 /**
  * The comments channel (docs/commenting-plan.md §5): a page's second Yjs
@@ -337,15 +338,16 @@ describe("the comments channel on the Yjs pipeline", () => {
     const t = harness();
     const w = await world(t);
     const docId = await mint(t, w);
+    const replica = await stored(t, docId);
     await expect(
-      t.withIdentity(OWNER).mutation(api.ydoc.append, { docId, update: textUpdate("o") }),
+      t.withIdentity(OWNER).mutation(api.ydoc.append, { docId, update: await startThread(replica, OWNER.subject, "t1") }),
     ).resolves.toBe(2);
     await expect(
-      t.withIdentity(EDITOR).mutation(api.ydoc.append, { docId, update: textUpdate("e") }),
+      t.withIdentity(EDITOR).mutation(api.ydoc.append, { docId, update: await startThread(replica, EDITOR.subject, "t2") }),
     ).resolves.toBe(3);
     for (const who of [VIEWER, STRANGER]) {
       await expect(
-        t.withIdentity(who).mutation(api.ydoc.append, { docId, update: textUpdate("x") }),
+        t.withIdentity(who).mutation(api.ydoc.append, { docId, update: await startThread(replica, who.subject, `t-${who.subject}`) }),
       ).rejects.toThrow("Not found");
     }
     await expect(t.mutation(api.ydoc.append, { docId, update: textUpdate("x") })).rejects.toThrow("Not found");
@@ -395,8 +397,9 @@ describe("the comments channel on the Yjs pipeline", () => {
     const t = harness();
     const w = await world(t);
     const docId = await mint(t, w);
+    const replica = await stored(t, docId);
     for (let i = 0; i < 3; i++) {
-      await t.withIdentity(OWNER).mutation(api.ydoc.append, { docId, update: textUpdate(`c${i}`) });
+      await t.withIdentity(OWNER).mutation(api.ydoc.append, { docId, update: await startThread(replica, OWNER.subject, `t${i}`) });
     }
     const { page, project } = await t.run(async (ctx) => ({
       page: await ctx.db.get(w.pageId),
@@ -623,6 +626,83 @@ describe("the page lifecycle", () => {
       await removePageCascade(ctx, page!);
     });
     await expect(t.withIdentity(OWNER).query(api.ydoc.meta, { docId })).rejects.toThrow("Not found");
+  });
+});
+
+describe("purging takes the comments document's rows with it", () => {
+  afterEach(() => void vi.useRealTimers());
+
+  /** Rows for a doc: its `ydocs` row, `updates` log rows and `chunks` snapshot parts. */
+  async function seedDoc(t: TestConvex<typeof schema>, docId: string, updates: number, chunks = 0) {
+    await t.run(async (ctx) => {
+      await ctx.db.insert("ydocs", { docId, seq: updates, snapshotSeq: 0, snapshotParts: chunks, updatedAt: 1 });
+      for (let seq = 1; seq <= updates; seq++) await ctx.db.insert("yUpdates", { docId, seq, update: textUpdate(`u${seq}`) });
+      for (let part = 0; part < chunks; part++) {
+        await ctx.db.insert("ySnapshots", { docId, gen: 0, part, data: textUpdate(`s${part}`) });
+      }
+    });
+  }
+
+  async function rowsOf(t: TestConvex<typeof schema>, docId: string) {
+    return await t.run(async (ctx) => {
+      const count = async (table: "ydocs" | "yUpdates" | "ySnapshots") =>
+        (await ctx.db.query(table).filter((q) => q.eq(q.field("docId"), docId)).collect()).length;
+      return [await count("ydocs"), await count("yUpdates"), await count("ySnapshots")];
+    });
+  }
+
+  async function commentedPage(t: TestConvex<typeof schema>, projectId: Id<"projects">, updates: number) {
+    const commentsDocId = crypto.randomUUID();
+    const docId = crypto.randomUUID();
+    const pageId = await t.run(async (ctx) =>
+      ctx.db.insert("pages", { ownerId: OWNER.subject, projectId, title: "", order: 1, docId, commentsDocId, createdAt: 1 }),
+    );
+    await seedDoc(t, commentsDocId, updates, 2);
+    await seedDoc(t, docId, 3);
+    return { pageId, docId, commentsDocId };
+  }
+
+  test("a page's purge deletes its comments document in bites, and nothing else's", async () => {
+    vi.useFakeTimers();
+    const t = harness();
+    const w = await world(t);
+    const doomed = await commentedPage(t, w.projectId, 1200);
+    const kept = await commentedPage(t, w.projectId, 4);
+
+    await t.run(async (ctx) => removePageCascade(ctx, (await ctx.db.get(doomed.pageId))!));
+    // The first bite leaves the rest to a rescheduled one.
+    await t.mutation(internal.ydoc.purge, { docId: doomed.commentsDocId });
+    expect((await rowsOf(t, doomed.commentsDocId))[1]).toBeGreaterThan(0);
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+    expect(await rowsOf(t, doomed.commentsDocId)).toEqual([0, 0, 0]);
+    expect(await rowsOf(t, kept.commentsDocId)).toEqual([1, 4, 2]);
+    expect(await rowsOf(t, kept.docId)).toEqual([1, 3, 0]);
+    // The page document's own rows are not purged — a gap older than comments.
+    expect(await rowsOf(t, doomed.docId)).toEqual([1, 3, 0]);
+  });
+
+  test("a project's purge deletes every page's comments document, and no other project's", async () => {
+    vi.useFakeTimers();
+    const t = harness();
+    const w = await world(t);
+    const pages = [await commentedPage(t, w.projectId, 5), await commentedPage(t, w.projectId, 600)];
+    const other = await world(t);
+    const elsewhere = await commentedPage(t, other.projectId, 5);
+
+    await t.run(async (ctx) => purgeProject(ctx, w.projectId));
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+    for (const page of pages) expect(await rowsOf(t, page.commentsDocId)).toEqual([0, 0, 0]);
+    expect(await rowsOf(t, elsewhere.commentsDocId)).toEqual([1, 5, 2]);
+  });
+
+  test("a page that never had comments schedules nothing", async () => {
+    const t = harness();
+    const w = await world(t);
+    await t.run(async (ctx) => removePageCascade(ctx, (await ctx.db.get(w.pageId))!));
+    const scheduled = await t.run(async (ctx) => ctx.db.system.query("_scheduled_functions").collect());
+    expect(scheduled).toHaveLength(0);
   });
 });
 

@@ -40,12 +40,12 @@ import { commentText, threadsOf, type CommentAnchor, type Thread } from "./types
  *   reply alone.
  * - **Replying to a resolved thread reopens it**, as in Docs, in the same
  *   transaction.
- * - **Only a comment's author may edit or delete it.** That is this client's
- *   manners, not a security boundary: comment bytes are client-written and
- *   the server never reads them, so `authorId` is not proof of anything.
- *   `deleteThread` carries no author rule — who may remove a whole
- *   discussion depends on the viewer's role, which the caller knows and this
- *   module does not.
+ * - **Only a comment's author may edit or delete it.** Said here so an honest
+ *   client never writes what the server would refuse; the server enforces it
+ *   (`policy.ts`, judged by `ydoc.append`), and also lets an owner or editor
+ *   delete what is not theirs. `deleteThread` carries no author rule — who
+ *   may remove a whole discussion depends on the viewer's role, which the
+ *   caller knows and this module does not.
  * - **The assistant's comments say so.** A store whose actor is the model
  *   stamps every comment it writes `via: "assistant"`; the author is still
  *   the person it acts for, as the transaction's origin already records.

@@ -428,3 +428,9 @@
 .nt-comment-track > [hidden] {
   display: none;
 }
+
+/* A change the server refused, already undone: the update pill's shape, and
+   wide enough for the server's one sentence of why. */
+.nt-comment-refused {
+  max-width: min(92vw, 560px);
+}
