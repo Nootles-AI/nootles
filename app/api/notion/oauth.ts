@@ -1,3 +1,5 @@
+import { returnPath } from "@/app/lib/returnPath";
+
 /**
  * The three facts both halves of the Notion OAuth dance need to agree on.
  *
@@ -84,7 +86,11 @@ export async function exchangeCode(
  */
 export type FailureReason = "state" | "no_code" | "exchange" | "unconfigured";
 
-/** Only ever bounce back inside this app, whatever the cookie says. */
+/**
+ * Only ever bounce back inside this app, whatever the cookie says — judged by
+ * where the value resolves, since `/\host` and `/<tab>/host` start with one
+ * slash and still land on another host.
+ */
 export function safeReturn(value: string | undefined): string {
-  return value && value.startsWith("/") && !value.startsWith("//") ? value : "/";
+  return value?.startsWith("/") ? returnPath(value) : "/";
 }
