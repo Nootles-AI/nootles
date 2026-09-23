@@ -31,8 +31,13 @@ const ACTION = /^[a-z][a-zA-Z]*(\.[a-z][a-zA-Z]*)+$/;
 const ID = /^[A-Za-z0-9_:.-]{1,128}$/;
 const KEY = /^[a-z][a-zA-Z0-9]{0,31}$/;
 
+/** The log's identifier rule, for callers that take an id from a client. */
+export function isAuditId(value: string): boolean {
+  return ID.test(value);
+}
+
 function assertId(value: string, what: string): void {
-  if (!ID.test(value)) throw new Error(`Audit ${what} is not an identifier.`);
+  if (!isAuditId(value)) throw new Error(`Audit ${what} is not an identifier.`);
 }
 
 export async function recordAudit(
