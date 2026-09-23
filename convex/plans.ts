@@ -65,3 +65,14 @@ export const PLAN_OVERRIDE = "plan";
 export function utcDay(ms: number): string {
   return new Date(ms).toISOString().slice(0, 10);
 }
+
+/**
+ * Whether a guest's day of a workspace's AI is spent as of `now`. A day
+ * counted before midnight says nothing about the day after it.
+ */
+export function guestDaySpent(
+  allowance: { day: string; capUsd: number; spentUsd: number } | null | undefined,
+  now: number,
+): boolean {
+  return !!allowance && allowance.day === utcDay(now) && allowance.spentUsd >= allowance.capUsd;
+}

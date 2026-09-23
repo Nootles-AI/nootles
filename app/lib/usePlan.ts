@@ -6,6 +6,7 @@ import { ConvexError } from "convex/values";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { Entitlement, Meter } from "@/convex/entitlements";
+import { guestDaySpent } from "@/convex/plans";
 
 /**
  * What this account may do, live.
@@ -41,6 +42,10 @@ export function usePlan(projectId?: Id<"projects"> | null) {
     [entitlement],
   );
 
+  const guestAi = standing?.guestAi ?? null;
+  /** A guest's day of the workspace's AI is spent — asked at the moment of asking. */
+  const guestSpent = useCallback(() => guestDaySpent(guestAi, Date.now()), [guestAi]);
+
   return useMemo(
     () => ({
       entitlement,
@@ -48,8 +53,9 @@ export function usePlan(projectId?: Id<"projects"> | null) {
       pro: entitlement ? entitlement.plan === "pro" : undefined,
       left: entitlement?.left ?? null,
       room,
+      guestSpent,
     }),
-    [entitlement, room],
+    [entitlement, room, guestSpent],
   );
 }
 
