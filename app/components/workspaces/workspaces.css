@@ -360,25 +360,41 @@
 }
 
 /* ---- Members, on the home ----------------------------------------------------
-   Who is in the workspace, as the presence pile draws people, and the way to
-   the list of them. Pointing at it fans the faces apart a little, as if to
-   show there are people behind the first: each moves out toward the title by
-   its place from the end (`--k`), so the pile spreads into the gap on its
-   left and its own box, which the header is laid out by, never changes. */
+   Who else is in the workspace, as the presence pile draws people, and the way
+   to the list of them. It is a link, so it washes under the pointer as the
+   header's other controls do; each face's page-coloured ring takes the wash's
+   colour with it, so the faces stay cut out of the pill rather than haloed.
+   Pointing at it also fans the faces apart a little, as if to show there are
+   people behind the first: each moves out toward the title by its place from
+   the end (`--k`), so the pile spreads into the gap on its left and its own
+   box, which the header is laid out by, never changes. */
 
 .nt-ws-pile {
+  --nt-ws-ring: var(--background);
   display: flex;
   align-items: center;
   height: var(--control);
   padding-inline: 4px;
   border-radius: 999px;
+  transition: background var(--dur-fast) var(--ease);
+}
+.nt-ws-pile:hover {
+  --nt-ws-ring: color-mix(in srgb, var(--foreground) 5%, var(--background));
+  background: var(--hover);
+}
+.nt-ws-pile:active {
+  --nt-ws-ring: color-mix(in srgb, var(--foreground) 8%, var(--background));
+  background: var(--active);
 }
 /* Its seat, held while the people are on their way. */
 .nt-ws-pile.is-waiting {
   width: var(--control);
 }
 .nt-ws-pile .nt-face {
-  transition: translate var(--dur-slow) var(--ease);
+  box-shadow: 0 0 0 2px var(--nt-ws-ring);
+  transition:
+    translate var(--dur-slow) var(--ease),
+    box-shadow var(--dur-fast) var(--ease);
 }
 .nt-ws-pile .nt-face:nth-last-child(2) {
   --k: 1;
