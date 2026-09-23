@@ -9,6 +9,7 @@ import { api } from "@/convex/_generated/api";
 import { homePath } from "@/app/lib/containerPaths";
 import { rememberWorkspace } from "@/app/lib/projectsCache";
 import { Wordmark } from "../Brand";
+import { useConfirmedEmail } from "../IdentitySync";
 import { Mail } from "../Icons";
 import { initial } from "./people";
 import { refusal } from "./refusal";
@@ -33,11 +34,18 @@ export function JoinInvitation({ token }: { token: string }) {
   const { userId } = useAuth();
   const { signOut } = useClerk();
   const live = useQuery(api.members.invitation, { token });
+  const confirmed = useConfirmedEmail();
+  // On a first visit the server is still confirming the address with Clerk,
+  // and until it has, "no address" and "someone else's" are not yet answers.
+  // An address it did confirm is waited on until the query has caught up.
+  const settling =
+    (live?.state === "unconfirmed" && confirmed !== null) ||
+    (live?.state === "wrong-account" && confirmed === undefined);
   // The invitation as it was when Join was pressed. Joining answers the query
   // "accepted" before the home it goes to has replaced this page, and the card
   // would otherwise turn into "You’re in" under the pointer on its way out.
   const [held, setHeld] = useState<typeof live>(undefined);
-  const invitation = held ?? live;
+  const invitation = held ?? (settling ? undefined : live);
   const accept = useMutation(api.members.acceptInvite);
   const [going, setGoing] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
