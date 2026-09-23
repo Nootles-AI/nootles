@@ -17,7 +17,6 @@ import { track } from "@/app/lib/telemetry";
 import { Check, Copy, LinkIcon } from "./Icons";
 import { Segmented, type Segment } from "./Segmented";
 import { useContainer } from "./workspaces/ContainerContext";
-import { ROLE_LABEL } from "./workspaces/seats";
 import "./share/access.css";
 import "./workspaces/workspaces.css";
 
@@ -27,6 +26,16 @@ type LinkRole = "editor" | "viewer";
 function initial(name: string | null | undefined) {
   return (Array.from(name?.trim() ?? "")[0] ?? "?").toUpperCase();
 }
+
+/**
+ * What each person's row says they hold. A workspace project's list sits under
+ * the workspace's own row, which says what its people can do, so every row
+ * there says the same kind of thing; elsewhere the three roles are named.
+ */
+const HOLDS = {
+  role: { owner: "Owner", editor: "Editor", viewer: "Viewer" },
+  can: { owner: "Can manage", editor: "Can edit", viewer: "Can view" },
+} as const;
 
 const TABS: readonly Segment<LinkRole>[] = [
   {
@@ -113,6 +122,7 @@ function SharePopoverBody({
   const maker = hidden
     ? people?.members.find((m) => m.userId === project.ownerId && !m.isMe && m.role === "member")
     : undefined;
+  const holds = workspace ? HOLDS.can : HOLDS.role;
   const setLink = useMutation(api.share.setLink);
   // The owner's whole inbox, narrowed here: the toast and this list are the
   // same question in two places, so they read the same query rather than two
@@ -434,9 +444,7 @@ function SharePopoverBody({
                 className="nt-share-people max-h-56 space-y-px overflow-y-auto"
               >
                 {/* First the one person who always has access. Alone, the row
-                    is also the answer to "has anyone joined yet": only you. In
-                    a workspace it is your seat there, since "Owner" would read
-                    as the workspace's own. */}
+                    is also the answer to "has anyone joined yet": only you. */}
                 <li className="flex h-8 items-center gap-2">
                   <span aria-hidden className="nt-monogram shrink-0">
                     {initial(
@@ -445,9 +453,7 @@ function SharePopoverBody({
                     )}
                   </span>
                   <span className="min-w-0 flex-1 truncate text-[13px]">You</span>
-                  <span className="shrink-0 text-[13px] text-muted">
-                    {workspace ? ROLE_LABEL[workspace.role] : "Owner"}
-                  </span>
+                  <span className="shrink-0 text-[13px] text-muted">{holds.owner}</span>
                 </li>
                 {maker && (
                   <li className="flex h-8 items-center gap-2">
@@ -466,7 +472,7 @@ function SharePopoverBody({
                     <span className="min-w-0 flex-1 truncate text-[13px]">
                       {maker.name ?? maker.email ?? "Someone"}
                     </span>
-                    <span className="shrink-0 text-[13px] text-muted">Editor</span>
+                    <span className="shrink-0 text-[13px] text-muted">{holds.editor}</span>
                   </li>
                 )}
                 {collaborators.map((person) => (
@@ -490,7 +496,7 @@ function SharePopoverBody({
                       {person.name ?? person.email ?? "Someone"}
                     </span>
                     <span className="shrink-0 text-[13px] text-muted">
-                      {person.role === "editor" ? "Editor" : "Viewer"}
+                      {person.role === "editor" ? holds.editor : holds.viewer}
                     </span>
                   </li>
                 ))}
