@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useAuth, useClerk } from "@clerk/nextjs";
+import { returnPath } from "@/app/lib/returnPath";
 import { GoogleMark } from "../GoogleMark";
 
 /**
@@ -20,11 +21,14 @@ import { GoogleMark } from "../GoogleMark";
  * makes an account. Nobody was ever going to be surprised by that.
  */
 export function GoogleButton({
-  redirectTo = "/",
+  redirectTo,
   compact,
 }: {
   /** Where the round trip lands — a share link passes itself, so the page
-      that asked for the sign-in is the page that finishes the job. */
+      that asked for the sign-in is the page that finishes the job. Left out,
+      it is the page that sent someone to the door: `proxy.ts` turns a
+      signed-out visit to `/w/…` or an invitation into `/sign-in` with that
+      page as `redirect_url`, and it is followed only on this origin. */
   redirectTo?: string;
   /** The modal fit: full width, no door margins. */
   compact?: boolean;
@@ -38,6 +42,12 @@ export function GoogleButton({
     if (!isLoaded || going) return;
     setFailed(false);
     setGoing(true);
+    const destination =
+      redirectTo ??
+      returnPath(
+        new URLSearchParams(window.location.search).get("redirect_url"),
+        window.location.origin,
+      );
     try {
       await clerk.client.signIn.authenticateWithRedirect({
         strategy: "oauth_google",
@@ -46,10 +56,10 @@ export function GoogleButton({
         // sign-up transfer, and only the callback page's own props steer that
         // leg (see sso-callback/page.tsx).
         redirectUrl:
-          redirectTo === "/"
+          destination === "/"
             ? "/sso-callback"
-            : `/sso-callback?return=${encodeURIComponent(redirectTo)}`,
-        redirectUrlComplete: redirectTo,
+            : `/sso-callback?return=${encodeURIComponent(destination)}`,
+        redirectUrlComplete: destination,
       });
     } catch {
       // The redirect never happened, so this is still mounted to say so.
