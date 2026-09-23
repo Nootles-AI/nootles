@@ -847,6 +847,11 @@
   .nt-ws-person.is-leaving {
     transition: none;
   }
+  /* The rows' stagger is a delay, which the global catch-all leaves running. */
+  .nt-ws-event,
+  .nt-ws-person {
+    animation: none;
+  }
 }
 
 /* ---- Integrations ------------------------------------------------------------ */
@@ -943,8 +948,10 @@
 .nt-ws-ev-when {
   flex: none;
   width: 56px;
+  overflow: hidden;
   color: var(--muted);
   white-space: nowrap;
+  text-overflow: ellipsis;
 }
 .nt-ws-event > .nt-ws-ev-when {
   font-size: var(--text-meta-lg);
@@ -974,14 +981,17 @@
 .nt-ws-event > .nt-ws-ev-what {
   color: var(--foreground);
 }
-/* The aside link's underline at rest, so a project that opens is told from
-   one that is gone before anyone hovers. */
-.nt-ws-ev-link {
+/* A thing's current name — a person, an email, a project, a page — weighted
+   alike and kept to one line, so an address never splits at its hyphen; one
+   too long for any line may break. A project that still opens carries the
+   aside link's underline at rest, so it is told from one that is gone. */
+.nt-ws-ev-noun {
   font-weight: 500;
+  white-space: nowrap;
 }
-/* A project that no longer opens — deleted since — is named, not linked. */
-.nt-ws-ev-gone {
-  font-weight: 500;
+.nt-ws-ev-noun.is-long {
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .nt-ws-ev-end {
   height: 1px;
@@ -990,12 +1000,16 @@
 .nt-ws-event + .nt-ws-event {
   margin-top: 1px;
 }
-/* The last filter's rows, held while the next filter's arrive. */
-.nt-ws-table > :not(.nt-ws-ev-head) {
-  transition: opacity var(--dur) var(--ease);
+/* The last filter's rows, held while the next filter's arrive: dimmed only
+   once the wait is long enough to see, and lit again at once. */
+.nt-ws-table > .nt-ws-rows,
+.nt-ws-table > .nt-ws-empty {
+  transition: opacity var(--dur-fast) var(--ease);
 }
-.nt-ws-table[data-stale] > :not(.nt-ws-ev-head) {
+.nt-ws-table[data-stale] > .nt-ws-rows,
+.nt-ws-table[data-stale] > .nt-ws-empty {
   opacity: 0.55;
+  transition: opacity var(--dur) var(--ease) 150ms;
 }
 .nt-ws-empty {
   padding: 40px 24px;

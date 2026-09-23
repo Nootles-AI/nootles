@@ -12,7 +12,7 @@ import { Menu, MenuItem } from "../../Menu";
 import { Tooltip } from "../../Tooltip";
 import { useMoment } from "../useMoment";
 import { useContainer, type WorkspaceContainer } from "../ContainerContext";
-import { actorName, ago, toCsv, whatParts, type AuditRow } from "../auditWords";
+import { actorName, ago, toCsv, whatParts, type AuditRow, type Part } from "../auditWords";
 import { initial, useNaming } from "../people";
 import { refusal } from "../refusal";
 import { Bone } from "./MembersSettings";
@@ -38,21 +38,77 @@ const nth = (i: number) => ({ "--i": i % PAGE }) as CSSProperties;
 /**
  * Kinds of event, in the order an admin looks for them, each a kind the
  * server narrows by. Edits are a kind of their own on the server, so pages
- * moved or deleted are a page's other events. `none` finishes "No …" when
- * the log has nothing of the kind.
+ * moved, deleted, restored or copied out are a page's other events. `none`
+ * finishes "No …" when the log has nothing of the kind; `about` says what the
+ * kind holds, under it.
  */
-const KINDS: readonly { id: string; label: string; none: string }[] = [
-  { id: "member", label: "Members", none: "membership events" },
-  { id: "share", label: "Sharing", none: "sharing events" },
-  { id: "page.edit", label: "Page edits", none: "page edits" },
-  { id: "page", label: "Pages moved or deleted", none: "pages moved or deleted" },
-  { id: "folder", label: "Folders", none: "folder events" },
-  { id: "file", label: "Files", none: "file events" },
-  { id: "project", label: "Projects", none: "project events" },
-  { id: "integration", label: "Integrations", none: "integration events" },
-  { id: "billing", label: "Billing and plan", none: "billing or plan events" },
-  { id: "workspace", label: "Workspace", none: "workspace changes" },
-  { id: "operator", label: "Support access", none: "support access" },
+const KINDS: readonly { id: string; label: string; none: string; about: string }[] = [
+  {
+    id: "member",
+    label: "Members",
+    none: "membership events",
+    about: "Membership events are invitations, joins, role changes, removals and leaving.",
+  },
+  {
+    id: "share",
+    label: "Sharing",
+    none: "sharing events",
+    about: "Sharing events are share links, the people who opened them, code access and edit requests.",
+  },
+  {
+    id: "page.edit",
+    label: "Page edits",
+    none: "page edits",
+    about: "One person’s edits to a page within ten minutes are one row.",
+  },
+  {
+    id: "page",
+    label: "Pages moved, deleted or restored",
+    none: "pages moved, deleted or restored",
+    about: "This covers pages moved, deleted, restored or copied out of a project.",
+  },
+  {
+    id: "folder",
+    label: "Folders",
+    none: "folder events",
+    about: "Folder events are folders moved, deleted, restored or copied out of a project.",
+  },
+  {
+    id: "file",
+    label: "Files",
+    none: "file events",
+    about: "File events are context files added, replaced or removed.",
+  },
+  {
+    id: "project",
+    label: "Projects",
+    none: "project events",
+    about: "Project events are projects created, renamed, deleted or restored.",
+  },
+  {
+    id: "integration",
+    label: "Integrations",
+    none: "integration events",
+    about: "Integration events are the GitHub App, linked repositories and Notion pages.",
+  },
+  {
+    id: "billing",
+    label: "Billing and plan",
+    none: "billing or plan events",
+    about: "Billing events are checkout, the subscription, seats and plan changes.",
+  },
+  {
+    id: "workspace",
+    label: "Workspace",
+    none: "workspace changes",
+    about: "Workspace changes are its name, address and settings.",
+  },
+  {
+    id: "operator",
+    label: "Support access",
+    none: "support visits",
+    about: "A support visit is Nootles support viewing the workspace as one of its members.",
+  },
 ];
 
 type Span = "all" | "today" | "7" | "30" | "90";
@@ -117,13 +173,13 @@ function NotIncluded({ workspace }: { workspace: WorkspaceContainer }) {
           <div className="nt-set-body-col">
             <p className="nt-set-name">The audit log comes with the Team plan</p>
             <p className="nt-set-note">
-              {workspace.name} has been keeping one all along — who joined, who shared what, who
-              edited which page. On Team, the past year of it is here to read and export.
+              {workspace.name} already records who joined, who shared what and who edited which
+              page. Upgrade to Team to read the last year of it here and export it as CSV.
             </p>
           </div>
           <div className="nt-set-actions">
             <Link href={settingsPath(workspace.slug, "billing")} className="nt-row px-2.5">
-              See billing
+              See the Team plan
             </Link>
           </div>
         </li>
@@ -155,20 +211,28 @@ function Log({ workspace }: { workspace: WorkspaceContainer }) {
   );
   const filtered = !!(person || kind || span.from !== undefined);
   const choices = usePersonChoices(members, person);
+  const chosen = KINDS.find((k) => k.id === kind);
   const said = filtered
-    ? nothingFor(
-        KINDS.find((k) => k.id === kind),
-        person ? choices.find((c) => c.id === person)?.label : undefined,
-        SPANS.find((s) => s.id === span.id),
-      )
+    ? {
+        headline: nothingFor(
+          chosen,
+          person ? choices.find((c) => c.id === person)?.spoken : undefined,
+          SPANS.find((s) => s.id === span.id),
+        ),
+        hint: widen(chosen, !!person, span.from !== undefined),
+      }
     : null;
+  // The query the rows belong to: a new one is a new list, which rises as one.
+  const batch = `${person}|${kind}|${span.id}`;
 
   // A new filter is a new query, which starts from no rows: the last ones
   // stay on screen, dimmed, until the first page of the new one lands.
   const settled = status !== "LoadingFirstPage";
-  const [held, setHeld] = useState<{ results: Event[]; said: string | null } | null>(null);
-  if (settled && held?.results !== results) setHeld({ results, said });
-  const shown = settled ? { results, said } : held;
+  const [held, setHeld] = useState<{ results: Event[]; said: Nothing; batch: string } | null>(
+    null,
+  );
+  if (settled && held?.results !== results) setHeld({ results, said, batch });
+  const shown = settled ? { results, said, batch } : held;
   const stale = !settled && held !== null;
 
   const clear = () => {
@@ -189,6 +253,7 @@ function Log({ workspace }: { workspace: WorkspaceContainer }) {
           person={person}
           kind={kind}
           from={span.from}
+          filtered={filtered}
           onProblem={setProblem}
         />
       </div>
@@ -202,7 +267,13 @@ function Log({ workspace }: { workspace: WorkspaceContainer }) {
         </p>
       )}
       <div className="nt-ws-filters" role="group" aria-label="Filter the log">
-        <Picker label="Person" value={person} choices={choices} onChange={setPerson} />
+        <Picker
+          label="Done by"
+          value={person}
+          choices={choices}
+          onChange={setPerson}
+          display={(c) => (c.id === null ? c.label : `By ${c.spoken ?? c.label}`)}
+        />
         <Picker
           label="Kind of event"
           value={kind}
@@ -223,7 +294,8 @@ function Log({ workspace }: { workspace: WorkspaceContainer }) {
         ) : shown.results.length === 0 ? (
           shown.said ? (
             <div className="nt-ws-empty">
-              <p className="text-[13px] font-medium">{shown.said}</p>
+              <p className="text-[13px] font-medium">{shown.said.headline}</p>
+              <p className="mt-1 text-[13px] text-muted">{shown.said.hint}</p>
               <div className="mt-3 flex justify-center">
                 <button type="button" onClick={clear} className="nt-row px-2.5">
                   Clear filters
@@ -240,6 +312,7 @@ function Log({ workspace }: { workspace: WorkspaceContainer }) {
           )
         ) : (
           <Events
+            key={shown.batch}
             workspace={workspace}
             events={shown.results}
             me={me}
@@ -316,31 +389,20 @@ function Events({
           <li key={event._id} style={nth(i)} className="nt-list-row nt-ws-event">
             <span className="nt-ws-ev-when nt-meta">
               <Tooltip label={FULL.format(event.at)}>
-                <time dateTime={new Date(event.at).toISOString()}>{ago(event.at, now)}</time>
+                <time dateTime={new Date(event.at).toISOString()} aria-hidden="true">
+                  {ago(event.at, now)}
+                </time>
               </Tooltip>
+              <span className="sr-only">{FULL.format(event.at)}</span>
             </span>
             <span className="nt-ws-ev-who">
               <Face event={event} name={letter} self={self} />
               <span className="nt-ws-ev-name">{name}</span>
             </span>
             <p className="nt-ws-ev-what">
-              {whatParts(event, workspace.name).map((part, n) =>
-                typeof part === "string" ? (
-                  part
-                ) : live.has(part.project) ? (
-                  <Link
-                    key={n}
-                    href={projectPath(workspace.slug, part.project)}
-                    className="nt-ws-aside-link nt-ws-ev-link"
-                  >
-                    {part.title}
-                  </Link>
-                ) : (
-                  <span key={n} className="nt-ws-ev-gone">
-                    {part.title}
-                  </span>
-                ),
-              )}
+              {whatParts(event, workspace.name).map((part, n) => (
+                <Said key={n} part={part} slug={workspace.slug} live={live} />
+              ))}
             </p>
           </li>
         );
@@ -348,6 +410,26 @@ function Events({
       {loading && <BoneRows count={3} />}
       <li ref={end} aria-hidden="true" className="nt-ws-ev-end" />
     </ul>
+  );
+}
+
+/**
+ * A long name that would not fit a line is let break, so it never runs out
+ * of its column; anything shorter keeps to one line.
+ */
+const LONG_NAME = 40;
+
+/** One part of a sentence: words, a project that opens or is gone, or a name. */
+function Said({ part, slug, live }: { part: Part; slug: string; live: Set<string> }) {
+  if (typeof part === "string") return part;
+  const title = "project" in part ? part.title : part.name;
+  const noun = `nt-ws-ev-noun${title.length > LONG_NAME ? " is-long" : ""}`;
+  if (!("project" in part)) return <span className={noun}>{title}</span>;
+  if (!live.has(part.project)) return <span className={noun}>{title}</span>;
+  return (
+    <Link href={projectPath(slug, part.project)} className={`nt-ws-aside-link ${noun}`}>
+      {title}
+    </Link>
   );
 }
 
@@ -368,19 +450,26 @@ function Face({ event, name, self }: { event: Event; name: string; self: boolean
 
 // ---- Filters -----------------------------------------------------------------
 
-type Choice<T> = { id: T; label: string };
+/** A filter's choice; `spoken` is what it is called mid-sentence, when not its label. */
+type Choice<T> = { id: T; label: string; spoken?: string };
 
-/** A filter's trigger: what it is set to, and the invite row's up-down glyph. */
+/**
+ * A filter's trigger: what it is set to, and the invite row's up-down glyph.
+ * `display` says the choice on the trigger when the menu's bare word would
+ * not say what the filter does.
+ */
 function Picker<T extends string | null>({
   label,
   value,
   choices,
   onChange,
+  display = (c) => c.label,
 }: {
   label: string;
   value: T;
   choices: readonly Choice<T>[];
   onChange: (id: T) => void;
+  display?: (choice: Choice<T>) => string;
 }) {
   const current = choices.find((c) => c.id === value) ?? choices[0];
   return (
@@ -396,7 +485,7 @@ function Picker<T extends string | null>({
           aria-label={`${label}: ${current.label}`}
           className="nt-row nt-ws-pick gap-1.5 px-2"
         >
-          <span className="nt-ws-filter-value">{current.label}</span>
+          <span className="nt-ws-filter-value">{display(current)}</span>
           <ChevronsUpDown width={14} height={14} aria-hidden="true" className="nt-ws-pick-glyph" />
         </button>
       )}
@@ -425,22 +514,25 @@ function Picker<T extends string | null>({
 }
 
 /**
- * Everyone, or one member: you as the rows call you, first; the rest as the
- * members list calls them.
+ * Anyone, or one member who did it: you as the rows call you, first; the rest
+ * as the members list calls them. The log narrows by who acted, not by who
+ * was acted on, so the trigger says "By …".
  */
 function usePersonChoices(members: Member[], value: string | null): Choice<string | null>[] {
   const naming = useNaming();
   const choices: Choice<string | null>[] = [
-    { id: null, label: "Everyone" },
-    ...members.filter((m) => m.isMe).map((m) => ({ id: m.userId, label: "You" })),
+    { id: null, label: "Anyone" },
+    ...members.filter((m) => m.isMe).map((m) => ({ id: m.userId, label: "You", spoken: "you" })),
     ...members.filter((m) => !m.isMe).map((m) => ({ id: m.userId, label: naming(m).name })),
   ];
   // Someone chosen who has since left is still who the log is narrowed to.
   if (value && !members.some((m) => m.userId === value)) {
-    choices.push({ id: value, label: "Former member" });
+    choices.push({ id: value, label: "Former member", spoken: "a former member" });
   }
   return choices;
 }
+
+type Nothing = { headline: string; hint: string } | null;
 
 /** What an empty, narrowed log says: only the filters that narrow it. */
 function nothingFor(
@@ -448,8 +540,18 @@ function nothingFor(
   person: string | undefined,
   span: { during: string } | undefined,
 ): string {
-  const who = person === undefined ? "" : person === "You" ? " from you" : ` from ${person}`;
+  const who = person === undefined ? "" : ` from ${person}`;
   return `${kind ? `No ${kind.none}` : "Nothing"}${who}${span?.during ?? ""}`;
+}
+
+/** What the kind holds, and which of the filters set could be widened. */
+function widen(kind: { about: string } | undefined, person: boolean, span: boolean): string {
+  const wider = [span && "any time", person && "anyone", kind && "all events"].filter(
+    (w): w is string => !!w,
+  );
+  const tries =
+    wider.length > 1 ? `${wider.slice(0, -1).join(", ")} or ${wider.at(-1)}` : wider[0];
+  return [kind?.about, `Try ${tries}.`].filter(Boolean).join(" ");
 }
 
 // ---- Export ------------------------------------------------------------------
@@ -465,6 +567,7 @@ function Export({
   person,
   kind,
   from,
+  filtered,
   onProblem,
 }: {
   workspace: WorkspaceContainer;
@@ -472,6 +575,8 @@ function Export({
   person: string | null;
   kind: string | null;
   from: number | undefined;
+  /** Whether the file holds only what the filters leave, as the screen does. */
+  filtered: boolean;
   onProblem: (text: string | null) => void;
 }) {
   const convex = useConvex();
@@ -480,6 +585,7 @@ function Export({
   // How many rows so far, said only once an export is slow enough to wait on.
   const [count, setCount] = useState<number | null>(null);
   const [done, flash] = useMoment();
+  const [saved, setSaved] = useState("");
   const slow = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => clearTimeout(slow.current), []);
 
@@ -527,10 +633,9 @@ function Export({
         if (page.done) break;
         cursor = page.cursor;
       }
-      save(
-        `${workspace.slug}-audit-${new Date(to).toISOString().slice(0, 10)}.csv`,
-        toCsv(rows, workspace.name),
-      );
+      const filename = `${workspace.slug}-audit-${new Date(to).toISOString().slice(0, 10)}.csv`;
+      save(filename, toCsv(rows, workspace.name));
+      setSaved(filename);
       flash();
     } catch (error) {
       onProblem(refusal(error, "Couldn’t export the log. Try again in a moment."));
@@ -556,16 +661,25 @@ function Export({
         </span>
         {count !== null ? (
           <span>
-            Exporting… <span className="tabular-nums">{count.toLocaleString()}</span>
+            Exporting… <span className="tabular-nums">{count.toLocaleString()}</span>{" "}
+            {count === 1 ? "event" : "events"}
           </span>
         ) : done ? (
           "Exported"
+        ) : filtered ? (
+          "Export filtered CSV"
         ) : (
           "Export CSV"
         )}
       </button>
       <span role="status" className="sr-only">
-        {running ? "Exporting the log" : done ? "Exported" : ""}
+        {running
+          ? filtered
+            ? "Exporting the events these filters show"
+            : "Exporting the log"
+          : done
+            ? `Exported ${saved}`
+            : ""}
       </span>
     </>
   );
@@ -585,30 +699,25 @@ function save(filename: string, text: string) {
 
 // ---- While it loads ----------------------------------------------------------
 
-/** The page's shape before the log arrives: its head, the filters, the table. */
+/**
+ * The page's shape before it knows whether the plan brings the log: its label
+ * and one card's row, which the log's head and the plan's card both begin
+ * with. The log draws its own table's bones.
+ */
 function Loading() {
   return (
     <section className="nt-set-section" aria-busy="true" aria-label="Audit log">
       <div className="nt-ws-set-head">
         <Bone bar="h-3.5 w-20" />
-        <div className="nt-ws-export flex h-8 items-center gap-1.5 px-2" aria-hidden="true">
-          <div className="nt-skeleton h-3.5 w-3.5" />
-          <div className="nt-skeleton h-3.5 w-16" />
-        </div>
       </div>
-      <Bone bar="h-3.5 w-[26rem] max-w-full" className="nt-ws-audit-note" />
-      <div className="nt-ws-filters" aria-hidden="true">
-        {["w-16", "w-16", "w-14"].map((w, i) => (
-          <div key={i} className="flex h-8 items-center gap-1.5 px-2">
-            <div className={`nt-skeleton h-3.5 ${w}`} />
-            <div className="nt-skeleton h-3.5 w-3.5" />
+      <ul className="nt-set-list" aria-hidden="true">
+        <li className="nt-set-row">
+          <div className="nt-set-body-col">
+            <Bone bar="h-3.5 w-56 max-w-full" />
+            <Bone bar="h-3 w-[26rem] max-w-full" className="mt-1" />
           </div>
-        ))}
-      </div>
-      <div className="nt-ws-table">
-        <Head />
-        <Bones />
-      </div>
+        </li>
+      </ul>
     </section>
   );
 }
