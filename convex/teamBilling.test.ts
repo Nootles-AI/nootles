@@ -717,3 +717,68 @@ describe("the usage report", () => {
     expect(await scheduled(t, "syncSeats")).toHaveLength(1);
   });
 });
+
+describe("the billing screen", () => {
+  test("members read the plan and this period's spend; guests read nothing", async () => {
+    const t = convexTest(schema, modules);
+    const { workspaceId } = await world(t);
+    const periodStart = NOW - 10 * DAY;
+    await billing(t, workspaceId, {
+      periodStart,
+      usageReportedThrough: NOW - 2 * DAY,
+      usagePeriod: {
+        start: periodStart,
+        end: NOW + 20 * DAY,
+        allowanceUsd: 30,
+        spentUsd: 12,
+        reportedCents: 0,
+      },
+    });
+    await call(t, workspaceId, 3, NOW - DAY);
+    await call(t, workspaceId, 50, NOW - DAY, false);
+    await t.run(async (ctx) => {
+      await ctx.db.insert("guestAiSpend", {
+        workspaceId,
+        day: new Date(NOW - DAY).toISOString().slice(0, 10),
+        userId: GUEST.subject,
+        costUsd: 4,
+      });
+      await ctx.db.insert("guestAiSpend", {
+        workspaceId,
+        day: new Date(periodStart - 3 * DAY).toISOString().slice(0, 10),
+        userId: GUEST.subject,
+        costUsd: 9,
+      });
+    });
+
+    const seen = await t.withIdentity(MEMBER).query(api.teamBilling.summary, { workspaceId });
+    expect(seen).toMatchObject({
+      role: "member",
+      canManage: false,
+      configured: true,
+      plan: "team",
+      manageable: true,
+      subscription: { status: "active", live: true, seats: 3 },
+      seatsInUse: 3,
+      allowancePerSeatUsd: 10,
+      usage: { allowanceUsd: 30, spentUsd: 15, guestUsd: 4 },
+    });
+    expect(
+      (await t.withIdentity(ADMIN).query(api.teamBilling.summary, { workspaceId }))?.canManage,
+    ).toBe(true);
+    expect(await t.withIdentity(GUEST).query(api.teamBilling.summary, { workspaceId })).toBeNull();
+  });
+
+  test("an unpaid workspace on a deployment without Team says both", async () => {
+    const t = convexTest(schema, modules);
+    const { workspaceId } = await world(t);
+    vi.stubEnv("STRIPE_PRICE_TEAM_USAGE", "");
+    expect(await t.withIdentity(OWNER).query(api.teamBilling.summary, { workspaceId })).toMatchObject({
+      configured: false,
+      plan: "free",
+      manageable: false,
+      subscription: null,
+      usage: null,
+    });
+  });
+});
