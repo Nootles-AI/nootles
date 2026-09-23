@@ -7,6 +7,7 @@ import {
   claimOf,
   claimRole,
   codeGrantRefusal,
+  containerRole,
   isTrashed,
   LINK_FIELDS,
   linkLive,
@@ -18,6 +19,7 @@ import {
   requireManageable,
   requireOwner,
   roleForProject,
+  seatRole,
 } from "./auth";
 import { ensureArrivalProfile, personOf } from "./profiles";
 
@@ -245,8 +247,9 @@ export const view = query({
  * grants and until the link runs out. Idempotent, upserting to the higher role
  * — a viewer later handed the editor link is promoted, never demoted — and a
  * claim that had run out starts again from the link it came back by. Whoever
- * already owns the project passes through unrecorded; nothing a link grants is
- * more than they have.
+ * the project's container already gives a role — its owner, or a seat in its
+ * workspace — passes through unrecorded: they are not in by the link, and a
+ * claim would list them among its people as if they were.
  *
  * An account whose first act is a claim was CREATED by this document, so the
  * claim writes the profile row first run reads as "not new"
@@ -262,7 +265,7 @@ export const claim = mutation({
 
     await ensureArrivalProfile(ctx, me);
 
-    if ((await roleForProject(ctx, found.project)) === "owner") return found.project._id;
+    if (await containerRole(ctx, found.project, me)) return found.project._id;
     const expiresAt = found.project[LINK_FIELDS[found.role].expiresAt];
     const existing = await claimOf(ctx, found.project._id, me);
     if (!existing) {
@@ -312,12 +315,13 @@ export const collaborators = query({
         // same as it takes away their access.
         const role = claimRole(project, claim, now);
         if (!role) return null;
-        const [person, seat] = await Promise.all([
-          personOf(ctx, claim.granteeId),
-          project.workspaceId
-            ? activeMembership(ctx, project.workspaceId, claim.granteeId)
-            : null,
-        ]);
+        const seat = project.workspaceId
+          ? await activeMembership(ctx, project.workspaceId, claim.granteeId)
+          : null;
+        // In by their seat, which no removal here reaches: a claim written
+        // before `claim` passed them by, or before they had the seat.
+        if (seatRole(project, claim.granteeId, seat)) return null;
+        const person = await personOf(ctx, claim.granteeId);
         return {
           granteeId: claim.granteeId,
           role,

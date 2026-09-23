@@ -461,15 +461,30 @@ export async function linksOpen(ctx: QueryCtx, project: Doc<"projects">): Promis
 }
 
 /** The role a project's container gives someone, before any share link is asked. */
-async function containerRole(
+export async function containerRole(
   ctx: QueryCtx,
   project: Doc<"projects">,
   me: string,
 ): Promise<ProjectRole | null> {
-  if (!project.workspaceId) return project.ownerId === me ? "owner" : null;
-  const seat = await activeMembership(ctx, project.workspaceId, me);
+  const seat = project.workspaceId ? await activeMembership(ctx, project.workspaceId, me) : null;
+  return seatRole(project, me, seat);
+}
+
+/**
+ * What someone holds in a project without any link: its owner on a personal
+ * project, or what their seat — `activeMembership` in the project's workspace,
+ * read by the caller — gives them on a workspace's. Whoever it gives a role
+ * never comes in by a link, so a claim of theirs would grant nothing and
+ * taking it away would take nothing.
+ */
+export function seatRole(
+  project: Doc<"projects">,
+  userId: string,
+  seat: Doc<"memberships"> | null,
+): ProjectRole | null {
+  if (!project.workspaceId) return project.ownerId === userId ? "owner" : null;
   if (seat?.role === "owner" || seat?.role === "admin") return "owner";
-  if (seat?.role === "member" && (project.visibility !== "private" || project.ownerId === me)) {
+  if (seat?.role === "member" && (project.visibility !== "private" || project.ownerId === userId)) {
     return "editor";
   }
   return null;
