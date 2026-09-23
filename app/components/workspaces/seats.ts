@@ -83,20 +83,20 @@ function roleProblem(
  * A person's menu's refusals, each said once. When every seat it refuses is
  * refused for one reason, that reason heads the menu instead of repeating
  * under each — and the way out, refused for that reason and something more,
- * keeps only the more: the one owner's own row is refused everything because
- * they are the one owner, and leaving can also be done by deleting.
+ * says only the more, as a sentence of its own (`apart`): it sits rows below
+ * the caption, so it cannot read on from it. The one owner's own row is
+ * refused everything because they are the one owner, and leaving says where
+ * the other way out is (`LEAVE_INSTEAD`).
  */
 export function sayOnce(
   choices: readonly Choice[],
   out: string | null,
+  apart: string | null = null,
 ): { caption: string | null; out: string | null } {
   const reasons = choices.flatMap((c) => (c.why ? [c.why] : []));
   const caption = reasons.length > 1 && reasons.every((r) => r === reasons[0]) ? reasons[0] : null;
   if (!caption || !out) return { caption, out };
-  const stem = caption.replace(/\.$/, "");
-  if (!out.startsWith(stem)) return { caption, out };
-  const more = out.slice(stem.length).replace(/^[\s,;.]+/, "");
-  return { caption, out: more ? more[0].toUpperCase() + more.slice(1) : null };
+  return { caption, out: out.startsWith(caption.replace(/\.$/, "")) ? apart : out };
 }
 
 /** Why `actor` may not take `target`'s seat away, or null when they may. */
@@ -110,6 +110,9 @@ export function leaveProblem(role: WorkspaceRole, owners: number): string | null
     ? "You’re the only owner. Make someone else an owner first, or delete the workspace."
     : null;
 }
+
+/** The rest of `leaveProblem`, for under a caption that has said why. */
+export const LEAVE_INSTEAD = "You can delete the workspace instead, under General.";
 
 /** Why `actor` may not ask someone in as `role`, or null when they may. */
 export function inviteProblem(actor: WorkspaceRole, role: WorkspaceRole): string | null {

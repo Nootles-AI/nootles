@@ -17,6 +17,7 @@ import {
   expiresIn,
   heirOf,
   invitationProblem,
+  LEAVE_INSTEAD,
   leaveProblem,
   removeProblem,
   roleChoices,
@@ -486,7 +487,7 @@ function PersonMenu({
   const [asking, setAsking] = useState<Asking | null>(null);
   const choices = roleChoices(actor, member, owners);
   const out = member.isMe ? leaveProblem(member.role, owners) : removeProblem(actor, member.role);
-  const said = sayOnce(choices, out);
+  const said = sayOnce(choices, out, member.isMe ? LEAVE_INSTEAD : null);
   const close = () => {
     setAsking(null);
     trigger.current?.focus();

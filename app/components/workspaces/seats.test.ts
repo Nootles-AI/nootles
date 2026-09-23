@@ -4,6 +4,7 @@ import {
   heirOf,
   invitationProblem,
   inviteProblem,
+  LEAVE_INSTEAD,
   leaveProblem,
   removeProblem,
   roleChoices,
@@ -85,11 +86,11 @@ describe("removing, leaving and inviting", () => {
 });
 
 describe("a menu says each refusal once", () => {
-  test("the one owner’s own row: one caption, and leaving keeps only the other door", () => {
+  test("the one owner’s own row: one caption, and leaving says the other door whole", () => {
     const me = { role: "owner" as const, isMe: true };
-    expect(sayOnce(roleChoices("owner", me, 1), leaveProblem("owner", 1))).toEqual({
+    expect(sayOnce(roleChoices("owner", me, 1), leaveProblem("owner", 1), LEAVE_INSTEAD)).toEqual({
       caption: "You’re the only owner. Make someone else an owner first.",
-      out: "Or delete the workspace.",
+      out: "You can delete the workspace instead, under General.",
     });
   });
 
