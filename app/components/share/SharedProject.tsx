@@ -137,10 +137,10 @@ export function SharedProject({ token }: { token: string }) {
         <Link href="/" aria-label="Nootles" className="mb-4">
           <Wordmark className="text-muted" />
         </Link>
-        <p className="text-sm font-medium">This project isn&apos;t shared</p>
+        <p className="text-sm font-medium">This link isn’t working</p>
         <p className="max-w-xs text-sm text-muted">
-          The link may have been turned off. Ask whoever sent it to share the
-          project again.
+          It may have expired or been turned off. Ask whoever sent it for a new
+          one.
         </p>
       </div>
     );
@@ -194,7 +194,7 @@ export function SharedProject({ token }: { token: string }) {
         <Link href="/" aria-label="Nootles" className="mb-4">
           <Wordmark className="text-muted" />
         </Link>
-        <p className="text-sm font-medium">Couldn&apos;t open this project</p>
+        <p className="text-sm font-medium">Couldn’t open this project</p>
         <p className="max-w-xs text-sm text-muted">
           Something went wrong on the way in — the connection may have
           dropped.
@@ -223,7 +223,8 @@ export function SharedProject({ token }: { token: string }) {
         </Link>
         <p className="text-sm font-medium">Sign in to open this project</p>
         <p className="max-w-xs text-sm text-muted">
-          It’s in a workspace, whose links open only for people who are signed in.
+          Links to workspace projects open only for people who are signed in.
+          You’ll come straight back here after.
         </p>
         <div className="mt-3 w-full max-w-xs">
           <GoogleButton compact redirectTo={`/share/${token}`} />
