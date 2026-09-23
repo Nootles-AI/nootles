@@ -158,21 +158,29 @@ export class YConvexProvider {
     // Subscribe first: a change that lands during the initial load just
     // schedules a pull that the idempotence makes safe.
     const watch = this.client.watchQuery(api.ydoc.meta, { docId: this.docId });
-    this.unwatch = watch.onUpdate(() => void this.pull());
-    void this.pull();
+    this.unwatch = watch.onUpdate(this.wake);
+    this.wake();
     if (!this.options.presence) return;
 
     const presence = this.client.watchQuery(api.presence.list, {
       docId: this.docId,
     });
-    this.unwatchPresence = presence.onUpdate(() =>
-      this.applyPresence(presence.localQueryResult() ?? []),
-    );
+    // A query that errors rethrows from `localQueryResult`. Losing the page
+    // (its last link turned off under a collaborator) is such an error, and
+    // the answer to it is an empty room, not an uncaught throw every tick.
+    const roster = () => {
+      try {
+        return presence.localQueryResult() ?? [];
+      } catch {
+        return [];
+      }
+    };
+    this.unwatchPresence = presence.onUpdate(() => this.applyPresence(roster()));
     this.keepaliveTimer = setInterval(() => {
       this.sendAwareness();
       // Re-judge staleness on our own clock too: if everyone left without a
       // goodbye, no list update arrives to take their carets down.
-      this.applyPresence(presence.localQueryResult() ?? []);
+      this.applyPresence(roster());
     }, KEEPALIVE_MS);
     if (typeof window !== "undefined") {
       window.addEventListener("pagehide", this.onPageHide);
@@ -230,6 +238,16 @@ export class YConvexProvider {
    * Bring the doc up to the server's seq. Serialized by a latch — a second
    * wake-up during a pull runs one more pull after, never two at once.
    */
+  /**
+   * A pull, from a watch or on connect. One that fails is a document that has
+   * stopped answering this caller — the page's last link turned off under
+   * them — and waits quietly for the next wake rather than surfacing as an
+   * unhandled rejection on every change.
+   */
+  private wake = () => {
+    this.pull().catch(() => {});
+  };
+
   private async pull() {
     if (!this.connected) return;
     if (this.pulling) {

@@ -16,10 +16,17 @@ class Backend {
   seq = 0;
   log: Array<{ seq: number; update: ArrayBuffer }> = [];
   calls: string[] = [];
+  /** The caller has lost the page: its presence query answers with an error. */
+  revoked = false;
   private watchers = new Set<() => void>();
+
+  poke() {
+    for (const watcher of this.watchers) watcher();
+  }
 
   client(): ConvexReactClient {
     const read = (name: string, args: Record<string, unknown>) => {
+      if (this.revoked) throw new Error(`[CONVEX Q(${name})] Server Error Uncaught Error: Not found`);
       if (name === "ydoc:meta") return { seq: this.seq, snapshotSeq: 0, snapshotParts: 0 };
       if (name === "ydoc:load") {
         return {
@@ -161,6 +168,18 @@ describe("a page's provider is unchanged", () => {
     expect(backend.calls).toContain("watch presence:list");
     expect(backend.mutations()).toContain("presence:heartbeat");
     expect(backend.mutations()).toContain("presence:leave");
+  });
+
+  it("goes quiet, without throwing, when the page stops answering (access revoked)", async () => {
+    const provider = open();
+    provider.connect();
+    await provider.whenSynced;
+    backend.revoked = true;
+    expect(() => backend.poke()).not.toThrow();
+    await settle(11_000);
+    expect(provider.awareness.getStates().size).toBe(1);
+    provider.disconnect();
+    await settle(0);
   });
 
   it("offers derived data on sync and behind its flushes", async () => {
