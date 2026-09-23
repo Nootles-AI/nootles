@@ -80,6 +80,7 @@ export async function upsertDocument(ctx: MutationCtx, doc: DocumentInput): Prom
     contentHash: "",
     body: digest.body,
     syncedAt: Date.now(),
+    code: false,
   };
   const row = await ctx.db
     .query("contextNodeText")

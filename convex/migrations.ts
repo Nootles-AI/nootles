@@ -421,3 +421,32 @@ export const contextFileNodes = internalMutation({
     return { files: batch.page.length, done: batch.isDone };
   },
 });
+
+/**
+ * Stamps `code` on every context text row written before the field, from its
+ * node's source. Until it has run, search leaves those rows out for a reader
+ * who may not see code — pages included — so run it with the deploy that adds
+ * the field. Idempotent: a stamped row is left alone.
+ */
+export const markContextCode = internalMutation({
+  args: { cursor: v.optional(v.string()) },
+  handler: async (ctx, args): Promise<{ stamped: number; done: boolean }> => {
+    const batch = await ctx.db
+      .query("contextNodeText")
+      .paginate({ numItems: BATCH, cursor: args.cursor ?? null });
+    let stamped = 0;
+    for (const row of batch.page) {
+      if (row.code !== undefined) continue;
+      const node = await ctx.db.get(row.nodeId);
+      if (!node) continue;
+      await ctx.db.patch(row._id, { code: node.source === "github" });
+      stamped++;
+    }
+    if (!batch.isDone) {
+      await ctx.scheduler.runAfter(0, internal.migrations.markContextCode, {
+        cursor: batch.continueCursor,
+      });
+    }
+    return { stamped, done: batch.isDone };
+  },
+});

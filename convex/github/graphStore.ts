@@ -130,6 +130,7 @@ export const writeNodes = internalMutation({
         searchText: searchTextOf(n.title, n.terms),
         contentHash: "",
         syncedAt: now,
+        code: true,
       });
       known.set(n.externalId, id);
       out.push({ externalId: n.externalId, id });
