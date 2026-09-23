@@ -956,9 +956,11 @@
   flex: 1 1 auto;
   min-width: 0;
   margin: 0;
-  color: var(--foreground);
   overflow-wrap: anywhere;
   text-wrap: pretty;
+}
+.nt-ws-event > .nt-ws-ev-what {
+  color: var(--foreground);
 }
 .nt-ws-ev-link {
   font-weight: 500;
