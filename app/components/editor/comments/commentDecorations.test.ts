@@ -18,6 +18,7 @@ import { createNmlYDoc } from "@/app/lib/nml/yjs";
 import {
   activeThread,
   commentDecorationsPlugin,
+  commentDraft,
   commentKey,
   commentRanges,
   commentResolveCount,
@@ -591,5 +592,40 @@ describe("two replicas converge", () => {
     expect(updates).toBeLessThanOrEqual(2);
     expect(rangeText(a, "t1")).toBe("by Friday");
     expect(rangeText(b, "t1")).toBe("by Friday");
+  });
+});
+
+describe("the draft", () => {
+  it("highlights the words a comment is being written about, with no threads at all", () => {
+    const state = stateFor();
+    const from = pos(state.doc, "p1", 11);
+    const drafted = meta(state, { draft: { from, to: from + 9 } });
+    expect(commentDraft(drafted)).toEqual({ from, to: from + 9 });
+    const [only] = commentKey.getState(drafted)!.decorations.find();
+    expect(drafted.doc.textBetween(only.from, only.to)).toBe("by Friday");
+    expect(String((only as unknown as { type: { attrs: { class: string } } }).type.attrs.class)).toContain("is-draft");
+  });
+
+  it("maps through typing before it and dies with its words, and clears on request", () => {
+    let state = stateFor();
+    const from = pos(state.doc, "p1", 11);
+    state = meta(state, { draft: { from, to: from + 9 } });
+    state = state.apply(state.tr.insertText("Soon ", pos(state.doc, "p1", 0)));
+    const moved = commentDraft(state)!;
+    expect(state.doc.textBetween(moved.from, moved.to)).toBe("by Friday");
+    expect(commentDraft(meta(state, { draft: null }))).toBeNull();
+    state = state.apply(state.tr.delete(moved.from, moved.to));
+    expect(commentDraft(state)).toBeNull();
+    expect(commentKey.getState(state)!.decorations.find()).toEqual([]);
+  });
+
+  it("is never a thread: no resolve, no write, no focus", () => {
+    let state = stateFor();
+    const from = pos(state.doc, "p1", 11);
+    state = meta(state, { draft: { from, to: from + 9 } });
+    state = state.apply(state.tr.setSelection(TextSelection.create(state.doc, from + 2)));
+    expect(activeThread(state)).toBeNull();
+    expect(commentResolveCount(state)).toBe(0);
+    expect(writesOf(state).size).toBe(0);
   });
 });

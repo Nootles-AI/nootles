@@ -182,6 +182,39 @@ describe("who can be mentioned", () => {
   });
 });
 
+describe("who signed a comment", () => {
+  test("every reader is told every name, their own included", async () => {
+    const t = convexTest(schema, modules);
+    const w = await world(t);
+    for (const who of [OWNER, EDITOR, VIEWER, STAND_IN]) {
+      const ids = (await t.withIdentity(who).query(api.commentNotices.authors, { pageId: w.pageId })).map((p) => p.userId);
+      expect(ids).toEqual([OWNER.subject, EDITOR.subject, VIEWER.subject]);
+    }
+    const viewer = await t.withIdentity(VIEWER).query(api.commentNotices.authors, { pageId: w.pageId });
+    expect(viewer[1]).toEqual({ userId: EDITOR.subject, name: "Bram Editor", imageUrl: `https://img.example/${EDITOR.subject}.png` });
+  });
+
+  test("nobody for a stranger, a signed-out visitor, or a page gone", async () => {
+    const t = convexTest(schema, modules);
+    const w = await world(t);
+    expect(await t.withIdentity(STRANGER).query(api.commentNotices.authors, { pageId: w.pageId })).toEqual([]);
+    expect(await t.query(api.commentNotices.authors, { pageId: w.pageId })).toEqual([]);
+    await t.run((ctx) => ctx.db.patch(w.pageId, { deletedAt: 5 }));
+    expect(await t.withIdentity(OWNER).query(api.commentNotices.authors, { pageId: w.pageId })).toEqual([]);
+  });
+
+  test("a profile's email is never offered in place of a name", async () => {
+    const t = convexTest(schema, modules);
+    const w = await world(t);
+    await t.run(async (ctx) => {
+      const profile = await ctx.db.query("profiles").withIndex("by_owner", (q) => q.eq("ownerId", VIEWER.subject)).unique();
+      await ctx.db.patch(profile!._id, { name: undefined, email: "cleo@example.com" });
+    });
+    const people = await t.withIdentity(OWNER).query(api.commentNotices.authors, { pageId: w.pageId });
+    expect(JSON.stringify(people)).not.toContain("cleo@example.com");
+  });
+});
+
 describe("who may report a comment event", () => {
   const args = (w: World): EventArgs => ({ pageId: w.pageId, threadId: "t_1", kind: "create", mentions: [] });
 

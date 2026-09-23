@@ -26,7 +26,7 @@ import { NmlProjection } from "./view/projection";
  * keeps both halves of that rule.
  */
 
-const comment = (id: string, text: string, extra: Partial<{ editedAt: number }> = {}): NmlBlock => ({
+const comment = (id: string, text: string, extra: Partial<{ editedAt: number; via: "assistant" }> = {}): NmlBlock => ({
   id,
   type: "comment",
   props: { authorId: "user_ada", createdAt: 1_727_000_000_000, ...extra },
@@ -238,6 +238,26 @@ describe("canonical text", () => {
     });
   });
 
+  it("round-trips a comment the assistant wrote, and reads an unknown via as absent", () => {
+    const written = commentsDoc([
+      thread("t1", [comment("c1", "Suggested", { via: "assistant" }), comment("c2", "Edited", { editedAt: 5, via: "assistant" })]),
+    ]);
+    const source = serializeDocument(written);
+    expect(source).toContain(`<nt-comment id="c1" author-id="user_ada" created-at="1727000000000" via="assistant">Suggested</nt-comment>`);
+    expect(source).toContain(`created-at="1727000000000" edited-at="5" via="assistant">Edited`);
+    const parsed = parseCanonicalDocument(source);
+    expect(parsed).toEqual(written);
+    expect(serializeDocument(parsed)).toBe(source);
+    const odd = source.replace(`via="assistant">Suggested`, `via="robot">Suggested`);
+    const block = parseDocument(odd).document!.blocks[0].children[0];
+    expect(block.props).not.toHaveProperty("via");
+  });
+
+  it("refuses any via but the assistant", () => {
+    const bad = { ...comment("c1", "x"), props: { authorId: "u", createdAt: 1, via: "human" } } as unknown as NmlBlock;
+    expect(codes(commentsDoc([thread("t1", [bad])]))).toContain("invalid_schema");
+  });
+
   it("refuses a comment whose timestamps are not integers", () => {
     const bad = `<nt-document id="d" schema-version="1" kind="comments">\n  <nt-thread id="t1" block-id="p" exact="x" prefix="" suffix="" offset-hint="0" status="open">\n    <nt-comment id="c1" author-id="u" created-at="yesterday">x</nt-comment>\n  </nt-thread>\n</nt-document>\n`;
     expect(parseDocument(bad).diagnostics.some((d) => d.severity === "error")).toBe(true);
@@ -247,7 +267,7 @@ describe("canonical text", () => {
 describe("Yjs encoding", () => {
   const document = commentsDoc([
     thread("t1", [comment("c1", "one"), comment("c2", "two")], { orphanedAt: 3, ambiguous: true }),
-    thread("t2", [comment("c3", "three")], { status: "resolved", resolvedBy: "user_b", resolvedAt: 9 }),
+    thread("t2", [comment("c3", "three", { via: "assistant" })], { status: "resolved", resolvedBy: "user_b", resolvedAt: 9 }),
   ]);
 
   it("encodes and decodes a comments document losslessly, kind included", () => {

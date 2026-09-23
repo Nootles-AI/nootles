@@ -446,6 +446,24 @@ describe("writing", () => {
     await store(doc, "user_ada", { kind: "model" }).createThread({ anchor: ANCHOR, body: "Suggested", authorId: "user_ada" });
     expect(seen[0].actor).toEqual({ userId: "user_ada", kind: "model" });
   });
+
+  it("marks what the assistant writes as via the assistant, and nothing a person writes", async () => {
+    const doc = fresh();
+    const model = store(doc, "user_ada", { kind: "model" });
+    const person = store(doc, "user_ada");
+    const threadId = await model.createThread({ anchor: ANCHOR, body: "Suggested", authorId: "user_ada" });
+    await person.reply({ threadId, body: "Thanks", authorId: "user_ada" });
+    await model.reply({ threadId, body: "Done", authorId: "user_ada" });
+    expect(readThreads(doc)[0].comments.map((c) => [commentText(c.content), c.via ?? null])).toEqual([
+      ["Suggested", "assistant"],
+      ["Thanks", null],
+      ["Done", "assistant"],
+    ]);
+    // Editing keeps the mark: the words were the assistant's to begin with.
+    await person.editComment({ commentId: readThreads(doc)[0].comments[0].id, body: "Suggested, amended", editorId: "user_ada" });
+    expect(readThreads(doc)[0].comments[0].via).toBe("assistant");
+    expectValid(doc);
+  });
 });
 
 describe("anchor maintenance", () => {

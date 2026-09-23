@@ -29,6 +29,8 @@ export type Comment = {
   authorId: string;
   createdAt: number;
   editedAt?: number;
+  /** Written by the assistant on the author's behalf. */
+  via?: "assistant";
   content: NmlInlineContent;
 };
 
@@ -46,12 +48,13 @@ export type Thread = {
 };
 
 export function commentFromBlock(block: NmlCommentBlock): Comment {
-  const { authorId, createdAt, editedAt } = block.props;
+  const { authorId, createdAt, editedAt, via } = block.props;
   return {
     id: block.id,
     authorId,
     createdAt,
     ...(editedAt !== undefined ? { editedAt } : {}),
+    ...(via !== undefined ? { via } : {}),
     content: block.content,
   };
 }
@@ -88,6 +91,7 @@ export function commentBlock(comment: Comment): NmlCommentBlock {
       authorId: comment.authorId,
       createdAt: comment.createdAt,
       ...(comment.editedAt !== undefined ? { editedAt: comment.editedAt } : {}),
+      ...(comment.via !== undefined ? { via: comment.via } : {}),
     },
     content: comment.content,
     children: [],

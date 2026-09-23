@@ -141,7 +141,7 @@ function blockHtml(block: NmlBlock, depth: number): string {
       return `${open}${block.children.length ? `${children()}\n${pad}` : ""}</nt-thread>`;
     }
     case "comment":
-      return `${pad}<nt-comment${attr("id", block.id)}${attr("author-id", block.props.authorId)}${attr("created-at", block.props.createdAt)}${optionalAttr("edited-at", block.props.editedAt)}>${inlineHtml(block.content)}</nt-comment>`;
+      return `${pad}<nt-comment${attr("id", block.id)}${attr("author-id", block.props.authorId)}${attr("created-at", block.props.createdAt)}${optionalAttr("edited-at", block.props.editedAt)}${optionalAttr("via", block.props.via)}>${inlineHtml(block.content)}</nt-comment>`;
     case "notionStub":
       return `${pad}<nt-notion-stub${attr("id", block.id)}${attr("notion-type", block.props.notionType)}${attr("notion-id", block.props.notionId)}${attr("href", block.props.href)}>${escText(block.props.raw)}</nt-notion-stub>`;
   }

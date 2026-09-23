@@ -50,6 +50,21 @@ Where the code disagreed with this design, these decisions were made and are wha
   - `ydoc.init` stays document-channel only.
   - `MentionPick` has no person kind yet (wave 1).
 - **Delivery is by waves, not the five PRs of §11**, all behind the same entitlement flag.
+- **The comment UI (wave 3) made these calls.**
+  - A comment is one NML paragraph, whose whitespace collapses, so the composer has no line
+    breaks: Enter posts (as does ⌘Enter), Shift+Enter writes nothing. This departs from
+    Docs, where Enter is a new line.
+  - Cards or dots is decided by measurement, not by named layouts: the margin holds cards
+    only when the pane has room for one beside the text, clear of the review's gutter
+    buttons. A narrow window, the chat rail and split view all fall out of that one rule.
+    The dots open the panel, which is also the drawer.
+  - Deleting a whole thread is open to its author and to anyone holding the pen (owner or
+    editor). A reply can be edited or deleted by its author only.
+  - Comments are signed with names from a new `commentNotices.authors` query, which answers
+    every reader of the comments. `mentionable` answers only people who may comment and
+    leaves out the caller.
+  - Model authorship is `comment.props.via: "assistant"`. The store stamps it whenever its
+    actor is the model.
 
 Original status line (22 September 2026): nothing was implemented. This document chooses the
 anchor format and the storage split, and sizes the work as five shippable pull requests.

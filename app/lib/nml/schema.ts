@@ -136,11 +136,16 @@ export type NmlCommentThreadBlock = Base<"commentThread", {
   orphanedAt?: number;
   ambiguous?: true;
 }>;
-/** One comment: a paragraph's inline content with an author. Only inside a thread. */
+/**
+ * One comment: a paragraph's inline content with an author. Only inside a
+ * thread. `via` is `"assistant"` or absent: the assistant writes under the
+ * person it acts for (`authorId` is theirs), and says so here.
+ */
 export type NmlCommentBlock = Base<"comment", {
   authorId: string;
   createdAt: number;
   editedAt?: number;
+  via?: "assistant";
 }> & { content: NmlInlineContent };
 
 /** The block types only a comments document holds. */
@@ -267,6 +272,7 @@ const blockSchemaImpl: z.ZodType<NmlBlock> = z.lazy(() =>
             authorId: idSchema,
             createdAt: z.number().int().nonnegative(),
             editedAt: z.number().int().nonnegative().optional(),
+            via: z.literal("assistant").optional(),
           })
           .strict(),
       })

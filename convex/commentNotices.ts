@@ -244,6 +244,34 @@ export const mentionable = query({
   },
 });
 
+/**
+ * Everyone who can open the project, the caller included — the names a
+ * thread's comments are signed with. Unlike `mentionable` it answers every
+ * reader of the page's comments, a viewer too: whoever may read a comment may
+ * see who wrote it. An author missing here has since lost access, and the
+ * card names them no further.
+ */
+export const authors = query({
+  args: { pageId: v.id("pages") },
+  returns: v.array(
+    v.object({
+      userId: v.string(),
+      name: v.union(v.string(), v.null()),
+      imageUrl: v.union(v.string(), v.null()),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    if (!(await ownerId(ctx))) return [];
+    const page = await readVisible(ctx, "pages", args.pageId);
+    if (!page) return [];
+    const project = await ctx.db.get(page.projectId);
+    if (!project || !(await commentsEnabled(ctx, project))) return [];
+    const role = await roleForProject(ctx, project);
+    if (!channelAdmits({ channel: "comments", access: "read", role, linkLive: false })) return [];
+    return (await mentionablePeople(ctx, project)).map(({ userId, name, imageUrl }) => ({ userId, name, imageUrl }));
+  },
+});
+
 /** Newest first, and no more than an inbox can show. */
 const INBOX_LIMIT = 100;
 

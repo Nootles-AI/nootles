@@ -47,6 +47,7 @@ import type { LegacyBlock } from "@/app/lib/nml/legacy";
 import { BlockSideMenu, editorPortalElements } from "./BlockSideMenu";
 import { PageTitleProvider } from "./PageTitleContext";
 import { InlineCodeButton } from "./InlineCodeButton";
+import { CommentToolbarButton } from "../comments/CommentToolbarButton";
 import { completionExtension } from "./ai/completionExtension";
 import { hintExtension } from "./ai/hintText";
 import { reviewExtension } from "./ai/reviewExtension";
@@ -99,6 +100,7 @@ function Toolbar() {
       {i === -1
         ? [...items, code]
         : [...items.slice(0, i + 1), code, ...items.slice(i + 1)]}
+      <CommentToolbarButton key="commentButton" />
     </FormattingToolbar>
   );
 }
