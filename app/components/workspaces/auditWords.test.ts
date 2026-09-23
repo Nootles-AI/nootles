@@ -16,6 +16,19 @@ const row = (over: Partial<AuditRow>): AuditRow => ({
 });
 
 describe("the sentence", () => {
+  test("a plan given by support names the plan", () => {
+    const set = row({
+      action: "entitlement.set",
+      actorKind: "operator",
+      meta: { feature: "plan", value: "team", note: "Internal tester" },
+    });
+    expect(`${actorName(set, null)} ${whatText(set, "Acme")}`).toBe(
+      "Nootles support put this workspace on the Team plan",
+    );
+    const clear = row({ action: "entitlement.clear", meta: { feature: "plan" } });
+    expect(whatText(clear, "Acme")).toBe("took this workspace off the plan it was given");
+  });
+
   test("a removal names who went and where from", () => {
     const r = row({
       action: "member.remove",
