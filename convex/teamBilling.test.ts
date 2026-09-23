@@ -9,6 +9,7 @@ import {
   bestSubscription,
   nextReport,
   overageCents,
+  seatsInUse,
   usageWindow,
   workspaceEventOf,
 } from "./teamBilling";
@@ -166,6 +167,14 @@ const scheduled = (t: T, name: string) =>
       (f) => f.name.includes(name) && f.state.kind === "pending",
     ),
   );
+
+/** The nightly run, with the seat checks it schedules run as they would at once. */
+async function night(t: T) {
+  await t.mutation(internal.teamBilling.reportUsage, {});
+  for (const check of await scheduled(t, "checkSeats")) {
+    await t.mutation(internal.teamBilling.checkSeats, check.args[0] as { workspaceId: Id<"workspaces"> });
+  }
+}
 
 describe("checkout", () => {
   test("an admin's checkout makes the workspace a customer of its own and buys its seats and usage", async () => {
@@ -503,7 +512,7 @@ describe("seats", () => {
     expect((await scheduled(t, "syncSeats")).map((f) => f.args[0])).toEqual([{ workspaceId }]);
     expect((await billingRow(t, workspaceId))?.seatSyncPendingAt).toBe(NOW);
 
-    await t.mutation(internal.teamBilling.reportUsage, {});
+    await night(t);
     expect((await scheduled(t, "syncSeats")).map((f) => f.args[0])).toEqual([
       { workspaceId },
       { workspaceId: nightly },
@@ -523,8 +532,9 @@ describe("seats", () => {
     await t
       .withIdentity(ADMIN)
       .mutation(api.members.setRole, { workspaceId, userId: GUEST.subject, role: "member" });
-    await t.mutation(internal.teamBilling.reportUsage, {});
+    await night(t);
 
+    expect(await scheduled(t, "checkSeats")).toHaveLength(0);
     expect(await scheduled(t, "syncSeats")).toHaveLength(0);
     expect((await billingRow(t, workspaceId))?.seatSyncPendingAt).toBe(NOW - 30_000);
   });
@@ -847,7 +857,67 @@ describe("the usage report", () => {
 
     const reports = await scheduled(t, "reportWorkspaceUsage");
     expect(reports.map((f) => f.args[0])).toEqual([{ workspaceId }]);
-    expect(await scheduled(t, "syncSeats")).toHaveLength(1);
+    // The page reads billing rows only; each workspace's members are counted
+    // in a transaction of its own.
+    expect((await scheduled(t, "checkSeats")).map((f) => f.args[0])).toEqual([{ workspaceId }]);
+    expect(await scheduled(t, "syncSeats")).toHaveLength(0);
+
+    await night(t);
+    expect((await scheduled(t, "syncSeats")).map((f) => f.args[0])).toEqual([{ workspaceId }]);
+  });
+
+  test("a seat check on a workspace whose seats match Stripe schedules nothing", async () => {
+    const t = convexTest(schema, modules);
+    const { workspaceId } = await world(t);
+    await billing(t, workspaceId, { seats: 3 });
+
+    await night(t);
+
+    expect(await scheduled(t, "checkSeats")).toHaveLength(1);
+    expect(await scheduled(t, "syncSeats")).toHaveLength(0);
+  });
+
+  test("counting seats reads the seat holders and never the guests", async () => {
+    const t = convexTest(schema, modules);
+    const { workspaceId } = await world(t);
+    await t.run(async (ctx) => {
+      for (let i = 0; i < 50; i++) {
+        await ctx.db.insert("memberships", {
+          workspaceId,
+          userId: `user_guest_${i}`,
+          role: "guest",
+          status: "active",
+          joinedAt: 1,
+        });
+      }
+      await ctx.db.insert("memberships", {
+        workspaceId,
+        userId: "user_gone",
+        role: "member",
+        status: "removed",
+        joinedAt: 1,
+      });
+    });
+
+    const read = await t.run(async (ctx) => {
+      const rows: Doc<"memberships">[] = [];
+      const db = {
+        query: (table: "memberships") => ({
+          withIndex: (...index: Parameters<ReturnType<typeof ctx.db.query<"memberships">>["withIndex"]>) => ({
+            collect: async () => {
+              const found = await ctx.db.query(table).withIndex(...index).collect();
+              rows.push(...found);
+              return found;
+            },
+          }),
+        }),
+      };
+      const seats = await seatsInUse({ ...ctx, db } as unknown as typeof ctx, workspaceId);
+      return { seats, roles: rows.map((row) => row.role) };
+    });
+
+    expect(read.seats).toBe(3);
+    expect(read.roles.sort()).toEqual(["admin", "member", "owner"]);
   });
 });
 
