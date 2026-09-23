@@ -40,6 +40,7 @@ import { BlocksThumb, PagePreview } from "./PagePreview";
 import { TemplateWall } from "./TemplateWall";
 import { DraftSources } from "./context/ContextSources";
 import { GitHubSourcePage, NotionSourcePage } from "./context/SourcePages";
+import { repoPlaceholder, searchable, useGitHubDoor } from "./context/useGitHubDoor";
 
 type Project = NonNullable<
   ReturnType<typeof useQuery<typeof api.projects.listForScreen>>
@@ -231,10 +232,12 @@ function Palette({
   const [notionSearch, setNotionSearch] = useState(false);
   // A source's page is searched once it has something to search: not on its
   // connect screen.
-  const githubStatus = useQuery(api.github.account.status, page === "sourceGithub" ? {} : "skip");
+  // A workspace's project takes its repositories from the workspace's GitHub
+  // App; the draft says which container it is going to.
+  const githubDoor = useGitHubDoor(draft.workspace?.workspaceId, page === "sourceGithub");
   const notionStatus = useQuery(api.notion.account.status, page === "sourceNotion" ? {} : "skip");
   const sourceReady =
-    (page === "sourceGithub" && !!githubStatus?.account && !githubStatus.account.invalidAt) ||
+    (page === "sourceGithub" && searchable(githubDoor)) ||
     (page === "sourceNotion" && !!notionStatus?.account && !notionStatus.account.invalidAt);
   const fielded = !listless || (page === "notion" && notionSearch) || sourceReady;
 
@@ -470,7 +473,7 @@ function Palette({
             type="search"
             aria-label={page === "sourceGithub" ? "Search repositories" : "Search Notion pages"}
             placeholder={
-              page === "sourceGithub" ? "Search your repositories, or type owner/name…" : "Search your Notion pages…"
+              page === "sourceGithub" ? repoPlaceholder(githubDoor) : "Search your Notion pages…"
             }
             autoComplete="off"
             spellCheck={false}
@@ -516,6 +519,7 @@ function Palette({
         />
       ) : page === "sourceGithub" ? (
         <GitHubSourcePage
+          door={githubDoor}
           chosen={draft.sources.repos}
           search={query}
           onChoose={(repos) => {

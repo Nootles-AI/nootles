@@ -2,7 +2,13 @@ import { ConvexError, v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Doc } from "../_generated/dataModel";
 import { action, mutation, query } from "../_generated/server";
-import { atLeast, ownerId as currentOwner, requireWorkspaceRole, workspaceRole } from "../auth";
+import {
+  atLeast,
+  ownerId as currentOwner,
+  GITHUB_ORG_PROOF_MS,
+  requireWorkspaceRole,
+  workspaceRole,
+} from "../auth";
 import { withInstallation } from "./credential";
 import { installationsOf, unusable } from "./installations";
 import { listed, type Listed, type Repo } from "./repos";
@@ -78,6 +84,11 @@ export const status = query({
       orgProof: {
         verifiedAt: seat?.githubOrgVerifiedAt ?? null,
         login: seat?.githubOrgLogin ?? null,
+        /** `auth.passesGithubOrgRule`'s answer, so the page never reckons the window itself. */
+        passes:
+          !workspace.settings.requireGithubOrg ||
+          (seat?.githubOrgVerifiedAt !== undefined &&
+            Date.now() - seat.githubOrgVerifiedAt < GITHUB_ORG_PROOF_MS),
       },
     };
   },

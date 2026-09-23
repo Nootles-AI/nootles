@@ -345,3 +345,29 @@
     animation: none;
   }
 }
+
+/* ---- Code held back ---------------------------------------------------------
+   A workspace's GitHub organisation rule stopping this member: one line in the
+   empty-state voice, and the press that clears it drawn as a row, the way
+   everything else under Context is. */
+
+.nt-codegate {
+  display: grid;
+  gap: 2px;
+  padding: 6px 8px 2px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--muted);
+  text-wrap: pretty;
+}
+.nt-codegate > .is-problem {
+  color: var(--danger);
+}
+.nt-row.nt-codegate-go {
+  justify-self: start;
+  height: var(--control-sm);
+  margin-inline: -8px;
+  padding-inline: 8px;
+  font-weight: 500;
+  color: var(--foreground);
+}

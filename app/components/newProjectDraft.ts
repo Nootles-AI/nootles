@@ -56,6 +56,15 @@ export function useNewProjectDraft(
 
   const named = title.trim();
 
+  // Repositories picked through one workspace's GitHub App are that
+  // workspace's to read; moved anywhere else, the project could not.
+  const moveTo = (next: ProjectHome | undefined) => {
+    if (next?.workspaceId !== workspace?.workspaceId) {
+      setSources((now) => ({ ...now, repos: now.repos.filter((r) => r.installationId === undefined) }));
+    }
+    setWorkspace(next);
+  };
+
   const submit = (e: FormEvent) => {
     e.preventDefault();
     if (!named || busy) return;
@@ -83,6 +92,6 @@ export function useNewProjectDraft(
 
   return {
     title, setTitle, description, setDescription, sources, setSources,
-    workspace, setWorkspace, busy, failure, named, submit,
+    workspace, setWorkspace: moveTo, busy, failure, named, submit,
   };
 }
