@@ -472,6 +472,70 @@ describe("seats", () => {
     expect(stripe.updateItem).not.toHaveBeenCalled();
   });
 
+  test("an accepted invitation is a seat Stripe is told about; a guest's is not", async () => {
+    const t = convexTest(schema, modules);
+    const { workspaceId } = await world(t);
+    await billing(t, workspaceId, { seats: 3 });
+    await t.run(async (ctx) => {
+      await ctx.db.insert("invitations", {
+        workspaceId,
+        email: "visitor@elsewhere.test",
+        role: "guest",
+        token: "guest-token",
+        invitedBy: ADMIN.subject,
+        createdAt: 1,
+        expiresAt: NOW + 14 * DAY,
+      });
+    });
+
+    await t
+      .withIdentity({ subject: "user_visitor", email: "visitor@elsewhere.test", emailVerified: true })
+      .mutation(api.members.acceptInvite, { token: "guest-token" });
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    expect(stripe.updateItem).not.toHaveBeenCalled();
+
+    await t
+      .withIdentity({ subject: "user_new", email: "new@acme.test", emailVerified: true })
+      .mutation(api.members.acceptInvite, { token: "invite-token" });
+    expect(await scheduled(t, "syncSeats")).toHaveLength(1);
+    expect((await billingRow(t, workspaceId))?.seatSyncPending).toBe(true);
+
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    expect(stripe.updateItem).toHaveBeenCalledOnce();
+    expect(stripe.updateItem).toHaveBeenCalledWith("si_seat", {
+      quantity: 4,
+      proration_behavior: "create_prorations",
+    });
+    expect(await billingRow(t, workspaceId)).toMatchObject({ seats: 4, aiAllowanceUsd: 40 });
+  });
+
+  test("joining by domain is a seat Stripe is told about", async () => {
+    const t = convexTest(schema, modules);
+    const { workspaceId } = await world(t);
+    await billing(t, workspaceId, { seats: 3 });
+    await t.run(async (ctx) => {
+      await ctx.db.patch(workspaceId, {
+        settings: {
+          linkSharing: true,
+          guestCodeAccess: false,
+          joinDomains: ["acme.test"],
+          autoJoin: true,
+        },
+      });
+    });
+
+    await t
+      .withIdentity({ subject: "user_colleague", email: "colleague@acme.test", emailVerified: true })
+      .mutation(api.members.joinByDomain, { workspaceId });
+    expect(await scheduled(t, "syncSeats")).toHaveLength(1);
+
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    expect(stripe.updateItem).toHaveBeenCalledWith("si_seat", {
+      quantity: 4,
+      proration_behavior: "create_prorations",
+    });
+  });
+
   test("a workspace with nothing to update schedules nothing", async () => {
     const t = convexTest(schema, modules);
     const { workspaceId } = await world(t);
