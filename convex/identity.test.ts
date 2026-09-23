@@ -2,7 +2,7 @@
 import { convexTest, type TestConvex } from "convex-test";
 import type { UserIdentity } from "convex/server";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
 import componentSchema from "../node_modules/@convex-dev/prosemirror-sync/src/component/schema";
@@ -15,8 +15,9 @@ import * as profilesModule from "./profiles";
  * domains are bound to is confirmed server-side (`identity.sync`) and read
  * back by `auth.verifiedEmail`. The rules worth pinning are the ones a
  * mistake here would turn into a door: only a verified primary address is
- * ever stamped, nothing a client sends reaches the stamp, and a stand-in
- * confirms nothing.
+ * ever stamped, nothing a client sends reaches the stamp, a stand-in
+ * confirms nothing, and a stamp Clerk has stopped vouching for — or has not
+ * vouched for lately — admits nobody.
  */
 
 const modules = import.meta.glob("./**/*.ts");
@@ -95,6 +96,17 @@ const profileOf = (t: T, subject: string) =>
 const sync = (t: T, who: Partial<UserIdentity>) =>
   t.withIdentity(who).action(api.identity.sync, {});
 
+/** A stamp Clerk last vouched for `age` ago. */
+const stampAged = (t: T, ownerId: string, email: string, age: number) =>
+  t.run((ctx) =>
+    ctx.db.insert("identities", {
+      ownerId,
+      verifiedEmail: email,
+      verifiedEmailAt: Date.now() - age,
+      name: "Nia Newman",
+    }),
+  );
+
 /** Acme, with acme.com open to join and an invitation out to nia@acme.com. */
 async function invited(t: T) {
   return await t.run(async (ctx) => {
@@ -138,6 +150,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
 });
@@ -328,6 +341,10 @@ describe("what a client can reach", () => {
     expect(exported.filter(([, fn]) => fn.isPublic).map(([name]) => name)).toEqual(["sync"]);
     expect(identityModule.stamp.isInternal).toBe(true);
     expect(identityModule.stamped.isInternal).toBe(true);
+    expect(identityModule.forget.isInternal).toBe(true);
+    expect(identityModule.expire.isInternal).toBe(true);
+    // The webhook's door is HTTP, and opens only to what Clerk signed.
+    expect(identityModule.clerkWebhook.isHttp).toBe(true);
     // The profile's public mutations take nothing that could name an address.
     expect("stampEmail" in profilesModule).toBe(false);
   });
@@ -418,6 +435,291 @@ describe("a stamped address", () => {
         role: "member",
       }),
     ).rejects.toThrow("sal@acme.com is already in Acme.");
+  });
+});
+
+describe("a stamp's age", () => {
+  test("admits nobody once Clerk hasn't vouched for it in three days", async () => {
+    const t = harness();
+    const workspaceId = await invited(t);
+    const stampId = await stampAged(t, NIA.subject, "nia@acme.com", 3 * DAY + HOUR);
+    const nia = t.withIdentity(NIA);
+    await expect(nia.mutation(api.members.acceptInvite, { token: "tok_nia" })).rejects.toThrow(
+      "This invitation is for another account.",
+    );
+    await expect(nia.mutation(api.members.joinByDomain, { workspaceId })).rejects.toThrow(
+      "Not found",
+    );
+
+    // A query can't read the clock, so it shows the stamp as it stands until
+    // `expire` takes the address off.
+    expect(await nia.query(api.members.invitation, { token: "tok_nia" })).toMatchObject({
+      state: "valid",
+    });
+    await t.mutation(internal.identity.expire, {});
+    expect(await nia.query(api.members.invitation, { token: "tok_nia" })).toEqual({
+      state: "unconfirmed",
+    });
+    expect(await nia.query(api.members.joinable, {})).toEqual([]);
+
+    await t.run((ctx) =>
+      ctx.db.patch(stampId, {
+        verifiedEmail: "nia@acme.com",
+        verifiedEmailAt: Date.now() - 2 * DAY,
+      }),
+    );
+    await expect(
+      nia.mutation(api.members.acceptInvite, { token: "tok_nia" }),
+    ).resolves.toMatchObject({ workspaceId, role: "member" });
+  });
+
+  test("doesn't prove a join domain once it has lapsed", async () => {
+    const t = harness();
+    const workspaceId = await t.run(async (ctx) => {
+      const workspaceId: Id<"workspaces"> = await ctx.db.insert("workspaces", {
+        slug: "nia-co",
+        name: "Nia & Co",
+        createdBy: NIA.subject,
+        plan: "team",
+        settings: { linkSharing: true, guestCodeAccess: false, joinDomains: [], autoJoin: false },
+        createdAt: 1,
+      });
+      await ctx.db.insert("memberships", {
+        workspaceId,
+        userId: NIA.subject,
+        role: "owner",
+        status: "active",
+        joinedAt: 1,
+      });
+      return workspaceId;
+    });
+    const stampId = await stampAged(t, NIA.subject, "nia@acme.com", 4 * DAY);
+    const addAcme = () =>
+      t.withIdentity(NIA).mutation(api.workspaces.updateSettings, {
+        workspaceId,
+        patch: { joinDomains: ["acme.com"] },
+      });
+    await expect(addAcme()).rejects.toThrow("You can only add your own email’s domain.");
+
+    await t.run((ctx) => ctx.db.patch(stampId, { verifiedEmailAt: Date.now() - HOUR }));
+    await addAcme();
+    const workspace = await t.run((ctx) => ctx.db.get(workspaceId));
+    expect(workspace?.settings.joinDomains).toEqual(["acme.com"]);
+  });
+
+  test("expire takes the address off every stamp past the window, and nothing else", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-01T12:00:00Z"));
+    const t = harness();
+    // More than one run's worth, so the rest are left to the run it schedules.
+    const lapsing = 130;
+    await t.run(async (ctx) => {
+      for (let i = 0; i < lapsing; i++) {
+        await ctx.db.insert("identities", {
+          ownerId: `user_old_${i}`,
+          verifiedEmail: `old${i}@acme.com`,
+          verifiedEmailAt: Date.now() - 3 * DAY - 1 - i * HOUR,
+          name: "Old Timer",
+        });
+      }
+      await ctx.db.insert("identities", {
+        ownerId: "user_edge",
+        verifiedEmail: "edge@acme.com",
+        verifiedEmailAt: Date.now() - 3 * DAY,
+      });
+      await ctx.db.insert("identities", { ownerId: "user_none", name: "No Address" });
+    });
+
+    await t.mutation(internal.identity.expire, {});
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+    const rows = await t.run((ctx) => ctx.db.query("identities").collect());
+    const old = rows.filter((row) => row.ownerId.startsWith("user_old_"));
+    expect(old).toHaveLength(lapsing);
+    for (const row of old) {
+      expect(row.verifiedEmail).toBeUndefined();
+      expect(row.verifiedEmailAt).toBeUndefined();
+      expect(row.name).toBe("Old Timer");
+    }
+    expect(rows.find((row) => row.ownerId === "user_edge")).toMatchObject({
+      verifiedEmail: "edge@acme.com",
+    });
+    expect(rows.find((row) => row.ownerId === "user_none")).toMatchObject({
+      name: "No Address",
+    });
+  });
+
+  test("a lapsed stamp is asked about again rather than trusted", async () => {
+    const t = harness();
+    await stampAged(t, NIA.subject, "nia@acme.com", 4 * DAY);
+    await t.mutation(internal.identity.expire, {});
+    const fetch = stubClerk();
+    await expect(sync(t, NIA)).resolves.toBe("nia@acme.com");
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+});
+
+describe("the Clerk webhook", () => {
+  const SECRET = `whsec_${btoa("a webhook secret for these tests")}`;
+
+  /** Signs as Svix does: HMAC-SHA256 over `${id}.${timestamp}.${body}`. */
+  async function svixHeaders(body: string, secret = SECRET, at = Date.now()) {
+    const key = await crypto.subtle.importKey(
+      "raw",
+      Uint8Array.from(atob(secret.replace(/^whsec_/, "")), (c) => c.charCodeAt(0)),
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["sign"],
+    );
+    const id = "msg_test";
+    const timestamp = String(Math.floor(at / 1000));
+    const mac = new Uint8Array(
+      await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`${id}.${timestamp}.${body}`)),
+    );
+    return {
+      "svix-id": id,
+      "svix-timestamp": timestamp,
+      "svix-signature": `v1,${btoa(String.fromCharCode(...mac))}`,
+    };
+  }
+
+  const post = (t: T, body: string, headers: Record<string, string>) =>
+    t.fetch("/clerk/webhook", {
+      method: "POST",
+      headers: { "content-type": "application/json", ...headers },
+      body,
+    });
+
+  async function deliver(t: T, event: object) {
+    const body = JSON.stringify(event);
+    return await post(t, body, await svixHeaders(body));
+  }
+
+  beforeEach(() => {
+    vi.stubEnv("CLERK_WEBHOOK_SECRET", SECRET);
+  });
+
+  test("stamps what Clerk says now, not what the event carried", async () => {
+    const t = harness();
+    const fetch = stubClerk();
+    const response = await deliver(t, {
+      type: "user.updated",
+      data: clerkUser({
+        email_addresses: [
+          {
+            id: "idn_primary",
+            email_address: "someone@else.org",
+            verification: { status: "verified" },
+          },
+        ],
+      }),
+    });
+    expect(response.status).toBe(204);
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(fetch.mock.calls[0][0]).toBe("https://api.clerk.com/v1/users/user_nia");
+    expect(await stampOf(t, NIA.subject)).toMatchObject({ verifiedEmail: "nia@acme.com" });
+  });
+
+  test("an address taken off in Clerk stops admitting its old holder at once", async () => {
+    const t = harness();
+    const workspaceId = await invited(t);
+    await stampAged(t, NIA.subject, "nia@acme.com", HOUR);
+    stubClerk(
+      clerkUser({
+        email_addresses: [
+          {
+            id: "idn_primary",
+            email_address: "nia@newco.com",
+            verification: { status: "verified" },
+          },
+        ],
+      }),
+    );
+    expect((await deliver(t, { type: "user.updated", data: { id: NIA.subject } })).status).toBe(
+      204,
+    );
+    expect(await stampOf(t, NIA.subject)).toMatchObject({ verifiedEmail: "nia@newco.com" });
+
+    const nia = t.withIdentity(NIA);
+    await expect(nia.mutation(api.members.acceptInvite, { token: "tok_nia" })).rejects.toThrow(
+      "This invitation is for another account.",
+    );
+    await expect(nia.mutation(api.members.joinByDomain, { workspaceId })).rejects.toThrow(
+      "Not found",
+    );
+    expect(await nia.query(api.members.joinable, {})).toEqual([]);
+  });
+
+  test("forgets a deleted account's address without asking Clerk", async () => {
+    const t = harness();
+    await stampAged(t, NIA.subject, "nia@acme.com", HOUR);
+    const fetch = stubClerk();
+    const response = await deliver(t, {
+      type: "user.deleted",
+      data: { id: NIA.subject, deleted: true, object: "user" },
+    });
+    expect(response.status).toBe(204);
+    expect(fetch).not.toHaveBeenCalled();
+    const stamp = await stampOf(t, NIA.subject);
+    expect(stamp?.verifiedEmail).toBeUndefined();
+    expect(stamp?.name).toBe("Nia Newman");
+  });
+
+  test("refuses a delivery it can't verify, and touches nothing", async () => {
+    const t = harness();
+    await stampAged(t, NIA.subject, "nia@acme.com", HOUR);
+    const fetch = stubClerk();
+    const body = JSON.stringify({ type: "user.deleted", data: { id: NIA.subject } });
+    const good = await svixHeaders(body);
+    const refused = [
+      await post(t, body, await svixHeaders(body, `whsec_${btoa("some other secret")}`)),
+      await post(t, body.replace("user.deleted", "user.updated"), good),
+      await post(t, body, { ...good, "svix-id": "msg_other" }),
+      await post(t, body, await svixHeaders(body, SECRET, Date.now() - 10 * 60 * 1000)),
+      await post(t, body, { "svix-id": good["svix-id"], "svix-timestamp": good["svix-timestamp"] }),
+      await post(t, body, {}),
+    ];
+    vi.stubEnv("CLERK_WEBHOOK_SECRET", "");
+    refused.push(await post(t, body, good));
+    expect(refused.map((response) => response.status)).toEqual(refused.map(() => 401));
+    expect(fetch).not.toHaveBeenCalled();
+    expect(await stampOf(t, NIA.subject)).toMatchObject({ verifiedEmail: "nia@acme.com" });
+  });
+
+  test("takes any one good signature, as while Clerk rotates the secret", async () => {
+    const t = harness();
+    await stampAged(t, NIA.subject, "nia@acme.com", HOUR);
+    const body = JSON.stringify({ type: "user.deleted", data: { id: NIA.subject } });
+    const good = await svixHeaders(body);
+    const rotating = `v1,${btoa("an old signature")} ${good["svix-signature"]}`;
+    const response = await post(t, body, { ...good, "svix-signature": rotating });
+    expect(response.status).toBe(204);
+    expect((await stampOf(t, NIA.subject))?.verifiedEmail).toBeUndefined();
+  });
+
+  test("answers 503 when Clerk doesn't, so Svix delivers again, and the stamp stands", async () => {
+    const t = harness();
+    await stampAged(t, NIA.subject, "nia@acme.com", HOUR);
+    for (const answer of [500, new Error("network down")]) {
+      stubClerk(answer);
+      const response = await deliver(t, { type: "user.updated", data: { id: NIA.subject } });
+      expect(response.status).toBe(503);
+      expect(await stampOf(t, NIA.subject)).toMatchObject({ verifiedEmail: "nia@acme.com" });
+    }
+  });
+
+  test("acknowledges other events and does nothing with them", async () => {
+    const t = harness();
+    const fetch = stubClerk();
+    for (const event of [
+      { type: "session.created", data: { id: "sess_1", user_id: NIA.subject } },
+      { type: "email.created", data: { id: "ema_1", to_email_address: "nia@acme.com" } },
+      { type: "user.updated", data: null },
+    ]) {
+      expect((await deliver(t, event)).status).toBe(204);
+    }
+    expect(fetch).not.toHaveBeenCalled();
+    expect(await stampOf(t, NIA.subject)).toBeNull();
   });
 });
 

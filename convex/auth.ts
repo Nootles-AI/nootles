@@ -279,6 +279,15 @@ export function mayAssignSeat(
 }
 
 /**
+ * How long Clerk's word on an address stands without being asked again:
+ * three of `identity.sync`'s daily re-checks, so Clerk can be down for a day
+ * or two before anyone notices. It bounds how long an address taken off a
+ * Clerk account can go on admitting its old holder when the Clerk webhook
+ * misses the change and their client stops asking.
+ */
+export const STAMP_MAX_AGE_MS = 3 * 24 * 60 * 60 * 1000;
+
+/**
  * The caller's email address, lowercased, when their sign-in vouches for it.
  * This is what an invitation is bound to and what proves a join domain, so an
  * address the token calls unverified is no answer.
@@ -286,8 +295,16 @@ export function mayAssignSeat(
  * The token speaks first, when it carries the claim at all. A session token
  * with no email in it — Clerk's default — falls back to what `identity.sync`
  * last confirmed with Clerk itself, which the client has no way to write.
+ *
+ * A gate that admits someone passes `now` — a mutation may read the clock —
+ * and a stamp older than `STAMP_MAX_AGE_MS` by then is no answer. A query may
+ * not, so it takes the stamp as it stands, and `identity.expire` takes the
+ * address off a stamp once it passes that age.
  */
-export async function verifiedEmail(ctx: QueryCtx): Promise<string | null> {
+export async function verifiedEmail(
+  ctx: QueryCtx,
+  { now }: { now?: number } = {},
+): Promise<string | null> {
   const identity = await ctx.auth.getUserIdentity();
   if (!identity) return null;
   if (identity.email && identity.emailVerified !== false) {
@@ -297,7 +314,9 @@ export async function verifiedEmail(ctx: QueryCtx): Promise<string | null> {
     .query("identities")
     .withIndex("by_owner", (q) => q.eq("ownerId", identity.subject))
     .unique();
-  return stamped?.verifiedEmail ?? null;
+  if (!stamped?.verifiedEmail) return null;
+  if (now !== undefined && now - (stamped.verifiedEmailAt ?? 0) > STAMP_MAX_AGE_MS) return null;
+  return stamped.verifiedEmail;
 }
 
 export function domainOf(email: string): string {

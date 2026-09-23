@@ -90,6 +90,7 @@ import type * as requestLimits from "../requestLimits.js";
 import type * as share from "../share.js";
 import type * as slugs from "../slugs.js";
 import type * as surveys from "../surveys.js";
+import type * as svix from "../svix.js";
 import type * as teamsRollout from "../teamsRollout.js";
 import type * as tickets from "../tickets.js";
 import type * as trash from "../trash.js";
@@ -188,6 +189,7 @@ declare const fullApi: ApiFromModules<{
   share: typeof share;
   slugs: typeof slugs;
   surveys: typeof surveys;
+  svix: typeof svix;
   teamsRollout: typeof teamsRollout;
   tickets: typeof tickets;
   trash: typeof trash;

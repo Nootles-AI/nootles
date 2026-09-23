@@ -19,11 +19,44 @@ npx convex env set CLERK_SECRET_KEY sk_test_…          # dev
 npx convex env set CLERK_SECRET_KEY sk_live_… --prod   # prod
 ```
 
-Once per signed-in session the app calls `identity.sync`, which asks Clerk's
-Backend API (`GET /v1/users/{id}`) for the account's **primary** address and
-stamps it only if Clerk marks it verified, with the name and picture. A stamp
-is trusted for a day before Clerk is asked again, so this is at most one Clerk
-call per active account per day. If Clerk is down, the previous stamp stands.
+When a signed-in session starts, and when a tab comes back into view an hour
+or more later, the app calls `identity.sync`. That asks Clerk's Backend API
+(`GET /v1/users/{id}`) for the account's **primary** address and stamps it
+only if Clerk marks it verified, with the name and picture. Clerk is asked
+again only once a stamp is a day old, so this is at most one Clerk call per
+active account per day. If Clerk is down, the previous stamp stands.
+
+The account's own app decides whether it calls `identity.sync`, so the
+re-check is the app's courtesy, not a guarantee. What is enforced is an upper
+bound: an address Clerk has not vouched for in **three days** admits nobody.
+Accepting an invitation, joining by domain and adding a join domain all
+refuse it, and an hourly job (`identity.expire`) takes it off the stamp so
+the pages stop offering those doors too.
+
+### And the Clerk webhook (recommended with the secret key)
+
+Without it, an address removed from a Clerk account, or replaced as its
+primary, keeps admitting the account for up to those three days, whether the
+account changed it or an operator did. The webhook makes the change count
+at once. In the Clerk dashboard (Webhooks → Add endpoint), for each instance:
+
+- **Endpoint URL:** the deployment's HTTP actions URL plus `/clerk/webhook`,
+  for example `https://<deployment>.convex.site/clerk/webhook`
+- **Events:** `user.created`, `user.updated`, `user.deleted`
+
+Then give Convex the endpoint's signing secret:
+
+```
+npx convex env set CLERK_WEBHOOK_SECRET whsec_…          # dev
+npx convex env set CLERK_WEBHOOK_SECRET whsec_… --prod   # prod
+```
+
+The handler checks Svix's signature and refuses anything it can't verify. It
+treats an event only as a signal to ask Clerk again, and stamps Clerk's
+current answer rather than the event's contents, because deliveries can
+arrive late and out of order. A deleted account's address is dropped
+outright. If Clerk doesn't answer, the handler returns 503 and Svix delivers
+the event again later.
 
 ## Or: put the claims in the token
 

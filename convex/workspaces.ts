@@ -258,7 +258,7 @@ export const updateSettings = mutation({
         ...new Set(joinDomains.map((d) => d.trim().toLowerCase().replace(/^@/, ""))),
       ].filter(Boolean);
       const had = new Set(workspace.settings.joinDomains);
-      const email = await verifiedEmail(ctx);
+      const email = await verifiedEmail(ctx, { now: Date.now() });
       for (const domain of next) {
         if (had.has(domain)) continue;
         if (isPersonalDomain(domain)) {

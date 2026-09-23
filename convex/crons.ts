@@ -32,6 +32,13 @@ crons.interval(
 );
 
 /**
+ * Addresses Clerk has not vouched for lately. The gates judge a stamp's age
+ * themselves; this keeps the queries, which cannot, from showing doors the
+ * gates would refuse for more than the hour between runs.
+ */
+crons.interval("lapse stale identity stamps", { hours: 1 }, internal.identity.expire, {});
+
+/**
  * The AI substrate's two write-only tables, past the window anything reads
  * them over. Both sweeps take a bounded bite and are frequent enough that a
  * busy account's backlog drains between them.

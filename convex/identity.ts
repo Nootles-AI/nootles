@@ -1,9 +1,10 @@
 import { v } from "convex/values";
 import type { UserIdentity } from "convex/server";
-import { action, internalMutation, internalQuery } from "./_generated/server";
+import { action, httpAction, internalMutation, internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
-import { requireOwner } from "./auth";
+import { requireOwner, STAMP_MAX_AGE_MS } from "./auth";
 import { faceOf, identityOf } from "./profiles";
+import { verifySvix } from "./svix";
 
 /**
  * Who an account is, as far as its sign-in will vouch: a verified address, a
@@ -13,12 +14,17 @@ import { faceOf, identityOf } from "./profiles";
  *
  * Clerk's default session token carries none of it, only the subject. So when
  * the token is silent this asks Clerk's Backend API with the deployment's own
- * secret key, and a confirmed address is trusted for a day before it is asked
- * about again. Nothing here takes a value from the client: the one public
- * function has no arguments.
+ * secret key: when the account's app asks and its stamp is a day old, and
+ * whenever Clerk's webhook says the account changed. An address Clerk has not
+ * vouched for in `STAMP_MAX_AGE_MS` admits nobody. Nothing here takes a value
+ * from the client: the one public function has no arguments, and the webhook
+ * takes only what Clerk has signed.
  */
 
+/** How old a stamp may be before the account's own app asks Clerk again. */
 const FRESH_MS = 24 * 60 * 60 * 1000;
+/** Stamps lapsed per run of `expire`, which goes again while there are more. */
+const EXPIRE_BATCH = 100;
 /** The invitation page waits on this; a stalled Clerk must not hold it. */
 const CLERK_TIMEOUT_MS = 5000;
 
@@ -91,6 +97,79 @@ export const stamp = internalMutation({
     if (profile && Object.keys(copy).length) await ctx.db.patch(profile._id, copy);
     return null;
   },
+});
+
+/** What taking an address off a stamp writes; the name and picture stay. */
+const LAPSED = { verifiedEmail: undefined, verifiedEmailAt: undefined };
+
+/** A deleted account's address, which is nobody's to vouch for any more. */
+export const forget = internalMutation({
+  args: { ownerId: v.string() },
+  returns: v.null(),
+  handler: async (ctx, { ownerId }) => {
+    const row = await identityOf(ctx, ownerId);
+    if (row) await ctx.db.patch(row._id, LAPSED);
+    return null;
+  },
+});
+
+/**
+ * Takes the address off every stamp older than `STAMP_MAX_AGE_MS`. The gates
+ * that admit someone judge a stamp's age themselves; this is for the queries,
+ * which may not read the clock, so that the doors they show do not outlive
+ * the ones the gates would open.
+ */
+export const expire = internalMutation({
+  args: {},
+  returns: v.null(),
+  handler: async (ctx) => {
+    const lapsed = await ctx.db
+      .query("identities")
+      .withIndex("by_verifiedEmailAt", (q) =>
+        q.gte("verifiedEmailAt", 0).lt("verifiedEmailAt", Date.now() - STAMP_MAX_AGE_MS),
+      )
+      .take(EXPIRE_BATCH);
+    for (const row of lapsed) await ctx.db.patch(row._id, LAPSED);
+    if (lapsed.length === EXPIRE_BATCH) {
+      await ctx.scheduler.runAfter(0, internal.identity.expire, {});
+    }
+    return null;
+  },
+});
+
+/**
+ * Clerk's webhook, routed in `http.ts`, for `user.created`, `user.updated` and
+ * `user.deleted`. An address removed or replaced in Clerk — by the account
+ * itself or by an operator in the dashboard — reaches the stamp without
+ * waiting on the account's own app to ask, which it may never do.
+ *
+ * The event is only a signal. Svix promises no order and retries a failed
+ * delivery for hours, so a late one could carry an address taken off since;
+ * what gets stamped is what Clerk says now. A deleted account is the
+ * exception, with nobody left to ask about. When Clerk gives no answer the
+ * 503 has Svix deliver the event again later.
+ */
+export const clerkWebhook = httpAction(async (ctx, request) => {
+  const body = await request.text();
+  const secret = process.env.CLERK_WEBHOOK_SECRET;
+  if (!secret || !(await verifySvix(secret, request.headers, body, Date.now()))) {
+    return new Response("Unverified", { status: 401 });
+  }
+  let event: { type?: unknown; data?: { id?: unknown } | null };
+  try {
+    event = JSON.parse(body);
+  } catch {
+    return new Response("Unreadable", { status: 400 });
+  }
+  const ownerId = typeof event.data?.id === "string" ? event.data.id : null;
+  if (ownerId && event.type === "user.deleted") {
+    await ctx.runMutation(internal.identity.forget, { ownerId });
+  } else if (ownerId && (event.type === "user.created" || event.type === "user.updated")) {
+    const vouched = await fromClerk(ownerId);
+    if (!vouched) return new Response("Clerk gave no answer", { status: 503 });
+    await ctx.runMutation(internal.identity.stamp, { ownerId, ...vouched });
+  }
+  return new Response(null, { status: 204 });
 });
 
 /** The session token's own claims, when it carries an address it doesn't disown. */

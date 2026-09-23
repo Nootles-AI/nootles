@@ -453,7 +453,7 @@ export const acceptInvite = mutation({
     if (!invitation || !workspace || workspace.deletedAt !== undefined) {
       throw new Error("Not found");
     }
-    if ((await verifiedEmail(ctx)) !== invitation.email) {
+    if ((await verifiedEmail(ctx, { now: Date.now() })) !== invitation.email) {
       throw new ConvexError("This invitation is for another account.");
     }
     if (invitation.revokedAt !== undefined) {
@@ -546,14 +546,14 @@ export const joinByDomain = mutation({
   args: { workspaceId: v.id("workspaces") },
   handler: async (ctx, args) => {
     const me = await requireOwner(ctx);
-    const email = await verifiedEmail(ctx);
+    const now = Date.now();
+    const email = await verifiedEmail(ctx, { now });
     const workspace = await ctx.db.get(args.workspaceId);
     const seat = await seatOf(ctx, args.workspaceId, me);
     const role = workspace && domainSeat(workspace, email, seat);
     if (!workspace || !email || !role) throw new Error("Not found");
     if (seat?.status !== "active") await giveSeat(ctx, seat, workspace._id, me, role);
 
-    const now = Date.now();
     const invitations = await ctx.db
       .query("invitations")
       .withIndex("by_email", (q) => q.eq("email", email))

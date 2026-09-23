@@ -2,6 +2,7 @@ import { httpRouter } from "convex/server";
 import { registerRoutes } from "@convex-dev/stripe";
 import { components, internal } from "./_generated/api";
 import { httpAction } from "./_generated/server";
+import { clerkWebhook } from "./identity";
 
 /**
  * The deployment as an OIDC issuer, for operator stand-in sessions.
@@ -55,6 +56,9 @@ http.route({
     json(JSON.parse(process.env.IMPERSONATION_JWKS ?? '{"keys":[]}')),
   ),
 });
+
+/** Clerk's webhook: a change to an account's addresses in Clerk (`identity.ts`). */
+http.route({ path: "/clerk/webhook", method: "POST", handler: clerkWebhook });
 
 /**
  * Stripe's webhook.
