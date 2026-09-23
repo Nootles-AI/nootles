@@ -27,6 +27,8 @@ export class GitHubError extends ConvexError<string> {
     message: string,
     /** True when the token itself is the problem, which the account row records. */
     readonly unauthorized = false,
+    /** A 403 that is only the rate limit, not a refusal. */
+    readonly rateLimited = false,
   ) {
     super(message);
     this.name = "GitHubError";
@@ -116,7 +118,7 @@ async function explain(res: Response): Promise<GitHubError> {
     const when = Number.isFinite(reset)
       ? new Date(reset * 1000).toISOString().slice(11, 16) + " UTC"
       : "shortly";
-    return new GitHubError(403, `GitHub's rate limit is spent until ${when}.`);
+    return new GitHubError(403, `GitHub's rate limit is spent until ${when}.`, false, true);
   }
 
   if (res.status === 403) {

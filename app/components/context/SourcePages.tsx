@@ -6,7 +6,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { Listed } from "@/convex/github/repos";
 import type { PageNode } from "@/convex/notion/pages";
-import { mergeRepos, reason } from "@/app/lib/github";
+import { appAndOwn, reason } from "@/app/lib/github";
 import { Check } from "../Icons";
 import { NotionConnect } from "../notion/NotionConnect";
 import { ProgressBar } from "../notion/Progress";
@@ -142,9 +142,7 @@ function Repositories({
     let alive = true;
     (app
       ? own
-        ? Promise.all([installed({ workspaceId: app }), personal({}).catch(() => [])]).then(([a, b]) =>
-            mergeRepos(a, b),
-          )
+        ? appAndOwn(installed({ workspaceId: app }), personal({}))
         : installed({ workspaceId: app })
       : personal({})
     )

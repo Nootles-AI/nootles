@@ -7,7 +7,7 @@ import type { Doc } from "../_generated/dataModel";
 import { internalAction } from "../_generated/server";
 import { signingKey, signJwt } from "../signing";
 import { unusable } from "./installations";
-import { json } from "./rest";
+import { GitHubError, json } from "./rest";
 import { open, seal } from "./seal";
 
 /**
@@ -75,11 +75,16 @@ export const token = internalAction({
     }
 
     const { appId, key } = appKey();
-    const minted = await json<{ token: string; expires_at: string }>(
-      appJwt(appId, key, now),
-      `/app/installations/${row.installationId}/access_tokens`,
-      { method: "POST" },
-    );
+    let minted: { token: string; expires_at: string } | null;
+    try {
+      minted = await json<{ token: string; expires_at: string }>(
+        appJwt(appId, key, now),
+        `/app/installations/${row.installationId}/access_tokens`,
+        { method: "POST" },
+      );
+    } catch (error) {
+      throw mintRefused(row, error, now);
+    }
     if (!minted?.token) throw new ConvexError("GitHub minted no installation token.");
     const expiresAt = Date.parse(minted.expires_at);
     await ctx.runMutation(internal.github.installations.saveToken, {
@@ -90,3 +95,24 @@ export const token = internalAction({
     return minted.token;
   },
 });
+
+/**
+ * GitHub refusing to mint, said as what happened to the installation. Its
+ * webhook marks an uninstall or a suspension, but a delivery can be late or
+ * lost, and until it lands GitHub's own answer is the only word — which
+ * `rest.explain` would put in a personal token's terms.
+ */
+function mintRefused(row: Doc<"githubInstallations">, error: unknown, now: number): unknown {
+  if (!(error instanceof GitHubError)) return error;
+  if (error.status === 404) return new ConvexError(unusable({ ...row, removedAt: now })!);
+  if (error.status === 403 && !error.rateLimited) {
+    return new ConvexError(unusable({ ...row, suspendedAt: now })!);
+  }
+  if (error.status === 401) {
+    return new ConvexError(
+      "GitHub refused the Nootles GitHub App’s own credentials. An admin of this " +
+        "deployment should check GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY (docs/github-app.md).",
+    );
+  }
+  return error;
+}

@@ -47,5 +47,14 @@ export async function withInstallation<T>(
     installation,
     fresh: true,
   });
-  return await call(fresh);
+  try {
+    return await call(fresh);
+  } catch (error) {
+    // `rest.explain` would say "reconnect", which is a personal token's remedy.
+    if (error instanceof GitHubError && error.unauthorized) throw new ConvexError(APP_TOKEN_REFUSED);
+    throw error;
+  }
 }
+
+export const APP_TOKEN_REFUSED =
+  "GitHub refused the workspace’s GitHub App token. An admin can check the installation on GitHub.";

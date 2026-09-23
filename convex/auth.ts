@@ -575,6 +575,26 @@ async function passesGithubOrgRule(
 }
 
 /**
+ * The gate for listing the repositories the workspace's GitHub App reads: a
+ * member, held to the organisation rule exactly as `canReadCode` holds them.
+ * The App's token can name every private repository it covers — the very
+ * inventory the rule keeps from someone who hasn't shown they're in the
+ * organisation.
+ */
+export async function requireGithubCodeSeat(
+  ctx: QueryCtx,
+  workspaceId: Id<"workspaces">,
+): Promise<{ workspace: Doc<"workspaces">; membership: Doc<"memberships"> }> {
+  const held = await requireWorkspaceRole(ctx, workspaceId, "member");
+  if (!(await passesGithubOrgRule(ctx, held.membership))) {
+    throw new ConvexError(
+      `Verify your GitHub membership in ${held.workspace.settings.requireGithubOrg} to see this workspace’s repositories.`,
+    );
+  }
+  return held;
+}
+
+/**
  * Why a manager may not let `granteeId` into a project's code, or null when
  * they may. Only a guest is ever let in this way — a member reads it already,
  * and someone in by link alone never does — and only while their workspace

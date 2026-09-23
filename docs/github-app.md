@@ -99,14 +99,16 @@ organisation's installation to their own workspace.
   minted. If GitHub answers 401, the cache is skipped and the call is retried
   once.
 - The App's list is every repository the installation reads, page after
-  page (up to 3,000).
+  page (up to 3,000). One installation GitHub refuses leaves the others
+  listed; the list fails only when every one does.
 - Every other repository is read with the connection of the person who linked
   it, as before. While personal connections are allowed, the pickers offer
   the member's own repositories beside the App's — the App's row wins where
   both reach one — and look one up by owner/name with their connection. `github/credential.ts` is the one place that decides which
   applies, for the read tools, the summary and the indexer alike.
 - If the installation is uninstalled or suspended, its repositories fail and
-  the reason is shown on the row.
+  the reason is shown on the row — from the webhook's mark, or, before that
+  lands, from GitHub refusing to mint the installation's token.
 - **`settings.allowPersonalTokens`** is absent, which means allowed, for every
   workspace, including new ones. It defaults to allowed so that nothing linked
   before an admin installs the App stops working. The integrations screen
@@ -124,7 +126,9 @@ organisation's installation to their own workspace.
 must name an organisation the App is installed on. While it is set, a member
 reads the workspace's code only if they have proved in the last 14 days that
 they belong to that organisation (`auth.passesGithubOrgRule`). This applies to
-owners and admins too; guests are covered by their own grant.
+owners and admins too; guests are covered by their own grant. The same
+proof gates listing the App's repositories (`auth.requireGithubCodeSeat`),
+since their names and descriptions are the organisation's too.
 
 To prove it, a member presses **Verify GitHub membership**. That runs
 `github/orgProof.verify`, which uses the member's own OAuth connection (it has
