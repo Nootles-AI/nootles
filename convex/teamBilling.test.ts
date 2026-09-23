@@ -247,7 +247,7 @@ describe("checkout", () => {
     vi.stubEnv("STRIPE_TEAM_METER_EVENT", "");
     await expect(
       t.withIdentity(OWNER).action(api.billing.startTeamCheckout, { workspaceId }),
-    ).rejects.toThrow("Team billing isn’t set up on this deployment.");
+    ).rejects.toThrow("The Team plan isn’t available yet.");
   });
 
   test("a workspace already paying is not sold a second plan", async () => {
@@ -267,7 +267,7 @@ describe("checkout", () => {
       await billing(t, workspaceId, { status, periodEnd: NOW - 30 * DAY });
       await expect(
         t.withIdentity(OWNER).action(api.billing.startTeamCheckout, { workspaceId }),
-      ).rejects.toThrow("Acme’s subscription is still open in Stripe. Settle it in Manage billing.");
+      ).rejects.toThrow("Acme already has a subscription in Stripe that needs attention. Fix it in Manage billing.");
     }
     expect(stripe.createCheckoutSession).not.toHaveBeenCalled();
     expect(stripe.createCustomer).not.toHaveBeenCalled();
@@ -316,7 +316,7 @@ describe("checkout", () => {
     const manage = (who: Identity) =>
       t.withIdentity(who).action(api.billing.manageTeam, { workspaceId });
 
-    await expect(manage(ADMIN)).rejects.toThrow("There is no billing to manage yet.");
+    await expect(manage(ADMIN)).rejects.toThrow("Nothing has been billed yet, so there’s nothing to manage.");
     await billing(t, workspaceId, { status: "canceled" });
     await expect(manage(MEMBER)).rejects.toThrow("Only a workspace admin can do that.");
     expect(await manage(ADMIN)).toEqual({ url: "https://pay.test/portal" });
