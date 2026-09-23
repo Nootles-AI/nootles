@@ -95,12 +95,14 @@ export function RowMenu({
   project,
   onOpen,
   onRename,
+  onExport,
   onDelete,
   className,
 }: {
   project: Project;
   onOpen: () => void;
   onRename: () => void;
+  onExport: () => void;
   onDelete: () => void;
   className?: string;
 }) {
@@ -125,6 +127,7 @@ export function RowMenu({
           close={close}
           onOpen={onOpen}
           onRename={onRename}
+          onExport={onExport}
           onDelete={onDelete}
         />
       )}
@@ -133,7 +136,7 @@ export function RowMenu({
 }
 
 /**
- * The three things you can do to a project, written once so the ⋯ menu and the
+ * The things an owner can do to a project, written once so the ⋯ menu and the
  * right-click menu cannot drift apart.
  *
  * Rename and delete both close with `restoreFocus: false`, because both hand
@@ -144,15 +147,18 @@ export function ProjectActions({
   close,
   onOpen,
   onRename,
+  onExport,
   onDelete,
 }: {
   close: (opts?: { restoreFocus?: boolean }) => void;
   onOpen: () => void;
   onRename: () => void;
+  /** Downloads the project's comment activity (its audit log) as CSV. */
+  onExport: () => void;
   onDelete: () => void;
 }) {
   // An operator standing in keeps Open — looking is the whole point — and
-  // loses the two verbs the server would refuse.
+  // loses the verbs the server would refuse.
   const standIn = useStandIn();
   return (
     <>
@@ -173,6 +179,14 @@ export function ProjectActions({
             }}
           >
             Rename
+          </MenuItem>
+          <MenuItem
+            onClick={() => {
+              onExport();
+              close();
+            }}
+          >
+            Export comment activity
           </MenuItem>
           <div className="nt-menu-sep" />
           <MenuItem

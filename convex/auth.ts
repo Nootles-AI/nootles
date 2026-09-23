@@ -245,6 +245,24 @@ export async function projectRole(
   return project ? await roleForProject(ctx, project) : null;
 }
 
+/**
+ * Whether the caller may read a project's audit log: its owner, in their own
+ * session. Not editors or commenters — the log names who did what across
+ * everyone's access, which is the owner's to hold — and not an operator
+ * standing in, whose reading someone's record is not something the owner's
+ * token should vouch for. A trashed project has no log to read.
+ *
+ * The one place the answer lives, so the Teams workspace branch (a
+ * workspace's admins read its projects' logs) is one more clause here.
+ */
+export async function mayReadAudit(
+  ctx: QueryCtx,
+  project: Doc<"projects">,
+): Promise<boolean> {
+  if (isTrashed(project) || (await standInActor(ctx))) return false;
+  return (await roleForProject(ctx, project)) === "owner";
+}
+
 /** Tables that resolve their access through a project's role. */
 type Shared = "projects" | "pages" | "folders";
 

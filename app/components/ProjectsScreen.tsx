@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useCallback, useEffect, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import { useConvex, useConvexAuth, useQuery, useMutation } from "convex/react";
@@ -11,6 +11,7 @@ import { track } from "@/app/lib/telemetry";
 import { pages, when } from "@/app/lib/projectMeta";
 import { rememberScreen, seenScreen } from "@/app/lib/projectsCache";
 import { uploadContextFile } from "@/app/lib/contextFiles";
+import { exportCommentActivity } from "@/app/lib/audit/exportCsv";
 import { repoRef } from "./context/ContextSources";
 import { BoardView, GridView, ListView, Plus, Search } from "./Icons";
 import { AccountMenu } from "./AccountMenu";
@@ -185,6 +186,19 @@ export function ProjectsScreen() {
   const startRename = useCallback((p: Project) => setEditingId(p._id), []);
   const cancelRename = useCallback(() => setEditingId(null), []);
   const askDelete = useCallback((p: Project) => setConfirming(p), []);
+  // A long log takes a moment to walk; asking again meanwhile is the same ask,
+  // not a second file.
+  const exporting = useRef(new Set<Id<"projects">>());
+  const exportComments = useCallback(
+    (p: Project) => {
+      if (exporting.current.has(p._id)) return;
+      exporting.current.add(p._id);
+      exportCommentActivity(convex, p)
+        .catch(() => setFailure("The comment activity didn’t export. Try again in a moment."))
+        .finally(() => exporting.current.delete(p._id));
+    },
+    [convex, setFailure],
+  );
   const askContext = useCallback(
     (project: Project, x: number, y: number) => setCtx({ project, x, y }),
     [],
@@ -394,6 +408,7 @@ export function ProjectsScreen() {
             onRename={startRename}
             onCommit={commitRename}
             onCancel={cancelRename}
+            onExport={exportComments}
             onDelete={askDelete}
             onContext={askContext}
           />
@@ -412,6 +427,7 @@ export function ProjectsScreen() {
               onRename={startRename}
               onCommit={commitRename}
               onCancel={cancelRename}
+              onExport={exportComments}
               onDelete={askDelete}
             />
           </div>
@@ -432,6 +448,7 @@ export function ProjectsScreen() {
                   onRename={startRename}
                   onCommit={commitRename}
                   onCancel={cancelRename}
+                  onExport={exportComments}
                   onDelete={askDelete}
                 />
               </li>
@@ -464,6 +481,7 @@ export function ProjectsScreen() {
                     onRename={startRename}
                     onCommit={commitRename}
                     onCancel={cancelRename}
+                    onExport={exportComments}
                     onDelete={askDelete}
                   />
                 </li>
@@ -520,6 +538,7 @@ export function ProjectsScreen() {
             close={() => setCtx(null)}
             onOpen={() => open(ctx.project._id)}
             onRename={() => startRename(ctx.project)}
+            onExport={() => exportComments(ctx.project)}
             onDelete={() => setConfirming(ctx.project)}
           />
         </ContextMenu>
@@ -596,6 +615,7 @@ const Lead = memo(function Lead({
   onRename,
   onCommit,
   onCancel,
+  onExport,
   onDelete,
 }: {
   project: Project;
@@ -604,6 +624,7 @@ const Lead = memo(function Lead({
   onRename: (project: Project) => void;
   onCommit: (id: Id<"projects">, name: string) => void;
   onCancel: () => void;
+  onExport: (project: Project) => void;
   onDelete: (project: Project) => void;
 }) {
   return (
@@ -635,6 +656,7 @@ const Lead = memo(function Lead({
         project={project}
         onOpen={() => onOpen(project._id)}
         onRename={() => onRename(project)}
+        onExport={() => onExport(project)}
         onDelete={() => onDelete(project)}
       />
     </div>
@@ -649,6 +671,7 @@ const Card = memo(function Card({
   onRename,
   onCommit,
   onCancel,
+  onExport,
   onDelete,
 }: {
   project: Project;
@@ -657,6 +680,7 @@ const Card = memo(function Card({
   onRename: (project: Project) => void;
   onCommit: (id: Id<"projects">, name: string) => void;
   onCancel: () => void;
+  onExport: (project: Project) => void;
   onDelete: (project: Project) => void;
 }) {
   const name = project.title || "Untitled project";
@@ -694,6 +718,7 @@ const Card = memo(function Card({
           project={project}
           onOpen={open}
           onRename={() => onRename(project)}
+          onExport={() => onExport(project)}
           onDelete={() => onDelete(project)}
           className="is-sm"
         />
@@ -709,6 +734,7 @@ const Row = memo(function Row({
   onRename,
   onCommit,
   onCancel,
+  onExport,
   onDelete,
 }: {
   project: Project;
@@ -717,6 +743,7 @@ const Row = memo(function Row({
   onRename: (project: Project) => void;
   onCommit: (id: Id<"projects">, name: string) => void;
   onCancel: () => void;
+  onExport: (project: Project) => void;
   onDelete: (project: Project) => void;
 }) {
   const name = project.title || "Untitled project";
@@ -753,6 +780,7 @@ const Row = memo(function Row({
           project={project}
           onOpen={open}
           onRename={() => onRename(project)}
+          onExport={() => onExport(project)}
           onDelete={() => onDelete(project)}
           className="opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 aria-expanded:opacity-100"
         />
