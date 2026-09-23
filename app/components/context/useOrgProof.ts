@@ -17,8 +17,15 @@ export type ProofLine = { text: string; problem: boolean };
  *
  * `action` is null while there is nothing to press: the connection is still
  * being asked after, or this deployment cannot hold one (`blocker`).
+ * `watch` hears a press start and settle: the rule's live answer can turn
+ * before the action returns, so whatever the answer would take away holds
+ * itself up across the press, and long enough after it for the line to be read.
  */
-export function useOrgProof(workspaceId: Id<"workspaces">, org: string) {
+export function useOrgProof(
+  workspaceId: Id<"workspaces">,
+  org: string,
+  watch?: { onStart?: () => void; onSettled?: (verified: boolean) => void },
+) {
   const personal = useQuery(api.github.account.status);
   const verify = useAction(api.github.orgProof.verify);
   const [busy, setBusy] = useState(false);
@@ -31,8 +38,11 @@ export function useOrgProof(workspaceId: Id<"workspaces">, org: string) {
     if (busy || !account) return;
     setBusy(true);
     setSaid(null);
+    watch?.onStart?.();
+    let verified = false;
     try {
       const answer = await verify({ workspaceId });
+      verified = answer.verified;
       setSaid(
         answer.verified
           ? { text: `Verified: GitHub lists @${account.login} in ${org}.`, problem: false }
@@ -45,6 +55,7 @@ export function useOrgProof(workspaceId: Id<"workspaces">, org: string) {
       setSaid({ text: reason(error), problem: true });
     }
     setBusy(false);
+    watch?.onSettled?.(verified);
   };
 
   const action: { label: string; run: () => void; busy: boolean } | null =
@@ -57,7 +68,7 @@ export function useOrgProof(workspaceId: Id<"workspaces">, org: string) {
             busy,
           }
         : {
-            label: account ? "Reconnect GitHub" : "Connect GitHub",
+            label: account ? "Reconnect GitHub to verify" : "Connect GitHub to verify",
             run: () => openConnectWindow("/api/github/connect"),
             busy: false,
           };

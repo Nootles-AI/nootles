@@ -103,14 +103,14 @@ export function GitHubAppMissing({
         </span>
       </div>
       <h2 id={titleId} className="nt-nc-title">
-        This workspace reads code through its GitHub App
+        {unconfigured ? "GitHub isn’t available in this workspace yet" : "Install the GitHub App to read this workspace’s code"}
       </h2>
       <p className="nt-nc-note">
         {unconfigured
           ? "The GitHub App isn’t set up on this deployment, so no repository can be linked here yet."
           : canInstall
-            ? "It isn’t installed yet. Install it on your organisation and choose the repositories it may read; it never writes to them."
-            : "It isn’t installed yet. Ask an owner or an admin to install it."}
+            ? "Choose which repositories on your GitHub organisation or account it may read. It never writes to them."
+            : "Only an owner or admin can install it. Ask one of them."}
       </p>
       {canInstall && (
         <button type="button" className="nt-nc-go" onClick={onInstall}>

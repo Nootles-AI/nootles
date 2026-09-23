@@ -69,10 +69,10 @@ function AppMissing({ door }: { door: Extract<GitHubDoor, { via: "shut" }> }) {
       )}
       <p className={`nt-note${door.canInstall ? " mt-2" : ""}`}>
         {door.unconfigured
-          ? "This workspace reads code through its GitHub App, which isn’t set up on this deployment."
+          ? "GitHub isn’t available in this workspace yet: the GitHub App isn’t set up on this deployment."
           : door.canInstall
-            ? "This workspace reads code through its GitHub App. It reads only the repositories you choose, and never writes to them."
-            : "This workspace reads code through its GitHub App, which isn’t installed yet. Ask an owner or an admin to install it."}
+            ? "Install the GitHub App to read this workspace’s code. It reads only the repositories you choose on your organisation or account, and never writes to them."
+            : "Install the GitHub App to read this workspace’s code. Only an owner or admin can install it. Ask one of them."}
       </p>
     </div>
   );
