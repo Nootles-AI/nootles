@@ -29,6 +29,42 @@ describe("the sentence", () => {
     expect(whatText(clear, "Acme")).toBe("took this workspace off the plan it was given");
   });
 
+  test("any other override names the feature, never its key", () => {
+    const say = (meta: AuditRow["meta"], action = "entitlement.set") =>
+      whatText(row({ action, actorKind: "operator", meta }), "Acme");
+    expect(say({ feature: "auditLog", value: true })).toBe(
+      "turned on the audit log for this workspace",
+    );
+    expect(say({ feature: "guestDailyAiUsd", value: 5 })).toBe(
+      "set the guests’ daily AI allowance to $5",
+    );
+    expect(say({ feature: "unmetered" }, "entitlement.clear")).toBe(
+      "gave unmetered AI back to what the plan sets",
+    );
+  });
+
+  test("a subscription's change is named by where it landed", () => {
+    const say = (from: string, to: string) =>
+      whatText(row({ action: "billing.subscription", meta: { from, to } }), "Acme");
+    expect(say("none", "active")).toBe("started the subscription");
+    expect(say("active", "past_due")).toBe("marked the subscription past due");
+    expect(say("past_due", "canceled")).toBe("ended the subscription");
+  });
+
+  test("links and roles are called what the screens that set them call them", () => {
+    const link = row({
+      action: "share.link.expiry",
+      meta: { projectId: "p1", project: "Beacon", role: "editor" },
+    });
+    expect(whatText(link, "Acme")).toBe("set the editor link for Beacon to never expire");
+    const role = row({
+      action: "member.role",
+      subject: { name: "Tom", email: null },
+      meta: { from: "admin", to: "member" },
+    });
+    expect(whatText(role, "Acme")).toBe("changed Tom’s role from admin to member");
+  });
+
   test("a removal names who went and where from", () => {
     const r = row({
       action: "member.remove",
@@ -59,14 +95,14 @@ describe("the sentence", () => {
       action: "project.rename",
       meta: { projectId: "p1", project: "Old", from: "Old", to: "New" },
     });
-    expect(whatParts(r, "Acme")).toEqual(["renamed “Old” to ", { project: "p1", title: "New" }]);
+    expect(whatParts(r, "Acme")).toEqual(["renamed the project “Old” to ", { project: "p1", title: "New" }]);
   });
 
   test("each setting reads as its own change", () => {
     const off = row({ action: "workspace.settings", meta: { setting: "linkSharing", from: true, to: false } });
     expect(whatText(off, "Acme")).toBe("turned share links off");
     const ttl = row({ action: "workspace.settings", meta: { setting: "linkTtlDays", from: null, to: 30 } });
-    expect(whatText(ttl, "Acme")).toBe("set new share links to run out after 30 days");
+    expect(whatText(ttl, "Acme")).toBe("set new share links to expire after 30 days");
   });
 
   test("a move between projects links both, and a folder counts its pages", () => {
@@ -103,7 +139,7 @@ describe("the sentence", () => {
   });
 
   test("an unknown action is said as itself", () => {
-    expect(whatText(row({ action: "something.new" }), "Acme")).toBe("something.new");
+    expect(whatText(row({ action: "something.new" }), "Acme")).toBe("made a change (something.new)");
   });
 });
 
@@ -119,7 +155,7 @@ describe("a stand-in", () => {
       subject: { name: "Tom", email: null },
       meta: { sessionId: "j1", reason: "Acme reports a billing bug" },
     });
-    expect(whatText(r, "Acme")).toBe("stood in for Tom");
+    expect(whatText(r, "Acme")).toBe("viewed the workspace as Tom");
     expect(toCsv([r], "Acme")).not.toContain("billing bug");
   });
 });
@@ -142,8 +178,14 @@ describe("when", () => {
     expect(ago(now - 5 * 60_000, now)).toBe("5m");
     expect(ago(now - 3 * 3_600_000, now)).toBe("3h");
     expect(ago(now - 2 * 86_400_000, now)).toBe("2d");
-    expect(ago(Date.UTC(2026, 7, 1, 12), now)).toBe("1 Aug");
-    expect(ago(Date.UTC(2025, 7, 1, 12), now)).toBe("1 Aug 2025");
+    // In the reader's own locale, as every other date in settings is.
+    const day = { day: "numeric", month: "short" } as const;
+    const aug = Date.UTC(2026, 7, 1, 12);
+    const lastAug = Date.UTC(2025, 7, 1, 12);
+    expect(ago(aug, now)).toBe(new Intl.DateTimeFormat(undefined, day).format(aug));
+    expect(ago(lastAug, now)).toBe(
+      new Intl.DateTimeFormat(undefined, { ...day, year: "numeric" }).format(lastAug),
+    );
   });
 });
 
@@ -164,7 +206,7 @@ describe("the file", () => {
     );
     expect(line).toBe(
       '2026-09-20T12:00:00.000Z,Maya,maya@acme.com,user,project.create,' +
-        '"Maya created =HYPERLINK(""x""), ""a""",,,p1,',
+        '"Maya created the project =HYPERLINK(""x""), ""a""",,,p1,',
     );
     expect(end).toBe("");
   });
