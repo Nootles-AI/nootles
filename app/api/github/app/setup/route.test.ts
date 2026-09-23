@@ -1,3 +1,4 @@
+import { ConvexError } from "convex/values";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 /**
@@ -136,10 +137,26 @@ describe("a round trip that matches", () => {
     }
   });
 
-  test("GitHub not confirming the installation is said as verify", async () => {
-    install.mockRejectedValue(new Error("not reachable"));
+  test("an install that failed for no reason it gave is said as verify", async () => {
+    install.mockRejectedValue(new Error("fetch failed"));
     const res = await GET(setup(good, cookie));
     expect(landed(res)).toMatchObject({ github: "error", reason: "verify" });
     expect(clearsCookie(res)).toBe(true);
+  });
+
+  test.each(["unconfigured", "unauthorised", "unreachable", "not_owner", "not_holder"] as const)(
+    "the install's %s refusal is carried back as its own reason",
+    async (refused) => {
+      install.mockRejectedValue(new ConvexError({ refused }));
+      const res = await GET(setup(good, cookie));
+      expect(landed(res)).toMatchObject({ github: "error", reason: refused });
+      expect(clearsCookie(res)).toBe(true);
+    },
+  );
+
+  test("a refusal in words, like the seat check's, is still verify", async () => {
+    install.mockRejectedValue(new ConvexError("Only a workspace admin can do that."));
+    const res = await GET(setup(good, cookie));
+    expect(landed(res)).toMatchObject({ github: "error", reason: "verify" });
   });
 });

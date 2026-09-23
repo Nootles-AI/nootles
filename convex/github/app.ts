@@ -29,14 +29,25 @@ const CONVEX_VARS = [
   "GITHUB_APP_WEBHOOK_SECRET",
   "GITHUB_APP_CLIENT_ID",
   "GITHUB_APP_CLIENT_SECRET",
+  "GITHUB_APP_SLUG",
 ] as const;
 
-function blocker(): string {
-  const missing: string[] = CONVEX_VARS.filter((name) => !process.env[name]);
-  if (!hasKey()) missing.push("GITHUB_TOKEN_KEY");
-  return missing.length
-    ? `The GitHub App isn’t set up on this deployment (missing ${missing.join(", ")}). See docs/github-app.md.`
-    : "";
+/** What this deployment still lacks to install and read through the App; empty when it has it all. */
+function missing(): string[] {
+  const names: string[] = CONVEX_VARS.filter((name) => !process.env[name]);
+  if (!hasKey()) names.push("GITHUB_TOKEN_KEY");
+  return names;
+}
+
+/**
+ * Why an install was refused, for the setup route to say in its own words:
+ * `ConvexError({ refused })`. Each asks something different of the person —
+ * a retry helps only `unauthorised`.
+ */
+export type InstallRefusal = "unconfigured" | "unauthorised" | "unreachable" | "not_owner" | "not_holder";
+
+function refuse(refused: InstallRefusal): ConvexError<{ refused: InstallRefusal }> {
+  return new ConvexError({ refused });
 }
 
 /** Where GitHub keeps an installation's settings: an organisation's, or a person's. */
@@ -63,11 +74,13 @@ export const status = query({
       .query("memberships")
       .withIndex("by_workspace_user", (q) => q.eq("workspaceId", args.workspaceId).eq("userId", me))
       .unique();
-    const why = blocker();
+    const lacking = missing();
     return {
       slug: workspace.slug,
-      ready: !why,
-      blocker: why,
+      ready: lacking.length === 0,
+      missing: lacking,
+      /** The App's URL name, which its install link is built on — one fact with `ready`. */
+      appSlug: process.env.GITHUB_APP_SLUG || null,
       canManage: atLeast(role, "admin"),
       installations: (await installationsOf(ctx, args.workspaceId)).map((row) => ({
         _id: row._id,
@@ -117,21 +130,13 @@ export const install = action({
     });
     const clientId = process.env.GITHUB_APP_CLIENT_ID;
     const clientSecret = process.env.GITHUB_APP_CLIENT_SECRET;
-    if (!clientId || !clientSecret) throw new ConvexError(blocker() || "The GitHub App isn’t set up.");
+    if (!clientId || !clientSecret || missing().length) throw refuse("unconfigured");
 
     const userToken = await exchangeCode(clientId, clientSecret, args.code);
     const found = await reachableInstallation(userToken, args.installationId);
-    if (!found) {
-      throw new ConvexError(
-        "GitHub doesn’t list that installation among the ones you can reach, so it can’t be added.",
-      );
-    }
+    if (!found) throw refuse("unreachable");
     if (!(await controlsAccount(userToken, found.account))) {
-      throw new ConvexError(
-        found.account.type === "Organization"
-          ? `Only an owner of ${found.account.login} on GitHub can add its installation to a workspace.`
-          : `Only ${found.account.login} can add their GitHub installation to a workspace.`,
-      );
+      throw refuse(found.account.type === "Organization" ? "not_owner" : "not_holder");
     }
     await ctx.runMutation(internal.github.installations.record, {
       workspaceId: args.workspaceId,
@@ -217,7 +222,7 @@ export async function exchangeCode(
   });
   const body = (await res.json().catch(() => null)) as { access_token?: string } | null;
   if (!res.ok || !body?.access_token) {
-    throw new ConvexError("GitHub didn’t accept the installation’s authorization. Try installing again.");
+    throw refuse("unauthorised");
   }
   return body.access_token;
 }

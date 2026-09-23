@@ -47,6 +47,7 @@ beforeEach(() => {
   vi.stubEnv("GITHUB_APP_WEBHOOK_SECRET", SECRET);
   vi.stubEnv("GITHUB_APP_CLIENT_ID", "Iv1.client");
   vi.stubEnv("GITHUB_APP_CLIENT_SECRET", "client-secret");
+  vi.stubEnv("GITHUB_APP_SLUG", "nootles");
   fetchMock = vi.fn(async () => new Response("{}", { status: 404 }));
   vi.stubGlobal("fetch", fetchMock);
 });
@@ -499,7 +500,7 @@ describe("installing", () => {
       t
         .withIdentity(ADMIN)
         .action(api.github.app.install, { workspaceId, installationId: INSTALLATION, code: "c0de" }),
-    ).rejects.toThrow(/Only an owner of acme/);
+    ).rejects.toMatchObject({ data: { refused: "not_owner" } });
     expect(await t.run(async (ctx) => ctx.db.query("githubInstallations").collect())).toHaveLength(0);
   });
 
@@ -512,7 +513,7 @@ describe("installing", () => {
       t
         .withIdentity(ADMIN)
         .action(api.github.app.install, { workspaceId, installationId: INSTALLATION, code: "c0de" }),
-    ).rejects.toThrow(/Only octo can add/);
+    ).rejects.toMatchObject({ data: { refused: "not_holder" } });
     expect(await t.run(async (ctx) => ctx.db.query("githubInstallations").collect())).toHaveLength(0);
 
     github([{ id: INSTALLATION, account }], { login: "Octo" });
@@ -599,7 +600,7 @@ describe("installing", () => {
       t
         .withIdentity(ADMIN)
         .action(api.github.app.install, { workspaceId, installationId: INSTALLATION, code: "c0de" }),
-    ).rejects.toThrow(/doesn’t list that installation/);
+    ).rejects.toMatchObject({ data: { refused: "unreachable" } });
     expect(await t.run(async (ctx) => ctx.db.query("githubInstallations").collect())).toHaveLength(0);
   });
 
@@ -1138,7 +1139,8 @@ describe("the integrations status", () => {
         },
       ],
     });
-    expect(member?.blocker).toContain("GITHUB_APP_CLIENT_SECRET");
+    expect(member?.missing).toEqual(["GITHUB_APP_CLIENT_SECRET"]);
+    expect(member?.appSlug).toBe("nootles");
     expect((await t.withIdentity(ADMIN).query(api.github.app.status, { workspaceId }))?.canManage).toBe(true);
     expect(await t.withIdentity({ subject: "stranger" }).query(api.github.app.status, { workspaceId })).toBeNull();
     expect(await t.withIdentity(GUEST).query(api.github.app.status, { workspaceId })).toBeNull();

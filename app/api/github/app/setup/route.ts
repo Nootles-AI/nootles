@@ -4,7 +4,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { asUser } from "@/app/lib/convexServer";
 import { session } from "@/app/lib/session";
 import { safeReturn } from "../../oauth";
-import { INSTALL_COOKIE, openBinding, readCookie, type InstallFailure } from "../flow";
+import { INSTALL_COOKIE, failureOf, openBinding, readCookie, type InstallFailure } from "../flow";
 
 /**
  * The App's setup URL, where GitHub sends the browser after an install.
@@ -52,7 +52,7 @@ export async function GET(req: Request) {
       code,
     });
     return done({ github: "installed" });
-  } catch {
-    return failed("verify");
+  } catch (error) {
+    return failed(failureOf(error));
   }
 }
