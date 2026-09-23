@@ -31,6 +31,34 @@ import "./workspaces/workspaces.css";
 type LinkRole = "editor" | "viewer";
 type Collaborator = FunctionReturnType<typeof api.share.collaborators>[number];
 
+/** Someone on their way out of the list, as their row was, and the row it followed. */
+type Departure = { person: Collaborator; after: string | null };
+
+/** How long a leaving row takes to close up: its fade, then its height (access.css). */
+const COLLAPSE_MS = 320;
+
+/**
+ * The people to draw: those the server lists, with anyone still closing up
+ * back in their place though the server has already let them go.
+ */
+function withDepartures(
+  listed: readonly Collaborator[],
+  leaving: ReadonlyMap<string, Departure>,
+): Collaborator[] {
+  const rows = [...listed];
+  for (const [id, { person, after }] of leaving) {
+    if (rows.some((p) => p.granteeId === id)) continue;
+    rows.splice(after === null ? 0 : rows.findIndex((p) => p.granteeId === after) + 1, 0, person);
+  }
+  return rows;
+}
+
+function without<V>(map: ReadonlyMap<string, V>, key: string): ReadonlyMap<string, V> {
+  const next = new Map(map);
+  next.delete(key);
+  return next;
+}
+
 /** By code point, not char: a name starting with an emoji keeps it whole. */
 function initial(name: string | null | undefined) {
   return (Array.from(name?.trim() ?? "")[0] ?? "?").toUpperCase();
@@ -78,7 +106,7 @@ const TABS: Record<keyof typeof SAYS, readonly Segment<LinkRole>[]> = {
 
 /** A row's ⋯, there on hover or focus, and always where there is no hover. */
 const ROW_MENU =
-  "nt-icon-btn is-sm nt-ws-row-menu opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 aria-expanded:opacity-100";
+  "nt-icon-btn is-sm nt-ws-row-menu opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 aria-expanded:opacity-100";
 
 /**
  * Sharing, from the sidebar head: one link per role, each its own tab.
@@ -187,8 +215,16 @@ function SharePopoverBody({
   // rather than sitting there looking unanswered until the list redraws.
   const [answered, setAnswered] = useState<ReadonlySet<string>>(new Set());
   // Likewise someone whose access was just taken away, and they leave the
-  // count with their row.
-  const [leaving, setLeaving] = useState<ReadonlySet<string>>(new Set());
+  // count with their row. The row stays drawn until it has closed up, even
+  // once the server has let them go; after that, never again this visit.
+  const [leaving, setLeaving] = useState<ReadonlyMap<string, Departure>>(new Map());
+  const [gone, setGone] = useState<ReadonlySet<string>>(new Set());
+  const rows =
+    collaborators &&
+    withDepartures(
+      collaborators.filter((p) => !gone.has(p.granteeId)),
+      leaving,
+    );
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(
     () => () => {
@@ -288,12 +324,12 @@ function SharePopoverBody({
   const says = inWorkspace ? "signedIn" : "anyone";
   // Whether someone removed could come straight back: a claim is kept by any
   // live link, not only the one it came through.
-  const linkLive =
-    !!links &&
-    links.allowed !== false &&
-    (["editor", "viewer"] as const).some(
-      (r) => !!links[r] && (links.expiresAt[r] === null || links.expiresAt[r] > now),
-    );
+  const liveLinks =
+    links && links.allowed !== false
+      ? (["editor", "viewer"] as const).filter(
+          (r) => !!links[r] && (links.expiresAt[r] === null || links.expiresAt[r] > now),
+        )
+      : [];
 
   return createPortal(
     <>
@@ -552,7 +588,7 @@ function SharePopoverBody({
           </div>
         )}
 
-        {collaborators === undefined ||
+        {rows === undefined ||
         project === undefined ||
         (workspace && hidden && people === undefined) ? (
           <div aria-hidden className="mt-4">
@@ -564,7 +600,7 @@ function SharePopoverBody({
             <div className="nt-field-label">
               People with access
               <span className="nt-field-note">
-                {collaborators.filter((p) => !leaving.has(p.granteeId)).length +
+                {rows.filter((p) => !leaving.has(p.granteeId)).length +
                   1 +
                   (maker ? 1 : 0)}
               </span>
@@ -605,23 +641,28 @@ function SharePopoverBody({
                   <span className="shrink-0 text-[13px] text-muted">{holds.editor}</span>
                 </li>
               )}
-              {collaborators.map((person) => (
+              {rows.map((person, i) => (
                 <Person
                   key={person.granteeId}
                   projectId={projectId}
                   person={person}
                   holds={person.role === "editor" ? holds.editor : holds.viewer}
                   offersCode={offersCode && person.guest}
-                  linkLive={linkLive}
+                  liveLinks={liveLinks}
                   leaving={leaving.has(person.granteeId)}
-                  onLeaving={(going) =>
-                    setLeaving((ids) => {
-                      const next = new Set(ids);
-                      if (going) next.add(person.granteeId);
-                      else next.delete(person.granteeId);
-                      return next;
-                    })
+                  onLeaving={() =>
+                    setLeaving((was) =>
+                      new Map(was).set(person.granteeId, {
+                        person,
+                        after: i === 0 ? null : rows[i - 1].granteeId,
+                      }),
+                    )
                   }
+                  onStayed={() => setLeaving((was) => without(was, person.granteeId))}
+                  onLeft={() => {
+                    setGone((was) => new Set(was).add(person.granteeId));
+                    setLeaving((was) => without(was, person.granteeId));
+                  }}
                   now={now}
                   onProblem={setPeopleProblem}
                   // Its row is going, ⋯ and all: focus waits on the popover.
@@ -701,6 +742,7 @@ function LinkLifetime({
       align="start"
       // Above the popover, and Escape closes this menu alone, not both.
       layer="modal"
+      className="nt-ws-choices"
       trigger={(t) => (
         <button
           {...t}
@@ -757,6 +799,15 @@ function LinkLifetime({
   );
 }
 
+/** What Remove access leaves open: the links that would let them straight back. */
+function rejoinHint(live: readonly LinkRole[]): string {
+  if (live.length === 0) return "They lose access now";
+  if (live.length === 2) {
+    return "They lose access now, but can rejoin through the editor or viewer link while either is on. Turn both off to keep them out";
+  }
+  return `They lose access now, but can rejoin through the ${live[0]} link while it’s on. Turn it off to keep them out`;
+}
+
 /**
  * Someone let in through a link, with what they hold and a ⋯ of what can be
  * done about it: their access taken away — the link stays, so while it works
@@ -768,9 +819,11 @@ function Person({
   person,
   holds,
   offersCode,
-  linkLive,
+  liveLinks,
   leaving,
   onLeaving,
+  onStayed,
+  onLeft,
   now,
   onProblem,
   onGone,
@@ -780,10 +833,14 @@ function Person({
   /** What the row says they can do. */
   holds: string;
   offersCode: boolean;
-  /** Whether a link is still on that would let them straight back in. */
-  linkLive: boolean;
+  /** The links still on that would let them straight back in. */
+  liveLinks: readonly LinkRole[];
   leaving: boolean;
-  onLeaving: (going: boolean) => void;
+  onLeaving: () => void;
+  /** Their access stayed after all: the row comes back. */
+  onStayed: () => void;
+  /** Their access is gone and their row has closed up. */
+  onLeft: () => void;
   now: number;
   onProblem: (text: string | null) => void;
   /** Moves focus off the row, which is on its way out. */
@@ -803,14 +860,17 @@ function Person({
 
   const remove = () => {
     onProblem(null);
-    // Leaves at once; the list drops it when the server agrees, and it comes
-    // back if the server does not.
-    onLeaving(true);
+    // Leaves at once, and comes back if the server does not agree. When it
+    // does, the row is let go only once it has closed up, so the rows under
+    // it slide up rather than snap however fast the answer comes.
+    onLeaving();
     onGone();
-    revoke({ projectId, granteeId: person.granteeId }).then(
-      () => onLeaving(false),
+    const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const closed = new Promise((done) => setTimeout(done, still ? 0 : COLLAPSE_MS));
+    Promise.all([revoke({ projectId, granteeId: person.granteeId }), closed]).then(
+      onLeft,
       (error) => {
-        onLeaving(false);
+        onStayed();
         onProblem(refusal(error, `Couldn’t remove ${name}’s access. Try again in a moment.`));
       },
     );
@@ -910,9 +970,7 @@ function Person({
                 <span className="nt-ws-choice-text">
                   <span>Remove access</span>
                   <span className="nt-ws-choice-hint">
-                    {linkLive
-                      ? "They lose access now, but can rejoin while the link works. Turn the link off to keep them out"
-                      : "They lose access now"}
+                    {rejoinHint(liveLinks)}
                   </span>
                 </span>
               </MenuItem>

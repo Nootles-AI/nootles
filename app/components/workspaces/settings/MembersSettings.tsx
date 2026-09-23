@@ -44,7 +44,7 @@ const nth = (i: number) => ({ "--i": i }) as CSSProperties;
 
 /** A row's ⋯, there on hover or focus, and always where there is no hover. */
 const ROW_MENU =
-  "nt-icon-btn nt-ws-row-menu opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 aria-expanded:opacity-100";
+  "nt-icon-btn nt-ws-row-menu opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 aria-expanded:opacity-100";
 
 /** The ⋯ of the row for an invitation or a person, found by what the row is of. */
 const rowMenuId = (key: string) => `nt-ws-row-menu-${key}`;
