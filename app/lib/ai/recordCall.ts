@@ -52,6 +52,11 @@ export function recordAiCall(
     ttfbMs?: number;
     status: "ok" | "error" | "aborted" | "timeout";
     errorCode?: string;
+    /**
+     * The project the call was made in, when the route knows it. Convex
+     * resolves the workspace it is charged to from this, never the route.
+     */
+    projectId?: string;
   } & CallUsage,
 ): void {
   void convex

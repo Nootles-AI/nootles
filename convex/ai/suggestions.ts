@@ -8,7 +8,7 @@ import {
   requireOwned,
   requireOwner,
 } from "../auth";
-import { spendMeter } from "../entitlements";
+import { containerOf, spendMeterIn } from "../entitlements";
 
 /**
  * Telemetry for the ambient suggestion pipeline. Every proposal that reaches
@@ -79,7 +79,7 @@ function capped<T extends Settled>(row: T): T {
 export const log = mutation({
   args: { pageId: v.id("pages"), ...settled },
   handler: async (ctx, args) => {
-    await requireEditable(ctx, "pages", args.pageId);
+    const page = await requireEditable(ctx, "pages", args.pageId);
     // The row records whose completion this was, not whose page it landed on.
     const ownerId = await requireOwner(ctx);
     const id = await ctx.db.insert("suggestionLog", {
@@ -91,7 +91,8 @@ export const log = mutation({
       // The free allowance is spent by KEEPING a suggestion, not by being
       // offered one — a completion nobody took is not something to charge for.
       // The cost guard is elsewhere, on generation, in `/api/complete`.
-      await spendMeter(ctx, ownerId, "completions");
+      const project = await ctx.db.get(page.projectId);
+      if (project) await spendMeterIn(ctx, containerOf(project, ownerId), "completions");
     }
     if (args.outcome === "accepted" && args.acceptedText && args.blockIds?.length) {
       await ctx.scheduler.runAfter(

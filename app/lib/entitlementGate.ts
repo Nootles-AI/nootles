@@ -50,26 +50,48 @@ function prune(now: number): void {
 }
 
 /**
- * The caller's entitlement, cached for `TTL_MS`.
+ * One session's answer for one project. The project is part of the key because
+ * it decides the container — the same person is on their own allowance in one
+ * project and on a workspace's in the next — and a session's answer for one
+ * must never stand in for the other. No project is the caller's own account.
+ */
+const keyOf = (token: string, projectId?: string) =>
+  projectId ? `${token} ${projectId}` : token;
+
+/**
+ * The entitlement that governs the caller's work in `projectId` — or their own
+ * account's, without one — cached for `TTL_MS`.
  *
  * Keyed by the session token, which is per-session and short-lived — so this
  * never becomes a store of identities, and a signed-out session's entry ages
  * out on its own.
  */
-export async function entitlementFor(token: string): Promise<Entitlement | null> {
+export async function entitlementFor(
+  token: string,
+  projectId?: string,
+): Promise<Entitlement | null> {
   const now = Date.now();
-  const hit = cache.get(token);
+  const key = keyOf(token, projectId);
+  const hit = cache.get(key);
   if (hit && now - hit.at < TTL_MS) return hit.entitlement;
-  const entitlement = await asUser(token).query(api.entitlements.mine, {});
+  const convex = asUser(token);
+  const entitlement = projectId
+    ? await convex.query(api.entitlements.forProject, { projectId })
+    : await convex.query(api.entitlements.mine, {});
   prune(now);
-  cache.set(token, { at: now, entitlement });
+  cache.set(key, { at: now, entitlement });
   return entitlement;
 }
 
-/** Forget one session's cached answer, or all of them. */
+/** Forget one session's cached answers, or all of them. */
 export function forgetEntitlement(token?: string): void {
-  if (token) cache.delete(token);
-  else cache.clear();
+  if (!token) {
+    cache.clear();
+    return;
+  }
+  for (const key of cache.keys()) {
+    if (key === token || key.startsWith(`${token} `)) cache.delete(key);
+  }
 }
 
 /**
@@ -87,6 +109,8 @@ export function quotaResponse(meter: Meter): Response {
 
 /**
  * The whole gate in one call: `null` to proceed, or the response to return.
+ * `projectId` is the project the work is for, as the request named it; Convex
+ * decides whether that makes it a workspace's, so naming one proves nothing.
  *
  * A failed lookup proceeds. The allowance is enforced transactionally in
  * Convex either way, and refusing everybody's completions because one query
@@ -95,8 +119,9 @@ export function quotaResponse(meter: Meter): Response {
 export async function refuseIfSpent(
   token: string,
   meter: Meter,
+  projectId?: string,
 ): Promise<Response | null> {
-  const entitlement = await entitlementFor(token).catch(() => null);
+  const entitlement = await entitlementFor(token, projectId).catch(() => null);
   if (!entitlement || entitlement.left === null) return null;
   return entitlement.left[meter] > 0 ? null : quotaResponse(meter);
 }

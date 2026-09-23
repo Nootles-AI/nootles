@@ -567,7 +567,8 @@ export function useTabCompletion(
   // should carry the latest context without a changed sheet restarting the
   // whole lane.
   const contextSeed = useCompletionContext(pageId);
-  // Sent with a diagram's brief, so the builder can draw in the product's look.
+  // Sent with a diagram's brief, so the builder can draw in the product's look,
+  // and with every completion, so it is charged to the project's container.
   const projectId = useCompletionProject();
   const projectRef = useRef(projectId);
   const appendRef = useRef(appendBatch);
@@ -1268,6 +1269,7 @@ export function useTabCompletion(
             after: ctx.suffix.slice(0, AI.fim.maxAfter),
             seed: PREAMBLE + seedRef.current,
             mode: shape,
+            projectId: projectRef.current ?? undefined,
           }),
           signal: controller.signal,
         });

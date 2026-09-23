@@ -82,6 +82,7 @@ export async function POST(req: Request) {
         recordAiCall(convex, {
           feature: "diagram",
           model: AI.diagram.model,
+          projectId: typeof projectId === "string" ? projectId : undefined,
           promptTokens: usage.inputTokens,
           completionTokens: usage.outputTokens,
           cacheReadTokens: usage.inputTokenDetails.cacheReadTokens,

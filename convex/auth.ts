@@ -429,6 +429,25 @@ export async function readVisible<T extends Shared>(
 }
 
 /**
+ * The row, if the caller holds a writing role — owner or editor — on its
+ * project. The question without the gate: what a workspace pays for is the
+ * work of the people who can write in its projects, and asking that must not
+ * throw.
+ */
+export async function readEditable<T extends Shared>(
+  ctx: QueryCtx,
+  table: T,
+  id: Id<T>,
+): Promise<Doc<T> | null> {
+  const doc = (await ctx.db.get(id)) as Doc<T> | null;
+  if (!doc || isTrashed(doc)) return null;
+  const project = await projectOf(ctx, doc);
+  if (!project || isTrashed(project)) return null;
+  const role = await roleForProject(ctx, project);
+  return role === "owner" || role === "editor" ? doc : null;
+}
+
+/**
  * The row, provided the caller may WRITE under its project — owner or editor.
  * Deliberately a separate gate from `requireOwned` rather than a loosening of
  * it: read scope and write scope must never be one check that drifts.
@@ -439,15 +458,9 @@ export async function requireEditable<T extends Shared>(
   id: Id<T>,
 ): Promise<Doc<T>> {
   await refuseStandIn(ctx);
-  const doc = (await ctx.db.get(id)) as Doc<T> | null;
-  if (doc && !isTrashed(doc)) {
-    const project = await projectOf(ctx, doc);
-    if (project && !isTrashed(project)) {
-      const role = await roleForProject(ctx, project);
-      if (role === "owner" || role === "editor") return doc;
-    }
-  }
-  throw new Error("Not found");
+  const doc = await readEditable(ctx, table, id);
+  if (!doc) throw new Error("Not found");
+  return doc;
 }
 
 /**

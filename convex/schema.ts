@@ -941,6 +941,12 @@ export default defineSchema({
     ),
     errorCode: v.optional(v.string()),
     costUsd: v.optional(v.number()),
+    /**
+     * The workspace whose allowance the call spent, resolved from the project
+     * it was made in (`entitlements.containerFor`) — never taken from the
+     * request. Absent is the caller's own account.
+     */
+    workspaceId: v.optional(v.id("workspaces")),
     createdAt: v.number(),
   })
     .index("by_owner", ["ownerId", "createdAt"])

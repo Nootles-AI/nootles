@@ -251,6 +251,7 @@ export function chatTools(
         recordAiCall(convex, {
           feature: "diagram",
           model: AI.diagram.vector.model,
+          projectId,
           latencyMs: vector.latencyMs,
           status: "ok",
         });

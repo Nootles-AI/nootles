@@ -1,13 +1,16 @@
 import { mutation } from "../_generated/server";
 import { v } from "convex/values";
 import { requireOwner } from "../auth";
+import { containerFor } from "../entitlements";
 
 /**
  * The LLM ledger: one row per model request, written fire-and-forget by the
  * API routes after each stream ends. Public rather than internal because the
  * routes act *as the user* through a session-token ConvexHttpClient, which
- * cannot reach internal functions — ownerId is derived server-side, so the
- * worst a client can do is pollute its own ledger.
+ * cannot reach internal functions. ownerId is derived server-side, and so is
+ * the workspace a row is charged to, so a client can only file rows against
+ * containers it spends in. The cost itself is still the client's word — a
+ * ledger a workspace is billed from has to stop taking it.
  */
 export const record = mutation({
   args: {
@@ -36,9 +39,22 @@ export const record = mutation({
     ),
     errorCode: v.optional(v.string()),
     costUsd: v.optional(v.number()),
+    /**
+     * The project the call was made in, as the request named it. Only ever
+     * used to find the paying workspace, through the caller's own role — so it
+     * is a string, and a bad one records the row against the caller rather
+     * than losing it.
+     */
+    projectId: v.optional(v.string()),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, { projectId, ...call }) => {
     const ownerId = await requireOwner(ctx);
-    await ctx.db.insert("aiCalls", { ownerId, ...args, createdAt: Date.now() });
+    const container = projectId ? await containerFor(ctx, projectId, ownerId) : null;
+    await ctx.db.insert("aiCalls", {
+      ownerId,
+      ...call,
+      ...(container?.kind === "workspace" ? { workspaceId: container.workspaceId } : {}),
+      createdAt: Date.now(),
+    });
   },
 });

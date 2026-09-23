@@ -141,7 +141,7 @@ export async function POST(req: Request) {
     // requests as client tools are answered, and only the first is a new
     // conversation. Ahead of the model, so a refusal costs nothing.
     try {
-      await convex.mutation(api.entitlements.beginChat, { threadId });
+      await convex.mutation(api.entitlements.beginChat, { threadId, projectId });
     } catch (e) {
       if (isQuotaRefusal(e)) return quotaResponse("chats");
       throw e;
@@ -204,6 +204,7 @@ export async function POST(req: Request) {
         // A staged turn is still a row. It costs nothing, and ops should be able
         // to tell demo traffic from unexplained free traffic.
         model: staged ? `staged/${staged.stagedId}` : AI.chat.model,
+        projectId,
         promptTokens: totalUsage.inputTokens,
         completionTokens: totalUsage.outputTokens,
         cacheReadTokens: details.cacheReadTokens,

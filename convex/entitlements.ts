@@ -1,9 +1,11 @@
 import { ConvexError, v } from "convex/values";
 import { mutation, query } from "./_generated/server";
-import type { Doc } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import {
   ownerId as currentOwner,
+  readEditable,
+  requireEditable,
   requireOwned,
   requireOwner,
 } from "./auth";
@@ -41,8 +43,12 @@ export { FREE_LIMITS, type Meter };
 
 export type Plan = "free" | "pro";
 
-/** Which of the four sources answered. `"none"` is a free account. */
-export type Source = "none" | "vip" | "code" | "subscription";
+/**
+ * Which of the four sources answered. `"none"` is a free account;
+ * `"workspace"` is not an account's answer at all but a workspace project's
+ * (see `entitlementIn`).
+ */
+export type Source = "none" | "vip" | "code" | "subscription" | "workspace";
 
 export type Entitlement = {
   plan: Plan;
@@ -236,6 +242,58 @@ export function hasRoom(entitlement: Entitlement, meter: Meter): boolean {
 }
 
 /**
+ * Whose allowance a piece of AI work spends: one person's account, or a
+ * workspace's. Asked of the project the work is done in, never of the person
+ * alone — the same person has chat in a team project and not in their own.
+ */
+export type Container =
+  | { kind: "account"; ownerId: string }
+  | { kind: "workspace"; workspaceId: Id<"workspaces"> };
+
+/**
+ * The container of work `caller` does in `project`, for a caller already
+ * known to write there. A workspace project's work is the workspace's. A
+ * personal project's is the caller's own — on somebody else's shared project
+ * too, as it always was: an editor spends their own allowance.
+ */
+export function containerOf(project: Doc<"projects">, caller: string): Container {
+  return project.workspaceId
+    ? { kind: "workspace", workspaceId: project.workspaceId }
+    : { kind: "account", ownerId: caller };
+}
+
+/**
+ * {@link containerOf} for a project a request merely NAMES, which is whatever
+ * anyone sends. A workspace pays only for someone who can write in its project
+ * — a member, or a guest an editor link let in — so naming a project you only
+ * read, have no part in, or that does not exist spends your own allowance.
+ * Takes a string rather than an id for the same reason: a malformed one falls
+ * back to the caller's account instead of failing a lookup that fails open.
+ */
+export async function containerFor(
+  ctx: QueryCtx,
+  projectId: string,
+  caller: string,
+): Promise<Container> {
+  const id = ctx.db.normalizeId("projects", projectId);
+  const project = id && (await readEditable(ctx, "projects", id));
+  return project ? containerOf(project, caller) : { kind: "account", ownerId: caller };
+}
+
+/**
+ * What a container may do. Every workspace plan is unlimited for now — a team
+ * seat buys what Pro buys — until workspace billing gives it something of its
+ * own to answer from.
+ */
+export async function entitlementIn(
+  ctx: QueryCtx,
+  container: Container,
+): Promise<Entitlement> {
+  if (container.kind === "workspace") return pro("workspace");
+  return await entitlementOf(ctx, container.ownerId);
+}
+
+/**
  * The gate. Throws `quotaRefusal` when the meter is spent, and otherwise
  * returns the entitlement so the caller does not read it twice.
  *
@@ -292,6 +350,19 @@ export async function spendMeter(
 }
 
 /**
+ * {@link spendMeter} for work done in a container. A workspace keeps no
+ * allowance of this kind — what it spends is the cost ledger, where each call
+ * carries its `workspaceId` — so its work never touches anyone's own.
+ */
+export async function spendMeterIn(
+  ctx: MutationCtx,
+  container: Container,
+  meter: Exclude<Meter, "projects">,
+): Promise<void> {
+  if (container.kind === "account") await spendMeter(ctx, container.ownerId, meter);
+}
+
+/**
  * Charges a conversation, once, the first time it reaches the model.
  *
  * Called by `/api/chat` before every turn, including the several requests one
@@ -304,16 +375,34 @@ export async function spendMeter(
  * the thread uncharged and the user can come back to it after upgrading.
  */
 export const beginChat = mutation({
-  args: { threadId: v.id("chatThreads") },
+  args: {
+    threadId: v.id("chatThreads"),
+    /**
+     * The project the route reads into the turn. Optional only so a route one
+     * deploy behind still chats; the thread names its project either way, and
+     * that is what is charged.
+     */
+    projectId: v.optional(v.id("projects")),
+  },
   returns: v.null(),
   handler: async (ctx, args) => {
     const thread = await requireOwned(ctx, "chatThreads", args.threadId);
+    // A thread from one project carrying another's context would be charged to
+    // a container the conversation is not about.
+    if (args.projectId !== undefined && args.projectId !== thread.projectId) {
+      throw new Error("Not found");
+    }
+    // Ahead of the paid-for wave-through below: a thread started while the
+    // caller could write is no pass once they can only read.
+    const project = await requireEditable(ctx, "projects", thread.projectId);
     if (thread.billedAt !== undefined) return null;
     const owner = await requireOwner(ctx);
-    const entitlement = await requireQuota(ctx, owner, "chats");
+    const entitlement = await entitlementIn(ctx, containerOf(project, owner));
+    if (!hasRoom(entitlement, "chats")) throw quotaRefusal("chats");
     // Pro accounts are not metered, so there is nothing to stamp: were they to
     // lapse, the threads they started while paying should not each be holding
-    // a slot of the free allowance they never spent.
+    // a slot of the free allowance they never spent. A workspace project's
+    // entitlement is never "free", so its threads spend nobody's allowance.
     if (entitlement.plan === "free") {
       await ctx.db.patch(args.threadId, { billedAt: Date.now() });
       await spendMeter(ctx, owner, "chats");
@@ -369,5 +458,20 @@ export const mine = query({
   handler: async (ctx): Promise<Entitlement | null> => {
     const owner = await currentOwner(ctx);
     return owner ? await entitlementOf(ctx, owner) : null;
+  },
+});
+
+/**
+ * The entitlement that governs the caller's AI work in one project — the
+ * workspace's in a workspace project they write in, their own otherwise (see
+ * {@link containerFor}). What `/api/complete`'s pre-check reads. Null when
+ * signed out, for the same reason as `mine`.
+ */
+export const forProject = query({
+  args: { projectId: v.string() },
+  handler: async (ctx, args): Promise<Entitlement | null> => {
+    const owner = await currentOwner(ctx);
+    if (!owner) return null;
+    return await entitlementIn(ctx, await containerFor(ctx, args.projectId, owner));
   },
 });
