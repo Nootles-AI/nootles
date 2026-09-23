@@ -385,26 +385,29 @@ function SharePopoverBody({
         {collaborators === undefined ||
         project === undefined ||
         (workspace && hidden && people === undefined) ? (
-          <div aria-hidden className="mt-4">
-            <div className="nt-skeleton h-3.5 w-28" />
-            <div className="nt-skeleton mt-2.5 h-8" />
+          <div aria-hidden>
+            {/* The project is not in yet to say which home it is in; the
+                page it is open in is the likely answer. */}
+            {container.kind === "workspace" && (
+              <div className="mt-4">
+                <div className="nt-skeleton h-3.5 w-20" />
+                <div className="nt-skeleton mt-2.5 h-8" />
+              </div>
+            )}
+            <div className="mt-4">
+              <div className="nt-skeleton h-3.5 w-28" />
+              <div className="nt-skeleton mt-2.5 h-8" />
+            </div>
           </div>
         ) : (
-          <div className="mt-4">
-            <div className="nt-field-label">
-              People with access
-              <span className="nt-field-note">
-                {collaborators.length + 1 + (maker ? 1 : 0)}
-              </span>
-            </div>
-            <ul
-              aria-label="People with access"
-              className="nt-share-people max-h-56 space-y-px overflow-y-auto"
-            >
-              {/* A workspace comes first: everyone its membership lets in, as
-                  one row, and not counted among the people. */}
-              {workspace && (
-                <li className="flex h-8 items-center gap-2">
+          <>
+            {/* A workspace comes first, under its own label: everyone its
+                membership lets in, as one row. Among the people it would
+                make their count disagree with the rows under it. */}
+            {workspace && (
+              <div className="mt-4">
+                <div className="nt-field-label">Workspace</div>
+                <div className="flex h-8 items-center gap-2">
                   <span aria-hidden className="nt-monogram nt-ws-tile is-square shrink-0">
                     {initial(workspace.name)}
                   </span>
@@ -416,71 +419,84 @@ function SharePopoverBody({
                   <span className="shrink-0 text-[13px] text-muted">
                     {hidden ? "Can manage" : "Can edit"}
                   </span>
-                </li>
-              )}
-              {/* Then the one person who always has access. Alone, the row is
-                  also the answer to "has anyone joined yet": only you. In a
-                  workspace it is your seat there, since "Owner" would read as
-                  the workspace's own. */}
-              <li className="flex h-8 items-center gap-2">
-                <span aria-hidden className="nt-monogram shrink-0">
-                  {initial(
-                    me?.fullName?.trim() ||
-                      me?.primaryEmailAddress?.emailAddress,
-                  )}
+                </div>
+              </div>
+            )}
+            <div className="mt-4">
+              <div className="nt-field-label">
+                People with access
+                <span className="nt-field-note">
+                  {collaborators.length + 1 + (maker ? 1 : 0)}
                 </span>
-                <span className="min-w-0 flex-1 truncate text-[13px]">You</span>
-                <span className="shrink-0 text-[13px] text-muted">
-                  {workspace ? ROLE_LABEL[workspace.role] : "Owner"}
-                </span>
-              </li>
-              {maker && (
+              </div>
+              <ul
+                aria-label="People with access"
+                className="nt-share-people max-h-56 space-y-px overflow-y-auto"
+              >
+                {/* First the one person who always has access. Alone, the row
+                    is also the answer to "has anyone joined yet": only you. In
+                    a workspace it is your seat there, since "Owner" would read
+                    as the workspace's own. */}
                 <li className="flex h-8 items-center gap-2">
-                  {maker.imageUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={maker.imageUrl}
-                      alt=""
-                      className="h-5 w-5 shrink-0 rounded-full"
-                    />
-                  ) : (
-                    <span aria-hidden className="nt-monogram shrink-0">
-                      {initial(maker.name ?? maker.email)}
-                    </span>
-                  )}
-                  <span className="min-w-0 flex-1 truncate text-[13px]">
-                    {maker.name ?? maker.email ?? "Someone"}
+                  <span aria-hidden className="nt-monogram shrink-0">
+                    {initial(
+                      me?.fullName?.trim() ||
+                        me?.primaryEmailAddress?.emailAddress,
+                    )}
                   </span>
-                  <span className="shrink-0 text-[13px] text-muted">Editor</span>
-                </li>
-              )}
-              {collaborators.map((person) => (
-                <li
-                  key={person.granteeId}
-                  className="flex h-8 items-center gap-2"
-                >
-                  {person.imageUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={person.imageUrl}
-                      alt=""
-                      className="h-5 w-5 shrink-0 rounded-full"
-                    />
-                  ) : (
-                    <span aria-hidden className="nt-monogram shrink-0">
-                      {initial(person.name ?? person.email)}
-                    </span>
-                  )}
-                  <span className="min-w-0 flex-1 truncate text-[13px]">
-                    {person.name ?? person.email ?? "Someone"}
-                  </span>
+                  <span className="min-w-0 flex-1 truncate text-[13px]">You</span>
                   <span className="shrink-0 text-[13px] text-muted">
-                    {person.role === "editor" ? "Editor" : "Viewer"}
+                    {workspace ? ROLE_LABEL[workspace.role] : "Owner"}
                   </span>
                 </li>
-              ))}
-            </ul>
-          </div>
+                {maker && (
+                  <li className="flex h-8 items-center gap-2">
+                    {maker.imageUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={maker.imageUrl}
+                        alt=""
+                        className="h-5 w-5 shrink-0 rounded-full"
+                      />
+                    ) : (
+                      <span aria-hidden className="nt-monogram shrink-0">
+                        {initial(maker.name ?? maker.email)}
+                      </span>
+                    )}
+                    <span className="min-w-0 flex-1 truncate text-[13px]">
+                      {maker.name ?? maker.email ?? "Someone"}
+                    </span>
+                    <span className="shrink-0 text-[13px] text-muted">Editor</span>
+                  </li>
+                )}
+                {collaborators.map((person) => (
+                  <li
+                    key={person.granteeId}
+                    className="flex h-8 items-center gap-2"
+                  >
+                    {person.imageUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={person.imageUrl}
+                        alt=""
+                        className="h-5 w-5 shrink-0 rounded-full"
+                      />
+                    ) : (
+                      <span aria-hidden className="nt-monogram shrink-0">
+                        {initial(person.name ?? person.email)}
+                      </span>
+                    )}
+                    <span className="min-w-0 flex-1 truncate text-[13px]">
+                      {person.name ?? person.email ?? "Someone"}
+                    </span>
+                    <span className="shrink-0 text-[13px] text-muted">
+                      {person.role === "editor" ? "Editor" : "Viewer"}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </>
         )}
       </div>
     </>,
