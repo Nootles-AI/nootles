@@ -64,6 +64,9 @@ function InItsHome({ projectId, children }: { projectId: string; children: React
   const router = useRouter();
   const here = slugOf(useContainer());
   const home = useQuery(api.projects.home, { projectId });
+  // Asked alongside `home` rather than after it, so a caller kept out is told
+  // why in one step instead of two round trips.
+  const paused = useQuery(api.projects.pausedBy, { projectId });
   const elsewhere = home && home.slug !== here ? projectPath(home.slug, projectId) : null;
 
   useEffect(() => {
@@ -73,7 +76,7 @@ function InItsHome({ projectId, children }: { projectId: string; children: React
   }, [elsewhere, router]);
 
   if (elsewhere) return <div className="flex-1" aria-busy="true" />;
-  if (home === null) return <NoAccess projectId={projectId} />;
+  if (home === null && paused !== undefined) return <NoAccess paused={paused} />;
   return <>{children}</>;
 }
 
@@ -82,11 +85,9 @@ function InItsHome({ projectId, children }: { projectId: string; children: React
  * paused are the one way out that passes on its own — nothing to ask anyone
  * for — so that is said by name; every other way is said the same.
  */
-function NoAccess({ projectId }: { projectId: string }) {
-  const paused = useQuery(api.projects.pausedBy, { projectId });
-  if (paused === undefined) return <div className="flex-1" aria-busy="true" />;
+function NoAccess({ paused }: { paused: string | null }) {
   return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 py-16 text-center">
+    <div className="nt-kept-out flex flex-1 flex-col items-center justify-center gap-2 px-6 py-16 text-center">
       <Link href="/" aria-label="Nootles" className="mb-4">
         <Wordmark className="text-muted" />
       </Link>
