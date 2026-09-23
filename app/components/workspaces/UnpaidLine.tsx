@@ -39,7 +39,7 @@ export function UnpaidLine({
       <div className="nt-ws-fold-body">
         <p className="nt-ws-unpaid">
           {workspace.name} is on the free allowance.{" "}
-          <Link href={settingsPath(workspace.slug, "billing")} className="nt-ws-unpaid-go">
+          <Link href={settingsPath(workspace.slug, "billing")} className="nt-ws-aside-link">
             {ask === "settle" ? "Fix its billing" : "See the Team plan"}
           </Link>
         </p>
