@@ -3,6 +3,7 @@
 import {
   useCallback,
   useEffect,
+  useImperativeHandle,
   useLayoutEffect,
   useRef,
   useState,
@@ -34,6 +35,7 @@ export function Menu({
   label,
   className,
   layer = "dropdown",
+  focusRef,
 }: {
   trigger: (props: {
     ref: React.Ref<HTMLButtonElement>;
@@ -51,6 +53,9 @@ export function Menu({
   /** "modal" for a menu raised inside a dialog: on the dialog's layer, and
    *  after it in the body, so the dialog does not cover it. */
   layer?: "dropdown" | "modal";
+  /** Focuses the trigger, for a caller that hands focus back to it itself —
+   *  after a dialog one of its items opened, say. */
+  focusRef?: Ref<{ focus: () => void }>;
 }) {
   const [open, setOpen] = useState(false);
   // The menu outlives `open` by its exit animation. Everything that means
@@ -59,6 +64,7 @@ export function Menu({
   const [leaving, setLeaving] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  useImperativeHandle(focusRef, () => ({ focus: () => triggerRef.current?.focus() }), []);
   const [pos, setPos] = useState({ top: 0, left: 0, width: 0, origin: "top left" });
 
   // `close` is handed to the children render prop, so it must not touch a ref
@@ -226,6 +232,7 @@ export function MenuItem({
   children,
   danger,
   disabled,
+  describedBy,
   className,
   ref,
 }: {
@@ -235,6 +242,8 @@ export function MenuItem({
   /** Refused rather than left out, for a menu that says why beside it. It
    *  stays in the arrow keys' reach so the reason can be read. */
   disabled?: boolean;
+  /** A line elsewhere in the menu that says why, when it is not beside it. */
+  describedBy?: string;
   className?: string;
   /** For a menu that has to move focus between its own items itself. */
   ref?: Ref<HTMLButtonElement>;
@@ -244,6 +253,7 @@ export function MenuItem({
       ref={ref}
       role="menuitem"
       aria-disabled={disabled || undefined}
+      aria-describedby={describedBy}
       onClick={disabled ? undefined : onClick}
       className={`nt-menu-item${danger ? " is-danger" : ""}${className ? ` ${className}` : ""}`}
     >
