@@ -4,6 +4,7 @@ import * as Y from "yjs";
 import { components, internal } from "./_generated/api";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
+import { recordDocumentEdit } from "./audit";
 import { checkRead, checkWrite, pageForDoc } from "./prosemirror";
 import { stampProject } from "./projects";
 import { joinUpdateRows, UPDATE_CHUNK_BYTES } from "./yshape";
@@ -266,7 +267,11 @@ export const append = mutation({
     await checkWrite(ctx, args.docId);
     const chunks =
       args.chunks ?? (args.update !== undefined ? [args.update] : []);
-    return await appendYUpdate(ctx, args.docId, chunks);
+    const seq = await appendYUpdate(ctx, args.docId, chunks);
+    // Here rather than in `appendYUpdate`, which the NML migrator shares: this
+    // is the one place a flush is known to be a person's.
+    await recordDocumentEdit(ctx, args.docId);
+    return seq;
   },
 });
 

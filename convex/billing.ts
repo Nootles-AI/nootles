@@ -256,6 +256,13 @@ export const startTeamCheckout = action({
       },
     });
     if (!session.url) throw new ConvexError("Couldn’t open checkout. Try again in a moment.");
+    await ctx.runMutation(internal.audit.recordAsCaller, {
+      workspaceId: args.workspaceId,
+      action: "billing.checkout",
+      subjectKind: "workspace",
+      subjectId: args.workspaceId,
+      meta: { seats: desk.seats },
+    });
     return { url: session.url };
   },
 });

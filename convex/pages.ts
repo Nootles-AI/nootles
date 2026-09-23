@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import { gunzipSync, gzipSync } from "fflate";
 import { components } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
+import { recordInProject } from "./audit";
 import { isTrashed, readVisible, requireEditable, requireOwner } from "./auth";
 import { removePageNode, retitlePageNode } from "./context/pages";
 import { copyPreview, deletePreview } from "./previews";
@@ -363,6 +364,12 @@ export const remove = mutation({
     const page = await requireEditable(ctx, "pages", args.pageId);
     await ctx.db.patch(page._id, { deletedAt: Date.now() });
     await refreshPageSummary(ctx, page.projectId);
+    await recordInProject(ctx, (await ctx.db.get(page.projectId))!, {
+      action: "page.delete",
+      subjectKind: "page",
+      subjectId: page._id,
+      meta: { page: page.title },
+    });
     return { pages: [page._id], folders: [] };
   },
 });

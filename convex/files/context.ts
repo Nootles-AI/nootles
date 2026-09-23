@@ -8,6 +8,7 @@ import {
   type MutationCtx,
 } from "../_generated/server";
 import { projectRole, readManageable, requireManageable, requireOwner } from "../auth";
+import { recordInProject } from "../audit";
 import { removeDocument, upsertDocument } from "../context/documents";
 import type { Id } from "../_generated/dataModel";
 import { uploadUrl } from "../uploads";
@@ -104,6 +105,17 @@ export async function attachFile(
     addedAt: Date.now(),
   });
   await ctx.scheduler.runAfter(0, internal.files.extract.run, { fileId, ownerId });
+  await recordInProject(
+    ctx,
+    (await ctx.db.get(projectId))!,
+    {
+      action: "file.add",
+      subjectKind: "file",
+      subjectId: fileId,
+      meta: { file: filename, replaced: !!existing },
+    },
+    ownerId,
+  );
   return fileId;
 }
 
@@ -114,6 +126,12 @@ export const remove = mutation({
     await ctx.storage.delete(file.storageId);
     await ctx.db.delete(args.fileId);
     await removeDocument(ctx, file.projectId, documentId(file._id));
+    await recordInProject(ctx, (await ctx.db.get(file.projectId))!, {
+      action: "file.remove",
+      subjectKind: "file",
+      subjectId: file._id,
+      meta: { file: file.filename },
+    });
   },
 });
 
