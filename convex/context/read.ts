@@ -1,13 +1,23 @@
 import { query, type QueryCtx } from "../_generated/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
-import { isTrashed, readVisible } from "../auth";
+import { canReadCode, isTrashed, readVisible } from "../auth";
 
 /**
  * Reading a project's context graph: what every lane's pack is rendered from,
  * and the three verbs the agent walks it with. Everyone who can see the
- * project can read all of it — ownership is shown, never enforced.
+ * project can read its pages and documents — ownership is shown, never
+ * enforced. Its code half is `canReadCode`'s: for someone it refuses, every
+ * read here leaves the code out as though no repository were linked.
  */
+
+/** The project, if the caller can see it, and whether its code is theirs to read. */
+async function reader(ctx: QueryCtx, projectId: Id<"projects">) {
+  const project = await readVisible(ctx, "projects", projectId);
+  return project && { project, code: await canReadCode(ctx, project) };
+}
+
+const NO_CODE = { repos: [], areas: [], concerns: [] };
 
 /** Past this, a pack lists the rest by count; `list_pages` still has them all. */
 const MAX_PAGES = 1000;
@@ -30,8 +40,9 @@ const MAX_DOCUMENTS = 200;
 export const packInputs = query({
   args: { projectId: v.id("projects"), pageId: v.optional(v.string()) },
   handler: async (ctx, args) => {
-    const project = await readVisible(ctx, "projects", args.projectId);
-    if (!project) return null;
+    const seen = await reader(ctx, args.projectId);
+    if (!seen) return null;
+    const { project } = seen;
     const [notes, pages, nodes, code, documents] = await Promise.all([
       ctx.db
         .query("contextSheet")
@@ -42,7 +53,7 @@ export const packInputs = query({
         .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
         .take(MAX_PAGES),
       ofKind(ctx, args.projectId, "page", MAX_PAGES),
-      codeMap(ctx, args.projectId),
+      seen.code ? codeMap(ctx, args.projectId) : NO_CODE,
       ofKind(ctx, args.projectId, "document", MAX_DOCUMENTS),
     ]);
 
@@ -110,16 +121,18 @@ export const search = query({
     limit: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    if (!(await readVisible(ctx, "projects", args.projectId))) return [];
+    const seen = await reader(ctx, args.projectId);
+    if (!seen) return [];
     const limit = Math.min(10, Math.max(1, Math.floor(args.limit ?? 6)));
-    // Twice over, because a hit on a page in the trash is dropped after.
+    // Over-fetched, because a hit on a page in the trash is dropped after —
+    // and so is every hit on code, for a reader it is not open to.
     const hits = await ctx.db
       .query("contextNodeText")
       .withSearchIndex("search_text", (q) =>
         q.search("searchText", args.query).eq("projectId", args.projectId),
       )
-      .take(limit * 2);
-    const describe = describer(ctx);
+      .take(limit * (seen.code ? 2 : 4));
+    const describe = describer(ctx, seen.code);
     const found: Described[] = [];
     for (const hit of hits) {
       const node = await ctx.db.get(hit.nodeId);
@@ -139,9 +152,10 @@ export const search = query({
 export const expand = query({
   args: { projectId: v.id("projects"), id: v.string() },
   handler: async (ctx, args) => {
-    const node = await resolve(ctx, args.projectId, args.id);
-    if (!node) return null;
-    const describe = describer(ctx);
+    const found = await resolve(ctx, args.projectId, args.id);
+    if (!found) return null;
+    const { node } = found;
+    const describe = describer(ctx, found.code);
     const item = await describe(node);
     if (!item) return null;
     const out: (Described & { relation: string })[] = [];
@@ -184,9 +198,10 @@ export const expand = query({
 export const read = query({
   args: { projectId: v.id("projects"), id: v.string() },
   handler: async (ctx, args) => {
-    const node = await resolve(ctx, args.projectId, args.id);
-    if (!node) return null;
-    const item = await describer(ctx)(node);
+    const found = await resolve(ctx, args.projectId, args.id);
+    if (!found) return null;
+    const { node } = found;
+    const item = await describer(ctx, found.code)(node);
     if (!item) return null;
     const text = await textOf(ctx, node._id);
     return {
@@ -205,7 +220,7 @@ export const read = query({
 export const concern = query({
   args: { projectId: v.id("projects"), nodeId: v.id("contextNodes") },
   handler: async (ctx, args) => {
-    if (!(await readVisible(ctx, "projects", args.projectId))) return null;
+    if (!(await reader(ctx, args.projectId))?.code) return null;
     const node = await ctx.db.get(args.nodeId);
     if (!node || node.projectId !== args.projectId) return null;
     const files = await ctx.db
@@ -241,10 +256,11 @@ type Described = {
 
 /**
  * A node as a tool result, or null when what it stands for is gone — a page in
- * the trash is not context. A page's title is the page's own, not the node's
- * copy, so a rename reads through at once. Owners are looked up once per call.
+ * the trash is not context — or is code, for a reader without `code`. A page's
+ * title is the page's own, not the node's copy, so a rename reads through at
+ * once. Owners are looked up once per call.
  */
-function describer(ctx: QueryCtx) {
+function describer(ctx: QueryCtx, code: boolean) {
   const names = new Map<string, Promise<string | null>>();
   const nameOf = (memberId: string) => {
     if (!names.has(memberId)) {
@@ -263,6 +279,7 @@ function describer(ctx: QueryCtx) {
     node.owner.memberId ? await nameOf(node.owner.memberId) : (node.owner.handle ?? null);
 
   return async (node: Doc<"contextNodes">): Promise<Described | null> => {
+    if (node.source === "github" && !code) return null;
     if (node.source !== "pages") {
       return {
         id: node._id,
@@ -292,27 +309,29 @@ function describer(ctx: QueryCtx) {
 
 /**
  * An id from the model, as the node it names: a node id from `search_context`,
- * a page id, or a file as "owner/repo:path" — whichever the model holds.
- * Anything outside the project, or unreadable to the caller, is no node.
+ * a page id, or a file as "owner/repo:path" — whichever the model holds —
+ * with whether the caller reads code. Anything outside the project, or
+ * unreadable to the caller, is no node.
  */
 async function resolve(
   ctx: QueryCtx,
   projectId: Id<"projects">,
   raw: string,
-): Promise<Doc<"contextNodes"> | null> {
-  if (!(await readVisible(ctx, "projects", projectId))) return null;
+): Promise<{ node: Doc<"contextNodes">; code: boolean } | null> {
+  const seen = await reader(ctx, projectId);
+  if (!seen) return null;
   const nodeId = ctx.db.normalizeId("contextNodes", raw);
-  if (nodeId) {
-    const node = await ctx.db.get(nodeId);
-    return node?.projectId === projectId ? node : null;
-  }
   const externalId = ctx.db.normalizeId("pages", raw) ?? raw.trim();
-  return await ctx.db
-    .query("contextNodes")
-    .withIndex("by_project_and_externalId", (q) =>
-      q.eq("projectId", projectId).eq("externalId", externalId),
-    )
-    .unique();
+  const node = nodeId
+    ? await ctx.db.get(nodeId)
+    : await ctx.db
+        .query("contextNodes")
+        .withIndex("by_project_and_externalId", (q) =>
+          q.eq("projectId", projectId).eq("externalId", externalId),
+        )
+        .unique();
+  if (!node || node.projectId !== projectId) return null;
+  return node.source === "github" && !seen.code ? null : { node, code: seen.code };
 }
 
 async function ofKind(
@@ -461,8 +480,9 @@ async function codeMap(ctx: QueryCtx, projectId: Id<"projects">) {
 export const graph = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
-    const project = await readVisible(ctx, "projects", args.projectId);
-    if (!project) return null;
+    const seen = await reader(ctx, args.projectId);
+    if (!seen) return null;
+    const { project } = seen;
     const [folders, pages, nodes, mentionEdges, rollupEdges, code, documents] = await Promise.all([
       ctx.db
         .query("folders")
@@ -479,13 +499,15 @@ export const graph = query({
           q.eq("projectId", args.projectId).eq("type", "mentions"),
         )
         .take(MAX_PAGES * 5),
-      ctx.db
-        .query("contextEdges")
-        .withIndex("by_project_and_type", (q) =>
-          q.eq("projectId", args.projectId).eq("type", "rollup"),
-        )
-        .take(MAX_MAP * 4),
-      codeMap(ctx, args.projectId),
+      seen.code
+        ? ctx.db
+            .query("contextEdges")
+            .withIndex("by_project_and_type", (q) =>
+              q.eq("projectId", args.projectId).eq("type", "rollup"),
+            )
+            .take(MAX_MAP * 4)
+        : [],
+      seen.code ? codeMap(ctx, args.projectId) : NO_CODE,
       ofKind(ctx, args.projectId, "document", MAX_DOCUMENTS),
     ]);
 

@@ -2,7 +2,7 @@ import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { internalMutation, internalQuery, type MutationCtx } from "../_generated/server";
-import { readVisible } from "../auth";
+import { canReadCode, readVisible } from "../auth";
 import { searchTextOf } from "../context/shape";
 import { BATCH, edge, node } from "./graphShape";
 
@@ -16,14 +16,15 @@ import { BATCH, edge, node } from "./graphShape";
  */
 
 /**
- * An indexed file, if the caller can see the project it is context for — any
- * role, since context is readable by the whole project — with the repository
- * row whose linker's token reads it.
+ * An indexed file, if the caller may read the code of the project it is
+ * context for (`canReadCode`), with the repository row whose linker's token
+ * reads it.
  */
 export const fileForReader = internalQuery({
   args: { projectId: v.id("projects"), nodeId: v.id("contextNodes") },
   handler: async (ctx, args) => {
-    if (!(await readVisible(ctx, "projects", args.projectId))) return null;
+    const project = await readVisible(ctx, "projects", args.projectId);
+    if (!project || !(await canReadCode(ctx, project))) return null;
     const node = await ctx.db.get(args.nodeId);
     if (!node || node.projectId !== args.projectId || node.kind !== "file" || !node.repoId) {
       return null;

@@ -3,8 +3,10 @@ import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import {
+  activeMembership,
   claimOf,
   claimRole,
+  codeGrantRefusal,
   isTrashed,
   LINK_FIELDS,
   linkLive,
@@ -283,8 +285,11 @@ export const claim = mutation({
 
 /**
  * Who holds a role in this project through a claim, for the share dialog's
- * access list. Whoever manages the project. `expiresAt` is when their access
- * through the link runs out; null is never.
+ * access list. Whoever manages the project.
+ *
+ * On a workspace project each person says whether they are one of its
+ * guests, and whether a manager let them see its code (`setCodeAccess`).
+ * `expiresAt` is when their access through the link runs out; null is never.
  */
 /** Reads, so `readManageable` — see `links` above. */
 export const collaborators = query({
@@ -307,11 +312,19 @@ export const collaborators = query({
         // same as it takes away their access.
         const role = claimRole(project, claim, now);
         if (!role) return null;
+        const [person, seat] = await Promise.all([
+          personOf(ctx, claim.granteeId),
+          project.workspaceId
+            ? activeMembership(ctx, project.workspaceId, claim.granteeId)
+            : null,
+        ]);
         return {
           granteeId: claim.granteeId,
           role,
-          ...(await personOf(ctx, claim.granteeId)),
+          ...person,
           expiresAt: claim.grantedRole ? null : (claim.expiresAt ?? null),
+          guest: seat?.role === "guest",
+          codeAccess: claim.codeAccess === true,
         };
       }),
     );
@@ -337,6 +350,27 @@ export const revokeClaim = mutation({
       )
       .unique();
     if (request) await ctx.db.delete(request._id);
+    return null;
+  },
+});
+
+/**
+ * Lets a workspace guest into the repository half of a project's context, or
+ * back out of it. Whoever manages the project, and letting in only where the
+ * workspace allows guests code at all (`codeGrantRefusal`); taking it away is
+ * always allowed.
+ */
+export const setCodeAccess = mutation({
+  args: { projectId: v.id("projects"), granteeId: v.string(), allowed: v.boolean() },
+  handler: async (ctx, args) => {
+    const project = await requireManageable(ctx, "projects", args.projectId);
+    const claim = await claimOf(ctx, args.projectId, args.granteeId);
+    if (!claim) throw new Error("Not found");
+    if (args.allowed) {
+      const refusal = await codeGrantRefusal(ctx, project, args.granteeId);
+      if (refusal) throw new ConvexError(refusal);
+    }
+    await ctx.db.patch(claim._id, { codeAccess: args.allowed ? true : undefined });
     return null;
   },
 });

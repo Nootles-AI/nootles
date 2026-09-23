@@ -335,6 +335,11 @@ export default defineSchema({
      * is never. `grantedRole` does not expire: it was handed over by name.
      */
     expiresAt: v.optional(v.number()),
+    /**
+     * A workspace guest let into the repository half of the project's
+     * context, by one of its managers, while the workspace allows it.
+     */
+    codeAccess: v.optional(v.boolean()),
     createdAt: v.number(),
   })
     .index("by_grantee", ["granteeId"])

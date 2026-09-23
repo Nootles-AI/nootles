@@ -113,8 +113,8 @@ export const file = action({
 
 /**
  * The text of a file the context graph indexed — what `read_context` returns
- * for a file, past its summary. Readable by anyone the project is shared
- * with, read with the token of whoever linked the repository.
+ * for a file, past its summary. Readable by whoever may read the project's
+ * code (`canReadCode`), read with the token of whoever linked the repository.
  */
 export const nodeFile = action({
   args: { projectId: v.id("projects"), nodeId: v.id("contextNodes") },

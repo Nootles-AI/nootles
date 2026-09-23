@@ -481,7 +481,8 @@ async function containerRole(
  * That reaches past the context graph a share link reads (indexed files at
  * the default branch), so it goes no further than the project's container:
  * its owner, or a workspace seat that edits it. No share link, an editor's
- * included, spends someone else's GitHub connection this way.
+ * included, spends someone else's GitHub connection this way. And it is code,
+ * so `canReadCode` has to say yes as well.
  */
 export async function readsLinkedCode(
   ctx: QueryCtx,
@@ -490,7 +491,66 @@ export async function readsLinkedCode(
   const me = await ownerId(ctx);
   const project = await ctx.db.get(projectId);
   if (!me || !project || isTrashed(project)) return false;
-  return (await containerRole(ctx, project, me)) !== null;
+  return (await containerRole(ctx, project, me)) !== null && (await canReadCode(ctx, project));
+}
+
+/**
+ * Whether the caller may read the repository half of a project's context:
+ * the code map in every pack, code in search results and the graph, and an
+ * indexed file's text. Pages and documents are not code, and stay readable to
+ * every role; what this refuses is simply absent.
+ *
+ * A personal project's code is read by everyone it is shared with, as it
+ * always was. A workspace's is its members' — subject to the workspace's
+ * GitHub organisation rule — and a guest's only where the workspace lets
+ * guests see code and a manager let this one. Someone in by link alone reads
+ * none of it.
+ */
+export async function canReadCode(ctx: QueryCtx, project: Doc<"projects">): Promise<boolean> {
+  if (isTrashed(project) || !(await roleForProject(ctx, project))) return false;
+  if (!project.workspaceId) return true;
+  const me = await ownerId(ctx);
+  const seat = me && (await activeMembership(ctx, project.workspaceId, me));
+  if (!me || !seat) return false;
+  if (seat.role !== "guest") return await passesGithubOrgRule(ctx, seat);
+  const workspace = await ctx.db.get(project.workspaceId);
+  if (!workspace?.settings.guestCodeAccess) return false;
+  return (await claimOf(ctx, project._id, me))?.codeAccess === true;
+}
+
+/**
+ * The workspace's GitHub organisation rule (`settings.requireGithubOrg`), for
+ * a member about to read code. The hook the GitHub App fills in, since only it
+ * can check the rule; until then every member passes.
+ */
+async function passesGithubOrgRule(
+  _ctx: QueryCtx,
+  _seat: Doc<"memberships">,
+): Promise<boolean> {
+  return true;
+}
+
+/**
+ * Why a manager may not let `granteeId` into a project's code, or null when
+ * they may. Only a guest is ever let in this way — a member reads it already,
+ * and someone in by link alone never does — and only while their workspace
+ * allows it.
+ */
+export async function codeGrantRefusal(
+  ctx: QueryCtx,
+  project: Doc<"projects">,
+  granteeId: string,
+): Promise<string | null> {
+  if (!project.workspaceId) {
+    return "Everyone a personal project is shared with reads its code context already.";
+  }
+  const workspace = await ctx.db.get(project.workspaceId);
+  if (!workspace?.settings.guestCodeAccess) {
+    return "This workspace doesn’t let guests see code context.";
+  }
+  const seat = await activeMembership(ctx, project.workspaceId, granteeId);
+  if (seat?.role !== "guest") return "Only a guest of the workspace can be given code context.";
+  return null;
 }
 
 /**
