@@ -101,6 +101,20 @@ describe("the projects cache", () => {
     expect(stored.has(KEY)).toBe(false);
   });
 
+  test("a seat with settings to open is remembered; a guest's is not", async () => {
+    const first = await visit();
+    expect(first.seenSeat("u")).toBe(false);
+    first.rememberWorkspace("u", "acme", { ...acme("acme"), role: "guest" });
+    expect(first.seenSeat("u")).toBe(false);
+    first.rememberWorkspace("u", "acme", acme("acme"));
+    settle();
+
+    vi.resetModules();
+    const cache = await visit();
+    expect(cache.seenSeat("u")).toBe(true);
+    expect(cache.seenSeat("someone-else")).toBe(false);
+  });
+
   test("another account's cache is dropped unread", async () => {
     const first = await visit();
     first.rememberScreen("a", first.ACCOUNT, [project("p1", "A’s project")], []);

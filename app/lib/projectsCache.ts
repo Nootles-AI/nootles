@@ -121,6 +121,12 @@ export function seenWorkspace(id: string, slug: string): WorkspaceContainer | nu
   return workspaces[slug] ?? null;
 }
 
+/** Whether this account last held a seat whose workspace's settings it may open. */
+export function seenSeat(id: string): boolean {
+  adopt(id);
+  return Object.values(workspaces).some((w) => w.role !== "guest");
+}
+
 /**
  * What an address resolved to, or null once it resolves to nothing — a seat
  * taken away, a workspace deleted — so it is not drawn again next visit.
