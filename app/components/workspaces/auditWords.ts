@@ -247,11 +247,17 @@ export function whatParts(row: AuditRow, workspaceName: string): Part[] {
 
     case "entitlement.set":
       return [
-        `set ${m.feature} to ${m.value} for this workspace`,
+        m.feature === "plan"
+          ? `put this workspace on the ${Role(m.value)} plan`
+          : `set ${m.feature} to ${m.value} for this workspace`,
         ...(typeof m.expiresAt === "number" ? [`, until ${DATE.format(m.expiresAt)}`] : []),
       ];
     case "entitlement.clear":
-      return [`cleared the override of ${m.feature}`];
+      return [
+        m.feature === "plan"
+          ? "took this workspace off the plan it was given"
+          : `cleared the override of ${m.feature}`,
+      ];
     case "operator.standIn":
       return [`stood in for ${who}`];
 
