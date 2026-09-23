@@ -24,11 +24,11 @@ export function useRepoNaming(projectId: Id<"projects">) {
       void fetch("/api/context/name", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ repoId: repo._id }),
+        body: JSON.stringify({ repoId: repo._id, projectId }),
       }).catch(() => {
         // Asked again on the next visit; the directory names stand meanwhile.
         asked.current.delete(repo._id);
       });
     }
-  }, [repos]);
+  }, [repos, projectId]);
 }

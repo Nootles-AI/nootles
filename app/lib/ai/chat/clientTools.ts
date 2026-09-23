@@ -267,7 +267,12 @@ async function albumEdit(
     }. The user reviews this and may discard it.`,
     ...complaints,
     "",
-    await albumIndex(ctx.convex, editor.document as unknown as AnyBlock[], [blockId]),
+    await albumIndex(
+      ctx.convex,
+      ctx.projectId,
+      editor.document as unknown as AnyBlock[],
+      [blockId],
+    ),
   ]
     .filter(Boolean)
     .join("\n");
@@ -563,7 +568,7 @@ async function pageRead(
 ): Promise<string> {
   const html = pageHtml(blocks, title, expand);
   if (!expand?.length) return html;
-  const index = await albumIndex(ctx.convex, blocks, expand).catch(() => "");
+  const index = await albumIndex(ctx.convex, ctx.projectId, blocks, expand).catch(() => "");
   return index ? `${html}\n\n${index}` : html;
 }
 
