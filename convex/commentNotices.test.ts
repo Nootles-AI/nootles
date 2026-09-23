@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 import { convexTest, type TestConvex } from "convex-test";
-import { describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
+import * as Y from "yjs";
 import { ConvexError } from "convex/values";
 import { api } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -9,6 +10,10 @@ import { claimRole } from "./auth";
 import { isOutsiderRefusal, MAX_PEOPLE } from "./commentNotices";
 import { containerOf } from "./container";
 import { purgeProject } from "./projects";
+import { appendYUpdate, registerYDoc } from "./ydoc";
+import { CommentsStore } from "@/app/lib/comments/store";
+import { emptyCommentsDocument, MAX_SIGNERS } from "@/app/lib/comments/types";
+import { createNmlYDoc } from "@/app/lib/nml/yjs";
 
 /**
  * Mentions, notices and the comment audit trail (docs/commenting-plan.md
@@ -183,24 +188,60 @@ describe("who can be mentioned", () => {
 });
 
 describe("who signed a comment", () => {
-  test("every reader is told every name, their own included", async () => {
+  const everyone = [OWNER.subject, EDITOR.subject, VIEWER.subject];
+
+  test("every reader is told the names they ask for, their own included", async () => {
     const t = convexTest(schema, modules);
     const w = await world(t);
     for (const who of [OWNER, EDITOR, VIEWER, STAND_IN]) {
-      const ids = (await t.withIdentity(who).query(api.commentNotices.authors, { pageId: w.pageId })).map((p) => p.userId);
-      expect(ids).toEqual([OWNER.subject, EDITOR.subject, VIEWER.subject]);
+      const people = await t.withIdentity(who).query(api.commentNotices.authors, { pageId: w.pageId, userIds: everyone });
+      expect(people.map((p) => p.userId)).toEqual(everyone);
     }
-    const viewer = await t.withIdentity(VIEWER).query(api.commentNotices.authors, { pageId: w.pageId });
+    const viewer = await t.withIdentity(VIEWER).query(api.commentNotices.authors, { pageId: w.pageId, userIds: everyone });
     expect(viewer[1]).toEqual({ userId: EDITOR.subject, name: "Bram Editor", imageUrl: `https://img.example/${EDITOR.subject}.png` });
+  });
+
+  test("only the people asked about — not the project's roster", async () => {
+    const t = convexTest(schema, modules);
+    const w = await world(t);
+    const asked = [EDITOR.subject, EDITOR.subject];
+    expect(await t.withIdentity(VIEWER).query(api.commentNotices.authors, { pageId: w.pageId, userIds: asked })).toEqual([
+      { userId: EDITOR.subject, name: "Bram Editor", imageUrl: `https://img.example/${EDITOR.subject}.png` },
+    ]);
+    expect(await t.withIdentity(VIEWER).query(api.commentNotices.authors, { pageId: w.pageId, userIds: [] })).toEqual([]);
+  });
+
+  test("an id typed in names nobody who cannot open the project", async () => {
+    const t = convexTest(schema, modules);
+    const w = await world(t);
+    const people = await t
+      .withIdentity(VIEWER)
+      .query(api.commentNotices.authors, { pageId: w.pageId, userIds: [STRANGER.subject, OWNER.subject] });
+    expect(people.map((p) => p.userId)).toEqual([OWNER.subject]);
+    // An author who has since lost access is named no further.
+    await t.run((ctx) => ctx.db.patch(w.projectId, { editShareToken: undefined, shareToken: undefined }));
+    const after = await t.withIdentity(OWNER).query(api.commentNotices.authors, { pageId: w.pageId, userIds: everyone });
+    expect(after.map((p) => p.userId)).toEqual([OWNER.subject]);
+  });
+
+  test(`at most ${MAX_SIGNERS} people asked about per read`, async () => {
+    const t = convexTest(schema, modules);
+    const w = await world(t);
+    const filler = Array.from({ length: MAX_SIGNERS }, (_, i) => `user_filler_${i}`);
+    const people = await t
+      .withIdentity(OWNER)
+      .query(api.commentNotices.authors, { pageId: w.pageId, userIds: [...filler, EDITOR.subject] });
+    expect(people).toEqual([]);
   });
 
   test("nobody for a stranger, a signed-out visitor, or a page gone", async () => {
     const t = convexTest(schema, modules);
     const w = await world(t);
-    expect(await t.withIdentity(STRANGER).query(api.commentNotices.authors, { pageId: w.pageId })).toEqual([]);
-    expect(await t.query(api.commentNotices.authors, { pageId: w.pageId })).toEqual([]);
+    const args = { pageId: w.pageId, userIds: everyone };
+    expect(await t.withIdentity(STRANGER).query(api.commentNotices.authors, args)).toEqual([]);
+    expect(await t.query(api.commentNotices.authors, args)).toEqual([]);
     await t.run((ctx) => ctx.db.patch(w.pageId, { deletedAt: 5 }));
-    expect(await t.withIdentity(OWNER).query(api.commentNotices.authors, { pageId: w.pageId })).toEqual([]);
+    expect(await t.withIdentity(OWNER).query(api.commentNotices.authors, args)).toEqual([]);
   });
 
   test("a profile's email is never offered in place of a name", async () => {
@@ -210,7 +251,7 @@ describe("who signed a comment", () => {
       const profile = await ctx.db.query("profiles").withIndex("by_owner", (q) => q.eq("ownerId", VIEWER.subject)).unique();
       await ctx.db.patch(profile!._id, { name: undefined, email: "cleo@example.com" });
     });
-    const people = await t.withIdentity(OWNER).query(api.commentNotices.authors, { pageId: w.pageId });
+    const people = await t.withIdentity(OWNER).query(api.commentNotices.authors, { pageId: w.pageId, userIds: everyone });
     expect(JSON.stringify(people)).not.toContain("cleo@example.com");
   });
 });
@@ -593,7 +634,9 @@ describe("the inbox", () => {
     await t.run((ctx) => ctx.db.patch(w.projectId, { shareToken: undefined, editShareToken: undefined }));
     expect(await t.withIdentity(EDITOR).query(api.commentNotices.inbox, {})).toEqual([]);
     expect(await t.withIdentity(VIEWER).query(api.commentNotices.inbox, {})).toEqual([]);
-    // Re-shared, the notice was never lost — only not shown.
+    // Re-shared, the notice was never lost — only not shown, and no mark in
+    // the meantime swept it.
+    await t.withIdentity(VIEWER).mutation(api.commentNotices.markSeen, { ids: [] });
     await t.run((ctx) => ctx.db.patch(w.projectId, { shareToken: "view-tok-2" }));
     expect(await t.withIdentity(VIEWER).query(api.commentNotices.inbox, {})).toHaveLength(1);
   });
@@ -657,5 +700,158 @@ describe("the inbox", () => {
     await event(t, OWNER, { pageId: w.pageId, threadId: "t_1", kind: "create", mentions: [EDITOR.subject] });
     await t.run((ctx) => purgeProject(ctx, w.projectId));
     expect(await notices(t)).toEqual([]);
+  });
+});
+
+describe("a deletion is believed only once the document shows it", () => {
+  /** A client's copy of the page's comments document, and a way to send what it wrote. */
+  async function commentsDoc(t: TestConvex<typeof schema>, w: World) {
+    const docId = crypto.randomUUID();
+    const doc = createNmlYDoc(emptyCommentsDocument(docId));
+    const bytes = (update: Uint8Array) =>
+      update.buffer.slice(update.byteOffset, update.byteOffset + update.byteLength) as ArrayBuffer;
+    await t.run(async (ctx) => {
+      await registerYDoc(ctx, docId, bytes(Y.encodeStateAsUpdate(doc)));
+      await ctx.db.patch(w.pageId, { commentsDocId: docId });
+    });
+    let sent = Y.encodeStateVector(doc);
+    const store = new CommentsStore(doc, { actor: { userId: OWNER.subject, kind: "human" }, authorize: () => true });
+    const sync = () =>
+      t.run(async (ctx) => {
+        const update = Y.encodeStateAsUpdate(doc, sent);
+        sent = Y.encodeStateVector(doc);
+        await appendYUpdate(ctx, docId, [bytes(update)]);
+      });
+    const anchor = { blockId: "p_1", exact: "by Friday", prefix: "", suffix: "", offsetHint: 0 };
+    await store.createThread({ anchor, body: "Is this real?", authorId: OWNER.subject, threadId: "t_1", commentId: "c_1" });
+    await store.reply({ threadId: "t_1", body: "Yes.", authorId: EDITOR.subject, commentId: "c_2" });
+    await sync();
+    return { store, sync };
+  }
+
+  async function told(t: TestConvex<typeof schema>, w: World) {
+    await event(t, OWNER, { pageId: w.pageId, threadId: "t_1", kind: "create", commentId: "c_1", mentions: [EDITOR.subject, VIEWER.subject] });
+  }
+
+  const deletions = async (t: TestConvex<typeof schema>) =>
+    (await audits(t)).filter((row) => row.action === "comment.delete");
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  test("a thread still there keeps everyone's notices, and no deletion is recorded — now or on the second look", async () => {
+    vi.useFakeTimers();
+    const t = convexTest(schema, modules);
+    const w = await world(t);
+    await commentsDoc(t, w);
+    await told(t, w);
+
+    await event(t, EDITOR, { pageId: w.pageId, threadId: "t_1", kind: "delete", mentions: [] });
+    await event(t, EDITOR, { pageId: w.pageId, threadId: "t_1", kind: "delete", commentId: "c_1", mentions: [] });
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    expect(await notices(t)).toHaveLength(2);
+    expect(await deletions(t)).toEqual([]);
+  });
+
+  test("a deletion the document shows takes back the notices and is recorded", async () => {
+    const t = convexTest(schema, modules);
+    const w = await world(t);
+    const { store, sync } = await commentsDoc(t, w);
+    await told(t, w);
+
+    await store.deleteComment({ commentId: "c_2", by: EDITOR.subject });
+    await sync();
+    await event(t, EDITOR, { pageId: w.pageId, threadId: "t_1", kind: "delete", commentId: "c_2", mentions: [] });
+    expect((await deletions(t)).map((row) => row.meta?.ids)).toEqual([{ pageId: w.pageId, commentId: "c_2" }]);
+    expect(await notices(t)).toHaveLength(2);
+
+    await store.deleteThread({ threadId: "t_1" });
+    await sync();
+    await event(t, OWNER, { pageId: w.pageId, threadId: "t_1", kind: "delete", mentions: [] });
+    expect(await notices(t)).toEqual([]);
+    expect(await deletions(t)).toHaveLength(2);
+  });
+
+  test("a deletion that reaches the document after its notice is confirmed on the second look", async () => {
+    vi.useFakeTimers();
+    const t = convexTest(schema, modules);
+    const w = await world(t);
+    const { store, sync } = await commentsDoc(t, w);
+    await told(t, w);
+
+    await store.deleteThread({ threadId: "t_1" });
+    await event(t, OWNER, { pageId: w.pageId, threadId: "t_1", kind: "delete", mentions: [] });
+    expect(await notices(t)).toHaveLength(2);
+    expect(await deletions(t)).toEqual([]);
+
+    await sync();
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    expect(await notices(t)).toEqual([]);
+    expect((await deletions(t)).map((row) => row.actorId)).toEqual([OWNER.subject]);
+  });
+});
+
+describe("the inbox, past what no longer opens", () => {
+  /** Notices on a page trashed (`closed`), or deleted outright (`gone`). */
+  async function stale(t: TestConvex<typeof schema>, w: World, count: number, how: "closed" | "gone") {
+    await t.run(async (ctx) => {
+      const gone = await ctx.db.insert("pages", {
+        ownerId: OWNER.subject,
+        projectId: w.projectId,
+        title: "Old",
+        order: 9,
+        docId: crypto.randomUUID(),
+        createdAt: 1,
+        updatedAt: 1,
+        deletedAt: 5,
+      });
+      for (let i = 0; i < count; i++) {
+        await ctx.db.insert("commentNotices", {
+          recipientId: EDITOR.subject,
+          projectId: w.projectId,
+          pageId: gone,
+          threadId: `t_stale_${i}`,
+          actorId: OWNER.subject,
+          kind: "mention",
+          createdAt: 10 + i,
+        });
+      }
+      if (how === "gone") await ctx.db.delete(gone);
+    });
+  }
+
+  test("a hundred notices that no longer open anything do not hide the one that does", async () => {
+    const t = convexTest(schema, modules);
+    const w = await world(t);
+    await event(t, OWNER, { pageId: w.pageId, threadId: "t_live", kind: "create", mentions: [EDITOR.subject] });
+    await stale(t, w, 150, "closed");
+    expect((await t.withIdentity(EDITOR).query(api.commentNotices.inbox, {})).map((n) => n.threadId)).toEqual(["t_live"]);
+  });
+
+  test("the caller's next marks sweep the ones gone for good, so they cannot pile up in front", async () => {
+    const t = convexTest(schema, modules);
+    const w = await world(t);
+    await event(t, OWNER, { pageId: w.pageId, threadId: "t_live", kind: "create", mentions: [EDITOR.subject] });
+    await stale(t, w, 600, "gone");
+    // Past the walk's bound, the live notice is out of reach...
+    expect(await t.withIdentity(EDITOR).query(api.commentNotices.inbox, {})).toEqual([]);
+    await t.withIdentity(EDITOR).mutation(api.commentNotices.markSeen, { ids: [] });
+    await t.withIdentity(EDITOR).mutation(api.commentNotices.markSeen, { ids: [] });
+    // ...until the marks have swept what stood in front of it.
+    expect((await t.withIdentity(EDITOR).query(api.commentNotices.inbox, {})).map((n) => n.threadId)).toEqual(["t_live"]);
+    const unseen = (await notices(t)).filter((n) => n.seenAt === undefined);
+    expect(unseen.map((n) => n.threadId)).toEqual(["t_live"]);
+  });
+
+  test("marking one page seen reaches only that page's notices", async () => {
+    const t = convexTest(schema, modules);
+    const w = await world(t);
+    await event(t, OWNER, { pageId: w.pageId, threadId: "t_1", kind: "create", mentions: [EDITOR.subject] });
+    await event(t, OWNER, { pageId: w.pageId, threadId: "t_2", kind: "create", mentions: [EDITOR.subject] });
+    await event(t, OWNER, { pageId: w.otherPageId, threadId: "t_3", kind: "create", mentions: [EDITOR.subject] });
+    await t.withIdentity(EDITOR).mutation(api.commentNotices.markPageSeen, { pageId: w.pageId });
+    const unseen = (await notices(t)).filter((n) => n.seenAt === undefined);
+    expect(unseen.map((n) => n.threadId)).toEqual(["t_3"]);
   });
 });

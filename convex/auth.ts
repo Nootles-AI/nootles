@@ -2,6 +2,10 @@ import { ConvexError } from "convex/values";
 import type { Auth, UserIdentity } from "convex/server";
 import type { Doc, Id, TableNames } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
+import { commentsEnabled } from "./entitlements";
+import { channelAdmits, claimRole, type ProjectRole } from "./roles";
+
+export { channelAdmits, claimRole, hasLiveLink, moderatesComments, type DocChannel, type ProjectRole } from "./roles";
 
 /**
  * All tenancy lives here: every row carries the Clerk subject that created it,
@@ -133,13 +137,6 @@ export async function requireOwned<T extends Owned>(
   return doc;
 }
 
-/**
- * Ranked owner > editor > commenter > viewer. A commenter reads everything a
- * viewer does and may write one thing more: the threads in a page's comments
- * document (`prosemirror.channelAdmits`) — never the page itself, which is why
- * `requireEditable` does not admit them. It is the comment link's role.
- */
-export type ProjectRole = "owner" | "editor" | "commenter" | "viewer";
 
 /**
  * What the caller is to a loaded project.
@@ -173,78 +170,6 @@ export async function roleForProject(
   return claim ? claimRole(project, claim) : null;
 }
 
-/**
- * What a claim grants on its project now — `roleForProject` for someone other
- * than the caller, so the owner's list of who has access gives the same answer
- * each claimant's own session gets.
- */
-export function claimRole(
-  project: Doc<"projects">,
-  claim: Doc<"shareClaims">,
-): Exclude<ProjectRole, "owner"> | null {
-  if (!hasLiveLink(project)) return null;
-  if (claim.grantedRole === "editor") return "editor";
-  if (claim.role === "editor" && project.editShareToken) return "editor";
-  // A claim records one link, so an editor whose link dies is a viewer even
-  // while the comment link lives — until they open that link, which
-  // `share.claim` then records. Nothing here may assume they ever held it.
-  if (claim.role === "commenter" && project.commentShareToken) return "commenter";
-  return "viewer";
-}
-
-/**
- * Which of a page's two Yjs documents a docId names: the page itself, or its
- * comment threads. Decided by `prosemirror.pageAndChannelForDoc` from which
- * index matched — never from the id's spelling.
- */
-export type DocChannel = "document" | "comments";
-
-/**
- * The whole rule for reaching a page's documents, as a pure decision so it can
- * be read in one place and tested without a database.
- *
- * - Any resolved role reads either channel.
- * - The document channel writes for editor and owner; the comments channel for
- *   commenter, editor and owner.
- * - With no role, a live share link still admits a READ of the document —
- *   the docId is the capability there (see `prosemirror.checkRead`) — but
- *   never of the comments. A signed-out link visitor has no identity to be
- *   answerable for a conversation with, so comments fail closed until links
- *   require sign-in.
- *
- * The stand-in rule is not here: it depends on the session, not the role, and
- * the gates apply it before asking this.
- */
-export function channelAdmits(request: {
-  channel: DocChannel;
-  access: "read" | "write";
-  role: ProjectRole | null;
-  /** Whether the project has any live share link. */
-  linkLive: boolean;
-}): boolean {
-  const { channel, access, role, linkLive } = request;
-  if (access === "read") return role !== null || (channel === "document" && linkLive);
-  if (role === "owner" || role === "editor") return true;
-  return channel === "comments" && role === "commenter";
-}
-
-/**
- * Whether a role may remove other people's comments and threads: whoever
- * holds the pen on the page. Nobody may rewrite another person's words; what
- * else a comments append may change is `comments/policy.ts`, asked by
- * `ydoc.append` with this answer.
- */
-export function moderatesComments(role: ProjectRole | null): boolean {
-  return role === "owner" || role === "editor";
-}
-
-/**
- * Whether any share link on the project is live — the condition every claim
- * and the anonymous document read are contingent on.
- */
-export function hasLiveLink(project: Doc<"projects">): boolean {
-  return Boolean(project.shareToken || project.editShareToken || project.commentShareToken);
-}
 
 /** The caller's role in a project named by id, or null for missing/stranger. */
 export async function projectRole(
@@ -328,11 +253,45 @@ export async function requireEditable<T extends Shared>(
   throw new Error("Not found");
 }
 
+/** The page's project, provided neither is trashed. */
+export async function liveProject(ctx: QueryCtx, page: Doc<"pages">): Promise<Doc<"projects"> | null> {
+  if (isTrashed(page)) return null;
+  const project = await ctx.db.get(page.projectId);
+  return project && !isTrashed(project) ? project : null;
+}
+
+/** The page's live project, provided its comments are turned on. */
+export async function commentsProject(ctx: QueryCtx, page: Doc<"pages">): Promise<Doc<"projects"> | null> {
+  const project = await liveProject(ctx, page);
+  return project && (await commentsEnabled(ctx, project)) ? project : null;
+}
+
+/**
+ * The page, its project and the caller's role, provided the caller may read
+ * the page's comments — any role, never a signed-out link visitor — and they
+ * are turned on. Null otherwise: the one answer every comments reader asks
+ * for by page id (`comments.docFor`, the people queries in `commentNotices`).
+ */
+export async function readableComments(
+  ctx: QueryCtx,
+  pageId: Id<"pages">,
+): Promise<{ page: Doc<"pages">; project: Doc<"projects">; role: ProjectRole } | null> {
+  const page = await ctx.db.get(pageId);
+  const project = page && (await liveProject(ctx, page));
+  if (!page || !project) return null;
+  const role = await roleForProject(ctx, project);
+  if (!role || !channelAdmits({ channel: "comments", access: "read", role, linkLive: false })) return null;
+  return (await commentsEnabled(ctx, project)) ? { page, project, role } : null;
+}
+
+const COMMENTS_OFF = () => new ConvexError("Comments are turned off for this project.");
+
 /**
  * The page and its project, provided the caller may write its comments —
  * commenter, editor or owner. The comments document's own gate is the
  * channel check in `prosemirror.ts`; this is its sibling for the mutations
- * that act on a page's comments by page id rather than by docId.
+ * that act on a page's comments by page id rather than by docId. Refused as
+ * "Not found" without the role, and said outright when comments are off.
  */
 export async function requireCommentable(
   ctx: QueryCtx,
@@ -340,13 +299,12 @@ export async function requireCommentable(
 ): Promise<{ page: Doc<"pages">; project: Doc<"projects"> }> {
   await refuseStandIn(ctx);
   const page = await ctx.db.get(pageId);
-  if (page && !isTrashed(page)) {
-    const project = await ctx.db.get(page.projectId);
-    if (project && !isTrashed(project)) {
-      const role = await roleForProject(ctx, project);
-      if (channelAdmits({ channel: "comments", access: "write", role, linkLive: false })) {
-        return { page, project };
-      }
+  const project = page && (await liveProject(ctx, page));
+  if (page && project) {
+    const role = await roleForProject(ctx, project);
+    if (channelAdmits({ channel: "comments", access: "write", role, linkLive: false })) {
+      if (!(await commentsEnabled(ctx, project))) throw COMMENTS_OFF();
+      return { page, project };
     }
   }
   throw new Error("Not found");

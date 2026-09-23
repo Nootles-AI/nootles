@@ -23,7 +23,7 @@ import type { MentionPick } from "@/app/lib/ai/chat/mentions";
 import { initials, outsiderNote, type Person } from "@/app/lib/comments/compose";
 import { PAGE_PARAM, THREAD_PARAM } from "@/app/lib/comments/link";
 import { anchorForSelection } from "@/app/lib/comments/pmText";
-import type { Thread } from "@/app/lib/comments/types";
+import { signers, type Thread } from "@/app/lib/comments/types";
 import { useReadOnly } from "../editor/readOnly";
 import { CommentComposer } from "./CommentComposer";
 import { CommentMargin, type MarginMode } from "./CommentMargin";
@@ -97,7 +97,10 @@ export function CommentsLayer({ linked, children }: { linked: boolean; children:
   const userId = comments?.userId ?? null;
   const canRead = Boolean(comments?.access.canRead);
   const canComment = Boolean(comments?.access.canComment && userId);
-  const authors = useQuery(api.commentNotices.authors, pageId && canRead && userId ? { pageId } : "skip") ?? NO_PEOPLE;
+  const threads = comments?.threads;
+  const named = useMemo(() => signers(threads ?? [], userId), [threads, userId]);
+  const authors =
+    useQuery(api.commentNotices.authors, pageId && canRead && userId ? { pageId, userIds: named } : "skip") ?? NO_PEOPLE;
   const mentionable = useQuery(api.commentNotices.mentionable, pageId && canComment ? { pageId } : "skip") ?? NO_PEOPLE;
 
   const [draft, setDraft] = useState<SelectedWords | null>(null);
@@ -115,7 +118,6 @@ export function CommentsLayer({ linked, children }: { linked: boolean; children:
     setNotices(NO_NOTICES);
   }
 
-  const threads = comments?.threads;
   const { margin, orphaned, resolved } = useMemo(() => {
     const all = threads ?? [];
     const open = all.filter((t) => t.status === "open");

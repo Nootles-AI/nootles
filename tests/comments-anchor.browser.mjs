@@ -109,6 +109,9 @@ let server;
 let sent;
 /** Comments-document updates Vera ever sent. She may never write one. */
 let veraWrites = 0;
+/** A replica whose page updates are held back while its comments flow — the two sync separately. */
+let lagging = null;
+const heldPage = [];
 const resetServer = () => {
   server = { page: new Y.Doc(), comments: new Y.Doc() };
   sent = Object.fromEntries(WHO.map((who) => [who, { page: 0, comments: 0 }]));
@@ -145,6 +148,10 @@ try {
     Y.applyUpdate(server[name], Buffer.from(update, "base64"), who);
     for (const [other, target] of Object.entries(pages)) {
       if (other === who) continue;
+      if (name === "page" && other === lagging) {
+        heldPage.push(update);
+        continue;
+      }
       target.evaluate(([n, u]) => window.ntAnchor?.receive(n, u), [name, update]).catch(() => {});
     }
   });
@@ -355,7 +362,15 @@ try {
   await load("ada");
   await synced();
   check("stage 2 finds the edited words", await highlights("ada"), { [t1]: "by next Fri-day" });
-  check("and rewrites `exact` for everyone", Object.values(await anchors(t1)).map((a) => a.exact), ["by next Fri-day", "by next Fri-day", "by next Fri-day"]);
+  await sleep(SETTLE);
+  // Its words may still be on their way from somebody: a first sight is a guess.
+  check("a reload's first sight writes nothing by itself", [Object.values(await anchors(t1)).map((a) => a.exact), sentComments().ada], [["by next Friday", "by next Friday", "by next Friday"], 2]);
+  await caretTo("bram", "p4", "Notes for later.".length);
+  await type("bram", " Ok.");
+  await synced();
+  await sleep(SETTLE);
+  await synced();
+  check("once a remote change has landed and the answer holds, it rewrites `exact` for everyone", Object.values(await anchors(t1)).map((a) => a.exact), ["by next Fri-day", "by next Fri-day", "by next Fri-day"]);
   check("the replicas that stayed open agree without resolving", [await highlights("bram"), await highlights("vera"), await resolves("bram")], [{ [t1]: "by next Fri-day" }, { [t1]: "by next Fri-day" }, bramResolves]);
   await load("bram");
   await sleep(SETTLE);
@@ -459,6 +474,12 @@ try {
   };
   const t5 = await hinted(9);
   check("identical context falls to the nearest offset hint, the same on every replica", await offsets(t5), same({ blockId: "r", from: 8, to: 10 }));
+  // First sight holds the flag until a remote page change lands and a settle agrees.
+  await caretTo("bram", "s", 0);
+  await type("bram", "x");
+  await synced();
+  await sleep(SETTLE);
+  await synced();
   check("and the thread says it is ambiguous", Object.values(await everyone(async (who) => (await threads(who)).find((t) => t.id === t5).ambiguous)), [true, true, true]);
   const t6 = await hinted(12);
   check("an even hint falls to the lowest offset", await offsets(t6), same({ blockId: "r", from: 8, to: 10 }));
@@ -521,6 +542,43 @@ try {
   await sleep(SETTLE);
   const followed = { ada: sent.ada.comments - beforeKeep.ada, bram: sent.bram.comments - beforeKeep.bram, vera: sent.vera.comments - beforeKeep.vera };
   check("following the stored anchor wrote nothing: only Ada's rewrite", followed, { ada: 1, bram: 0, vera: 0 });
+
+  // ==== A replica that has the thread before its words ========================
+  // Ada edits words and comments on them; Bram hears the comment first. What
+  // Bram's text resolves it to (a stage-2 twin, an orphan) is his guess, and
+  // must never be written for everyone.
+  console.log("a replica whose page lags its comments");
+  await fresh(PAGE);
+  lagging = "bram";
+  await caretTo("ada", "p1", "We ship it by Friday".length);
+  await type("ada", "s");
+  await caretTo("ada", "p4", "Notes for later.".length);
+  await type("ada", " Ping legal by Monday.");
+  const onAda = async (blockId, phrase) => {
+    const text = await blockText("ada", blockId);
+    const at = text.indexOf(phrase);
+    await select("ada", blockId, at, at + phrase.length);
+    return h("ada", ([body]) => window.ntAnchor.commentOnSelection(body), "Is this right?");
+  };
+  const tFuzzy = await onAda("p1", "by Fridays");
+  const tOrphan = await onAda("p4", "legal by Monday");
+  await sleep(200);
+  check("Bram has the threads but not the words", [(await threads("bram")).length, await blockText("bram", "p1")], [2, PAGE[1].content]);
+  check("he shows only what his text holds", await highlights("bram"), { [tFuzzy]: "by Friday" });
+  // His own edits far away make the settle pass run, with nothing remote since.
+  await caretTo("bram", "p3", 0);
+  await type("bram", "x");
+  await sleep(SETTLE);
+  check("and writes nothing to the comments document", sent.bram.comments, 0);
+  lagging = null;
+  for (const update of heldPage.splice(0)) await pages.bram.evaluate(([u]) => window.ntAnchor.receive("page", u), [update]);
+  await synced();
+  await sleep(SETTLE);
+  await synced();
+  check("once the words arrive, every replica draws them", await everyone(highlights), same({ [tFuzzy]: "by Fridays", [tOrphan]: "legal by Monday" }));
+  check("the stored anchors are still Ada's", [Object.values(await anchors(tFuzzy)).map((a) => a.exact), Object.values(await anchors(tOrphan)).map((a) => a.exact)], [["by Fridays", "by Fridays", "by Fridays"], ["legal by Monday", "legal by Monday", "legal by Monday"]]);
+  check("nobody is marked an orphan", (await threads("vera")).map((t) => t.orphanedAt), [null, null]);
+  check("Bram never wrote a guess", sent.bram.comments, 0);
 
   // ==== Fifty threads, two hundred characters ==================================
   console.log("fifty threads");

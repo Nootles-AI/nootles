@@ -83,6 +83,23 @@ export function threadsOf(document: NmlDocument): Thread[] {
   );
 }
 
+/** Most people one page's comments may ask to have named (`commentNotices.authors`). */
+export const MAX_SIGNERS = 100;
+
+/**
+ * Whom the threads name — `me`, then every author and resolver, sorted and
+ * without repeats — which is exactly whose names a page's cards need.
+ */
+export function signers(threads: readonly Thread[], me: string | null): string[] {
+  const ids = new Set<string>();
+  for (const thread of threads) {
+    for (const comment of thread.comments) ids.add(comment.authorId);
+    if (thread.resolvedBy !== undefined) ids.add(thread.resolvedBy);
+  }
+  if (me !== null) ids.delete(me);
+  return [...(me !== null ? [me] : []), ...[...ids].sort()].slice(0, MAX_SIGNERS);
+}
+
 export function commentBlock(comment: Comment): NmlCommentBlock {
   return {
     id: comment.id,

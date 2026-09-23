@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { channelAdmits, type ProjectRole } from "@/convex/auth";
+import { channelAdmits, type ProjectRole } from "@/convex/roles";
 import { commentAccessFor } from "../comments/access";
 import { readsOnly } from "./readOnly";
 

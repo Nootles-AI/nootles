@@ -1,11 +1,11 @@
-import { ConvexError, v } from "convex/values";
+import { v } from "convex/values";
 import * as Y from "yjs";
-import { mutation, query } from "./_generated/server";
-import { readVisible, requireCommentable } from "./auth";
-import { commentsEnabled } from "./entitlements";
-import { registerYDoc } from "./ydoc";
-import { emptyCommentsDocument } from "@/app/lib/comments/types";
-import { createNmlYDoc } from "@/app/lib/nml/yjs";
+import { mutation, query, type QueryCtx } from "./_generated/server";
+import type { Doc } from "./_generated/dataModel";
+import { readableComments, requireCommentable } from "./auth";
+import { readYDoc, registerYDoc } from "./ydoc";
+import { emptyCommentsDocument, threadsOf, type Thread } from "@/app/lib/comments/types";
+import { createNmlYDoc, decodeNmlDocument } from "@/app/lib/nml/yjs";
 
 /**
  * A page's comments document: the second Yjs document every page may have,
@@ -16,9 +16,6 @@ import { createNmlYDoc } from "@/app/lib/nml/yjs";
  * This module only brings the document into being and says where it is;
  * everything written to it afterwards is an ordinary Yjs append.
  */
-
-const COMMENTS_OFF = () =>
-  new ConvexError("Comments are turned off for this project.");
 
 /**
  * The encoded birth state of a comments document: its NML root with no
@@ -47,8 +44,7 @@ export const ensureDoc = mutation({
   args: { pageId: v.id("pages") },
   returns: v.string(),
   handler: async (ctx, args) => {
-    const { page, project } = await requireCommentable(ctx, args.pageId);
-    if (!(await commentsEnabled(ctx, project))) throw COMMENTS_OFF();
+    const { page } = await requireCommentable(ctx, args.pageId);
     if (page.commentsDocId) return page.commentsDocId;
     const docId = crypto.randomUUID();
     await registerYDoc(ctx, docId, birthUpdate(docId));
@@ -67,10 +63,25 @@ export const docFor = query({
   args: { pageId: v.id("pages") },
   returns: v.union(v.string(), v.null()),
   handler: async (ctx, args) => {
-    const page = await readVisible(ctx, "pages", args.pageId);
-    if (!page?.commentsDocId) return null;
-    const project = await ctx.db.get(page.projectId);
-    if (!project || !(await commentsEnabled(ctx, project))) return null;
-    return page.commentsDocId;
+    return (await readableComments(ctx, args.pageId))?.page.commentsDocId ?? null;
   },
 });
+
+/**
+ * The threads a page's comments document holds as stored — the server's one
+ * look inside it, for the few claims about a thread it must not take on the
+ * client's word (`commentNotices.event`'s deletions). An empty list when the
+ * page has no comments document; null when it cannot be read whole.
+ */
+export async function storedThreads(ctx: QueryCtx, page: Doc<"pages">): Promise<Thread[] | null> {
+  if (!page.commentsDocId) return [];
+  const doc = await readYDoc(ctx, page.commentsDocId);
+  if (!doc) return null;
+  try {
+    return threadsOf(decodeNmlDocument(doc));
+  } catch {
+    return null;
+  } finally {
+    doc.destroy();
+  }
+}

@@ -34,7 +34,7 @@ import type { Thread } from "@/app/lib/comments/types";
  * moves the range to where the new anchor quotes verbatim. That is display
  * only: the writer already wrote. If the words it quotes have not arrived yet
  * (the page and its comments sync separately), the mapped range stays and the
- * move is tried again as remote changes land. Two rules keep all of this honest:
+ * move is tried again as remote changes land. Three rules keep all of this honest:
  *
  * - **Under a review fork nothing is resolved from the fork's text.** A range
  *   the proposal rewrites any of shows as unanchored and is left there; when
@@ -45,6 +45,12 @@ import type { Thread } from "@/app/lib/comments/types";
  *   only; what it resolves to — an orphan, a fuzzy twin, a re-home — is
  *   decided and written by the settle pass that follows the edits by
  *   `SETTLE_MS`.
+ * - **What another client's thread resolves to here is not written on first
+ *   sight.** The page and its comments sync separately, so a thread can arrive
+ *   before the words it quotes. A first sight that would write — a fuzzy
+ *   rewrite, a re-home, an orphan mark — is shown and held `unconfirmed`; it
+ *   is written only when a settle pass finds the same answer after a remote
+ *   page change has landed since it was last seen.
  */
 
 export type CommentRange = { from: number; to: number };
@@ -70,9 +76,23 @@ type CommentsState = {
   unsettled: ReadonlySet<string>;
   /** Threads whose new stored anchor quotes words this document has not received yet. */
   awaiting: ReadonlySet<string>;
+  /**
+   * Threads whose resolution here would write but has not been confirmed: the
+   * writes it asked for, and whether a remote page change has landed since.
+   */
+  unconfirmed: ReadonlyMap<string, Unconfirmed>;
   /** Selector resolutions run so far — the count the tests hold down. */
   resolves: number;
 };
+
+type Unconfirmed = { writes: string; ticked: boolean };
+
+/**
+ * How a resolution is used. `display` shows it; `persist` also writes it;
+ * `probe` shows it and holds any write unconfirmed; `tick` does the same after
+ * a remote page change; `confirm` writes a held answer that has survived one.
+ */
+type Mode = "display" | "persist" | "probe" | "tick" | "confirm";
 
 type Meta = {
   threads?: readonly Thread[];
@@ -95,6 +115,7 @@ export const SETTLE_MS = 600;
 
 const NO_WRITES: ReadonlyMap<string, ResolutionWrite> = new Map();
 const NONE: ReadonlySet<string> = new Set();
+const NO_UNCONFIRMED: ReadonlyMap<string, Unconfirmed> = new Map();
 const notForked = () => false;
 
 // ---- Mapping ----------------------------------------------------------------
@@ -250,6 +271,14 @@ function refreshed(entry: Tracked, blocks: readonly PmBlockText[]): ResolutionWr
   return { anchor, ...(ambiguous !== thread.ambiguous ? { ambiguous } : {}) };
 }
 
+/** A change another client made, as y-prosemirror delivers it. */
+function isRemote(tr: Transaction): boolean {
+  const sync = tr.getMeta(ySyncPluginKey) as
+    | { isChangeOrigin?: boolean; isUndoRedoOperation?: boolean; binding?: unknown }
+    | undefined;
+  return !!sync?.isChangeOrigin && !sync.isUndoRedoOperation && sync.binding === undefined;
+}
+
 /**
  * Whether the person moved the caret. Remote changes and fork swaps restore
  * the caret too, and must not move the focus off a thread picked in the panel.
@@ -267,10 +296,11 @@ function apply(tr: Transaction, prev: CommentsState): CommentsState {
   let edited = prev.edited;
   let unsettled = prev.unsettled;
   let awaiting = prev.awaiting;
+  let unconfirmed = prev.unconfirmed;
   let draft = meta?.draft !== undefined ? meta.draft : prev.draft;
   if (draft !== prev.draft) changed = true;
-  /** Threads to resolve, and whether what is found may be written now. */
-  const toResolve = new Map<string, { persist: boolean }>();
+  /** Threads to resolve, and what may be done with what is found. */
+  const toResolve = new Map<string, Mode>();
   /** Threads to move to where their stored anchor quotes verbatim, if it does yet. */
   const toFollow = new Set<string>();
   let blocks: PmBlockText[] | null = null;
@@ -305,10 +335,14 @@ function apply(tr: Transaction, prev: CommentsState): CommentsState {
       // Mid-edit, a match elsewhere may be a phrase's twin while the phrase
       // itself is on the clipboard: shown, but written only once edits pause.
       if (!range || (!exact && straddles(entry.range, maps))) {
-        toResolve.set(id, { persist: false });
+        toResolve.set(id, "display");
         if (!unsettled.has(id)) unsettled = new Set(unsettled).add(id);
       }
     }
+    // The words a held answer was missing may be what just arrived. Only
+    // another client's change counts: an undo or a fork swap replaces the
+    // whole document too, and brings nothing this replica lacked.
+    if (!forked && isRemote(tr)) for (const id of unconfirmed.keys()) if (!edited.has(id)) toResolve.set(id, "tick");
   }
 
   if (meta?.threads) {
@@ -320,12 +354,16 @@ function apply(tr: Transaction, prev: CommentsState): CommentsState {
       // Known threads keep the range their mapping has. One without a range is
       // tried again if its anchor moved: another client may have re-homed it.
       if (!known || (!known.range && !sameAnchor(known.thread, thread))) {
-        toResolve.set(thread.id, { persist: true });
+        toResolve.set(thread.id, "probe");
       } else if (!forked && known.range && !sameAnchor(known.thread, thread)) {
         toFollow.add(thread.id);
       }
     }
     tracked = next;
+    if ([...unconfirmed.keys()].some((id) => !tracked.has(id))) {
+      const kept = new Map([...unconfirmed].filter(([id]) => tracked.has(id)));
+      unconfirmed = kept.size ? kept : NO_UNCONFIRMED;
+    }
   }
 
   let resolves = prev.resolves;
@@ -353,16 +391,25 @@ function apply(tr: Transaction, prev: CommentsState): CommentsState {
   const settling = meta?.settle === true && !forked;
   if (settling || (meta?.resolve === "all" && !forked)) {
     for (const [id, entry] of tracked) {
-      if (meta?.resolve === "all" || !entry.range || unsettled.has(id)) toResolve.set(id, { persist: true });
+      // Words typed here are this client's to settle, whatever it held.
+      if (unconfirmed.has(id) && edited.has(id)) continue;
+      if (unconfirmed.has(id)) toResolve.set(id, "confirm");
+      else if (meta?.resolve === "all" || !entry.range || unsettled.has(id)) toResolve.set(id, "persist");
     }
     unsettled = NONE;
     if (meta?.resolve === "all") awaiting = NONE;
+    if ([...edited].some((id) => unconfirmed.has(id))) {
+      const kept = new Map([...unconfirmed].filter(([id]) => !edited.has(id)));
+      unconfirmed = kept.size ? kept : NO_UNCONFIRMED;
+    }
   }
 
   const found = new Map<string, ResolutionWrite>();
   if (toResolve.size) {
     changed = true;
-    for (const [id, { persist }] of toResolve) {
+    let held: Map<string, Unconfirmed> | null = null;
+    const hold = () => (held ??= new Map(unconfirmed));
+    for (const [id, mode] of toResolve) {
       const entry = tracked.get(id);
       if (!entry) continue;
       resolves++;
@@ -372,8 +419,23 @@ function apply(tr: Transaction, prev: CommentsState): CommentsState {
           ? pmRange(blocksNow(), resolution.blockId, resolution.from, resolution.to)
           : null;
       tracked.set(id, { ...entry, range: range && range.to > range.from ? range : null });
-      if (!forked && persist && hasWrites(resolution.writes)) found.set(id, resolution.writes);
+      const writes = hasWrites(resolution.writes) ? JSON.stringify(resolution.writes) : null;
+      if (mode === "persist") {
+        if (!forked && writes) found.set(id, resolution.writes);
+      } else if (mode === "probe" || mode === "tick" || mode === "confirm") {
+        const before = unconfirmed.get(id);
+        const confirmed = mode === "confirm" && before?.ticked && before.writes === writes;
+        if (confirmed && writes) found.set(id, resolution.writes);
+        // A fork's text proves nothing either way, so its first sight waits for the shared page.
+        const pending = writes ?? (mode === "probe" && forked ? "" : null);
+        if (confirmed || pending === null) {
+          if (before) hold().delete(id);
+        } else if (before?.writes !== pending || before.ticked !== (mode === "tick")) {
+          hold().set(id, { writes: pending, ticked: mode === "tick" });
+        }
+      }
     }
+    if (held) unconfirmed = (held as Map<string, Unconfirmed>).size ? held : NO_UNCONFIRMED;
   }
   if (settling && edited.size) {
     for (const id of edited) {
@@ -398,6 +460,7 @@ function apply(tr: Transaction, prev: CommentsState): CommentsState {
     edited === prev.edited &&
     unsettled === prev.unsettled &&
     awaiting === prev.awaiting &&
+    unconfirmed === prev.unconfirmed &&
     resolves === prev.resolves &&
     writes === NO_WRITES
   )
@@ -412,6 +475,7 @@ function apply(tr: Transaction, prev: CommentsState): CommentsState {
     edited,
     unsettled,
     awaiting,
+    unconfirmed,
     resolves,
   };
 }
@@ -462,6 +526,7 @@ export function commentDecorationsPlugin(): Plugin<CommentsState> {
         edited: NONE,
         unsettled: NONE,
         awaiting: NONE,
+        unconfirmed: NO_UNCONFIRMED,
         resolves: 0,
       }),
       apply,
@@ -499,6 +564,7 @@ export function commentDecorationsPlugin(): Plugin<CommentsState> {
           const pending =
             state.edited.size > 0 ||
             state.unsettled.size > 0 ||
+            state.unconfirmed.size > 0 ||
             [...state.tracked.values()].some((entry) => !entry.range);
           if (!pending) return;
           settle = setTimeout(() => {

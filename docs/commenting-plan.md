@@ -61,8 +61,12 @@ Where the code disagreed with this design, these decisions were made and are wha
   - Deleting a whole thread is open to its author and to anyone holding the pen (owner or
     editor). A reply can be edited or deleted by its author only.
   - Comments are signed with names from a new `commentNotices.authors` query, which answers
-    every reader of the comments. `mentionable` answers only people who may comment and
-    leaves out the caller.
+    every reader of the comments — but only for the ids the caller asks about (the authors
+    and resolvers its copy of the comments document shows, `types.signers`, at most
+    `MAX_SIGNERS`) that are project members now, so it is not a way to list the project's
+    people. `mentionable` does hand the roster (name and face, never an email) to whoever
+    may comment, as Docs' mention menu does, and nothing to viewers, strangers, signed-out
+    visitors or a stand-in; it leaves out the caller.
   - Model authorship is `comment.props.via: "assistant"`. The store stamps it whenever its
     actor is the model.
 - **Testing (wave 4).** §12 runs end to end in `tests/comments-e2e.fullstack.mjs`
@@ -79,6 +83,52 @@ Where the code disagreed with this design, these decisions were made and are wha
     the range to where the new anchor quotes verbatim (stage 1), for display only. If the
     words have not arrived yet, the mapped range stays and the move is retried on remote
     changes. A replica editing that range keeps its own and its settle pass writes.
+  - A thread's first sight on a replica writes nothing. The page and its comments sync
+    separately, so a replica can hold a thread before the words it quotes; a first sight (or
+    a rangeless thread's moved anchor) that would write a fuzzy rewrite, a re-home, an orphan
+    mark or an `ambiguous` change is drawn and held unconfirmed. Each remote page change
+    resolves a held thread again, for display, so the highlight moves once the words land. It
+    is written only by a settle pass that finds the same answer after a remote page change has
+    landed since it was last seen; a replica typing inside it writes its own settle instead.
+    A remote change is y-prosemirror's change-origin transaction that is neither an undo nor a
+    binding swap (a fork's). On a quiet page (a reload, nobody editing) a stale anchor is
+    therefore redrawn by stage 2 or 3 on each load until another client next edits, rather
+    than rewritten on a guess; readers without an editor (the panel's fallback, the digest)
+    see the stored anchor until then.
+  - With `authors` no longer the roster, a viewer's card highlights an `@name` only for
+    someone who signed a comment on the page (commenters still have `mentionable`'s names).
+- **Review fixes (the assistant's comments).**
+  - The open page's comments digest reaches the chat model as a user-role message of its own,
+    just ahead of the user's latest message and headed `ATTACHED_COMMENTS` ("attached by
+    Nootles, not written by the user"), never as system content: a commenter must not speak to
+    the owner's agent with the app's authority. The system blocks, and so the cached prefix,
+    are unchanged by it.
+  - The paid comments gate is asked only once the project's context read (`packInputs`) has
+    admitted the caller, and never on a turn whose step budget is spent (a recorded answer is
+    still reused). The context read now starts ahead of the rate limit and `beginChat`, so it
+    is normally back before the gate needs it. With no answer and no leave to ask, the turn
+    reads no comments and records nothing on the message.
+- **Review fixes (notices and the gate).**
+  - A `delete` event is believed only once the comments document shows it. The server reads
+    the document's stored state (`ydoc.readYDoc`, `comments.storedThreads`) and, if the
+    thread (or the named comment) is still there, clears no one's notices and writes no
+    `comment.delete` audit row; one `confirmDeletion` look is scheduled
+    `DELETE_RECHECK_MS` later for a write still on its provider's flush. A document too
+    heavy to read counts as still there.
+  - The inbox walks the caller's unseen notices until it has 100 that still open or has read
+    500, so stale ones (revoked, trashed, comments off) cannot hide the rest. The caller's
+    next `markSeen` marks seen the ones in that window gone for good (page deleted or moved);
+    a notice only closed for now (revoked, trashed, comments off) is kept, and returns with a
+    re-share or a restore as before.
+  - A deletion's server check needs the whole comments document within one read; a document
+    past that, or a write that reaches the log more than `DELETE_RECHECK_MS` after its
+    notice, leaves the notices and records no deletion (fail closed).
+  - `markPageSeen` and a deleted thread's cleanup read only matching rows
+    (`by_recipient_page_unseen`; `by_page` is now `[pageId, threadId, seenAt]`).
+  - The comments-read rule is one helper, `auth.readableComments` (live page and project,
+    comments on, a role the comments channel admits), used by `comments.docFor` and the
+    people queries; the comments channel of the docId gate uses its `commentsProject` part,
+    and `requireCommentable` now says "turned off" itself (one `COMMENTS_OFF`).
 
 - **The server judges comments appends (operator decision, after the final review).** This
   reverses §2 and §5's "nothing needs to inspect the bytes" for the comments channel only. The
