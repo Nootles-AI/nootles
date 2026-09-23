@@ -458,9 +458,15 @@
    right edge, so they stay inside the popover and the page rather than
    running off them — and, laid out even while hidden, widening them. */
 .nt-ws-invite-pop .nt-tip::after,
-.nt-ws-set-head .nt-tip::after {
+.nt-ws-set-head .nt-tip::after,
+.nt-ws-policy .nt-set-actions .nt-tip::after {
   left: auto;
   right: 0;
+}
+/* A row whose action is a switch rather than a button holds the button's
+   height, so the switch sits on the glyph's line as a button would. */
+.nt-ws-policy .nt-set-actions {
+  min-height: var(--control);
 }
 
 /* An invitation just made: its link arrives under the form, the way a row

@@ -16,14 +16,16 @@ import { heirOf, leaveProblem } from "../seats";
 import { useMoment } from "../useMoment";
 import { useSlugProblem } from "../useSlugProblem";
 import { ConfirmBox, LeaveWorkspace } from "./Confirm";
+import { SharingSettings } from "./SharingSettings";
 
 /**
- * What a workspace is called, where it lives, and the ways out of it.
+ * What a workspace is called, where it lives, how its projects are shared,
+ * and the ways out of it.
  *
  * Owners and admins edit the name and address in place — each saves as focus
  * leaves it, or on Enter, with no Save button to forget. Everyone else reads
- * them. The danger zone holds what each role can do to its own seat: leave,
- * and for an owner, delete.
+ * them. Sharing is theirs alone. The danger zone holds what each role can do
+ * to its own seat: leave, and for an owner, delete.
  */
 export function GeneralSettings() {
   const container = useContainer();
@@ -53,6 +55,7 @@ function General({ workspace }: { workspace: WorkspaceContainer }) {
           <p className="nt-set-note mt-2">Only an owner or an admin can change these.</p>
         )}
       </section>
+      {edits && <SharingSettings workspace={workspace} />}
       {!standIn && <DangerZone workspace={workspace} />}
     </>
   );
