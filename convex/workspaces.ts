@@ -17,7 +17,7 @@ import {
 import { record, recordByCaller } from "./audit";
 import { isPersonalDomain } from "./joinDomains";
 import { pageSummary, withoutLinks } from "./projects";
-import { workspaceSettings } from "./schema";
+import { rowIcon, workspaceSettings } from "./schema";
 import { normalizeSlug, SLUG_TAKEN, slugProblem } from "./slugs";
 import { scheduleSeatSync } from "./teamBilling";
 import { teamsEnabledFor } from "./teamsRollout";
@@ -163,6 +163,7 @@ export const bySlug = query({
         slug: workspace.slug,
         plan: workspace.plan,
         settings: workspace.settings,
+        icon: workspace.icon ?? null,
         createdAt: workspace.createdAt,
       },
       role,
@@ -189,6 +190,7 @@ export const listMine = query({
           workspaceId: workspace._id,
           slug: workspace.slug,
           name: workspace.name,
+          icon: workspace.icon ?? null,
           role: seat.role,
         };
       }),
@@ -215,6 +217,41 @@ export const rename = mutation({
     return null;
   },
 });
+
+/**
+ * The workspace's icon — an emoji, a glyph or a picture, the shape a page's
+ * icon has — or null for its letter again. Its owners' and admins' to choose.
+ */
+export const setIcon = mutation({
+  args: { workspaceId: v.id("workspaces"), icon: v.union(rowIcon, v.null()) },
+  handler: async (ctx, args) => {
+    const { workspace } = await requireWorkspaceRole(ctx, args.workspaceId, "admin");
+    const icon = args.icon ?? undefined;
+    if (sameIcon(workspace.icon, icon)) return null;
+    await ctx.db.patch(workspace._id, { icon });
+    await recordByCaller(ctx, workspace._id, {
+      action: "workspace.icon",
+      subjectKind: "workspace",
+      subjectId: workspace._id,
+      meta: {
+        kind: icon?.kind ?? null,
+        ...(icon?.kind === "emoji" ? { emoji: icon.value } : {}),
+      },
+    });
+    return null;
+  },
+});
+
+type Icon = NonNullable<Doc<"workspaces">["icon"]>;
+
+/** The same choice: a glyph by its name, a picture by its file. */
+function sameIcon(a: Icon | undefined, b: Icon | undefined): boolean {
+  if (!a || !b) return a === b;
+  if (a.kind === "emoji" && b.kind === "emoji") return a.value === b.value;
+  if (a.kind === "icon" && b.kind === "icon") return a.name === b.name && a.d === b.d;
+  if (a.kind === "image" && b.kind === "image") return a.storageId === b.storageId;
+  return false;
+}
 
 /**
  * A new address. The old one is retired rather than released, so links to it

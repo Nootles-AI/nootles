@@ -172,6 +172,8 @@ export default defineSchema({
     createdBy: v.string(),
     plan: v.union(v.literal("team"), v.literal("enterprise")),
     settings: workspaceSettings,
+    /** Chosen icon, as a page's is; absent = the letter tile. See `rowIcon`. */
+    icon: v.optional(rowIcon),
     createdAt: v.number(),
     /**
      * Soft delete. The deleting mutation also trashes every project and

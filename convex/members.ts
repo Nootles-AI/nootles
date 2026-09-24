@@ -473,6 +473,7 @@ export const invitation = query({
       email: invitation.email,
       role: role ?? invitation.role,
       workspaceName: workspace.name,
+      workspaceIcon: workspace.icon ?? null,
       inviterName: inviter.name ?? inviter.email,
       // Where to go once in: only for someone who is.
       slug:
@@ -559,6 +560,7 @@ export const joinable = query({
     const doors: {
       workspaceId: Id<"workspaces">;
       name: string;
+      icon: NonNullable<Doc<"workspaces">["icon"]> | null;
       role: WorkspaceRole;
       via: "invitation" | "domain";
       token: string | null;
@@ -578,6 +580,7 @@ export const joinable = query({
       doors.push({
         workspaceId: workspace._id,
         name: workspace.name,
+        icon: workspace.icon ?? null,
         role,
         via: "invitation",
         token: invitation.token,
@@ -594,7 +597,16 @@ export const joinable = query({
       const seat = await seatOf(ctx, workspaceId, me);
       if (!workspace || seat?.status === "active") continue;
       const role = domainSeat(workspace, email, seat);
-      if (role) doors.push({ workspaceId, name: workspace.name, role, via: "domain", token: null });
+      if (role) {
+        doors.push({
+          workspaceId,
+          name: workspace.name,
+          icon: workspace.icon ?? null,
+          role,
+          via: "domain",
+          token: null,
+        });
+      }
     }
 
     return doors.sort((a, b) => a.name.localeCompare(b.name));

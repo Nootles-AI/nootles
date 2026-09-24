@@ -897,7 +897,7 @@ function DetailsForm({
                           }}
                         >
                           <Place
-                            tile={<Tile name={w.name} />}
+                            tile={<Tile name={w.name} icon={w.icon} />}
                             name={w.name}
                             meta={ROLE_LABEL[w.role]}
                             current={chosen?.workspaceId === w.workspaceId}

@@ -18,6 +18,9 @@ import { useSlugProblem } from "../useSlugProblem";
 import { ConfirmBox, LeaveWorkspace } from "./Confirm";
 import { Fold, Problem } from "./parts";
 import { SharingSettings } from "./SharingSettings";
+import { Tile } from "../places";
+import { drawsItself } from "../../rowIcon";
+import { WorkspaceIconPicker } from "../WorkspaceIcon";
 
 /**
  * What a workspace is called, where it lives, how its projects are shared,
@@ -50,6 +53,9 @@ function General({ workspace }: { workspace: WorkspaceContainer }) {
           </li>
           <li>
             <AddressField workspace={workspace} edits={edits} />
+          </li>
+          <li>
+            <IconField workspace={workspace} edits={edits} />
           </li>
         </ul>
         {!edits && (
@@ -136,6 +142,62 @@ function NameField({ workspace, edits }: { workspace: WorkspaceContainer; edits:
           <p className="nt-ws-value">{workspace.name}</p>
         )}
         <Problem text={problem} id="nt-ws-name-note" className="nt-ws-note is-problem nt-settle" />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The icon the workspace wears in the switcher, the palette and on its home:
+ * the pages' picker opens under the tile, and removing the icon there gives
+ * the workspace its letter back. Read-only, the tile alone.
+ */
+function IconField({ workspace, edits }: { workspace: WorkspaceContainer; edits: boolean }) {
+  const button = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  const chosen = drawsItself(workspace.icon);
+  const tile = <Tile name={workspace.name} icon={workspace.icon} size={24} className="is-field" />;
+
+  return (
+    <div className="nt-ws-fld">
+      <span className="nt-ws-key">Icon</span>
+      <div className="min-w-0">
+        {edits ? (
+          <button
+            ref={button}
+            type="button"
+            aria-haspopup="dialog"
+            aria-expanded={open}
+            // Pressing it again shuts the picker, rather than the picker hearing
+            // a press outside itself and shutting just before this reopens it.
+            onPointerDown={(e) => {
+              if (open) e.nativeEvent.stopPropagation();
+            }}
+            onClick={() => {
+              setProblem(null);
+              setOpen((o) => !o);
+            }}
+            className="nt-row nt-ws-icon-pick -ml-2 h-9 gap-2.5 px-2"
+          >
+            {tile}
+            {chosen ? "Change icon" : "Choose an icon"}
+          </button>
+        ) : (
+          <p className="nt-ws-value flex items-center gap-2.5 py-1.5">
+            {tile}
+            <span className="text-muted">{chosen ? "Chosen icon" : "Its initial"}</span>
+          </p>
+        )}
+        {open && (
+          <WorkspaceIconPicker
+            workspace={workspace}
+            anchor={button}
+            onClose={() => setOpen(false)}
+            onProblem={setProblem}
+          />
+        )}
+        <Problem text={problem} className="nt-ws-note is-problem nt-settle" />
       </div>
     </div>
   );

@@ -68,6 +68,7 @@ export function ContainerRoute({ slug, children }: { slug: string; children: Rea
         slug: live.canonicalSlug,
         name: live.workspace.name,
         role: live.role,
+        icon: live.workspace.icon,
       } as const),
     [live],
   );
