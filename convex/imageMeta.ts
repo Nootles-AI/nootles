@@ -72,21 +72,11 @@ export const describe = mutation({
         await ctx.db.patch(existing._id, described);
         continue;
       }
-      // No colour row: a picture that predates the stats pass, or one added
-      // from somewhere other than the uploader. A caption alone is still worth
-      // keeping, and the neutral colours say plainly that none were measured.
-      await ctx.db.insert("imageMeta", {
-        ownerId: owner,
-        src,
-        hex: "#808080",
-        palette: [],
-        hue: 0,
-        sat: 0,
-        light: 50,
-        energy: 0,
-        ...described,
-        createdAt: now,
-      });
+      // No colour row: its colour write did not land, or the picture had
+      // nothing `statsFrom` could read. A caption alone is still worth keeping,
+      // and the colour columns stay absent so nothing reads it as measured grey
+      // — the reader measures it the next time the album is expanded.
+      await ctx.db.insert("imageMeta", { ownerId: owner, src, ...described, createdAt: now });
     }
     return null;
   },
@@ -149,10 +139,16 @@ export const read = query({
         .query("imageMeta")
         .withIndex("by_owner_and_src", (q) => q.eq("ownerId", owner).eq("src", src))
         .unique();
-      if (row) {
-        const { _id, _creationTime, ownerId: _owner, createdAt: _at, ...meta } = row;
-        rows.push(meta);
-      }
+      if (!row) continue;
+      const { _id, _creationTime, ownerId: _owner, createdAt: _at, ...meta } = row;
+      // Before NT-32, `describe` filled an unmeasured row with a stand-in grey
+      // and an empty palette — which nothing measured ever has (`statsFrom`
+      // returns at least one colour, a published picture exactly one). Answer
+      // it as unmeasured, so the reader measures it and `put` overwrites it.
+      if (meta.palette?.length === 0) {
+        const { hex: _hex, palette: _palette, hue: _hue, sat: _sat, light: _light, energy: _energy, ...described } = meta;
+        rows.push(described);
+      } else rows.push(meta);
     }
     return rows;
   },

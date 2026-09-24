@@ -807,11 +807,16 @@ export default defineSchema({
   imageMeta: defineTable({
     ownerId: v.string(),
     src: v.string(),
-    hex: v.string(),
-    palette: v.array(v.string()),
-    hue: v.number(),
-    sat: v.number(),
-    light: v.number(),
+    /**
+     * Absent when no colour is known: a picture the captioning pass described
+     * before any colour write landed for it, or one `statsFrom` could not read.
+     * The reader measures it the next time the album is expanded.
+     */
+    hex: v.optional(v.string()),
+    palette: v.optional(v.array(v.string())),
+    hue: v.optional(v.number()),
+    sat: v.optional(v.number()),
+    light: v.optional(v.number()),
     /**
      * Absent, not zero, when nobody measured it: a picture fetched from the web
      * never passed through a canvas here, so its colours come from what the

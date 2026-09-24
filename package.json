@@ -34,7 +34,8 @@
     "test:comments:ui": "node tests/comments-ui.browser.mjs",
     "test:comments:e2e": "node tests/comments-e2e.fullstack.mjs",
     "test:comments:browser": "node tests/comments-browser.mjs",
-    "test:comments:fullstack": "node tests/comments-browser.mjs --fullstack"
+    "test:comments:fullstack": "node tests/comments-browser.mjs --fullstack",
+    "test:album:fullstack": "node tests/album-index.fullstack.mjs"
   },
   "dependencies": {
     "@ai-sdk/google": "^4.0.44",
