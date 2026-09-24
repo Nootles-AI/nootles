@@ -9,6 +9,7 @@ import {
   isTrashed,
   projectRole,
   readVisible,
+  requireDiscardable,
   requireManageable,
   requireOwner,
   requireWorkspaceRole,
@@ -440,6 +441,21 @@ export const remove = mutation({
   handler: async (ctx, args) => {
     await requireManageable(ctx, "projects", args.projectId);
     await ctx.db.patch(args.projectId, { deletedAt: Date.now() });
+  },
+});
+
+/**
+ * Takes back a project its maker only just made, before anyone else has
+ * touched it — what a failed import calls to leave nothing behind. Softly, as
+ * `remove` does. `remove` is the managers'; this is the one way a workspace
+ * member undoes their own mistake, and `requireDiscardable` keeps it to that.
+ */
+export const discardFresh = mutation({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    await requireDiscardable(ctx, args.projectId, now);
+    await ctx.db.patch(args.projectId, { deletedAt: now });
   },
 });
 

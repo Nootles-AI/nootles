@@ -592,3 +592,88 @@ export async function managesProject(
 ): Promise<boolean> {
   return (await roleForProject(ctx, project)) === "owner";
 }
+
+/**
+ * How long a project stays its creator's to take back without its managers.
+ * Long enough for an import that failed partway to clean up after itself,
+ * short enough that nothing a team came to rely on is still inside it.
+ */
+export const DISCARD_WINDOW_MS = 15 * 60 * 1000;
+
+/**
+ * The project, provided the caller may throw it away as never having happened:
+ * they made it, a moment ago, and nobody else has laid a finger on it.
+ *
+ * This is how a member undoes their own failed import. In a workspace the
+ * creator only edits a project — deleting one is its owners' and admins' —
+ * so without this a run that stopped halfway would leave an empty project
+ * behind that its maker cannot remove. Everything here narrows that one
+ * exception back down to "nothing anyone could miss": the maker still writes
+ * in it through their seat (a share link is no one's way to discard), the
+ * window is short, and any trace of another person — a page they made, a
+ * share or request, a conversation, context they attached, their cursor in a
+ * page — makes it the project's managers' again.
+ */
+export async function requireDiscardable(
+  ctx: QueryCtx,
+  projectId: Id<"projects">,
+  now: number,
+): Promise<Doc<"projects">> {
+  await refuseStandIn(ctx);
+  const me = await ownerId(ctx);
+  const project = await ctx.db.get(projectId);
+  if (!me || !project || isTrashed(project) || project.ownerId !== me) throw new Error("Not found");
+  const role = await containerRole(ctx, project, me);
+  if (role !== "owner" && role !== "editor") throw new Error("Not found");
+  if (now - project.createdAt > DISCARD_WINDOW_MS) {
+    throw new ConvexError("This project is too old to discard.");
+  }
+  if (await touchedByOthers(ctx, project, me)) {
+    throw new ConvexError("Someone else has worked in this project, so it can’t be discarded.");
+  }
+  return project;
+}
+
+/** Whether anyone but `me` has left a mark on a project that can be seen cheaply. */
+async function touchedByOthers(
+  ctx: QueryCtx,
+  project: Doc<"projects">,
+  me: string,
+): Promise<boolean> {
+  if (project.shareToken || project.editShareToken) return true;
+  const projectId = project._id;
+  const claim = await ctx.db
+    .query("shareClaims")
+    .withIndex("by_project_and_grantee", (q) => q.eq("projectId", projectId))
+    .first();
+  if (claim) return true;
+  const request = await ctx.db
+    .query("accessRequests")
+    .withIndex("by_project_and_requester", (q) => q.eq("projectId", projectId))
+    .first();
+  if (request) return true;
+
+  // Trashed rows count too: something someone made and then deleted was
+  // still their work.
+  const pages = await ctx.db
+    .query("pages")
+    .withIndex("by_project", (q) => q.eq("projectId", projectId))
+    .collect();
+  if (pages.some((page) => (page.createdBy ?? page.ownerId) !== me)) return true;
+  for (const page of pages) {
+    const present = await ctx.db
+      .query("presence")
+      .withIndex("by_doc", (q) => q.eq("docId", page.docId))
+      .collect();
+    if (present.some((p) => p.userId !== me)) return true;
+  }
+
+  for (const table of ["chatThreads", "contextSheet", "projectRepos", "projectFiles", "projectNotion"] as const) {
+    const rows = await ctx.db
+      .query(table)
+      .withIndex("by_project", (q) => q.eq("projectId", projectId))
+      .collect();
+    if (rows.some((row) => row.ownerId !== me)) return true;
+  }
+  return false;
+}

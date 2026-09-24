@@ -176,14 +176,14 @@ export function ProjectsScreen() {
    * asked first, since what it makes is decided on Notion's side.
    */
   const hasRoom = room("projects");
+  // An import started on a workspace's home lands in that workspace, whose
+  // projects never count against your own plan.
   const start = useCallback(
     (page: PalettePage) =>
-      page === "notion" && !hasRoom ? setWalled({}) : setFinding(page),
-    [hasRoom],
+      page === "notion" && !hasRoom && !workspace ? setWalled({}) : setFinding(page),
+    [hasRoom, workspace],
   );
-  // An import makes projects of your own, so a workspace's home does not
-  // offer one as a way to start.
-  const importable = notionAvailable === true && !workspace;
+  const importable = notionAvailable === true;
 
   // ⌘K from anywhere on the screen, a rename field included — it is a chord, so
   // it cannot be mistaken for typing. N starts a project, and being a bare key

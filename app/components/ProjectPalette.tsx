@@ -237,6 +237,18 @@ function Palette({
     (page === "sourceGithub" && !!githubStatus?.account && !githubStatus.account.invalidAt) ||
     (page === "sourceNotion" && !!notionStatus?.account && !notionStatus.account.invalidAt);
   const fielded = !listless || (page === "notion" && notionSearch) || sourceReady;
+  // An import lands where New project would: the home it was started from, or
+  // wherever the details page's Where was last set.
+  const seats = useQuery(api.workspaces.listMine, page === "notion" && draft.workspace ? {} : "skip");
+  const into = draft.workspace && {
+    workspaceId: draft.workspace.workspaceId,
+    visibility: draft.workspace.visibility,
+    name:
+      seats?.find((w) => w.workspaceId === draft.workspace?.workspaceId)?.name ??
+      (here.kind === "workspace" && here.workspaceId === draft.workspace.workspaceId
+        ? here.name
+        : "the workspace"),
+  };
 
   // Anyone not on Pro is offered it first — once the plan has answered, so an
   // account that has paid never sees it flash. Not to a stand-in operator,
@@ -327,7 +339,8 @@ function Palette({
             icon: <NotionMark />,
             picture: "notion" as const,
             drill: true,
-            run: () => (room ? go("notion") : onWall()),
+            // A workspace's projects never count against your own plan.
+            run: () => (room || draft.workspace ? go("notion") : onWall()),
           },
         ]
       : []),
@@ -513,6 +526,7 @@ function Palette({
           back={() => go("create")}
           search={query}
           onSearchable={setNotionSearch}
+          into={into}
         />
       ) : page === "sourceGithub" ? (
         <GitHubSourcePage
