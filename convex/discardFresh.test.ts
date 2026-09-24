@@ -208,6 +208,25 @@ describe("discardFresh refuses", () => {
     ).rejects.toThrow("Someone else");
   });
 
+  test("once someone else has commented in it", async () => {
+    const t = convexTest(schema, modules);
+    const workspaceId = await world(t);
+    const projectId = await importInto(t, workspaceId);
+    await t.run((ctx) =>
+      ctx.db.insert("auditEvents", {
+        workspaceId,
+        projectId,
+        actorId: MEMBER.subject,
+        actorKind: "user",
+        action: "comment.create",
+        at: Date.now(),
+      }),
+    );
+    await expect(
+      t.withIdentity(CREATOR).mutation(api.projects.discardFresh, { projectId }),
+    ).rejects.toThrow("Someone else");
+  });
+
   test("once someone has claimed a link to it", async () => {
     const t = convexTest(schema, modules);
     const projectId = await importInto(t, await world(t));
