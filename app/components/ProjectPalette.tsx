@@ -24,6 +24,7 @@ import {
   FileDoc,
   Folder,
   Lock,
+  PersonPlus,
   Plus,
   Sparkles,
   Template,
@@ -43,7 +44,10 @@ import { DraftSources } from "./context/ContextSources";
 import { GitHubSourcePage, NotionSourcePage } from "./context/SourcePages";
 import { repoPlaceholder, searchable, useGitHubDoor } from "./context/useGitHubDoor";
 import { Place, Tile, YouTile } from "./workspaces/places";
-import { ROLE_LABEL } from "./workspaces/seats";
+import { offersInvite, ROLE_LABEL } from "./workspaces/seats";
+import { INVITE_WORDS, InvitePage } from "./workspaces/InvitePage";
+import { useStandIn } from "./StandIn";
+import { paletteMatch } from "@/app/lib/paletteMatch";
 import { stopped, TeamWallPane } from "./billing/TeamWall";
 
 type Project = NonNullable<
@@ -68,6 +72,8 @@ type Row = {
   template?: ProjectTemplate;
   /** A picture in the side pane, rather than a card about the row. */
   picture?: "wall" | "blank" | "notion" | "pro";
+  /** Other words the row is found by, beside its name. */
+  words?: readonly string[];
   run: () => void;
 };
 
@@ -162,7 +168,9 @@ export type Page =
   | "notion"
   /** The details form's GitHub and Notion doors, each a page of its own. */
   | "sourceGithub"
-  | "sourceNotion";
+  | "sourceNotion"
+  /** Inviting someone to the workspace whose home this is. */
+  | "invite";
 
 function Palette({
   start,
@@ -190,7 +198,12 @@ function Palette({
 }) {
   const router = useRouter();
   const here = useContainer();
-  const [page, setPage] = useState<Page>(start);
+  const [asked, setPage] = useState<Page>(start);
+  // Letting someone in, for whoever may: the workspace's owners and admins.
+  // A seat that stops being one while the page is up finds itself at the root.
+  const standIn = useStandIn();
+  const inviteTo = here.kind === "workspace" && offersInvite(here.role, standIn) ? here : null;
+  const page: Page = asked === "invite" && !inviteTo ? "root" : asked;
   // What the details page is making: a template, or null for blank.
   const [template, setTemplate] = useState<{ id: string; name: string } | null>(null);
   const [query, setQuery] = useState("");
@@ -236,10 +249,11 @@ function Palette({
     notion: "create",
     sourceGithub: "details",
     sourceNotion: "details",
+    invite: "root",
   };
   const sourcePage = page === "sourceGithub" || page === "sourceNotion";
   // Pages that are not a list of rows: the keys belong to whatever is on them.
-  const listless = page === "details" || page === "notion" || sourcePage;
+  const listless = page === "details" || page === "notion" || sourcePage || page === "invite";
   // The import's pick state is searched from this field rather than one of its
   // own; it says when it has pages to search.
   const [notionSearch, setNotionSearch] = useState(false);
@@ -299,6 +313,20 @@ function Palette({
             ink: true,
             drill: true,
             run: () => go("create"),
+          },
+        ]
+      : []),
+    ...(inviteTo
+      ? [
+          {
+            id: "invite",
+            group: "People",
+            name: "Invite people",
+            line: `Add someone to ${inviteTo.name} by their email address`,
+            icon: <PersonPlus />,
+            words: INVITE_WORDS,
+            drill: true,
+            run: () => go("invite"),
           },
         ]
       : []),
@@ -378,7 +406,7 @@ function Palette({
 
   const q = query.trim().toLowerCase();
   const rows = (page === "root" ? root : page === "create" ? create : choices).filter(
-    (r) => !q || r.name.toLowerCase().includes(q),
+    (r) => paletteMatch(q, r.name, r.words),
   );
   const at = Math.min(index, Math.max(rows.length - 1, 0));
   const current = rows.at(at);
@@ -463,7 +491,9 @@ function Palette({
   const trail: { label: string; to: Page }[] =
     page === "root"
       ? []
-      : [
+      : page === "invite"
+        ? [{ label: "Invite people", to: "root" }]
+        : [
           { label: "New project", to: "root" },
           ...(page === "template" || (page === "details" && template)
             ? [{ label: "From template", to: "create" as Page }]
@@ -537,7 +567,9 @@ function Palette({
         <kbd className="nt-kbd">esc</kbd>
       </div>
 
-      {page === "notion" ? (
+      {page === "invite" && inviteTo ? (
+        <InvitePage workspace={inviteTo} onBack={() => go("root")} />
+      ) : page === "notion" ? (
         <NotionImportBody
           frame="palette"
           close={onDone}
@@ -673,7 +705,12 @@ function Palette({
           <div className="nt-pal-foot">
             <span>
               <kbd className="nt-kbd">↵</kbd>
-              {page === "root" ? (current?.drill ? "Choose how" : "Open") : current?.drill ? "Continue" : "Start"}
+              {page === "root"
+                ? current?.id === "invite"
+                  ? "Continue"
+                  : current?.drill
+                    ? "Choose how"
+                    : "Open" : current?.drill ? "Continue" : "Start"}
             </span>
             <span>
               <kbd className="nt-kbd">↑</kbd>

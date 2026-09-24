@@ -47,6 +47,7 @@ import {
   type SharedProject,
 } from "./projectParts";
 import { useStandIn } from "./StandIn";
+import { offersInvite } from "./workspaces/seats";
 import { AccessRequests } from "./share/AccessRequests";
 import { slugOf, useContainer, type WorkspaceContainer } from "./workspaces/ContainerContext";
 import { ContainerSwitcher } from "./workspaces/ContainerSwitcher";
@@ -91,7 +92,7 @@ export function ProjectsScreen() {
   // there by them, and the server says so (`projects.create`).
   const canCreate = !standIn && workspace?.role !== "guest";
   // Letting someone in is an owner's or an admin's, and never an operator's.
-  const invites = !standIn && (workspace?.role === "owner" || workspace?.role === "admin");
+  const invites = offersInvite(workspace?.role, standIn);
   /*
    * What this browser last saw stands in until the live lists arrive
    * (`projectsCache`) — and for a returning visitor this screen is up before

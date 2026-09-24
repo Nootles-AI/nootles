@@ -4716,6 +4716,15 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar) .nt-reformat-switcher {
     padding-top: 0;
   }
 }
+/* The one-column palette (inside a project) is too narrow for a key column
+   beside a table: its form pages stack the key over the answer. */
+.nt-palette.is-solo .nt-pal-fld {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
+}
+.nt-palette.is-solo .nt-pal-key {
+  padding-top: 0;
+}
 
 .nt-pal-panes {
   display: grid;
