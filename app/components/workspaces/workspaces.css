@@ -950,10 +950,14 @@
   margin-block: calc((var(--text-ui) * 1.5 - var(--control)) / 2);
   margin-right: calc(-1 * var(--inset));
 }
-/* Why the log reads as it does, under its label and above what narrows it. */
+/* Why the log reads as it does, under its label and above what narrows it —
+   closer to the label than a card would sit, which the label's row gives up. */
+.nt-ws-set-head:has(+ .nt-ws-audit-note) {
+  margin-bottom: 4px;
+}
 .nt-ws-audit-note,
 .nt-set-note.nt-ws-audit-note {
-  margin: -4px 0 8px;
+  margin: 0 0 8px;
 }
 
 .nt-ws-event {

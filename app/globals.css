@@ -189,6 +189,12 @@ body {
 }
 
 @layer base {
+/* Selected text wears the ink's own wash, as every selected thing does here —
+   the browser's blue belongs to no part of this palette. */
+::selection {
+  background: oklch(0.25 0.005 90 / 0.14);
+}
+
 /* Placeholder for empty contentEditable fields (see Editable.tsx). */
 [contenteditable][data-placeholder]:empty::before {
   content: attr(data-placeholder);
@@ -1741,6 +1747,13 @@ textarea.nt-input {
 }
 /* A segment carrying a glyph instead of a word. Square, so the two read as a
    pair rather than as one wide and one narrow. */
+/* A word with its glyph, the glyph at the word's size and ink. */
+.nt-mode-btn.has-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
 .nt-mode-btn.is-icon {
   display: inline-flex;
   align-items: center;
@@ -3049,6 +3062,19 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar) .nt-reformat-switcher {
   from {
     opacity: 0;
     transform: translateY(10px);
+  }
+}
+/* What replaces a skeleton — a home opened before its projects were known —
+   takes the skeleton's place already half there and all at once: the wait was
+   the stagger, and rising out of nothing after it reads as a blank page. */
+.nt-from-wait :is(.nt-card, .nt-lead, .nt-list-row) {
+  animation-name: nt-rise-on;
+  animation-delay: 0ms;
+}
+@keyframes nt-rise-on {
+  from {
+    opacity: 0.4;
+    transform: translateY(6px);
   }
 }
 
@@ -4379,8 +4405,23 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar) .nt-reformat-switcher {
    has finished opening, since its switch's hints open downward, over the row
    below; shutting clips at once. */
 .nt-pal-fld + .nt-pal-fold > .nt-pal-fld,
+.nt-pal-fold + .nt-pal-fold > .nt-pal-fld,
 .nt-pal-fold + .nt-pal-fld {
   border-top: 1px solid var(--border);
+}
+/* Rows that could not be drawn until an answer came — where the project can
+   go, once the account's workspaces have said — fold open as they mount
+   rather than landing in the form. */
+@starting-style {
+  .nt-pal-fold.is-arriving {
+    grid-template-rows: 0fr;
+    opacity: 0;
+  }
+  .nt-pal-fold.is-arriving > .nt-pal-fld {
+    overflow: clip;
+    padding-block: 0;
+    border-top-width: 0;
+  }
 }
 .nt-pal-fold {
   display: grid;

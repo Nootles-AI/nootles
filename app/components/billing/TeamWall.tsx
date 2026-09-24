@@ -18,7 +18,7 @@ import "./paywall.css";
 type Seat = NonNullable<FunctionReturnType<typeof api.workspaces.listMine>>[number];
 
 /** What stopped them, said of the workspace whose allowance it was. */
-function stopped(meter: Meter, name: string): { title: string; body: string } {
+export function stopped(meter: Meter, name: string): { title: string; body: string } {
   switch (meter) {
     case "projects":
       return {
@@ -60,16 +60,81 @@ type WallProps = {
  * change after the sheet has arrived.
  */
 export function TeamWall(props: WallProps) {
-  const seats = useQuery(api.workspaces.listMine, {});
-  if (seats === undefined) return null;
-  const seat = seats?.find((s) => s.workspaceId === props.workspaceId) ?? null;
+  const seat = useSeat(props.workspaceId);
+  if (seat === undefined) return null;
   return <Sheet {...props} seat={seat} />;
+}
+
+/** Your seat in the workspace — null for a guest, undefined until it is known. */
+function useSeat(workspaceId: Id<"workspaces">): Seat | null | undefined {
+  const seats = useQuery(api.workspaces.listMine, {});
+  if (seats === undefined) return undefined;
+  return seats?.find((s) => s.workspaceId === workspaceId) ?? null;
+}
+
+/** Why the Team plan is the way on, said to whoever can or cannot start it. */
+function lede(starts: boolean, seat: Seat | null): string {
+  return starts
+    ? "The Team plan lifts the limit for everyone in this workspace."
+    : seat
+      ? "Only an owner or an admin can start the Team plan, which lifts the limit for everyone in this workspace."
+      : "This project belongs to that workspace. The person who shared it with you can ask one of its owners or admins to start the Team plan, which lifts the limit.";
+}
+
+/** Where the way on goes: the plan, for whoever can start it; the people who can, for anyone else. */
+function wayOn(seat: Seat, starts: boolean) {
+  return {
+    href: settingsPath(seat.slug, starts ? "billing" : "members"),
+    label: starts ? "See the Team plan" : "See who can start it",
+  };
+}
+
+/**
+ * The wall where a form is still being written — the palette's side, beside a
+ * New project whose workspace has no projects left: the same sentence, strip
+ * and way on as the sheet, standing where the picture of what would be made
+ * was, so nobody writes a project out only to be stopped at its Create.
+ */
+export function TeamWallPane({
+  meter,
+  workspaceId,
+  name,
+}: {
+  meter: Meter;
+  workspaceId: Id<"workspaces">;
+  name: string;
+}) {
+  const seat = useSeat(workspaceId);
+  const standIn = useStandIn();
+  if (seat === undefined) return null;
+  const starts = !standIn && seat !== null && atLeast(seat.role, "admin");
+  const said = stopped(meter, name);
+  const on = seat && wayOn(seat, starts);
+  return (
+    <div className="nt-pw-pane">
+      <p className="nt-pw-title">{said.title}</p>
+      <p className="nt-pw-lede">
+        {said.body} {lede(starts, seat)}
+      </p>
+      <div className="mt-5">
+        <Strip meter={meter} left={0} />
+      </div>
+      {on && (
+        <div className="nt-pw-answers">
+          <Link href={on.href} className="nt-pw-btn is-solid">
+            {on.label}
+          </Link>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function Sheet({ meter, name, back, onClose, seat }: WallProps & { seat: Seat | null }) {
   const standIn = useStandIn();
   const starts = !standIn && seat !== null && atLeast(seat.role, "admin");
   const said = stopped(meter, name);
+  const on = seat && wayOn(seat, starts);
 
   const sheet = useRef<HTMLDivElement>(null);
   const go = useRef<HTMLAnchorElement>(null);
@@ -132,12 +197,7 @@ function Sheet({ meter, name, back, onClose, seat }: WallProps & { seat: Seat | 
           <div className="nt-pw-field">
             <p className="nt-pw-title">{said.title}</p>
             <p className="nt-pw-lede">
-              {said.body}{" "}
-              {starts
-                ? "The Team plan lifts the limit for everyone in this workspace."
-                : seat
-                  ? "Only an owner or an admin can start the Team plan, which lifts the limit for everyone in this workspace."
-                  : "This project belongs to that workspace. The person who shared it with you can ask one of its owners or admins to start the Team plan, which lifts the limit."}
+              {said.body} {lede(starts, seat)}
             </p>
             <div className="mt-5">
               <Strip meter={meter} left={0} />
@@ -146,13 +206,9 @@ function Sheet({ meter, name, back, onClose, seat }: WallProps & { seat: Seat | 
               <button type="button" autoFocus={!seat} onClick={close} className="nt-pw-btn">
                 {back}
               </button>
-              {seat && (
-                <Link
-                  ref={go}
-                  href={settingsPath(seat.slug, starts ? "billing" : "members")}
-                  className="nt-pw-btn is-solid"
-                >
-                  {starts ? "See the Team plan" : "See who can start it"}
+              {on && (
+                <Link ref={go} href={on.href} className="nt-pw-btn is-solid">
+                  {on.label}
                 </Link>
               )}
             </div>

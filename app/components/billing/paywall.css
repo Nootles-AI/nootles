@@ -711,7 +711,30 @@
    drawn mark, the drain and the spinner all stop — and the mark is explicitly
    reset to a closed stroke, because an animation removed from a dash-offset
    reveal leaves the figure invisible rather than still. */
+/* ---- The wall as a pane ---------------------------------------------------
+   A workspace with no projects left, drawn in the palette's side pane in place
+   of the picture of what would be made: the sheet's sentence, strip and way
+   on, at the pane's measure, fading in as the Pro picture does there. */
+.nt-pw-pane {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  align-content: center;
+  padding: 28px;
+  animation: nt-fade-in var(--dur-slow) var(--ease);
+}
+.nt-pw-pane .nt-pw-title {
+  font-size: 20px;
+  line-height: 1.25;
+}
+.nt-pw-pane .nt-pw-answers {
+  justify-content: flex-start;
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .nt-pw-pane {
+    animation: nt-fade-in var(--dur-fast) var(--ease);
+  }
   .nt-pw-mask.is-arriving .nt-pw-cell,
   .nt-pw-field > *,
   .nt-pw-scrim,
