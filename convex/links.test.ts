@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 import { convexTest, type TestConvex } from "convex-test";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import schema from "./schema";
 import componentSchema from "../node_modules/@convex-dev/prosemirror-sync/src/component/schema";
@@ -677,5 +677,103 @@ describe("pages leaving a workspace", () => {
       projectId: mine,
     });
     expect(await landed(t, mine)).toHaveLength(1);
+  });
+});
+
+describe("a link's expiry, arriving (NT-80)", () => {
+  const scheduled = (t: T) =>
+    t.run(async (ctx) =>
+      (await ctx.db.system.query("_scheduled_functions").collect())
+        .filter((job) => job.name === "share:lapse" && job.state.kind === "pending")
+        .map((job) => ({ at: job.scheduledTime, args: job.args[0] })),
+    );
+  const lapsedAt = (t: T, projectId: Id<"projects">) =>
+    t.run(async (ctx) => (await ctx.db.get(projectId))?.linksLapsedAt ?? null);
+
+  test("is a write at that moment, for every query that answered through the link to run again", async () => {
+    const t = harness();
+    const w = await world(t);
+    const projectId = w.personal.projectId;
+    await t.withIdentity(OWNER).mutation(api.share.setLink, { projectId, role: "editor", enabled: true, expiresInDays: 7 });
+    expect(await scheduled(t)).toEqual([{ at: T0 + 7 * DAY, args: { projectId, at: T0 + 7 * DAY } }]);
+    expect(await lapsedAt(t, projectId)).toBeNull();
+
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    expect(await lapsedAt(t, projectId)).toBe(T0 + 7 * DAY);
+
+    // A lapse for an earlier moment arriving late never moves the stamp back.
+    await t.mutation(internal.share.lapse, { projectId, at: T0 + DAY });
+    expect(await lapsedAt(t, projectId)).toBe(T0 + 7 * DAY);
+  });
+
+  test("is scheduled for each expiry set, and for none when a link never runs out", async () => {
+    const t = harness();
+    const w = await world(t);
+    const projectId = w.personal.projectId;
+    const owner = t.withIdentity(OWNER);
+    await owner.mutation(api.share.setLink, { projectId, role: "viewer", enabled: true, expiresInDays: null });
+    expect(await scheduled(t)).toEqual([]);
+    await owner.mutation(api.share.setLink, { projectId, role: "viewer", enabled: true, expiresInDays: 3 });
+    // Left out, a live link keeps its date: nothing new to arrive.
+    await owner.mutation(api.share.setLink, { projectId, role: "viewer", enabled: true });
+    await owner.mutation(api.share.setLink, { projectId, role: "viewer", enabled: true, expiresInDays: 10 });
+    expect((await scheduled(t)).map((job) => job.at)).toEqual([T0 + 3 * DAY, T0 + 10 * DAY]);
+  });
+
+  test("stamps even after the link is turned off, since its claims keep the date they came with", async () => {
+    const t = harness();
+    const w = await world(t);
+    const projectId = w.personal.projectId;
+    const owner = t.withIdentity(OWNER);
+    await owner.mutation(api.share.setLink, { projectId, role: "editor", enabled: true, expiresInDays: 7 });
+    await t.withIdentity(STRANGER).mutation(api.share.claim, { token: "p-edit" });
+    await owner.mutation(api.share.setLink, { projectId, role: "editor", enabled: false });
+    // A viewer still, by the viewer link, until the date the claim carries.
+    expect(await t.withIdentity(STRANGER).query(api.projects.myRole, { projectId })).toBe("viewer");
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    expect(await lapsedAt(t, projectId)).toBe(T0 + 7 * DAY);
+    expect(await t.withIdentity(STRANGER).query(api.projects.myRole, { projectId })).toBeNull();
+  });
+
+  test("leaves no trace on the project row a reader is handed", async () => {
+    const t = harness();
+    const w = await world(t);
+    const projectId = w.personal.projectId;
+    await t.mutation(internal.share.lapse, { projectId, at: T0 });
+    const row = await t.withIdentity(OWNER).query(api.projects.get, { projectId });
+    expect(row).not.toHaveProperty("linksLapsedAt");
+  });
+
+  test("past it, the editor's append is refused with a code the provider holds its changes for", async () => {
+    const t = harness();
+    const w = await world(t);
+    const projectId = w.personal.projectId;
+    await t.withIdentity(OWNER).mutation(api.share.setLink, { projectId, role: "editor", enabled: true, expiresInDays: 7 });
+    await t.withIdentity(STRANGER).mutation(api.share.claim, { token: "p-edit" });
+    const append = () =>
+      t.withIdentity(STRANGER).mutation(api.ydoc.append, { docId: w.personal.docId, update: new ArrayBuffer(2) });
+    vi.setSystemTime(T0 + 7 * DAY);
+    const refused = await append().then(() => null, (error: unknown) => error);
+    expect(refused).toMatchObject({ data: { code: "write_refused", message: "Not found" } });
+  });
+
+  test("the backfill arms every link and claim date still to come, and none gone by", async () => {
+    const t = harness();
+    const w = await world(t);
+    const projectId = w.personal.projectId;
+    await t.run(async (ctx) => {
+      await ctx.db.patch(projectId, { shareExpiresAt: T0 + 2 * DAY, editShareExpiresAt: T0 - DAY });
+      await ctx.db.patch(w.team.projectId, { commentShareExpiresAt: T0 + 5 * DAY });
+    });
+    // Carried past its link being turned off, so the project no longer says it.
+    await claimed(t, projectId, STRANGER, { role: "editor", expiresAt: T0 + 9 * DAY });
+    await claimed(t, projectId, LATECOMER, { role: "editor", expiresAt: T0 + 2 * DAY });
+    await t.mutation(internal.migrations.armLinkLapses, {});
+    const armed = await scheduled(t);
+    expect(armed.map((job) => [job.args.projectId, job.at]).sort((a, b) => Number(a[1]) - Number(b[1]))).toEqual([
+      [projectId, T0 + 2 * DAY],
+      [w.team.projectId, T0 + 5 * DAY],
+      [projectId, T0 + 9 * DAY],
+    ]);
   });
 });

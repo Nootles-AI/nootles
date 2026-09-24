@@ -51,6 +51,7 @@ function SharedYjs({ docId }: { docId: string }) {
     user: guest,
     // Viewers see arrivals too — an approved AI edit flashes for everyone.
     editorOptions: { schema, extensions: [arrivalFlashExtension] },
+    writable: false,
   });
   if (!editor) return placeholder;
   return <ReadOnlyView editor={editor} />;

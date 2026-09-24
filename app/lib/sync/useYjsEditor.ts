@@ -39,12 +39,15 @@ export function useYjsEditor<E>({
   docId,
   user,
   editorOptions,
+  writable = true,
 }: {
   docId: string;
   /** Shown to collaborators on this person's caret and in the facepile. */
   user: { name: string; color: string; imageUrl?: string };
   /** BlockNote editor options — the schema in here decides the editor type. */
   editorOptions: object;
+  /** Whether this surface may write the document; a reader's changes stay local. */
+  writable?: boolean;
 }): { editor: E | null; provider: YConvexProvider | null; isLoading: boolean } {
   const client = useConvex();
 
@@ -116,6 +119,8 @@ export function useYjsEditor<E>({
       ...(user.imageUrl ? { imageUrl: user.imageUrl } : {}),
     });
   }, [provider, user.name, user.color, user.imageUrl]);
+
+  useEffect(() => provider?.setWritable(writable), [provider, writable]);
 
   // Parity with the old pipeline's warnOnUnsyncedClose: leaving with unsent
   // edits deserves the browser's are-you-sure.

@@ -2,7 +2,7 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { internalMutation, internalQuery, type QueryCtx } from "./_generated/server";
-import { isTrashed } from "./auth";
+import { isTrashed, LINK_FIELDS } from "./auth";
 import { upsertDocument } from "./context/documents";
 import { pageNode } from "./context/pages";
 import { documentId } from "./files/context";
@@ -503,5 +503,44 @@ export const markContextCode = internalMutation({
       });
     }
     return { stamped, done: batch.isDone };
+  },
+});
+
+/**
+ * Schedules `share.lapse` for every link expiry, and every claim's, still to
+ * come when the job arrived — `setLink` schedules one only for the expiries it
+ * sets from then on. Run once, right after the deploy that adds it.
+ * Idempotent: a second run schedules the same stamps again, and a lapse whose
+ * moment is already stamped does nothing.
+ */
+export const armLinkLapses = internalMutation({
+  args: { cursor: v.optional(v.string()) },
+  handler: async (ctx, args): Promise<{ armed: number; done: boolean }> => {
+    const now = Date.now();
+    const batch = await ctx.db
+      .query("projects")
+      .paginate({ numItems: BATCH, cursor: args.cursor ?? null });
+    let armed = 0;
+    for (const project of batch.page) {
+      const claims = await ctx.db
+        .query("shareClaims")
+        .withIndex("by_project_and_grantee", (q) => q.eq("projectId", project._id))
+        .collect();
+      const moments = new Set([
+        ...Object.values(LINK_FIELDS).map(({ expiresAt }) => project[expiresAt]),
+        ...claims.map((claim) => claim.expiresAt),
+      ]);
+      for (const at of moments) {
+        if (at === undefined || at <= now) continue;
+        await ctx.scheduler.runAt(at, internal.share.lapse, { projectId: project._id, at });
+        armed++;
+      }
+    }
+    if (!batch.isDone) {
+      await ctx.scheduler.runAfter(0, internal.migrations.armLinkLapses, {
+        cursor: batch.continueCursor,
+      });
+    }
+    return { armed, done: batch.isDone };
   },
 });

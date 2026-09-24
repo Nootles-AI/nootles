@@ -124,6 +124,11 @@ jobs:
         env:
           COMMENTS_BROWSER_CHANNEL: chromium
           CONVEX_LOCAL_BACKEND_BINARY: /home/runner/.cache/convex/binaries/${{ env.CONVEX_LOCAL_BACKEND }}/convex-local-backend
+      # And for a share link running out while someone is typing (NT-80).
+      - run: npm run test:links:expiry
+        env:
+          COMMENTS_BROWSER_CHANNEL: chromium
+          CONVEX_LOCAL_BACKEND_BINARY: /home/runner/.cache/convex/binaries/${{ env.CONVEX_LOCAL_BACKEND }}/convex-local-backend
       - uses: actions/upload-artifact@v4
         if: always()
         with:

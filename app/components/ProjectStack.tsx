@@ -100,7 +100,7 @@ function NoAccess({ paused }: { paused: string | null }) {
       <p className="max-w-xs text-pretty text-sm text-muted">
         {paused
           ? `${paused} has turned off share links for now. You’ll get back in when they’re turned on again.`
-          : "It may have been deleted, or the person who shared it removed you or turned off the link. Ask them for a new link."}
+          : "It may have been deleted, or the person who shared it removed you, turned off the link or let it expire. Ask them for a new link."}
       </p>
       <Link href="/" className="nt-row mt-2 px-2.5">
         Back to your projects

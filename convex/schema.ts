@@ -490,6 +490,14 @@ export default defineSchema({
     commentShareExpiresAt: v.optional(v.number()),
     editShareExpiresAt: v.optional(v.number()),
     /**
+     * When a link here last ran out, stamped at that moment by `share.lapse`.
+     * Nothing is decided by it. It is the write that makes every query that
+     * answered through a link run again — each compared the expiry against
+     * the clock, and a query is not re-run as time passes, nor for a row
+     * rewritten exactly as it stood.
+     */
+    linksLapsedAt: v.optional(v.number()),
+    /**
      * What the projects screen draws about this project's pages, denormalized
      * so the screen's read set stops covering every page of every project.
      * Maintained by `projects.refreshPageSummary`; absent on projects written
