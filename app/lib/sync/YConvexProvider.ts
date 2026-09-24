@@ -12,6 +12,7 @@ import type { PageDigest } from "@/convex/context/shape";
 import { encodePreview } from "@/convex/previewShape";
 import { splitUpdate } from "@/convex/yshape";
 import { COMMENTS_REFUSED } from "@/app/lib/comments/policy";
+import { WRITE_REFUSED } from "@/convex/roles";
 import { openYDoc } from "./ydocRead";
 
 /**
@@ -58,10 +59,14 @@ const PRESENCE_STALE_MS = 30_000;
 
 type Listener = () => void;
 
-/** The server's reason when it refused an append outright, or null for any other failure. */
+/** What a coded `ConvexError` carries, or null for any other failure. */
+function dataOf(error: unknown): { code?: unknown; message?: unknown } | null {
+  return error instanceof ConvexError ? (error.data as { code?: unknown; message?: unknown } | null) : null;
+}
+
+/** The server's reason when it refused a comments append outright, or null for any other failure. */
 function refusalOf(error: unknown): string | null {
-  if (!(error instanceof ConvexError)) return null;
-  const data = error.data as { code?: unknown; message?: unknown } | null;
+  const data = dataOf(error);
   return data?.code === COMMENTS_REFUSED && typeof data.message === "string" ? data.message : null;
 }
 
@@ -99,6 +104,16 @@ export class YConvexProvider {
   private synchronizing = this.untilSynced();
   /** Why the server last refused this tab's changes outright; null once a flush lands. */
   private refused: string | null = null;
+  /**
+   * Whether the surface this document is open in may write it — false for a
+   * reader, whose document can still change locally (the NML compatibility
+   * mirror repairs its projection) but has nothing to send.
+   */
+  private writable = true;
+  /** The server refused this tab's pen outright; nothing is sent until it is handed back. */
+  private denied = false;
+  /** Whether the queue holds changes made while the surface could write. */
+  private owes = false;
 
   /** Highest seq applied locally — the fetch cursor. */
   private cursor = 0;
@@ -188,7 +203,44 @@ export class YConvexProvider {
   }
 
   get hasUnsyncedChanges(): boolean {
-    return this.queue.length > 0 || this.inflight;
+    return (this.owes && this.queue.length > 0) || this.inflight;
+  }
+
+  /** Whether the server refused this tab's changes for who is sending them. */
+  get writeRefused(): boolean {
+    return this.denied;
+  }
+
+  /**
+   * Changes written here that the server will not take from this tab now:
+   * made while it could write, left unsent once it could not. They stay in
+   * the document, so what they say can still be copied out.
+   */
+  get stranded(): boolean {
+    return this.owes && this.queue.length > 0 && !this.sending;
+  }
+
+  private get sending(): boolean {
+    return this.writable && !this.denied;
+  }
+
+  /**
+   * Whether the surface may write, from the role it was given. Said writable —
+   * the pen handed back, or a surface mounting on a document refused before —
+   * whatever was held is offered once more.
+   */
+  setWritable(writable: boolean) {
+    if (writable === this.writable && !(writable && this.denied)) return;
+    this.writable = writable;
+    if (writable) this.retryHeld();
+    else this.emit();
+  }
+
+  /** Offers what the server refused once more: the person's own "try again". */
+  retryHeld() {
+    this.denied = false;
+    this.emit();
+    this.scheduleFlush(0);
   }
 
   /** Fires on any state change worth re-rendering for (synced, unsynced). */
@@ -467,7 +519,14 @@ export class YConvexProvider {
   private onDocUpdate = (update: Uint8Array, origin: unknown) => {
     if (origin === this) return;
     this.queue.push(update);
+    if (this.writable) this.owes = true;
     this.emit();
+    // Held, not sent: kept as one update, so a reader's tab left open all day
+    // does not accumulate every repair its mirror ever made.
+    if (!this.sending) {
+      if (this.queue.length > 1) this.queue = [Y.mergeUpdates(this.queue)];
+      return;
+    }
     // Leading edge: the first edit after quiet ships as soon as the current
     // task ends, so a collaborator sees a gesture land the moment it ends; a
     // burst still batches on the trailing throttle. A microtask rather than
@@ -493,7 +552,7 @@ export class YConvexProvider {
   }
 
   private async flush() {
-    if (this.inflight || this.queue.length === 0) return;
+    if (this.inflight || this.queue.length === 0 || !this.sending) return;
     const taken = this.queue;
     this.queue = [];
     const merged = Y.mergeUpdates(taken);
@@ -520,12 +579,22 @@ export class YConvexProvider {
       }
       this.retryMs = 0;
       this.refused = null;
+      if (this.queue.length === 0) this.owes = false;
       this.lastFlushAt = Date.now();
       this.scheduleDerived();
     } catch (error) {
       const refusal = refusalOf(error);
       if (refusal !== null) {
         this.restart(refusal);
+        return;
+      }
+      // The pen was taken — a link run out while its query still showed it
+      // live. Retrying cannot land this and restarting would throw away what
+      // was written, so it is held, and the surface says so.
+      if (dataOf(error)?.code === WRITE_REFUSED) {
+        this.queue = [merged, ...this.queue];
+        this.denied = true;
+        this.retryMs = 0;
         return;
       }
       // Everything unsent goes back to the front, coalesced, and retries on
@@ -536,7 +605,7 @@ export class YConvexProvider {
     } finally {
       this.inflight = false;
       this.emit();
-      if (this.queue.length && !this.flushTimer && this.retryMs === 0) {
+      if (this.queue.length && !this.flushTimer && this.retryMs === 0 && this.sending) {
         this.scheduleFlush(FLUSH_MS);
       }
     }
@@ -558,6 +627,7 @@ export class YConvexProvider {
     this.currentAwareness.destroy();
     byDoc.delete(old);
     this.queue = [];
+    this.owes = false;
     if (this.flushTimer) {
       clearTimeout(this.flushTimer);
       this.flushTimer = null;

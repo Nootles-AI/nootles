@@ -1549,3 +1549,9 @@ body:has(.nt-well[data-drawing]) .nt-side-menu-anchor {
     animation: none;
   }
 }
+
+/* The page's own refusal, in the update toast's pill: said once, dismissible,
+   and wide enough for its one sentence. */
+.nt-held-writes {
+  max-width: min(92vw, 560px);
+}

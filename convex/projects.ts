@@ -134,6 +134,7 @@ export function withoutLinks(project: Doc<"projects">) {
     shareExpiresAt: _viewerExpiry,
     commentShareExpiresAt: _commenterExpiry,
     editShareExpiresAt: _editorExpiry,
+    linksLapsedAt: _lapsed,
     ...row
   } = project;
   return row;

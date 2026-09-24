@@ -49,6 +49,7 @@ export function NmlServedEditor({
     };
   }, [client, docId]);
   /* eslint-enable react-hooks/set-state-in-effect */
+  useEffect(() => provider?.setWritable(!readOnly), [provider, readOnly]);
 
   const synced = useSyncExternalStore(
     (onChange) => provider?.subscribe(onChange) ?? (() => {}),

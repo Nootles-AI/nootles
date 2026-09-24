@@ -1,5 +1,6 @@
 import { components } from "./_generated/api";
 import { ProsemirrorSync } from "@convex-dev/prosemirror-sync";
+import { ConvexError } from "convex/values";
 import type { DataModel, Doc } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { recordDocumentEdit } from "./audit";
@@ -14,6 +15,7 @@ import {
   type DocChannel,
   type ProjectRole,
 } from "./auth";
+import { WRITE_REFUSED } from "./roles";
 
 /**
  * Collaborative sync for each page's block flow. The client (BlockNote) talks to
@@ -166,6 +168,22 @@ export async function checkWrite(
   await refuseStandIn(ctx);
   const access = await hasWriteRole(ctx, id, channels);
   if (!access) throw new Error("Not found");
+  return access;
+}
+
+/**
+ * {@link checkWrite} for a Yjs append, refused with a code: a tab has to tell
+ * "you may not write here" from a failure worth retrying, and a plain error
+ * reaches it as nothing more than "Server Error".
+ */
+export async function checkAppend(
+  ctx: QueryCtx,
+  id: string,
+  channels: readonly DocChannel[],
+): Promise<DocAccess> {
+  await refuseStandIn(ctx);
+  const access = await hasWriteRole(ctx, id, channels);
+  if (!access) throw new ConvexError({ code: WRITE_REFUSED, message: "Not found" });
   return access;
 }
 

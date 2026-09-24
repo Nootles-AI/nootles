@@ -1,4 +1,5 @@
-import { mutation, query } from "./_generated/server";
+import { internalMutation, mutation, query } from "./_generated/server";
+import { internal } from "./_generated/api";
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
@@ -162,6 +163,9 @@ export const setLink = mutation({
         [fields.token]: token,
         [fields.expiresAt]: expiresAt,
       });
+      if (expiresAt !== undefined && expiresAt !== project[fields.expiresAt]) {
+        await ctx.scheduler.runAt(expiresAt, internal.share.lapse, { projectId: args.projectId, at: expiresAt });
+      }
       await recordInProject(ctx, project, {
         action: live ? "share.link.expiry" : "share.link.on",
         subjectKind: "project",
@@ -171,6 +175,27 @@ export const setLink = mutation({
     }
     await carryExpiry(ctx, args.projectId, args.role, expiresAt, now);
     return token;
+  },
+});
+
+/**
+ * A link's expiry, arriving. Who holds a role through a link, and who reads a
+ * page by one, is decided against the clock inside queries, and a query is
+ * not re-run as time passes: without a write at this moment, someone whose
+ * editor link just ran out goes on being shown the pen, typing into a page
+ * that refuses every change (NT-80). So `setLink` schedules this for each
+ * expiry it sets, and it stamps the project whether or not the link still
+ * holds that expiry — a claim keeps the one it came with after its link is
+ * turned off (`carryExpiry`).
+ */
+export const lapse = internalMutation({
+  args: { projectId: v.id("projects"), at: v.number() },
+  returns: v.null(),
+  handler: async (ctx, { projectId, at }) => {
+    const project = await ctx.db.get(projectId);
+    if (!project || (project.linksLapsedAt ?? 0) >= at) return null;
+    await ctx.db.patch(projectId, { linksLapsedAt: at });
+    return null;
   },
 });
 

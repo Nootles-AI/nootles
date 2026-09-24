@@ -6,7 +6,7 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { recordDocumentEdit } from "./audit";
 import { moderatesComments, ownerId, type ProjectRole } from "./auth";
-import { ANY_CHANNEL, checkRead, checkWrite, pageForDoc } from "./prosemirror";
+import { ANY_CHANNEL, checkAppend, checkRead, checkWrite, pageForDoc } from "./prosemirror";
 import { COMMENTS_REFUSED, refuseCommentsUpdate } from "@/app/lib/comments/policy";
 import { stampProject } from "./projects";
 import { joinUpdateRows, UPDATE_CHUNK_BYTES } from "./yshape";
@@ -274,7 +274,7 @@ export const append = mutation({
   },
   returns: v.number(),
   handler: async (ctx, args) => {
-    const access = await checkWrite(ctx, args.docId, ANY_CHANNEL);
+    const access = await checkAppend(ctx, args.docId, ANY_CHANNEL);
     const chunks =
       args.chunks ?? (args.update !== undefined ? [args.update] : []);
     if (access.channel === "comments") {

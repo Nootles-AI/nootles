@@ -77,7 +77,7 @@ try {
   browser = await launchBrowser();
   // The Convex client logs a refused mutation; the harness's own raw append is
   // the only one expected, and each tab counts that it saw exactly one.
-  const REFUSED_APPEND = /M\(ydoc:append\)[\s\S]*Uncaught Error: Not found/;
+  const REFUSED_APPEND = /M\(ydoc:append\)[\s\S]*Uncaught ConvexError: [^\n]*"code":"write_refused"/;
   const tab = async (label) => {
     const opened = await guardedTab(browser, { origin: served.origin, allow: [CONVEX_URL], label, failures, expected: REFUSED_APPEND });
     await opened.page.waitForSelector('#app[data-ready="true"]', { state: "attached" });

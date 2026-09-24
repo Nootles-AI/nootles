@@ -7,6 +7,8 @@ import {
   useInsertionEffect,
   useMemo,
   useRef,
+  useState,
+  useSyncExternalStore,
   type ReactElement,
 } from "react";
 import { BlockNoteView } from "@blocknote/mantine";
@@ -34,6 +36,7 @@ import {
   useWorkspaceHistory,
 } from "@/app/lib/history/useWorkspaceHistory";
 import { useYjsEditor } from "@/app/lib/sync/useYjsEditor";
+import type { YConvexProvider } from "@/app/lib/sync/YConvexProvider";
 import { initEmptyYDoc, migrateLegacyDoc } from "@/app/lib/sync/migrate";
 import { collabColor } from "@/app/lib/sync/colors";
 import { schema } from "./schema";
@@ -69,7 +72,7 @@ import { blockSelection, blockSelectionExtension } from "./blockSelection";
 import { useBlockMarquee } from "./useBlockMarquee";
 import { PageMentionMenu, SlashMenu } from "./SlashMenu";
 import * as Icon from "../Icons";
-import { useReadOnly } from "./readOnly";
+import { ReadOnlyContext, useReadOnly } from "./readOnly";
 import { useAttachCommentsEditor } from "../comments/editorSlot";
 import { trailingParagraphExtension } from "./trailingParagraph";
 import { dropDeadSelectors } from "./deadSelectors";
@@ -627,7 +630,9 @@ function YjsEditor({
       ...(user?.imageUrl ? { imageUrl: user.imageUrl } : {}),
     },
     editorOptions: { schema, extensions, links: { onClick: notionLinkClick } },
+    writable: !readOnly,
   });
+  const held = useHeldWrites(provider);
   // Step 13: if this doc is in the migration cohort and not yet migrated, elect
   // its canonical NML root from here (the DOM-dependent conversion). Once the
   // server verifies it, the router above remounts this same complete editor
@@ -646,15 +651,52 @@ function YjsEditor({
   );
   if (!editor || !mirrorReady) return placeholder;
   return (
-    <EditorSurface
-      editor={editor}
-      docId={docId}
-      pipeline="yjs"
-      pageId={pageId}
-      title={title}
-      mode={mode}
-      served={served}
-    />
+    <ReadOnlyContext value={readOnly || held.refused}>
+      <EditorSurface
+        editor={editor}
+        docId={docId}
+        pipeline="yjs"
+        pageId={pageId}
+        title={title}
+        mode={mode}
+        served={served}
+      />
+      {held.stranded && provider && <HeldWritesNotice onRetry={() => provider.retryHeld()} />}
+    </ReadOnlyContext>
+  );
+}
+
+/**
+ * What the provider holds that the server would not take: the tab's pen
+ * refused outright, and changes written before that which will never land
+ * from here. Either way the page must stop taking more (NT-80).
+ */
+function useHeldWrites(provider: YConvexProvider | null) {
+  const subscribe = useCallback(
+    (onChange: () => void) => provider?.subscribe(onChange) ?? (() => {}),
+    [provider],
+  );
+  const refused = useSyncExternalStore(subscribe, () => provider?.writeRefused ?? false, () => false);
+  const stranded = useSyncExternalStore(subscribe, () => provider?.stranded ?? false, () => false);
+  return { refused, stranded };
+}
+
+function HeldWritesNotice({ onRetry }: { onRetry: () => void }) {
+  const [dismissed, setDismissed] = useState(false);
+  if (dismissed) return null;
+  return (
+    <div className="nt-update nt-held-writes" role="alert">
+      <span>
+        You can no longer edit this page, so your latest changes weren’t saved. They’re still
+        here to copy until you leave.
+      </span>
+      <button className="nt-update-go" onClick={onRetry}>
+        Try again
+      </button>
+      <button className="nt-update-x" aria-label="Dismiss" onClick={() => setDismissed(true)}>
+        ×
+      </button>
+    </div>
   );
 }
 

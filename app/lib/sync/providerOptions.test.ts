@@ -3,12 +3,14 @@ import * as Y from "yjs";
 import { getFunctionName } from "convex/server";
 import { ConvexError } from "convex/values";
 import { COMMENTS_REFUSED } from "@/app/lib/comments/policy";
+import { WRITE_REFUSED } from "@/convex/roles";
 import type { ConvexReactClient } from "convex/react";
 import { acquireProvider, releaseProvider, YConvexProvider, type ProviderOptions } from "./YConvexProvider";
 
 /**
  * `YConvexProvider`'s two opt-outs, for a page's comments document: no derived
- * writes (preview, context digest) and no presence. Driven against an
+ * writes (preview, context digest) and no presence — and what it does with a
+ * change the server refuses, or a surface that may not write. Driven against an
  * in-memory stand-in for the three Convex calls the provider makes, which
  * records every function it is asked for — the assertion is on what reached
  * the wire.
@@ -22,6 +24,8 @@ class Backend {
   revoked = false;
   /** How the next append fails: refused by the comments policy, or lost on the wire. */
   failNext: "refuse" | "offline" | null = null;
+  /** The caller's pen is gone: every append is refused for who is asking. */
+  penless = false;
   private watchers = new Set<() => void>();
 
   poke() {
@@ -70,6 +74,7 @@ class Backend {
           this.failNext = null;
           if (failure === "refuse") throw new ConvexError({ code: COMMENTS_REFUSED, message: "Only a comment's author can change it." });
           if (failure === "offline") throw new Error("[CONVEX M(ydoc:append)] Connection lost");
+          if (this.penless) throw new ConvexError({ code: WRITE_REFUSED, message: "Not found" });
           this.seq += 1;
           this.log.push({ seq: this.seq, update: args.update as ArrayBuffer });
           for (const watcher of this.watchers) watcher();
@@ -283,5 +288,136 @@ describe("acquireProvider", () => {
     expect(warm).toBe(first);
     releaseProvider("comments-1");
     await settle(0);
+  });
+});
+
+/** What the server's log holds, applied to a fresh doc. */
+function stored(): string {
+  const peer = new Y.Doc();
+  for (const row of backend.log) Y.applyUpdate(peer, new Uint8Array(row.update));
+  return peer.getText("t").toString();
+}
+
+describe("a tab whose pen is taken (NT-80)", () => {
+  it("holds what it wrote once refused, stops sending, and says so", async () => {
+    const provider = open();
+    provider.connect();
+    await provider.whenSynced;
+    const text = provider.doc.getText("t");
+    text.insert(0, "landed");
+    await settle(1_000);
+    expect(backend.log).toHaveLength(1);
+
+    // The link ran out while the role query still showed the pen.
+    backend.penless = true;
+    text.insert(6, " then refused");
+    await settle(1_000);
+    const tried = backend.mutations().filter((name) => name === "ydoc:append").length;
+    expect(provider.writeRefused).toBe(true);
+    expect(provider.stranded).toBe(true);
+    expect(provider.hasUnsyncedChanges).toBe(true);
+
+    // No retry loop, and nothing more goes out however long the tab stays.
+    text.insert(19, " and more");
+    await settle(120_000);
+    expect(backend.mutations().filter((name) => name === "ydoc:append")).toHaveLength(tried);
+    // Kept, not thrown away: the words are still there to copy.
+    expect(provider.doc).toBe(text.doc);
+    expect(text.toString()).toBe("landed then refused and more");
+    expect(stored()).toBe("landed");
+  });
+
+  it("sends everything it held once handed the pen back", async () => {
+    const provider = open();
+    provider.connect();
+    await provider.whenSynced;
+    backend.penless = true;
+    provider.doc.getText("t").insert(0, "typed after the link ran out");
+    await settle(1_000);
+    expect(provider.stranded).toBe(true);
+
+    // The owner moves the date: the role reads a viewer's, then the pen again.
+    backend.penless = false;
+    provider.setWritable(false);
+    provider.setWritable(true);
+    await settle(1_000);
+    expect(stored()).toBe("typed after the link ran out");
+    expect(provider.writeRefused).toBe(false);
+    expect(provider.stranded).toBe(false);
+    expect(provider.hasUnsyncedChanges).toBe(false);
+  });
+
+  it("offers what it held once more when asked, or when a surface mounts on it again — once each", async () => {
+    const provider = open();
+    provider.connect();
+    await provider.whenSynced;
+    backend.penless = true;
+    provider.doc.getText("t").insert(0, "held");
+    await settle(1_000);
+    const appends = () => backend.mutations().filter((name) => name === "ydoc:append").length;
+    expect(appends()).toBe(1);
+
+    // Still refused: one more attempt each, and held again.
+    provider.retryHeld();
+    await settle(30_000);
+    expect(appends()).toBe(2);
+    provider.setWritable(true);
+    await settle(30_000);
+    expect(appends()).toBe(3);
+    expect(provider.writeRefused).toBe(true);
+
+    // The link was extended meanwhile: the next attempt lands.
+    backend.penless = false;
+    provider.retryHeld();
+    await settle(1_000);
+    expect(stored()).toBe("held");
+    expect(provider.stranded).toBe(false);
+  });
+
+  it("holds a demoted writer's unsent change instead of sending it", async () => {
+    const provider = open();
+    provider.connect();
+    await provider.whenSynced;
+    provider.doc.getText("t").insert(0, "last words");
+    provider.setWritable(false);
+    await settle(60_000);
+    expect(backend.mutations()).not.toContain("ydoc:append");
+    expect(provider.stranded).toBe(true);
+    expect(provider.hasUnsyncedChanges).toBe(true);
+  });
+
+  it("any other failure still retries, as before", async () => {
+    const provider = open();
+    provider.connect();
+    await provider.whenSynced;
+    backend.failNext = "offline";
+    provider.doc.getText("t").insert(0, "offline edit");
+    await settle(5_000);
+    expect(provider.writeRefused).toBe(false);
+    expect(stored()).toBe("offline edit");
+  });
+});
+
+describe("a reader's document (NT-80)", () => {
+  it("never sends what changes in it locally, and has nothing unsaved", async () => {
+    const provider = open();
+    provider.setWritable(false);
+    provider.connect();
+    await provider.whenSynced;
+    // The NML compatibility mirror repairing a projection, three times over.
+    for (const word of ["one ", "two ", "three "]) {
+      provider.doc.getText("t").insert(0, word);
+      await settle(20_000);
+    }
+    expect(backend.mutations()).not.toContain("ydoc:append");
+    expect(provider.hasUnsyncedChanges).toBe(false);
+    expect(provider.stranded).toBe(false);
+    expect(provider.writeRefused).toBe(false);
+
+    // Promoted, it sends them as one: causality is kept, not a word is lost.
+    provider.setWritable(true);
+    await settle(1_000);
+    expect(backend.mutations().filter((name) => name === "ydoc:append")).toHaveLength(1);
+    expect(stored()).toBe("three two one ");
   });
 });

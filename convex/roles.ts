@@ -100,6 +100,14 @@ export function channelAdmits(request: {
 }
 
 /**
+ * The `ConvexError` code of a document append refused for who is asking: the
+ * pen was taken — a link run out, a demotion, a project trashed. A retry
+ * cannot land it, so the provider holds the change and says so rather than
+ * retrying it forever (`YConvexProvider`).
+ */
+export const WRITE_REFUSED = "write_refused";
+
+/**
  * Whether a role may remove other people's comments and threads: whoever
  * holds the pen on the page. Nobody may rewrite another person's words; what
  * else a comments append may change is `comments/policy.ts`, asked by
