@@ -198,6 +198,11 @@ export interface TransformGestureApi {
   startRadius(event: PointerLike, corner: Handle): void;
   /** True once a gesture has passed the movement threshold. */
   isActive(): boolean;
+  /**
+   * True while an alt-drag previews a duplicate: the elements on the move are
+   * the copy-to-be, and the nodes they were drawn for stay where they are.
+   */
+  duplicating(): boolean;
   /** Abandon the gesture and put the DOM back. */
   cancel(): void;
 }
@@ -488,6 +493,10 @@ export function useTransformGesture(
           ? resetRadius(optionsRef.current, event, corner)
           : startRadiusDrag(optionsRef.current, event, corner),
       isActive: () => sessionRef.current?.active ?? false,
+      duplicating: () => {
+        const session = sessionRef.current;
+        return !!session?.active && session.mode === "move" && session.mods.alt;
+      },
       cancel: () => {
         const session = sessionRef.current;
         if (!session) return;

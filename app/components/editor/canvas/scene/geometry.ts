@@ -219,6 +219,34 @@ export function nodeBounds(node: RotatedRect): Rect {
 }
 
 /**
+ * The rotated box a drawn axis-aligned bound encloses, given the size and
+ * rotation it should be drawn at — the inverse of {@link nodeBounds}, about the
+ * same centre. Unrotated, the bound is the box. Rotated, `null` when the bound
+ * disagrees by more than `slack`: the element is not drawing that box (a resize
+ * or a reflow is under way), and only the bound itself is honest.
+ */
+export function unrotateBound(
+  bound: Rect,
+  w: number,
+  h: number,
+  rot: number,
+  slack = 1.5,
+): RotatedRect | null {
+  if (!rot) return { ...bound, rot: 0 };
+  const drawn = nodeBounds({ x: 0, y: 0, w, h, rot });
+  if (Math.abs(drawn.w - bound.w) > slack || Math.abs(drawn.h - bound.h) > slack) {
+    return null;
+  }
+  return {
+    x: bound.x + (bound.w - w) / 2,
+    y: bound.y + (bound.h - h) / 2,
+    w,
+    h,
+    rot,
+  };
+}
+
+/**
  * The union of {@link nodeBounds} over nodes **sharing one coordinate space**
  * (siblings). Use {@link absoluteSelectionBounds} for nodes drawn from
  * different groups. An empty list gives a zero rect at the origin.

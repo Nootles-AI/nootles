@@ -5,7 +5,7 @@
  * first failure — so when `canvas-block-drag` went red on 2026-09-16 the
  * other three stopped running on `main` entirely, and a real break in
  * `canvas-stage` landed five days later without anyone hearing about it
- * (NT-72). One harness's verdict is not the gate's; the gate is all four.
+ * (NT-72). One harness's verdict is not the gate's; the gate is all of them.
  *
  * Sequential on purpose: `canvas-camera` measures frame timing, and a second
  * Chromium on the same machine is exactly the noise its gate is trying to
@@ -24,6 +24,7 @@ const HARNESSES = [
   "canvas-picking",
   "canvas-camera",
   "canvas-stage",
+  "canvas-presence",
 ];
 
 function run(name) {

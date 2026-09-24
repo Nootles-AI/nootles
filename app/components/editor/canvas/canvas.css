@@ -959,6 +959,13 @@
 .nt-copresence-caret.is-idle .nt-copresence-caret-name {
   opacity: 0;
 }
+/* The glides above smooth a remote hand's samples. Chrome drawn from where the
+   shape is on this screen — the model, or the local hand mid-drag — sits on it
+   in the same frame. */
+.nt-copresence-ghost.is-exact,
+.nt-copresence-caret.is-exact {
+  transition: none;
+}
 @media (prefers-reduced-motion: reduce) {
   .nt-canvas-leaf {
     animation: nt-fade-in var(--dur-fast) var(--ease);

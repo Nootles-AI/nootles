@@ -18,6 +18,7 @@
     "test:canvas:camera:record": "node tests/canvas-camera.browser.mjs --record",
     "test:canvas:picking": "node tests/canvas-picking.browser.mjs",
     "test:canvas:stage": "node tests/canvas-stage.browser.mjs",
+    "test:canvas:presence": "node tests/canvas-presence.browser.mjs",
     "test:comments:channel": "node tests/comments-channel.browser.mjs",
     "test:comments:audit": "node tests/comments-audit.browser.mjs",
     "test:comments:inbox": "node tests/comments-inbox.browser.mjs",
