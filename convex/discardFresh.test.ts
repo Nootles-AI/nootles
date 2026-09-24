@@ -105,6 +105,24 @@ describe("a member's import into a workspace", () => {
     await t.withIdentity(CREATOR).mutation(api.projects.discardFresh, { projectId });
     expect(await trashed(t, projectId)).toBe(true);
   });
+
+  test("is logged as its maker discarding it", async () => {
+    const t = convexTest(schema, modules);
+    const workspaceId = await world(t);
+    const projectId = await importInto(t, workspaceId);
+    await t.withIdentity(CREATOR).mutation(api.projects.discardFresh, { projectId });
+    const logged = await t.run((ctx) =>
+      ctx.db
+        .query("auditEvents")
+        .withIndex("by_workspace_at", (q) => q.eq("workspaceId", workspaceId))
+        .collect(),
+    );
+    expect(logged.find((row) => row.action === "project.delete")).toMatchObject({
+      actorId: CREATOR.subject,
+      subjectId: projectId,
+      meta: { discarded: true, project: "Whiskey" },
+    });
+  });
 });
 
 describe("discardFresh refuses", () => {
@@ -157,6 +175,32 @@ describe("discardFresh refuses", () => {
         user: { name: "Member", color: "#000" },
         state: new ArrayBuffer(0),
         updatedAt: Date.now(),
+      });
+    });
+    await expect(
+      t.withIdentity(CREATOR).mutation(api.projects.discardFresh, { projectId }),
+    ).rejects.toThrow("Someone else");
+  });
+
+  test("once someone else has written in one of its pages", async () => {
+    const t = convexTest(schema, modules);
+    const workspaceId = await world(t);
+    const projectId = await importInto(t, workspaceId);
+    await t.run(async (ctx) => {
+      const page = await ctx.db
+        .query("pages")
+        .withIndex("by_project", (q) => q.eq("projectId", projectId))
+        .first();
+      await ctx.db.insert("auditEvents", {
+        workspaceId,
+        actorId: MEMBER.subject,
+        actorKind: "user",
+        action: "page.edit",
+        category: "edit",
+        subjectKind: "page",
+        subjectId: page!._id,
+        at: Date.now(),
+        count: 1,
       });
     });
     await expect(

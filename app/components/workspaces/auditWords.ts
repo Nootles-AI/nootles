@@ -208,7 +208,7 @@ export function whatParts(row: AuditRow, workspaceName: string): Part[] {
         projectId ? { project: projectId, title: String(m.to) } : noun(m.to),
       ];
     case "project.delete":
-      return ["deleted the project ", project];
+      return [m.discarded ? "discarded the new project " : "deleted the project ", project];
     case "project.restore":
       return ["restored the project ", project];
 

@@ -927,6 +927,13 @@ async function touchedByOthers(
       .withIndex("by_doc", (q) => q.eq("docId", page.docId))
       .collect();
     if (present.some((p) => p.userId !== me)) return true;
+    // A document's updates carry no author, but the audit log's edit windows
+    // do: one of someone else's on any page is their writing in it.
+    const edits = await ctx.db
+      .query("auditEvents")
+      .withIndex("by_subject", (q) => q.eq("subjectKind", "page").eq("subjectId", page._id))
+      .collect();
+    if (edits.some((event) => event.actorId !== me)) return true;
   }
 
   for (const table of ["chatThreads", "contextSheet", "projectRepos", "projectFiles", "projectNotion"] as const) {
