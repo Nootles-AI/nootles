@@ -469,9 +469,8 @@
 }
 
 /* A switch at the right end of its row opens its hints leftward, from its
-   right edge, so they stay inside the popover and the page rather than
-   running off them — and, laid out even while hidden, widening them. */
-.nt-ws-invite-pop .nt-tip::after,
+   right edge, so they stay inside the page rather than running off it — and,
+   laid out even while hidden, widening it. */
 .nt-ws-set-head .nt-tip::after,
 .nt-ws-policy .nt-set-actions .nt-tip::after {
   left: auto;
@@ -727,6 +726,11 @@
     transform: translateY(12px) scale(0.97);
   }
 }
+/* Before the invitation is read: the same sheet, still. The answer is the
+   card's one arrival. Its bars sit on white, so they keep their own fill. */
+.nt-ws-join.is-waiting {
+  animation: none;
+}
 .nt-monogram.nt-ws-join-tile {
   width: 48px;
   height: 48px;
@@ -843,7 +847,12 @@
   .nt-ws-arrive,
   .nt-ws-section-in,
   .nt-ws-join,
-  .nt-monogram.nt-ws-join-tile {
+  /* Before the invitation is read: the same sheet, still. The answer is the
+   card's one arrival. Its bars sit on white, so they keep their own fill. */
+.nt-ws-join.is-waiting {
+  animation: none;
+}
+.nt-monogram.nt-ws-join-tile {
     animation: nt-fade-in var(--dur-fast) var(--ease);
   }
   .nt-ws-pile .nt-face,

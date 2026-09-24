@@ -228,6 +228,11 @@ export function JoinInvitation({ token }: { token: string }) {
     }
   }
 
+  return <JoinFrame>{card ?? <JoinWaiting />}</JoinFrame>;
+}
+
+/** The page around the card: the settings surface's topbar, and the card centred under it. */
+export function JoinFrame({ children }: { children: ReactNode }) {
   return (
     <div className="nt-set-page">
       <header className="nt-set-topbar">
@@ -238,10 +243,25 @@ export function JoinInvitation({ token }: { token: string }) {
           Back to your projects
         </Link>
       </header>
-      <main className="nt-ws-join-body" aria-busy={invitation === undefined}>
-        {card}
-      </main>
+      <main className="nt-ws-join-body">{children}</main>
     </div>
+  );
+}
+
+/**
+ * The card before the invitation has been read — or before the account has
+ * signed in to read it: its sheet, the tile's well and bars where the words
+ * will be. Still, so the answer is the card's one arrival.
+ */
+export function JoinWaiting() {
+  return (
+    <section className="nt-ws-join is-waiting" aria-busy="true" aria-label="Reading the invitation">
+      <span className="nt-skeleton h-12 w-12 rounded-xl" />
+      <span className="nt-skeleton mt-4 h-5 w-44" />
+      <span className="nt-skeleton mt-3 h-3.5 w-64 max-w-full" />
+      <span className="nt-skeleton mt-2 h-3.5 w-48 max-w-full" />
+      <span className="nt-skeleton mt-6 h-8 w-20" />
+    </section>
   );
 }
 

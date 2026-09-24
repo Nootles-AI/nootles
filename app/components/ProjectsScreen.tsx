@@ -90,6 +90,8 @@ export function ProjectsScreen() {
   // A guest was let into projects, not into the workspace: nothing is made
   // there by them, and the server says so (`projects.create`).
   const canCreate = !standIn && workspace?.role !== "guest";
+  // Letting someone in is an owner's or an admin's, and never an operator's.
+  const invites = !standIn && (workspace?.role === "owner" || workspace?.role === "admin");
   /*
    * What this browser last saw stands in until the live lists arrive
    * (`projectsCache`) — and for a returning visitor this screen is up before
@@ -408,9 +410,7 @@ export function ProjectsScreen() {
           {/* In a workspace, who is in it comes first — and, for whoever may
               let someone in, the way to. */}
           {workspace && <MembersPile workspace={workspace} />}
-          {workspace && !standIn && (workspace.role === "owner" || workspace.role === "admin") && (
-            <InviteButton workspace={workspace} />
-          )}
+          {workspace && invites && <InviteButton workspace={workspace} />}
           {/* Nothing here belongs to a project, so no project's role gates
               it — only whether anything may be made here at all: not by an
               operator standing in, nor by a workspace's guest, each of whom
@@ -455,7 +455,11 @@ export function ProjectsScreen() {
         {projects === undefined ? (
           <Skeletons view={view} />
         ) : projects.length === 0 ? (
-          <Empty workspace={workspace} onCreate={canCreate ? () => start("create") : null} />
+          <Empty
+            workspace={workspace}
+            invites={invites}
+            onCreate={canCreate ? () => start("create") : null}
+          />
         ) : view === "board" ? (
           <ProjectsBoard
             projects={projects}
@@ -933,9 +937,12 @@ const SharedRow = memo(function SharedRow({
  */
 function Empty({
   workspace,
+  invites,
   onCreate,
 }: {
   workspace: WorkspaceContainer | null;
+  /** A new workspace's other first step, which a phone's header has no room for. */
+  invites: boolean;
   onCreate: (() => void) | null;
 }) {
   return (
@@ -950,14 +957,18 @@ function Empty({
             ? `Projects in ${workspace.name} that are shared with you will be here.`
             : `A workspace is where a team keeps its projects together. Everyone in ${workspace.name} can open what’s made here, unless it’s made private.`}
       </p>
-      {onCreate && (
-        <button
-          onClick={onCreate}
-          className="nt-row mx-auto mt-5 gap-1.5 bg-background px-3 font-medium"
-        >
-          <Plus width={14} height={14} />
-          New project
-        </button>
+      {(onCreate || (workspace && invites)) && (
+        <div className="mt-5 flex flex-wrap justify-center gap-2">
+          {onCreate && (
+            <button onClick={onCreate} className="nt-row gap-1.5 bg-background px-3 font-medium">
+              <Plus width={14} height={14} />
+              New project
+            </button>
+          )}
+          {workspace && invites && (
+            <InviteButton workspace={workspace} label="Invite people" className="nt-row px-2.5" />
+          )}
+        </div>
       )}
     </div>
   );

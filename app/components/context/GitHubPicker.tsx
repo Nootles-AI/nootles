@@ -10,7 +10,13 @@ import { appAndOwn, reason } from "@/app/lib/github";
 import { openConnectWindow } from "./connectWindow";
 import { PickerReading } from "./PickerReading";
 import { GitHubMark } from "./marks";
-import { installPath, useGitHubDoor, useIntegrationsPath, type GitHubDoor } from "./useGitHubDoor";
+import {
+  installPath,
+  useGitHubDoor,
+  useIntegrationsPath,
+  useMembersPath,
+  type GitHubDoor,
+} from "./useGitHubDoor";
 import { useContainer } from "../workspaces/ContainerContext";
 
 /**
@@ -57,6 +63,16 @@ export function GitHubPicker({
 /** The picker's size of `GitHubAppMissing`: who can install the App, and the press that does. */
 function AppMissing({ door }: { door: Extract<GitHubDoor, { via: "shut" }> }) {
   const settings = useIntegrationsPath(door.workspaceId);
+  const people = useMembersPath(door.workspaceId);
+  const who = !door.manages && people && (
+    <>
+      {" "}
+      <Link href={people} className="underline underline-offset-2 hover:text-foreground">
+        {door.unconfigured ? "See who can turn it back on" : "See who can install it"}
+      </Link>
+      .
+    </>
+  );
   return (
     <div className="nt-picker p-2.5">
       {door.canInstall && (
@@ -85,12 +101,18 @@ function AppMissing({ door }: { door: Extract<GitHubDoor, { via: "shut" }> }) {
               .
             </>
           ) : (
-            "An owner or admin turned off personal GitHub connections for this workspace. Upload files or add Notion pages instead."
+            <>
+              An owner or admin turned off personal GitHub connections for this workspace. Upload
+              files or add Notion pages instead.{who}
+            </>
           )
         ) : door.canInstall ? (
           "It reads this workspace’s code: only the repositories you choose, and never writes to them."
         ) : (
-          "The GitHub App isn’t installed. An owner or admin installs it from Settings › Integrations. Until then, upload files or add Notion pages."
+          <>
+            The GitHub App isn’t installed. An owner or admin installs it from Settings ›
+            Integrations. Until then, upload files or add Notion pages.{who}
+          </>
         )}
       </p>
     </div>
