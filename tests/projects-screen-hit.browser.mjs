@@ -5,7 +5,8 @@
  * over the full open-menu box, 288px wide and as tall as the menu, under the
  * header's right edge. That box sat over the lead card's ⋯ (which then faded
  * out, the lead no longer hovered, and could not be pressed), over part of the
- * lead's open-project link, and over the first list row's ⋯.
+ * lead's open-project link, over the first list rows' ⋯ (two, or four with
+ * the Notion import's taller menu), and over the board's top-right card.
  *
  * Drives the real `ProjectsScreen` in grid, list and board view, at 1440, 1024
  * and 600px wide, with the Notion import on offer and not (a third item makes
