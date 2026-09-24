@@ -51,7 +51,7 @@ interface Figure {
 type Key6 = 'pm' | 'design' | 'dev' | 'marketing' | 'stats' | 'customerSuccess';
 const ART: Record<Key6, Figure> = JSON.parse(readFileSync(new URL('./art.json', import.meta.url), 'utf8'));
 
-const VIEW: [number, number, number, number] = [0, 0, 1320, 1320];
+const VIEW: [number, number, number, number] = [0, 0, 1380, 1868];
 const D = 8;
 const FADE: [number, number] = [7.3, 7.8];
 
@@ -142,11 +142,11 @@ const blinks = (times: number[]): Channel =>
 
 // ---- The page -------------------------------------------------------------------
 
-const SHEET = { x: 30, y: 30, w: 1260, h: 1260 };
+const SHEET = { x: 30, y: 30, w: 1320, h: 1808 };
 const TITLE = { x: 96, y: 92, w: 360, h: 30 };
 const ROWS = [0, 1, 2].map((i) => ({ y: 178 + i * 46, w: [330, 260, 300][i] }));
 const BOX = 24;
-const PILE = { x: 1010, y: 107, r: 24, step: 42 };
+const PILE = { x: 1070, y: 107, r: 24, step: 42 };
 
 /** Who is in the workspace, left to right in the order they arrive. */
 const CREW: { key: Key6; name: string; fill: string; eye: string }[] = [
@@ -163,7 +163,7 @@ function page(): void {
   // The workspace's name, and the faces of who is in it: empty seats for now.
   rect({ x: TITLE.x, y: TITLE.y, w: TITLE.w, h: TITLE.h, radius: 15, fill: INK });
   CREW.forEach((_, i) => circle({ cx: PILE.x + i * PILE.step, cy: PILE.y, r: PILE.r - 1.5, stroke: RULE, width: 3 }));
-  line(96, 150, 1224);
+  line(96, 150, 1284);
 }
 function line(x0: number, y: number, x1: number) {
   rect({ x: x0, y: y - 1.5, w: x1 - x0, h: 3, radius: 1.5, fill: '#f1f0ec' });
@@ -231,34 +231,32 @@ function figure(key: Key6, name: string, place: Vec2, root: Vec2, hips: Vec2, pi
     (mirror ? part('mirror', { pivot: root, transform: { scaleX: -1 } }, rig) : rig()));
 }
 
-// Everyone stands on a grid of two rows of three under the plan, the columns
-// 440 apart about the sheet's middle. Each drawing is set by the point that
-// reads as its middle — the body between the feet; for the analyst, the stool
-// it lands on, its board standing off to its right — and by its ground: feet,
-// the chair's legs, the stool's.
-const COL = [220, 660, 1100];
-const FLOOR = [750, 1232];
-/** Where each one lands: its column and row, and its drawing's middle and ground. */
-const SPOT: Record<string, { col: number; row: number; mid: number; ground: number }> = {
-  stats: { col: 0, row: 0, mid: 134, ground: 413 },
-  design: { col: 1, row: 0, mid: 190, ground: 248 },
-  pm: { col: 2, row: 0, mid: 170, ground: 413 },
-  dev: { col: 0, row: 1, mid: 148, ground: 349 },
-  marketing: { col: 1, row: 1, mid: 194, ground: 318 },
-  cs: { col: 2, row: 1, mid: 124, ground: 340 },
+// Everyone gathers in a ring under the plan, seen a little from above: two rows
+// of three bent round one ellipse, the far three on its upper arc and drawn
+// first, the near three on its lower arc and drawn over them, the middle of each
+// row at the ring's top and bottom and the ends at thirty degrees either side.
+// Each drawing is set by the point that reads as its middle — the body between
+// the feet; for the analyst, stool and board together — and by its ground:
+// feet, the chair's legs, the stool's.
+const RING = { cx: 690, cy: 1260, rx: 470, ry: 390 };
+const onRing = (deg: number): Vec2 => {
+  const a = deg * Math.PI / 180;
+  return [RING.cx + RING.rx * Math.cos(a), RING.cy + RING.ry * Math.sin(a)];
 };
-const PLACE: Record<string, Vec2> = Object.fromEntries(Object.entries(SPOT)
-  .map(([k, s]) => [k, [COL[s.col] - s.mid, FLOOR[s.row] - s.ground] as Vec2]));
+/** Where on the ring each one stands (degrees, 90 nearest), and its drawing's middle and ground. */
+const SPOT: Record<string, { at: number; mid: number; ground: number }> = {
+  design: { at: 210, mid: 190, ground: 248 },
+  stats: { at: 270, mid: 243, ground: 413 },
+  pm: { at: 330, mid: 170, ground: 413 },
+  dev: { at: 150, mid: 148, ground: 349 },
+  marketing: { at: 90, mid: 194, ground: 318 },
+  cs: { at: 30, mid: 124, ground: 340 },
+};
+const PLACE: Record<string, Vec2> = Object.fromEntries(Object.entries(SPOT).map(([k, s]) => {
+  const [x, y] = onRing(s.at);
+  return [k, [Math.round(x - s.mid), Math.round(y - s.ground)] as Vec2];
+}));
 PLACE.board = PLACE.stats;
-
-/** The marks on the floor where everyone lands: flat, warm, barely there. */
-const MARK = { rx: 112, ry: 18 };
-function marks(): void {
-  for (const [k, s] of Object.entries(SPOT)) {
-    const c: Vec2 = [COL[s.col], FLOOR[s.row]];
-    part(`mark_${k}`, { pivot: c }, () => ellipse({ cx: c[0], cy: c[1], rx: MARK.rx, ry: MARK.ry, fill: '#f1f0ec' }));
-  }
-}
 
 // The marketer's shout, drawn from the megaphone's bell outward.
 const BELL: Vec2 = [44, 199];
@@ -302,13 +300,10 @@ export const team = character('join', { viewBox: VIEW, duration: D }, () => {
   part('plan', plan);
   part('faces', faces);
 
-  // The marks come first, under everyone.
-  part('marks', marks);
-
   // Everyone arrives into the page, not onto it from the desk around it.
   const sheet = clipPath('sheet', () => rect({ x: SHEET.x, y: SHEET.y, w: SHEET.w, h: SHEET.h, radius: 30, fill: '#000' }));
   part('cast', { clip: sheet }, () => {
-    // -- Back row --
+    // -- The far side of the ring --
     // The board and the stool are the analyst's, and arrive before it does.
     const st = ART.stats;
     part('board', { pivot: [307, 405], transform: { x: PLACE.board[0], y: PLACE.board[1] } }, () => {
@@ -357,7 +352,7 @@ export const team = character('join', { viewBox: VIEW, duration: D }, () => {
       { name: 'mapArm', refs: [8, 9, 10], pivot: [124, 212] },
     ]);
 
-    // -- Front row --
+    // -- The near side, drawn over it --
     const mk = ART.marketing;
     part('chair', { pivot: [194, 318], transform: { x: PLACE.marketing[0], y: PLACE.marketing[1] } }, () => draw(nodeOf(mk, 0)));
     figure('marketing', 'marketing', PLACE.marketing, [195, 206], [195, 200], [
@@ -411,7 +406,6 @@ const present = at([[0, 0], [0.15, 0], [0.4, 1], [FADE[0], 1, easeIn], [FADE[1],
 P('cast').animate({ opacity: present });
 P('plan').animate({ opacity: present });
 P('faces').animate({ opacity: present });
-P('marks').animate({ opacity: present });
 
 /** A face joins the pile: popped in with a little overshoot. */
 function join(i: number, t: number) {
@@ -517,33 +511,17 @@ const bobs = (who: string, names: string[]) => names.map((n) => `cast.${who}.${n
 
 const T = {
   pm: [0.25, 1.67], design: 1.15, dev: [0.95, 2.28], chair: 1.3, marketing: 1.75,
-  board: 1.65, stats: 2.1, cs: [1.88, 3.05], cheer: 5.1,
+  board: 1.65, stats: 2.1, cs: [2.0, 3.05], cheer: 5.1,
 } as const;
 /** The faces join the pile at an even stagger as each teammate appears. */
 const FACE = (i: number) => 0.75 + i * 0.35;
 
-/**
- * A floor mark: it opens from its middle just before its owner lands (if
- * `appear` is given), and gives a little under each landing, by its weight —
- * spread wide, pressed flat, back.
- */
-function mark(who: string, appear: number | undefined, hits: [t: number, weight: number][]) {
-  const k = (spread: number): Key[] => {
-    const ks: Key[] = [[0, appear === undefined ? 1 : 0]];
-    if (appear !== undefined) ks.push([appear, 0, easeOut], [appear + 0.4, 1]);
-    for (const [t, w] of hits) {
-      ks.push([t - 0.02, 1, easeOut], [t + 0.08, 1 + spread * w, easeInOut], [t + 0.24, 1 - spread * w * 0.2, easeInOut], [t + 0.42, 1]);
-    }
-    return ks;
-  };
-  P(`marks.mark_${who}`).animate({ scaleX: at(k(0.08)), scaleY: at(k(-0.2)) });
-}
 
 // -- The navigator. --
 {
   const [t0, t1] = T.pm;
   walk({
-    t0, t1, walker: 'cast.pm', from: 380, step: 0.36, lift: 9,
+    t0, t1, walker: 'cast.pm', from: 460, step: 0.36, lift: 9,
     legs: [
       { path: 'cast.pm.legR', hip: [204, 336], foot: [204, 413], phase: 0 },
       { path: 'cast.pm.legL', hip: [140, 336], foot: [140, 413], phase: 0.5 },
@@ -551,7 +529,6 @@ function mark(who: string, appear: number | undefined, hits: [t: number, weight:
     bob: bobs('pm', ['armR', 'body', 'eyes', 'antenna', 'mapArm']),
   });
   join(0, FACE(0));
-  mark('pm', t1 - 0.45, [[t1, 0.6]]);
   // Holding the plan up for everyone to see, as it appears on the page.
   const up = t1 + 0.3;
   P('cast.pm.mapArmBob.mapArm').animate({
@@ -594,7 +571,6 @@ function mark(who: string, appear: number | undefined, hits: [t: number, weight:
   });
   hop('cast.design', land - 0.02, 0, 1.6);
   join(1, FACE(1));
-  mark('design', land - 0.45, [[land, 1]]);
   // The beret lifts off in the fall and lands a beat after the head does.
   P('cast.design.hatBob.hat').animate({
     y: at([[0, 0], [land - fall, 0, easeOut], [land - 0.1, -22, easeIn], [land + 0.08, -26, easeIn], [land + 0.24, 2, easeOut], [land + 0.34, 0]]),
@@ -618,7 +594,7 @@ function mark(who: string, appear: number | undefined, hits: [t: number, weight:
 {
   const [t0, t1] = T.dev;
   walk({
-    t0, t1, walker: 'cast.dev', from: -350, step: 0.32, lift: 10, mirror: true,
+    t0, t1, walker: 'cast.dev', from: -400, step: 0.32, lift: 10, mirror: true,
     legs: [
       { path: 'cast.dev.mirror.legR', hip: [170, 286], foot: [186, 348], phase: 0 },
       { path: 'cast.dev.mirror.legL', hip: [116, 286], foot: [112, 349], phase: 0.5 },
@@ -626,7 +602,6 @@ function mark(who: string, appear: number | undefined, hits: [t: number, weight:
     bob: bobs('dev.mirror', ['armR', 'hammerBack', 'antL', 'antR', 'body', 'eyes', 'hammer']),
   });
   join(2, FACE(2));
-  mark('dev', t1 - 0.45, [[t1, 0.6]]);
   const hits = [t1 + 0.55, t1 + 0.95];
   // Wind up, strike, recoil, once per blow; the second lands the tick.
   const blows: Key[] = [[0, 0], [hits[0] - 0.45, 0, easeOut]];
@@ -657,11 +632,10 @@ function mark(who: string, appear: number | undefined, hits: [t: number, weight:
     opacity: at([[0, 0], [c, 0], [c + 0.06, 1]]),
   });
   const land = T.marketing;
-  const fall = 0.55;
-  P('cast.marketing').animate({ y: at([[0, -1160], [land - fall, -1160, cubicBezier(0.45, 0, 0.95, 0.55)], [land, 0]]) });
+  const fall = 0.5;
+  P('cast.marketing').animate({ y: at([[0, -1600], [land - fall, -1600, cubicBezier(0.45, 0, 0.95, 0.55)], [land, 0]]) });
   hop('cast.marketing', land - 0.02, 0, 1.4);
   join(3, FACE(3));
-  mark('marketing', c - 0.4, [[c + 0.06, 0.5], [land, 1]]);
   P('cast.marketing.earLBob.earL').animate({
     rotate: at([[0, 0], [land - fall, 0, easeOut], [land - 0.05, 20], [land + 0.14, -12, easeInOut], [land + 0.36, 5, easeInOut], [land + 0.6, 0]]),
   }).animate({ rotate: wobble(3, 3) });
@@ -711,12 +685,11 @@ function mark(who: string, appear: number | undefined, hits: [t: number, weight:
   const land = T.stats;
   // In from the left in one bound, up and onto the stool.
   const t0 = land - 0.55;
-  P('cast.stats').animate({ x: at([[0, -480], [t0, -480, linear], [land, 0]]) });
+  P('cast.stats').animate({ x: at([[0, -740], [t0, -740, linear], [land, 0]]) });
   P('cast.stats').animate({ y: at([[0, 125], [t0, 125, easeOut], [t0 + 0.3, -150, easeIn], [land, 0]]) });
   P('cast.stats').animate({ rotate: at([[0, 0], [t0, -14, easeOut], [land - 0.1, 6, easeInOut], [land + 0.15, -2, easeInOut], [land + 0.35, 0]]) });
   hop('cast.stats', land - 0.02, 0, 1.5);
   join(4, FACE(4));
-  mark('stats', b - 0.3, [[land, 1]]);
   // Legs tucked in the bound.
   for (const [leg, s] of [['legR', 1], ['legL', -1]] as const) {
     P(`cast.stats.${leg}Bob.${leg}`).animate({ rotate: at([[0, 0], [t0, 0, easeOut], [t0 + 0.2, 18 * s, easeInOut], [land - 0.05, 0]]) });
@@ -741,7 +714,7 @@ function mark(who: string, appear: number | undefined, hits: [t: number, weight:
 {
   const [t0, t1] = T.cs;
   walk({
-    t0, t1, walker: 'cast.cs', from: 330, step: 0.32, lift: 9,
+    t0, t1, walker: 'cast.cs', from: 380, step: 0.32, lift: 9,
     legs: [
       { path: 'cast.cs.legL', hip: [95, 284], foot: [95, 340], phase: 0 },
       { path: 'cast.cs.legR', hip: [156, 284], foot: [156, 340], phase: 0.5 },
@@ -749,7 +722,6 @@ function mark(who: string, appear: number | undefined, hits: [t: number, weight:
     bob: bobs('cs', ['shade', 'armR', 'body', 'wave', 'laptop', 'eyes', 'headset', 'earL', 'earR', 'heart']),
   });
   join(5, FACE(5));
-  mark('cs', t1 - 0.45, [[t1, 0.6]]);
   const h = t1 + 0.1;
   P('cast.cs.heartBob.heart').animate({
     scaleX: at([[0, 0], [h, 0, pop], [h + 0.35, 1]]),
@@ -768,14 +740,13 @@ function mark(who: string, appear: number | undefined, hits: [t: number, weight:
     .animate({ scaleY: blinks([4.6]) });
 }
 
-// -- All together: a hop that runs along the team left to right, the last item
-// ticked as they land, the faces in the pile bobbing in turn. --
+// -- All together: a hop that runs round the ring, from the near left up over
+// the far side and back to the near middle, the last item ticked as they land,
+// the faces in the pile bobbing in turn. --
 {
   const c = T.cheer;
-  const order: [string, number][] = [['stats', 0], ['dev', 0.05], ['design', 0.1], ['marketing', 0.15], ['pm', 0.2], ['cs', 0.25]];
+  const order: [string, number][] = [['dev', 0], ['design', 0.05], ['stats', 0.1], ['pm', 0.15], ['cs', 0.2], ['marketing', 0.25]];
   for (const [who, lag] of order) hop(`cast.${who}`, c + lag, who === 'marketing' ? 22 : 38, 1);
-  // Each mark takes the weight of its hop's landing too.
-  for (const [who, lag] of order) mark(who, undefined, [[c + lag + 0.5, 0.5]]);
   tick(2, c + 0.55);
   CREW.forEach((_, i) => {
     const t = c + 0.1 + i * 0.05;
@@ -784,15 +755,15 @@ function mark(who: string, appear: number | undefined, hits: [t: number, weight:
   // Arms up with the hop, where there is an arm free to throw.
   const cheer = (lag: number, amp: number): Channel =>
     at([[0, 0], [c + lag, 0, easeOut], [c + lag + 0.2, amp, easeInOut], [c + lag + 0.55, amp, easeInOut], [c + lag + 0.85, 0]]);
-  for (const p of ['brushBackBob.brushBack', 'brushBob.brush']) P(`cast.design.${p}`).animate({ rotate: cheer(0.1, 40) });
-  for (const p of ['paletteBackBob.paletteBack', 'paletteBob.palette']) P(`cast.design.${p}`).animate({ rotate: cheer(0.1, -32) });
-  for (const p of ['hammerBackBob.hammerBack', 'hammerBob.hammer']) P(`cast.dev.mirror.${p}`).animate({ rotate: cheer(0.05, -16) });
-  P('cast.dev.mirror.armRBob.armR').animate({ rotate: cheer(0.05, -135) });
-  for (const p of ['megaBackBob.megaBack', 'megaBob.mega']) P(`cast.marketing.${p}`).animate({ rotate: cheer(0.15, 30) });
-  for (const p of ['armRBackBob.armRBack', 'armRBob.armR']) P(`cast.marketing.${p}`).animate({ rotate: cheer(0.15, -110) });
-  P('cast.stats.armLBob.armL').animate({ rotate: cheer(0, 60) });
-  P('cast.pm.mapArmBob.mapArm').animate({ rotate: cheer(0.2, 30) });
-  P('cast.pm.armRBob.armR').animate({ rotate: cheer(0.2, -18) });
+  for (const p of ['brushBackBob.brushBack', 'brushBob.brush']) P(`cast.design.${p}`).animate({ rotate: cheer(0.05, 40) });
+  for (const p of ['paletteBackBob.paletteBack', 'paletteBob.palette']) P(`cast.design.${p}`).animate({ rotate: cheer(0.05, -32) });
+  for (const p of ['hammerBackBob.hammerBack', 'hammerBob.hammer']) P(`cast.dev.mirror.${p}`).animate({ rotate: cheer(0, -16) });
+  P('cast.dev.mirror.armRBob.armR').animate({ rotate: cheer(0, -135) });
+  for (const p of ['megaBackBob.megaBack', 'megaBob.mega']) P(`cast.marketing.${p}`).animate({ rotate: cheer(0.25, 30) });
+  for (const p of ['armRBackBob.armRBack', 'armRBob.armR']) P(`cast.marketing.${p}`).animate({ rotate: cheer(0.25, -110) });
+  P('cast.stats.armLBob.armL').animate({ rotate: cheer(0.1, 60) });
+  P('cast.pm.mapArmBob.mapArm').animate({ rotate: cheer(0.15, 30) });
+  P('cast.pm.armRBob.armR').animate({ rotate: cheer(0.15, -18) });
 }
 
 export default team;
