@@ -4,20 +4,16 @@ import {
   useCallback,
   useEffect,
   useId,
-  useLayoutEffect,
   useRef,
   useState,
   type FormEvent,
-  type RefObject,
 } from "react";
-import { createPortal } from "react-dom";
-import Link from "next/link";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { WorkspaceRole } from "@/convex/auth";
 import { normalizeEmail, NOT_AN_EMAIL, plausibleEmail } from "@/convex/emails";
-import { joinPath, settingsPath } from "@/app/lib/containerPaths";
-import { Check, ChevronRight, ChevronsUpDown, Copy } from "../Icons";
+import { joinPath } from "@/app/lib/containerPaths";
+import { Check, ChevronsUpDown, Copy } from "../Icons";
 import { Menu, MenuItem } from "../Menu";
 import type { WorkspaceContainer } from "./ContainerContext";
 import { refusal } from "./refusal";
@@ -30,174 +26,6 @@ const DAY_MS = 86_400_000;
 
 const HOW =
   "You’ll get a link to send them yourself. It opens only for someone signed in with that address.";
-
-/**
- * Inviting someone, from the workspace's home: a popover on the Invite button
- * in the share popover's dress, since this too is a thing you do and copy,
- * not a task that needs the page taken away. Admins and owners only — the
- * caller decides whether to draw it; the server decides whether it works.
- */
-export function InviteButton({
-  workspace,
-  label = "Invite",
-  className = "nt-row nt-ws-invite px-2.5",
-}: {
-  workspace: WorkspaceContainer;
-  label?: string;
-  className?: string;
-}) {
-  const [open, setOpen] = useState(false);
-  // Shut but still playing its way out, as the share popover does.
-  const [leaving, setLeaving] = useState(false);
-  const trigger = useRef<HTMLButtonElement>(null);
-  const close = useCallback(() => {
-    setOpen(false);
-    setLeaving(true);
-    trigger.current?.focus();
-  }, []);
-
-  return (
-    <>
-      <button
-        ref={trigger}
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        onClick={() => {
-          if (open) return close();
-          setLeaving(false);
-          setOpen(true);
-        }}
-        className={className}
-      >
-        {label}
-      </button>
-      {(open || leaving) && (
-        <InvitePopover
-          workspace={workspace}
-          anchor={trigger}
-          closing={!open}
-          onClose={close}
-          onGone={() => setLeaving(false)}
-        />
-      )}
-    </>
-  );
-}
-
-function InvitePopover({
-  workspace,
-  anchor,
-  closing,
-  onClose,
-  onGone,
-}: {
-  workspace: WorkspaceContainer;
-  anchor: RefObject<HTMLButtonElement | null>;
-  /** On its way out: drawn, but no longer answering anything. */
-  closing: boolean;
-  onClose: () => void;
-  onGone: () => void;
-}) {
-  // Under the button, its right edge on the button's: it sits at the end of
-  // the header, and grows from the corner that touches what raised it.
-  const pop = useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
-  useLayoutEffect(() => {
-    const place = () => {
-      const t = anchor.current;
-      const p = pop.current;
-      if (!t || !p) return;
-      const r = t.getBoundingClientRect();
-      const left = Math.min(
-        Math.max(8, r.right - p.offsetWidth),
-        window.innerWidth - p.offsetWidth - 8,
-      );
-      setPos({ top: r.bottom + 6, left });
-    };
-    place();
-    window.addEventListener("resize", place);
-    window.addEventListener("scroll", place, true);
-    return () => {
-      window.removeEventListener("resize", place);
-      window.removeEventListener("scroll", place, true);
-    };
-  }, [anchor]);
-
-  useEffect(() => {
-    if (closing) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      e.preventDefault();
-      onClose();
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [onClose, closing]);
-
-  return createPortal(
-    <>
-      {/* Pointer-only dismissal; keyboard users get Escape and Tab-out. */}
-      {!closing && (
-        <div
-          className="fixed inset-0"
-          style={{ zIndex: "var(--z-modal)" }}
-          onMouseDown={onClose}
-        />
-      )}
-      <div
-        ref={pop}
-        role="dialog"
-        aria-label={`Invite people to ${workspace.name}`}
-        // Tabbing out of the last control closes it rather than stranding
-        // focus behind the click-catcher, like a menu's Tab — but not going
-        // into the role menu, which is portaled out of its box.
-        onBlur={(e) => {
-          const to = e.relatedTarget;
-          if (
-            !closing &&
-            to instanceof Element &&
-            !e.currentTarget.contains(to) &&
-            !to.closest("[role='menu']")
-          ) {
-            onClose();
-          }
-        }}
-        inert={closing}
-        onAnimationEnd={(e) => {
-          if (closing && e.target === e.currentTarget) onGone();
-        }}
-        // Never a scroller: what it holds is a form and a link, which fit any
-        // window.
-        className={`nt-menu fixed w-[22rem] max-w-[calc(100vw-1rem)] p-3${
-          closing ? " is-closing" : ""
-        }`}
-        style={
-          {
-            top: pos?.top ?? 0,
-            left: pos?.left ?? 0,
-            visibility: pos ? undefined : "hidden",
-            zIndex: "var(--z-modal)",
-            "--origin": "top right",
-          } as React.CSSProperties
-        }
-      >
-        {/* Mounted once placed: a hidden field refuses the focus it asks for. */}
-        {pos && <InviteForm workspace={workspace} autoFocus />}
-        {/* The way on to everyone, set apart from the notes above it as a
-            row with somewhere to go. */}
-        <div className="nt-menu-sep mx-0 mt-3" />
-        <Link
-          href={settingsPath(workspace.slug, "members")}
-          className="nt-row nt-ws-onward -mx-2 -mb-2 w-[calc(100%+1rem)] justify-between px-2"
-        >
-          Members and invitations
-          <ChevronRight width={14} height={14} aria-hidden="true" className="nt-ws-onward-glyph" />
-        </Link>
-      </div>
-    </>,
-    document.body,
-  );
-}
 
 /**
  * What an invite form holds, wherever it is drawn: the address as typed, the
