@@ -4,7 +4,7 @@ import type { ConvexReactClient } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { handlesFor } from "@/app/components/editor/album/handle";
 import { parseAlbum } from "@/app/components/editor/album/parse";
-import { contactSheet, SHEET_MAX } from "@/app/components/editor/album/sheet";
+import { contactSheet, measure, SHEET_MAX } from "@/app/components/editor/album/sheet";
 import type { AlbumItem } from "@/app/components/editor/album/types";
 import type { AnyBlock } from "./projection";
 
@@ -25,13 +25,14 @@ import type { AnyBlock } from "./projection";
  * are right there — and never sends a picture anywhere.
  */
 
+/** Colour columns are absent together when the picture was never measured. */
 type Meta = {
   src: string;
-  hex: string;
-  palette: string[];
-  hue: number;
-  sat: number;
-  light: number;
+  hex?: string;
+  palette?: string[];
+  hue?: number;
+  sat?: number;
+  light?: number;
   energy?: number;
   alt?: string;
   striking?: number;
@@ -74,7 +75,7 @@ async function describeMissing(
     wanted.map(({ item, handle }) => ({
       handle,
       src: item.src,
-      measured: known.has(handle),
+      measured: known.get(handle)?.hex !== undefined,
     })),
   );
   if (!sheet) return known;
@@ -126,14 +127,7 @@ async function describeMissing(
     const src = bySrc.get(row.handle);
     if (!src || !row.alt) continue;
     known.set(row.handle, {
-      ...(known.get(row.handle) ?? {
-        src,
-        hex: "#808080",
-        palette: [],
-        hue: 0,
-        sat: 0,
-        light: 50,
-      }),
+      ...(known.get(row.handle) ?? { src }),
       alt: row.alt,
       striking: row.striking,
     });
@@ -141,9 +135,47 @@ async function describeMissing(
   return known;
 }
 
+/**
+ * Colour for pictures that are described but were never measured — their
+ * colour write did not land, or an older build stood grey in for it. A
+ * described picture never goes on a sheet again, so this is the only pass that
+ * will see its pixels; it costs a fetch per picture and no model call.
+ */
+async function measureDescribed(
+  convex: ConvexReactClient,
+  items: readonly AlbumItem[],
+  handles: readonly string[],
+  known: Map<string, Meta>,
+): Promise<Map<string, Meta>> {
+  const wanted = items
+    .map((item, i) => ({ item, handle: handles[i] }))
+    .filter(({ item, handle }) => {
+      const meta = known.get(handle);
+      return item.kind === "image" && meta?.alt !== undefined && meta.hex === undefined;
+    })
+    .slice(0, SHEET_MAX);
+  if (!wanted.length) return known;
+
+  const stats = await measure(wanted.map(({ item }) => item.src));
+  const measured = wanted.flatMap(({ item, handle }) => {
+    const found = stats.get(item.src);
+    return found ? [{ handle, src: item.src, stats: found }] : [];
+  });
+  if (!measured.length) return known;
+  await convex
+    .mutation(api.imageMeta.put, {
+      entries: measured.map(({ src, stats }) => ({ src, ...stats })),
+    })
+    .catch(() => {});
+  for (const { handle, src, stats } of measured) {
+    known.set(handle, { ...known.get(handle), src, ...stats });
+  }
+  return known;
+}
+
 /** `#2f4858 h205 s34 l26` — the colour, said twice, because both get used. */
 function colourOf(meta: Meta | undefined): string {
-  if (!meta) return "colour unmeasured";
+  if (meta?.hex === undefined) return "colour unmeasured";
   return `${meta.hex} h${meta.hue} s${meta.sat} l${meta.light}`;
 }
 
@@ -181,6 +213,7 @@ export async function albumIndex(
         return meta ? [[handles[i], meta] as const] : [];
       }),
     );
+    known = await measureDescribed(convex, items, handles, known).catch(() => known);
     known = await describeMissing(convex, items, handles, known).catch(() => known);
 
     const lines = items.map((item, i) => {

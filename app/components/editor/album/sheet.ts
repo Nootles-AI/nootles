@@ -34,7 +34,7 @@ export const SHEET_MAX = 24;
 export type SheetTile = {
   handle: string;
   src: string;
-  /** Measured on the way past — present only for a picture that had no row. */
+  /** Measured on the way past — present only for a picture with no colour yet. */
   stats: ImageStats | null;
 };
 
@@ -60,6 +60,21 @@ async function bitmapOf(src: string): Promise<ImageBitmap | null> {
   } catch {
     return null;
   }
+}
+
+/** The free colour tier for pictures that are not going on a sheet. */
+export async function measure(srcs: readonly string[]): Promise<Map<string, ImageStats>> {
+  const measured = new Map<string, ImageStats>();
+  await Promise.all(
+    srcs.map(async (src) => {
+      const bitmap = await bitmapOf(src);
+      if (!bitmap) return;
+      const stats = statsFrom(bitmap);
+      bitmap.close();
+      if (stats) measured.set(src, stats);
+    }),
+  );
+  return measured;
 }
 
 export async function contactSheet(
