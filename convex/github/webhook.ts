@@ -45,7 +45,7 @@ type Payload = {
   ref?: string;
   repositories_removed?: { full_name?: string }[];
   organization?: { login?: string };
-  membership?: { user?: { login?: string } };
+  membership?: { user?: { login?: string; id?: number } };
 };
 
 const BRANCH = "refs/heads/";
@@ -90,11 +90,13 @@ export async function deliver(ctx: ActionCtx, event: string, payload: Payload): 
   if (event === "organization" && payload.action === "member_removed") {
     const org = payload.organization?.login;
     const login = payload.membership?.user?.login;
+    const userId = payload.membership?.user?.id;
     if (org && login) {
       await ctx.runMutation(internal.github.installations.onOrgMemberRemoved, {
         installationId,
         org,
         login,
+        ...(typeof userId === "number" ? { userId } : {}),
       });
     }
   }

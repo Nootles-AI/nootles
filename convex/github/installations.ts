@@ -44,6 +44,22 @@ export async function installationIn(
   return rows.find((row) => row.workspaceId === workspaceId) ?? null;
 }
 
+/**
+ * The workspace's installation on the GitHub organisation `org`, whatever its
+ * state — the one the organisation rule is checked through.
+ */
+export async function orgInstallation(
+  ctx: QueryCtx,
+  workspaceId: Id<"workspaces">,
+  org: string,
+): Promise<Doc<"githubInstallations"> | null> {
+  const wanted = org.toLowerCase();
+  const rows = (await installationsOf(ctx, workspaceId)).filter(
+    (row) => row.accountType === "Organization" && row.accountLogin.toLowerCase() === wanted,
+  );
+  return rows.find((row) => !unusable(row)) ?? rows[0] ?? null;
+}
+
 export async function installationsOf(ctx: QueryCtx, workspaceId: Id<"workspaces">) {
   return await ctx.db
     .query("githubInstallations")
@@ -303,10 +319,16 @@ export const onRepositories = internalMutation({
 /**
  * Someone left a GitHub organisation: in every workspace this installation
  * serves whose rule names that organisation, whoever passed the rule as that
- * login has to pass it again.
+ * account loses the pass now rather than at the next nightly check. Who they
+ * are on GitHub stays, so that check lets them back in if they rejoin.
  */
 export const onOrgMemberRemoved = internalMutation({
-  args: { installationId: v.number(), org: v.string(), login: v.string() },
+  args: {
+    installationId: v.number(),
+    org: v.string(),
+    login: v.string(),
+    userId: v.optional(v.number()),
+  },
   handler: async (ctx, args) => {
     const org = args.org.toLowerCase();
     const login = args.login.toLowerCase();
@@ -324,8 +346,12 @@ export const onOrgMemberRemoved = internalMutation({
         )
         .collect();
       for (const seat of seats) {
-        if (seat.githubOrgLogin?.toLowerCase() !== login) continue;
-        await ctx.db.patch(seat._id, { githubOrgVerifiedAt: undefined, githubOrgLogin: undefined });
+        const same =
+          args.userId !== undefined && seat.githubUserId !== undefined
+            ? seat.githubUserId === args.userId
+            : seat.githubOrgLogin?.toLowerCase() === login;
+        if (!same || seat.githubOrgVerifiedAt === undefined) continue;
+        await ctx.db.patch(seat._id, { githubOrgVerifiedAt: undefined });
       }
     }
   },

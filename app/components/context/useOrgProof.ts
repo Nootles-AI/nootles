@@ -11,10 +11,11 @@ import { openConnectWindow } from "./connectWindow";
 export type ProofLine = { text: string; problem: boolean; n: number };
 
 /**
- * Showing a workspace's GitHub organisation rule that you belong to `org`,
- * the one way anyone does it: your own GitHub connection asks GitHub, on a
- * press (`github/orgProof.verify`). Without a connection the press connects
- * one first, in its own window, and the button turns into Verify when it lands.
+ * Showing a workspace's GitHub organisation rule that you belong to `org`.
+ * Your own GitHub connection says who you are; the workspace's GitHub App asks
+ * the organisation (`github/orgProof`). Connecting is the one thing asked of
+ * you: the check runs as the connection lands, and again every night after,
+ * so the press here is only for checking now rather than waiting.
  *
  * `action` is null while there is nothing to press: the connection is still
  * being asked after, or this deployment cannot hold one (`blocker`).
@@ -48,11 +49,13 @@ export function useOrgProof(
     let verified = false;
     let answer: Omit<ProofLine, "n">;
     try {
-      verified = (await verify({ workspaceId })).verified;
+      const proof = await verify({ workspaceId });
+      const who = `@${proof.login ?? account.login}`;
+      verified = proof.verified;
       answer = verified
-        ? { text: `Verified: GitHub lists @${account.login} in ${org}.`, problem: false }
+        ? { text: `Verified: GitHub lists ${who} in ${org}.`, problem: false }
         : {
-            text: `GitHub doesn’t list @${account.login} as a member of ${org}. If you are one, check this is the GitHub account you’re in it with, and that you’ve accepted its invitation.`,
+            text: `GitHub doesn’t list ${who} as a member of ${org}. If you are one, check this is the GitHub account you’re in it with, and that you’ve accepted its invitation.`,
             problem: true,
           };
     } catch (error) {
@@ -70,18 +73,20 @@ export function useOrgProof(
       ? null
       : connected
         ? {
-            label: busy ? "Verifying…" : "Verify GitHub membership",
+            label: busy ? "Checking…" : "Check now",
             run: () => void run(),
             busy,
           }
         : {
-            label: account ? "Reconnect GitHub to verify" : "Connect GitHub to verify",
+            label: account ? "Reconnect GitHub" : "Connect GitHub",
             run: () => openConnectWindow("/api/github/connect"),
             busy: false,
           };
 
   return {
     action,
+    /** A working connection, which is all the nightly check needs from them. */
+    connected,
     blocker: personal && !personal.ready ? personal.blocker : null,
     said,
     line,

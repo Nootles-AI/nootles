@@ -468,8 +468,9 @@ function CodeAccess({
               <div className="nt-set-name">Require GitHub organisation membership</div>
               <Said open={!!rule}>
                 Only members of <Login>{named}</Login> on GitHub can read this workspace’s code, owners
-                and admins included, and anyone who leaves it loses access at once. Each person verifies
-                here or from a project’s context every two weeks. Guests aren’t affected.
+                and admins included, and anyone who leaves it loses access at once. Each person connects
+                GitHub once; the GitHub App checks their membership every night after that. Guests
+                aren’t affected.
               </Said>
               <Said open={!rule}>
                 {orgs.length
@@ -640,8 +641,12 @@ function ProofRow({
   const { passes, verifiedAt, login } = status.orgProof;
   const verified = passes && !!verifiedAt;
   const hidden = verifiedAt
-    ? "Your last check is over two weeks old. Until you verify again, this workspace’s code is hidden from you."
-    : "Not verified. Until you are, this workspace’s code is hidden from you.";
+    ? "Nootles hasn’t been able to check your membership lately. Until it can, this workspace’s code is hidden from you."
+    : login
+      ? `GitHub doesn’t list @${login} in ${org}, so this workspace’s code is hidden from you. Nootles checks again each night.`
+      : proof.connected
+        ? "Not checked yet. Until it is, this workspace’s code is hidden from you."
+        : "Connect GitHub once and your membership is checked automatically from then on. Until then, this workspace’s code is hidden from you.";
   // Each line goes on drawing what it last said while it folds shut.
   const [drawn, setDrawn] = useState({ at: verifiedAt, login, hidden });
   if (verified && (verifiedAt !== drawn.at || login !== drawn.login)) setDrawn({ ...drawn, at: verifiedAt, login });
@@ -657,8 +662,8 @@ function ProofRow({
         </div>
         <Fold open={verified}>
           <div className="nt-set-meta">
-            Verified{drawn.at ? ` ${WHEN.format(drawn.at)}` : ""}
-            {drawn.login ? ` · @${drawn.login}` : ""}
+            {drawn.login ? `@${drawn.login} · ` : ""}Checked automatically
+            {drawn.at ? `, last ${WHEN.format(drawn.at)}` : ""}
           </div>
         </Fold>
         <Fold open={!verified}>

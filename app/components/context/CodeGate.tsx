@@ -11,7 +11,12 @@ import { useOrgProof } from "./useOrgProof";
 /** How long "Verified" stays up once the gate has nothing left to hold back. */
 const VERIFIED_MS = 2000;
 
-type Drawn = { org: string; lapsed: boolean };
+/**
+ * Why the rule holds them: a proof the nightly check stopped renewing, an
+ * account GitHub doesn't list in the organisation, or no account known yet.
+ */
+type Why = "lapsed" | "unlisted" | "unknown";
+type Drawn = { org: string; why: Why; login: string | null };
 
 /**
  * Why a workspace's code is missing from this project's context, for a member
@@ -32,11 +37,14 @@ function Fold({ workspaceId, frame }: { workspaceId: Id<"workspaces">; frame: bo
   const status = useQuery(api.github.app.status, { workspaceId });
   const org = status?.requireGithubOrg ?? null;
   const held = !!status && !!org && !status.orgProof.passes;
-  const lapsed = !!status?.orgProof.verifiedAt;
+  const login = status?.orgProof.login ?? null;
+  const why: Why = status?.orgProof.verifiedAt ? "lapsed" : login ? "unlisted" : "unknown";
 
   // Shut, the fold goes on drawing what it last held, so it is there as it closes.
   const [drawn, setDrawn] = useState<Drawn | null>(null);
-  if (held && org && (drawn?.org !== org || drawn.lapsed !== lapsed)) setDrawn({ org, lapsed });
+  if (held && org && (drawn?.org !== org || drawn.why !== why || drawn.login !== login)) {
+    setDrawn({ org, why, login });
+  }
 
   const [holding, setHolding] = useState<"pressing" | "verified" | null>(null);
   const fold = useRef<HTMLDivElement>(null);
@@ -92,14 +100,15 @@ function Fold({ workspaceId, frame }: { workspaceId: Id<"workspaces">; frame: bo
 function Gate({
   workspaceId,
   org,
-  lapsed,
+  why,
+  login,
   onStart,
   onSettled,
 }: {
   workspaceId: Id<"workspaces">;
   org: string;
-  /** Verified once, more than the rule's two weeks ago. */
-  lapsed: boolean;
+  why: Why;
+  login: string | null;
   onStart: () => void;
   onSettled: (verified: boolean) => void;
 }) {
@@ -122,13 +131,19 @@ function Gate({
         <div className="nt-codegate-fold-body">
           <div className="nt-codegate-part">
             <p>
-              {lapsed ? (
+              {why === "lapsed" ? (
                 <>
-                  Code is hidden: your <Login>{org}</Login> membership needs verifying again.
+                  Code is hidden: Nootles hasn’t been able to check your <Login>{org}</Login> membership
+                  lately.
+                </>
+              ) : why === "unlisted" && login ? (
+                <>
+                  Code is hidden: GitHub doesn’t list <Login>{`@${login}`}</Login> in <Login>{org}</Login>.
                 </>
               ) : (
                 <>
                   Code is hidden until GitHub shows you’re in <Login>{org}</Login>.
+                  {!proof.connected && " Connect GitHub once and it’s checked from then on."}
                 </>
               )}
             </p>
