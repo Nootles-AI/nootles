@@ -535,7 +535,11 @@
 .nt-set-row.nt-ws-rests {
   transition: opacity var(--dur) var(--ease);
 }
-.nt-set-row.nt-ws-rests.is-resting {
+.nt-set-row.nt-ws-rests :is(.nt-set-glyph, .nt-set-name, .nt-set-actions) {
+  transition: opacity var(--dur) var(--ease);
+}
+/* The note says why the control is resting, so it stays readable. */
+.nt-set-row.nt-ws-rests.is-resting :is(.nt-set-glyph, .nt-set-name, .nt-set-actions) {
   opacity: 0.5;
 }
 /* A row whose action is a switch rather than a button holds the button's
@@ -766,12 +770,12 @@
   align-items: center;
   width: min(26rem, 100%);
   padding: 28px 24px 24px;
-  border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   background: var(--elevated);
   box-shadow:
     0 1px 2px oklch(0.25 0.005 90 / 0.04),
-    0 12px 32px -8px oklch(0.25 0.005 90 / 0.16);
+    0 8px 24px oklch(0.25 0.005 90 / 0.07),
+    0 24px 64px oklch(0.25 0.005 90 / 0.11);
   text-align: center;
   transform-origin: 50% 30%;
   animation: nt-ws-join-in 480ms var(--spring) backwards;
