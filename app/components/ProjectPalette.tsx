@@ -37,6 +37,7 @@ import { NotionMark } from "./NotionMark";
 import { NotionPort } from "./NotionPort";
 import { BlankStart } from "./BlankStart";
 import { ProLift } from "./ProLift";
+import { TeamJoin } from "./TeamJoin";
 import { usePlan } from "@/app/lib/usePlan";
 import { BlocksThumb, PagePreview } from "./PagePreview";
 import { TemplateWall } from "./TemplateWall";
@@ -72,7 +73,7 @@ type Row = {
   /** What the side pane previews in place of a project. */
   template?: ProjectTemplate;
   /** A picture in the side pane, rather than a card about the row. */
-  picture?: "wall" | "blank" | "notion" | "pro";
+  picture?: "wall" | "blank" | "notion" | "pro" | "invite";
   /** Other words the row is found by, beside its name. */
   words?: readonly string[];
   run: () => void;
@@ -286,7 +287,26 @@ function Palette({
   // who is not the one who would be paying, and not on a workspace's home,
   // where the plan that matters is the workspace's.
   const { left } = usePlan();
+  const invite: Row[] = inviteTo
+    ? [
+        {
+          id: "invite",
+          group: "People",
+          name: "Invite people",
+          line: `Add someone to ${inviteTo.name} by their email address`,
+          icon: <PersonPlus />,
+          words: INVITE_WORDS,
+          drill: true,
+          picture: "invite",
+          run: () => go("invite"),
+        },
+      ]
+    : [];
+  // A workspace with nobody in it yet has one thing worth doing first.
+  const people = useQuery(api.members.list, inviteTo ? { workspaceId: inviteTo.workspaceId } : "skip");
+  const alone = people?.members.length === 1;
   const root: Row[] = [
+    ...(alone ? invite : []),
     ...(canCreate && left && here.kind === "account"
       ? [
           {
@@ -317,20 +337,7 @@ function Palette({
           },
         ]
       : []),
-    ...(inviteTo
-      ? [
-          {
-            id: "invite",
-            group: "People",
-            name: "Invite people",
-            line: `Add someone to ${inviteTo.name} by their email address`,
-            icon: <PersonPlus />,
-            words: INVITE_WORDS,
-            drill: true,
-            run: () => go("invite"),
-          },
-        ]
-      : []),
+    ...(alone ? [] : invite),
     ...projects.map((p) => ({
       id: p._id,
       group: here.kind === "workspace" ? here.name : "Yours",
@@ -688,6 +695,8 @@ function Palette({
                 <NotionPort />
               ) : current?.picture === "pro" ? (
                 <ProLift />
+              ) : current?.picture === "invite" ? (
+                <TeamJoin />
               ) : current?.template ? (
                 <TemplatePreview key={current.id} template={current.template} />
               ) : (

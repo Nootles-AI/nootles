@@ -5415,6 +5415,26 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar) .nt-reformat-switcher {
   animation: nt-rise 600ms var(--ease) backwards;
 }
 
+/* ---- Team ----
+   The team joining a workspace: the same fitted, shadowed sheet as the Pro
+   picture, so the two read as one family wherever this one goes. */
+.nt-team {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  animation: nt-fade-in var(--dur-slow) var(--ease);
+}
+.nt-team-art {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  user-select: none;
+  filter: drop-shadow(0 18px 30px oklch(0.25 0.005 90 / 0.14));
+  animation: nt-rise 600ms var(--ease) backwards;
+}
+
 /* ---- Feedback ------------------------------------------------------------
    The standing invitation (bottom-right), its form, and the two micro-
    surveys. Same restraint as the review bar: elevated, bordered, neutral.
