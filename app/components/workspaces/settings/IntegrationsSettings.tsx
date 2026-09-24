@@ -8,7 +8,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { atLeast } from "@/convex/auth";
 import type { InstallFailure } from "@/app/api/github/app/flow";
-import { Check, ChevronsUpDown, Lock, Person, Plus, X } from "../../Icons";
+import { Check, ChevronsUpDown, Lock, Person, Plus } from "../../Icons";
 import { Menu, MenuItem } from "../../Menu";
 import { Segmented, type Segment } from "../../Segmented";
 import { useStandIn } from "../../StandIn";
@@ -18,6 +18,7 @@ import { installPath } from "../../context/useGitHubDoor";
 import { useContainer, type WorkspaceContainer } from "../ContainerContext";
 import { refusal } from "../refusal";
 import { ConfirmBox } from "./Confirm";
+import { Bone, Fold, Outcome, Problem } from "./parts";
 
 type Status = NonNullable<ReturnType<typeof useQuery<typeof api.github.app.status>>>;
 type Installation = Status["installations"][number];
@@ -54,7 +55,9 @@ function Integrations({ workspace }: { workspace: WorkspaceContainer }) {
   // workspace's, and says so on its row.
   const live = status.installations.filter((i) => i.removedAt === undefined);
   // How the install ended, said in the row it is about.
-  const said = outcome.line && <Outcome line={outcome.line} onDismiss={outcome.dismiss} />;
+  const said = outcome.line && (
+    <Outcome text={outcome.line.text} problem={outcome.line.problem} onDismiss={outcome.dismiss} />
+  );
 
   return (
     <>
@@ -198,15 +201,6 @@ function BoneRow({ meta, notes, action }: { meta?: boolean; notes: readonly stri
   );
 }
 
-/** A bar in the line box of the 13px text it stands for. */
-function Bone({ bar, className = "" }: { bar: string; className?: string }) {
-  return (
-    <div className={`nt-ws-bone flex h-[19.5px] items-center ${className}`}>
-      <div className={`nt-skeleton ${bar}`} />
-    </div>
-  );
-}
-
 /** Nothing installed: what the App would read, and the press that installs it — or who to ask. */
 function NotInstalled({
   workspace,
@@ -291,45 +285,6 @@ function InstallationRow({
           </a>
         </div>
       )}
-    </div>
-  );
-}
-
-/**
- * The install's outcome line. Dismissed, it folds shut before it goes, so
- * what is under it is moved rather than thrown, and focus waits on its row.
- */
-function Outcome({ line, onDismiss }: { line: Line; onDismiss: () => void }) {
-  const [leaving, setLeaving] = useState(false);
-  const fold = useRef<HTMLDivElement>(null);
-  const leave = () => {
-    // Before the fold goes inert, which would drop focus to the page.
-    fold.current?.closest<HTMLElement>(".nt-set-row")?.focus();
-    // Without motion no transition ends, so there is nothing to wait for.
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) onDismiss();
-    else setLeaving(true);
-  };
-  return (
-    <div
-      ref={fold}
-      className="nt-ws-fold"
-      data-open={!leaving}
-      inert={leaving}
-      onTransitionEnd={(e) => {
-        if (leaving && e.target === e.currentTarget && e.propertyName === "grid-template-rows") onDismiss();
-      }}
-    >
-      <div className="nt-ws-fold-body">
-        <div
-          role={line.problem ? "alert" : "status"}
-          className={`nt-set-outcome ${line.problem ? "nt-set-problem" : "nt-set-note"}`}
-        >
-          <span>{line.text}</span>
-          <button type="button" onClick={leave} aria-label="Dismiss" className="nt-icon-btn is-sm">
-            <X />
-          </button>
-        </div>
-      </div>
     </div>
   );
 }
@@ -524,21 +479,15 @@ function CodeAccess({
         </li>
         {named && (
           <li className="nt-ws-gh-proof">
-            <div className={`nt-ws-fold${ruleAtLoad ? "" : " is-arriving"}`} data-open={!!rule} inert={!rule}>
-              <div className="nt-ws-fold-body">
-                <div className="nt-ws-gh-proof-row">
-                  <ProofRow workspaceId={workspace.workspaceId} org={named} status={status} pressRef={proofPress} />
-                </div>
+            <Fold open={!!rule} arriving={!ruleAtLoad}>
+              <div className="nt-ws-gh-proof-row">
+                <ProofRow workspaceId={workspace.workspaceId} org={named} status={status} pressRef={proofPress} />
               </div>
-            </div>
+            </Fold>
           </li>
         )}
       </ul>
-      {problem && (
-        <p role="alert" className="nt-set-problem">
-          {problem}
-        </p>
-      )}
+      <Problem text={problem} />
       <p className="nt-set-note nt-ws-policy-aside">
         What guests can read is set in{" "}
         <Link href={`/w/${workspace.slug}/settings#nt-ws-sharing`} className="nt-ws-aside-link">
@@ -607,15 +556,6 @@ function Said({ open, children }: { open: boolean; children: ReactNode }) {
     <Fold open={open}>
       <p className="nt-set-note">{children}</p>
     </Fold>
-  );
-}
-
-/** Room taken and given back over time; `arriving` opens it as it mounts. */
-function Fold({ open = true, arriving, children }: { open?: boolean; arriving?: boolean; children: ReactNode }) {
-  return (
-    <div className={`nt-ws-fold${arriving ? " is-arriving" : ""}`} data-open={open} inert={!open}>
-      <div className="nt-ws-fold-body">{children}</div>
-    </div>
   );
 }
 

@@ -5995,3 +5995,67 @@ body:has(.nt-review-bar) .nt-sampler {
   }
 }
 }
+
+/* ---- Folds and settling lines -------------------------------------------
+   Something that comes and goes with more under it — a note, a link, a list,
+   a gate in a rail — takes its room over time rather than in a frame: its
+   track runs between 0fr and 1fr, the body clipped as it goes, as
+   `.nt-ctl-fold` does in the canvas panels. Shut, it holds its place in the
+   markup; one that `is-arriving` opens from shut as it mounts. Two folds
+   moving at once, one shutting as the other opens, sum to one smooth change of
+   height. Spacing belongs inside the body, where it is clipped with it.
+
+   A line that is news — a refusal, a result — settles in from just above
+   (`.nt-settle`), so it reads as a report rather than as something that was
+   always there. Both are shared by the settings pages, the palette, the share
+   popover and the context rail, so they live here rather than in any one
+   component's sheet. */
+@layer components {
+.nt-fold {
+  display: grid;
+  flex: none;
+  grid-template-rows: 1fr;
+  transition:
+    grid-template-rows var(--dur-slow) var(--ease),
+    opacity var(--dur) var(--ease);
+}
+.nt-fold[data-open="false"] {
+  grid-template-rows: 0fr;
+  opacity: 0;
+}
+@starting-style {
+  .nt-fold.is-arriving {
+    grid-template-rows: 0fr;
+    opacity: 0;
+  }
+}
+.nt-fold-body {
+  min-height: 0;
+  overflow: clip;
+  /* Room for a button's focus ring, which sits 3px outside the body's edge. */
+  overflow-clip-margin: 3px;
+}
+/* Shut, whatever edge the fold holds would show in that margin. */
+.nt-fold[data-open="false"] > .nt-fold-body {
+  overflow-clip-margin: 0;
+}
+
+.nt-settle {
+  animation: nt-settle var(--dur-slow) var(--ease) backwards;
+}
+@keyframes nt-settle {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nt-fold {
+    transition: none;
+  }
+  .nt-settle {
+    animation: nt-fade-in var(--dur-fast) var(--ease);
+  }
+}
+}

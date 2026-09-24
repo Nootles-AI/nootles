@@ -72,8 +72,8 @@ function Fold({ workspaceId, frame }: { workspaceId: Id<"workspaces">; frame: bo
     />
   );
   return (
-    <div ref={fold} className="nt-codegate-fold is-arriving" data-open={open} inert={!open}>
-      <div className="nt-codegate-fold-body">
+    <div ref={fold} className="nt-fold is-arriving" data-open={open} inert={!open}>
+      <div className="nt-fold-body">
         {/* Where no context panel surrounds it, it brings that panel's edge
             and heading along, so it sits under a label like every rail block. */}
         {frame ? (
@@ -118,8 +118,8 @@ function Gate({
   const through = proof.said !== null && !proof.said.problem;
   return (
     <div ref={box} tabIndex={-1} className="nt-codegate">
-      <div className="nt-codegate-fold" data-open={!through} inert={through}>
-        <div className="nt-codegate-fold-body">
+      <div className="nt-fold" data-open={!through} inert={through}>
+        <div className="nt-fold-body">
           <div className="nt-codegate-part">
             <p>
               {lapsed ? (
@@ -149,8 +149,8 @@ function Gate({
         </div>
       </div>
       {proof.blocker && (
-        <div className="nt-codegate-fold is-arriving">
-          <div className="nt-codegate-fold-body">
+        <div className="nt-fold is-arriving">
+          <div className="nt-fold-body">
             <p className="nt-codegate-part">{proof.blocker}</p>
           </div>
         </div>
@@ -158,8 +158,8 @@ function Gate({
       {/* Shut while another press is on its way, holding the last answer; a
           new one is a new line, so it is announced even when it repeats. */}
       {proof.line && (
-        <div className="nt-codegate-fold is-arriving" data-open={!!proof.said} inert={!proof.said}>
-          <div className="nt-codegate-fold-body">
+        <div className="nt-fold is-arriving" data-open={!!proof.said} inert={!proof.said}>
+          <div className="nt-fold-body">
             <p
               key={proof.line.n}
               role={proof.line.problem ? "alert" : "status"}

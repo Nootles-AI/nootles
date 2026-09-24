@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAction, useQuery } from "convex/react";
@@ -11,13 +11,12 @@ import type { Meter } from "@/convex/limits";
 import type { PlanName } from "@/convex/plans";
 import { settingsPath } from "@/app/lib/containerPaths";
 import { Strip } from "../../billing/Allowance";
-import { X } from "../../Icons";
 import { useStandIn } from "../../StandIn";
 import { useContainer, type WorkspaceContainer } from "../ContainerContext";
 import { useNaming } from "../people";
 import { refusal } from "../refusal";
 import { ROLE_LABEL } from "../seats";
-import { Avatar, Bone } from "./MembersSettings";
+import { Avatar, Bone, Fold, Outcome, Problem } from "./parts";
 import "../../billing/paywall.css";
 
 type Summary = NonNullable<FunctionReturnType<typeof api.teamBilling.summary>>;
@@ -240,12 +239,8 @@ function PlanSection({
                   : "Only an owner or an admin can start the Team plan."}
               </p>
             )}
-            {line && <Outcome line={line} onDismiss={settling ? null : onDismiss} />}
-            {problem && (
-              <p role="alert" className="nt-set-problem">
-                {problem}
-              </p>
-            )}
+            {line && <Outcome text={line} onDismiss={settling ? null : onDismiss} />}
+            <Problem text={problem} />
           </div>
           {acts && (
             <div className="nt-set-actions">
@@ -286,48 +281,6 @@ function PlanSection({
         </li>
       </ul>
     </section>
-  );
-}
-
-/**
- * The checkout's outcome line. A new sentence settles in again rather than
- * changing in place; dismissed, it folds shut before it goes, so the card
- * shortens rather than snapping, and focus waits on its row.
- */
-function Outcome({ line, onDismiss }: { line: string; onDismiss: (() => void) | null }) {
-  const [leaving, setLeaving] = useState(false);
-  const fold = useRef<HTMLDivElement>(null);
-  const leave = () => {
-    if (!onDismiss) return;
-    // Before the fold goes inert, which would drop focus to the page.
-    fold.current?.closest<HTMLElement>(".nt-set-row")?.focus();
-    // Without motion no transition ends, so there is nothing to wait for.
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) onDismiss();
-    else setLeaving(true);
-  };
-  return (
-    <div
-      ref={fold}
-      className="nt-ws-fold"
-      data-open={!leaving}
-      inert={leaving}
-      onTransitionEnd={(e) => {
-        if (leaving && e.target === e.currentTarget && e.propertyName === "grid-template-rows") {
-          onDismiss?.();
-        }
-      }}
-    >
-      <div className="nt-ws-fold-body">
-        <div key={line} role="status" className="nt-set-outcome nt-set-note">
-          <span>{line}</span>
-          {onDismiss && (
-            <button type="button" onClick={leave} aria-label="Dismiss" className="nt-icon-btn is-sm">
-              <X />
-            </button>
-          )}
-        </div>
-      </div>
-    </div>
   );
 }
 
@@ -440,14 +393,6 @@ function Period({
   );
 }
 
-function Fold({ open, arriving, children }: { open: boolean; arriving: boolean; children: ReactNode }) {
-  return (
-    <div className={`nt-ws-fold${arriving ? " is-arriving" : ""}`} data-open={open} inert={!open}>
-      <div className="nt-ws-fold-body">{children}</div>
-    </div>
-  );
-}
-
 function UsageSection({
   workspace,
   summary,
@@ -513,18 +458,12 @@ function UsageSection({
             </div>
           </div>
         </div>
-        <div
-          className={`nt-ws-fold${overOpened ? "" : " is-arriving"}`}
-          data-open={over > 0}
-          inert={over === 0}
-        >
-          <div className="nt-ws-fold-body">
-            <p className="nt-pw-strip-head nt-ws-over">
-              <span className="nt-pw-strip-name">Past the included AI</span>
-              <span className="nt-pw-strip-count">{pastSaid}</span>
-            </p>
-          </div>
-        </div>
+        <Fold open={over > 0} arriving={!overOpened}>
+          <p className="nt-pw-strip-head nt-ws-over">
+            <span className="nt-pw-strip-name">Past the included AI</span>
+            <span className="nt-pw-strip-count">{pastSaid}</span>
+          </p>
+        </Fold>
         <div className="nt-ws-notes">
           {heed ? (
             <p className="nt-set-note nt-ws-heed">
