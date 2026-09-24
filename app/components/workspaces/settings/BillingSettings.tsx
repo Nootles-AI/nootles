@@ -98,7 +98,8 @@ function Billing({ workspace, outcome }: { workspace: WorkspaceContainer; outcom
   // Every section's shape depends on both answers, so the page is drawn once
   // it has them rather than growing a section at a time.
   if (summary === undefined || standing === undefined) {
-    return <Loading notes={!standIn && atLeast(workspace.role, "admin") ? 2 : 3} />;
+    const acts = !standIn && atLeast(workspace.role, "admin");
+    return <Loading notes={acts ? 2 : 3} action={acts} />;
   }
   // A guest, or a seat that has just gone: the frame moves them on.
   if (summary === null) return null;
@@ -595,11 +596,12 @@ function SeatsSection({
 /**
  * The page's shape while it is on its way — the plan's row and the seats
  * table. Each bar sits in the line box of the text it stands for. The plan's
- * notes are one more for someone who can only read the page. No card is
- * guessed between them: whether there is one, and which, is the answer being
- * waited on, so the period's card folds open once it is known (`Period`).
+ * notes are one more for someone who can only read the page, and whoever can
+ * act on it has its button held. No card is guessed between them: whether
+ * there is one, and which, is the answer being waited on, so the period's
+ * card folds open once it is known (`Period`).
  */
-function Loading({ notes }: { notes: number }) {
+function Loading({ notes, action }: { notes: number; action: boolean }) {
   return (
     <>
       <section className="nt-set-section" aria-busy="true" aria-label="Plan">
@@ -617,6 +619,11 @@ function Loading({ notes }: { notes: number }) {
               <Bone bar="h-3 w-3/5" />
               {notes > 2 && <Bone bar="h-3 w-2/5" />}
             </div>
+            {action && (
+              <div className="nt-set-actions">
+                <div className="nt-skeleton h-8 w-32" />
+              </div>
+            )}
           </li>
         </ul>
       </section>

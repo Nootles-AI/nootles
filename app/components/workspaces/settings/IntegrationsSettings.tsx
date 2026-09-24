@@ -18,7 +18,7 @@ import { installPath } from "../../context/useGitHubDoor";
 import { useContainer, type WorkspaceContainer } from "../ContainerContext";
 import { refusal } from "../refusal";
 import { ConfirmBox } from "./Confirm";
-import { Bone, Fold, Outcome, Problem } from "./parts";
+import { Bone, Fold, Outcome, Problem, Said } from "./parts";
 
 type Status = NonNullable<ReturnType<typeof useQuery<typeof api.github.app.status>>>;
 type Installation = Status["installations"][number];
@@ -545,18 +545,6 @@ function CodeAccess({
         </ConfirmBox>
       )}
     </section>
-  );
-}
-
-/**
- * One of a row's two sentences, folded open while it is the true one: the
- * other shuts as it opens, so the card changes height once, over time.
- */
-function Said({ open, children }: { open: boolean; children: ReactNode }) {
-  return (
-    <Fold open={open}>
-      <p className="nt-set-note">{children}</p>
-    </Fold>
   );
 }
 

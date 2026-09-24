@@ -9,6 +9,7 @@ import { Segmented, type Segment } from "../../Segmented";
 import { LIFETIMES, lifetimeLabel } from "../../share/expiry";
 import type { WorkspaceContainer } from "../ContainerContext";
 import { refusal } from "../refusal";
+import { Problem, Said } from "./parts";
 
 type Switch = "off" | "on";
 
@@ -78,11 +79,15 @@ export function SharingSettings({ workspace }: { workspace: WorkspaceContainer }
             </span>
             <div className="nt-set-body-col">
               <div className="nt-set-name">Share links</div>
-              <p className="nt-set-note">
-                {linkSharing
-                  ? "Owners and admins can share projects by link with anyone who signs in. Turning this off pauses every link and locks out everyone who joined by one. Nothing is deleted."
-                  : `No project in ${workspace.name} can be opened by link right now. Turn this back on to restore every link and the people who joined through them.`}
-              </p>
+              <Said open={linkSharing}>
+                Owners and admins can share projects by link with anyone who signs in. Turning
+                this off pauses every link and locks out everyone who joined by one. Nothing is
+                deleted.
+              </Said>
+              <Said open={!linkSharing}>
+                No project in {workspace.name} can be opened by link right now. Turn this back on
+                to restore every link and the people who joined through them.
+              </Said>
             </div>
             <div className="nt-set-actions">
               <Segmented
@@ -96,17 +101,22 @@ export function SharingSettings({ workspace }: { workspace: WorkspaceContainer }
           </div>
         </li>
         <li>
-          <div className="nt-set-row">
+          {/* With links off there is nothing for it to govern, so it rests, and says why. */}
+          <div className={`nt-set-row nt-ws-rests${linkSharing ? "" : " is-resting"}`}>
             <span className="nt-set-glyph">
               <Clock aria-hidden="true" />
             </span>
             <div className="nt-set-body-col">
               <div className="nt-set-name">Link expiry</div>
               <p className="nt-set-note">
-                {lifetime === null
-                  ? "New links never expire."
-                  : `New links expire ${lifetimeLabel(lifetime)} after they’re made.`}{" "}
-                Existing links keep their own, and whoever shares a link can change it.
+                <span key={lifetime ?? "never"} className="nt-ws-swap">
+                  {lifetime === null
+                    ? "New links never expire."
+                    : `New links expire ${lifetimeLabel(lifetime)} after they’re made.`}
+                </span>{" "}
+                {linkSharing
+                  ? "Existing links keep their own, and whoever shares a link can change it."
+                  : "It applies once share links are back on."}
               </p>
             </div>
             <div className="nt-set-actions">
@@ -118,6 +128,7 @@ export function SharingSettings({ workspace }: { workspace: WorkspaceContainer }
                 trigger={(t) => (
                   <button
                     {...t}
+                    disabled={!linkSharing}
                     aria-label={`Link expiry, ${lifetimeLabel(lifetime)}`}
                     // Its glyph on the segmented controls' edge; the hover
                     // wash pads out past it.
@@ -171,11 +182,14 @@ export function SharingSettings({ workspace }: { workspace: WorkspaceContainer }
             </span>
             <div className="nt-set-body-col">
               <div className="nt-set-name">Code context for guests</div>
-              <p className="nt-set-note">
-                {guestCodeAccess
-                  ? "Owners and admins can give a guest a project’s linked repositories as context too, one guest at a time, from the project’s share menu."
-                  : "Guests get a project’s pages and documents as context, never its linked repositories."}
-              </p>
+              <Said open={guestCodeAccess}>
+                Owners and admins can give a guest a project’s linked repositories as context too,
+                one guest at a time, from the project’s share menu.
+              </Said>
+              <Said open={!guestCodeAccess}>
+                Guests get a project’s pages and documents as context, never its linked
+                repositories.
+              </Said>
             </div>
             <div className="nt-set-actions">
               <Segmented
@@ -189,11 +203,7 @@ export function SharingSettings({ workspace }: { workspace: WorkspaceContainer }
           </div>
         </li>
       </ul>
-      {problem && (
-        <p role="alert" className="nt-set-problem">
-          {problem}
-        </p>
-      )}
+      <Problem text={problem} />
     </section>
   );
 }

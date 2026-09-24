@@ -36,19 +36,39 @@ export function Fold({
 }
 
 /**
- * A line that is news under a section — a refusal, most often — folding open
- * as it arrives and settling into place, so what is under it is moved rather
- * than thrown. A new sentence settles in again.
+ * One of a row's two sentences, folded open while it is the true one: the
+ * other shuts as it opens, so the card changes height once, over time.
  */
-export function Problem({ text, className = "" }: { text: string | null; className?: string }) {
-  // Shut, the fold goes on saying what it last said.
+export function Said({ open, children }: { open: boolean; children: ReactNode }) {
+  return (
+    <Fold open={open}>
+      <p className="nt-set-note">{children}</p>
+    </Fold>
+  );
+}
+
+/**
+ * A refusal, folding open as it arrives and settling into place, so what is
+ * under it is moved rather than thrown; it folds shut again once it is
+ * cleared, still saying what it said. A new sentence settles in again. Drawn
+ * as a settings section's problem line unless `className` says otherwise.
+ */
+export function Problem({
+  text,
+  id,
+  className = "nt-set-problem nt-settle",
+}: {
+  text: string | null;
+  id?: string;
+  className?: string;
+}) {
   const [said, setSaid] = useState(text);
   if (text && text !== said) setSaid(text);
   if (!said) return null;
   return (
     <Fold arriving open={!!text}>
-      <p key={said} role="alert" className={`nt-set-problem nt-set-outcome ${className}`}>
-        <span>{said}</span>
+      <p key={said} id={id} role="alert" className={className}>
+        {said}
       </p>
     </Fold>
   );

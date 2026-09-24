@@ -272,7 +272,7 @@ function Log({ workspace }: { workspace: WorkspaceContainer }) {
         Events are kept for a year. One person’s edits to a page within ten minutes show as a
         single row.
       </p>
-      <Problem text={problem} className="mb-2" />
+      <Problem text={problem} className="nt-set-problem nt-settle mb-2" />
       {/* The filter whose value runs longest goes last, so a choice moves no other. */}
       <div className="nt-ws-filters" role="group" aria-label="Filter the log">
         <Picker
