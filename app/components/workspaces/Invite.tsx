@@ -463,16 +463,20 @@ function InviteLink({
 }) {
   const url = inviteUrl(token);
   const field = useRef<HTMLInputElement>(null);
+  const button = useRef<HTMLButtonElement>(null);
   const [copied, copy] = useCopied();
   // Its end is the part that is this invitation's; the start is only where
-  // Nootles lives, so that is what gives way.
+  // Nootles lives, so that is what gives way. The Invite that made it is
+  // refused again with the field emptied, so the focus it held moves on to
+  // the next thing to do: copying.
   useEffect(() => {
     const input = field.current;
     if (input) input.scrollLeft = input.scrollWidth;
+    button.current?.focus({ preventScroll: true });
   }, []);
 
   return (
-    <div className="nt-ws-sent pt-4">
+    <div className="pt-4">
       <div className="nt-field-label">Invitation link</div>
       <div className="flex items-center gap-1.5">
         <input
@@ -484,12 +488,13 @@ function InviteLink({
           className="nt-input h-8 min-w-0 flex-1 py-0"
         />
         <button
+          ref={button}
           type="button"
           // Refused: the link sits selected instead, one keystroke from copied.
           onClick={() => void copy(url).then((ok) => ok || field.current?.select())}
           aria-live="polite"
           data-done={copied || undefined}
-          className="nt-row nt-solid min-w-[5.5rem] shrink-0 justify-center gap-1.5 px-3 font-medium"
+          className="nt-row nt-solid nt-settle min-w-[5.5rem] shrink-0 justify-center gap-1.5 px-3 font-medium"
         >
           <span className="nt-swap" aria-hidden="true">
             <Copy width={14} height={14} />

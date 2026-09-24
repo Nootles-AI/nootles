@@ -914,7 +914,9 @@ function DetailsForm({
                   aria-live="polite"
                   className="mt-1.5 text-[length:var(--text-meta-lg)] text-muted text-pretty"
                 >
-                  {seen[visibility]}.
+                  <span key={visibility} className="nt-ws-swap">
+                    {seen[visibility]}.
+                  </span>
                 </p>
               </div>
             </div>
