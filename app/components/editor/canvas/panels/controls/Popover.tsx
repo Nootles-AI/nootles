@@ -89,7 +89,7 @@ export function Popover({
       })}
       {open && (
         <>
-          {shield ? <ShieldedScrim onClose={close} /> : <div className="fixed inset-0" style={{ zIndex: "var(--z-dropdown)" }} onMouseDown={close} />}
+          {shield ? <ShieldedScrim onClose={close} /> : <div className="fixed inset-0" style={{ zIndex: "var(--z-popover)" }} onMouseDown={close} />}
           <div
             ref={panelRef}
             role="dialog"
@@ -132,7 +132,7 @@ function ShieldedScrim({ onClose }: { onClose: () => void }) {
   return (
     <div
       className={`fixed inset-0 nt-ctl-scrim${pick.active ? " is-picking" : ""}`}
-      style={{ zIndex: "var(--z-dropdown)" }}
+      style={{ zIndex: "var(--z-popover)" }}
       onMouseDown={pick.active ? undefined : onClose}
     />
   );

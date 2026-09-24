@@ -235,7 +235,7 @@ function SharePopoverBody({
       {/* Pointer-only dismissal; keyboard users get Escape and Tab-out. */}
       <div
         className="fixed inset-0"
-        style={{ zIndex: "var(--z-dropdown)" }}
+        style={{ zIndex: "var(--z-popover)" }}
         onMouseDown={onClose}
       />
       <div

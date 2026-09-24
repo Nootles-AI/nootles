@@ -40,6 +40,7 @@ import { ChatPanel } from "./ChatPanel";
 import { ReviewBar } from "./ReviewBar";
 import { BarMorph } from "./BarMorph";
 import { ResizeHandle } from "./ResizeHandle";
+import { COMPACT, DrawerScrim, LeftDrawer, drawerLayer } from "./Drawer";
 import { WorkspacePalette } from "./WorkspacePalette";
 import { useLinger } from "@/app/lib/useLinger";
 import { publishColumnEdges } from "@/app/lib/columnEdges";
@@ -94,11 +95,6 @@ const DRAWER_W = "288px";
 const RAIL_MS = 320;
 /** How long the tool bar takes to leave; `nt-toolbar-out` agrees. */
 const TOOLS_MS = 200;
-
-/* Below this the three fixed panels leave no usable column for the document
-   (462px of chrome against a 560px viewport left 2px of text), so they stop
-   being in-flow and become overlays the user summons. */
-const COMPACT = "(max-width: 1023px)";
 
 /* Everything that belongs to the canvas being edited. A press anywhere else is
    what "deselect" means — and the panels have to be in here, because a field in
@@ -716,12 +712,7 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
     projectId,
     pageId: effectivePageId,
     onCollapse: () => (compact ? setDrawer(null) : setRightOpen(false)),
-    ...(chatAsDrawer
-      ? {
-          className: "fixed inset-y-0 right-0 shadow-2xl",
-          style: { zIndex: "var(--z-modal)" },
-        }
-      : {}),
+    ...(chatAsDrawer ? drawerLayer("right") : {}),
   };
   // Inspector panels replace the rail visually, but must not unmount ChatPanel:
   // its hook owns the BrowserChat and its abort signal. `hidden` keeps it out
@@ -924,24 +915,13 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
           )}
         </BarMorph>
 
-        {openDrawer && (
-          <>
-            <button
-              aria-label="Close panel"
-              onClick={() => setDrawer(null)}
-              className="fixed inset-0 bg-foreground/15"
-              style={{ zIndex: "var(--z-overlay)" }}
-            />
-            {openDrawer === "left" && (
-              <div
-                className="fixed inset-y-0 left-0 shadow-2xl"
-                style={{ zIndex: "var(--z-modal)" }}
-              >
-                {sidebar}
-              </div>
-            )}
-          </>
-        )}
+        {openDrawer === "left" ? (
+          <LeftDrawer label="Close panel" onClose={() => setDrawer(null)}>
+            {sidebar}
+          </LeftDrawer>
+        ) : openDrawer ? (
+          <DrawerScrim label="Close panel" onClose={() => setDrawer(null)} />
+        ) : null}
 
         {finding && (
           <WorkspacePalette

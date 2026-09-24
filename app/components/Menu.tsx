@@ -24,7 +24,7 @@ type Side = "top" | "bottom";
  * `document.body`: `fixed` alone still leaves it inside whatever stacking
  * context its trigger lives in (e.g. the sidebar's `.nt-panel`, which caps
  * every descendant at its own z-index), so a sibling like the sidebar's
- * resize handle could otherwise paint over it despite `--z-dropdown`.
+ * resize handle could otherwise paint over it despite `--z-popover`.
  */
 export function Menu({
   trigger,
@@ -173,7 +173,7 @@ export function Menu({
             {open && (
               <div
                 className="fixed inset-0"
-                style={{ zIndex: "var(--z-dropdown)" }}
+                style={{ zIndex: "var(--z-popover)" }}
                 onMouseDown={() => close()}
               />
             )}

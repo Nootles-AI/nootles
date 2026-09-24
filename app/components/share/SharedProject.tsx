@@ -11,6 +11,7 @@ import { useMediaQuery } from "@/app/lib/useMediaQuery";
 import { track } from "@/app/lib/telemetry";
 import { Wordmark } from "../Brand";
 import { ArrowLeft, ChevronRight, FileDoc, Folder, PanelLeft } from "../Icons";
+import { COMPACT, LeftDrawer } from "../Drawer";
 import { CurrentPageProvider, useOpenPage } from "../OpenPageContext";
 import { PagesProvider } from "../PagesContext";
 import { flattenTree } from "../sidebarTree";
@@ -23,9 +24,6 @@ import { GuestChatRail } from "./GuestChatRail";
 import { SharedEditor } from "./SharedEditor";
 import { SignInToEdit, type SignInIntent } from "./SignInToEdit";
 import { following, writingKey } from "./intent";
-
-/* The same threshold as the workspace: below it the rails become drawers. */
-const COMPACT = "(max-width: 1023px)";
 
 /* The sidebar's own step, so a shared tree indents exactly as its owner's does. */
 const INDENT = 12;
@@ -464,20 +462,9 @@ export function SharedProject({ token }: { token: string }) {
       </div>
 
       {compact && drawer && (
-        <>
-          <button
-            aria-label="Close pages"
-            onClick={() => setDrawer(false)}
-            className="fixed inset-0 bg-foreground/15"
-            style={{ zIndex: "var(--z-overlay)" }}
-          />
-          <div
-            className="fixed inset-y-0 left-0 shadow-2xl"
-            style={{ zIndex: "var(--z-modal)" }}
-          >
-            {rail}
-          </div>
-        </>
+        <LeftDrawer label="Close pages" onClose={() => setDrawer(false)}>
+          {rail}
+        </LeftDrawer>
       )}
 
       {asking && (
