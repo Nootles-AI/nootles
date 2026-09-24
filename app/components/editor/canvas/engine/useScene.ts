@@ -171,6 +171,15 @@ export class SceneStore {
   /** Whether a gesture bracket is open — the presence sampler's cue. */
   gesturing = (): boolean => this.depth > 0;
 
+  private adopting = false;
+
+  /**
+   * True while listeners hear about a scene that came from outside — a
+   * collaborator's merge or an external write — rather than an edit made here.
+   * Presence reads it to tell a collaborator's drag landing from its own.
+   */
+  arriving = (): boolean => this.adopting;
+
   private historyListeners = new Set<(event: SceneHistoryEvent) => void>();
   /** Every change to the history ledger, as it happens. */
   onHistory = (fn: (event: SceneHistoryEvent) => void): (() => void) => {
@@ -513,7 +522,14 @@ export class SceneStore {
       this.timer = setTimeout(this.flush, PERSIST_MS);
       this.live?.(scene, edit);
     }
-    this.notify();
+    // Restored, not cleared: a listener's own edit notifies inside this one.
+    const outer = this.adopting;
+    this.adopting = !persist;
+    try {
+      this.notify();
+    } finally {
+      this.adopting = outer;
+    }
   }
 
   private notify(): void {

@@ -44,6 +44,8 @@ export type CanvasSignal = {
   eids?: string[];
   /** In-flight drag boxes, scene px — present only mid-gesture. */
   frames?: Record<string, { x: number; y: number; w: number; h: number }>;
+  /** Presses on this canvas so far — frames belong to the latest. */
+  g?: number;
   /**
    * A label being edited: the shape, and the selection as anchor/head offsets
    * in the label's visible text (see `labelCaret`). `a !== h` is a highlight.
@@ -59,6 +61,7 @@ type Api = {
   };
   store: {
     gesturing(): boolean;
+    arriving(): boolean;
     subscribe(cb: () => void): () => void;
     getScene(): Scene;
   };
@@ -101,6 +104,8 @@ export function broadcastCanvasPresence(
   api: Api,
 ): () => void {
   let lastHadFrames = false;
+  /** Presses on this canvas so far; frames are stamped with theirs. */
+  let press = 0;
 
   // One uninterrupted read burst, then the arithmetic. `clientToScene` re-reads
   // the container's rect on every call, so measuring through it would cost two
@@ -174,6 +179,7 @@ export function broadcastCanvasPresence(
       ids: [...snapshot.ids],
       ...(snapshot.edgeIds.length ? { eids: [...snapshot.edgeIds] } : {}),
       ...(frames ? { frames } : {}),
+      g: press,
       ...(edit ? { edit } : {}),
       n: Date.now(),
     };
@@ -226,6 +232,7 @@ export function broadcastCanvasPresence(
   const container = api.viewport.containerRef.current;
   const onDown = () => {
     pointerDown = true;
+    press += 1;
   };
   const onUp = () => {
     pointerDown = false;
@@ -301,6 +308,9 @@ const finiteBox = (box: Box | undefined): Box | undefined =>
     ? box
     : undefined;
 
+const finite = (value: unknown): number | undefined =>
+  typeof value === "number" && Number.isFinite(value) ? value : undefined;
+
 const editOf = (edit: CanvasSignal["edit"]): CanvasSignal["edit"] =>
   edit &&
   typeof edit.id === "string" &&
@@ -341,6 +351,15 @@ export function paintCanvasPresence(
   let painted = new Set<number>();
   /** Whether any chrome measured off the DOM (carets, halos) is up. */
   let domDerived = false;
+  /**
+   * Their drags that have already landed here, by `client:id`: the last press
+   * that can have made them, and the signal current at the landing. Their
+   * commit can overtake the signal that ends the drag, and even samples taken
+   * before it that are still in transit — so from the landing on, frames from
+   * that press are older than the shape itself. A frameless signal after it,
+   * or a later press, is news again.
+   */
+  const landed = new Map<string, { upTo?: number; at?: number }>();
 
   /**
    * The keyed children, kept across paints. Reuse is what lets a ghost's
@@ -455,6 +474,8 @@ export function paintCanvasPresence(
       ids: string[];
       eids: string[];
       frames?: CanvasSignal["frames"];
+      press?: number;
+      at?: number;
       edit?: CanvasSignal["edit"];
     };
     const here: Here[] = [];
@@ -468,6 +489,8 @@ export function paintCanvasPresence(
         ids: strings(signal.ids),
         eids: strings(signal.eids),
         frames: signal.frames,
+        press: finite(signal.g),
+        at: finite(signal.n),
         edit: editOf(signal.edit),
       });
     }
@@ -505,7 +528,7 @@ export function paintCanvasPresence(
       const chain = nodePath(scene, id);
       return chain.length > 0 && !chain.some((node) => node.hidden);
     };
-    for (const { clientId, user, ids, eids, frames, edit } of here) {
+    for (const { clientId, user, ids, eids, frames, press, at, edit } of here) {
       const color = colorOf(user);
       if (edit && showing(edit.id)) {
         paintCaret(api, mounted.layer, mounted.ghosts, edit, clientId, user, {
@@ -516,8 +539,20 @@ export function paintCanvasPresence(
         });
       }
       for (const id of ids) {
-        // A remote drag outranks the local one: theirs is the hand on it.
-        const inFlight = finiteBox(frames?.[id]);
+        // A remote drag outranks the local one: theirs is the hand on it —
+        // until it has landed here.
+        const sampled = finiteBox(frames?.[id]);
+        const key = `${clientId}:${id}`;
+        const land = landed.get(key);
+        if (
+          land &&
+          at !== land.at &&
+          (!sampled ||
+            (press !== undefined && land.upTo !== undefined && press > land.upTo))
+        ) {
+          landed.delete(key);
+        }
+        const inFlight = landed.has(key) ? undefined : sampled;
         let frame: RotatedRect | null = inFlight
           ? rectify(scene, id, inFlight)
           : api.live.box(id);
@@ -564,9 +599,37 @@ export function paintCanvasPresence(
     }
     prune();
     painted = new Set(here.map((person) => person.clientId));
+    for (const key of landed.keys()) {
+      if (!painted.has(Number(key.slice(0, key.indexOf(":"))))) landed.delete(key);
+    }
     domDerived = here.some(
       (person) => person.edit !== undefined || person.eids.length > 0,
     );
+  };
+
+  /** A shape someone has selected moved under an edit from outside: their
+   *  drag may have landed. */
+  const noteLandings = (before: Scene, after: Scene) => {
+    if (before === after) return;
+    const was = laidOutScene(before);
+    const now = laidOutScene(after);
+    for (const clientId of painted) {
+      const signal = (awareness.getStates().get(clientId) as
+        | { canvas?: CanvasSignal | null }
+        | undefined)?.canvas;
+      if (!signal || signal.b !== blockId) continue;
+      const press = finite(signal.g);
+      for (const id of strings(signal.ids)) {
+        if (!findNode(now, id) || sameBox(drawnAt(was, id), drawnAt(now, id))) continue;
+        // Frames in hand name the press; without them, the drag that landed
+        // is one this client has not heard of yet: the next.
+        const sampled = finiteBox(signal.frames?.[id]);
+        landed.set(`${clientId}:${id}`, {
+          upTo: press === undefined ? undefined : sampled ? press : press + 1,
+          at: finite(signal.n),
+        });
+      }
+    }
   };
 
   update();
@@ -607,8 +670,12 @@ export function paintCanvasPresence(
       update();
     });
   };
+  let known = api.store.getScene();
   const unsubScene = api.store.subscribe(() => {
+    const before = known;
+    known = api.store.getScene();
     if (painted.size === 0) return;
+    if (api.store.arriving()) noteLandings(before, known);
     update();
     followUp();
   });

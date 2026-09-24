@@ -109,16 +109,20 @@ async function person(role) {
 
 /**
  * The backend: a mutation reaches it LATENCY/2 after it is sent, and every
- * subscriber, sender included, hears the result LATENCY/2 later, in order.
+ * subscriber, sender included, hears the result LATENCY/2 later, in order per
+ * subscription. `hold[role]` delays presence to that person on top — a slow
+ * presence query, so a document update can overtake it.
  */
+const hold = { a: 0, b: 0 };
 function backend(pages) {
   let seq = 0;
   const rows = new Map();
   const lanes = new Map();
   const deliver = (event) => {
     for (const [role, page] of Object.entries(pages)) {
-      const due = Date.now() + LATENCY / 2;
-      lanes.set(role, (lanes.get(role) ?? Promise.resolve()).then(async () => {
+      const due = Date.now() + LATENCY / 2 + (event.kind === "rows" ? hold[role] : 0);
+      const lane = `${role}:${event.kind}`;
+      lanes.set(lane, (lanes.get(lane) ?? Promise.resolve()).then(async () => {
         const wait = due - Date.now();
         if (wait > 0) await sleep(wait);
         await page.evaluate((e) => window.probe.receive(e), event).catch(() => {});
@@ -233,6 +237,19 @@ function followed(name, rows, { moved = 50, own = true } = {}) {
   check(mine.count === 0, `${name}: B's own selection frame sits on the shape while B's hand is on it`, `first: ${mine.first}`);
 }
 
+/**
+ * A's own screen: B's outline streams ahead while the shape waits for the
+ * commit; once the shape lands, the outline is on it — not gliding after it,
+ * and not held off it by a sample older than the landing.
+ */
+function observed(name, rows) {
+  const final = rows[rows.length - 1].shape;
+  const landed = rows.findIndex((r) => near(r.shape, final));
+  const after = rows.slice(landed + 1).filter((r) => !near(r.ghosts[0], r.shape));
+  check(landed > 0 && !near(rows[0].shape, final), `${name}: A saw the shape land where B put it`);
+  check(after.length === 0, `${name}: from the frame after it lands, B's outline sits on the shape on A's screen`, `${after.length} frame(s) off; first: ${after[0] && fmt(after[0].ghosts[0])} vs ${fmt(final)}`);
+}
+
 // ---------------------------------------------------------------------------
 // The run
 // ---------------------------------------------------------------------------
@@ -280,13 +297,31 @@ try {
     followed("move", b);
     log.move = { a, b };
 
-    // A's own screen: B's outline streams ahead while the shape waits for the
-    // commit; once the shape lands, the outline is on it — not gliding after.
-    const final = a[a.length - 1].shape;
-    const landed = a.findIndex((r) => near(r.shape, final));
-    const after = a.slice(landed + 1).filter((r) => !near(r.ghosts[0], r.shape));
-    check(landed > 0 && a[0].shape.x !== final.x, "observer: A saw the shape land where B put it");
-    check(after.length === 0, "observer: from the frame after it lands, B's outline sits on the shape on A's screen", `${after.length} frame(s) off; first: ${after[0] && fmt(after[0].ghosts[0])} vs ${fmt(final)}`);
+    observed("observer", a);
+  }
+
+  console.log("\n— observer, commit first: B's presence reaches A late, so B's drag lands before the signal that ends it");
+  {
+    hold.a = 700;
+    const from = await point(pages.b, "a");
+    const { a } = await recording(pages, "a", () => drag(pages.b, from, offset(from, 0, 100)), 3000);
+    hold.a = 0;
+    observed("commit first", a);
+    log.commitFirst = a;
+  }
+
+  console.log("\n— observer, own edit first: A moves the shape B has selected, then B drags it");
+  {
+    // A landing A made itself says nothing about B's next drag, which must
+    // still stream ahead on A's screen.
+    await pages.a.evaluate(() => window.probe.nudge("a", 0, -40));
+    await sleep(1200);
+    const from = await point(pages.b, "a");
+    const { a } = await recording(pages, "a", () => drag(pages.b, from, offset(from, 0, 60)), 2500);
+    const ahead = a.filter((r) => r.ghosts[0] && Math.abs(r.ghosts[0].y - r.shape.y) > 20).length;
+    check(ahead > 5, `own edit first: B's outline streamed ahead of the shape on A's screen (${ahead} frames)`);
+    observed("own edit first", a);
+    log.ownEditFirst = a;
   }
 
   console.log("\n— turned shape: A has `r` (30°) selected, B drags it");

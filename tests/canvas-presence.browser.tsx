@@ -338,6 +338,9 @@ const probe = {
     selection.select(ids);
     if (edgeIds.length) selection.selectEdges(edgeIds);
   },
+  /** An edit made on this screen: move a shape by a scene-px offset. */
+  nudge: (id: string, dx: number, dy: number) =>
+    active!.api.store.dispatch({ type: "move", ids: [id], dx, dy }),
   ghosts: () => ghosts().map((g) => sceneRect(g)),
   halos: () => document.querySelectorAll(".nt-editor .nt-copresence-edges path").length,
   shape: (id: string) => sceneRect(shapeEl(id)),
