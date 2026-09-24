@@ -39,8 +39,11 @@ function Form({ onCancel }: { onCancel: () => void }) {
 
   const slug = normalizeSlug(typed ?? name);
   const named = name.trim();
-  const problem = useSlugProblem(slug, { judge: !!(named || typed) });
-  const ready = !!named && !problem && !busy;
+  // Until the server has said the address is free, it is not yet something to make.
+  const { problem, pending } = useSlugProblem(slug, { judge: !!(named || typed) });
+  const ready = !!named && !problem && !pending && !busy;
+  const note =
+    problem ?? "Where your team finds it. Links to the old address keep working if you change it later.";
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -125,8 +128,10 @@ function Form({ onCancel }: { onCancel: () => void }) {
                 aria-live="polite"
                 className={`nt-ws-note${problem ? " is-problem" : ""}`}
               >
-                {problem ??
-                  "Where your team finds it. Links to the old address keep working if you change it later."}
+                {/* A new sentence settles in; the line keeps its place. */}
+                <span key={note} className="block nt-settle">
+                  {note}
+                </span>
               </p>
             </div>
           </div>
@@ -134,7 +139,7 @@ function Form({ onCancel }: { onCancel: () => void }) {
 
         <div className="nt-pal-foot">
           {failure ? (
-            <span role="alert" className="text-danger">
+            <span key={failure} role="alert" className="nt-settle text-danger">
               {failure}
             </span>
           ) : (

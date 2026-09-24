@@ -162,7 +162,7 @@ function AddressField({ workspace, edits }: { workspace: WorkspaceContainer; edi
   const slug = normalizeSlug(typed ?? workspace.slug);
   const changed = typed !== null && slug !== workspace.slug;
   const problem =
-    useSlugProblem(slug, { judge: changed, workspaceId: workspace.workspaceId }) ?? failure;
+    useSlugProblem(slug, { judge: changed, workspaceId: workspace.workspaceId }).problem ?? failure;
   const host = window.location.host;
 
   const commit = async () => {

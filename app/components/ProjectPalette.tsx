@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import { useRouter } from "next/navigation";
+import { useUser } from "@clerk/nextjs";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -18,11 +19,11 @@ import { projectPath } from "@/app/lib/containerPaths";
 import { Dialog } from "./Dialog";
 import { PROJECT_TEMPLATES, pagePicture, type ProjectTemplate } from "@/app/lib/templates";
 import {
-  Check,
   ChevronRight,
   ChevronsUpDown,
   FileDoc,
   Folder,
+  Lock,
   Plus,
   Sparkles,
   Template,
@@ -41,6 +42,9 @@ import { TemplateWall } from "./TemplateWall";
 import { DraftSources } from "./context/ContextSources";
 import { GitHubSourcePage, NotionSourcePage } from "./context/SourcePages";
 import { repoPlaceholder, searchable, useGitHubDoor } from "./context/useGitHubDoor";
+import { Place, Tile, YouTile } from "./workspaces/places";
+import { ROLE_LABEL } from "./workspaces/seats";
+import { stopped, TeamWallPane } from "./billing/TeamWall";
 
 type Project = NonNullable<
   ReturnType<typeof useQuery<typeof api.projects.listForScreen>>
@@ -202,6 +206,15 @@ function Palette({
   // Held here rather than in the form: the form's source doors are pages of
   // their own, and what was typed has to be there when they step back.
   const draft = useNewProjectDraft(onCreate, template?.id, home);
+  // A workspace with no projects left says so where making one starts, rather
+  // than letting it be written out and refused at Create. Its allowance is
+  // the workspace's, asked of where the draft is going.
+  const going = draft.workspace?.workspaceId;
+  const standing = useQuery(api.entitlements.forContainer, going ? { workspaceId: going } : "skip");
+  const spent =
+    standing?.container.kind === "workspace" && standing.entitlement.left?.projects === 0
+      ? standing.container
+      : null;
 
   const go = (to: Page) => {
     setPage(to);
@@ -369,6 +382,8 @@ function Palette({
   );
   const at = Math.min(index, Math.max(rows.length - 1, 0));
   const current = rows.at(at);
+  // Every way to start one would be refused, so the side says why instead.
+  const walledHere = spent && page === "create" ? spent : null;
 
   // The highlight is one element that travels, so it is placed from the
   // selected row's measured box rather than drawn by the row.
@@ -556,6 +571,7 @@ function Palette({
         <DetailsForm
           template={template}
           draft={draft}
+          spent={spent?.name ?? null}
           onDoor={(door) => go(door === "github" ? "sourceGithub" : "sourceNotion")}
           onBack={() => go(template ? "template" : "create")}
         />
@@ -604,8 +620,16 @@ function Palette({
               )}
             </div>
 
-            <aside className="nt-pal-side" aria-hidden="true">
-              {shown && shown._id === currentProject?._id ? (
+            {/* A picture, hidden from assistive tech — except the wall, which
+                holds the way on. */}
+            <aside className="nt-pal-side" aria-hidden={walledHere ? undefined : true}>
+              {walledHere ? (
+                <TeamWallPane
+                  meter="projects"
+                  workspaceId={walledHere.workspaceId}
+                  name={walledHere.name}
+                />
+              ) : shown && shown._id === currentProject?._id ? (
                 <div className="nt-pal-card" key={shown._id}>
                   <PagePreview docId={shown.firstPageDocId} />
                   <p className="nt-pal-card-name">{shown.title || "Untitled project"}</p>
@@ -724,11 +748,14 @@ function TemplatePreview({ template }: { template: ProjectTemplate }) {
 function DetailsForm({
   template,
   draft,
+  spent,
   onDoor,
   onBack,
 }: {
   template: { id: string; name: string } | null;
   draft: ReturnType<typeof useNewProjectDraft>;
+  /** The workspace it is going to, when that has no projects left. */
+  spent: string | null;
   /** GitHub and Notion open as pages of the palette; files stay a file dialog. */
   onDoor: (door: "github" | "notion") => void;
   onBack: () => void;
@@ -742,6 +769,10 @@ function DetailsForm({
   // exactly what it always was.
   const seats = useQuery(api.workspaces.listMine);
   const places = seats?.filter((w) => w.role !== "guest") ?? [];
+  // Asked for as the form opened: its rows fold in when they come.
+  const [late] = useState(seats === undefined);
+  const arriving = late ? " is-arriving" : "";
+  const { user } = useUser();
   const chosen = workspace && places.find((w) => w.workspaceId === workspace.workspaceId);
   // Who sees it, remembered across a trip to My Nootles and back — and so
   // what the Visibility row goes on showing while it folds shut.
@@ -776,80 +807,79 @@ function DetailsForm({
           assistant is told. */}
       <div className="nt-pal-fields">
         {places.length > 0 && (
-          <div className="nt-pal-fld">
-            <span id="nt-pal-in-key" className="nt-pal-key">
-              Where
-            </span>
-            <div className="min-w-0">
-              <Menu
-                label="Where the project goes"
-                side="bottom"
-                align="start"
-                layer="modal"
-                trigger={(t) => (
-                  <button
-                    {...t}
-                    type="button"
-                    id="nt-pal-in"
-                    aria-labelledby="nt-pal-in-key nt-pal-in"
-                    className="nt-row -ml-2 max-w-full gap-1.5 px-2 text-[15px] text-foreground"
-                  >
-                    <span className="truncate">{chosen ? chosen.name : "My Nootles"}</span>
-                    <ChevronsUpDown width={14} height={14} className="shrink-0 text-muted" />
-                  </button>
-                )}
-              >
-                {(close) => (
-                  <>
-                    <MenuItem
-                      onClick={() => {
-                        setWorkspace(undefined);
-                        close();
-                      }}
+          <div className={`nt-pal-fold${arriving}`} data-open="true">
+            <div className="nt-pal-fld">
+              <span id="nt-pal-in-key" className="nt-pal-key">
+                Where
+              </span>
+              <div className="min-w-0">
+                <Menu
+                  label="Where the project goes"
+                  side="bottom"
+                  align="start"
+                  layer="modal"
+                  className="nt-ws-switcher"
+                  trigger={(t) => (
+                    <button
+                      {...t}
+                      type="button"
+                      id="nt-pal-in"
+                      aria-labelledby="nt-pal-in-key nt-pal-in"
+                      className="nt-row -ml-2 max-w-full gap-1.5 px-2 text-[length:var(--text-body)] text-foreground"
                     >
-                      My Nootles
-                      <Check
-                        width={14}
-                        height={14}
-                        aria-hidden="true"
-                        className={`nt-menu-check${chosen ? "" : " is-on"}`}
-                      />
-                    </MenuItem>
-                    {places.map((w) => (
+                      <span className="truncate">{chosen ? chosen.name : "My Nootles"}</span>
+                      <ChevronsUpDown width={14} height={14} className="shrink-0 text-muted" />
+                    </button>
+                  )}
+                >
+                  {(close) => (
+                    <>
+                      {/* The places as the switcher lists them. */}
                       <MenuItem
-                        key={w.workspaceId}
                         onClick={() => {
-                          setWorkspace({
-                            workspaceId: w.workspaceId,
-                            slug: w.slug,
-                            visibility,
-                          });
+                          setWorkspace(undefined);
                           close();
                         }}
                       >
-                        <span className="min-w-0 truncate">{w.name}</span>
-                        <Check
-                          width={14}
-                          height={14}
-                          aria-hidden="true"
-                          className={`nt-menu-check${
-                            chosen?.workspaceId === w.workspaceId ? " is-on" : ""
-                          }`}
+                        <Place
+                          tile={<YouTile name={user?.fullName || user?.primaryEmailAddress?.emailAddress} />}
+                          name="My Nootles"
+                          current={!chosen}
                         />
                       </MenuItem>
-                    ))}
-                  </>
-                )}
-              </Menu>
-              {/* Moving a project between them is not something Nootles does,
-                  so the choice is said to be for good before it is made — and
-                  so is what a member gives up by making one in a workspace:
-                  its owners and admins manage it, not whoever made it. */}
-              <p className="text-[12px] text-muted text-pretty">
-                {chosen?.role === "member"
-                  ? `A project can’t be moved after it’s made, and only ${chosen.name}’s owners and admins can rename or delete it.`
-                  : "A project can’t be moved after it’s made."}
-              </p>
+                      {places.map((w) => (
+                        <MenuItem
+                          key={w.workspaceId}
+                          onClick={() => {
+                            setWorkspace({
+                              workspaceId: w.workspaceId,
+                              slug: w.slug,
+                              visibility,
+                            });
+                            close();
+                          }}
+                        >
+                          <Place
+                            tile={<Tile name={w.name} />}
+                            name={w.name}
+                            meta={ROLE_LABEL[w.role]}
+                            current={chosen?.workspaceId === w.workspaceId}
+                          />
+                        </MenuItem>
+                      ))}
+                    </>
+                  )}
+                </Menu>
+                {/* Moving a project between them is not something Nootles does,
+                    so the choice is said to be for good before it is made — and
+                    so is what a member gives up by making one in a workspace:
+                    its owners and admins manage it, not whoever made it. */}
+                <p className="text-[length:var(--text-meta-lg)] text-muted text-pretty">
+                  {chosen?.role === "member"
+                    ? `A project can’t be moved after it’s made, and only ${chosen.name}’s owners and admins can rename or delete it.`
+                    : "A project can’t be moved after it’s made."}
+                </p>
+              </div>
             </div>
           </div>
         )}
@@ -858,7 +888,7 @@ function DetailsForm({
             its hint. Folded shut, not unmounted, while the project is going
             into My Nootles. */}
         {places.length > 0 && (
-          <div className="nt-pal-fold" data-open={!!chosen} inert={!chosen}>
+          <div className={`nt-pal-fold${arriving}`} data-open={!!chosen} inert={!chosen}>
             <div className="nt-pal-fld">
               <span className="nt-pal-key">Visibility</span>
               <div className="min-w-0 pt-0.5">
@@ -866,7 +896,12 @@ function DetailsForm({
                   label="Visibility"
                   segments={[
                     { id: "workspace", label: "Workspace", hint: seen.workspace },
-                    { id: "private", label: "Private", hint: seen.private },
+                    {
+                      id: "private",
+                      label: "Private",
+                      hint: seen.private,
+                      icon: <Lock width={12} height={12} aria-hidden="true" />,
+                    },
                   ]}
                   value={visibility}
                   chosenSaidBelow
@@ -875,7 +910,10 @@ function DetailsForm({
                     if (workspace) setWorkspace({ ...workspace, visibility: next });
                   }}
                 />
-                <p aria-live="polite" className="mt-1.5 text-[12px] text-muted text-pretty">
+                <p
+                  aria-live="polite"
+                  className="mt-1.5 text-[length:var(--text-meta-lg)] text-muted text-pretty"
+                >
                   {seen[visibility]}.
                 </p>
               </div>
@@ -903,8 +941,13 @@ function DetailsForm({
 
       <div className="nt-pal-foot">
         {failure ? (
-          <span role="alert" className="text-danger">
+          <span key={failure} role="alert" className="nt-settle text-danger">
             {failure}
+          </span>
+        ) : spent ? (
+          // Why Create is refused, where its key hint would be.
+          <span key={spent} role="status" className="nt-settle">
+            {stopped("projects", spent).title}.
           </span>
         ) : (
           <span>
@@ -916,7 +959,11 @@ function DetailsForm({
           <button type="button" onClick={onBack} className="nt-row px-2.5">
             Back
           </button>
-          <button type="submit" disabled={!named || busy} className="nt-row nt-solid px-3 font-medium">
+          <button
+            type="submit"
+            disabled={!named || busy || !!spent}
+            className="nt-row nt-solid px-3 font-medium"
+          >
             {busy ? "Creating…" : "Create"}
           </button>
         </span>

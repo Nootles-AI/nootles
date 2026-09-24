@@ -111,6 +111,8 @@ export function ProjectsScreen() {
   const liveProjects: Project[] | undefined = workspace ? liveHere : liveMine;
   const projects = liveProjects ?? seen?.projects;
   const shared = workspace ? NONE : (liveShared ?? seen?.shared);
+  // Opened on its skeleton: what replaces it arrives in its place (`nt-from-wait`).
+  const [waited] = useState(projects === undefined);
   const liveOthers = workspace ? NONE : liveShared;
   useEffect(() => {
     if (userId && liveProjects && liveOthers) {
@@ -311,6 +313,10 @@ export function ProjectsScreen() {
       return true;
     } catch (error) {
       if (!isQuotaError(error)) throw error;
+      // A workspace's wall has nothing to hand the form back to — paying is an
+      // owner's, and not now — so the palette goes first rather than sitting
+      // under a second scrim. The palette says so before Create when it knows.
+      if (project.workspace) setFinding(null);
       setWalled({ project });
       return false;
     }
@@ -451,7 +457,7 @@ export function ProjectsScreen() {
         </p>
       )}
 
-      <div className="mt-8">
+      <div className={`mt-8${waited ? " nt-from-wait" : ""}`}>
         {projects === undefined ? (
           <Skeletons view={view} />
         ) : projects.length === 0 ? (

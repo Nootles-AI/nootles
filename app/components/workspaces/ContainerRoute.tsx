@@ -147,8 +147,8 @@ export function NothingHere() {
       <Link href="/" aria-label="Nootles" className="mb-4">
         <Wordmark className="text-muted" />
       </Link>
-      <p className="text-sm font-medium">Nothing here</p>
-      <p className="max-w-xs text-sm text-muted">
+      <p className="text-[length:var(--text-body)] font-medium">Nothing here</p>
+      <p className="max-w-xs text-[length:var(--text-ui)] text-pretty text-muted">
         This address doesn’t lead anywhere you can open. The link may be
         mistyped, or meant for another account.
       </p>
