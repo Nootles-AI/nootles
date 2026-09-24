@@ -7,6 +7,7 @@ import { api } from "@/convex/_generated/api";
 import { DialogBox } from "../../Dialog";
 import type { WorkspaceContainer } from "../ContainerContext";
 import { refusal } from "../refusal";
+import { Problem } from "./parts";
 
 /**
  * A question, what answering it does, and the two ways out — the small box
@@ -82,11 +83,7 @@ export function ConfirmBox({
             />
           </>
         )}
-        {failure && (
-          <p role="alert" className="mt-2 text-[13px] text-danger">
-            {failure}
-          </p>
-        )}
+        <Problem text={failure} className="nt-settle mt-2 text-[13px] text-danger" />
         <div className="mt-4 flex justify-end gap-1">
           <button
             type="button"

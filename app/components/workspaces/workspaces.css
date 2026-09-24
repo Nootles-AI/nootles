@@ -18,20 +18,30 @@
   margin: 16px calc(-1 * var(--inset)) 0;
 }
 
-/* Whose settings these are, over the title: the name the home is titled with,
-   quieter, so the page says where it is and what it is. One heading still —
-   a screen reader hears "Acme Settings". */
-.nt-ws-set-of {
-  display: block;
-  margin-bottom: 6px;
+/* A section's name drawn at its current weight whatever its weight now, so the
+   one that is current, set heavier, widens nothing after it. */
+.nt-ws-set-nav > .nt-row {
+  flex-direction: column;
+  justify-content: center;
+  gap: 0;
+}
+.nt-ws-set-nav > .nt-row::after {
+  content: attr(data-label) / "";
+  height: 0;
   overflow: hidden;
-  font-size: var(--text-ui);
   font-weight: 500;
-  letter-spacing: 0;
-  line-height: 1.5;
-  color: var(--muted);
-  white-space: nowrap;
-  text-overflow: ellipsis;
+  visibility: hidden;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* Another section opened: its body fades in under the still chrome, and the
+   rows that rose into place when the page arrived hold still. */
+.nt-ws-section-in {
+  animation: nt-fade-in var(--dur) var(--ease);
+}
+.nt-ws-moved .nt-ws-person {
+  animation: none;
 }
 
 /* A section label with something of its own on the right — the join-domain
@@ -162,6 +172,10 @@
   background: none;
   font: inherit;
   color: var(--foreground);
+}
+/* Moving to a new address: what was typed is held, muted, until it lands. */
+.nt-ws-url.is-busy > input {
+  color: var(--muted);
 }
 /* Under a field on the settings page the note sits a little further off. */
 .nt-ws-fld .nt-ws-note {
@@ -463,6 +477,14 @@
   left: auto;
   right: 0;
 }
+/* A row with nothing to govern while another is off — link expiry, with share
+   links off — rests at half ink, its control refused, until it has again. */
+.nt-set-row.nt-ws-rests {
+  transition: opacity var(--dur) var(--ease);
+}
+.nt-set-row.nt-ws-rests.is-resting {
+  opacity: 0.5;
+}
 /* A row whose action is a switch rather than a button holds the button's
    height, so the switch sits on the glyph's line as a button would. */
 .nt-ws-policy .nt-set-actions {
@@ -580,8 +602,18 @@
   width: 64px;
 }
 .nt-ws-person > .nt-ws-col-role {
+  position: relative;
   font-size: var(--text-ui);
   color: var(--muted);
+}
+/* A role just changed from here: the tick that says it took, in the gap
+   before the column, so the word itself does not move for it. */
+.nt-menu-check.nt-ws-role-tick {
+  position: absolute;
+  top: 50%;
+  left: -16px;
+  margin-top: -6px;
+  color: var(--foreground);
 }
 .nt-ws-col-when {
   flex: none;
@@ -608,7 +640,8 @@
    cards are on white and keep theirs. */
 .nt-set-section > .nt-ws-bone > .nt-skeleton,
 .nt-ws-set-head .nt-skeleton,
-.nt-ws-filters .nt-skeleton {
+.nt-ws-filters .nt-skeleton,
+.nt-skeleton.nt-ws-bone-sunk {
   background: var(--sunken);
 }
 
@@ -625,8 +658,10 @@
   color: var(--danger);
 }
 /* An invitation revoked leaves while the server agrees, as an answered request
-   does in the share popover. */
-.nt-ws-person.is-leaving {
+   does in the share popover; a person removed, or a join domain taken off,
+   leaves the same way once it has gone (`useLeaving`). */
+.nt-ws-person.is-leaving,
+.nt-set-list > li.is-leaving {
   opacity: 0;
   transform: scale(0.97);
   pointer-events: none;
@@ -806,6 +841,7 @@
   .nt-ws-unpaid,
   .nt-ws-swap,
   .nt-ws-arrive,
+  .nt-ws-section-in,
   .nt-ws-join,
   .nt-monogram.nt-ws-join-tile {
     animation: nt-fade-in var(--dur-fast) var(--ease);
@@ -813,7 +849,9 @@
   .nt-ws-pile .nt-face,
   .nt-ws-onward-glyph,
   .nt-ws-saved,
-  .nt-ws-person.is-leaving {
+  .nt-set-row.nt-ws-rests,
+  .nt-ws-person.is-leaving,
+  .nt-set-list > li.is-leaving {
     transition: none;
   }
   /* The rows' stagger is a delay, which the global catch-all leaves running. */
