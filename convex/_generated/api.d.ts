@@ -40,6 +40,7 @@ import type * as counters from "../counters.js";
 import type * as crons from "../crons.js";
 import type * as demoSeed from "../demoSeed.js";
 import type * as devSeed from "../devSeed.js";
+import type * as emails from "../emails.js";
 import type * as entitlements from "../entitlements.js";
 import type * as feedback from "../feedback.js";
 import type * as files_context from "../files/context.js";
@@ -155,6 +156,7 @@ declare const fullApi: ApiFromModules<{
   crons: typeof crons;
   demoSeed: typeof demoSeed;
   devSeed: typeof devSeed;
+  emails: typeof emails;
   entitlements: typeof entitlements;
   feedback: typeof feedback;
   "files/context": typeof files_context;
