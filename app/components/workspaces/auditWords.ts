@@ -229,7 +229,7 @@ export function whatParts(row: AuditRow, workspaceName: string): Part[] {
         noun(m.page),
         " in ",
         project,
-        ...(row.count && row.count > 1 ? [` · ${plural(row.count, "change")}`] : []),
+        ...(row.count && row.count > 1 ? [` · active ${plural(row.count, "minute")}`] : []),
       ];
     case "page.delete":
     case "folder.delete":

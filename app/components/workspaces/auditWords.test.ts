@@ -133,18 +133,18 @@ describe("the sentence", () => {
     expect(`${actorName(r, null)} ${whatText(r, "Acme")}`).toBe("Maya removed Tom from Acme");
   });
 
-  test("an edit window names the page and counts its changes", () => {
+  test("an edit window names the page and the minutes it was edited in", () => {
     const r = row({
       action: "page.edit",
       meta: { projectId: "p1", project: "Launch", page: "Roadmap" },
-      count: 37,
+      count: 7,
     });
     expect(whatParts(r, "Acme")).toEqual([
       "edited ",
       { name: "Roadmap" },
       " in ",
       { project: "p1", title: "Launch" },
-      " · 37 changes",
+      " · active 7 minutes",
     ]);
     expect(whatText({ ...r, count: 1 }, "Acme")).toBe("edited Roadmap in Launch");
   });

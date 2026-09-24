@@ -284,7 +284,7 @@ export const append = mutation({
     // Here rather than in `appendYUpdate`, which the NML migrator shares: this
     // is the one place a flush is known to be a person's. A comments append is
     // no edit of the page; its events are the notices' (`commentNotices`).
-    if (access.channel === "document") await recordDocumentEdit(ctx, args.docId);
+    if (access.channel === "document") await recordDocumentEdit(ctx, access);
     return seq;
   },
 });
