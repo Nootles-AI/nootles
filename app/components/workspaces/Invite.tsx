@@ -21,6 +21,7 @@ import { Menu, MenuItem } from "../Menu";
 import { Segmented, type Segment } from "../Segmented";
 import type { WorkspaceContainer } from "./ContainerContext";
 import { refusal } from "./refusal";
+import { Fold } from "./settings/parts";
 import { INVITED, inviteProblem, ROLE_HINT, ROLE_LABEL, type Invited } from "./seats";
 import { useMoment } from "./useMoment";
 import "./workspaces.css";
@@ -278,23 +279,19 @@ export function InviteForm({
       {/* Once there is a link, the how-to folds away as the link folds in, the
           two at one pace, so the form grows by the difference and nothing
           below it jumps. A problem after that folds back in above the link. */}
-      <div className="nt-ws-fold" data-open={!live || !!problem}>
-        <div className="nt-ws-fold-body">
-          <p
-            id={`${id}-note`}
-            aria-live="polite"
-            className={`nt-note pt-2 text-pretty${problem ? " text-danger" : ""}`}
-          >
-            {note}
-          </p>
-        </div>
-      </div>
+      <Fold open={!live || !!problem}>
+        <p
+          id={`${id}-note`}
+          aria-live="polite"
+          className={`nt-note pt-2 text-pretty${problem ? " text-danger" : ""}`}
+        >
+          {note}
+        </p>
+      </Fold>
       {sent && (
-        <div className="nt-ws-fold is-arriving" data-open={live} inert={!live}>
-          <div className="nt-ws-fold-body">
-            <InviteLink key={sent.token} {...sent} />
-          </div>
-        </div>
+        <Fold open={live} arriving>
+          <InviteLink key={sent.token} {...sent} />
+        </Fold>
       )}
     </form>
   );

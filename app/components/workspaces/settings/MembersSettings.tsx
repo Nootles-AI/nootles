@@ -11,7 +11,7 @@ import { useStandIn } from "../../StandIn";
 import { Tooltip } from "../../Tooltip";
 import { useContainer, type WorkspaceContainer } from "../ContainerContext";
 import { InviteForm, inviteUrl, useCopied } from "../Invite";
-import { initial, useNaming, type Named } from "../people";
+import { useNaming } from "../people";
 import { refusal } from "../refusal";
 import {
   expiresIn,
@@ -28,6 +28,7 @@ import {
 } from "../seats";
 import { ConfirmBox, LeaveWorkspace } from "./Confirm";
 import { JoinByDomain } from "./JoinByDomain";
+import { Avatar, Bone, Fold, Problem } from "./parts";
 
 type People = NonNullable<FunctionReturnType<typeof api.members.list>>;
 type Member = People["members"][number];
@@ -145,17 +146,11 @@ function Sections({
         </section>
       )}
       {runs && (
-        <div
-          className={`nt-ws-fold${cold ? " is-arriving" : ""}`}
-          data-open={inviting}
-          inert={!inviting}
-        >
-          <div className="nt-ws-fold-body">
-            {invitations.length > 0 && (
-              <Invitations workspace={workspace} actor={actor} invitations={invitations} />
-            )}
-          </div>
-        </div>
+        <Fold open={inviting} arriving={cold}>
+          {invitations.length > 0 && (
+            <Invitations workspace={workspace} actor={actor} invitations={invitations} />
+          )}
+        </Fold>
       )}
       <Roster workspace={workspace} actor={runs ? actor : null} members={people.members} />
       {runs && <JoinByDomain workspace={workspace} />}
@@ -200,15 +195,6 @@ function Loading({ invites }: { invites: boolean }) {
         </div>
       </section>
     </>
-  );
-}
-
-/** A bar in the line box of the 13px text it stands for. */
-export function Bone({ bar, className = "" }: { bar: string; className?: string }) {
-  return (
-    <div className={`nt-ws-bone flex h-[19.5px] items-center ${className}`}>
-      <div className={`nt-skeleton ${bar}`} />
-    </div>
   );
 }
 
@@ -261,11 +247,7 @@ function Invitations({
           ))}
         </ul>
       </div>
-      {problem && (
-        <p role="alert" className="nt-set-problem">
-          {problem}
-        </p>
-      )}
+      <Problem text={problem} />
     </section>
   );
 }
@@ -494,32 +476,8 @@ function Roster({
           })}
         </ul>
       </div>
-      {problem && (
-        <p role="alert" className="nt-set-problem">
-          {problem}
-        </p>
-      )}
+      <Problem text={problem} />
     </section>
-  );
-}
-
-/**
- * You as your monogram, as everywhere you see yourself; everyone else as their
- * photo. The monogram is the first letter of what the row calls them, which
- * is what the home's pile draws too.
- */
-export function Avatar({ member, named }: { member: Member; named: Named }) {
-  if (member.imageUrl && !member.isMe) {
-    return (
-      // Not next/image: Clerk's avatar hosts are not the optimizer's to fetch.
-      // eslint-disable-next-line @next/next/no-img-element
-      <img src={member.imageUrl} alt="" className="h-8 w-8 shrink-0 rounded-full" />
-    );
-  }
-  return (
-    <span className="nt-monogram is-lg shrink-0" aria-hidden="true">
-      {initial(named.name)}
-    </span>
   );
 }
 

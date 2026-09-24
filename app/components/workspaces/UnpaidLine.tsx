@@ -7,6 +7,7 @@ import { atLeast } from "@/convex/auth";
 import { settingsPath } from "@/app/lib/containerPaths";
 import { useStandIn } from "../StandIn";
 import type { WorkspaceContainer } from "./ContainerContext";
+import { Fold } from "./settings/parts";
 import "./workspaces.css";
 
 /**
@@ -35,15 +36,13 @@ export function UnpaidLine({
   if (!ask) return null;
 
   return (
-    <div className={`nt-ws-fold is-arriving ${className}`}>
-      <div className="nt-ws-fold-body">
-        <p className="nt-ws-unpaid">
-          {workspace.name} is on the free allowance.{" "}
-          <Link href={settingsPath(workspace.slug, "billing")} className="nt-ws-aside-link">
-            {ask === "settle" ? "Fix its billing" : "See the Team plan"}
-          </Link>
-        </p>
-      </div>
-    </div>
+    <Fold arriving className={className}>
+      <p className="nt-ws-unpaid">
+        {workspace.name} is on the free allowance.{" "}
+        <Link href={settingsPath(workspace.slug, "billing")} className="nt-ws-aside-link">
+          {ask === "settle" ? "Fix its billing" : "See the Team plan"}
+        </Link>
+      </p>
+    </Fold>
   );
 }

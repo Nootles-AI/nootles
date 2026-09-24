@@ -196,18 +196,11 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  animation: nt-set-settle var(--dur-slow) var(--ease) backwards;
+  animation: nt-settle var(--dur-slow) var(--ease) backwards;
 }
 .nt-set-outcome > span {
   flex: 1 1 auto;
   min-width: 0;
-}
-
-@keyframes nt-set-settle {
-  from {
-    opacity: 0;
-    transform: translateY(-4px);
-  }
 }
 
 @media (max-width: 560px) {
