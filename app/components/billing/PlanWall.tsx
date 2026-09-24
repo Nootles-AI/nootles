@@ -55,7 +55,8 @@ export function PlanWall({
         meter={wall.meter}
         workspaceId={container.workspaceId}
         name={container.name}
-        back={dismissalOf(wall.intent)}
+        // Raised at a New project, it closes onto the home it was raised on.
+        back={wall.intent.kind === "newProject" ? "Not now" : dismissalOf(wall.intent)}
         onClose={wall.onClose}
       />
     );

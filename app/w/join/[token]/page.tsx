@@ -1,6 +1,10 @@
 import type { Metadata } from "next";
 import { Authed } from "@/app/components/Authed";
-import { JoinInvitation } from "@/app/components/workspaces/JoinInvitation";
+import {
+  JoinFrame,
+  JoinInvitation,
+  JoinWaiting,
+} from "@/app/components/workspaces/JoinInvitation";
 
 export const metadata: Metadata = {
   title: "Join a workspace — Nootles",
@@ -15,7 +19,13 @@ export const metadata: Metadata = {
 export default async function JoinPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
   return (
-    <Authed>
+    <Authed
+      fallback={
+        <JoinFrame>
+          <JoinWaiting />
+        </JoinFrame>
+      }
+    >
       <JoinInvitation token={token} />
     </Authed>
   );

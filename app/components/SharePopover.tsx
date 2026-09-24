@@ -451,12 +451,12 @@ function SharePopoverBody({
                 <span aria-hidden className="nt-monogram nt-ws-tile is-square shrink-0">
                   {initial(workspace.name)}
                 </span>
-                <span className="min-w-0 flex-1 truncate text-[13px]">
+                <span className="min-w-0 flex-1 truncate text-[length:var(--text-ui)]">
                   {hidden
                     ? `${workspace.name}’s owners and admins`
                     : `Everyone in ${workspace.name}`}
                 </span>
-                <span className="shrink-0 text-[13px] text-muted">
+                <span className="shrink-0 text-[length:var(--text-ui)] text-muted">
                   {hidden ? "Can manage" : "Can edit"}
                 </span>
               </div>
@@ -483,10 +483,7 @@ function SharePopoverBody({
             {workspace ? (
               <>
                 {" in "}
-                <Link
-                  href={settingsPath(workspace.slug)}
-                  className="underline underline-offset-2 hover:text-foreground"
-                >
+                <Link href={settingsPath(workspace.slug)} className="nt-ws-aside-link">
                   workspace settings
                 </Link>
                 .
@@ -628,7 +625,7 @@ function SharePopoverBody({
               </>
             )}
             {linkProblem && (
-              <p role="alert" className="nt-note mt-2 text-pretty text-danger">
+              <p key={linkProblem} role="alert" className="nt-note nt-settle mt-2 text-pretty text-danger">
                 {linkProblem}
               </p>
             )}
@@ -724,8 +721,8 @@ function SharePopoverBody({
                       me?.primaryEmailAddress?.emailAddress,
                   )}
                 </span>
-                <span className="min-w-0 flex-1 truncate text-[13px]">You</span>
-                <span className="shrink-0 text-[13px] text-muted">{holds.owner}</span>
+                <span className="min-w-0 flex-1 truncate text-[length:var(--text-ui)]">You</span>
+                <span className="shrink-0 text-[length:var(--text-ui)] text-muted">{holds.owner}</span>
               </li>
               {maker && (
                 <li className="flex h-8 items-center gap-2">
@@ -741,10 +738,10 @@ function SharePopoverBody({
                       {initial(maker.name ?? maker.email)}
                     </span>
                   )}
-                  <span className="min-w-0 flex-1 truncate text-[13px]">
+                  <span className="min-w-0 flex-1 truncate text-[length:var(--text-ui)]">
                     {maker.name ?? maker.email ?? "Someone"}
                   </span>
-                  <span className="shrink-0 text-[13px] text-muted">{holds.editor}</span>
+                  <span className="shrink-0 text-[length:var(--text-ui)] text-muted">{holds.editor}</span>
                 </li>
               )}
               {rows.map((person, i) => (
@@ -779,7 +776,7 @@ function SharePopoverBody({
               ))}
             </ul>
             {peopleProblem && (
-              <p role="alert" className="nt-note mt-2 text-pretty text-danger">
+              <p key={peopleProblem} role="alert" className="nt-note nt-settle mt-2 text-pretty text-danger">
                 {peopleProblem}
               </p>
             )}
@@ -1005,7 +1002,7 @@ function Person({
         </span>
       )}
       <span
-        className={`flex min-w-0 flex-1 items-center gap-1.5 text-[13px]${
+        className={`flex min-w-0 flex-1 items-center gap-1.5 text-[length:var(--text-ui)]${
           person.paused ? " text-muted" : ""
         }`}
       >
@@ -1020,7 +1017,7 @@ function Person({
       {/* The ⋯ takes the role's seat as it appears, so every role in the
           list ends on the same edge as the workspace's above it. */}
       <span className="nt-share-hold">
-        <span className="nt-share-hold-text text-[13px] text-muted">{holds}</span>
+        <span className="nt-share-hold-text text-[length:var(--text-ui)] text-muted">{holds}</span>
         <Menu
           label={`Access for ${name}`}
           side="bottom"

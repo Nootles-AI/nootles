@@ -10,8 +10,12 @@ import { AtSign } from "../../Icons";
 import { Segmented, type Segment } from "../../Segmented";
 import type { WorkspaceContainer } from "../ContainerContext";
 import { refusal } from "../refusal";
+import { useLeaving } from "../useLeaving";
+import { Problem, Said } from "./parts";
 
 type Door = "off" | "on";
+
+const NONE: readonly string[] = [];
 
 const DOOR: readonly Segment<Door>[] = [
   { id: "off", label: "Off", hint: "People on these domains need an invitation, like anyone else" },
@@ -49,26 +53,29 @@ export function JoinByDomain({ workspace }: { workspace: WorkspaceContainer }) {
       });
     },
   );
-  const [busy, setBusy] = useState(false);
+  // What is on its way: a domain being added or taken off, or the switch.
+  const [busy, setBusy] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
+  const domains = live?.workspace.settings.joinDomains ?? NONE;
+  const rows = useLeaving(domains, (domain) => domain);
   if (!live) return null;
 
-  const { joinDomains: domains, autoJoin } = live.workspace.settings;
+  const { autoJoin } = live.workspace.settings;
   const address = user?.primaryEmailAddress;
   const mine = address ? domainOf(address.emailAddress.toLowerCase()) : null;
   const verified = address?.verification?.status === "verified";
   const personal = !!mine && isPersonalDomain(mine);
   const offer = mine && verified && !personal && !domains.includes(mine) ? mine : null;
 
-  const save = async (patch: { joinDomains?: string[]; autoJoin?: boolean }) => {
-    setBusy(true);
+  const save = async (what: string, patch: { joinDomains?: string[]; autoJoin?: boolean }) => {
+    setBusy(what);
     setProblem(null);
     try {
       await update({ workspaceId: workspace.workspaceId, patch });
     } catch (error) {
       setProblem(refusal(error, "That didn’t save. Try again in a moment."));
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   };
 
@@ -93,34 +100,38 @@ export function JoinByDomain({ workspace }: { workspace: WorkspaceContainer }) {
             label="Join by email domain"
             segments={DOOR}
             value={autoJoin ? "on" : "off"}
-            onChange={(door) => void save({ autoJoin: door === "on" })}
+            onChange={(door) => void save("door", { autoJoin: door === "on" })}
           />
         )}
       </div>
       <ul className="nt-set-list">
-        {domains.map((domain) => (
-          <li key={domain}>
+        {rows.map(({ item: domain, leaving }) => (
+          <li key={domain} className={leaving ? "is-leaving" : undefined} inert={leaving}>
             <div className="nt-set-row">
               <span className="nt-set-glyph">
                 <AtSign aria-hidden="true" />
               </span>
               <div className="nt-set-body-col">
                 <div className="nt-set-name">{domain}</div>
-                <p className="nt-set-note">
-                  {autoJoin
-                    ? `Anyone signed in with a verified @${domain} address can join as a member, from their workspace menu.`
-                    : `Paused. People on ${domain} need an invitation, like anyone else.`}
-                </p>
+                <Said open={autoJoin}>
+                  Anyone signed in with a verified @{domain} address can join as a member, from
+                  their workspace menu.
+                </Said>
+                <Said open={!autoJoin}>
+                  Paused. People on {domain} need an invitation, like anyone else.
+                </Said>
               </div>
               <div className="nt-set-actions">
                 <button
                   type="button"
-                  disabled={busy}
-                  onClick={() => void save({ joinDomains: domains.filter((d) => d !== domain) })}
+                  disabled={busy !== null}
+                  onClick={() =>
+                    void save(domain, { joinDomains: domains.filter((d) => d !== domain) })
+                  }
                   aria-label={`Remove ${domain}`}
                   className="nt-row px-2.5"
                 >
-                  Remove
+                  {busy === domain || leaving ? "Removing…" : "Remove"}
                 </button>
               </div>
             </div>
@@ -143,16 +154,16 @@ export function JoinByDomain({ workspace }: { workspace: WorkspaceContainer }) {
               <div className="nt-set-actions">
                 <button
                   type="button"
-                  disabled={busy}
+                  disabled={busy !== null}
                   onClick={() =>
-                    void save({
+                    void save(offer, {
                       joinDomains: [...domains, offer],
                       ...(domains.length ? {} : { autoJoin: true }),
                     })
                   }
                   className="nt-row nt-solid px-3 font-medium"
                 >
-                  Add
+                  {busy === offer ? "Adding…" : "Add"}
                 </button>
               </div>
             </div>
@@ -176,11 +187,7 @@ export function JoinByDomain({ workspace }: { workspace: WorkspaceContainer }) {
         )}
       </ul>
       {unoffered && domains.length > 0 && <p className="nt-set-note mt-2">{unoffered}</p>}
-      {problem && (
-        <p role="alert" className="nt-set-problem">
-          {problem}
-        </p>
-      )}
+      <Problem text={problem} />
     </section>
   );
 }

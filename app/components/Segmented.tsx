@@ -1,8 +1,14 @@
 "use client";
 
-import { useId, type CSSProperties } from "react";
+import { useId, type CSSProperties, type ReactNode } from "react";
 
-export type Segment<T extends string> = { id: T; label: string; hint: string };
+export type Segment<T extends string> = {
+  id: T;
+  label: string;
+  hint: string;
+  /** A glyph before the word, where the word alone undersells a choice. */
+  icon?: ReactNode;
+};
 
 /**
  * A choice between two or three named behaviours, in the metadata voice.
@@ -56,8 +62,9 @@ export function Segmented<T extends string>({
           data-tip={s.hint}
           className={`nt-mode-btn${
             chosenSaidBelow && value === s.id ? "" : ` nt-tip${tipUp ? " is-up" : ""}`
-          }${value === s.id ? " is-on" : ""}`}
+          }${value === s.id ? " is-on" : ""}${s.icon ? " has-icon" : ""}`}
         >
+          {s.icon}
           {s.label}
           {/* The same words for a screen reader, which never sees the tooltip. */}
           <span id={`${id}-${s.id}`} className="sr-only">

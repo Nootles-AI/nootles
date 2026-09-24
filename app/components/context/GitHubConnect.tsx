@@ -6,7 +6,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { Brandmark } from "@/app/components/Brand";
 import { GitHubMark } from "./marks";
 import { PasteToken } from "./GitHubPicker";
-import { useIntegrationsPath } from "./useGitHubDoor";
+import { useIntegrationsPath, useMembersPath } from "./useGitHubDoor";
 
 /**
  * Not connected to GitHub yet: GitHub's mark, ours, a line between them, and
@@ -103,6 +103,8 @@ export function GitHubAppMissing({
   onInstall: () => void;
 }) {
   const settings = useIntegrationsPath(workspaceId);
+  // Anyone who can do nothing here is shown who can, rather than left at a wall.
+  const people = useMembersPath(workspaceId);
   const said = unconfigured
     ? manages
       ? {
@@ -146,6 +148,11 @@ export function GitHubAppMissing({
       {unconfigured && manages && settings && (
         <Link href={settings} className="nt-nc-alt">
           Open Settings › Integrations
+        </Link>
+      )}
+      {!manages && people && (
+        <Link href={people} className="nt-nc-alt">
+          {unconfigured ? "See who can turn it back on" : "See who can install it"}
         </Link>
       )}
     </div>

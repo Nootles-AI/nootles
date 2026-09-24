@@ -92,6 +92,17 @@ export function useIntegrationsPath(workspaceId: Id<"workspaces">): string | nul
     : null;
 }
 
+/**
+ * Where a member who cannot open the door finds who can: the workspace's
+ * people, owners and admins first. Null outside that workspace.
+ */
+export function useMembersPath(workspaceId: Id<"workspaces">): string | null {
+  const here = useContainer();
+  return here.kind === "workspace" && here.workspaceId === workspaceId
+    ? `/w/${here.slug}/settings/members`
+    : null;
+}
+
 export function installPath(workspaceId: Id<"workspaces">): string {
   return `/api/github/app/install?workspace=${workspaceId}`;
 }

@@ -16,6 +16,7 @@ import { heirOf, leaveProblem } from "../seats";
 import { useMoment } from "../useMoment";
 import { useSlugProblem } from "../useSlugProblem";
 import { ConfirmBox, LeaveWorkspace } from "./Confirm";
+import { Fold, Problem } from "./parts";
 import { SharingSettings } from "./SharingSettings";
 
 /**
@@ -134,11 +135,7 @@ function NameField({ workspace, edits }: { workspace: WorkspaceContainer; edits:
         ) : (
           <p className="nt-ws-value">{workspace.name}</p>
         )}
-        {problem && (
-          <p id="nt-ws-name-note" role="alert" className="nt-ws-note is-problem">
-            {problem}
-          </p>
-        )}
+        <Problem text={problem} id="nt-ws-name-note" className="nt-ws-note is-problem nt-settle" />
       </div>
     </div>
   );
@@ -165,7 +162,7 @@ function AddressField({ workspace, edits }: { workspace: WorkspaceContainer; edi
   const slug = normalizeSlug(typed ?? workspace.slug);
   const changed = typed !== null && slug !== workspace.slug;
   const problem =
-    useSlugProblem(slug, { judge: changed, workspaceId: workspace.workspaceId }) ?? failure;
+    useSlugProblem(slug, { judge: changed, workspaceId: workspace.workspaceId }).problem ?? failure;
   const host = window.location.host;
 
   const commit = async () => {
@@ -216,7 +213,7 @@ function AddressField({ workspace, edits }: { workspace: WorkspaceContainer; edi
       <div className="min-w-0">
         {edits ? (
           // A label, so pressing the fixed part of the address still lands in the field.
-          <label className="nt-ws-url">
+          <label className={`nt-ws-url${busy ? " is-busy" : ""}`}>
             <span className="nt-ws-url-base" aria-hidden="true">
               {host}/w/
             </span>
@@ -252,7 +249,10 @@ function AddressField({ workspace, edits }: { workspace: WorkspaceContainer; edi
           aria-live="polite"
           className={`nt-ws-note${problem ? " is-problem" : ""}`}
         >
-          {note}
+          {/* The words settle in as they change; the line keeps its place. */}
+          <span key={note} className="nt-ws-swap">
+            {note}
+          </span>
         </p>
       </div>
     </div>
@@ -300,86 +300,92 @@ function DangerZone({ workspace }: { workspace: WorkspaceContainer }) {
   const people = useQuery(api.members.list, { workspaceId: workspace.workspaceId });
   const remove = useMutation(api.workspaces.remove);
   const [asking, setAsking] = useState<"leave" | "delete" | null>(null);
+  // Only a list still on its way is worth opening into place for.
+  const [cold] = useState(people === undefined);
 
   if (!people) return null;
   const owner = workspace.role === "owner";
   const owners = people.members.filter((m) => m.role === "owner").length;
   const leaves = !leaveProblem(workspace.role, { owners, people: people.members.length });
   const heir = heirOf(people.members);
+  // It waits on the members list, so it opens into its place rather than
+  // landing under everything else a beat after the page.
   return (
-    <section className="nt-set-section" aria-labelledby="nt-ws-danger">
-      <h2 id="nt-ws-danger" className="nt-set-label">
-        Danger zone
-      </h2>
-      <ul className="nt-set-list">
-        {leaves && (
-          <li>
-            <div className="nt-set-row">
-              <div className="nt-set-body-col">
-                <div className="nt-set-name">Leave {workspace.name}</div>
-                <p className="nt-set-note">
-                  You lose access to its projects straight away.
-                </p>
+    <Fold arriving={cold}>
+      <section className="nt-set-section" aria-labelledby="nt-ws-danger">
+        <h2 id="nt-ws-danger" className="nt-set-label">
+          Danger zone
+        </h2>
+        <ul className="nt-set-list">
+          {leaves && (
+            <li>
+              <div className="nt-set-row">
+                <div className="nt-set-body-col">
+                  <div className="nt-set-name">Leave {workspace.name}</div>
+                  <p className="nt-set-note">
+                    You lose access to its projects straight away.
+                  </p>
+                </div>
+                <div className="nt-set-actions">
+                  <button
+                    type="button"
+                    onClick={() => setAsking("leave")}
+                    className="nt-row px-2.5 font-medium text-danger"
+                  >
+                    Leave
+                  </button>
+                </div>
               </div>
-              <div className="nt-set-actions">
-                <button
-                  type="button"
-                  onClick={() => setAsking("leave")}
-                  className="nt-row px-2.5 text-danger"
-                >
-                  Leave
-                </button>
+            </li>
+          )}
+          {owner && (
+            <li>
+              <div className="nt-set-row">
+                <div className="nt-set-body-col">
+                  <div className="nt-set-name">Delete {workspace.name}</div>
+                  <p className="nt-set-note">Everyone loses access and its projects are deleted.</p>
+                </div>
+                <div className="nt-set-actions">
+                  <button
+                    type="button"
+                    onClick={() => setAsking("delete")}
+                    className="nt-row px-2.5 font-medium text-danger"
+                  >
+                    Delete workspace
+                  </button>
+                </div>
               </div>
-            </div>
-          </li>
-        )}
-        {owner && (
-          <li>
-            <div className="nt-set-row">
-              <div className="nt-set-body-col">
-                <div className="nt-set-name">Delete {workspace.name}</div>
-                <p className="nt-set-note">Everyone loses access and its projects are deleted.</p>
-              </div>
-              <div className="nt-set-actions">
-                <button
-                  type="button"
-                  onClick={() => setAsking("delete")}
-                  className="nt-row px-2.5 text-danger"
-                >
-                  Delete workspace
-                </button>
-              </div>
-            </div>
-          </li>
-        )}
-      </ul>
+            </li>
+          )}
+        </ul>
 
-      {asking === "leave" && (
-        <LeaveWorkspace
-          workspace={workspace}
-          heir={heir && (heir.name ?? heir.email)}
-          onClose={() => setAsking(null)}
-        />
-      )}
-      {asking === "delete" && (
-        <ConfirmBox
-          label={`Delete ${workspace.name}`}
-          question={`Delete ${workspace.name}?`}
-          action="Delete"
-          busyAction="Deleting…"
-          confirmText={workspace.name}
-          onConfirm={async () => {
-            await remove({ workspaceId: workspace.workspaceId });
-            router.replace("/");
-          }}
-          onClose={() => setAsking(null)}
-        >
-          {people.members.length > 1
-            ? `${people.members.length} people lose access at once, and all of its projects are deleted, private ones included.`
-            : "All of its projects are deleted, private ones included."}{" "}
-          This can’t be undone.
-        </ConfirmBox>
-      )}
-    </section>
+        {asking === "leave" && (
+          <LeaveWorkspace
+            workspace={workspace}
+            heir={heir && (heir.name ?? heir.email)}
+            onClose={() => setAsking(null)}
+          />
+        )}
+        {asking === "delete" && (
+          <ConfirmBox
+            label={`Delete ${workspace.name}`}
+            question={`Delete ${workspace.name}?`}
+            action="Delete"
+            busyAction="Deleting…"
+            confirmText={workspace.name}
+            onConfirm={async () => {
+              await remove({ workspaceId: workspace.workspaceId });
+              router.replace("/");
+            }}
+            onClose={() => setAsking(null)}
+          >
+            {people.members.length > 1
+              ? `${people.members.length} people lose access at once, and all of its projects are deleted, private ones included.`
+              : "All of its projects are deleted, private ones included."}{" "}
+            This can’t be undone.
+          </ConfirmBox>
+        )}
+      </section>
+    </Fold>
   );
 }

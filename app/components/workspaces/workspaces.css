@@ -12,26 +12,65 @@
    out by the row's inset so the first label starts on the title's edge. */
 
 .nt-ws-set-nav {
+  position: relative;
   display: flex;
   flex-wrap: wrap;
   gap: 2px;
   margin: 16px calc(-1 * var(--inset)) 0;
 }
 
-/* Whose settings these are, over the title: the name the home is titled with,
-   quieter, so the page says where it is and what it is. One heading still —
-   a screen reader hears "Acme Settings". */
-.nt-ws-set-of {
-  display: block;
-  margin-bottom: 6px;
+/* Where you are is one wash that travels between the links on the spring, as
+   the palette's highlight does (`useTravellingWash`); the current link keeps
+   its weight and gives up its own fill. The links sit above it. */
+.nt-ws-set-nav-hl {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: var(--hl-w, 0);
+  height: var(--control);
+  border-radius: var(--radius);
+  background: var(--selected);
+  opacity: 0;
+  transform: translate(var(--hl-x, 0), var(--hl-y, 0));
+  pointer-events: none;
+}
+.nt-ws-set-nav[data-marked] > .nt-ws-set-nav-hl {
+  opacity: 1;
+}
+.nt-ws-set-nav[data-travels] > .nt-ws-set-nav-hl {
+  transition:
+    transform var(--dur-slow) var(--spring),
+    width var(--dur-slow) var(--spring);
+}
+.nt-ws-set-nav[data-marked] > .nt-row.is-current {
+  background: transparent;
+}
+
+/* A section's name drawn at its current weight whatever its weight now, so the
+   one that is current, set heavier, widens nothing after it. */
+.nt-ws-set-nav > .nt-row {
+  position: relative;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0;
+}
+.nt-ws-set-nav > .nt-row::after {
+  content: attr(data-label) / "";
+  height: 0;
   overflow: hidden;
-  font-size: var(--text-ui);
   font-weight: 500;
-  letter-spacing: 0;
-  line-height: 1.5;
-  color: var(--muted);
-  white-space: nowrap;
-  text-overflow: ellipsis;
+  visibility: hidden;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* Another section opened: its body fades in under the still chrome, and the
+   rows that rose into place when the page arrived hold still. */
+.nt-ws-section-in {
+  animation: nt-fade-in var(--dur) var(--ease);
+}
+.nt-ws-moved .nt-ws-person {
+  animation: none;
 }
 
 /* A section label with something of its own on the right — the join-domain
@@ -163,6 +202,10 @@
   font: inherit;
   color: var(--foreground);
 }
+/* Moving to a new address: what was typed is held, muted, until it lands. */
+.nt-ws-url.is-busy > input {
+  color: var(--muted);
+}
 /* Under a field on the settings page the note sits a little further off. */
 .nt-ws-fld .nt-ws-note {
   margin-top: 6px;
@@ -205,6 +248,11 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* Another place picked: its name arrives as the palette's crumb does, while
+   the projects under it rise, rather than being there in a frame. */
+.nt-ws-switch-name.is-swapped {
+  animation: nt-pal-crumb 400ms var(--spring) backwards;
+}
 .nt-ws-switch-glyph {
   flex: none;
   color: var(--muted);
@@ -238,6 +286,11 @@
 }
 .nt-ws-switcher .nt-menu-item {
   gap: 10px;
+}
+/* The tick on where you are is on before the menu is, so its spring would
+   never play: it lands once, after the rows have risen. */
+.nt-ws-switcher .nt-menu-check.is-on {
+  animation: nt-menu-check-in var(--dur-slow) var(--spring) 120ms backwards;
 }
 .nt-ws-tile {
   flex: none;
@@ -402,9 +455,24 @@
   --nt-ws-ring: color-mix(in srgb, var(--foreground) 8%, var(--background));
   background: var(--active);
 }
-/* Its seat, held while the people are on their way. */
+/* Its seat, held while the people are on their way — and, when nobody else
+   turns out to be here, given back over time, gap and all (the header's
+   `gap-2`), so the title slides to its centre rather than jumping. */
 .nt-ws-pile.is-waiting {
   width: var(--control);
+  transition:
+    width var(--dur-slow) var(--ease),
+    padding var(--dur-slow) var(--ease),
+    margin var(--dur-slow) var(--ease);
+}
+.nt-ws-pile.is-waiting.is-gone {
+  width: 0;
+  padding-inline: 0;
+  margin-inline-end: -0.5rem;
+}
+/* Faces arrive on a workspace's first open only; back again, they are there. */
+.nt-ws-pile.is-known .nt-face {
+  animation: none;
 }
 .nt-ws-pile .nt-face {
   box-shadow: 0 0 0 2px var(--nt-ws-ring);
@@ -455,57 +523,29 @@
 }
 
 /* A switch at the right end of its row opens its hints leftward, from its
-   right edge, so they stay inside the popover and the page rather than
-   running off them — and, laid out even while hidden, widening them. */
-.nt-ws-invite-pop .nt-tip::after,
+   right edge, so they stay inside the page rather than running off it — and,
+   laid out even while hidden, widening it. */
 .nt-ws-set-head .nt-tip::after,
 .nt-ws-policy .nt-set-actions .nt-tip::after {
   left: auto;
   right: 0;
 }
+/* A row with nothing to govern while another is off — link expiry, with share
+   links off — rests at half ink, its control refused, until it has again. */
+.nt-set-row.nt-ws-rests {
+  transition: opacity var(--dur) var(--ease);
+}
+.nt-set-row.nt-ws-rests :is(.nt-set-glyph, .nt-set-name, .nt-set-actions) {
+  transition: opacity var(--dur) var(--ease);
+}
+/* The note says why the control is resting, so it stays readable. */
+.nt-set-row.nt-ws-rests.is-resting :is(.nt-set-glyph, .nt-set-name, .nt-set-actions) {
+  opacity: 0.5;
+}
 /* A row whose action is a switch rather than a button holds the button's
    height, so the switch sits on the glyph's line as a button would. */
 .nt-ws-policy .nt-set-actions {
   min-height: var(--control);
-}
-
-/* An invitation just made: its link arrives under the form, the way a row
-   arrives in a list. */
-.nt-ws-sent {
-  animation: nt-row-in 360ms var(--ease) backwards;
-}
-
-/* ---- Folds ----------------------------------------------------------------------
-   Something that comes and goes on a page with more under it — a note, a
-   link, a list — takes its room over time rather than in a frame: its track
-   runs between 0fr and 1fr, the body clipped as it goes, as `.nt-ctl-fold`
-   does in the canvas panels. Shut, it holds its place in the markup; one that
-   `is-arriving` opens from shut as it mounts. Two folds moving at once, one
-   shutting as the other opens, sum to one smooth change of height. Spacing
-   belongs inside the body, where it is clipped with it. */
-
-.nt-ws-fold {
-  display: grid;
-  grid-template-rows: 1fr;
-  transition:
-    grid-template-rows var(--dur-slow) var(--ease),
-    opacity var(--dur) var(--ease);
-}
-.nt-ws-fold[data-open="false"] {
-  grid-template-rows: 0fr;
-  opacity: 0;
-}
-@starting-style {
-  .nt-ws-fold.is-arriving {
-    grid-template-rows: 0fr;
-    opacity: 0;
-  }
-}
-.nt-ws-fold-body {
-  min-height: 0;
-  overflow: clip;
-  /* Room for a button's focus ring, which sits 3px outside the body's edge. */
-  overflow-clip-margin: 3px;
 }
 
 /* ---- Role menus ---------------------------------------------------------------
@@ -613,8 +653,18 @@
   width: 64px;
 }
 .nt-ws-person > .nt-ws-col-role {
+  position: relative;
   font-size: var(--text-ui);
   color: var(--muted);
+}
+/* A role just changed from here: the tick that says it took, in the gap
+   before the column, so the word itself does not move for it. */
+.nt-menu-check.nt-ws-role-tick {
+  position: absolute;
+  top: 50%;
+  left: -16px;
+  margin-top: -6px;
+  color: var(--foreground);
 }
 .nt-ws-col-when {
   flex: none;
@@ -641,7 +691,8 @@
    cards are on white and keep theirs. */
 .nt-set-section > .nt-ws-bone > .nt-skeleton,
 .nt-ws-set-head .nt-skeleton,
-.nt-ws-filters .nt-skeleton {
+.nt-ws-filters .nt-skeleton,
+.nt-skeleton.nt-ws-bone-sunk {
   background: var(--sunken);
 }
 
@@ -658,8 +709,10 @@
   color: var(--danger);
 }
 /* An invitation revoked leaves while the server agrees, as an answered request
-   does in the share popover. */
-.nt-ws-person.is-leaving {
+   does in the share popover; a person removed, or a join domain taken off,
+   leaves the same way once it has gone (`useLeaving`). */
+.nt-ws-person.is-leaving,
+.nt-set-list > li.is-leaving {
   opacity: 0;
   transform: scale(0.97);
   pointer-events: none;
@@ -675,6 +728,15 @@
     background var(--dur-fast) var(--ease),
     color var(--dur-fast) var(--ease),
     transform var(--dur) var(--ease);
+}
+/* A row with a menu is something to act on, so it washes under the pointer as
+   the projects list's rows do — and stays washed while its menu is open, whose
+   catcher takes the pointer from it. */
+.nt-ws-person:has(.nt-ws-row-menu):hover {
+  background: var(--hover);
+}
+.nt-ws-person:has(.nt-ws-row-menu[aria-expanded="true"]) {
+  background: var(--selected);
 }
 /* Where there is no pointer to reveal it, the row's menu is always there. */
 @media (hover: none) {
@@ -708,12 +770,12 @@
   align-items: center;
   width: min(26rem, 100%);
   padding: 28px 24px 24px;
-  border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   background: var(--elevated);
   box-shadow:
     0 1px 2px oklch(0.25 0.005 90 / 0.04),
-    0 12px 32px -8px oklch(0.25 0.005 90 / 0.16);
+    0 8px 24px oklch(0.25 0.005 90 / 0.07),
+    0 24px 64px oklch(0.25 0.005 90 / 0.11);
   text-align: center;
   transform-origin: 50% 30%;
   animation: nt-ws-join-in 480ms var(--spring) backwards;
@@ -724,6 +786,11 @@
     filter: blur(6px);
     transform: translateY(12px) scale(0.97);
   }
+}
+/* Before the invitation is read: the same sheet, still. The answer is the
+   card's one arrival. Its bars sit on white, so they keep their own fill. */
+.nt-ws-join.is-waiting {
+  animation: none;
 }
 .nt-monogram.nt-ws-join-tile {
   width: 48px;
@@ -797,8 +864,10 @@
   color: var(--foreground);
 }
 /* Words that change in place once a figure arrives: the line keeps its room
-   and only the sentence settles in. */
-.nt-ws-swap {
+   and only the sentence settles in. A section whose shape the skeleton could
+   not guess arrives the same way, rather than landing in a frame. */
+.nt-ws-swap,
+.nt-ws-arrive {
   animation: nt-fade-in var(--dur) var(--ease);
 }
 /* AI past the allowance: a figure in a strip's head, with no cells — it has
@@ -811,7 +880,7 @@
 
 /* ---- An unpaid workspace, said once under its title -------------------------
    On the title's centre line, in the note's voice: a fact about the place with
-   the way on beside it, not a banner. It folds open (`.nt-ws-fold`), so its
+   the way on beside it, not a banner. It folds open (`.nt-fold`), so its
    gap is padding inside the fold's body, clipped with it. Its link is the
    aside link, underlined at rest as every inline link on these pages is. */
 
@@ -822,7 +891,6 @@
   color: var(--muted);
   text-align: center;
   text-wrap: balance;
-  animation: nt-row-in 360ms var(--ease) backwards;
 }
 /* Where the title leaves the centre for its own left-aligned row. */
 @media (max-width: 48rem) {
@@ -833,19 +901,29 @@
 
 @media (prefers-reduced-motion: reduce) {
   .nt-ws-switch-glyph,
-  .nt-ws-sent,
-  .nt-ws-unpaid,
+  .nt-ws-switch-name.is-swapped,
+  .nt-ws-switcher .nt-menu-check.is-on,
   .nt-ws-swap,
+  .nt-ws-arrive,
+  .nt-ws-section-in,
   .nt-ws-join,
   .nt-monogram.nt-ws-join-tile {
     animation: nt-fade-in var(--dur-fast) var(--ease);
   }
   .nt-ws-pile .nt-face,
+  .nt-ws-pile.is-waiting,
   .nt-ws-onward-glyph,
-  .nt-ws-fold,
-  .nt-ws-saved,
-  .nt-ws-person.is-leaving {
+  .nt-ws-set-nav[data-travels] > .nt-ws-set-nav-hl,
+  .nt-set-row.nt-ws-rests {
     transition: none;
+  }
+  /* What these fades say — saved, gone — is the change itself, so they keep
+     their opacity and give up only the movement. The global catch-all would
+     cut them to nothing, hence the weight. */
+  .nt-ws-saved,
+  .nt-ws-person.is-leaving,
+  .nt-set-list > li.is-leaving {
+    transition: opacity var(--dur-fast) var(--ease) !important;
   }
   /* The rows' stagger is a delay, which the global catch-all leaves running. */
   .nt-ws-event,
@@ -934,10 +1012,14 @@
   margin-block: calc((var(--text-ui) * 1.5 - var(--control)) / 2);
   margin-right: calc(-1 * var(--inset));
 }
-/* Why the log reads as it does, under its label and above what narrows it. */
+/* Why the log reads as it does, under its label and above what narrows it —
+   closer to the label than a card would sit, which the label's row gives up. */
+.nt-ws-set-head:has(+ .nt-ws-audit-note) {
+  margin-bottom: 4px;
+}
 .nt-ws-audit-note,
 .nt-set-note.nt-ws-audit-note {
-  margin: -4px 0 8px;
+  margin: 0 0 8px;
 }
 
 .nt-ws-event {

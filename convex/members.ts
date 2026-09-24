@@ -17,6 +17,7 @@ import {
   type WorkspaceRole,
 } from "./auth";
 import { record, recordInProject } from "./workspaceAudit";
+import { normalizeEmail, NOT_AN_EMAIL, plausibleEmail } from "./emails";
 import { unlinkRepo } from "./github/repos";
 import { unlinkPage } from "./notion/context";
 import { ensureArrivalProfile, personOf } from "./profiles";
@@ -60,12 +61,10 @@ async function ownersOf(ctx: QueryCtx, workspaceId: Id<"workspaces">) {
 const pending = (invitation: Doc<"invitations">) =>
   invitation.acceptedAt === undefined && invitation.revokedAt === undefined;
 
-function normalizeEmail(raw: string): string {
-  const email = raw.trim().toLowerCase();
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    throw new ConvexError("That doesn’t look like an email address.");
-  }
-  return email;
+/** The address an invitation is kept under, refused unless it could be one. */
+function invitedEmail(raw: string): string {
+  if (!plausibleEmail(raw)) throw new ConvexError(NOT_AN_EMAIL);
+  return normalizeEmail(raw);
 }
 
 /** `ada@acme.com` → `a••@acme.com`: enough to recognise an account, not to learn one. */
@@ -333,7 +332,7 @@ export const invite = mutation({
   args: { workspaceId: v.id("workspaces"), email: v.string(), role: invitedRole },
   handler: async (ctx, args) => {
     const { workspace, membership } = await requireWorkspaceRole(ctx, args.workspaceId, "admin");
-    const email = normalizeEmail(args.email);
+    const email = invitedEmail(args.email);
     const open = (
       await ctx.db
         .query("invitations")

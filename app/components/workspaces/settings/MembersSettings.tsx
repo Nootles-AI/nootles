@@ -11,8 +11,10 @@ import { useStandIn } from "../../StandIn";
 import { Tooltip } from "../../Tooltip";
 import { useContainer, type WorkspaceContainer } from "../ContainerContext";
 import { InviteForm, inviteUrl, useCopied } from "../Invite";
-import { initial, useNaming, type Named } from "../people";
+import { useNaming } from "../people";
 import { refusal } from "../refusal";
+import { useLeaving } from "../useLeaving";
+import { useMoment } from "../useMoment";
 import {
   expiresIn,
   heirOf,
@@ -28,6 +30,7 @@ import {
 } from "../seats";
 import { ConfirmBox, LeaveWorkspace } from "./Confirm";
 import { JoinByDomain } from "./JoinByDomain";
+import { Avatar, Bone, Fold, Problem } from "./parts";
 
 type People = NonNullable<FunctionReturnType<typeof api.members.list>>;
 type Member = People["members"][number];
@@ -145,17 +148,11 @@ function Sections({
         </section>
       )}
       {runs && (
-        <div
-          className={`nt-ws-fold${cold ? " is-arriving" : ""}`}
-          data-open={inviting}
-          inert={!inviting}
-        >
-          <div className="nt-ws-fold-body">
-            {invitations.length > 0 && (
-              <Invitations workspace={workspace} actor={actor} invitations={invitations} />
-            )}
-          </div>
-        </div>
+        <Fold open={inviting} arriving={cold}>
+          {invitations.length > 0 && (
+            <Invitations workspace={workspace} actor={actor} invitations={invitations} />
+          )}
+        </Fold>
       )}
       <Roster workspace={workspace} actor={runs ? actor : null} members={people.members} />
       {runs && <JoinByDomain workspace={workspace} />}
@@ -200,15 +197,6 @@ function Loading({ invites }: { invites: boolean }) {
         </div>
       </section>
     </>
-  );
-}
-
-/** A bar in the line box of the 13px text it stands for. */
-export function Bone({ bar, className = "" }: { bar: string; className?: string }) {
-  return (
-    <div className={`nt-ws-bone flex h-[19.5px] items-center ${className}`}>
-      <div className={`nt-skeleton ${bar}`} />
-    </div>
   );
 }
 
@@ -261,11 +249,7 @@ function Invitations({
           ))}
         </ul>
       </div>
-      {problem && (
-        <p role="alert" className="nt-set-problem">
-          {problem}
-        </p>
-      )}
+      <Problem text={problem} />
     </section>
   );
 }
@@ -434,12 +418,13 @@ function Roster({
   members: Member[];
 }) {
   const [problem, setProblem] = useState<string | null>(null);
-  const naming = useNaming();
   const count: Headcount = {
     owners: members.filter((m) => m.role === "owner").length,
     people: members.length,
   };
   const heir = heirOf(members);
+  // Someone removed — here, or by another admin — fades out of the list.
+  const rows = useLeaving(members, (m) => m.userId);
 
   return (
     <section className="nt-set-section" aria-labelledby={ROSTER}>
@@ -456,70 +441,103 @@ function Roster({
           {actor && <span className="nt-ws-col-end" />}
         </div>
         <ul className="nt-ws-rows" aria-label={`Members of ${workspace.name}`}>
-          {members.map((member, i) => {
-            const named = naming(member);
-            return (
-              <li key={member.userId} style={nth(i)} className="nt-list-row nt-ws-person group">
-                <Avatar member={member} named={named} />
-                <div className="nt-ws-who">
-                  <span className="nt-ws-who-name">
-                    {named.name}
-                    {member.isMe && named.known && <span className="text-muted"> (you)</span>}
-                  </span>
-                  {named.mail && <span className="nt-ws-who-mail">{named.mail}</span>}
-                </div>
-                <span className="nt-ws-col-role">{ROLE_LABEL[member.role]}</span>
-                <span className="nt-ws-col-when nt-meta">{WHEN.format(member.joinedAt)}</span>
-                {actor && (
-                  <span className="nt-ws-col-end">
-                    <PersonMenu
-                      workspace={workspace}
-                      actor={actor}
-                      member={member}
-                      name={named.name}
-                      count={count}
-                      heir={heir && (heir.name ?? heir.email)}
-                      onProblem={setProblem}
-                      onGone={() =>
-                        focusBeside(
-                          members.map((m) => m.userId),
-                          member.userId,
-                        )
-                      }
-                    />
-                  </span>
-                )}
-              </li>
-            );
-          })}
+          {rows.map(({ item: member, leaving }, i) => (
+            <MemberRow
+              key={member.userId}
+              index={i}
+              workspace={workspace}
+              actor={actor}
+              member={member}
+              leaving={leaving}
+              count={count}
+              heir={heir && (heir.name ?? heir.email)}
+              onProblem={setProblem}
+              onGone={() =>
+                focusBeside(
+                  members.map((m) => m.userId),
+                  member.userId,
+                )
+              }
+            />
+          ))}
         </ul>
       </div>
-      {problem && (
-        <p role="alert" className="nt-set-problem">
-          {problem}
-        </p>
-      )}
+      <Problem text={problem} />
     </section>
   );
 }
 
 /**
- * You as your monogram, as everywhere you see yourself; everyone else as their
- * photo. The monogram is the first letter of what the row calls them, which
- * is what the home's pile draws too.
+ * One person. A role changed from here is acknowledged where it is read: the
+ * new word settles into the column, and a tick beside it says it took.
  */
-export function Avatar({ member, named }: { member: Member; named: Named }) {
-  if (member.imageUrl && !member.isMe) {
-    return (
-      // Not next/image: Clerk's avatar hosts are not the optimizer's to fetch.
-      // eslint-disable-next-line @next/next/no-img-element
-      <img src={member.imageUrl} alt="" className="h-8 w-8 shrink-0 rounded-full" />
-    );
-  }
+function MemberRow({
+  index,
+  workspace,
+  actor,
+  member,
+  leaving,
+  count,
+  heir,
+  onProblem,
+  onGone,
+}: {
+  index: number;
+  workspace: WorkspaceContainer;
+  actor: WorkspaceRole | null;
+  member: Member;
+  /** Gone from the list, and fading out of it. */
+  leaving: boolean;
+  count: Headcount;
+  heir: string | null;
+  onProblem: (text: string | null) => void;
+  onGone: () => void;
+}) {
+  const naming = useNaming();
+  const named = naming(member);
+  const [changed, ack] = useMoment(1200);
   return (
-    <span className="nt-monogram is-lg shrink-0" aria-hidden="true">
-      {initial(named.name)}
-    </span>
+    <li
+      style={nth(index)}
+      inert={leaving}
+      className={`nt-list-row nt-ws-person group${leaving ? " is-leaving" : ""}`}
+    >
+      <Avatar member={member} named={named} />
+      <div className="nt-ws-who">
+        <span className="nt-ws-who-name">
+          {named.name}
+          {member.isMe && named.known && <span className="text-muted"> (you)</span>}
+        </span>
+        {named.mail && <span className="nt-ws-who-mail">{named.mail}</span>}
+      </div>
+      <span className="nt-ws-col-role">
+        <Check
+          width={12}
+          height={12}
+          aria-hidden="true"
+          className={`nt-menu-check nt-ws-role-tick${changed ? " is-on" : ""}`}
+        />
+        <span key={member.role} className="nt-ws-swap">
+          {ROLE_LABEL[member.role]}
+        </span>
+      </span>
+      <span className="nt-ws-col-when nt-meta">{WHEN.format(member.joinedAt)}</span>
+      {actor && (
+        <span className="nt-ws-col-end">
+          <PersonMenu
+            workspace={workspace}
+            actor={actor}
+            member={member}
+            name={named.name}
+            count={count}
+            heir={heir}
+            onChanged={ack}
+            onProblem={onProblem}
+            onGone={onGone}
+          />
+        </span>
+      )}
+    </li>
   );
 }
 
@@ -548,6 +566,7 @@ function PersonMenu({
   name,
   count,
   heir,
+  onChanged,
   onProblem,
   onGone,
 }: {
@@ -558,6 +577,8 @@ function PersonMenu({
   name: string;
   count: Headcount;
   heir: string | null;
+  /** Their seat changed, from here. */
+  onChanged: () => void;
   onProblem: (text: string | null) => void;
   /** Moves focus off the row, which is on its way out. */
   onGone: () => void;
@@ -576,7 +597,7 @@ function PersonMenu({
   };
 
   const change = (role: WorkspaceRole) =>
-    setRole({ workspaceId: workspace.workspaceId, userId: member.userId, role });
+    setRole({ workspaceId: workspace.workspaceId, userId: member.userId, role }).then(onChanged);
 
   const pick = (role: WorkspaceRole) => {
     onProblem(null);

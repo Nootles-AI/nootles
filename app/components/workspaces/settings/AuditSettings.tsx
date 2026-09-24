@@ -15,7 +15,7 @@ import { useContainer, type WorkspaceContainer } from "../ContainerContext";
 import { actorName, ago, toCsv, whatParts, type AuditRow, type Part } from "../auditWords";
 import { initial, useNaming } from "../people";
 import { refusal } from "../refusal";
-import { Bone } from "./MembersSettings";
+import { Bone, Problem } from "./parts";
 
 type Event = FunctionReturnType<typeof api.workspaceAudit.list>["page"][number];
 type Member = NonNullable<FunctionReturnType<typeof api.members.list>>["members"][number];
@@ -166,7 +166,7 @@ function Audit({ workspace }: { workspace: WorkspaceContainer }) {
 
 function NotIncluded({ workspace }: { workspace: WorkspaceContainer }) {
   return (
-    <section className="nt-set-section" aria-labelledby="nt-ws-audit">
+    <section className="nt-set-section nt-ws-arrive" aria-labelledby="nt-ws-audit">
       <div className="nt-ws-set-head">
         <h2 id="nt-ws-audit" className="nt-set-label">
           Audit log
@@ -272,11 +272,7 @@ function Log({ workspace }: { workspace: WorkspaceContainer }) {
         Events are kept for a year. One person’s edits to a page within ten minutes show as a
         single row.
       </p>
-      {problem && (
-        <p role="alert" className="nt-set-problem mb-2">
-          {problem}
-        </p>
-      )}
+      <Problem text={problem} className="nt-set-problem nt-settle mb-2" />
       {/* The filter whose value runs longest goes last, so a choice moves no other. */}
       <div className="nt-ws-filters" role="group" aria-label="Filter the log">
         <Picker

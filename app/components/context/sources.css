@@ -354,7 +354,7 @@
 .nt-codegate {
   display: grid;
   padding: 6px 0 2px;
-  font-size: 12.5px;
+  font-size: var(--text-meta-lg);
   line-height: 1.45;
   color: var(--muted);
   text-wrap: pretty;
@@ -372,52 +372,24 @@
 .nt-codegate .is-problem {
   color: var(--danger);
 }
+/* The tick on the first line's centre, the sentence wrapping beside it. */
+.nt-codegate-verified {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+}
+.nt-codegate-verified > .nt-menu-check {
+  margin: calc((1.45em - 12px) / 2) 0 0;
+  color: var(--foreground);
+}
 .nt-row.nt-codegate-go {
   justify-self: start;
   height: var(--control-sm);
   margin-top: 2px;
   margin-inline: -8px;
   padding-inline: 8px;
-  font-size: 12.5px;
+  font-size: var(--text-meta-lg);
   font-weight: 500;
   color: var(--foreground);
 }
 
-/* It takes its room over time, as the workspace settings' folds do: the track
-   runs between 0fr and 1fr, the body clipped as it goes. It opens as it
-   mounts, and a proof that lets the member in shuts it. The rail's edge and
-   heading, where it brings them, fold with it. */
-.nt-codegate-fold {
-  display: grid;
-  flex: none;
-  grid-template-rows: 1fr;
-  transition:
-    grid-template-rows var(--dur-slow) var(--ease),
-    opacity var(--dur) var(--ease);
-}
-.nt-codegate-fold[data-open="false"] {
-  grid-template-rows: 0fr;
-  opacity: 0;
-}
-@starting-style {
-  .nt-codegate-fold.is-arriving {
-    grid-template-rows: 0fr;
-    opacity: 0;
-  }
-}
-.nt-codegate-fold-body {
-  min-height: 0;
-  overflow: clip;
-  /* Room for the press's focus ring, 3px outside the body's edge. */
-  overflow-clip-margin: 3px;
-}
-/* The frame's own edge would show in that margin once shut. */
-.nt-codegate-fold[data-open="false"] > .nt-codegate-fold-body {
-  overflow-clip-margin: 0;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .nt-codegate-fold {
-    transition: none;
-  }
-}

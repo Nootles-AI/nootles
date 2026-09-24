@@ -10,7 +10,7 @@ import { homePath } from "@/app/lib/containerPaths";
 import { rememberWorkspace } from "@/app/lib/projectsCache";
 import { Wordmark } from "../Brand";
 import { useConfirmedEmail, useIdentityCheck } from "../IdentitySync";
-import { Mail } from "../Icons";
+import { Check, Mail } from "../Icons";
 import { initial } from "./people";
 import { refusal } from "./refusal";
 import { ROLE_OFFER } from "./seats";
@@ -18,6 +18,8 @@ import "../settings/settings.css";
 import "./workspaces.css";
 
 const an = (role: string) => (role === "admin" ? "an admin" : `a ${role}`);
+/** How long the tile's tick is seen before the new home replaces the card. */
+const LANDED_MS = 400;
 
 /**
  * An invitation, answered: who asked, into what, what the seat lets you do,
@@ -50,6 +52,7 @@ export function JoinInvitation({ token }: { token: string }) {
   const invitation = held ?? (settling ? undefined : live);
   const accept = useMutation(api.members.acceptInvite);
   const [going, setGoing] = useState(false);
+  const [joined, setJoined] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
 
   const join = async () => {
@@ -57,11 +60,14 @@ export function JoinInvitation({ token }: { token: string }) {
     setGoing(true);
     setFailure(null);
     try {
-      const joined = await accept({ token });
+      const done = await accept({ token });
       // Told to the cache first, so the home draws at once rather than
-      // waiting to learn what its address is. Left going: it replaces this page.
-      if (userId) rememberWorkspace(userId, joined.slug, { kind: "workspace", ...joined });
-      router.replace(homePath(joined.slug));
+      // waiting to learn what its address is. Left going: it replaces this page,
+      // a beat after the tile has said you are in.
+      if (userId) rememberWorkspace(userId, done.slug, { kind: "workspace", ...done });
+      router.prefetch(homePath(done.slug));
+      setJoined(true);
+      setTimeout(() => router.replace(homePath(done.slug)), LANDED_MS);
     } catch (error) {
       setHeld(undefined);
       setGoing(false);
@@ -163,7 +169,7 @@ export function JoinInvitation({ token }: { token: string }) {
     );
   } else if (invitation) {
     const { workspaceName: name, inviterName: inviter } = invitation;
-    const tile = <Tile name={name} />;
+    const tile = <Tile name={name} done={joined} />;
     if (invitation.state === "valid") {
       card = (
         <Card
@@ -228,6 +234,11 @@ export function JoinInvitation({ token }: { token: string }) {
     }
   }
 
+  return <JoinFrame>{card ?? <JoinWaiting />}</JoinFrame>;
+}
+
+/** The page around the card: the settings surface's topbar, and the card centred under it. */
+export function JoinFrame({ children }: { children: ReactNode }) {
   return (
     <div className="nt-set-page">
       <header className="nt-set-topbar">
@@ -238,10 +249,25 @@ export function JoinInvitation({ token }: { token: string }) {
           Back to your projects
         </Link>
       </header>
-      <main className="nt-ws-join-body" aria-busy={invitation === undefined}>
-        {card}
-      </main>
+      <main className="nt-ws-join-body">{children}</main>
     </div>
+  );
+}
+
+/**
+ * The card before the invitation has been read — or before the account has
+ * signed in to read it: its sheet, the tile's well and bars where the words
+ * will be. Still, so the answer is the card's one arrival.
+ */
+export function JoinWaiting() {
+  return (
+    <section className="nt-ws-join is-waiting" aria-busy="true" aria-label="Reading the invitation">
+      <span className="nt-skeleton h-12 w-12 rounded-xl" />
+      <span className="nt-skeleton mt-4 h-5 w-44" />
+      <span className="nt-skeleton mt-3 h-3.5 w-64 max-w-full" />
+      <span className="nt-skeleton mt-2 h-3.5 w-48 max-w-full" />
+      <span className="nt-skeleton mt-6 h-8 w-20" />
+    </section>
   );
 }
 
@@ -276,11 +302,21 @@ function Card({
   );
 }
 
-/** The workspace's token, as the switcher draws it: its initial, in a square. */
-function Tile({ name }: { name: string }) {
+/**
+ * The workspace's token, as the switcher draws it: its initial, in a square —
+ * which turns to a tick once you are in, the moment before its home arrives.
+ */
+function Tile({ name, done = false }: { name: string; done?: boolean }) {
   return (
-    <span className="nt-monogram nt-ws-tile is-square nt-ws-join-tile" aria-hidden="true">
-      {initial(name)}
+    <span
+      className="nt-monogram nt-ws-tile is-square nt-ws-join-tile"
+      data-done={done || undefined}
+      aria-hidden="true"
+    >
+      <span className="nt-swap">
+        <span>{initial(name)}</span>
+        <Check width={20} height={20} />
+      </span>
     </span>
   );
 }

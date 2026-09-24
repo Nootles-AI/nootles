@@ -6,10 +6,17 @@ import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import { useConvexAuth, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import { addressMove, homePath, projectIdIn, projectPath } from "@/app/lib/containerPaths";
+import {
+  addressMove,
+  homePath,
+  projectIdIn,
+  projectPath,
+  settingsPath,
+} from "@/app/lib/containerPaths";
 import { rememberWorkspace, seenWorkspace } from "@/app/lib/projectsCache";
 import { Wordmark } from "../Brand";
 import { HomeLoading } from "../ProjectsLoading";
+import { SettingsLoading } from "../settings/SettingsLoading";
 import { ContainerProvider, type WorkspaceContainer } from "./ContainerContext";
 
 const noop = () => () => {};
@@ -97,6 +104,7 @@ export function ContainerRoute({ slug, children }: { slug: string; children: Rea
   if (gone) return <div className="flex-1" aria-busy="true" />;
   if (resolved === null) return <Nowhere projectId={projectIdIn(pathname)} />;
   if (!container) {
+    if (pathname.startsWith(settingsPath(slug))) return <SettingsLoading workspace />;
     return hydrated && pathname === homePath(slug) ? (
       <HomeLoading />
     ) : (
@@ -139,8 +147,8 @@ export function NothingHere() {
       <Link href="/" aria-label="Nootles" className="mb-4">
         <Wordmark className="text-muted" />
       </Link>
-      <p className="text-sm font-medium">Nothing here</p>
-      <p className="max-w-xs text-sm text-muted">
+      <p className="text-[length:var(--text-body)] font-medium">Nothing here</p>
+      <p className="max-w-xs text-[length:var(--text-ui)] text-pretty text-muted">
         This address doesn’t lead anywhere you can open. The link may be
         mistyped, or meant for another account.
       </p>

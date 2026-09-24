@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAction, useQuery } from "convex/react";
@@ -11,13 +11,12 @@ import type { Meter } from "@/convex/limits";
 import type { PlanName } from "@/convex/plans";
 import { settingsPath } from "@/app/lib/containerPaths";
 import { Strip } from "../../billing/Allowance";
-import { X } from "../../Icons";
 import { useStandIn } from "../../StandIn";
 import { useContainer, type WorkspaceContainer } from "../ContainerContext";
 import { useNaming } from "../people";
 import { refusal } from "../refusal";
 import { ROLE_LABEL } from "../seats";
-import { Avatar, Bone } from "./MembersSettings";
+import { Avatar, Bone, Fold, Outcome, Problem } from "./parts";
 import "../../billing/paywall.css";
 
 type Summary = NonNullable<FunctionReturnType<typeof api.teamBilling.summary>>;
@@ -99,7 +98,8 @@ function Billing({ workspace, outcome }: { workspace: WorkspaceContainer; outcom
   // Every section's shape depends on both answers, so the page is drawn once
   // it has them rather than growing a section at a time.
   if (summary === undefined || standing === undefined) {
-    return <Loading notes={!standIn && atLeast(workspace.role, "admin") ? 2 : 3} />;
+    const acts = !standIn && atLeast(workspace.role, "admin");
+    return <Loading notes={acts ? 2 : 3} action={acts} />;
   }
   // A guest, or a seat that has just gone: the frame moves them on.
   if (summary === null) return null;
@@ -167,6 +167,11 @@ function PlanSection({
   const settling = outcome === "done" && !live;
   const starts = !paid && !summary.unsettled && summary.configured && outcome !== "done";
   const priced = !paid && !summary.unsettled && summary.configured && !settling;
+  // Once it has waited on Stripe, the plan that arrives is news: its name and
+  // standing change in place rather than in a frame.
+  const [waited, setWaited] = useState(settling);
+  if (settling && !waited) setWaited(true);
+  const swap = waited ? "nt-ws-swap" : undefined;
 
   // Fetched rather than subscribed, as the personal plans' prices are: what a
   // seat costs lives in Stripe, which is not a reactive source.
@@ -220,8 +225,16 @@ function PlanSection({
       <ul className="nt-set-list">
         <li className="nt-set-row" tabIndex={-1}>
           <div className="nt-set-body-col">
-            <p className="nt-set-name">{PLAN_LABEL[plan]}</p>
-            <p className="nt-set-meta">{settling ? "Waiting for Stripe…" : standingLine(summary)}</p>
+            <p className="nt-set-name">
+              <span key={plan} className={swap}>
+                {PLAN_LABEL[plan]}
+              </span>
+            </p>
+            <p className="nt-set-meta">
+              <span key={settling ? "waiting" : "standing"} className={swap}>
+                {settling ? "Waiting for Stripe…" : standingLine(summary)}
+              </span>
+            </p>
             {note && <p className="nt-set-note">{note}</p>}
             {priced && (
               <p className="nt-set-note">
@@ -240,12 +253,8 @@ function PlanSection({
                   : "Only an owner or an admin can start the Team plan."}
               </p>
             )}
-            {line && <Outcome line={line} onDismiss={settling ? null : onDismiss} />}
-            {problem && (
-              <p role="alert" className="nt-set-problem">
-                {problem}
-              </p>
-            )}
+            {line && <Outcome text={line} onDismiss={settling ? null : onDismiss} />}
+            <Problem text={problem} />
           </div>
           {acts && (
             <div className="nt-set-actions">
@@ -286,48 +295,6 @@ function PlanSection({
         </li>
       </ul>
     </section>
-  );
-}
-
-/**
- * The checkout's outcome line. A new sentence settles in again rather than
- * changing in place; dismissed, it folds shut before it goes, so the card
- * shortens rather than snapping, and focus waits on its row.
- */
-function Outcome({ line, onDismiss }: { line: string; onDismiss: (() => void) | null }) {
-  const [leaving, setLeaving] = useState(false);
-  const fold = useRef<HTMLDivElement>(null);
-  const leave = () => {
-    if (!onDismiss) return;
-    // Before the fold goes inert, which would drop focus to the page.
-    fold.current?.closest<HTMLElement>(".nt-set-row")?.focus();
-    // Without motion no transition ends, so there is nothing to wait for.
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) onDismiss();
-    else setLeaving(true);
-  };
-  return (
-    <div
-      ref={fold}
-      className="nt-ws-fold"
-      data-open={!leaving}
-      inert={leaving}
-      onTransitionEnd={(e) => {
-        if (leaving && e.target === e.currentTarget && e.propertyName === "grid-template-rows") {
-          onDismiss?.();
-        }
-      }}
-    >
-      <div className="nt-ws-fold-body">
-        <div key={line} role="status" className="nt-set-outcome nt-set-note">
-          <span>{line}</span>
-          {onDismiss && (
-            <button type="button" onClick={leave} aria-label="Dismiss" className="nt-icon-btn is-sm">
-              <X />
-            </button>
-          )}
-        </div>
-      </div>
-    </div>
   );
 }
 
@@ -440,14 +407,6 @@ function Period({
   );
 }
 
-function Fold({ open, arriving, children }: { open: boolean; arriving: boolean; children: ReactNode }) {
-  return (
-    <div className={`nt-ws-fold${arriving ? " is-arriving" : ""}`} data-open={open} inert={!open}>
-      <div className="nt-ws-fold-body">{children}</div>
-    </div>
-  );
-}
-
 function UsageSection({
   workspace,
   summary,
@@ -513,18 +472,12 @@ function UsageSection({
             </div>
           </div>
         </div>
-        <div
-          className={`nt-ws-fold${overOpened ? "" : " is-arriving"}`}
-          data-open={over > 0}
-          inert={over === 0}
-        >
-          <div className="nt-ws-fold-body">
-            <p className="nt-pw-strip-head nt-ws-over">
-              <span className="nt-pw-strip-name">Past the included AI</span>
-              <span className="nt-pw-strip-count">{pastSaid}</span>
-            </p>
-          </div>
-        </div>
+        <Fold open={over > 0} arriving={!overOpened}>
+          <p className="nt-pw-strip-head nt-ws-over">
+            <span className="nt-pw-strip-name">Past the included AI</span>
+            <span className="nt-pw-strip-count">{pastSaid}</span>
+          </p>
+        </Fold>
         <div className="nt-ws-notes">
           {heed ? (
             <p className="nt-set-note nt-ws-heed">
@@ -656,11 +609,12 @@ function SeatsSection({
 /**
  * The page's shape while it is on its way — the plan's row and the seats
  * table. Each bar sits in the line box of the text it stands for. The plan's
- * notes are one more for someone who can only read the page. No card is
- * guessed between them: whether there is one, and which, is the answer being
- * waited on, so the period's card folds open once it is known (`Period`).
+ * notes are one more for someone who can only read the page, and whoever can
+ * act on it has its button held. No card is guessed between them: whether
+ * there is one, and which, is the answer being waited on, so the period's
+ * card folds open once it is known (`Period`).
  */
-function Loading({ notes }: { notes: number }) {
+function Loading({ notes, action }: { notes: number; action: boolean }) {
   return (
     <>
       <section className="nt-set-section" aria-busy="true" aria-label="Plan">
@@ -678,6 +632,11 @@ function Loading({ notes }: { notes: number }) {
               <Bone bar="h-3 w-3/5" />
               {notes > 2 && <Bone bar="h-3 w-2/5" />}
             </div>
+            {action && (
+              <div className="nt-set-actions">
+                <div className="nt-skeleton h-8 w-32" />
+              </div>
+            )}
           </li>
         </ul>
       </section>
