@@ -47,6 +47,7 @@ const ROLE: Record<string, string> = {
   member: "a member",
   guest: "a guest",
   editor: "an editor",
+  commenter: "a commenter",
   viewer: "a viewer",
 };
 const roleWord = (role: unknown) => ROLE[String(role)] ?? String(role);
@@ -98,6 +99,7 @@ const FEATURE: Record<string, string> = {
   auditLog: "the audit log",
   unmetered: "unmetered AI",
   guestDailyAiUsd: "the guests’ daily AI allowance",
+  comments: "comments",
 };
 const featureName = (feature: unknown) => FEATURE[String(feature)] ?? "a plan feature";
 const dollars = (n: number) => `$${Number.isInteger(n) ? n : n.toFixed(2)}`;
@@ -137,7 +139,10 @@ export function whatParts(row: AuditRow, workspaceName: string): Part[] {
   const projectId = typeof m.projectId === "string" ? m.projectId : null;
   const projectTitle = String(m.project ?? "a project");
   const project: Part = projectId ? { project: projectId, title: projectTitle } : projectTitle;
-  const link = String(m.role) === "editor" ? "editor link" : "viewer link";
+  const link = `${m.role === "editor" || m.role === "commenter" ? m.role : "viewer"} link`;
+  // The page a comment or a project's override is about, when the log still has it.
+  const onPage: Part[] = m.page ? [" on ", noun(m.page)] : [];
+  const feature = featureName(row.subjectId);
   const who = subjectPart(row);
   const workspace = noun(workspaceName);
 
@@ -324,11 +329,34 @@ export function whatParts(row: AuditRow, workspaceName: string): Part[] {
         ...(typeof m.expiresAt === "number" ? [`, until ${DATE.format(m.expiresAt)}`] : []),
       ];
     case "entitlement.clear":
+      if (m.feature === undefined && row.subjectKind === "feature") {
+        return [`reset ${feature} for `, project, " to what the plan includes"];
+      }
       return [
         m.feature === "plan"
           ? "removed the plan Nootles support had set for this workspace"
           : `reset ${featureName(m.feature)} to what the plan includes`,
       ];
+    case "comment.create":
+      return ["commented", ...onPage, " in ", project, ...mentioning(m)];
+    case "comment.reply":
+      return ["replied to a comment", ...onPage, " in ", project, ...mentioning(m)];
+    case "comment.resolve":
+      return ["resolved a comment thread", ...onPage, " in ", project];
+    case "comment.reopen":
+      return ["reopened a comment thread", ...onPage, " in ", project];
+    case "comment.delete":
+      return [m.commentId ? "deleted a comment" : "deleted a comment thread", ...onPage, " in ", project];
+
+    // A project's own override (`entitlements.setOverride`): one project,
+    // not the workspace's plan, and named by its subject rather than meta.
+    case "entitlement.grant":
+      return [`turned on ${feature} for `, project];
+    case "entitlement.revoke":
+      return [`turned off ${feature} for `, project];
+    case "entitlement.expire":
+      return [`let the override of ${feature} for `, project, " run out"];
+
     case "operator.standIn":
       return ["viewed the workspace as ", who];
 
@@ -336,6 +364,10 @@ export function whatParts(row: AuditRow, workspaceName: string): Part[] {
       return [`made a change (${row.action})`];
   }
 }
+
+/** Who a new comment named, when it named anyone. */
+const mentioning = (m: AuditRow["meta"]): Part[] =>
+  typeof m.mentions === "number" && m.mentions > 0 ? [`, mentioning ${plural(m.mentions, "person", "people")}`] : [];
 
 const orgRule = (org: unknown): Part[] =>
   org

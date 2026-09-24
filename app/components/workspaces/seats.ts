@@ -1,4 +1,4 @@
-import { atLeast, mayAssignSeat, type WorkspaceRole } from "@/convex/auth";
+import { atLeast, mayAssignSeat, type WorkspaceRole } from "@/convex/roles";
 
 /**
  * What the members screens offer whom, in words.

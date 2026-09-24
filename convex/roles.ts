@@ -1,11 +1,13 @@
 import type { Doc } from "./_generated/dataModel";
 
 /**
- * The pure half of `auth.ts`: what a role is, what a claim grants and what a
- * channel admits, as decisions over rows already loaded. Kept free of any
- * import that defines a Convex function, so a browser — the comment UI's
- * access, the harnesses' stand-in gate — holds the very same rule. `auth.ts`
- * re-exports all of it and remains the only place access is resolved.
+ * The pure half of `auth.ts`: what a role is, what a claim grants, what a
+ * channel admits and how workspace seats rank, as decisions over rows already
+ * loaded. Kept free of any import that defines a Convex function, so a
+ * browser — the comment UI's access, the workspace screens' seat rules, the
+ * harnesses' stand-in gate — holds the very same rule without bundling the
+ * server. `auth.ts` re-exports all of it and remains the only place access is
+ * resolved.
  */
 
 /**
@@ -114,3 +116,36 @@ export function moderatesComments(role: ProjectRole | null): boolean {
 export function hasLiveLink(project: Doc<"projects">, now: number): boolean {
   return (Object.keys(LINK_FIELDS) as LinkRole[]).some((role) => linkLive(project, role, now));
 }
+
+/** A seat in a workspace, ranked owner > admin > member > guest. */
+export type WorkspaceRole = Doc<"memberships">["role"];
+
+const SEAT_RANK: Record<WorkspaceRole, number> = { guest: 0, member: 1, admin: 2, owner: 3 };
+
+/** Whether a seat reaches `min`. No seat reaches anything. */
+export function atLeast(role: WorkspaceRole | null, min: WorkspaceRole): boolean {
+  return role !== null && SEAT_RANK[role] >= SEAT_RANK[min];
+}
+
+/**
+ * Whether a seat of rank `actor` may move someone's seat from `from` to `to`.
+ * An invitation is a seat from nobody (`from` null) and a removal a seat to
+ * nobody (`to` null). Admins run the members and the guests; admins and
+ * owners are the owners' to appoint and dismiss, so no admin promotes someone
+ * to their own rank or removes a peer.
+ */
+export function mayAssignSeat(
+  actor: WorkspaceRole,
+  from: WorkspaceRole | null,
+  to: WorkspaceRole | null,
+): boolean {
+  if (actor === "owner") return true;
+  const belowAdmin = (role: WorkspaceRole | null) => role === null || !atLeast(role, "admin");
+  return actor === "admin" && belowAdmin(from) && belowAdmin(to);
+}
+
+/** The domain of an address, for a workspace's join domains. */
+export function domainOf(email: string): string {
+  return email.slice(email.lastIndexOf("@") + 1);
+}
+

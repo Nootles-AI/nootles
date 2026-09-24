@@ -6,6 +6,7 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import {
   channelAdmits,
   commentsProject,
+  containerRole,
   isTrashed,
   ownerId,
   readableComments,
@@ -307,6 +308,11 @@ const person = v.object({
  * roster goes to whoever may comment, as Docs' mention menu does: naming
  * someone is what a commenter is for. It stays closed to viewers, strangers,
  * signed-out visitors and an operator standing in, who get nobody.
+ *
+ * In a workspace project it goes only to those its seats let in: a
+ * workspace's roster is its members' to see (`members.list`), and a guest or
+ * someone in by link sees the projects they were let into, not who else is
+ * there. They still reply, which tells the thread's people.
  */
 export const mentionable = query({
   args: { pageId: v.id("pages") },
@@ -318,6 +324,7 @@ export const mentionable = query({
       return [];
     }
     const me = await ownerId(ctx);
+    if (found.project.workspaceId && !(me && (await containerRole(ctx, found.project, me)))) return [];
     return (await mentionablePeople(ctx, found.project))
       .filter((person) => person.userId !== me)
       .map(({ userId, name, imageUrl }) => ({ userId, name, imageUrl }));

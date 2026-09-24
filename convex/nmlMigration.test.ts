@@ -519,6 +519,35 @@ describe("internal-owner allowlist — phase 1", () => {
     expect(await t.withIdentity(INTERNAL).query(api.nmlMigration.inCohort, { docId })).toBe(false);
   });
 
+  test("a workspace project an internal subject created is not theirs: the allowlist stays out", async () => {
+    const t = harness();
+    await t.mutation(internal.nmlMigration.addInternalOwner, { subject: INTERNAL.subject });
+    const { docId } = await t.run(async (ctx) => {
+      const workspaceId = await ctx.db.insert("workspaces", {
+        slug: "acme",
+        name: "Acme",
+        createdBy: OWNER.subject,
+        plan: "team",
+        settings: { linkSharing: true, guestCodeAccess: false, joinDomains: [], autoJoin: false },
+        createdAt: 1,
+      });
+      for (const [userId, role] of [[OWNER.subject, "owner"], [INTERNAL.subject, "member"]] as const) {
+        await ctx.db.insert("memberships", { workspaceId, userId, role, status: "active", joinedAt: 1 });
+      }
+      // Made by the internal subject, as a member: the workspace's, not theirs.
+      const projectId = await ctx.db.insert("projects", {
+        ownerId: INTERNAL.subject,
+        title: "P",
+        createdAt: 1,
+        workspaceId,
+      });
+      const docId = crypto.randomUUID();
+      await ctx.db.insert("pages", { projectId, ownerId: INTERNAL.subject, title: "Doc", order: 0, docId, createdAt: 1 });
+      return { docId };
+    });
+    expect(await t.withIdentity(INTERNAL).query(api.nmlMigration.inCohort, { docId })).toBe(false);
+  });
+
   test("removing an internal owner makes their docs ineligible again (kill switch)", async () => {
     const t = harness();
     const { docId } = await docOwnedBy(t, INTERNAL.subject);

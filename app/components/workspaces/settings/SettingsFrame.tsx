@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter, useSelectedLayoutSegment } from "next/navigation";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import { atLeast, type WorkspaceRole } from "@/convex/auth";
+import { atLeast, type WorkspaceRole } from "@/convex/roles";
 import { homePath, settingsPath, type SettingsSection } from "@/app/lib/containerPaths";
 import { Authed } from "../../Authed";
 import { Wordmark } from "../../Brand";

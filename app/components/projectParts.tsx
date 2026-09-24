@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import type { useQuery } from "convex/react";
 import type { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import type { ProjectRole } from "@/convex/auth";
+import type { ProjectRole } from "@/convex/roles";
 import { projectPath } from "@/app/lib/containerPaths";
 import { Editable } from "./Editable";
 import { Lock, MoreHorizontal } from "./Icons";
@@ -158,7 +158,7 @@ export function RowMenu({
           manage={manages(project)}
           onOpen={onOpen}
           onRename={onRename}
-          onExport={onExport}
+          onExport={project.workspaceId ? undefined : onExport}
           onDelete={onDelete}
         />
       )}
@@ -187,8 +187,12 @@ export function ProjectActions({
   manage: boolean;
   onOpen: () => void;
   onRename: () => void;
-  /** Downloads the project's comment activity (its audit log) as CSV. */
-  onExport: () => void;
+  /**
+   * Downloads the project's comment activity (its audit log) as CSV. Absent
+   * for a workspace project, whose activity is its workspace's log, read and
+   * exported in the workspace's Audit settings.
+   */
+  onExport?: () => void;
   onDelete: () => void;
 }) {
   // An operator standing in keeps Open — looking is the whole point — and
@@ -215,14 +219,16 @@ export function ProjectActions({
           >
             Rename
           </MenuItem>
-          <MenuItem
-            onClick={() => {
-              onExport();
-              close();
-            }}
-          >
-            Export comment activity
-          </MenuItem>
+          {onExport && (
+            <MenuItem
+              onClick={() => {
+                onExport();
+                close();
+              }}
+            >
+              Export comment activity
+            </MenuItem>
+          )}
           <div className="nt-menu-sep" />
           <MenuItem
             danger

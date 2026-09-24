@@ -3,18 +3,30 @@ import type { Auth, UserIdentity } from "convex/server";
 import type { Doc, Id, TableNames } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { commentsEnabled, entitlement } from "./entitlements";
-import { channelAdmits, claimRole, hasLiveLink, type ProjectRole } from "./roles";
-
-export {
+import {
+  atLeast,
   channelAdmits,
   claimRole,
+  domainOf,
+  hasLiveLink,
+  type ProjectRole,
+  type WorkspaceRole,
+} from "./roles";
+
+export {
+  atLeast,
+  channelAdmits,
+  claimRole,
+  domainOf,
   hasLiveLink,
   LINK_FIELDS,
   linkLive,
+  mayAssignSeat,
   moderatesComments,
   type DocChannel,
   type LinkRole,
   type ProjectRole,
+  type WorkspaceRole,
 } from "./roles";
 
 /**
@@ -200,10 +212,6 @@ export async function requireOwned<T extends Personal>(
   return doc;
 }
 
-export type WorkspaceRole = Doc<"memberships">["role"];
-
-const RANK: Record<WorkspaceRole, number> = { guest: 0, member: 1, admin: 2, owner: 3 };
-
 /**
  * Someone's live seat in a workspace, or null.
  *
@@ -296,28 +304,6 @@ export async function holdsSeat(
   return atLeast((await activeMembership(ctx, workspaceId, userId))?.role ?? null, "member");
 }
 
-/** Whether a seat reaches `min`. No seat reaches anything. */
-export function atLeast(role: WorkspaceRole | null, min: WorkspaceRole): boolean {
-  return role !== null && RANK[role] >= RANK[min];
-}
-
-/**
- * Whether a seat of rank `actor` may move someone's seat from `from` to `to`.
- * An invitation is a seat from nobody (`from` null) and a removal a seat to
- * nobody (`to` null). Admins run the members and the guests; admins and
- * owners are the owners' to appoint and dismiss, so no admin promotes someone
- * to their own rank or removes a peer.
- */
-export function mayAssignSeat(
-  actor: WorkspaceRole,
-  from: WorkspaceRole | null,
-  to: WorkspaceRole | null,
-): boolean {
-  if (actor === "owner") return true;
-  const belowAdmin = (role: WorkspaceRole | null) => role === null || !atLeast(role, "admin");
-  return actor === "admin" && belowAdmin(from) && belowAdmin(to);
-}
-
 /**
  * How long Clerk's word on an address stands without being asked again:
  * three of `identity.sync`'s daily re-checks, so Clerk can be down for a day
@@ -357,10 +343,6 @@ export async function verifiedEmail(
   if (!stamped?.verifiedEmail) return null;
   if (now !== undefined && now - (stamped.verifiedEmailAt ?? 0) > STAMP_MAX_AGE_MS) return null;
   return stamped.verifiedEmail;
-}
-
-export function domainOf(email: string): string {
-  return email.slice(email.lastIndexOf("@") + 1);
 }
 
 /**
@@ -932,6 +914,14 @@ async function touchedByOthers(
       .collect();
     if (edits.some((event) => event.actorId !== me)) return true;
   }
+
+  // Whatever else the log holds about this project — a comment, above all,
+  // which leaves no presence behind once its author has closed the tab.
+  const logged = await ctx.db
+    .query("auditEvents")
+    .withIndex("by_project_at", (q) => q.eq("projectId", projectId))
+    .collect();
+  if (logged.some((event) => event.actorKind === "user" && event.actorId !== me)) return true;
 
   for (const table of ["chatThreads", "contextSheet", "projectRepos", "projectFiles", "projectNotion"] as const) {
     const rows = await ctx.db

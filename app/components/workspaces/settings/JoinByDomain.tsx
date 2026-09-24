@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useUser } from "@clerk/nextjs";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import { domainOf } from "@/convex/auth";
+import { domainOf } from "@/convex/roles";
 import { isPersonalDomain } from "@/convex/joinDomains";
 import { AtSign } from "../../Icons";
 import { Segmented, type Segment } from "../../Segmented";

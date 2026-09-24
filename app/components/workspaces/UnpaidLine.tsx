@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import { atLeast } from "@/convex/auth";
+import { atLeast } from "@/convex/roles";
 import { settingsPath } from "@/app/lib/containerPaths";
 import { useStandIn } from "../StandIn";
 import type { WorkspaceContainer } from "./ContainerContext";

@@ -557,6 +557,8 @@ async function present(ctx: QueryCtx, rows: Doc<"auditEvents">[]) {
     if (!people.has(userId)) people.set(userId, await personOf(ctx, userId));
     return people.get(userId)!;
   };
+  const projects = new Map<string, Promise<Doc<"projects"> | null>>();
+  const pages = new Map<string, Promise<Doc<"pages"> | null>>();
   return await Promise.all(
     rows.map(async (row) => ({
       _id: row._id,
@@ -569,10 +571,51 @@ async function present(ctx: QueryCtx, rows: Doc<"auditEvents">[]) {
       subjectId: row.subjectId ?? null,
       subject:
         row.subjectKind === "user" && row.subjectId ? await person(row.subjectId) : null,
-      meta: asFlatMeta(row.meta),
+      meta: await namedMeta(ctx, row, projects, pages),
       count: row.count ?? null,
     })),
   );
+}
+
+/**
+ * A row's meta as the workspace log reads it: one flat map, and for an event
+ * the checked writer recorded — which stores ids, never names — the project
+ * and page it names, by their titles now. Only a project of the row's own
+ * workspace, and a page of that project, is named, so an id cannot be used to
+ * read a title from elsewhere.
+ */
+async function namedMeta(
+  ctx: QueryCtx,
+  row: Doc<"auditEvents">,
+  projects: Map<string, Promise<Doc<"projects"> | null>>,
+  pages: Map<string, Promise<Doc<"pages"> | null>>,
+): Promise<Record<string, string | number | boolean | null>> {
+  const meta = asFlatMeta(row.meta);
+  if (!row.projectId || !row.meta || !isIdMeta(row.meta)) return meta;
+  const { projectId } = row;
+  let found = projects.get(projectId);
+  if (!found) {
+    found = ctx.db.get(projectId).then((p) => (p && p.workspaceId === row.workspaceId ? p : null));
+    projects.set(projectId, found);
+  }
+  const project = await found;
+  if (!project) return meta;
+  const named: Record<string, string | number | boolean | null> = {
+    ...meta,
+    projectId: project._id,
+    project: project.title,
+  };
+  const pageId = typeof meta.pageId === "string" ? ctx.db.normalizeId("pages", meta.pageId) : null;
+  if (pageId) {
+    let page = pages.get(pageId);
+    if (!page) {
+      page = ctx.db.get(pageId).then((p) => (p && p.projectId === project._id ? p : null));
+      pages.set(pageId, page);
+    }
+    const title = (await page)?.title;
+    if (title !== undefined) named.page = title || "Untitled";
+  }
+  return named;
 }
 
 const filters = v.object({

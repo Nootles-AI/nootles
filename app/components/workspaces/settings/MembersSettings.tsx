@@ -4,7 +4,7 @@ import { useId, useRef, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { FunctionReturnType } from "convex/server";
-import { atLeast, type WorkspaceRole } from "@/convex/auth";
+import { atLeast, type WorkspaceRole } from "@/convex/roles";
 import { Check, MoreHorizontal } from "../../Icons";
 import { Menu, MenuItem } from "../../Menu";
 import { useStandIn } from "../../StandIn";

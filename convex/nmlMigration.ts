@@ -132,7 +132,11 @@ async function eligible(ctx: QueryCtx, docId: string): Promise<boolean> {
   // eligible, so the founding team's docs (current and future) migrate without
   // per-project enrollment. Owned-only by construction — this keys on the page's
   // own owner, so a doc a member can merely edit but does not own is not theirs.
-  if (await isInternalOwner(ctx, page.ownerId)) return true;
+  // Only in a personal project: a workspace project's `ownerId` is its creator,
+  // who owns nothing there (`auth.seatRole`) and may since have lost their
+  // seat, so a workspace's documents opt in through the cohort alone.
+  const project = await ctx.db.get(page.projectId);
+  if (project && !project.workspaceId && (await isInternalOwner(ctx, page.ownerId))) return true;
   const byProject = await ctx.db
     .query("nmlCohorts")
     .withIndex("by_scope_and_key", (q) => q.eq("scope", "project").eq("key", page.projectId))

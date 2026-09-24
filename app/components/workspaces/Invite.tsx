@@ -14,7 +14,7 @@ import { createPortal } from "react-dom";
 import Link from "next/link";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import type { WorkspaceRole } from "@/convex/auth";
+import type { WorkspaceRole } from "@/convex/roles";
 import { normalizeEmail, NOT_AN_EMAIL, plausibleEmail } from "@/convex/emails";
 import { joinPath, settingsPath } from "@/app/lib/containerPaths";
 import { Check, ChevronRight, ChevronsUpDown, Copy } from "../Icons";

@@ -5,7 +5,7 @@ import { useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import { atLeast } from "@/convex/auth";
+import { atLeast } from "@/convex/roles";
 import { useStandIn } from "../StandIn";
 import type { WorkspaceContainer } from "./ContainerContext";
 import { Tile } from "./places";

@@ -621,7 +621,7 @@ export function ProjectsScreen() {
             manage={manages(ctx.project)}
             onOpen={() => open(ctx.project._id)}
             onRename={() => startRename(ctx.project)}
-            onExport={() => exportComments(ctx.project)}
+            onExport={ctx.project.workspaceId ? undefined : () => exportComments(ctx.project)}
             onDelete={() => setConfirming(ctx.project)}
           />
         </ContextMenu>

@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { useAction, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { api } from "@/convex/_generated/api";
-import { atLeast } from "@/convex/auth";
+import { atLeast } from "@/convex/roles";
 import type { Meter } from "@/convex/limits";
 import type { PlanName } from "@/convex/plans";
 import { settingsPath } from "@/app/lib/containerPaths";

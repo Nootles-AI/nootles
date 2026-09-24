@@ -78,6 +78,50 @@ describe("the sentence", () => {
     expect(whatText(role, "Acme")).toBe("changed Tom’s role from admin to member");
   });
 
+  test("the comment link is called the commenter link", () => {
+    const on = row({ action: "share.link.on", meta: { role: "commenter", projectId: "p1", project: "Beacon" } });
+    expect(whatText(on, "Acme")).toBe("turned on the commenter link for Beacon");
+    const claim = row({ action: "share.claim", meta: { role: "commenter", project: "Beacon", renewed: false } });
+    expect(whatText(claim, "Acme")).toBe("opened Beacon with its commenter link");
+  });
+
+  test("a comment event names its page and project, and who it mentioned — never what was said", () => {
+    const meta = { projectId: "p1", project: "Launch", pageId: "pg1", page: "Roadmap", mentions: 2, notified: 2 };
+    expect(whatText(row({ action: "comment.create", meta }), "Acme")).toBe(
+      "commented on Roadmap in Launch, mentioning 2 people",
+    );
+    expect(whatText(row({ action: "comment.reply", meta: { ...meta, mentions: 0 } }), "Acme")).toBe(
+      "replied to a comment on Roadmap in Launch",
+    );
+    expect(whatText(row({ action: "comment.resolve", meta }), "Acme")).toBe("resolved a comment thread on Roadmap in Launch");
+    expect(whatText(row({ action: "comment.reopen", meta }), "Acme")).toBe("reopened a comment thread on Roadmap in Launch");
+    expect(whatText(row({ action: "comment.delete", meta }), "Acme")).toBe("deleted a comment thread on Roadmap in Launch");
+    expect(whatText(row({ action: "comment.delete", meta: { ...meta, commentId: "c1" } }), "Acme")).toBe(
+      "deleted a comment on Roadmap in Launch",
+    );
+    // A page the log no longer knows is simply not named.
+    expect(whatText(row({ action: "comment.create", meta: { projectId: "p1", project: "Launch" } }), "Acme")).toBe(
+      "commented in Launch",
+    );
+  });
+
+  test("a project's own override names the project, not the workspace's plan", () => {
+    const on = { subjectKind: "feature", subjectId: "comments", actorKind: "operator" as const };
+    const meta = { projectId: "p1", project: "Launch" };
+    expect(whatText(row({ action: "entitlement.revoke", ...on, meta }), "Acme")).toBe("turned off comments for Launch");
+    expect(whatText(row({ action: "entitlement.grant", ...on, meta }), "Acme")).toBe("turned on comments for Launch");
+    expect(whatText(row({ action: "entitlement.clear", ...on, meta }), "Acme")).toBe(
+      "reset comments for Launch to what the plan includes",
+    );
+    expect(whatText(row({ action: "entitlement.expire", ...on, actorKind: "system", meta }), "Acme")).toBe(
+      "let the override of comments for Launch run out",
+    );
+    // The workspace's own override of the same feature is the workspace's.
+    expect(whatText(row({ action: "entitlement.set", actorKind: "operator", meta: { feature: "comments", value: false } }), "Acme")).toBe(
+      "turned off comments for this workspace",
+    );
+  });
+
   test("a removal names who went and where from", () => {
     const r = row({
       action: "member.remove",

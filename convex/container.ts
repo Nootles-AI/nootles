@@ -39,12 +39,26 @@ export async function containerMembers(
   const seated = new Set<string>();
   if (project.workspaceId) {
     const { workspaceId } = project;
-    const seats = await ctx.db
-      .query("memberships")
-      .withIndex("by_workspace_status_role", (q) =>
-        q.eq("workspaceId", workspaceId).eq("status", "active"),
-      )
-      .collect();
+    const seatsAs = (role?: Doc<"memberships">["role"]) =>
+      ctx.db
+        .query("memberships")
+        .withIndex("by_workspace_status_role", (q) => {
+          const active = q.eq("workspaceId", workspaceId).eq("status", "active");
+          return role ? active.eq("role", role) : active;
+        })
+        .collect();
+    // A private project is its owners', its admins' and its creator's alone,
+    // so it reads those seats rather than every member's.
+    const seats =
+      project.visibility === "private"
+        ? [
+            ...(await seatsAs("owner")),
+            ...(await seatsAs("admin")),
+            ...[await activeMembership(ctx, workspaceId, project.ownerId)].filter(
+              (seat): seat is Doc<"memberships"> => seat?.role === "member",
+            ),
+          ]
+        : await seatsAs();
     for (const seat of seats) {
       const role = seatRole(project, seat.userId, seat);
       if (!role) continue;

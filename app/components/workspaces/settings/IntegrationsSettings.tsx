@@ -6,7 +6,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { atLeast } from "@/convex/auth";
+import { atLeast } from "@/convex/roles";
 import type { InstallFailure } from "@/app/api/github/app/flow";
 import { Check, ChevronsUpDown, Lock, Person, Plus } from "../../Icons";
 import { Menu, MenuItem } from "../../Menu";

@@ -4,7 +4,7 @@ import { useId, useState, type CSSProperties } from "react";
 import { useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { FunctionReturnType } from "convex/server";
-import type { WorkspaceRole } from "@/convex/auth";
+import type { WorkspaceRole } from "@/convex/roles";
 import { Check, Copy, Mail, MoreHorizontal, RotateCcw } from "../Icons";
 import { Menu, MenuItem } from "../Menu";
 import { Tooltip } from "../Tooltip";

@@ -2,7 +2,7 @@
 
 import { createContext, useContext, type ReactNode } from "react";
 import type { Id } from "@/convex/_generated/dataModel";
-import type { WorkspaceRole } from "@/convex/auth";
+import type { WorkspaceRole } from "@/convex/roles";
 import type { RowIconValue } from "../rowIcon";
 
 /**

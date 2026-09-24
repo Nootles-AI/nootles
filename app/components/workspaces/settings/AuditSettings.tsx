@@ -60,6 +60,12 @@ const KINDS: readonly { id: string; label: string; none: string; about: string }
     about: "Sharing events are share links, the people who opened them, code access and edit requests.",
   },
   {
+    id: "comment",
+    label: "Comments",
+    none: "comment events",
+    about: "Comment events are new comments and replies, and threads resolved, reopened or deleted.",
+  },
+  {
     id: "page.edit",
     label: "Page edits",
     none: "page edits",

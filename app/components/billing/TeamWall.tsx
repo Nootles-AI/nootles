@@ -7,7 +7,7 @@ import { useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { atLeast } from "@/convex/auth";
+import { atLeast } from "@/convex/roles";
 import { FREE_LIMITS, type Meter } from "@/convex/limits";
 import { settingsPath } from "@/app/lib/containerPaths";
 import { useModalFocus } from "../Dialog";

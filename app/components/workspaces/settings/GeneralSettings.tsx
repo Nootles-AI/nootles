@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import { atLeast } from "@/convex/auth";
+import { atLeast } from "@/convex/roles";
 import { normalizeSlug, typingSlug } from "@/convex/slugs";
 import { rememberWorkspace } from "@/app/lib/projectsCache";
 import { Check } from "../../Icons";
