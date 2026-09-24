@@ -37,7 +37,7 @@ import { NotionMark } from "./NotionMark";
 import { NotionPort } from "./NotionPort";
 import { BlankStart } from "./BlankStart";
 import { ProLift } from "./ProLift";
-import { InviteSend } from "./InviteSend";
+import { TeamJoin } from "./TeamJoin";
 import { usePlan } from "@/app/lib/usePlan";
 import { BlocksThumb, PagePreview } from "./PagePreview";
 import { TemplateWall } from "./TemplateWall";
@@ -691,7 +691,7 @@ function Palette({
               ) : current?.picture === "pro" ? (
                 <ProLift />
               ) : current?.picture === "invite" ? (
-                <InviteSend />
+                <TeamJoin />
               ) : current?.template ? (
                 <TemplatePreview key={current.id} template={current.template} />
               ) : (
