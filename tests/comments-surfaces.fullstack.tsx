@@ -3,7 +3,7 @@ import * as Y from "yjs";
 import { BlockNoteEditor } from "@blocknote/core";
 import { blocksToYDoc } from "@blocknote/core/yjs";
 import { getFunctionName } from "convex/server";
-import { ConvexProvider, ConvexReactClient } from "convex/react";
+import { ConvexProviderWithAuth, ConvexReactClient } from "convex/react";
 import { api } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { schema } from "../app/components/editor/schema";
@@ -92,9 +92,13 @@ const harness = {
 
   mount(cfg: Config) {
     harness.connect(cfg);
+    // Clerk's side of the app's auth provider, answered with the runner's
+    // token: the workspace asks `useConvexAuth` whether anyone is signed in.
+    const auth = { isLoading: false, isAuthenticated: Boolean(cfg.jwt), fetchAccessToken: async () => cfg.jwt };
+    const useAuth = () => auth;
     root = createRoot(document.getElementById("app")!);
     root.render(
-      <ConvexProvider client={client!}>
+      <ConvexProviderWithAuth client={client!} useAuth={useAuth}>
         {cfg.token ? (
           <OpenPageProvider>
             <SharedProject token={cfg.token} />
@@ -110,7 +114,7 @@ const harness = {
             </PageCommentsRegistryProvider>
           </EditorRegistryProvider>
         )}
-      </ConvexProvider>,
+      </ConvexProviderWithAuth>,
     );
   },
 

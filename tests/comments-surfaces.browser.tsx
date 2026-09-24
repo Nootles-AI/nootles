@@ -3,7 +3,7 @@ import * as Y from "yjs";
 import { BlockNoteEditor } from "@blocknote/core";
 import { blocksToYDoc } from "@blocknote/core/yjs";
 import { getFunctionName } from "convex/server";
-import { ConvexProvider, type ConvexReactClient } from "convex/react";
+import { ConvexProviderWithAuth, type ConvexReactClient } from "convex/react";
 import type { Doc, Id } from "../convex/_generated/dataModel";
 import { channelAdmits, type ProjectRole } from "../convex/roles";
 import { schema } from "../app/components/editor/schema";
@@ -264,7 +264,10 @@ class Backend {
       mutation: (reference: unknown, args: Record<string, unknown>) =>
         this.mutate(getFunctionName(reference as never), args),
       action: async () => null,
-      setAuth() {},
+      // What the real client reports once the server takes the token.
+      setAuth(_fetch: unknown, onChange?: (authenticated: boolean) => void) {
+        onChange?.(true);
+      },
       clearAuth() {},
       connectionState: () => ({ isWebSocketConnected: false, hasInflightRequests: false }),
     } as unknown as ConvexReactClient;
@@ -288,6 +291,15 @@ class Backend {
     doc.destroy();
     return text;
   }
+}
+
+/**
+ * Clerk's side of the app's auth provider (`ConvexProviderWithClerk`), for a
+ * visitor who is signed in or not: the workspace asks `useConvexAuth`.
+ */
+function authOf(signedIn: boolean) {
+  const auth = { isLoading: false, isAuthenticated: signedIn, fetchAccessToken: async () => (signedIn ? "stand-in" : null) };
+  return () => auth;
 }
 
 declare global {
@@ -318,7 +330,7 @@ window.surfaces = {
     root = createRoot(document.getElementById("app")!);
     const client = backend.client();
     root.render(
-      <ConvexProvider client={client}>
+      <ConvexProviderWithAuth client={client} useAuth={authOf(IDENTITY[visitor] !== null)}>
         {visitor === "guest" ? (
           <OpenPageProvider>
             <SharedProject token={LINK} />
@@ -335,7 +347,7 @@ window.surfaces = {
             </PageCommentsRegistryProvider>
           </EditorRegistryProvider>
         )}
-      </ConvexProvider>,
+      </ConvexProviderWithAuth>,
     );
   },
   calls: () => window.surfaces.backend?.calls ?? [],

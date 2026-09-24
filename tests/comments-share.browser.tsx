@@ -76,6 +76,14 @@ function createBackend() {
           .filter(Boolean);
       case "share:incomingRequests":
         return [];
+      case "projects:home":
+        // A personal project: no workspace address to move it to.
+        return { slug: null };
+      case "projects:get": {
+        // As `projects.withoutLinks` returns it: the tokens are `share.links`' to give.
+        const { shareToken: _v, commentShareToken: _c, editShareToken: _e, ...row } = project;
+        return row;
+      }
       case "share:view": {
         const token = args.token as string;
         const role = (Object.keys(FIELD) as LinkRole[]).find((r) => token && project[FIELD[r]] === token);
@@ -83,6 +91,7 @@ function createBackend() {
         return {
           projectId: PROJECT,
           role,
+          access: "tree",
           title: project.title,
           pages: [{ _id: PAGE, title: "Plan", docId: PAGE_DOC, folderId: undefined, order: 0 }],
           folders: [],

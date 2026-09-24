@@ -59,6 +59,21 @@ function createBackend(notion: boolean) {
         return { ready: notion };
       case "entitlements:mine":
         return { left: null };
+      // Someone with no workspace, on their own paid plan: the screen as it
+      // was before workspaces, which is what this harness measures.
+      case "entitlements:forContainer":
+        return {
+          container: { kind: "account" },
+          plan: "pro",
+          features: { unmetered: true, auditLog: false, comments: true, guestDailyAiUsd: 1 },
+          entitlement: { plan: "pro", source: "subscription", left: null, used: null },
+          guestAi: null,
+        };
+      case "workspaces:listMine":
+      case "members:joinable":
+        return [];
+      case "workspaces:canCreate":
+        return false;
       case "impersonation:current":
         return null;
       case "profiles:get":
