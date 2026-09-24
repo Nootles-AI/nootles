@@ -952,7 +952,7 @@ function DetailsForm({
             {stopped("projects", spent).title}.
           </span>
         ) : (
-          <span>
+          <span className="nt-pal-hint">
             <kbd className="nt-kbd">↵</kbd>
             {template ? `Create from ${template.name}` : "Create"}
           </span>
