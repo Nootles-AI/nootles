@@ -52,7 +52,6 @@ import { offersInvite } from "./workspaces/seats";
 import { Correspondence } from "./share/AccessRequests";
 import { slugOf, useContainer, type WorkspaceContainer } from "./workspaces/ContainerContext";
 import { ContainerSwitcher } from "./workspaces/ContainerSwitcher";
-import { InviteButton } from "./workspaces/Invite";
 import { MembersPile } from "./workspaces/MembersPile";
 import { UnpaidLine } from "./workspaces/UnpaidLine";
 import { useEvenSides } from "./workspaces/useEvenSides";
@@ -425,13 +424,17 @@ export function ProjectsScreen() {
           </button>
         </div>
 
-        <ContainerSwitcher onProblem={setFailure} />
+        <ContainerSwitcher onProblem={setFailure} onInvite={() => start("invite")} />
 
         <div className={`nt-front-new${workspace ? " items-center gap-2" : ""}`}>
           {/* In a workspace, who is in it comes first — and, for whoever may
               let someone in, the way to. */}
           {workspace && <MembersPile workspace={workspace} />}
-          {workspace && invites && <InviteButton workspace={workspace} />}
+          {workspace && invites && (
+            <button onClick={() => start("invite")} aria-haspopup="dialog" className="nt-row nt-ws-invite px-2.5">
+              Invite
+            </button>
+          )}
           {/* Nothing here belongs to a project, so no project's role gates
               it — only whether anything may be made here at all: not by an
               operator standing in, nor by a workspace's guest, each of whom
@@ -480,6 +483,7 @@ export function ProjectsScreen() {
             workspace={workspace}
             invites={invites}
             onCreate={canCreate ? () => start("create") : null}
+            onInvite={() => start("invite")}
           />
         ) : view === "board" ? (
           <ProjectsBoard
@@ -975,11 +979,13 @@ function Empty({
   workspace,
   invites,
   onCreate,
+  onInvite,
 }: {
   workspace: WorkspaceContainer | null;
   /** A new workspace's other first step, which a phone's header has no room for. */
   invites: boolean;
   onCreate: (() => void) | null;
+  onInvite: () => void;
 }) {
   return (
     <div className="rounded-lg bg-surface px-6 py-16 text-center">
@@ -1002,7 +1008,9 @@ function Empty({
             </button>
           )}
           {workspace && invites && (
-            <InviteButton workspace={workspace} label="Invite people" className="nt-row px-2.5" />
+            <button onClick={onInvite} aria-haspopup="dialog" className="nt-row px-2.5">
+              Invite people
+            </button>
           )}
         </div>
       )}
