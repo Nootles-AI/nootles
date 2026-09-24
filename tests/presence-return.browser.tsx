@@ -28,6 +28,12 @@ type PresenceRow = {
  * `presence` table, with the two watches the provider subscribes to. Standing
  * in for the backend rather than for the provider is the point — `applyPresence`,
  * the staleness horizon and the heartbeat cadence are the code under test.
+ *
+ * A function this stand-in does not know is logged as a console error before
+ * it throws, and the runner fails on console errors. The provider swallows a
+ * failed pull and waits for the next wake, so a throw alone is silent: when
+ * #150 moved the first read to `ydoc.load`, this fixture's `whenSynced` simply
+ * never resolved and the run hung before its first check (NT-74).
  */
 class Backend {
   private seq = 0;
@@ -45,6 +51,11 @@ class Backend {
 
   since(afterSeq: number) {
     return this.log.filter((row) => row.seq > afterSeq).map((row) => ({ ...row }));
+  }
+
+  /** `ydoc.load`: meta and the log tail in one answer. No snapshot is ever folded here. */
+  load(afterSeq: number) {
+    return { ...this.meta(), snapshot: null, updates: this.since(afterSeq) };
   }
 
   list(): PresenceRow[] {
@@ -113,7 +124,11 @@ class Backend {
           this.leave(args.sessionId as string);
           return null;
         }
-        throw new Error(`fixture backend has no mutation ${name}`);
+        // The preview and the context digest a flush leaves behind: derived
+        // data, not under test, taken as the server would take them.
+        if (name === "previews:set") return null;
+        if (name === "context/pages:digest") return true;
+        return unknown("mutation", name);
       },
     };
     return stand as unknown as ConvexReactClient;
@@ -121,11 +136,18 @@ class Backend {
 
   private read(name: string, args: Record<string, unknown>) {
     if (name === "ydoc:meta") return this.meta();
+    if (name === "ydoc:load") return this.load(args.afterSeq as number);
     if (name === "ydoc:updatesSince") return this.since(args.afterSeq as number);
     if (name === "ydoc:snapshot") return null;
     if (name === "presence:list") return this.list();
-    throw new Error(`fixture backend has no query ${name}`);
+    return unknown("query", name);
   }
+}
+
+function unknown(kind: string, name: string): never {
+  const message = `fixture backend has no ${kind} ${name}`;
+  console.error(message);
+  throw new Error(message);
 }
 
 const backend = new Backend();

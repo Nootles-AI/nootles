@@ -16,12 +16,17 @@
  * Only B is ever focused, because y-prosemirror clears a blurred editor's
  * cursor from awareness and A needs no caret of its own to draw B's.
  *
- * Uses the existing esbuild dependency and an operator-installed Puppeteer. No
- * app server, no Convex, no API keys — and every non-local request fails the
- * run, so no AI lane can be spent in here.
+ * Uses the existing esbuild and Playwright dependencies, so it runs in CI as
+ * part of the canvas browser gate (`tests/canvas-browser.mjs`). No app server,
+ * no Convex, no API keys — and every non-local request fails the run, so no AI
+ * lane can be spent in here.
  *
- *   NML_PUPPETEER_MODULE=/absolute/path/to/puppeteer/lib/esm/puppeteer/puppeteer.js \
- *     node tests/presence-return.browser.mjs
+ * Mounting is bounded: a provider that never syncs against the stand-in
+ * backend fails the run in seconds, with the backend's own complaint, instead
+ * of hanging in a protocol timeout (NT-74).
+ *
+ *   node tests/presence-return.browser.mjs
+ *   CANVAS_CHROME_PATH=/path/to/chrome CANVAS_BROWSER_CHANNEL=headless-shell node tests/presence-return.browser.mjs
  */
 import { build } from "esbuild";
 import { createServer } from "node:http";
@@ -32,7 +37,7 @@ import { fileURLToPath } from "node:url";
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const output = await mkdtemp(path.join(tmpdir(), "presence-return-"));
-const { default: puppeteer } = await import(process.env.NML_PUPPETEER_MODULE || "puppeteer");
+const { chromium } = await import("playwright");
 
 await build({
   absWorkingDir: repo, entryPoints: ["tests/presence-return.browser.tsx"], bundle: true, splitting: true,
@@ -68,24 +73,32 @@ const check = (name, actual, expected) => {
   console.log(`  FAIL ${name}\n    expected ${e}\n    actual   ${a}`);
 };
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+/** Rejects with `what` if `promise` has not settled within `ms`. */
+const within = (ms, what, promise) => Promise.race([
+  promise,
+  sleep(ms).then(() => { throw new Error(`${what} did not finish within ${ms}ms`); }),
+]);
 
 let browser;
 try {
-  browser = await puppeteer.launch({ headless: true, ...(process.env.NML_CHROME_PATH ? { executablePath: process.env.NML_CHROME_PATH } : {}) });
-  const page = (await browser.pages())[0] ?? (await browser.newPage());
-  await page.setViewport({ width: 1100, height: 900 });
+  browser = await chromium.launch({
+    headless: true,
+    channel: process.env.CANVAS_BROWSER_CHANNEL === "headless-shell" ? undefined : "chromium",
+    executablePath: process.env.CANVAS_CHROME_PATH || undefined,
+  });
+  const page = await browser.newPage({ viewport: { width: 1100, height: 900 } });
   page.on("pageerror", (error) => failures.push(`page error: ${error.message}`));
   page.on("console", (message) => {
     if (message.type() !== "error" && message.type() !== "warning") return;
     failures.push(`console ${message.type()}: ${message.text()}`);
   });
-  await page.setRequestInterception(true);
-  page.on("request", (request) => {
-    if (request.url().startsWith(origin) || request.url().startsWith("data:")) return void request.continue();
-    failures.push(`request left the fixture: ${request.url()}`);
-    return void request.abort();
+  await page.route("**/*", (route) => {
+    const url = route.request().url();
+    if (url.startsWith(origin) || url.startsWith("data:")) return route.continue();
+    failures.push(`request left the fixture: ${url}`);
+    return route.abort();
   });
-  await page.evaluateOnNewDocument(() => {
+  await page.addInitScript(() => {
     window.WebSocket = class extends EventTarget {
       static CONNECTING = 0; static OPEN = 1; static CLOSING = 2; static CLOSED = 3;
       readyState = 0;
@@ -95,14 +108,14 @@ try {
   });
 
   await page.goto(origin, { waitUntil: "domcontentloaded" });
-  await page.waitForFunction(() => !!window.nt);
-  await page.evaluate(() => window.nt.mount());
-  await page.waitForFunction(() => document.querySelectorAll("#a .bn-block-content, #b .bn-block-content").length >= 2);
+  await page.waitForFunction(() => !!window.nt, null, { timeout: 15000 });
+  await within(15000, "mounting both people (each provider's first sync)", page.evaluate(() => window.nt.mount()));
+  await page.waitForFunction(() => document.querySelectorAll("#a .bn-block-content, #b .bn-block-content").length >= 2, null, { timeout: 15000 });
 
   // B types, as the person they are. Their caret rides to A on awareness.
   await page.click("#b .bn-block-content");
   await page.keyboard.type("Bram is drafting the shot list", { delay: 12 });
-  await page.waitForFunction(() => window.nt.seen().length === 1, { timeout: 5000 });
+  await page.waitForFunction(() => window.nt.seen().length === 1, null, { timeout: 5000 });
   await sleep(2200); // past the caret's 2s dwell, so the flag has furled again
 
   check("A sees Bram's caret while he is here", await page.evaluate(() => window.nt.seen()),
@@ -114,7 +127,7 @@ try {
 
   // --- B's tab suspends ---------------------------------------------------
   await page.evaluate(() => window.nt.away());
-  await page.waitForFunction(() => window.nt.known().length === 0, { timeout: 5000 });
+  await page.waitForFunction(() => window.nt.known().length === 0, null, { timeout: 5000 });
   check("Bram's caret comes down once his row goes stale", await page.evaluate(() => window.nt.seen()), []);
   check("and A's awareness lets him go", await page.evaluate(() => window.nt.known()), []);
 
@@ -132,7 +145,7 @@ try {
   // The channel is genuinely live again, not a one-off repaint.
   await page.click("#b .bn-block-content");
   await page.keyboard.type(" and the credits", { delay: 12 });
-  await page.waitForFunction(() => window.nt.text().includes("credits"), { timeout: 5000 });
+  await page.waitForFunction(() => window.nt.text().includes("credits"), null, { timeout: 5000 });
   // The sharp edge of the bug: a cursor resting at the end of a line resolves
   // to the same relative position however much is typed, so an active writer's
   // awareness clock barely moves. Their words arrive; they do not.
@@ -142,14 +155,14 @@ try {
 
   // --- a second cycle, to prove nothing was consumed ----------------------
   await page.evaluate(() => window.nt.away());
-  await page.waitForFunction(() => window.nt.known().length === 0, { timeout: 5000 });
+  await page.waitForFunction(() => window.nt.known().length === 0, null, { timeout: 5000 });
   await page.evaluate(() => window.nt.back());
   await sleep(300);
   check("a second leave and return works the same", await page.evaluate(() => window.nt.known()), ["Bram"]);
 
   // --- the peer whose clock DID move must still come back -----------------
   await page.evaluate(() => window.nt.away());
-  await page.waitForFunction(() => window.nt.known().length === 0, { timeout: 5000 });
+  await page.waitForFunction(() => window.nt.known().length === 0, null, { timeout: 5000 });
   await page.evaluate(() => { window.nt.renew(); window.nt.back(); });
   await sleep(300);
   check("a peer whose renewal timer did run comes back too",
@@ -164,6 +177,9 @@ try {
 
   await page.screenshot({ path: path.join(output, "returned.png") });
   console.log(`\nscreenshot: ${path.join(output, "returned.png")}`);
+} catch (error) {
+  failures.push(`run stopped: ${error.message}`);
+  console.log(`  FAIL run stopped: ${error.message}`);
 } finally {
   await browser?.close();
   server.close();
