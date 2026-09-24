@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter, useSelectedLayoutSegment } from "next/navigation";
 import { useQuery } from "convex/react";
@@ -54,9 +54,38 @@ export function SettingsFrame({ children }: { children: ReactNode }) {
   const [moved, setMoved] = useState(false);
   if (segment !== first && !moved) setMoved(true);
 
-  if (!workspace || guest) return <SettingsLoading workspace />;
-  const sections = SECTIONS.filter((s) => !s.from || atLeast(workspace.role, s.from));
+  const sections = workspace
+    ? SECTIONS.filter((s) => !s.from || atLeast(workspace.role, s.from))
+    : [];
   const current = sections.find((s) => s.id === segment)?.id ?? "general";
+  // Where you are is one wash that travels between the links, so opening
+  // another section reads as the one place moving, as the palette's highlight
+  // does. Placed from the link's box, written to the nav; it snaps into its
+  // first place, travels only after that, and follows the row as it wraps.
+  const nav = useRef<HTMLElement>(null);
+  const count = sections.length;
+  useLayoutEffect(() => {
+    const el = nav.current;
+    const link = el?.querySelector<HTMLElement>('[aria-current="page"]');
+    if (!el || !link) return;
+    const place = () => {
+      el.style.setProperty("--hl-x", `${link.offsetLeft}px`);
+      el.style.setProperty("--hl-y", `${link.offsetTop}px`);
+      el.style.setProperty("--hl-w", `${link.offsetWidth}px`);
+      el.dataset.marked = "true";
+    };
+    place();
+    const frame = requestAnimationFrame(() => (el.dataset.travels = "true"));
+    const watch = new ResizeObserver(place);
+    watch.observe(el);
+    return () => {
+      cancelAnimationFrame(frame);
+      watch.disconnect();
+    };
+  }, [current, count]);
+  useLanding(current);
+
+  if (!workspace || guest) return <SettingsLoading workspace />;
 
   return (
     <div className="nt-set-page">
@@ -71,7 +100,8 @@ export function SettingsFrame({ children }: { children: ReactNode }) {
       <main className={`nt-set-body${moved ? " nt-ws-moved" : ""}`}>
         <Warm workspace={workspace} />
         <h1 className="nt-set-title">Workspace settings</h1>
-        <nav aria-label="Workspace settings" className="nt-ws-set-nav">
+        <nav ref={nav} aria-label="Workspace settings" className="nt-ws-set-nav">
+          <span className="nt-ws-set-nav-hl" aria-hidden="true" />
           {sections.map((section) => (
             <Link
               key={section.id}
@@ -90,6 +120,45 @@ export function SettingsFrame({ children }: { children: ReactNode }) {
       </main>
     </div>
   );
+}
+
+/**
+ * Arriving on one section by its address — Integrations' way to General ›
+ * Sharing — the card it names washes once and lets go, so the eye lands where
+ * the link meant. Found by the heading's id, once the section has drawn it.
+ * The wash is colour, not movement, so it plays under reduced motion too.
+ */
+function useLanding(current: string) {
+  useEffect(() => {
+    const id = decodeURIComponent(window.location.hash.slice(1));
+    if (!id) return;
+    const until = performance.now() + 3000;
+    let frame = 0;
+    let wash: Animation | undefined;
+    const look = () => {
+      const card = document
+        .getElementById(id)
+        ?.closest(".nt-set-section")
+        ?.querySelector(".nt-set-list, .nt-ws-card, .nt-ws-table");
+      if (!card) {
+        if (performance.now() < until) frame = requestAnimationFrame(look);
+        return;
+      }
+      const root = getComputedStyle(document.documentElement);
+      wash = card.animate(
+        [
+          { boxShadow: `inset 0 0 0 100vmax ${root.getPropertyValue("--selected")}` },
+          { boxShadow: "inset 0 0 0 100vmax transparent" },
+        ],
+        { duration: 900, delay: 150, easing: root.getPropertyValue("--ease"), fill: "backwards" },
+      );
+    };
+    look();
+    return () => {
+      cancelAnimationFrame(frame);
+      wash?.cancel();
+    };
+  }, [current]);
 }
 
 /**

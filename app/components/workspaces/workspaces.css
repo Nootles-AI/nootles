@@ -12,15 +12,44 @@
    out by the row's inset so the first label starts on the title's edge. */
 
 .nt-ws-set-nav {
+  position: relative;
   display: flex;
   flex-wrap: wrap;
   gap: 2px;
   margin: 16px calc(-1 * var(--inset)) 0;
 }
 
+/* Where you are is one wash that travels between the links on the spring, as
+   the palette's highlight does (`useTravellingWash`); the current link keeps
+   its weight and gives up its own fill. The links sit above it. */
+.nt-ws-set-nav-hl {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: var(--hl-w, 0);
+  height: var(--control);
+  border-radius: var(--radius);
+  background: var(--selected);
+  opacity: 0;
+  transform: translate(var(--hl-x, 0), var(--hl-y, 0));
+  pointer-events: none;
+}
+.nt-ws-set-nav[data-marked] > .nt-ws-set-nav-hl {
+  opacity: 1;
+}
+.nt-ws-set-nav[data-travels] > .nt-ws-set-nav-hl {
+  transition:
+    transform var(--dur-slow) var(--spring),
+    width var(--dur-slow) var(--spring);
+}
+.nt-ws-set-nav[data-marked] > .nt-row.is-current {
+  background: transparent;
+}
+
 /* A section's name drawn at its current weight whatever its weight now, so the
    one that is current, set heavier, widens nothing after it. */
 .nt-ws-set-nav > .nt-row {
+  position: relative;
   flex-direction: column;
   justify-content: center;
   gap: 0;
@@ -515,12 +544,6 @@
   min-height: var(--control);
 }
 
-/* An invitation just made: its link arrives under the form, the way a row
-   arrives in a list. */
-.nt-ws-sent {
-  animation: nt-row-in 360ms var(--ease) backwards;
-}
-
 /* ---- Role menus ---------------------------------------------------------------
    A seat and what it may do, two lines to an item; where this seat may not
    give it, the reason takes the description's place. The tick stays centred
@@ -701,6 +724,15 @@
     background var(--dur-fast) var(--ease),
     color var(--dur-fast) var(--ease),
     transform var(--dur) var(--ease);
+}
+/* A row with a menu is something to act on, so it washes under the pointer as
+   the projects list's rows do — and stays washed while its menu is open, whose
+   catcher takes the pointer from it. */
+.nt-ws-person:has(.nt-ws-row-menu):hover {
+  background: var(--hover);
+}
+.nt-ws-person:has(.nt-ws-row-menu[aria-expanded="true"]) {
+  background: var(--selected);
 }
 /* Where there is no pointer to reveal it, the row's menu is always there. */
 @media (hover: none) {

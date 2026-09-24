@@ -167,6 +167,11 @@ function PlanSection({
   const settling = outcome === "done" && !live;
   const starts = !paid && !summary.unsettled && summary.configured && outcome !== "done";
   const priced = !paid && !summary.unsettled && summary.configured && !settling;
+  // Once it has waited on Stripe, the plan that arrives is news: its name and
+  // standing change in place rather than in a frame.
+  const [waited, setWaited] = useState(settling);
+  if (settling && !waited) setWaited(true);
+  const swap = waited ? "nt-ws-swap" : undefined;
 
   // Fetched rather than subscribed, as the personal plans' prices are: what a
   // seat costs lives in Stripe, which is not a reactive source.
@@ -220,8 +225,16 @@ function PlanSection({
       <ul className="nt-set-list">
         <li className="nt-set-row" tabIndex={-1}>
           <div className="nt-set-body-col">
-            <p className="nt-set-name">{PLAN_LABEL[plan]}</p>
-            <p className="nt-set-meta">{settling ? "Waiting for Stripe…" : standingLine(summary)}</p>
+            <p className="nt-set-name">
+              <span key={plan} className={swap}>
+                {PLAN_LABEL[plan]}
+              </span>
+            </p>
+            <p className="nt-set-meta">
+              <span key={settling ? "waiting" : "standing"} className={swap}>
+                {settling ? "Waiting for Stripe…" : standingLine(summary)}
+              </span>
+            </p>
             {note && <p className="nt-set-note">{note}</p>}
             {priced && (
               <p className="nt-set-note">
