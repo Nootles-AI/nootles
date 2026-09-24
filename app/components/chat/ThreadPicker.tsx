@@ -36,7 +36,7 @@ export function ThreadPicker({
 
   return (
     <>
-      <div className="fixed inset-0" style={{ zIndex: "var(--z-dropdown)" }} onMouseDown={onClose} />
+      <div className="fixed inset-0" style={{ zIndex: "var(--z-popover)" }} onMouseDown={onClose} />
       <div
         role="menu"
         aria-label="Chats"

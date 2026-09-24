@@ -159,6 +159,10 @@
   --z-sticky: 30;
   --z-overlay: 40;
   --z-modal: 50;
+  /* A menu or popover and the click-catcher under it. Above the modal rank
+     because a menu is only ever open over the drawer, dialog or full-size
+     view that opened it (NT-76); toasts and tooltips still clear it. */
+  --z-popover: 55;
   --z-toast: 60;
   --z-tooltip: 70;
 }
@@ -912,9 +916,11 @@ body[data-resizing] .nt-rail-face {
    required: `fixed` escapes a panel's overflow clipping, but only the portal
    escapes its stacking context — paint order still follows DOM ancestry, so
    an in-place menu is capped at whatever rank an ancestor stacking context
-   holds, no matter this z-index (NT-52). */
+   holds, no matter this z-index (NT-52). Once on the body it competes with
+   the drawers and full-size views at `--z-modal`, and must clear the one that
+   opened it (NT-76). A dialog wearing this surface sets its own rank. */
 .nt-menu {
-  z-index: var(--z-dropdown);
+  z-index: var(--z-popover);
   min-width: 200px;
   padding: 4px;
   background: var(--elevated);
@@ -2526,7 +2532,7 @@ a.nt-chip:hover {
    canvas it would inherit the surface's zoom transform. */
 .nt-mention-anchor {
   position: fixed;
-  z-index: var(--z-modal);
+  z-index: var(--z-popover);
   width: 260px;
 }
 .nt-mention-menu.nt-mention-caret {

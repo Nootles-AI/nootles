@@ -91,7 +91,7 @@ export function ContextMenu({
           own on top of it. */}
       <div
         className="fixed inset-0"
-        style={{ zIndex: "var(--z-dropdown)" }}
+        style={{ zIndex: "var(--z-popover)" }}
         onMouseDown={onClose}
         onContextMenu={(e) => {
           e.preventDefault();

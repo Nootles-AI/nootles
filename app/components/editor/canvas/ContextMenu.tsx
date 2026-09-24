@@ -44,11 +44,11 @@ import {
 import "./canvas.css";
 
 /**
- * Above the toolbar and the panels rather than at the dropdown register the
- * menu pill defaults to: this one is opened over that chrome and is asking a
- * question, so nothing may cover it.
+ * The menus' rank — `.nt-menu`'s own, and the catchers under them sit level
+ * with it. Opened over the toolbar and the panels, and over the storyboard's
+ * full-size view, so nothing below the popover rank may cover it.
  */
-const MENU_Z = "var(--z-modal)";
+const MENU_Z = "var(--z-popover)";
 
 export interface MenuAction {
   label: string;
