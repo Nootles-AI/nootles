@@ -93,10 +93,6 @@ async function ensure(ctx: MutationCtx) {
  * welcome is for people starting from nothing, so the row lands in the same
  * terminal state as declining the guided start. An account already
  * mid-survey keeps its own state; arriving is not an answer to the survey.
- *
- * The founder's letter is retired on the same row and for the same reason: it
- * asks the reader to report what they think of Nootles, and someone who came
- * here for one team's or one person's work has not met it yet.
  */
 export async function ensureArrivalProfile(ctx: MutationCtx, ownerId: string) {
   const profile = await ctx.db
@@ -109,7 +105,6 @@ export async function ensureArrivalProfile(ctx: MutationCtx, ownerId: string) {
     ownerId,
     ...faceOf(await identityOf(ctx, ownerId)),
     status: "skipped",
-    hints: ["tester-note"],
     createdAt: now,
     completedAt: now,
   });

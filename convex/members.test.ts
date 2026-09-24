@@ -433,7 +433,7 @@ describe("an invitation", () => {
       }));
       expect(after.invitation).toMatchObject({ acceptedBy: NEWCOMER.subject });
       expect(after.invitation.acceptedAt).toBeTypeOf("number");
-      expect(after.profile).toMatchObject({ status: "skipped", hints: ["tester-note"] });
+      expect(after.profile).toMatchObject({ status: "skipped" });
 
       // Twice is the same answer; nobody else can use it after.
       await expect(newcomer.mutation(api.members.acceptInvite, { token })).resolves.toEqual(

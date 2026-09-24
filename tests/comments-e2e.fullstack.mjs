@@ -191,9 +191,8 @@ try {
     // Who they are, confirmed as the app confirms it on sign-in: from the
     // token's own email claim, so no Clerk call is made.
     await as(who).action(anyApi.identity.sync, {});
-    // Past the founder's letter and the first-touch hints, as anyone who has
-    // used the app before is.
-    for (const id of ["tester-note", "chat", "slash", "write"]) await as(who).mutation(anyApi.profiles.seen, { id });
+    // Past the first-touch hints, as anyone who has used the app before is.
+    for (const id of ["chat", "slash", "write"]) await as(who).mutation(anyApi.profiles.seen, { id });
   }
   const olive = as("olive");
   const projectId = await olive.mutation(anyApi.projects.create, { title: "Autumn launch" });
