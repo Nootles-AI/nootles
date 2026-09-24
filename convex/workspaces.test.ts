@@ -208,7 +208,7 @@ describe("making a workspace", () => {
       { workspaceId: made.workspaceId, userId: OWNER.subject, role: "owner", status: "active" },
     ]);
     expect(await t.withIdentity(OWNER).query(api.workspaces.listMine, {})).toEqual([
-      { workspaceId: made.workspaceId, slug: "acme-robotics", name: "Acme Robotics", role: "owner" },
+      { workspaceId: made.workspaceId, slug: "acme-robotics", name: "Acme Robotics", icon: null, role: "owner" },
     ]);
   });
 
@@ -461,8 +461,8 @@ describe("finding a workspace", () => {
     const alpha = await t.withIdentity(MEMBER).mutation(api.workspaces.create, { name: "Alpha" });
     await t.withIdentity(MEMBER).mutation(api.workspaces.remove, { workspaceId: beta.workspaceId });
     expect(await t.withIdentity(MEMBER).query(api.workspaces.listMine, {})).toEqual([
-      { workspaceId: w.workspaceId, slug: "acme", name: "Acme", role: "member" },
-      { workspaceId: alpha.workspaceId, slug: "alpha", name: "Alpha", role: "owner" },
+      { workspaceId: w.workspaceId, slug: "acme", name: "Acme", icon: null, role: "member" },
+      { workspaceId: alpha.workspaceId, slug: "alpha", name: "Alpha", icon: null, role: "owner" },
     ]);
   });
 });
@@ -475,6 +475,11 @@ describe("running a workspace", () => {
       "updateSettings",
       (c, id) =>
         c.mutation(api.workspaces.updateSettings, { workspaceId: id, patch: { linkSharing: false } }),
+    ],
+    [
+      "setIcon",
+      (c, id) =>
+        c.mutation(api.workspaces.setIcon, { workspaceId: id, icon: { kind: "emoji", value: "🌲" } }),
     ],
   ];
 
@@ -578,6 +583,50 @@ describe("running a workspace", () => {
     await expect(set(unverified, ["partner.io", "acme.com"])).rejects.toThrow(
       "You can only add your own email’s domain.",
     );
+  });
+});
+
+describe("a workspace's icon", () => {
+  test("is carried wherever the workspace is found, and null takes it back to the letter", async () => {
+    const t = harness();
+    const w = await world(t);
+    const admin = t.withIdentity(ADMIN);
+    const tree = { kind: "emoji" as const, value: "🌲" };
+    await admin.mutation(api.workspaces.setIcon, { workspaceId: w.workspaceId, icon: tree });
+
+    for (const who of [OWNER, MEMBER, GUEST]) {
+      const found = await t.withIdentity(who).query(api.workspaces.bySlug, { slug: "acme" });
+      expect(found?.workspace.icon).toEqual(tree);
+    }
+    expect(await t.withIdentity(MEMBER).query(api.workspaces.listMine, {})).toEqual([
+      { workspaceId: w.workspaceId, slug: "acme", name: "Acme", icon: tree, role: "member" },
+    ]);
+
+    const glyph = { kind: "icon" as const, name: "tree", d: "M0 0h256v256z", box: 256 };
+    await admin.mutation(api.workspaces.setIcon, { workspaceId: w.workspaceId, icon: glyph });
+    expect(
+      (await admin.query(api.workspaces.bySlug, { slug: "acme" }))?.workspace.icon,
+    ).toEqual(glyph);
+
+    await admin.mutation(api.workspaces.setIcon, { workspaceId: w.workspaceId, icon: null });
+    expect((await admin.query(api.workspaces.bySlug, { slug: "acme" }))?.workspace.icon).toBeNull();
+    expect((await t.run((ctx) => ctx.db.get(w.workspaceId)))!.icon).toBeUndefined();
+  });
+
+  test("is logged once per change, and choosing the same one again is no change", async () => {
+    const t = harness();
+    const w = await world(t);
+    const owner = t.withIdentity(OWNER);
+    const set = (icon: { kind: "emoji"; value: string } | null) =>
+      owner.mutation(api.workspaces.setIcon, { workspaceId: w.workspaceId, icon });
+    await set({ kind: "emoji", value: "🌲" });
+    await set({ kind: "emoji", value: "🌲" });
+    await set(null);
+    await set(null);
+    const rows = await t.run((ctx) => ctx.db.query("workspaceAuditEvents").collect());
+    expect(
+      rows.filter((r) => r.action === "workspace.icon").map((r) => r.meta),
+    ).toEqual([{ kind: "emoji", emoji: "🌲" }, { kind: null }]);
   });
 });
 

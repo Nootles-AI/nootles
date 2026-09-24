@@ -303,6 +303,96 @@
 .nt-monogram.nt-ws-tile.is-square {
   border-radius: 5px;
 }
+/* The tile beside a workspace's name on its home, at the title's height. For
+   an owner or an admin it is the way to the icon picker, and answers the
+   pointer as a thing to press. */
+.nt-monogram.nt-ws-tile.is-title {
+  display: inline-grid;
+  width: 28px;
+  height: 28px;
+  margin-top: 2px;
+  vertical-align: top;
+  border-radius: 7px;
+  font-size: 14px;
+  letter-spacing: 0;
+  color: var(--foreground);
+}
+.nt-ws-title-tile {
+  display: inline-grid;
+  vertical-align: top;
+  border-radius: 7px;
+  transition: transform var(--dur) var(--ease);
+}
+.nt-ws-title-tile > .nt-monogram.nt-ws-tile.is-title {
+  transition: box-shadow var(--dur-fast) var(--ease);
+}
+.nt-ws-title-tile:hover > .nt-monogram.nt-ws-tile.is-title,
+.nt-ws-title-tile[aria-expanded="true"] > .nt-monogram.nt-ws-tile.is-title {
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+.nt-ws-title-tile:active {
+  transform: scale(0.94);
+}
+.nt-ws-title-tile + .nt-ws-switch,
+.nt-ws-tile.is-title + .nt-ws-switch {
+  margin-left: 4px;
+}
+
+/* The tile in General's Icon row, at the size of the field beside it. */
+.nt-monogram.nt-ws-tile.is-field {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  font-size: var(--text-meta-lg);
+  color: var(--foreground);
+}
+
+/* A chosen icon in the tile. A glyph or an emoji sits in the letter's well, in
+   ink; a picture is the tile, cut to its corners, with the well's hairline
+   drawn over its edge. A new one settles in as the palette's crumbs do. */
+.nt-ws-tile-face {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+}
+.nt-ws-tile-face.is-new {
+  animation: nt-ws-tile-settle var(--dur-slow) var(--spring) backwards;
+}
+@keyframes nt-ws-tile-settle {
+  from {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+}
+.nt-monogram.nt-ws-tile.has-icon {
+  color: var(--foreground);
+}
+.nt-monogram.nt-ws-tile.is-image {
+  position: relative;
+  overflow: hidden;
+  background: none;
+}
+.nt-monogram.nt-ws-tile.is-image::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 1px var(--border);
+  pointer-events: none;
+}
+.nt-ws-tile .nt-ws-tile-icon {
+  flex: none;
+}
+.nt-ws-tile img.nt-ws-tile-icon {
+  object-fit: cover;
+}
+@media (prefers-reduced-motion: reduce) {
+  .nt-ws-tile-face.is-new {
+    animation: nt-fade-in var(--dur-fast) var(--ease);
+  }
+}
 /* A glyph given a tile's width, so every label in the menu starts on one line. */
 .nt-ws-slot {
   display: grid;

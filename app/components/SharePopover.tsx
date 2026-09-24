@@ -23,6 +23,7 @@ import { Segmented, type Segment } from "./Segmented";
 import { Tooltip } from "./Tooltip";
 import { dayOf, LIFETIMES, lifetimeLabel, runsOutAt } from "./share/expiry";
 import { useContainer } from "./workspaces/ContainerContext";
+import { Tile } from "./workspaces/places";
 import { refusal } from "./workspaces/refusal";
 import { useMoment } from "./workspaces/useMoment";
 import "./share/access.css";
@@ -448,9 +449,7 @@ function SharePopoverBody({
             <div className="mb-4">
               <div className="nt-field-label">Workspace</div>
               <div className="flex h-8 items-center gap-2">
-                <span aria-hidden className="nt-monogram nt-ws-tile is-square shrink-0">
-                  {initial(workspace.name)}
-                </span>
+                <Tile name={workspace.name} icon={workspace.icon} className="shrink-0" />
                 <span className="min-w-0 flex-1 truncate text-[length:var(--text-ui)]">
                   {hidden
                     ? `${workspace.name}’s owners and admins`

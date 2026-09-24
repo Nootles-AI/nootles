@@ -6,6 +6,7 @@ import {
   inviteProblem,
   LEAVE_INSTEAD,
   leaveProblem,
+  offersInvite,
   removeProblem,
   roleChoices,
   sayOnce,
@@ -161,5 +162,21 @@ describe("how long an invitation has left", () => {
     expect(expiresIn(0.5 * DAY, 0)).toBe("Today");
     expect(expiresIn(0, 0)).toBe("Expired");
     expect(expiresIn(-DAY, 0)).toBe("Expired");
+  });
+});
+
+describe("who is offered the ways to invite", () => {
+  test("owners and admins are; members and guests are not", () => {
+    expect(offersInvite("owner", false)).toBe(true);
+    expect(offersInvite("admin", false)).toBe(true);
+    expect(offersInvite("member", false)).toBe(false);
+    expect(offersInvite("guest", false)).toBe(false);
+  });
+
+  test("an operator standing in is never offered it, and no seat is none", () => {
+    expect(offersInvite("owner", true)).toBe(false);
+    expect(offersInvite("admin", true)).toBe(false);
+    expect(offersInvite(null, false)).toBe(false);
+    expect(offersInvite(undefined, false)).toBe(false);
   });
 });

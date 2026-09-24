@@ -121,6 +121,17 @@ describe("the sentence", () => {
     ]);
   });
 
+  test("an icon change says what it became, and taking it away says the letter is back", () => {
+    const emoji = row({ action: "workspace.icon", meta: { kind: "emoji", emoji: "🌲" } });
+    expect(whatParts(emoji, "Acme")).toEqual(["set the workspace’s icon to 🌲"]);
+    const glyph = row({ action: "workspace.icon", meta: { kind: "icon" } });
+    expect(whatParts(glyph, "Acme")).toEqual(["changed the workspace’s icon"]);
+    const picture = row({ action: "workspace.icon", meta: { kind: "image" } });
+    expect(whatParts(picture, "Acme")).toEqual(["set a picture as the workspace’s icon"]);
+    const gone = row({ action: "workspace.icon", meta: { kind: null } });
+    expect(whatParts(gone, "Acme")).toEqual(["took the workspace’s icon away, back to its letter"]);
+  });
+
   test("a person, an email and a workspace are names of their own", () => {
     const invite = row({ action: "member.invite", meta: { email: "tom@acme.com", role: "member" } });
     expect(whatParts(invite, "Acme")).toEqual(["invited ", { name: "tom@acme.com" }, " as a member"]);

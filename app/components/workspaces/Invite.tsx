@@ -15,7 +15,7 @@ import Link from "next/link";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { WorkspaceRole } from "@/convex/auth";
-import { NOT_AN_EMAIL, plausibleEmail } from "@/convex/emails";
+import { normalizeEmail, NOT_AN_EMAIL, plausibleEmail } from "@/convex/emails";
 import { joinPath, settingsPath } from "@/app/lib/containerPaths";
 import { Check, ChevronRight, ChevronsUpDown, Copy } from "../Icons";
 import { Menu, MenuItem } from "../Menu";
@@ -200,6 +200,72 @@ function InvitePopover({
 }
 
 /**
+ * What an invite form holds, wherever it is drawn: the address as typed, the
+ * seat, the round trip, and the link it ends on. One line under the field
+ * says how inviting works until something goes wrong, and then what did.
+ */
+export function useInvite(workspace: WorkspaceContainer) {
+  const invite = useMutation(api.members.invite);
+  const [email, setEmail] = useState("");
+  const [role, setRole] = useState<Invited>("member");
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  // The last problem, still said while its line folds away under a link:
+  // cleared by typing, it would otherwise turn back into the how-to as it goes.
+  const [said, setSaid] = useState<string | null>(null);
+  const [sent, setSent] = useState<Sent | null>(null);
+  // The link folds away once its invitation is no longer open — revoked here
+  // or by another admin, or used — rather than staying to be copied dead.
+  const people = useQuery(api.members.list, { workspaceId: workspace.workspaceId });
+  const live = !!sent && (people?.invitations.some((i) => i.token === sent.token) ?? true);
+  const note = problem ?? (live ? said : null) ?? HOW;
+  const plausible = plausibleEmail(email);
+
+  const type = (value: string) => {
+    setEmail(value);
+    setProblem(null);
+  };
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    const to = email.trim();
+    if (!to || busy) return;
+    if (!plausible) {
+      setProblem(NOT_AN_EMAIL);
+      setSaid(NOT_AN_EMAIL);
+      return;
+    }
+    setBusy(true);
+    try {
+      const made = await invite({
+        workspaceId: workspace.workspaceId,
+        email: to,
+        role,
+      });
+      setSent({
+        email: normalizeEmail(to),
+        token: made.token,
+        days: Math.max(1, Math.round((made.expiresAt - Date.now()) / DAY_MS)),
+        replaced: made.replaced,
+      });
+      setProblem(null);
+      setSaid(null);
+      setEmail("");
+    } catch (error) {
+      const text = refusal(error, "That invitation didn’t go through. Try again in a moment.");
+      setProblem(text);
+      setSaid(text);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return { email, type, role, setRole, busy, problem, sent, live, note, plausible, submit, people };
+}
+
+type Sent = { email: string; token: string; days: number; replaced: boolean };
+
+/**
  * An address, a role, and the link that lets them in. Nootles sends no mail:
  * the link is handed back to be sent however the team talks, and it opens
  * only for someone signed in with the address it was made for.
@@ -221,66 +287,11 @@ export function InviteForm({
   /** The members screen's one-line form. */
   inline?: boolean;
 }) {
-  const invite = useMutation(api.members.invite);
   const auto = useId();
   // The members screen holds one form, so it can be found by name.
   const id = inline ? "nt-ws-invite" : auto;
-  const [email, setEmail] = useState("");
-  const [role, setRole] = useState<Invited>("member");
-  const [busy, setBusy] = useState(false);
-  const [problem, setProblem] = useState<string | null>(null);
-  // The last problem, still said while its line folds away under a link:
-  // cleared by typing, it would otherwise turn back into the how-to as it goes.
-  const [said, setSaid] = useState<string | null>(null);
-  const [sent, setSent] = useState<{
-    email: string;
-    token: string;
-    days: number;
-    replaced: boolean;
-  } | null>(null);
-  // The link folds away once its invitation is no longer open — revoked here
-  // or by another admin, or used — rather than staying to be copied dead.
-  const people = useQuery(api.members.list, { workspaceId: workspace.workspaceId });
-  const live = !!sent && (people?.invitations.some((i) => i.token === sent.token) ?? true);
-  // One line under the field, saying how inviting works until something goes
-  // wrong and then what did — in place, so nothing below it moves.
-  const note = problem ?? (live ? said : null) ?? HOW;
-
-  const plausible = plausibleEmail(email);
-
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
-    const to = email.trim();
-    if (!to || busy) return;
-    if (!plausible) {
-      setProblem(NOT_AN_EMAIL);
-      setSaid(NOT_AN_EMAIL);
-      return;
-    }
-    setBusy(true);
-    try {
-      const made = await invite({
-        workspaceId: workspace.workspaceId,
-        email: to,
-        role,
-      });
-      setSent({
-        email: to.toLowerCase(),
-        token: made.token,
-        days: Math.max(1, Math.round((made.expiresAt - Date.now()) / DAY_MS)),
-        replaced: made.replaced,
-      });
-      setProblem(null);
-      setSaid(null);
-      setEmail("");
-    } catch (error) {
-      const text = refusal(error, "That invitation didn’t go through. Try again in a moment.");
-      setProblem(text);
-      setSaid(text);
-    } finally {
-      setBusy(false);
-    }
-  };
+  const { email, type, role, setRole, busy, problem, sent, live, note, plausible, submit } =
+    useInvite(workspace);
 
   return (
     <form onSubmit={submit} noValidate>
@@ -305,10 +316,7 @@ export function InviteForm({
           value={email}
           aria-invalid={!!problem}
           aria-describedby={`${id}-note`}
-          onChange={(e) => {
-            setEmail(e.target.value);
-            setProblem(null);
-          }}
+          onChange={(e) => type(e.target.value)}
           onKeyDown={(e) => {
             // Invite is refused until the address could be one, which would
             // leave Enter doing nothing at all; it says why instead.
@@ -357,22 +365,27 @@ export function InviteForm({
  * and the ones this inviter may not hand out refused with the reason in the
  * place the description would be.
  */
-function RoleChoice({
+export function RoleChoice({
   actor,
   value,
   onChange,
   layer,
+  className = "nt-row nt-ws-pick shrink-0 gap-1.5 px-2.5",
+  align = "end",
 }: {
   actor: WorkspaceRole;
   value: Invited;
   onChange: (role: Invited) => void;
   layer: "dropdown" | "modal";
+  className?: string;
+  /** The edge of the button the menu hangs from: its end at the end of a line. */
+  align?: "start" | "end";
 }) {
   return (
     <Menu
       label="Invite as"
       side="bottom"
-      align="end"
+      align={align}
       layer={layer}
       className="nt-ws-choices"
       trigger={(t) => (
@@ -380,7 +393,7 @@ function RoleChoice({
           {...t}
           type="button"
           aria-label={`Invite as ${ROLE_LABEL[value].toLowerCase()}`}
-          className="nt-row nt-ws-pick shrink-0 gap-1.5 px-2.5"
+          className={className}
         >
           {ROLE_LABEL[value]}
           <ChevronsUpDown width={14} height={14} aria-hidden="true" className="nt-ws-pick-glyph" />
@@ -450,16 +463,15 @@ export function inviteUrl(token: string): string {
  * still open makes it a new link and the old one stops working, which the note
  * says, since whoever holds the old one will find it dead.
  */
-function InviteLink({
+export function InviteLink({
   email,
   token,
   days,
   replaced,
-}: {
-  email: string;
-  token: string;
-  days: number;
-  replaced: boolean;
+  bare,
+}: Sent & {
+  /** Named by a key beside it rather than a label above. */
+  bare?: boolean;
 }) {
   const url = inviteUrl(token);
   const field = useRef<HTMLInputElement>(null);
@@ -476,8 +488,8 @@ function InviteLink({
   }, []);
 
   return (
-    <div className="pt-4">
-      <div className="nt-field-label">Invitation link</div>
+    <div className={bare ? undefined : "pt-4"}>
+      {!bare && <div className="nt-field-label">Invitation link</div>}
       <div className="flex items-center gap-1.5">
         <input
           ref={field}

@@ -170,3 +170,12 @@ export function expiresIn(expiresAt: number, now: number): string {
   const days = Math.round(left / DAY_MS);
   return days === 1 ? "In 1 day" : `In ${days} days`;
 }
+
+/**
+ * Whether a seat is offered the ways to invite — the home's Invite, the
+ * palettes' "Invite people": admins and owners, never an operator standing in,
+ * whose writes the server refuses. Null is no seat at all.
+ */
+export function offersInvite(role: WorkspaceRole | null | undefined, standIn: boolean): boolean {
+  return !standIn && !!role && atLeast(role, "admin");
+}

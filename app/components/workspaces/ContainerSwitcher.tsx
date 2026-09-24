@@ -16,6 +16,7 @@ import { useContainer } from "./ContainerContext";
 import { NewWorkspace } from "./NewWorkspace";
 import { Place, Tile, YouTile } from "./places";
 import { ROLE_LABEL } from "./seats";
+import { TitleTile } from "./WorkspaceIcon";
 import "./workspaces.css";
 
 /**
@@ -58,8 +59,8 @@ export function ContainerSwitcher({ onProblem }: { onProblem: (text: string) => 
 
   useEffect(() => {
     if (!userId || !workspaces) return;
-    for (const { workspaceId, slug, name, role } of workspaces) {
-      rememberWorkspace(userId, slug, { kind: "workspace", workspaceId, slug, name, role });
+    for (const { workspaceId, slug, name, role, icon } of workspaces) {
+      rememberWorkspace(userId, slug, { kind: "workspace", workspaceId, slug, name, role, icon });
     }
   }, [userId, workspaces]);
 
@@ -104,6 +105,7 @@ export function ContainerSwitcher({ onProblem }: { onProblem: (text: string) => 
 
   return (
     <h1 className="nt-front-title">
+      {here.kind === "workspace" && <TitleTile workspace={here} onProblem={onProblem} />}
       <Menu
         label="Your workspaces"
         side="bottom"
@@ -145,7 +147,7 @@ export function ContainerSwitcher({ onProblem }: { onProblem: (text: string) => 
                   current={current}
                 >
                   <Place
-                    tile={<Tile name={w.name} />}
+                    tile={<Tile name={w.name} icon={w.icon} />}
                     name={w.name}
                     meta={ROLE_LABEL[w.role]}
                     current={current}
@@ -158,7 +160,7 @@ export function ContainerSwitcher({ onProblem }: { onProblem: (text: string) => 
             {doors?.map((door) =>
               door.token ? (
                 <MenuLink key={door.workspaceId} href={joinPath(door.token)} onClick={() => close()}>
-                  <Tile name={door.name} />
+                  <Tile name={door.name} icon={door.icon} />
                   <span className="nt-ws-menu-name">Join {door.name}</span>
                   <span className="nt-ws-menu-meta">Invited</span>
                 </MenuLink>
@@ -168,7 +170,7 @@ export function ContainerSwitcher({ onProblem }: { onProblem: (text: string) => 
                   disabled={joining !== null}
                   onClick={() => join(door.workspaceId, door.name, close)}
                 >
-                  <Tile name={door.name} />
+                  <Tile name={door.name} icon={door.icon} />
                   <span className="nt-ws-menu-name">Join {door.name}</span>
                   {joining === door.workspaceId ? (
                     <span role="status" className="nt-ws-menu-meta">

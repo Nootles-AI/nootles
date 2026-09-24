@@ -150,6 +150,12 @@ export function whatParts(row: AuditRow, workspaceName: string): Part[] {
       return [`moved the workspace’s address from /w/${m.from} to /w/${m.to}`];
     case "workspace.settings":
       return setting(m);
+    case "workspace.icon":
+      return m.kind === null || m.kind === undefined
+        ? ["took the workspace’s icon away, back to its letter"]
+        : m.kind === "emoji" && m.emoji
+          ? [`set the workspace’s icon to ${m.emoji}`]
+          : [m.kind === "image" ? "set a picture as the workspace’s icon" : "changed the workspace’s icon"];
     case "workspace.delete":
       return [
         "deleted the workspace ",
