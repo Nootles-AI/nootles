@@ -11,7 +11,7 @@ import type { Channel, MaskRef, Vec2 } from './heron/src/index.ts';
  *
  * `art.json` is the six characters as data (see `extract.mjs`); this file
  * rebuilds each exactly, rigs it from its own paths, sets them on one page and
- * brings them in one at a time. Check and build with
+ * brings them in close on one another's heels. Check and build with
  *
  *   node scripts/team-join-art/heron/src/cli.ts check "$PWD/scripts/team-join-art/join.scene.ts" --fps 30
  *   node scripts/team-join-art/heron/src/cli.ts build "$PWD/scripts/team-join-art/join.scene.ts" \
@@ -52,8 +52,8 @@ type Key6 = 'pm' | 'design' | 'dev' | 'marketing' | 'stats' | 'customerSuccess';
 const ART: Record<Key6, Figure> = JSON.parse(readFileSync(new URL('./art.json', import.meta.url), 'utf8'));
 
 const VIEW: [number, number, number, number] = [0, 0, 1320, 1320];
-const D = 13;
-const FADE: [number, number] = [12.3, 12.8];
+const D = 8;
+const FADE: [number, number] = [7.3, 7.8];
 
 const INK = '#37352f';
 const GHOST = '#ecebe7';
@@ -468,31 +468,37 @@ function walk(o: { t0: number; t1: number; walker: string; from: number; legs: L
 const bobs = (who: string, names: string[]) => names.map((n) => `cast.${who}.${n}Bob`);
 
 // ---- The film -------------------------------------------------------------------
-// One by one, each the way their work goes: the navigator walks in and holds
-// up the plan; the designer drops in and flourishes a brush; the developer
-// walks in and hammers the first item home; the marketer's chair springs up,
-// it drops into it and calls out through the megaphone; the analyst's board
-// and stool arrive, it hops up and points out the chart as it draws; the
-// support rep walks in with a heart and a wave. Then all six hop together, the
-// last item ticks, a breath, and out.
+// All six arrive on one another's heels, in order, each the way their work
+// goes: the navigator walks in and holds up the plan; the designer drops in
+// and flourishes a brush; the developer walks in and hammers the first item
+// home; the marketer's chair springs up, it drops into it and calls out
+// through the megaphone; the analyst's board and stool arrive, it hops up and
+// points out the chart as it draws; the support rep walks in with a heart and
+// a wave. Their business overlaps; then all six hop together, the last item
+// ticks, a breath, and out.
+//
+// Walkers set off from just past the page's edge, at the pace they always
+// walked, so each one's first step is the moment it appears.
 
 const T = {
-  pm: [0.3, 2.1], design: 2.75, dev: [3.5, 5.1], chair: 5.55, marketing: 6.0,
-  board: 7.1, stats: 7.55, cs: [8.9, 10.4], cheer: 11.25,
+  pm: [0.25, 1.67], design: 1.15, dev: [0.95, 2.28], chair: 1.3, marketing: 1.75,
+  board: 1.65, stats: 2.1, cs: [2.0, 3.05], cheer: 5.1,
 } as const;
+/** The faces join the pile at an even stagger as each teammate appears. */
+const FACE = (i: number) => 0.75 + i * 0.35;
 
 // -- The navigator. --
 {
   const [t0, t1] = T.pm;
   walk({
-    t0, t1, walker: 'cast.pm', from: 480, step: 0.36, lift: 9,
+    t0, t1, walker: 'cast.pm', from: 380, step: 0.36, lift: 9,
     legs: [
       { path: 'cast.pm.legR', hip: [204, 336], foot: [204, 413], phase: 0 },
       { path: 'cast.pm.legL', hip: [140, 336], foot: [140, 413], phase: 0.5 },
     ],
     bob: bobs('pm', ['armR', 'body', 'eyes', 'antenna', 'mapArm']),
   });
-  join(0, t1);
+  join(0, FACE(0));
   // Holding the plan up for everyone to see, as it appears on the page.
   const up = t1 + 0.3;
   P('cast.pm.mapArmBob.mapArm').animate({
@@ -516,9 +522,9 @@ const T = {
       return (s < t1 - t0 ? walkPart : 0) + after * clamp01((t1 + 1.6 - t0 - s) / 0.3);
     }, 40),
   });
-  P('cast.pm.antennaBob.antenna').animate({ rotate: wobble(4, 6) })
+  P('cast.pm.antennaBob.antenna').animate({ rotate: wobble(4, 4) })
     .animate({ rotate: at([[0, -8], [t1 - 0.1, -8, easeOut], [t1 + 0.18, 6, easeInOut], [t1 + 0.42, -2, easeInOut], [t1 + 0.62, 0]]) });
-  P('cast.pm.eyesBob.eyes').animate({ scaleY: blinks([t1 + 0.9, 7.2, 10.9]) });
+  P('cast.pm.eyesBob.eyes').animate({ scaleY: blinks([t1 + 0.9, 4.4, 6.6]) });
   P('cast.pm.eyesBob.eyes').animate({ x: at([[0, 0], [up, 0, easeInOut], [up + 0.3, -6], [up + 1.5, -6, easeInOut], [up + 1.8, 0]]) });
 }
 
@@ -534,7 +540,7 @@ const T = {
     scaleX: at([[0, 1], [land - fall, 1, easeIn], [land - 0.15, 0.92], [land - 0.02, 0.92, easeOut], [land + 0.04, 1]]),
   });
   hop('cast.design', land - 0.02, 0, 1.6);
-  join(1, land);
+  join(1, FACE(1));
   // The beret lifts off in the fall and lands a beat after the head does.
   P('cast.design.hatBob.hat').animate({
     y: at([[0, 0], [land - fall, 0, easeOut], [land - 0.1, -22, easeIn], [land + 0.08, -26, easeIn], [land + 0.24, 2, easeOut], [land + 0.34, 0]]),
@@ -542,7 +548,7 @@ const T = {
   });
   P('cast.design.antennaBob.antenna').animate({
     rotate: at([[0, 0], [land - fall, 0, easeOut], [land - 0.05, -18], [land + 0.12, 14, easeInOut], [land + 0.32, -7, easeInOut], [land + 0.52, 3, easeInOut], [land + 0.72, 0]]),
-  }).animate({ rotate: wobble(3, 5, 0.4) });
+  }).animate({ rotate: wobble(3, 3, 0.4) });
   // Arms up in the fall, out for balance on landing, then the flourish.
   const f = land + 0.7;
   const brush = at([[0, 0], [land - fall, 0, easeOut], [land - 0.1, 35, easeInOut], [land + 0.2, -8, easeInOut], [land + 0.45, 0],
@@ -551,21 +557,21 @@ const T = {
   const palette = at([[0, 0], [land - fall, 0, easeOut], [land - 0.1, -30, easeInOut], [land + 0.2, 8, easeInOut], [land + 0.45, 0],
     [f + 0.2, 0, easeInOut], [f + 0.45, -8, easeInOut], [f + 0.9, 0]]);
   for (const p of ['paletteBackBob.paletteBack', 'paletteBob.palette']) P(`cast.design.${p}`).animate({ rotate: palette });
-  P('cast.design.eyesBob.eyes').animate({ scaleY: blinks([land + 0.02, 6.4, 9.8]) });
+  P('cast.design.eyesBob.eyes').animate({ scaleY: blinks([land + 0.02, 4.25, 6.3]) });
 }
 
 // -- The developer: walks in from the left and hammers the first item home. --
 {
   const [t0, t1] = T.dev;
   walk({
-    t0, t1, walker: 'cast.dev', from: -420, step: 0.32, lift: 10,
+    t0, t1, walker: 'cast.dev', from: -350, step: 0.32, lift: 10,
     legs: [
       { path: 'cast.dev.legR', hip: [170, 286], foot: [186, 348], phase: 0 },
       { path: 'cast.dev.legL', hip: [116, 286], foot: [112, 349], phase: 0.5 },
     ],
     bob: bobs('dev', ['armR', 'hammerBack', 'antL', 'antR', 'body', 'eyes', 'hammer']),
   });
-  join(2, t1);
+  join(2, FACE(2));
   const hits = [t1 + 0.55, t1 + 0.95];
   // Wind up, strike, recoil, once per blow; the second lands the tick.
   const blows: Key[] = [[0, 0], [hits[0] - 0.45, 0, easeOut]];
@@ -581,9 +587,9 @@ const T = {
   tick(0, hits[1]);
   const wince: Key[] = [[0, 1]];
   for (const h of hits) wince.push([h - 0.02, 1, easeOut], [h + 0.05, 0.4, easeIn], [h + 0.2, 1]);
-  P('cast.dev.eyesBob.eyes').animate({ scaleY: at(wince) }).animate({ scaleY: blinks([8.1, 10.6]) });
-  P('cast.dev.antLBob.antL').animate({ rotate: wobble(5, 7) });
-  P('cast.dev.antRBob.antR').animate({ rotate: wobble(6, 6, 0.5) });
+  P('cast.dev.eyesBob.eyes').animate({ scaleY: at(wince) }).animate({ scaleY: blinks([4.55, 6.75]) });
+  P('cast.dev.antLBob.antL').animate({ rotate: wobble(5, 5) });
+  P('cast.dev.antRBob.antR').animate({ rotate: wobble(6, 4, 0.5) });
 }
 
 // -- The marketer: the chair springs up, the marketer drops into it, and
@@ -599,13 +605,13 @@ const T = {
   const fall = 0.5;
   P('cast.marketing').animate({ y: at([[0, -820], [land - fall, -820, cubicBezier(0.45, 0, 0.95, 0.55)], [land, 0]]) });
   hop('cast.marketing', land - 0.02, 0, 1.4);
-  join(3, land);
+  join(3, FACE(3));
   P('cast.marketing.earLBob.earL').animate({
     rotate: at([[0, 0], [land - fall, 0, easeOut], [land - 0.05, 20], [land + 0.14, -12, easeInOut], [land + 0.36, 5, easeInOut], [land + 0.6, 0]]),
-  }).animate({ rotate: wobble(3, 5) });
+  }).animate({ rotate: wobble(3, 3) });
   P('cast.marketing.earRBob.earR').animate({
     rotate: at([[0, 0], [land - fall, 0, easeOut], [land - 0.05, -20], [land + 0.14, 12, easeInOut], [land + 0.36, -5, easeInOut], [land + 0.6, 0]]),
-  }).animate({ rotate: wobble(3, 5, 0.5) });
+  }).animate({ rotate: wobble(3, 3, 0.5) });
   P('cast.marketing.feetBob.feet').animate({ y: at([[0, 0], [land - 0.02, 0, easeOut], [land + 0.08, -10, easeInOut], [land + 0.3, 0]]) });
   // Up with the megaphone, a breath, and three calls.
   const m = land + 0.55;
@@ -629,7 +635,7 @@ const T = {
     P(`cast.marketing.megaBob.mega.arc${i}`).animate({ opacity: at(keysFor(0)), scaleX: at(keysFor(0.6)), scaleY: at(keysFor(0.6)) });
   });
   P('cast.marketing.eyesBob.eyes').animate({ scaleY: at([[0, 1], [calls[0] - 0.05, 1, easeOut], [calls[0] + 0.05, 0.35], [calls[2] + 0.3, 0.35, easeInOut], [calls[2] + 0.45, 1]]) })
-    .animate({ scaleY: blinks([land + 0.25, 10.2]) });
+    .animate({ scaleY: blinks([land + 0.25, 6.5]) });
 }
 
 // -- The analyst: board and stool first, then a hop up onto the stool from the
@@ -653,7 +659,7 @@ const T = {
   P('cast.stats').animate({ y: at([[0, 125], [t0, 125, easeOut], [t0 + 0.3, -150, easeIn], [land, 0]]) });
   P('cast.stats').animate({ rotate: at([[0, 0], [t0, -14, easeOut], [land - 0.1, 6, easeInOut], [land + 0.15, -2, easeInOut], [land + 0.35, 0]]) });
   hop('cast.stats', land - 0.02, 0, 1.5);
-  join(4, land);
+  join(4, FACE(4));
   // Legs tucked in the bound.
   for (const [leg, s] of [['legR', 1], ['legL', -1]] as const) {
     P(`cast.stats.${leg}Bob.${leg}`).animate({ rotate: at([[0, 0], [t0, 0, easeOut], [t0 + 0.2, 18 * s, easeInOut], [land - 0.05, 0]]) });
@@ -667,10 +673,10 @@ const T = {
   for (const p of ['pointerBackBob.pointerBack', 'pointerBob.pointer']) P(`cast.stats.${p}`).animate({ rotate: point });
   P('cast.stats.armLBob.armL').animate({ rotate: at([[0, 0], [t0, 0, easeOut], [t0 + 0.2, -30, easeInOut], [land + 0.1, 6, easeInOut], [land + 0.35, 0]]) });
   tick(1, d1 + 0.1);
-  P('cast.stats.antRBob.antR').animate({ rotate: at([[0, 0], [t0, 0, easeOut], [t0 + 0.25, 14], [land + 0.1, -10, easeInOut], [land + 0.3, 5, easeInOut], [land + 0.55, 0]]) }).animate({ rotate: wobble(4, 7, 0.2) });
-  P('cast.stats.antLBob.antL').animate({ rotate: at([[0, 0], [t0, 0, easeOut], [t0 + 0.25, 12], [land + 0.12, -12, easeInOut], [land + 0.32, 5, easeInOut], [land + 0.57, 0]]) }).animate({ rotate: wobble(4, 6, 0.7) });
+  P('cast.stats.antRBob.antR').animate({ rotate: at([[0, 0], [t0, 0, easeOut], [t0 + 0.25, 14], [land + 0.1, -10, easeInOut], [land + 0.3, 5, easeInOut], [land + 0.55, 0]]) }).animate({ rotate: wobble(4, 4, 0.2) });
+  P('cast.stats.antLBob.antL').animate({ rotate: at([[0, 0], [t0, 0, easeOut], [t0 + 0.25, 12], [land + 0.12, -12, easeInOut], [land + 0.32, 5, easeInOut], [land + 0.57, 0]]) }).animate({ rotate: wobble(4, 4, 0.7) });
   P('cast.stats.eyesBob.eyes').animate({ x: at([[0, 0], [d0, 0, easeInOut], [d0 + 0.3, 4], [d1 + 0.3, 4, easeInOut], [d1 + 0.6, 0]]) })
-    .animate({ scaleY: blinks([land + 1.9, 11.0]) });
+    .animate({ scaleY: blinks([land + 1.9, 6.85]) });
 }
 
 // -- The support rep: walks in from the right with its laptop, a heart goes up,
@@ -678,14 +684,14 @@ const T = {
 {
   const [t0, t1] = T.cs;
   walk({
-    t0, t1, walker: 'cast.cs', from: 420, step: 0.32, lift: 9,
+    t0, t1, walker: 'cast.cs', from: 295, step: 0.32, lift: 9,
     legs: [
       { path: 'cast.cs.legL', hip: [95, 284], foot: [95, 340], phase: 0 },
       { path: 'cast.cs.legR', hip: [156, 284], foot: [156, 340], phase: 0.5 },
     ],
     bob: bobs('cs', ['shade', 'armR', 'body', 'wave', 'laptop', 'eyes', 'headset', 'earL', 'earR', 'heart']),
   });
-  join(5, t1);
+  join(5, FACE(5));
   const h = t1 + 0.1;
   P('cast.cs.heartBob.heart').animate({
     scaleX: at([[0, 0], [h, 0, pop], [h + 0.35, 1]]),
@@ -698,10 +704,10 @@ const T = {
     .animate({ rotate: over(w + 0.25, waveEnd, (s, u) => 14 * Math.sin(2 * Math.PI * s / 0.5) * Math.min(1, s / 0.2, (1 - u) * 5), 40) });
   // Ears stream back on the walk and spring upright at the stop.
   const trail = (s: number): Channel => at([[0, 9 * s], [t1 - 0.1, 9 * s, easeOut], [t1 + 0.16, -6 * s, easeInOut], [t1 + 0.4, 2 * s, easeInOut], [t1 + 0.6, 0]]);
-  P('cast.cs.earLBob.earL').animate({ rotate: trail(1) }).animate({ rotate: wobble(3, 5, 0.1) });
-  P('cast.cs.earRBob.earR').animate({ rotate: trail(1) }).animate({ rotate: wobble(3, 6, 0.6) });
+  P('cast.cs.earLBob.earL').animate({ rotate: trail(1) }).animate({ rotate: wobble(3, 3, 0.1) });
+  P('cast.cs.earRBob.earR').animate({ rotate: trail(1) }).animate({ rotate: wobble(3, 4, 0.6) });
   P('cast.cs.eyesBob.eyes').animate({ scaleY: at([[0, 1], [h, 1, easeOut], [h + 0.12, 0.3], [h + 0.8, 0.3, easeInOut], [h + 0.95, 1]]) })
-    .animate({ scaleY: blinks([4.0]) });
+    .animate({ scaleY: blinks([4.6]) });
 }
 
 // -- All together: a hop that runs along the team left to right, the last item
