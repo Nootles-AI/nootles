@@ -237,16 +237,15 @@ async function touchPage(ctx: MutationCtx, id: string) {
  * fetch itself and for viewers who haven't flipped over yet.
  */
 async function checkLegacyWrite(ctx: MutationCtx, id: string) {
-  await checkWrite(ctx, id, DOCUMENT_ONLY);
+  const access = await checkWrite(ctx, id, DOCUMENT_ONLY);
   const migrated = await ctx.db
     .query("ydocs")
     .withIndex("by_doc", (q) => q.eq("docId", id))
     .unique();
   if (migrated) throw new Error("This page has moved to Yjs sync — reload.");
   // The gate is the one hook this pipeline gives that knows the writer. It
-  // runs for snapshots as well as steps, so a legacy page counts a little
-  // high: the same person in the same window either way.
-  await recordDocumentEdit(ctx, id);
+  // runs for snapshots as well as steps, which count the same minute once.
+  await recordDocumentEdit(ctx, access);
 }
 
 /** Comments documents are born on Yjs and never had a legacy pipeline. */

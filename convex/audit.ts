@@ -23,9 +23,9 @@ import { auditMeta } from "./schema";
  * `recordAsCaller` in its own mutation once the outside call has gone through.
  *
  * Editing is too frequent to log one row per flush, so `recordEdit` coalesces
- * it: one row per page, person and ten-minute window, counting the flushes it
- * stands for. That still answers what an auditor asks — who touched what,
- * and when — at about a thousandth of the rows.
+ * it: one row per page, person and ten-minute window, counting the minutes in
+ * it they were editing. That still answers what an auditor asks — who touched
+ * what, and when — at about a thousandth of the rows.
  *
  * `meta` carries ids, titles, roles and counts, never a document's or a
  * comment's text. Two shapes stand in it: the workspace writers' flat map of
@@ -57,6 +57,8 @@ const EDIT = "page.edit";
 
 /** The width of an edit-activity window. */
 export const EDIT_WINDOW_MS = 10 * 60_000;
+/** What an edit window counts: the minutes in it someone was editing. */
+export const EDIT_MINUTE_MS = 60_000;
 /** Rows one page of an export carries. */
 const EXPORT_PAGE = 500;
 
@@ -160,8 +162,13 @@ export const recordAsCaller = internalMutation({
 
 /**
  * One edit, folded into its window's row: the first edit in a window writes
- * the row, and every later one counts on it. The key is the page, the person
- * and the window, so two people editing one page keep separate rows.
+ * the row, and after that the first in each new minute counts on it. The key
+ * is the page, the person and the window, so two people editing one page keep
+ * separate rows.
+ *
+ * Every other edit only reads. Someone typing flushes about twice a second,
+ * and a row patched each time re-ran every open log that holds it — the
+ * workspace's and the project's — as often (NT-81).
  */
 export async function recordEdit(
   ctx: MutationCtx,
@@ -180,7 +187,9 @@ export async function recordEdit(
     .withIndex("by_window", (q) => q.eq("windowKey", windowKey))
     .unique();
   if (row) {
-    await ctx.db.patch(row._id, { count: (row.count ?? 1) + 1 });
+    const minute = (at: number) => Math.floor(at / EDIT_MINUTE_MS);
+    if (minute(edit.at) <= minute(row.lastAt ?? row.at)) return;
+    await ctx.db.patch(row._id, { count: (row.count ?? 1) + 1, lastAt: edit.at });
     return;
   }
   await ctx.db.insert("auditEvents", {
@@ -196,21 +205,22 @@ export async function recordEdit(
     at: edit.at,
     windowKey,
     count: 1,
+    lastAt: edit.at,
   });
 }
 
 /**
- * {@link recordEdit} for a write to a document, by the caller, once the write
- * gate has let it through. Nothing for a personal project's page.
+ * {@link recordEdit} for a write to a document, by the caller, with the page
+ * and project the write gate has just let it through to. Nothing for a
+ * personal project's page.
  */
-export async function recordDocumentEdit(ctx: MutationCtx, docId: string): Promise<void> {
-  const page = await ctx.db
-    .query("pages")
-    .withIndex("by_doc", (q) => q.eq("docId", docId))
-    .unique();
-  const project = page && (await ctx.db.get(page.projectId));
+export async function recordDocumentEdit(
+  ctx: MutationCtx,
+  { page, project }: { page: Doc<"pages">; project: Doc<"projects"> },
+): Promise<void> {
+  if (!project.workspaceId) return;
   const actorId = await ownerId(ctx);
-  if (!page || !project?.workspaceId || !actorId) return;
+  if (!actorId) return;
   await recordEdit(ctx, {
     workspaceId: project.workspaceId,
     projectId: project._id,

@@ -6,7 +6,7 @@ import { api, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import schema from "./schema";
 import componentSchema from "../node_modules/@convex-dev/prosemirror-sync/src/component/schema";
-import { EDIT_WINDOW_MS, RETENTION_MS as RETAIN_MS, matching, record } from "./audit";
+import { EDIT_MINUTE_MS, EDIT_WINDOW_MS, RETENTION_MS as RETAIN_MS, matching, record } from "./audit";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 
 /**
@@ -1059,7 +1059,7 @@ describe("edit activity", () => {
       actorId: MEMBER.subject,
       subjectKind: "page",
       subjectId: pageId,
-      count: 3,
+      count: 1,
       meta: { page: "Launch", project: "Roadmap", projectId },
     });
     expect(JSON.stringify(rows)).not.toContain("launch slips");
@@ -1080,11 +1080,39 @@ describe("edit activity", () => {
     expect(rows).toEqual([
       [MEMBER.subject, 1],
       [ADMIN.subject, 1],
-      [MEMBER.subject, 2],
+      [MEMBER.subject, 1],
     ]);
   });
 
-  test("the legacy prosemirror path counts its snapshot and its steps, and carries no text", async () => {
+  test("counts the minutes someone edits in, and a flush in a minute already counted writes nothing (NT-81)", async () => {
+    const t = harness();
+    const { workspaceId, docId } = await world(t);
+    await opened(t, docId);
+    const start = Math.floor(NOW / EDIT_WINDOW_MS) * EDIT_WINDOW_MS;
+    vi.setSystemTime(start);
+    await edit(t, MEMBER, docId);
+    const [first] = await log(t, workspaceId);
+    expect(first).toMatchObject({ count: 1, at: start, lastAt: start });
+
+    // Typing on through the minute: flush after flush, and the row as it was —
+    // not rewritten, so no open log is re-run for it.
+    for (let i = 0; i < 5; i++) {
+      vi.advanceTimersByTime(EDIT_MINUTE_MS / 6);
+      await edit(t, MEMBER, docId);
+    }
+    expect(await log(t, workspaceId)).toEqual([first]);
+
+    vi.setSystemTime(start + EDIT_MINUTE_MS);
+    await edit(t, MEMBER, docId);
+    vi.setSystemTime(start + 4 * EDIT_MINUTE_MS + 1);
+    await edit(t, MEMBER, docId);
+    await edit(t, MEMBER, docId);
+    expect(await log(t, workspaceId)).toMatchObject([
+      { _id: first._id, count: 3, at: start, lastAt: start + 4 * EDIT_MINUTE_MS + 1 },
+    ]);
+  });
+
+  test("the legacy prosemirror path counts its snapshot and its steps in their minute, and carries no text", async () => {
     const t = harness();
     const { workspaceId, docId, pageId, personalDocId } = await world(t);
     const content = JSON.stringify({
@@ -1117,7 +1145,7 @@ describe("edit activity", () => {
       category: "edit",
       actorId: MEMBER.subject,
       subjectId: pageId,
-      count: 2,
+      count: 1,
     });
     expect(JSON.stringify(rows)).not.toContain(PROSE);
 

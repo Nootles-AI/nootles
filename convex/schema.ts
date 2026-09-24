@@ -443,8 +443,14 @@ export default defineSchema({
     /** `{ids, counts}` from the checked writer (`recordAudit`), else a flat map. */
     meta: v.optional(v.union(auditMeta, flatAuditMeta)),
     at: v.number(),
+    /**
+     * An edit window's row: page, person and window (`audit.recordEdit`),
+     * `count` the minutes in it they were editing, and `lastAt` the last edit
+     * counted. Rows written before `lastAt` counted flushes instead.
+     */
     windowKey: v.optional(v.string()),
     count: v.optional(v.number()),
+    lastAt: v.optional(v.number()),
   })
     .index("by_project_at", ["projectId", "at"])
     .index("by_workspace_at", ["workspaceId", "at"])

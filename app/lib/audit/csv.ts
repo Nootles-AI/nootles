@@ -56,7 +56,8 @@ function actorOf(row: AuditCsvRow): string {
 
 /**
  * The counts an event carries, as `name=value` pairs in name order — plus a
- * coalesced event's own `count`, which is a count of the same kind.
+ * coalesced event's own `count`, which is a count of the same kind: for an
+ * edit window, the minutes in it someone was editing.
  */
 function countsOf(row: AuditCsvRow): string {
   const counts: Record<string, number> = { ...row.meta?.counts };
