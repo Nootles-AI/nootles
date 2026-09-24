@@ -1,6 +1,6 @@
 /**
- * Runs every canvas browser harness, plus the presence and drawer-menu
- * harnesses beside them, and reports on all of them.
+ * Runs every canvas browser harness, plus the presence, drawer-menu and
+ * projects-screen harnesses beside them, and reports on all of them.
  *
  * This used to be `a && b && c && d` in `package.json`, which stops at the
  * first failure — so when `canvas-block-drag` went red on 2026-09-16 the
@@ -33,6 +33,9 @@ const HARNESSES = [
   // Nor this: the shell's menus over the drawers that open them, and the
   // storyboard's full-size shot over its own bar's menus (NT-76).
   "sidebar-drawer-menus",
+  // And the projects screen: New project's closed menu taking no pointer
+  // outside the button it is clipped to (NT-79).
+  "projects-screen-hit",
 ];
 
 function run(name) {

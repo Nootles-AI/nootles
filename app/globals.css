@@ -3414,13 +3414,17 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar) .nt-reformat-switcher {
   color: var(--background);
 }
 /* The shadow lives a level above the clip — a shadow on the clipped element
-   would be clipped with it. */
+   would be clipped with it. The pointer is not: the lift is the open menu's
+   whole box even while closed, and a clip only takes the pointer from the
+   element it is on, so the surface takes it back and its clip decides where.
+   Otherwise the closed menu's empty box covers whatever is under it (NT-79). */
 .nt-create-lift {
   position: absolute;
   top: 0;
   right: 0;
   z-index: var(--z-dropdown);
   width: var(--open-w);
+  pointer-events: none;
   filter: drop-shadow(0 12px 20px oklch(0.25 0.005 90 / 0));
   transition: filter 240ms var(--ease);
 }
@@ -3438,6 +3442,7 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar) .nt-reformat-switcher {
   background: var(--foreground);
   box-shadow: 0 0 0 12px var(--foreground);
   clip-path: inset(0 0 calc(100% - var(--control)) calc(100% - var(--w, 148px)) round 8px);
+  pointer-events: auto;
   transition: clip-path 240ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 /* The same corner open as closed: it is one object growing, and an object that
