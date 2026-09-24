@@ -372,6 +372,16 @@
 .nt-codegate .is-problem {
   color: var(--danger);
 }
+/* The tick on the first line's centre, the sentence wrapping beside it. */
+.nt-codegate-verified {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+}
+.nt-codegate-verified > .nt-menu-check {
+  margin: calc((1.45em - 12px) / 2) 0 0;
+  color: var(--foreground);
+}
 .nt-row.nt-codegate-go {
   justify-self: start;
   height: var(--control-sm);
