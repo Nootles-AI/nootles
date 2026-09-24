@@ -595,23 +595,6 @@
   }
 }
 
-/* The popover's way on to the members screen, under a hairline: a row with
-   somewhere to go, laid out as a menu's last item is, so it reads as a
-   destination rather than one more line of the notes above it. Its chevron
-   leans the way it goes, as the back link's arrow leans back. */
-.nt-ws-onward-glyph {
-  flex: none;
-  color: var(--muted);
-  transition:
-    color var(--dur-fast) var(--ease),
-    translate var(--dur-slow) var(--spring);
-}
-.nt-ws-onward:hover .nt-ws-onward-glyph,
-.nt-ws-onward:focus-visible .nt-ws-onward-glyph {
-  color: var(--foreground);
-  translate: 2px 0;
-}
-
 /* A switch at the right end of its row opens its hints leftward, from its
    right edge, so they stay inside the page rather than running off it — and,
    laid out even while hidden, widening it. */
@@ -1002,7 +985,6 @@
   }
   .nt-ws-pile .nt-face,
   .nt-ws-pile.is-waiting,
-  .nt-ws-onward-glyph,
   .nt-ws-set-nav[data-travels] > .nt-ws-set-nav-hl,
   .nt-set-row.nt-ws-rests {
     transition: none;

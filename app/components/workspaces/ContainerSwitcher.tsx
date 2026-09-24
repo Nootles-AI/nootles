@@ -39,7 +39,14 @@ let lastTitle: string | null = null;
  * whichever one is picked draws at once, as a home already visited does,
  * rather than waiting to be told what its address is (`ContainerRoute`).
  */
-export function ContainerSwitcher({ onProblem }: { onProblem: (text: string) => void }) {
+export function ContainerSwitcher({
+  onProblem,
+  onInvite,
+}: {
+  onProblem: (text: string) => void;
+  /** Opens the palette on its invite page. */
+  onInvite: () => void;
+}) {
   const router = useRouter();
   const here = useContainer();
   const { user } = useUser();
@@ -201,12 +208,17 @@ export function ContainerSwitcher({ onProblem }: { onProblem: (text: string) => 
             )}
             {/* A phone's header has no room for Invite; the way to it is here. */}
             {settings && invites && phone && (
-              <MenuLink href={settingsPath(settings.slug, "members")} onClick={() => close()}>
+              <MenuItem
+                onClick={() => {
+                  close();
+                  onInvite();
+                }}
+              >
                 <span className="nt-ws-slot">
                   <PersonPlus className="nt-menu-icon" />
                 </span>
                 Invite people
-              </MenuLink>
+              </MenuItem>
             )}
             {settings && (
               <MenuLink href={settingsPath(settings.slug)} onClick={() => close()}>
