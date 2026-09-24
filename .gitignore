@@ -71,3 +71,4 @@ figma-plugin/dist
 
 # Heron (github.com/iforaa/heron), symlinked from the installed skill for the Pro art scene
 /scripts/pro-art/heron
+/scripts/team-join-art/heron
