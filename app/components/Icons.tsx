@@ -863,6 +863,17 @@ export function Person(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+/** Someone asked in: the person, and a plus beside them. */
+export function PersonPlus(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <circle cx="10" cy="8" r="3.5" />
+      <path d="M3.5 20a6.5 6.5 0 0 1 13 0" />
+      <path d="M19 8v6M16 11h6" />
+    </svg>
+  );
+}
+
 export function Heart(props: SVGProps<SVGSVGElement>) {
   return (
     <svg {...base} {...props}>

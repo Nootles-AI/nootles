@@ -108,6 +108,17 @@
   text-wrap: pretty;
 }
 
+/* Arrived from an invitation link: which account to choose, said before the
+   button that chooses it, in ink rather than the note's grey. */
+.nt-si-invited {
+  margin: 16px 0 0;
+  max-width: 44ch;
+  font-size: var(--text-ui);
+  line-height: 1.5;
+  color: var(--foreground);
+  text-wrap: pretty;
+}
+
 /* ---- The way in --------------------------------------------------------
    Shaped like the controls on the screen after it, and sized off its label
    rather than the column: a button stretched across a 44ch paragraph is a
@@ -247,6 +258,7 @@
   text-align: center;
 }
 .nt-si.is-centred .nt-si-note,
+.nt-si.is-centred .nt-si-invited,
 .nt-si.is-centred .nt-si-status,
 .nt-si.is-centred .nt-si-legal {
   margin-inline: auto;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth, useUser } from "@clerk/nextjs";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
@@ -8,12 +8,13 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { homePath, joinPath, settingsPath } from "@/app/lib/containerPaths";
 import { rememberWorkspace } from "@/app/lib/projectsCache";
-import { Check, ChevronsUpDown, Plus, Settings } from "../Icons";
+import { useMediaQuery } from "@/app/lib/useMediaQuery";
+import { ChevronsUpDown, PersonPlus, Plus, Settings } from "../Icons";
 import { Menu, MenuItem, MenuLink } from "../Menu";
 import { useStandIn } from "../StandIn";
 import { useContainer } from "./ContainerContext";
 import { NewWorkspace } from "./NewWorkspace";
-import { initial } from "./people";
+import { Place, Tile, YouTile } from "./places";
 import { ROLE_LABEL } from "./seats";
 import "./workspaces.css";
 
@@ -45,6 +46,8 @@ export function ContainerSwitcher({ onProblem }: { onProblem: (text: string) => 
   const canCreate = useQuery(api.workspaces.canCreate, ask);
   const joinByDomain = useMutation(api.members.joinByDomain);
   const [making, setMaking] = useState(false);
+  const [joining, setJoining] = useState<Id<"workspaces"> | null>(null);
+  const phone = useMediaQuery("(max-width: 36rem)");
   const trigger = useRef<{ focus: () => void }>(null);
 
   useEffect(() => {
@@ -64,15 +67,24 @@ export function ContainerSwitcher({ onProblem }: { onProblem: (text: string) => 
   // Guests were let into projects, not into the workspace, so its settings
   // are not theirs to open (`SettingsFrame`).
   const settings = here.kind === "workspace" && here.role !== "guest" ? here : null;
+  const invites = !standIn && (settings?.role === "owner" || settings?.role === "admin");
 
-  const join = (workspaceId: Id<"workspaces">, name: string) =>
+  // A door walked through by domain is a round trip before anywhere to go:
+  // the menu stays up, its row saying so, until the new home replaces it.
+  const join = (workspaceId: Id<"workspaces">, name: string, close: () => void) => {
+    setJoining(workspaceId);
     joinByDomain({ workspaceId }).then(
       (joined) => {
         if (userId) rememberWorkspace(userId, joined.slug, { kind: "workspace", ...joined });
         router.push(homePath(joined.slug));
       },
-      () => onProblem(`Couldn’t join ${name}. Ask someone there for an invitation.`),
+      () => {
+        setJoining(null);
+        close();
+        onProblem(`Couldn’t join ${name}. Ask someone there for an invitation.`);
+      },
     );
+  };
 
   return (
     <h1 className="nt-front-title">
@@ -91,28 +103,35 @@ export function ContainerSwitcher({ onProblem }: { onProblem: (text: string) => 
       >
         {(close) => (
           <>
-            <Place
+            <MenuLink
               href={homePath(null)}
-              name="My Nootles"
-              tile={
-                <span className="nt-monogram nt-ws-tile" aria-hidden="true">
-                  {initial(user?.fullName || email)}
-                </span>
-              }
+              onClick={() => close()}
               current={here.kind === "account"}
-              close={close}
-            />
-            {workspaces?.map((w) => (
+            >
               <Place
-                key={w.workspaceId}
-                href={homePath(w.slug)}
-                name={w.name}
-                meta={ROLE_LABEL[w.role]}
-                tile={<Tile name={w.name} />}
-                current={here.kind === "workspace" && here.workspaceId === w.workspaceId}
-                close={close}
+                tile={<YouTile name={user?.fullName || email} />}
+                name="My Nootles"
+                current={here.kind === "account"}
               />
-            ))}
+            </MenuLink>
+            {workspaces?.map((w) => {
+              const current = here.kind === "workspace" && here.workspaceId === w.workspaceId;
+              return (
+                <MenuLink
+                  key={w.workspaceId}
+                  href={homePath(w.slug)}
+                  onClick={() => close()}
+                  current={current}
+                >
+                  <Place
+                    tile={<Tile name={w.name} />}
+                    name={w.name}
+                    meta={ROLE_LABEL[w.role]}
+                    current={current}
+                  />
+                </MenuLink>
+              );
+            })}
 
             {!!doors?.length && <div className="nt-menu-sep" />}
             {doors?.map((door) =>
@@ -125,14 +144,18 @@ export function ContainerSwitcher({ onProblem }: { onProblem: (text: string) => 
               ) : (
                 <MenuItem
                   key={door.workspaceId}
-                  onClick={() => {
-                    close();
-                    void join(door.workspaceId, door.name);
-                  }}
+                  disabled={joining !== null}
+                  onClick={() => join(door.workspaceId, door.name, close)}
                 >
                   <Tile name={door.name} />
                   <span className="nt-ws-menu-name">Join {door.name}</span>
-                  {domain && <span className="nt-ws-menu-meta">@{domain}</span>}
+                  {joining === door.workspaceId ? (
+                    <span role="status" className="nt-ws-menu-meta">
+                      Joining…
+                    </span>
+                  ) : (
+                    domain && <span className="nt-ws-menu-meta">@{domain}</span>
+                  )}
                 </MenuItem>
               ),
             )}
@@ -152,6 +175,15 @@ export function ContainerSwitcher({ onProblem }: { onProblem: (text: string) => 
                 </span>
                 New workspace…
               </MenuItem>
+            )}
+            {/* A phone's header has no room for Invite; the way to it is here. */}
+            {settings && invites && phone && (
+              <MenuLink href={settingsPath(settings.slug, "members")} onClick={() => close()}>
+                <span className="nt-ws-slot">
+                  <PersonPlus className="nt-menu-icon" />
+                </span>
+                Invite people
+              </MenuLink>
             )}
             {settings && (
               <MenuLink href={settingsPath(settings.slug)} onClick={() => close()}>
@@ -173,45 +205,5 @@ export function ContainerSwitcher({ onProblem }: { onProblem: (text: string) => 
         />
       )}
     </h1>
-  );
-}
-
-/** A workspace's token: its initial, in a square where a person's is round. */
-function Tile({ name }: { name: string }) {
-  return (
-    <span className="nt-monogram nt-ws-tile is-square" aria-hidden="true">
-      {initial(name)}
-    </span>
-  );
-}
-
-/** One place to be, ticked when it is where you are. */
-function Place({
-  href,
-  name,
-  meta,
-  tile,
-  current,
-  close,
-}: {
-  href: string;
-  name: string;
-  meta?: string;
-  tile: ReactNode;
-  current: boolean;
-  close: () => void;
-}) {
-  return (
-    <MenuLink href={href} onClick={() => close()} current={current}>
-      {tile}
-      <span className="nt-ws-menu-name">{name}</span>
-      {meta && <span className="nt-ws-menu-meta">{meta}</span>}
-      <Check
-        width={14}
-        height={14}
-        aria-hidden="true"
-        className={`nt-menu-check${current ? " is-on" : ""}`}
-      />
-    </MenuLink>
   );
 }
