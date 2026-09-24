@@ -37,6 +37,7 @@ import { NotionMark } from "./NotionMark";
 import { NotionPort } from "./NotionPort";
 import { BlankStart } from "./BlankStart";
 import { ProLift } from "./ProLift";
+import { InviteSend } from "./InviteSend";
 import { usePlan } from "@/app/lib/usePlan";
 import { BlocksThumb, PagePreview } from "./PagePreview";
 import { TemplateWall } from "./TemplateWall";
@@ -72,7 +73,7 @@ type Row = {
   /** What the side pane previews in place of a project. */
   template?: ProjectTemplate;
   /** A picture in the side pane, rather than a card about the row. */
-  picture?: "wall" | "blank" | "notion" | "pro";
+  picture?: "wall" | "blank" | "notion" | "pro" | "invite";
   /** Other words the row is found by, beside its name. */
   words?: readonly string[];
   run: () => void;
@@ -327,6 +328,7 @@ function Palette({
             icon: <PersonPlus />,
             words: INVITE_WORDS,
             drill: true,
+            picture: "invite" as const,
             run: () => go("invite"),
           },
         ]
@@ -688,6 +690,8 @@ function Palette({
                 <NotionPort />
               ) : current?.picture === "pro" ? (
                 <ProLift />
+              ) : current?.picture === "invite" ? (
+                <InviteSend />
               ) : current?.template ? (
                 <TemplatePreview key={current.id} template={current.template} />
               ) : (
