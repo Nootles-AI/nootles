@@ -513,8 +513,14 @@ export const discardFresh = mutation({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
     const now = Date.now();
-    await requireDiscardable(ctx, args.projectId, now);
+    const project = await requireDiscardable(ctx, args.projectId, now);
     await ctx.db.patch(args.projectId, { deletedAt: now });
+    await recordInProject(ctx, project, {
+      action: "project.delete",
+      subjectKind: "project",
+      subjectId: project._id,
+      meta: { discarded: true },
+    });
   },
 });
 
