@@ -19,6 +19,12 @@ import { ROLE_LABEL } from "./seats";
 import "./workspaces.css";
 
 /**
+ * The title the last switcher drew. Each place's home is its own route, so the
+ * switcher is drawn anew on each; this is how the new one knows the place changed.
+ */
+let lastTitle: string | null = null;
+
+/**
  * The projects home's title — and, for anyone with somewhere else to be, the
  * way between their own projects and each workspace they sit in, the doors
  * open to them, and a new workspace.
@@ -58,6 +64,16 @@ export function ContainerSwitcher({ onProblem }: { onProblem: (text: string) => 
   }, [userId, workspaces]);
 
   const title = here.kind === "workspace" ? here.name : "My Nootles";
+  // Another place picked: the name arrives rather than being there in a frame.
+  // Only once it has changed — the page arriving is not the title changing.
+  const [shown, setShown] = useState(() => ({
+    title,
+    swapped: lastTitle !== null && lastTitle !== title,
+  }));
+  if (shown.title !== title) setShown({ title, swapped: true });
+  useEffect(() => {
+    lastTitle = title;
+  }, [title]);
   const elsewhere =
     here.kind === "workspace" || !!workspaces?.length || !!doors?.length || canCreate === true;
   if (!elsewhere) return <h1 className="nt-front-title">{title}</h1>;
@@ -96,7 +112,12 @@ export function ContainerSwitcher({ onProblem }: { onProblem: (text: string) => 
         focusRef={trigger}
         trigger={(t) => (
           <button {...t} className="nt-ws-switch">
-            <span className="nt-ws-switch-name">{title}</span>
+            <span
+              key={title}
+              className={`nt-ws-switch-name${shown.swapped ? " is-swapped" : ""}`}
+            >
+              {title}
+            </span>
             <ChevronsUpDown aria-hidden="true" className="nt-ws-switch-glyph" />
           </button>
         )}

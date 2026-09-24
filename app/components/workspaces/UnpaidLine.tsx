@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
@@ -18,7 +19,8 @@ import "./workspaces.css";
  * on says nothing at all.
  *
  * It answers after the projects under it are already drawn, so it folds open
- * and moves them rather than throwing them down a line.
+ * and moves them rather than throwing them down a line — and once the plan
+ * starts, it folds shut again, still saying what it said.
  */
 export function UnpaidLine({
   workspace,
@@ -33,14 +35,20 @@ export function UnpaidLine({
     api.teamBilling.unpaid,
     asks ? { workspaceId: workspace.workspaceId } : "skip",
   );
-  if (!ask) return null;
+  // What it last said, held while it folds shut.
+  const [said, setSaid] = useState<{ ask: string; name: string; slug: string } | null>(null);
+  const { name, slug } = workspace;
+  if (ask && (ask !== said?.ask || name !== said.name || slug !== said.slug)) {
+    setSaid({ ask, name, slug });
+  }
+  if (!said) return null;
 
   return (
-    <Fold arriving className={className}>
+    <Fold arriving open={!!ask} className={className}>
       <p className="nt-ws-unpaid">
-        {workspace.name} is on the free allowance.{" "}
-        <Link href={settingsPath(workspace.slug, "billing")} className="nt-ws-aside-link">
-          {ask === "settle" ? "Fix its billing" : "See the Team plan"}
+        {said.name} is on the free allowance.{" "}
+        <Link href={settingsPath(said.slug, "billing")} className="nt-ws-aside-link">
+          {said.ask === "settle" ? "Fix its billing" : "See the Team plan"}
         </Link>
       </p>
     </Fold>

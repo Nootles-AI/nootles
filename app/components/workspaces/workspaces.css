@@ -219,6 +219,11 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* Another place picked: its name arrives as the palette's crumb does, while
+   the projects under it rise, rather than being there in a frame. */
+.nt-ws-switch-name.is-swapped {
+  animation: nt-pal-crumb 400ms var(--spring) backwards;
+}
 .nt-ws-switch-glyph {
   flex: none;
   color: var(--muted);
@@ -252,6 +257,11 @@
 }
 .nt-ws-switcher .nt-menu-item {
   gap: 10px;
+}
+/* The tick on where you are is on before the menu is, so its spring would
+   never play: it lands once, after the rows have risen. */
+.nt-ws-switcher .nt-menu-check.is-on {
+  animation: nt-menu-check-in var(--dur-slow) var(--spring) 120ms backwards;
 }
 .nt-ws-tile {
   flex: none;
@@ -416,9 +426,24 @@
   --nt-ws-ring: color-mix(in srgb, var(--foreground) 8%, var(--background));
   background: var(--active);
 }
-/* Its seat, held while the people are on their way. */
+/* Its seat, held while the people are on their way — and, when nobody else
+   turns out to be here, given back over time, gap and all (the header's
+   `gap-2`), so the title slides to its centre rather than jumping. */
 .nt-ws-pile.is-waiting {
   width: var(--control);
+  transition:
+    width var(--dur-slow) var(--ease),
+    padding var(--dur-slow) var(--ease),
+    margin var(--dur-slow) var(--ease);
+}
+.nt-ws-pile.is-waiting.is-gone {
+  width: 0;
+  padding-inline: 0;
+  margin-inline-end: -0.5rem;
+}
+/* Faces arrive on a workspace's first open only; back again, they are there. */
+.nt-ws-pile.is-known .nt-face {
+  animation: none;
 }
 .nt-ws-pile .nt-face {
   box-shadow: 0 0 0 2px var(--nt-ws-ring);
@@ -830,7 +855,6 @@
   color: var(--muted);
   text-align: center;
   text-wrap: balance;
-  animation: nt-row-in 360ms var(--ease) backwards;
 }
 /* Where the title leaves the centre for its own left-aligned row. */
 @media (max-width: 48rem) {
@@ -841,27 +865,29 @@
 
 @media (prefers-reduced-motion: reduce) {
   .nt-ws-switch-glyph,
-  .nt-ws-sent,
-  .nt-ws-unpaid,
+  .nt-ws-switch-name.is-swapped,
+  .nt-ws-switcher .nt-menu-check.is-on,
   .nt-ws-swap,
   .nt-ws-arrive,
   .nt-ws-section-in,
   .nt-ws-join,
-  /* Before the invitation is read: the same sheet, still. The answer is the
-   card's one arrival. Its bars sit on white, so they keep their own fill. */
-.nt-ws-join.is-waiting {
-  animation: none;
-}
-.nt-monogram.nt-ws-join-tile {
+  .nt-monogram.nt-ws-join-tile {
     animation: nt-fade-in var(--dur-fast) var(--ease);
   }
   .nt-ws-pile .nt-face,
+  .nt-ws-pile.is-waiting,
   .nt-ws-onward-glyph,
+  .nt-ws-set-nav[data-travels] > .nt-ws-set-nav-hl,
+  .nt-set-row.nt-ws-rests {
+    transition: none;
+  }
+  /* What these fades say — saved, gone — is the change itself, so they keep
+     their opacity and give up only the movement. The global catch-all would
+     cut them to nothing, hence the weight. */
   .nt-ws-saved,
-  .nt-set-row.nt-ws-rests,
   .nt-ws-person.is-leaving,
   .nt-set-list > li.is-leaving {
-    transition: none;
+    transition: opacity var(--dur-fast) var(--ease) !important;
   }
   /* The rows' stagger is a delay, which the global catch-all leaves running. */
   .nt-ws-event,
