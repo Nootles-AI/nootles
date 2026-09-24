@@ -9,6 +9,8 @@ import { controlsAccount, reachableInstallation, REPOSITORY_PAGES } from "./gith
 import { appJwt } from "./github/appAuth";
 import { APP_TOKEN_REFUSED } from "./github/credential";
 import { PUSH_DEBOUNCE_MS, PUSH_MAX_WAITS } from "./github/installations";
+import { RECHECK_BATCH } from "./github/orgProof";
+import { json } from "./github/rest";
 import { open, seal } from "./github/seal";
 import { signatureValid } from "./github/webhook";
 
@@ -825,6 +827,34 @@ describe("the webhook", () => {
     const seats = await t.run(async (ctx) => ctx.db.query("memberships").collect());
     for (const seat of seats) {
       expect(seat.githubOrgVerifiedAt === undefined).toBe(seat.userId === MEMBER.subject);
+      // Who they are stays, so the nightly check lets them back in if they rejoin.
+      expect(seat.githubOrgLogin).toBeDefined();
+    }
+  });
+
+  test("a member who left is known by their account id, whatever their login is now", async () => {
+    const t = convexTest(schema, modules);
+    const { workspaceId } = await world(t, { requireGithubOrg: "acme" });
+    await installation(t, workspaceId);
+    await t.run(async (ctx) => {
+      for (const seat of await ctx.db.query("memberships").collect()) {
+        const member = seat.userId === MEMBER.subject;
+        await ctx.db.patch(seat._id, {
+          githubOrgVerifiedAt: Date.now(),
+          githubOrgLogin: member ? "old-name" : "new-name",
+          githubUserId: member ? 7 : 8,
+        });
+      }
+    });
+    await deliver(t, "organization", {
+      action: "member_removed",
+      organization: { login: "acme" },
+      membership: { user: { login: "new-name", id: 7 } },
+      installation: { id: INSTALLATION },
+    });
+    const seats = await t.run(async (ctx) => ctx.db.query("memberships").collect());
+    for (const seat of seats) {
+      expect(seat.githubOrgVerifiedAt === undefined).toBe(seat.userId === MEMBER.subject);
     }
   });
 });
@@ -835,7 +865,7 @@ describe("the GitHub organisation rule", () => {
     return rows.length > 0;
   }
 
-  test("off, every member reads code; on, only a proof under two weeks old does", async () => {
+  test("off, every member reads code; on, only a proof under three days old does", async () => {
     const t = convexTest(schema, modules);
     const { workspaceId, projectId } = await world(t);
     await repo(t, projectId);
@@ -857,8 +887,8 @@ describe("the GitHub organisation rule", () => {
           .unique())!;
         await ctx.db.patch(seat._id, { githubOrgVerifiedAt: at, githubOrgLogin: who.subject });
       });
-    await stampAt(MEMBER, Date.now() - 13 * DAY);
-    await stampAt(ADMIN, Date.now() - 15 * DAY);
+    await stampAt(MEMBER, Date.now() - 2 * DAY);
+    await stampAt(ADMIN, Date.now() - 4 * DAY);
     expect(await readsCode(t, MEMBER, projectId)).toBe(true);
     expect(await readsCode(t, ADMIN, projectId)).toBe(false);
     expect(await readsCode(t, GUEST, projectId)).toBe(false);
@@ -899,48 +929,261 @@ describe("the GitHub organisation rule", () => {
     expect((await settings()).requireGithubOrg).toBeUndefined();
   });
 
-  test("verifying asks GitHub with the member's own connection, and stamps or clears", async () => {
-    const t = convexTest(schema, modules);
-    const { workspaceId } = await world(t, { requireGithubOrg: "acme" });
+  const APP_TOKEN = "ghs_app";
+  const USER = "https://api.github.com/user";
+  const MEMBERS = "https://api.github.com/orgs/acme/members/";
+
+  /** A rule on acme, the App installed there with a live token, and the member connected. */
+  async function ruled(t: T, extra: Partial<Doc<"githubInstallations">> = {}) {
+    const { workspaceId, projectId } = await world(t, { requireGithubOrg: "acme" });
+    const id = await installation(t, workspaceId, {
+      token: { sealed: await seal(APP_TOKEN), expiresAt: Date.now() + 30 * 60_000 },
+      ...extra,
+    });
     await t.run(async (ctx) =>
       ctx.db.insert("githubAccounts", {
         ownerId: MEMBER.subject,
         sealed: await seal("gho_member"),
-        login: "octo",
+        // What was true at connect; `GET /user` is asked again every check.
+        login: "octo-before-rename",
         hint: "mber",
         kind: "oauth",
         connectedAt: 1,
       }),
     );
-    let state = "active";
-    fetchMock.mockImplementation(async () => ok({ state, user: { login: "octo" } }));
-    const seat = () =>
-      t.run(async (ctx) =>
-        ctx.db
-          .query("memberships")
-          .withIndex("by_workspace_user", (q) => q.eq("workspaceId", workspaceId).eq("userId", MEMBER.subject))
-          .unique(),
-      );
+    return { workspaceId, projectId, installation: id };
+  }
+
+  /** GitHub as the stubs have it: who the token is, and who is in acme. */
+  function github(members: Set<string>, user: object | Response = { login: "octo", id: 7 }) {
+    fetchMock.mockImplementation(async (input: unknown, init?: RequestInit) => {
+      const url = String(input);
+      const auth = new Headers(init?.headers).get("authorization");
+      if (url === USER) return user instanceof Response ? user : ok(user);
+      if (url.endsWith(`/app/installations/${INSTALLATION}/access_tokens`)) {
+        return ok({ token: APP_TOKEN, expires_at: new Date(Date.now() + 60 * 60_000).toISOString() });
+      }
+      if (url.startsWith(MEMBERS) && auth === `Bearer ${APP_TOKEN}`) {
+        return new Response(null, { status: members.has(url.slice(MEMBERS.length)) ? 204 : 404 });
+      }
+      return new Response("{}", { status: 404 });
+    });
+  }
+
+  const seatOf = (t: T, workspaceId: Id<"workspaces">, who: { subject: string }) =>
+    t.run(async (ctx) =>
+      ctx.db
+        .query("memberships")
+        .withIndex("by_workspace_user", (q) => q.eq("workspaceId", workspaceId).eq("userId", who.subject))
+        .unique(),
+    );
+
+  test("who they are comes from their own connection; whether they're in it, from the App", async () => {
+    const t = convexTest(schema, modules);
+    const { workspaceId, projectId } = await ruled(t);
+    await repo(t, projectId);
+    github(new Set(["octo"]));
 
     expect(await t.withIdentity(MEMBER).action(api.github.orgProof.verify, { workspaceId })).toEqual({
       required: true,
       verified: true,
+      login: "octo",
     });
+    // The login is GitHub's answer to `GET /user` — not the stored one, and not the client's.
     expect(calls()).toEqual([
-      { method: "GET", url: "https://api.github.com/user/memberships/orgs/acme", auth: "Bearer gho_member" },
+      { method: "GET", url: USER, auth: "Bearer gho_member" },
+      { method: "GET", url: `${MEMBERS}octo`, auth: `Bearer ${APP_TOKEN}` },
     ]);
-    expect(await seat()).toMatchObject({ githubOrgVerifiedAt: Date.now(), githubOrgLogin: "octo" });
+    expect(await seatOf(t, workspaceId, MEMBER)).toMatchObject({
+      githubOrgVerifiedAt: Date.now(),
+      githubOrgLogin: "octo",
+      githubUserId: 7,
+    });
+    expect(await readsCode(t, MEMBER, projectId)).toBe(true);
+  });
 
-    state = "pending";
+  test("someone the organisation doesn't have is told so, and keeps no pass", async () => {
+    const t = convexTest(schema, modules);
+    const { workspaceId } = await ruled(t);
+    await t.run(async (ctx) => {
+      const seat = (await ctx.db
+        .query("memberships")
+        .withIndex("by_workspace_user", (q) => q.eq("workspaceId", workspaceId).eq("userId", MEMBER.subject))
+        .unique())!;
+      await ctx.db.patch(seat._id, { githubOrgVerifiedAt: Date.now() - DAY, githubOrgLogin: "octo" });
+    });
+    github(new Set());
     expect(await t.withIdentity(MEMBER).action(api.github.orgProof.verify, { workspaceId })).toEqual({
       required: true,
       verified: false,
+      login: "octo",
     });
-    expect((await seat())?.githubOrgVerifiedAt).toBeUndefined();
+    const seat = await seatOf(t, workspaceId, MEMBER);
+    expect(seat?.githubOrgVerifiedAt).toBeUndefined();
+    // Known, so the nightly check can let them in once the organisation does.
+    expect(seat?.githubOrgLogin).toBe("octo");
+
+    // A redirect to the public list is not a yes either, and isn't followed.
+    fetchMock.mockImplementation(async (input: unknown, init?: RequestInit) =>
+      String(input) === USER
+        ? ok({ login: "octo", id: 7 })
+        : (init as RequestInit).redirect === "manual"
+          ? new Response(null, { status: 302, headers: { location: "https://api.github.com/orgs/acme/public_members/octo" } })
+          : new Response(null, { status: 204 }),
+    );
+    expect((await t.withIdentity(MEMBER).action(api.github.orgProof.verify, { workspaceId })).verified).toBe(false);
+  });
+
+  test("a connection GitHub won't answer for asks them to reconnect — no token lecture", async () => {
+    const t = convexTest(schema, modules);
+    const { workspaceId } = await ruled(t);
+    github(new Set(["octo"]), new Response("{}", { status: 401 }));
+    await expect(t.withIdentity(MEMBER).action(api.github.orgProof.verify, { workspaceId })).rejects.toThrow(
+      /Reconnect GitHub/,
+    );
+    github(new Set(["octo"]), new Response("{}", { status: 403 }));
+    const refused = t.withIdentity(MEMBER).action(api.github.orgProof.verify, { workspaceId });
+    await expect(refused).rejects.toThrow(/Reconnect GitHub/);
+    await expect(refused).rejects.not.toThrow(/fine-grained/);
+    // The App was never asked about someone we couldn't identify.
+    expect(calls().some((c) => c.url.startsWith(MEMBERS))).toBe(false);
+    expect((await seatOf(t, workspaceId, MEMBER))?.githubOrgLogin).toBeUndefined();
 
     await expect(
       t.withIdentity(ADMIN).action(api.github.orgProof.verify, { workspaceId }),
     ).rejects.toThrow(/No GitHub account is connected/);
+  });
+
+  test("an App suspended, uninstalled or short of Members: read says so plainly", async () => {
+    for (const [extra, said] of [
+      [{ suspendedAt: 5 }, /GitHub App is suspended on acme/],
+      [{ removedAt: 5 }, /no longer installed on acme/],
+    ] as const) {
+      const t = convexTest(schema, modules);
+      const { workspaceId } = await ruled(t, extra);
+      fetchMock.mockClear();
+      await expect(t.withIdentity(MEMBER).action(api.github.orgProof.verify, { workspaceId })).rejects.toThrow(said);
+      expect(fetchMock).not.toHaveBeenCalled();
+    }
+
+    const t = convexTest(schema, modules);
+    const { workspaceId } = await ruled(t);
+    fetchMock.mockImplementation(async (input: unknown) =>
+      String(input) === USER ? ok({ login: "octo", id: 7 }) : new Response("{}", { status: 403 }),
+    );
+    await expect(t.withIdentity(MEMBER).action(api.github.orgProof.verify, { workspaceId })).rejects.toThrow(
+      /can’t read acme’s members/,
+    );
+  });
+
+  test("connecting GitHub checks the rule unasked", async () => {
+    const t = convexTest(schema, modules);
+    const { workspaceId } = await ruled(t);
+    github(new Set(["octo"]));
+    await t.mutation(internal.github.account.save, {
+      ownerId: MEMBER.subject,
+      sealed: await seal("gho_member"),
+      login: "octo",
+      hint: "mber",
+      kind: "oauth",
+      connectedAt: Date.now(),
+    });
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    expect(await seatOf(t, workspaceId, MEMBER)).toMatchObject({
+      githubOrgVerifiedAt: Date.now(),
+      githubOrgLogin: "octo",
+    });
+  });
+
+  test("each night the App renews members' proofs and clears the rest, with no one's own token", async () => {
+    const t = convexTest(schema, modules);
+    const { workspaceId, projectId } = await ruled(t);
+    await repo(t, projectId);
+    const at = Date.now() - 2 * DAY;
+    await t.run(async (ctx) => {
+      for (const seat of await ctx.db.query("memberships").collect()) {
+        if (seat.userId === MEMBER.subject) await ctx.db.patch(seat._id, { githubOrgVerifiedAt: at, githubOrgLogin: "octo" });
+        if (seat.userId === ADMIN.subject) await ctx.db.patch(seat._id, { githubOrgVerifiedAt: at, githubOrgLogin: "gone" });
+        // OWNER: never connected, so there is nobody to ask about.
+      }
+    });
+    github(new Set(["octo"]));
+    vi.setSystemTime(Date.now() + 2 * DAY);
+    await t.mutation(internal.github.orgProof.sweep, { cursor: null });
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+    // The cached token has run out by now, so the App mints one; nobody's own is used.
+    expect(calls().some((c) => c.auth === "Bearer gho_member")).toBe(false);
+    expect(
+      calls()
+        .filter((c) => c.url.startsWith(MEMBERS))
+        .map((c) => [c.url, c.auth])
+        .sort(),
+    ).toEqual([
+      [`${MEMBERS}gone`, `Bearer ${APP_TOKEN}`],
+      [`${MEMBERS}octo`, `Bearer ${APP_TOKEN}`],
+    ]);
+    // Four days after the last press, and still in: the night renewed it.
+    expect((await seatOf(t, workspaceId, MEMBER))?.githubOrgVerifiedAt).toBe(Date.now());
+    expect(await readsCode(t, MEMBER, projectId)).toBe(true);
+    const admin = await seatOf(t, workspaceId, ADMIN);
+    expect(admin?.githubOrgVerifiedAt).toBeUndefined();
+    expect(admin?.githubOrgLogin).toBe("gone");
+
+    // Run again, it lands the same.
+    await t.mutation(internal.github.orgProof.sweep, { cursor: null });
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    expect((await seatOf(t, workspaceId, MEMBER))?.githubOrgVerifiedAt).toBe(Date.now());
+    expect((await seatOf(t, workspaceId, ADMIN))?.githubOrgVerifiedAt).toBeUndefined();
+  });
+
+  test("the nightly check pages through a workspace's seats", async () => {
+    const t = convexTest(schema, modules);
+    const { workspaceId } = await ruled(t);
+    const logins: string[] = [];
+    await t.run(async (ctx) => {
+      for (let i = 0; i < RECHECK_BATCH + 10; i += 1) {
+        logins.push(`dev-${i}`);
+        await ctx.db.insert("memberships", {
+          workspaceId,
+          userId: `user_${i}`,
+          role: "member",
+          status: "active",
+          joinedAt: 1,
+          githubOrgLogin: `dev-${i}`,
+        });
+      }
+    });
+    github(new Set(logins));
+    await t.mutation(internal.github.orgProof.sweep, { cursor: null });
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    const seats = await t.run(async (ctx) => ctx.db.query("memberships").collect());
+    expect(seats.filter((s) => s.githubOrgVerifiedAt === Date.now())).toHaveLength(RECHECK_BATCH + 10);
+  });
+
+  test("an App that can't be asked leaves proofs to run out on their own", async () => {
+    const t = convexTest(schema, modules);
+    const { workspaceId } = await ruled(t, { suspendedAt: 5 });
+    const at = Date.now() - DAY;
+    await t.run(async (ctx) => {
+      const seat = (await ctx.db
+        .query("memberships")
+        .withIndex("by_workspace_user", (q) => q.eq("workspaceId", workspaceId).eq("userId", MEMBER.subject))
+        .unique())!;
+      await ctx.db.patch(seat._id, { githubOrgVerifiedAt: at, githubOrgLogin: "octo" });
+    });
+    await t.mutation(internal.github.orgProof.sweep, { cursor: null });
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect((await seatOf(t, workspaceId, MEMBER))?.githubOrgVerifiedAt).toBe(at);
+  });
+
+  test("a personal connection's refusal isn't explained as a fine-grained token's", async () => {
+    fetchMock.mockImplementation(async () => new Response("{}", { status: 403 }));
+    await expect(json("gho_x", "/user")).rejects.toThrow(/restrict third-party apps/);
+    await expect(json("gho_x", "/user")).rejects.not.toThrow(/fine-grained/);
+    await expect(json("ghs_x", "/user")).rejects.toThrow(/GitHub App/);
+    await expect(json("github_pat_x", "/user")).rejects.toThrow(/fine-grained/);
   });
 });
 
@@ -1039,7 +1282,7 @@ describe("the App's repositories", () => {
 
     await expect(list(MEMBER)).rejects.toThrow(/Verify your GitHub membership in acme/);
     await expect(list(OWNER)).rejects.toThrow(/Verify your GitHub membership in acme/);
-    await stamp(MEMBER, Date.now() - 15 * DAY);
+    await stamp(MEMBER, Date.now() - 4 * DAY);
     await expect(list(MEMBER)).rejects.toThrow(/Verify your GitHub membership/);
     expect(fetchMock).not.toHaveBeenCalled();
 

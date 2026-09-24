@@ -580,14 +580,19 @@ export async function canReadCode(ctx: QueryCtx, project: Doc<"projects">): Prom
   return (await claimOf(ctx, project._id, me))?.codeAccess === true;
 }
 
-/** How long a member's proof of the GitHub organisation rule holds. */
-export const GITHUB_ORG_PROOF_MS = 14 * 24 * 60 * 60_000;
+/**
+ * How long a member's proof of the GitHub organisation rule holds. The App
+ * checks every proven login each night (`github/orgProof.recheck`) and each
+ * pass renews it, so this is only the slack for nights it could not — a
+ * missed one or two lock nobody out, and a lapsed installation does, soon.
+ */
+export const GITHUB_ORG_PROOF_MS = 3 * 24 * 60 * 60_000;
 
 /**
  * The workspace's GitHub organisation rule (`settings.requireGithubOrg`), for
  * a member about to read code: off, everyone passes; on, a seat passes while
- * its proof (`github/orgProof.verify`) is under two weeks old. The
- * organisation's webhook clears a proof as soon as its login leaves.
+ * its proof (`github/orgProof`) is under three days old. The organisation's
+ * webhook clears a proof as soon as its login leaves.
  */
 async function passesGithubOrgRule(
   ctx: QueryCtx,

@@ -60,6 +60,18 @@ crons.interval(
   {},
 );
 
+/**
+ * The GitHub organisation rule, asked again of each workspace's App for
+ * everyone whose GitHub account it knows — what keeps a proof from lapsing
+ * (`auth.GITHUB_ORG_PROOF_MS`) without anyone pressing anything.
+ */
+crons.interval(
+  "recheck GitHub organisation proofs",
+  { hours: 24 },
+  internal.github.orgProof.sweep,
+  { cursor: null },
+);
+
 crons.interval("prune the op log", { hours: 1 }, internal.ai.opLog.purgeOld, {});
 crons.interval(
   "prune old checkpoints",

@@ -11,6 +11,7 @@ import {
   type QueryCtx,
 } from "../_generated/server";
 import { ownerId as currentOwner, requireOwner } from "../auth";
+import { provesOnConnect } from "./orgProof";
 import { GitHubError, json, request } from "./rest";
 import { hasKey, MISSING_KEY, open, seal } from "./seal";
 
@@ -196,6 +197,10 @@ export const save = internalMutation({
     // any scope the old token had that this one does not.
     if (row) await ctx.db.replace(row._id, args);
     else await ctx.db.insert("githubAccounts", args);
+    // A workspace's GitHub organisation rule needs only this to be proved.
+    if (await provesOnConnect(ctx, args.ownerId)) {
+      await ctx.scheduler.runAfter(0, internal.github.orgProof.onConnect, { userId: args.ownerId });
+    }
   },
 });
 

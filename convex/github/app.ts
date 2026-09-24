@@ -289,10 +289,10 @@ async function installationRepositories(token: string): Promise<Repo[]> {
 
 /**
  * The GitHub organisation rule: every non-guest reads the workspace's code
- * only while they have shown, recently, that they belong to `org`
- * (`auth.passesGithubOrgRule`, `orgProof.verify`). It must be an organisation
- * the App is installed on, so its webhook can say when someone leaves. Moving
- * the rule to another organisation starts everyone's proof over.
+ * only while GitHub has said, recently, that they belong to `org`
+ * (`auth.passesGithubOrgRule`, `orgProof`). It must be an organisation the App
+ * is installed on: the App is what asks, and its webhook says when someone
+ * leaves. Moving the rule to another organisation starts everyone's proof over.
  */
 export const setOrgRule = mutation({
   args: { workspaceId: v.id("workspaces"), org: v.union(v.string(), v.null()) },
@@ -330,10 +330,16 @@ export const setOrgRule = mutation({
       )
       .collect();
     for (const seat of seats) {
-      if (seat.githubOrgVerifiedAt !== undefined || seat.githubOrgLogin !== undefined) {
-        await ctx.db.patch(seat._id, { githubOrgVerifiedAt: undefined, githubOrgLogin: undefined });
+      if (seat.githubOrgVerifiedAt !== undefined) {
+        await ctx.db.patch(seat._id, { githubOrgVerifiedAt: undefined });
       }
     }
+    // Everyone whose GitHub account is already known is asked about now,
+    // rather than left out until the night's check.
+    await ctx.scheduler.runAfter(0, internal.github.orgProof.recheck, {
+      workspaceId: workspace._id,
+      cursor: null,
+    });
     return null;
   },
 });

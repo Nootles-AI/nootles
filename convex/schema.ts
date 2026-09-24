@@ -224,13 +224,20 @@ export default defineSchema({
      * a fresh invitation.
      */
     removedBy: v.optional(v.string()),
-    /** When the GitHub organisation rule last passed for this person. */
+    /**
+     * When the GitHub organisation rule last passed for this person — by their
+     * own check, or the nightly one (`github/orgProof.recheck`).
+     */
     githubOrgVerifiedAt: v.optional(v.number()),
     /**
-     * The GitHub login that passed it, so the organisation's webhook can take
-     * the pass away when that login leaves.
+     * Who this person is on GitHub, as their own connection's `GET /user`
+     * said: the login the App asks the organisation about, every night, and
+     * the organisation's webhook names when it leaves. Kept when the rule
+     * fails, so the nightly check lets them in once the organisation does.
      */
     githubOrgLogin: v.optional(v.string()),
+    /** The same account's numeric id, which a rename leaves alone. */
+    githubUserId: v.optional(v.number()),
   })
     .index("by_workspace_user", ["workspaceId", "userId"])
     .index("by_user_status", ["userId", "status"])

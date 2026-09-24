@@ -122,19 +122,39 @@ organisation's installation to their own workspace.
 
 `settings.requireGithubOrg` is set by an admin (`github/app.setOrgRule`) and
 must name an organisation the App is installed on. While it is set, a member
-reads the workspace's code only if they have proved in the last 14 days that
+reads the workspace's code only while GitHub has said in the last 3 days that
 they belong to that organisation (`auth.passesGithubOrgRule`). This applies to
 owners and admins too; guests are covered by their own grant. The same
 proof gates listing the App's repositories (`auth.requireGithubCodeSeat`),
 since their names and descriptions are the organisation's too.
 
-To prove it, a member presses **Verify GitHub membership**. That runs
-`github/orgProof.verify`, which uses the member's own OAuth connection (it has
-`read:org`) to call `GET /user/memberships/orgs/<org>`. An `active` answer
-records their login and the time. Nothing calls GitHub when a page loads.
-When the organisation's webhook reports that a login was removed, that
-member's proof is cleared. Moving the rule to a different organisation clears
-everyone's proof.
+The check (`github/orgProof`) asks two parties one question each:
+
+- **Who the member is**: their own GitHub connection calls `GET /user`, which
+  no organisation policy can withhold. The login and numeric id are stored on
+  the membership (`githubOrgLogin`, `githubUserId`) — never taken from the
+  client.
+- **Whether that account is in the organisation**: the workspace's App, with
+  its installation token on that organisation, calls
+  `GET /orgs/<org>/members/<login>`. 204 is a member; 404 (or a 302) is not.
+  This is why the App needs **Members: read**, and why an organisation that
+  restricts third-party OAuth apps doesn't break the rule — the member's own
+  token is never asked about the organisation.
+
+A pass stamps `githubOrgVerifiedAt`; a no clears it but keeps the login. The
+check runs when a member connects GitHub (`account.save` schedules
+`orgProof.onConnect`), when they press **Check now**, when an admin sets or
+moves the rule, and every night (`orgProof.sweep` → `orgProof.recheck`, in
+bounded, self-rescheduling batches) for every active seat with a known login,
+using the installation token alone. Each nightly pass renews the proof, so
+the 3-day window only covers nights the check couldn't run. If the App is
+suspended or uninstalled on the organisation, a member's check fails with that
+reason and the nightly check leaves proofs alone to run out on their own.
+
+When the organisation's webhook reports that someone was removed, that
+member's proof is cleared immediately. Moving the rule to a different
+organisation clears everyone's proof, then checks every known login against
+the new one.
 
 ## 6. Webhook
 
@@ -149,4 +169,4 @@ are idempotent, and events the App doesn't use get a 200.
 | `installation` `deleted` | The installation is marked removed. Its repositories are unlinked, and their graph is forgotten. |
 | `installation` `suspend` / `unsuspend` | The installation is marked suspended, or the mark is cleared. |
 | `installation_repositories` `removed` | The repositories that were removed are unlinked wherever they were read through that installation. |
-| `organization` `member_removed` | The organisation proof is cleared for members who proved it with that login. |
+| `organization` `member_removed` | The organisation proof is cleared for members who proved it as that account (by id, else login). |
