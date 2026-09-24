@@ -211,11 +211,13 @@ function faces(): void {
 type Piece = { name: string; refs: Ref[]; pivot?: Vec2; leg?: boolean; contact?: Vec2; inner?: () => void };
 /**
  * A character set on the page: `place` is where its drawing's origin goes, and
- * `root` the point between its feet that it hops and squashes about.
+ * `root` the point between its feet that it hops and squashes about. A
+ * `mirror`ed one is turned about its root inside a static `mirror` part, so it
+ * travels and hops in the page's frame while its rig acts in its own.
  */
-function figure(key: Key6, name: string, place: Vec2, root: Vec2, hips: Vec2, pieces: Piece[]): void {
+function figure(key: Key6, name: string, place: Vec2, root: Vec2, hips: Vec2, pieces: Piece[], mirror = false): void {
   const f = ART[key];
-  part(name, { pivot: root, offstage: true, transform: { x: place[0], y: place[1] } }, () => {
+  const rig = () => {
     for (const p of pieces) {
       const body = () => {
         p.refs.forEach((r) => draw(nodeOf(f, r)));
@@ -224,20 +226,39 @@ function figure(key: Key6, name: string, place: Vec2, root: Vec2, hips: Vec2, pi
       if (p.leg) part(p.name, { pivot: p.pivot!, ...(p.contact ? { contact: p.contact } : {}) }, body);
       else part(`${p.name}Bob`, { pivot: hips }, () => (p.pivot ? part(p.name, { pivot: p.pivot }, body) : body()));
     }
-  });
+  };
+  part(name, { pivot: root, offstage: true, transform: { x: place[0], y: place[1] } }, () =>
+    (mirror ? part('mirror', { pivot: root, transform: { scaleX: -1 } }, rig) : rig()));
 }
 
-// Where each drawing's origin sits on the page. Back row stands on y 770,
-// front row on y 1250.
-const PLACE: Record<string, Vec2> = {
-  stats: [50, 770 - 413],
-  board: [50, 770 - 413],
-  marketing: [569, 770 - 318],
-  pm: [905, 770 - 413],
-  dev: [110, 1250 - 349],
-  design: [485, 1250 - 248],
-  cs: [990, 1250 - 340],
+// Everyone stands on a grid of two rows of three under the plan, the columns
+// 440 apart about the sheet's middle. Each drawing is set by the point that
+// reads as its middle — the body between the feet; for the analyst, the stool
+// it lands on, its board standing off to its right — and by its ground: feet,
+// the chair's legs, the stool's.
+const COL = [220, 660, 1100];
+const FLOOR = [750, 1232];
+/** Where each one lands: its column and row, and its drawing's middle and ground. */
+const SPOT: Record<string, { col: number; row: number; mid: number; ground: number }> = {
+  stats: { col: 0, row: 0, mid: 134, ground: 413 },
+  design: { col: 1, row: 0, mid: 190, ground: 248 },
+  pm: { col: 2, row: 0, mid: 170, ground: 413 },
+  dev: { col: 0, row: 1, mid: 148, ground: 349 },
+  marketing: { col: 1, row: 1, mid: 194, ground: 318 },
+  cs: { col: 2, row: 1, mid: 124, ground: 340 },
 };
+const PLACE: Record<string, Vec2> = Object.fromEntries(Object.entries(SPOT)
+  .map(([k, s]) => [k, [COL[s.col] - s.mid, FLOOR[s.row] - s.ground] as Vec2]));
+PLACE.board = PLACE.stats;
+
+/** The marks on the floor where everyone lands: flat, warm, barely there. */
+const MARK = { rx: 112, ry: 18 };
+function marks(): void {
+  for (const [k, s] of Object.entries(SPOT)) {
+    const c: Vec2 = [COL[s.col], FLOOR[s.row]];
+    part(`mark_${k}`, { pivot: c }, () => ellipse({ cx: c[0], cy: c[1], rx: MARK.rx, ry: MARK.ry, fill: '#f1f0ec' }));
+  }
+}
 
 // The marketer's shout, drawn from the megaphone's bell outward.
 const BELL: Vec2 = [44, 199];
@@ -263,6 +284,15 @@ function heart(): void {
     }));
 }
 
+// The developer is drawn facing the other way from how it walks, so it is
+// mirrored on the page; the `</>` on its front is turned back to read.
+function devBody(): void {
+  const body = ART.dev.tree[5] as Group;
+  draw(body.c[0]);
+  const print = body.c[1];
+  part('print', { pivot: [(print.bb[0] + print.bb[2]) / 2, (print.bb[1] + print.bb[3]) / 2], transform: { scaleX: -1 } }, () => draw(print));
+}
+
 export const team = character('join', { viewBox: VIEW, duration: D }, () => {
   definitions();
   HAND_SHADOW = radialGradient('pm-hand-shadow', {
@@ -271,6 +301,9 @@ export const team = character('join', { viewBox: VIEW, duration: D }, () => {
   page();
   part('plan', plan);
   part('faces', faces);
+
+  // The marks come first, under everyone.
+  part('marks', marks);
 
   // Everyone arrives into the page, not onto it from the desk around it.
   const sheet = clipPath('sheet', () => rect({ x: SHEET.x, y: SHEET.y, w: SHEET.w, h: SHEET.h, radius: 30, fill: '#000' }));
@@ -298,18 +331,17 @@ export const team = character('join', { viewBox: VIEW, duration: D }, () => {
       { name: 'eyes', refs: [9], pivot: [151, 146] },
     ]);
 
-    const mk = ART.marketing;
-    part('chair', { pivot: [194, 318], transform: { x: PLACE.marketing[0], y: PLACE.marketing[1] } }, () => draw(nodeOf(mk, 0)));
-    figure('marketing', 'marketing', PLACE.marketing, [195, 206], [195, 200], [
-      { name: 'armRBack', refs: [1], pivot: [250, 118] },
-      { name: 'earR', refs: [[2, 0], [2, 1]], pivot: [222, 72] },
-      { name: 'earL', refs: [[2, 2], [2, 3]], pivot: [166, 72] },
-      { name: 'body', refs: [3] },
-      { name: 'feet', refs: [4], pivot: [195, 180] },
-      { name: 'megaBack', refs: [5], pivot: [140, 120] },
-      { name: 'armR', refs: [[6, 0]], pivot: [250, 118] },
-      { name: 'eyes', refs: [[6, 1], [6, 2]], pivot: [193, 123] },
-      { name: 'mega', refs: [7, 8], pivot: [140, 120], inner: soundArcs },
+    figure('design', 'design', PLACE.design, [187, 248], [187, 196], [
+      { name: 'legR', refs: [0], pivot: [218, 196], contact: [218, 248], leg: true },
+      { name: 'legL', refs: [1], pivot: [155, 196], contact: [155, 248], leg: true },
+      { name: 'paletteBack', refs: [2], pivot: [246, 134] },
+      { name: 'brushBack', refs: [3], pivot: [138, 134] },
+      { name: 'body', refs: [4] },
+      { name: 'eyes', refs: [5], pivot: [190, 149] },
+      { name: 'antenna', refs: [6], pivot: [208, 90] },
+      { name: 'hat', refs: [7], pivot: [176, 100] },
+      { name: 'palette', refs: [9, 10], pivot: [246, 134] },
+      { name: 'brush', refs: [8, 11], pivot: [138, 134] },
     ]);
 
     figure('pm', 'pm', PLACE.pm, [171, 413], [171, 340], [
@@ -326,6 +358,20 @@ export const team = character('join', { viewBox: VIEW, duration: D }, () => {
     ]);
 
     // -- Front row --
+    const mk = ART.marketing;
+    part('chair', { pivot: [194, 318], transform: { x: PLACE.marketing[0], y: PLACE.marketing[1] } }, () => draw(nodeOf(mk, 0)));
+    figure('marketing', 'marketing', PLACE.marketing, [195, 206], [195, 200], [
+      { name: 'armRBack', refs: [1], pivot: [250, 118] },
+      { name: 'earR', refs: [[2, 0], [2, 1]], pivot: [222, 72] },
+      { name: 'earL', refs: [[2, 2], [2, 3]], pivot: [166, 72] },
+      { name: 'body', refs: [3] },
+      { name: 'feet', refs: [4], pivot: [195, 180] },
+      { name: 'megaBack', refs: [5], pivot: [140, 120] },
+      { name: 'armR', refs: [[6, 0]], pivot: [250, 118] },
+      { name: 'eyes', refs: [[6, 1], [6, 2]], pivot: [193, 123] },
+      { name: 'mega', refs: [7, 8], pivot: [140, 120], inner: soundArcs },
+    ]);
+
     figure('dev', 'dev', PLACE.dev, [148, 349], [142, 288], [
       { name: 'legR', refs: [0], pivot: [170, 286], contact: [186, 348], leg: true },
       { name: 'legL', refs: [1], pivot: [116, 286], contact: [112, 349], leg: true },
@@ -333,23 +379,10 @@ export const team = character('join', { viewBox: VIEW, duration: D }, () => {
       { name: 'hammerBack', refs: [3], pivot: [108, 196] },
       { name: 'antL', refs: [[4, 0], [4, 1]], pivot: [150, 104] },
       { name: 'antR', refs: [[4, 2]], pivot: [186, 114] },
-      { name: 'body', refs: [5] },
+      { name: 'body', refs: [], inner: devBody },
       { name: 'eyes', refs: [6], pivot: [124, 143] },
       { name: 'hammer', refs: [7, 8], pivot: [108, 196] },
-    ]);
-
-    figure('design', 'design', PLACE.design, [187, 248], [187, 196], [
-      { name: 'legR', refs: [0], pivot: [218, 196], contact: [218, 248], leg: true },
-      { name: 'legL', refs: [1], pivot: [155, 196], contact: [155, 248], leg: true },
-      { name: 'paletteBack', refs: [2], pivot: [246, 134] },
-      { name: 'brushBack', refs: [3], pivot: [138, 134] },
-      { name: 'body', refs: [4] },
-      { name: 'eyes', refs: [5], pivot: [190, 149] },
-      { name: 'antenna', refs: [6], pivot: [208, 90] },
-      { name: 'hat', refs: [7], pivot: [176, 100] },
-      { name: 'palette', refs: [9, 10], pivot: [246, 134] },
-      { name: 'brush', refs: [8, 11], pivot: [138, 134] },
-    ]);
+    ], true);
 
     figure('customerSuccess', 'cs', PLACE.cs, [126, 340], [126, 286], [
       { name: 'legL', refs: [[0, 0]], pivot: [95, 284], contact: [95, 340], leg: true },
@@ -378,6 +411,7 @@ const present = at([[0, 0], [0.15, 0], [0.4, 1], [FADE[0], 1, easeIn], [FADE[1],
 P('cast').animate({ opacity: present });
 P('plan').animate({ opacity: present });
 P('faces').animate({ opacity: present });
+P('marks').animate({ opacity: present });
 
 /** A face joins the pile: popped in with a little overshoot. */
 function join(i: number, t: number) {
@@ -426,9 +460,10 @@ interface Leg { path: string; hip: Vec2; foot: Vec2; phase: number }
  * steady speed; each leg's stance rotation is solved so its foot stays where it
  * was set down while the body passes over it, and the swing leg lifts clear.
  */
-function walk(o: { t0: number; t1: number; walker: string; from: number; legs: Leg[]; bob: string[]; step: number; lift?: number }) {
+function walk(o: { t0: number; t1: number; walker: string; from: number; legs: Leg[]; bob: string[]; step: number; lift?: number; mirror?: boolean }) {
   const dur = o.t1 - o.t0;
-  const v = -o.from / dur;
+  // The legs and body act in the rig's own frame, which a mirrored walker turns about.
+  const v = (o.mirror ? o.from : -o.from) / dur;
   const S = 0.5;
   const T = o.step;
   const H = o.lift ?? 8;
@@ -482,10 +517,27 @@ const bobs = (who: string, names: string[]) => names.map((n) => `cast.${who}.${n
 
 const T = {
   pm: [0.25, 1.67], design: 1.15, dev: [0.95, 2.28], chair: 1.3, marketing: 1.75,
-  board: 1.65, stats: 2.1, cs: [2.0, 3.05], cheer: 5.1,
+  board: 1.65, stats: 2.1, cs: [1.88, 3.05], cheer: 5.1,
 } as const;
 /** The faces join the pile at an even stagger as each teammate appears. */
 const FACE = (i: number) => 0.75 + i * 0.35;
+
+/**
+ * A floor mark: it opens from its middle just before its owner lands (if
+ * `appear` is given), and gives a little under each landing, by its weight —
+ * spread wide, pressed flat, back.
+ */
+function mark(who: string, appear: number | undefined, hits: [t: number, weight: number][]) {
+  const k = (spread: number): Key[] => {
+    const ks: Key[] = [[0, appear === undefined ? 1 : 0]];
+    if (appear !== undefined) ks.push([appear, 0, easeOut], [appear + 0.4, 1]);
+    for (const [t, w] of hits) {
+      ks.push([t - 0.02, 1, easeOut], [t + 0.08, 1 + spread * w, easeInOut], [t + 0.24, 1 - spread * w * 0.2, easeInOut], [t + 0.42, 1]);
+    }
+    return ks;
+  };
+  P(`marks.mark_${who}`).animate({ scaleX: at(k(0.08)), scaleY: at(k(-0.2)) });
+}
 
 // -- The navigator. --
 {
@@ -499,6 +551,7 @@ const FACE = (i: number) => 0.75 + i * 0.35;
     bob: bobs('pm', ['armR', 'body', 'eyes', 'antenna', 'mapArm']),
   });
   join(0, FACE(0));
+  mark('pm', t1 - 0.45, [[t1, 0.6]]);
   // Holding the plan up for everyone to see, as it appears on the page.
   const up = t1 + 0.3;
   P('cast.pm.mapArmBob.mapArm').animate({
@@ -541,6 +594,7 @@ const FACE = (i: number) => 0.75 + i * 0.35;
   });
   hop('cast.design', land - 0.02, 0, 1.6);
   join(1, FACE(1));
+  mark('design', land - 0.45, [[land, 1]]);
   // The beret lifts off in the fall and lands a beat after the head does.
   P('cast.design.hatBob.hat').animate({
     y: at([[0, 0], [land - fall, 0, easeOut], [land - 0.1, -22, easeIn], [land + 0.08, -26, easeIn], [land + 0.24, 2, easeOut], [land + 0.34, 0]]),
@@ -564,32 +618,33 @@ const FACE = (i: number) => 0.75 + i * 0.35;
 {
   const [t0, t1] = T.dev;
   walk({
-    t0, t1, walker: 'cast.dev', from: -350, step: 0.32, lift: 10,
+    t0, t1, walker: 'cast.dev', from: -350, step: 0.32, lift: 10, mirror: true,
     legs: [
-      { path: 'cast.dev.legR', hip: [170, 286], foot: [186, 348], phase: 0 },
-      { path: 'cast.dev.legL', hip: [116, 286], foot: [112, 349], phase: 0.5 },
+      { path: 'cast.dev.mirror.legR', hip: [170, 286], foot: [186, 348], phase: 0 },
+      { path: 'cast.dev.mirror.legL', hip: [116, 286], foot: [112, 349], phase: 0.5 },
     ],
-    bob: bobs('dev', ['armR', 'hammerBack', 'antL', 'antR', 'body', 'eyes', 'hammer']),
+    bob: bobs('dev.mirror', ['armR', 'hammerBack', 'antL', 'antR', 'body', 'eyes', 'hammer']),
   });
   join(2, FACE(2));
+  mark('dev', t1 - 0.45, [[t1, 0.6]]);
   const hits = [t1 + 0.55, t1 + 0.95];
   // Wind up, strike, recoil, once per blow; the second lands the tick.
   const blows: Key[] = [[0, 0], [hits[0] - 0.45, 0, easeOut]];
   for (const h of hits) blows.push([h - 0.2, -28, cubicBezier(0.6, 0, 1, 0.5)], [h, 22, easeOut], [h + 0.08, 16, easeInOut]);
   blows.push([hits[1] + 0.5, 0, easeInOut]);
   const swing = at(blows);
-  for (const p of ['hammerBackBob.hammerBack', 'hammerBob.hammer']) P(`cast.dev.${p}`).animate({ rotate: swing });
+  for (const p of ['hammerBackBob.hammerBack', 'hammerBob.hammer']) P(`cast.dev.mirror.${p}`).animate({ rotate: swing });
   // The whole body goes into each blow.
   const lean: Key[] = [[0, 0], [hits[0] - 0.45, 0, easeOut]];
   for (const h of hits) lean.push([h - 0.2, 3, easeIn], [h, -4, easeOut], [h + 0.12, -2, easeInOut]);
   lean.push([hits[1] + 0.5, 0]);
-  for (const b of bobs('dev', ['armR', 'hammerBack', 'antL', 'antR', 'body', 'eyes', 'hammer'])) P(b).animate({ rotate: at(lean) });
+  for (const b of bobs('dev.mirror', ['armR', 'hammerBack', 'antL', 'antR', 'body', 'eyes', 'hammer'])) P(b).animate({ rotate: at(lean) });
   tick(0, hits[1]);
   const wince: Key[] = [[0, 1]];
   for (const h of hits) wince.push([h - 0.02, 1, easeOut], [h + 0.05, 0.4, easeIn], [h + 0.2, 1]);
-  P('cast.dev.eyesBob.eyes').animate({ scaleY: at(wince) }).animate({ scaleY: blinks([4.55, 6.75]) });
-  P('cast.dev.antLBob.antL').animate({ rotate: wobble(5, 5) });
-  P('cast.dev.antRBob.antR').animate({ rotate: wobble(6, 4, 0.5) });
+  P('cast.dev.mirror.eyesBob.eyes').animate({ scaleY: at(wince) }).animate({ scaleY: blinks([4.55, 6.75]) });
+  P('cast.dev.mirror.antLBob.antL').animate({ rotate: wobble(5, 5) });
+  P('cast.dev.mirror.antRBob.antR').animate({ rotate: wobble(6, 4, 0.5) });
 }
 
 // -- The marketer: the chair springs up, the marketer drops into it, and
@@ -602,10 +657,11 @@ const FACE = (i: number) => 0.75 + i * 0.35;
     opacity: at([[0, 0], [c, 0], [c + 0.06, 1]]),
   });
   const land = T.marketing;
-  const fall = 0.5;
-  P('cast.marketing').animate({ y: at([[0, -820], [land - fall, -820, cubicBezier(0.45, 0, 0.95, 0.55)], [land, 0]]) });
+  const fall = 0.55;
+  P('cast.marketing').animate({ y: at([[0, -1160], [land - fall, -1160, cubicBezier(0.45, 0, 0.95, 0.55)], [land, 0]]) });
   hop('cast.marketing', land - 0.02, 0, 1.4);
   join(3, FACE(3));
+  mark('marketing', c - 0.4, [[c + 0.06, 0.5], [land, 1]]);
   P('cast.marketing.earLBob.earL').animate({
     rotate: at([[0, 0], [land - fall, 0, easeOut], [land - 0.05, 20], [land + 0.14, -12, easeInOut], [land + 0.36, 5, easeInOut], [land + 0.6, 0]]),
   }).animate({ rotate: wobble(3, 3) });
@@ -660,6 +716,7 @@ const FACE = (i: number) => 0.75 + i * 0.35;
   P('cast.stats').animate({ rotate: at([[0, 0], [t0, -14, easeOut], [land - 0.1, 6, easeInOut], [land + 0.15, -2, easeInOut], [land + 0.35, 0]]) });
   hop('cast.stats', land - 0.02, 0, 1.5);
   join(4, FACE(4));
+  mark('stats', b - 0.3, [[land, 1]]);
   // Legs tucked in the bound.
   for (const [leg, s] of [['legR', 1], ['legL', -1]] as const) {
     P(`cast.stats.${leg}Bob.${leg}`).animate({ rotate: at([[0, 0], [t0, 0, easeOut], [t0 + 0.2, 18 * s, easeInOut], [land - 0.05, 0]]) });
@@ -684,7 +741,7 @@ const FACE = (i: number) => 0.75 + i * 0.35;
 {
   const [t0, t1] = T.cs;
   walk({
-    t0, t1, walker: 'cast.cs', from: 295, step: 0.32, lift: 9,
+    t0, t1, walker: 'cast.cs', from: 330, step: 0.32, lift: 9,
     legs: [
       { path: 'cast.cs.legL', hip: [95, 284], foot: [95, 340], phase: 0 },
       { path: 'cast.cs.legR', hip: [156, 284], foot: [156, 340], phase: 0.5 },
@@ -692,6 +749,7 @@ const FACE = (i: number) => 0.75 + i * 0.35;
     bob: bobs('cs', ['shade', 'armR', 'body', 'wave', 'laptop', 'eyes', 'headset', 'earL', 'earR', 'heart']),
   });
   join(5, FACE(5));
+  mark('cs', t1 - 0.45, [[t1, 0.6]]);
   const h = t1 + 0.1;
   P('cast.cs.heartBob.heart').animate({
     scaleX: at([[0, 0], [h, 0, pop], [h + 0.35, 1]]),
@@ -714,8 +772,10 @@ const FACE = (i: number) => 0.75 + i * 0.35;
 // ticked as they land, the faces in the pile bobbing in turn. --
 {
   const c = T.cheer;
-  const order: [string, number][] = [['stats', 0], ['dev', 0.05], ['marketing', 0.1], ['design', 0.15], ['pm', 0.2], ['cs', 0.25]];
+  const order: [string, number][] = [['stats', 0], ['dev', 0.05], ['design', 0.1], ['marketing', 0.15], ['pm', 0.2], ['cs', 0.25]];
   for (const [who, lag] of order) hop(`cast.${who}`, c + lag, who === 'marketing' ? 22 : 38, 1);
+  // Each mark takes the weight of its hop's landing too.
+  for (const [who, lag] of order) mark(who, undefined, [[c + lag + 0.5, 0.5]]);
   tick(2, c + 0.55);
   CREW.forEach((_, i) => {
     const t = c + 0.1 + i * 0.05;
@@ -724,12 +784,12 @@ const FACE = (i: number) => 0.75 + i * 0.35;
   // Arms up with the hop, where there is an arm free to throw.
   const cheer = (lag: number, amp: number): Channel =>
     at([[0, 0], [c + lag, 0, easeOut], [c + lag + 0.2, amp, easeInOut], [c + lag + 0.55, amp, easeInOut], [c + lag + 0.85, 0]]);
-  for (const p of ['brushBackBob.brushBack', 'brushBob.brush']) P(`cast.design.${p}`).animate({ rotate: cheer(0.15, 40) });
-  for (const p of ['paletteBackBob.paletteBack', 'paletteBob.palette']) P(`cast.design.${p}`).animate({ rotate: cheer(0.15, -32) });
-  for (const p of ['hammerBackBob.hammerBack', 'hammerBob.hammer']) P(`cast.dev.${p}`).animate({ rotate: cheer(0.05, -16) });
-  P('cast.dev.armRBob.armR').animate({ rotate: cheer(0.05, -135) });
-  for (const p of ['megaBackBob.megaBack', 'megaBob.mega']) P(`cast.marketing.${p}`).animate({ rotate: cheer(0.1, 30) });
-  for (const p of ['armRBackBob.armRBack', 'armRBob.armR']) P(`cast.marketing.${p}`).animate({ rotate: cheer(0.1, -110) });
+  for (const p of ['brushBackBob.brushBack', 'brushBob.brush']) P(`cast.design.${p}`).animate({ rotate: cheer(0.1, 40) });
+  for (const p of ['paletteBackBob.paletteBack', 'paletteBob.palette']) P(`cast.design.${p}`).animate({ rotate: cheer(0.1, -32) });
+  for (const p of ['hammerBackBob.hammerBack', 'hammerBob.hammer']) P(`cast.dev.mirror.${p}`).animate({ rotate: cheer(0.05, -16) });
+  P('cast.dev.mirror.armRBob.armR').animate({ rotate: cheer(0.05, -135) });
+  for (const p of ['megaBackBob.megaBack', 'megaBob.mega']) P(`cast.marketing.${p}`).animate({ rotate: cheer(0.15, 30) });
+  for (const p of ['armRBackBob.armRBack', 'armRBob.armR']) P(`cast.marketing.${p}`).animate({ rotate: cheer(0.15, -110) });
   P('cast.stats.armLBob.armL').animate({ rotate: cheer(0, 60) });
   P('cast.pm.mapArmBob.mapArm').animate({ rotate: cheer(0.2, 30) });
   P('cast.pm.armRBob.armR').animate({ rotate: cheer(0.2, -18) });
