@@ -5,6 +5,7 @@ import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useContainer } from "../workspaces/ContainerContext";
+import { Check } from "../Icons";
 import { GitHubMark } from "./marks";
 import { useOrgProof } from "./useOrgProof";
 
@@ -165,7 +166,20 @@ function Gate({
               role={proof.line.problem ? "alert" : "status"}
               className={`nt-codegate-part${proof.line.problem ? " is-problem" : ""}`}
             >
-              {proof.line.text}
+              {proof.line.problem ? (
+                proof.line.text
+              ) : (
+                // Let in: the tick lands before the fold shuts.
+                <span className="nt-codegate-verified">
+                  <Check
+                    width={12}
+                    height={12}
+                    aria-hidden="true"
+                    className="nt-menu-check is-on is-landing"
+                  />
+                  <span>{proof.line.text}</span>
+                </span>
+              )}
             </p>
           </div>
         </div>
