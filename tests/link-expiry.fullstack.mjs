@@ -14,7 +14,9 @@
  * - No lapse armed (a link that ran out while its role query still showed
  *   the pen — one set before the lapse existed): the first refused flush
  *   locks the page, keeps what he typed on screen and says so, and nothing
- *   retries on its own. Let back in by a new link, "Try again" lands it.
+ *   retries on its own — not even when Olive's next edit re-runs the page's
+ *   reads for him, which now refuse him (the order CI found by timing, forced
+ *   here). Let back in by a new link, "Try again" lands it.
  * - A reader's document changed locally, as the NML compatibility mirror
  *   repairs a projection: nothing is sent, and nothing is left "unsaved".
  *
@@ -34,6 +36,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { build } from "esbuild";
 import { anyApi, makeFunctionReference } from "convex/server";
 import { ConvexHttpClient } from "convex/browser";
+import * as Y from "yjs";
 import { bundleSurfaces, serveBundle, guardedTab, ledger, wait } from "./comments-surfaces.shared.mjs";
 import { launchBrowser } from "./comments-launch.mjs";
 import { startBackend } from "./fullstack-backend.mjs";
@@ -185,6 +188,11 @@ try {
     });
     const afterAt = typed.filter((t) => t.at > at + 200 && (lockedAt === null || t.at < lockedAt - 100)).map((t) => t.word);
     const errorsAtLock = gus.expectedErrors.length;
+    // Olive edits the page: every read of it Gus holds runs again, and refuses him.
+    const edit = new Y.Doc();
+    edit.getMap("olive").set("at", Date.now());
+    const bytes = Y.encodeStateAsUpdate(edit);
+    await olive.mutation(anyApi.ydoc.append, { docId, update: bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) });
     await wait(15_000);
     const onScreen = await page.$eval(".bn-editor", (el) => el.textContent);
     const text = await stored(docId);

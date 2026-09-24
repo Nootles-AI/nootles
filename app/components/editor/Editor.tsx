@@ -23,7 +23,8 @@ import {
 } from "@blocknote/react";
 import { autoPlacement, offset, shift, size } from "@floating-ui/react";
 import { useBlockNoteSync } from "@convex-dev/prosemirror-sync/blocknote";
-import { useConvex, useQuery } from "convex/react";
+import { useConvex, useQueries, useQuery } from "convex/react";
+import type { FunctionReturnType } from "convex/server";
 import { useUser } from "@clerk/nextjs";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
@@ -560,25 +561,45 @@ export function Editor(props: EditorProps) {
    * the client's cache and the document's bytes are the next round trip rather
    * than the third. `state` is still asked, but only where `meta` cannot tell
    * legacy from never-written.
+   *
+   * The page's own reads go through `useQueries`, which hands a refusal back
+   * rather than throwing it: a reader whose access ended while the page was
+   * open (NT-80) must keep the editor holding what they wrote, not lose it to
+   * a thrown query. Memoized, since a new request object re-subscribes.
    */
-  const meta = useQuery(api.ydoc.meta, YJS_ON ? { docId: props.docId } : "skip");
-  const state = useQuery(
-    api.ydoc.state,
-    YJS_ON && meta === null ? { docId: props.docId } : "skip",
-  );
   // Whether the canonical NML root is cleared to be served (migrated, in-cohort,
   // and server-verified). Only asked when the flag is on, so production issues
   // no extra query and the branch below is never taken.
   const serveEnabled = useServeEnabled();
-  const authority = useQuery(
-    api.nmlMigration.nmlAuthority,
-    serveEnabled ? { docId: props.docId } : "skip",
+  const request = useMemo((): Parameters<typeof useQueries>[0] => {
+    if (!YJS_ON) return {};
+    const args = { docId: props.docId };
+    return {
+      meta: { query: api.ydoc.meta, args },
+      ...(serveEnabled ? { authority: { query: api.nmlMigration.nmlAuthority, args } } : {}),
+    };
+  }, [props.docId, serveEnabled]);
+  const answers = useQueries(request);
+  const meta = answers.meta as FunctionReturnType<typeof api.ydoc.meta> | Error | undefined;
+  const authority = answers.authority as
+    | FunctionReturnType<typeof api.nmlMigration.nmlAuthority>
+    | Error
+    | undefined;
+  const state = useQuery(
+    api.ydoc.state,
+    YJS_ON && meta === null ? { docId: props.docId } : "skip",
   );
+  // Served or not stays as it was last answered once the answer is a refusal,
+  // so a served page does not change pipeline under someone who lost access.
+  const [lastServed, setLastServed] = useState(false);
+  const served = authority instanceof Error ? lastServed : serveEnabled && !!authority?.serve;
+  if (served !== lastServed) setLastServed(served);
   if (!YJS_ON) return <LegacyEditor {...props} />;
+  // The page has stopped answering this reader. The Yjs editor already
+  // mounted stays, holding their words and saying why it can't save them.
+  if (meta instanceof Error) return props.yjs ? <YjsEditor {...props} served={served} /> : placeholder;
   if (!props.yjs && meta === undefined) return placeholder;
-  if (serveEnabled && authority?.serve) {
-    return <YjsEditor {...props} served />;
-  }
+  if (served) return <YjsEditor {...props} served />;
   if (props.yjs || meta !== null) return <YjsEditor {...props} />;
   // No `ydocs` row: legacy or never-written, and only `state` tells them apart.
   if (state === undefined) return placeholder;
