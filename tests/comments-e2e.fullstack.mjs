@@ -188,7 +188,9 @@ try {
   // ── Accounts and the project, as first run and the owner's editor leave them ─
   for (const who of Object.keys(PEOPLE)) {
     await as(who).mutation(anyApi.profiles.skip, {});
-    await as(who).mutation(anyApi.profiles.stampEmail, {});
+    // Who they are, confirmed as the app confirms it on sign-in: from the
+    // token's own email claim, so no Clerk call is made.
+    await as(who).action(anyApi.identity.sync, {});
     // Past the founder's letter and the first-touch hints, as anyone who has
     // used the app before is.
     for (const id of ["tester-note", "chat", "slash", "write"]) await as(who).mutation(anyApi.profiles.seen, { id });
@@ -338,7 +340,13 @@ try {
   await O.click('[aria-label="Share project"]');
   const people = await until(
     () => O.$$eval('[aria-label="People with access"] li', (els) =>
-      els.map((el) => [...el.querySelectorAll("span")].slice(-2).map((span) => span.textContent.trim()).join(" · "))).catch(() => []),
+      // A row's name is its truncating span; what they hold is the muted
+      // label at its end (a claimant's sits beside its ⋯ menu).
+      els.map((el) => {
+        const name = el.querySelector("span.truncate")?.textContent.trim();
+        const holds = (el.querySelector(".nt-share-hold-text") ?? [...el.querySelectorAll(":scope > span.text-muted")].pop())?.textContent.trim();
+        return `${name} · ${holds}`;
+      })).catch(() => []),
     (list) => list.length === 4,
   );
   check("[olive] the collaborator list names each person with their role", [...people].sort(),
@@ -829,6 +837,8 @@ try {
     await O.click('[aria-label="Share project"]');
     await O.click(`[role="group"][aria-label="Share links"] button:has-text("${label}")`);
     await O.click('button:has-text("Turn off link")');
+    // Turning a link off is asked once more: its address stops working for good.
+    await O.click('button:text-is("Turn off")');
     await O.keyboard.press("Escape");
   };
   await turnOff("Commenter link");

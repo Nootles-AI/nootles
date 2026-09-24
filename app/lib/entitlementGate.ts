@@ -1,5 +1,6 @@
 import { api } from "@/convex/_generated/api";
-import type { Entitlement, Meter } from "@/convex/entitlements";
+import type { Meter, RefusedMeter, Standing } from "@/convex/entitlements";
+import { guestDaySpent } from "@/convex/plans";
 import { asUser } from "./convexServer";
 
 /**
@@ -12,7 +13,7 @@ import { asUser } from "./convexServer";
  * check here, ahead of the call, can.
  *
  * It is a backstop rather than the primary UI: the app subscribes to
- * `entitlements.mine` and stops asking the moment the allowance is gone. So it
+ * `entitlements.forContainer` and stops asking the moment the allowance is gone. So it
  * can afford to answer from a short-lived cache, which is what keeps it off the
  * critical path of ambient completion — that lane fires at typing cadence, and
  * a Convex round trip per keystroke window is latency nobody agreed to pay.
@@ -34,7 +35,7 @@ const MAX_ENTRIES = 500;
  * is cached like any other answer, since a token that stopped resolving will
  * not start again inside thirty seconds.
  */
-const cache = new Map<string, { at: number; entitlement: Entitlement | null }>();
+const cache = new Map<string, { at: number; standing: Standing | null }>();
 
 /** Drops what has expired, and the oldest entries if the map is still over. */
 function prune(now: number): void {
@@ -50,26 +51,48 @@ function prune(now: number): void {
 }
 
 /**
- * The caller's entitlement, cached for `TTL_MS`.
+ * One session's answer for one project. The project is part of the key because
+ * it decides the container — the same person is on their own allowance in one
+ * project and on a workspace's in the next — and a session's answer for one
+ * must never stand in for the other. No project is the caller's own account.
+ */
+const keyOf = (token: string, projectId?: string) =>
+  projectId ? `${token} ${projectId}` : token;
+
+/**
+ * What governs the caller's work in `projectId` — or their own account,
+ * without one — cached for `TTL_MS`.
  *
  * Keyed by the session token, which is per-session and short-lived — so this
  * never becomes a store of identities, and a signed-out session's entry ages
  * out on its own.
  */
-export async function entitlementFor(token: string): Promise<Entitlement | null> {
+export async function standingFor(
+  token: string,
+  projectId?: string,
+): Promise<Standing | null> {
   const now = Date.now();
-  const hit = cache.get(token);
-  if (hit && now - hit.at < TTL_MS) return hit.entitlement;
-  const entitlement = await asUser(token).query(api.entitlements.mine, {});
+  const key = keyOf(token, projectId);
+  const hit = cache.get(key);
+  if (hit && now - hit.at < TTL_MS) return hit.standing;
+  const standing = await asUser(token).query(
+    api.entitlements.forContainer,
+    projectId ? { projectId } : {},
+  );
   prune(now);
-  cache.set(token, { at: now, entitlement });
-  return entitlement;
+  cache.set(key, { at: now, standing });
+  return standing;
 }
 
-/** Forget one session's cached answer, or all of them. */
-export function forgetEntitlement(token?: string): void {
-  if (token) cache.delete(token);
-  else cache.clear();
+/** Forget one session's cached answers, or all of them. */
+export function forgetStanding(token?: string): void {
+  if (!token) {
+    cache.clear();
+    return;
+  }
+  for (const key of cache.keys()) {
+    if (key === token || key.startsWith(`${token} `)) cache.delete(key);
+  }
 }
 
 /**
@@ -78,7 +101,7 @@ export function forgetEntitlement(token?: string): void {
  * reading the body, and nothing here can be mistaken for a transient failure
  * worth retrying.
  */
-export function quotaResponse(meter: Meter): Response {
+export function quotaResponse(meter: RefusedMeter): Response {
   return new Response(JSON.stringify({ code: "quota", meter }), {
     status: 402,
     headers: { "content-type": "application/json" },
@@ -87,6 +110,11 @@ export function quotaResponse(meter: Meter): Response {
 
 /**
  * The whole gate in one call: `null` to proceed, or the response to return.
+ * `meter` is the allowance the work spends, if it spends one; a guest's day of
+ * a workspace's AI is asked whatever the work. `projectId` is the project the
+ * work is for, as the request named it; Convex decides whether that makes it
+ * a workspace's, and whether the caller is a guest there, so naming one proves
+ * nothing.
  *
  * A failed lookup proceeds. The allowance is enforced transactionally in
  * Convex either way, and refusing everybody's completions because one query
@@ -94,9 +122,14 @@ export function quotaResponse(meter: Meter): Response {
  */
 export async function refuseIfSpent(
   token: string,
-  meter: Meter,
+  meter: Meter | null,
+  projectId?: string,
 ): Promise<Response | null> {
-  const entitlement = await entitlementFor(token).catch(() => null);
-  if (!entitlement || entitlement.left === null) return null;
-  return entitlement.left[meter] > 0 ? null : quotaResponse(meter);
+  // Off a project there is no guest, and without a meter nothing else to ask.
+  if (!meter && !projectId) return null;
+  const standing = await standingFor(token, projectId).catch(() => null);
+  if (!standing) return null;
+  if (guestDaySpent(standing.guestAi, Date.now())) return quotaResponse("guestAi");
+  const left = standing.entitlement.left;
+  return meter && left && left[meter] <= 0 ? quotaResponse(meter) : null;
 }

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Suspense } from "react";
 import { Authed } from "@/app/components/Authed";
 import { Settings } from "@/app/components/settings/Settings";
+import { SettingsLoading } from "@/app/components/settings/SettingsLoading";
 
 export const metadata: Metadata = {
   title: "Settings — Nootles",
@@ -15,8 +16,8 @@ export const metadata: Metadata = {
  */
 export default function SettingsPage() {
   return (
-    <Authed>
-      <Suspense>
+    <Authed fallback={<SettingsLoading />}>
+      <Suspense fallback={<SettingsLoading />}>
         <Settings />
       </Suspense>
     </Authed>

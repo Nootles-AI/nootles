@@ -1,7 +1,15 @@
-import { v } from "convex/values";
+import { v, type Infer } from "convex/values";
 import { internal } from "../_generated/api";
-import { internalMutation, internalQuery, mutation, query } from "../_generated/server";
-import { readOwned, requireOwned } from "../auth";
+import type { Doc, Id } from "../_generated/dataModel";
+import {
+  internalMutation,
+  internalQuery,
+  mutation,
+  query,
+  type MutationCtx,
+} from "../_generated/server";
+import { readManageable, requireManageable, requireOwner } from "../auth";
+import { recordInProject } from "../audit";
 import { removeDocument, upsertDocument } from "../context/documents";
 
 /**
@@ -14,7 +22,7 @@ import { removeDocument, upsertDocument } from "../context/documents";
 export const listForProject = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
-    if (!(await readOwned(ctx, "projects", args.projectId))) return [];
+    if (!(await readManageable(ctx, "projects", args.projectId))) return [];
     return await ctx.db
       .query("projectNotion")
       .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
@@ -22,56 +30,90 @@ export const listForProject = query({
   },
 });
 
+/** A page as the picker hands it over. */
+export const notionPageRef = v.object({
+  pageId: v.string(),
+  title: v.string(),
+  emoji: v.optional(v.string()),
+});
+
 export const link = mutation({
-  args: {
-    projectId: v.id("projects"),
-    pages: v.array(
-      v.object({ pageId: v.string(), title: v.string(), emoji: v.optional(v.string()) }),
-    ),
-  },
+  args: { projectId: v.id("projects"), pages: v.array(notionPageRef) },
   handler: async (ctx, args) => {
-    const { ownerId } = await requireOwned(ctx, "projects", args.projectId);
-    const now = Date.now();
-    const seen = new Set<string>();
-    for (const page of args.pages) {
-      if (seen.has(page.pageId)) continue;
-      seen.add(page.pageId);
-      const already = await ctx.db
-        .query("projectNotion")
-        .withIndex("by_project_and_pageId", (q) =>
-          q.eq("projectId", args.projectId).eq("pageId", page.pageId),
-        )
-        .first();
-      if (already) continue;
-      const rowId = await ctx.db.insert("projectNotion", {
-        ownerId,
-        projectId: args.projectId,
-        pageId: page.pageId,
-        title: page.title,
-        ...(page.emoji ? { emoji: page.emoji } : {}),
-        url: `https://www.notion.so/${page.pageId.replace(/-/g, "")}`,
-        index: { state: "queued" },
-        addedAt: now,
-      });
-      await ctx.scheduler.runAfter(0, internal.notion.contextRead.run, { rowId });
-    }
+    await requireManageable(ctx, "projects", args.projectId);
+    await linkPages(ctx, await requireOwner(ctx), args.projectId, args.pages);
   },
 });
+
+/**
+ * Link pages to a project and start reading them. Linked under `ownerId`, the
+ * caller: it is their Notion connection that reads them. Shared with
+ * `projects.create`, which links what was chosen before the project existed.
+ */
+export async function linkPages(
+  ctx: MutationCtx,
+  ownerId: string,
+  projectId: Id<"projects">,
+  pages: Infer<typeof notionPageRef>[],
+) {
+  const now = Date.now();
+  const seen = new Set<string>();
+  const project = (await ctx.db.get(projectId))!;
+  for (const page of pages) {
+    if (seen.has(page.pageId)) continue;
+    seen.add(page.pageId);
+    const already = await ctx.db
+      .query("projectNotion")
+      .withIndex("by_project_and_pageId", (q) =>
+        q.eq("projectId", projectId).eq("pageId", page.pageId),
+      )
+      .first();
+    if (already) continue;
+    const rowId = await ctx.db.insert("projectNotion", {
+      ownerId,
+      projectId,
+      pageId: page.pageId,
+      title: page.title,
+      ...(page.emoji ? { emoji: page.emoji } : {}),
+      url: `https://www.notion.so/${page.pageId.replace(/-/g, "")}`,
+      index: { state: "queued" },
+      addedAt: now,
+    });
+    await ctx.scheduler.runAfter(0, internal.notion.contextRead.run, { rowId });
+    await recordInProject(
+      ctx,
+      project,
+      { action: "notion.link", subjectKind: "notion", subjectId: rowId, meta: { page: page.title } },
+      ownerId,
+    );
+  }
+}
 
 export const unlink = mutation({
   args: { rowId: v.id("projectNotion") },
   handler: async (ctx, args) => {
-    const row = await requireOwned(ctx, "projectNotion", args.rowId);
-    await ctx.db.delete(row._id);
-    await removeDocument(ctx, row.projectId, externalIdOf(row.pageId));
+    const row = await requireManageable(ctx, "projectNotion", args.rowId);
+    await unlinkPage(ctx, row);
+    await recordInProject(ctx, (await ctx.db.get(row.projectId))!, {
+      action: "notion.unlink",
+      subjectKind: "notion",
+      subjectId: row._id,
+      meta: { page: row.title },
+    });
   },
 });
+
+/** Unlinks a page, and its document in the context graph with it. */
+export async function unlinkPage(ctx: MutationCtx, row: Doc<"projectNotion">) {
+  await ctx.db.delete(row._id);
+  await removeDocument(ctx, row.projectId, externalIdOf(row.pageId));
+}
 
 /** Read the page again. Refused while a read is waiting or running. */
 export const reindex = mutation({
   args: { rowId: v.id("projectNotion") },
   handler: async (ctx, args) => {
-    const row = await requireOwned(ctx, "projectNotion", args.rowId);
+    const row = await requireManageable(ctx, "projectNotion", args.rowId);
     if (row.index.state === "queued" || row.index.state === "reading") return;
     await ctx.db.patch(row._id, { index: { ...row.index, state: "queued" } });
     await ctx.scheduler.runAfter(0, internal.notion.contextRead.run, { rowId: row._id });

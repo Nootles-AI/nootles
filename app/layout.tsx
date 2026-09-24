@@ -6,6 +6,7 @@ import { ConvexClientProvider } from "./ConvexClientProvider";
 import { TelemetryProvider } from "./components/TelemetryProvider";
 import { UpdateToast } from "./components/UpdateToast";
 import { StandInProvider } from "./components/StandIn";
+import { IdentitySync } from "./components/IdentitySync";
 import { NotionConfigProvider } from "./components/notion/NotionAvailable";
 import { oauthConfig } from "./api/notion/oauth";
 
@@ -50,7 +51,9 @@ export default function RootLayout({
           <ConvexClientProvider>
             <TelemetryProvider>
               <NotionConfigProvider oauth={oauthConfig() !== null}>
-                <StandInProvider>{children}</StandInProvider>
+                <StandInProvider>
+                  <IdentitySync>{children}</IdentitySync>
+                </StandInProvider>
               </NotionConfigProvider>
               <UpdateToast />
             </TelemetryProvider>

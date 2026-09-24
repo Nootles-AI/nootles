@@ -6,6 +6,7 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import {
   channelAdmits,
   commentsProject,
+  containerRole,
   isTrashed,
   ownerId,
   readableComments,
@@ -16,7 +17,7 @@ import {
 } from "./auth";
 import { isAuditId, recordAudit } from "./audit";
 import { storedThreads } from "./comments";
-import { containerMembers, mentionablePeople } from "./container";
+import { memberRole, mentionablePeople } from "./container";
 import { MAX_SIGNERS } from "@/app/lib/comments/types";
 
 /**
@@ -245,7 +246,9 @@ export const event = mutation({
 
     const mentions = people(args.mentions, "people");
     const participants = people(args.participants ?? [], "participants");
-    const members = new Set((await containerMembers(ctx, project)).map((m) => m.userId));
+    const named = [...new Set([...mentions, ...participants])];
+    const roles = await Promise.all(named.map((id) => memberRole(ctx, project, id)));
+    const members = new Set(named.filter((_, i) => roles[i] !== null));
 
     const outsiders = mentions.filter((id) => !members.has(id));
     if (outsiders.length) throw outsiderRefusal(outsiders);
@@ -305,6 +308,11 @@ const person = v.object({
  * roster goes to whoever may comment, as Docs' mention menu does: naming
  * someone is what a commenter is for. It stays closed to viewers, strangers,
  * signed-out visitors and an operator standing in, who get nobody.
+ *
+ * In a workspace project it goes only to those its seats let in: a
+ * workspace's roster is its members' to see (`members.list`), and a guest or
+ * someone in by link sees the projects they were let into, not who else is
+ * there. They still reply, which tells the thread's people.
  */
 export const mentionable = query({
   args: { pageId: v.id("pages") },
@@ -316,6 +324,7 @@ export const mentionable = query({
       return [];
     }
     const me = await ownerId(ctx);
+    if (found.project.workspaceId && !(me && (await containerRole(ctx, found.project, me)))) return [];
     return (await mentionablePeople(ctx, found.project))
       .filter((person) => person.userId !== me)
       .map(({ userId, name, imageUrl }) => ({ userId, name, imageUrl }));
@@ -337,9 +346,11 @@ export const authors = query({
     const found = await readableComments(ctx, args.pageId);
     if (!found) return [];
     const asked = new Set(args.userIds.slice(0, MAX_SIGNERS));
-    const members = (await containerMembers(ctx, found.project)).filter((m) => asked.has(m.userId));
+    const ids = [...asked];
+    const roles = await Promise.all(ids.map((id) => memberRole(ctx, found.project, id)));
+    const members = ids.filter((_, i) => roles[i] !== null);
     return await Promise.all(
-      members.map(async ({ userId }) => {
+      members.map(async (userId) => {
         const profile = await ctx.db
           .query("profiles")
           .withIndex("by_owner", (q) => q.eq("ownerId", userId))

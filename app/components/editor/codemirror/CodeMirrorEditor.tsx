@@ -5,6 +5,7 @@ import { EditorState, Compartment, StateEffect } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { defaultKeymap, indentWithTab } from "@codemirror/commands";
 import { AI } from "@/app/lib/ai/aiConfig";
+import { useCompletionProject } from "../ai/CompletionContext";
 import { eveningExtensions } from "./theme";
 import { codeGhostExtension, setCodeGhost } from "./ghost";
 import { loadLanguage } from "./languages";
@@ -137,8 +138,12 @@ export function CodeMirrorEditor({
   // sees the whole page — the prose introducing the code, the diagram beside it —
   // and the closing tag sits in the suffix, so it returns bare code.
   const ctxRef = useRef(getFimContext);
+  // Whose allowance a completion spends is decided by its project.
+  const projectId = useCompletionProject();
+  const projectRef = useRef(projectId);
   useEffect(() => {
     ctxRef.current = getFimContext;
+    projectRef.current = projectId;
   });
 
   useEffect(() => {
@@ -175,6 +180,7 @@ export function CodeMirrorEditor({
             before: ctx.prefix.slice(-AI.fim.maxBefore),
             after: ctx.suffix.slice(0, AI.fim.maxAfter),
             mode: "structure",
+            projectId: projectRef.current ?? undefined,
           }),
           signal: controller.signal,
         });

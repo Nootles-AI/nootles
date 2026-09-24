@@ -79,13 +79,12 @@ export const save = mutation({
 export const markRewound = mutation({
   args: { chatPromptId: v.string() },
   handler: async (ctx, args) => {
-    const owner = await currentOwner(ctx);
-    if (!owner) throw new Error("Not signed in");
     const row = await ctx.db
       .query("chatTurns")
       .withIndex("by_prompt", (q) => q.eq("chatPromptId", args.chatPromptId))
       .unique();
-    if (!row || row.ownerId !== owner) throw new Error("Not found");
+    if (!row) throw new Error("Not found");
+    await requireOwned(ctx, "chatTurns", row._id);
     await ctx.db.patch(row._id, { rewoundAt: Date.now() });
   },
 });
@@ -94,13 +93,11 @@ export const markRewound = mutation({
 export const byPrompt = query({
   args: { chatPromptId: v.string() },
   handler: async (ctx, args) => {
-    const owner = await currentOwner(ctx);
-    if (!owner) return null;
     const row = await ctx.db
       .query("chatTurns")
       .withIndex("by_prompt", (q) => q.eq("chatPromptId", args.chatPromptId))
       .unique();
-    return row?.ownerId === owner ? row : null;
+    return row && (await readOwned(ctx, "chatTurns", row._id));
   },
 });
 

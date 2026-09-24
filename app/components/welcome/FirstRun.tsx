@@ -16,7 +16,9 @@ const noop = () => () => {};
  * on its own would also describe every account that existed before first run
  * did — and dropping those people into a survey, projects and all, would be
  * the worst possible greeting. An empty project list is what distinguishes
- * them, and it stops being true the moment either flow finishes.
+ * them, and it stops being true the moment either flow finishes. A seat in a
+ * workspace counts as having projects too: someone whose work is all in a
+ * team's workspaces has a place to be, and it isn't a survey.
  *
  * Renders nothing while the answer is unknown. The project list asked for is
  * the very query the projects screen draws from (`listForScreen`, not the
@@ -42,14 +44,18 @@ export function FirstRun({ children }: { children: ReactNode }) {
 
   const profile = useQuery(api.profiles.get, isAuthenticated ? {} : "skip");
   const projects = useQuery(api.projects.listForScreen, isAuthenticated ? {} : "skip");
+  const workspaces = useQuery(api.workspaces.listMine, isAuthenticated ? {} : "skip");
 
-  const fresh = profile === null && projects?.length === 0;
+  const fresh = profile === null && projects?.length === 0 && workspaces?.length === 0;
 
   useEffect(() => {
     if (fresh) router.replace("/welcome");
   }, [fresh, router]);
 
-  if (fresh || (!known && (profile === undefined || projects === undefined))) {
+  if (
+    fresh ||
+    (!known && (profile === undefined || projects === undefined || workspaces === undefined))
+  ) {
     return <div className="flex-1" aria-busy="true" />;
   }
   return <>{children}</>;

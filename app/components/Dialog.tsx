@@ -194,18 +194,27 @@ const TABBABLE =
  * goes back to the control that opened it — but only if nothing else has
  * claimed focus meanwhile, because an action that moves focus itself must not
  * be undone by the restore landing after it.
+ *
+ * The opener is read as the dialog first renders: an `autoFocus` inside takes
+ * focus as the dialog is committed, before any effect runs, and would
+ * otherwise be taken for the opener — gone with the dialog, so focus fell to
+ * the page. The restore waits for the dialog to have actually left the page,
+ * which is also what tells a real unmount from development's rehearsal of one.
  */
-function useModalFocus(ref: RefObject<HTMLElement | null>) {
+export function useModalFocus(ref: RefObject<HTMLElement | null>) {
+  const [opener] = useState(() =>
+    typeof document === "undefined" ? null : document.activeElement,
+  );
   useEffect(() => {
     const el = ref.current;
-    const opener = document.activeElement;
     if (el && !el.contains(document.activeElement)) el.focus();
     return () => {
+      if (el?.isConnected) return;
       const active = document.activeElement;
-      const unclaimed = !active || active === document.body || el?.contains(active);
+      const unclaimed = !active || active === document.body;
       if (unclaimed && opener instanceof HTMLElement && opener.isConnected) opener.focus();
     };
-  }, [ref]);
+  }, [ref, opener]);
 
   return (e: KeyboardEvent<HTMLElement>) => {
     if (e.key !== "Tab" || !ref.current) return;

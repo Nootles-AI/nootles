@@ -1,5 +1,6 @@
 import { ConvexError, v } from "convex/values";
 import { requireAdmin } from "./admin";
+import { record } from "./audit";
 import { standInActor } from "./auth";
 import { internalMutation, query } from "./_generated/server";
 
@@ -63,6 +64,25 @@ export const begin = internalMutation({
       issuedAt,
       expiresAt,
     });
+    // A stand-in reads every workspace its subject sits in, so each of them
+    // hears of it: an admin reads their own workspace's log, not the others'.
+    // The reason stays on the operator-only row above — it is usually about
+    // one tenant, and every other workspace's admins would read it here.
+    const seats = await ctx.db
+      .query("memberships")
+      .withIndex("by_user_status", (q) => q.eq("userId", args.subject).eq("status", "active"))
+      .collect();
+    for (const seat of seats) {
+      await record(ctx, {
+        workspaceId: seat.workspaceId,
+        actorId: session._id,
+        actorKind: "operator",
+        action: "operator.standIn",
+        subjectKind: "user",
+        subjectId: args.subject,
+        meta: { expiresAt, sessionId: jti },
+      });
+    }
     return { jti, issuedAt, expiresAt };
   },
 });

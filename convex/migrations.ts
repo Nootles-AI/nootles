@@ -8,6 +8,7 @@ import { pageNode } from "./context/pages";
 import { documentId } from "./files/context";
 import { raiseTo, TICKET } from "./counters";
 import { forgetPagesIn, pagesInBlob } from "./pages";
+import { PLAN_OVERRIDE } from "./plans";
 
 /**
  * One-off backfills, run by hand with `npx convex run`. Internal: none of this
@@ -217,6 +218,60 @@ export const grandfatherChatThreads = internalMutation({
 });
 
 /**
+ * Keeps the workspaces made before Team billing on the plan they had.
+ *
+ * Until billing, every workspace was unlimited; after it, one with no live
+ * subscription is on the free allowance, so every tester's workspace would
+ * lose chat and completions the moment it deploys. This grants each the
+ * `plan: "team"` override instead — the one an operator grants a tester by
+ * hand (`adminBilling.grantWorkspaceOverride`), and cleared the same way.
+ *
+ * Run once, right after the deploy. Idempotent: a workspace that already has
+ * a plan override, or has been deleted, is left as it is.
+ */
+export const grandfatherWorkspaces = internalMutation({
+  args: { note: v.string(), cursor: v.optional(v.string()) },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ seen: number; granted: number; done: boolean; cursor: string | null }> => {
+    const note = args.note.trim();
+    if (!note) throw new Error("Say why these workspaces keep the Team plan.");
+    const batch = await ctx.db
+      .query("workspaces")
+      .paginate({ numItems: BATCH, cursor: args.cursor ?? null });
+
+    let granted = 0;
+    for (const workspace of batch.page) {
+      if (workspace.deletedAt !== undefined) continue;
+      const existing = await ctx.db
+        .query("workspaceEntitlements")
+        .withIndex("by_workspace_and_feature", (q) =>
+          q.eq("workspaceId", workspace._id).eq("feature", PLAN_OVERRIDE),
+        )
+        .unique();
+      if (existing) continue;
+      await ctx.db.insert("workspaceEntitlements", {
+        workspaceId: workspace._id,
+        feature: PLAN_OVERRIDE,
+        value: "team",
+        note,
+        grantedBy: "convex run",
+        grantedAt: Date.now(),
+      });
+      granted += 1;
+    }
+
+    return {
+      seen: batch.page.length,
+      granted,
+      done: batch.isDone,
+      cursor: batch.isDone ? null : batch.continueCursor,
+    };
+  },
+});
+
+/**
  * Chat turns per transaction. Capped in bytes as well as rows: a packed turn
  * can approach the 1MiB value ceiling, so a count alone would not keep a batch
  * inside the read limit.
@@ -419,5 +474,34 @@ export const contextFileNodes = internalMutation({
       });
     }
     return { files: batch.page.length, done: batch.isDone };
+  },
+});
+
+/**
+ * Stamps `code` on every context text row written before the field, from its
+ * node's source. Until it has run, search leaves those rows out for a reader
+ * who may not see code — pages included — so run it with the deploy that adds
+ * the field. Idempotent: a stamped row is left alone.
+ */
+export const markContextCode = internalMutation({
+  args: { cursor: v.optional(v.string()) },
+  handler: async (ctx, args): Promise<{ stamped: number; done: boolean }> => {
+    const batch = await ctx.db
+      .query("contextNodeText")
+      .paginate({ numItems: BATCH, cursor: args.cursor ?? null });
+    let stamped = 0;
+    for (const row of batch.page) {
+      if (row.code !== undefined) continue;
+      const node = await ctx.db.get(row.nodeId);
+      if (!node) continue;
+      await ctx.db.patch(row._id, { code: node.source === "github" });
+      stamped++;
+    }
+    if (!batch.isDone) {
+      await ctx.scheduler.runAfter(0, internal.migrations.markContextCode, {
+        cursor: batch.continueCursor,
+      });
+    }
+    return { stamped, done: batch.isDone };
   },
 });

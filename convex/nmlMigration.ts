@@ -1,10 +1,10 @@
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { v } from "convex/values";
-import type { Doc, Id } from "./_generated/dataModel";
+import type { Doc } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { checkRead, checkWrite, pageForDoc } from "./prosemirror";
-import { ownerId, requireOwned } from "./auth";
+import { ownerId, requireManageable, requireOwner } from "./auth";
 import { appendYUpdate } from "./ydoc";
 import { joinUpdateRows } from "./yshape";
 import { NML_SCHEMA_VERSION } from "@/app/lib/nml/schema";
@@ -132,7 +132,11 @@ async function eligible(ctx: QueryCtx, docId: string): Promise<boolean> {
   // eligible, so the founding team's docs (current and future) migrate without
   // per-project enrollment. Owned-only by construction — this keys on the page's
   // own owner, so a doc a member can merely edit but does not own is not theirs.
-  if (await isInternalOwner(ctx, page.ownerId)) return true;
+  // Only in a personal project: a workspace project's `ownerId` is its creator,
+  // who owns nothing there (`auth.seatRole`) and may since have lost their
+  // seat, so a workspace's documents opt in through the cohort alone.
+  const project = await ctx.db.get(page.projectId);
+  if (project && !project.workspaceId && (await isInternalOwner(ctx, page.ownerId))) return true;
   const byProject = await ctx.db
     .query("nmlCohorts")
     .withIndex("by_scope_and_key", (q) => q.eq("scope", "project").eq("key", page.projectId))
@@ -142,16 +146,19 @@ async function eligible(ctx: QueryCtx, docId: string): Promise<boolean> {
 
 /**
  * Authorize a cohort change: opting a single document in needs write access to
- * it; opting a whole project in needs ownership of the project. Both reuse the
- * one centralized authority rather than inventing a migration-only role.
+ * it; opting a whole project in needs the right to manage the project. Both
+ * reuse the one centralized authority rather than inventing a migration-only
+ * role.
  */
 async function authorizeCohort(ctx: MutationCtx, scope: "project" | "doc", key: string): Promise<string> {
   if (scope === "doc") {
     await checkWrite(ctx, key);
     return (await ownerId(ctx)) ?? "anonymous";
   }
-  const project = await requireOwned(ctx, "projects", key as Id<"projects">);
-  return project.ownerId;
+  const projectId = ctx.db.normalizeId("projects", key);
+  if (!projectId) throw new Error("Not found");
+  await requireManageable(ctx, "projects", projectId);
+  return await requireOwner(ctx);
 }
 
 /** Is this document eligible to migrate? Subscribed to by a preparing client. */

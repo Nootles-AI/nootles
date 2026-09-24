@@ -47,7 +47,14 @@ function createBackend() {
       case "folders:listByProject":
         return [];
       case "share:links":
-        return { viewer: null, commenter: null, editor: null };
+        return {
+          viewer: null,
+          commenter: null,
+          editor: null,
+          expiresAt: { viewer: null, commenter: null, editor: null },
+          allowed: true,
+          defaultDays: null,
+        };
       case "share:collaborators":
       case "share:incomingRequests":
         return [];
@@ -63,6 +70,15 @@ function createBackend() {
         return [];
       case "entitlements:mine":
         return { left: null };
+      // A personal project on its owner's paid plan: no workspace to answer.
+      case "entitlements:forContainer":
+        return {
+          container: { kind: "account" },
+          plan: "pro",
+          features: { unmetered: true, auditLog: false, comments: true, guestDailyAiUsd: 1 },
+          entitlement: { plan: "pro", source: "subscription", left: null, used: null },
+          guestAi: null,
+        };
     }
     unknown.add(name);
     return undefined;

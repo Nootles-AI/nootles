@@ -10,14 +10,29 @@ import {
   type ReactNode,
 } from "react";
 import { useRouter } from "next/navigation";
+import { useUser } from "@clerk/nextjs";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { pages, when } from "@/app/lib/projectMeta";
+import { projectPath } from "@/app/lib/containerPaths";
 import { Dialog } from "./Dialog";
 import { PROJECT_TEMPLATES, pagePicture, type ProjectTemplate } from "@/app/lib/templates";
-import { ChevronRight, FileDoc, Folder, Plus, Sparkles, Template } from "./Icons";
-import { useNewProjectDraft, type NewProject } from "./newProjectDraft";
+import {
+  ChevronRight,
+  ChevronsUpDown,
+  FileDoc,
+  Folder,
+  Lock,
+  PersonPlus,
+  Plus,
+  Sparkles,
+  Template,
+} from "./Icons";
+import { Menu, MenuItem } from "./Menu";
+import { Segmented } from "./Segmented";
+import { useNewProjectDraft, type NewProject, type ProjectHome } from "./newProjectDraft";
+import { slugOf, useContainer } from "./workspaces/ContainerContext";
 import { NotionMark } from "./NotionMark";
 import { NotionPort } from "./NotionPort";
 import { BlankStart } from "./BlankStart";
@@ -28,6 +43,13 @@ import { TemplateWall } from "./TemplateWall";
 import { roleLabel } from "./projectParts";
 import { DraftSources } from "./context/ContextSources";
 import { GitHubSourcePage, NotionSourcePage } from "./context/SourcePages";
+import { repoPlaceholder, searchable, useGitHubDoor } from "./context/useGitHubDoor";
+import { Place, Tile, YouTile } from "./workspaces/places";
+import { offersInvite, ROLE_LABEL } from "./workspaces/seats";
+import { INVITE_WORDS, InvitePage } from "./workspaces/InvitePage";
+import { useStandIn } from "./StandIn";
+import { paletteMatch } from "@/app/lib/paletteMatch";
+import { stopped, TeamWallPane } from "./billing/TeamWall";
 
 type Project = NonNullable<
   ReturnType<typeof useQuery<typeof api.projects.listForScreen>>
@@ -51,6 +73,8 @@ type Row = {
   template?: ProjectTemplate;
   /** A picture in the side pane, rather than a card about the row. */
   picture?: "wall" | "blank" | "notion" | "pro";
+  /** Other words the row is found by, beside its name. */
+  words?: readonly string[];
   run: () => void;
 };
 
@@ -145,7 +169,9 @@ export type Page =
   | "notion"
   /** The details form's GitHub and Notion doors, each a page of its own. */
   | "sourceGithub"
-  | "sourceNotion";
+  | "sourceNotion"
+  /** Inviting someone to the workspace whose home this is. */
+  | "invite";
 
 function Palette({
   start,
@@ -172,15 +198,37 @@ function Palette({
   onDone: () => void;
 }) {
   const router = useRouter();
-  const [page, setPage] = useState<Page>(start);
+  const here = useContainer();
+  const [asked, setPage] = useState<Page>(start);
+  // Letting someone in, for whoever may: the workspace's owners and admins.
+  // A seat that stops being one while the page is up finds itself at the root.
+  const standIn = useStandIn();
+  const inviteTo = here.kind === "workspace" && offersInvite(here.role, standIn) ? here : null;
+  const page: Page = asked === "invite" && !inviteTo ? "root" : asked;
   // What the details page is making: a template, or null for blank.
   const [template, setTemplate] = useState<{ id: string; name: string } | null>(null);
   const [query, setQuery] = useState("");
   const [index, setIndex] = useState(0);
   const list = useRef<HTMLDivElement>(null);
+  // A project started on a workspace's home is that workspace's unless its
+  // maker says otherwise — and a guest, who makes nothing there, starts one
+  // of their own.
+  const home: ProjectHome | undefined =
+    here.kind === "workspace" && here.role !== "guest"
+      ? { workspaceId: here.workspaceId, slug: here.slug, visibility: "workspace" }
+      : undefined;
   // Held here rather than in the form: the form's source doors are pages of
   // their own, and what was typed has to be there when they step back.
-  const draft = useNewProjectDraft(onCreate, template?.id);
+  const draft = useNewProjectDraft(onCreate, template?.id, home);
+  // A workspace with no projects left says so where making one starts, rather
+  // than letting it be written out and refused at Create. Its allowance is
+  // the workspace's, asked of where the draft is going.
+  const going = draft.workspace?.workspaceId;
+  const standing = useQuery(api.entitlements.forContainer, going ? { workspaceId: going } : "skip");
+  const spent =
+    standing?.container.kind === "workspace" && standing.entitlement.left?.projects === 0
+      ? standing.container
+      : null;
 
   const go = (to: Page) => {
     setPage(to);
@@ -202,34 +250,50 @@ function Palette({
     notion: "create",
     sourceGithub: "details",
     sourceNotion: "details",
+    invite: "root",
   };
   const sourcePage = page === "sourceGithub" || page === "sourceNotion";
   // Pages that are not a list of rows: the keys belong to whatever is on them.
-  const listless = page === "details" || page === "notion" || sourcePage;
+  const listless = page === "details" || page === "notion" || sourcePage || page === "invite";
   // The import's pick state is searched from this field rather than one of its
   // own; it says when it has pages to search.
   const [notionSearch, setNotionSearch] = useState(false);
   // A source's page is searched once it has something to search: not on its
   // connect screen.
-  const githubStatus = useQuery(api.github.account.status, page === "sourceGithub" ? {} : "skip");
+  // A workspace's project takes its repositories from the workspace's GitHub
+  // App; the draft says which container it is going to.
+  const githubDoor = useGitHubDoor(draft.workspace?.workspaceId, page === "sourceGithub");
   const notionStatus = useQuery(api.notion.account.status, page === "sourceNotion" ? {} : "skip");
   const sourceReady =
-    (page === "sourceGithub" && !!githubStatus?.account && !githubStatus.account.invalidAt) ||
+    (page === "sourceGithub" && searchable(githubDoor)) ||
     (page === "sourceNotion" && !!notionStatus?.account && !notionStatus.account.invalidAt);
   const fielded = !listless || (page === "notion" && notionSearch) || sourceReady;
+  // An import lands where New project would: the home it was started from, or
+  // wherever the details page's Where was last set.
+  const seats = useQuery(api.workspaces.listMine, page === "notion" && draft.workspace ? {} : "skip");
+  const into = draft.workspace && {
+    workspaceId: draft.workspace.workspaceId,
+    visibility: draft.workspace.visibility,
+    name:
+      seats?.find((w) => w.workspaceId === draft.workspace?.workspaceId)?.name ??
+      (here.kind === "workspace" && here.workspaceId === draft.workspace.workspaceId
+        ? here.name
+        : "the workspace"),
+  };
 
   // Anyone not on Pro is offered it first — once the plan has answered, so an
   // account that has paid never sees it flash. Not to a stand-in operator,
-  // who is not the one who would be paying.
+  // who is not the one who would be paying, and not on a workspace's home,
+  // where the plan that matters is the workspace's.
   const { left } = usePlan();
   const root: Row[] = [
-    ...(canCreate && left
+    ...(canCreate && left && here.kind === "account"
       ? [
           {
             id: "upgrade",
             group: "Pro",
             name: "Upgrade to Pro",
-            line: "Unlimited projects, completions and conversations",
+            line: "Unlimited projects, completions and chats",
             icon: <Sparkles />,
             picture: "pro" as const,
             run: () => {
@@ -253,9 +317,23 @@ function Palette({
           },
         ]
       : []),
+    ...(inviteTo
+      ? [
+          {
+            id: "invite",
+            group: "People",
+            name: "Invite people",
+            line: `Add someone to ${inviteTo.name} by their email address`,
+            icon: <PersonPlus />,
+            words: INVITE_WORDS,
+            drill: true,
+            run: () => go("invite"),
+          },
+        ]
+      : []),
     ...projects.map((p) => ({
       id: p._id,
-      group: "Yours",
+      group: here.kind === "workspace" ? here.name : "Yours",
       name: p.title || "Untitled project",
       line: `${pages(p.pageCount)} · ${when(p.updatedAt)}`,
       icon: <Folder />,
@@ -306,7 +384,8 @@ function Palette({
             icon: <NotionMark />,
             picture: "notion" as const,
             drill: true,
-            run: () => (room ? go("notion") : onWall()),
+            // A workspace's projects never count against your own plan.
+            run: () => (room || draft.workspace ? go("notion") : onWall()),
           },
         ]
       : []),
@@ -328,10 +407,12 @@ function Palette({
 
   const q = query.trim().toLowerCase();
   const rows = (page === "root" ? root : page === "create" ? create : choices).filter(
-    (r) => !q || r.name.toLowerCase().includes(q),
+    (r) => paletteMatch(q, r.name, r.words),
   );
   const at = Math.min(index, Math.max(rows.length - 1, 0));
   const current = rows.at(at);
+  // Every way to start one would be refused, so the side says why instead.
+  const walledHere = spent && page === "create" ? spent : null;
 
   // The highlight is one element that travels, so it is placed from the
   // selected row's measured box rather than drawn by the row.
@@ -348,14 +429,15 @@ function Palette({
   // arrow key would otherwise mount a live thumbnail, and fetch the editor's
   // bundle, for every row on the way past.
   const currentProject = current?.project;
+  const slug = slugOf(here);
   const [shown, setShown] = useState(currentProject);
   useEffect(() => {
     const t = setTimeout(() => {
       setShown(currentProject);
-      if (currentProject) router.prefetch(`/p/${currentProject._id}`);
+      if (currentProject) router.prefetch(projectPath(slug, currentProject._id));
     }, 110);
     return () => clearTimeout(t);
-  }, [currentProject, router]);
+  }, [currentProject, router, slug]);
 
   // Resting on the Notion row is the cue to fetch what choosing it will need.
   const onNotionRow = current?.picture === "notion";
@@ -410,7 +492,9 @@ function Palette({
   const trail: { label: string; to: Page }[] =
     page === "root"
       ? []
-      : [
+      : page === "invite"
+        ? [{ label: "Invite people", to: "root" }]
+        : [
           { label: "New project", to: "root" },
           ...(page === "template" || (page === "details" && template)
             ? [{ label: "From template", to: "create" as Page }]
@@ -448,7 +532,7 @@ function Palette({
             type="search"
             aria-label={page === "sourceGithub" ? "Search repositories" : "Search Notion pages"}
             placeholder={
-              page === "sourceGithub" ? "Search your repositories, or type owner/name…" : "Search your Notion pages…"
+              page === "sourceGithub" ? repoPlaceholder(githubDoor) : "Search your Notion pages…"
             }
             autoComplete="off"
             spellCheck={false}
@@ -484,16 +568,20 @@ function Palette({
         <kbd className="nt-kbd">esc</kbd>
       </div>
 
-      {page === "notion" ? (
+      {page === "invite" && inviteTo ? (
+        <InvitePage workspace={inviteTo} onBack={() => go("root")} />
+      ) : page === "notion" ? (
         <NotionImportBody
           frame="palette"
           close={onDone}
           back={() => go("create")}
           search={query}
           onSearchable={setNotionSearch}
+          into={into}
         />
       ) : page === "sourceGithub" ? (
         <GitHubSourcePage
+          door={githubDoor}
           chosen={draft.sources.repos}
           search={query}
           onChoose={(repos) => {
@@ -516,6 +604,7 @@ function Palette({
         <DetailsForm
           template={template}
           draft={draft}
+          spent={spent?.name ?? null}
           onDoor={(door) => go(door === "github" ? "sourceGithub" : "sourceNotion")}
           onBack={() => go(template ? "template" : "create")}
         />
@@ -564,8 +653,16 @@ function Palette({
               )}
             </div>
 
-            <aside className="nt-pal-side" aria-hidden="true">
-              {shown && shown._id === currentProject?._id ? (
+            {/* A picture, hidden from assistive tech — except the wall, which
+                holds the way on. */}
+            <aside className="nt-pal-side" aria-hidden={walledHere ? undefined : true}>
+              {walledHere ? (
+                <TeamWallPane
+                  meter="projects"
+                  workspaceId={walledHere.workspaceId}
+                  name={walledHere.name}
+                />
+              ) : shown && shown._id === currentProject?._id ? (
                 <div className="nt-pal-card" key={shown._id}>
                   <PagePreview docId={shown.firstPageDocId} />
                   <p className="nt-pal-card-name">{shown.title || "Untitled project"}</p>
@@ -609,7 +706,12 @@ function Palette({
           <div className="nt-pal-foot">
             <span>
               <kbd className="nt-kbd">↵</kbd>
-              {page === "root" ? (current?.drill ? "Choose how" : "Open") : current?.drill ? "Continue" : "Start"}
+              {page === "root"
+                ? current?.id === "invite"
+                  ? "Continue"
+                  : current?.drill
+                    ? "Choose how"
+                    : "Open" : current?.drill ? "Continue" : "Start"}
             </span>
             <span>
               <kbd className="nt-kbd">↑</kbd>
@@ -684,19 +786,43 @@ function TemplatePreview({ template }: { template: ProjectTemplate }) {
 function DetailsForm({
   template,
   draft,
+  spent,
   onDoor,
   onBack,
 }: {
   template: { id: string; name: string } | null;
   draft: ReturnType<typeof useNewProjectDraft>;
+  /** The workspace it is going to, when that has no projects left. */
+  spent: string | null;
   /** GitHub and Notion open as pages of the palette; files stay a file dialog. */
   onDoor: (door: "github" | "notion") => void;
   onBack: () => void;
 }) {
   const {
     title, setTitle, description, setDescription, sources, setSources,
-    busy, failure, named, submit,
+    workspace, setWorkspace, busy, failure, named, submit,
   } = draft;
+  // Where it can go: your own projects, and every workspace you make things
+  // in. Only asked of someone who has one — for everyone else the form is
+  // exactly what it always was.
+  const seats = useQuery(api.workspaces.listMine);
+  const places = seats?.filter((w) => w.role !== "guest") ?? [];
+  // Asked for as the form opened: its rows fold in when they come.
+  const [late] = useState(seats === undefined);
+  const arriving = late ? " is-arriving" : "";
+  const { user } = useUser();
+  const chosen = workspace && places.find((w) => w.workspaceId === workspace.workspaceId);
+  // Who sees it, remembered across a trip to My Nootles and back — and so
+  // what the Visibility row goes on showing while it folds shut.
+  const [visibility, setVisibility] = useState(workspace?.visibility ?? "workspace");
+  const place = chosen?.name ?? "the workspace";
+  // What each answer means, the chosen one's said under the switch and the
+  // other's in its hint: who can open the project is the one thing here that
+  // can't be guessed.
+  const seen = {
+    workspace: `Everyone in ${place} can find it and edit it`,
+    private: `Only you and ${place}’s owners and admins can open it`,
+  };
 
   return (
     <form className="nt-pal-form" onSubmit={submit}>
@@ -714,9 +840,126 @@ function DetailsForm({
         />
       </label>
 
-      {/* The rest is one thing — what the assistant is told — and reads as one
-          group: keys down the left, answers down the right. */}
+      {/* The rest reads as one group, keys down the left and answers down the
+          right: where it lives, when there is a choice, and then what the
+          assistant is told. */}
       <div className="nt-pal-fields">
+        {places.length > 0 && (
+          <div className={`nt-pal-fold${arriving}`} data-open="true">
+            <div className="nt-pal-fld">
+              <span id="nt-pal-in-key" className="nt-pal-key">
+                Where
+              </span>
+              <div className="min-w-0">
+                <Menu
+                  label="Where the project goes"
+                  side="bottom"
+                  align="start"
+                  layer="modal"
+                  className="nt-ws-switcher"
+                  trigger={(t) => (
+                    <button
+                      {...t}
+                      type="button"
+                      id="nt-pal-in"
+                      aria-labelledby="nt-pal-in-key nt-pal-in"
+                      className="nt-row -ml-2 max-w-full gap-1.5 px-2 text-[length:var(--text-body)] text-foreground"
+                    >
+                      <span className="truncate">{chosen ? chosen.name : "My Nootles"}</span>
+                      <ChevronsUpDown width={14} height={14} className="shrink-0 text-muted" />
+                    </button>
+                  )}
+                >
+                  {(close) => (
+                    <>
+                      {/* The places as the switcher lists them. */}
+                      <MenuItem
+                        onClick={() => {
+                          setWorkspace(undefined);
+                          close();
+                        }}
+                      >
+                        <Place
+                          tile={<YouTile name={user?.fullName || user?.primaryEmailAddress?.emailAddress} />}
+                          name="My Nootles"
+                          current={!chosen}
+                        />
+                      </MenuItem>
+                      {places.map((w) => (
+                        <MenuItem
+                          key={w.workspaceId}
+                          onClick={() => {
+                            setWorkspace({
+                              workspaceId: w.workspaceId,
+                              slug: w.slug,
+                              visibility,
+                            });
+                            close();
+                          }}
+                        >
+                          <Place
+                            tile={<Tile name={w.name} icon={w.icon} />}
+                            name={w.name}
+                            meta={ROLE_LABEL[w.role]}
+                            current={chosen?.workspaceId === w.workspaceId}
+                          />
+                        </MenuItem>
+                      ))}
+                    </>
+                  )}
+                </Menu>
+                {/* Moving a project between them is not something Nootles does,
+                    so the choice is said to be for good before it is made — and
+                    so is what a member gives up by making one in a workspace:
+                    its owners and admins manage it, not whoever made it. */}
+                <p className="text-[length:var(--text-meta-lg)] text-muted text-pretty">
+                  {chosen?.role === "member"
+                    ? `A project can’t be moved after it’s made, and only ${chosen.name}’s owners and admins can rename or delete it.`
+                    : "A project can’t be moved after it’s made."}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+        {/* Two short words, since the workspace is named just above; who
+            exactly the chosen one means is said under it, and the other's in
+            its hint. Folded shut, not unmounted, while the project is going
+            into My Nootles. */}
+        {places.length > 0 && (
+          <div className={`nt-pal-fold${arriving}`} data-open={!!chosen} inert={!chosen}>
+            <div className="nt-pal-fld">
+              <span className="nt-pal-key">Visibility</span>
+              <div className="min-w-0 pt-0.5">
+                <Segmented
+                  label="Visibility"
+                  segments={[
+                    { id: "workspace", label: "Workspace", hint: seen.workspace },
+                    {
+                      id: "private",
+                      label: "Private",
+                      hint: seen.private,
+                      icon: <Lock width={12} height={12} aria-hidden="true" />,
+                    },
+                  ]}
+                  value={visibility}
+                  chosenSaidBelow
+                  onChange={(next) => {
+                    setVisibility(next);
+                    if (workspace) setWorkspace({ ...workspace, visibility: next });
+                  }}
+                />
+                <p
+                  aria-live="polite"
+                  className="mt-1.5 text-[length:var(--text-meta-lg)] text-muted text-pretty"
+                >
+                  <span key={visibility} className="nt-ws-swap">
+                    {seen[visibility]}.
+                  </span>
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
         <label className="nt-pal-fld">
           <span className="nt-pal-key">Description</span>
           <input
@@ -738,11 +981,16 @@ function DetailsForm({
 
       <div className="nt-pal-foot">
         {failure ? (
-          <span role="alert" className="text-danger">
+          <span key={failure} role="alert" className="nt-settle text-danger">
             {failure}
           </span>
+        ) : spent ? (
+          // Why Create is refused, where its key hint would be.
+          <span key={spent} role="status" className="nt-settle">
+            {stopped("projects", spent).title}.
+          </span>
         ) : (
-          <span>
+          <span className="nt-pal-hint">
             <kbd className="nt-kbd">↵</kbd>
             {template ? `Create from ${template.name}` : "Create"}
           </span>
@@ -751,7 +999,11 @@ function DetailsForm({
           <button type="button" onClick={onBack} className="nt-row px-2.5">
             Back
           </button>
-          <button type="submit" disabled={!named || busy} className="nt-row nt-solid px-3 font-medium">
+          <button
+            type="submit"
+            disabled={!named || busy || !!spent}
+            className="nt-row nt-solid px-3 font-medium"
+          >
             {busy ? "Creating…" : "Create"}
           </button>
         </span>

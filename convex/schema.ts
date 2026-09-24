@@ -13,9 +13,11 @@ import { v } from "convex/values";
  * and the AI substrate tables (operation log, checkpoints, context sheet).
  *
  * Tenancy: every top-level row carries `ownerId` — the Clerk subject that
- * created it. Access beyond the owner is granted per project through share
- * links and the claims they leave behind (`shareClaims`); resolution lives in
- * `auth.ts`, never at call sites.
+ * created it. A project lives in a container: its creator's account, or a
+ * workspace (`projects.workspaceId`), whose members reach it by their seat.
+ * Access beyond that is granted per project through share links and the
+ * claims they leave behind (`shareClaims`); resolution lives in `auth.ts`,
+ * never at call sites.
  */
 
 /**
@@ -116,16 +118,350 @@ export const auditMeta = v.object({
   counts: v.optional(v.record(v.string(), v.number())),
 });
 
+/** A workspace event's meta: names and values, one level deep. */
+export const flatAuditMeta = v.record(
+  v.string(),
+  v.union(v.string(), v.number(), v.boolean(), v.null()),
+);
+
 export const repoRef = v.object({
   /** "owner/name", the way GitHub writes it and the way the agent names it. */
   fullName: v.string(),
   defaultBranch: v.string(),
   description: v.optional(v.string()),
   private: v.boolean(),
+  /**
+   * The GitHub App installation that reads it, for a workspace project's
+   * repository chosen from the workspace's installations. Absent is read with
+   * the linker's own connection.
+   */
+  installationId: v.optional(v.number()),
+});
+
+/** A seat in a workspace, highest first. `auth.ts` ranks them. */
+export const memberRole = v.union(
+  v.literal("owner"),
+  v.literal("admin"),
+  v.literal("member"),
+  v.literal("guest"),
+);
+
+/** What an invitation can hand out: ownership is given by an owner, never by mail. */
+export const invitedRole = v.union(
+  v.literal("admin"),
+  v.literal("member"),
+  v.literal("guest"),
+);
+
+export const workspaceSettings = v.object({
+  /** Whether projects here may have share links at all. Default on. */
+  linkSharing: v.boolean(),
+  /** Whether a guest may be granted the repository half of a project's context. Default off. */
+  guestCodeAccess: v.boolean(),
+  /** Email domains an admin has proved they hold, lowercased. */
+  joinDomains: v.array(v.string()),
+  /** A signed-in address on a join domain joins without an invitation. */
+  autoJoin: v.boolean(),
+  /** A GitHub organisation every non-guest must belong to, when set. */
+  requireGithubOrg: v.optional(v.string()),
+  /**
+   * Whether a repository may be linked, and read, with a member's own GitHub
+   * connection rather than the workspace's App. Absent is allowed, so nothing
+   * linked before the App was installed stops working (docs/github-app.md).
+   */
+  allowPersonalTokens: v.optional(v.boolean()),
+  /** The expiry a new share link starts with, in days. Absent is no expiry. */
+  linkTtlDays: v.optional(v.number()),
 });
 
 export default defineSchema({
+  /**
+   * A team's home for projects, beside the personal account. The row is read
+   * for settings and naming only — never on a document's access path (see
+   * `auth.ts`), so an admin editing a setting does not re-run every open
+   * document subscription in the workspace.
+   */
+  workspaces: defineTable({
+    /** The current slug, mirrored from `workspaceSlugs` for display. */
+    slug: v.string(),
+    name: v.string(),
+    /** Clerk subject of whoever made it. */
+    createdBy: v.string(),
+    plan: v.union(v.literal("team"), v.literal("enterprise")),
+    settings: workspaceSettings,
+    /** Chosen icon, as a page's is; absent = the letter tile. See `rowIcon`. */
+    icon: v.optional(rowIcon),
+    createdAt: v.number(),
+    /**
+     * Soft delete. The deleting mutation also trashes every project and
+     * retires every membership, so nothing downstream has to read this.
+     */
+    deletedAt: v.optional(v.number()),
+  }).index("by_slug", ["slug"]),
+
+  /**
+   * Every slug a workspace has answered to. The current one has no
+   * `retiredAt`; old ones stay so `/w/<old>` keeps redirecting and no other
+   * workspace can claim a name that still has links pointing at it.
+   */
+  workspaceSlugs: defineTable({
+    slug: v.string(),
+    workspaceId: v.id("workspaces"),
+    retiredAt: v.optional(v.number()),
+  }).index("by_slug", ["slug"]),
+
+  /**
+   * One row per person per workspace, reused rather than appended to: leaving
+   * and coming back reactivates the row. Removal is a status, not a delete, so
+   * the record of who was here survives them.
+   */
+  memberships: defineTable({
+    workspaceId: v.id("workspaces"),
+    /** Clerk subject. */
+    userId: v.string(),
+    role: memberRole,
+    status: v.union(v.literal("active"), v.literal("removed")),
+    invitedBy: v.optional(v.string()),
+    joinedAt: v.number(),
+    removedAt: v.optional(v.number()),
+    /**
+     * Who took the seat away: the person themselves when they left. Someone
+     * an admin removed does not walk back in through a join domain; it takes
+     * a fresh invitation.
+     */
+    removedBy: v.optional(v.string()),
+    /**
+     * When the GitHub organisation rule last passed for this person — by their
+     * own check, or the nightly one (`github/orgProof.recheck`).
+     */
+    githubOrgVerifiedAt: v.optional(v.number()),
+    /**
+     * Who this person is on GitHub, as their own connection's `GET /user`
+     * said: the login the App asks the organisation about, every night, and
+     * the organisation's webhook names when it leaves. Kept when the rule
+     * fails, so the nightly check lets them in once the organisation does.
+     */
+    githubOrgLogin: v.optional(v.string()),
+    /** The same account's numeric id, which a rename leaves alone. */
+    githubUserId: v.optional(v.number()),
+  })
+    .index("by_workspace_user", ["workspaceId", "userId"])
+    .index("by_user_status", ["userId", "status"])
+    .index("by_workspace_status_role", ["workspaceId", "status", "role"]),
+
+  /**
+   * An email address asked in. The token is the capability; the address is
+   * what binds it to one person — accepting needs a verified identity with
+   * that email, so a forwarded link is worth nothing to anyone else.
+   */
+  invitations: defineTable({
+    workspaceId: v.id("workspaces"),
+    /** Lowercased. */
+    email: v.string(),
+    role: invitedRole,
+    token: v.string(),
+    invitedBy: v.string(),
+    createdAt: v.number(),
+    expiresAt: v.number(),
+    acceptedAt: v.optional(v.number()),
+    acceptedBy: v.optional(v.string()),
+    revokedAt: v.optional(v.number()),
+  })
+    .index("by_token", ["token"])
+    .index("by_workspace", ["workspaceId"])
+    .index("by_email", ["email"]),
+
+  /**
+   * `settings.joinDomains`, one row per domain, so someone signing in can find
+   * the workspaces their address may join without reading every workspace.
+   * Written in the same mutation as the settings it mirrors.
+   */
+  workspaceDomains: defineTable({
+    domain: v.string(),
+    workspaceId: v.id("workspaces"),
+  })
+    .index("by_domain", ["domain"])
+    .index("by_workspace", ["workspaceId"]),
+
+  /**
+   * One feature, decided for one workspace against its plan (`plans.ts`) —
+   * what sales promised one customer, or a tester's plan without a card
+   * (`feature: "plan"`). Most workspaces have none. One row per feature,
+   * replaced rather than appended to; expired rows are ignored, not deleted.
+   */
+  workspaceEntitlements: defineTable({
+    workspaceId: v.id("workspaces"),
+    /** A key of `Features`, or "plan". */
+    feature: v.string(),
+    value: v.union(v.boolean(), v.number(), v.string()),
+    /** Why, and who asked — required, as a VIP note is. */
+    note: v.string(),
+    /** The operator session that set it, or "convex run". */
+    grantedBy: v.string(),
+    grantedAt: v.number(),
+    expiresAt: v.optional(v.number()),
+  }).index("by_workspace_and_feature", ["workspaceId", "feature"]),
+
+  /**
+   * A workspace's Team subscription as Stripe last reported it: one customer
+   * per workspace, never a member's own, and one subscription with two items,
+   * seats and metered AI usage. Instants are milliseconds, unlike the personal
+   * mirror's verbatim seconds. Written when the customer is made, before
+   * anything is bought (`teamBilling.ts`).
+   */
+  workspaceBilling: defineTable({
+    workspaceId: v.id("workspaces"),
+    stripeCustomerId: v.string(),
+    subscriptionId: v.optional(v.string()),
+    seatItemId: v.optional(v.string()),
+    usageItemId: v.optional(v.string()),
+    /**
+     * Stripe's own status word, stored verbatim — see `entitlements.ts` — or
+     * "none" while the customer has no subscription.
+     */
+    status: v.string(),
+    /** The seat quantity last pushed to Stripe. */
+    seats: v.number(),
+    /** Zero while there is no subscription. */
+    periodStart: v.number(),
+    periodEnd: v.number(),
+    cancelAtPeriodEnd: v.optional(v.boolean()),
+    /** AI spend included in the period before usage is billed, in dollars. */
+    aiAllowanceUsd: v.number(),
+    /** Signed spend up to here has been reported as usage. */
+    usageReportedThrough: v.optional(v.number()),
+    /**
+     * The period that reported spend was counted in: its bounds, its
+     * allowance, the signed spend up to `usageReportedThrough`, and the cents
+     * of overage already sent. Kept apart from `periodStart` so the report
+     * after a renewal can still finish the period before it.
+     */
+    usagePeriod: v.optional(
+      v.object({
+        start: v.number(),
+        end: v.number(),
+        allowanceUsd: v.number(),
+        spentUsd: v.number(),
+        reportedCents: v.number(),
+      }),
+    ),
+    /**
+     * A usage report counted here and not yet acknowledged by Stripe. It is
+     * sent again under the same identifier, never recounted, so a retry
+     * cannot bill the same spend twice.
+     */
+    pendingUsage: v.optional(v.object({ identifier: v.string(), cents: v.number() })),
+    /**
+     * When a seat sync was scheduled; membership changes until it runs ride
+     * along. Stale past `teamBilling.seatSyncWaiting`'s window, so a sync
+     * that never ran cannot hold the seat count still for good.
+     */
+    seatSyncPendingAt: v.optional(v.number()),
+    updatedAt: v.number(),
+  })
+    .index("by_workspace", ["workspaceId"])
+    .index("by_customer", ["stripeCustomerId"])
+    .index("by_subscription", ["subscriptionId"]),
+
+  /**
+   * A workspace's free allowance while it has no live plan: `FREE_LIMITS`,
+   * counted once for the whole workspace rather than per person. Its own table
+   * rather than a field on the workspace, which every settings screen reads.
+   * Projects are counted live, as an account's are.
+   */
+  workspaceMeters: defineTable({
+    workspaceId: v.id("workspaces"),
+    acceptedCompletions: v.number(),
+    chatConversations: v.number(),
+    createdAt: v.number(),
+  }).index("by_workspace", ["workspaceId"]),
+
+  /**
+   * What someone without a paid seat — a guest, or anyone an editor link let
+   * in — spent of a workspace's AI in one UTC day, from signed ledger rows.
+   * The guest cap reads one row here rather than summing a day of calls on the
+   * path of every completion. `userId`, not `ownerId`, so the row stays out of
+   * `auth.ts`'s owned tables.
+   */
+  guestAiSpend: defineTable({
+    workspaceId: v.id("workspaces"),
+    /** `YYYY-MM-DD`, UTC (`plans.utcDay`). */
+    day: v.string(),
+    userId: v.string(),
+    costUsd: v.number(),
+  }).index("by_workspace_and_day_and_user", ["workspaceId", "day", "userId"]),
+
+  /**
+   * What one person spent of a workspace's AI in one billing period, from
+   * signed ledger rows, split by whether they held a seat when they spent it.
+   * Kept as calls are recorded so the billing screen reads a row per person
+   * rather than a period of calls; a row per person, not per workspace, so
+   * two people's calls never contend for one document. The nightly report
+   * still sums the ledger itself (`teamBilling.signedSpend`) — this is the
+   * screen's figure, not the bill.
+   */
+  workspaceSpend: defineTable({
+    workspaceId: v.id("workspaces"),
+    /** `workspaceBilling.periodStart` when the spend was recorded. */
+    periodStart: v.number(),
+    userId: v.string(),
+    seatUsd: v.number(),
+    guestUsd: v.number(),
+  }).index("by_workspace_and_period_and_user", ["workspaceId", "periodStart", "userId"]),
+
+  /**
+   * The audit log (`audit.ts`): who did what, and when. A discrete event is
+   * one row, written in the mutation that made the change. Editing is
+   * coalesced — one row per page, person and ten-minute window, keyed by
+   * `windowKey`, with `count` the edits it stands for. `meta` holds ids,
+   * titles, roles and counts, never a document's or a comment's text, so the
+   * log is not a second copy of the content under different rules. Kept a
+   * year.
+   *
+   * A workspace's events carry its id; a personal project's carry none, and
+   * are read through `projectId` alone. `category` is on every row written
+   * since workspaces; comment events recorded before then (all personal)
+   * have none, and no workspace index ever reads them.
+   */
+  auditEvents: defineTable({
+    workspaceId: v.optional(v.id("workspaces")),
+    /** The project it happened in, for that project's own log. */
+    projectId: v.optional(v.id("projects")),
+    /** A Clerk subject; an operator session's id; or the system that acted. */
+    actorId: v.string(),
+    actorKind: v.union(v.literal("user"), v.literal("operator"), v.literal("system")),
+    /** Dotted, noun first: "member.remove", "share.link.on", "comment.create". */
+    action: v.string(),
+    /**
+     * The action's first segment — "edit" for page.edit, a kind of its own;
+     * "integration" for repo, github and notion; "billing" for entitlement —
+     * so the log filters by kind of event through an index.
+     */
+    category: v.optional(v.string()),
+    subjectKind: v.optional(v.string()),
+    subjectId: v.optional(v.string()),
+    /** `{ids, counts}` from the checked writer (`recordAudit`), else a flat map. */
+    meta: v.optional(v.union(auditMeta, flatAuditMeta)),
+    at: v.number(),
+    windowKey: v.optional(v.string()),
+    count: v.optional(v.number()),
+  })
+    .index("by_project_at", ["projectId", "at"])
+    .index("by_workspace_at", ["workspaceId", "at"])
+    .index("by_workspace_actor_at", ["workspaceId", "actorId", "at"])
+    .index("by_workspace_category_at", ["workspaceId", "category", "at"])
+    .index("by_workspace_actor_category_at", ["workspaceId", "actorId", "category", "at"])
+    .index("by_window", ["windowKey"])
+    .index("by_subject", ["subjectKind", "subjectId", "at"])
+    /** The retention sweep's horizon: every row older than a year, across tenants. */
+    .index("by_at", ["at"]),
+
   projects: defineTable({
+    /**
+     * The creator. In a personal project that is also the owner; in a
+     * workspace project it confers nothing — who may manage it is the
+     * workspace's answer (`auth.ts`).
+     */
     ownerId: v.string(),
     title: v.string(),
     // Optional short description that seeds the Context Sheet.
@@ -147,6 +483,13 @@ export default defineSchema({
      */
     commentShareToken: v.optional(v.string()),
     /**
+     * When each link stops admitting anyone; absent is never. Past it the
+     * link reads as off, and so does every claim made through it.
+     */
+    shareExpiresAt: v.optional(v.number()),
+    commentShareExpiresAt: v.optional(v.number()),
+    editShareExpiresAt: v.optional(v.number()),
+    /**
      * What the projects screen draws about this project's pages, denormalized
      * so the screen's read set stops covering every page of every project.
      * Maintained by `projects.refreshPageSummary`; absent on projects written
@@ -165,12 +508,28 @@ export default defineSchema({
      */
     deletedAt: v.optional(v.number()),
     createdAt: v.number(),
+    /** The workspace this project lives in. Absent is a personal project. */
+    workspaceId: v.optional(v.id("workspaces")),
+    /**
+     * Who in the workspace sees it: every member (absent or "workspace"), or
+     * only its admins and its creator ("private"). Meaningless on a personal
+     * project.
+     */
+    visibility: v.optional(v.union(v.literal("workspace"), v.literal("private"))),
   })
     .index("by_owner", ["ownerId"])
+    // Someone's live personal projects are the prefix (ownerId, no workspace,
+    // no deletedAt): the free limit counts them and the projects screen lists
+    // them, and neither may cut before it filters.
+    .index("by_owner_and_workspace_and_deleted", ["ownerId", "workspaceId", "deletedAt"])
     .index("by_share_token", ["shareToken"])
     .index("by_edit_share_token", ["editShareToken"])
     .index("by_comment_share_token", ["commentShareToken"])
-    .index("by_deleted", ["deletedAt"]),
+    .index("by_deleted", ["deletedAt"])
+    .index("by_workspace", ["workspaceId"])
+    // A workspace's live projects, for its free limit — filtered before the
+    // cut, as an account's are.
+    .index("by_workspace_and_deleted", ["workspaceId", "deletedAt"]),
 
   /**
    * What visiting a share link while signed in leaves behind: a bookmark plus
@@ -198,6 +557,17 @@ export default defineSchema({
      * everybody (`auth.ts`).
      */
     grantedRole: v.optional(v.literal("editor")),
+    /**
+     * The expiry of the link this claim came through, carried so a claim
+     * outlives neither it nor a new link turned on after it ran out. Absent
+     * is never. `grantedRole` does not expire: it was handed over by name.
+     */
+    expiresAt: v.optional(v.number()),
+    /**
+     * A workspace guest let into the repository half of the project's
+     * context, by one of its managers, while the workspace allows it.
+     */
+    codeAccess: v.optional(v.boolean()),
     createdAt: v.number(),
   })
     .index("by_grantee", ["granteeId"])
@@ -213,12 +583,16 @@ export default defineSchema({
    * Deliberately not named `ownerId`: that field name would enroll this table
    * in the `Owned` union in `auth.ts`, and these rows are not the owner's to
    * read as their own — they are correspondence between two people.
+   *
+   * A workspace project's requests are answered by any of its admins, not
+   * by its creator, so they carry `workspaceId` for the same one-read inbox.
    */
   accessRequests: defineTable({
     projectId: v.id("projects"),
     /** The Clerk subject asking, always derived server-side. */
     requesterId: v.string(),
     projectOwnerId: v.string(),
+    workspaceId: v.optional(v.id("workspaces")),
     status: v.union(
       v.literal("pending"),
       v.literal("granted"),
@@ -232,7 +606,8 @@ export default defineSchema({
   })
     .index("by_project_and_requester", ["projectId", "requesterId"])
     .index("by_owner_and_status", ["projectOwnerId", "status"])
-    .index("by_requester_and_status", ["requesterId", "status"]),
+    .index("by_requester_and_status", ["requesterId", "status"])
+    .index("by_workspace_and_status", ["workspaceId", "status"]),
 
   /**
    * A person told that a comment concerns them: one row per recipient per
@@ -265,37 +640,6 @@ export default defineSchema({
     .index("by_recipient_thread_unseen", ["recipientId", "threadId", "seenAt"]),
 
   /**
-   * Who did what, and when — the Teams design's audit shape (its decision 23),
-   * landed ahead of workspaces so comments can record into it now.
-   *
-   * Discrete events are one row each; edit activity is coalesced by
-   * `windowKey` into one row per (page, actor, window) carrying `count`.
-   * `meta` holds ids and counts ONLY — never document or comment text, which
-   * would make this a second copy of the content under different access rules.
-   * `audit.recordAudit` is the one writer and enforces that shape.
-   *
-   * `workspaceId` is a plain string until the `workspaces` table exists.
-   */
-  auditEvents: defineTable({
-    workspaceId: v.optional(v.string()),
-    projectId: v.optional(v.id("projects")),
-    actorId: v.string(),
-    actorKind: v.union(v.literal("user"), v.literal("operator"), v.literal("system")),
-    /** Dotted verb, e.g. "comment.create". */
-    action: v.string(),
-    subjectKind: v.optional(v.string()),
-    subjectId: v.optional(v.string()),
-    meta: v.optional(auditMeta),
-    at: v.number(),
-    windowKey: v.optional(v.string()),
-    count: v.optional(v.number()),
-  })
-    .index("by_project_at", ["projectId", "at"])
-    .index("by_workspace_at", ["workspaceId", "at"])
-    /** The retention sweep's horizon: every row older than a year, across tenants. */
-    .index("by_at", ["at"]),
-
-  /**
    * Per-account settings. Exists at all because first run needs somewhere to
    * record that it happened — a row here is what stops the welcome flow being
    * shown twice, so its absence is the "new account" signal.
@@ -307,8 +651,11 @@ export default defineSchema({
   profiles: defineTable({
     ownerId: v.string(),
     /**
-     * Stamped from the verified Clerk identity once per session — never from
-     * the client — so the operator dashboard can put a face to an id.
+     * Copied from `identities` — when the row is made, and by every stamp
+     * after — never from the client, so the operator dashboard can put a
+     * face to an id. The last address Clerk vouched for, kept for the face
+     * after the stamp itself lapses; people lists read `profiles.personOf`,
+     * which prefers the source.
      */
     email: v.optional(v.string()),
     name: v.optional(v.string()),
@@ -348,6 +695,33 @@ export default defineSchema({
     createdAt: v.number(),
     completedAt: v.optional(v.number()),
   }).index("by_owner", ["ownerId"]),
+
+  /**
+   * What the sign-in provider vouches for about an account, written only by
+   * `identity.sync` and the Clerk webhook — from the session token when it
+   * carries the claims, or else from Clerk's Backend API — and never from
+   * anything a client sends.
+   *
+   * Beside `profiles` rather than on it, because a profile row's absence is
+   * first run's signal and nothing may create one speculatively, while an
+   * invitation's very first visit has to confirm an address before any
+   * profile exists.
+   */
+  identities: defineTable({
+    ownerId: v.string(),
+    /** Lowercased. Only ever a primary address the provider marks verified. */
+    verifiedEmail: v.optional(v.string()),
+    /** When Clerk last vouched for it; `identity.expire` lapses it past `STAMP_MAX_AGE_MS`. */
+    verifiedEmailAt: v.optional(v.number()),
+    /** When Clerk was last asked, answered or not; `identity.sync`'s throttle. */
+    checkedAt: v.optional(v.number()),
+    /** When a source last answered, even with no address; unset, nobody has. */
+    answeredAt: v.optional(v.number()),
+    name: v.optional(v.string()),
+    imageUrl: v.optional(v.string()),
+  })
+    .index("by_owner", ["ownerId"])
+    .index("by_verifiedEmailAt", ["verifiedEmailAt"]),
 
   /**
    * Sidebar folders: a folder holds pages and other folders of the same
@@ -890,10 +1264,26 @@ export default defineSchema({
     ),
     errorCode: v.optional(v.string()),
     costUsd: v.optional(v.number()),
+    /**
+     * The workspace whose allowance the call spent, resolved from the project
+     * it was made in (`entitlements.containerFor`) — never taken from the
+     * request. Absent is the caller's own account.
+     */
+    workspaceId: v.optional(v.id("workspaces")),
+    /**
+     * The Next server vouched for this row with `AI_LEDGER_SECRET`
+     * (`ai/callSignature.ts`). Absent is unsigned — written before signing,
+     * on a deployment without the secret, or by anyone calling the mutation
+     * directly — and an unsigned row is never billed or counted against a
+     * cap, whatever cost it claims.
+     */
+    signed: v.optional(v.boolean()),
     createdAt: v.number(),
   })
     .index("by_owner", ["ownerId", "createdAt"])
-    .index("by_feature", ["feature", "createdAt"]),
+    .index("by_feature", ["feature", "createdAt"])
+    .index("by_workspace_and_createdAt", ["workspaceId", "createdAt"])
+    .index("by_workspace_and_ownerId_and_createdAt", ["workspaceId", "ownerId", "createdAt"]),
 
   /** In-app "report issue / suggest feature" submissions, with their context. */
   feedback: defineTable({
@@ -1302,6 +1692,32 @@ export default defineSchema({
   }).index("by_owner", ["ownerId"]),
 
   /**
+   * A GitHub App installation a workspace admin attached to their workspace,
+   * after GitHub proved they can reach it (`github/app.install`). One
+   * installation can serve more than one workspace, a row each.
+   *
+   * The installation token GitHub mints lasts an hour; it is cached here
+   * sealed, the same way a personal token is kept, and re-minted when it has
+   * little left.
+   */
+  githubInstallations: defineTable({
+    workspaceId: v.id("workspaces"),
+    /** GitHub's id for the installation. */
+    installationId: v.number(),
+    accountLogin: v.string(),
+    accountType: v.union(v.literal("Organization"), v.literal("User")),
+    repositorySelection: v.union(v.literal("all"), v.literal("selected")),
+    installedBy: v.string(),
+    createdAt: v.number(),
+    suspendedAt: v.optional(v.number()),
+    /** Uninstalled on GitHub. Kept so the screen can say so. */
+    removedAt: v.optional(v.number()),
+    token: v.optional(v.object({ sealed: v.string(), expiresAt: v.number() })),
+  })
+    .index("by_workspace", ["workspaceId"])
+    .index("by_installation", ["installationId"]),
+
+  /**
    * The Notion connection, one per account.
    *
    * OAuth rather than a pasted token, because the thing being connected is a
@@ -1380,8 +1796,17 @@ export default defineSchema({
       }),
     ),
     addedAt: v.number(),
+    /** Read through this GitHub App installation instead of `ownerId`'s connection. */
+    installationId: v.optional(v.number()),
+    /**
+     * When a re-index for pushes to the default branch is due. Pushes inside
+     * the window add nothing: the run reads the branch's head when it starts.
+     */
+    pushReindexAt: v.optional(v.number()),
   })
     .index("by_project", ["projectId"])
+    // What a push or an uninstall names: an installation and a repository.
+    .index("by_installation_and_fullName", ["installationId", "fullName"])
     // The permission check every repo tool makes, and the guard against linking
     // the same repo twice.
     .index("by_project_and_fullName", ["projectId", "fullName"]),
@@ -1504,12 +1929,19 @@ export default defineSchema({
      */
     body: v.optional(v.string()),
     syncedAt: v.number(),
+    /**
+     * Whether the node is a repository's — code, which not every reader of the
+     * project may see (`canReadCode`). On the row so search can leave it out
+     * in the index rather than after. Absent only on rows older than the field
+     * (`migrations.markContextCode`).
+     */
+    code: v.optional(v.boolean()),
   })
     .index("by_nodeId", ["nodeId"])
     .index("by_project", ["projectId"])
     .searchIndex("search_text", {
       searchField: "searchText",
-      filterFields: ["projectId"],
+      filterFields: ["projectId", "code"],
     }),
 
   /**

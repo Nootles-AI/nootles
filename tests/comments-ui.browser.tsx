@@ -5,7 +5,7 @@ import { BlockNoteEditor } from "@blocknote/core";
 import { blocksToYDoc } from "@blocknote/core/yjs";
 import { getFunctionName } from "convex/server";
 import { ConvexError } from "convex/values";
-import { ConvexProvider, type ConvexReactClient } from "convex/react";
+import { ConvexProviderWithAuth, type ConvexReactClient } from "convex/react";
 import type { Doc, Id } from "../convex/_generated/dataModel";
 import { channelAdmits, type ProjectRole } from "../convex/roles";
 import { schema } from "../app/components/editor/schema";
@@ -45,6 +45,15 @@ import { createNmlYDoc } from "../app/lib/nml/yjs";
  */
 
 type Visitor = "ada" | "cam" | "guest";
+
+/**
+ * Clerk's side of the app's auth provider (`ConvexProviderWithClerk`), for a
+ * visitor who is signed in or not: the workspace asks `useConvexAuth`.
+ */
+function authOf(signedIn: boolean) {
+  const auth = { isLoading: false, isAuthenticated: signedIn, fetchAccessToken: async () => (signedIn ? "stand-in" : null) };
+  return () => auth;
+}
 
 declare global {
   interface Window {
@@ -300,7 +309,10 @@ class Backend {
       mutation: (reference: unknown, args: Record<string, unknown>) =>
         this.mutate(getFunctionName(reference as never), args),
       action: async () => null,
-      setAuth() {},
+      // What the real client reports once the server takes the token.
+      setAuth(_fetch: unknown, onChange?: (authenticated: boolean) => void) {
+        onChange?.(true);
+      },
       clearAuth() {},
       connectionState: () => ({ isWebSocketConnected: false, hasInflightRequests: false }),
     } as unknown as ConvexReactClient;
@@ -372,7 +384,7 @@ const ui = {
     root?.unmount();
     root = createRoot(document.getElementById("app")!);
     root.render(
-      <ConvexProvider client={backend.client()}>
+      <ConvexProviderWithAuth client={backend.client()} useAuth={authOf(IDENTITY[visitor] !== null)}>
         {visitor === "guest" ? (
           <OpenPageProvider>
             <SharedProject token={LINK} />
@@ -389,7 +401,7 @@ const ui = {
             </PageCommentsRegistryProvider>
           </EditorRegistryProvider>
         )}
-      </ConvexProvider>,
+      </ConvexProviderWithAuth>,
     );
   },
   receive(docId: string, update: string) {

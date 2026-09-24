@@ -4,11 +4,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
-import { useMutation, useQuery } from "convex/react";
+import { useConvex, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useMediaQuery } from "@/app/lib/useMediaQuery";
 import { track } from "@/app/lib/telemetry";
+import { projectPath } from "@/app/lib/containerPaths";
 import { Wordmark } from "../Brand";
 import { ArrowLeft, ChevronRight, FileDoc, Folder, PanelLeft } from "../Icons";
 import { COMPACT, LeftDrawer } from "../Drawer";
@@ -20,10 +21,12 @@ import { CommentAccessContext, NO_COMMENT_ACCESS, type CommentAccess } from "../
 import { PageCommentsProvider } from "../comments/PageComments";
 import { CommentsLayer } from "../comments/CommentsLayer";
 import { Facepile } from "../presence/Facepile";
+import { GoogleButton } from "../signin/GoogleButton";
 import { GuestChatRail } from "./GuestChatRail";
 import { SharedEditor } from "./SharedEditor";
 import { SignInToEdit, type SignInIntent } from "./SignInToEdit";
 import { following, writingKey } from "./intent";
+import "@/app/sign-in/signin.css";
 
 /* The sidebar's own step, so a shared tree indents exactly as its owner's does. */
 const INDENT = 12;
@@ -48,10 +51,13 @@ const INDENT = 12;
  * the project for them and carries them to the real workspace.
  */
 export function SharedProject({ token }: { token: string }) {
-  const shared = useQuery(api.share.view, { token });
+  const view = useQuery(api.share.view, { token });
+  const paused = view?.access === "paused";
+  const shared = view?.access === "paused" ? null : view;
   const { isLoaded, isSignedIn } = useAuth();
   const claim = useMutation(api.share.claim);
   const requestEdit = useMutation(api.share.requestEdit);
+  const convex = useConvex();
   const router = useRouter();
   // One column here, so the workspace's second pane never comes into it.
   const { main, open, back } = useOpenPage();
@@ -110,7 +116,14 @@ export function SharedProject({ token }: { token: string }) {
           await requestEdit({ projectId }).catch(() => {});
           track("access_requested", { from: "share_link" });
         }
-        router.replace(`/p/${projectId}`);
+        // Straight to the address it answers to: a workspace project opens
+        // in its workspace for someone with a seat there, rather than taking
+        // the hop through `/p/`. Asking is not worth a failure of its own —
+        // `/p/` moves it there anyway.
+        const home = await convex
+          .query(api.projects.home, { projectId })
+          .catch(() => null);
+        router.replace(projectPath(home?.slug ?? null, projectId));
       })
       .catch(() => {
         // A link revoked mid-flight resolves itself: the query flips to null
@@ -120,7 +133,7 @@ export function SharedProject({ token }: { token: string }) {
         claimed.current = false;
         setClaimFailed(true);
       });
-  }, [isLoaded, isSignedIn, shared, claim, requestEdit, token, router, attempt]);
+  }, [isLoaded, isSignedIn, shared, claim, requestEdit, convex, token, router, attempt]);
 
   useEffect(() => {
     if (!drawer) return;
@@ -135,15 +148,27 @@ export function SharedProject({ token }: { token: string }) {
   // answers if the auth script is slow or blocked.
   if (shared === null) {
     return (
-      <div className="flex h-screen flex-col items-center justify-center gap-2 px-6 text-center">
+      <div className="nt-kept-out flex h-screen flex-col items-center justify-center gap-2 px-6 text-center">
         <Link href="/" aria-label="Nootles" className="mb-4">
           <Wordmark className="text-muted" />
         </Link>
-        <p className="text-sm font-medium">This project isn&apos;t shared</p>
-        <p className="max-w-xs text-sm text-muted">
-          The link may have been turned off. Ask whoever sent it to share the
-          project again.
-        </p>
+        {paused ? (
+          <>
+            <p className="text-sm font-medium">Sharing is paused</p>
+            <p className="max-w-xs text-pretty text-sm text-muted">
+              Links to this project are turned off for now. This one will work
+              again when they’re back on.
+            </p>
+          </>
+        ) : (
+          <>
+            <p className="text-sm font-medium">This link isn’t working</p>
+            <p className="max-w-xs text-pretty text-sm text-muted">
+              It may have expired or been turned off. Ask whoever sent it for a
+              new one.
+            </p>
+          </>
+        )}
       </div>
     );
   }
@@ -196,7 +221,7 @@ export function SharedProject({ token }: { token: string }) {
         <Link href="/" aria-label="Nootles" className="mb-4">
           <Wordmark className="text-muted" />
         </Link>
-        <p className="text-sm font-medium">Couldn&apos;t open this project</p>
+        <p className="text-sm font-medium">Couldn’t open this project</p>
         <p className="max-w-xs text-sm text-muted">
           Something went wrong on the way in — the connection may have
           dropped.
@@ -210,6 +235,27 @@ export function SharedProject({ token }: { token: string }) {
         >
           Try again
         </button>
+      </div>
+    );
+  }
+
+  // A workspace's link shows nobody signed out anything of it, not even its
+  // name: the way in is the whole page, and the round trip lands back here,
+  // where the claim carries them on.
+  if (shared.access === "sign-in") {
+    return (
+      <div className="flex h-screen flex-col items-center justify-center gap-2 px-6 text-center">
+        <Link href="/" aria-label="Nootles" className="mb-4">
+          <Wordmark className="text-muted" />
+        </Link>
+        <p className="text-sm font-medium">Sign in to open this project</p>
+        <p className="max-w-xs text-sm text-muted">
+          Links to workspace projects open only for people who are signed in.
+          You’ll come straight back here after.
+        </p>
+        <div className="mt-3 w-full max-w-xs">
+          <GoogleButton compact redirectTo={`/share/${token}`} />
+        </div>
       </div>
     );
   }

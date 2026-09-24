@@ -1,11 +1,13 @@
 import type { Doc } from "./_generated/dataModel";
 
 /**
- * The pure half of `auth.ts`: what a role is, what a claim grants and what a
- * channel admits, as decisions over rows already loaded. Kept free of any
- * import that defines a Convex function, so a browser — the comment UI's
- * access, the harnesses' stand-in gate — holds the very same rule. `auth.ts`
- * re-exports all of it and remains the only place access is resolved.
+ * The pure half of `auth.ts`: what a role is, what a claim grants, what a
+ * channel admits and how workspace seats rank, as decisions over rows already
+ * loaded. Kept free of any import that defines a Convex function, so a
+ * browser — the comment UI's access, the workspace screens' seat rules, the
+ * harnesses' stand-in gate — holds the very same rule without bundling the
+ * server. `auth.ts` re-exports all of it and remains the only place access is
+ * resolved.
  */
 
 /**
@@ -16,23 +18,49 @@ import type { Doc } from "./_generated/dataModel";
  */
 export type ProjectRole = "owner" | "editor" | "commenter" | "viewer";
 
+/** A share link, by the role it admits. */
+export type LinkRole = "viewer" | "commenter" | "editor";
+
+/** Where each link keeps its token and its expiry on the project row. */
+export const LINK_FIELDS = {
+  viewer: { token: "shareToken", expiresAt: "shareExpiresAt" },
+  commenter: { token: "commentShareToken", expiresAt: "commentShareExpiresAt" },
+  editor: { token: "editShareToken", expiresAt: "editShareExpiresAt" },
+} as const;
+
+/** Whether a project's link of this role is on and has not run out. */
+export function linkLive(project: Doc<"projects">, role: LinkRole, now: number): boolean {
+  const { token, expiresAt } = LINK_FIELDS[role];
+  const until = project[expiresAt];
+  return !!project[token] && (until === undefined || until > now);
+}
+
 /**
- * What a claim grants on its project now — `roleForProject` for someone other
- * than the caller, so the owner's list of who has access gives the same answer
- * each claimant's own session gets.
+ * What a claim grants on its project at `now` — `roleForProject` for someone
+ * other than the caller, so the owner's list of who has access gives the same
+ * answer each claimant's own session gets. Whether the project's links admit
+ * anyone at all (`auth.linksOpen`) is the caller's to have asked first.
+ *
+ * A claim that has run out grants nothing, and neither does one whose link has
+ * run out — a revoked link is different: its claimants are still viewers
+ * while another link is on.
  */
 export function claimRole(
   project: Doc<"projects">,
   claim: Doc<"shareClaims">,
+  now: number,
 ): Exclude<ProjectRole, "owner"> | null {
-  if (!hasLiveLink(project)) return null;
+  if (!project.shareToken && !project.editShareToken && !project.commentShareToken) return null;
   if (claim.grantedRole === "editor") return "editor";
-  if (claim.role === "editor" && project.editShareToken) return "editor";
+  if (claim.expiresAt !== undefined && claim.expiresAt <= now) return null;
+  const cameBy = project[LINK_FIELDS[claim.role].expiresAt];
+  if (cameBy !== undefined && cameBy <= now) return null;
+  if (claim.role === "editor" && linkLive(project, "editor", now)) return "editor";
   // A claim records one link, so an editor whose link dies is a viewer even
   // while the comment link lives — until they open that link, which
   // `share.claim` then records. Nothing here may assume they ever held it.
-  if (claim.role === "commenter" && project.commentShareToken) return "commenter";
-  return "viewer";
+  if (claim.role === "commenter" && linkLive(project, "commenter", now)) return "commenter";
+  return hasLiveLink(project, now) ? "viewer" : null;
 }
 
 /**
@@ -82,9 +110,42 @@ export function moderatesComments(role: ProjectRole | null): boolean {
 }
 
 /**
- * Whether any share link on the project is live — the condition every claim
- * and the anonymous document read are contingent on.
+ * Whether any share link on the project is live at `now` — the condition every
+ * claim and the anonymous document read are contingent on.
  */
-export function hasLiveLink(project: Doc<"projects">): boolean {
-  return Boolean(project.shareToken || project.editShareToken || project.commentShareToken);
+export function hasLiveLink(project: Doc<"projects">, now: number): boolean {
+  return (Object.keys(LINK_FIELDS) as LinkRole[]).some((role) => linkLive(project, role, now));
 }
+
+/** A seat in a workspace, ranked owner > admin > member > guest. */
+export type WorkspaceRole = Doc<"memberships">["role"];
+
+const SEAT_RANK: Record<WorkspaceRole, number> = { guest: 0, member: 1, admin: 2, owner: 3 };
+
+/** Whether a seat reaches `min`. No seat reaches anything. */
+export function atLeast(role: WorkspaceRole | null, min: WorkspaceRole): boolean {
+  return role !== null && SEAT_RANK[role] >= SEAT_RANK[min];
+}
+
+/**
+ * Whether a seat of rank `actor` may move someone's seat from `from` to `to`.
+ * An invitation is a seat from nobody (`from` null) and a removal a seat to
+ * nobody (`to` null). Admins run the members and the guests; admins and
+ * owners are the owners' to appoint and dismiss, so no admin promotes someone
+ * to their own rank or removes a peer.
+ */
+export function mayAssignSeat(
+  actor: WorkspaceRole,
+  from: WorkspaceRole | null,
+  to: WorkspaceRole | null,
+): boolean {
+  if (actor === "owner") return true;
+  const belowAdmin = (role: WorkspaceRole | null) => role === null || !atLeast(role, "admin");
+  return actor === "admin" && belowAdmin(from) && belowAdmin(to);
+}
+
+/** The domain of an address, for a workspace's join domains. */
+export function domainOf(email: string): string {
+  return email.slice(email.lastIndexOf("@") + 1);
+}
+

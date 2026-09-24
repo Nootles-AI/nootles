@@ -2,6 +2,7 @@
 
 import type { ConvexReactClient } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
 import { handlesFor } from "@/app/components/editor/album/handle";
 import { parseAlbum } from "@/app/components/editor/album/parse";
 import { contactSheet, measure, SHEET_MAX } from "@/app/components/editor/album/sheet";
@@ -61,6 +62,7 @@ function albumsIn(blocks: AnyBlock[], out = new Map<string, AlbumItem[]>()) {
  */
 async function describeMissing(
   convex: ConvexReactClient,
+  projectId: Id<"projects">,
   items: readonly AlbumItem[],
   handles: readonly string[],
   known: Map<string, Meta>,
@@ -109,7 +111,12 @@ async function describeMissing(
   const response = await fetch("/api/album/index", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ dataUri, handles: sheet.tiles.map((t) => t.handle) }),
+    body: JSON.stringify({
+      dataUri,
+      handles: sheet.tiles.map((t) => t.handle),
+      // The describe is the project's cost, in the project's container.
+      projectId,
+    }),
   }).catch(() => null);
   if (!response?.ok) return known;
 
@@ -188,6 +195,7 @@ function colourOf(meta: Meta | undefined): string {
  */
 export async function albumIndex(
   convex: ConvexReactClient,
+  projectId: Id<"projects">,
   blocks: AnyBlock[],
   expand: readonly string[],
 ): Promise<string> {
@@ -214,7 +222,7 @@ export async function albumIndex(
       }),
     );
     known = await measureDescribed(convex, items, handles, known).catch(() => known);
-    known = await describeMissing(convex, items, handles, known).catch(() => known);
+    known = await describeMissing(convex, projectId, items, handles, known).catch(() => known);
 
     const lines = items.map((item, i) => {
       const meta = known.get(handles[i]);

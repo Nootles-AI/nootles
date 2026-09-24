@@ -104,6 +104,8 @@ export async function commentsGate(
   convex: ConvexHttpClient,
   input: GateInput,
   parent: AbortSignal,
+  /** Who asked, and in which project — what the ledger signs and charges. */
+  caller: { ownerId: string | null; projectId?: string },
 ): Promise<boolean> {
   if (input.openThreads <= 0 || !input.message.trim() || parent.aborted) return false;
 
@@ -127,6 +129,7 @@ export async function commentsGate(
     extra: { errorCode?: string; usage?: Classified["usage"] } = {},
   ) =>
     recordAiCall(convex, {
+      ...caller,
       feature: "commentsGate",
       model: AI.commentsGate.model,
       ...extra.usage,

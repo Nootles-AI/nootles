@@ -8,7 +8,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import schema from "./schema";
 import { claimRole } from "./auth";
 import { isOutsiderRefusal, MAX_PEOPLE } from "./commentNotices";
-import { containerOf } from "./container";
+import { containerMembers } from "./container";
 import { purgeProject } from "./projects";
 import { appendYUpdate, registerYDoc } from "./ydoc";
 import { CommentsStore } from "@/app/lib/comments/store";
@@ -179,11 +179,12 @@ describe("who can be mentioned", () => {
     expect(await t.withIdentity(OWNER).query(api.commentNotices.mentionable, { pageId: w.pageId })).toEqual([]);
   });
 
-  test("the container seam answers the personal branch today", async () => {
+  test("a personal project's container is its owner, then whoever a live link let in", async () => {
     const t = convexTest(schema, modules);
     const w = await world(t);
-    const project = await t.run(async (ctx) => (await ctx.db.get(w.projectId))!);
-    expect(containerOf(project)).toEqual({ kind: "account", userId: OWNER.subject });
+    const members = await t.run(async (ctx) => containerMembers(ctx, (await ctx.db.get(w.projectId))!));
+    expect(members[0]).toEqual({ userId: OWNER.subject, role: "owner" });
+    expect(members.every((m) => m.userId === OWNER.subject || m.role !== "owner")).toBe(true);
   });
 });
 
@@ -301,6 +302,7 @@ describe("who may report a comment event", () => {
   const resolved: string | null = claimRole(
     { shareToken: "v", commentShareToken: "c" } as Doc<"projects">,
     { role: "commenter" } as Doc<"shareClaims">,
+    0,
   );
   const commenterResolves = resolved === "commenter";
 
@@ -576,7 +578,7 @@ describe("the audit record", () => {
       expect(row.subjectKind).toBe("commentThread");
       expect(row.subjectId).toBe("t_1");
       expect(Object.keys(row).sort()).toEqual(
-        ["_creationTime", "_id", "action", "actorId", "actorKind", "at", "meta", "projectId", "subjectId", "subjectKind"],
+        ["_creationTime", "_id", "action", "actorId", "actorKind", "at", "category", "meta", "projectId", "subjectId", "subjectKind"],
       );
       expect(Object.keys(row.meta!).sort()).toEqual(["counts", "ids"]);
       expect(Object.keys(row.meta!.counts!).sort()).toEqual(["mentions", "notified"]);

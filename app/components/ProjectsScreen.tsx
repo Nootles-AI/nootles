@@ -9,8 +9,9 @@ import { Id } from "@/convex/_generated/dataModel";
 import { findTemplate } from "@/app/lib/templates";
 import { track } from "@/app/lib/telemetry";
 import { pages, when } from "@/app/lib/projectMeta";
-import { rememberScreen, seenScreen } from "@/app/lib/projectsCache";
-import { uploadContextFile } from "@/app/lib/contextFiles";
+import { projectPath } from "@/app/lib/containerPaths";
+import { ACCOUNT, rememberScreen, seenScreen } from "@/app/lib/projectsCache";
+import { checkContextFile, storeContextFile } from "@/app/lib/contextFiles";
 import { exportCommentActivity } from "@/app/lib/audit/exportCsv";
 import { repoRef } from "./context/ContextSources";
 import { BoardView, GridView, ListView, Plus, Search } from "./Icons";
@@ -23,10 +24,11 @@ import { CreateProject } from "./CreateProject";
 import { ContextMenu } from "./ContextMenu";
 import { Feedback } from "./feedback/Feedback";
 import { FixedToast } from "./feedback/FixedToast";
-import type { NewProject } from "./newProjectDraft";
+import { wallOf, type NewProject } from "./newProjectDraft";
 import { useNotionAvailable } from "./notion/NotionAvailable";
 import { ProjectPalette, useModKey, type Page as PalettePage } from "./ProjectPalette";
 import { ProjectsBoard } from "./ProjectsBoard";
+import { savedView, Skeletons, VIEW_KEY, VIEWS, type View } from "./ProjectsLoading";
 import {
   describeOutcome,
   useNotionOutcome,
@@ -34,8 +36,10 @@ import {
 } from "@/app/lib/notion/outcome";
 import { PagePreview } from "./PagePreview";
 import {
+  manages,
   NameField,
   OpenProject,
+  PrivateMark,
   RowMenu,
   ProjectActions,
   roleLabel,
@@ -44,28 +48,52 @@ import {
   type SharedProject,
 } from "./projectParts";
 import { useStandIn } from "./StandIn";
+import { offersInvite } from "./workspaces/seats";
 import { Correspondence } from "./share/AccessRequests";
-
-type View = "grid" | "list" | "board";
-const VIEWS: View[] = ["grid", "list", "board"];
-const VIEW_KEY = "nt:projectsView";
-
-/** The view this browser left the screen in. */
-function savedView(): View {
-  try {
-    const saved = localStorage.getItem(VIEW_KEY) as View | null;
-    return saved && VIEWS.includes(saved) ? saved : "grid";
-  } catch {
-    return "grid";
-  }
-}
+import { slugOf, useContainer, type WorkspaceContainer } from "./workspaces/ContainerContext";
+import { ContainerSwitcher } from "./workspaces/ContainerSwitcher";
+import { InviteButton } from "./workspaces/Invite";
+import { MembersPile } from "./workspaces/MembersPile";
+import { UnpaidLine } from "./workspaces/UnpaidLine";
+import { useEvenSides } from "./workspaces/useEvenSides";
 
 /** A list item's place in its list, which is what staggers its entrance. */
 const nth = (i: number) => ({ "--i": i }) as React.CSSProperties;
 
+/** A workspace's home has no "Shared with me": what was shared there is on its list. */
+const NONE: SharedProject[] = [];
+
+/**
+ * Who else a workspace project's deletion takes it from — whoever it is shown
+ * to, in the words its lock and its Visibility switch use — along with what it
+ * held.
+ */
+const lostBy = (workspace: WorkspaceContainer, project: Project) =>
+  `${
+    project.visibility === "private"
+      ? `Its maker and ${workspace.name}’s owners and admins lose`
+      : `Everyone in ${workspace.name} loses`
+  } it, and its diagrams and history go with it.`;
+
+/**
+ * A home's projects: your own at `/`, or one workspace's at `/w/<slug>` —
+ * whichever container this is rendered in (`useContainer`). The same screen
+ * either way, so the two can never drift apart; what differs is whose
+ * projects it lists, what it is called, where a new project goes, and — in a
+ * workspace — the people in it.
+ */
 export function ProjectsScreen() {
   const router = useRouter();
   const standIn = useStandIn();
+  const container = useContainer();
+  const workspace = container.kind === "workspace" ? container : null;
+  const slug = slugOf(container);
+  const home = workspace ? workspace.workspaceId : ACCOUNT;
+  // A guest was let into projects, not into the workspace: nothing is made
+  // there by them, and the server says so (`projects.create`).
+  const canCreate = !standIn && workspace?.role !== "guest";
+  // Letting someone in is an owner's or an admin's, and never an operator's.
+  const invites = offersInvite(workspace?.role, standIn);
   /*
    * What this browser last saw stands in until the live lists arrive
    * (`projectsCache`) — and for a returning visitor this screen is up before
@@ -75,16 +103,27 @@ export function ProjectsScreen() {
    */
   const { isAuthenticated: live } = useConvexAuth();
   const { userId } = useAuth();
-  const [seen] = useState(() => (userId ? seenScreen(userId) : null));
-  const liveProjects = useQuery(api.projects.listForScreen, live ? {} : "skip");
-  const liveShared = useQuery(api.projects.sharedWithMe, live ? {} : "skip");
+  const [seen] = useState(() => (userId ? seenScreen(userId, home) : null));
+  const liveMine = useQuery(api.projects.listForScreen, live && !workspace ? {} : "skip");
+  const liveHere = useQuery(
+    api.workspaces.projectsFor,
+    live && workspace ? { workspaceId: workspace.workspaceId } : "skip",
+  );
+  const liveShared = useQuery(api.projects.sharedWithMe, live && !workspace ? {} : "skip");
+  const liveProjects: Project[] | undefined = workspace ? liveHere : liveMine;
   const projects = liveProjects ?? seen?.projects;
-  const shared = liveShared ?? seen?.shared;
+  const shared = workspace ? NONE : (liveShared ?? seen?.shared);
+  // Opened on its skeleton: what replaces it arrives in its place (`nt-from-wait`).
+  const [waited] = useState(projects === undefined);
+  const liveOthers = workspace ? NONE : liveShared;
   useEffect(() => {
-    if (userId && liveProjects && liveShared) rememberScreen(userId, liveProjects, liveShared);
-  }, [userId, liveProjects, liveShared]);
+    if (userId && liveProjects && liveOthers) {
+      rememberScreen(userId, home, liveProjects, liveOthers);
+    }
+  }, [userId, home, liveProjects, liveOthers]);
+  const head = useRef<HTMLElement>(null);
+  useEvenSides(head, !!workspace);
   const createProject = useMutation(api.projects.create);
-  const linkPages = useMutation(api.notion.context.link);
   const convex = useConvex();
   const renameProject = useMutation(api.projects.rename);
   const removeProject = useMutation(api.projects.remove);
@@ -126,6 +165,12 @@ export function ProjectsScreen() {
   );
   const setFailure = useCallback((text: string) => setNotice({ text, problem: true }), []);
   const { room } = usePlan();
+  // What the wall at a workspace's Create asks, held open so the wall is
+  // answered from the cache the moment the refusal lands, not a round trip on.
+  useQuery(
+    api.entitlements.forContainer,
+    workspace && canCreate ? { workspaceId: workspace.workspaceId } : "skip",
+  );
 
   useEffect(() => {
     try {
@@ -144,11 +189,14 @@ export function ProjectsScreen() {
    * asked first, since what it makes is decided on Notion's side.
    */
   const hasRoom = room("projects");
+  // An import started on a workspace's home lands in that workspace, whose
+  // projects never count against your own plan.
   const start = useCallback(
     (page: PalettePage) =>
-      page === "notion" && !hasRoom ? setWalled({}) : setFinding(page),
-    [hasRoom],
+      page === "notion" && !hasRoom && !workspace ? setWalled({}) : setFinding(page),
+    [hasRoom, workspace],
   );
+  const importable = notionAvailable === true;
 
   // ⌘K from anywhere on the screen, a rename field included — it is a chord, so
   // it cannot be mistaken for typing. N starts a project, and being a bare key
@@ -160,12 +208,15 @@ export function ProjectsScreen() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (busy || e.altKey) return;
+      // The dialogs this screen does not hold itself (New workspace, Invite)
+      // are known by where the key was pressed.
+      if (!finding && e.target instanceof Element && e.target.closest("[role='dialog']")) return;
       const key = e.key.toLowerCase();
       const mod = e.metaKey || e.ctrlKey;
       if (key === "k" && mod) {
         e.preventDefault();
         setFinding((f) => (f ? null : "root"));
-      } else if (key === "n" && !standIn && !finding) {
+      } else if (key === "n" && canCreate && !finding) {
         const typing = (e.target as HTMLElement).closest("input, textarea, [contenteditable]");
         if (!mod && typing) return;
         e.preventDefault();
@@ -174,14 +225,14 @@ export function ProjectsScreen() {
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [busy, finding, standIn, start]);
+  }, [busy, finding, canCreate, start]);
 
   // Stable so the memoized cards and rows sit out this screen's re-renders —
   // every one of them carries a live PagePreview, and a rename keystroke was
   // re-rendering the lot.
   const open = useCallback(
-    (id: Id<"projects">) => router.push(`/p/${id}`),
-    [router],
+    (id: Id<"projects">) => router.push(projectPath(slug, id)),
+    [router, slug],
   );
   const startRename = useCallback((p: Project) => setEditingId(p._id), []);
   const cancelRename = useCallback(() => setEditingId(null), []);
@@ -235,32 +286,40 @@ export function ProjectsScreen() {
       ? (await import("@/app/lib/templates/seed")).seedOf(template)
       : undefined;
     const { repos, files, pages } = project.sources;
+    // Its sources are attached as it is made, not added to it after: a
+    // member's workspace project is its admins' to add to once it exists. So
+    // the files go up first — every one checked before any bytes move, so a
+    // refusal is said on the form with nothing left behind.
+    files.forEach(checkContextFile);
+    const stored = await Promise.all(files.map((file) => storeContextFile(convex, file)));
     const id = await createProject({
       title: project.title,
       ...(project.description ? { description: project.description } : {}),
       ...(repos.length ? { repos: repos.map(repoRef) } : {}),
+      ...(pages.length ? { pages } : {}),
+      ...(stored.length ? { files: stored } : {}),
       ...(seed ? { seed } : {}),
+      ...(project.workspace
+        ? {
+            workspaceId: project.workspace.workspaceId,
+            visibility: project.workspace.visibility,
+          }
+        : {}),
     });
-    // What only exists once the project does. Not awaited in full: the project
-    // opens now, and a card for each source shows its reading as it lands.
-    if (pages.length) void linkPages({ projectId: id, pages });
-    for (const file of files) {
-      void uploadContextFile(convex, id, file).catch(() => {
-        // The file card is absent rather than wrong; it can be added again.
-      });
-    }
     track("project_created", {});
-    router.push(`/p/${id}`);
+    // Straight to its own address, not through `/p/`'s redirect to it.
+    router.push(projectPath(project.workspace?.slug ?? null, id));
   };
 
   /**
    * The Create button. Out of projects, nothing is made and nothing is lost:
    * the wall comes up over the form, which is handed back as it was, and the
    * project rides along to be made on the way back. The server has the last
-   * word either way — a refusal it sends is the same wall.
+   * word either way — a refusal it sends is the same wall. A workspace's
+   * projects are the workspace's, and never count against your own.
    */
   const create = async (project: NewProject): Promise<boolean> => {
-    if (!hasRoom) {
+    if (!project.workspace && !hasRoom) {
       setWalled({ project });
       return false;
     }
@@ -269,6 +328,10 @@ export function ProjectsScreen() {
       return true;
     } catch (error) {
       if (!isQuotaError(error)) throw error;
+      // A workspace's wall has nothing to hand the form back to — paying is an
+      // owner's, and not now — so the palette goes first rather than sitting
+      // under a second scrim. The palette says so before Create when it knows.
+      if (project.workspace) setFinding(null);
       setWalled({ project });
       return false;
     }
@@ -281,8 +344,11 @@ export function ProjectsScreen() {
   // `create`: the plan on this screen may not have caught up with the payment.
   useResumeIntent("newProject", live, (intent) => {
     if (!intent.project) return openCreate();
-    make(intent.project).catch((error: unknown) => {
-      if (isQuotaError(error)) setWalled({ project: intent.project });
+    // A chosen file is bytes this tab held, and the trip out came back as
+    // JSON without them.
+    const project = { ...intent.project, sources: { ...intent.project.sources, files: [] } };
+    make(project).catch((error: unknown) => {
+      if (isQuotaError(error)) setWalled({ project });
       else setFailure("Couldn’t create that project.");
     });
   });
@@ -307,7 +373,10 @@ export function ProjectsScreen() {
           nothing competes with it for "start here". */}
       {/* On the board the header lies over the canvas rather than above it, so
           it is lifted onto its own layer — see `.nt-board-host`. */}
-      <header className={`nt-front-head${view === "board" ? " nt-board-host" : ""}`}>
+      <header
+        ref={head}
+        className={`nt-front-head${workspace ? " nt-ws-head" : ""}${view === "board" ? " nt-board-host" : ""}`}
+      >
         <div className="nt-tools">
           {/* Held at its size while the account loads: it is first in the row
               now, and a circle arriving late would push everything after it. */}
@@ -356,21 +425,26 @@ export function ProjectsScreen() {
           </button>
         </div>
 
-        <h1 className="nt-front-title">My Nootles</h1>
+        <ContainerSwitcher onProblem={setFailure} />
 
-        <div className="nt-front-new">
-          {/* Nothing here belongs to a project, so no role gates it — an
-              operator standing in would be offered a button the server is
-              about to refuse. */}
+        <div className={`nt-front-new${workspace ? " items-center gap-2" : ""}`}>
+          {/* In a workspace, who is in it comes first — and, for whoever may
+              let someone in, the way to. */}
+          {workspace && <MembersPile workspace={workspace} />}
+          {workspace && invites && <InviteButton workspace={workspace} />}
+          {/* Nothing here belongs to a project, so no project's role gates
+              it — only whether anything may be made here at all: not by an
+              operator standing in, nor by a workspace's guest, each of whom
+              would be offered a button the server is about to refuse. */}
           {/* The button never disappears when the free projects are gone — it
               opens the wall instead. An affordance that vanishes reads as a
               bug; one that explains itself reads as a limit. */}
           {/* One filled control with the rarer doors inside it: a blank project
               is one click, and importing is a part of creating rather than a
               second button competing with it. */}
-          {!standIn && (
+          {canCreate && (
             <CreateProject
-              notion={notionAvailable === true}
+              notion={importable}
               onNew={() => start("create")}
               onBlank={() => start("details")}
               onTemplate={() => start("template")}
@@ -379,6 +453,10 @@ export function ProjectsScreen() {
           )}
         </div>
       </header>
+
+      {workspace && (
+        <UnpaidLine workspace={workspace} className={view === "board" ? "nt-board-host" : ""} />
+      )}
 
       {/* One place for anything worth a sentence — a mutation that failed, a
           connection that was cancelled — rather than either happening in
@@ -394,11 +472,15 @@ export function ProjectsScreen() {
         </p>
       )}
 
-      <div className="mt-8">
+      <div className={`mt-8${waited ? " nt-from-wait" : ""}`}>
         {projects === undefined ? (
           <Skeletons view={view} />
         ) : projects.length === 0 ? (
-          <Empty onCreate={() => start("create")} />
+          <Empty
+            workspace={workspace}
+            invites={invites}
+            onCreate={canCreate ? () => start("create") : null}
+          />
         ) : view === "board" ? (
           <ProjectsBoard
             projects={projects}
@@ -536,9 +618,10 @@ export function ProjectsScreen() {
         >
           <ProjectActions
             close={() => setCtx(null)}
+            manage={manages(ctx.project)}
             onOpen={() => open(ctx.project._id)}
             onRename={() => startRename(ctx.project)}
-            onExport={() => exportComments(ctx.project)}
+            onExport={ctx.project.workspaceId ? undefined : () => exportComments(ctx.project)}
             onDelete={() => setConfirming(ctx.project)}
           />
         </ContextMenu>
@@ -551,9 +634,9 @@ export function ProjectsScreen() {
           start={finding}
           projects={projects ?? []}
           shared={shared ?? []}
-          canCreate={!standIn}
+          canCreate={canCreate}
           room={hasRoom}
-          notion={notionAvailable === true}
+          notion={importable}
           onOpen={open}
           onWall={() => setWalled({})}
           onCreate={create}
@@ -564,6 +647,7 @@ export function ProjectsScreen() {
       {walled && (
         <PlanWall
           meter="projects"
+          workspaceId={wallOf(walled.project)}
           intent={{ kind: "newProject", project: walled.project }}
           // Dismissed, it closes onto the palette still holding the form.
           onClose={() => setWalled(null)}
@@ -584,6 +668,7 @@ export function ProjectsScreen() {
           what={`“${confirming.title || "Untitled project"}” and its ${pages(
             confirming.pageCount,
           )}`}
+          consequence={workspace ? lostBy(workspace, confirming) : undefined}
           onCancel={() => setConfirming(null)}
           onConfirm={confirmRemove}
         />
@@ -641,9 +726,12 @@ const Lead = memo(function Lead({
             className="nt-lead-name relative block w-full"
           />
         ) : (
-          <OpenProject id={project._id} className="nt-lead-name nt-card-link">
-            {project.title || "Untitled project"}
-          </OpenProject>
+          <div className="nt-card-title">
+            <OpenProject id={project._id} className="nt-lead-name nt-card-link">
+              {project.title || "Untitled project"}
+            </OpenProject>
+            {project.visibility === "private" && <PrivateMark size={16} />}
+          </div>
         )}
         {project.description && <p className="nt-lead-line">{project.description}</p>}
         <p className="nt-card-meta">
@@ -704,9 +792,12 @@ const Card = memo(function Card({
             /* The chin opens the project the way the thumbnail does: a card
                that says "23 pages · 2d ago" under a picture of the page reads
                as one target, and half of it used to be dead. */
-            <OpenProject id={project._id} className="nt-card-name nt-card-link">
-              {name}
-            </OpenProject>
+            <div className="nt-card-title">
+              <OpenProject id={project._id} className="nt-card-name nt-card-link">
+                {name}
+              </OpenProject>
+              {project.visibility === "private" && <PrivateMark />}
+            </div>
           )}
           <p className="nt-card-meta">
             <span>{pages(project.pageCount)}</span>
@@ -764,7 +855,14 @@ const Row = memo(function Row({
           id={project._id}
           className="nt-row nt-row-open min-w-0 flex-1 font-medium"
         >
-          <span className="nt-row-label">{name}</span>
+          {project.visibility === "private" ? (
+            <>
+              <span className="nt-row-label flex-initial">{name}</span>
+              <PrivateMark />
+            </>
+          ) : (
+            <span className="nt-row-label">{name}</span>
+          )}
         </OpenProject>
       )}
       {/* Held in the layout while renaming rather than unmounted, so the row
@@ -870,68 +968,43 @@ const SharedRow = memo(function SharedRow({
 });
 
 /**
- * Loading takes the shape of the view it is loading into, so content swaps in
- * without the page rearranging under the cursor.
+ * Teaches what a project is — or, in a workspace, what a workspace is — and
+ * offers the one action worth taking, to whoever may take it.
  */
-function Skeletons({ view }: { view: View }) {
-  // The board has no resting shape to hold: frames land on it as they arrive.
-  if (view === "board") return null;
-  if (view === "list") {
-    return (
-      <ul aria-busy="true" aria-label="Loading projects">
-        {[0, 1, 2, 3].map((i) => (
-          <li key={i} className="nt-list-row">
-            <span
-              className="nt-skeleton ml-2 h-4 flex-1"
-              style={{ maxWidth: `${[52, 38, 61, 45][i]}%`, animationDelay: `${i * 110}ms` }}
-            />
-            <span className="nt-skeleton nt-col-pages h-3" />
-            <span className="nt-skeleton nt-col-when h-3" />
-            <span className="nt-col-actions" />
-          </li>
-        ))}
-      </ul>
-    );
-  }
-  return (
-    <ul className="nt-grid" aria-busy="true" aria-label="Loading projects">
-      {[0, 1, 2, 3, 4, 5].map((i) => (
-        <li key={i}>
-          <div className="nt-card">
-            <span className="nt-card-well">
-              <span
-                className="nt-skeleton block aspect-[4/3] rounded-b-none"
-                style={{ animationDelay: `${i * 90}ms` }}
-              />
-            </span>
-            <div className="nt-card-foot">
-              <span className="nt-skeleton h-3.5 flex-1" style={{ maxWidth: "60%" }} />
-            </div>
-          </div>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-/** Teaches what a project is, and offers the one action worth taking. */
-function Empty({ onCreate }: { onCreate: () => void }) {
-  const standIn = useStandIn();
+function Empty({
+  workspace,
+  invites,
+  onCreate,
+}: {
+  workspace: WorkspaceContainer | null;
+  /** A new workspace's other first step, which a phone's header has no room for. */
+  invites: boolean;
+  onCreate: (() => void) | null;
+}) {
   return (
     <div className="rounded-lg bg-surface px-6 py-16 text-center">
-      <p className="text-sm font-medium">No projects yet</p>
-      <p className="mx-auto mt-1.5 max-w-sm text-[13px] text-muted">
-        A project holds a set of pages — prose, diagrams and maths in one place.
-        The first one arrives with a blank page ready to go.
+      <p className="text-sm font-medium">
+        {workspace ? `No projects in ${workspace.name} yet` : "No projects yet"}
       </p>
-      {!standIn && (
-        <button
-          onClick={onCreate}
-          className="nt-row mx-auto mt-5 gap-1.5 bg-background px-3 font-medium"
-        >
-          <Plus width={14} height={14} />
-          New project
-        </button>
+      <p className="mx-auto mt-1.5 max-w-sm text-[13px] text-muted">
+        {!workspace
+          ? "A project holds a set of pages — prose, diagrams and maths in one place. The first one arrives with a blank page ready to go."
+          : workspace.role === "guest"
+            ? `Projects in ${workspace.name} that are shared with you will be here.`
+            : `A workspace is where a team keeps its projects together. Everyone in ${workspace.name} can open what’s made here, unless it’s made private.`}
+      </p>
+      {(onCreate || (workspace && invites)) && (
+        <div className="mt-5 flex flex-wrap justify-center gap-2">
+          {onCreate && (
+            <button onClick={onCreate} className="nt-row gap-1.5 bg-background px-3 font-medium">
+              <Plus width={14} height={14} />
+              New project
+            </button>
+          )}
+          {workspace && invites && (
+            <InviteButton workspace={workspace} label="Invite people" className="nt-row px-2.5" />
+          )}
+        </div>
       )}
     </div>
   );

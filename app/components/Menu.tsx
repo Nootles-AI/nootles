@@ -3,6 +3,7 @@
 import {
   useCallback,
   useEffect,
+  useImperativeHandle,
   useLayoutEffect,
   useRef,
   useState,
@@ -12,7 +13,7 @@ import {
 import { createPortal } from "react-dom";
 import Link from "next/link";
 
-type Align = "start" | "end";
+type Align = "start" | "center" | "end";
 type Side = "top" | "bottom";
 
 /**
@@ -33,6 +34,8 @@ export function Menu({
   align = "start",
   label,
   className,
+  layer = "popover",
+  focusRef,
 }: {
   trigger: (props: {
     ref: React.Ref<HTMLButtonElement>;
@@ -47,6 +50,12 @@ export function Menu({
   /** A variant of the surface, for a menu that is a different object — the
    *  canvas toolbar's ink tool list, drawn like the bar it hangs from. */
   className?: string;
+  /** "modal" for a menu raised inside a dialog: on the dialog's layer, and
+   *  after it in the body, so the dialog does not cover it. */
+  layer?: "popover" | "modal";
+  /** Focuses the trigger, for a caller that hands focus back to it itself —
+   *  after a dialog one of its items opened, say. */
+  focusRef?: Ref<{ focus: () => void }>;
 }) {
   const [open, setOpen] = useState(false);
   // The menu outlives `open` by its exit animation. Everything that means
@@ -55,6 +64,7 @@ export function Menu({
   const [leaving, setLeaving] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  useImperativeHandle(focusRef, () => ({ focus: () => triggerRef.current?.focus() }), []);
   const [pos, setPos] = useState({ top: 0, left: 0, width: 0, origin: "top left" });
 
   // `close` is handed to the children render prop, so it must not touch a ref
@@ -96,11 +106,13 @@ export function Menu({
     // Flip if it would leave the viewport.
     if (top < 8) top = r.bottom + gap;
     if (top + h > window.innerHeight - 8) top = Math.max(8, r.top - h - gap);
-    let left = align === "start" ? r.left : r.right - w;
-    left = Math.min(Math.max(8, left), window.innerWidth - w - 8);
+    const wanted = { start: r.left, center: r.left + (r.width - w) / 2, end: r.right - w }[align];
+    const left = Math.min(Math.max(8, wanted), window.innerWidth - w - 8);
     // Where it ended up, not where it was asked to go: the entrance grows from
-    // the corner that actually touches the trigger.
-    const origin = `${top < r.top ? "bottom" : "top"} ${align === "start" ? "left" : "right"}`;
+    // the corner that actually touches the trigger — or, centred under it, from
+    // the middle of that edge.
+    const edge = { start: "left", center: "center", end: "right" }[align];
+    const origin = `${top < r.top ? "bottom" : "top"} ${edge}`;
     setPos({ top, left, width: r.width, origin });
   }, [side, align]);
 
@@ -120,11 +132,19 @@ export function Menu({
     };
   }, [open, place]);
 
-  // Move focus into the menu once it's placed, so arrows work immediately.
+  // Move focus into the menu once it's placed, so arrows work immediately —
+  // onto the ticked choice where there is one, as a select opens on its value.
   useEffect(() => {
     if (!open) return;
-    menuRef.current?.querySelector<HTMLElement>("[role='menuitem']")?.focus();
+    const menu = menuRef.current;
+    const item =
+      menu?.querySelector<HTMLElement>("[role='menuitem']:has(.nt-menu-check.is-on)") ??
+      menu?.querySelector<HTMLElement>("[role='menuitem']");
+    item?.focus({ preventScroll: true });
+    item?.scrollIntoView({ block: "nearest" });
   }, [open]);
+
+  const z = `var(--z-${layer})`;
 
   const onKeyDown = (e: React.KeyboardEvent) => {
     const items = Array.from(
@@ -134,6 +154,13 @@ export function Menu({
     const i = items.indexOf(document.activeElement as HTMLElement);
     if (e.key === "Escape") {
       e.preventDefault();
+      // Inside a dialog, Escape is the menu's alone: the dialog hears it on
+      // `document`, and a palette page on its own tree, and either would
+      // close or step back underneath the menu.
+      if (layer === "modal") {
+        e.stopPropagation();
+        e.nativeEvent.stopImmediatePropagation();
+      }
       close();
     } else if (e.key === "ArrowDown") {
       e.preventDefault();
@@ -173,7 +200,7 @@ export function Menu({
             {open && (
               <div
                 className="fixed inset-0"
-                style={{ zIndex: "var(--z-popover)" }}
+                style={{ zIndex: z }}
                 onMouseDown={() => close()}
               />
             )}
@@ -193,6 +220,7 @@ export function Menu({
                   left: pos.left,
                   minWidth: pos.width,
                   "--origin": pos.origin,
+                  ...(layer === "modal" ? { zIndex: z } : {}),
                 } as React.CSSProperties
               }
             >
@@ -209,11 +237,20 @@ export function MenuItem({
   onClick,
   children,
   danger,
+  disabled,
+  describedBy,
+  className,
   ref,
 }: {
   onClick: () => void;
   children: ReactNode;
   danger?: boolean;
+  /** Refused rather than left out, for a menu that says why beside it. It
+   *  stays in the arrow keys' reach so the reason can be read. */
+  disabled?: boolean;
+  /** A line elsewhere in the menu that says why, when it is not beside it. */
+  describedBy?: string;
+  className?: string;
   /** For a menu that has to move focus between its own items itself. */
   ref?: Ref<HTMLButtonElement>;
 }) {
@@ -221,8 +258,10 @@ export function MenuItem({
     <button
       ref={ref}
       role="menuitem"
-      onClick={onClick}
-      className={`nt-menu-item${danger ? " is-danger" : ""}`}
+      aria-disabled={disabled || undefined}
+      aria-describedby={describedBy}
+      onClick={disabled ? undefined : onClick}
+      className={`nt-menu-item${danger ? " is-danger" : ""}${className ? ` ${className}` : ""}`}
     >
       {children}
     </button>
@@ -238,14 +277,23 @@ export function MenuItem({
 export function MenuLink({
   href,
   onClick,
+  current,
   children,
 }: {
   href: string;
   onClick: () => void;
+  /** The place this link leads is where you already are. */
+  current?: boolean;
   children: ReactNode;
 }) {
   return (
-    <Link role="menuitem" href={href} onClick={onClick} className="nt-menu-item">
+    <Link
+      role="menuitem"
+      href={href}
+      onClick={onClick}
+      aria-current={current ? "page" : undefined}
+      className="nt-menu-item"
+    >
       {children}
     </Link>
   );

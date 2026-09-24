@@ -13,12 +13,15 @@ import { createPortal } from "react-dom";
  */
 export function ConfirmDelete({
   what,
+  consequence = "Its diagrams and history go too.",
   focusConfirm,
   onCancel,
   onConfirm,
 }: {
   /** Names the page, already quoted; falls back to a phrase when unnamed. */
   what: string;
+  /** What else goes, when that is more than its contents: who else loses it. */
+  consequence?: string;
   focusConfirm?: boolean;
   onCancel: () => void;
   onConfirm: () => void;
@@ -26,9 +29,7 @@ export function ConfirmDelete({
   return (
     <>
       <p className="text-sm font-medium">Delete {what}?</p>
-      <p className="mt-1.5 text-[13px] text-muted">
-        Its diagrams and history go too. This cannot be undone.
-      </p>
+      <p className="mt-1.5 text-[13px] text-muted">{consequence} This cannot be undone.</p>
       <div className="mt-4 flex justify-end gap-1">
         <button onClick={onCancel} className="nt-row px-2.5">
           Cancel
@@ -57,12 +58,14 @@ export function ConfirmDelete({
 export function ConfirmDeleteDialog({
   title,
   what,
+  consequence,
   onCancel,
   onConfirm,
 }: {
   title: string;
   /** Overrides the phrase after "Delete", for a thing that is not just a page. */
   what?: string;
+  consequence?: string;
   onCancel: () => void;
   onConfirm: () => void;
 }) {
@@ -94,6 +97,7 @@ export function ConfirmDeleteDialog({
       >
         <ConfirmDelete
           what={what ?? `“${title}”`}
+          consequence={consequence}
           focusConfirm
           onCancel={onCancel}
           onConfirm={onConfirm}

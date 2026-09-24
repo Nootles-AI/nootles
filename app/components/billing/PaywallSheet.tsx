@@ -59,7 +59,7 @@ const STOPPED: Record<Meter, { title: string; body: string }> = {
     body: "The editor works as it always did — the suggestions are what stopped. Pro turns them back on for good.",
   },
   chats: {
-    title: "That's all ten free conversations",
+    title: "That's all ten free chats",
     body: "The ones you've already started still work. Pro lets you begin as many more as you like.",
   },
 };
@@ -100,7 +100,7 @@ function destinationOf(intent: BillingIntent | null): string {
     case "newProject":
       return "Back to naming your project";
     case "chatSend":
-      return "Back to your conversation";
+      return "Back to chat";
     case "completion":
       return "Back to your page";
     default:
@@ -116,10 +116,10 @@ function destinationOf(intent: BillingIntent | null): string {
  * it does not open the dialog or send the message, because nothing was bought.
  * Promising the action here would be the one lie the flow cannot afford.
  */
-function dismissalOf(intent: BillingIntent | null): string {
+export function dismissalOf(intent: BillingIntent | null): string {
   switch (intent?.kind) {
     case "chatSend":
-      return "Back to your conversation";
+      return "Back to chat";
     case "completion":
       return "Back to your page";
     case "newProject":
@@ -133,7 +133,7 @@ function returningLine(intent: BillingIntent | null): string {
     case "newProject":
       return "Taking you back to the project you were starting.";
     case "chatSend":
-      return "Taking you back to your conversation — the message you wrote will send itself.";
+      return "Taking you back to chat — the message you wrote will send itself.";
     case "completion":
       return "Taking you back to the page you were writing.";
     default:
@@ -499,7 +499,9 @@ export function PaywallSheet({
         aria-label="Close"
         onClick={dismiss}
         className="nt-pw-scrim"
-        style={{ zIndex: "var(--z-overlay)" }}
+        // The modal layer, as the holder: a phone's chat drawer sits there
+        // too, and the scrim, portaled after it, has to dim it.
+        style={{ zIndex: "var(--z-modal)" }}
       />
       <div className="nt-pw-holder" style={{ zIndex: "var(--z-modal)" }}>
         {sheet}

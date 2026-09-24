@@ -5,8 +5,9 @@ import { streamDiagram } from "@/app/lib/ai/diagram";
 import { recordAiCall } from "@/app/lib/ai/recordCall";
 import { stagedDiagram } from "@/app/lib/ai/staged/diagram";
 import { asUser } from "@/app/lib/convexServer";
+import { refuseIfSpent } from "@/app/lib/entitlementGate";
 import { refuseIfLimited } from "@/app/lib/requestLimitGate";
-import { sessionToken } from "@/app/lib/session";
+import { session } from "@/app/lib/session";
 
 /**
  * Expands one `<nt-build-diagram>` into canvas HTML.
@@ -22,8 +23,9 @@ export const maxDuration = 60;
 const LOOK_CHARS = 2400;
 
 export async function POST(req: Request) {
-  const token = await sessionToken();
-  if (!token) return new Response("Unauthorized", { status: 401 });
+  const caller = await session();
+  if (!caller) return new Response("Unauthorized", { status: 401 });
+  const { token } = caller;
 
   let body: unknown;
   try {
@@ -53,14 +55,19 @@ export async function POST(req: Request) {
   const convex = asUser(token);
   const limited = await refuseIfLimited(convex, "agentGeneration");
   if (limited) return limited;
+  // A diagram spends no meter of its own, but it is a workspace's AI all the
+  // same, and a guest's day of that can run out.
+  const named = typeof projectId === "string" ? projectId : undefined;
+  const spent = await refuseIfSpent(token, null, named);
+  if (spent) return spent;
 
   // How the project's product looks, read here with the caller's own access
   // rather than taken from the request: it becomes instruction, and a body is
   // anything anyone sends.
   const look =
-    typeof projectId === "string"
+    named !== undefined
       ? await convex
-          .query(api.context.read.packInputs, { projectId: projectId as Id<"projects"> })
+          .query(api.context.read.packInputs, { projectId: named as Id<"projects"> })
           .then((inputs) =>
             (inputs?.code ?? [])
               .flatMap((repo) =>
@@ -80,8 +87,10 @@ export async function POST(req: Request) {
       req.signal,
       ({ usage, latencyMs }) =>
         recordAiCall(convex, {
+          ownerId: caller.userId,
           feature: "diagram",
           model: AI.diagram.model,
+          projectId: named,
           promptTokens: usage.inputTokens,
           completionTokens: usage.outputTokens,
           cacheReadTokens: usage.inputTokenDetails.cacheReadTokens,

@@ -52,11 +52,14 @@ function createBackend() {
           viewer: project.shareToken ?? null,
           commenter: project.commentShareToken ?? null,
           editor: project.editShareToken ?? null,
+          expiresAt: { viewer: null, commenter: null, editor: null },
+          allowed: true,
+          defaultDays: null,
         };
       case "share:collaborators":
         return claims
           .map((claim) => {
-            const role = claimRole(project, claim);
+            const role = claimRole(project, claim, Date.now());
             const profile = profiles.get(claim.granteeId);
             return role && {
               granteeId: claim.granteeId,
@@ -64,11 +67,23 @@ function createBackend() {
               name: profile?.name ?? null,
               email: profile?.email ?? null,
               imageUrl: null,
+              expiresAt: null,
+              guest: false,
+              codeAccess: false,
+              paused: false,
             };
           })
           .filter(Boolean);
       case "share:incomingRequests":
         return [];
+      case "projects:home":
+        // A personal project: no workspace address to move it to.
+        return { slug: null };
+      case "projects:get": {
+        // As `projects.withoutLinks` returns it: the tokens are `share.links`' to give.
+        const { shareToken: _v, commentShareToken: _c, editShareToken: _e, ...row } = project;
+        return row;
+      }
       case "share:view": {
         const token = args.token as string;
         const role = (Object.keys(FIELD) as LinkRole[]).find((r) => token && project[FIELD[r]] === token);
@@ -76,6 +91,7 @@ function createBackend() {
         return {
           projectId: PROJECT,
           role,
+          access: "tree",
           title: project.title,
           pages: [{ _id: PAGE, title: "Plan", docId: PAGE_DOC, folderId: undefined, order: 0 }],
           folders: [],

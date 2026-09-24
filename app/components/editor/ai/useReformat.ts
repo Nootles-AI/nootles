@@ -17,6 +17,7 @@ import { toDocHtml } from "@/app/lib/ai/html/serialize";
 import { parseDocHtml } from "@/app/lib/ai/html/parse";
 import { loadIconCatalog } from "@/app/components/editor/canvas/icons/registry";
 import { compileDocHtml } from "@/app/lib/ai/html/compile";
+import { useCompletionProject } from "./CompletionContext";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Editor = BlockNoteEditor<any, any, any>;
@@ -45,6 +46,12 @@ export function useReformat(
   pageId?: Id<"pages"> | null,
 ) {
   const [state, setState] = useState<ReformatState | null>(null);
+  // Sent so the call is charged to the project's container.
+  const projectId = useCompletionProject();
+  const projectRef = useRef(projectId);
+  useEffect(() => {
+    projectRef.current = projectId;
+  });
 
   const logSuggestion = useMutation(api.ai.suggestions.log);
   const logRef = useRef(logSuggestion);
@@ -197,7 +204,7 @@ export function useReformat(
         const res = await fetch("/api/reformat", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ block: html }),
+          body: JSON.stringify({ block: html, projectId: projectRef.current ?? undefined }),
           signal: controller.signal,
         });
         if (!res.ok || mySeq !== seq) return;

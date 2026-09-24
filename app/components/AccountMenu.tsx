@@ -5,6 +5,8 @@ import { usePlan } from "@/app/lib/usePlan";
 import { Menu, MenuItem, MenuLink } from "./Menu";
 import { Settings, Sparkle } from "./Icons";
 import { useNotionAvailable } from "./notion/NotionAvailable";
+import { useContainer } from "./workspaces/ContainerContext";
+import { useAccountSettingsName } from "./workspaces/useAccountSettingsName";
 
 /** First letter of whatever we know them by — name, else the email. */
 function initial(name: string | null | undefined, email: string | undefined) {
@@ -31,9 +33,13 @@ export function AccountMenu({
   const { user, isLoaded } = useUser();
   const { signOut } = useClerk();
   const { entitlement: plan } = usePlan();
+  // Inside a workspace the AI spends the workspace's allowance, not this one,
+  // so the plan line says whose it is.
+  const inWorkspace = useContainer().kind === "workspace";
   // Settings holds one thing, the Notion connection; a deployment without the
   // integration has nothing to settle, so the door to it is not offered.
   const settings = useNotionAvailable();
+  const settingsName = useAccountSettingsName(!!settings);
 
   // Nothing rather than an empty circle: this sits in a header, and a element
   // that changes size on load moves the things next to it.
@@ -66,6 +72,7 @@ export function AccountMenu({
               <span className="nt-account-name">{label}</span>
               {plan && (
                 <span className="nt-account-plan">
+                  {inWorkspace && "My Nootles · "}
                   {plan.left === null
                     ? "Pro"
                     : `Free · ${plan.left.completions} completions, ${plan.left.chats} chats left`}
@@ -77,7 +84,7 @@ export function AccountMenu({
           {settings && (
             <MenuLink href="/settings" onClick={() => close()}>
               <Settings width={16} height={16} className="nt-menu-icon" />
-              Settings
+              {settingsName}
             </MenuLink>
           )}
           {onShowKeys && (

@@ -41,7 +41,7 @@ for (const key of ["OPENAI_API_KEY", "OPENROUTER_API_KEY", "GOOGLE_GENERATIVE_AI
 
 const FIXTURES = {
   "convex-react": `
-    import { useCallback, useSyncExternalStore } from "react";
+    import { useMemo, useSyncExternalStore } from "react";
     import { getFunctionName } from "convex/server";
     const backend = () => window.shareHarness.backend;
     export function useQuery(ref, args = {}) {
@@ -50,11 +50,24 @@ const FIXTURES = {
     }
     export function useMutation(ref) {
       const name = getFunctionName(ref);
-      return useCallback((args) => backend().mutate(name, args), [name]);
+      return useMemo(() => {
+        const mutate = (args) => backend().mutate(name, args);
+        // The stand-in answers from the server's own state, so an optimistic
+        // guess has nothing to add: the update is the mutation itself.
+        mutate.withOptimisticUpdate = () => mutate;
+        return mutate;
+      }, [name]);
     }
     // Held by the page's comments provider, which must never use it for a
-    // signed-out visitor: any touch fails the run.
-    const inertClient = new Proxy({}, { get(_, key) { throw new Error("the share fixture's Convex client was used: " + String(key)); } });
+    // signed-out visitor: any touch fails the run. A one-off query is the
+    // exception — the signed-in claim asks where the project lives
+    // (\`projects.home\`) — and is answered by the same stand-in.
+    const inertClient = new Proxy({}, {
+      get(_, key) {
+        if (key === "query") return async (ref, args = {}) => backend().read(getFunctionName(ref), args);
+        throw new Error("the share fixture's Convex client was used: " + String(key));
+      },
+    });
     export function useConvex() { return inertClient; }
   `,
   clerk: `
@@ -172,8 +185,13 @@ try {
   await page.goto(origin, { waitUntil: "domcontentloaded" });
   await page.waitForFunction(() => !!window.shareHarness);
   const mutations = (name) => page.evaluate((n) => window.shareHarness.calls().filter((c) => c.kind === "mutation" && c.name === n).map((c) => c.args), name);
+  // A row's name is its truncating span; what they hold is the muted label at
+  // its end (a claimant's sits beside its ⋯ menu).
   const people = () => page.$$eval('[aria-label="People with access"] li', (rows) =>
-    rows.map((row) => [...row.querySelectorAll("span")].filter((s) => !s.getAttribute("aria-hidden")).map((s) => s.textContent.trim())));
+    rows.map((row) => [
+      row.querySelector("span.truncate")?.textContent.trim(),
+      (row.querySelector(".nt-share-hold-text") ?? [...row.querySelectorAll(":scope > span.text-muted")].pop())?.textContent.trim(),
+    ]));
   const note = () => page.textContent('[role="dialog"] .nt-note');
 
   console.log("\nthe owner's share popover");
@@ -211,7 +229,8 @@ try {
 
   await page.click('button:has-text("Commenter link")');
   check("the commenter tab is pressed", await page.getAttribute('button:has-text("Commenter link")', "aria-pressed"), "true");
-  check("it says the link is off, in the link's own words", await note(), "Off. Nobody can view or comment through a commenter link.");
+  check("it says the link is off, in the link's own words", await note(),
+    "There’s no commenter link. Once one is made, anyone who has it can view, and comment once signed in.");
   await page.click('button:has-text("Create commenter link")');
   await page.waitForSelector('input[aria-label="Commenter link"]');
   const created = await page.inputValue('input[aria-label="Commenter link"]');
@@ -238,6 +257,7 @@ try {
   check("the keyboard reaches the commenter tab", await page.getAttribute('button:has-text("Commenter link")', "aria-pressed"), "true");
 
   await page.click('[role="dialog"] button:has-text("Turn off link")');
+  await page.click('[role="dialog"] button:text-is("Turn off")');
   await page.waitForSelector('button:has-text("Create commenter link")');
   check("turning it off revokes it", (await mutations("share:setLink")).at(-1), { projectId: "project_1", role: "commenter", enabled: false });
   check("its claimant is demoted to viewer while other links live", await people(), [["You", "Owner"], ["Ada", "Viewer"], ["Bob", "Viewer"], ["Cy", "Editor"]]);
@@ -245,6 +265,7 @@ try {
   for (const tab of ["Editor link", "Viewer link"]) {
     await page.click(`button:has-text("${tab}")`);
     await page.click('[role="dialog"] button:has-text("Turn off link")');
+    await page.click('[role="dialog"] button:text-is("Turn off")');
     await page.waitForSelector(`button:has-text("Create ${tab.split(" ")[0].toLowerCase()} link")`);
   }
   check("with every link off, only the owner has access", await people(), [["You", "Owner"]]);
@@ -326,8 +347,8 @@ try {
   check("with no edit request made on their behalf", await mutations("share:requestEdit"), []);
 
   const reads = await page.evaluate(() => [...new Set(window.shareHarness.calls().filter((c) => c.kind === "query").map((c) => c.name))].sort());
-  check("the surface asked only share and presence questions", reads,
-    ["presence:list", "share:collaborators", "share:incomingRequests", "share:links", "share:view"]);
+  check("the surface asked only share and presence questions, and where the project lives", reads,
+    ["presence:list", "projects:get", "projects:home", "share:collaborators", "share:incomingRequests", "share:links", "share:view"]);
   console.log(`\nscreenshots: ${output}`);
 } finally {
   await browser?.close();

@@ -22,7 +22,7 @@ import { FREE_LIMITS, type Meter } from "@/convex/limits";
 const SAID: Record<Meter, string> = {
   projects: "Projects",
   completions: "Completions kept",
-  chats: "Conversations",
+  chats: "Chats",
 };
 
 /**

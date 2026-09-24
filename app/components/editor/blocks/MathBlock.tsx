@@ -9,6 +9,7 @@ import { useDebouncedPersist } from "../useDebouncedPersist";
 import { toDocHtmlSplit } from "@/app/lib/ai/html/serialize";
 import { AI } from "@/app/lib/ai/aiConfig";
 import { usePageTitle } from "../PageTitleContext";
+import { useCompletionProject } from "../ai/CompletionContext";
 import type { AnyBlock } from "@/app/lib/ai/projection";
 
 type Row = { id: number; latex: string };
@@ -96,9 +97,13 @@ function MathBlockView({ source, onChange, getFimContext }: MathBlockProps) {
   const completeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const seqRef = useRef(0);
+  // Whose allowance a completion spends is decided by its project.
+  const projectId = useCompletionProject();
+  const projectRef = useRef(projectId);
   useEffect(() => {
     ctxRef.current = getFimContext;
     ghostRef.current = ghost;
+    projectRef.current = projectId;
   });
   useEffect(
     () => () => {
@@ -131,6 +136,7 @@ function MathBlockView({ source, onChange, getFimContext }: MathBlockProps) {
           before: ctx.prefix.slice(-AI.fim.maxBefore),
           after: ctx.suffix.slice(0, AI.fim.maxAfter),
           mode: "structure",
+          projectId: projectRef.current ?? undefined,
         }),
         signal: controller.signal,
       });

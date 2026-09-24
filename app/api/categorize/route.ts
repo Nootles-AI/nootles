@@ -2,7 +2,8 @@ import { AI } from "@/app/lib/ai/aiConfig";
 import { categorizeFeedback } from "@/app/lib/ai/categorize";
 import { recordAiCall } from "@/app/lib/ai/recordCall";
 import { asUser } from "@/app/lib/convexServer";
-import { sessionToken } from "@/app/lib/session";
+import { refuseIfSpent } from "@/app/lib/entitlementGate";
+import { session } from "@/app/lib/session";
 
 /**
  * Suggests a category for a feedback report as it is being written. Cheap and
@@ -10,8 +11,9 @@ import { sessionToken } from "@/app/lib/session";
  * user's hands either way.
  */
 export async function POST(req: Request) {
-  const token = await sessionToken();
-  if (!token) return new Response("Unauthorized", { status: 401 });
+  const caller = await session();
+  if (!caller) return new Response("Unauthorized", { status: 401 });
+  const { token } = caller;
 
   let body: unknown;
   try {
@@ -20,14 +22,19 @@ export async function POST(req: Request) {
     return new Response("Invalid JSON", { status: 400 });
   }
 
-  const { text, ops, consoleTail } = (body ?? {}) as {
+  const { text, ops, consoleTail, projectId } = (body ?? {}) as {
     text?: unknown;
     ops?: unknown;
     consoleTail?: unknown;
+    projectId?: unknown;
   };
   if (typeof text !== "string" || !text.trim()) {
     return new Response("`text` must be a non-empty string", { status: 400 });
   }
+  const project = typeof projectId === "string" ? projectId : undefined;
+  // See the reformat route: a named workspace project is that workspace's bill.
+  const spent = await refuseIfSpent(token, null, project);
+  if (spent) return spent;
 
   const started = Date.now();
   try {
@@ -40,8 +47,11 @@ export async function POST(req: Request) {
       req.signal,
     );
     recordAiCall(asUser(token), {
+      ownerId: caller.userId,
       feature: "categorize",
       model: AI.reformat.model,
+      // The report is filed from a project, when it is, and so is its cost.
+      projectId: project,
       ...usage,
       latencyMs: Date.now() - started,
       // "general" is both a real guess and the fallback, so only the row can say

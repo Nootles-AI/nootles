@@ -1,5 +1,6 @@
 import { ConvexReactClient } from "convex/react";
 import { getFunctionName } from "convex/server";
+import type { Id } from "../convex/_generated/dataModel";
 import { albumIndex } from "../app/lib/ai/albumRead";
 import type { AnyBlock } from "../app/lib/ai/projection";
 
@@ -36,7 +37,8 @@ const album = {
   },
   read(blocks: AnyBlock[], expand: string[]) {
     if (!client) throw new Error("connect first");
-    return albumIndex(client, blocks, expand);
+    // Any id: the describe route is answered by the harness, not the server.
+    return albumIndex(client, "album_project" as Id<"projects">, blocks, expand);
   },
 };
 
