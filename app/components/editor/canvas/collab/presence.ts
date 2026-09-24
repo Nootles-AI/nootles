@@ -3,7 +3,9 @@ import { laidOutScene } from "../scene/autoLayout";
 import {
   absoluteRect,
   absoluteRotation,
+  unrotateBound,
   viewportToScene,
+  type RotatedRect,
 } from "../scene/geometry";
 import {
   findNode,
@@ -28,6 +30,10 @@ import { offsetIn, pointAt } from "./labelCaret";
  * a position change rides a CSS transition — remote motion glides at the
  * awareness cadence instead of ticking — and chrome weights are counter-scaled
  * by `--k` (one screen px in scene px), exactly as the selection overlay does.
+ *
+ * Only a remote hand's samples glide. An outline drawn from where the shape is
+ * on THIS screen — its place in the model, or the local hand dragging it —
+ * lands with the shape in the same frame (NT-73).
  */
 
 export type CanvasSignal = {
@@ -62,6 +68,10 @@ type Api = {
     clientToScene(point: Point): Point;
     get(): Viewport;
     subscribe(cb: () => void): () => void;
+  };
+  live: {
+    subscribe(cb: () => void): () => void;
+    box(id: string): RotatedRect | null;
   };
 };
 
@@ -299,6 +309,18 @@ const editOf = (edit: CanvasSignal["edit"]): CanvasSignal["edit"] =>
     ? edit
     : undefined;
 
+const drawnAt = (scene: Scene, id: string): RotatedRect => ({
+  ...absoluteRect(scene, id),
+  rot: absoluteRotation(scene, id),
+});
+
+const sameBox = (a: RotatedRect, b: RotatedRect): boolean =>
+  Math.abs(a.x - b.x) <= 1 &&
+  Math.abs(a.y - b.y) <= 1 &&
+  Math.abs(a.w - b.w) <= 1 &&
+  Math.abs(a.h - b.h) <= 1 &&
+  Math.abs(a.rot - b.rot) <= 0.5;
+
 const nameOf = (user: RemoteUser): string =>
   typeof user.name === "string" && user.name ? user.name : "Someone";
 
@@ -415,34 +437,16 @@ export function paintCanvasPresence(
    * drag keeps size and rotation, so it agrees; mid-resize and mid-rotate it
    * will not, and the honest bound paints instead.
    */
-  const rectify = (
-    scene: Scene,
-    id: string,
-    frame: Box,
-  ): { frame: Box; rot: number } => {
+  const rectify = (scene: Scene, id: string, bound: Box): RotatedRect => {
     const node = findNode(scene, id);
-    const rot = node ? absoluteRotation(scene, id) : 0;
-    if (!node || !rot) return { frame, rot: 0 };
-    const r = (rot * Math.PI) / 180;
-    const cos = Math.abs(Math.cos(r));
-    const sin = Math.abs(Math.sin(r));
-    const w = node.w * cos + node.h * sin;
-    const h = node.w * sin + node.h * cos;
-    if (Math.abs(w - frame.w) > 1.5 || Math.abs(h - frame.h) > 1.5) {
-      return { frame, rot: 0 };
-    }
-    return {
-      frame: {
-        x: frame.x + (frame.w - node.w) / 2,
-        y: frame.y + (frame.h - node.h) / 2,
-        w: node.w,
-        h: node.h,
-      },
-      rot,
-    };
+    const exact =
+      node && unrotateBound(bound, node.w, node.h, absoluteRotation(scene, id));
+    return exact || { ...bound, rot: 0 };
   };
 
-  const update = () => {
+  /** `live`: repainting for the local hand's gesture frame, which carets follow
+   *  exactly instead of gliding. */
+  const update = (live = false) => {
     const mounted = mounts();
     if (!mounted) return;
     type Here = {
@@ -508,30 +512,37 @@ export function paintCanvasPresence(
           claim,
           attach,
           settle,
+          snap: live,
         });
       }
       for (const id of ids) {
+        // A remote drag outranks the local one: theirs is the hand on it.
         const inFlight = finiteBox(frames?.[id]);
-        let frame: Box;
-        let rot: number;
-        if (inFlight) {
-          ({ frame, rot } = rectify(scene, id, inFlight));
-        } else {
+        let frame: RotatedRect | null = inFlight
+          ? rectify(scene, id, inFlight)
+          : api.live.box(id);
+        if (!frame) {
           // The whole chain: a shape inside a hidden group paints nothing,
           // and a ghost around nothing would be a phantom.
           if (!showing(id)) continue;
-          frame = absoluteRect(scene, id);
-          rot = absoluteRotation(scene, id);
+          frame = drawnAt(scene, id);
         }
         const box = claim(`g:${clientId}:${id}`, () => {
           const el = document.createElement("div");
           el.className = "nt-copresence-ghost";
           return el;
         });
+        // Set with the geometry, so the transition that applies is the one
+        // for where this frame came from. A sample the shape has already
+        // landed on is where it is drawn, not where it is heading.
+        box.classList.toggle(
+          "is-exact",
+          !inFlight || (showing(id) && sameBox(frame, drawnAt(scene, id))),
+        );
         box.style.width = `${frame.w}px`;
         box.style.height = `${frame.h}px`;
         box.style.transform = `translate(${frame.x}px, ${frame.y}px)${
-          rot ? ` rotate(${rot}deg)` : ""
+          frame.rot ? ` rotate(${frame.rot}deg)` : ""
         }`;
         box.style.setProperty("--copresence", color);
         attach(box, mounted.ghosts);
@@ -601,6 +612,11 @@ export function paintCanvasPresence(
     update();
     followUp();
   });
+  // A local drag writes only the DOM until it lands, so the model says the
+  // shape has not moved: its frames come from the gesture itself.
+  const unsubLive = api.live.subscribe(() => {
+    if (painted.size > 0) update(true);
+  });
   const unsubViewport = api.viewport.subscribe(syncScale);
   // And a label's DOM shifts under a painted caret as the local hand types.
   const onLabelInput = () => {
@@ -612,6 +628,7 @@ export function paintCanvasPresence(
   return () => {
     awareness.off("update", onAwareness);
     unsubScene();
+    unsubLive();
     unsubViewport();
     if (raf) cancelAnimationFrame(raf);
     container?.removeEventListener("input", onLabelInput, true);
@@ -631,6 +648,8 @@ type Keyed = {
   claim: <T extends Element>(key: string, make: () => T) => T;
   attach: (el: Element, parent: Element) => void;
   settle: (el: Element) => void;
+  /** Land in place rather than glide — the label is moving under the local hand. */
+  snap: boolean;
 };
 
 /**
@@ -646,7 +665,7 @@ function paintCaret(
   edit: NonNullable<CanvasSignal["edit"]>,
   clientId: number,
   user: RemoteUser,
-  { claim, attach, settle }: Keyed,
+  { claim, attach, settle, snap }: Keyed,
 ) {
   const color = colorOf(user);
   const shape = layer.querySelector<HTMLElement>(
@@ -703,6 +722,7 @@ function paintCaret(
       "nt-copresence-caret-name";
     return el;
   });
+  caret.classList.toggle("is-exact", snap);
   caret.style.transform = `translate(${f.x}px, ${f.y}px)`;
   caret.style.height = `${f.h}px`;
   caret.style.setProperty("--copresence", color);

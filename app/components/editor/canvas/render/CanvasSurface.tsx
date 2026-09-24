@@ -87,6 +87,7 @@ import {
   absoluteSelectionBounds,
   normalizeRect,
   toLocal,
+  unrotateBound,
   type RotatedRect,
 } from "../scene/geometry";
 import { hitTestPath, slopFor } from "../scene/picking";
@@ -498,6 +499,12 @@ export interface CanvasApi {
    */
   previewStyle(decls: StylePatch): void;
   /**
+   * What a transform gesture is drawing right now. Mid-drag the elements move
+   * and the scene does not until the gesture lands, so anything drawn from a
+   * shape's place — a collaborator's selection outline — reads it here.
+   */
+  live: LiveDrawing;
+  /**
    * The board this canvas is a shot of, or absent on a canvas that stands on
    * its own.
    *
@@ -508,6 +515,18 @@ export interface CanvasApi {
    */
   board?: BoardApi;
 }
+
+export interface LiveDrawing {
+  /** Called after each gesture frame's DOM writes, and as a gesture ends. */
+  subscribe(listener: () => void): () => void;
+  /**
+   * A node's box as drawn this frame, in scene px with its scene rotation;
+   * `null` when no running gesture is moving it.
+   */
+  box(id: NodeId): RotatedRect | null;
+}
+
+const NO_LIVE_FRAMES: ReadonlyMap<NodeId, LiveFrame> = new Map();
 
 /** What the control bar can do to the board a shot belongs to. */
 export interface BoardApi {
@@ -1080,6 +1099,13 @@ export function CanvasSurface({
     booleans: LiveBooleans;
   } | null>(null);
 
+  /** This frame's gesture boxes by id, for {@link CanvasApi.live}. */
+  const liveFrames = useRef<ReadonlyMap<NodeId, LiveFrame>>(NO_LIVE_FRAMES);
+  const liveListeners = useRef(new Set<() => void>());
+  const tellLive = useCallback(() => {
+    for (const listener of liveListeners.current) listener();
+  }, []);
+
   const getElement = useCallback(
     (id: NodeId) => {
       const cache = held.current;
@@ -1093,6 +1119,19 @@ export function CanvasSurface({
       return el;
     },
     [viewport],
+  );
+
+  /** A node's rendered bound in scene px — forces a layout if one is due. */
+  const drawnRect = useCallback(
+    (id: NodeId): Rect | null => {
+      const el = getElement(id);
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      const a = viewport.clientToScene({ x: r.left, y: r.top });
+      const b = viewport.clientToScene({ x: r.right, y: r.bottom });
+      return { x: a.x, y: a.y, w: b.x - a.x, h: b.y - a.y };
+    },
+    [getElement, viewport],
   );
 
   /**
@@ -1116,18 +1155,10 @@ export function CanvasSurface({
     reflowEdges(
       sceneRef.current,
       scene,
-      (id) => {
-        if (cache && !cache.moving.has(id)) return null;
-        const el = getElement(id);
-        if (!el) return null;
-        const r = el.getBoundingClientRect();
-        const a = viewport.clientToScene({ x: r.left, y: r.top });
-        const b = viewport.clientToScene({ x: r.right, y: r.bottom });
-        return { x: a.x, y: a.y, w: b.x - a.x, h: b.y - a.y };
-      },
+      (id) => (cache && !cache.moving.has(id) ? null : drawnRect(id)),
       cache,
     );
-  }, [store, sceneRef, getElement, viewport]);
+  }, [store, sceneRef, drawnRect]);
 
   /**
    * Everything a gesture can move: the whole subtree of each top-level node the
@@ -1163,7 +1194,11 @@ export function CanvasSurface({
     // whatever is moving them — the scene does not change until the gesture
     // commits, and a connector rendered from the scene would sit still while
     // its shape slid away.
-    onFrame: reflowLive,
+    onFrame: (frames) => {
+      reflowLive(frames);
+      liveFrames.current = new Map(frames.map((frame) => [frame.id, frame]));
+      tellLive();
+    },
     // A cancelled gesture puts the transforms back without touching the scene,
     // so nothing re-renders and the paths written above would stay stale. One
     // frame later the DOM has settled either way.
@@ -1181,9 +1216,42 @@ export function CanvasSurface({
         return;
       }
       held.current = null;
-      requestAnimationFrame(() => reflowLive());
+      liveFrames.current = NO_LIVE_FRAMES;
+      tellLive();
+      requestAnimationFrame(() => {
+        reflowLive();
+        tellLive();
+      });
     },
   });
+
+  const live = useMemo<LiveDrawing>(
+    () => ({
+      subscribe: (listener) => {
+        liveListeners.current.add(listener);
+        return () => void liveListeners.current.delete(listener);
+      },
+      box: (id) => {
+        if (!held.current?.moving.has(id) || gesture.duplicating()) return null;
+        const bound = drawnRect(id);
+        if (!bound) return null;
+        const scene = laidOutScene(store.getScene());
+        const node = findNode(scene, id);
+        if (!node) return null;
+        const frames = liveFrames.current;
+        let rot = 0;
+        for (const n of nodePath(scene, id)) rot += frames.get(n.id)?.rot ?? n.rot;
+        const own = frames.get(id);
+        return (
+          unrotateBound(bound, own?.w ?? node.w, own?.h ?? node.h, rot) ?? {
+            ...bound,
+            rot: 0,
+          }
+        );
+      },
+    }),
+    [gesture, drawnRect, store],
+  );
 
   /**
    * Picking a tool leaves vector edit mode. The pen overlay sits above the
@@ -1342,6 +1410,7 @@ export function CanvasSurface({
       reveal,
       previewSize,
       previewStyle,
+      live,
     }),
     [
       store,
@@ -1355,6 +1424,7 @@ export function CanvasSurface({
       setDiagram,
       previewSize,
       previewStyle,
+      live,
     ],
   );
 
