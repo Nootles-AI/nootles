@@ -74,6 +74,14 @@ async function signatureFor(
   return { signedAt, signature: await signCall(secret, { ownerId, ...row, signedAt }) };
 }
 
+/** A Convex error's words on one line: its request, and what the server said, without the stack. */
+function withoutStack(message: string): string {
+  return message
+    .split("\n")
+    .filter((line) => line.trim() && !/^\s+at /.test(line))
+    .join(" ");
+}
+
 export function recordAiCall(
   convex: ConvexHttpClient,
   {
@@ -94,9 +102,13 @@ export function recordAiCall(
     .catch((error: unknown) => {
       // Never the user's problem, but never silent either: a row that fails to
       // land is a cost nobody sees, and this once hid a token expiring under a
-      // 62-second request for a whole evening.
+      // 62-second request for a whole evening. Production says so too — by
+      // the reason alone, never the row.
       if (process.env.NODE_ENV !== "production") {
         console.warn(`[ledger] ${call.feature} row not recorded:`, error);
+      } else {
+        const reason = error instanceof Error ? withoutStack(error.message) : String(error);
+        console.error(`[ledger] ${call.feature} row not recorded: ${reason}`);
       }
     });
 }

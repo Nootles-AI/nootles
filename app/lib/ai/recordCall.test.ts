@@ -12,7 +12,10 @@ import { recordAiCall } from "./recordCall";
 
 const SECRET = "a-shared-ledger-secret";
 
-afterEach(() => vi.unstubAllEnvs());
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.restoreAllMocks();
+});
 
 /** A client that remembers what it was asked to write. */
 function client() {
@@ -69,5 +72,23 @@ describe("recordAiCall", () => {
       expect(args).not.toHaveProperty("signedAt");
       expect(args).toMatchObject(CALL);
     }
+  });
+
+  test("says in production when a row does not land — why, never the row (NT-82)", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    const said = vi.spyOn(console, "error").mockImplementation(() => {});
+    const mutation = vi.fn(async () => {
+      throw new Error(
+        "[CONVEX M(ai/calls:record)] [Request ID: 1a2b] Server Error\nUncaught Error: Unauthenticated\n    at requireOwner (../convex/auth.ts:1:1)\n",
+      );
+    });
+    recordAiCall({ mutation } as unknown as ConvexHttpClient, { ownerId: "user_1", ...CALL });
+    await vi.waitFor(() => expect(said).toHaveBeenCalledTimes(1));
+    const [line] = said.mock.calls[0] as [string];
+    expect(line).toBe(
+      "[ledger] chat row not recorded: [CONVEX M(ai/calls:record)] [Request ID: 1a2b] Server Error Uncaught Error: Unauthenticated",
+    );
+    expect(line).not.toContain(CALL.model);
+    expect(line).not.toContain("1000");
   });
 });

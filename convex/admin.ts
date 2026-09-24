@@ -381,7 +381,10 @@ export const aiCallStats = query({
     const buckets = new Map<string, Bucket>();
     const byDay = new Map<string, number>();
     const byOwner = new Map<string, number>();
+    // Rows the deployment could have verified and did not, by why (NT-82).
+    const unverified = { missing: 0, stale: 0, invalid: 0 };
     for (const row of rows) {
+      if (row.unverified) unverified[row.unverified] += 1;
       let b = buckets.get(row.feature);
       if (!b) {
         b = {
@@ -412,6 +415,7 @@ export const aiCallStats = query({
     return {
       sampled: rows.length,
       capped: rows.length === CAP,
+      unverified,
       features: [...buckets.values()]
         .map(({ latencies, ...b }) => {
           const sorted = [...latencies].sort((x, y) => x - y);

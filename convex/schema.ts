@@ -1292,6 +1292,13 @@ export default defineSchema({
      * cap, whatever cost it claims.
      */
     signed: v.optional(v.boolean()),
+    /**
+     * Why a row this deployment could have verified was not: it came with no
+     * signature, one outside its time window, or one that does not hold.
+     * Kept, unbilled, so a secret that differs between Vercel and Convex — or
+     * a fast clock — shows in the ledger instead of emptying it (NT-82).
+     */
+    unverified: v.optional(v.union(v.literal("missing"), v.literal("stale"), v.literal("invalid"))),
     createdAt: v.number(),
   })
     .index("by_owner", ["ownerId", "createdAt"])
