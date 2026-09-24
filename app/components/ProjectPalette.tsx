@@ -287,7 +287,26 @@ function Palette({
   // who is not the one who would be paying, and not on a workspace's home,
   // where the plan that matters is the workspace's.
   const { left } = usePlan();
+  const invite: Row[] = inviteTo
+    ? [
+        {
+          id: "invite",
+          group: "People",
+          name: "Invite people",
+          line: `Add someone to ${inviteTo.name} by their email address`,
+          icon: <PersonPlus />,
+          words: INVITE_WORDS,
+          drill: true,
+          picture: "invite",
+          run: () => go("invite"),
+        },
+      ]
+    : [];
+  // A workspace with nobody in it yet has one thing worth doing first.
+  const people = useQuery(api.members.list, inviteTo ? { workspaceId: inviteTo.workspaceId } : "skip");
+  const alone = people?.members.length === 1;
   const root: Row[] = [
+    ...(alone ? invite : []),
     ...(canCreate && left && here.kind === "account"
       ? [
           {
@@ -318,21 +337,7 @@ function Palette({
           },
         ]
       : []),
-    ...(inviteTo
-      ? [
-          {
-            id: "invite",
-            group: "People",
-            name: "Invite people",
-            line: `Add someone to ${inviteTo.name} by their email address`,
-            icon: <PersonPlus />,
-            words: INVITE_WORDS,
-            drill: true,
-            picture: "invite" as const,
-            run: () => go("invite"),
-          },
-        ]
-      : []),
+    ...(alone ? [] : invite),
     ...projects.map((p) => ({
       id: p._id,
       group: here.kind === "workspace" ? here.name : "Yours",
