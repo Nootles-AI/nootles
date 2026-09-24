@@ -112,6 +112,27 @@ export function hasIcon(name: string): boolean {
   return BY_NAME.has(name);
 }
 
+/**
+ * Whether an icon draws as itself rather than as the fallback mark: an emoji
+ * with a character, a picture with its URL, a glyph carrying its path or one
+ * this build still ships. A surface whose fallback is not the page mark — a
+ * workspace's letter — asks this first.
+ */
+export function drawsItself(icon: RowIconValue | null | undefined): icon is RowIconValue {
+  if (!icon) return false;
+  if (icon.kind === "emoji") return !!icon.value;
+  if (icon.kind === "image") return !!icon.url;
+  return !!icon.d || BY_NAME.has(icon.name);
+}
+
+/** One string per choice, for telling a new icon from the one it replaced. */
+export function iconKey(icon: RowIconValue | null | undefined): string {
+  if (!icon) return "";
+  if (icon.kind === "emoji") return `emoji:${icon.value}`;
+  if (icon.kind === "image") return `image:${icon.storageId}`;
+  return `icon:${icon.name}`;
+}
+
 export function RowIcon({
   icon,
   kind,

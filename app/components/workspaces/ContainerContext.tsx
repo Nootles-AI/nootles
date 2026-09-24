@@ -3,6 +3,7 @@
 import { createContext, useContext, type ReactNode } from "react";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { WorkspaceRole } from "@/convex/auth";
+import type { RowIconValue } from "../rowIcon";
 
 /**
  * Whose place this is: your own account, or one workspace you have a seat in.
@@ -20,6 +21,8 @@ export type WorkspaceContainer = {
   slug: string;
   name: string;
   role: WorkspaceRole;
+  /** Its chosen icon; absent or null draws its letter. */
+  icon?: RowIconValue | null;
 };
 
 export type Container = { kind: "account" } | WorkspaceContainer;

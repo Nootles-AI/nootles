@@ -362,6 +362,7 @@ describe("an invitation", () => {
         email: NEWCOMER.email,
         role: "member",
         workspaceName: "Acme",
+        workspaceIcon: null,
         inviterName: "Ada",
         slug: null,
       });
@@ -561,7 +562,7 @@ describe("joining by domain", () => {
     await openDomain(t, w);
     const newcomer = t.withIdentity(NEWCOMER);
     expect(await newcomer.query(api.members.joinable, {})).toEqual([
-      { workspaceId: w.workspaceId, name: "Acme", role: "member", via: "domain", token: null },
+      { workspaceId: w.workspaceId, name: "Acme", icon: null, role: "member", via: "domain", token: null },
     ]);
     await expect(
       newcomer.mutation(api.members.joinByDomain, { workspaceId: w.workspaceId }),
@@ -630,7 +631,7 @@ describe("joining by domain", () => {
 
     await max.mutation(api.members.leave, { workspaceId: w.workspaceId });
     expect(await max.query(api.members.joinable, {})).toEqual([
-      { workspaceId: w.workspaceId, name: "Acme", role: "guest", via: "domain", token: null },
+      { workspaceId: w.workspaceId, name: "Acme", icon: null, role: "guest", via: "domain", token: null },
     ]);
     await max.mutation(api.members.joinByDomain, { workspaceId: w.workspaceId });
     expect(await seatOf(t, w.workspaceId, MEMBER)).toMatchObject({
@@ -715,7 +716,7 @@ describe("joining by domain", () => {
 
     // A demoted guest comes back a guest; an admin who walked out, a member.
     expect(await max.query(api.members.joinable, {})).toEqual([
-      { workspaceId: w.workspaceId, name: "Acme", role: "guest", via: "invitation", token: "for-max" },
+      { workspaceId: w.workspaceId, name: "Acme", icon: null, role: "guest", via: "invitation", token: "for-max" },
     ]);
     expect(await max.query(api.members.invitation, { token: "for-max" })).toMatchObject({
       state: "valid",
@@ -802,7 +803,7 @@ describe("joining by domain", () => {
       role: "guest",
     });
     expect(await t.withIdentity(NEWCOMER).query(api.members.joinable, {})).toEqual([
-      { workspaceId: w.workspaceId, name: "Acme", role: "guest", via: "invitation", token },
+      { workspaceId: w.workspaceId, name: "Acme", icon: null, role: "guest", via: "invitation", token },
     ]);
     await t.withIdentity(OWNER).mutation(api.workspaces.remove, { workspaceId: w.workspaceId });
     expect(await t.withIdentity(NEWCOMER).query(api.members.joinable, {})).toEqual([]);

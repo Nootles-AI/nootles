@@ -11,6 +11,7 @@ import { rememberWorkspace } from "@/app/lib/projectsCache";
 import { Wordmark } from "../Brand";
 import { useConfirmedEmail, useIdentityCheck } from "../IdentitySync";
 import { Check, Mail } from "../Icons";
+import { drawsItself, RowIcon, type RowIconValue } from "../rowIcon";
 import { initial } from "./people";
 import { refusal } from "./refusal";
 import { ROLE_OFFER } from "./seats";
@@ -168,8 +169,8 @@ export function JoinInvitation({ token }: { token: string }) {
       </Card>
     );
   } else if (invitation) {
-    const { workspaceName: name, inviterName: inviter } = invitation;
-    const tile = <Tile name={name} done={joined} />;
+    const { workspaceName: name, workspaceIcon: icon, inviterName: inviter } = invitation;
+    const tile = <Tile name={name} icon={icon} done={joined} />;
     if (invitation.state === "valid") {
       card = (
         <Card
@@ -306,15 +307,35 @@ function Card({
  * The workspace's token, as the switcher draws it: its initial, in a square —
  * which turns to a tick once you are in, the moment before its home arrives.
  */
-function Tile({ name, done = false }: { name: string; done?: boolean }) {
+function Tile({
+  name,
+  icon,
+  done = false,
+}: {
+  name: string;
+  icon: RowIconValue | null;
+  done?: boolean;
+}) {
+  const shown = drawsItself(icon) ? icon : null;
   return (
     <span
-      className="nt-monogram nt-ws-tile is-square nt-ws-join-tile"
+      className={`nt-monogram nt-ws-tile is-square nt-ws-join-tile${
+        shown ? ` has-icon is-${shown.kind}` : ""
+      }`}
       data-done={done || undefined}
       aria-hidden="true"
     >
       <span className="nt-swap">
-        <span>{initial(name)}</span>
+        {shown ? (
+          <RowIcon
+            icon={shown}
+            kind="page"
+            size={shown.kind === "image" ? 48 : 30}
+            className="nt-ws-tile-icon"
+          />
+        ) : (
+          <span>{initial(name)}</span>
+        )}
         <Check width={20} height={20} />
       </span>
     </span>
