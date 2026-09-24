@@ -22,8 +22,8 @@ export function useLeaving<T>(
   if (keys !== prev.keys) {
     const here = new Set(items.map(keyOf));
     const left = prev.items.flatMap((item, at) => (here.has(keyOf(item)) ? [] : [{ item, at }]));
-    const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
-    setGone((was) => [...was.filter((g) => !here.has(keyOf(g.item))), ...(still ? [] : left)]);
+    // Under reduced motion too: the fade is what says it went.
+    setGone((was) => [...was.filter((g) => !here.has(keyOf(g.item))), ...left]);
     setPrev({ keys, items });
   }
 

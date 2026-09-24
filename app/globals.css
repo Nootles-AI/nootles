@@ -1080,6 +1080,17 @@ body[data-resizing] .nt-rail-face {
   opacity: 1;
   transform: none;
 }
+/* A tick that is on from the moment it is drawn plays its spring once as it
+   mounts (`.is-landing`, or a menu's own rule when it opens with it on). */
+.nt-menu-check.is-landing {
+  animation: nt-menu-check-in var(--dur-slow) var(--spring) backwards;
+}
+@keyframes nt-menu-check-in {
+  from {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+}
 
 /* A menu arrives as a list, top first. Only a real `role="menu"`: those mount
    their rows once. A list that re-filters as you type (the slash and mention
@@ -1109,6 +1120,9 @@ body[data-resizing] .nt-rail-face {
   }
   .nt-menu-check {
     transition: none;
+  }
+  .nt-menu-check.is-landing {
+    animation: nt-fade-in var(--dur-fast) var(--ease);
   }
 }
 /* A line of menu that is information rather than a target — the account a menu
@@ -6092,8 +6106,10 @@ body:has(.nt-review-bar) .nt-sampler {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  /* The room is taken or given back at once; what comes and goes still fades,
+     since that is what says it did. Weighted past the global catch-all. */
   .nt-fold {
-    transition: none;
+    transition: opacity var(--dur-fast) var(--ease) !important;
   }
   .nt-settle {
     animation: nt-fade-in var(--dur-fast) var(--ease);
