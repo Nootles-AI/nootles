@@ -9,9 +9,12 @@ import { ContextMenu } from "../ContextMenu";
 import { Dialog } from "../Dialog";
 import { FileDoc, Plus } from "../Icons";
 import { NotionMark } from "../NotionMark";
+import { useContainer } from "../workspaces/ContainerContext";
+import { CodeGate } from "./CodeGate";
 import { MARKS, useProjectSources, type Card } from "./ContextSources";
 import { GitHubMark } from "./marks";
 import { GitHubSourcePage, NotionSourcePage } from "./SourcePages";
+import { repoPlaceholder, searchable, useGitHubDoor } from "./useGitHubDoor";
 import "./sources.css";
 
 type Door = "github" | "notion";
@@ -97,6 +100,7 @@ export function SidebarContext({
           </li>
         ))}
       </ul>
+      <CodeGate />
       {sources.failure && (
         <p role="alert" className="px-2 pb-1 text-[12.5px] leading-snug text-danger">
           {sources.failure}
@@ -192,11 +196,12 @@ function SourceSheet({
   onDone: () => void;
 }) {
   const [query, setQuery] = useState("");
-  const github = useQuery(api.github.account.status, door === "github" ? {} : "skip");
+  const here = useContainer();
+  const github = useGitHubDoor(here.kind === "workspace" ? here.workspaceId : undefined, door === "github");
   const notion = useQuery(api.notion.account.status, door === "notion" ? {} : "skip");
-  const status = door === "github" ? github : notion;
   // Searched once there is something to search, as in the palette: not over a connect screen.
-  const connected = !!status?.account && !status.account.invalidAt;
+  const connected =
+    door === "github" ? searchable(github) : !!notion?.account && !notion.account.invalidAt;
   return (
     <div className="flex min-h-0 flex-col">
       <div className="nt-pal-field">
@@ -205,7 +210,7 @@ function SourceSheet({
           autoFocus
           type="search"
           aria-label={door === "github" ? "Search repositories" : "Search Notion pages"}
-          placeholder={door === "github" ? "Search your repositories, or type owner/name…" : "Search your Notion pages…"}
+          placeholder={door === "github" ? repoPlaceholder(github) : "Search your Notion pages…"}
           autoComplete="off"
           spellCheck={false}
           value={query}
@@ -215,6 +220,7 @@ function SourceSheet({
       </div>
       {door === "github" ? (
         <GitHubSourcePage
+          door={github}
           chosen={sources.repos}
           search={query}
           onChoose={(repos) => {

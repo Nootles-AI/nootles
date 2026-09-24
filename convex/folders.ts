@@ -1,6 +1,7 @@
 import { mutation, query, type MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
+import { recordInProject } from "./audit";
 import { isTrashed, readVisible, requireEditable } from "./auth";
 import { clonePage, endOrder, folderIn, levelOf } from "./pages";
 import { refreshPageSummary } from "./projects";
@@ -112,6 +113,12 @@ export const remove = mutation({
     const folder = await requireEditable(ctx, "folders", args.folderId);
     const affected = await softRemoveFolderCascade(ctx, folder);
     await refreshPageSummary(ctx, folder.projectId);
+    await recordInProject(ctx, (await ctx.db.get(folder.projectId))!, {
+      action: "folder.delete",
+      subjectKind: "folder",
+      subjectId: folder._id,
+      meta: { folder: folder.title, pages: affected.pages.length },
+    });
     return affected;
   },
 });

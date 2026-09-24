@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import { mutation, type MutationCtx, type QueryCtx } from "../_generated/server";
-import { requireOwned } from "../auth";
+import { canReadCode, requireManageable } from "../auth";
 import { searchTextOf } from "../context/shape";
 
 /**
@@ -26,7 +26,7 @@ const FILES_SHOWN = 12;
 export const claim = mutation({
   args: { repoId: v.id("projectRepos") },
   handler: async (ctx, args) => {
-    const repo = await requireOwned(ctx, "projectRepos", args.repoId);
+    const repo = await nameable(ctx, args.repoId);
     const index = repo.index;
     if (index?.state !== "naming") return null;
     const now = Date.now();
@@ -49,7 +49,7 @@ export const apply = mutation({
     ),
   },
   handler: async (ctx, args) => {
-    const repo = await requireOwned(ctx, "projectRepos", args.repoId);
+    const repo = await nameable(ctx, args.repoId);
     for (const n of args.names) {
       const id = ctx.db.normalizeId("contextNodes", n.nodeId);
       const node = id ? await ctx.db.get(id) : null;
@@ -76,10 +76,21 @@ export const apply = mutation({
 export const skip = mutation({
   args: { repoId: v.id("projectRepos") },
   handler: async (ctx, args) => {
-    const repo = await requireOwned(ctx, "projectRepos", args.repoId);
+    const repo = await nameable(ctx, args.repoId);
     if (repo.index?.state === "naming") await settle(ctx, repo);
   },
 });
+
+/**
+ * The repository, for whoever manages its project — the run is shown the
+ * code's outline, so reading the code has to be theirs too.
+ */
+async function nameable(ctx: MutationCtx, repoId: Id<"projectRepos">) {
+  const repo = await requireManageable(ctx, "projectRepos", repoId);
+  const project = await ctx.db.get(repo.projectId);
+  if (!project || !(await canReadCode(ctx, project))) throw new Error("Not found");
+  return repo;
+}
 
 async function settle(ctx: MutationCtx, repo: Doc<"projectRepos">) {
   if (!repo.index) return;

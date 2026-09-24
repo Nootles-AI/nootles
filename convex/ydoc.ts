@@ -4,6 +4,7 @@ import * as Y from "yjs";
 import { components, internal } from "./_generated/api";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
+import { recordDocumentEdit } from "./audit";
 import { moderatesComments, ownerId, type ProjectRole } from "./auth";
 import { ANY_CHANNEL, checkRead, checkWrite, pageForDoc } from "./prosemirror";
 import { COMMENTS_REFUSED, refuseCommentsUpdate } from "@/app/lib/comments/policy";
@@ -279,7 +280,12 @@ export const append = mutation({
     if (access.channel === "comments") {
       await judgeCommentsUpdate(ctx, args.docId, chunks, access.role);
     }
-    return await appendYUpdate(ctx, args.docId, chunks);
+    const seq = await appendYUpdate(ctx, args.docId, chunks);
+    // Here rather than in `appendYUpdate`, which the NML migrator shares: this
+    // is the one place a flush is known to be a person's. A comments append is
+    // no edit of the page; its events are the notices' (`commentNotices`).
+    if (access.channel === "document") await recordDocumentEdit(ctx, args.docId);
+    return seq;
   },
 });
 

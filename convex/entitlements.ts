@@ -2,14 +2,28 @@ import { ConvexError, v } from "convex/values";
 import { internalMutation, mutation, query } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { isAuditId, recordAudit } from "./audit";
-import type { Doc } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import {
   ownerId as currentOwner,
+  holdsSeat,
   isTrashed,
+  readEditable,
+  requireEditable,
   requireOwned,
   requireOwner,
+  workspaceRole,
 } from "./auth";
+import {
+  isFeature,
+  isPlanName,
+  PLAN_OVERRIDE,
+  PLANS,
+  utcDay,
+  type Feature,
+  type Features,
+  type PlanName,
+} from "./plans";
 
 /**
  * What an account may do — the one place that answers it.
@@ -30,6 +44,12 @@ import {
  *
  * The free allowance does NOT refill. It is a taste of the product, not a tier
  * to live in, and the counters that record it are therefore never reset.
+ *
+ * A workspace answers the same question from its own sources — an operator's
+ * grant, its Team subscription, else free (`workspaceStanding`) — and the
+ * project a piece of work is done in decides which of the two is asked
+ * (`containerFor`). The two never interact: a seat buys nothing in its
+ * holder's own projects, and Pro buys nothing in a workspace's.
  */
 
 /**
@@ -44,8 +64,12 @@ export { FREE_LIMITS, type Meter };
 
 export type Plan = "free" | "pro";
 
-/** Which of the four sources answered. `"none"` is a free account. */
-export type Source = "none" | "vip" | "code" | "subscription";
+/**
+ * Which of the four sources answered. `"none"` is a free account;
+ * `"workspace"` is not an account's answer at all but a workspace project's
+ * (see `entitlementIn`).
+ */
+export type Source = "none" | "vip" | "code" | "subscription" | "workspace";
 
 export type Entitlement = {
   plan: Plan;
@@ -101,8 +125,14 @@ export function paidThrough(
   return sub.currentPeriodEnd * 1000;
 }
 
-/** The error every gate throws, shaped so the client can draw the right wall. */
-export type QuotaRefusal = { code: "quota"; meter: Meter; limit: number };
+/** What a refusal names: one of the free allowance's meters, or a guest's day of AI. */
+export type RefusedMeter = Meter | "guestAi";
+
+/**
+ * The error every gate throws, shaped so the client can draw the right wall.
+ * `limit` is the meter's count, or for `guestAi` the day's cap in dollars.
+ */
+export type QuotaRefusal = { code: "quota"; meter: RefusedMeter; limit: number };
 
 /**
  * `ConvexError` rather than `Error`, for the same reason `auth.ts` uses one: a
@@ -112,6 +142,11 @@ export type QuotaRefusal = { code: "quota"; meter: Meter; limit: number };
  */
 export function quotaRefusal(meter: Meter): ConvexError<QuotaRefusal> {
   return new ConvexError({ code: "quota", meter, limit: FREE_LIMITS[meter] });
+}
+
+/** A guest who has spent their day of a workspace's AI. See `guestAllowance`. */
+export function guestCapRefusal(capUsd: number): ConvexError<QuotaRefusal> {
+  return new ConvexError({ code: "quota", meter: "guestAi", limit: capUsd });
 }
 
 /** True when `e` is this module's refusal — the client's narrowing hook. */
@@ -135,20 +170,26 @@ async function accountOf(
 }
 
 /**
- * Live projects this account owns, counted rather than stored.
+ * Live personal projects this account owns, counted rather than stored.
  *
  * A stored count drifts the moment a project is trashed and restored, and this
  * is only ever asked one project short of the limit — so the bounded read is
- * both cheaper to keep right and cheap enough to do. Projects shared WITH
- * someone are not theirs and never counted; a free collaborator on a paid
- * project keeps working.
+ * both cheaper to keep right and cheap enough to do. The index does the
+ * filtering, so the bound cuts only rows that count: trashed projects taken
+ * first and dropped after once let two in the bin hide a third live one.
+ *
+ * Projects shared WITH someone are not theirs and never counted; a free
+ * collaborator on a paid project keeps working. Nor are the workspace projects
+ * they made — those are the workspace's, whoever made them.
  */
 async function liveProjects(ctx: QueryCtx, owner: string): Promise<number> {
   const rows = await ctx.db
     .query("projects")
-    .withIndex("by_owner", (q) => q.eq("ownerId", owner))
+    .withIndex("by_owner_and_workspace_and_deleted", (q) =>
+      q.eq("ownerId", owner).eq("workspaceId", undefined).eq("deletedAt", undefined),
+    )
     .take(FREE_LIMITS.projects + 1);
-  return rows.filter((p) => !isTrashed(p)).length;
+  return rows.length;
 }
 
 /** The furthest-out live code grant, or null if none is still standing. */
@@ -182,6 +223,22 @@ function pro(source: Source, rest: Partial<Entitlement> = {}): Entitlement {
   return { plan: "pro", source, left: null, used: null, ...rest };
 }
 
+/** A free answer, from what has been spent. */
+function free(source: Source, used: Record<Meter, number>): Entitlement {
+  return {
+    plan: "free",
+    source,
+    used,
+    // Clamped: a meter can saturate past its limit in a race, and "-3 left" is
+    // not a thing to show anyone.
+    left: {
+      projects: Math.max(0, FREE_LIMITS.projects - used.projects),
+      completions: Math.max(0, FREE_LIMITS.completions - used.completions),
+      chats: Math.max(0, FREE_LIMITS.chats - used.chats),
+    },
+  };
+}
+
 /**
  * The whole answer for one account. Everything else in the app reads this.
  */
@@ -208,23 +265,16 @@ export async function entitlementOf(
     }
   }
 
-  const used: Record<Meter, number> = {
+  return free("none", {
     projects: await liveProjects(ctx, owner),
     completions: account?.acceptedCompletions ?? 0,
     chats: account?.chatConversations ?? 0,
-  };
-  return {
-    plan: "free",
-    source: "none",
-    used,
-    // Clamped: a meter can saturate past its limit in a race, and "-3 left" is
-    // not a thing to show anyone.
-    left: {
-      projects: Math.max(0, FREE_LIMITS.projects - used.projects),
-      completions: Math.max(0, FREE_LIMITS.completions - used.completions),
-      chats: Math.max(0, FREE_LIMITS.chats - used.chats),
-    },
-  };
+  });
+}
+
+/** Whether one meter still has room. Pro always does. */
+export function hasRoom(entitlement: Entitlement, meter: Meter): boolean {
+  return entitlement.left === null || entitlement.left[meter] > 0;
 }
 
 /**
@@ -238,10 +288,15 @@ export const PLAN_FEATURES = {
   pro: { comments: true },
 } as const satisfies Record<Plan, { comments: boolean }>;
 
-export type Feature = keyof (typeof PLAN_FEATURES)[Plan];
+/**
+ * A feature a project answers for itself. Also a column of every workspace
+ * plan (`plans.ts`), so a workspace's own override turns it off there.
+ */
+export type ProjectFeature = keyof (typeof PLAN_FEATURES)[Plan];
 
-const ON_EVERY_PLAN = (feature: Feature) =>
-  Object.values(PLAN_FEATURES).every((plan) => plan[feature]);
+const ON_EVERY_PLAN = (feature: ProjectFeature) =>
+  Object.values(PLAN_FEATURES).every((plan) => plan[feature]) &&
+  Object.values(PLANS).every((plan) => plan[feature]);
 
 type OverrideScope = Doc<"entitlementOverrides">["scope"];
 
@@ -249,7 +304,7 @@ async function overrideRow(
   ctx: QueryCtx,
   scope: OverrideScope,
   scopeId: string,
-  feature: Feature,
+  feature: ProjectFeature,
 ): Promise<Doc<"entitlementOverrides"> | null> {
   return await ctx.db
     .query("entitlementOverrides")
@@ -270,15 +325,18 @@ async function overrideOf(
   ctx: QueryCtx,
   scope: OverrideScope,
   scopeId: string,
-  feature: Feature,
+  feature: ProjectFeature,
 ): Promise<boolean | null> {
   return (await overrideRow(ctx, scope, scopeId, feature))?.value ?? null;
 }
 
 /**
  * Whether a feature is on for a project: an override row for the project,
- * else one for its owner's account, else the owner's plan. Decided by the
- * project OWNER, never the caller: a free commenter on a paid project comments.
+ * else one for its container — its owner's account, or its workspace — else
+ * that container's plan. Decided by the project's container, never the
+ * caller: a free commenter on a paid project comments. A workspace project's
+ * creator is not its container, so their account's override says nothing
+ * there.
  *
  * Asked on every comments-channel read, so the common case stays two indexed
  * point reads of rows that almost never exist. A feature on for every plan
@@ -288,15 +346,39 @@ async function overrideOf(
 export async function projectFeature(
   ctx: QueryCtx,
   project: Doc<"projects">,
-  feature: Feature,
+  feature: ProjectFeature,
 ): Promise<boolean> {
+  const { workspaceId } = project;
   const forced =
     (await overrideOf(ctx, "project", project._id, feature)) ??
-    (await overrideOf(ctx, "account", project.ownerId, feature));
+    (workspaceId
+      ? await workspaceOverrideOf(ctx, workspaceId, feature)
+      : await overrideOf(ctx, "account", project.ownerId, feature));
   if (forced !== null) return forced;
   if (ON_EVERY_PLAN(feature)) return true;
+  if (workspaceId) return (await workspaceStanding(ctx, workspaceId)).features[feature];
   const { plan } = await entitlementOf(ctx, project.ownerId);
   return PLAN_FEATURES[plan][feature];
+}
+
+/**
+ * A workspace's standing override of one boolean feature, or null: the one
+ * row `workspaceStanding` would lay over its plan, read by itself so the
+ * comments gate stays a point read.
+ */
+async function workspaceOverrideOf(
+  ctx: QueryCtx,
+  workspaceId: Id<"workspaces">,
+  feature: ProjectFeature,
+): Promise<boolean | null> {
+  const row = await ctx.db
+    .query("workspaceEntitlements")
+    .withIndex("by_workspace_and_feature", (q) =>
+      q.eq("workspaceId", workspaceId).eq("feature", feature),
+    )
+    .unique();
+  if (!row || typeof row.value !== "boolean") return null;
+  return row.expiresAt === undefined || row.expiresAt > Date.now() ? row.value : null;
 }
 
 /**
@@ -411,9 +493,268 @@ export const expireOverride = internalMutation({
   },
 });
 
-/** Whether one meter still has room. Pro always does. */
-export function hasRoom(entitlement: Entitlement, meter: Meter): boolean {
-  return entitlement.left === null || entitlement.left[meter] > 0;
+/**
+ * Whose allowance a piece of AI work spends: one person's account, or a
+ * workspace's. Asked of the project the work is done in, never of the person
+ * alone — the same person has chat in a team project and not in their own.
+ */
+export type Container =
+  | { kind: "account"; ownerId: string }
+  | { kind: "workspace"; workspaceId: Id<"workspaces"> };
+
+/**
+ * The container of work `caller` does in `project`, for a caller already
+ * known to write there. A workspace project's work is the workspace's. A
+ * personal project's is the caller's own — on somebody else's shared project
+ * too, as it always was: an editor spends their own allowance.
+ */
+export function containerOf(project: Doc<"projects">, caller: string): Container {
+  return project.workspaceId
+    ? { kind: "workspace", workspaceId: project.workspaceId }
+    : { kind: "account", ownerId: caller };
+}
+
+/**
+ * {@link containerOf} for a project a request merely NAMES, which is whatever
+ * anyone sends. A workspace pays only for someone who can write in its project
+ * — a member, or a guest an editor link let in — so naming a project you only
+ * read, have no part in, or that does not exist spends your own allowance.
+ * Takes a string rather than an id for the same reason: a malformed one falls
+ * back to the caller's account instead of failing a lookup that fails open.
+ */
+export async function containerFor(
+  ctx: QueryCtx,
+  projectId: string,
+  caller: string,
+): Promise<Container> {
+  const id = ctx.db.normalizeId("projects", projectId);
+  const project = id && (await readEditable(ctx, "projects", id));
+  return project ? containerOf(project, caller) : { kind: "account", ownerId: caller };
+}
+
+/** Far past the handful of features there are; a bound, not a working size. */
+const OVERRIDE_CAP = 50;
+
+/**
+ * What a workspace is on: the plan column in force, what put it there, and
+ * every feature once its overrides are laid over that column.
+ */
+export type WorkspaceStanding = {
+  plan: PlanName;
+  /** An operator's grant of a plan, a live subscription, or neither — free. */
+  source: "override" | "subscription" | "none";
+  features: Features;
+  /** When the subscription it stands on lapses. */
+  expiresAt?: number;
+};
+
+/**
+ * Whether a workspace's subscription still counts — by the same rule an
+ * account's does, and for the same reasons (see `WEBHOOK_RETRY_WINDOW`).
+ */
+export function workspaceSubscriptionLive(
+  billing: Pick<Doc<"workspaceBilling">, "status" | "periodEnd"> | null,
+  now: number,
+): boolean {
+  return (
+    billing !== null &&
+    isLiveStatus(billing.status) &&
+    billing.periodEnd + WEBHOOK_RETRY_WINDOW > now
+  );
+}
+
+/**
+ * The whole answer for one workspace, first match winning, as an account's:
+ *
+ *   1. an operator's grant of a plan (`feature: "plan"`) — what internal
+ *      testers run on, and a promise sales made without a card
+ *   2. a live Team subscription: the workspace's own plan
+ *   3. otherwise free, on an allowance of its own (`workspaceEntitlement`)
+ *
+ * Then any other override replaces its feature, whichever plan answered.
+ * An override past its `expiresAt`, or of a type its feature does not take,
+ * is not there.
+ */
+export async function workspaceStanding(
+  ctx: QueryCtx,
+  workspaceId: Id<"workspaces">,
+): Promise<WorkspaceStanding> {
+  const now = Date.now();
+  const rows = await ctx.db
+    .query("workspaceEntitlements")
+    .withIndex("by_workspace_and_feature", (q) => q.eq("workspaceId", workspaceId))
+    .take(OVERRIDE_CAP);
+  const overrides = new Map(
+    rows
+      .filter((row) => row.expiresAt === undefined || row.expiresAt > now)
+      .map((row) => [row.feature, row.value]),
+  );
+
+  let standing: Omit<WorkspaceStanding, "features">;
+  const granted = overrides.get(PLAN_OVERRIDE);
+  if (isPlanName(granted)) {
+    standing = { plan: granted, source: "override" };
+  } else {
+    const billing = await ctx.db
+      .query("workspaceBilling")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+      .unique();
+    // The workspace row only once there is a plan to read off it, so an
+    // unpaid workspace's answer does not re-run on every settings change.
+    const workspace = workspaceSubscriptionLive(billing, now)
+      ? await ctx.db.get(workspaceId)
+      : null;
+    standing =
+      billing && workspace
+        ? { plan: workspace.plan, source: "subscription", expiresAt: billing.periodEnd }
+        : { plan: "free", source: "none" };
+  }
+
+  const features: Features = { ...PLANS[standing.plan] };
+  for (const [feature, value] of overrides) {
+    if (isFeature(feature) && typeof value === typeof features[feature]) {
+      (features as Record<Feature, Features[Feature]>)[feature] = value as Features[Feature];
+    }
+  }
+  return { ...standing, features };
+}
+
+/** The resolver: one feature, for whichever container is asking. */
+export async function entitlement<F extends Feature>(
+  ctx: QueryCtx,
+  container: Container,
+  feature: F,
+): Promise<Features[F]> {
+  const features =
+    container.kind === "workspace"
+      ? (await workspaceStanding(ctx, container.workspaceId)).features
+      : PLANS[(await entitlementOf(ctx, container.ownerId)).plan];
+  return features[feature];
+}
+
+async function workspaceMeters(
+  ctx: QueryCtx,
+  workspaceId: Id<"workspaces">,
+): Promise<Doc<"workspaceMeters"> | null> {
+  return await ctx.db
+    .query("workspaceMeters")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .unique();
+}
+
+/** {@link liveProjects} for a workspace: every live project in it, whoever made it. */
+async function liveWorkspaceProjects(
+  ctx: QueryCtx,
+  workspaceId: Id<"workspaces">,
+): Promise<number> {
+  const rows = await ctx.db
+    .query("projects")
+    .withIndex("by_workspace_and_deleted", (q) =>
+      q.eq("workspaceId", workspaceId).eq("deletedAt", undefined),
+    )
+    .take(FREE_LIMITS.projects + 1);
+  return rows.length;
+}
+
+/**
+ * A workspace's meters under its standing. Without the `unmetered` feature it
+ * is free, and spends one allowance for everybody in it — the same numbers
+ * one account gets, so a team that has not paid has not bought ten chats a
+ * head.
+ */
+async function workspaceEntitlement(
+  ctx: QueryCtx,
+  workspaceId: Id<"workspaces">,
+  standing: WorkspaceStanding,
+): Promise<Entitlement> {
+  if (standing.features.unmetered) {
+    return pro("workspace", standing.expiresAt === undefined ? {} : { expiresAt: standing.expiresAt });
+  }
+  const meters = await workspaceMeters(ctx, workspaceId);
+  return free("workspace", {
+    projects: await liveWorkspaceProjects(ctx, workspaceId),
+    completions: meters?.acceptedCompletions ?? 0,
+    chats: meters?.chatConversations ?? 0,
+  });
+}
+
+/** What a container may do: an account's own answer, or its workspace's. */
+export async function entitlementIn(
+  ctx: QueryCtx,
+  container: Container,
+): Promise<Entitlement> {
+  if (container.kind === "account") return await entitlementOf(ctx, container.ownerId);
+  return await workspaceEntitlement(
+    ctx,
+    container.workspaceId,
+    await workspaceStanding(ctx, container.workspaceId),
+  );
+}
+
+/**
+ * A guest's day of a workspace's AI. `day` is the UTC day it was counted on:
+ * an answer kept past midnight says nothing about the day after, and whoever
+ * holds one compares it with their own.
+ */
+export type GuestAllowance = { day: string; capUsd: number; spentUsd: number };
+
+/**
+ * What is left of the caller's day in the container, when they are a guest in
+ * a workspace — anyone doing its work without a paid seat. Null for everyone
+ * else, which costs a member one membership read.
+ */
+export async function guestAllowance(
+  ctx: QueryCtx,
+  container: Container,
+  caller: string,
+): Promise<GuestAllowance | null> {
+  if (container.kind === "account") return null;
+  if (await holdsSeat(ctx, container.workspaceId, caller)) return null;
+  const day = utcDay(Date.now());
+  const spent = await ctx.db
+    .query("guestAiSpend")
+    .withIndex("by_workspace_and_day_and_user", (q) =>
+      q.eq("workspaceId", container.workspaceId).eq("day", day).eq("userId", caller),
+    )
+    .unique();
+  return {
+    day,
+    capUsd: await entitlement(ctx, container, "guestDailyAiUsd"),
+    spentUsd: spent?.costUsd ?? 0,
+  };
+}
+
+/** The guest cap as a gate: throws `guestCapRefusal` once the day is spent. */
+export async function requireGuestRoom(
+  ctx: QueryCtx,
+  container: Container,
+  caller: string,
+): Promise<void> {
+  const allowance = await guestAllowance(ctx, container, caller);
+  if (allowance && allowance.spentUsd >= allowance.capUsd) {
+    throw guestCapRefusal(allowance.capUsd);
+  }
+}
+
+/**
+ * Adds signed spend to a guest's day. Called by the ledger for a row it has
+ * verified; the cap is read from here, never from the rows themselves.
+ */
+export async function spendGuestDay(
+  ctx: MutationCtx,
+  workspaceId: Id<"workspaces">,
+  userId: string,
+  day: string,
+  costUsd: number,
+): Promise<void> {
+  const row = await ctx.db
+    .query("guestAiSpend")
+    .withIndex("by_workspace_and_day_and_user", (q) =>
+      q.eq("workspaceId", workspaceId).eq("day", day).eq("userId", userId),
+    )
+    .unique();
+  if (row) await ctx.db.patch(row._id, { costUsd: row.costUsd + costUsd });
+  else await ctx.db.insert("guestAiSpend", { workspaceId, day, userId, costUsd });
 }
 
 /**
@@ -429,7 +770,16 @@ export async function requireQuota(
   owner: string,
   meter: Meter,
 ): Promise<Entitlement> {
-  const entitlement = await entitlementOf(ctx, owner);
+  return await requireQuotaIn(ctx, { kind: "account", ownerId: owner }, meter);
+}
+
+/** {@link requireQuota} for a container: an account, or a workspace's own allowance. */
+export async function requireQuotaIn(
+  ctx: QueryCtx,
+  container: Container,
+  meter: Meter,
+): Promise<Entitlement> {
+  const entitlement = await entitlementIn(ctx, container);
   if (!hasRoom(entitlement, meter)) throw quotaRefusal(meter);
   return entitlement;
 }
@@ -472,6 +822,48 @@ export async function spendMeter(
   await ctx.db.patch(account._id, { [field]: account[field] + 1 });
 }
 
+/** {@link spendMeter} for a workspace's own allowance. Never throws, for the same reason. */
+async function spendWorkspaceMeter(
+  ctx: MutationCtx,
+  workspaceId: Id<"workspaces">,
+  meter: Exclude<Meter, "projects">,
+): Promise<void> {
+  const field = meter === "completions" ? "acceptedCompletions" : "chatConversations";
+  const meters = await workspaceMeters(ctx, workspaceId);
+  if (meters) {
+    await ctx.db.patch(meters._id, { [field]: meters[field] + 1 });
+    return;
+  }
+  await ctx.db.insert("workspaceMeters", {
+    workspaceId,
+    acceptedCompletions: 0,
+    chatConversations: 0,
+    [field]: 1,
+    createdAt: Date.now(),
+  });
+}
+
+/**
+ * {@link spendMeter} for work done in a container, so a workspace's work never
+ * touches anyone's own. A workspace counts only while it is on the free
+ * allowance: on a live plan what it spends is the cost ledger, and lapsing
+ * must not wall it for work it paid for.
+ */
+export async function spendMeterIn(
+  ctx: MutationCtx,
+  container: Container,
+  meter: Exclude<Meter, "projects">,
+): Promise<void> {
+  if (container.kind === "account") {
+    await spendMeter(ctx, container.ownerId, meter);
+    return;
+  }
+  const standing = await workspaceStanding(ctx, container.workspaceId);
+  if (!standing.features.unmetered) {
+    await spendWorkspaceMeter(ctx, container.workspaceId, meter);
+  }
+}
+
 /**
  * Charges a conversation, once, the first time it reaches the model.
  *
@@ -485,19 +877,42 @@ export async function spendMeter(
  * the thread uncharged and the user can come back to it after upgrading.
  */
 export const beginChat = mutation({
-  args: { threadId: v.id("chatThreads") },
+  args: {
+    threadId: v.id("chatThreads"),
+    /**
+     * The project the route reads into the turn. Optional only so a route one
+     * deploy behind still chats; the thread names its project either way, and
+     * that is what is charged.
+     */
+    projectId: v.optional(v.id("projects")),
+  },
   returns: v.null(),
   handler: async (ctx, args) => {
     const thread = await requireOwned(ctx, "chatThreads", args.threadId);
-    if (thread.billedAt !== undefined) return null;
+    // A thread from one project carrying another's context would be charged to
+    // a container the conversation is not about.
+    if (args.projectId !== undefined && args.projectId !== thread.projectId) {
+      throw new Error("Not found");
+    }
+    // Ahead of the paid-for wave-through below: a thread started while the
+    // caller could write is no pass once they can only read.
+    const project = await requireEditable(ctx, "projects", thread.projectId);
     const owner = await requireOwner(ctx);
-    const entitlement = await requireQuota(ctx, owner, "chats");
+    const container = containerOf(project, owner);
+    // Also ahead of it: a guest's day runs out mid-conversation as surely as
+    // at the start of one.
+    await requireGuestRoom(ctx, container, owner);
+    if (thread.billedAt !== undefined) return null;
+    const entitlement = await entitlementIn(ctx, container);
+    if (!hasRoom(entitlement, "chats")) throw quotaRefusal("chats");
     // Pro accounts are not metered, so there is nothing to stamp: were they to
     // lapse, the threads they started while paying should not each be holding
-    // a slot of the free allowance they never spent.
+    // a slot of the free allowance they never spent. The same holds for a
+    // workspace on a live plan; one on the free allowance spends its own.
     if (entitlement.plan === "free") {
       await ctx.db.patch(args.threadId, { billedAt: Date.now() });
-      await spendMeter(ctx, owner, "chats");
+      if (container.kind === "account") await spendMeter(ctx, owner, "chats");
+      else await spendWorkspaceMeter(ctx, container.workspaceId, "chats");
     }
     return null;
   },
@@ -550,5 +965,79 @@ export const mine = query({
   handler: async (ctx): Promise<Entitlement | null> => {
     const owner = await currentOwner(ctx);
     return owner ? await entitlementOf(ctx, owner) : null;
+  },
+});
+
+/**
+ * Everything one container is entitled to: whose it is, the plan column in
+ * force, every feature resolved, the meters, and — for a guest working in a
+ * workspace project — what is left of their day.
+ */
+export type Standing = {
+  container:
+    | { kind: "account" }
+    | { kind: "workspace"; workspaceId: Id<"workspaces">; name: string };
+  plan: PlanName;
+  features: Features;
+  entitlement: Entitlement;
+  guestAi: GuestAllowance | null;
+};
+
+async function standingIn(
+  ctx: QueryCtx,
+  container: Container,
+  caller: string,
+): Promise<Standing> {
+  if (container.kind === "account") {
+    const entitlement = await entitlementOf(ctx, container.ownerId);
+    return {
+      container: { kind: "account" },
+      plan: entitlement.plan,
+      features: PLANS[entitlement.plan],
+      entitlement,
+      guestAi: null,
+    };
+  }
+  const { workspaceId } = container;
+  const standing = await workspaceStanding(ctx, workspaceId);
+  return {
+    container: {
+      kind: "workspace",
+      workspaceId,
+      name: (await ctx.db.get(workspaceId))?.name ?? "",
+    },
+    plan: standing.plan,
+    features: standing.features,
+    entitlement: await workspaceEntitlement(ctx, workspaceId, standing),
+    guestAi: await guestAllowance(ctx, container, caller),
+  };
+}
+
+/**
+ * The one query the client reads its plan from (`usePlan`, `useEntitlement`),
+ * and what the API routes' pre-checks ask. Signed out answers null, for the
+ * same reason as `mine`.
+ *
+ * Inside a project, the project decides — the workspace's in a workspace
+ * project the caller writes in, their own otherwise (see
+ * {@link containerFor}). Without one, a workspace named by id answers for
+ * someone with a seat in it, as its home and settings ask; anyone else, and
+ * no argument at all, gets their own account.
+ */
+export const forContainer = query({
+  args: {
+    projectId: v.optional(v.string()),
+    workspaceId: v.optional(v.id("workspaces")),
+  },
+  handler: async (ctx, args): Promise<Standing | null> => {
+    const owner = await currentOwner(ctx);
+    if (!owner) return null;
+    let container: Container = { kind: "account", ownerId: owner };
+    if (args.projectId !== undefined) {
+      container = await containerFor(ctx, args.projectId, owner);
+    } else if (args.workspaceId && (await workspaceRole(ctx, args.workspaceId))) {
+      container = { kind: "workspace", workspaceId: args.workspaceId };
+    }
+    return await standingIn(ctx, container, owner);
   },
 });

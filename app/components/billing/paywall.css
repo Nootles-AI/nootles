@@ -189,6 +189,17 @@
     height var(--dur-slow) var(--ease);
 }
 
+/* Leaving as a dialog leaves: the sheet drops away on the exit curve and the
+   scrim fades under it, already out of the pointer's way. */
+.nt-pw-sheet.is-closing {
+  pointer-events: none;
+  animation: nt-dialog-out var(--dur) cubic-bezier(0.7, 0, 0.84, 0) forwards;
+}
+.nt-pw-scrim.is-closing {
+  pointer-events: none;
+  animation: nt-fade-out var(--dur) var(--ease) forwards;
+}
+
 .nt-pw-sheet.is-wide {
   max-width: 560px;
 }
@@ -700,7 +711,30 @@
    drawn mark, the drain and the spinner all stop — and the mark is explicitly
    reset to a closed stroke, because an animation removed from a dash-offset
    reveal leaves the figure invisible rather than still. */
+/* ---- The wall as a pane ---------------------------------------------------
+   A workspace with no projects left, drawn in the palette's side pane in place
+   of the picture of what would be made: the sheet's sentence, strip and way
+   on, at the pane's measure, fading in as the Pro picture does there. */
+.nt-pw-pane {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  align-content: center;
+  padding: 28px;
+  animation: nt-fade-in var(--dur-slow) var(--ease);
+}
+.nt-pw-pane .nt-pw-title {
+  font-size: 20px;
+  line-height: 1.25;
+}
+.nt-pw-pane .nt-pw-answers {
+  justify-content: flex-start;
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .nt-pw-pane {
+    animation: nt-fade-in var(--dur-fast) var(--ease);
+  }
   .nt-pw-mask.is-arriving .nt-pw-cell,
   .nt-pw-field > *,
   .nt-pw-scrim,

@@ -163,3 +163,75 @@ body:has(.nt-fixed) .nt-asks {
   white-space: nowrap;
   font-size: 13px;
 }
+
+/* ---- A link's last line, in the share popover ---------------------------
+   When it runs out on the left, turning it off on the right. The tooltip of
+   the one at the right end opens leftward, from its right edge, so it stays
+   inside the popover rather than widening it into a sideways scroll. */
+
+.nt-share-link-foot .nt-tip::after {
+  left: auto;
+  right: 0;
+}
+
+/* ---- Who has access, in the share popover -------------------------------
+   A person's ⋯ takes the seat of what they hold rather than one of its own,
+   so every role in the list ends on the popover's edge, like the workspace's
+   row above it. Where nothing hovers, the ⋯ is always there, beside it. */
+
+.nt-share-hold {
+  display: grid;
+  flex: none;
+  align-items: center;
+  justify-items: end;
+}
+.nt-share-hold > * {
+  grid-area: 1 / 1;
+}
+.nt-share-hold-text {
+  /* Fading paints it over the ⋯ it shares a seat with; clicks go through. */
+  pointer-events: none;
+  transition: opacity var(--dur-fast) var(--ease);
+}
+.nt-share-people > li:hover .nt-share-hold-text,
+.nt-share-people > li:focus-within .nt-share-hold-text,
+.nt-share-hold:has([aria-expanded="true"]) .nt-share-hold-text {
+  opacity: 0;
+}
+@media (hover: none) {
+  .nt-share-hold {
+    display: flex;
+    gap: 8px;
+  }
+  .nt-share-people > li .nt-share-hold > .nt-share-hold-text {
+    opacity: 1;
+  }
+}
+
+/* A scroll box clips on both axes, so the list keeps room at its sides for
+   the ⋯'s focus ring and gives it back, leaving the rows on the popover's
+   edge. */
+.nt-share-people {
+  padding-inline: 3px;
+  margin-inline: -3px;
+}
+
+/* Someone whose access was taken away fades, then their row closes up, so
+   the list shortens rather than snapping when the server agrees. The row is
+   kept until this ends: COLLAPSE_MS in SharePopover.tsx. */
+.nt-share-people > li {
+  transition:
+    opacity 220ms var(--ease),
+    transform 220ms cubic-bezier(0.7, 0, 0.84, 0),
+    height var(--dur) var(--ease) 140ms;
+}
+.nt-share-people > li.is-leaving {
+  height: 0;
+  overflow: hidden;
+}
+/* The role and its ⋯ still cross-fade: nothing moves. */
+@media (prefers-reduced-motion: reduce) {
+  .nt-share-people > li {
+    transition: none;
+  }
+}

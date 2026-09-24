@@ -57,6 +57,7 @@ export const digest = mutation({
       searchText: searchTextOf(page.title, terms),
       contentHash,
       syncedAt: Date.now(),
+      code: false,
     };
     if (text) await ctx.db.patch(text._id, fields);
     else {
@@ -121,6 +122,7 @@ export async function pageNode(
     searchText: searchTextOf(page.title, ""),
     contentHash: "",
     syncedAt: Date.now(),
+    code: false,
   });
   return (await ctx.db.get(id))!;
 }

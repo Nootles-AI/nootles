@@ -4,8 +4,9 @@ import { AI } from "@/app/lib/ai/aiConfig";
 import { nameRepository } from "@/app/lib/ai/context/name";
 import { recordAiCall } from "@/app/lib/ai/recordCall";
 import { asUser } from "@/app/lib/convexServer";
+import { refuseIfSpent } from "@/app/lib/entitlementGate";
 import { refuseIfLimited } from "@/app/lib/requestLimitGate";
-import { sessionToken } from "@/app/lib/session";
+import { session } from "@/app/lib/session";
 
 /**
  * Names a freshly indexed repository's areas and concerns (stage 2).
@@ -16,15 +17,24 @@ import { sessionToken } from "@/app/lib/session";
  * tabs ask, and a repository not waiting to be named costs nothing to ask about.
  */
 export async function POST(req: Request) {
-  const token = await sessionToken();
-  if (!token) return new Response("Unauthorized", { status: 401 });
+  const caller = await session();
+  if (!caller) return new Response("Unauthorized", { status: 401 });
+  const { token } = caller;
 
-  const { repoId } = ((await req.json().catch(() => null)) ?? {}) as { repoId?: unknown };
+  const { repoId, projectId } = ((await req.json().catch(() => null)) ?? {}) as {
+    repoId?: unknown;
+    projectId?: unknown;
+  };
   if (typeof repoId !== "string") return new Response("`repoId` is required", { status: 400 });
+  const project = typeof projectId === "string" ? projectId : undefined;
 
   const convex = asUser(token);
   const limited = await refuseIfLimited(convex, "agentGeneration");
   if (limited) return limited;
+  // Before the claim, so a refusal leaves the repository waiting to be named.
+  // See the reformat route: a named workspace project is that workspace's bill.
+  const spent = await refuseIfSpent(token, null, project);
+  if (spent) return spent;
 
   const outline = await convex
     .mutation(api.github.naming.claim, { repoId: repoId as Id<"projectRepos"> })
@@ -38,8 +48,10 @@ export async function POST(req: Request) {
     const { names, calls } = await nameRepository(outline);
     for (const call of calls) {
       recordAiCall(convex, {
+        ownerId: caller.userId,
         feature: "context",
         model: AI.context.nameModel,
+        projectId: project,
         promptTokens: call.promptTokens,
         completionTokens: call.completionTokens,
         latencyMs: Date.now() - started,

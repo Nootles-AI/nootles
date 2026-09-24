@@ -619,6 +619,7 @@ export const userDetail = query({
       .order("desc")
       .take(100);
 
+    const now = Date.now();
     return {
       profile: {
         ownerId: profile.ownerId,
@@ -638,7 +639,7 @@ export const userDetail = query({
         id: p._id,
         title: p.title,
         createdAt: p.createdAt,
-        shared: hasLiveLink(p),
+        shared: hasLiveLink(p, now),
       })),
       pageCount,
       suggestionKinds: [...kinds.entries()]

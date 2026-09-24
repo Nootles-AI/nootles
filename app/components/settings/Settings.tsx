@@ -9,6 +9,7 @@ import { Wordmark } from "@/app/components/Brand";
 import { DialogBox } from "@/app/components/Dialog";
 import { X } from "@/app/components/Icons";
 import { NotionMark } from "@/app/components/NotionMark";
+import { useAccountSettingsName } from "@/app/components/workspaces/useAccountSettingsName";
 import { useNotionAvailable } from "@/app/components/notion/NotionAvailable";
 import {
   describeOutcome,
@@ -32,6 +33,7 @@ export function Settings() {
   // The status is only worth asking for where the row will be drawn.
   const status = useQuery(api.notion.account.status, available ? {} : "skip");
   const outcome = useNotionOutcome();
+  const name = useAccountSettingsName();
 
   return (
     <div className="nt-set-page">
@@ -44,7 +46,7 @@ export function Settings() {
         </Link>
       </header>
       <main className="nt-set-body">
-        <h1 className="nt-set-title">Settings</h1>
+        <h1 className="nt-set-title">{name}</h1>
         <section
           className="nt-set-section"
           aria-labelledby="nt-set-integrations"

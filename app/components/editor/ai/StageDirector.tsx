@@ -3,8 +3,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useUser } from "@clerk/nextjs";
 import type { BlockNoteEditor } from "@blocknote/core";
+import type { Id } from "@/convex/_generated/dataModel";
 import { reveal, suspendCompletions } from "@/app/lib/ai/tourDrive";
 import { TAB_SCRIPTS, type TabScript } from "@/app/lib/ai/staged/tab";
+import { useCompletionProject } from "./CompletionContext";
 import { clearSuggestion, setAction, setGhost } from "./ghostText";
 
 /**
@@ -50,6 +52,7 @@ const LOOKBEHIND = 240;
 export function StageDirector({ editor }: { editor: Editor | null }) {
   const { user } = useUser();
   const ON = staged(user?.id);
+  const projectId = useCompletionProject();
   const [armed, setArmed] = useState<TabScript | null>(null);
   const painting = useRef(false);
 
@@ -128,7 +131,7 @@ export function StageDirector({ editor }: { editor: Editor | null }) {
         setAction(view, {
           label: "Build the diagram",
           batch: null,
-          onAccept: () => void buildDiagram(editor, armed.ghost),
+          onAccept: () => void buildDiagram(editor, armed.ghost, projectId),
         });
       });
     } else {
@@ -147,7 +150,7 @@ export function StageDirector({ editor }: { editor: Editor | null }) {
       suspendCompletions(false);
       painting.current = false;
     };
-  }, [editor, armed, ON]);
+  }, [editor, armed, ON, projectId]);
 
   return null;
 }
@@ -164,7 +167,7 @@ function stripTags(html: string): string {
  * lands on the real path — Yjs, sync, review, one step on the undo stack — and
  * is a diagram the presenter can drag a box on the moment it settles.
  */
-async function buildDiagram(editor: Editor, ghost: string) {
+async function buildDiagram(editor: Editor, ghost: string, projectId: Id<"projects"> | null) {
   const brief = /<nt-build-diagram>([\s\S]*?)<\/nt-build-diagram>/i.exec(ghost)?.[1] ?? "";
   const here = editor.getTextCursorPosition().block;
   const [placed] = editor.insertBlocks(
@@ -177,7 +180,8 @@ async function buildDiagram(editor: Editor, ghost: string) {
     const res = await fetch("/api/diagram", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ brief, page: "", title: "" }),
+      // The project, as the lane's own diagrams send it: its look, and its ledger.
+      body: JSON.stringify({ brief, page: "", title: "", projectId }),
     });
     if (!res.ok || !res.body) return;
     const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();

@@ -1,7 +1,20 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
+import type { Id } from "@/convex/_generated/dataModel";
+import { ContextFileError } from "@/app/lib/contextFiles";
 import type { DraftSourcesValue } from "./context/ContextSources";
+
+/**
+ * The workspace a new project is made in, and who in it sees the project.
+ * Plain JSON, like the rest of the draft: it rides the paywall's round trip.
+ */
+export type ProjectHome = {
+  workspaceId: Id<"workspaces">;
+  /** Where it opens once made; an address retired meanwhile still arrives. */
+  slug: string;
+  visibility: "workspace" | "private";
+};
 
 export type NewProject = {
   title: string;
@@ -10,7 +23,17 @@ export type NewProject = {
   sources: DraftSourcesValue;
   /** An `app/lib/templates` id; absent means blank. */
   template?: string;
+  /** Absent means the person's own projects. */
+  workspace?: ProjectHome;
 };
+
+/**
+ * Whose allowance a project being made ran out of: its own workspace's, or the
+ * person's. Never the home it was drafted from — a draft moved to the person's
+ * own projects is walled by their plan, wherever the palette was opened.
+ */
+export const wallOf = (project?: NewProject): Id<"workspaces"> | null =>
+  project?.workspace?.workspaceId ?? null;
 
 /**
  * What a project is, asked before it exists.
@@ -29,14 +52,26 @@ export function useNewProjectDraft(
    *  and the form is handed back as it was, to send again. */
   onCreate: (project: NewProject) => Promise<boolean | void>,
   template?: string,
+  /** Where it goes unless they choose otherwise: the home it was started from. */
+  home?: ProjectHome,
 ) {
   const [title, setTitle] = useState("");
+  const [workspace, setWorkspace] = useState(home);
   const [description, setDescription] = useState("");
   const [sources, setSources] = useState<DraftSourcesValue>({ repos: [], files: [], pages: [] });
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
 
   const named = title.trim();
+
+  // Repositories picked through one workspace's GitHub App are that
+  // workspace's to read; moved anywhere else, the project could not.
+  const moveTo = (next: ProjectHome | undefined) => {
+    if (next?.workspaceId !== workspace?.workspaceId) {
+      setSources((now) => ({ ...now, repos: now.repos.filter((r) => r.installationId === undefined) }));
+    }
+    setWorkspace(next);
+  };
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -50,18 +85,21 @@ export function useNewProjectDraft(
       description: description.trim(),
       sources,
       template,
+      ...(workspace ? { workspace } : {}),
     })
       .then((made) => {
         if (made === false) setBusy(false);
       })
-      .catch(() => {
-        setFailure("Couldn’t create that project.");
+      .catch((error: unknown) => {
+        setFailure(
+          error instanceof ContextFileError ? error.message : "Couldn’t create that project.",
+        );
         setBusy(false);
       });
   };
 
   return {
     title, setTitle, description, setDescription, sources, setSources,
-    busy, failure, named, submit,
+    workspace, setWorkspace: moveTo, busy, failure, named, submit,
   };
 }

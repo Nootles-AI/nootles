@@ -76,8 +76,18 @@ export function NotionImportBody({
   frame = "dialog",
   search,
   onSearchable,
+  into,
 }: {
   target?: { projectId: Id<"projects">; folderId?: Id<"folders">; projectTitle: string };
+  /**
+   * The workspace a new project goes into, as the palette's New project would
+   * make it; absent is your own. Ignored when importing into `target`.
+   */
+  into?: {
+    workspaceId: Id<"workspaces">;
+    visibility: "workspace" | "private";
+    name: string;
+  };
   /** Finished: leave the whole surface. */
   close: () => void;
   /** Given up: in the palette, the page before this one. */
@@ -162,7 +172,11 @@ export function NotionImportBody({
       client,
       roots,
       selection,
-      ...(target ? { projectId: target.projectId, folderId: target.folderId } : {}),
+      ...(target
+        ? { projectId: target.projectId, folderId: target.folderId }
+        : into
+          ? { workspace: { workspaceId: into.workspaceId, visibility: into.visibility } }
+          : {}),
       newProjectTitle: derivedTitle,
       onProgress: setProgress,
       signal: controller.signal,
@@ -310,7 +324,11 @@ export function NotionImportBody({
   const workspace = status?.account?.workspaceName ?? "Notion";
   const loading = !roots && !loadError;
   const lands =
-    count && !target ? `Lands in a new project called “${derivedTitle}”.` : null;
+    count && !target
+      ? into
+        ? `Lands in a new ${into.visibility === "private" ? "private " : ""}project called “${derivedTitle}” in ${into.name}.`
+        : `Lands in a new project called “${derivedTitle}”.`
+      : null;
 
   if (inPalette && loading) return reading(READING);
 

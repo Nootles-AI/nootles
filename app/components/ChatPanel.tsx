@@ -14,6 +14,7 @@ import { PlanWall } from "./billing/PlanWall";
 import { usePlan } from "@/app/lib/usePlan";
 import { useResumeIntent } from "@/app/lib/billing/useResumeIntent";
 import { useProjectChat } from "@/app/lib/ai/chat/useProjectChat";
+import { guestDaySpent } from "@/app/lib/ai/chat/retryNotice";
 import type { AbMessage, ChatDraft } from "@/app/lib/ai/chat/types";
 import type { ReturnPoint } from "@/app/lib/ai/review/session";
 
@@ -48,7 +49,7 @@ export function ChatPanel({
   const [picked, setPicked] = useState<Id<"chatThreads"> | null>(null);
   const [picking, setPicking] = useState(false);
   const [walled, setWalled] = useState<ChatDraft | null>(null);
-  const { room } = usePlan();
+  const { room, guestSpent } = usePlan(projectId);
   /**
    * A rewind being decided: which message it winds back to, what it covers, and
    * where each page stood before it was previewed. Nothing here has happened to
@@ -108,6 +109,17 @@ export function ChatPanel({
     // Only the first question names the thread; later ones must not rewrite it.
     if (!active?.title) nameThreadFrom(titleFor(draft));
     void send(draft);
+  };
+
+  /**
+   * From the composer. A guest whose day of the workspace's AI is spent meets
+   * no wall — nothing they can buy lifts it — so the refusal is thrown back,
+   * and the composer keeps the draft and says why beneath it. Anything sent
+   * another way that gets past this is refused by the server in the same words.
+   */
+  const onCompose = async (draft: ChatDraft) => {
+    if (guestSpent()) throw new Error(guestDaySpent());
+    await onSend(draft);
   };
 
   /**
@@ -241,7 +253,7 @@ export function ChatPanel({
         queued={chat.queued}
         projectId={projectId}
         pageId={pageId}
-        onSend={onSend}
+        onSend={onCompose}
         onStop={chat.stop}
         onUnqueue={chat.unqueue}
       />
@@ -249,6 +261,7 @@ export function ChatPanel({
       {walled && (
         <PlanWall
           meter="chats"
+          projectId={projectId}
           intent={{ kind: "chatSend", projectId, pageId, draft: walled }}
           onClose={() => setWalled(null)}
           onResume={() => {

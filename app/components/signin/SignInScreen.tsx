@@ -1,6 +1,8 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { useSyncExternalStore } from "react";
+import { returnPath } from "@/app/lib/returnPath";
 import { LogoStacked, Wordmark } from "../Brand";
 import { GoogleButton } from "./GoogleButton";
 import "@/app/sign-in/signin.css";
@@ -33,7 +35,23 @@ const Recording = dynamic(
  */
 export type Variant = "wordmark" | "stacked" | "centred" | "bleed";
 
+const noop = () => () => {};
+
+/**
+ * Whether the sign-in was asked for by an invitation link — `proxy.ts` sends
+ * a signed-out visit to one here with it as `redirect_url`. Only the path is
+ * read, never the invitation, so the door says nothing about the workspace.
+ * False on the server and through hydration.
+ */
+function useFromInvitation(): boolean {
+  const search = useSyncExternalStore(noop, () => window.location.search, () => "");
+  if (!search) return false;
+  const back = returnPath(new URLSearchParams(search).get("redirect_url"), window.location.origin);
+  return back.startsWith("/w/join/");
+}
+
 export function SignInScreen({ variant }: { variant: Variant }) {
+  const invited = useFromInvitation();
   return (
     <main className={`nt-si is-${variant}`}>
       <section className="nt-si-door">
@@ -60,6 +78,13 @@ export function SignInScreen({ variant }: { variant: Variant }) {
               Notes, diagrams and maths in one document, with an AI that reads
               every part of it and edits it the way you would.
             </p>
+            {/* An invitation opens only for the address it was sent to, which
+                is the one thing worth knowing before choosing an account. */}
+            {invited && (
+              <p className="nt-si-invited nt-settle">
+                Sign in with the address your invitation was sent to.
+              </p>
+            )}
             <GoogleButton />
           </div>
         </div>

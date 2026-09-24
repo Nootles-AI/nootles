@@ -199,6 +199,12 @@ body {
 }
 
 @layer base {
+/* Selected text wears the ink's own wash, as every selected thing does here —
+   the browser's blue belongs to no part of this palette. */
+::selection {
+  background: oklch(0.25 0.005 90 / 0.14);
+}
+
 /* Placeholder for empty contentEditable fields (see Editable.tsx). */
 [contenteditable][data-placeholder]:empty::before {
   content: attr(data-placeholder);
@@ -293,6 +299,11 @@ body {
   .nt-rail-r {
     animation: nt-fade-in var(--dur-fast) var(--ease);
   }
+}
+/* Why a project won't open, said in place of it: it arrives from nothing, so
+   it settles in rather than appearing. */
+.nt-kept-out {
+  animation: nt-fade-in var(--dur-slow) var(--ease) backwards;
 }
 
 .nt-panel-head {
@@ -399,6 +410,13 @@ body {
   pointer-events: none;
 }
 .nt-row.is-selected {
+  background: var(--selected);
+  color: var(--foreground);
+}
+/* A row that opens a popup stays washed while it is open, as a latched icon
+   button does — the popup's catcher takes the pointer, so hover alone would
+   let go of it the moment the popup arrives. */
+.nt-row[aria-haspopup][aria-expanded="true"] {
   background: var(--selected);
   color: var(--foreground);
 }
@@ -992,6 +1010,17 @@ body[data-resizing] .nt-rail-face {
 .nt-menu-item.is-danger {
   color: var(--danger);
 }
+/* Refused: muted ink and no wash under the pointer. Keyboard focus keeps its
+   wash, so the arrows still show where they are. After `.is-danger`, which a
+   refused removal must not keep. */
+.nt-menu-item[aria-disabled="true"] {
+  color: var(--muted);
+  cursor: default;
+}
+.nt-menu-item[aria-disabled="true"]:hover:not(:focus-visible),
+.nt-menu-item[aria-disabled="true"]:active {
+  background: none;
+}
 .nt-menu-sep {
   height: 1px;
   margin: 4px var(--inset);
@@ -1063,6 +1092,17 @@ body[data-resizing] .nt-rail-face {
   opacity: 1;
   transform: none;
 }
+/* A tick that is on from the moment it is drawn plays its spring once as it
+   mounts (`.is-landing`, or a menu's own rule when it opens with it on). */
+.nt-menu-check.is-landing {
+  animation: nt-menu-check-in var(--dur-slow) var(--spring) backwards;
+}
+@keyframes nt-menu-check-in {
+  from {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+}
 
 /* A menu arrives as a list, top first. Only a real `role="menu"`: those mount
    their rows once. A list that re-filters as you type (the slash and mention
@@ -1092,6 +1132,9 @@ body[data-resizing] .nt-rail-face {
   }
   .nt-menu-check {
     transition: none;
+  }
+  .nt-menu-check.is-landing {
+    animation: nt-fade-in var(--dur-fast) var(--ease);
   }
 }
 /* A line of menu that is information rather than a target — the account a menu
@@ -1334,20 +1377,24 @@ textarea.nt-input {
 .nt-share-people > li:nth-child(3) { animation-delay: 60ms; }
 .nt-share-people > li:nth-child(4) { animation-delay: 90ms; }
 .nt-share-people > li:nth-child(n + 5) { animation-delay: 120ms; }
-/* A request that has been answered leaves while the server agrees. */
-.nt-ask-row {
+/* A request that has been answered leaves while the server agrees, and so
+   does someone whose access was just taken away. */
+.nt-ask-row,
+.nt-share-people > li {
   transition:
     opacity 220ms var(--ease),
     transform 220ms cubic-bezier(0.7, 0, 0.84, 0);
 }
-.nt-ask-row.is-leaving {
+.nt-ask-row.is-leaving,
+.nt-share-people > li.is-leaving {
   opacity: 0;
   transform: scale(0.97);
   pointer-events: none;
 }
 @media (prefers-reduced-motion: reduce) {
   .nt-swap > *,
-  .nt-ask-row {
+  .nt-ask-row,
+  .nt-share-people > li {
     transition: none;
   }
   .nt-share-people > li {
@@ -1726,6 +1773,13 @@ textarea.nt-input {
 }
 /* A segment carrying a glyph instead of a word. Square, so the two read as a
    pair rather than as one wide and one narrow. */
+/* A word with its glyph, the glyph at the word's size and ink. */
+.nt-mode-btn.has-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
 .nt-mode-btn.is-icon {
   display: inline-flex;
   align-items: center;
@@ -3036,6 +3090,19 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar) .nt-reformat-switcher {
     transform: translateY(10px);
   }
 }
+/* What replaces a skeleton — a home opened before its projects were known —
+   takes the skeleton's place already half there and all at once: the wait was
+   the stagger, and rising out of nothing after it reads as a blank page. */
+.nt-from-wait :is(.nt-card, .nt-lead, .nt-list-row) {
+  animation-name: nt-rise-on;
+  animation-delay: 0ms;
+}
+@keyframes nt-rise-on {
+  from {
+    opacity: 0.4;
+    transform: translateY(6px);
+  }
+}
 
 /* The card is a page lying on a surface, not a framed picture: the first page
    sits in a well, cropped by the chin, and lifts toward the pointer. No border
@@ -3133,9 +3200,12 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar) .nt-reformat-switcher {
   font-weight: 500;
   color: var(--foreground);
 }
+/* Wraps between its facts rather than inside one: a line too long for the
+   column breaks after "1 page", never inside it. */
 .nt-card-meta {
   display: flex;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 2px 8px;
   margin-top: 1px;
   font-family: var(--font-mono), ui-monospace, monospace;
   font-size: var(--text-meta);
@@ -3143,6 +3213,43 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar) .nt-reformat-switcher {
   text-transform: uppercase;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
+}
+.nt-card-meta > * {
+  flex: none;
+  white-space: nowrap;
+}
+/* A shared card's "by <owner>" is the one fact that gives way: it truncates,
+   and its line stays whole, rather than running out of the card. */
+.nt-card-meta:has(> .truncate) {
+  flex-wrap: nowrap;
+}
+.nt-card-meta > .truncate {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+/* A name with something after it on its line — a private project's lock. The
+   name gives way, cut short; what follows it keeps its size. */
+.nt-card-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.nt-card-title > .nt-card-name,
+.nt-card-title > .nt-lead-name {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+/* A private workspace project's lock, right after its name in every view. Lifted
+   over the stretched link so the tooltip saying what it means can be found; the
+   rest of the card or row still opens the project. */
+.nt-private {
+  position: relative;
+  z-index: var(--z-base);
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  color: var(--muted);
 }
 /* Where there is a pointer the ⋯ waits for it; where there is not, it has to be
    there already, because there is no hover to summon it with. */
@@ -3268,20 +3375,7 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar) .nt-reformat-switcher {
   display: flex;
   justify-content: flex-end;
 }
-/* Below this the title and the full search field cannot share a line with
-   equal columns, so search folds to its glyph — the palette is one key away. */
-@media (max-width: 64rem) {
-  .nt-find {
-    width: var(--control);
-    padding-inline: 0;
-    justify-content: center;
-  }
-  .nt-find > span,
-  .nt-find .nt-kbd {
-    display: none;
-  }
-}
-/* And below this the title takes a line of its own, above the controls. */
+/* Below this the title takes a line of its own, above the controls. */
 @media (max-width: 36rem) {
   .nt-front-head {
     grid-template-columns: minmax(0, 1fr) auto;
@@ -3320,6 +3414,21 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar) .nt-reformat-switcher {
 }
 .nt-find > span {
   flex: 1;
+}
+/* Below this the title and the full search field cannot share a line with
+   equal columns, so search folds to its glyph — the palette is one key away.
+   After the field's own rules, or its width would win and the glyph would sit
+   alone in a field squeezed to whatever room was left. */
+@media (max-width: 64rem) {
+  .nt-find {
+    width: var(--control);
+    padding-inline: 0;
+    justify-content: center;
+  }
+  .nt-find > span,
+  .nt-find .nt-kbd {
+    display: none;
+  }
 }
 .nt-kbd {
   display: inline-grid;
@@ -3427,6 +3536,13 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar) .nt-reformat-switcher {
   pointer-events: none;
   filter: drop-shadow(0 12px 20px oklch(0.25 0.005 90 / 0));
   transition: filter 240ms var(--ease);
+  /* The open panel's size even when closed: it would catch every press meant
+     for what sits beside or below the button. The surface answers instead,
+     and only where its clip shows it. */
+  pointer-events: none;
+}
+.nt-create-surface {
+  pointer-events: auto;
 }
 .nt-create[data-open="true"] .nt-create-lift {
   filter: drop-shadow(0 18px 28px oklch(0.25 0.005 90 / 0.32));
@@ -4312,6 +4428,67 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar) .nt-reformat-switcher {
 .nt-pal-fld + .nt-pal-fld {
   border-top: 1px solid var(--border);
 }
+/* A row a choice above it brings — a workspace's Visibility, under In. It
+   folds open and shut rather than landing: its track runs between 0fr and 1fr
+   and the row is clipped as it goes, with its padding and its hairline, as
+   `.nt-ctl-fold` does in the canvas panels. Kept mounted while shut, so what
+   it held is still there when it opens again. Open, it stops clipping once it
+   has finished opening, since its switch's hints open downward, over the row
+   below; shutting clips at once. */
+.nt-pal-fld + .nt-pal-fold > .nt-pal-fld,
+.nt-pal-fold + .nt-pal-fold > .nt-pal-fld,
+.nt-pal-fold + .nt-pal-fld {
+  border-top: 1px solid var(--border);
+}
+/* Rows that could not be drawn until an answer came — where the project can
+   go, once the account's workspaces have said — fold open as they mount
+   rather than landing in the form. */
+@starting-style {
+  .nt-pal-fold.is-arriving {
+    grid-template-rows: 0fr;
+    opacity: 0;
+  }
+  .nt-pal-fold.is-arriving > .nt-pal-fld {
+    overflow: clip;
+    padding-block: 0;
+    border-top-width: 0;
+  }
+}
+.nt-pal-fold {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition:
+    grid-template-rows var(--dur-slow) var(--ease),
+    opacity var(--dur) var(--ease);
+}
+.nt-pal-fold[data-open="false"] {
+  grid-template-rows: 0fr;
+  opacity: 0;
+}
+.nt-pal-fold > .nt-pal-fld {
+  min-height: 0;
+  overflow: visible;
+  transition:
+    padding var(--dur-slow) var(--ease),
+    border-top-width var(--dur-slow) var(--ease),
+    overflow 0s linear var(--dur-slow);
+  transition-behavior: normal, normal, allow-discrete;
+}
+.nt-pal-fold[data-open="false"] > .nt-pal-fld {
+  overflow: clip;
+  padding-block: 0;
+  border-top-width: 0;
+  transition:
+    padding var(--dur-slow) var(--ease),
+    border-top-width var(--dur-slow) var(--ease);
+}
+@media (prefers-reduced-motion: reduce) {
+  .nt-pal-fold,
+  .nt-pal-fold > .nt-pal-fld,
+  .nt-pal-fold[data-open="false"] > .nt-pal-fld {
+    transition: none;
+  }
+}
 /* A key sits on the answer's first line, whatever the answer's height. */
 .nt-pal-key {
   padding-top: 5px;
@@ -4555,6 +4732,15 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar) .nt-reformat-switcher {
   .nt-pal-key {
     padding-top: 0;
   }
+}
+/* The one-column palette (inside a project) is too narrow for a key column
+   beside a table: its form pages stack the key over the answer. */
+.nt-palette.is-solo .nt-pal-fld {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
+}
+.nt-palette.is-solo .nt-pal-key {
+  padding-top: 0;
 }
 
 .nt-pal-panes {
@@ -5195,6 +5381,14 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar) .nt-reformat-switcher {
   .nt-pal-side,
   .nt-pal-line,
   .nt-pal-foot {
+    display: none;
+  }
+  /* A form's footer holds the way to finish and why it is refused, not only
+     key hints, so it stays; only the hint folds away. */
+  form.nt-pal-form > .nt-pal-foot {
+    display: flex;
+  }
+  .nt-pal-foot > .nt-pal-hint {
     display: none;
   }
 }
@@ -5887,6 +6081,72 @@ body:has(.nt-review-bar) .nt-sampler {
 @media (max-width: 560px) {
   .nt-link-image {
     height: 160px;
+  }
+}
+}
+
+/* ---- Folds and settling lines -------------------------------------------
+   Something that comes and goes with more under it — a note, a link, a list,
+   a gate in a rail — takes its room over time rather than in a frame: its
+   track runs between 0fr and 1fr, the body clipped as it goes, as
+   `.nt-ctl-fold` does in the canvas panels. Shut, it holds its place in the
+   markup; one that `is-arriving` opens from shut as it mounts. Two folds
+   moving at once, one shutting as the other opens, sum to one smooth change of
+   height. Spacing belongs inside the body, where it is clipped with it.
+
+   A line that is news — a refusal, a result — settles in from just above
+   (`.nt-settle`), so it reads as a report rather than as something that was
+   always there. Both are shared by the settings pages, the palette, the share
+   popover and the context rail, so they live here rather than in any one
+   component's sheet. */
+@layer components {
+.nt-fold {
+  display: grid;
+  flex: none;
+  grid-template-rows: 1fr;
+  transition:
+    grid-template-rows var(--dur-slow) var(--ease),
+    opacity var(--dur) var(--ease);
+}
+.nt-fold[data-open="false"] {
+  grid-template-rows: 0fr;
+  opacity: 0;
+}
+@starting-style {
+  .nt-fold.is-arriving {
+    grid-template-rows: 0fr;
+    opacity: 0;
+  }
+}
+.nt-fold-body {
+  min-height: 0;
+  overflow: clip;
+  /* Room for a button's focus ring, which sits 3px outside the body's edge. */
+  overflow-clip-margin: 3px;
+}
+/* Shut, whatever edge the fold holds would show in that margin. */
+.nt-fold[data-open="false"] > .nt-fold-body {
+  overflow-clip-margin: 0;
+}
+
+.nt-settle {
+  animation: nt-settle var(--dur-slow) var(--ease) backwards;
+}
+@keyframes nt-settle {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* The room is taken or given back at once; what comes and goes still fades,
+     since that is what says it did. Weighted past the global catch-all. */
+  .nt-fold {
+    transition: opacity var(--dur-fast) var(--ease) !important;
+  }
+  .nt-settle {
+    animation: nt-fade-in var(--dur-fast) var(--ease);
   }
 }
 }

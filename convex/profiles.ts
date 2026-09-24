@@ -1,4 +1,5 @@
 import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
+import type { Doc } from "./_generated/dataModel";
 import { v } from "convex/values";
 import { ownerId as currentOwner, requireOwner } from "./auth";
 
@@ -23,25 +24,51 @@ export const get = query({
 });
 
 /**
- * Keeps the profile's email current from the verified identity. Patch-only:
- * a missing row is first run's signal, and this must never fake one.
+ * What to call someone to the people they work with. `identities` is what
+ * Clerk last vouched for; the profile's copy is the fallback, for an account
+ * whose sign-in has not been confirmed since that table began.
  */
-export const stampEmail = mutation({
-  args: {},
-  handler: async (ctx) => {
-    const row = await mine(ctx);
-    if (!row) return;
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) return;
-    const patch: { email?: string; name?: string; imageUrl?: string } = {};
-    if (identity.email && row.email !== identity.email) patch.email = identity.email;
-    if (identity.name && row.name !== identity.name) patch.name = identity.name;
-    if (identity.pictureUrl && row.imageUrl !== identity.pictureUrl) {
-      patch.imageUrl = identity.pictureUrl;
-    }
-    if (Object.keys(patch).length) await ctx.db.patch(row._id, patch);
-  },
-});
+export async function personOf(ctx: QueryCtx, ownerId: string) {
+  const [profile, identity] = await Promise.all([
+    ctx.db
+      .query("profiles")
+      .withIndex("by_owner", (q) => q.eq("ownerId", ownerId))
+      .unique(),
+    identityOf(ctx, ownerId),
+  ]);
+  return {
+    name: identity?.name ?? profile?.name ?? null,
+    email: identity?.verifiedEmail ?? profile?.email ?? null,
+    imageUrl: identity?.imageUrl ?? profile?.imageUrl ?? null,
+  };
+}
+
+export async function identityOf(ctx: QueryCtx, ownerId: string) {
+  return await ctx.db
+    .query("identities")
+    .withIndex("by_owner", (q) => q.eq("ownerId", ownerId))
+    .unique();
+}
+
+/**
+ * The profile's copy of what `identities` holds, for the screens that read
+ * the profile. Only what is there: a copy never takes a value off the row.
+ *
+ * Every profile row is made with it, not just patched by later stamps. The
+ * app confirms who someone is on their first signed-in render, before any
+ * profile exists, and the next confirmation is a day away — so a row made
+ * without it would be faceless for that day, and forever for anyone who
+ * never came back.
+ */
+export function faceOf(
+  identity: Pick<Doc<"identities">, "verifiedEmail" | "name" | "imageUrl"> | null,
+) {
+  return {
+    ...(identity?.verifiedEmail && { email: identity.verifiedEmail }),
+    ...(identity?.name && { name: identity.name }),
+    ...(identity?.imageUrl && { imageUrl: identity.imageUrl }),
+  };
+}
 
 /**
  * Writes the row if it is missing so every later call can assume one. Returns
@@ -53,10 +80,39 @@ async function ensure(ctx: MutationCtx) {
   const ownerId = await requireOwner(ctx);
   const id = await ctx.db.insert("profiles", {
     ownerId,
+    ...faceOf(await identityOf(ctx, ownerId)),
     status: "surveying",
     createdAt: Date.now(),
   });
   return (await ctx.db.get(id))!;
+}
+
+/**
+ * The row for an account whose first act is arriving through someone else's
+ * door — a share link, an invitation, a join domain. The survey-and-seed
+ * welcome is for people starting from nothing, so the row lands in the same
+ * terminal state as declining the guided start. An account already
+ * mid-survey keeps its own state; arriving is not an answer to the survey.
+ *
+ * The founder's letter is retired on the same row and for the same reason: it
+ * asks the reader to report what they think of Nootles, and someone who came
+ * here for one team's or one person's work has not met it yet.
+ */
+export async function ensureArrivalProfile(ctx: MutationCtx, ownerId: string) {
+  const profile = await ctx.db
+    .query("profiles")
+    .withIndex("by_owner", (q) => q.eq("ownerId", ownerId))
+    .unique();
+  if (profile) return;
+  const now = Date.now();
+  await ctx.db.insert("profiles", {
+    ownerId,
+    ...faceOf(await identityOf(ctx, ownerId)),
+    status: "skipped",
+    hints: ["tester-note"],
+    createdAt: now,
+    completedAt: now,
+  });
 }
 
 /**

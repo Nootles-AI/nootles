@@ -3,7 +3,7 @@ import { streamFim } from "@/app/lib/ai/fim";
 import { recordAiCall } from "@/app/lib/ai/recordCall";
 import { asUser } from "@/app/lib/convexServer";
 import { refuseIfSpent } from "@/app/lib/entitlementGate";
-import { sessionToken } from "@/app/lib/session";
+import { session } from "@/app/lib/session";
 
 /**
  * Inline completion. The caller sends the document split at the caret in the
@@ -16,14 +16,9 @@ import { sessionToken } from "@/app/lib/session";
  * next, exactly as it behaves in code.
  */
 export async function POST(req: Request) {
-  const token = await sessionToken();
-  if (!token) return new Response("Unauthorized", { status: 401 });
-
-  // Ahead of the model, not after it: the meter is charged when a suggestion is
-  // KEPT, so this is the only place that stops a client streaming completions
-  // it never accepts. See `entitlementGate`.
-  const spent = await refuseIfSpent(token, "completions");
-  if (spent) return spent;
+  const caller = await session();
+  if (!caller) return new Response("Unauthorized", { status: 401 });
+  const { token } = caller;
 
   let body: unknown;
   try {
@@ -32,15 +27,24 @@ export async function POST(req: Request) {
     return new Response("Invalid JSON", { status: 400 });
   }
 
-  const { before, after, seed, mode } = (body ?? {}) as {
+  const { before, after, seed, mode, projectId: named } = (body ?? {}) as {
     before?: unknown;
     after?: unknown;
     seed?: unknown;
     mode?: unknown;
+    projectId?: unknown;
   };
   if (typeof before !== "string") {
     return new Response("`before` must be a string", { status: 400 });
   }
+  // The project decides whose allowance this is. Absent off the workspace.
+  const projectId = typeof named === "string" ? named : undefined;
+
+  // Ahead of the model, not after it: the meter is charged when a suggestion is
+  // KEPT, so this is the only place that stops a client streaming completions
+  // it never accepts. See `entitlementGate`.
+  const spent = await refuseIfSpent(token, "completions", projectId);
+  if (spent) return spent;
 
   // What the caller is completing INTO, which is what the budget is for.
   // "html" is the older spelling of "structure" and still arrives from the
@@ -58,8 +62,10 @@ export async function POST(req: Request) {
     signal: req.signal,
     onDone: (r) =>
       recordAiCall(asUser(token), {
+        ownerId: caller.userId,
         feature: "fim",
         model: AI.fim.model,
+        projectId,
         ...r.usage,
         latencyMs: r.latencyMs,
         ttfbMs: r.ttfbMs,

@@ -3,8 +3,22 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import type { Id } from "@/convex/_generated/dataModel";
+import { homePath } from "@/app/lib/containerPaths";
+import { paletteMatch } from "@/app/lib/paletteMatch";
 import { Dialog } from "./Dialog";
-import { ArrowLeft, FileDoc, PanelLeft, PanelRight, Search } from "./Icons";
+import {
+  ArrowLeft,
+  ChevronRight,
+  FileDoc,
+  PanelLeft,
+  PanelRight,
+  PersonPlus,
+  Search,
+} from "./Icons";
+import { useStandIn } from "./StandIn";
+import { slugOf, useContainer } from "./workspaces/ContainerContext";
+import { INVITE_WORDS, InvitePage } from "./workspaces/InvitePage";
+import { offersInvite } from "./workspaces/seats";
 
 /** A keyboard, in the app's 24-grid stroke. */
 function Keyboard() {
@@ -23,7 +37,18 @@ function Keyboard() {
  * sidebar, which already records it.
  */
 
-type Row = { id: string; group: string; name: string; line?: string; icon: ReactNode; run: () => void };
+type Row = {
+  id: string;
+  group: string;
+  name: string;
+  line?: string;
+  icon: ReactNode;
+  /** Other words the row is found by, beside its name. */
+  words?: readonly string[];
+  /** Opens a page of the palette rather than leaving it. */
+  drill?: boolean;
+  run: () => void;
+};
 
 export function WorkspacePalette({
   pages,
@@ -82,9 +107,26 @@ function Body({
   close,
 }: Omit<Parameters<typeof WorkspacePalette>[0], "onClose"> & { close: () => void }) {
   const router = useRouter();
+  // Home is the list this project is in: yours, or its workspace's.
+  const container = useContainer();
+  const home = homePath(slugOf(container));
+  const homeName =
+    container.kind === "workspace" ? `All projects in ${container.name}` : "All projects";
   const [query, setQuery] = useState("");
   const [index, setIndex] = useState(0);
   const list = useRef<HTMLDivElement>(null);
+  // The one page past the list: inviting someone, for a workspace project's
+  // owners and admins. A seat that stops being one finds itself back at the list.
+  const standIn = useStandIn();
+  const inviteTo =
+    container.kind === "workspace" && offersInvite(container.role, standIn) ? container : null;
+  const [asked, setPage] = useState<"root" | "invite">("root");
+  const page = inviteTo ? asked : "root";
+  const go = (to: "root" | "invite") => {
+    setPage(to);
+    setQuery("");
+    setIndex(0);
+  };
 
   const rows = useMemo(() => {
     const all: Row[] = [
@@ -125,14 +167,30 @@ function Body({
       {
         id: "home",
         group: "Go",
-        name: "All projects",
+        name: homeName,
         icon: <ArrowLeft width={16} height={16} />,
-        run: () => router.push("/"),
+        run: () => router.push(home),
       },
+      ...(inviteTo
+        ? [
+            {
+              id: "invite",
+              group: "People",
+              name: `Invite people to ${inviteTo.name}`,
+              icon: <PersonPlus />,
+              words: INVITE_WORDS,
+              drill: true,
+              run: () => {
+                setPage("invite");
+                setQuery("");
+                setIndex(0);
+              },
+            },
+          ]
+        : []),
     ];
-    const q = query.trim().toLowerCase();
-    return q ? all.filter((r) => r.name.toLowerCase().includes(q)) : all;
-  }, [pages, currentPageId, leftOpen, rightOpen, canChat, query, onOpenPage, onToggleLeft, onToggleRight, onShowKeys, router]);
+    return all.filter((r) => paletteMatch(query, r.name, r.words));
+  }, [pages, currentPageId, leftOpen, rightOpen, canChat, query, onOpenPage, onToggleLeft, onToggleRight, onShowKeys, router, home, homeName, inviteTo]);
 
   const at = Math.min(index, Math.max(rows.length - 1, 0));
   const current = rows.at(at);
@@ -145,13 +203,39 @@ function Body({
     box.style.setProperty("--hl-y", `${row.offsetTop}px`);
     box.style.setProperty("--hl-h", `${row.offsetHeight}px`);
     row.scrollIntoView({ block: "nearest" });
-  }, [at, rows.length]);
+  }, [at, rows.length, page]);
 
   const choose = (row: Row | undefined) => {
     if (!row) return;
-    close();
+    if (!row.drill) close();
     row.run();
   };
+
+  if (page === "invite" && inviteTo) {
+    return (
+      <div
+        className="flex min-h-0 flex-col"
+        onKeyDown={(e) => {
+          // Escape backs out to the list before it closes the palette. The
+          // dialog hears Escape on `document`, where React listens too, so
+          // stopping propagation is not enough to keep it from closing.
+          if (e.key !== "Escape") return;
+          e.preventDefault();
+          e.nativeEvent.stopImmediatePropagation();
+          go("root");
+        }}
+      >
+        <div className="nt-pal-field">
+          <button type="button" className="nt-pal-crumb" onClick={() => go("root")}>
+            Invite people
+          </button>
+          <span className="flex-1" />
+          <kbd className="nt-kbd">esc</kbd>
+        </div>
+        <InvitePage workspace={inviteTo} onBack={() => go("root")} />
+      </div>
+    );
+  }
 
   return (
     <div
@@ -213,6 +297,7 @@ function Body({
                   <span className="nt-pal-name">{r.name}</span>
                   {r.line && <span className="nt-pal-line">{r.line}</span>}
                 </span>
+                {r.drill && <ChevronRight width={14} height={14} className="nt-pal-chev" />}
               </div>
             </div>
           ))}
@@ -223,7 +308,7 @@ function Body({
       <div className="nt-pal-foot">
         <span>
           <kbd className="nt-kbd">↵</kbd>
-          Open
+          {current?.drill ? "Continue" : "Open"}
         </span>
         <span>
           <kbd className="nt-kbd">↑</kbd>

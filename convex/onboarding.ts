@@ -2,6 +2,7 @@ import { mutation } from "./_generated/server";
 import { v } from "convex/values";
 import { api } from "./_generated/api";
 import { requireOwner } from "./auth";
+import { faceOf, identityOf } from "./profiles";
 import { refreshPageSummary } from "./projects";
 
 const mode = v.union(v.literal("create"), v.literal("complete"));
@@ -125,7 +126,10 @@ export const createSeededProject = mutation({
       status: "touring" as const,
     };
     if (existing) await ctx.db.patch(existing._id, profile);
-    else await ctx.db.insert("profiles", { ownerId, ...profile, createdAt: now });
+    else {
+      const face = faceOf(await identityOf(ctx, ownerId));
+      await ctx.db.insert("profiles", { ownerId, ...face, ...profile, createdAt: now });
+    }
 
     return projectId;
   },

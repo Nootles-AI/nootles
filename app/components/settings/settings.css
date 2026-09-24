@@ -11,8 +11,12 @@
    the top — it is a list that will grow, and a list centred in the viewport
    moves every time a row is added to it. */
 
+/* The body is a viewport-high flex column, and an explicit min-height gives up
+   a flex item's floor at its content: without the flex-shrink, a page taller
+   than the window is squeezed to it and scrolls on past its own background. */
 .nt-set-page {
   min-height: 100vh;
+  flex-shrink: 0;
   display: grid;
   grid-template-rows: auto 1fr;
   background: var(--surface);
@@ -192,23 +196,21 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  animation: nt-set-settle var(--dur-slow) var(--ease) backwards;
+  animation: nt-settle var(--dur-slow) var(--ease) backwards;
 }
 .nt-set-outcome > span {
   flex: 1 1 auto;
   min-width: 0;
 }
 
-@keyframes nt-set-settle {
-  from {
-    opacity: 0;
-    transform: translateY(-4px);
-  }
-}
-
 @media (max-width: 560px) {
   .nt-set-row {
     flex-wrap: wrap;
+  }
+  /* Sized from nothing rather than its one-line width, so a long note wraps
+     beside the glyph instead of leaving it on a line of its own. */
+  .nt-set-body-col {
+    flex-basis: 0;
   }
   .nt-set-actions {
     width: 100%;

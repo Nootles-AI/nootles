@@ -37,6 +37,7 @@ const PARAGRAPH = {
 /** A backend that records every call and answers `fetchBlocks` when told to. */
 function backend() {
   const calls: string[] = [];
+  const created: unknown[] = [];
   let answer!: (blocks: NotionBlock[]) => void;
   const read = new Promise<NotionBlock[]>((resolve) => (answer = resolve));
   const record = (reference: Parameters<typeof getFunctionName>[0]) => {
@@ -45,9 +46,10 @@ function backend() {
     return name;
   };
   const client = {
-    mutation: async (reference: Parameters<typeof getFunctionName>[0]) => {
+    mutation: async (reference: Parameters<typeof getFunctionName>[0], args: unknown) => {
       switch (record(reference)) {
         case "projects:create":
+          created.push(args);
           return "project_1";
         case "pages:create":
           return `page_${calls.length}`;
@@ -71,6 +73,7 @@ function backend() {
   return {
     client: client as unknown as ConvexReactClient,
     calls,
+    created,
     answer,
     reading: () => calls.includes("notion/pages:fetchBlocks"),
   };
@@ -134,5 +137,30 @@ describe("the wizard", () => {
     expect(b.calls).not.toContain("ydoc:init");
     expect(b.calls).toContain("projects:remove");
     expect(progress).toMatchObject({ phase: "failed", error: "Import stopped." });
+  });
+
+  it("started in a workspace makes the project there, and takes it back by discarding it", async () => {
+    const b = backend();
+    const stop = new AbortController();
+    const workspace = { workspaceId: "workspace_1" as Id<"workspaces">, visibility: "private" as const };
+    const run = runImport({
+      client: b.client,
+      roots: [{ id: "notion-page-1", title: "Whiskey", children: [] }],
+      selection: new Set(["notion-page-1"]),
+      newProjectTitle: "Whiskey",
+      workspace,
+      onProgress: () => {},
+      signal: stop.signal,
+    });
+    await vi.waitFor(() => expect(b.reading()).toBe(true));
+    stop.abort();
+    b.answer([PARAGRAPH]);
+    const progress = await run;
+
+    expect(b.created).toEqual([{ title: "Whiskey", ...workspace }]);
+    // Its maker only edits a workspace project; removing one is its managers'.
+    expect(b.calls).toContain("projects:discardFresh");
+    expect(b.calls).not.toContain("projects:remove");
+    expect(progress.projectId).toBeUndefined();
   });
 });

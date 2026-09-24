@@ -16,7 +16,7 @@ import {
 } from "./auth";
 import { isAuditId, recordAudit } from "./audit";
 import { storedThreads } from "./comments";
-import { containerMembers, mentionablePeople } from "./container";
+import { memberRole, mentionablePeople } from "./container";
 import { MAX_SIGNERS } from "@/app/lib/comments/types";
 
 /**
@@ -245,7 +245,9 @@ export const event = mutation({
 
     const mentions = people(args.mentions, "people");
     const participants = people(args.participants ?? [], "participants");
-    const members = new Set((await containerMembers(ctx, project)).map((m) => m.userId));
+    const named = [...new Set([...mentions, ...participants])];
+    const roles = await Promise.all(named.map((id) => memberRole(ctx, project, id)));
+    const members = new Set(named.filter((_, i) => roles[i] !== null));
 
     const outsiders = mentions.filter((id) => !members.has(id));
     if (outsiders.length) throw outsiderRefusal(outsiders);
@@ -337,9 +339,11 @@ export const authors = query({
     const found = await readableComments(ctx, args.pageId);
     if (!found) return [];
     const asked = new Set(args.userIds.slice(0, MAX_SIGNERS));
-    const members = (await containerMembers(ctx, found.project)).filter((m) => asked.has(m.userId));
+    const ids = [...asked];
+    const roles = await Promise.all(ids.map((id) => memberRole(ctx, found.project, id)));
+    const members = ids.filter((_, i) => roles[i] !== null);
     return await Promise.all(
-      members.map(async ({ userId }) => {
+      members.map(async (userId) => {
         const profile = await ctx.db
           .query("profiles")
           .withIndex("by_owner", (q) => q.eq("ownerId", userId))

@@ -69,6 +69,57 @@ export function Check(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+/** Closed, for what only some people can see. */
+export function Lock(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <rect x="4.5" y="10.5" width="15" height="10" rx="2.5" />
+      <path d="M8 10.5V8a4 4 0 0 1 8 0v2.5" />
+    </svg>
+  );
+}
+
+/** Two sheets, one over the other. */
+export function Copy(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M9 9h10a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1V10a1 1 0 0 1 1-1Z" />
+      <path d="M16 5V4a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h1" />
+    </svg>
+  );
+}
+
+/** An envelope, for someone asked in who has not arrived yet. */
+export function Mail(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <rect x="3" y="5" width="18" height="14" rx="2.5" />
+      <path d="m3.5 7.5 8.5 6 8.5-6" />
+    </svg>
+  );
+}
+
+/** Down onto a tray: a file taken away. */
+export function Download(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M12 4v11" />
+      <path d="m7 10 5 5 5-5" />
+      <path d="M5 19h14" />
+    </svg>
+  );
+}
+
+/** The part of an address after the @: a domain, and whoever is on it. */
+export function AtSign(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <circle cx="12" cy="12" r="4" />
+      <path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8" />
+    </svg>
+  );
+}
+
 export function Settings(props: SVGProps<SVGSVGElement>) {
   return (
     <svg {...base} {...props}>
@@ -808,6 +859,17 @@ export function Person(props: SVGProps<SVGSVGElement>) {
     <svg {...base} {...props}>
       <circle cx="12" cy="8" r="3.5" />
       <path d="M5.5 20a6.5 6.5 0 0 1 13 0" />
+    </svg>
+  );
+}
+
+/** Someone asked in: the person, and a plus beside them. */
+export function PersonPlus(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <circle cx="10" cy="8" r="3.5" />
+      <path d="M3.5 20a6.5 6.5 0 0 1 13 0" />
+      <path d="M19 8v6M16 11h6" />
     </svg>
   );
 }

@@ -11,10 +11,19 @@ import {
   type ActionCtx,
   type MutationCtx,
 } from "../_generated/server";
-import { readOwned, requireOwned, requireOwner } from "../auth";
+import {
+  canReadCode,
+  readManageable,
+  readsLinkedCode,
+  requireManageable,
+  requireOwner,
+} from "../auth";
+import { recordInProject } from "../audit";
 import { repoRef } from "../schema";
 import { json, text } from "./rest";
 import { withToken } from "./account";
+import { withRepoToken } from "./credential";
+import { installationIn, PERSONAL_OFF, unusable } from "./installations";
 
 /**
  * Repositories linked to a project.
@@ -35,7 +44,8 @@ const TOP_LEVEL = 80;
 export const listForProject = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
-    if (!(await readOwned(ctx, "projects", args.projectId))) return [];
+    const project = await readManageable(ctx, "projects", args.projectId);
+    if (!project || !(await canReadCode(ctx, project))) return [];
     return await ctx.db
       .query("projectRepos")
       .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
@@ -89,21 +99,30 @@ export const lookup = action({
   },
 });
 
+/**
+ * The rows are linked under the caller, not the project's creator: they were
+ * picked from the caller's own `available` list, so the caller's connection is
+ * the one that can read them.
+ */
 export const link = mutation({
   args: { projectId: v.id("projects"), repos: v.array(repoRef) },
   handler: async (ctx, args) => {
-    const { ownerId } = await requireOwned(ctx, "projects", args.projectId);
-    await add(ctx, ownerId, args.projectId, args.repos);
+    await requireManageable(ctx, "projects", args.projectId);
+    await add(ctx, await requireOwner(ctx), args.projectId, args.repos);
   },
 });
 
 export const unlink = mutation({
   args: { repoId: v.id("projectRepos") },
   handler: async (ctx, args) => {
-    await requireOwned(ctx, "projectRepos", args.repoId);
-    await ctx.db.delete(args.repoId);
-    // Its place in the context graph goes with it, in batches of its own.
-    await ctx.scheduler.runAfter(0, internal.github.graphStore.forget, args);
+    const repo = await requireManageable(ctx, "projectRepos", args.repoId);
+    await unlinkRepo(ctx, args.repoId);
+    await recordInProject(ctx, (await ctx.db.get(repo.projectId))!, {
+      action: "repo.unlink",
+      subjectKind: "repo",
+      subjectId: repo._id,
+      meta: { repo: repo.fullName },
+    });
   },
 });
 
@@ -115,7 +134,7 @@ export const unlink = mutation({
 export const reindex = mutation({
   args: { repoId: v.id("projectRepos") },
   handler: async (ctx, args) => {
-    const repo = await requireOwned(ctx, "projectRepos", args.repoId);
+    const repo = await requireManageable(ctx, "projectRepos", args.repoId);
     const state = repo.index?.state;
     if (state === "queued" || state === "indexing") return;
     await ctx.db.patch(repo._id, { index: { ...repo.index, state: "queued" } });
@@ -123,17 +142,21 @@ export const reindex = mutation({
   },
 });
 
-/** Re-read a repository's summary now, rather than waiting for a reason to. */
+/**
+ * Re-read a repository's summary now, rather than waiting for a reason to.
+ * Asked by whoever manages the project; read with the repository's
+ * credential (`credential.ts`).
+ */
 export const refresh = action({
   args: { repoId: v.id("projectRepos") },
   handler: async (ctx, args) => {
-    const ownerId = await requireOwner(ctx);
+    await requireOwner(ctx);
     const repo: Doc<"projectRepos"> | null = await ctx.runQuery(
-      internal.github.repos.row,
-      { repoId: args.repoId, ownerId },
+      internal.github.repos.manageable,
+      { repoId: args.repoId },
     );
     if (!repo) throw new ConvexError("That repository is no longer linked.");
-    await summarise(ctx, ownerId, repo);
+    await summarise(ctx, repo);
   },
 });
 
@@ -152,7 +175,7 @@ export const sync = internalAction({
       internal.github.repos.row,
       args,
     );
-    if (repo) await summarise(ctx, args.ownerId, repo);
+    if (repo) await summarise(ctx, repo);
   },
 });
 
@@ -164,19 +187,31 @@ export const row = internalQuery({
   },
 });
 
+/** The repository, if the calling user manages its project and reads its code. */
+export const manageable = internalQuery({
+  args: { repoId: v.id("projectRepos") },
+  handler: async (ctx, args) => {
+    const repo = await readManageable(ctx, "projectRepos", args.repoId);
+    const project = repo && (await ctx.db.get(repo.projectId));
+    return project && (await canReadCode(ctx, project)) ? repo : null;
+  },
+});
+
 /**
- * The repositories a caller may read through this project — the permission
- * check every tool in `read.ts` makes first. Named, it is one row; unnamed, all
- * of them, which is what an unscoped code search is allowed to cover.
+ * The repositories the calling user may read through this project — the
+ * permission check every tool in `read.ts` makes first. Who may is
+ * `readsLinkedCode`'s to say; `credential.ts` says what each row is read
+ * with. Named, it is one row; unnamed, all of them, which is what an
+ * unscoped code search is allowed to cover.
  */
 export const access = internalQuery({
   args: {
     projectId: v.id("projects"),
-    ownerId: v.string(),
     fullName: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const rows = args.fullName
+    if (!(await readsLinkedCode(ctx, args.projectId))) return [];
+    return args.fullName
       ? await ctx.db
           .query("projectRepos")
           .withIndex("by_project_and_fullName", (q) =>
@@ -187,7 +222,6 @@ export const access = internalQuery({
           .query("projectRepos")
           .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
           .collect();
-    return rows.filter((r) => r.ownerId === args.ownerId);
   },
 });
 
@@ -212,12 +246,22 @@ export const writeSummary = internalMutation({
 
 // ---- Shared --------------------------------------------------------------
 
+/** Unlinks a repository. Its place in the context graph goes with it, in batches of its own. */
+export async function unlinkRepo(ctx: MutationCtx, repoId: Id<"projectRepos">) {
+  await ctx.db.delete(repoId);
+  await ctx.scheduler.runAfter(0, internal.github.graphStore.forget, { repoId });
+}
+
 /**
  * Link repositories to a project and start reading them.
  *
  * Exported because a project's first repositories are chosen before the project
  * exists — `projects.create` calls this with what the new-project dialog
  * collected, and the sidebar calls it with what you added later.
+ *
+ * A workspace project's repository names the workspace installation it was
+ * listed through, or is read with the linker's own connection where the
+ * workspace allows that. A personal project's is always its linker's.
  */
 export async function add(
   ctx: MutationCtx,
@@ -225,6 +269,7 @@ export async function add(
   projectId: Id<"projects">,
   repos: readonly Infer<typeof repoRef>[],
 ) {
+  const project = await vetCredentials(ctx, projectId, repos);
   const already = await ctx.db
     .query("projectRepos")
     .withIndex("by_project", (q) => q.eq("projectId", projectId))
@@ -243,7 +288,47 @@ export async function add(
     });
     await ctx.scheduler.runAfter(0, internal.github.repos.sync, { repoId, ownerId });
     await ctx.scheduler.runAfter(0, internal.github.indexer.run, { repoId });
+    await recordInProject(
+      ctx,
+      project,
+      {
+        action: "repo.link",
+        subjectKind: "repo",
+        subjectId: repoId,
+        meta: {
+          repo: repo.fullName,
+          via: repo.installationId === undefined ? "personal" : "app",
+        },
+      },
+      ownerId,
+    );
   }
+}
+
+async function vetCredentials(
+  ctx: MutationCtx,
+  projectId: Id<"projects">,
+  repos: readonly Infer<typeof repoRef>[],
+): Promise<Doc<"projects">> {
+  const project = await ctx.db.get(projectId);
+  if (!project) throw new Error("Not found");
+  const workspaceId = project.workspaceId;
+  for (const repo of repos) {
+    if (repo.installationId === undefined) continue;
+    if (!workspaceId) {
+      throw new ConvexError("A personal project reads repositories with your own GitHub connection.");
+    }
+    const installation = await installationIn(ctx, workspaceId, repo.installationId);
+    if (!installation) {
+      throw new ConvexError("That GitHub App installation isn’t part of this workspace.");
+    }
+    const refused = unusable(installation);
+    if (refused) throw new ConvexError(refused);
+  }
+  if (!workspaceId || repos.every((repo) => repo.installationId !== undefined)) return project;
+  const workspace = await ctx.db.get(workspaceId);
+  if (workspace?.settings.allowPersonalTokens === false) throw new ConvexError(PERSONAL_OFF);
+  return project;
 }
 
 /**
@@ -254,9 +339,9 @@ export async function add(
  * repository is tens of thousands of tokens in every prompt, for something the
  * agent can ask for the moment it actually needs it.
  */
-async function summarise(ctx: ActionCtx, ownerId: string, repo: Doc<"projectRepos">) {
+async function summarise(ctx: ActionCtx, repo: Doc<"projectRepos">) {
   try {
-    const summary = await withToken(ctx, ownerId, async (token) => {
+    const summary = await withRepoToken(ctx, repo, async (token) => {
       const [meta, top, readme] = await Promise.all([
         json<Repo>(token, `/repos/${repo.fullName}`),
         json<Entry[]>(token, `/repos/${repo.fullName}/contents`, {
@@ -308,7 +393,7 @@ async function summarise(ctx: ActionCtx, ownerId: string, repo: Doc<"projectRepo
 // ---- Shapes --------------------------------------------------------------
 
 /** The fields of GitHub's repository object this app has a use for. */
-type Repo = {
+export type Repo = {
   full_name: string;
   default_branch: string;
   description: string | null;
@@ -320,6 +405,8 @@ type Repo = {
 type Entry = { name: string; type: string };
 
 export type Listed = {
+  /** The workspace installation it was listed through, when it was. */
+  installationId?: number;
   fullName: string;
   defaultBranch: string;
   description?: string;
@@ -327,7 +414,7 @@ export type Listed = {
   pushedAt?: string;
 };
 
-function listed(repo: Repo): Listed {
+export function listed(repo: Repo): Listed {
   return {
     fullName: repo.full_name,
     defaultBranch: repo.default_branch,

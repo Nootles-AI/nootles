@@ -165,9 +165,9 @@ export async function POST(req: Request) {
     // requests as client tools are answered, and only the first is a new
     // conversation. Ahead of the model, so a refusal costs nothing.
     try {
-      await convex.mutation(api.entitlements.beginChat, { threadId });
+      await convex.mutation(api.entitlements.beginChat, { threadId, projectId });
     } catch (e) {
-      if (isQuotaRefusal(e)) return quotaResponse("chats");
+      if (isQuotaRefusal(e)) return quotaResponse(e.data.meter);
       throw e;
     }
   }
@@ -179,7 +179,10 @@ export async function POST(req: Request) {
   const pageComments =
     digest?.ok && note && digest.digest.pageId === pageId && !staged && inputs ? digest.digest : null;
   const withComments = pageComments
-    ? await commentsWanted(convex, messages, pageComments, budget > 0, req.signal).catch(() => false)
+    ? await commentsWanted(convex, messages, pageComments, budget > 0, req.signal, {
+        ownerId: caller.userId,
+        projectId,
+      }).catch(() => false)
     : null;
   const about = inputs ? projectPack(inputs, AI.chat.context.projectTokens) : "";
 
@@ -220,6 +223,7 @@ export async function POST(req: Request) {
     tools: chatTools(
       projectId,
       convex,
+      caller.userId,
       // The user's style for this turn's drawings, set by the picker that
       // answered the draw approvals. Absent or malformed reads as the
       // default — a request hand-rolled without a choice still draws.
@@ -235,10 +239,12 @@ export async function POST(req: Request) {
       report({ totalUsage });
       const details = totalUsage.inputTokenDetails;
       recordAiCall(convex, {
+        ownerId: caller.userId,
         feature: "chat",
         // A staged turn is still a row. It costs nothing, and ops should be able
         // to tell demo traffic from unexplained free traffic.
         model: staged ? `staged/${staged.stagedId}` : AI.chat.model,
+        projectId,
         promptTokens: totalUsage.inputTokens,
         completionTokens: totalUsage.outputTokens,
         cacheReadTokens: details.cacheReadTokens,
@@ -279,13 +285,14 @@ async function commentsWanted(
   digest: CommentsDigest,
   mayAsk: boolean,
   signal: AbortSignal,
+  asker: { ownerId: string | null; projectId?: string },
 ): Promise<boolean | null> {
   const last = messages[messages.length - 1];
   const asked = last?.role === "assistant" ? last.metadata?.commentsGate : undefined;
   if (asked?.pageId === digest.pageId && typeof asked.include === "boolean") return asked.include;
   if (!mayAsk) return null;
   const summary = gateSummary(digest, AI.commentsGate);
-  return commentsGate(convex, { message: latestUserText(messages), ...summary }, signal);
+  return commentsGate(convex, { message: latestUserText(messages), ...summary }, signal, asker);
 }
 
 /** `context` as a user message just ahead of the user's latest one. */

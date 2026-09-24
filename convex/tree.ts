@@ -1,7 +1,8 @@
 import { mutation, type MutationCtx } from "./_generated/server";
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import { isTrashed, readVisible, requireEditable } from "./auth";
+import { recordInProject } from "./audit";
+import { isTrashed, mayCarryOut, readVisible, requireEditable } from "./auth";
 import { cloneFolder, softRemoveFolderCascade } from "./folders";
 import { clonePage, folderIn, levelOf, placeBetween } from "./pages";
 import { refreshPageSummary } from "./projects";
@@ -235,7 +236,8 @@ async function treeRows(ctx: MutationCtx, projectId: Id<"projects">) {
  * the sources takes any role on theirs — a copy takes nothing a viewer cannot
  * already see — except under `move`, whose delete takes the pen there too. A
  * source that has vanished since it was copied is skipped, the same way the
- * sidebar's paste skips rows its clipboard has outlived.
+ * sidebar's paste skips rows its clipboard has outlived. And what a workspace
+ * holds leaves it only in a member's hands (`mayCarryOut`).
  */
 export const copyTo = mutation({
   args: {
@@ -272,6 +274,14 @@ export const copyTo = mutation({
       }
     }
     if (!sources.length) return;
+    const fromProjects = new Map<Id<"projects">, Doc<"projects">>();
+    for (const projectId of new Set(sources.map((s) => s.doc.projectId))) {
+      const from = await ctx.db.get(projectId);
+      if (from && !(await mayCarryOut(ctx, from, project))) {
+        throw new ConvexError("Only the workspace’s members can take its pages out of it.");
+      }
+      if (from) fromProjects.set(projectId, from);
+    }
 
     // Every tree is loaded once, before any insert: the destination's for the
     // placement, each source project's for its folders' recursion — and when
@@ -316,6 +326,37 @@ export const copyTo = mutation({
       }
     }
 
+    // Each source is at most one event on its workspace's log: carried out of
+    // the workspace, copied or moved, or moved between two of its projects.
+    // A copy that stays inside takes nothing from it, and a move's delete is
+    // the move, not a deletion of its own.
+    const recordLeaving = async (src: Moving, pages?: number) => {
+      const from = fromProjects.get(src.doc.projectId);
+      if (!from?.workspaceId || from._id === project._id) return;
+      const title = { [src.kind]: src.doc.title };
+      if (from.workspaceId !== project.workspaceId) {
+        await recordInProject(ctx, from, {
+          action: `${src.kind}.carryOut`,
+          subjectKind: src.kind,
+          subjectId: src.doc._id,
+          meta: {
+            ...title,
+            to: project.workspaceId ? "workspace" : "personal",
+            move: !!args.move,
+            pages,
+          },
+        });
+      } else if (args.move) {
+        await recordInProject(ctx, from, {
+          action: `${src.kind}.move`,
+          subjectKind: src.kind,
+          subjectId: src.doc._id,
+          meta: { ...title, toProjectId: project._id, toProject: project.title, pages },
+        });
+      }
+    };
+    if (!args.move) for (const src of sources) await recordLeaving(src);
+
     const removed: { pages: Id<"pages">[]; folders: Id<"folders">[] } = {
       pages: [],
       folders: [],
@@ -329,6 +370,7 @@ export const copyTo = mutation({
         if (src.kind === "page") {
           await ctx.db.patch(src.doc._id, { deletedAt: Date.now() });
           removed.pages.push(src.doc._id as Id<"pages">);
+          await recordLeaving(src);
         } else {
           const affected = await softRemoveFolderCascade(
             ctx,
@@ -336,6 +378,7 @@ export const copyTo = mutation({
           );
           removed.pages.push(...affected.pages);
           removed.folders.push(...affected.folders);
+          await recordLeaving(src, affected.pages.length);
         }
       }
     }

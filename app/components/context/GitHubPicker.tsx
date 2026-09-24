@@ -1,18 +1,29 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
-import { useAction, useMutation, useQuery } from "convex/react";
+import Link from "next/link";
+import { useAction, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
 import type { Listed } from "@/convex/github/repos";
-import { reason } from "@/app/lib/github";
+import { appAndOwn, reason } from "@/app/lib/github";
 import { openConnectWindow } from "./connectWindow";
 import { PickerReading } from "./PickerReading";
 import { GitHubMark } from "./marks";
-
+import {
+  installPath,
+  useGitHubDoor,
+  useIntegrationsPath,
+  useMembersPath,
+  type GitHubDoor,
+} from "./useGitHubDoor";
+import { useContainer } from "../workspaces/ContainerContext";
 
 /**
  * Choosing a repository from GitHub, connecting first if there is no account
- * yet — the GitHub door of the context sources (`ContextSources`).
+ * yet — the GitHub door of the context sources (`ContextSources`). In a
+ * workspace's project the repositories are its GitHub App's
+ * (`useGitHubDoor`).
  */
 export function GitHubPicker({
   linked,
@@ -23,24 +34,88 @@ export function GitHubPicker({
   onPick: (repo: Listed) => void;
   onDone: () => void;
 }) {
-  const status = useQuery(api.github.account.status);
+  const here = useContainer();
+  const door = useGitHubDoor(here.kind === "workspace" ? here.workspaceId : undefined);
   // The deployment cannot hold a secret yet, nobody has connected one, or there
   // is a token and the question is which repository — three states, and only
   // the last of them is a picker. Nothing at all until the answer is in:
   // rendering the connect step while the query is in flight offers it for an
   // instant to people who connected months ago.
-  if (!status) return <PickerReading label="Reading your repositories" />;
-  if (!status.ready) return <p className="nt-note">{status.blocker}</p>;
-  if (!status.account) return <Connect />;
+  if (door.via === "loading") return <PickerReading label="Reading your repositories" />;
+  if (door.via === "shut") return <AppMissing door={door} />;
+  if (door.via === "app") {
+    return (
+      <Picker linked={linked} app={door.workspaceId} own={door.personal} onPick={onPick} onDone={onDone} />
+    );
+  }
+  if (!door.ready) return <p className="nt-note">{door.blocker}</p>;
+  if (!door.account) return <Connect />;
   return (
     <Picker
       linked={linked}
-      login={status.account.login}
-      hint={status.account.hint}
-      stale={!!status.account.invalidAt}
+      account={{ login: door.account.login, hint: door.account.hint, stale: !!door.account.invalidAt }}
       onPick={onPick}
       onDone={onDone}
     />
+  );
+}
+
+/** The picker's size of `GitHubAppMissing`: who can install the App, and the press that does. */
+function AppMissing({ door }: { door: Extract<GitHubDoor, { via: "shut" }> }) {
+  const settings = useIntegrationsPath(door.workspaceId);
+  const people = useMembersPath(door.workspaceId);
+  const who = !door.manages && people && (
+    <>
+      {" "}
+      <Link href={people} className="underline underline-offset-2 hover:text-foreground">
+        {door.unconfigured ? "See who can turn it back on" : "See who can install it"}
+      </Link>
+      .
+    </>
+  );
+  return (
+    <div className="nt-picker p-2.5">
+      {door.canInstall && (
+        <button
+          type="button"
+          onClick={() => openConnectWindow(installPath(door.workspaceId))}
+          className="nt-row nt-solid w-full justify-center gap-2 px-3 font-medium"
+        >
+          <GitHubMark width={14} height={14} />
+          Install the Nootles GitHub App
+        </button>
+      )}
+      <p className={`nt-note${door.canInstall ? " mt-2" : ""}`}>
+        {door.unconfigured ? (
+          door.manages ? (
+            <>
+              This workspace links code only through the GitHub App, which can’t be set up here.
+              Turn personal GitHub connections back on in{" "}
+              {settings ? (
+                <Link href={settings} className="underline underline-offset-2 hover:text-foreground">
+                  Settings › Integrations
+                </Link>
+              ) : (
+                "Settings › Integrations"
+              )}
+              .
+            </>
+          ) : (
+            <>
+              An owner or admin turned off personal GitHub connections for this workspace. Upload
+              files or add Notion pages instead.{who}
+            </>
+          )
+        ) : door.canInstall ? (
+          "It reads this workspace’s code: only the repositories you choose, and never writes to them."
+        ) : (
+          <>
+            The GitHub App isn’t installed. An owner or admin installs it from Settings ›
+            Integrations. Until then, upload files or add Notion pages.{who}
+          </>
+        )}
+      </p>
+    </div>
   );
 }
 
@@ -50,24 +125,29 @@ export function GitHubPicker({
  * The list is one page of what the token can see, most recently pushed first —
  * which is the right hundred for a person, and nowhere near all of them for an
  * organisation. So the field doubles as a lookup: type a full "owner/name" and
- * it is fetched by name, whether or not it was on the list.
+ * it is fetched by name, whether or not it was on the list. An installation's
+ * list is all of what it reads, so through the App there is a lookup only
+ * where the person's own connection may fill in what the App doesn't reach.
  */
 function Picker({
   linked,
-  login,
-  hint,
-  stale,
+  app,
+  own = false,
+  account,
   onPick,
   onDone,
 }: {
   linked: ReadonlySet<string>;
-  login: string;
-  hint: string;
-  stale: boolean;
+  /** Listed through this workspace's GitHub App rather than an account. */
+  app?: Id<"workspaces">;
+  /** Beside the App's, the person's own repositories, and a lookup with their connection. */
+  own?: boolean;
+  account?: { login: string; hint: string; stale: boolean };
   onPick: (repo: Listed) => void;
   onDone: () => void;
 }) {
   const available = useAction(api.github.repos.available);
+  const installed = useAction(api.github.app.available);
   const lookup = useAction(api.github.repos.lookup);
   const disconnect = useMutation(api.github.account.disconnect);
 
@@ -81,14 +161,19 @@ function Picker({
   // only when the add button is pressed, so it runs once per picking.
   useEffect(() => {
     let alive = true;
-    available({})
+    (app
+      ? own
+        ? appAndOwn(installed({ workspaceId: app }), available({}))
+        : installed({ workspaceId: app })
+      : available({})
+    )
       .then((rows) => alive && setList(rows))
       .catch((error) => alive && setFailure(reason(error)))
       .finally(() => alive && setBusy(false));
     return () => {
       alive = false;
     };
-  }, [available]);
+  }, [app, own, available, installed]);
 
   const typed = filter.trim();
   const shown = (list ?? []).filter(
@@ -96,13 +181,16 @@ function Picker({
   );
   // Worth offering the moment it is a plausible name — an org repo the page of
   // recents did not reach looks exactly like a typo until you ask GitHub.
-  const nameable = /^[\w.-]+\/[\w.-]+$/.test(typed) && !shown.some((r) => r.fullName === typed);
+  const nameable =
+    (!app || own) && /^[\w.-]+\/[\w.-]+$/.test(typed) && !shown.some((r) => r.fullName === typed);
 
   const byName = async () => {
     setBusy(true);
     setFailure(null);
     try {
-      const repo = await lookup({ fullName: typed });
+      const found = await lookup({ fullName: typed });
+      // Where the App reads it too, the App's row: that is what it's read with.
+      const repo = found && (list?.find((r) => r.fullName.toLowerCase() === found.fullName.toLowerCase()) ?? found);
       if (!repo) setFailure(`GitHub has no repository at “${typed}” that this token can see.`);
       else if (linked.has(repo.fullName)) setFailure(`${repo.fullName} is already linked.`);
       else onPick(repo);
@@ -135,7 +223,7 @@ function Picker({
               if (nameable) void byName();
             }
           }}
-          placeholder="Filter, or type owner/name"
+          placeholder={app && !own ? "Filter the workspace’s repositories" : "Filter, or type owner/name"}
           aria-label="Find a repository"
           className="nt-input"
         />
@@ -156,8 +244,12 @@ function Picker({
         {list && !shown.length && !nameable && (
           <p className="nt-picker-empty">
             {typed
-              ? "Nothing matches. Type the full owner/name to fetch it directly."
-              : "This token cannot see any repositories."}
+              ? app && !own
+                ? "Nothing matches among the repositories the GitHub App reads."
+                : "Nothing matches. Type the full owner/name to fetch it directly."
+              : app
+                ? "The GitHub App can’t read any repositories yet. An admin chooses which on GitHub."
+                : "This token cannot see any repositories."}
           </p>
         )}
         {shown.map((repo) => (
@@ -181,16 +273,24 @@ function Picker({
       )}
 
       <div className="nt-picker-foot">
-        <span className="min-w-0 flex-1 truncate">
-          {stale ? "Token rejected — " : ""}@{login} · ····{hint}
-        </span>
-        <button
-          type="button"
-          onClick={() => void disconnect({})}
-          className="underline underline-offset-2 hover:text-foreground"
-        >
-          Disconnect
-        </button>
+        {account ? (
+          <>
+            <span className="min-w-0 flex-1 truncate">
+              {account.stale ? "Token rejected — " : ""}@{account.login} · ····{account.hint}
+            </span>
+            <button
+              type="button"
+              onClick={() => void disconnect({})}
+              className="underline underline-offset-2 hover:text-foreground"
+            >
+              Disconnect
+            </button>
+          </>
+        ) : (
+          <span className="min-w-0 flex-1 truncate">
+            {own ? "Through the workspace’s GitHub App, or your own connection" : "Through the workspace’s GitHub App"}
+          </span>
+        )}
       </div>
     </div>
   );

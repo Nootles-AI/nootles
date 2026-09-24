@@ -4,19 +4,28 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { v } from "convex/values";
 import {
+  activeMembership,
   ownerId as currentOwner,
   isTrashed,
+  pausedFor,
   projectRole,
   readVisible,
-  requireOwned,
+  requireDiscardable,
+  requireManageable,
   requireOwner,
+  requireWorkspaceRole,
   roleForProject,
   standInActor,
+  workspaceRole,
 } from "./auth";
 import { ABOUT, BACKGROUND } from "./ai/questions";
-import { requireQuota } from "./entitlements";
+import { recordInProject } from "./audit";
+import { requireQuota, requireQuotaIn } from "./entitlements";
+import { attachFile, contextFileRef } from "./files/context";
 import { add as addRepos } from "./github/repos";
+import { linkPages, notionPageRef } from "./notion/context";
 import { deletePreview } from "./previews";
+import { personOf } from "./profiles";
 import { repoRef } from "./schema";
 
 /**
@@ -28,7 +37,7 @@ import { repoRef } from "./schema";
  * edit anywhere re-runs it. `pageCount` being set is what says the whole
  * summary is; projects written before it existed fall back to the pages.
  */
-async function pageSummary(ctx: QueryCtx, project: Doc<"projects">) {
+export async function pageSummary(ctx: QueryCtx, project: Doc<"projects">) {
   if (project.pageCount !== undefined) {
     // Verify the one reference a reader acts on before handing it out: a
     // `firstPageDocId` whose page has since been deleted subscribes every
@@ -111,24 +120,48 @@ export async function stampProject(
   await ctx.db.patch(projectId, { updatedAt: at });
 }
 
+/**
+ * A project row as a list or a reader gets it: without its share links, which
+ * are its managers' to hand out through `share.links`. Anyone a link let in
+ * could otherwise read the editor or comment link off the row and claim the
+ * pen, or a voice, with it.
+ */
+export function withoutLinks(project: Doc<"projects">) {
+  const {
+    shareToken: _viewer,
+    commentShareToken: _commenter,
+    editShareToken: _editor,
+    shareExpiresAt: _viewerExpiry,
+    commentShareExpiresAt: _commenterExpiry,
+    editShareExpiresAt: _editorExpiry,
+    ...row
+  } = project;
+  return row;
+}
+
+/** The caller's live personal projects. */
 export const list = query({
   args: {},
   handler: async (ctx) => {
     const owner = await currentOwner(ctx);
     if (!owner) return [];
-    return (
-      await ctx.db
-        .query("projects")
-        .withIndex("by_owner", (q) => q.eq("ownerId", owner))
-        .order("desc")
-        .collect()
-    ).filter((p) => !isTrashed(p));
+    const projects = await ctx.db
+      .query("projects")
+      .withIndex("by_owner_and_workspace_and_deleted", (q) =>
+        q.eq("ownerId", owner).eq("workspaceId", undefined).eq("deletedAt", undefined),
+      )
+      .order("desc")
+      .collect();
+    return projects.map(withoutLinks);
   },
 });
 
 export const get = query({
   args: { projectId: v.id("projects") },
-  handler: async (ctx, args) => await readVisible(ctx, "projects", args.projectId),
+  handler: async (ctx, args) => {
+    const project = await readVisible(ctx, "projects", args.projectId);
+    return project && withoutLinks(project);
+  },
 });
 
 /**
@@ -156,10 +189,50 @@ export const myRole = query({
 });
 
 /**
+ * Which address a project answers to for the caller: its workspace's
+ * (`/w/<slug>/p/<id>`) for someone with a seat there, `/p/<id>` for anyone
+ * else — a person who came in by link to a workspace they are not in stays on
+ * `/p/`, since `/w/<slug>` would not open for them. Null when the caller has
+ * no role on it at all, so a route can tell "elsewhere" from "nowhere".
+ *
+ * A string rather than an id because it arrives straight off the URL, and a
+ * malformed one should read as nowhere rather than throw.
+ */
+export const home = query({
+  args: { projectId: v.string() },
+  handler: async (ctx, args) => {
+    const projectId = ctx.db.normalizeId("projects", args.projectId);
+    if (!projectId || !(await projectRole(ctx, projectId))) return null;
+    const workspaceId = (await ctx.db.get(projectId))?.workspaceId;
+    if (!workspaceId || !(await workspaceRole(ctx, workspaceId))) return { slug: null };
+    return { slug: (await ctx.db.get(workspaceId))?.slug ?? null };
+  },
+});
+
+/**
+ * Why a project `home` calls nowhere is closed to the caller, when the reason
+ * is one that passes on its own: the name of the workspace whose share links
+ * are paused, for someone whose link would let them in again once they are
+ * back on. Null for every other way of being kept out.
+ */
+export const pausedBy = query({
+  args: { projectId: v.string() },
+  handler: async (ctx, args) => {
+    const projectId = ctx.db.normalizeId("projects", args.projectId);
+    const project = projectId ? await ctx.db.get(projectId) : null;
+    if (!project) return null;
+    return (await pausedFor(ctx, project))?.name ?? null;
+  },
+});
+
+/**
  * Projects other people shared with the caller — the claims that still grant a
  * role, joined to what the projects screen needs to draw a row. The owner's
  * name rides along because "by whom" is the one fact that distinguishes this
  * list from "mine".
+ *
+ * A project in a workspace the caller has a seat in is left to that
+ * workspace's home, which lists it already — a guest's link included.
  */
 export const sharedWithMe = query({
   args: {},
@@ -175,23 +248,23 @@ export const sharedWithMe = query({
       claims.map(async (claim) => {
         const project = await ctx.db.get(claim.projectId);
         if (!project || isTrashed(project)) return null;
+        if (project.workspaceId && (await activeMembership(ctx, project.workspaceId, me))) {
+          return null;
+        }
         const role = await roleForProject(ctx, project);
         // "owner" would mean a stray claim on the caller's own project —
         // already listed under "mine", so here it would only duplicate it
         // under a role label that lies.
         if (!role || role === "owner") return null;
-        const [summary, ownerProfile] = await Promise.all([
+        const [summary, owner] = await Promise.all([
           pageSummary(ctx, project),
-          ctx.db
-            .query("profiles")
-            .withIndex("by_owner", (q) => q.eq("ownerId", project.ownerId))
-            .unique(),
+          personOf(ctx, project.ownerId),
         ]);
         return {
           _id: project._id,
           title: project.title,
           role,
-          ownerName: ownerProfile?.name ?? ownerProfile?.email ?? null,
+          ownerName: owner.name ?? owner.email,
           ...summary,
         };
       }),
@@ -215,8 +288,13 @@ export const create = mutation({
     description: v.optional(v.string()),
     /** Freeform: whatever the user wants the agent to know going in. */
     context: v.optional(v.string()),
-    /** Repositories chosen in the dialog, before there was a project to hang them on. */
+    /**
+     * Context chosen in the dialog, before there was a project to hang it on:
+     * repositories, Notion pages, and files the browser has already uploaded.
+     */
     repos: v.optional(v.array(repoRef)),
+    pages: v.optional(v.array(notionPageRef)),
+    files: v.optional(v.array(contextFileRef)),
     /**
      * The sidebar a project made from a template opens with, top to bottom:
      * pages, and one level of folders holding pages. Each `update` is the Yjs
@@ -225,20 +303,46 @@ export const create = mutation({
      * learns what a template is. Absent or empty means one blank page.
      */
     seed: v.optional(v.array(seedRow)),
+    /** Where it lives. Absent is the caller's own account. */
+    workspaceId: v.optional(v.id("workspaces")),
+    /** Who in the workspace sees it; ignored on a personal project. */
+    visibility: v.optional(v.union(v.literal("workspace"), v.literal("private"))),
   },
   handler: async (ctx, args) => {
     const ownerId = await requireOwner(ctx);
-    // The free plan's project limit. Deliberately not in `onboarding.ts`: the
-    // tutorial's seeded project is the one project everybody gets regardless,
-    // and metering it would mean a new account walked into a wall on arrival.
-    await requireQuota(ctx, ownerId, "projects");
+    if (args.workspaceId) {
+      // Any seat but a guest's. A workspace's projects are the workspace's to
+      // pay for, so the limit asked is its own, never the maker's.
+      await requireWorkspaceRole(ctx, args.workspaceId, "member");
+      await requireQuotaIn(ctx, { kind: "workspace", workspaceId: args.workspaceId }, "projects");
+    } else {
+      // The free plan's project limit. Deliberately not in `onboarding.ts`: the
+      // tutorial's seeded project is the one project everybody gets regardless,
+      // and metering it would mean a new account walked into a wall on arrival.
+      await requireQuota(ctx, ownerId, "projects");
+    }
     const now = Date.now();
     const projectId = await ctx.db.insert("projects", {
       ownerId,
       title: args.title,
       description: args.description,
       createdAt: now,
+      ...(args.workspaceId
+        ? { workspaceId: args.workspaceId, visibility: args.visibility }
+        : {}),
     });
+    const project = (await ctx.db.get(projectId))!;
+    await recordInProject(
+      ctx,
+      project,
+      {
+        action: "project.create",
+        subjectKind: "project",
+        subjectId: projectId,
+        meta: { visibility: project.visibility ?? "workspace" },
+      },
+      ownerId,
+    );
 
     // What the user said when they made the project IS the project's context —
     // the sheet is what primes every LLM request, so anything that stopped at
@@ -261,12 +365,15 @@ export const create = mutation({
       });
     }
 
-    // Repositories are context too, just the kind that is read rather than
-    // written: each one is linked here and summarised by a scheduled action, so
-    // the project opens with the fetch already under way.
-    if (args.repos?.length) {
-      await addRepos(ctx, ownerId, projectId, args.repos);
-    }
+    // Sources are context too, just the kind that is read rather than written.
+    // Attached here, as the maker's, rather than after: once it exists the
+    // project is its manager's to add to, and in a workspace that is not
+    // necessarily the member who made it — so what they chose would be
+    // refused. Each is read by a scheduled action, so the project opens with
+    // the reading already under way.
+    if (args.repos?.length) await addRepos(ctx, ownerId, projectId, args.repos);
+    if (args.pages?.length) await linkPages(ctx, ownerId, projectId, args.pages);
+    for (const file of args.files ?? []) await attachFile(ctx, ownerId, projectId, file);
 
     // A page and its document together, the way first run seeds them: the row
     // first, because `ydoc.init` authorizes through it.
@@ -346,15 +453,17 @@ export const listForScreen = query({
   handler: async (ctx) => {
     const owner = await currentOwner(ctx);
     if (!owner) return [];
-    const projects = (
-      await ctx.db
-        .query("projects")
-        .withIndex("by_owner", (q) => q.eq("ownerId", owner))
-        .collect()
-    ).filter((p) => !isTrashed(p));
+    // Personal and live only. A workspace project the caller made is the
+    // workspace's, and its home is where it is listed.
+    const projects = await ctx.db
+      .query("projects")
+      .withIndex("by_owner_and_workspace_and_deleted", (q) =>
+        q.eq("ownerId", owner).eq("workspaceId", undefined).eq("deletedAt", undefined),
+      )
+      .collect();
 
     const rows = await Promise.all(
-      projects.map(async (p) => ({ ...p, ...(await pageSummary(ctx, p)) })),
+      projects.map(async (p) => ({ ...withoutLinks(p), ...(await pageSummary(ctx, p)) })),
     );
 
     // Most recently touched first. Sorted here rather than by an index because
@@ -366,8 +475,15 @@ export const listForScreen = query({
 export const rename = mutation({
   args: { projectId: v.id("projects"), title: v.string() },
   handler: async (ctx, args) => {
-    await requireOwned(ctx, "projects", args.projectId);
+    const project = await requireManageable(ctx, "projects", args.projectId);
+    if (project.title === args.title) return;
     await ctx.db.patch(args.projectId, { title: args.title });
+    await recordInProject(ctx, project, {
+      action: "project.rename",
+      subjectKind: "project",
+      subjectId: project._id,
+      meta: { from: project.title, to: args.title },
+    });
   },
 });
 
@@ -380,8 +496,34 @@ export const rename = mutation({
 export const remove = mutation({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
-    await requireOwned(ctx, "projects", args.projectId);
+    const project = await requireManageable(ctx, "projects", args.projectId);
     await ctx.db.patch(args.projectId, { deletedAt: Date.now() });
+    await recordInProject(ctx, project, {
+      action: "project.delete",
+      subjectKind: "project",
+      subjectId: project._id,
+    });
+  },
+});
+
+/**
+ * Takes back a project its maker only just made, before anyone else has
+ * touched it — what a failed import calls to leave nothing behind. Softly, as
+ * `remove` does. `remove` is the managers'; this is the one way a workspace
+ * member undoes their own mistake, and `requireDiscardable` keeps it to that.
+ */
+export const discardFresh = mutation({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const project = await requireDiscardable(ctx, args.projectId, now);
+    await ctx.db.patch(args.projectId, { deletedAt: now });
+    await recordInProject(ctx, project, {
+      action: "project.delete",
+      subjectKind: "project",
+      subjectId: project._id,
+      meta: { discarded: true },
+    });
   },
 });
 

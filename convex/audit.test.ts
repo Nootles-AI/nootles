@@ -5,7 +5,7 @@ import * as Y from "yjs";
 import { api, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import schema from "./schema";
-import { recordAudit, RETENTION_MS, SWEEP_BATCH, type AuditEvent } from "./audit";
+import { recordAudit, RETENTION_MS, SWEEP_BATCH, type CheckedAuditEvent as AuditEvent } from "./audit";
 import { commentsEnabled } from "./entitlements";
 import { purgeProject } from "./projects";
 import { noChange } from "@/app/lib/comments/updates.fixture";
@@ -145,7 +145,7 @@ describe("audit.forProject — the owner's, and nobody else's", () => {
     await seed(t, [
       { projectId: mine.projectId, at: 10, subjectId: "mine" },
       { projectId: theirs.projectId, at: 11, subjectId: "theirs" },
-      { workspaceId: "ws_1", at: 12, subjectId: "workspace" },
+      { at: 12, subjectId: "workspace" },
     ]);
     const result = await t
       .withIdentity(OWNER)
@@ -249,7 +249,7 @@ describe("audit.sweepExpired — one year, then gone", () => {
       { projectId: w.projectId, at: now - RETENTION_MS - DAY, subjectId: "old" },
       { projectId: w.projectId, at: now - RETENTION_MS + DAY, subjectId: "almost" },
       { projectId: w.projectId, at: now, subjectId: "new" },
-      { workspaceId: "ws_1", at: now - 2 * RETENTION_MS, subjectId: "old-workspace" },
+      { at: now - 2 * RETENTION_MS, subjectId: "old-workspace" },
     ]);
     expect(await t.mutation(internal.audit.sweepExpired, {})).toBe(2);
     const left = await t.run(async (ctx) => ctx.db.query("auditEvents").collect());
@@ -345,7 +345,7 @@ describe("recordAudit — a comment body cannot be passed through", () => {
     );
     const [row] = await t.run(async (ctx) => ctx.db.query("auditEvents").collect());
     expect(Object.keys(row).sort()).toEqual(
-      ["_creationTime", "_id", "action", "actorId", "actorKind", "at", "meta", "projectId", "subjectId", "subjectKind"].sort(),
+      ["_creationTime", "_id", "action", "actorId", "actorKind", "at", "category", "meta", "projectId", "subjectId", "subjectKind"].sort(),
     );
   });
 });

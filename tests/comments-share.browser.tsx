@@ -52,11 +52,14 @@ function createBackend() {
           viewer: project.shareToken ?? null,
           commenter: project.commentShareToken ?? null,
           editor: project.editShareToken ?? null,
+          expiresAt: { viewer: null, commenter: null, editor: null },
+          allowed: true,
+          defaultDays: null,
         };
       case "share:collaborators":
         return claims
           .map((claim) => {
-            const role = claimRole(project, claim);
+            const role = claimRole(project, claim, Date.now());
             const profile = profiles.get(claim.granteeId);
             return role && {
               granteeId: claim.granteeId,
@@ -64,6 +67,10 @@ function createBackend() {
               name: profile?.name ?? null,
               email: profile?.email ?? null,
               imageUrl: null,
+              expiresAt: null,
+              guest: false,
+              codeAccess: false,
+              paused: false,
             };
           })
           .filter(Boolean);

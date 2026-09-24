@@ -27,6 +27,8 @@ export class GitHubError extends ConvexError<string> {
     message: string,
     /** True when the token itself is the problem, which the account row records. */
     readonly unauthorized = false,
+    /** A 403 that is only the rate limit, not a refusal. */
+    readonly rateLimited = false,
   ) {
     super(message);
     this.name = "GitHubError";
@@ -39,6 +41,11 @@ type Options = {
   query?: Record<string, string | number | undefined>;
   /** 404 answers null instead of throwing — for things that may simply not exist. */
   allowMissing?: boolean;
+  /** GET unless said; a body is sent as JSON. */
+  method?: "GET" | "POST";
+  body?: unknown;
+  /** "manual" hands a redirect back as a failure with its status, rather than following it. */
+  redirect?: "follow" | "manual";
 };
 
 export async function request(
@@ -52,15 +59,19 @@ export async function request(
   }
 
   const res = await fetch(url, {
+    method: options.method ?? "GET",
     headers: {
       Authorization: `Bearer ${token}`,
       Accept: options.accept ?? "application/vnd.github+json",
       "X-GitHub-Api-Version": "2022-11-28",
+      ...(options.body !== undefined ? { "Content-Type": "application/json" } : {}),
     },
+    ...(options.body !== undefined ? { body: JSON.stringify(options.body) } : {}),
+    ...(options.redirect ? { redirect: options.redirect } : {}),
   });
   if (res.ok) return res;
   if (res.status === 404 && options.allowMissing) return null;
-  throw await explain(res);
+  throw await explain(res, kindOf(token));
 }
 
 export async function json<T>(
@@ -84,14 +95,31 @@ export async function text(
   return res ? await res.text() : null;
 }
 
+/**
+ * Whose token a call was made with, read off its prefix — which decides what
+ * a refusal means. Only a fine-grained token is refused for a repository it
+ * was not given; only an App's is refused for a permission its installation
+ * lacks; a personal connection is refused because an organisation holds it
+ * back. Telling one the others' remedy sends them looking in the wrong place.
+ */
+type TokenKind = "fine-grained" | "installation" | "app" | "personal";
+
+function kindOf(token: string): TokenKind {
+  if (token.startsWith("github_pat_")) return "fine-grained";
+  if (token.startsWith("ghs_")) return "installation";
+  // The App's own JWT, which only ever mints installation tokens.
+  if (token.startsWith("eyJ")) return "app";
+  return "personal";
+}
+
 /** What went wrong, said in terms of what to do next. */
-async function explain(res: Response): Promise<GitHubError> {
+async function explain(res: Response, kind: TokenKind): Promise<GitHubError> {
   const sso = res.headers.get("x-github-sso");
   if (sso?.includes("required")) {
     const url = /url=([^;,\s]+)/.exec(sso)?.[1];
     return new GitHubError(
       res.status,
-      "This token has not been authorised for that organisation's SSO." +
+      "Your GitHub connection has not been authorised for that organisation's SSO." +
         (url ? ` Authorise it at ${url}, then try again.` : ""),
     );
   }
@@ -110,28 +138,41 @@ async function explain(res: Response): Promise<GitHubError> {
     const when = Number.isFinite(reset)
       ? new Date(reset * 1000).toISOString().slice(11, 16) + " UTC"
       : "shortly";
-    return new GitHubError(403, `GitHub's rate limit is spent until ${when}.`);
+    return new GitHubError(403, `GitHub's rate limit is spent until ${when}.`, false, true);
   }
 
-  if (res.status === 403) {
-    return new GitHubError(
-      403,
-      "The token is not allowed to do that. A fine-grained token has to list " +
-        "the repository, and its organisation has to permit fine-grained tokens.",
-    );
-  }
-
-  if (res.status === 404) {
-    return new GitHubError(
-      404,
-      "GitHub has nothing there for this token. Either it does not exist, or " +
-        "the token cannot see it — a fine-grained token only sees the " +
-        "repositories it was given.",
-    );
-  }
+  if (res.status === 403) return new GitHubError(403, REFUSED[kind]);
+  if (res.status === 404) return new GitHubError(404, MISSING[kind]);
 
   return new GitHubError(res.status, `GitHub responded ${res.status}: ${await detail(res)}`);
 }
+
+const REFUSED: Record<TokenKind, string> = {
+  "fine-grained":
+    "The token is not allowed to do that. A fine-grained token has to list " +
+    "the repository, and its organisation has to permit fine-grained tokens.",
+  installation:
+    "GitHub refused the workspace’s GitHub App: its installation doesn’t have " +
+    "permission for that. An admin can review what it was granted on GitHub.",
+  app: "GitHub refused the Nootles GitHub App.",
+  personal:
+    "GitHub refused your connection. If this belongs to an organisation, it may " +
+    "restrict third-party apps — an owner of it can approve Nootles on GitHub.",
+};
+
+const MISSING: Record<TokenKind, string> = {
+  "fine-grained":
+    "GitHub has nothing there for this token. Either it does not exist, or " +
+    "the token cannot see it — a fine-grained token only sees the " +
+    "repositories it was given.",
+  installation:
+    "GitHub has nothing there that the workspace’s GitHub App can see. Either it " +
+    "does not exist, or the App isn’t installed with access to it.",
+  app: "GitHub has no such installation of the Nootles GitHub App.",
+  personal:
+    "GitHub has nothing there that your connection can see. Either it does not " +
+    "exist, or your GitHub account has no access to it.",
+};
 
 /** GitHub's own message when it sent one, capped — some are a page long. */
 async function detail(res: Response): Promise<string> {

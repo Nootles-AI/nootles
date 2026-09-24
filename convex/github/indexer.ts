@@ -12,8 +12,8 @@ import { parseFile, type ParsedFile } from "./index/parse";
 import { resolveReferences, tsPaths } from "./index/resolve";
 import { keep, MAX_FILES, prioritise } from "./index/select";
 import { untar } from "./index/tar";
-import { GitHubError, json, request } from "./rest";
-import { open } from "./seal";
+import { withRepoToken } from "./credential";
+import { json, request } from "./rest";
 
 /**
  * Stages 0 and 1 of the GitHub pipeline (docs/context-graph.md): the
@@ -45,7 +45,7 @@ export const run = internalAction({
       index: { state: "indexing" },
     });
     try {
-      const built = await read(await tokenFor(ctx, repo.ownerId), repo);
+      const built = await withRepoToken(ctx, repo, (token) => read(token, repo));
       await write(ctx, repo, built);
       await ctx.runMutation(internal.github.graphStore.setIndex, {
         repoId: repo._id,
@@ -60,9 +60,6 @@ export const run = internalAction({
         },
       });
     } catch (error) {
-      if (error instanceof GitHubError && error.unauthorized) {
-        await ctx.runMutation(internal.github.account.markInvalid, { ownerId: repo.ownerId });
-      }
       await ctx.runMutation(internal.github.graphStore.setIndex, {
         repoId: repo._id,
         index: {
@@ -73,19 +70,6 @@ export const run = internalAction({
     }
   },
 });
-
-/**
- * The linker's token, opened here rather than through `account.withToken`,
- * which lives beside queries and mutations a Node module may not import.
- */
-async function tokenFor(ctx: ActionCtx, ownerId: string): Promise<string> {
-  const row: Doc<"githubAccounts"> | null = await ctx.runQuery(
-    internal.github.account.forOwner,
-    { ownerId },
-  );
-  if (!row) throw new Error("No GitHub account is connected for this repository's owner.");
-  return await open(row.sealed);
-}
 
 type Built = {
   sha: string;

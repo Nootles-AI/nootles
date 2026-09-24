@@ -61,6 +61,8 @@ export type ImportRequest = {
   /** Folder inside that project; absent is its top level. */
   folderId?: Id<"folders">;
   newProjectTitle?: string;
+  /** The workspace a new project is made in, and who there sees it. Absent is your own. */
+  workspace?: { workspaceId: Id<"workspaces">; visibility: "workspace" | "private" };
   onProgress: (progress: ImportProgress) => void;
   signal?: AbortSignal;
 };
@@ -100,6 +102,8 @@ export function importFraction(progress: ImportProgress): number | undefined {
 type Made = {
   projectId: Id<"projects">;
   fresh: boolean;
+  /** Made in a workspace, where its maker may only discard it, not remove it. */
+  inWorkspace: boolean;
   folders: Map<string, Id<"folders">>;
   pages: Map<string, Id<"pages">>;
 };
@@ -130,9 +134,21 @@ export async function runImport(request: ImportRequest): Promise<ImportProgress>
       request.projectId ??
       ((await client.mutation(api.projects.create, {
         title: request.newProjectTitle?.trim() || "Imported from Notion",
+        ...(request.workspace
+          ? {
+              workspaceId: request.workspace.workspaceId,
+              visibility: request.workspace.visibility,
+            }
+          : {}),
       })) as Id<"projects">);
     progress.projectId = projectId;
-    made = { projectId, fresh, folders: new Map(), pages: new Map() };
+    made = {
+      projectId,
+      fresh,
+      inWorkspace: fresh && !!request.workspace,
+      folders: new Map(),
+      pages: new Map(),
+    };
 
     // A new project is born holding one blank page so it is usable straight
     // away. An import fills it instead of leaving it beside the real pages:
@@ -244,7 +260,9 @@ export async function runImport(request: ImportRequest): Promise<ImportProgress>
  * never written. Each row that never reached done is removed (its error is
  * kept, so the report can still say why), then any folder left holding
  * nothing, and a project this run made goes entirely when nothing landed in
- * it. Removals are individually guarded: a row that will not go is marked
+ * it — discarded rather than removed in a workspace, where deleting a
+ * project is its managers' and its maker may only take back one nobody else
+ * has touched yet. Removals are individually guarded: a row that will not go is marked
  * failed rather than allowed to stop the rest from going. Returns whether the
  * project itself was removed.
  */
@@ -261,7 +279,10 @@ async function unmake(
 
   if (made.fresh && landed.size === 0) {
     try {
-      await client.mutation(api.projects.remove, { projectId: made.projectId });
+      await client.mutation(
+        made.inWorkspace ? api.projects.discardFresh : api.projects.remove,
+        { projectId: made.projectId },
+      );
       for (const page of pages) if (page.state !== "done") page.state = "removed";
       return true;
     } catch {

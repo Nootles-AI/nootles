@@ -1,0 +1,1228 @@
+/* Workspaces — the chrome around a team's projects: its settings, its people.
+
+   The same kind of surface as the account's settings, so the same rules:
+   neutral throughout, no accent (that means AI here), no brand (that means
+   identity), no --nt-select (that belongs to the canvas). Every selector is
+   scoped under an `nt-ws-` class, because this sheet is unlayered and a bare
+   one would reach the whole app. */
+
+/* ---- Settings sections -----------------------------------------------------
+   One row of section links under the title, drawn as the sidebar's rows so
+   "where you are" is the same wash and weight it is everywhere else. Pulled
+   out by the row's inset so the first label starts on the title's edge. */
+
+.nt-ws-set-nav {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  margin: 16px calc(-1 * var(--inset)) 0;
+}
+
+/* Where you are is one wash that travels between the links on the spring, as
+   the palette's highlight does (`useTravellingWash`); the current link keeps
+   its weight and gives up its own fill. The links sit above it. */
+.nt-ws-set-nav-hl {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: var(--hl-w, 0);
+  height: var(--control);
+  border-radius: var(--radius);
+  background: var(--selected);
+  opacity: 0;
+  transform: translate(var(--hl-x, 0), var(--hl-y, 0));
+  pointer-events: none;
+}
+.nt-ws-set-nav[data-marked] > .nt-ws-set-nav-hl {
+  opacity: 1;
+}
+.nt-ws-set-nav[data-travels] > .nt-ws-set-nav-hl {
+  transition:
+    transform var(--dur-slow) var(--spring),
+    width var(--dur-slow) var(--spring);
+}
+.nt-ws-set-nav[data-marked] > .nt-row.is-current {
+  background: transparent;
+}
+
+/* A section's name drawn at its current weight whatever its weight now, so the
+   one that is current, set heavier, widens nothing after it. */
+.nt-ws-set-nav > .nt-row {
+  position: relative;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0;
+}
+.nt-ws-set-nav > .nt-row::after {
+  content: attr(data-label) / "";
+  height: 0;
+  overflow: hidden;
+  font-weight: 500;
+  visibility: hidden;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* Another section opened: its body fades in under the still chrome, and the
+   rows that rose into place when the page arrived hold still. */
+.nt-ws-section-in {
+  animation: nt-fade-in var(--dur) var(--ease);
+}
+.nt-ws-moved .nt-ws-person {
+  animation: none;
+}
+
+/* A section label with something of its own on the right — the join-domain
+   switch. The label keeps its own metrics; the row takes its margin. */
+.nt-ws-set-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.nt-ws-set-head > .nt-set-label {
+  margin-bottom: 0;
+}
+/* A label with its count beside it, in the field label's metadata voice. */
+.nt-set-label.nt-ws-label {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+}
+
+/* A card that holds a form rather than rows. */
+.nt-ws-card {
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--elevated);
+}
+
+/* ---- Fields, edited where they are read -------------------------------------
+   A key column and the answer, as the palette's details page lays a form out.
+   The key sits on the first line of the field's text, which is 8px down: 1px of
+   hairline and 7px of padding. Read-only, the answer is the same line of ink
+   without the box, so a member's page and an admin's line up. */
+
+.nt-ws-fld {
+  display: grid;
+  grid-template-columns: 7rem minmax(0, 1fr);
+  align-items: start;
+  gap: 4px 12px;
+  padding: 12px;
+}
+.nt-ws-key {
+  padding-top: 8px;
+  font-size: var(--text-ui);
+  font-weight: 500;
+  line-height: 1.5;
+  color: var(--foreground);
+}
+.nt-ws-value {
+  padding-block: 8px;
+  font-size: var(--text-ui);
+  line-height: 1.5;
+  color: var(--foreground);
+  overflow-wrap: anywhere;
+}
+@media (max-width: 560px) {
+  .nt-ws-fld {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .nt-ws-key {
+    padding-top: 0;
+  }
+}
+
+/* "Saved", inside the field's far end: where the eye already is, and gone again
+   before it becomes part of the furniture. It rises into place on the spring
+   and fades out flat. */
+.nt-ws-saving {
+  position: relative;
+}
+.nt-ws-saving > .nt-input {
+  padding-right: 76px;
+}
+.nt-ws-saved {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--text-meta-lg);
+  color: var(--muted);
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(calc(-50% + 3px));
+  transition:
+    opacity var(--dur) var(--ease),
+    transform var(--dur-slow) var(--spring);
+}
+.nt-ws-saved[data-on] {
+  opacity: 1;
+  transform: translateY(-50%);
+}
+
+/* The address: a field whose first part is not yours to edit, set down as muted
+   ink inside the same box. The box is the field (`.nt-input`'s look, focus
+   included); the input inside is bare. */
+.nt-ws-url {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--background);
+  font-size: var(--text-ui);
+  line-height: 1.5;
+  cursor: text;
+  transition: border-color var(--dur-fast) var(--ease);
+}
+.nt-ws-url:hover {
+  border-color: var(--border-strong);
+}
+.nt-ws-url:focus-within {
+  border-color: var(--muted);
+}
+.nt-ws-url-base {
+  flex: none;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.nt-ws-url > input {
+  flex: 1 1 auto;
+  min-width: 4ch;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--foreground);
+}
+/* Moving to a new address: what was typed is held, muted, until it lands. */
+.nt-ws-url.is-busy > input {
+  color: var(--muted);
+}
+/* Under a field on the settings page the note sits a little further off. */
+.nt-ws-fld .nt-ws-note {
+  margin-top: 6px;
+}
+
+/* ---- The switcher ----------------------------------------------------------
+   The projects home's title, when there is somewhere else to go: the name of
+   whose place this is, and a quiet glyph saying it opens. The wash hugs the
+   two, with the same padding at either end; the name stays on the page's
+   centre line because the box is set off by what the glyph and its gap add
+   on the right — as a margin, so the header reserves it — and nothing moves
+   when the glyph arrives, once the account's workspaces have answered. */
+
+.nt-ws-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: min(32rem, 44vw);
+  /* The wash reaches a little past the line; the header's row does not. */
+  margin-block: -2px;
+  margin-left: 24px;
+  padding: 2px 10px;
+  vertical-align: top;
+  border-radius: var(--radius-lg);
+  font: inherit;
+  letter-spacing: inherit;
+  transition: background var(--dur-fast) var(--ease);
+}
+.nt-ws-switch:hover {
+  background: var(--hover);
+}
+.nt-ws-switch[aria-expanded="true"] {
+  background: var(--selected);
+}
+.nt-ws-switch:active {
+  background: var(--active);
+}
+.nt-ws-switch-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Another place picked: its name arrives as the palette's crumb does, while
+   the projects under it rise, rather than being there in a frame. */
+.nt-ws-switch-name.is-swapped {
+  animation: nt-pal-crumb 400ms var(--spring) backwards;
+}
+.nt-ws-switch-glyph {
+  flex: none;
+  color: var(--muted);
+  animation: nt-ws-glyph-in var(--dur-slow) var(--spring) backwards;
+  transition: color var(--dur-fast) var(--ease);
+}
+.nt-ws-switch:hover .nt-ws-switch-glyph,
+.nt-ws-switch[aria-expanded="true"] .nt-ws-switch-glyph {
+  color: var(--foreground);
+}
+@keyframes nt-ws-glyph-in {
+  from {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+}
+/* Where the title sits flush left, the name keeps to the tools' edge instead. */
+@media (max-width: 36rem) {
+  .nt-ws-switch {
+    max-width: 100%;
+    margin-left: -10px;
+  }
+}
+
+/* The menu it opens: each place a row with its tile, its name, what you are
+   there, and the tick on the one you are in. A person's tile is round, a
+   workspace's square — the same token, the shape saying which kind. */
+.nt-ws-switcher {
+  min-width: 15rem;
+  max-width: min(20rem, calc(100vw - 16px));
+}
+.nt-ws-switcher .nt-menu-item {
+  gap: 10px;
+}
+/* The tick on where you are is on before the menu is, so its spring would
+   never play: it lands once, after the rows have risen. */
+.nt-ws-switcher .nt-menu-check.is-on {
+  animation: nt-menu-check-in var(--dur-slow) var(--spring) 120ms backwards;
+}
+.nt-ws-tile {
+  flex: none;
+  transition: color var(--dur-fast) var(--ease);
+}
+.nt-menu-item:hover .nt-ws-tile,
+.nt-menu-item:focus-visible .nt-ws-tile {
+  color: var(--foreground);
+}
+.nt-monogram.nt-ws-tile.is-square {
+  border-radius: 5px;
+}
+/* The tile beside a workspace's name on its home, at the title's height. For
+   an owner or an admin it is the way to the icon picker, and answers the
+   pointer as a thing to press. */
+.nt-monogram.nt-ws-tile.is-title {
+  display: inline-grid;
+  width: 28px;
+  height: 28px;
+  margin-top: 2px;
+  vertical-align: top;
+  border-radius: 7px;
+  font-size: 14px;
+  letter-spacing: 0;
+  color: var(--foreground);
+}
+.nt-ws-title-tile {
+  display: inline-grid;
+  vertical-align: top;
+  border-radius: 7px;
+  transition: transform var(--dur) var(--ease);
+}
+.nt-ws-title-tile > .nt-monogram.nt-ws-tile.is-title {
+  transition: box-shadow var(--dur-fast) var(--ease);
+}
+.nt-ws-title-tile:hover > .nt-monogram.nt-ws-tile.is-title,
+.nt-ws-title-tile[aria-expanded="true"] > .nt-monogram.nt-ws-tile.is-title {
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+.nt-ws-title-tile:active {
+  transform: scale(0.94);
+}
+.nt-ws-title-tile + .nt-ws-switch,
+.nt-ws-tile.is-title + .nt-ws-switch {
+  margin-left: 4px;
+}
+
+/* The tile in General's Icon row, at the size of the field beside it. */
+.nt-monogram.nt-ws-tile.is-field {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  font-size: var(--text-meta-lg);
+  color: var(--foreground);
+}
+
+/* A chosen icon in the tile. A glyph or an emoji sits in the letter's well, in
+   ink; a picture is the tile, cut to its corners, with the well's hairline
+   drawn over its edge. A new one settles in as the palette's crumbs do. */
+.nt-ws-tile-face {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+}
+.nt-ws-tile-face.is-new {
+  animation: nt-ws-tile-settle var(--dur-slow) var(--spring) backwards;
+}
+@keyframes nt-ws-tile-settle {
+  from {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+}
+.nt-monogram.nt-ws-tile.has-icon {
+  color: var(--foreground);
+}
+.nt-monogram.nt-ws-tile.is-image {
+  position: relative;
+  overflow: hidden;
+  background: none;
+}
+.nt-monogram.nt-ws-tile.is-image::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 1px var(--border);
+  pointer-events: none;
+}
+.nt-ws-tile .nt-ws-tile-icon {
+  flex: none;
+}
+.nt-ws-tile img.nt-ws-tile-icon {
+  object-fit: cover;
+}
+@media (prefers-reduced-motion: reduce) {
+  .nt-ws-tile-face.is-new {
+    animation: nt-fade-in var(--dur-fast) var(--ease);
+  }
+}
+/* A glyph given a tile's width, so every label in the menu starts on one line. */
+.nt-ws-slot {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 20px;
+}
+.nt-ws-menu-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.nt-ws-menu-meta {
+  flex: none;
+  font-size: var(--text-meta-lg);
+  color: var(--muted);
+}
+
+/* ---- New workspace -----------------------------------------------------------
+   The palette's details page, one column: the name leads at the query's size,
+   and the address answers beside its key, the part that stays the same set
+   down as ink that is not yours to edit. */
+
+.nt-ws-address {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+}
+.nt-ws-address-base {
+  flex: none;
+  font-size: var(--text-body);
+  line-height: 1.5;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.nt-ws-address .nt-pal-input {
+  min-width: 4ch;
+}
+.nt-ws-note {
+  margin-top: 2px;
+  font-size: var(--text-meta-lg);
+  line-height: 1.5;
+  color: var(--muted);
+  text-wrap: pretty;
+}
+.nt-ws-note.is-problem {
+  color: var(--danger);
+}
+/* The palette folds its footer away on a narrow screen, where it is only key
+   hints; here it holds the one way to finish. */
+@media (max-width: 48rem) {
+  .nt-ws-new .nt-pal-foot {
+    display: flex;
+  }
+  .nt-ws-new .nt-pal-foot > .nt-ws-hint {
+    display: none;
+  }
+}
+
+/* ---- A workspace's home header ------------------------------------------------
+   More sits on its right than on anyone's own home — who is in it and the way
+   to invite — beside a title that is whatever the team called it. Both outer
+   columns are at least as wide as the wider of the two sides (`--ws-side`,
+   measured by `useEvenSides`, since a grid cannot keep columns equal and each
+   at least what it holds), so the title keeps to the page's centre line
+   whatever the sides hold, and gives way, cut short, before anything lands on
+   anything else. Each side is only as wide as what it holds, which is what is
+   measured. */
+
+.nt-ws-head {
+  grid-template-columns:
+    minmax(var(--ws-side, max-content), 1fr)
+    minmax(0, auto)
+    minmax(var(--ws-side, max-content), 1fr);
+}
+.nt-ws-head > .nt-tools {
+  justify-self: start;
+}
+.nt-ws-head > .nt-front-new {
+  justify-self: end;
+}
+.nt-ws-head .nt-ws-switch {
+  max-width: min(32rem, 44vw, 100% - 24px);
+}
+/* The search field folds to its glyph sooner than on anyone's own home: open,
+   it makes the left side the wider one, and every pixel of that is taken from
+   the title twice. */
+@media (max-width: 72rem) {
+  .nt-ws-head .nt-find {
+    width: var(--control);
+    padding-inline: 0;
+    justify-content: center;
+  }
+  .nt-ws-head .nt-find > span,
+  .nt-ws-head .nt-find .nt-kbd {
+    display: none;
+  }
+}
+/* The title takes a line of its own sooner than on anyone's own home, since
+   the row it leaves holds more (`.nt-front-head` at 36rem). */
+@media (max-width: 48rem) {
+  .nt-ws-head {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .nt-ws-head .nt-front-title {
+    grid-column: 1 / -1;
+    grid-row: 1;
+    text-align: left;
+  }
+  .nt-ws-head .nt-ws-switch {
+    max-width: 100%;
+    margin-left: -10px;
+  }
+}
+/* And at a phone's width the row under it has only the room anyone's own home
+   has: the tools and the create button. Inviting stays a menu away, under the
+   switcher's Workspace settings, as the members are. */
+@media (max-width: 36rem) {
+  .nt-ws-invite {
+    display: none;
+  }
+}
+
+/* ---- Members, on the home ----------------------------------------------------
+   Who else is in the workspace, as the presence pile draws people, and the way
+   to the list of them. It is a link, so it washes under the pointer as the
+   header's other controls do; each face's page-coloured ring takes the wash's
+   colour with it, so the faces stay cut out of the pill rather than haloed.
+   Pointing at it also fans the faces apart a little, as if to show there are
+   people behind the first: each moves out toward the title by its place from
+   the end (`--k`), so the pile spreads into the gap on its left and its own
+   box, which the header is laid out by, never changes. */
+
+.nt-ws-pile {
+  --nt-ws-ring: var(--background);
+  display: flex;
+  align-items: center;
+  height: var(--control);
+  padding-inline: 4px;
+  border-radius: 999px;
+  transition: background var(--dur-fast) var(--ease);
+}
+.nt-ws-pile:hover {
+  --nt-ws-ring: color-mix(in srgb, var(--foreground) 5%, var(--background));
+  background: var(--hover);
+}
+.nt-ws-pile:active {
+  --nt-ws-ring: color-mix(in srgb, var(--foreground) 8%, var(--background));
+  background: var(--active);
+}
+/* Its seat, held while the people are on their way — and, when nobody else
+   turns out to be here, given back over time, gap and all (the header's
+   `gap-2`), so the title slides to its centre rather than jumping. */
+.nt-ws-pile.is-waiting {
+  width: var(--control);
+  transition:
+    width var(--dur-slow) var(--ease),
+    padding var(--dur-slow) var(--ease),
+    margin var(--dur-slow) var(--ease);
+}
+.nt-ws-pile.is-waiting.is-gone {
+  width: 0;
+  padding-inline: 0;
+  margin-inline-end: -0.5rem;
+}
+/* Faces arrive on a workspace's first open only; back again, they are there. */
+.nt-ws-pile.is-known .nt-face {
+  animation: none;
+}
+.nt-ws-pile .nt-face {
+  box-shadow: 0 0 0 2px var(--nt-ws-ring);
+  transition:
+    translate var(--dur-slow) var(--ease),
+    box-shadow var(--dur-fast) var(--ease);
+}
+.nt-ws-pile .nt-face:nth-last-child(2) {
+  --k: 1;
+}
+.nt-ws-pile .nt-face:nth-last-child(3) {
+  --k: 2;
+}
+.nt-ws-pile .nt-face:nth-last-child(4) {
+  --k: 3;
+}
+.nt-ws-pile .nt-face:nth-last-child(5) {
+  --k: 4;
+}
+.nt-ws-pile:hover .nt-face,
+.nt-ws-pile:focus-visible .nt-face {
+  translate: calc(var(--k, 0) * -4px) 0;
+}
+/* Beside the title there is room for the verbs before there is room for the
+   people; the members list is still a menu away, under the switcher's
+   Workspace settings. */
+@media (max-width: 60rem) {
+  .nt-ws-pile {
+    display: none;
+  }
+}
+
+/* The popover's way on to the members screen, under a hairline: a row with
+   somewhere to go, laid out as a menu's last item is, so it reads as a
+   destination rather than one more line of the notes above it. Its chevron
+   leans the way it goes, as the back link's arrow leans back. */
+.nt-ws-onward-glyph {
+  flex: none;
+  color: var(--muted);
+  transition:
+    color var(--dur-fast) var(--ease),
+    translate var(--dur-slow) var(--spring);
+}
+.nt-ws-onward:hover .nt-ws-onward-glyph,
+.nt-ws-onward:focus-visible .nt-ws-onward-glyph {
+  color: var(--foreground);
+  translate: 2px 0;
+}
+
+/* A switch at the right end of its row opens its hints leftward, from its
+   right edge, so they stay inside the page rather than running off it — and,
+   laid out even while hidden, widening it. */
+.nt-ws-set-head .nt-tip::after,
+.nt-ws-policy .nt-set-actions .nt-tip::after {
+  left: auto;
+  right: 0;
+}
+/* A row with nothing to govern while another is off — link expiry, with share
+   links off — rests at half ink, its control refused, until it has again. */
+.nt-set-row.nt-ws-rests {
+  transition: opacity var(--dur) var(--ease);
+}
+.nt-set-row.nt-ws-rests :is(.nt-set-glyph, .nt-set-name, .nt-set-actions) {
+  transition: opacity var(--dur) var(--ease);
+}
+/* The note says why the control is resting, so it stays readable. */
+.nt-set-row.nt-ws-rests.is-resting :is(.nt-set-glyph, .nt-set-name, .nt-set-actions) {
+  opacity: 0.5;
+}
+/* A row whose action is a switch rather than a button holds the button's
+   height, so the switch sits on the glyph's line as a button would. */
+.nt-ws-policy .nt-set-actions {
+  min-height: var(--control);
+}
+
+/* ---- Role menus ---------------------------------------------------------------
+   A seat and what it may do, two lines to an item; where this seat may not
+   give it, the reason takes the description's place. The tick stays centred
+   on the pair. */
+
+.nt-ws-choices {
+  width: 18rem;
+  max-width: calc(100vw - 16px);
+}
+.nt-menu-item.nt-ws-choice {
+  height: auto;
+  min-height: var(--control);
+  padding-block: 6px;
+}
+.nt-ws-choice-text {
+  display: grid;
+  flex: 1 1 auto;
+  min-width: 0;
+  gap: 1px;
+  line-height: 1.4;
+}
+.nt-ws-choice-hint {
+  font-size: var(--text-meta-lg);
+  color: var(--muted);
+  text-wrap: pretty;
+}
+/* One reason for every seat the menu refuses, said once above them rather
+   than under each: a sentence, so it wraps where the caption's single line
+   would not. */
+.nt-ws-choices > .nt-menu-caption {
+  height: auto;
+  min-height: var(--control);
+  padding-block: 6px;
+  font-size: var(--text-meta-lg);
+  line-height: 1.4;
+  text-wrap: pretty;
+}
+/* The invite row's picker: a row button that reads as a choice, not a verb. */
+.nt-ws-pick-glyph {
+  color: var(--muted);
+  transition: color var(--dur-fast) var(--ease);
+}
+.nt-ws-pick:hover .nt-ws-pick-glyph,
+.nt-ws-pick[aria-expanded="true"] .nt-ws-pick-glyph {
+  color: var(--foreground);
+}
+
+/* ---- People and invitations ------------------------------------------------------
+   The projects list's table-in-all-but-markup, in the settings card: a mono
+   head over rows that arrive as the projects screen's do. A row is a person the
+   way the account menu draws you — face, name, address under it — with the
+   columns read down: role, then a date. */
+
+.nt-ws-table {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--elevated);
+}
+.nt-ws-table > .nt-list-head {
+  height: 32px;
+  padding-inline: 12px;
+}
+.nt-ws-rows {
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+}
+.nt-ws-person {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 48px;
+  padding: 6px 8px;
+}
+.nt-ws-who {
+  display: grid;
+  flex: 1 1 auto;
+  min-width: 0;
+  gap: 1px;
+}
+.nt-ws-who-name,
+.nt-ws-who-mail {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.nt-ws-who-name {
+  font-size: var(--text-ui);
+  font-weight: 500;
+  line-height: 1.4;
+  color: var(--foreground);
+}
+.nt-ws-who-mail {
+  font-size: var(--text-meta-lg);
+  line-height: 1.4;
+  color: var(--muted);
+}
+/* The columns are the same in both tables — head and rows, invitations and
+   members — so the two cards stacked on the page read down as one. A head's
+   labels keep the head's own type; only a row's role is set as a row's. */
+.nt-ws-col-role {
+  flex: none;
+  width: 64px;
+}
+.nt-ws-person > .nt-ws-col-role {
+  position: relative;
+  font-size: var(--text-ui);
+  color: var(--muted);
+}
+/* A role just changed from here: the tick that says it took, in the gap
+   before the column, so the word itself does not move for it. */
+.nt-menu-check.nt-ws-role-tick {
+  position: absolute;
+  top: 50%;
+  left: -16px;
+  margin-top: -6px;
+  color: var(--foreground);
+}
+.nt-ws-col-when {
+  flex: none;
+  width: 96px;
+  text-align: right;
+}
+/* Room for two icon buttons: an invitation's link and its menu, or a
+   member's menu alone at the end. */
+.nt-ws-col-end {
+  display: flex;
+  flex: none;
+  justify-content: flex-end;
+  gap: 2px;
+  width: calc(2 * var(--control) + 2px);
+}
+/* The roster's heading takes focus only when a row it was on has gone, from
+   script; it is somewhere to be, not something to act on, so it takes no ring. */
+.nt-ws-label[tabindex="-1"]:focus-visible {
+  outline: none;
+}
+
+/* A skeleton bar set straight on the page, a label's: the page is --surface,
+   which is the bar's own fill, so it goes a step down to be seen. Bars on the
+   cards are on white and keep theirs. */
+.nt-set-section > .nt-ws-bone > .nt-skeleton,
+.nt-ws-set-head .nt-skeleton,
+.nt-ws-filters .nt-skeleton,
+.nt-skeleton.nt-ws-bone-sunk {
+  background: var(--sunken);
+}
+
+/* An invitation nobody answered: an envelope in the monogram's well, its ring
+   dashed — somebody who has not arrived. */
+.nt-monogram.nt-ws-pending {
+  flex: none;
+  background: none;
+  box-shadow: none;
+  border: 1px dashed var(--border-strong);
+  color: var(--muted);
+}
+.nt-ws-lapsed {
+  color: var(--danger);
+}
+/* An invitation revoked leaves while the server agrees, as an answered request
+   does in the share popover; a person removed, or a join domain taken off,
+   leaves the same way once it has gone (`useLeaving`). */
+.nt-ws-person.is-leaving,
+.nt-set-list > li.is-leaving {
+  opacity: 0;
+  transform: scale(0.97);
+  pointer-events: none;
+  transition:
+    opacity 220ms var(--ease),
+    transform 220ms cubic-bezier(0.7, 0, 0.84, 0);
+}
+/* The ⋯ fades in on the same beat as whatever it takes the place of, and
+   keeps the icon button's own eased wash and press. */
+.nt-ws-row-menu {
+  transition:
+    opacity var(--dur-fast) var(--ease),
+    background var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease),
+    transform var(--dur) var(--ease);
+}
+/* A row with a menu is something to act on, so it washes under the pointer as
+   the projects list's rows do — and stays washed while its menu is open, whose
+   catcher takes the pointer from it. */
+.nt-ws-person:has(.nt-ws-row-menu):hover {
+  background: var(--hover);
+}
+.nt-ws-person:has(.nt-ws-row-menu[aria-expanded="true"]) {
+  background: var(--selected);
+}
+/* Where there is no pointer to reveal it, the row's menu is always there. */
+@media (hover: none) {
+  .nt-ws-row-menu {
+    opacity: 1;
+  }
+}
+/* On a phone the date gives way, so the name keeps the room. */
+@media (max-width: 36rem) {
+  .nt-ws-table .nt-ws-col-when {
+    display: none;
+  }
+}
+
+/* ---- An invitation, answered -------------------------------------------------
+   One card on the settings surface, centred in what the topbar leaves: the
+   workspace's tile, a title, a sentence, the way on. Drawn as the plan page's
+   sheet is (`.nt-pw-sheet`) — the same chrome around it, so the same object:
+   hairline, 10px corners, a sheet lifted off the page — and titled in that
+   sheet's type. It arrives the way a dialog does, a surface settling, and the
+   tile lands a beat after it. */
+
+.nt-ws-join-body {
+  display: grid;
+  place-items: center;
+  padding: clamp(16px, 5vh, 56px) 24px clamp(48px, 14vh, 160px);
+}
+.nt-ws-join {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: min(26rem, 100%);
+  padding: 28px 24px 24px;
+  border-radius: var(--radius-lg);
+  background: var(--elevated);
+  box-shadow:
+    0 1px 2px oklch(0.25 0.005 90 / 0.04),
+    0 8px 24px oklch(0.25 0.005 90 / 0.07),
+    0 24px 64px oklch(0.25 0.005 90 / 0.11);
+  text-align: center;
+  transform-origin: 50% 30%;
+  animation: nt-ws-join-in 480ms var(--spring) backwards;
+}
+@keyframes nt-ws-join-in {
+  from {
+    opacity: 0;
+    filter: blur(6px);
+    transform: translateY(12px) scale(0.97);
+  }
+}
+/* Before the invitation is read: the same sheet, still. The answer is the
+   card's one arrival. Its bars sit on white, so they keep their own fill. */
+.nt-ws-join.is-waiting {
+  animation: none;
+}
+.nt-monogram.nt-ws-join-tile {
+  width: 48px;
+  height: 48px;
+  font-size: 20px;
+  color: var(--foreground);
+  animation: nt-ws-tile-in 520ms var(--spring) 90ms backwards;
+}
+.nt-monogram.nt-ws-join-tile.is-square {
+  border-radius: 12px;
+}
+@keyframes nt-ws-tile-in {
+  from {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+}
+.nt-ws-join-title {
+  max-width: 100%;
+  margin-top: 16px;
+  overflow-wrap: anywhere;
+  font-size: 20px;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  line-height: 1.3;
+  text-wrap: balance;
+  color: var(--foreground);
+}
+.nt-ws-join-note {
+  margin-top: 6px;
+  font-size: var(--text-ui);
+  line-height: 1.55;
+  color: var(--muted);
+  text-wrap: pretty;
+}
+.nt-ws-join-mail {
+  color: var(--foreground);
+  overflow-wrap: anywhere;
+}
+.nt-ws-join-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px;
+  margin-top: 24px;
+}
+
+/* ---- Billing ---------------------------------------------------------------
+   The paywall's strips set on a settings card: the card's padding is their
+   margin, and the notes under a card or a table keep one gap from it. The
+   paywall's sheet and settings' notes are unlayered, so these are spelled out
+   rather than left to spacing utilities, which they would beat. */
+
+.nt-ws-card > .nt-pw-strips {
+  margin-top: 0;
+}
+.nt-ws-notes {
+  margin-top: 8px;
+}
+.nt-ws-card > .nt-ws-notes {
+  margin-top: 12px;
+}
+/* Under a table's rows, at the rows' own inset rather than hung outside it. */
+.nt-ws-table > .nt-ws-notes {
+  margin-top: 0;
+  padding: 4px 12px 12px;
+}
+/* A sentence an admin should act on: the note's size, the ink's weight — not
+   danger, since nothing has failed. */
+.nt-set-note.nt-ws-heed {
+  color: var(--foreground);
+}
+/* Words that change in place once a figure arrives: the line keeps its room
+   and only the sentence settles in. A section whose shape the skeleton could
+   not guess arrives the same way, rather than landing in a frame. */
+.nt-ws-swap,
+.nt-ws-arrive {
+  animation: nt-fade-in var(--dur) var(--ease);
+}
+/* AI past the allowance: a figure in a strip's head, with no cells — it has
+   no ceiling for a strip to fill. Its gap to the strip above is inside the
+   fold, so it folds with it. */
+.nt-ws-card .nt-ws-over {
+  margin-bottom: 0;
+  padding-top: 15px;
+}
+
+/* ---- An unpaid workspace, said once under its title -------------------------
+   On the title's centre line, in the note's voice: a fact about the place with
+   the way on beside it, not a banner. It folds open (`.nt-fold`), so its
+   gap is padding inside the fold's body, clipped with it. Its link is the
+   aside link, underlined at rest as every inline link on these pages is. */
+
+.nt-ws-unpaid {
+  padding-top: 6px;
+  font-size: var(--text-ui);
+  line-height: 1.5;
+  color: var(--muted);
+  text-align: center;
+  text-wrap: balance;
+}
+/* Where the title leaves the centre for its own left-aligned row. */
+@media (max-width: 48rem) {
+  .nt-ws-unpaid {
+    text-align: left;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nt-ws-switch-glyph,
+  .nt-ws-switch-name.is-swapped,
+  .nt-ws-switcher .nt-menu-check.is-on,
+  .nt-ws-swap,
+  .nt-ws-arrive,
+  .nt-ws-section-in,
+  .nt-ws-join,
+  .nt-monogram.nt-ws-join-tile {
+    animation: nt-fade-in var(--dur-fast) var(--ease);
+  }
+  .nt-ws-pile .nt-face,
+  .nt-ws-pile.is-waiting,
+  .nt-ws-onward-glyph,
+  .nt-ws-set-nav[data-travels] > .nt-ws-set-nav-hl,
+  .nt-set-row.nt-ws-rests {
+    transition: none;
+  }
+  /* What these fades say — saved, gone — is the change itself, so they keep
+     their opacity and give up only the movement. The global catch-all would
+     cut them to nothing, hence the weight. */
+  .nt-ws-saved,
+  .nt-ws-person.is-leaving,
+  .nt-set-list > li.is-leaving {
+    transition: opacity var(--dur-fast) var(--ease) !important;
+  }
+  /* The rows' stagger is a delay, which the global catch-all leaves running. */
+  .nt-ws-event,
+  .nt-ws-person {
+    animation: none;
+  }
+}
+
+/* ---- Integrations ------------------------------------------------------------ */
+
+/* Where the rest of who reads code is decided: a line under the card, since
+   it is no row of its own. */
+.nt-ws-policy-aside {
+  margin-top: 8px;
+}
+.nt-ws-aside-link {
+  color: var(--foreground);
+  text-decoration: underline;
+  text-decoration-color: var(--border-strong);
+  text-underline-offset: 2px;
+  transition: text-decoration-color var(--dur-fast) var(--ease);
+}
+.nt-ws-aside-link:hover,
+.nt-ws-aside-link:focus-visible {
+  text-decoration-color: currentColor;
+}
+
+/* The proof row folds in and out with the rule, its edge with it: the list's
+   own rule between rows would be left standing on a shut fold. */
+.nt-set-list > li.nt-ws-gh-proof {
+  border-top: 0;
+}
+.nt-ws-gh-proof-row {
+  border-top: 1px solid var(--border);
+}
+
+/* An installation's account, drawn as GitHub draws it: a person round, an
+   organisation square. The ring keeps a white avatar off the white card. */
+.nt-ws-gh-avatar {
+  width: 20px;
+  height: 20px;
+  border-radius: var(--radius-sm);
+  box-shadow: 0 0 0 1px var(--border);
+}
+.nt-ws-gh-avatar.is-round {
+  border-radius: 50%;
+}
+
+/* ---- Audit -------------------------------------------------------------------
+   The members' table, read as a sentence across it: when, who, what — so a row
+   says "3h · Maya · removed Tom from Acme" in the order it would be told. A
+   sentence that runs long wraps under itself; its first line keeps to the
+   line the time and the name sit on. */
+
+.nt-ws-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  margin: 0 0 8px calc(-1 * var(--inset));
+}
+.nt-ws-filter-value {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+/* At least as wide as its resting value, so a shorter choice moves nothing
+   after it; the glyph keeps to the end. */
+.nt-ws-filters .nt-ws-pick {
+  justify-content: space-between;
+  min-width: 6.5rem;
+  max-width: 14rem;
+}
+/* Sized to its longest choice, the tick beside it, and tall enough to hold
+   every kind without a scroll on any laptop. */
+.nt-ws-filter-menu {
+  min-width: 11rem;
+  max-width: min(18rem, calc(100vw - 16px));
+  max-height: min(32rem, calc(100vh - 16px));
+  overflow-y: auto;
+}
+/* A ghost button in the label's row that leaves the row at the label's line
+   height, and hangs right as the filters hang left, so its glyph ends on the
+   column's edge. */
+.nt-ws-export {
+  flex: none;
+  margin-block: calc((var(--text-ui) * 1.5 - var(--control)) / 2);
+  margin-right: calc(-1 * var(--inset));
+}
+/* Why the log reads as it does, under its label and above what narrows it —
+   closer to the label than a card would sit, which the label's row gives up. */
+.nt-ws-set-head:has(+ .nt-ws-audit-note) {
+  margin-bottom: 4px;
+}
+.nt-ws-audit-note,
+.nt-set-note.nt-ws-audit-note {
+  margin: 0 0 8px;
+}
+
+.nt-ws-event {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  min-height: 40px;
+  padding: 10px 8px;
+  font-size: var(--text-ui);
+  line-height: 20px;
+}
+/* Wide enough for a date in another year, "Sep 30, 2025", in full. */
+.nt-ws-ev-when {
+  flex: none;
+  width: 92px;
+  overflow: hidden;
+  color: var(--muted);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.nt-ws-event > .nt-ws-ev-when {
+  font-size: var(--text-meta-lg);
+}
+.nt-ws-ev-who {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  width: 10rem;
+  min-width: 0;
+}
+.nt-ws-ev-name {
+  overflow: hidden;
+  font-weight: 500;
+  color: var(--foreground);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.nt-ws-ev-what {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  text-wrap: pretty;
+}
+.nt-ws-event > .nt-ws-ev-what {
+  color: var(--foreground);
+}
+/* A thing's current name — a person, an email, a project, a page — weighted
+   alike and kept to one line, so an address never splits at its hyphen; one
+   too long for any line may break. A project that still opens carries the
+   aside link's underline at rest, so it is told from one that is gone. */
+.nt-ws-ev-noun {
+  font-weight: 500;
+  white-space: nowrap;
+}
+.nt-ws-ev-noun.is-long {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.nt-ws-ev-end {
+  height: 1px;
+}
+/* The rows' gap, for the bones as for the rows they stand in for. */
+.nt-ws-event + .nt-ws-event {
+  margin-top: 1px;
+}
+/* The last filter's rows, held while the next filter's arrive: dimmed only
+   once the wait is long enough to see, and lit again at once. */
+.nt-ws-table > .nt-ws-rows,
+.nt-ws-table > .nt-ws-empty {
+  transition: opacity var(--dur-fast) var(--ease);
+}
+.nt-ws-table[data-stale] > .nt-ws-rows,
+.nt-ws-table[data-stale] > .nt-ws-empty {
+  opacity: 0.55;
+  transition: opacity var(--dur) var(--ease) 150ms;
+}
+/* Arrives as rows do, in the slot they would have risen into. */
+.nt-ws-empty {
+  padding: 40px 24px;
+  text-align: center;
+  text-wrap: balance;
+  animation: nt-rise 450ms var(--ease) backwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .nt-ws-empty {
+    animation: nt-fade-in var(--dur-fast) var(--ease);
+  }
+}
+
+/* On a phone the head goes and a row folds in two: who and when on one line,
+   what under it, set in from the face. */
+@media (max-width: 36rem) {
+  .nt-ws-ev-head {
+    display: none;
+  }
+  .nt-ws-event {
+    flex-wrap: wrap;
+    gap: 2px 12px;
+  }
+  .nt-ws-event > .nt-ws-ev-who {
+    flex: 1 1 auto;
+    width: auto;
+  }
+  .nt-ws-event > .nt-ws-ev-when {
+    order: 1;
+    width: auto;
+    text-align: right;
+  }
+  .nt-ws-event > .nt-ws-ev-what {
+    order: 2;
+    flex-basis: 100%;
+    padding-left: 28px;
+  }
+}

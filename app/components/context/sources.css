@@ -345,3 +345,51 @@
     animation: none;
   }
 }
+
+/* ---- Code held back ---------------------------------------------------------
+   A workspace's GitHub organisation rule stopping this member: one line in the
+   empty-state voice, and the press that clears it drawn as a row, the way
+   everything else under Context is. */
+
+.nt-codegate {
+  display: grid;
+  padding: 6px 0 2px;
+  font-size: var(--text-meta-lg);
+  line-height: 1.45;
+  color: var(--muted);
+  text-wrap: pretty;
+}
+.nt-codegate:focus-visible {
+  outline: none;
+}
+/* Each part keeps the rail's inset itself, so the press's wash can reach the
+   fold's edge without being clipped by it. */
+.nt-codegate-part {
+  display: grid;
+  gap: 2px;
+  padding-inline: 8px;
+}
+.nt-codegate .is-problem {
+  color: var(--danger);
+}
+/* The tick on the first line's centre, the sentence wrapping beside it. */
+.nt-codegate-verified {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+}
+.nt-codegate-verified > .nt-menu-check {
+  margin: calc((1.45em - 12px) / 2) 0 0;
+  color: var(--foreground);
+}
+.nt-row.nt-codegate-go {
+  justify-self: start;
+  height: var(--control-sm);
+  margin-top: 2px;
+  margin-inline: -8px;
+  padding-inline: 8px;
+  font-size: var(--text-meta-lg);
+  font-weight: 500;
+  color: var(--foreground);
+}
+

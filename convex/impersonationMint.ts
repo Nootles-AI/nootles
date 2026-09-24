@@ -1,9 +1,9 @@
 "use node";
 
-import { createPrivateKey, createSign, type KeyObject } from "node:crypto";
 import { ConvexError, v } from "convex/values";
 import { action } from "./_generated/server";
 import { internal } from "./_generated/api";
+import { signingKey, signJwt } from "./signing";
 
 /**
  * Signing a stand-in token. Its own file because of `"use node"`: the private
@@ -26,35 +26,6 @@ function keyId(jwks: string): string {
   const kid = parsed.keys?.[0]?.kid;
   if (!kid) throw new ConvexError("IMPERSONATION_JWKS has no key in it.");
   return kid;
-}
-
-/**
- * The signing key, from the base64 DER `gen-impersonation-key.mjs` prints.
- *
- * DER rather than PEM because a PEM is multi-line, and a multi-line secret
- * does not survive the journey to an env var: a shell leaves `\n` inside
- * double quotes as a literal backslash-n, and the key then arrives looking
- * correct and parsing as garbage. This has been the failure once already, so
- * the unreadable case says what to do about it rather than surfacing as a
- * bare "Server Error".
- */
-function signingKey(value: string): KeyObject {
-  try {
-    return createPrivateKey({
-      key: Buffer.from(value, "base64"),
-      format: "der",
-      type: "pkcs8",
-    });
-  } catch {
-    throw new ConvexError(
-      "The signing key is unreadable. Re-run scripts/gen-impersonation-key.mjs " +
-        "and set both variables again on this deployment.",
-    );
-  }
-}
-
-function segment(value: object): string {
-  return Buffer.from(JSON.stringify(value)).toString("base64url");
 }
 
 export const start = action({
@@ -83,7 +54,11 @@ export const start = action({
     // Read the key and name it before anything is written: a deployment whose
     // key will not parse should say so, not leave a ledger of sessions that
     // were never issued.
-    const signer = signingKey(key);
+    const signer = signingKey(
+      key,
+      "The signing key is unreadable. Re-run scripts/gen-impersonation-key.mjs " +
+        "and set both variables again on this deployment.",
+    );
     const kid = keyId(jwks);
 
     // Then the ledger: an unauthorized ask must not reach the key, and a token
@@ -105,15 +80,8 @@ export const start = action({
       act: "ops",
     };
 
-    const signingInput = `${segment(header)}.${segment(payload)}`;
-    const signature = createSign("RSA-SHA256")
-      .update(signingInput)
-      .end()
-      .sign(signer)
-      .toString("base64url");
-
     // The caller opens `{app origin}/impersonate#{token}` — in the fragment,
     // which browsers send to no server and write to no referrer.
-    return { token: `${signingInput}.${signature}`, expiresAt: grant.expiresAt };
+    return { token: signJwt(header, payload, signer), expiresAt: grant.expiresAt };
   },
 });

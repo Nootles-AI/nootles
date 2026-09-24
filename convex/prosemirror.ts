@@ -2,6 +2,7 @@ import { components } from "./_generated/api";
 import { ProsemirrorSync } from "@convex-dev/prosemirror-sync";
 import type { DataModel, Doc } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
+import { recordDocumentEdit } from "./audit";
 import {
   channelAdmits,
   commentsProject,
@@ -101,7 +102,8 @@ async function resolveDoc(
 
 /**
  * Reads are open to anyone with a role on the project, and — on the document
- * channel only — to anonymous holders of a live share link. There is no token
+ * channel of a personal project only — to anonymous holders of a live share
+ * link. There is no token
  * to inspect here — the sync API's args are just the docId — so for the
  * anonymous case the capability IS the docId: a server-minted UUID that
  * `share.view` discloses only while a link is live. Revoking the last link
@@ -138,8 +140,11 @@ async function readAccess(
   channels: readonly DocChannel[],
 ): Promise<DocAccess | null> {
   const access = await resolveDoc(ctx, id, channels);
-  return access &&
-    channelAdmits({ channel: access.channel, access: "read", role: access.role, linkLive: hasLiveLink(access.project) })
+  if (!access) return null;
+  // The anonymous live-link read is a personal project's alone: a workspace
+  // project's documents open to no one without a role (`auth.readsDocuments`).
+  const linkLive = !access.project.workspaceId && hasLiveLink(access.project, Date.now());
+  return channelAdmits({ channel: access.channel, access: "read", role: access.role, linkLive })
     ? access
     : null;
 }
@@ -213,13 +218,17 @@ async function touchPage(ctx: MutationCtx, id: string) {
  * not write steps nobody will ever read. Reads stay open for the migration
  * fetch itself and for viewers who haven't flipped over yet.
  */
-async function checkLegacyWrite(ctx: QueryCtx, id: string) {
+async function checkLegacyWrite(ctx: MutationCtx, id: string) {
   await checkWrite(ctx, id, DOCUMENT_ONLY);
   const migrated = await ctx.db
     .query("ydocs")
     .withIndex("by_doc", (q) => q.eq("docId", id))
     .unique();
   if (migrated) throw new Error("This page has moved to Yjs sync — reload.");
+  // The gate is the one hook this pipeline gives that knows the writer. It
+  // runs for snapshots as well as steps, so a legacy page counts a little
+  // high: the same person in the same window either way.
+  await recordDocumentEdit(ctx, id);
 }
 
 /** Comments documents are born on Yjs and never had a legacy pipeline. */

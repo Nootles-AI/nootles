@@ -2,8 +2,9 @@ import { AI } from "@/app/lib/ai/aiConfig";
 import { describeSheet } from "@/app/lib/ai/albumIndex";
 import { recordAiCall } from "@/app/lib/ai/recordCall";
 import { asUser } from "@/app/lib/convexServer";
+import { refuseIfSpent } from "@/app/lib/entitlementGate";
 import { refuseIfLimited } from "@/app/lib/requestLimitGate";
-import { sessionToken } from "@/app/lib/session";
+import { session } from "@/app/lib/session";
 
 /**
  * Describes one contact sheet of an album's pictures.
@@ -21,8 +22,9 @@ import { sessionToken } from "@/app/lib/session";
 const MAX_SHEET_CHARS = 8_000_000;
 
 export async function POST(req: Request) {
-  const token = await sessionToken();
-  if (!token) return new Response("Unauthorized", { status: 401 });
+  const caller = await session();
+  if (!caller) return new Response("Unauthorized", { status: 401 });
+  const { token } = caller;
 
   let body: unknown;
   try {
@@ -31,7 +33,12 @@ export async function POST(req: Request) {
     return new Response("Invalid JSON", { status: 400 });
   }
 
-  const { dataUri, handles } = (body ?? {}) as { dataUri?: unknown; handles?: unknown };
+  const { dataUri, handles, projectId: named } = (body ?? {}) as {
+    dataUri?: unknown;
+    handles?: unknown;
+    projectId?: unknown;
+  };
+  const projectId = typeof named === "string" ? named : undefined;
   if (
     typeof dataUri !== "string" ||
     !dataUri.startsWith("data:image/") ||
@@ -53,6 +60,9 @@ export async function POST(req: Request) {
   const convex = asUser(token);
   const limited = await refuseIfLimited(convex, "agentGeneration");
   if (limited) return limited;
+  // See the reformat route: a named workspace project is that workspace's bill.
+  const spent = await refuseIfSpent(token, null, projectId);
+  if (spent) return spent;
 
   const started = Date.now();
   try {
@@ -61,8 +71,10 @@ export async function POST(req: Request) {
       req.signal,
     );
     recordAiCall(convex, {
+      ownerId: caller.userId,
       feature: "album",
       model: AI.album.model,
+      projectId,
       ...usage,
       latencyMs: Date.now() - started,
       status: "ok",
@@ -71,8 +83,10 @@ export async function POST(req: Request) {
   } catch (e) {
     if ((e as Error).name === "AbortError") return new Response(null, { status: 204 });
     recordAiCall(convex, {
+      ownerId: caller.userId,
       feature: "album",
       model: AI.album.model,
+      projectId,
       latencyMs: Date.now() - started,
       status: "error",
       errorCode: (e as Error).message.slice(0, 200),
