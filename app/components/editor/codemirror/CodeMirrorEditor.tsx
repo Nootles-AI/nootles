@@ -9,6 +9,7 @@ import { useCompletionProject } from "../ai/CompletionContext";
 import { eveningExtensions } from "./theme";
 import { codeGhostExtension, setCodeGhost } from "./ghost";
 import { loadLanguage } from "./languages";
+import { codeExit, EXIT_KEYS, type CodeExit } from "./exits";
 import { registerCodeBlock } from "./focusRequests";
 
 /**
@@ -28,6 +29,7 @@ export function CodeMirrorEditor({
   reasserted = 0,
   readOnly = false,
   blockId,
+  onExit,
 }: {
   initialValue: string;
   language: string;
@@ -46,6 +48,8 @@ export function CodeMirrorEditor({
   readOnly?: boolean;
   /** The block this edits, so the page can put the caret in it (see `focusRequests`). */
   blockId?: string;
+  /** A key that leaves the block, for the page to act on. False keeps it here. */
+  onExit?: (exit: CodeExit) => boolean;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -58,9 +62,11 @@ export function CodeMirrorEditor({
   // so we never write refs during render).
   const onChangeRef = useRef(onChange);
   const onBlurRef = useRef(onBlur);
+  const onExitRef = useRef(onExit);
   useEffect(() => {
     onChangeRef.current = onChange;
     onBlurRef.current = onBlur;
+    onExitRef.current = onExit;
   });
 
   useEffect(() => {
@@ -78,6 +84,17 @@ export function CodeMirrorEditor({
           // prop and live on the workspace timeline like everything else.
           // A second stack here meant ⌘Z answered differently depending on
           // where the caret sat, and the two stacks could ping-pong.
+          // Ahead of the default keymap, which would otherwise take the arrows
+          // at the edges and go nowhere. The ghost's Escape still comes first.
+          keymap.of(
+            EXIT_KEYS.map((key) => ({
+              key,
+              run: (v: EditorView) => {
+                const exit = codeExit(key, v.state);
+                return exit ? (onExitRef.current?.(exit) ?? false) : false;
+              },
+            })),
+          ),
           keymap.of([...defaultKeymap, indentWithTab]),
           langCompartment.current.of([]),
           codeGhostExtension,

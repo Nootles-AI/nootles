@@ -11,6 +11,8 @@ import { track } from "@/app/lib/telemetry";
 import { usePageTitle } from "../PageTitleContext";
 import type { AnyBlock } from "@/app/lib/ai/projection";
 import { LANGUAGES, languageLabel } from "../codemirror/languages";
+import type { CodeExit } from "../codemirror/exits";
+import { leaveCodeBlock } from "./codeBlockKeys";
 
 /** Quiet time before typed code reaches the block. Keystrokes are not writes. */
 const PERSIST_MS = 400;
@@ -75,6 +77,7 @@ type CodeBlockViewProps = {
   onChangeCode: (value: string) => void;
   onChangeLanguage: (id: string) => void;
   onDelete: () => void;
+  onExit: (exit: CodeExit) => boolean;
   getFimContext?: (
     offset: number,
     title: string,
@@ -88,6 +91,7 @@ function CodeBlockView({
   onChangeCode,
   onChangeLanguage,
   onDelete,
+  onExit,
   getFimContext,
 }: CodeBlockViewProps) {
   // A page-level fact, reached from deep in the editor tree.
@@ -125,6 +129,12 @@ function CodeBlockView({
         onBlur={persist.flush}
         readOnly={readOnly}
         blockId={id}
+        // What was typed lands before the caret leaves, so the write and the
+        // move reach the document in the order they happened.
+        onExit={(exit) => {
+          persist.flush();
+          return onExit(exit);
+        }}
         // The page title is a page-level fact and this block sits deep in the
         // editor tree, so it comes from context and is handed back up.
         getFimContext={
@@ -158,6 +168,7 @@ export const codeBlockSpec = createReactBlockSpec(
           track("code_language_set", { lang: id });
         }}
         onDelete={() => editor.removeBlocks([block.id])}
+        onExit={(exit) => leaveCodeBlock(editor, block.id, exit)}
         // The caret lives in CodeMirror, not ProseMirror, so we place it in the
         // serialized document ourselves — the model still sees the whole page.
         getFimContext={(offset, title) =>
