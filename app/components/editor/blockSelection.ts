@@ -46,6 +46,7 @@
  */
 
 import { createExtension } from "@blocknote/core";
+import { SuggestionMenu } from "@blocknote/core/extensions";
 import { Fragment, Slice } from "prosemirror-model";
 import type { Node as PMNode, ResolvedPos } from "prosemirror-model";
 import {
@@ -60,6 +61,7 @@ import type { Mappable } from "prosemirror-transform";
 import { Decoration, DecorationSet } from "prosemirror-view";
 import type { EditorView } from "prosemirror-view";
 import { useCallback, useSyncExternalStore } from "react";
+import { blocksTouched } from "./blockNav";
 import "./blockSelection.css";
 
 /** The class a selected block's `.bn-block-outer` wears. */
@@ -393,6 +395,11 @@ export interface BlockSelectionStore {
   toggle(id: string): void;
   /** Deselect, leaving the caret at the end of what was selected. */
   clear(): void;
+  /**
+   * Take the blocks the caret or text selection is in as whole blocks —
+   * Escape's verb. False when there is no such block, or they already are.
+   */
+  promote(): boolean;
   /** Every top-level block — the second press of ⌘A. */
   selectAll(): void;
   /**
@@ -493,6 +500,17 @@ class BlockSelectionStoreImpl implements BlockSelectionStore {
     this.put(caretNear(view.state.doc, selection.to), view);
   };
 
+  promote = () => {
+    const view = this.view();
+    if (!view) return false;
+    const { selection, doc } = view.state;
+    if (selection instanceof BlockRangeSelection) return false;
+    const next = blockRangeFor(doc, blocksTouched(doc, selection.from, selection.to));
+    if (!next) return false;
+    this.put(next, view);
+    return true;
+  };
+
   selectAll = () => {
     this.select(this.editor.document.map((block) => block.id));
   };
@@ -585,9 +603,14 @@ export const blockSelectionExtension = createExtension({
   key: "nt-block-selection",
   prosemirrorPlugins: [blockSelectionPlugin()],
   keyboardShortcuts: {
+    // Notion's two steps out of writing: the first Escape takes the block the
+    // caret is in, the second lets it go. An open "/" menu closes first.
     Escape: ({ editor }) => {
+      if (editor.getExtension(SuggestionMenu)?.shown()) return false;
       const store = blockSelection(editor);
-      if (!store.getSnapshot().ids.length) return false;
+      if (!store.getSnapshot().ids.length) {
+        return !!editor.prosemirrorView?.hasFocus() && store.promote();
+      }
       store.clear();
       return true;
     },

@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
-import { Caveat, Geist, Geist_Mono } from "next/font/google";
 import { ClerkProvider } from "@clerk/nextjs";
 import "./globals.css";
+import { fontVariables } from "./fonts";
 import { ConvexClientProvider } from "./ConvexClientProvider";
 import { TelemetryProvider } from "./components/TelemetryProvider";
 import { UpdateToast } from "./components/UpdateToast";
@@ -9,27 +9,7 @@ import { StandInProvider } from "./components/StandIn";
 import { IdentitySync } from "./components/IdentitySync";
 import { NotionConfigProvider } from "./components/notion/NotionAvailable";
 import { oauthConfig } from "./api/notion/oauth";
-
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
-
-/**
- * The one face in the app that is not the UI's. It is the storyboard's writing
- * hand, and available on any shape through the style panel — nothing else uses
- * it, which is why it loads one weight and no italic.
- */
-const caveat = Caveat({
-  variable: "--font-hand",
-  subsets: ["latin"],
-  weight: ["500"],
-});
+import { COLUMN_WIDTH } from "./lib/column";
 
 export const metadata: Metadata = {
   title: "Nootles",
@@ -44,7 +24,8 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} ${caveat.variable} h-full antialiased`}
+      className={`${fontVariables} h-full antialiased`}
+      style={{ "--measure": `${COLUMN_WIDTH}px` } as React.CSSProperties}
     >
       <body className="min-h-full flex flex-col">
         <ClerkProvider>

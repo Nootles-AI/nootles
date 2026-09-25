@@ -6,7 +6,7 @@ import type { Location } from "./types";
 /**
  * Which place card the screen is speaking for.
  *
- * The same arrangement as the canvas: a 600px column has no room for an
+ * The same arrangement as the canvas: a document column has no room for an
  * inspector, so the window mounts one and the block only says which card is
  * under the hand. One at a time — a page may hold a dozen cafés, and a list of
  * what to show is a list about one of them.

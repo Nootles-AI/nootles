@@ -23,6 +23,7 @@ import { parseLocation } from "./editor/location/parse";
 import { describeStub } from "@/app/lib/notion/stub";
 import type { AnyBlock } from "@/app/lib/ai/projection";
 import type { YReader } from "@/app/lib/ai/snapshot";
+import { COLUMN_WIDTH } from "@/app/lib/column";
 
 const YJS_ON = process.env.NEXT_PUBLIC_YJS === "1";
 
@@ -54,13 +55,12 @@ function spacedRead(stamp: { current: number }, read: () => void) {
 }
 
 /**
- * The width the document is written at — `--measure`. The thumbnail lays out at
- * exactly this and is then scaled into the card, so line breaks, heading sizes
- * and diagram geometry are the document's own rather than a small-screen
- * reflow of it. That is what makes this read as a picture of the page instead
- * of a narrow copy of it.
+ * The width the document is written at. The thumbnail lays out at exactly this
+ * and is then scaled into the card, so line breaks, heading sizes and diagram
+ * geometry are the document's own rather than a small-screen reflow of it. That
+ * is what makes this read as a picture of the page instead of a narrow copy of it.
  */
-const DOC_WIDTH = 600;
+const DOC_WIDTH = COLUMN_WIDTH;
 
 /** Past this nothing is above the crop, even on the tallest card. */
 const MAX_BLOCKS = 18;

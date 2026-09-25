@@ -316,7 +316,7 @@ export function userMessage(brief: string, page: string, title: string, look: st
 
 /**
  * A fixed frame to fill — a storyboard shot, rather than a document diagram.
- * Null means the ordinary 600px-column sizing the grammar teaches.
+ * Null means the ordinary column-width sizing the grammar teaches.
  */
 export type DrawFrame = { w: number; h: number } | null;
 

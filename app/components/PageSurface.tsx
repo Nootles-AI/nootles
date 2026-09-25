@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Doc, Id } from "@/convex/_generated/dataModel";
@@ -12,13 +13,15 @@ import {
 import { Editable } from "./Editable";
 import { Editor } from "./editor/Editor";
 import { useEditorRegistry } from "./editor/EditorRegistry";
-import { ModeToggle } from "./ModeToggle";
+import { leaveTitle, TITLE_ATTR } from "./editor/titleBoundary";
 import { CurrentPageProvider, useOpenPage, type Pane } from "./OpenPageContext";
 import { ArrowLeft, X } from "./Icons";
 import { useReadOnly } from "./editor/readOnly";
 import { PageCommentsProvider } from "./comments/PageComments";
 import { CommentsLayer } from "./comments/CommentsLayer";
 import { CommentsButton } from "./comments/CommentsButton";
+import { useCornerSlot } from "./cornerSlot";
+import { usePageCommands } from "./pageCommands";
 import type { PageMode } from "./editor/ai/useTabCompletion";
 
 export function PageSurface({
@@ -48,6 +51,8 @@ export function PageSurface({
   const readOnly = useReadOnly();
   const { main, aside, focus, back, closeAside, focusPane } = useOpenPage();
   const registry = useEditorRegistry();
+  const cornerSlot = useCornerSlot();
+  const modeCommandRef = usePageCommands();
   const canGoBack = (pane === "aside" ? aside : main)?.canGoBack ?? false;
   /** Only ever true beside another pane: alone, a page is the one you are in. */
   const idle = aside !== null && focus !== pane;
@@ -97,17 +102,38 @@ export function PageSurface({
     // from the sidebar, moves the baseline the next entry diffs against.
     if (page && debounceRef.current === null) committedTitle.current = page.title;
   });
+  // The suggestion mode lives in ⌘K now; the main page answers for it there,
+  // and still records the change on its own timeline.
+  useEffect(() => {
+    if (!modeCommandRef || pane !== "main" || readOnly || !page) return;
+    const before = (page.mode ?? "create") as PageMode;
+    const command = {
+      mode: before,
+      set: (mode: PageMode) => {
+        if (mode === before) return;
+        void setMode({ pageId, mode });
+        pageDomainRef.current?.record({
+          undo: () => setMode({ pageId, mode: before }),
+          redo: () => setMode({ pageId, mode }),
+        });
+      },
+    };
+    modeCommandRef.current = command;
+    return () => {
+      if (modeCommandRef.current === command) modeCommandRef.current = null;
+    };
+  });
 
   if (page === undefined) {
     // Mirrors the real column so the title and first paragraphs land in place.
     return (
       <main className="flex flex-1 flex-col overflow-hidden" aria-busy="true">
         <div
-          className="w-full px-6 py-12 sm:px-14 sm:py-20"
+          className="mx-auto w-full px-6 py-12 sm:px-14 sm:py-20"
           style={{ maxWidth: "calc(var(--measure) + 7rem)" }}
         >
-          <div className="nt-skeleton h-8 w-1/2" />
-          <div className="mt-8 space-y-3">
+          <div className="nt-skeleton mt-[4.5rem] h-10 w-1/2" />
+          <div className="mt-4 space-y-3">
             <div className="nt-skeleton h-4 w-full" />
             <div className="nt-skeleton h-4 w-11/12" />
             <div className="nt-skeleton h-4 w-2/3" />
@@ -138,19 +164,23 @@ export function PageSurface({
     return rename({ pageId, title }).then(() => {});
   };
 
+  /** Write the title now, and record it — anything still debounced folds in. */
+  const commitTitle = (text: string) => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = null;
+    const before = committedTitle.current ?? "";
+    if (text === before) return;
+    committedTitle.current = text;
+    void rename({ pageId, title: text });
+    pageDomainRef.current?.record({
+      undo: () => restoreTitle(before),
+      redo: () => restoreTitle(text),
+    });
+  };
+
   const persistTitle = (text: string) => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => {
-      debounceRef.current = null;
-      const before = committedTitle.current ?? "";
-      if (text === before) return;
-      committedTitle.current = text;
-      void rename({ pageId, title: text });
-      pageDomainRef.current?.record({
-        undo: () => restoreTitle(before),
-        redo: () => restoreTitle(text),
-      });
-    }, 400);
+    debounceRef.current = setTimeout(() => commitTitle(text), 400);
   };
 
   return (
@@ -165,20 +195,20 @@ export function PageSurface({
       onPointerDownCapture={() => focusPane(pane)}
       onFocusCapture={() => focusPane(pane)}
     >
-      {/* Anchored left, not centred. Centring measured the column against the
-          space the panels left over, so collapsing chat slid every line of text
-          sideways. A document surface should hold still, like a code editor.
-          The left gutter also houses BlockNote's drag handle and + button. */}
+      {/* Centred in the pane, text still left-aligned. The cost is known:
+          the column is measured against the room the panels leave, so opening
+          or collapsing a panel moves the text. The left gutter also houses
+          BlockNote's drag handle and + button. */}
       {/* Grows to fill the pane so the empty room under the last block still
           belongs to the document — that is where a hand reaches to start a box
           selection, and a content-height column would leave it to the scroller. */}
       <div
-        className="flex w-full flex-1 flex-col px-6 py-12 sm:px-14 sm:py-20"
+        className="mx-auto flex w-full flex-1 flex-col px-6 py-12 sm:px-14 sm:py-20"
         style={{ maxWidth: "calc(var(--measure) + 7rem)" }}
       >
         <PageCommentsProvider pageId={pageId}>
         <CommentsLayer linked={pane === "main"}>
-        <div className="mb-6 flex items-center justify-start gap-2">
+        <div className="mb-10 flex min-h-7 items-center justify-start gap-2">
           {/* Following a chip somewhere needs a way home. Present only once
               there is a "back" to mean — a standing button would be chrome. */}
           {canGoBack && (
@@ -191,22 +221,12 @@ export function PageSurface({
               <ArrowLeft />
             </button>
           )}
-          {!readOnly && (
-            <ModeToggle
-              mode={(page.mode ?? "create") as PageMode}
-              onChange={(mode) => {
-                const before = (page.mode ?? "create") as PageMode;
-                if (mode === before) return;
-                void setMode({ pageId, mode });
-                pageDomainRef.current?.record({
-                  undo: () => setMode({ pageId, mode: before }),
-                  redo: () => setMode({ pageId, mode }),
-                });
-              }}
-            />
-          )}
           <div className="ml-auto flex items-center gap-1">
-            <CommentsButton />
+            {pane === "main" && cornerSlot ? (
+              createPortal(<CommentsButton />, cornerSlot)
+            ) : (
+              <CommentsButton />
+            )}
             {pane === "aside" && (
               <button
                 onClick={closeAside}
@@ -222,41 +242,29 @@ export function PageSurface({
         {readOnly ? (
           <h1
             data-turn={turn}
-            className="nt-page-in is-title w-full text-[length:var(--text-title)] font-semibold tracking-[-0.02em] text-balance"
+            className="nt-page-in is-title w-full text-[length:var(--text-page-title)] font-semibold tracking-[-0.02em] text-balance"
           >
             {page.title || "Untitled"}
           </h1>
         ) : (
-        <div ref={titleHost} className="nt-page-in is-title" data-turn={turn} {...undoScope}>
+        <div
+          ref={titleHost}
+          className="nt-page-in is-title"
+          data-turn={turn}
+          {...{ [TITLE_ATTR]: "" }}
+          {...undoScope}
+        >
         <Editable
           value={page.title}
           onInput={persistTitle}
-          onKeyDown={(e) => {
-            if (e.key !== "Enter") return;
-            e.preventDefault();
-            // Enter leaves the title for the document, the way it does in every
-            // editor this one resembles. Blurring instead left the caret
-            // nowhere at all, so the next thing typed went to the page rather
-            // than into the page.
-            const title = e.currentTarget;
-            registry
-              .editorFor(pageId)
-              .then((editor) => {
-                const first = editor.document[0];
-                if (first) editor.setTextCursorPosition(first, "start");
-                editor.focus();
-              })
-              // A document that never finished loading has nowhere to put the
-              // caret; letting go of the title is better than trapping it.
-              .catch(() => title.blur());
-          }}
+          onKeyDown={(e) => leaveTitle(e, () => registry.editorFor(pageId), commitTitle)}
           placeholder="Untitled"
           label="Page title"
-          className="w-full text-[length:var(--text-title)] font-semibold tracking-[-0.02em] text-balance"
+          className="w-full text-[length:var(--text-page-title)] font-semibold tracking-[-0.02em] text-balance"
         />
         </div>
         )}
-        <div className="nt-page-in mt-8" data-turn={turn}>
+        <div className="nt-page-in mt-4" data-turn={turn}>
           <Editor
             docId={page.docId}
             pageId={pageId}

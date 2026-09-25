@@ -11,6 +11,7 @@ import {
   useSyncExternalStore,
   type ReactElement,
 } from "react";
+import { formatKeyboardShortcut, SuggestionMenu } from "@blocknote/core";
 import { BlockNoteView } from "@blocknote/mantine";
 import "@blocknote/mantine/style.css";
 import {
@@ -19,6 +20,7 @@ import {
   FormattingToolbar,
   FormattingToolbarController,
   SuggestionMenuController,
+  useEditorState,
   type DefaultReactSuggestionItem,
 } from "@blocknote/react";
 import { autoPlacement, offset, shift, size } from "@floating-ui/react";
@@ -42,6 +44,7 @@ import { initEmptyYDoc, migrateLegacyDoc } from "@/app/lib/sync/migrate";
 import { collabColor } from "@/app/lib/sync/colors";
 import { schema } from "./schema";
 import { armBlock, SERVICES } from "./media/search";
+import { CODE_BLOCK_SHORTCUT, insertCodeBlock } from "./blocks/codeBlockKeys";
 import { usePages, type PageRef } from "../PagesContext";
 import { pageTitle } from "./inline/PageMention";
 import { useRegisterEditor } from "./EditorRegistry";
@@ -51,6 +54,7 @@ import type { LegacyBlock } from "@/app/lib/nml/legacy";
 import { BlockSideMenu, editorPortalElements } from "./BlockSideMenu";
 import { PageTitleProvider } from "./PageTitleContext";
 import { InlineCodeButton } from "./InlineCodeButton";
+import { hasToolbarWork } from "./formattable";
 import { CommentToolbarButton } from "../comments/CommentToolbarButton";
 import { completionExtension } from "./ai/completionExtension";
 import { hintExtension } from "./ai/hintText";
@@ -70,12 +74,20 @@ import { arrivalFlashExtension } from "./arrivalFlash";
 import { commentExtension } from "./comments/commentExtension";
 import { CommentDecorationsBridge } from "./comments/CommentDecorationsBridge";
 import { blockSelection, blockSelectionExtension } from "./blockSelection";
+import { indentExtension } from "./indent";
+import { blockKeysExtension } from "./blockKeys";
+import { notionKeysExtension } from "./notionKeys";
 import { useBlockMarquee } from "./useBlockMarquee";
 import { PageMentionMenu, SlashMenu } from "./SlashMenu";
 import * as Icon from "../Icons";
 import { ReadOnlyContext, useReadOnly } from "./readOnly";
 import { useAttachCommentsEditor } from "../comments/editorSlot";
 import { trailingParagraphExtension } from "./trailingParagraph";
+import { inlineShortcutsExtension } from "./inlineShortcutsExtension";
+import { pasteHandler, plainPasteExtension } from "./paste";
+import { tableKeysExtension } from "./tableKeys";
+import { titleBoundaryExtension } from "./titleBoundary";
+import { PAGE_LINK_TRIGGER, pageLinkTriggerExtension } from "./inline/pageLinkTrigger";
 import { dropDeadSelectors } from "./deadSelectors";
 import "./editor.css";
 
@@ -107,6 +119,21 @@ function Toolbar() {
         : [...items.slice(0, i + 1), code, ...items.slice(i + 1)]}
       <CommentToolbarButton key="commentButton" />
     </FormattingToolbar>
+  );
+}
+
+/** Held shut for a selection no button could act on — see `hasToolbarWork`. */
+const TOOLBAR_SHUT = { useFloatingOptions: { open: false } };
+
+function ToolbarController() {
+  const hasWork = useEditorState({
+    selector: ({ editor }) => hasToolbarWork(editor.prosemirrorState.selection),
+  });
+  return (
+    <FormattingToolbarController
+      formattingToolbar={Toolbar}
+      floatingUIOptions={hasWork ? undefined : TOOLBAR_SHUT}
+    />
   );
 }
 
@@ -229,6 +256,13 @@ function tidyBadge(badge?: string): string | undefined {
 }
 
 /**
+ * The badge for a key of ours. BlockNote's own list badges are its ⌘⇧6–9, which
+ * still work; the menu shows Notion's ⌘⌥ row instead, the one `notionKeys`
+ * completes, so every turn-into reads as one numbered series.
+ */
+const badgeFor = (key: string) => tidyBadge(formatKeyboardShortcut(key));
+
+/**
  * Every "/" command, in intent order, each carrying one of our own icons.
  *
  * The stock items are kept for their insertion behaviour and re-dressed rather
@@ -270,6 +304,9 @@ export function slashItems(editor: EditorInstance): DefaultReactSuggestionItem[]
     ...restyle(d.heading_3.title, WRITE, <Icon.Heading3 />, {
       subtext: "The level below that",
     }),
+    ...restyle(d.heading_4.title, WRITE, <Icon.Heading4 />, {
+      subtext: "The smallest section",
+    }),
     ...restyle(d.quote.title, WRITE, <Icon.Quote />, {
       subtext: "Set a passage apart",
     }),
@@ -278,18 +315,22 @@ export function slashItems(editor: EditorInstance): DefaultReactSuggestionItem[]
     ...restyle(d.bullet_list.title, ORGANISE, <Icon.BulletList />, {
       title: "Bullet list",
       subtext: "An unordered list",
+      badge: badgeFor("Mod-Alt-5"),
     }),
     ...restyle(d.numbered_list.title, ORGANISE, <Icon.NumberedList />, {
       title: "Numbered list",
       subtext: "A list that counts",
+      badge: badgeFor("Mod-Alt-6"),
     }),
     ...restyle(d.check_list.title, ORGANISE, <Icon.TodoList />, {
       title: "To-do list",
       subtext: "Checkboxes you can tick",
+      badge: badgeFor("Mod-Alt-4"),
     }),
     ...restyle(d.toggle_list.title, ORGANISE, <Icon.ToggleList />, {
       title: "Toggle list",
       subtext: "A list that folds away",
+      badge: badgeFor("Mod-Alt-7"),
     }),
     {
       // After the to-do list on purpose: both answer to "todo" and "check", and
@@ -315,6 +356,19 @@ export function slashItems(editor: EditorInstance): DefaultReactSuggestionItem[]
     }),
 
     // ---- Insert ---------------------------------------------------------
+    {
+      title: "Link to page",
+      subtext: "A chip that opens another page",
+      aliases: ["link", "page", "mention", "reference", "link to page"],
+      group: INSERT,
+      icon: <Icon.FileDoc />,
+      // The "@" menu itself, opened from here: one list of pages, one chip.
+      // Opened without typing its "@", so leaving it leaves nothing behind.
+      onItemClick: () =>
+        editor.getExtension(SuggestionMenu)?.openSuggestionMenu("@", {
+          ignoreQueryLength: true,
+        }),
+    },
     {
       title: "Diagram",
       subtext: "Draw a canvas with shapes and connectors",
@@ -428,6 +482,7 @@ export function slashItems(editor: EditorInstance): DefaultReactSuggestionItem[]
     {
       title: "Math equation",
       subtext: "Inline LaTeX equation",
+      badge: badgeFor("Mod-Shift-e"),
       aliases: ["math", "math-equation", "equation", "latex", "tex", "inline math"],
       group: COMPUTE,
       icon: <Icon.Equation />,
@@ -464,12 +519,15 @@ export function slashItems(editor: EditorInstance): DefaultReactSuggestionItem[]
     ...restyle(d.code_block.title, COMPUTE, <Icon.CodeBlock />, {
       title: "Code block",
       subtext: "Syntax-highlighted, in any language",
+      // The stock badge said ⌘⌥C, which nothing bound and browsers keep for devtools.
+      badge: tidyBadge(formatKeyboardShortcut(CODE_BLOCK_SHORTCUT)),
+      onItemClick: () => insertCodeBlock(editor),
     }),
   ];
 }
 
 // The "@" menu: every page in the project, as a chip to be inserted.
-function mentionItems(
+export function mentionItems(
   editor: EditorInstance,
   pages: PageRef[],
 ): DefaultReactSuggestionItem[] {
@@ -522,11 +580,20 @@ function useServeEnabled(): boolean {
 
 const EXTENSIONS = [
   completionExtension,
+  indentExtension,
   reviewExtension,
   hintExtension,
   arrivalFlashExtension,
   blockSelectionExtension,
+  blockKeysExtension,
   commentExtension,
+  inlineShortcutsExtension,
+  plainPasteExtension,
+  notionKeysExtension,
+  // After the completion lane, whose Tab accepts a showing suggestion first.
+  tableKeysExtension,
+  titleBoundaryExtension,
+  pageLinkTriggerExtension(),
 ];
 
 const placeholder = <div className="min-h-[40vh]" aria-hidden />;
@@ -650,7 +717,7 @@ function YjsEditor({
       color: collabColor(user?.id ?? "anonymous"),
       ...(user?.imageUrl ? { imageUrl: user.imageUrl } : {}),
     },
-    editorOptions: { schema, extensions, links: { onClick: notionLinkClick } },
+    editorOptions: { schema, extensions, pasteHandler, links: { onClick: notionLinkClick } },
     writable: !readOnly,
   });
   const held = useHeldWrites(provider);
@@ -731,7 +798,7 @@ function LegacyEditor({ docId, pageId, title = "", mode = "create" }: EditorProp
     [readOnly],
   );
   const sync = useBlockNoteSync<EditorInstance>(api.prosemirror, docId, {
-    editorOptions: { schema, extensions, links: { onClick: notionLinkClick } },
+    editorOptions: { schema, extensions, pasteHandler, links: { onClick: notionLinkClick } },
   });
 
   // First open of a page has no document yet — create an empty one seamlessly.
@@ -841,7 +908,7 @@ function EditorSurface({
             <>
               <StageDirector editor={editor} />
               <BlockSideMenu />
-              <FormattingToolbarController formattingToolbar={Toolbar} />
+              <ToolbarController />
               <SuggestionMenuController
                 triggerCharacter="/"
                 floatingUIOptions={menuPlacement}
@@ -850,14 +917,17 @@ function EditorSurface({
                   filterItems(groupAdjacent(slashItems(editor)), query)
                 }
               />
-              <SuggestionMenuController
-                triggerCharacter="@"
-                floatingUIOptions={menuPlacement}
-                suggestionMenuComponent={PageMentionMenu}
-                getItems={async (query) =>
-                  filterItems(mentionItems(editor, pages ?? []), query)
-                }
-              />
+              {["@", PAGE_LINK_TRIGGER].map((trigger) => (
+                <SuggestionMenuController
+                  key={trigger}
+                  triggerCharacter={trigger}
+                  floatingUIOptions={menuPlacement}
+                  suggestionMenuComponent={PageMentionMenu}
+                  getItems={async (query) =>
+                    filterItems(mentionItems(editor, pages ?? []), query)
+                  }
+                />
+              ))}
             </>
           )}
         </BlockNoteView>

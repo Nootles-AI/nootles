@@ -10,7 +10,7 @@ import type { CanvasApi } from "./render/CanvasSurface";
  * Which canvas the screen is speaking for.
  *
  * The layers panel, the style panel and the toolbar are the window's, not the
- * block's — a 600px column of a document has no room for them — so the shell
+ * block's — a document column has no room for them — so the shell
  * mounts them and the block only says which canvas is under the hand. One at a
  * time: a page may hold several diagrams, and a layer list is a list of one.
  */

@@ -32,6 +32,7 @@ function loadMathfield(): MFEClass | Promise<MFEClass> {
  *
  * `onTab` returns whether it consumed the key, which is how an accepted
  * completion takes Tab without stopping it from working normally otherwise.
+ * Either way, Tab never moves focus out of the field.
  */
 export function MathField({
   value,
@@ -91,15 +92,29 @@ export function MathField({
         onChangeRef.current(field.value);
       });
       field.addEventListener("blur", () => onBlurRef.current?.());
+      // Tab past the last placeholder is MathLive's cue to focus the next
+      // tabbable element itself, which leaves the page for the canvas toolbar.
+      // Its `move-out` is cancelable and, cancelled, stays put; arrows fire the
+      // same event and keep leaving the field as they always have.
+      let tabbing = false;
+      field.addEventListener(
+        "keydown",
+        (e) => {
+          tabbing = (e as KeyboardEvent).key === "Tab";
+        },
+        true,
+      );
+      field.addEventListener("move-out", (e) => {
+        if (tabbing) e.preventDefault();
+      });
       field.addEventListener("keydown", (e) => {
         const key = (e as KeyboardEvent).key;
         if (key === "Enter") {
           e.preventDefault();
           onEnterRef.current?.();
         } else if (key === "Tab") {
-          if (!onTabRef.current?.()) return;
           e.preventDefault();
-          e.stopPropagation();
+          if (onTabRef.current?.()) e.stopPropagation();
         } else if (key === "Escape") {
           onEscapeRef.current?.();
         } else if (

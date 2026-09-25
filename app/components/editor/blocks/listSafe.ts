@@ -47,7 +47,7 @@ function declineInsideListItems(extension: Extension): Extension {
  *
  * A block type someone chose outranks two characters they typed. The way to a
  * heading or a quote from a list item is still the slash menu, the block-type
- * dropdown, or ⌘⌥1–6 — asked for rather than stumbled into.
+ * dropdown, or ⌘⌥1–3 — asked for rather than stumbled into.
  *
  * Only the input rules change. Rendering, props, keyboard shortcuts and
  * everything else about the block stay BlockNote's.
@@ -61,6 +61,38 @@ export function keepListItems<
       typeof extension === "function"
         ? (context) => declineInsideListItems(extension(context))
         : declineInsideListItems(extension),
+    ),
+  };
+}
+
+/** `1) `, the other way lists are numbered — CommonMark's and Notion's. */
+export const PAREN_NUMBER = /^\s?(\d+)\)\s$/;
+
+/**
+ * A numbered list item that `1) ` starts as well as `1. `: the rule that
+ * answers `1. ` answers `1) ` too, start number and all, so the two can never
+ * disagree about what they make.
+ */
+export function countWithParens<
+  Spec extends { extensions?: (Extension | ExtensionFactoryInstance)[] },
+>(spec: Spec): Spec {
+  const withParens = (extension: Extension): Extension => {
+    const rules = extension.inputRules?.filter((rule) => rule.find.test("1. "));
+    if (!rules?.length) return extension;
+    return {
+      ...extension,
+      inputRules: [
+        ...(extension.inputRules ?? []),
+        ...rules.map((rule) => ({ ...rule, find: PAREN_NUMBER })),
+      ],
+    };
+  };
+  return {
+    ...spec,
+    extensions: spec.extensions?.map((extension) =>
+      typeof extension === "function"
+        ? (context) => withParens(extension(context))
+        : withParens(extension),
     ),
   };
 }

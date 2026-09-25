@@ -6,10 +6,20 @@ import {
   defaultProtectedNodes,
   ySyncPluginKey,
 } from "y-prosemirror";
+import type { Node as PMNode } from "prosemirror-model";
+import { Selection, type EditorState } from "prosemirror-state";
+import type { EditorView } from "prosemirror-view";
 import * as Y from "yjs";
 import { KEPT_CHANGE } from "@/app/lib/ai/review/fork";
 import { isCanvasMapName } from "@/app/components/editor/canvas/collab/ymap";
 import type { DomainStep, WorkspaceHistory } from "./spine";
+import { AFTER, BEFORE, captureTextSteps, type StackItem } from "./textCapture";
+import {
+  relativeSelection,
+  restoreSelection,
+  textStepOf,
+  type RelativeSelection,
+} from "./textSteps";
 
 /**
  * The document's side of the spine: its own Y.UndoManager over the shared
@@ -77,9 +87,10 @@ function managerFor(fragment: Y.XmlFragment): UM | null {
   return manager;
 }
 
-/** The two editor members this bridge needs — the same hop CanvasBlock makes. */
+/** The editor members this bridge needs — the same hop CanvasBlock makes. */
 export type UndoHostEditor = {
   prosemirrorState: unknown;
+  prosemirrorView?: EditorView;
   getExtension: (key: string) => unknown;
   onChange?: (cb: () => void) => (() => void) | undefined;
 };
@@ -89,7 +100,7 @@ export type UndoHostEditor = {
  * ProseMirror keeps the state field its key already had. So the domain stays
  * wired to the shared doc throughout, which is where a kept change lands.
  */
-function fragmentOf(editor: UndoHostEditor): Y.XmlFragment | null {
+function fragmentOf(editor: Pick<UndoHostEditor, "prosemirrorState">): Y.XmlFragment | null {
   try {
     const state = ySyncPluginKey.getState(
       editor.prosemirrorState as Parameters<typeof ySyncPluginKey.getState>[0],
@@ -110,6 +121,19 @@ function fragmentOf(editor: UndoHostEditor): Y.XmlFragment | null {
 export function endTextHistory(editor: UndoHostEditor) {
   const doc = fragmentOf(editor)?.doc;
   if (doc) managers.get(doc)?.clear();
+}
+
+/**
+ * Ends the doc's current undo step, so the next write starts one of its own.
+ * False when the doc has no history here to end — a legacy doc, whose steps
+ * are ProseMirror's.
+ */
+export function closeTextStep(editor: Pick<UndoHostEditor, "prosemirrorState">): boolean {
+  const doc = fragmentOf(editor)?.doc;
+  const manager = doc && managers.get(doc);
+  if (!manager) return false;
+  manager.stopCapturing();
+  return true;
 }
 
 export function textDomainId(docId: string): string {
@@ -134,43 +158,63 @@ export function useTextUndoDomain(
       return fork?.store?.state?.isForked ?? false;
     };
     const fragment = fragmentOf(editor);
+    const doc = fragment?.doc;
     const manager = fragment && managerFor(fragment);
-    if (!manager) return;
+    if (!manager || !doc) return;
 
-    let muted = false;
-    const onAdded = (event: { type: "undo" | "redo" }) => {
-      if (muted) return;
-      // Only fresh edits reach here: 'redo'-type additions exist only inside
-      // manager.undo(), which is always muted.
-      if (event.type === "undo") spine.record(id, "edit");
-    };
+    const capture = captureTextSteps(
+      manager,
+      doc,
+      () => textStepOf(editor.prosemirrorState as EditorState),
+      () => relativeSelection(editor.prosemirrorState as EditorState),
+      () => spine.record(id, "edit"),
+    );
     const onCleared = (event: { undoStackCleared: boolean }) => {
       if (event.undoStackCleared) spine.drop(id);
     };
-    manager.on("stack-item-added", onAdded);
     manager.on("stack-cleared", onCleared);
     if (process.env.NODE_ENV !== "production") {
       // Verification harnesses read the ledger through this; never shipped.
       (window as unknown as Record<string, unknown>).__ntTextUndo = manager;
     }
 
+    /**
+     * Writes what the editor appended while re-rendering the step (see
+     * textSteps.ts) at once, so no keystroke can write it as theirs first, and
+     * puts the caret back where the change happened — before it for an undo,
+     * after it for a redo — instead of wherever the re-render left it, which
+     * was usually the end of the page. An entry that remembers no selection (a
+     * kept AI change) gets the caret where the page first differs.
+     */
+    const settle = (item: StackItem | null, direction: "undo" | "redo", prior: PMNode | undefined) => {
+      const view = editor.prosemirrorView;
+      if (!view || view.isDestroyed) return;
+      const tr = view.state.tr.setMeta("addToHistory", false);
+      const selection = item?.meta.get(direction === "undo" ? BEFORE : AFTER) as
+        | RelativeSelection
+        | null
+        | undefined;
+      if (selection && restoreSelection(tr, view.state, selection)) {
+        tr.scrollIntoView();
+      } else if (item && prior) {
+        const at = prior.content.findDiffStart(tr.doc.content);
+        if (at !== null) {
+          tr.setSelection(Selection.near(tr.doc.resolve(Math.min(at, tr.doc.content.size))));
+          tr.scrollIntoView();
+        }
+      }
+      view.dispatch(tr);
+      // A press from nowhere in particular brings the keyboard back to the
+      // caret it just placed; one from another field leaves that field be.
+      if (!view.hasFocus() && document.activeElement === document.body) view.focus();
+    };
+
     const step = (direction: "undo" | "redo"): DomainStep => {
       if (forked()) return "blocked";
-      const from = direction === "undo" ? manager.undoStack : manager.redoStack;
-      const to = direction === "undo" ? manager.redoStack : manager.undoStack;
-      const before = from.length;
-      const toBefore = to.length;
-      muted = true;
-      try {
-        if (direction === "undo") manager.undo();
-        else manager.redo();
-      } finally {
-        muted = false;
-      }
-      return {
-        consumed: before - from.length,
-        redoable: to.length > toBefore,
-      };
+      const prior = editor.prosemirrorView?.state.doc;
+      const { item, consumed, redoable } = capture.step(direction);
+      settle(item, direction, prior);
+      return { consumed, redoable };
     };
 
     const unregister = spine.register(
@@ -181,7 +225,7 @@ export function useTextUndoDomain(
 
     return () => {
       unregister();
-      manager.off("stack-item-added", onAdded);
+      capture.dispose();
       manager.off("stack-cleared", onCleared);
     };
   }, [spine, editor, docId, pageId]);

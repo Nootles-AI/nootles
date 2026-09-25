@@ -32,7 +32,7 @@ import type { AlbumItem } from "./types";
  * is halfway anything.
  *
  * Over the whole page rather than inside the block, which is why it is a
- * portal: an album is 600px of a document column and the picture in it is not.
+ * portal: an album is one document column wide and the picture in it is not.
  *
  * It takes focus on open. Not for the ring — for the keys: the album lives
  * inside a contentEditable, and arrows that reached ProseMirror would page the

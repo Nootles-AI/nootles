@@ -4,7 +4,10 @@ import {
   defaultInlineContentSpecs,
 } from "@blocknote/core";
 import { codeBlockSpec } from "./blocks/CodeBlock";
-import { keepListItems, stepOutOfEmptyItems } from "./blocks/listSafe";
+import { dividerBlockSpec } from "./blocks/divider";
+import { countWithParens, keepListItems, stepOutOfEmptyItems } from "./blocks/listSafe";
+import { markersByDepth } from "./blocks/listMarkers";
+import { TURN_INTO, withoutShortcuts } from "./notionKeys";
 import { mathBlockSpec } from "./blocks/MathBlock";
 import { canvasBlockSpec } from "./blocks/CanvasBlock";
 import { albumBlockSpec } from "./blocks/AlbumBlock";
@@ -17,6 +20,8 @@ import { mathInlineSpec } from "./inline/MathInline";
 import { pageMentionSpec } from "./inline/PageMention";
 import type { BlockType } from "@/convex/ai/operations";
 
+const TURN_INTO_KEYS = Object.keys(TURN_INTO);
+
 // Swap BlockNote's built-in code, audio and video blocks for our own.
 const {
   codeBlock: _builtInCodeBlock,
@@ -28,17 +33,27 @@ const {
 export const schema = BlockNoteSchema.create({
   blockSpecs: {
     ...rest,
+    // The paragraph and heading give up their ⌘⌥0–6 to the turn-into row in
+    // `notionKeys`, which retypes a whole selection rather than one block.
+    paragraph: withoutShortcuts(defaultBlockSpecs.paragraph, TURN_INTO_KEYS),
     // BlockNote's own heading and quote, less the one thing their markdown
     // prefixes were never meant to do — see `keepListItems`.
-    heading: keepListItems(defaultBlockSpecs.heading),
+    heading: keepListItems(withoutShortcuts(defaultBlockSpecs.heading, TURN_INTO_KEYS)),
     quote: keepListItems(defaultBlockSpecs.quote),
     // BlockNote's own list items, less the one thing Enter on an empty one was
     // never meant to do — see `stepOutOfEmptyItems`.
     bulletListItem: stepOutOfEmptyItems(defaultBlockSpecs.bulletListItem),
-    numberedListItem: stepOutOfEmptyItems(defaultBlockSpecs.numberedListItem),
+    // Numbered items also start from `1) ` — see `countWithParens` — and
+    // count 1. a. i. by depth — see `markersByDepth`.
+    numberedListItem: markersByDepth(
+      stepOutOfEmptyItems(countWithParens(defaultBlockSpecs.numberedListItem)),
+    ),
     checkListItem: stepOutOfEmptyItems(defaultBlockSpecs.checkListItem),
     toggleListItem: stepOutOfEmptyItems(defaultBlockSpecs.toggleListItem),
-    codeBlock: codeBlockSpec,
+    // BlockNote's own divider, whose `---` leaves the caret below it.
+    divider: dividerBlockSpec,
+    // Its "```" rule, like the heading's "# ", leaves a list item alone.
+    codeBlock: keepListItems(codeBlockSpec),
     mathBlock: mathBlockSpec,
     canvas: canvasBlockSpec,
     album: albumBlockSpec,

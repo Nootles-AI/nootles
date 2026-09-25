@@ -676,6 +676,26 @@ body:has(.nt-well[data-drawing]) .nt-side-menu-anchor {
   color: var(--muted);
   text-decoration-color: var(--faint);
 }
+/* A nested numbered item's a. or i., written out by `markersByDepth`. Chained
+   down from the outer block to outrank BlockNote's own `var(--index) "."`,
+   through the same wrappers an AI suggestion puts around a block. */
+.nt-editor
+  .bn-block-outer
+  > .bn-block
+  > .bn-block-content[data-content-type="numberedListItem"][data-nt-marker]::before,
+.nt-editor
+  .bn-block-outer
+  > .bn-block
+  > div[data-type="modification"]
+  > .bn-block-content[data-content-type="numberedListItem"][data-nt-marker]::before,
+.nt-editor
+  .bn-block-outer
+  > .bn-block
+  > :is(ins, del)
+  > .bn-suggestion-node
+  > .bn-block-content[data-content-type="numberedListItem"][data-nt-marker]::before {
+  content: attr(data-nt-marker) ".";
+}
 
 /* ---- Inline math (KaTeX render + MathLive edit) ---------------------- */
 .nt-math-inline {
