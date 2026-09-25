@@ -17,9 +17,18 @@ import {
   type Middleware,
   type MiddlewareState,
 } from "@floating-ui/react";
-import type { SVGProps } from "react";
+import type { ReactElement, SVGProps } from "react";
 
-import { Plus } from "../Icons";
+import * as Icon from "../Icons";
+import { duplicateAndSelect } from "./blockKeys";
+import { blockSelection } from "./blockSelection";
+import {
+  TURN_INTO,
+  canTurnInto,
+  isCurrentType,
+  turnIntoUpdate,
+  type TurnIntoTarget,
+} from "./turnInto";
 
 /* BlockNote's side menu is context-driven — it passes no block via props. The
    target comes from the side-menu extension's own state, which is what the
@@ -233,17 +242,6 @@ function targetBlocks(editor: Any, block: Any): Any[] {
   return selection?.some((b: Any) => b.id === block.id) ? selection : [block];
 }
 
-/** Ids are stripped all the way down, so a duplicated list does not hand its
-    children's ids to the copy. */
-function withoutIds(block: Any): Any {
-  const { id: _id, children, ...rest } = block;
-  return children ? { ...rest, children: children.map(withoutIds) } : rest;
-}
-
-function duplicateBlocks(editor: Any, blocks: Any[]) {
-  editor.insertBlocks(blocks.map(withoutIds), blocks[blocks.length - 1], "after");
-}
-
 async function copyBlocks(editor: Any, blocks: Any[]) {
   const [html, md] = await Promise.all([
     editor.blocksToHTMLLossy(blocks),
@@ -255,6 +253,61 @@ async function copyBlocks(editor: Any, blocks: Any[]) {
       "text/plain": new Blob([md], { type: "text/plain" }),
     }),
   ]);
+}
+
+const TURN_INTO_ICONS: Record<string, (props: SVGProps<SVGSVGElement>) => ReactElement> = {
+  text: Icon.Paragraph,
+  h1: Icon.Heading1,
+  h2: Icon.Heading2,
+  h3: Icon.Heading3,
+  bullet: Icon.BulletList,
+  numbered: Icon.NumberedList,
+  todo: Icon.TodoList,
+  toggle: Icon.ToggleList,
+  quote: Icon.Quote,
+  code: Icon.CodeBlock,
+};
+
+/** One step for the whole selection, which stays selected after — the plate
+    is what says which blocks just changed. */
+function turnBlocksInto(editor: Any, blocks: Any[], target: TurnIntoTarget) {
+  const turnable = blocks.filter(canTurnInto);
+  editor.transact(() => {
+    for (const block of turnable) editor.updateBlock(block, turnIntoUpdate(block, target));
+  });
+  blockSelection(editor).select(blocks.map((block) => block.id));
+}
+
+function TurnIntoItem({ block }: { block: Any }) {
+  const editor = useBlockNoteEditor();
+  const Components = useComponentsContext()!;
+  if (!canTurnInto(block)) return null;
+
+  return (
+    <Components.Generic.Menu.Root position="right" sub>
+      <Components.Generic.Menu.Trigger sub>
+        <Components.Generic.Menu.Item className="bn-menu-item" subTrigger>
+          Turn into
+        </Components.Generic.Menu.Item>
+      </Components.Generic.Menu.Trigger>
+      <Components.Generic.Menu.Dropdown sub className="bn-menu-dropdown nt-turn-into-menu">
+        {TURN_INTO.map((target) => {
+          const Glyph = TURN_INTO_ICONS[target.key];
+          return (
+            <Components.Generic.Menu.Item
+              key={target.key}
+              className="bn-menu-item"
+              icon={<Glyph />}
+              checked={isCurrentType(block, target)}
+              onClick={() => turnBlocksInto(editor, targetBlocks(editor, block), target)}
+            >
+              {target.label}
+            </Components.Generic.Menu.Item>
+          );
+        })}
+      </Components.Generic.Menu.Dropdown>
+    </Components.Generic.Menu.Root>
+  );
 }
 
 function AddBlockButton({ block }: { block: Any }) {
@@ -279,7 +332,7 @@ function AddBlockButton({ block }: { block: Any }) {
       aria-label="Insert a block below"
       onClick={insert}
     >
-      <Plus />
+      <Icon.Plus />
     </button>
   );
 }
@@ -316,7 +369,12 @@ function DragHandleButton({ block }: { block: Any }) {
       >
         <Components.Generic.Menu.Item
           className="bn-menu-item"
-          onClick={() => duplicateBlocks(editor, targetBlocks(editor, block))}
+          onClick={() =>
+            duplicateAndSelect(
+              editor as Any,
+              targetBlocks(editor, block).map((target) => target.id),
+            )
+          }
         >
           Duplicate
         </Components.Generic.Menu.Item>
@@ -326,6 +384,7 @@ function DragHandleButton({ block }: { block: Any }) {
         >
           Copy
         </Components.Generic.Menu.Item>
+        <TurnIntoItem block={block} />
         <BlockColorsItem>Colors</BlockColorsItem>
         {/* BlockNote's own item — it also removes a whole multi-block selection
             when the hovered block is part of one. */}
