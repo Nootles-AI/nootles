@@ -19,6 +19,7 @@ import { parseDocHtml } from "@/app/lib/ai/html/parse";
 import { toDocHtml } from "@/app/lib/ai/html/serialize";
 import { project } from "@/app/lib/ai/projection";
 import { reformatCandidates } from "@/app/lib/ai/reformat";
+import { streamLedger } from "@/app/lib/ai/streamLedger";
 import { describeSheet } from "@/app/lib/ai/albumIndex";
 import { generateVectorDrawing } from "@/app/lib/ai/vectorDraw";
 import { convertLegacyDocument, type LegacyBlock } from "@/app/lib/nml/legacy";
@@ -316,9 +317,12 @@ if (!resumeAfter) {
     "Release flow",
     "",
     AbortSignal.timeout(90_000),
-    (usage) => {
-      diagramUsage = usage;
-    },
+    streamLedger(
+      (outcome) => {
+        diagramUsage = outcome;
+      },
+      { startedAt: Date.now() },
+    ),
   );
   const diagramRaw = await diagramResponse.text();
   const diagramHtml = diagramElement(diagramRaw);

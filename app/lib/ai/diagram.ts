@@ -1,7 +1,8 @@
-import { generateText, streamText, type LanguageModelUsage } from "ai";
+import { createTextStreamResponse, generateText, streamText, type LanguageModelUsage } from "ai";
 import { AI } from "./aiConfig";
 import { CANVAS_GRAMMAR } from "./canvasGrammar";
 import { diagramModel } from "./chat/provider";
+import type { StreamLedger } from "./streamLedger";
 
 /**
  * The diagram builder — stage two of the completion lane.
@@ -274,9 +275,9 @@ export function streamDiagram(
   /** The project's styling facts — how its product looks — or "". */
   look: string,
   signal?: AbortSignal,
-  onUsage?: (result: { usage: LanguageModelUsage; latencyMs: number }) => void,
+  /** The ledger's row for this call; see `streamLedger`. */
+  ledger?: StreamLedger,
 ): Response {
-  const started = Date.now();
   const result = streamText({
     ...diagramModel(),
     system: SYSTEM,
@@ -292,10 +293,11 @@ export function streamDiagram(
     ],
     maxOutputTokens: AI.diagram.maxTokens + AI.diagram.thinkingHeadroom,
     abortSignal: signal,
-    onEnd: ({ totalUsage }) =>
-      onUsage?.({ usage: totalUsage, latencyMs: Date.now() - started }),
+    ...ledger?.callbacks,
   });
-  return result.toTextStreamResponse();
+  return createTextStreamResponse({
+    stream: ledger ? ledger.watch(result.textStream) : result.textStream,
+  });
 }
 
 /**
