@@ -8,6 +8,7 @@ import {
   type EditorState,
 } from "prosemirror-state";
 import type { EditorView } from "prosemirror-view";
+import type { KeyboardEvent } from "react";
 import { isEmptyParagraphBlock } from "@/app/lib/documentTail";
 import type { LiveEditor } from "./EditorRegistry";
 
@@ -16,9 +17,9 @@ import type { LiveEditor } from "./EditorRegistry";
  * crosses it: the title reads as the document's first line even though it is a
  * separate field persisted by a separate mutation.
  *
- * The title's side (Enter, ArrowDown) is handled where the title lives and
- * edits the document only through the editor's own API; the document's side
- * (ArrowUp, Backspace) is the extension below. The two find each other through
+ * The title's side (Enter, ArrowDown) is {@link leaveTitle}, which edits the
+ * document only through the editor's own API; the document's side (ArrowUp,
+ * Backspace) is the extension below. The two find each other through
  * the page they share rather than through a registry, because the title is
  * always rendered beside its editor.
  */
@@ -53,7 +54,7 @@ function titleLines(title: HTMLElement): DOMRectList {
 // ---------------------------------------------------------------------------
 
 /** The selection in the title, as offsets into its text. */
-export function titleSelection(title: HTMLElement): { start: number; end: number } {
+function titleSelection(title: HTMLElement): { start: number; end: number } {
   const length = title.textContent?.length ?? 0;
   const selection = window.getSelection();
   if (!selection?.rangeCount || !title.contains(selection.anchorNode)) {
@@ -73,7 +74,7 @@ export function titleSelection(title: HTMLElement): { start: number; end: number
 }
 
 /** Whether ArrowDown would leave the title: the caret is on its last line. */
-export function caretOnLastLine(title: HTMLElement): boolean {
+function caretOnLastLine(title: HTMLElement): boolean {
   const selection = window.getSelection();
   if (!selection?.isCollapsed) return false;
   const lines = titleLines(title);
@@ -85,7 +86,7 @@ export function caretOnLastLine(title: HTMLElement): boolean {
 }
 
 /** The caret's horizontal position, carried across the seam. */
-export function caretX(fallback: Element): number {
+function caretX(fallback: Element): number {
   return caretRect()?.left ?? fallback.getBoundingClientRect().left;
 }
 
@@ -109,7 +110,7 @@ export function enterBody(editor: LiveEditor, text: string) {
 }
 
 /** ArrowDown from the title: the document's first line, as near `x` as it goes. */
-export function caretIntoBody(editor: LiveEditor, x: number) {
+function caretIntoBody(editor: LiveEditor, x: number) {
   const view = editor.prosemirrorView;
   if (!view) return;
   const { doc } = view.state;
@@ -123,6 +124,43 @@ export function caretIntoBody(editor: LiveEditor, x: number) {
     view.dispatch(view.state.tr.setSelection(target).scrollIntoView());
   }
   view.focus();
+}
+
+/**
+ * The title's keydown. Enter and ArrowDown leave the title for the document,
+ * the way they do in every editor this one resembles; blurring instead left
+ * the caret nowhere at all, so the next thing typed went to the page rather
+ * than into the page.
+ *
+ * Enter splits: what follows the caret opens the document, and is taken off
+ * the title — through `persist`, the title's own write — only once the
+ * document is there to receive it.
+ */
+export function leaveTitle(
+  event: KeyboardEvent<HTMLElement>,
+  editor: () => Promise<LiveEditor>,
+  persist: (title: string) => void,
+) {
+  const title = event.currentTarget;
+  const plain = !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey;
+  const down = event.key === "ArrowDown" && plain && caretOnLastLine(title);
+  if ((event.key !== "Enter" && !down) || event.nativeEvent.isComposing) return;
+  event.preventDefault();
+  const x = caretX(title);
+  const { start, end } = titleSelection(title);
+  editor()
+    .then((live) => {
+      if (down) return caretIntoBody(live, x);
+      const text = title.textContent ?? "";
+      if (start < text.length) {
+        title.textContent = text.slice(0, start);
+        persist(text.slice(0, start));
+      }
+      enterBody(live, text.slice(end));
+    })
+    // A document that never finished loading has nowhere to put the caret;
+    // letting go of the title is better than trapping it.
+    .catch(() => title.blur());
 }
 
 /** Into the title: at its end, or on its last line near `x`. */

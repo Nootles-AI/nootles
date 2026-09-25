@@ -12,14 +12,7 @@ import {
 import { Editable } from "./Editable";
 import { Editor } from "./editor/Editor";
 import { useEditorRegistry } from "./editor/EditorRegistry";
-import {
-  caretIntoBody,
-  caretOnLastLine,
-  caretX,
-  enterBody,
-  TITLE_ATTR,
-  titleSelection,
-} from "./editor/titleBoundary";
+import { leaveTitle, TITLE_ATTR } from "./editor/titleBoundary";
 import { ModeToggle } from "./ModeToggle";
 import { CurrentPageProvider, useOpenPage, type Pane } from "./OpenPageContext";
 import { ArrowLeft, X } from "./Icons";
@@ -245,35 +238,7 @@ export function PageSurface({
         <Editable
           value={page.title}
           onInput={persistTitle}
-          onKeyDown={(e) => {
-            const title = e.currentTarget;
-            const plain = !e.shiftKey && !e.altKey && !e.metaKey && !e.ctrlKey;
-            const down = e.key === "ArrowDown" && plain && caretOnLastLine(title);
-            if ((e.key !== "Enter" && !down) || e.nativeEvent.isComposing) return;
-            e.preventDefault();
-            // Enter and ArrowDown leave the title for the document, the way they
-            // do in every editor this one resembles. Blurring instead left the
-            // caret nowhere at all, so the next thing typed went to the page
-            // rather than into the page. Enter splits: what follows the caret
-            // opens the document — taken off the title only once the document
-            // is there to receive it.
-            const x = caretX(title);
-            const { start, end } = titleSelection(title);
-            registry
-              .editorFor(pageId)
-              .then((editor) => {
-                if (down) return caretIntoBody(editor, x);
-                const text = title.textContent ?? "";
-                if (start < text.length) {
-                  title.textContent = text.slice(0, start);
-                  persistTitle(text.slice(0, start));
-                }
-                enterBody(editor, text.slice(end));
-              })
-              // A document that never finished loading has nowhere to put the
-              // caret; letting go of the title is better than trapping it.
-              .catch(() => title.blur());
-          }}
+          onKeyDown={(e) => leaveTitle(e, () => registry.editorFor(pageId), persistTitle)}
           placeholder="Untitled"
           label="Page title"
           className="w-full text-[length:var(--text-title)] font-semibold tracking-[-0.02em] text-balance"
