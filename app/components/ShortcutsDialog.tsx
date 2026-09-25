@@ -15,6 +15,7 @@ import {
  */
 
 const mod = (apple: boolean) => (apple ? "⌘" : "Ctrl+");
+const alt = (apple: boolean) => (apple ? "⌘⌥" : "Ctrl+Alt+");
 
 const ELSEWHERE = (apple: boolean): [group: string, rows: [label: string, keys: string][]][] => [
   [
@@ -34,6 +35,11 @@ const ELSEWHERE = (apple: boolean): [group: string, rows: [label: string, keys: 
       ["Accept a suggestion", "Tab"],
       ["Next / previous reformat", apple ? "⌥→  ⌥←" : "Alt+→  Alt+←"],
       ["Link the selection", `${mod(apple)}K`],
+      ["Turn into text, heading 1–3", `${alt(apple)}0–3`],
+      ["Turn into to-do, bullet, numbered, toggle", `${alt(apple)}4–7`],
+      ["Tick a to-do, fold a toggle", apple ? "⌘↵" : "Ctrl+Enter"],
+      ["Strikethrough", apple ? "⌘⇧X" : "Ctrl+Shift+X"],
+      ["Inline equation", apple ? "⌘⇧E" : "Ctrl+Shift+E"],
     ],
   ],
   [
