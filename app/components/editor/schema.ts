@@ -5,7 +5,7 @@ import {
 } from "@blocknote/core";
 import { codeBlockSpec } from "./blocks/CodeBlock";
 import { dividerBlockSpec } from "./blocks/divider";
-import { keepListItems, stepOutOfEmptyItems } from "./blocks/listSafe";
+import { countWithParens, keepListItems, stepOutOfEmptyItems } from "./blocks/listSafe";
 import { mathBlockSpec } from "./blocks/MathBlock";
 import { canvasBlockSpec } from "./blocks/CanvasBlock";
 import { albumBlockSpec } from "./blocks/AlbumBlock";
@@ -34,9 +34,10 @@ export const schema = BlockNoteSchema.create({
     heading: keepListItems(defaultBlockSpecs.heading),
     quote: keepListItems(defaultBlockSpecs.quote),
     // BlockNote's own list items, less the one thing Enter on an empty one was
-    // never meant to do — see `stepOutOfEmptyItems`.
+    // never meant to do — see `stepOutOfEmptyItems`. A numbered one also
+    // starts from `1) ` — see `countWithParens`.
     bulletListItem: stepOutOfEmptyItems(defaultBlockSpecs.bulletListItem),
-    numberedListItem: stepOutOfEmptyItems(defaultBlockSpecs.numberedListItem),
+    numberedListItem: stepOutOfEmptyItems(countWithParens(defaultBlockSpecs.numberedListItem)),
     checkListItem: stepOutOfEmptyItems(defaultBlockSpecs.checkListItem),
     toggleListItem: stepOutOfEmptyItems(defaultBlockSpecs.toggleListItem),
     // BlockNote's own divider, whose `---` leaves the caret below it.
