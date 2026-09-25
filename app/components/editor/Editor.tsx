@@ -70,6 +70,7 @@ import { arrivalFlashExtension } from "./arrivalFlash";
 import { commentExtension } from "./comments/commentExtension";
 import { CommentDecorationsBridge } from "./comments/CommentDecorationsBridge";
 import { blockSelection, blockSelectionExtension } from "./blockSelection";
+import { indentExtension } from "./indent";
 import { useBlockMarquee } from "./useBlockMarquee";
 import { PageMentionMenu, SlashMenu } from "./SlashMenu";
 import * as Icon from "../Icons";
@@ -522,6 +523,7 @@ function useServeEnabled(): boolean {
 
 const EXTENSIONS = [
   completionExtension,
+  indentExtension,
   reviewExtension,
   hintExtension,
   arrivalFlashExtension,
