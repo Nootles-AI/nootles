@@ -32,6 +32,7 @@ export function useCanvasShell(): CanvasShell {
 
 /** The panel wants the resolved selection; the api carries the two stores. */
 export function CanvasStylePanel({ api }: { api: CanvasApi }) {
+  "use memo";
   const scene = useSceneSnapshot(api.store);
   const selection = useSelection(api.selection, scene);
   return (

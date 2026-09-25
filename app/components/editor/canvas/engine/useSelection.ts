@@ -468,32 +468,24 @@ export function createSelectionStore(initialScene: SceneLike): SelectionStore {
     record: boolean,
   ) => {
     const previous = snapshot;
-    if (
-      hoverId === previous.hoverId &&
-      sameIds(ids, previous.ids) &&
-      sameIds(enteredPath, previous.enteredPath) &&
-      sameIds(edgeIds, previous.edgeIds)
-    ) {
-      return;
-    }
+    const sameNodes = sameIds(ids, previous.ids);
+    const samePath = sameIds(enteredPath, previous.enteredPath);
+    const sameEdges = sameIds(edgeIds, previous.edgeIds);
+    if (hoverId === previous.hoverId && sameNodes && samePath && sameEdges) return;
+    // Whatever did not change keeps its identity, so a hover re-renders only
+    // the readers of `hoverId`.
     snapshot = {
-      ids,
-      selected: new Set(ids),
-      enteredPath,
+      ids: sameNodes ? previous.ids : ids,
+      selected: sameNodes ? previous.selected : new Set(ids),
+      enteredPath: samePath ? previous.enteredPath : enteredPath,
       hoverId,
-      edgeIds,
-      edgeSelected: new Set(edgeIds),
+      edgeIds: sameEdges ? previous.edgeIds : edgeIds,
+      edgeSelected: sameEdges ? previous.edgeSelected : new Set(edgeIds),
     };
     for (const listener of listeners) listener();
     if (!record || !history) return;
     // Hovering is not selecting, and must not become an undo step.
-    if (
-      sameIds(ids, previous.ids) &&
-      sameIds(enteredPath, previous.enteredPath) &&
-      sameIds(edgeIds, previous.edgeIds)
-    ) {
-      return;
-    }
+    if (sameNodes && samePath && sameEdges) return;
     history.recordSelection(restoreTo(previous));
   };
 
@@ -871,9 +863,13 @@ export function useSelection(store: SelectionStore, scene: SceneLike): ResolvedS
     store.getSnapshot,
     store.getSnapshot,
   );
+  const { ids: rawIds, enteredPath: rawPath, edgeIds, edgeSelected, hoverId, selected } =
+    snapshot;
 
-  return useMemo(() => {
-    const nodes = selectedNodes(scene, snapshot.ids);
+  // Resolved apart from the hover, so a pointer crossing the canvas hands the
+  // panels the same `nodes` and `edges` and they can skip the render.
+  const resolved = useMemo(() => {
+    const nodes = selectedNodes(scene, rawIds);
     const ids = idsOf(nodes);
     // Every rect below comes from here, so a re-layout — a duplicate, a resize,
     // a reorder, a gap change — moves the outline with the shape.
@@ -884,22 +880,27 @@ export function useSelection(store: SelectionStore, scene: SceneLike): ResolvedS
         : ids.length === 1
           ? frameOf(laid, ids[0])
           : { ...absoluteSelectionBounds(laid, ids), rot: 0 };
-    const hover = snapshot.hoverId;
-    const enteredPath = idsOf(resolveLevel(laid, snapshot.enteredPath).path);
+    const enteredPath = idsOf(resolveLevel(laid, rawPath).path);
     return {
       ids,
       nodes,
       selectionBounds: bounds,
       memberBounds: ids.length > 1 ? ids.map((id) => frameOf(laid, id)) : NO_BOUNDS,
-      hoverBounds:
-        hover && !snapshot.selected.has(hover) ? frameOf(laid, hover) : null,
       enteredPath,
       enteredId: enteredPath.length ? enteredPath[enteredPath.length - 1] : null,
-      hoverId: hover,
       /** Resolved connectors, stale ids dropped — `nodes` for edges. */
-      edges: selectedEdgesOf(scene, snapshot.edgeIds),
-      edgeIds: snapshot.edgeIds,
-      edgeSelected: snapshot.edgeSelected,
+      edges: selectedEdgesOf(scene, edgeIds),
     };
-  }, [scene, snapshot]);
+  }, [scene, rawIds, rawPath, edgeIds]);
+
+  const hoverBounds = useMemo(
+    () =>
+      hoverId && !selected.has(hoverId) ? frameOf(laidOutScene(scene), hoverId) : null,
+    [scene, hoverId, selected],
+  );
+
+  return useMemo(
+    () => ({ ...resolved, hoverBounds, hoverId, edgeIds, edgeSelected }),
+    [resolved, hoverBounds, hoverId, edgeIds, edgeSelected],
+  );
 }

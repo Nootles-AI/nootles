@@ -315,6 +315,20 @@ describe("hover", () => {
     for (let i = 0; i < 50; i++) s.hover(i % 2 ? B_PT : C_PT);
     expect(calls.length).toBe(0);
   });
+
+  it("keeps the identity of everything a hover did not change", () => {
+    const s = store();
+    s.select(["A", "E"]);
+    const before = s.getSnapshot();
+    s.hover(B_PT);
+    const after = s.getSnapshot();
+    expect(after).not.toBe(before);
+    expect(after.ids).toBe(before.ids);
+    expect(after.selected).toBe(before.selected);
+    expect(after.enteredPath).toBe(before.enteredPath);
+    expect(after.edgeIds).toBe(before.edgeIds);
+    expect(after.edgeSelected).toBe(before.edgeSelected);
+  });
 });
 
 // ---------------------------------------------------------------------------
