@@ -6,6 +6,7 @@ import { readerSchema } from "@/app/lib/ai/readerSchema";
 import {
   inlineEquation,
   notionKeysExtension,
+  textAboveHeading,
   toggleAtCaret,
   turnInto,
   withoutShortcuts,
@@ -40,6 +41,9 @@ function selectText(editor: ReturnType<typeof editorWith>, id: string, from: num
   });
 }
 
+const shapes = (editor: ReturnType<typeof editorWith>) =>
+  editor.document.map((block) => ({ id: block.id, type: block.type }));
+
 describe("turn-into keys", () => {
   it("binds Notion's ⌘⌥4–8 row, ⌘↵, ⌘⇧X and ⌘⇧E", () => {
     const extension =
@@ -49,7 +53,7 @@ describe("turn-into keys", () => {
     expect(Object.keys(extension.keyboardShortcuts ?? {})).toEqual(
       expect.arrayContaining([
         "Mod-Alt-4", "Mod-Alt-5", "Mod-Alt-6", "Mod-Alt-7", "Mod-Alt-8",
-        "Mod-Enter", "Mod-Shift-x", "Mod-Shift-e",
+        "Mod-Enter", "Mod-Shift-x", "Mod-Shift-e", "Enter",
       ]),
     );
   });
@@ -160,5 +164,35 @@ describe("⌘⇧E", () => {
     ]);
     editor.setSelection("a", "b");
     expect(inlineEquation(editor)).toBe(false);
+  });
+});
+
+describe("Enter at the start of a heading", () => {
+  it("opens a text line above and keeps the heading, its id and the caret", () => {
+    const editor = editorWith([
+      { id: "h", type: "heading", props: { level: 1 }, content: "Plan" },
+    ]);
+    editor.setTextCursorPosition("h", "start");
+    expect(textAboveHeading(editor)).toBe(true);
+    const [above, heading] = editor.document;
+    expect(above).toMatchObject({ type: "paragraph", content: [] });
+    expect(heading).toMatchObject({ id: "h", type: "heading", content: [{ text: "Plan" }] });
+    expect(editor.getTextCursorPosition().block.id).toBe("h");
+    expect(editor.prosemirrorState.selection.$from.parentOffset).toBe(0);
+  });
+
+  it("leaves every other Enter to BlockNote", () => {
+    const editor = editorWith([
+      { id: "h", type: "heading", content: "Plan" },
+      { id: "e", type: "heading", content: "" },
+      { id: "p", type: "paragraph", content: "text" },
+    ]);
+    editor.setTextCursorPosition("h", "end");
+    expect(textAboveHeading(editor)).toBe(false);
+    editor.setTextCursorPosition("e", "start");
+    expect(textAboveHeading(editor)).toBe(false);
+    editor.setTextCursorPosition("p", "start");
+    expect(textAboveHeading(editor)).toBe(false);
+    expect(shapes(editor).map((block) => block.id)).toEqual(["h", "e", "p"]);
   });
 });

@@ -102,6 +102,28 @@ export function inlineEquation(editor: AnyEditor): boolean {
 }
 
 /**
+ * Enter at the very start of a heading with words in it: Notion opens a text
+ * line above and leaves the heading, and the caret, where they were.
+ *
+ * BlockNote splits there instead, and a split keeps the type on both halves —
+ * an empty heading above, and the words carried into a new block below, under
+ * a new id that any comment or AI edit anchored to the old one no longer finds.
+ * Inserting above changes neither the heading nor its id; the caret maps past
+ * the new line and stays put.
+ */
+export function textAboveHeading(editor: AnyEditor): boolean {
+  const state = editor.prosemirrorState;
+  const { selection } = state;
+  if (!selection.empty || selection.$from.parentOffset !== 0) return false;
+  const info = getBlockInfoFromSelection(state);
+  if (!info.isBlockContainer || info.blockNoteType !== "heading") return false;
+  if (info.blockContent.node.content.size === 0) return false;
+  const { block } = editor.getTextCursorPosition();
+  editor.insertBlocks([{ type: "paragraph" }], block, "before");
+  return true;
+}
+
+/**
  * A block spec with some of its own shortcuts given up, so the editor's can
  * have the keys. Binding one again from outside would leave two keymaps at the
  * same priority racing for it, won by whichever registered first.
@@ -133,7 +155,8 @@ export function withoutShortcuts<
 /**
  * The editor's Notion keys that BlockNote does not bind itself: the rest of
  * the ⌘⌥ turn-into row, ⌘↵, ⌘⇧X for strikethrough beside BlockNote's ⌘⇧S,
- * and ⌘⇧E for an inline equation.
+ * ⌘⇧E for an inline equation — and Enter at the start of a heading, where
+ * BlockNote does answer, but not as Notion does.
  *
  * ⌘⌥4–6 were BlockNote's Heading 4–6; the heading spec gives them up in the
  * schema, and `#### ` still makes one.
@@ -153,5 +176,6 @@ export const notionKeysExtension = createExtension({
       return true;
     },
     "Mod-Shift-e": ({ editor }) => inlineEquation(editor),
+    Enter: ({ editor }) => textAboveHeading(editor),
   },
 });
