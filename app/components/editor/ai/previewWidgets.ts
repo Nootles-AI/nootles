@@ -1,10 +1,10 @@
 import { createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import katex from "katex";
 import {
   CANVAS_MIN_H,
   sceneBlockHeight,
 } from "@/app/components/editor/canvas/types";
+import { loadKatex } from "@/app/components/editor/math/katex";
 import { runsToHtml } from "@/app/lib/ai/html/serialize";
 import type { AnyBlock } from "@/app/lib/ai/projection";
 import { ScenePreview, sceneFrom } from "./ScenePreview";
@@ -85,13 +85,7 @@ export function renderInline(source: string, into: HTMLElement) {
 
       if (tag === "nt-math") {
         const span = document.createElement("span");
-        try {
-          span.innerHTML = katex.renderToString(el.textContent ?? "", {
-            throwOnError: false,
-          });
-        } catch {
-          span.textContent = el.textContent ?? "";
-        }
+        typeset(span, el.textContent ?? "");
         parent.appendChild(span);
         continue;
       }
@@ -352,6 +346,17 @@ function diagramPreview(source: string, head: PreviewHead) {
   return wrap;
 }
 
+/** Typeset now if KaTeX is here, else show the source and typeset when it lands. */
+function typeset(el: HTMLElement, latex: string) {
+  const render = loadKatex();
+  if (typeof render === "function") {
+    el.innerHTML = render(latex);
+    return;
+  }
+  el.textContent = latex;
+  void render.then((r) => (el.innerHTML = r(latex))).catch(() => {});
+}
+
 function mathPreview(lines: string[], head: PreviewHead) {
   const wrap = document.createElement("div");
   wrap.className = "nt-math-preview";
@@ -360,7 +365,7 @@ function mathPreview(lines: string[], head: PreviewHead) {
   for (const latex of lines) {
     const row = document.createElement("div");
     row.className = "nt-math-preview-row";
-    row.innerHTML = katex.renderToString(latex, { throwOnError: false });
+    typeset(row, latex);
     wrap.appendChild(row);
   }
   return wrap;
