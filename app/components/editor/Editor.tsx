@@ -19,6 +19,7 @@ import {
   FormattingToolbar,
   FormattingToolbarController,
   SuggestionMenuController,
+  useEditorState,
   type DefaultReactSuggestionItem,
 } from "@blocknote/react";
 import { autoPlacement, offset, shift, size } from "@floating-ui/react";
@@ -51,6 +52,7 @@ import type { LegacyBlock } from "@/app/lib/nml/legacy";
 import { BlockSideMenu, editorPortalElements } from "./BlockSideMenu";
 import { PageTitleProvider } from "./PageTitleContext";
 import { InlineCodeButton } from "./InlineCodeButton";
+import { hasFormattableText } from "./formattable";
 import { CommentToolbarButton } from "../comments/CommentToolbarButton";
 import { completionExtension } from "./ai/completionExtension";
 import { hintExtension } from "./ai/hintText";
@@ -107,6 +109,21 @@ function Toolbar() {
         : [...items.slice(0, i + 1), code, ...items.slice(i + 1)]}
       <CommentToolbarButton key="commentButton" />
     </FormattingToolbar>
+  );
+}
+
+/** Held shut for a selection with no text in it — see `hasFormattableText`. */
+const TOOLBAR_SHUT = { useFloatingOptions: { open: false } };
+
+function ToolbarController() {
+  const formattable = useEditorState({
+    selector: ({ editor }) => hasFormattableText(editor.prosemirrorState.selection),
+  });
+  return (
+    <FormattingToolbarController
+      formattingToolbar={Toolbar}
+      floatingUIOptions={formattable ? undefined : TOOLBAR_SHUT}
+    />
   );
 }
 
@@ -841,7 +858,7 @@ function EditorSurface({
             <>
               <StageDirector editor={editor} />
               <BlockSideMenu />
-              <FormattingToolbarController formattingToolbar={Toolbar} />
+              <ToolbarController />
               <SuggestionMenuController
                 triggerCharacter="/"
                 floatingUIOptions={menuPlacement}
