@@ -3,11 +3,13 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import type { useQuery } from "convex/react";
+import { useConvex, type useQuery } from "convex/react";
 import type { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { ProjectRole } from "@/convex/roles";
 import { projectPath, WHOLE_ROUTE } from "@/app/lib/containerPaths";
+import { warmProject } from "@/app/lib/sync/warmProject";
+import { useDwell } from "@/app/lib/useDwell";
 import { Editable } from "./Editable";
 import { Lock, MoreHorizontal } from "./Icons";
 import { Menu, MenuItem } from "./Menu";
@@ -97,22 +99,28 @@ export const roleLabel = (p: Pick<SharedProject, "role">) =>
  * asked for. Hovering one is the closest thing to intent there is.
  */
 export function OpenProject({
-  id,
+  project,
   className,
   children,
 }: {
-  id: Id<"projects">;
+  project: { _id: Id<"projects">; firstPageDocId?: string | null };
   className: string;
   children: React.ReactNode;
 }) {
   const router = useRouter();
+  const convex = useConvex();
+  const dwell = useDwell();
   const container = useContainer();
-  const href = projectPath(slugOf(container), id);
+  const href = projectPath(slugOf(container), project._id);
   return (
     <Link
       href={href}
       prefetch={false}
-      onPointerEnter={() => router.prefetch(href, WHOLE_ROUTE)}
+      onPointerEnter={() => {
+        router.prefetch(href, WHOLE_ROUTE);
+        dwell.enter(() => warmProject(convex, project));
+      }}
+      onPointerLeave={dwell.leave}
       className={className}
     >
       {children}

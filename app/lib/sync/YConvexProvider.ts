@@ -13,6 +13,7 @@ import { encodePreview } from "@/convex/previewShape";
 import { splitUpdate } from "@/convex/yshape";
 import { COMMENTS_REFUSED } from "@/app/lib/comments/policy";
 import { WRITE_REFUSED } from "@/convex/roles";
+import { onAccountChange } from "./account";
 import { openYDoc } from "./ydocRead";
 
 /**
@@ -46,11 +47,14 @@ const MAX_RETRY_MS = 10_000;
  */
 const MERGE_CAP_BYTES = 800 * 1024;
 /**
- * How closely two writes of derived data — the preview and the context digest
- * — may follow each other. Both want seconds-freshness, and the read behind
- * them walks the whole document, so they share one read and one clock.
+ * Derived data — the preview and the context digest — is written once edits
+ * pause, and at least this often while they don't. Both want seconds-freshness,
+ * and the read behind them walks the whole document, so they share one read
+ * and one clock, and that read waits for the main thread to be idle.
  */
-const DERIVED_MS = 4000;
+const DERIVED_QUIET_MS = 2000;
+const DERIVED_MAX_MS = 8000;
+const IDLE_TIMEOUT_MS = 2000;
 /** Cursor moves ride a trailing throttle; stillness still beats every 10s. */
 const AWARENESS_THROTTLE_MS = 200;
 const KEEPALIVE_MS = 10_000;
@@ -83,6 +87,15 @@ export type ProviderOptions = {
   /** Watch and announce presence. */
   presence?: boolean;
 };
+
+/** Resolves once the main thread is idle, so a walk of the document never lands on a keystroke. */
+function idle(): Promise<void> {
+  return new Promise((resolve) => {
+    if (typeof requestIdleCallback === "function") {
+      requestIdleCallback(() => resolve(), { timeout: IDLE_TIMEOUT_MS });
+    } else setTimeout(resolve, 0);
+  });
+}
 
 function withDefaults(options: ProviderOptions): Readonly<Required<ProviderOptions>> {
   return { derived: options.derived ?? true, presence: options.presence ?? true };
@@ -127,6 +140,8 @@ export class YConvexProvider {
   private listeners = new Set<Listener>();
 
   private derivedTimer: ReturnType<typeof setTimeout> | null = null;
+  /** When derived data owed since the first unwritten flush is written, pause or not. */
+  private derivedDue = 0;
   /** The last preview the server took; undefined until one has been offered. */
   private sentPreview: string | null | undefined;
   /** The hash of the last digest offered; undefined until one has been. */
@@ -675,11 +690,14 @@ export class YConvexProvider {
    * change that writes what is derived from it.
    */
   private scheduleDerived() {
-    if (this.derivedTimer || !this.options.derived) return;
+    if (!this.options.derived) return;
+    const now = Date.now();
+    if (this.derivedTimer) clearTimeout(this.derivedTimer);
+    else this.derivedDue = now + DERIVED_MAX_MS;
     this.derivedTimer = setTimeout(() => {
       this.derivedTimer = null;
       void this.writeDerived();
-    }, DERIVED_MS);
+    }, Math.min(DERIVED_QUIET_MS, this.derivedDue - now));
   }
 
   private async writeDerived({ preview = true } = {}) {
@@ -691,10 +709,15 @@ export class YConvexProvider {
         import("@/app/lib/ai/snapshot"),
         import("@/app/lib/ai/context/digest"),
       ]);
+      await idle();
       const blocks = blocksFromYDoc(this.doc);
+      await idle();
+      const encoded = preview ? encodePreview(blocks) : undefined;
+      await idle();
+      const digest = digestPage(blocks);
       await Promise.all([
-        preview ? this.writePreview(encodePreview(blocks)) : null,
-        this.writeDigest(digestPage(blocks)),
+        encoded === undefined ? null : this.writePreview(encoded),
+        this.writeDigest(digest),
       ]);
     } catch {
       // Derived data: the next flush offers it again.
@@ -734,7 +757,8 @@ export class YConvexProvider {
 
 // ---- Shared instances -----------------------------------------------------
 
-type Held = { provider: YConvexProvider; refs: number };
+/** `session` is the account a held doc was opened under; see {@link forgetWarmDocs}. */
+type Held = { provider: YConvexProvider; refs: number; session: number };
 const held = new Map<string, Held>();
 
 /**
@@ -750,19 +774,35 @@ const RECENT_MAX = 16;
 const recent = new Map<string, YConvexProvider>();
 /** Whose session the warm docs belong to; a different client discards them. */
 let recentClient: ConvexReactClient | null = null;
+let session = 0;
 /** Hover-driven, so a sweep down the sidebar must not fan out into loads. */
 const WARMING_MAX = 2;
 let warming = 0;
 
-function forget(docId: string, provider: YConvexProvider) {
-  recent.delete(docId);
+function drop(provider: YConvexProvider) {
   provider.destroy();
   provider.doc.destroy();
 }
 
+function forget(docId: string, provider: YConvexProvider) {
+  recent.delete(docId);
+  drop(provider);
+}
+
+/**
+ * Discards every warm document, and keeps none of those open now once they are
+ * let go: they were read as an account this tab no longer speaks for. Signing
+ * out navigates without a reload, so nothing else would clear them.
+ */
+function forgetWarmDocs() {
+  session++;
+  for (const [id, provider] of recent) forget(id, provider);
+}
+onAccountChange(forgetWarmDocs);
+
 function adoptClient(client: ConvexReactClient) {
   if (recentClient === client) return;
-  for (const [id, provider] of recent) forget(id, provider);
+  forgetWarmDocs();
   recentClient = client;
 }
 
@@ -809,6 +849,7 @@ export function acquireProvider(
     entry = {
       provider: warm ?? new YConvexProvider(client, docId, new Y.Doc(), options),
       refs: 0,
+      session,
     };
     held.set(docId, entry);
   }
@@ -830,6 +871,7 @@ export function releaseProvider(docId: string) {
     if (entry.refs > 0 || held.get(docId) !== entry) return;
     held.delete(docId);
     entry.provider.disconnect();
+    if (entry.session !== session) return drop(entry.provider);
     recent.set(docId, entry.provider);
     trimRecent();
   }, 0);

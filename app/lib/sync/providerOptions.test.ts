@@ -5,6 +5,9 @@ import { ConvexError } from "convex/values";
 import { COMMENTS_REFUSED } from "@/app/lib/comments/policy";
 import { WRITE_REFUSED } from "@/convex/roles";
 import type { ConvexReactClient } from "convex/react";
+import type { Id } from "@/convex/_generated/dataModel";
+import { accountChanged } from "./account";
+import { warmProject } from "./warmProject";
 import { acquireProvider, releaseProvider, warmDoc, YConvexProvider, type ProviderOptions } from "./YConvexProvider";
 
 /**
@@ -50,6 +53,9 @@ class Backend {
       throw new Error(`no query ${name}`);
     };
     return {
+      prewarmQuery: ({ query }: { query: unknown }) => {
+        this.calls.push(`prewarm ${getFunctionName(query as never)}`);
+      },
       watchQuery: (reference: unknown, args: Record<string, unknown>) => {
         const name = getFunctionName(reference as never);
         this.calls.push(`watch ${name}`);
@@ -266,6 +272,30 @@ describe("a page's provider is unchanged", () => {
     expect(derived).toHaveBeenCalledTimes(2);
   });
 
+  it("writes derived data once edits pause, and at least every eight seconds while they don't", async () => {
+    const derived = vi
+      .spyOn(YConvexProvider.prototype as unknown as { writeDerived(o?: object): Promise<void> }, "writeDerived")
+      .mockResolvedValue(undefined);
+    const provider = open();
+    provider.connect();
+    await provider.whenSynced;
+    derived.mockClear();
+    const text = provider.doc.getText("t");
+    // An edit a second, each its own flush.
+    for (let i = 0; i < 6; i++) {
+      text.insert(0, "a");
+      await settle(1_000);
+    }
+    expect(derived).not.toHaveBeenCalled();
+    for (let i = 0; i < 4; i++) {
+      text.insert(0, "a");
+      await settle(1_000);
+    }
+    expect(derived).toHaveBeenCalledTimes(1);
+    await settle(3_000);
+    expect(derived).toHaveBeenCalledTimes(2);
+  });
+
   it("defaults both options on", () => {
     expect(open().options).toEqual({ derived: true, presence: true });
     expect(open(COMMENTS).options).toEqual({ derived: false, presence: false });
@@ -326,6 +356,46 @@ describe("warmDoc", () => {
     await settle(0);
     warmDoc(client, "w-3");
     expect(backend.calls.filter((call) => call === "query ydoc:load")).toHaveLength(3);
+  });
+});
+
+describe("a change of account", () => {
+  it("discards the warm documents, and keeps none of those open now once let go", async () => {
+    const client = backend.client();
+    warmDoc(client, "acct-warm");
+    const opened = acquireProvider(client, "acct-open");
+    await settle(0);
+
+    accountChanged();
+    releaseProvider("acct-open");
+    await settle(0);
+
+    const loads = () => backend.calls.filter((call) => call === "query ydoc:load").length;
+    const before = loads();
+    warmDoc(client, "acct-warm");
+    expect(loads()).toBe(before + 1);
+    const reopened = acquireProvider(client, "acct-open");
+    expect(reopened).not.toBe(opened);
+    releaseProvider("acct-open");
+    await settle(0);
+  });
+});
+
+describe("warmProject", () => {
+  it("subscribes to what the open waits on and loads its first page, writing nothing", async () => {
+    const client = backend.client();
+    warmProject(client, { _id: "project-1" as Id<"projects">, firstPageDocId: "first-page" });
+    await vi.dynamicImportSettled();
+    await settle(0);
+    expect(backend.calls).toEqual([
+      "prewarm pages:listByProject",
+      "prewarm folders:listByProject",
+      "prewarm projects:myRole",
+      "prewarm projects:home",
+      "prewarm projects:pausedBy",
+      "query ydoc:load",
+    ]);
+    expect(backend.mutations()).toEqual([]);
   });
 });
 

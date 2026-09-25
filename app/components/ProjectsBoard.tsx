@@ -393,7 +393,7 @@ const Frame = memo(function Frame({
             className="nt-board-name relative"
           />
         ) : (
-          <OpenProject id={project._id} className="nt-board-name nt-card-link">
+          <OpenProject project={project} className="nt-board-name nt-card-link">
             {project.title || "Untitled project"}
           </OpenProject>
         )}
@@ -433,7 +433,7 @@ const SharedFrame = memo(function SharedFrame({
   return (
     <div data-frame={project._id} className="nt-board-frame" style={frameStyle(x, y, z, i)}>
       <div className="nt-board-label">
-        <OpenProject id={project._id} className="nt-board-name nt-card-link">
+        <OpenProject project={project} className="nt-board-name nt-card-link">
           {project.title || "Untitled project"}
         </OpenProject>
         <span className="nt-board-meta">

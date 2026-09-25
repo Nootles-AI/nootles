@@ -76,7 +76,23 @@ function words(block: AnyBlock, mentions: string[]): string {
   return out.join("").replace(/\s+/g, " ").trim();
 }
 
-function canvasLabels(data: string): string[] {
+/**
+ * By diagram source: a digest re-runs on every pause in typing, and the
+ * diagrams on the page are nearly always the ones it parsed last time.
+ */
+const labelsOf = new Map<string, readonly string[]>();
+const LABELS_KEPT = 32;
+
+function canvasLabels(data: string): readonly string[] {
+  const kept = labelsOf.get(data);
+  if (kept) return kept;
+  const labels = parseLabels(data);
+  if (labelsOf.size >= LABELS_KEPT) labelsOf.delete(labelsOf.keys().next().value!);
+  labelsOf.set(data, labels);
+  return labels;
+}
+
+function parseLabels(data: string): string[] {
   const out: string[] = [];
   const walk = (nodes: readonly SceneNode[]) => {
     for (const node of nodes) {
