@@ -84,8 +84,8 @@ async function defaultDays(ctx: QueryCtx, project: Doc<"projects">): Promise<num
 
 /**
  * Every link as the share dialog draws them, to whoever may hand one out
- * (`sendsLinks`): a manager sees all three, an editor the two they may send.
- * `manages` says which dialog to draw — only a manager changes a link.
+ * (`sendsLinks`). `manages` says which dialog to draw — only a manager
+ * changes a link.
  *
  * Reads, so it goes by the project's role without `refuseStandIn`, the write
  * gate: that would blind an operator standing in for a manager, the one
@@ -100,18 +100,15 @@ export const links = query({
   handler: async (ctx, args) => {
     const project = await ctx.db.get(args.projectId);
     const role = project && !isTrashed(project) ? await roleForProject(ctx, project) : null;
-    const sends = sendsLinks(role);
-    if (!project || sends.length === 0) throw new Error("Not found");
-    const shown = <K extends "token" | "expiresAt">(r: LinkRole, field: K) =>
-      sends.includes(r) ? (project[LINK_FIELDS[r][field]] ?? null) : null;
+    if (!project || !sendsLinks(role)) throw new Error("Not found");
     return {
-      viewer: shown("viewer", "token"),
-      commenter: shown("commenter", "token"),
-      editor: shown("editor", "token"),
+      viewer: project.shareToken ?? null,
+      commenter: project.commentShareToken ?? null,
+      editor: project.editShareToken ?? null,
       expiresAt: {
-        viewer: shown("viewer", "expiresAt"),
-        commenter: shown("commenter", "expiresAt"),
-        editor: shown("editor", "expiresAt"),
+        viewer: project.shareExpiresAt ?? null,
+        commenter: project.commentShareExpiresAt ?? null,
+        editor: project.editShareExpiresAt ?? null,
       },
       manages: role === "owner",
       allowed: await linksOpen(ctx, project),
@@ -142,7 +139,6 @@ export const setLink = mutation({
   handler: async (ctx, args) => {
     const project = await requireEditable(ctx, "projects", args.projectId);
     const role = await roleForProject(ctx, project);
-    if (!sendsLinks(role).includes(args.role)) throw new Error("Not found");
     if (role !== "owner" && (!args.enabled || args.expiresInDays !== undefined)) {
       throw new ConvexError("Only people who manage this project can change its links.");
     }

@@ -109,9 +109,6 @@ const WOULD = {
   },
 } as const;
 
-/** The links an editor may hand out, as the server's `sendsLinks` has them. */
-const SENDS: readonly LinkRole[] = ["editor", "viewer"];
-
 const TABS: Record<keyof typeof SAYS, readonly Segment<LinkRole>[]> = {
   anyone: [
     { id: "editor", label: "Editor link", hint: "Anyone with it can view; signing in lets them edit" },
@@ -148,8 +145,8 @@ const ROW_MENU =
  * never quietly become handing them the pen. Turning a link off revokes it:
  * the URL dies, and so does the access of everyone who signed in through it.
  *
- * An editor gets the same popover to send from: the editor and viewer links,
- * to copy or to make. Everything that changes who already has access — a
+ * An editor gets the same popover to send from: every link, to copy or to
+ * make. Everything that changes who already has access — a
  * link turned off, its expiry, the people and their requests — is its
  * managers' alone, and not drawn.
  */
@@ -516,7 +513,7 @@ function SharePopoverBody({
           <>
             <Segmented
               label="Share links"
-              segments={manages ? TABS[says] : TABS[says].filter((tab) => SENDS.includes(tab.id))}
+              segments={TABS[says]}
               value={role}
               onChange={(next) => {
                 setRole(next);

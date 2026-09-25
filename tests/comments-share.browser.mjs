@@ -289,8 +289,8 @@ try {
   await page.evaluate(() => window.shareHarness.mountPopover(false));
   await page.click('button[aria-label="Share project"]');
   await page.waitForSelector('[role="dialog"][aria-label="Share project"]');
-  check("an editor gets the two links they may send", await page.$$eval('[role="group"][aria-label="Share links"] button', (b) => b.map((x) => x.firstChild.textContent)),
-    ["Editor link", "Viewer link"]);
+  check("an editor gets every link to send", await page.$$eval('[role="group"][aria-label="Share links"] button', (b) => b.map((x) => x.firstChild.textContent)),
+    ["Editor link", "Commenter link", "Viewer link"]);
   check("with none on, it offers to make one", await note(),
     "There’s no editor link. Once one is made, anyone who has it can view, and edit once signed in.");
   await page.click('button:has-text("Create editor link")');
