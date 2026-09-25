@@ -6,10 +6,12 @@ import {
   defaultProtectedNodes,
   ySyncPluginKey,
 } from "y-prosemirror";
+import type { EditorState } from "prosemirror-state";
 import * as Y from "yjs";
 import { KEPT_CHANGE } from "@/app/lib/ai/review/fork";
 import { isCanvasMapName } from "@/app/components/editor/canvas/collab/ymap";
 import type { DomainStep, WorkspaceHistory } from "./spine";
+import { textStepOf, type TextStep } from "./textSteps";
 
 /**
  * The document's side of the spine: its own Y.UndoManager over the shared
@@ -134,20 +136,37 @@ export function useTextUndoDomain(
       return fork?.store?.state?.isForked ?? false;
     };
     const fragment = fragmentOf(editor);
+    const doc = fragment?.doc;
     const manager = fragment && managerFor(fragment);
-    if (!manager) return;
+    if (!manager || !doc) return;
+
+    // The dispatch the sync plugin is writing: a block's reshaping may not
+    // join the entry before it, and nothing typed after may join it.
+    let writing: TextStep | undefined;
+    const onWrite = (transaction: Y.Transaction) => {
+      if (transaction.origin !== ySyncPluginKey) return;
+      writing = textStepOf(editor.prosemirrorState as EditorState);
+      if (writing?.boundary) manager.stopCapturing();
+    };
+    doc.on("beforeTransaction", onWrite);
 
     let muted = false;
-    const onAdded = (event: { type: "undo" | "redo" }) => {
+    const onCaptured = (event: { type: "undo" | "redo"; origin: unknown }) => {
+      if (muted || event.type !== "undo" || event.origin !== ySyncPluginKey) return;
+      if (writing?.boundary) manager.stopCapturing();
+    };
+    const onAdded = (event: { type: "undo" | "redo"; origin: unknown }) => {
       if (muted) return;
       // Only fresh edits reach here: 'redo'-type additions exist only inside
       // manager.undo(), which is always muted.
       if (event.type === "undo") spine.record(id, "edit");
+      onCaptured(event);
     };
     const onCleared = (event: { undoStackCleared: boolean }) => {
       if (event.undoStackCleared) spine.drop(id);
     };
     manager.on("stack-item-added", onAdded);
+    manager.on("stack-item-updated", onCaptured);
     manager.on("stack-cleared", onCleared);
     if (process.env.NODE_ENV !== "production") {
       // Verification harnesses read the ledger through this; never shipped.
@@ -181,7 +200,9 @@ export function useTextUndoDomain(
 
     return () => {
       unregister();
+      doc.off("beforeTransaction", onWrite);
       manager.off("stack-item-added", onAdded);
+      manager.off("stack-item-updated", onCaptured);
       manager.off("stack-cleared", onCleared);
     };
   }, [spine, editor, docId, pageId]);

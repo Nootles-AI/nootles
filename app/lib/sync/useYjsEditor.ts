@@ -13,6 +13,7 @@ import { withCollaboration } from "@blocknote/core/yjs";
 import { watchFimFlash } from "./fimFlash";
 import { createRemoteCarets } from "./remoteCarets";
 import { remoteScrollExtension } from "./remoteScroll";
+import { textStepsExtension } from "@/app/lib/history/textSteps";
 import {
   acquireProvider,
   releaseProvider,
@@ -80,7 +81,7 @@ export function useYjsEditor<E>({
     const editor = BlockNoteEditor.create(
       withCollaboration({
         ...options,
-        extensions: [...(options.extensions ?? []), remoteScrollExtension],
+        extensions: [...(options.extensions ?? []), remoteScrollExtension, textStepsExtension],
         collaboration: {
           fragment: provider.doc.getXmlFragment("prosemirror"),
           // A seed only — the effect below is what keeps this current.
