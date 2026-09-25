@@ -162,6 +162,77 @@ describe("init", () => {
   });
 });
 
+describe("a page born on Yjs", () => {
+  async function born(t: TestConvex<typeof schema>) {
+    const { projectId } = await world(t);
+    const pageId = await t.withIdentity(OWNER).mutation(api.pages.create, { projectId });
+    const page = (await t.run(async (ctx) => ctx.db.get(pageId)))!;
+    return { pageId, page };
+  }
+
+  test("opens synced and empty, with nothing to init", async () => {
+    const t = harness();
+    const { page } = await born(t);
+    const as = t.withIdentity(OWNER);
+    expect(page.yjs).toBe(true);
+    expect(await as.query(api.ydoc.state, { docId: page.docId })).toBe("yjs");
+    expect(await as.query(api.ydoc.meta, { docId: page.docId })).toEqual({
+      seq: 0,
+      snapshotSeq: 0,
+      snapshotParts: 0,
+    });
+    expect(await as.query(api.ydoc.load, { docId: page.docId, afterSeq: 0 })).toEqual({
+      seq: 0,
+      snapshotSeq: 0,
+      snapshotParts: 0,
+      snapshot: null,
+      updates: [],
+    });
+  });
+
+  test("its first edit lands at seq 1", async () => {
+    const t = harness();
+    const { page } = await born(t);
+    const as = t.withIdentity(OWNER);
+    const seq = await as.mutation(api.ydoc.append, { docId: page.docId, update: encodedInsert("a") });
+    expect(seq).toBe(1);
+  });
+
+  // An import makes the page, then writes what it brought through `init`.
+  test("the first init still fills it; the second is told", async () => {
+    const t = harness();
+    const { page } = await born(t);
+    const as = t.withIdentity(OWNER);
+    const docId = page.docId;
+    expect(await as.mutation(api.ydoc.init, { docId, update: encodedInsert("a") })).toEqual({
+      migrated: true,
+    });
+    expect(await as.mutation(api.ydoc.init, { docId, update: encodedInsert("b") })).toEqual({
+      migrated: false,
+    });
+    const opened = await as.query(api.ydoc.load, { docId, afterSeq: 0 });
+    expect(opened?.seq).toBe(1);
+    const doc = new Y.Doc();
+    for (const u of opened!.updates) Y.applyUpdate(doc, new Uint8Array(u.update));
+    expect(doc.getText("t").toString()).toBe("a");
+  });
+
+  test("a copy of a page never opened is born on Yjs too", async () => {
+    const t = harness();
+    const { projectId } = await world(t);
+    // `world`'s page predates born-on-Yjs: no row on either pipeline.
+    const [old] = await t.withIdentity(OWNER).query(api.pages.listByProject, { projectId });
+    const copyId = await t.withIdentity(OWNER).mutation(api.pages.duplicate, { pageId: old._id });
+    const copy = (await t.run(async (ctx) => ctx.db.get(copyId)))!;
+    expect(copy.yjs).toBe(true);
+    expect(await t.withIdentity(OWNER).query(api.ydoc.meta, { docId: copy.docId })).toEqual({
+      seq: 0,
+      snapshotSeq: 0,
+      snapshotParts: 0,
+    });
+  });
+});
+
 describe("append", () => {
   test("seqs are dense and updatesSince pages from a cursor", async () => {
     const t = harness();

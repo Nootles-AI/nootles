@@ -433,15 +433,17 @@ export const init = mutation({
     // The document channel only: a comments document is born with its root
     // already in it (`comments.ensureDoc`), so no client ever races to init one.
     await checkWrite(ctx, args.docId);
-    if (await ydocRow(ctx, args.docId)) return { migrated: false };
-    await ctx.db.insert("ydocs", {
-      docId: args.docId,
+    const row = await ydocRow(ctx, args.docId);
+    if (row && row.seq > 0) return { migrated: false };
+    const born = {
       seq: 1,
-      snapshotSeq: 0,
-      snapshotParts: 0,
       migratedFromVersion: args.legacyVersion,
       updatedAt: Date.now(),
-    });
+    };
+    // A page born on Yjs (`pages.create`) holds its row with nothing written
+    // yet, and the first writer still wins it — how an import fills its page.
+    if (row) await ctx.db.patch(row._id, born);
+    else await ctx.db.insert("ydocs", { docId: args.docId, snapshotSeq: 0, snapshotParts: 0, ...born });
     await ctx.db.insert("yUpdates", {
       docId: args.docId,
       seq: 1,

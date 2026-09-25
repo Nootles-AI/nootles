@@ -2,6 +2,8 @@
 import { convexTest, type TestConvex } from "convex-test";
 import { describe, expect, test } from "vitest";
 import { api } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
+import type { MutationCtx } from "./_generated/server";
 import schema from "./schema";
 import componentSchema from "../node_modules/@convex-dev/prosemirror-sync/src/component/schema";
 
@@ -36,6 +38,34 @@ async function world(t: TestConvex<typeof schema>) {
 
 function as(t: TestConvex<typeof schema>) {
   return t.withIdentity(OWNER);
+}
+
+async function ydocOf(ctx: MutationCtx, docId: string) {
+  return (await ctx.db
+    .query("ydocs")
+    .withIndex("by_doc", (q) => q.eq("docId", docId))
+    .unique())!;
+}
+
+/** Two updates written into a page's Yjs log. Answers its docId. */
+async function twoUpdates(t: TestConvex<typeof schema>, pageId: Id<"pages">) {
+  return await t.run(async (ctx) => {
+    const { docId } = (await ctx.db.get(pageId))!;
+    await ctx.db.patch((await ydocOf(ctx, docId))._id, { seq: 2 });
+    await ctx.db.insert("yUpdates", { docId, seq: 1, update: new ArrayBuffer(4) });
+    await ctx.db.insert("yUpdates", { docId, seq: 2, update: new ArrayBuffer(4) });
+    return docId;
+  });
+}
+
+/** A page as it was before pages were born on Yjs: on no pipeline yet. */
+async function unborn(t: TestConvex<typeof schema>, pageId: Id<"pages">) {
+  return await t.run(async (ctx) => {
+    const { docId } = (await ctx.db.get(pageId))!;
+    await ctx.db.delete((await ydocOf(ctx, docId))._id);
+    await ctx.db.patch(pageId, { yjs: undefined });
+    return docId;
+  });
 }
 
 describe("folders.create", () => {
@@ -339,18 +369,7 @@ describe("pages.duplicate", () => {
       projectId,
       title: "Notes",
     });
-    const docId = (await t.run(async (ctx) => ctx.db.get(pageId)))!.docId;
-    await t.run(async (ctx) => {
-      await ctx.db.insert("ydocs", {
-        docId,
-        seq: 2,
-        snapshotSeq: 0,
-        snapshotParts: 0,
-        updatedAt: 1,
-      });
-      await ctx.db.insert("yUpdates", { docId, seq: 1, update: new ArrayBuffer(4) });
-      await ctx.db.insert("yUpdates", { docId, seq: 2, update: new ArrayBuffer(4) });
-    });
+    const docId = await twoUpdates(t, pageId);
 
     const beside = await as(t).mutation(api.pages.duplicate, { pageId });
     const away = await as(t).mutation(api.pages.duplicate, {
@@ -388,7 +407,7 @@ describe("pages.duplicate", () => {
       projectId,
       title: "Legacy",
     });
-    const docId = (await t.run(async (ctx) => ctx.db.get(pageId)))!.docId;
+    const docId = await unborn(t, pageId);
     const content = JSON.stringify({ type: "doc", content: [] });
     await as(t).mutation(api.prosemirror.submitSnapshot, {
       id: docId,
@@ -408,7 +427,7 @@ describe("pages.duplicate", () => {
     const t = harness();
     const projectId = await world(t);
     const pageId = await as(t).mutation(api.pages.create, { projectId });
-    const docId = (await t.run(async (ctx) => ctx.db.get(pageId)))!.docId;
+    const docId = await unborn(t, pageId);
     const content = JSON.stringify({ type: "doc", content: [] });
     await as(t).mutation(api.prosemirror.submitSnapshot, {
       id: docId,
@@ -471,18 +490,7 @@ describe("tree.copyTo", () => {
       projectId,
       title: "Notes",
     });
-    const docId = (await t.run(async (ctx) => ctx.db.get(pageId)))!.docId;
-    await t.run(async (ctx) => {
-      await ctx.db.insert("ydocs", {
-        docId,
-        seq: 2,
-        snapshotSeq: 0,
-        snapshotParts: 0,
-        updatedAt: 1,
-      });
-      await ctx.db.insert("yUpdates", { docId, seq: 1, update: new ArrayBuffer(4) });
-      await ctx.db.insert("yUpdates", { docId, seq: 2, update: new ArrayBuffer(4) });
-    });
+    const docId = await twoUpdates(t, pageId);
 
     await as(t).mutation(api.tree.copyTo, {
       items: [{ kind: "page", id: pageId }],

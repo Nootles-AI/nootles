@@ -9,6 +9,7 @@ import { removePageNode, retitlePageNode } from "./context/pages";
 import { copyPreview, deletePreview } from "./previews";
 import { purgeCommentsDoc, refreshPageSummary, stampProject } from "./projects";
 import { rowIcon } from "./schema";
+import { registerYDoc } from "./ydoc";
 
 export const listByProject = query({
   args: { projectId: v.id("projects") },
@@ -99,6 +100,7 @@ export const create = mutation({
     const folderId = args.folderId ?? anchor?.folderId;
     const siblings = await levelRows(ctx, args.projectId, folderId ?? null);
     const placed = args.after ? orderAfter(siblings, args.after) : null;
+    const docId = crypto.randomUUID();
     const pageId = await ctx.db.insert("pages", {
       ownerId,
       createdBy,
@@ -108,9 +110,13 @@ export const create = mutation({
       title: args.title ?? "",
       folderId,
       order: placed ?? endOrder(siblings),
-      docId: crypto.randomUUID(),
+      docId,
+      yjs: true,
       createdAt: Date.now(),
     });
+    // Born on Yjs: the first open syncs an empty doc instead of asking which
+    // pipeline it is on and `init`ing it, round trips paid before the caret.
+    await registerYDoc(ctx, docId);
     await refreshPageSummary(ctx, args.projectId);
     return pageId;
   },
@@ -241,7 +247,8 @@ export async function clonePage(
  * Y.Doc). Legacy docs copy as their latest snapshot plus the steps written
  * after it, forwarded verbatim; the snapshot alone can sit arbitrarily far
  * behind the document (see `projects.listForScreen`), so the steps must ride
- * along. A doc on neither pipeline has never been opened — nothing to copy.
+ * along. A doc on neither pipeline has never been opened — nothing to copy,
+ * so the copy is born on Yjs empty, as a new page is.
  *
  * Answers whether the copy is Yjs-native, which the new page row records.
  */
@@ -291,7 +298,10 @@ async function copyDoc(ctx: MutationCtx, from: string, to: string): Promise<bool
     components.prosemirrorSync.lib.getSnapshot,
     { id: from },
   );
-  if (snap.content === null || snap.version === undefined) return false;
+  if (snap.content === null || snap.version === undefined) {
+    await registerYDoc(ctx, to);
+    return true;
+  }
   await ctx.runMutation(components.prosemirrorSync.lib.submitSnapshot, {
     id: to,
     version: snap.version,
