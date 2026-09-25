@@ -77,6 +77,7 @@ import { ReadOnlyContext, useReadOnly } from "./readOnly";
 import { useAttachCommentsEditor } from "../comments/editorSlot";
 import { trailingParagraphExtension } from "./trailingParagraph";
 import { inlineShortcutsExtension } from "./inlineShortcutsExtension";
+import { pasteHandler, plainPasteExtension } from "./paste";
 import { dropDeadSelectors } from "./deadSelectors";
 import "./editor.css";
 
@@ -529,6 +530,7 @@ const EXTENSIONS = [
   blockSelectionExtension,
   commentExtension,
   inlineShortcutsExtension,
+  plainPasteExtension,
 ];
 
 const placeholder = <div className="min-h-[40vh]" aria-hidden />;
@@ -652,7 +654,7 @@ function YjsEditor({
       color: collabColor(user?.id ?? "anonymous"),
       ...(user?.imageUrl ? { imageUrl: user.imageUrl } : {}),
     },
-    editorOptions: { schema, extensions, links: { onClick: notionLinkClick } },
+    editorOptions: { schema, extensions, pasteHandler, links: { onClick: notionLinkClick } },
     writable: !readOnly,
   });
   const held = useHeldWrites(provider);
@@ -733,7 +735,7 @@ function LegacyEditor({ docId, pageId, title = "", mode = "create" }: EditorProp
     [readOnly],
   );
   const sync = useBlockNoteSync<EditorInstance>(api.prosemirror, docId, {
-    editorOptions: { schema, extensions, links: { onClick: notionLinkClick } },
+    editorOptions: { schema, extensions, pasteHandler, links: { onClick: notionLinkClick } },
   });
 
   // First open of a page has no document yet — create an empty one seamlessly.
