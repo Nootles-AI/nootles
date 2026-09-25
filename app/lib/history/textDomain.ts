@@ -7,6 +7,7 @@ import {
   ySyncPluginKey,
 } from "y-prosemirror";
 import type { EditorState } from "prosemirror-state";
+import type { EditorView } from "prosemirror-view";
 import * as Y from "yjs";
 import { KEPT_CHANGE } from "@/app/lib/ai/review/fork";
 import { isCanvasMapName } from "@/app/components/editor/canvas/collab/ymap";
@@ -79,9 +80,10 @@ function managerFor(fragment: Y.XmlFragment): UM | null {
   return manager;
 }
 
-/** The two editor members this bridge needs — the same hop CanvasBlock makes. */
+/** The editor members this bridge needs — the same hop CanvasBlock makes. */
 export type UndoHostEditor = {
   prosemirrorState: unknown;
+  prosemirrorView?: EditorView;
   getExtension: (key: string) => unknown;
   onChange?: (cb: () => void) => (() => void) | undefined;
 };
@@ -173,6 +175,21 @@ export function useTextUndoDomain(
       (window as unknown as Record<string, unknown>).__ntTextUndo = manager;
     }
 
+    /**
+     * Whatever the editor's plugins appended while re-rendering a step (a
+     * trailing paragraph, block ids) exists only in the editor: the sync
+     * plugin sits out the re-render it is itself dispatching. Left for the
+     * next keystroke or caret blink to write, that repair reached the doc as
+     * a fresh edit of the person's — emptying the redo stack and putting a
+     * phantom step on top of the one just undone, so the next ⌘Z walked
+     * forward instead of back. It is written here, as nobody's history.
+     */
+    const settle = () => {
+      const view = editor.prosemirrorView;
+      if (!view || view.isDestroyed) return;
+      view.dispatch(view.state.tr.setMeta("addToHistory", false));
+    };
+
     const step = (direction: "undo" | "redo"): DomainStep => {
       if (forked()) return "blocked";
       const from = direction === "undo" ? manager.undoStack : manager.redoStack;
@@ -186,6 +203,7 @@ export function useTextUndoDomain(
       } finally {
         muted = false;
       }
+      settle();
       return {
         consumed: before - from.length,
         redoable: to.length > toBefore,
