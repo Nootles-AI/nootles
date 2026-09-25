@@ -1,13 +1,15 @@
 import { createExtension, defaultBlockSpecs } from "@blocknote/core";
 import { InputRule, inputRules } from "@handlewithcare/prosemirror-inputrules";
-import type { Node as PMNode } from "prosemirror-model";
+import { Fragment, type Node as PMNode } from "prosemirror-model";
 import {
   NodeSelection,
   Plugin,
+  PluginKey,
   TextSelection,
   type EditorState,
   type Transaction,
 } from "prosemirror-state";
+import type { EditorView } from "prosemirror-view";
 
 /** An empty paragraph block — somewhere to write that nobody has written in. */
 function isEmptyParagraph(node: PMNode | null | undefined): boolean {
@@ -23,8 +25,10 @@ function isEmptyParagraph(node: PMNode | null | undefined): boolean {
  * starts at `containerPos`, making that block if it is not an empty paragraph.
  *
  * "Below" is the divider's first child when it has any, else its next sibling:
- * the next block in reading order. Only an empty paragraph is reused — landing
- * at the start of a written line would splice whatever is typed next into it.
+ * the next block in reading order. (`---` leaves a divider no children; one
+ * holds them only if a block was nested under it afterwards.) Only an empty
+ * paragraph is reused — landing at the start of a written line would splice
+ * whatever is typed next into it.
  */
 export function caretBelowDivider(tr: Transaction, containerPos: number): Transaction {
   const container = tr.doc.nodeAt(containerPos);
@@ -52,6 +56,9 @@ export function caretBelowDivider(tr: Transaction, containerPos: number): Transa
  * invisible here, and somewhere keystrokes do not land. It also fires on `---`
  * typed ahead of existing text and throws that text away; this one fires only
  * when the dashes are the whole block.
+ *
+ * A divider holds nothing, so the block's nested blocks step out to follow it
+ * rather than hang indented under a rule.
  */
 export function dashesToDivider(
   state: EditorState,
@@ -66,12 +73,30 @@ export function dashesToDivider(
   ) {
     return null;
   }
+  const container = $start.node(-1);
+  const divider = container.type.create(container.attrs, state.schema.nodes.divider.create());
+  const lifted = container.childCount > 1 ? container.child(1).content : Fragment.empty;
   const tr = state.tr.replaceWith(
-    $start.before(),
-    $start.after(),
-    state.schema.nodes.divider.create(),
+    $start.before(-1),
+    $start.after(-1),
+    Fragment.from(divider).append(lifted),
   );
   return caretBelowDivider(tr, $start.before(-1)).scrollIntoView();
+}
+
+/**
+ * Where the divider's block container starts, when `state` has a divider
+ * node-selected — the divider itself or the block around it.
+ */
+function selectedDivider(state: EditorState): number | null {
+  const { selection } = state;
+  if (!(selection instanceof NodeSelection)) return null;
+  const { node } = selection;
+  if (node.type.name === "divider") return selection.$from.before();
+  if (node.type.name === "blockContainer" && node.firstChild?.type.name === "divider") {
+    return selection.from;
+  }
+  return null;
 }
 
 /**
@@ -79,15 +104,24 @@ export function dashesToDivider(
  * Backspace that stepped onto it from an empty line — writes on the line
  * below it. BlockNote drops every printable key on a node selection, with
  * nothing on screen to say so.
+ *
+ * The caret moves first and the key is then offered to every text-input
+ * handler as if typed there, so a `/` still opens the slash menu. A run of
+ * selected blocks (Esc, the side menu) is the block selection's to handle.
  */
-export function typeBelowDivider(state: EditorState, text: string): Transaction | null {
-  const { selection } = state;
-  if (!(selection instanceof NodeSelection)) return null;
-  if (selection.node.type.name !== "divider") return null;
-  return caretBelowDivider(state.tr, selection.$from.before())
-    .insertText(text)
-    .scrollIntoView();
+export function typeBelowDivider(view: EditorView, text: string): boolean {
+  const containerPos = selectedDivider(view.state);
+  if (containerPos === null) return false;
+  view.dispatch(caretBelowDivider(view.state.tr, containerPos).scrollIntoView());
+  const { from } = view.state.selection;
+  const deflt = () => view.state.tr.insertText(text, from, from);
+  if (!view.someProp("handleTextInput", (f) => f(view, from, from, text, deflt))) {
+    view.dispatch(deflt());
+  }
+  return true;
 }
+
+export const typingKey = new PluginKey("nt-divider-typing");
 
 /**
  * BlockNote's divider, with its `---` rule replaced by {@link dashesToDivider}
@@ -102,19 +136,23 @@ export const dividerBlockSpec = {
       prosemirrorPlugins: [
         inputRules({
           rules: [
-            new InputRule(/^---$/, (state, _match, start, end) =>
-              dashesToDivider(state, start, end),
+            // Not undoable by Backspace: the undo re-types the last dash on
+            // top of the three it restores, leaving `----`. Backspace on the
+            // new line is Backspace on an empty line, and ⌘Z takes it back.
+            new InputRule(
+              /^---$/,
+              (state, _match, start, end) => dashesToDivider(state, start, end),
+              { undoable: false },
             ),
           ],
         }),
         new Plugin({
+          key: typingKey,
           props: {
             handleKeyDown(view, event) {
               if (event.ctrlKey || event.metaKey || event.isComposing) return false;
               if (event.key.length !== 1) return false;
-              const tr = typeBelowDivider(view.state, event.key);
-              if (!tr) return false;
-              view.dispatch(tr);
+              if (!typeBelowDivider(view, event.key)) return false;
               event.preventDefault();
               return true;
             },

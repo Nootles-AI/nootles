@@ -52,7 +52,7 @@ import type { LegacyBlock } from "@/app/lib/nml/legacy";
 import { BlockSideMenu, editorPortalElements } from "./BlockSideMenu";
 import { PageTitleProvider } from "./PageTitleContext";
 import { InlineCodeButton } from "./InlineCodeButton";
-import { hasFormattableText } from "./formattable";
+import { hasToolbarWork } from "./formattable";
 import { CommentToolbarButton } from "../comments/CommentToolbarButton";
 import { completionExtension } from "./ai/completionExtension";
 import { hintExtension } from "./ai/hintText";
@@ -112,17 +112,17 @@ function Toolbar() {
   );
 }
 
-/** Held shut for a selection with no text in it — see `hasFormattableText`. */
+/** Held shut for a selection no button could act on — see `hasToolbarWork`. */
 const TOOLBAR_SHUT = { useFloatingOptions: { open: false } };
 
 function ToolbarController() {
-  const formattable = useEditorState({
-    selector: ({ editor }) => hasFormattableText(editor.prosemirrorState.selection),
+  const hasWork = useEditorState({
+    selector: ({ editor }) => hasToolbarWork(editor.prosemirrorState.selection),
   });
   return (
     <FormattingToolbarController
       formattingToolbar={Toolbar}
-      floatingUIOptions={formattable ? undefined : TOOLBAR_SHUT}
+      floatingUIOptions={hasWork ? undefined : TOOLBAR_SHUT}
     />
   );
 }

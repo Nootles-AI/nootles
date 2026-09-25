@@ -4,6 +4,7 @@ import {
   useActiveStyles,
   useBlockNoteEditor,
   useComponentsContext,
+  useEditorState,
 } from "@blocknote/react";
 import { Code } from "../Icons";
 
@@ -23,6 +24,15 @@ export function InlineCodeButton() {
   const editor = useBlockNoteEditor();
   const Components = useComponentsContext()!;
   const active = useActiveStyles();
+  // Hidden, as the stock style buttons are, when no selected block has text —
+  // a lone image's toolbar is for its file.
+  const hasText = useEditorState({
+    selector: ({ editor }) =>
+      (editor.getSelection()?.blocks ?? [editor.getTextCursorPosition().block]).some(
+        (block) => block.content !== undefined,
+      ),
+  });
+  if (!hasText) return null;
 
   return (
     <Components.FormattingToolbar.Button
