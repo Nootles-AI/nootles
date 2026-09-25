@@ -5,6 +5,7 @@ import {
 } from "@blocknote/core";
 import { codeBlockSpec } from "./blocks/CodeBlock";
 import { keepListItems, stepOutOfEmptyItems } from "./blocks/listSafe";
+import { markersByDepth } from "./blocks/listMarkers";
 import { mathBlockSpec } from "./blocks/MathBlock";
 import { canvasBlockSpec } from "./blocks/CanvasBlock";
 import { albumBlockSpec } from "./blocks/AlbumBlock";
@@ -35,7 +36,10 @@ export const schema = BlockNoteSchema.create({
     // BlockNote's own list items, less the one thing Enter on an empty one was
     // never meant to do — see `stepOutOfEmptyItems`.
     bulletListItem: stepOutOfEmptyItems(defaultBlockSpecs.bulletListItem),
-    numberedListItem: stepOutOfEmptyItems(defaultBlockSpecs.numberedListItem),
+    // Numbered items also count 1. a. i. by depth — see `markersByDepth`.
+    numberedListItem: markersByDepth(
+      stepOutOfEmptyItems(defaultBlockSpecs.numberedListItem),
+    ),
     checkListItem: stepOutOfEmptyItems(defaultBlockSpecs.checkListItem),
     toggleListItem: stepOutOfEmptyItems(defaultBlockSpecs.toggleListItem),
     codeBlock: codeBlockSpec,
