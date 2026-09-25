@@ -38,6 +38,9 @@ const HARNESSES = [
   "projects-screen-hit",
   // And the code block's keyboard: the ways into its editor and out of it.
   "editor-code-block",
+  // And the document's own keys: the title seam, the table keys and the
+  // page-link menus.
+  "editor-title-table-menus",
 ];
 
 function run(name) {

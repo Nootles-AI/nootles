@@ -11,7 +11,7 @@ import {
   useSyncExternalStore,
   type ReactElement,
 } from "react";
-import { formatKeyboardShortcut } from "@blocknote/core";
+import { formatKeyboardShortcut, SuggestionMenu } from "@blocknote/core";
 import { BlockNoteView } from "@blocknote/mantine";
 import "@blocknote/mantine/style.css";
 import {
@@ -86,6 +86,9 @@ import { useAttachCommentsEditor } from "../comments/editorSlot";
 import { trailingParagraphExtension } from "./trailingParagraph";
 import { inlineShortcutsExtension } from "./inlineShortcutsExtension";
 import { pasteHandler, plainPasteExtension } from "./paste";
+import { tableKeysExtension } from "./tableKeys";
+import { titleBoundaryExtension } from "./titleBoundary";
+import { PAGE_LINK_TRIGGER, pageLinkTriggerExtension } from "./inline/pageLinkTrigger";
 import { dropDeadSelectors } from "./deadSelectors";
 import "./editor.css";
 
@@ -302,6 +305,9 @@ export function slashItems(editor: EditorInstance): DefaultReactSuggestionItem[]
     ...restyle(d.heading_3.title, WRITE, <Icon.Heading3 />, {
       subtext: "The level below that",
     }),
+    ...restyle(d.heading_4.title, WRITE, <Icon.Heading4 />, {
+      subtext: "The smallest section",
+    }),
     ...restyle(d.quote.title, WRITE, <Icon.Quote />, {
       subtext: "Set a passage apart",
     }),
@@ -351,6 +357,19 @@ export function slashItems(editor: EditorInstance): DefaultReactSuggestionItem[]
     }),
 
     // ---- Insert ---------------------------------------------------------
+    {
+      title: "Link to page",
+      subtext: "A chip that opens another page",
+      aliases: ["link", "page", "mention", "reference", "link to page"],
+      group: INSERT,
+      icon: <Icon.FileDoc />,
+      // The "@" menu itself, opened from here: one list of pages, one chip.
+      // Opened without typing its "@", so leaving it leaves nothing behind.
+      onItemClick: () =>
+        editor.getExtension(SuggestionMenu)?.openSuggestionMenu("@", {
+          ignoreQueryLength: true,
+        }),
+    },
     {
       title: "Diagram",
       subtext: "Draw a canvas with shapes and connectors",
@@ -509,7 +528,7 @@ export function slashItems(editor: EditorInstance): DefaultReactSuggestionItem[]
 }
 
 // The "@" menu: every page in the project, as a chip to be inserted.
-function mentionItems(
+export function mentionItems(
   editor: EditorInstance,
   pages: PageRef[],
 ): DefaultReactSuggestionItem[] {
@@ -572,6 +591,10 @@ const EXTENSIONS = [
   inlineShortcutsExtension,
   plainPasteExtension,
   notionKeysExtension,
+  // After the completion lane, whose Tab accepts a showing suggestion first.
+  tableKeysExtension,
+  titleBoundaryExtension,
+  pageLinkTriggerExtension(),
 ];
 
 const placeholder = <div className="min-h-[40vh]" aria-hidden />;
@@ -895,14 +918,17 @@ function EditorSurface({
                   filterItems(groupAdjacent(slashItems(editor)), query)
                 }
               />
-              <SuggestionMenuController
-                triggerCharacter="@"
-                floatingUIOptions={menuPlacement}
-                suggestionMenuComponent={PageMentionMenu}
-                getItems={async (query) =>
-                  filterItems(mentionItems(editor, pages ?? []), query)
-                }
-              />
+              {["@", PAGE_LINK_TRIGGER].map((trigger) => (
+                <SuggestionMenuController
+                  key={trigger}
+                  triggerCharacter={trigger}
+                  floatingUIOptions={menuPlacement}
+                  suggestionMenuComponent={PageMentionMenu}
+                  getItems={async (query) =>
+                    filterItems(mentionItems(editor, pages ?? []), query)
+                  }
+                />
+              ))}
             </>
           )}
         </BlockNoteView>

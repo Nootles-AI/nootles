@@ -12,6 +12,7 @@ import {
 import { Editable } from "./Editable";
 import { Editor } from "./editor/Editor";
 import { useEditorRegistry } from "./editor/EditorRegistry";
+import { leaveTitle, TITLE_ATTR } from "./editor/titleBoundary";
 import { ModeToggle } from "./ModeToggle";
 import { CurrentPageProvider, useOpenPage, type Pane } from "./OpenPageContext";
 import { ArrowLeft, X } from "./Icons";
@@ -138,19 +139,23 @@ export function PageSurface({
     return rename({ pageId, title }).then(() => {});
   };
 
+  /** Write the title now, and record it — anything still debounced folds in. */
+  const commitTitle = (text: string) => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = null;
+    const before = committedTitle.current ?? "";
+    if (text === before) return;
+    committedTitle.current = text;
+    void rename({ pageId, title: text });
+    pageDomainRef.current?.record({
+      undo: () => restoreTitle(before),
+      redo: () => restoreTitle(text),
+    });
+  };
+
   const persistTitle = (text: string) => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => {
-      debounceRef.current = null;
-      const before = committedTitle.current ?? "";
-      if (text === before) return;
-      committedTitle.current = text;
-      void rename({ pageId, title: text });
-      pageDomainRef.current?.record({
-        undo: () => restoreTitle(before),
-        redo: () => restoreTitle(text),
-      });
-    }, 400);
+    debounceRef.current = setTimeout(() => commitTitle(text), 400);
   };
 
   return (
@@ -227,29 +232,17 @@ export function PageSurface({
             {page.title || "Untitled"}
           </h1>
         ) : (
-        <div ref={titleHost} className="nt-page-in is-title" data-turn={turn} {...undoScope}>
+        <div
+          ref={titleHost}
+          className="nt-page-in is-title"
+          data-turn={turn}
+          {...{ [TITLE_ATTR]: "" }}
+          {...undoScope}
+        >
         <Editable
           value={page.title}
           onInput={persistTitle}
-          onKeyDown={(e) => {
-            if (e.key !== "Enter") return;
-            e.preventDefault();
-            // Enter leaves the title for the document, the way it does in every
-            // editor this one resembles. Blurring instead left the caret
-            // nowhere at all, so the next thing typed went to the page rather
-            // than into the page.
-            const title = e.currentTarget;
-            registry
-              .editorFor(pageId)
-              .then((editor) => {
-                const first = editor.document[0];
-                if (first) editor.setTextCursorPosition(first, "start");
-                editor.focus();
-              })
-              // A document that never finished loading has nowhere to put the
-              // caret; letting go of the title is better than trapping it.
-              .catch(() => title.blur());
-          }}
+          onKeyDown={(e) => leaveTitle(e, () => registry.editorFor(pageId), commitTitle)}
           placeholder="Untitled"
           label="Page title"
           className="w-full text-[length:var(--text-title)] font-semibold tracking-[-0.02em] text-balance"
