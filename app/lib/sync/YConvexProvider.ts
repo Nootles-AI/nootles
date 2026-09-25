@@ -710,13 +710,16 @@ export class YConvexProvider {
         import("@/app/lib/ai/context/digest"),
       ]);
       await idle();
+      // The seq the blocks were read at, not whatever the cursor reaches by
+      // the time the idle slots below have passed.
+      const seq = this.cursor;
       const blocks = blocksFromYDoc(this.doc);
       await idle();
       const encoded = preview ? encodePreview(blocks) : undefined;
       await idle();
       const digest = digestPage(blocks);
       await Promise.all([
-        encoded === undefined ? null : this.writePreview(encoded),
+        encoded === undefined ? null : this.writePreview(encoded, seq),
         this.writeDigest(digest),
       ]);
     } catch {
@@ -724,14 +727,14 @@ export class YConvexProvider {
     }
   }
 
-  private async writePreview(blocks: string | null) {
+  private async writePreview(blocks: string | null, seq: number) {
     // Most edits land below the fold of a thumbnail and change nothing.
     if (blocks === this.sentPreview) return;
     try {
       await this.client.mutation(api.previews.set, {
         docId: this.docId,
         blocks,
-        seq: this.cursor,
+        seq,
       });
       this.sentPreview = blocks;
     } catch {
