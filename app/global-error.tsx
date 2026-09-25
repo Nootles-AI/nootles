@@ -4,14 +4,21 @@ import { useEffect } from "react";
 import * as Sentry from "@sentry/nextjs";
 import "./globals.css";
 import { Interrupted } from "./components/Interrupted";
+import { fontVariables } from "./fonts";
 
 /**
  * A throw in the root layout itself — a provider — which `error.tsx` sits
  * beneath and cannot catch. This replaces the whole document, so it brings its
- * own `<html>` and styles, and a reload is the only way back worth offering:
- * there is no session left mounted to retry into.
+ * own `<html>`, styles and faces. "Try again" re-renders the providers, which
+ * is enough when what threw was passing; a reload is there for when it is not.
  */
-export default function GlobalError({ error }: { error: Error & { digest?: string } }) {
+export default function GlobalError({
+  error,
+  unstable_retry,
+}: {
+  error: Error & { digest?: string };
+  unstable_retry: () => void;
+}) {
   useEffect(() => {
     Sentry.captureException(error, {
       tags: { feature: "global-error" },
@@ -20,12 +27,12 @@ export default function GlobalError({ error }: { error: Error & { digest?: strin
   }, [error]);
 
   return (
-    <html lang="en" className="h-full antialiased">
+    <html lang="en" className={`${fontVariables} h-full antialiased`}>
       <body className="min-h-full flex flex-col">
         <title>Nootles</title>
-        <Interrupted title="Something went wrong">
-          Nootles stopped working. Anything already saved is safe — reload to pick up where you
-          left off.
+        <Interrupted title="Something went wrong" retry={unstable_retry}>
+          Nootles stopped working. Anything already saved is safe — try again, or reload to pick
+          up where you left off.
         </Interrupted>
       </body>
     </html>

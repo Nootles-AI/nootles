@@ -11,23 +11,26 @@ import {
 } from "react";
 import { ConvexReactClient, ConvexProviderWithAuth, useConvexAuth } from "convex/react";
 import { useAuth, useClerk } from "@clerk/nextjs";
+import * as Sentry from "@sentry/nextjs";
 import { impersonationToken } from "./lib/impersonation";
 import { forgetOnSignOut } from "./lib/projectsCache";
 import { requireConvexDeploymentUrl } from "./lib/convexDeploymentUrl";
-import { patientToken, reauthDelay } from "./lib/sessionToken";
+import { patientToken, reauthDelay, reauthState } from "./lib/sessionToken";
 
 const convex = new ConvexReactClient(
   requireConvexDeploymentUrl(process.env.NEXT_PUBLIC_CONVEX_URL),
 );
 
 /**
- * The operator's stand-in token, if any, and how many times this tab has
- * asked Convex to take a token again (`Reauthenticate`).
+ * The operator's stand-in token, if any; how many times this tab has asked
+ * Convex to take a token again (`Reauthenticate`); and how the token fetch
+ * says it is waiting on Clerk.
  */
-const Session = createContext<{ standIn: string | null; asked: number }>({
-  standIn: null,
-  asked: 0,
-});
+const Session = createContext<{
+  standIn: string | null;
+  asked: number;
+  onWait: (waiting: boolean) => void;
+}>({ standIn: null, asked: 0, onWait: () => {} });
 
 /**
  * Which identity this tab speaks to Convex as.
@@ -41,17 +44,20 @@ const Session = createContext<{ standIn: string | null; asked: number }>({
 function useNootlesAuth() {
   const { isLoaded, isSignedIn, getToken, orgId, orgRole, sessionId, sessionClaims } =
     useAuth();
-  const { standIn, asked } = useContext(Session);
+  const clerk = useClerk();
+  const { standIn, asked, onWait } = useContext(Session);
 
   const fetchAccessToken = useCallback(
     async ({ forceRefreshToken }: { forceRefreshToken: boolean }) => {
       if (standIn) return standIn;
       // The dashboard's Convex integration puts `aud: "convex"` on the raw
       // session token; the template is the fallback for instances without it.
-      return patientToken(() =>
-        sessionClaims?.aud === "convex"
-          ? getToken({ skipCache: forceRefreshToken })
-          : getToken({ template: "convex", skipCache: forceRefreshToken }),
+      return patientToken(
+        () =>
+          sessionClaims?.aud === "convex"
+            ? getToken({ skipCache: forceRefreshToken })
+            : getToken({ template: "convex", skipCache: forceRefreshToken }),
+        { signedIn: () => clerk.isSignedIn, onWait },
       );
     },
     // Clerk's contract: a new function identity is what re-authenticates the
@@ -76,14 +82,19 @@ function useNootlesAuth() {
   );
 }
 
-const Reconnecting = createContext(false);
-
 /**
- * True while this tab is asking Convex to take back a token it let go of, so
- * a surface waiting on auth can say so instead of standing blank.
+ * How this tab's hold on Convex stands, past simply having it:
+ * - `waiting` — Clerk has not handed over a token yet; Convex still has the
+ *   last identity, and the tab carries on offline.
+ * - `reasking` — Convex let go of the identity and is being asked to take it again.
+ * - `stuck` — it has refused enough times that only a reload is worth offering.
  */
-export function useReconnecting(): boolean {
-  return useContext(Reconnecting);
+export type Connection = "live" | "waiting" | "reasking" | "stuck";
+
+const ConnectionContext = createContext<Connection>("live");
+
+export function useConnection(): Connection {
+  return useContext(ConnectionContext);
 }
 
 /**
@@ -96,25 +107,31 @@ export function useReconnecting(): boolean {
 function Reauthenticate({
   asked,
   again,
+  waiting,
   children,
 }: {
   asked: number;
   again: () => void;
+  waiting: boolean;
   children: ReactNode;
 }) {
   const { isLoading, isAuthenticated } = useConvexAuth();
   const { isSignedIn } = useAuth();
-  // `asked` as of the last time Convex held a token: the asks since are this
-  // outage's, and what the back-off counts.
   const [held, setHeld] = useState(asked);
-  if (isAuthenticated && held !== asked) setHeld(asked);
-  const tries = asked - held;
-  const dropped = isSignedIn === true && !isLoading && !isAuthenticated;
+  const { held: since, tries, dropped, stuck } = reauthState({
+    asked,
+    held,
+    isSignedIn,
+    isLoading,
+    isAuthenticated,
+  });
+  if (since !== held) setHeld(since);
 
   useEffect(() => {
     if (!dropped) return;
-    const timer = window.setTimeout(again, reauthDelay(tries));
-    // Back online, or back in front of someone: no reason to sit out a delay.
+    // Refused this often, the answer is the server's: stop asking on a clock,
+    // but a return to the network or to the tab is still worth one more try.
+    const timer = stuck ? undefined : window.setTimeout(again, reauthDelay(tries));
     const now = () => {
       if (!navigator.onLine || document.visibilityState !== "visible") return;
       window.clearTimeout(timer);
@@ -127,9 +144,37 @@ function Reauthenticate({
       window.removeEventListener("online", now);
       document.removeEventListener("visibilitychange", now);
     };
-  }, [dropped, tries, again]);
+  }, [dropped, stuck, tries, again]);
 
-  return <Reconnecting value={tries > 0 && !isAuthenticated}>{children}</Reconnecting>;
+  useEffect(() => {
+    if (!stuck) return;
+    Sentry.captureMessage("Convex keeps refusing a token Clerk still issues", {
+      level: "warning",
+      tags: { feature: "reauth" },
+      extra: { tries, online: navigator.onLine },
+    });
+    // Once per outage: `stuck` stays true through the asks that follow it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stuck]);
+
+  const connection: Connection = stuck
+    ? "stuck"
+    : tries > 0 && !isAuthenticated
+      ? "reasking"
+      : waiting
+        ? "waiting"
+        : "live";
+
+  return (
+    <ConnectionContext value={connection}>
+      {children}
+      {connection === "waiting" && isAuthenticated && (
+        <div className="nt-update" role="status">
+          <span>Reconnecting… your changes sync once it’s back.</span>
+        </div>
+      )}
+    </ConnectionContext>
+  );
 }
 
 export function ConvexClientProvider({ children }: { children: ReactNode }) {
@@ -144,14 +189,18 @@ export function ConvexClientProvider({ children }: { children: ReactNode }) {
   const [standIn] = useState(impersonationToken);
   const [asked, setAsked] = useState(0);
   const again = useCallback(() => setAsked((n) => n + 1), []);
-  const session = useMemo(() => ({ standIn, asked }), [standIn, asked]);
+  // A count, not a flag: a scheduled refresh and a re-ask after the server's
+  // refusal can both be waiting on Clerk at once.
+  const [waits, setWaits] = useState(0);
+  const onWait = useCallback((w: boolean) => setWaits((n) => n + (w ? 1 : -1)), []);
+  const session = useMemo(() => ({ standIn, asked, onWait }), [standIn, asked, onWait]);
   return (
     <Session value={session}>
       <ConvexProviderWithAuth client={convex} useAuth={useNootlesAuth}>
         {standIn ? (
           children
         ) : (
-          <Reauthenticate asked={asked} again={again}>
+          <Reauthenticate asked={asked} again={again} waiting={waits > 0}>
             {children}
           </Reauthenticate>
         )}
