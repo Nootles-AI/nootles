@@ -10,6 +10,7 @@ import type {
 import type { AnyBlock } from "./projection";
 import { duringAiApply, pushAiOp, type OpFeature } from "@/app/lib/debugRing";
 import { isEmptyParagraphBlock } from "@/app/lib/documentTail";
+import { asOneStep } from "@/app/lib/history/textSteps";
 
 /**
  * The applier: turns a validated op batch into the EXACT same BlockNote editor
@@ -172,8 +173,9 @@ export function caretTarget(result: ApplyResult): string | undefined {
  *
  * The inner call runs inside {@link duringAiApply} so the editor's transaction
  * listener — which logs what a person types — recognises these edits as already
- * accounted for and stays quiet. `feature` is the `aiCalls` name of whatever
- * asked, so a report's op timeline can be lined up against the cost ledger.
+ * accounted for and stays quiet, and inside {@link asOneStep} so ⌘Z takes the
+ * whole batch back at once. `feature` is the `aiCalls` name of whatever asked,
+ * so a report's op timeline can be lined up against the cost ledger.
  */
 export function applyBatch(
   editor: Editor,
@@ -181,7 +183,7 @@ export function applyBatch(
   feature?: OpFeature,
 ): ApplyResult {
   for (const op of batch.ops) pushAiOp(op, feature);
-  return duringAiApply(() => applyBatchInner(editor, batch));
+  return duringAiApply(() => asOneStep(() => applyBatchInner(editor, batch)));
 }
 
 function applyBatchInner(editor: Editor, batch: Batch): ApplyResult {
