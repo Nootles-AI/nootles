@@ -419,8 +419,9 @@ export const AI = {
   commentsGate: {
     model: "google/gemini-3.7-flash",
     /**
-     * It runs beside the context read, so this is roughly the most it can add
-     * to a turn's first token. Past it the turn goes on without comments — the
+     * The model's prompt waits for its answer, and it runs beside only
+     * `beginChat`, so this is roughly the most it can add to a turn's first
+     * token. Past it the turn goes on without comments — the
      * ledger's `timeout` rows say whether it is too tight. The 2026-09-23
      * live check answered in 974–1434 ms with thinking, too close to 1500.
      */

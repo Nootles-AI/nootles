@@ -415,6 +415,100 @@ describe("when the gate must not be asked", () => {
   });
 });
 
+describe("the gate beside beginChat (NT-88)", () => {
+  const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  const beginChatIs = (answer: () => Promise<unknown>) =>
+    convex.mutation.mockImplementation(async (ref: unknown) =>
+      getFunctionName(ref as never) === "entitlements:beginChat" ? answer() : undefined,
+    );
+  /** A vendor that never answers, and gives up only when its request is called off. */
+  const hangingGate = () => {
+    gate = vi.fn(
+      (_url: string, init?: RequestInit) =>
+        new Promise<Response>((_, reject) =>
+          init?.signal?.addEventListener("abort", () => reject(init.signal!.reason), { once: true }),
+        ),
+    );
+    vi.stubGlobal("fetch", gate);
+  };
+
+  test("is asked while beginChat is still out, so the two waits overlap", async () => {
+    const at: Record<string, number> = {};
+    beginChatIs(async () => {
+      await wait(300);
+      at.began = Date.now();
+    });
+    const answered = gate as (url: string, init?: RequestInit) => Promise<Response>;
+    gate = vi.fn(async (url: string, init?: RequestInit) => {
+      at.asked = Date.now();
+      await wait(300);
+      return answered(url, init);
+    });
+    vi.stubGlobal("fetch", gate);
+    const started = Date.now();
+    const { attached } = await run(post({ comments: digest() }));
+    const took = Date.now() - started;
+    expect(at.asked).toBeLessThan(at.began);
+    // Serially it is 600 ms and more; side by side, one wait's worth.
+    expect(took).toBeLessThan(500);
+    expect(attached).toBeGreaterThanOrEqual(0);
+  });
+
+  test.each([
+    ["a quota refusal", new ConvexError({ code: "quota", meter: "chat" }), 402],
+    ["a chat refusal", new ConvexError({ code: "chat_refused", reason: "readOnly" }), 403],
+  ])("%s calls off a gate already asked, and the refusal is not held up by it", async (_, error, status) => {
+    hangingGate();
+    beginChatIs(async () => {
+      await wait(50);
+      throw error;
+    });
+    const started = Date.now();
+    const res = await POST(post({ comments: digest() }));
+    expect(res.status).toBe(status);
+    expect(Date.now() - started).toBeLessThan(AI.commentsGate.timeoutMs);
+    expect(gate).toHaveBeenCalledTimes(1);
+    const signal = (gate.mock.calls[0][1] as RequestInit).signal!;
+    expect(signal.aborted).toBe(true);
+    await wait(0);
+    expect(gateRows().map(([, row]) => row.status)).toEqual(["aborted"]);
+    expect(model.doStreamCalls).toHaveLength(0);
+  });
+
+  test("a refusal that lands before the context read never asks the gate at all", async () => {
+    convex.query.mockImplementation(async () => {
+      await wait(100);
+      return inputs;
+    });
+    beginChatIs(async () => {
+      throw new ConvexError({ code: "quota", meter: "chat" });
+    });
+    const res = await POST(post({ comments: digest() }));
+    expect(res.status).toBe(402);
+    await wait(150);
+    expect(gate).not.toHaveBeenCalled();
+    expect(gateRows()).toHaveLength(0);
+  });
+
+  test("the gate still waits for the limiter's admission", async () => {
+    let admitted = 0;
+    refuseIfLimited.mockImplementation(async () => {
+      await wait(100);
+      admitted = Date.now();
+      return null;
+    });
+    let asked = 0;
+    const answered = gate as (url: string, init?: RequestInit) => Promise<Response>;
+    gate = vi.fn(async (url: string, init?: RequestInit) => {
+      asked = Date.now();
+      return answered(url, init);
+    });
+    vi.stubGlobal("fetch", gate);
+    await run(post({ comments: digest() }));
+    expect(asked).toBeGreaterThanOrEqual(admitted);
+  });
+});
+
 describe("a resumed turn", () => {
   const resumed = (commentsGate?: unknown): AbMessage[] => [
     user("Redraft the launch section, taking the notes into account."),

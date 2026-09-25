@@ -149,12 +149,14 @@ export async function POST(req: Request) {
   // The project's context pack. Read per request rather than per turn because
   // the project is a living thing, and it is one round trip: without it the
   // agent writes into every project as if it were the same project. Started
-  // here so it runs beside the gates below, and is back by the time the paid
-  // comments gate needs to know the caller may read this project at all.
+  // here so it runs beside the limiter below; the paid comments gate waits for
+  // it, since it is what says the caller may read this project at all.
   const note = openPageNote(pageId);
   const reading = convex
     .query(api.context.read.packInputs, { projectId, ...(note ? { pageId } : {}) })
     .catch(() => null);
+  // Only a digest of the page the note names: "this page" has to mean one page.
+  const offered = digest?.ok && note && digest.digest.pageId === pageId ? digest.digest : null;
 
   // Every request that will reach the model spends one `agentGeneration` — and
   // a turn is several such requests as client tools are answered, which is why
@@ -165,6 +167,27 @@ export async function POST(req: Request) {
   const limited = await refuseIfLimited(convex, "agentGeneration");
   if (limited) return limited;
 
+  // Whether this turn reads the page's comments: a paid call of a second or
+  // two that the model's prompt waits on, so it runs beside `beginChat` rather
+  // than after it (NT-88). After the limiter, which is what bounds how often it
+  // can be asked, and after the context read, so only a caller the project
+  // admits is asked about at all. Called off if `beginChat` refuses the turn.
+  const refused = new AbortController();
+  const wanted = offered
+    ? reading.then((inputs) =>
+        inputs
+          ? commentsWanted(
+              convex,
+              messages,
+              offered,
+              budget > 0,
+              AbortSignal.any([req.signal, refused.signal]),
+              { ownerId: caller.userId, projectId },
+            ).catch(() => false)
+          : null,
+      )
+    : null;
+
   // Charges the conversation against the free allowance, once, and refuses when
   // there is none left. Idempotent, which matters here: one turn is several
   // requests as client tools are answered, and only the first is a new
@@ -172,6 +195,7 @@ export async function POST(req: Request) {
   try {
     await convex.mutation(api.entitlements.beginChat, { threadId, projectId });
   } catch (e) {
+    refused.abort();
     if (isQuotaRefusal(e)) return quotaResponse(e.data.meter);
     // Demoted, or the project gone, mid-conversation: theirs to be told,
     // not a server error (NT-83). `retryNotice` words it in the panel.
@@ -180,16 +204,9 @@ export async function POST(req: Request) {
   }
 
   const inputs = await reading;
-  // Only a digest of the page the note names: "this page" has to mean one page.
   // Not for a caller the project refused, or a turn with no step left to use it in.
-  const pageComments =
-    digest?.ok && note && digest.digest.pageId === pageId && inputs ? digest.digest : null;
-  const withComments = pageComments
-    ? await commentsWanted(convex, messages, pageComments, budget > 0, req.signal, {
-        ownerId: caller.userId,
-        projectId,
-      }).catch(() => false)
-    : null;
+  const withComments = wanted ? await wanted : null;
+  const pageComments = offered && inputs ? offered : null;
   const about = inputs ? projectPack(inputs, AI.chat.context.projectTokens) : "";
 
   // Separate instructions, not one concatenated string. The breakpoint goes on
