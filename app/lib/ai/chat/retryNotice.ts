@@ -19,8 +19,9 @@ export function guestDaySpent(now: Date = new Date()): string {
  *
  * The chat transport throws the response body as the error's message, so the
  * gate's `429` arrives here as the JSON it wrote. Turned into a sentence with a
- * count of seconds; a `503` becomes a briefer "try again" with no promised time,
- * because there is none to promise. A guest's spent day of a workspace's AI —
+ * count of seconds; a `503` — the limiter down, or no model this deployment can
+ * reach — becomes a briefer "try again" with no promised time, because there is
+ * none to promise. A guest's spent day of a workspace's AI —
  * the one `402` with no wall to raise, since nothing the guest can buy lifts
  * it — says when it opens again. A `403` from `beginChat` says the person can
  * no longer edit the project, or no longer open it. Anything else — a real
@@ -51,7 +52,7 @@ export function retryNotice(message: string): string | null {
       ? "This project is no longer open to you — it may have been moved to the trash, or your access ended."
       : "You can no longer edit this project, so the assistant can’t work in it. Ask whoever shared it for edit access.";
   }
-  if (code === "limiter_unavailable") {
+  if (code === "limiter_unavailable" || code === "model_unavailable") {
     return "The assistant is briefly unavailable. Try again in a moment.";
   }
   if (code !== "rate_limit") return null;
