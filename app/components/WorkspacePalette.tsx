@@ -19,6 +19,8 @@ import { useStandIn } from "./StandIn";
 import { slugOf, useContainer } from "./workspaces/ContainerContext";
 import { INVITE_WORDS, InvitePage } from "./workspaces/InvitePage";
 import { offersInvite } from "./workspaces/seats";
+import type { ModeCommand } from "./pageCommands";
+import type { PageMode } from "./editor/ai/useTabCompletion";
 
 /** A keyboard, in the app's 24-grid stroke. */
 function Keyboard() {
@@ -29,11 +31,27 @@ function Keyboard() {
   );
 }
 
+/** A spark, for the suggestion mode's rows. */
+function Spark() {
+  return (
+    <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M6 18l2.5-2.5M15.5 8.5 18 6" />
+    </svg>
+  );
+}
+
+/** Both lines describe what the model does, not what you happen to be doing. */
+const MODES: { id: PageMode; name: string; line: string; words: readonly string[] }[] = [
+  { id: "create", name: "Suggestions: Create", line: "Writes what is not there yet", words: ["mode", "ai", "create", "complete", "suggest"] },
+  { id: "complete", name: "Suggestions: Complete", line: "Only finishes what you started", words: ["mode", "ai", "create", "complete", "suggest"] },
+];
+
 /**
  * ⌘K inside a project: the projects screen's palette, pointed at pages.
  *
- * It only goes places — a page, a rail, the project list. Nothing here writes,
- * so nothing here has to answer to the undo spine; making a page stays with the
+ * It mostly goes places — a page, a rail, the project list. The one thing it
+ * changes, the open page's suggestion mode, it asks the page to change: the
+ * page writes it and records it on the undo spine. Making a page stays with the
  * sidebar, which already records it.
  */
 
@@ -56,6 +74,7 @@ export function WorkspacePalette({
   leftOpen,
   rightOpen,
   canChat,
+  mode,
   onOpenPage,
   onToggleLeft,
   onToggleRight,
@@ -68,6 +87,8 @@ export function WorkspacePalette({
   rightOpen: boolean;
   /** Viewers have no assistant, so they are not offered its rail. */
   canChat: boolean;
+  /** The open page's suggestion mode, when it is one you can change. */
+  mode?: ModeCommand | null;
   onOpenPage: (id: Id<"pages">) => void;
   onToggleLeft: () => void;
   onToggleRight: () => void;
@@ -83,6 +104,7 @@ export function WorkspacePalette({
           leftOpen={leftOpen}
           rightOpen={rightOpen}
           canChat={canChat}
+          mode={mode}
           onOpenPage={onOpenPage}
           onToggleLeft={onToggleLeft}
           onToggleRight={onToggleRight}
@@ -100,6 +122,7 @@ function Body({
   leftOpen,
   rightOpen,
   canChat,
+  mode,
   onOpenPage,
   onToggleLeft,
   onToggleRight,
@@ -138,6 +161,17 @@ function Body({
         icon: <FileDoc width={16} height={16} />,
         run: () => onOpenPage(p._id),
       })),
+      ...(mode
+        ? MODES.map((m) => ({
+            id: `mode-${m.id}`,
+            group: "This page",
+            name: m.name,
+            line: m.id === mode.mode ? "On" : m.line,
+            icon: <Spark />,
+            words: m.words,
+            run: () => mode.set(m.id),
+          }))
+        : []),
       {
         id: "left",
         group: "Go",
@@ -190,7 +224,7 @@ function Body({
         : []),
     ];
     return all.filter((r) => paletteMatch(query, r.name, r.words));
-  }, [pages, currentPageId, leftOpen, rightOpen, canChat, query, onOpenPage, onToggleLeft, onToggleRight, onShowKeys, router, home, homeName, inviteTo]);
+  }, [pages, currentPageId, leftOpen, rightOpen, canChat, mode, query, onOpenPage, onToggleLeft, onToggleRight, onShowKeys, router, home, homeName, inviteTo]);
 
   const at = Math.min(index, Math.max(rows.length - 1, 0));
   const current = rows.at(at);

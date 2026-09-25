@@ -3,7 +3,7 @@
 /**
  * The canvas toolbar — floating over the diagram it serves.
  *
- * It is not inside the block: a canvas block is 600px of a document column, and
+ * It is not inside the block: a canvas block is one document column wide, and
  * the panels it belongs with are the window's. So it is a fixed pill that
  * *tracks* the canvas instead, and it stands down while a review is open — two
  * bars asking for the same corner is one bar too many, and the unanswered

@@ -16,7 +16,7 @@
  * written back onto the block, which the store then adopts.
  *
  * The panels and the toolbar are *not* rendered here. They belong to the
- * screen, not to a 600px column of a document, so the canvas publishes
+ * screen, not to a document column, so the canvas publishes
  * {@link CanvasApi} instead and the shell mounts them.
  *
  * ## Two scenes, and which question each one answers

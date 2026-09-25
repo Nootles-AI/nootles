@@ -121,14 +121,13 @@
   --text-meta-lg: 12px;   /* mono: counts, timestamps    */
   --text-ui: 13px;        /* rows, menus, buttons        */
   --text-body: 15px;      /* the document                */
-  --text-title: 30px;     /* page title                  */
+  --text-title: 30px;     /* screen titles               */
+  --text-page-title: 42px; /* a document's own title      */
   --leading-body: 1.7;
   --tracking-meta: 0.06em;
 
-  /* The content column. 600px is the floor set by the canvas: a three-wide
-     diagram needs 588px (2 x 220 spacing + 148 shape). Code and diagrams share
-     this width with prose — they do not break out of it. */
-  --measure: 600px;
+  /* The content column, --measure, is set on <html> by the root layout from
+     COLUMN_WIDTH (app/lib/column.ts), the one copy TS and CSS both read. */
 
   /* Control geometry */
   --inset: 8px;
@@ -665,9 +664,10 @@ body {
   padding-right: var(--inset);
 }
 /* The sidebar gone, the page's left gutter is where its way back and the
-   feedback button stand; the text keeps clear of both. */
+   feedback button stand; the text keeps clear of both. Both sides, so the
+   centred column stays centred. */
 .nt-well[data-edge-l] > .nt-pane {
-  padding-left: 40px;
+  padding-inline: 40px;
 }
 @media (prefers-reduced-motion: reduce) {
   .nt-well {

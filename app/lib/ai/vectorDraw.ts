@@ -5,6 +5,7 @@ import type { DrawFrame } from "./diagram";
 import { DEFAULT_DRAW_CHOICE, MONOCHROME_STYLES, type DrawChoice } from "./drawStyles";
 import { imageTarget, reportUpstream } from "./providers";
 import { importSvgScene } from "./svgImport";
+import { COLUMN_WIDTH } from "@/app/lib/column";
 
 /**
  * The vector specialist behind the draw tool.
@@ -128,7 +129,7 @@ export type VectorDrawResult = {
  * enough to sit flush in the column a diagram block occupies, tall enough that
  * a single subject is not letterboxed into a sliver.
  */
-const DEFAULT_FRAME = { w: 600, h: 450 };
+const DEFAULT_FRAME = { w: COLUMN_WIDTH, h: Math.round((COLUMN_WIDTH * 3) / 4) };
 
 /**
  * One drawing from the vector model, as canonical scene markup — or null. A

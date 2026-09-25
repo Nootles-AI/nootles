@@ -1,3 +1,5 @@
+import { COLUMN_WIDTH } from "@/app/lib/column";
+
 /**
  * The canvas grammar, taught once.
  *
@@ -125,11 +127,11 @@ neutral box is:
 Labels are 12-13px; a heading in a mockup can be larger.
 
 SIZE AND PLACEMENT
-The diagram sits in a document column about 600px wide and is shown from its top-left
-corner, so lay it out there: start at about x=40, y=40, keep the whole thing within 600px
+The diagram sits in a document column about ${COLUMN_WIDTH}px wide and is shown from its top-left
+corner, so lay it out there: start at about x=40, y=40, keep the whole thing within ${COLUMN_WIDTH}px
 across, and set w/h on <nt-diagram> to just contain the content plus that margin. A canvas
 far wider than what is in it puts the drawing off to one side of the column, and content
-past 600px is off the edge. Keep 40px between things that are not related.
+past ${COLUMN_WIDTH}px is off the edge. Keep 40px between things that are not related.
 
 A DRAWN canvas — one the draw tool painted — reads back as a stub, <nt-diagram id="…"
 drawn="240 shapes" at="…"></nt-diagram>, because its shapes are too many to be worth

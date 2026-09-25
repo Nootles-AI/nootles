@@ -48,8 +48,8 @@
  * That last one is where the sidebar's rule stops carrying. Its band and its
  * rows live in the same narrow column, so a band is always beside a row and
  * "which rows" is the only question there is. The document's pane is not its
- * column: the page is 712px of a window that can be twice that, anchored left
- * rather than centred, so most of what this gesture hears is room the document
+ * column: the page is one column in a window that can be twice that, centred
+ * with room either side, so most of what this gesture hears is room the document
  * does not occupy at all. Vertical overlap alone answered a band drawn out
  * there by plating whatever block happened to be level with it — a page's worth
  * of dead space in which no drag could stay empty (NT-63). So a block is under
