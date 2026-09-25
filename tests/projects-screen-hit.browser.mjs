@@ -66,7 +66,12 @@ const FIXTURES = {
       return useCallback(() => { throw new Error("the projects fixture ran an action: " + name); }, [name]);
     }
     export function useConvexAuth() { return { isLoading: false, isAuthenticated: true }; }
-    const inert = new Proxy({}, { get(_, key) { throw new Error("the projects fixture's Convex client was used: " + String(key)); } });
+    // Warming a project on hover is a hint the fixture may ignore; anything
+    // else through the client is a touch.
+    const inert = new Proxy({}, { get(_, key) {
+      if (key === "prewarmQuery") return () => {};
+      throw new Error("the projects fixture's Convex client was used: " + String(key));
+    } });
     export function useConvex() { return inert; }
   `,
   clerk: `
