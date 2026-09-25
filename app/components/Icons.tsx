@@ -481,7 +481,7 @@ export function Paragraph(props: SVGProps<SVGSVGElement>) {
   );
 }
 
-/** The H the three heading levels share; only the numeral beside it changes. */
+/** The H the heading levels share; only the numeral beside it changes. */
 const HEADING_H = "M4 12h8M4 18V6M12 18V6";
 
 export function Heading1(props: SVGProps<SVGSVGElement>) {
@@ -508,6 +508,16 @@ export function Heading3(props: SVGProps<SVGSVGElement>) {
       <path d={HEADING_H} />
       <path d="M17.5 10.5c1.7-1 3.5 0 3.5 1.5a2 2 0 0 1-2 2" />
       <path d="M17 17.5c2 1.5 4 .3 4-1.5a2 2 0 0 0-2-2" />
+    </svg>
+  );
+}
+
+export function Heading4(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <path d={HEADING_H} />
+      <path d="M17 10v4h4" />
+      <path d="M21 10v8" />
     </svg>
   );
 }
