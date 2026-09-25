@@ -7,7 +7,6 @@ import {
   useContext,
   useEffect,
   useMemo,
-  useRef,
   useState,
 } from "react";
 import { ConvexReactClient, ConvexProviderWithAuth, useConvexAuth } from "convex/react";
@@ -77,6 +76,16 @@ function useNootlesAuth() {
   );
 }
 
+const Reconnecting = createContext(false);
+
+/**
+ * True while this tab is asking Convex to take back a token it let go of, so
+ * a surface waiting on auth can say so instead of standing blank.
+ */
+export function useReconnecting(): boolean {
+  return useContext(Reconnecting);
+}
+
 /**
  * Asks Convex to take a token again when it has let go of the one Clerk still
  * holds. Convex gives up on an identity for good the first time a refresh
@@ -84,25 +93,32 @@ function useNootlesAuth() {
  * without this, a tab that lost one refresh to the network stayed signed out
  * of every query, drawing nothing, until it was reloaded.
  */
-function Reauthenticate({ again }: { again: () => void }) {
+function Reauthenticate({
+  asked,
+  again,
+  children,
+}: {
+  asked: number;
+  again: () => void;
+  children: ReactNode;
+}) {
   const { isLoading, isAuthenticated } = useConvexAuth();
   const { isSignedIn } = useAuth();
+  // `asked` as of the last time Convex held a token: the asks since are this
+  // outage's, and what the back-off counts.
+  const [held, setHeld] = useState(asked);
+  if (isAuthenticated && held !== asked) setHeld(asked);
+  const tries = asked - held;
   const dropped = isSignedIn === true && !isLoading && !isAuthenticated;
-  const tries = useRef(0);
 
   useEffect(() => {
-    if (isAuthenticated) tries.current = 0;
     if (!dropped) return;
-    const ask = () => {
-      tries.current++;
-      again();
-    };
-    const timer = window.setTimeout(ask, reauthDelay(tries.current));
+    const timer = window.setTimeout(again, reauthDelay(tries));
     // Back online, or back in front of someone: no reason to sit out a delay.
     const now = () => {
       if (!navigator.onLine || document.visibilityState !== "visible") return;
       window.clearTimeout(timer);
-      ask();
+      again();
     };
     window.addEventListener("online", now);
     document.addEventListener("visibilitychange", now);
@@ -111,9 +127,9 @@ function Reauthenticate({ again }: { again: () => void }) {
       window.removeEventListener("online", now);
       document.removeEventListener("visibilitychange", now);
     };
-  }, [dropped, isAuthenticated, again]);
+  }, [dropped, tries, again]);
 
-  return null;
+  return <Reconnecting value={tries > 0 && !isAuthenticated}>{children}</Reconnecting>;
 }
 
 export function ConvexClientProvider({ children }: { children: ReactNode }) {
@@ -132,8 +148,13 @@ export function ConvexClientProvider({ children }: { children: ReactNode }) {
   return (
     <Session value={session}>
       <ConvexProviderWithAuth client={convex} useAuth={useNootlesAuth}>
-        {!standIn && <Reauthenticate again={again} />}
-        {children}
+        {standIn ? (
+          children
+        ) : (
+          <Reauthenticate asked={asked} again={again}>
+            {children}
+          </Reauthenticate>
+        )}
       </ConvexProviderWithAuth>
     </Session>
   );

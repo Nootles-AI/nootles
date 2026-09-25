@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { Authenticated, AuthLoading, Unauthenticated } from "convex/react";
+import { useReconnecting } from "@/app/ConvexClientProvider";
 import { Interrupted } from "./Interrupted";
 
 /**
@@ -17,9 +18,14 @@ import { Interrupted } from "./Interrupted";
  * its whole screen would otherwise pass through a white one.
  */
 export function Authed({ children, fallback }: { children: ReactNode; fallback?: ReactNode }) {
+  // Asking Convex again is a load too, but one that can run as long as an
+  // outage does: it keeps saying what it is doing rather than going blank.
+  const reconnecting = useReconnecting();
   return (
     <>
-      <AuthLoading>{fallback ?? <div className="flex-1" aria-busy="true" />}</AuthLoading>
+      <AuthLoading>
+        {reconnecting ? <SignedOutHere /> : (fallback ?? <div className="flex-1" aria-busy="true" />)}
+      </AuthLoading>
       <Authenticated>{children}</Authenticated>
       <Unauthenticated>
         <SignedOutHere />
