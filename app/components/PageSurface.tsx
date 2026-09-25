@@ -13,6 +13,7 @@ import {
 import { Editable } from "./Editable";
 import { useRenamePage } from "./renamePage";
 import { Editor } from "./editor/Editor";
+import { BodySkeleton } from "./editor/BodySkeleton";
 import { useEditorRegistry } from "./editor/EditorRegistry";
 import { leaveTitle, TITLE_ATTR } from "./editor/titleBoundary";
 import { CurrentPageProvider, useOpenPage, type Pane } from "./OpenPageContext";
@@ -34,10 +35,8 @@ export function PageSkeleton() {
         style={{ maxWidth: "calc(var(--measure) + 7rem)" }}
       >
         <div className="nt-skeleton mt-[4.5rem] h-10 w-1/2" />
-        <div className="mt-4 space-y-3">
-          <div className="nt-skeleton h-4 w-full" />
-          <div className="nt-skeleton h-4 w-11/12" />
-          <div className="nt-skeleton h-4 w-2/3" />
+        <div className="mt-4">
+          <BodySkeleton />
         </div>
       </div>
     </main>

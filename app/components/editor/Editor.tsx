@@ -89,6 +89,7 @@ import { tableKeysExtension } from "./tableKeys";
 import { titleBoundaryExtension } from "./titleBoundary";
 import { PAGE_LINK_TRIGGER, pageLinkTriggerExtension } from "./inline/pageLinkTrigger";
 import { dropDeadSelectors } from "./deadSelectors";
+import { BodySkeleton } from "./BodySkeleton";
 import "./editor.css";
 
 type EditorInstance = typeof schema.BlockNoteEditor;
@@ -593,7 +594,7 @@ const EXTENSIONS = [
   pageLinkTriggerExtension(),
 ];
 
-const placeholder = <div className="min-h-[40vh]" aria-hidden />;
+const placeholder = <BodySkeleton deferred />;
 
 /**
  * Development only, and it brings the whole op/projection stack with it — so

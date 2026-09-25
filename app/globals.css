@@ -1622,6 +1622,14 @@ textarea.nt-input {
     transform: translateX(100%);
   }
 }
+.nt-body-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.nt-body-skeleton.is-deferred {
+  animation: nt-fade-in var(--dur) var(--ease) 150ms backwards;
+}
 
 /* ---- Streaming ---------------------------------------------------------
    A luminous head marks the end of the suggestion. While tokens are arriving

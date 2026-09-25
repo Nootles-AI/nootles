@@ -10,12 +10,13 @@ import { useYjsEditor } from "@/app/lib/sync/useYjsEditor";
 import { guestIdentity } from "@/app/lib/sync/colors";
 import { arrivalFlashExtension } from "../editor/arrivalFlash";
 import { schema } from "../editor/schema";
+import { BodySkeleton } from "../editor/BodySkeleton";
 import { useAttachCommentsEditor } from "../comments/editorSlot";
 import "../editor/editor.css";
 
 type EditorInstance = typeof schema.BlockNoteEditor;
 
-const placeholder = <div className="min-h-[40vh]" aria-hidden />;
+const placeholder = <BodySkeleton deferred />;
 
 // A page whose owner never opened it holds nothing — said plainly, in the
 // voice of "This project has no pages", rather than as an indistinguishable
