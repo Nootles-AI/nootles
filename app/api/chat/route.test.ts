@@ -1,6 +1,8 @@
 import type { LanguageModelV4StreamPart } from "@ai-sdk/provider";
 import { MockLanguageModelV4 } from "ai/test";
+import { getFunctionName } from "convex/server";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { ConvexError } from "convex/values";
 import type { AbMessage } from "@/app/lib/ai/chat/types";
 import type { PackInputs } from "@/app/lib/ai/context/pack";
 import type { Thread } from "@/app/lib/comments/types";
@@ -508,5 +510,27 @@ describe("validation", () => {
     await run(post({ comments: digest() }));
     expect(refuseIfLimited).toHaveBeenCalledTimes(1);
     expect(refuseIfLimited.mock.calls[0][1]).toBe("agentGeneration");
+  });
+});
+
+describe("a caller beginChat refuses (NT-83)", () => {
+  const refusing = (data: unknown) =>
+    convex.mutation.mockImplementation(async (ref: unknown) => {
+      if (getFunctionName(ref as never) === "entitlements:beginChat") throw data;
+      return undefined;
+    });
+
+  test.each(["readOnly", "gone"] as const)("%s is a 403 saying so, before any model is asked", async (reason) => {
+    refusing(new ConvexError({ code: "chat_refused", reason }));
+    const res = await POST(post({}));
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ code: "chat_refused", reason });
+    expect(model.doStreamCalls).toHaveLength(0);
+  });
+
+  test("anything else it throws is still the server's error", async () => {
+    refusing(new Error("boom"));
+    await expect(POST(post({}))).rejects.toThrow("boom");
+    expect(model.doStreamCalls).toHaveLength(0);
   });
 });

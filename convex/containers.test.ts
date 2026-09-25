@@ -553,11 +553,26 @@ describe("beginChat asks the thread's project", () => {
     await guest.mutation(api.entitlements.beginChat, { threadId, projectId });
     expect((await t.run(async (ctx) => await ctx.db.get(threadId)))?.billedAt).toBeDefined();
 
-    // The editor link is revoked; the view link still stands.
+    // The editor link is revoked; the view link still stands. Refused as the
+    // reader they now are, in words the chat route can say (NT-83).
     await t.run(async (ctx) => ctx.db.patch(projectId, { editShareToken: undefined }));
-    await expect(guest.mutation(api.entitlements.beginChat, { threadId })).rejects.toThrow(
-      "Not found",
-    );
+    await expect(guest.mutation(api.entitlements.beginChat, { threadId })).rejects.toMatchObject({
+      data: { code: "chat_refused", reason: "readOnly" },
+    });
+  });
+
+  test("a trashed project's thread is refused as gone, and a stand-in's as read-only (NT-83)", async () => {
+    const t = convexTest(schema, modules);
+    const { projectId } = await project(t, { ownerId: MEMBER.subject });
+    const me = t.withIdentity(MEMBER);
+    const threadId = await me.mutation(api.chat.threads.create, { projectId });
+    await expect(
+      t.withIdentity({ ...MEMBER, act: "ops_session_1" }).mutation(api.entitlements.beginChat, { threadId }),
+    ).rejects.toMatchObject({ data: { code: "chat_refused", reason: "readOnly" } });
+    await t.run(async (ctx) => ctx.db.patch(projectId, { deletedAt: Date.now() }));
+    await expect(me.mutation(api.entitlements.beginChat, { threadId })).rejects.toMatchObject({
+      data: { code: "chat_refused", reason: "gone" },
+    });
   });
 
   test("a removed member's thread stops at once, billed or not", async () => {
@@ -572,9 +587,9 @@ describe("beginChat asks the thread's project", () => {
       workspaceId,
       userId: MEMBER.subject,
     });
-    await expect(member.mutation(api.entitlements.beginChat, { threadId })).rejects.toThrow(
-      "Not found",
-    );
+    await expect(member.mutation(api.entitlements.beginChat, { threadId })).rejects.toMatchObject({
+      data: { code: "chat_refused", reason: "gone" },
+    });
   });
 });
 

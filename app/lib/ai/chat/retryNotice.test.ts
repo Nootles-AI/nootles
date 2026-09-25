@@ -96,4 +96,13 @@ describe("everything else is left as it was", () => {
     expect(retryNotice('"rate_limit"')).toBeNull();
     expect(retryNotice("{not json")).toBeNull();
   });
+
+  test("a chat refused for who is asking says why, by reason (NT-83)", () => {
+    expect(retryNotice(JSON.stringify({ code: "chat_refused", reason: "readOnly" }))).toBe(
+      "You can no longer edit this project, so the assistant can’t work in it. Ask whoever shared it for edit access.",
+    );
+    expect(retryNotice(JSON.stringify({ code: "chat_refused", reason: "gone" }))).toBe(
+      "This project is no longer open to you — it may have been moved to the trash, or your access ended.",
+    );
+  });
 });
