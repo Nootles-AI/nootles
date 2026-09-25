@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 /**
  * The diagram route's wiring, as a stand-in for all three `agentGeneration`
@@ -14,8 +14,9 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 // Hoisted so the mock factories below — which vitest lifts to the top of the
 // file — can close over them without reaching a not-yet-initialised `const`.
-const { streamDiagram, refuseIfLimited, refuseIfSpent, session } = vi.hoisted(() => ({
+const { streamDiagram, refuseIfLimited, refuseIfSpent, session, recordAiCall } = vi.hoisted(() => ({
   streamDiagram: vi.fn(),
+  recordAiCall: vi.fn(),
   refuseIfLimited: vi.fn(),
   refuseIfSpent: vi.fn(),
   session: vi.fn(),
@@ -27,8 +28,8 @@ vi.mock("@/app/lib/entitlementGate", () => ({ refuseIfSpent }));
 vi.mock("@/app/lib/session", () => ({ session }));
 // Touched only inside the record/stream callbacks, never on the refusal path;
 // stubbed so importing the route needs no Convex URL.
-vi.mock("@/app/lib/convexServer", () => ({ asUser: () => ({}) }));
-vi.mock("@/app/lib/ai/recordCall", () => ({ recordAiCall: vi.fn() }));
+vi.mock("@/app/lib/convexServer", () => ({ asUser: () => ({ query: async () => null }) }));
+vi.mock("@/app/lib/ai/recordCall", () => ({ recordAiCall }));
 
 import { POST } from "./route";
 
@@ -113,4 +114,36 @@ test("a guest past their day is refused after the limiter and before the model",
   // No meter of its own: only the guest's day is asked, of the named project.
   expect(refuseIfSpent.mock.calls[0]).toEqual(["tok", null, "p1"]);
   expect(streamDiagram).not.toHaveBeenCalled();
+});
+
+test("the model is handed the ledger, whose row is the diagram's (NT-89)", async () => {
+  await POST(post({ brief: "a flowchart of the login flow", projectId: "p1" }));
+  const ledger = streamDiagram.mock.calls[0][5];
+  ledger.callbacks.onEnd({ finishReason: "length", totalUsage: { inputTokens: 10, outputTokens: 5, inputTokenDetails: {} } });
+  expect(recordAiCall).toHaveBeenCalledTimes(1);
+  expect(recordAiCall.mock.calls[0][1]).toMatchObject({
+    ownerId: "user_1",
+    feature: "diagram",
+    projectId: "p1",
+    promptTokens: 10,
+    completionTokens: 5,
+    status: "error",
+    errorCode: "truncated",
+  });
+});
+
+test("a model that throws before streaming is a 502 and one error row, not a timeout later", async () => {
+  vi.useFakeTimers();
+  try {
+    streamDiagram.mockImplementation(() => {
+      throw new Error("GOOGLE_GENERATIVE_AI_API_KEY is missing");
+    });
+    const res = await POST(post({ brief: "a flowchart of the login flow" }));
+    expect(res.status).toBe(502);
+    vi.advanceTimersByTime(120_000);
+    expect(recordAiCall).toHaveBeenCalledTimes(1);
+    expect(recordAiCall.mock.calls[0][1]).toMatchObject({ feature: "diagram", status: "error", errorCode: "Error" });
+  } finally {
+    vi.useRealTimers();
+  }
 });

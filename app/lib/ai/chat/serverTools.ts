@@ -8,6 +8,7 @@ import { AI } from "../aiConfig";
 import { DEFAULT_DRAW_CHOICE, type DrawChoice } from "../drawStyles";
 import { findImages, imagesConfigured } from "../findImages";
 import { recordAiCall } from "../recordCall";
+import { errorCode } from "../streamLedger";
 import { generateVectorDrawing } from "../vectorDraw";
 import { reason } from "@/app/lib/github";
 import { findSongs } from "@/app/lib/songs";
@@ -121,9 +122,13 @@ export function chatTools(
           model: AI.chat.writer.model,
           projectId,
           ...(failed
-            ? { status: "error" as const, errorCode: "writer_failed" }
+            ? { status: "error" as const, errorCode: errorCode(written) }
             : {
-                status: "ok" as const,
+                // A section cut off at the cap is still placed, but the
+                // ledger says what it was (NT-89).
+                ...(written.finishReason === "length"
+                  ? { status: "error" as const, errorCode: "truncated" }
+                  : { status: "ok" as const }),
                 promptTokens: written.usage.inputTokens,
                 completionTokens: written.usage.outputTokens,
               }),

@@ -3,6 +3,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { AI } from "@/app/lib/ai/aiConfig";
 import { streamDiagram } from "@/app/lib/ai/diagram";
 import { recordAiCall } from "@/app/lib/ai/recordCall";
+import { streamLedger } from "@/app/lib/ai/streamLedger";
 import { asUser } from "@/app/lib/convexServer";
 import { refuseIfSpent } from "@/app/lib/entitlementGate";
 import { refuseIfLimited } from "@/app/lib/requestLimitGate";
@@ -22,6 +23,7 @@ export const maxDuration = 60;
 const LOOK_CHARS = 2400;
 
 export async function POST(req: Request) {
+  const startedAt = Date.now();
   const caller = await session();
   if (!caller) return new Response("Unauthorized", { status: 401 });
   const { token } = caller;
@@ -71,6 +73,25 @@ export async function POST(req: Request) {
           .catch(() => "")
       : "";
 
+  // One row whichever way the stream ends — failed, cut off, abandoned or
+  // killed at `maxDuration` — where `onEnd` alone saw only the endings that
+  // went well (NT-89).
+  const ledger = streamLedger(
+    ({ usage, ...outcome }) =>
+      recordAiCall(convex, {
+        ownerId: caller.userId,
+        feature: "diagram",
+        model: AI.diagram.model,
+        projectId: named,
+        promptTokens: usage?.inputTokens,
+        completionTokens: usage?.outputTokens,
+        cacheReadTokens: usage?.inputTokenDetails.cacheReadTokens,
+        cacheWriteTokens: usage?.inputTokenDetails.cacheWriteTokens,
+        ...outcome,
+      }),
+    { startedAt, signal: req.signal, maxDurationS: maxDuration },
+  );
+
   try {
     return streamDiagram(
       brief,
@@ -78,21 +99,10 @@ export async function POST(req: Request) {
       typeof title === "string" ? title : "",
       look,
       req.signal,
-      ({ usage, latencyMs }) =>
-        recordAiCall(convex, {
-          ownerId: caller.userId,
-          feature: "diagram",
-          model: AI.diagram.model,
-          projectId: named,
-          promptTokens: usage.inputTokens,
-          completionTokens: usage.outputTokens,
-          cacheReadTokens: usage.inputTokenDetails.cacheReadTokens,
-          cacheWriteTokens: usage.inputTokenDetails.cacheWriteTokens,
-          latencyMs,
-          status: req.signal.aborted ? "aborted" : "ok",
-        }),
+      ledger,
     );
   } catch (e) {
+    ledger.fail(e);
     if ((e as Error).name === "AbortError") return new Response(null, { status: 204 });
     return new Response("Upstream request failed", { status: 502 });
   }

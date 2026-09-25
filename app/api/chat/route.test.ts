@@ -1,4 +1,4 @@
-import type { LanguageModelV4StreamPart } from "@ai-sdk/provider";
+import { APICallError, type LanguageModelV4StreamPart } from "@ai-sdk/provider";
 import { MockLanguageModelV4 } from "ai/test";
 import { getFunctionName } from "convex/server";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
@@ -616,5 +616,96 @@ describe("a caller beginChat refuses (NT-83)", () => {
     refusing(new Error("boom"));
     await expect(POST(post({}))).rejects.toThrow("boom");
     expect(model.doStreamCalls).toHaveLength(0);
+  });
+});
+
+describe("the ledger row (NT-89)", () => {
+  const chatRows = () => recordAiCall.mock.calls.filter(([, row]) => row.feature === "chat").map(([, row]) => row);
+
+  /** A chat model whose one answer is `parts`, or which refuses the call. */
+  function answering(parts: LanguageModelV4StreamPart[] | Error) {
+    model = new MockLanguageModelV4({
+      doStream: async () => {
+        if (parts instanceof Error) throw parts;
+        return {
+          stream: new ReadableStream<LanguageModelV4StreamPart>({
+            start(controller) {
+              for (const part of parts) controller.enqueue(part);
+              controller.close();
+            },
+          }),
+        };
+      },
+    });
+    chatModel.mockReturnValue({ model });
+  }
+  const spent = {
+    inputTokens: { total: 900, noCache: 100, cacheRead: 800, cacheWrite: 0 },
+    outputTokens: { total: 40, text: 40, reasoning: 0 },
+  };
+  const began: LanguageModelV4StreamPart[] = [
+    { type: "stream-start", warnings: [] },
+    { type: "reasoning-start", id: "r" },
+    { type: "reasoning-delta", id: "r", delta: "Reading the page." },
+    { type: "reasoning-end", id: "r" },
+    { type: "text-start", id: "0" },
+    { type: "text-delta", id: "0", delta: "The launch" },
+  ];
+  const ended = (reason: "stop" | "length" | "error"): LanguageModelV4StreamPart[] => [
+    { type: "text-end", id: "0" },
+    { type: "finish", finishReason: { unified: reason, raw: reason }, usage: spent },
+  ];
+
+  beforeEach(() => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  test("a finished turn is ok, with its tokens and its time to first output", async () => {
+    answering([...began, ...ended("stop")]);
+    await run(post({}));
+    expect(chatRows()).toHaveLength(1);
+    const [row] = chatRows();
+    expect(row).toMatchObject({
+      status: "ok",
+      model: AI.chat.model,
+      projectId: PROJECT,
+      promptTokens: 900,
+      completionTokens: 40,
+      cacheReadTokens: 800,
+    });
+    expect(row.errorCode).toBeUndefined();
+    expect(row.ttfbMs).toBeTypeOf("number");
+    expect(row.ttfbMs).toBeLessThanOrEqual(row.latencyMs);
+  });
+
+  test("a provider error mid-answer is an error row with its status, not ok", async () => {
+    const failure = new APICallError({ message: "overloaded", url: "https://vendor", requestBodyValues: {}, statusCode: 529 });
+    answering([...began, { type: "error", error: failure }, ...ended("error")]);
+    await run(post({}));
+    expect(chatRows()).toMatchObject([
+      { status: "error", errorCode: "upstream-529", promptTokens: 900, completionTokens: 40 },
+    ]);
+  });
+
+  test("a call the provider refuses outright — a context overflow — is still a row", async () => {
+    answering(
+      new APICallError({
+        message: "context_length_exceeded",
+        url: "https://vendor",
+        requestBodyValues: {},
+        statusCode: 400,
+        isRetryable: false,
+      }),
+    );
+    const { body } = await run(post({}));
+    expect(body).toContain('"type":"error"');
+    expect(chatRows()).toMatchObject([{ status: "error", errorCode: "upstream-400" }]);
+    expect(chatRows()[0].ttfbMs).toBeUndefined();
+  });
+
+  test("an answer cut off at the token cap is recorded as truncated", async () => {
+    answering([...began, ...ended("length")]);
+    await run(post({}));
+    expect(chatRows()).toMatchObject([{ status: "error", errorCode: "truncated", completionTokens: 40 }]);
   });
 });

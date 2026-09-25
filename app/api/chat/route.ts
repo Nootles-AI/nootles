@@ -36,6 +36,7 @@ import {
 } from "@/app/lib/ai/chat/transcript";
 import type { AbMessage } from "@/app/lib/ai/chat/types";
 import { recordAiCall } from "@/app/lib/ai/recordCall";
+import { streamLedger } from "@/app/lib/ai/streamLedger";
 import { asSession } from "@/app/lib/convexServer";
 import { quotaResponse } from "@/app/lib/entitlementGate";
 import { refuseIfLimited } from "@/app/lib/requestLimitGate";
@@ -236,6 +237,28 @@ export async function POST(req: Request) {
   // declares an optional `tools` would widen it.
   const { model, providerOptions } = call;
 
+  // One row per request whichever way it ends — a provider refusal, an error
+  // mid-stream, a reply cut off at the cap, a closed tab or the `maxDuration`
+  // kill — with the time to the model's first output. `onEnd` alone recorded
+  // only the endings that went well, and all of them as `ok` (NT-89).
+  const ledger = streamLedger(
+    ({ usage, ...outcome }) => {
+      if (usage) report(usage);
+      recordAiCall(convex, {
+        ownerId: caller.userId,
+        feature: "chat",
+        model: AI.chat.model,
+        projectId,
+        promptTokens: usage?.inputTokens,
+        completionTokens: usage?.outputTokens,
+        cacheReadTokens: usage?.inputTokenDetails.cacheReadTokens,
+        cacheWriteTokens: usage?.inputTokenDetails.cacheWriteTokens,
+        ...outcome,
+      });
+    },
+    { startedAt, signal: req.signal, maxDurationS: maxDuration },
+  );
+
   const result = streamText({
     model,
     providerOptions,
@@ -261,27 +284,12 @@ export async function POST(req: Request) {
     stopWhen: stepCountIs(Math.max(1, budget)),
     experimental_download: downloadAttachments,
     abortSignal: req.signal,
-    onEnd: ({ totalUsage }) => {
-      report({ totalUsage });
-      const details = totalUsage.inputTokenDetails;
-      recordAiCall(convex, {
-        ownerId: caller.userId,
-        feature: "chat",
-        model: AI.chat.model,
-        projectId,
-        promptTokens: totalUsage.inputTokens,
-        completionTokens: totalUsage.outputTokens,
-        cacheReadTokens: details.cacheReadTokens,
-        cacheWriteTokens: details.cacheWriteTokens,
-        latencyMs: Date.now() - startedAt,
-        status: req.signal.aborted ? "aborted" : "ok",
-      });
-    },
+    ...ledger.callbacks,
   });
 
   return createUIMessageStreamResponse({
     stream: toUIMessageStream<ToolSet, AbMessage>({
-      stream: result.stream,
+      stream: ledger.watch(result.stream),
       // The gate's answer rides the answer's metadata, so the requests that
       // resume this turn read it back instead of asking again.
       ...(pageComments && withComments !== null
@@ -342,9 +350,9 @@ function latestUserText(messages: AbMessage[]): string {
  * worth about a tenth of a fresh one, so `cache` against `fresh` is the whole
  * measurement, and a run of `fresh` means something above has stopped matching.
  */
-function report({ totalUsage }: { totalUsage: LanguageModelUsage }) {
+function report(usage: LanguageModelUsage) {
   if (process.env.NODE_ENV === "production") return;
-  const { inputTokens, outputTokens, inputTokenDetails: details } = totalUsage;
+  const { inputTokens, outputTokens, inputTokenDetails: details } = usage;
   const cache = details.cacheReadTokens ?? 0;
   const wrote = details.cacheWriteTokens ?? 0;
   const fresh = details.noCacheTokens ?? (inputTokens ?? 0) - cache - wrote;
