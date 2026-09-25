@@ -17,7 +17,10 @@ import { ledgerSecret, verifyCall } from "./callSignature";
  * The cost is the route's word, and a route is not the only thing that can
  * call this — so a row counts toward a bill or a cap only when the Next
  * server signed it (`callSignature.ts`). Anything else is kept, since a row
- * that never lands is a cost nobody sees, but kept unsigned.
+ * that never lands is a cost nobody sees, but kept unsigned — and, on a
+ * deployment that holds the secret, marked with why, and logged, since there
+ * that is either somebody's attempt at a signature or the two servers'
+ * secrets or clocks disagreeing, which would otherwise bill nothing silently.
  */
 
 /** Far past any one real call; a row claiming more is not one. */
@@ -95,17 +98,17 @@ export const record = mutation({
 
     const now = Date.now();
     const secret = ledgerSecret(process.env.AI_LEDGER_SECRET);
-    let signed = false;
-    if (secret && signature !== undefined && signedAt !== undefined) {
-      const fresh = signedAt >= now - SIGNED_BEHIND_MS && signedAt <= now + SIGNED_AHEAD_MS;
-      const valid =
-        fresh &&
-        (await verifyCall(secret, { ownerId, projectId, ...call, signedAt }, signature));
-      // A signature that does not hold is somebody's attempt at one, and a
-      // row it came with is not kept, unsigned or otherwise.
-      if (!valid) throw new ConvexError("That ledger row’s signature doesn’t hold.");
-      signed = true;
+    let unverified: "missing" | "stale" | "invalid" | undefined;
+    if (secret) {
+      if (signature === undefined || signedAt === undefined) unverified = "missing";
+      else if (signedAt < now - SIGNED_BEHIND_MS || signedAt > now + SIGNED_AHEAD_MS) unverified = "stale";
+      else if (!(await verifyCall(secret, { ownerId, projectId, ...call, signedAt }, signature))) {
+        unverified = "invalid";
+      }
+      // Never the row itself: its cost and model are no one's business in a log.
+      if (unverified) console.warn(`[ledger] ${call.feature} row kept unsigned: signature ${unverified}`);
     }
+    const signed = secret !== null && unverified === undefined;
 
     const container = projectId ? await containerFor(ctx, projectId, ownerId) : null;
     const workspaceId = container?.kind === "workspace" ? container.workspaceId : undefined;
@@ -114,6 +117,7 @@ export const record = mutation({
       ...call,
       ...(workspaceId ? { workspaceId } : {}),
       ...(signed ? { signed: true } : {}),
+      ...(unverified ? { unverified } : {}),
       createdAt: now,
     });
     if (signed && workspaceId && call.costUsd) {

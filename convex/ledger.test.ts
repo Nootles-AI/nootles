@@ -11,8 +11,8 @@ import { utcDay } from "./plans";
  * The cost ledger a workspace is billed from. Anyone signed in can call its
  * writer, so a row is believed — billed, and counted against a guest's day —
  * only when the Next server signed it with the secret the two share. A row
- * that claims what no call could cost is not kept at all; one that merely
- * lacks a signature is kept, unsigned.
+ * that claims what no call could cost is not kept at all; one whose signature
+ * is missing, stale or does not hold is kept, unsigned, saying which (NT-82).
  */
 
 const modules = import.meta.glob("./**/*.ts");
@@ -30,7 +30,10 @@ type Call = Omit<SignedCall, "ownerId" | "signedAt"> & {
 };
 
 beforeEach(() => vi.stubEnv("AI_LEDGER_SECRET", SECRET));
-afterEach(() => vi.unstubAllEnvs());
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.restoreAllMocks();
+});
 
 async function world(t: T) {
   return await t.run(async (ctx) => {
@@ -121,41 +124,40 @@ describe("a signed row", () => {
     expect(day.costUsd).toBeCloseTo(0.75);
   });
 
-  test("that does not hold is refused, and leaves nothing", async () => {
+  test("that does not hold is kept unsigned, says why, and is never counted (NT-82)", async () => {
     const t = convexTest(schema, modules);
     const { projectId } = await world(t);
     const guest = t.withIdentity(GUEST);
     const honest = await signed(GUEST, call(projectId, 0.4));
-    const refused = "That ledger row’s signature doesn’t hold.";
+    const warned = vi.spyOn(console, "warn").mockImplementation(() => {});
 
-    // The cost changed after signing.
-    await expect(
-      guest.mutation(api.ai.calls.record, { ...honest, costUsd: 0.01 }),
-    ).rejects.toThrow(refused);
-    // Another workspace's project, under the same signature.
-    await expect(
-      guest.mutation(api.ai.calls.record, { ...honest, projectId: undefined }),
-    ).rejects.toThrow(refused);
-    // Signed for somebody else.
-    await expect(
-      t.withIdentity(MEMBER).mutation(api.ai.calls.record, honest),
-    ).rejects.toThrow(refused);
-    // Signed with a secret that is not the deployment's.
-    await expect(
-      guest.mutation(api.ai.calls.record, await signed(GUEST, call(projectId), { secret: "guess" })),
-    ).rejects.toThrow(refused);
-    // Not hex at all.
-    await expect(
-      guest.mutation(api.ai.calls.record, { ...honest, signature: "forged" }),
-    ).rejects.toThrow(refused);
-    // Signed long ago, or far ahead of the clock.
-    for (const signedAt of [Date.now() - 60 * 60_000, Date.now() + 10 * 60_000]) {
-      await expect(
-        guest.mutation(api.ai.calls.record, await signed(GUEST, call(projectId), { signedAt })),
-      ).rejects.toThrow(refused);
-    }
-    expect(await rows(t)).toEqual([]);
+    const attempts: [string, Promise<unknown>][] = [
+      // The cost changed after signing.
+      ["invalid", guest.mutation(api.ai.calls.record, { ...honest, costUsd: 0.01 })],
+      // Another workspace's project, under the same signature.
+      ["invalid", guest.mutation(api.ai.calls.record, { ...honest, projectId: undefined })],
+      // Signed for somebody else.
+      ["invalid", t.withIdentity(MEMBER).mutation(api.ai.calls.record, honest)],
+      // Signed with a secret that is not the deployment's: Vercel's and Convex's differ.
+      ["invalid", guest.mutation(api.ai.calls.record, await signed(GUEST, call(projectId), { secret: "guess" }))],
+      // Not hex at all.
+      ["invalid", guest.mutation(api.ai.calls.record, { ...honest, signature: "forged" })],
+      // Signed long ago, or by a clock running far ahead.
+      ["stale", guest.mutation(api.ai.calls.record, await signed(GUEST, call(projectId), { signedAt: Date.now() - 60 * 60_000 }))],
+      ["stale", guest.mutation(api.ai.calls.record, await signed(GUEST, call(projectId), { signedAt: Date.now() + 10 * 60_000 }))],
+    ];
+    for (const [, attempt] of attempts) await attempt;
+
+    const kept = await rows(t);
+    expect(kept.map((r: Doc<"aiCalls">) => [r.unverified, r.signed])).toEqual(
+      attempts.map(([why]) => [why, undefined]),
+    );
     expect(await days(t)).toEqual([]);
+    // Said where an operator looks, by reason alone — never the row's cost or model.
+    expect(warned.mock.calls.map(([line]) => line)).toEqual(
+      attempts.map(([why]) => `[ledger] chat row kept unsigned: signature ${why}`),
+    );
+    warned.mockRestore();
   });
 });
 
@@ -163,9 +165,10 @@ describe("an unsigned row", () => {
   test("is kept, but never counted", async () => {
     const t = convexTest(schema, modules);
     const { workspaceId, projectId } = await world(t);
+    vi.spyOn(console, "warn").mockImplementation(() => {});
     await t.withIdentity(GUEST).mutation(api.ai.calls.record, call(projectId, 50));
     const [row] = await rows(t);
-    expect(row).toMatchObject({ workspaceId, costUsd: 50 });
+    expect(row).toMatchObject({ workspaceId, costUsd: 50, unverified: "missing" });
     expect(row.signed).toBeUndefined();
     expect(await days(t)).toEqual([]);
   });
@@ -176,7 +179,8 @@ describe("an unsigned row", () => {
     const row = await signed(GUEST, call(projectId));
     vi.stubEnv("AI_LEDGER_SECRET", "");
     await t.withIdentity(GUEST).mutation(api.ai.calls.record, row);
-    expect((await rows(t)).map((r: Doc<"aiCalls">) => r.signed)).toEqual([undefined]);
+    // Nothing to check it against, so nothing to say about it: billing is off here by design.
+    expect((await rows(t)).map((r: Doc<"aiCalls">) => [r.signed, r.unverified])).toEqual([[undefined, undefined]]);
     expect(await days(t)).toEqual([]);
   });
 });
