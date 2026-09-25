@@ -139,19 +139,23 @@ export function PageSurface({
     return rename({ pageId, title }).then(() => {});
   };
 
+  /** Write the title now, and record it — anything still debounced folds in. */
+  const commitTitle = (text: string) => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = null;
+    const before = committedTitle.current ?? "";
+    if (text === before) return;
+    committedTitle.current = text;
+    void rename({ pageId, title: text });
+    pageDomainRef.current?.record({
+      undo: () => restoreTitle(before),
+      redo: () => restoreTitle(text),
+    });
+  };
+
   const persistTitle = (text: string) => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => {
-      debounceRef.current = null;
-      const before = committedTitle.current ?? "";
-      if (text === before) return;
-      committedTitle.current = text;
-      void rename({ pageId, title: text });
-      pageDomainRef.current?.record({
-        undo: () => restoreTitle(before),
-        redo: () => restoreTitle(text),
-      });
-    }, 400);
+    debounceRef.current = setTimeout(() => commitTitle(text), 400);
   };
 
   return (
@@ -238,7 +242,7 @@ export function PageSurface({
         <Editable
           value={page.title}
           onInput={persistTitle}
-          onKeyDown={(e) => leaveTitle(e, () => registry.editorFor(pageId), persistTitle)}
+          onKeyDown={(e) => leaveTitle(e, () => registry.editorFor(pageId), commitTitle)}
           placeholder="Untitled"
           label="Page title"
           className="w-full text-[length:var(--text-title)] font-semibold tracking-[-0.02em] text-balance"

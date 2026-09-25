@@ -138,6 +138,12 @@ try {
   await press("Enter");
   check("on an empty page Enter lands in the page's one line", [(await blocks()).length, await focus()], [1, { where: "editor", block: 0, offset: 0, text: "" }]);
 
+  await mount([{ type: "paragraph" }, { type: "paragraph", content: "Body" }], "Gap");
+  await clickTitle(3);
+  await press("Enter");
+  check("above a leading blank line Enter still opens a fresh block", (await blocks()).map((b) => b.content), ["", "", "Body", ""]);
+  check("and the caret is in the new one", await focus(), { where: "editor", block: 0, offset: 0, text: "" });
+
   console.log("\nTitle — arrows");
   await mount([{ type: "paragraph", content: "First line of the body" }, { type: "paragraph", content: "Second" }], "Title");
   await clickTitle(2);
@@ -158,6 +164,11 @@ try {
   await press("ArrowUp");
   const up = await focus();
   check("ArrowUp from a lower block stays in the document", [up.where, up.block], ["editor", 0]);
+
+  await mount([{ type: "divider" }, { type: "paragraph", content: "Below" }], "Rule");
+  await clickTitle(2);
+  await press("ArrowDown");
+  check("ArrowDown onto a first block with no text selects that block", [(await focus()).where, await h(() => window.seam.selectedBlocks())], ["editor", [0]]);
 
   console.log("\nTitle — Backspace");
   await mount([{ type: "paragraph" }, { type: "paragraph", content: "Body" }], "Title");
@@ -200,6 +211,14 @@ try {
 
   await mount([{ type: "paragraph" }], "M");
   await clickBlock(0, "start");
+  await page.keyboard.type("/[[");
+  await settle();
+  check("[[ typed into an open slash menu does not swap it for the page menu", (await blocks())[0].content, "/[[");
+  check("nor open the page list", (await menu()).includes("Roadmap"), false);
+  await press("Escape");
+
+  await mount([{ type: "paragraph" }], "M");
+  await clickBlock(0, "start");
   await page.keyboard.type("/heading 4");
   await settle();
   check("the slash menu offers Heading 4", (await menu()).includes("Heading 4"), true);
@@ -219,6 +238,16 @@ try {
   check("which opens the page list", await menu(), ["Roadmap", "Hiring plan"]);
   await press("Enter");
   check("and inserts the chip, leaving no trigger text behind", (await blocks())[0].content, "<pageMention:page-roadmap> ");
+
+  await mount([{ type: "paragraph" }], "M");
+  await clickBlock(0, "start");
+  await page.keyboard.type("/link to");
+  await settle();
+  await press("Enter");
+  await page.waitForFunction(() => window.seam.menu().length === 2, null, { timeout: 1000 }).catch(() => {});
+  await press("Escape");
+  await page.waitForFunction(() => window.seam.menu().length === 0, null, { timeout: 1000 }).catch(() => {});
+  check("Escape out of Link to page leaves the line as it was", [(await blocks())[0].content, await menu()], ["", []]);
 
   if (failures.length) throw new Error(`\n${failures.join("\n\n")}`);
   console.log("\nAll title, table and menu browser checks passed.");

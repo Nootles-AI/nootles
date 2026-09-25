@@ -325,13 +325,13 @@ export function slashItems(editor: EditorInstance): DefaultReactSuggestionItem[]
     {
       title: "Link to page",
       subtext: "A chip that opens another page",
-      aliases: ["link", "page", "mention", "reference", "link to page", "[["],
+      aliases: ["link", "page", "mention", "reference", "link to page"],
       group: INSERT,
       icon: <Icon.FileDoc />,
       // The "@" menu itself, opened from here: one list of pages, one chip.
+      // Opened without typing its "@", so leaving it leaves nothing behind.
       onItemClick: () =>
         editor.getExtension(SuggestionMenu)?.openSuggestionMenu("@", {
-          deleteTriggerCharacter: true,
           ignoreQueryLength: true,
         }),
     },

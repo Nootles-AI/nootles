@@ -1,8 +1,28 @@
 import { createExtension, SuggestionMenu } from "@blocknote/core";
-import { Plugin } from "prosemirror-state";
+import { Plugin, type EditorState } from "prosemirror-state";
 
 /** Typed to link a page, as in Notion and every wiki before it. */
 export const PAGE_LINK_TRIGGER = "[[";
+
+/**
+ * Whether a "[" typed at `from` completes a "[[" that should open the page
+ * menu: after another "[" in running text, outside code of either kind, and
+ * with no menu already open — a second menu would take the first one's place.
+ */
+export function opensPageLink(
+  state: EditorState,
+  from: number,
+  to: number,
+  text: string,
+  menuShown: boolean,
+): boolean {
+  if (text !== "[" || from !== to || menuShown) return false;
+  const $from = state.doc.resolve(from);
+  if ($from.parentOffset === 0 || $from.parent.type.spec.code) return false;
+  const marks = state.storedMarks ?? $from.marks();
+  if (marks.some((mark) => mark.type.spec.code)) return false;
+  return state.doc.textBetween(from - 1, from) === "[";
+}
 
 /**
  * Opens the page menu on a second "[".
@@ -19,20 +39,10 @@ export const pageLinkTriggerExtension = createExtension(({ editor }) => ({
     new Plugin({
       props: {
         handleTextInput(view, from, to, text) {
-          const { $from } = view.state.selection;
-          if (
-            text !== "[" ||
-            from !== to ||
-            $from.parentOffset === 0 ||
-            $from.parent.type.spec.code ||
-            view.state.doc.textBetween(from - 1, from) !== "["
-          ) {
-            return false;
-          }
+          const menu = editor.getExtension(SuggestionMenu);
+          if (!opensPageLink(view.state, from, to, text, !!menu?.shown())) return false;
           view.dispatch(view.state.tr.delete(from - 1, from));
-          editor.getExtension(SuggestionMenu)?.openSuggestionMenu(PAGE_LINK_TRIGGER, {
-            deleteTriggerCharacter: true,
-          });
+          menu?.openSuggestionMenu(PAGE_LINK_TRIGGER, { deleteTriggerCharacter: true });
           return true;
         },
       },

@@ -22,6 +22,7 @@
     "test:presence:return": "node tests/presence-return.browser.mjs",
     "test:drawer:menus": "node tests/sidebar-drawer-menus.browser.mjs",
     "test:projects:hit": "node tests/projects-screen-hit.browser.mjs",
+    "test:editor:title": "node tests/editor-title-table-menus.browser.mjs",
     "test:comments:channel": "node tests/comments-channel.browser.mjs",
     "test:comments:audit": "node tests/comments-audit.browser.mjs",
     "test:comments:inbox": "node tests/comments-inbox.browser.mjs",

@@ -10,6 +10,7 @@ import {
 import type { EditorView } from "prosemirror-view";
 import type { KeyboardEvent } from "react";
 import { isEmptyParagraphBlock } from "@/app/lib/documentTail";
+import { blockSelection } from "./blockSelection";
 import type { LiveEditor } from "./EditorRegistry";
 
 /**
@@ -92,27 +93,52 @@ function caretX(fallback: Element): number {
 
 /**
  * Enter in the title: `text` — whatever followed the caret — opens the page as
- * its first block, and the caret goes to the start of it. An empty first
- * paragraph is taken rather than stacked on, so Enter on a new page's title
- * lands in the one line the page already has.
+ * its first block, and the caret goes to the start of it. A page that is only
+ * its one empty line is written into rather than stacked on; anywhere else a
+ * fresh block opens, as Notion's does.
  */
 export function enterBody(editor: LiveEditor, text: string) {
-  const first = editor.document[0];
+  const [first, ...rest] = editor.document;
   if (first) {
-    const target = !isEmptyParagraphBlock(first)
-      ? editor.insertBlocks([{ type: "paragraph", content: text }], first, "before")[0]
-      : text
-        ? editor.updateBlock(first, { content: text })
-        : first;
+    const target =
+      rest.length || !isEmptyParagraphBlock(first)
+        ? editor.insertBlocks([{ type: "paragraph", content: text }], first, "before")[0]
+        : text
+          ? editor.updateBlock(first, { content: text })
+          : first;
     editor.setTextCursorPosition(target, "start");
   }
   editor.focus();
 }
 
-/** ArrowDown from the title: the document's first line, as near `x` as it goes. */
+/**
+ * Enter's split, in the order ⌘Z reads it back: the title's write is recorded
+ * before the document's, so the first undo takes the new block away rather
+ * than handing the title its tail while the block still holds it.
+ */
+export function splitTitle(
+  editor: LiveEditor,
+  text: string,
+  { start, end }: { start: number; end: number },
+  commit: (title: string) => void,
+) {
+  commit(text.slice(0, start));
+  enterBody(editor, text.slice(end));
+}
+
+/**
+ * ArrowDown from the title: the document's first line, as near `x` as it goes.
+ * A first block with no text of its own — a diagram, an image, a code block —
+ * is selected whole instead, the way the arrows arrive on one anywhere else.
+ */
 function caretIntoBody(editor: LiveEditor, x: number) {
   const view = editor.prosemirrorView;
   if (!view) return;
+  const first = editor.document[0];
+  if (first && first.content === undefined) {
+    blockSelection(editor).select([first.id]);
+    return;
+  }
   const { doc } = view.state;
   const start = Selection.findFrom(doc.resolve(0), 1, true);
   if (start) {
@@ -133,13 +159,13 @@ function caretIntoBody(editor: LiveEditor, x: number) {
  * than into the page.
  *
  * Enter splits: what follows the caret opens the document, and is taken off
- * the title — through `persist`, the title's own write — only once the
- * document is there to receive it.
+ * the title — through `commit`, the title's own immediate write — only once
+ * the document is there to receive it.
  */
 export function leaveTitle(
   event: KeyboardEvent<HTMLElement>,
   editor: () => Promise<LiveEditor>,
-  persist: (title: string) => void,
+  commit: (title: string) => void,
 ) {
   const title = event.currentTarget;
   const plain = !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey;
@@ -152,15 +178,15 @@ export function leaveTitle(
     .then((live) => {
       if (down) return caretIntoBody(live, x);
       const text = title.textContent ?? "";
-      if (start < text.length) {
-        title.textContent = text.slice(0, start);
-        persist(text.slice(0, start));
-      }
-      enterBody(live, text.slice(end));
+      if (start < text.length) title.textContent = text.slice(0, start);
+      splitTitle(live, text, { start, end }, commit);
     })
     // A document that never finished loading has nowhere to put the caret;
-    // letting go of the title is better than trapping it.
-    .catch(() => title.blur());
+    // after Enter, letting go of the title is better than trapping it. An
+    // arrow that goes nowhere leaves the caret where it was.
+    .catch(() => {
+      if (!down) title.blur();
+    });
 }
 
 /** Into the title: at its end, or on its last line near `x`. */

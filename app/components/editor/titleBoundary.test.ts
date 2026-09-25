@@ -2,7 +2,7 @@ import { BlockNoteEditor, type PartialBlock } from "@blocknote/core";
 import { parseHTML } from "linkedom";
 import { Selection, TextSelection, type EditorState, type Transaction } from "prosemirror-state";
 import { afterAll, describe, expect, it } from "vitest";
-import { dropEmptyFirstBlock, enterBody } from "./titleBoundary";
+import { dropEmptyFirstBlock, enterBody, splitTitle } from "./titleBoundary";
 
 if (!("document" in globalThis)) {
   const { document, window } = parseHTML("<html><body></body></html>");
@@ -41,12 +41,37 @@ describe("Enter in the title", () => {
     expect(editor.getTextCursorPosition().block.id).toBe(editor.document[0].id);
   });
 
-  it("takes an empty first paragraph rather than stacking another on it", () => {
+  it("writes into a page that is only its one empty line", () => {
     const editor = editorFor([{ type: "paragraph" }]);
     const only = editor.document[0].id;
     enterBody(editor, "moved");
     expect(texts(editor)).toEqual([["paragraph", "moved"]]);
     expect(editor.document[0].id).toBe(only);
+  });
+
+  it("opens a fresh block above a leading blank line", () => {
+    const editor = editorFor([{ type: "paragraph" }, { type: "paragraph", content: "Body" }]);
+    enterBody(editor, "");
+    expect(texts(editor)).toEqual([["paragraph", ""], ["paragraph", ""], ["paragraph", "Body"]]);
+    expect(editor.getTextCursorPosition().block.id).toBe(editor.document[0].id);
+  });
+
+  it("commits the title before the document changes, so undo reads the split back in order", () => {
+    const editor = editorFor([{ type: "paragraph", content: "Body" }]);
+    const seen: unknown[] = [];
+    splitTitle(editor, "Launch plan", { start: 7, end: 7 }, (title) =>
+      seen.push([title, texts(editor)]),
+    );
+    expect(seen).toEqual([["Launch ", [["paragraph", "Body"]]]]);
+    expect(texts(editor)).toEqual([["paragraph", "plan"], ["paragraph", "Body"]]);
+  });
+
+  it("drops a selection in the title, carrying only what followed it", () => {
+    const editor = editorFor([{ type: "paragraph", content: "Body" }]);
+    const seen: string[] = [];
+    splitTitle(editor, "Launch big plan", { start: 7, end: 11 }, (title) => seen.push(title));
+    expect(seen).toEqual(["Launch "]);
+    expect(texts(editor)[0]).toEqual(["paragraph", "plan"]);
   });
 });
 

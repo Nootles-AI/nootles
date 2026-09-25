@@ -53,6 +53,7 @@ const PAGES = [
 let root: Root | undefined;
 let editor: Editor;
 let titleValue = "";
+let committed = "";
 const persisted: string[] = [];
 
 function Page({ value }: { value: Editor }) {
@@ -63,8 +64,10 @@ function Page({ value }: { value: Editor }) {
           value={titleValue}
           onInput={(text) => (titleValue = text)}
           onKeyDown={(e) =>
+            // As PageSurface's commit: a write, and a record, only on a change.
             leaveTitle(e, async () => value as unknown as LiveEditor, (text) => {
-              titleValue = text;
+              if (text === committed) return;
+              committed = titleValue = text;
               persisted.push(text);
             })
           }
@@ -131,7 +134,7 @@ const harness = {
   mount(blocks: PartialBlock[], title = "") {
     root?.unmount();
     root = undefined;
-    titleValue = title;
+    titleValue = committed = title;
     persisted.length = 0;
     editor = BlockNoteEditor.create({ schema, initialContent: blocks, extensions: extensions() }) as Editor;
     root = createRoot(document.getElementById("app")!);
@@ -216,6 +219,11 @@ const harness = {
   menu: () =>
     [...document.querySelectorAll(".nt-slash .nt-slash-title")].map((el) => el.textContent),
   undo: () => editor.undo(),
+  /** The ids of the blocks selected whole, as document indices. */
+  selectedBlocks: () => {
+    const ids = [...document.querySelectorAll(".nt-block-selected")].map((el) => el.getAttribute("data-id"));
+    return ids.map((id) => editor.document.findIndex((block) => block.id === id));
+  },
 };
 
 declare global {
