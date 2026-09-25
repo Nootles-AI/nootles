@@ -1,7 +1,21 @@
 import { createExtension } from "@blocknote/core";
 import type { Node as ProseMirrorNode } from "prosemirror-model";
-import { Plugin, PluginKey, type EditorState, type Transaction } from "prosemirror-state";
+import {
+  AllSelection,
+  NodeSelection,
+  Plugin,
+  PluginKey,
+  TextSelection,
+  type EditorState,
+  type Transaction,
+} from "prosemirror-state";
 import { ReplaceStep, type Step } from "prosemirror-transform";
+import {
+  getRelativeSelection,
+  relativePositionToAbsolutePosition,
+  ySyncPluginKey,
+  type ProsemirrorBinding,
+} from "y-prosemirror";
 
 /**
  * What the document's undo steps are made of, read off the editor's own
@@ -41,10 +55,61 @@ export function breaksTypingRun(tr: Transaction): boolean {
   return tr.steps.some((step, i) => !typesIntoOneTextblock(step, tr.docs[i]));
 }
 
+/**
+ * A selection as the shared doc names it, which outlives the edits after it:
+ * an undo re-renders the whole page, and absolute positions from before it
+ * point at nothing in particular.
+ */
+export type RelativeSelection = ReturnType<typeof getRelativeSelection>;
+
+function bindingOf(state: EditorState): ProsemirrorBinding | null {
+  const sync = ySyncPluginKey.getState(state) as { binding?: ProsemirrorBinding } | undefined;
+  return sync?.binding ?? null;
+}
+
+/** The selection now, while the shared doc still matches `state`. */
+export function relativeSelection(state: EditorState): RelativeSelection | null {
+  const binding = bindingOf(state);
+  return binding ? getRelativeSelection(binding, state) : null;
+}
+
+/** Puts a remembered selection on `tr`; false when it no longer resolves. */
+export function restoreSelection(
+  tr: Transaction,
+  state: EditorState,
+  selection: RelativeSelection,
+): boolean {
+  const binding = bindingOf(state);
+  if (!binding || selection.anchor === null || selection.head === null) return false;
+  if (selection.type === "all") {
+    tr.setSelection(new AllSelection(tr.doc));
+    return true;
+  }
+  const size = tr.doc.content.size;
+  const resolve = (pos: unknown) => {
+    const at = relativePositionToAbsolutePosition(binding.doc, binding.type, pos, binding.mapping);
+    return at !== null && at <= size ? at : null;
+  };
+  const anchor = resolve(selection.anchor);
+  if (anchor === null) return false;
+  if (selection.type === "node") {
+    const node = tr.doc.nodeAt(anchor);
+    if (!node || !NodeSelection.isSelectable(node)) return false;
+    tr.setSelection(NodeSelection.create(tr.doc, anchor));
+    return true;
+  }
+  const head = resolve(selection.head);
+  if (head === null) return false;
+  tr.setSelection(TextSelection.between(tr.doc.resolve(anchor), tr.doc.resolve(head)));
+  return true;
+}
+
 /** The last dispatch, as its undo step needs it. */
 export type TextStep = {
   /** Whether it closes the typing run before it and opens a new one after. */
   boundary: boolean;
+  /** The selection it started from — where undoing it puts the caret. */
+  before: RelativeSelection | null;
 };
 
 const textStepKey = new PluginKey<TextStep>("nt-text-step");
@@ -59,11 +124,16 @@ export const textStepsExtension = createExtension({
     new Plugin<TextStep>({
       key: textStepKey,
       state: {
-        init: () => ({ boundary: false }),
-        // A plugin's repair rides in the edit that caused it; it never
-        // decides that edit's grain.
-        apply: (tr, value) =>
-          tr.getMeta("appendedTransaction") ? value : { boundary: breaksTypingRun(tr) },
+        init: () => ({ boundary: false, before: null }),
+        apply: (tr, value, oldState) => {
+          // A plugin's repair rides in the edit that caused it; it never
+          // decides that edit's grain.
+          if (tr.getMeta("appendedTransaction")) return value;
+          if (!tr.docChanged) return { boundary: false, before: null };
+          // Measured now, before the sync plugin's view writes this edit, so
+          // the shared doc still matches the state it is measured against.
+          return { boundary: breaksTypingRun(tr), before: relativeSelection(oldState) };
+        },
       },
     }),
   ],

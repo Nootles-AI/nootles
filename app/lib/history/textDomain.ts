@@ -12,7 +12,13 @@ import * as Y from "yjs";
 import { KEPT_CHANGE } from "@/app/lib/ai/review/fork";
 import { isCanvasMapName } from "@/app/components/editor/canvas/collab/ymap";
 import type { DomainStep, WorkspaceHistory } from "./spine";
-import { textStepOf, type TextStep } from "./textSteps";
+import {
+  relativeSelection,
+  restoreSelection,
+  textStepOf,
+  type RelativeSelection,
+  type TextStep,
+} from "./textSteps";
 
 /**
  * The document's side of the spine: its own Y.UndoManager over the shared
@@ -43,6 +49,7 @@ import { textStepOf, type TextStep } from "./textSteps";
  */
 
 type UM = Y.UndoManager;
+type StackItem = NonNullable<ReturnType<UM["undo"]>>;
 
 /** One manager per Y.Doc, born on first bridge, gone with the doc. */
 const managers = new WeakMap<Y.Doc, UM>();
@@ -79,6 +86,10 @@ function managerFor(fragment: Y.XmlFragment): UM | null {
   }
   return manager;
 }
+
+/** Where an entry keeps the selection on either side of it. */
+const BEFORE = "nt:selection-before";
+const AFTER = "nt:selection-after";
 
 /** The editor members this bridge needs — the same hop CanvasBlock makes. */
 export type UndoHostEditor = {
@@ -153,11 +164,15 @@ export function useTextUndoDomain(
     doc.on("beforeTransaction", onWrite);
 
     let muted = false;
-    const onCaptured = (event: { type: "undo" | "redo"; origin: unknown }) => {
+    type Captured = { stackItem: StackItem; type: "undo" | "redo"; origin: unknown };
+    const onCaptured = (event: Captured) => {
       if (muted || event.type !== "undo" || event.origin !== ySyncPluginKey) return;
+      const { meta } = event.stackItem;
+      if (!meta.has(BEFORE)) meta.set(BEFORE, writing?.before ?? null);
+      meta.set(AFTER, relativeSelection(editor.prosemirrorState as EditorState));
       if (writing?.boundary) manager.stopCapturing();
     };
-    const onAdded = (event: { type: "undo" | "redo"; origin: unknown }) => {
+    const onAdded = (event: Captured) => {
       if (muted) return;
       // Only fresh edits reach here: 'redo'-type additions exist only inside
       // manager.undo(), which is always muted.
@@ -183,11 +198,24 @@ export function useTextUndoDomain(
      * a fresh edit of the person's — emptying the redo stack and putting a
      * phantom step on top of the one just undone, so the next ⌘Z walked
      * forward instead of back. It is written here, as nobody's history.
+     *
+     * The same dispatch puts the caret back where the change happened —
+     * before it for an undo, after it for a redo — instead of wherever the
+     * re-render left it, which was usually the end of the page.
      */
-    const settle = () => {
+    const settle = (item: StackItem | null, direction: "undo" | "redo") => {
       const view = editor.prosemirrorView;
       if (!view || view.isDestroyed) return;
-      view.dispatch(view.state.tr.setMeta("addToHistory", false));
+      const tr = view.state.tr.setMeta("addToHistory", false);
+      const selection = item?.meta.get(direction === "undo" ? BEFORE : AFTER) as
+        | RelativeSelection
+        | null
+        | undefined;
+      if (selection && restoreSelection(tr, view.state, selection)) tr.scrollIntoView();
+      view.dispatch(tr);
+      // A press from nowhere in particular brings the keyboard back to the
+      // caret it just placed; one from another field leaves that field be.
+      if (!view.hasFocus() && document.activeElement === document.body) view.focus();
     };
 
     const step = (direction: "undo" | "redo"): DomainStep => {
@@ -196,18 +224,22 @@ export function useTextUndoDomain(
       const to = direction === "undo" ? manager.redoStack : manager.undoStack;
       const before = from.length;
       const toBefore = to.length;
+      let item: StackItem | null = null;
       muted = true;
       try {
-        if (direction === "undo") manager.undo();
-        else manager.redo();
+        item = direction === "undo" ? manager.undo() : manager.redo();
       } finally {
         muted = false;
       }
-      settle();
-      return {
-        consumed: before - from.length,
-        redoable: to.length > toBefore,
-      };
+      const redoable = to.length > toBefore;
+      // The inverse entry is the same change seen from the other side, and
+      // keeps the same two selections.
+      if (item && redoable) {
+        const inverse = to[to.length - 1];
+        for (const [key, value] of item.meta) inverse.meta.set(key, value);
+      }
+      settle(item, direction);
+      return { consumed: before - from.length, redoable };
     };
 
     const unregister = spine.register(
