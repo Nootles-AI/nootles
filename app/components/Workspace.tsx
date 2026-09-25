@@ -1,6 +1,9 @@
 "use client";
 
 import {
+  Component,
+  Suspense,
+  lazy,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -8,9 +11,11 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
+  type ComponentProps,
   type CSSProperties,
 } from "react";
 import { useQuery } from "convex/react";
+import * as Sentry from "@sentry/nextjs";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import { useMediaQuery } from "@/app/lib/useMediaQuery";
@@ -35,8 +40,7 @@ import { LocationPanel } from "./editor/location/LocationPanel";
 import { LocationShellContext, type ActiveLocation } from "./editor/location/shell";
 import { useOpenPage } from "./OpenPageContext";
 import { Sidebar } from "./Sidebar";
-import { PageSurface } from "./PageSurface";
-import { ChatPanel } from "./ChatPanel";
+import { PageSkeleton, PageSurface } from "./PageSurface";
 import { ReviewBar } from "./ReviewBar";
 import { BarMorph } from "./BarMorph";
 import { ResizeHandle } from "./ResizeHandle";
@@ -45,9 +49,15 @@ import { WorkspacePalette } from "./WorkspacePalette";
 import { useLinger } from "@/app/lib/useLinger";
 import { publishColumnEdges } from "@/app/lib/columnEdges";
 import dynamic from "next/dynamic";
+import type { ChatPanel } from "./ChatPanel";
 
 // Opened rarely, so it does not ride in the workspace's first bundle.
 const ShortcutsDialog = dynamic(() => import("./ShortcutsDialog"), { ssr: false });
+// The chat carries the AI SDK, so it loads beside the open rather than in
+// front of it. React's own `lazy`, not `dynamic`: its fallback has to take the
+// panel's props to hold the same place, hidden or drawn, as the panel will.
+const loadChat = () =>
+  lazy(() => import("./ChatPanel").then((m) => ({ default: m.ChatPanel })));
 import { PanelsProvider } from "./PanelsContext";
 import { PagesProvider, type PageRef } from "./PagesContext";
 import { CompletionContextProvider } from "./editor/ai/CompletionContext";
@@ -93,9 +103,9 @@ const NEVER_CHANGES = () => () => {};
 const FILL = "100%";
 const DRAWER_W = "288px";
 /** How long a rail takes to close; `.nt-rail-slot` in globals.css agrees. */
-const RAIL_MS = 320;
+const RAIL_MS = 220;
 /** How long the tool bar takes to leave; `nt-toolbar-out` agrees. */
-const TOOLS_MS = 200;
+const TOOLS_MS = 170;
 
 /* Everything that belongs to the canvas being edited. A press anywhere else is
    what "deselect" means — and the panels have to be in here, because a field in
@@ -729,6 +739,16 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
   // of both layout and the accessibility tree while a canvas/location claims
   // the slot (or while the rail is collapsed), without mistaking that for Stop.
   const chatHidden = compact ? !chatAsDrawer : !chatOn && !chatHeld;
+  // Mounted the first time it is shown, or once the open has gone idle, and
+  // never again unmounted — that would be a Stop.
+  const [chatMounted, setChatMounted] = useState(false);
+  if (!chatMounted && !chatHidden) setChatMounted(true);
+  useEffect(() => {
+    if (chatMounted || viewer) return;
+    const idle = window.requestIdleCallback ?? ((run: () => void) => setTimeout(run, 2000));
+    const handle = idle(() => setChatMounted(true));
+    return () => (window.cancelIdleCallback ?? clearTimeout)(handle as number);
+  }, [chatMounted, viewer]);
 
   return (
     <CanvasShellContext value={shell}>
@@ -832,6 +852,8 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
               pane="main"
               row={rowFor(mainPageId)}
             />
+          ) : sortedPages === undefined ? (
+            <PageSkeleton />
           ) : (
             <EmptyWorkspace />
           )}
@@ -885,7 +907,9 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
               data-on={chatOn}
               inert={!compact && !chatOn}
             >
-              <ChatPanel {...chatProps} hidden={chatHidden} />
+              {chatMounted && (
+                <ChatSlot {...chatProps} hidden={chatHidden} />
+              )}
             </div>
           )}
           {designHeld && lastCanvas && (
@@ -983,6 +1007,60 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
      </ReadOnlyContext>
       </LocationShellContext>
     </CanvasShellContext>
+  );
+}
+
+type ChatProps = ComponentProps<typeof ChatPanel>;
+
+/**
+ * The chat's code arrives on its own, so it can fail on its own — a dropped
+ * connection, or a chunk a newer deploy removed — and that must leave the
+ * workspace standing. A failed chat keeps its place as the empty shell and
+ * fetches afresh the next time it is shown: `lazy` remembers a rejection, so
+ * a retry is a new `lazy`.
+ */
+class ChatSlot extends Component<
+  ChatProps,
+  { Panel: ReturnType<typeof loadChat>; failed: boolean; armed: boolean }
+> {
+  state = { Panel: loadChat(), failed: false, armed: false };
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  static getDerivedStateFromProps(props: ChatProps, state: ChatSlot["state"]) {
+    if (!state.failed) return null;
+    if (props.hidden) return state.armed ? null : { armed: true };
+    return state.armed ? { Panel: loadChat(), failed: false, armed: false } : null;
+  }
+  componentDidCatch(error: unknown) {
+    Sentry.captureException(error, { tags: { feature: "chat-panel" } });
+  }
+  render() {
+    const { Panel, failed } = this.state;
+    if (failed) return <ChatShell {...this.props} />;
+    return (
+      <Suspense fallback={<ChatShell {...this.props} />}>
+        <Panel {...this.props} />
+      </Suspense>
+    );
+  }
+}
+
+/** The chat's rail, empty, while its code is on the way. */
+function ChatShell({
+  width,
+  hidden,
+  className = "",
+  style,
+}: ChatProps) {
+  return (
+    <aside
+      hidden={hidden}
+      style={{ width, ...style }}
+      className={`nt-panel nt-rail-r ${hidden ? "hidden" : ""} ${className}`}
+      aria-label="Chat"
+      aria-busy="true"
+    />
   );
 }
 

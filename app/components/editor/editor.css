@@ -22,45 +22,6 @@
   margin-block: 3px;
 }
 
-/* ---- A page opening ----------------------------------------------------
-   The title rises, then the body a beat behind it — two animations on two
-   containers, never one per block: ProseMirror re-creates blocks as you type,
-   and a per-block entrance would replay under the caret.
-
-   The pane is not remounted between pages, so `data-turn` flips with each page
-   (`PageSurface`) and the two names are the same keyframes twice: a changed
-   `animation-name` is what makes the browser run it again. `backwards`, so a
-   page at rest carries no transform — the expanded canvas stage inside the
-   body is `position: fixed`, and a transformed ancestor would become what it
-   is fixed to. */
-.nt-page-in[data-turn="a"] {
-  animation: nt-page-in-a 480ms var(--ease) 40ms backwards;
-}
-.nt-page-in[data-turn="b"] {
-  animation: nt-page-in-b 480ms var(--ease) 40ms backwards;
-}
-.nt-page-in.is-title {
-  animation-duration: 500ms;
-  animation-delay: 0ms;
-}
-@keyframes nt-page-in-a {
-  from {
-    opacity: 0;
-    transform: translateY(6px);
-  }
-}
-@keyframes nt-page-in-b {
-  from {
-    opacity: 0;
-    transform: translateY(6px);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .nt-page-in[data-turn] {
-    animation: none;
-  }
-}
-
 /* ---- Block handles (the + and the grip in the gutter) -----------------
    The floating anchor is BlockNote's; the cluster inside it is ours.
 
@@ -1094,7 +1055,7 @@ body:has(.nt-well[data-drawing]) .nt-side-menu-anchor {
   background: var(--diff-add-bg);
   box-shadow: 0 0 0 3px var(--diff-add-bg);
   /* The wash comes up under the new block; its ink is there from the start. */
-  animation: nt-diff-wash-in 500ms var(--ease) backwards;
+  animation: nt-diff-wash-in 420ms var(--ease) backwards;
 }
 @keyframes nt-diff-wash-in {
   from {
@@ -1139,7 +1100,7 @@ body:has(.nt-well[data-drawing]) .nt-side-menu-anchor {
      put, while the spans around changed words are rebuilt as you type beside
      them and would replay anything they animated. */
   transform-origin: top;
-  animation: nt-diff-rule-in 420ms var(--ease) backwards;
+  animation: nt-diff-rule-in 360ms var(--ease) backwards;
 }
 @keyframes nt-diff-rule-in {
   from {
@@ -1263,7 +1224,7 @@ body:has(.nt-well[data-drawing]) .nt-side-menu-anchor {
     0 1px 2px oklch(0.25 0.005 90 / 0.06),
     0 6px 16px -6px oklch(0.25 0.005 90 / 0.14);
   transform-origin: left center;
-  animation: nt-diff-actions-in var(--dur-slow) var(--spring) 200ms backwards;
+  animation: nt-diff-actions-in var(--dur-slow) var(--spring) 170ms backwards;
 }
 @keyframes nt-diff-actions-in {
   from {

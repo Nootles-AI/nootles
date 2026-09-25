@@ -14,6 +14,7 @@ import { useAuth, useClerk } from "@clerk/nextjs";
 import * as Sentry from "@sentry/nextjs";
 import { impersonationToken } from "./lib/impersonation";
 import { forgetOnSignOut } from "./lib/projectsCache";
+import { accountChanged } from "./lib/sync/account";
 import { requireConvexDeploymentUrl } from "./lib/convexDeploymentUrl";
 import { patientToken, reauthDelay, reauthState } from "./lib/sessionToken";
 
@@ -183,6 +184,8 @@ export function ConvexClientProvider({ children }: { children: ReactNode }) {
   // what the screen cached just as surely as signing out from the screen.
   const clerk = useClerk();
   useEffect(() => forgetOnSignOut(clerk), [clerk]);
+  const { userId } = useAuth();
+  useEffect(() => accountChanged(), [userId]);
   // Read once, at mount. `/impersonate` hard-navigates after setting the
   // cookie, so it never changes under a tree that is already up — and holding
   // it in state keeps every render answering the same identity.

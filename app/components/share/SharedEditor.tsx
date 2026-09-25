@@ -10,14 +10,13 @@ import { useYjsEditor } from "@/app/lib/sync/useYjsEditor";
 import { guestIdentity } from "@/app/lib/sync/colors";
 import { arrivalFlashExtension } from "../editor/arrivalFlash";
 import { schema } from "../editor/schema";
+import { BodySkeleton } from "../editor/BodySkeleton";
 import { useAttachCommentsEditor } from "../comments/editorSlot";
 import "../editor/editor.css";
 
 type EditorInstance = typeof schema.BlockNoteEditor;
 
-const YJS_ON = process.env.NEXT_PUBLIC_YJS === "1";
-
-const placeholder = <div className="min-h-[40vh]" aria-hidden />;
+const placeholder = <BodySkeleton deferred />;
 
 // A page whose owner never opened it holds nothing — said plainly, in the
 // voice of "This project has no pages", rather than as an indistinguishable
@@ -34,11 +33,18 @@ const empty = <p className="text-sm text-muted">This page is empty.</p>;
  * via `ReadOnlyContext`, provided by `SharedProject` above.
  */
 export function SharedEditor({ docId }: { docId: string }) {
-  const state = useQuery(api.ydoc.state, YJS_ON ? { docId } : "skip");
-  if (YJS_ON && state === undefined) return placeholder;
-  if (YJS_ON && state === "yjs") return <SharedYjs docId={docId} />;
+  const state = useQuery(api.ydoc.state, { docId });
+  // Asked beside `state`, not after it: a page is born on Yjs with a row and
+  // no updates, and that is as empty as a page nobody opened. The provider
+  // watches the same query, so this is not a second subscription.
+  const meta = useQuery(api.ydoc.meta, { docId });
+  if (state === undefined) return placeholder;
+  if (state === "yjs") {
+    if (meta === undefined) return placeholder;
+    return meta?.seq === 0 ? empty : <SharedYjs docId={docId} />;
+  }
   // Never opened — a viewer must not create it, so there is nothing to mount.
-  if (YJS_ON && state === "empty") return empty;
+  if (state === "empty") return empty;
   return <SharedLegacy docId={docId} />;
 }
 

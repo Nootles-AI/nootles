@@ -1,19 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import katex from "katex";
-import "katex/dist/katex.min.css";
 import { createReactInlineContentSpec } from "@blocknote/react";
+import { useKatex } from "../math/katex";
 import { MathField } from "../math/MathField";
 import { useReadOnly } from "../readOnly";
-
-function renderKatex(latex: string): string {
-  try {
-    return katex.renderToString(latex, { throwOnError: false });
-  } catch {
-    return latex;
-  }
-}
 
 function MathInlineView({
   latex,
@@ -23,6 +14,11 @@ function MathInlineView({
   onChange: (latex: string) => void;
 }) {
   const readOnly = useReadOnly();
+  const render = useKatex();
+  // Source until KaTeX arrives, not blank as a maths block is: an equation sits
+  // in a line of prose, and a gap would close up and reflow the line on arrival.
+  const typeset = () =>
+    render ? { dangerouslySetInnerHTML: { __html: render(latex) } } : { children: latex };
   // Open the editor immediately for a freshly-inserted (empty) equation, so
   // `/math-equation` drops you straight into editing.
   const [editing, setEditing] = useState(latex.trim() === "");
@@ -35,7 +31,7 @@ function MathInlineView({
       <span
         className="nt-math-inline"
         contentEditable={false}
-        dangerouslySetInnerHTML={{ __html: renderKatex(latex) }}
+        {...typeset()}
       />
     );
   }
@@ -74,7 +70,7 @@ function MathInlineView({
       role="button"
       tabIndex={0}
       onClick={() => setEditing(true)}
-      dangerouslySetInnerHTML={{ __html: renderKatex(latex) }}
+      {...typeset()}
     />
   );
 }

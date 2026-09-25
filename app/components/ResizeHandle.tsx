@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { raiseVeil } from "@/app/lib/veil";
 
 /**
  * A draggable divider with nothing drawn at rest: the sheet's own edge is the
@@ -45,19 +46,14 @@ export function ResizeHandle({
     };
     window.addEventListener("mousemove", move);
     window.addEventListener("mouseup", up);
-    // The cursor and the ban on selecting text ride a veil over the window,
-    // not the body: both are inherited, so writing them on the body restyled
-    // every element of the document at the press and again at the release.
-    const veil = document.createElement("div");
-    veil.className = "nt-resize-veil";
-    document.body.append(veil);
+    const lower = raiseVeil("col-resize");
     // A rail being dragged follows the hand; it does not ease after it.
     document.body.dataset.resizing = "";
     return () => {
       if (frame) cancelAnimationFrame(frame);
       window.removeEventListener("mousemove", move);
       window.removeEventListener("mouseup", up);
-      veil.remove();
+      lower();
       delete document.body.dataset.resizing;
     };
   }, [dragging, onResize]);

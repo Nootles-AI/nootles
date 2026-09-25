@@ -12,12 +12,14 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
-import { useQuery, useMutation } from "convex/react";
+import { useConvex, useQuery, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import { EntryDomain, type HistoryEntry } from "@/app/lib/history/entryDomain";
 import { useWorkspaceHistory } from "@/app/lib/history/useWorkspaceHistory";
 import { track } from "@/app/lib/telemetry";
+import { warmDoc } from "@/app/lib/sync/YConvexProvider";
+import { useDwell } from "@/app/lib/useDwell";
 import {
   ArrowLeft,
   ChevronRight,
@@ -47,6 +49,7 @@ import { CodeGate } from "./context/CodeGate";
 import { SidebarContext } from "./context/SidebarContext";
 import { ContextMenu } from "./ContextMenu";
 import { Editable } from "./Editable";
+import { useRenamePage } from "./renamePage";
 import { usePageChanges, type PageChange } from "./ReviewContext";
 import { useStandIn } from "./StandIn";
 import { useHints } from "./hints/useHints";
@@ -134,6 +137,8 @@ export function Sidebar({
   const canEdit = owner || role === "editor";
   const changes = usePageChanges();
   const hints = useHints();
+  const convex = useConvex();
+  const dwell = useDwell();
   const setPageIcon = useMutation(api.pages.setIcon);
   const setFolderIcon = useMutation(api.folders.setIcon);
   /** The row whose icon is being chosen, and where its menu was opened. */
@@ -155,7 +160,7 @@ export function Sidebar({
     return null;
   };
   const createPage = useMutation(api.pages.create);
-  const renamePage = useMutation(api.pages.rename);
+  const renamePage = useRenamePage();
   const removePage = useMutation(api.pages.remove);
   const duplicatePage = useMutation(api.pages.duplicate);
   const createFolder = useMutation(api.folders.create);
@@ -958,6 +963,10 @@ export function Sidebar({
                   onPointerDown={
                     canEdit ? (e) => drag.press(dragRows[i], e) : undefined
                   }
+                  // The switch the hover predicts paints from memory instead
+                  // of waiting on a round trip.
+                  onPointerEnter={() => dwell.enter(() => warmDoc(convex, row.page.docId))}
+                  onPointerLeave={dwell.leave}
                   onDoubleClick={
                     canEdit ? () => startRename(target, row.page.title) : undefined
                   }
@@ -1028,7 +1037,7 @@ export function Sidebar({
       )}
 
       <DropLabel
-        pointer={drag.pointer}
+        tip={drag.tip}
         into={drag.intoId ? folderById(drag.intoId)?.title || "Untitled" : null}
         toRoot={drag.toRoot}
       />
@@ -1180,6 +1189,7 @@ export function Sidebar({
   );
 }
 
+
 /**
  * What the agent has done to a page that nobody has answered yet.
  *
@@ -1208,31 +1218,21 @@ function ChangeCount({ change }: { change: PageChange | undefined }) {
  * sentence. Only the two answers that move a page between levels are worth one;
  * a reorder within a level is already fully described by the line.
  *
- * Follows the pointer rather than anchoring to the row, because the pointer is
- * where the eye is during a drag, and flips to the other side near the right
- * edge so it is never clipped.
+ * Follows the pointer rather than anchoring to the row — placed there by the
+ * drag, which holds the pointer outside React.
  */
 function DropLabel({
-  pointer,
+  tip,
   into,
   toRoot,
 }: {
-  pointer: { x: number; y: number } | null;
+  tip: (el: HTMLElement | null) => void;
   into: string | null;
   toRoot: boolean;
 }) {
-  if (!pointer || (!into && !toRoot)) return null;
-  const flip = pointer.x > window.innerWidth - 220;
+  if (!into && !toRoot) return null;
   return (
-    <div
-      aria-hidden
-      className="nt-drag-tip"
-      style={{
-        top: pointer.y + 18,
-        left: pointer.x + (flip ? -12 : 14),
-        transform: flip ? "translateX(-100%)" : undefined,
-      }}
-    >
+    <div ref={tip} aria-hidden className="nt-drag-tip">
       {into ? `Into ${into}` : "Out to top level"}
     </div>
   );

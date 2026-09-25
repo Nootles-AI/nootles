@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 
 /** How long a row that has gone stays drawn: `.is-leaving`'s fade. */
-const LEAVE_MS = 220;
+const LEAVE_MS = 190;
 
 /**
  * A list's rows, with any that have just gone from it kept a moment longer,

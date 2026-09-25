@@ -165,7 +165,6 @@ await build({
   },
   define: {
     "process.env.NODE_ENV": '"development"',
-    "process.env.NEXT_PUBLIC_YJS": '"1"',
   },
   banner: { js: 'globalThis.process ??= { env: { NODE_ENV: "development" }, browser: true };' },
   plugins: [stubPlugin],

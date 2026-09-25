@@ -60,7 +60,7 @@
    settling into place, not being presented. */
 .nt-wc.is-committing .nt-sheet {
   transform: scale(1.012);
-  transition: transform 640ms var(--ease);
+  transition: transform 540ms var(--ease);
 }
 
 @media (prefers-reduced-motion: reduce) {

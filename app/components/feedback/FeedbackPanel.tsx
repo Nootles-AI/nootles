@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useMutation } from "convex/react";
-import posthog from "posthog-js";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { dump } from "@/app/lib/debugRing";
@@ -10,7 +9,7 @@ import {
   FEEDBACK_CATEGORIES,
   type FeedbackCategory,
 } from "@/app/lib/ai/categorize";
-import { track } from "@/app/lib/telemetry";
+import { loadedAnalytics, track } from "@/app/lib/telemetry";
 import { Bug, Sparkles, X } from "../Icons";
 import {
   FixedSheet,
@@ -217,9 +216,7 @@ export function FeedbackPanel({
       }
       let replayUrl: string | undefined;
       try {
-        if (posthog.__loaded) {
-          replayUrl = posthog.get_session_replay_url({ withTimestamp: true });
-        }
+        replayUrl = loadedAnalytics()?.get_session_replay_url({ withTimestamp: true });
       } catch {
         // Replay link is best-effort.
       }

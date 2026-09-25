@@ -79,7 +79,7 @@
   border: 1px solid var(--border);
   border-radius: 10px;
   box-shadow: 0 1px 2px oklch(0.25 0.005 90 / 0.04);
-  animation: nt-src-in 220ms var(--ease);
+  animation: nt-src-in 190ms var(--ease);
 }
 /* Arrives where it was added; answers the click that added it. */
 @keyframes nt-src-in {

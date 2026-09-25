@@ -32,7 +32,7 @@ for (const key of ["OPENAI_API_KEY", "OPENROUTER_API_KEY", "GOOGLE_GENERATIVE_AI
 
 const FIXTURES = {
   // Only the stand-in banner subscribes, and it has nothing to say here.
-  "convex/react": "export function useQuery() { return undefined; }",
+  "convex/react": "export function useQuery() { return undefined; } export function useConvex() { return { prewarmQuery() {} }; }",
   "next/navigation": "export const useRouter = () => ({ push(){}, replace(){}, prefetch(){} });",
   "next/link": `import { createElement } from "react"; export default function Link({ href, children, ...rest }) { return createElement("a", { href: typeof href === "string" ? href : "#", ...rest }, children); }`,
 };

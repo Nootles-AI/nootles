@@ -96,7 +96,7 @@ export function WorkspacePalette({
   onClose: () => void;
 }) {
   return (
-    <Dialog label="Find a page" className="nt-palette is-solo" onClose={onClose}>
+    <Dialog label="Find a page" className="nt-palette is-solo nt-wpal" onClose={onClose}>
       {(close) => (
         <Body
           pages={pages}

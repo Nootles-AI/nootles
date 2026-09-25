@@ -40,16 +40,6 @@
   }
 }
 
-/* While a band is being drawn. The gesture crosses the contenteditable, and
-   the browser's own answer to that is an I-beam under every word the band
-   passes — a cursor that offers to do the thing the band is already doing.
-   `body *` outranks the UA's `cursor: auto` on text without needing
-   `!important`, and it comes off the moment the pointer lifts. */
-body.nt-banding,
-body.nt-banding * {
-  cursor: default;
-}
-
 /* The band. Fixed rather than absolute — it is drawn on `document.body`, so
    nothing in the page's overflow can clip it, and the hook clamps it to the
    scroller instead. Same hairline and wash as the sidebar's `.nt-marquee`;

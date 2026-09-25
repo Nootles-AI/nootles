@@ -499,7 +499,7 @@
 }
 /* Letting the diagram go: the bar sinks back the way it rose. */
 .nt-toolbar-dock[data-leaving] > .nt-toolbar {
-  animation: nt-toolbar-out 200ms var(--ease) forwards;
+  animation: nt-toolbar-out 170ms var(--ease) forwards;
 }
 @keyframes nt-toolbar-out {
   to {
@@ -528,7 +528,7 @@
     0 0 0 1px oklch(0.25 0.005 90 / 0.06),
     0 4px 12px oklch(0.25 0.005 90 / 0.07),
     0 16px 40px oklch(0.25 0.005 90 / 0.1);
-  animation: nt-toolbar-in 520ms var(--spring);
+  animation: nt-toolbar-in 440ms var(--spring);
 }
 
 /* Rises into place, in the direction it came from, and comes into focus as it
@@ -603,8 +603,8 @@
   opacity: 0;
   transform: translateX(var(--mark-x, 0px));
   transition:
-    transform 280ms var(--spring),
-    width 280ms var(--spring),
+    transform 240ms var(--spring),
+    width 240ms var(--spring),
     opacity var(--dur-fast) var(--ease);
 }
 .nt-toolbar-tools[data-marked="true"] > .nt-toolbar-mark {
@@ -933,7 +933,7 @@
   border-radius: calc(1px * var(--k, 1));
   pointer-events: none;
   animation: nt-fade-in var(--dur-fast) var(--ease);
-  transition: transform 80ms var(--ease);
+  transition: transform 70ms var(--ease);
 }
 .nt-copresence-caret-name {
   position: absolute;

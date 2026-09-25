@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { useAuth, useClerk, useUser } from "@clerk/nextjs";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import { homePath } from "@/app/lib/containerPaths";
+import { homePath, WHOLE_ROUTE } from "@/app/lib/containerPaths";
 import { rememberWorkspace } from "@/app/lib/projectsCache";
 import { Wordmark } from "../Brand";
 import { useConfirmedEmail, useIdentityCheck } from "../IdentitySync";
@@ -66,7 +66,7 @@ export function JoinInvitation({ token }: { token: string }) {
       // waiting to learn what its address is. Left going: it replaces this page,
       // a beat after the tile has said you are in.
       if (userId) rememberWorkspace(userId, done.slug, { kind: "workspace", ...done });
-      router.prefetch(homePath(done.slug));
+      router.prefetch(homePath(done.slug), WHOLE_ROUTE);
       setJoined(true);
       setTimeout(() => router.replace(homePath(done.slug)), LANDED_MS);
     } catch (error) {

@@ -12,6 +12,7 @@ import { undoScope, useWorkspaceHistory } from "@/app/lib/history/useWorkspaceHi
 import { useNmlUndoDomain } from "@/app/lib/history/nmlDomain";
 import { NmlEditableView, NmlReadOnlyView } from "./NmlReadOnlyView";
 import { useReadOnly } from "../readOnly";
+import { BodySkeleton } from "../BodySkeleton";
 
 /**
  * Steps 9–13 native NML view host. It mounts the native bridge on the same
@@ -122,7 +123,7 @@ export function NmlServedEditor({
     pageId,
   );
 
-  if (!bridge) return <div className="min-h-[40vh]" aria-hidden />;
+  if (!bridge) return <BodySkeleton deferred />;
   return (
     <div className="nt-marquee-surface" {...undoScope}>
       <div className="nt-editor">

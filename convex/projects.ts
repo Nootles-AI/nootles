@@ -27,6 +27,7 @@ import { linkPages, notionPageRef } from "./notion/context";
 import { deletePreview } from "./previews";
 import { personOf } from "./profiles";
 import { repoRef } from "./schema";
+import { registerYDoc } from "./ydoc";
 
 /**
  * The page facts the projects screen draws — how many, which one to preview,
@@ -418,16 +419,19 @@ export const create = mutation({
     } else {
       // One blank page so a new project is immediately usable. Empty title so
       // the doc shows its placeholder; the sidebar renders an "Untitled"
-      // fallback.
+      // fallback. Born on Yjs, as `pages.create` makes one.
+      const docId = crypto.randomUUID();
       await ctx.db.insert("pages", {
         ownerId,
         createdBy: ownerId,
         projectId,
         title: "",
         order: 0,
-        docId: crypto.randomUUID(),
+        docId,
+        yjs: true,
         createdAt: now,
       });
+      await registerYDoc(ctx, docId);
     }
     await refreshPageSummary(ctx, projectId);
     return projectId;

@@ -42,9 +42,9 @@ function fixture() {
   const session = new ReviewSession({
     convex: { mutation, query: vi.fn(async () => null) } as never,
     openPage: vi.fn(),
-    editorFor: vi.fn(async () => {
-      throw new Error("the legacy answer path does not need an editor");
-    }),
+    // Settling merges the page's fork, so it needs the live page; this one
+    // was never forked and holds none of the turn's blocks.
+    editorFor: vi.fn(async () => ({ getBlock: () => undefined, getExtension: () => undefined }) as never),
   });
   (session as unknown as { turns: TurnReview[] }).turns = [turn()];
   return { session, mutation };

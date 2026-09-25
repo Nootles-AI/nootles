@@ -114,7 +114,7 @@ function flag(el: Element, name: string, on: boolean) {
 
 /** The block each mounted handle was last placed against, and how long its
     glide has left to run — see `data-nt-slide`. Mirrors `--dur`. */
-const SLIDE_MS = 170;
+const SLIDE_MS = 145;
 const placedAgainst = new WeakMap<HTMLElement, Element>();
 const slideUntil = new WeakMap<HTMLElement, number>();
 

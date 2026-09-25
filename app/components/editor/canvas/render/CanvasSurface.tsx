@@ -125,7 +125,7 @@ import { ShapeView, toCss } from "./ShapeView";
 import "../canvas.css";
 
 /** How long the stage takes to open or close. */
-const STAGE_MS = 300;
+const STAGE_MS = 260;
 /**
  * The curve for it — and the glide solves the same one, so the surface and the
  * diagram arrive together. A snap: quick off the mark and settled in a third

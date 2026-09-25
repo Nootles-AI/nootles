@@ -21,12 +21,12 @@ type Part = { el: HTMLElement; rect: DOMRect; shape: boolean };
 type Shot = { bar: DOMRect; parts: Map<string, Part>; slot: DOMRect | null };
 
 const BAR = ".nt-toolbar-dock:not([data-leaving]) > .nt-toolbar";
-const MS = 440;
-const OUT_MS = 110;
+const MS = 370;
+const OUT_MS = 95;
 /** Between one shape folding (or fanning) and the next. */
-const STAGGER = 45;
+const STAGGER = 40;
 /** One shape's fold into the slot. */
-const FOLD = 260;
+const FOLD = 220;
 const EASE = "cubic-bezier(0.25, 0, 0, 1)";
 
 /** Every piece of a bar, by a name both bars would give it. */
@@ -175,7 +175,7 @@ function play(root: HTMLElement | null, shot: Shot) {
           { opacity: 0, translate: "-10px 0", scale: "0.6" },
           { opacity: 1, translate: "0 0", scale: "1" },
         ],
-        { duration: 260, delay: landed - 40, easing: spring, fill: "backwards" },
+        { duration: 220, delay: landed - 40, easing: spring, fill: "backwards" },
       );
     } else {
       el.animate([{ opacity: 0, scale: "0.6" }, { opacity: 1, scale: "1" }], {
@@ -230,7 +230,7 @@ function play(root: HTMLElement | null, shot: Shot) {
   // The slot takes the shapes in with a small give, as they land.
   if (folding.length && slotEl) {
     slotEl.animate([{ scale: "1" }, { scale: "1.1" }, { scale: "1" }], {
-      duration: 280,
+      duration: 240,
       delay: landed - 60,
       easing: "cubic-bezier(0.3, 0, 0.2, 1)",
     });

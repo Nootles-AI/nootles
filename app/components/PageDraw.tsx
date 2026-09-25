@@ -438,7 +438,7 @@ export function usePageDraw({
             { left: `${drawn.x}px`, top: `${drawn.y}px`, width: `${drawn.w}px`, height: `${drawn.h}px` },
             { left: `${to.left}px`, top: `${to.top}px`, width: `${to.width}px`, height: `${to.height}px` },
           ],
-          { duration: reduced ? 1 : 320, easing: SETTLE, fill: "forwards" },
+          { duration: reduced ? 1 : 270, easing: SETTLE, fill: "forwards" },
         )
         .finished.catch(() => {});
       shape.style.visibility = "";

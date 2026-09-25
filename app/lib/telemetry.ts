@@ -1,4 +1,4 @@
-import posthog from "posthog-js";
+import type { PostHog } from "posthog-js";
 
 /**
  * The one product-analytics choke point. A closed event taxonomy, mirroring
@@ -51,11 +51,59 @@ type EventMap = {
   survey_answered: { survey: string; answered: boolean };
 };
 
-/** No-op without a PostHog key; never throws. Safe to call from anywhere. */
-export function track<K extends keyof EventMap>(name: K, props: EventMap[K]): void {
+type Call = (posthog: PostHog) => void;
+
+let posthog: PostHog | undefined;
+
+/**
+ * What was asked of PostHog before it loaded, replayed in order once it has.
+ * Absent when it never will load — no key, or the boot failed — so nothing
+ * waits on it. Bounded, in case the load never finishes.
+ */
+let pending: Call[] | undefined = process.env.NEXT_PUBLIC_POSTHOG_KEY ? [] : undefined;
+const MAX_PENDING = 500;
+
+let booting: Promise<void> | undefined;
+
+function run(call: Call): void {
   try {
-    if (posthog.__loaded) posthog.capture(name, props);
+    call(posthog!);
   } catch {
     // Telemetry never breaks the app.
   }
+}
+
+/**
+ * Loads PostHog off the first-load bundle, hands it to `init`, then replays
+ * whatever arrived in the meantime. Idempotent.
+ */
+export function bootAnalytics(init: Call): Promise<void> {
+  booting ??= import("posthog-js")
+    .then(({ default: loaded }) => {
+      init(loaded);
+      posthog = loaded;
+      const queued = pending;
+      pending = undefined;
+      queued?.forEach(run);
+    })
+    .catch(() => {
+      pending = undefined;
+    });
+  return booting;
+}
+
+/** Runs `call` against PostHog now if it has loaded, else once it does. */
+export function withAnalytics(call: Call): void {
+  if (posthog) run(call);
+  else if (pending && pending.length < MAX_PENDING) pending.push(call);
+}
+
+/** PostHog if it has loaded, for reads that can't wait. */
+export function loadedAnalytics(): PostHog | undefined {
+  return posthog;
+}
+
+/** No-op without a PostHog key; never throws. Safe to call from anywhere. */
+export function track<K extends keyof EventMap>(name: K, props: EventMap[K]): void {
+  withAnalytics((posthog) => posthog.capture(name, props));
 }

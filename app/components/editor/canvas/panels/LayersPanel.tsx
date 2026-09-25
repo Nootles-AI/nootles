@@ -1,7 +1,9 @@
 "use client";
 
 import {
+  memo,
   useEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -183,6 +185,7 @@ export function LayersPanel({
   store: SceneStore;
   selection: SelectionStore;
 }) {
+  "use memo";
   const scene = useSceneSnapshot(store);
   const snapshot = useSyncExternalStore(
     selection.subscribe,
@@ -223,7 +226,12 @@ export function LayersPanel({
     active: boolean;
   } | null>(null);
 
-  const rows = flatten(scene.nodes, expanded, null, 0, []);
+  // By hand: the compiler cannot tell that `flatten` writes only its own
+  // `out`, and would otherwise rebuild every row handler on every render.
+  const rows = useMemo(
+    () => flatten(scene.nodes, expanded, null, 0, []),
+    [scene.nodes, expanded],
+  );
 
   const lead = snapshot.ids.length ? snapshot.ids[snapshot.ids.length - 1] : null;
   useEffect(() => {
@@ -240,10 +248,9 @@ export function LayersPanel({
       return next;
     });
 
-  const commitRename = () => {
-    if (!renaming) return;
-    const name = renaming.draft.trim();
-    store.dispatch({ type: "setName", id: renaming.id, name: name || undefined });
+  const commitRename = (id: NodeId, draft: string) => {
+    const name = draft.trim();
+    store.dispatch({ type: "setName", id, name: name || undefined });
     setRenaming(null);
   };
 
@@ -254,8 +261,7 @@ export function LayersPanel({
     setDrop(null);
   };
 
-  const onRowPointerDown = (e: React.PointerEvent, row: Row) => {
-    const id = row.node.id;
+  const onRowPointerDown = (e: React.PointerEvent, id: NodeId) => {
     // The rename field is inside the row; pressing in it must not start a drag.
     if (e.button !== 0 || renaming?.id === id) return;
 
@@ -276,11 +282,12 @@ export function LayersPanel({
 
     // Pressing an already-selected row keeps the whole selection, so a
     // multi-selection can be dragged; the narrowing happens on release.
-    const wasSelected = snapshot.selected.has(id);
+    const current = selection.getSnapshot();
+    const wasSelected = current.selected.has(id);
     if (!wasSelected) selection.select([id]);
     anchorRef.current = id;
 
-    const ids = wasSelected ? [...snapshot.ids] : [id];
+    const ids = wasSelected ? [...current.ids] : [id];
     dragRef.current = {
       id,
       ids,
@@ -334,10 +341,21 @@ export function LayersPanel({
           },
         });
       }
-    } else if (drag.wasSelected && snapshot.ids.length > 1) {
+    } else if (drag.wasSelected && selection.getSnapshot().ids.length > 1) {
       selection.select([drag.id]);
     }
     endDrag();
+  };
+
+  const hoverRow = (id: NodeId) => {
+    if (!moving) selection.hoverNode(id);
+  };
+
+  // The menu acts on the selection, so a row outside it becomes it.
+  const openRowMenu = (e: React.MouseEvent, id: NodeId) => {
+    e.preventDefault();
+    if (!selection.getSnapshot().selected.has(id)) selection.select([id]);
+    openMenu(e);
   };
 
   // Bound to the panel, not to a row: the key has to work wherever focus landed
@@ -383,125 +401,34 @@ export function LayersPanel({
           <div className="nt-lyr-empty">Nothing on the canvas yet.</div>
         )}
 
-        {rows.map((row, i) => {
-          const { node, depth } = row;
-          const selected = snapshot.selected.has(node.id);
-          const editing = renaming?.id === node.id;
-          return (
-            <div
-              key={node.id}
-              data-layer={node.id}
-              role="treeitem"
-              tabIndex={0}
-              aria-level={depth + 1}
-              aria-selected={selected}
-              aria-expanded={isContainer(node) ? expanded.has(node.id) : undefined}
-              className={`nt-lyr-row${selected ? " is-selected" : ""}${
-                node.hidden || node.locked ? " is-dim" : ""
-              }${moving?.has(node.id) ? " is-moving" : ""}${
-                drop?.intoId === node.id ? " is-into" : ""
-              }${snapshot.hoverId === node.id ? " is-hover" : ""}`}
-              // `--i` staggers the row's arrival, and stops counting at the
-              // fold: a scene of two hundred layers must not take four seconds
-              // to finish appearing.
-              style={
-                { paddingLeft: ROW_INSET + depth * INDENT, "--i": Math.min(i, STAGGER) } as CSSProperties
-              }
-              // The ring the canvas draws for a pointer over a shape, drawn
-              // for a pointer over its row — the same answer from either side.
-              onPointerEnter={() => {
-                if (!moving) selection.hoverNode(node.id);
-              }}
-              onPointerDown={(e) => onRowPointerDown(e, row)}
-              onPointerMove={onRowPointerMove}
-              onPointerUp={onRowPointerUp}
-              onPointerCancel={endDrag}
-              onDoubleClick={() =>
-                setRenaming({ id: node.id, draft: displayName(node) })
-              }
-              // The menu acts on the selection, so a row outside it becomes it.
-              onContextMenu={(e) => {
-                e.preventDefault();
-                if (!snapshot.selected.has(node.id)) selection.select([node.id]);
-                openMenu(e);
-              }}
-              onKeyDown={(e) => {
-                if (e.key !== "Enter" && e.key !== " ") return;
-                e.preventDefault();
-                selection.select([node.id]);
-              }}
-            >
-              {isContainer(node) ? (
-                <button
-                  className="nt-lyr-twist"
-                  aria-label={expanded.has(node.id) ? "Collapse" : "Expand"}
-                  onPointerDown={(e) => e.stopPropagation()}
-                  onClick={() => toggleExpanded(node.id)}
-                >
-                  <ChevronRight
-                    width={12}
-                    height={12}
-                    className={`nt-lyr-chevron${
-                      expanded.has(node.id) ? " is-open" : ""
-                    }`}
-                  />
-                </button>
-              ) : (
-                <span className="nt-lyr-twist" />
-              )}
-
-              <Glyph className="nt-lyr-icon" d={glyphFor(node)} />
-
-              {editing ? (
-                <Editable
-                  autoFocus
-                  value={renaming.draft}
-                  label="Layer name"
-                  onInput={(text) =>
-                    setRenaming({ id: node.id, draft: text })
-                  }
-                  onBlur={commitRename}
-                  onKeyDown={(e) => {
-                    e.stopPropagation();
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      commitRename();
-                    }
-                    if (e.key === "Escape") setRenaming(null);
-                  }}
-                  className="nt-lyr-edit"
-                />
-              ) : (
-                <span className="nt-lyr-name">{displayName(node)}</span>
-              )}
-
-              <Toggle
-                on={node.hidden}
-                label={node.hidden ? "Show layer" : "Hide layer"}
-                glyph={node.hidden ? EYE_OFF : EYE}
-                onClick={() =>
-                  store.dispatch({
-                    type: "setHidden",
-                    ids: [node.id],
-                    hidden: !node.hidden,
-                  })
-                }
-              />
-              <Toggle
-                on={node.locked}
-                label={node.locked ? "Unlock layer" : "Lock layer"}
-                glyph={node.locked ? LOCKED : UNLOCKED}
-                onClick={() =>
-                  store.dispatch({
-                    type: "setLocked",
-                    ids: [node.id],
-                    locked: !node.locked,
-                  })
-                }
-              />
-            </div>
-          );
-        })}
+        {rows.map((row, i) => (
+          <LayerRow
+            key={row.node.id}
+            node={row.node}
+            depth={row.depth}
+            // `--i` staggers the row's arrival, and stops counting at the
+            // fold: a scene of two hundred layers must not take four seconds
+            // to finish appearing.
+            stagger={Math.min(i, STAGGER)}
+            selected={snapshot.selected.has(row.node.id)}
+            hovered={snapshot.hoverId === row.node.id}
+            moving={moving?.has(row.node.id) ?? false}
+            into={drop?.intoId === row.node.id}
+            expanded={expanded.has(row.node.id)}
+            draft={renaming?.id === row.node.id ? renaming.draft : undefined}
+            store={store}
+            selection={selection}
+            onPointerDown={onRowPointerDown}
+            onPointerMove={onRowPointerMove}
+            onPointerUp={onRowPointerUp}
+            onPointerCancel={endDrag}
+            onHover={hoverRow}
+            onMenu={openRowMenu}
+            onToggleExpanded={toggleExpanded}
+            onRename={setRenaming}
+            onRenameEnd={commitRename}
+          />
+        ))}
 
         {drop && !drop.intoId && (
           <div
@@ -572,6 +499,154 @@ export function LayersPanel({
     </div>
   );
 }
+
+/**
+ * One layer. Memo'd, and every callback it is handed reads the selection when
+ * the event lands rather than when the panel rendered — so the compiled panel
+ * keeps them stable, and a hover re-renders the two rows it moved between
+ * instead of every layer in the diagram.
+ */
+const LayerRow = memo(function LayerRow({
+  node,
+  depth,
+  stagger,
+  selected,
+  hovered,
+  moving,
+  into,
+  expanded,
+  draft,
+  store,
+  selection,
+  onPointerDown,
+  onPointerMove,
+  onPointerUp,
+  onPointerCancel,
+  onHover,
+  onMenu,
+  onToggleExpanded,
+  onRename,
+  onRenameEnd,
+}: {
+  node: SceneNode;
+  depth: number;
+  stagger: number;
+  selected: boolean;
+  hovered: boolean;
+  moving: boolean;
+  into: boolean;
+  expanded: boolean;
+  /** The name being typed; set on the row being renamed only. */
+  draft: string | undefined;
+  store: SceneStore;
+  selection: SelectionStore;
+  onPointerDown: (e: React.PointerEvent, id: NodeId) => void;
+  onPointerMove: (e: React.PointerEvent) => void;
+  onPointerUp: () => void;
+  onPointerCancel: () => void;
+  onHover: (id: NodeId) => void;
+  onMenu: (e: React.MouseEvent, id: NodeId) => void;
+  onToggleExpanded: (id: NodeId) => void;
+  onRename: (renaming: { id: NodeId; draft: string } | null) => void;
+  onRenameEnd: (id: NodeId, draft: string) => void;
+}) {
+  "use memo";
+  return (
+    <div
+      data-layer={node.id}
+      role="treeitem"
+      tabIndex={0}
+      aria-level={depth + 1}
+      aria-selected={selected}
+      aria-expanded={isContainer(node) ? expanded : undefined}
+      className={`nt-lyr-row${selected ? " is-selected" : ""}${
+        node.hidden || node.locked ? " is-dim" : ""
+      }${moving ? " is-moving" : ""}${into ? " is-into" : ""}${
+        hovered ? " is-hover" : ""
+      }`}
+      style={{ paddingLeft: ROW_INSET + depth * INDENT, "--i": stagger } as CSSProperties}
+      // The ring the canvas draws for a pointer over a shape, drawn
+      // for a pointer over its row — the same answer from either side.
+      onPointerEnter={() => onHover(node.id)}
+      onPointerDown={(e) => onPointerDown(e, node.id)}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerCancel}
+      onDoubleClick={() => onRename({ id: node.id, draft: displayName(node) })}
+      onContextMenu={(e) => onMenu(e, node.id)}
+      onKeyDown={(e) => {
+        if (e.key !== "Enter" && e.key !== " ") return;
+        e.preventDefault();
+        selection.select([node.id]);
+      }}
+    >
+      {isContainer(node) ? (
+        <button
+          className="nt-lyr-twist"
+          aria-label={expanded ? "Collapse" : "Expand"}
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={() => onToggleExpanded(node.id)}
+        >
+          <ChevronRight
+            width={12}
+            height={12}
+            className={`nt-lyr-chevron${expanded ? " is-open" : ""}`}
+          />
+        </button>
+      ) : (
+        <span className="nt-lyr-twist" />
+      )}
+
+      <Glyph className="nt-lyr-icon" d={glyphFor(node)} />
+
+      {draft !== undefined ? (
+        <Editable
+          autoFocus
+          value={draft}
+          label="Layer name"
+          onInput={(text) => onRename({ id: node.id, draft: text })}
+          onBlur={() => onRenameEnd(node.id, draft)}
+          onKeyDown={(e) => {
+            e.stopPropagation();
+            if (e.key === "Enter") {
+              e.preventDefault();
+              onRenameEnd(node.id, draft);
+            }
+            if (e.key === "Escape") onRename(null);
+          }}
+          className="nt-lyr-edit"
+        />
+      ) : (
+        <span className="nt-lyr-name">{displayName(node)}</span>
+      )}
+
+      <Toggle
+        on={node.hidden}
+        label={node.hidden ? "Show layer" : "Hide layer"}
+        glyph={node.hidden ? EYE_OFF : EYE}
+        onClick={() =>
+          store.dispatch({
+            type: "setHidden",
+            ids: [node.id],
+            hidden: !node.hidden,
+          })
+        }
+      />
+      <Toggle
+        on={node.locked}
+        label={node.locked ? "Unlock layer" : "Lock layer"}
+        glyph={node.locked ? LOCKED : UNLOCKED}
+        onClick={() =>
+          store.dispatch({
+            type: "setLocked",
+            ids: [node.id],
+            locked: !node.locked,
+          })
+        }
+      />
+    </div>
+  );
+});
 
 /** Hidden until the row is hovered, latched on once the state is set. */
 function Toggle({

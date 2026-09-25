@@ -678,10 +678,7 @@ async function readPage(
  * plus the update tail, where order and overlap cannot matter.
  */
 export async function storedBlocks(ctx: ToolContext, docId: string): Promise<AnyBlock[]> {
-  const state =
-    process.env.NEXT_PUBLIC_YJS === "1"
-      ? await ctx.convex.query(api.ydoc.state, { docId })
-      : "legacy";
+  const state = await ctx.convex.query(api.ydoc.state, { docId });
   if (state === "yjs") {
     const reader = yReader();
     try {

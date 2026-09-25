@@ -88,7 +88,7 @@ await build({
   platform: "browser",
   conditions: ["browser", "import", "style"],
   tsconfig: "tsconfig.json",
-  define: { "process.env.NODE_ENV": '"development"', "process.env.NEXT_PUBLIC_YJS": '"1"' },
+  define: { "process.env.NODE_ENV": '"development"' },
   banner: { js: 'globalThis.process ??= { env: { NODE_ENV: "development" }, browser: true };' },
   loader: { ".woff": "file", ".woff2": "file", ".ttf": "file" },
   plugins: [

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
@@ -11,7 +11,9 @@ import {
   useWorkspaceHistory,
 } from "@/app/lib/history/useWorkspaceHistory";
 import { Editable } from "./Editable";
+import { useRenamePage } from "./renamePage";
 import { Editor } from "./editor/Editor";
+import { BodySkeleton } from "./editor/BodySkeleton";
 import { useEditorRegistry } from "./editor/EditorRegistry";
 import { leaveTitle, TITLE_ATTR } from "./editor/titleBoundary";
 import { CurrentPageProvider, useOpenPage, type Pane } from "./OpenPageContext";
@@ -23,6 +25,23 @@ import { CommentsButton } from "./comments/CommentsButton";
 import { useCornerSlot } from "./cornerSlot";
 import { usePageCommands } from "./pageCommands";
 import type { PageMode } from "./editor/ai/useTabCompletion";
+
+/** Mirrors the real column so the title and first paragraphs land in place. */
+export function PageSkeleton() {
+  return (
+    <main className="flex flex-1 flex-col overflow-hidden" aria-busy="true">
+      <div
+        className="mx-auto w-full px-6 py-12 sm:px-14 sm:py-20"
+        style={{ maxWidth: "calc(var(--measure) + 7rem)" }}
+      >
+        <div className="nt-skeleton mt-[4.5rem] h-10 w-1/2" />
+        <div className="mt-4">
+          <BodySkeleton />
+        </div>
+      </div>
+    </main>
+  );
+}
 
 export function PageSurface({
   pageId,
@@ -45,7 +64,7 @@ export function PageSurface({
 }) {
   const live = useQuery(api.pages.get, { pageId });
   const page = live === undefined ? row : live;
-  const rename = useMutation(api.pages.rename);
+  const rename = useRenamePage();
   const setMode = useMutation(api.pages.setMode);
   // Provided by the workspace for viewer-role visitors; the whole column obeys.
   const readOnly = useReadOnly();
@@ -83,14 +102,6 @@ export function PageSurface({
       unregister();
     };
   }, [spine, pageId]);
-  // A page opening rises into place, once: the title, then the body a beat
-  // behind it. The surface is not remounted between pages, so the entrance is
-  // replayed by renaming the animation — `turn` flips with every page, and a
-  // changed `animation-name` is a new animation. Counted during render, from
-  // the prop, like any derived value; typing never touches it.
-  const [opened, setOpened] = useState({ pageId, turn: 0 });
-  if (opened.pageId !== pageId) setOpened({ pageId, turn: opened.turn + 1 });
-  const turn = opened.turn % 2 === 0 ? "a" : "b";
   /** The last title this surface knows to be persisted — the entry's "before". */
   const committedTitle = useRef<string | null>(null);
   const titleHost = useRef<HTMLDivElement>(null);
@@ -124,24 +135,7 @@ export function PageSurface({
     };
   });
 
-  if (page === undefined) {
-    // Mirrors the real column so the title and first paragraphs land in place.
-    return (
-      <main className="flex flex-1 flex-col overflow-hidden" aria-busy="true">
-        <div
-          className="mx-auto w-full px-6 py-12 sm:px-14 sm:py-20"
-          style={{ maxWidth: "calc(var(--measure) + 7rem)" }}
-        >
-          <div className="nt-skeleton mt-[4.5rem] h-10 w-1/2" />
-          <div className="mt-4 space-y-3">
-            <div className="nt-skeleton h-4 w-full" />
-            <div className="nt-skeleton h-4 w-11/12" />
-            <div className="nt-skeleton h-4 w-2/3" />
-          </div>
-        </div>
-      </main>
-    );
-  }
+  if (page === undefined) return <PageSkeleton />;
   if (page === null) {
     return (
       <div className="flex flex-1 items-center justify-center text-sm text-muted">
@@ -241,16 +235,13 @@ export function PageSurface({
         </div>
         {readOnly ? (
           <h1
-            data-turn={turn}
-            className="nt-page-in is-title w-full text-[length:var(--text-page-title)] font-semibold tracking-[-0.02em] text-balance"
+            className="w-full text-[length:var(--text-page-title)] font-semibold tracking-[-0.02em] text-balance"
           >
             {page.title || "Untitled"}
           </h1>
         ) : (
         <div
           ref={titleHost}
-          className="nt-page-in is-title"
-          data-turn={turn}
           {...{ [TITLE_ATTR]: "" }}
           {...undoScope}
         >
@@ -264,7 +255,7 @@ export function PageSurface({
         />
         </div>
         )}
-        <div className="nt-page-in mt-4" data-turn={turn}>
+        <div className="mt-4">
           <Editor
             docId={page.docId}
             pageId={pageId}

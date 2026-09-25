@@ -138,19 +138,19 @@
   --radius-lg: 10px;
 
   /* Motion. Product UI: state feedback, not choreography. */
-  --ease: cubic-bezier(0.16, 1, 0.3, 1);
-  /* A well-damped spring: fast off the mark, one overshoot of under 3%, then
-     home. On a menu scaling from 0.94 that is a fifth of a percent of size —
-     felt as a surface settling, never seen as a bounce. For things that arrive
-     (menus, dialogs, a toggle's thumb) — never for colour, which has no mass to
-     overshoot with. */
+  --ease: cubic-bezier(0.25, 1, 0.5, 1);
+  /* A well-damped spring: fast off the mark, one overshoot of about 1%, then
+     home. On a menu scaling from 0.94 that is well under a tenth of a percent of
+     size — felt as a surface settling, never seen as a bounce. For things that
+     arrive (menus, dialogs, a toggle's thumb) — never for colour, which has no
+     mass to overshoot with. */
   --spring: linear(
-    0, 0.012 1.2%, 0.19 5.6%, 0.49 10.6%, 0.75 16.2%, 0.92 22.2%, 1.005 28.6%,
-    1.028 35.4%, 1.024 42.8%, 1.008 56%, 1
+    0, 0.012 1.2%, 0.19 5.6%, 0.49 10.6%, 0.76 16.2%, 0.93 22.2%, 1.003 28.6%,
+    1.011 35.4%, 1.009 42.8%, 1.003 56%, 1
   );
-  --dur-fast: 110ms;
-  --dur: 170ms;
-  --dur-slow: 320ms;
+  --dur-fast: 95ms;
+  --dur: 145ms;
+  --dur-slow: 270ms;
 
   /* Semantic z-index scale — never write a raw z-value. */
   --z-base: 1;
@@ -465,7 +465,7 @@ body {
   opacity: 0;
   transform: translateY(var(--mark-y, 0));
   transition:
-    transform 260ms var(--spring),
+    transform 220ms var(--spring),
     opacity var(--dur) var(--ease);
   pointer-events: none;
 }
@@ -542,10 +542,10 @@ body {
    Only while the sidebar itself is arriving (`data-arriving`, its first beat)
    do the rows wait their turn, top first. */
 .nt-pages > li[data-row] {
-  animation: nt-row-in 420ms var(--ease) backwards;
+  animation: nt-row-in 360ms var(--ease) backwards;
 }
 .nt-pages[data-arriving] > li[data-row] {
-  animation-delay: calc(60ms + var(--i, 13) * 24ms);
+  animation-delay: calc(50ms + var(--i, 13) * 20ms);
 }
 .nt-pages > li:nth-child(2) { --i: 0; }
 .nt-pages > li:nth-child(3) { --i: 1; }
@@ -653,7 +653,7 @@ body {
 }
 .nt-well {
   padding-block: var(--inset);
-  transition: padding 320ms var(--ease);
+  transition: padding 220ms var(--ease);
 }
 /* With no rail on a side, the sheet keeps the same margin from the window that
    it keeps from the top and bottom. */
@@ -712,7 +712,7 @@ body {
   width: 0;
   height: 100%;
   overflow: hidden;
-  transition: width 320ms var(--ease);
+  transition: width 220ms var(--ease);
 }
 .nt-rail-slot.is-right {
   justify-content: flex-start;
@@ -751,8 +751,8 @@ body[data-resizing] .nt-rail-slot {
   visibility: hidden;
   transition:
     opacity var(--dur) var(--ease),
-    translate 360ms var(--ease),
-    visibility 0s 360ms;
+    translate 250ms var(--ease),
+    visibility 0s 250ms;
 }
 .nt-rail-face.is-right {
   right: auto;
@@ -764,8 +764,8 @@ body[data-resizing] .nt-rail-slot {
   translate: none;
   visibility: visible;
   transition:
-    opacity var(--dur-slow) var(--ease) 80ms,
-    translate 520ms var(--spring) 60ms,
+    opacity 220ms var(--ease) 50ms,
+    translate 360ms var(--spring) 40ms,
     visibility 0s;
 }
 /* The face is the entrance now; the panel's own would play on top of it. */
@@ -807,7 +807,7 @@ body[data-resizing] .nt-rail-face {
   right: 14px;
 }
 .nt-corner > .nt-icon-btn {
-  animation: nt-corner-in 420ms var(--spring) 200ms backwards;
+  animation: nt-corner-in 300ms var(--spring) 130ms backwards;
 }
 @keyframes nt-corner-in {
   from {
@@ -855,14 +855,11 @@ body[data-resizing] .nt-rail-face {
 .nt-resize[data-dragging]::after {
   background: var(--foreground);
 }
-/* Over everything for the length of a drag (`ResizeHandle.tsx`): it holds the
-   cursor wherever the hand goes, keeps the drag from selecting text, and stops
-   an embedded frame from swallowing the moves. */
-.nt-resize-veil {
+/* Over everything for the length of a gesture — see `app/lib/veil.ts`. */
+.nt-veil {
   position: fixed;
   inset: 0;
   z-index: var(--z-tooltip);
-  cursor: col-resize;
   user-select: none;
 }
 .nt-pane.is-idle {
@@ -955,7 +952,7 @@ body[data-resizing] .nt-rail-face {
 }
 .nt-menu.is-closing {
   pointer-events: none;
-  animation: nt-menu-out var(--dur-fast) cubic-bezier(0.7, 0, 0.84, 0) forwards;
+  animation: nt-menu-out var(--dur-fast) cubic-bezier(0.5, 0, 0.75, 0) forwards;
 }
 /* The blur clears as it lands, which is what makes the spring read as a surface
    settling rather than a box bouncing. */
@@ -1109,7 +1106,7 @@ body[data-resizing] .nt-rail-face {
    menus, the font list) would replay this on every keystroke, and a popover of
    controls is not a list at all. */
 .nt-menu[role="menu"]:not(.is-closing) > * {
-  animation: nt-menu-item-in 260ms var(--ease) calc(var(--i, 9) * 16ms) backwards;
+  animation: nt-menu-item-in 220ms var(--ease) calc(var(--i, 9) * 14ms) backwards;
 }
 .nt-menu[role="menu"] > :nth-child(1) { --i: 0; }
 .nt-menu[role="menu"] > :nth-child(2) { --i: 1; }
@@ -1249,6 +1246,11 @@ textarea.nt-input {
   backdrop-filter: blur(10px);
   animation: nt-fade-in var(--dur) var(--ease);
 }
+/* In the editor the palette is a quick jump, not an interruption: the page
+   behind stays legible. */
+.nt-scrim:has(+ .nt-wpal) {
+  backdrop-filter: none;
+}
 /* On its way out it is already gone as far as the pointer is concerned, the
    way a closing menu is: a click made the moment after Escape was landing on a
    scrim nobody could see, and going nowhere. */
@@ -1276,10 +1278,10 @@ textarea.nt-input {
     0 1px 2px oklch(0.25 0.005 90 / 0.04),
     0 8px 24px oklch(0.25 0.005 90 / 0.07),
     0 24px 64px oklch(0.25 0.005 90 / 0.11);
-  animation: nt-dialog-in 480ms var(--spring);
+  animation: nt-dialog-in 410ms var(--spring);
 }
 .nt-dialog.is-closing {
-  animation: nt-dialog-out var(--dur) cubic-bezier(0.7, 0, 0.84, 0) forwards;
+  animation: nt-dialog-out var(--dur) cubic-bezier(0.5, 0, 0.75, 0) forwards;
 }
 /* Rising into place a little under size and out of focus, on the spring: it
    overshoots by a pixel or two and settles, which reads as weight. Still small
@@ -1371,19 +1373,19 @@ textarea.nt-input {
 }
 /* Who has access arrives as a list, top first. */
 .nt-share-people > li {
-  animation: nt-row-in 360ms var(--ease) backwards;
+  animation: nt-row-in 310ms var(--ease) backwards;
 }
-.nt-share-people > li:nth-child(2) { animation-delay: 30ms; }
-.nt-share-people > li:nth-child(3) { animation-delay: 60ms; }
-.nt-share-people > li:nth-child(4) { animation-delay: 90ms; }
-.nt-share-people > li:nth-child(n + 5) { animation-delay: 120ms; }
+.nt-share-people > li:nth-child(2) { animation-delay: 26ms; }
+.nt-share-people > li:nth-child(3) { animation-delay: 50ms; }
+.nt-share-people > li:nth-child(4) { animation-delay: 75ms; }
+.nt-share-people > li:nth-child(n + 5) { animation-delay: 100ms; }
 /* A request that has been answered leaves while the server agrees, and so
    does someone whose access was just taken away. */
 .nt-ask-row,
 .nt-share-people > li {
   transition:
-    opacity 220ms var(--ease),
-    transform 220ms cubic-bezier(0.7, 0, 0.84, 0);
+    opacity 190ms var(--ease),
+    transform 190ms cubic-bezier(0.5, 0, 0.75, 0);
 }
 .nt-ask-row.is-leaving,
 .nt-share-people > li.is-leaving {
@@ -1552,20 +1554,20 @@ textarea.nt-input {
     transform: translateY(7px);
   }
 }
-.nt-sheet-page > :nth-child(1) { animation-delay: 40ms; }
-.nt-sheet-page > :nth-child(2) { animation-delay: 76ms; }
-.nt-sheet-page > :nth-child(3) { animation-delay: 112ms; }
-.nt-sheet-page > :nth-child(4) { animation-delay: 148ms; }
-.nt-sheet-page > :nth-child(5) { animation-delay: 184ms; }
-.nt-sheet-page > :nth-child(6) { animation-delay: 220ms; }
-.nt-sheet-page > :nth-child(7) { animation-delay: 256ms; }
-.nt-sheet-page > :nth-child(8) { animation-delay: 292ms; }
-.nt-sheet-page > :nth-child(9) { animation-delay: 328ms; }
-.nt-sheet-page > :nth-child(10) { animation-delay: 364ms; }
-.nt-sheet-page > :nth-child(11) { animation-delay: 400ms; }
-.nt-sheet-page > :nth-child(12) { animation-delay: 436ms; }
-.nt-sheet-page > :nth-child(13) { animation-delay: 472ms; }
-.nt-sheet-page > :nth-child(14) { animation-delay: 508ms; }
+.nt-sheet-page > :nth-child(1) { animation-delay: 35ms; }
+.nt-sheet-page > :nth-child(2) { animation-delay: 65ms; }
+.nt-sheet-page > :nth-child(3) { animation-delay: 100ms; }
+.nt-sheet-page > :nth-child(4) { animation-delay: 130ms; }
+.nt-sheet-page > :nth-child(5) { animation-delay: 160ms; }
+.nt-sheet-page > :nth-child(6) { animation-delay: 190ms; }
+.nt-sheet-page > :nth-child(7) { animation-delay: 220ms; }
+.nt-sheet-page > :nth-child(8) { animation-delay: 250ms; }
+.nt-sheet-page > :nth-child(9) { animation-delay: 280ms; }
+.nt-sheet-page > :nth-child(10) { animation-delay: 310ms; }
+.nt-sheet-page > :nth-child(11) { animation-delay: 340ms; }
+.nt-sheet-page > :nth-child(12) { animation-delay: 370ms; }
+.nt-sheet-page > :nth-child(13) { animation-delay: 400ms; }
+.nt-sheet-page > :nth-child(14) { animation-delay: 430ms; }
 
 /* One line under it, because a picture cannot say what it is a picture of.
    Measured off the same two numbers the sheet is, so the line wraps to the
@@ -1624,6 +1626,14 @@ textarea.nt-input {
   to {
     transform: translateX(100%);
   }
+}
+.nt-body-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.nt-body-skeleton.is-deferred {
+  animation: nt-fade-in var(--dur) var(--ease) 150ms backwards;
 }
 
 /* ---- Streaming ---------------------------------------------------------
@@ -1756,7 +1766,7 @@ textarea.nt-input {
   background: var(--background);
   box-shadow: 0 1px 2px oklch(0.25 0.005 90 / 0.06);
   transform: translateX(calc(var(--at, 0) * 100%));
-  transition: transform 420ms var(--spring);
+  transition: transform 360ms var(--spring);
 }
 .nt-mode.is-even .nt-mode-btn {
   position: relative;
@@ -1897,7 +1907,7 @@ textarea.nt-input {
    message, so tokens streaming into it and the panel re-rendering around it do
    not replay this — only a turn that was not there before moves. */
 .nt-turn {
-  animation: nt-turn-in 420ms var(--ease) backwards;
+  animation: nt-turn-in 360ms var(--ease) backwards;
 }
 @keyframes nt-turn-in {
   from {
@@ -2031,7 +2041,7 @@ ol.nt-md-list {
   display: flex;
   align-items: center;
   gap: 7px;
-  animation: nt-turn-in 420ms var(--ease) backwards;
+  animation: nt-turn-in 360ms var(--ease) backwards;
 }
 .nt-thinking-dot {
   flex: none;
@@ -2054,7 +2064,7 @@ ol.nt-md-list {
   overflow-wrap: anywhere;
   /* Each step is filed as it happens, so each arrives on its own — a shorter
      travel than a turn's, since it is a line being added to one. */
-  animation: nt-step-in 320ms var(--ease) backwards;
+  animation: nt-step-in 270ms var(--ease) backwards;
 }
 @keyframes nt-step-in {
   from {
@@ -2398,7 +2408,7 @@ a.nt-chip:hover {
   border-radius: 12px;
   background: var(--elevated);
   box-shadow: 0 6px 16px -8px oklch(0.25 0.005 90 / 0.16);
-  animation: nt-chat-review-in 420ms var(--spring);
+  animation: nt-chat-review-in 360ms var(--spring);
 }
 /* It arrives from the composer it answers to. */
 @keyframes nt-chat-review-in {
@@ -2963,7 +2973,7 @@ a.nt-chip:hover {
     0 0 0 1px oklch(0.25 0.005 90 / 0.06),
     0 4px 12px oklch(0.25 0.005 90 / 0.07),
     0 16px 40px oklch(0.25 0.005 90 / 0.1);
-  animation: nt-review-bar-in 520ms var(--spring);
+  animation: nt-review-bar-in 440ms var(--spring);
 }
 /* Rises into the spot, the way the toolbar does, clearing as it lands. The
    centring is a transform too, so the keyframe carries it. */
@@ -3120,8 +3130,8 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar) .nt-reformat-switcher {
      card's own either way — but a fill that runs forwards keeps the animation in
      effect for good, and Chrome kept every card on a compositor layer of its
      own for as long as the screen was open. */
-  animation: nt-rise 550ms var(--ease) backwards;
-  animation-delay: calc(min(var(--i, 0), 14) * 28ms + 60ms);
+  animation: nt-rise 470ms var(--ease) backwards;
+  animation-delay: calc(min(var(--i, 0), 14) * 24ms + 50ms);
   transition: transform var(--dur-fast) var(--ease);
 }
 .nt-card:has(.nt-card-link:active) {
@@ -3142,8 +3152,8 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar) .nt-reformat-switcher {
     0 1px 2px oklch(0.25 0.005 90 / 0.05),
     0 10px 24px -10px oklch(0.25 0.005 90 / 0.2);
   transition:
-    transform 500ms var(--ease),
-    box-shadow 500ms var(--ease);
+    transform 420ms var(--ease),
+    box-shadow 420ms var(--ease);
 }
 .nt-card:hover .nt-thumb,
 .nt-lead:hover .nt-thumb,
@@ -3283,7 +3293,7 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar) .nt-reformat-switcher {
   margin-bottom: 20px;
   border-radius: 14px;
   background: var(--surface);
-  animation: nt-rise 600ms var(--ease) backwards;
+  animation: nt-rise 510ms var(--ease) backwards;
   transition: transform var(--dur-fast) var(--ease);
 }
 .nt-lead:has(.nt-card-link:active) {
@@ -3472,7 +3482,7 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar) .nt-reformat-switcher {
   border-radius: var(--radius);
   background: var(--background);
   box-shadow: 0 1px 2px oklch(0.25 0.005 90 / 0.1);
-  transition: transform 420ms var(--spring);
+  transition: transform 360ms var(--spring);
 }
 .nt-mode.is-slide[data-at="1"]::before {
   transform: translateX(31px);
@@ -3535,7 +3545,7 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar) .nt-reformat-switcher {
   width: var(--open-w);
   pointer-events: none;
   filter: drop-shadow(0 12px 20px oklch(0.25 0.005 90 / 0));
-  transition: filter 240ms var(--ease);
+  transition: filter 200ms var(--ease);
   /* The open panel's size even when closed: it would catch every press meant
      for what sits beside or below the button. The surface answers instead,
      and only where its clip shows it. */
@@ -3546,7 +3556,7 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar) .nt-reformat-switcher {
 }
 .nt-create[data-open="true"] .nt-create-lift {
   filter: drop-shadow(0 18px 28px oklch(0.25 0.005 90 / 0.32));
-  transition: filter 460ms var(--ease);
+  transition: filter 390ms var(--ease);
 }
 /* The spring carries the clip a few pixels past the box on the way in — about
    3% of the distance travelled, so ~4px at the left and bottom. The rounded
@@ -3559,13 +3569,13 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar) .nt-reformat-switcher {
   box-shadow: 0 0 0 12px var(--foreground);
   clip-path: inset(0 0 calc(100% - var(--control)) calc(100% - var(--w, 148px)) round 8px);
   pointer-events: auto;
-  transition: clip-path 240ms cubic-bezier(0.4, 0, 0.2, 1);
+  transition: clip-path 200ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 /* The same corner open as closed: it is one object growing, and an object that
    also changes its corners on the way reads as two. */
 .nt-create[data-open="true"] .nt-create-surface {
   clip-path: inset(0 round 8px);
-  transition: clip-path 460ms var(--spring);
+  transition: clip-path 390ms var(--spring);
 }
 .nt-create-bar {
   display: flex;
@@ -3587,7 +3597,7 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar) .nt-reformat-switcher {
 }
 .nt-create-title {
   display: inline-block;
-  transition: transform 240ms cubic-bezier(0.4, 0, 0.2, 1);
+  transition: transform 200ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 /* To the middle of the panel. Closed, the words end 60px short of the panel's
    right edge (the caret's 26, the button's 10 of padding, the key's 18 and the
@@ -3596,15 +3606,15 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar) .nt-reformat-switcher {
    measured — which is why the key beside it has a fixed one. */
 .nt-create[data-open="true"] .nt-create-title {
   transform: translateX(calc(50% + 60px - var(--open-w) / 2));
-  transition: transform 460ms var(--spring);
+  transition: transform 390ms var(--spring);
 }
 /* The plus leaves rather than riding along: a title has no glyph, and "new"
    is already what the panel is. It turns as it goes, the way it would if the
    caret's motion had caught it. */
 .nt-create-plus {
   transition:
-    opacity 200ms var(--ease) 60ms,
-    transform 240ms cubic-bezier(0.4, 0, 0.2, 1);
+    opacity 170ms var(--ease) 50ms,
+    transform 200ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 /* The shortcut, worn on the button. It leaves with the plus: open, this is a
    title, and a title has no shortcut. */
@@ -3618,18 +3628,18 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar) .nt-reformat-switcher {
   background: oklch(1 0 0 / 0.14);
   font-family: var(--font-mono), ui-monospace, monospace;
   font-size: var(--text-meta);
-  transition: opacity 200ms var(--ease) 60ms;
+  transition: opacity 170ms var(--ease) 50ms;
 }
 .nt-create[data-open="true"] .nt-create-kbd {
   opacity: 0;
-  transition: opacity 120ms var(--ease);
+  transition: opacity 100ms var(--ease);
 }
 .nt-create[data-open="true"] .nt-create-plus {
   opacity: 0;
   transform: rotate(90deg) scale(0.3);
   transition:
-    opacity 160ms var(--ease),
-    transform 320ms var(--ease);
+    opacity 140ms var(--ease),
+    transform 270ms var(--ease);
 }
 .nt-create-caret {
   display: grid;
@@ -3659,7 +3669,7 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar) .nt-reformat-switcher {
 }
 .nt-create-glyph path {
   transform-origin: 12px 12px;
-  transition: transform 460ms var(--spring);
+  transition: transform 390ms var(--spring);
 }
 .nt-create-glyph path:first-child {
   transform: translateY(2.5px) rotate(45deg);
@@ -3679,15 +3689,15 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar) .nt-reformat-switcher {
   opacity: 0;
   transform: translateY(-6px);
   transition:
-    opacity 120ms var(--ease),
-    transform 120ms var(--ease);
+    opacity 100ms var(--ease),
+    transform 100ms var(--ease);
 }
 .nt-create[data-open="true"] .nt-create-items > * {
   opacity: 1;
   transform: none;
   transition:
-    opacity 300ms var(--ease) calc(70ms + var(--n, 0) * 35ms),
-    transform 440ms var(--ease) calc(70ms + var(--n, 0) * 35ms);
+    opacity 260ms var(--ease) calc(60ms + var(--n, 0) * 30ms),
+    transform 370ms var(--ease) calc(60ms + var(--n, 0) * 30ms);
 }
 .nt-create-items > :nth-child(2) { --n: 1; }
 .nt-create-items > :nth-child(3) { --n: 2; }
@@ -3716,7 +3726,7 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar) .nt-reformat-switcher {
   border-radius: 7px;
   background: oklch(1 0 0 / 0.1);
   transition:
-    scale 400ms var(--spring),
+    scale 340ms var(--spring),
     background var(--dur-fast) var(--ease),
     color var(--dur-fast) var(--ease);
 }
@@ -4034,8 +4044,8 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar) .nt-reformat-switcher {
   width: var(--control);
 }
 .nt-list-row {
-  animation: nt-rise 450ms var(--ease) backwards;
-  animation-delay: calc(min(var(--i, 0), 20) * 18ms);
+  animation: nt-rise 380ms var(--ease) backwards;
+  animation-delay: calc(min(var(--i, 0), 20) * 15ms);
 }
 
 /* ---- Board view ----------------------------------------------------------
@@ -4091,15 +4101,15 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar) .nt-reformat-switcher {
   position: absolute;
   padding-left: 0;
   white-space: nowrap;
-  animation: nt-fade-in 800ms var(--ease) 400ms backwards;
+  animation: nt-fade-in 680ms var(--ease) 340ms backwards;
 }
 .nt-board-frame {
   position: absolute;
   width: 240px;
   cursor: grab;
-  animation: nt-board-place 650ms var(--spring) backwards;
-  animation-delay: calc(min(var(--i, 0), 14) * 45ms + 80ms);
-  transition: scale 300ms var(--spring);
+  animation: nt-board-place 550ms var(--spring) backwards;
+  animation-delay: calc(min(var(--i, 0), 14) * 40ms + 70ms);
+  transition: scale 260ms var(--spring);
 }
 /* Set down from slightly above and slightly large: placed, not faded in. */
 @keyframes nt-board-place {
@@ -4122,8 +4132,8 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar) .nt-reformat-switcher {
 }
 .nt-board-frame[data-dragging="settling"] {
   transition:
-    translate 300ms var(--spring),
-    scale 300ms var(--spring);
+    translate 260ms var(--spring),
+    scale 260ms var(--spring);
 }
 .nt-board-label {
   display: flex;
@@ -4153,7 +4163,7 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar) .nt-reformat-switcher {
   transform: translateX(-6px);
   transition:
     opacity var(--dur) var(--ease),
-    transform 400ms var(--ease);
+    transform 340ms var(--ease);
 }
 .nt-board-label .nt-icon-btn {
   position: relative;
@@ -4169,8 +4179,8 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar) .nt-reformat-switcher {
     0 0 0 1px var(--shape-line),
     0 1px 2px oklch(0.25 0.005 90 / 0.05);
   transition:
-    box-shadow 350ms var(--ease),
-    transform 500ms var(--spring);
+    box-shadow 300ms var(--ease),
+    transform 420ms var(--spring);
 }
 .nt-board-frame:hover .nt-board-name,
 .nt-board-frame:focus-within .nt-board-name,
@@ -4221,7 +4231,7 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar) .nt-reformat-switcher {
   justify-items: end;
   gap: 6px;
   cursor: default;
-  animation: nt-rise 600ms var(--ease) 300ms backwards;
+  animation: nt-rise 510ms var(--ease) 260ms backwards;
 }
 .nt-board-tidy {
   height: var(--control-sm);
@@ -4366,7 +4376,7 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar) .nt-reformat-switcher {
   color: var(--background);
   font-size: var(--text-ui);
   font-weight: 500;
-  animation: nt-pal-crumb 400ms var(--spring) both;
+  animation: nt-pal-crumb 340ms var(--spring) both;
 }
 @keyframes nt-pal-crumb {
   from {
@@ -4755,22 +4765,7 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar) .nt-reformat-switcher {
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: var(--border-strong) transparent;
-  animation: nt-pal-from-left 400ms var(--ease) both;
-}
-.nt-pal-list[data-page="create"] {
-  animation-name: nt-pal-from-right;
-}
-@keyframes nt-pal-from-right {
-  from {
-    opacity: 0;
-    transform: translateX(32px);
-  }
-}
-@keyframes nt-pal-from-left {
-  from {
-    opacity: 0;
-    transform: translateX(-32px);
-  }
+  animation: nt-fade-in var(--dur) var(--ease) both;
 }
 .nt-pal-hl {
   position: absolute;
@@ -4781,7 +4776,7 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar) .nt-reformat-switcher {
   border-radius: var(--radius-lg);
   background: var(--selected);
   transform: translateY(var(--hl-y, 0));
-  transition: transform 320ms var(--spring);
+  transition: transform 270ms var(--spring);
 }
 .nt-pal-hl[data-none="true"] {
   opacity: 0;
@@ -4816,7 +4811,7 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar) .nt-reformat-switcher {
   border-radius: 7px;
   color: var(--muted);
   transition:
-    transform 400ms var(--spring),
+    transform 340ms var(--spring),
     background var(--dur-fast) var(--ease),
     color var(--dur-fast) var(--ease),
     box-shadow var(--dur-fast) var(--ease);
@@ -4860,7 +4855,7 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar) .nt-reformat-switcher {
 .nt-pal-chev {
   flex: none;
   color: var(--muted);
-  transition: transform 350ms var(--spring);
+  transition: transform 300ms var(--spring);
 }
 .nt-pal-row[aria-selected="true"] .nt-pal-chev {
   color: var(--foreground);
@@ -5501,7 +5496,7 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar) .nt-reformat-switcher {
 }
 .nt-feedback.is-open .nt-feedback-body {
   opacity: 1;
-  transition-delay: 110ms;
+  transition-delay: 90ms;
 }
 .nt-feedback-tabs {
   display: flex;
@@ -5973,12 +5968,12 @@ body:has(.nt-review-bar) .nt-sampler {
   color: color-mix(in oklab, var(--face-color, var(--muted)) 55%, var(--foreground));
   /* Someone arriving is a thing with mass: from nothing, on the spring, each a
      beat after the one before it. */
-  animation: nt-face-in 420ms var(--spring) backwards;
+  animation: nt-face-in 360ms var(--spring) backwards;
 }
-.nt-face:nth-child(2) { animation-delay: 70ms; }
-.nt-face:nth-child(3) { animation-delay: 140ms; }
-.nt-face:nth-child(4) { animation-delay: 210ms; }
-.nt-face:nth-child(n + 5) { animation-delay: 280ms; }
+.nt-face:nth-child(2) { animation-delay: 60ms; }
+.nt-face:nth-child(3) { animation-delay: 120ms; }
+.nt-face:nth-child(4) { animation-delay: 180ms; }
+.nt-face:nth-child(n + 5) { animation-delay: 240ms; }
 .nt-face + .nt-face {
   margin-left: -6px;
 }
