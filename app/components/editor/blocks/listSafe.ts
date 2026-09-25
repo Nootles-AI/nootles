@@ -65,6 +65,38 @@ export function keepListItems<
   };
 }
 
+/** `1) `, the other way lists are numbered — CommonMark's and Notion's. */
+export const PAREN_NUMBER = /^\s?(\d+)\)\s$/;
+
+/**
+ * A numbered list item that `1) ` starts as well as `1. `: the rule that
+ * answers `1. ` answers `1) ` too, start number and all, so the two can never
+ * disagree about what they make.
+ */
+export function countWithParens<
+  Spec extends { extensions?: (Extension | ExtensionFactoryInstance)[] },
+>(spec: Spec): Spec {
+  const withParens = (extension: Extension): Extension => {
+    const rules = extension.inputRules?.filter((rule) => rule.find.test("1. "));
+    if (!rules?.length) return extension;
+    return {
+      ...extension,
+      inputRules: [
+        ...(extension.inputRules ?? []),
+        ...rules.map((rule) => ({ ...rule, find: PAREN_NUMBER })),
+      ],
+    };
+  };
+  return {
+    ...spec,
+    extensions: spec.extensions?.map((extension) =>
+      typeof extension === "function"
+        ? (context) => withParens(extension(context))
+        : withParens(extension),
+    ),
+  };
+}
+
 type Editor = Parameters<NonNullable<Extension["keyboardShortcuts"]>[string]>[0]["editor"];
 
 /**
