@@ -6,18 +6,19 @@ import {
   defaultProtectedNodes,
   ySyncPluginKey,
 } from "y-prosemirror";
-import type { EditorState } from "prosemirror-state";
+import type { Node as PMNode } from "prosemirror-model";
+import { Selection, type EditorState } from "prosemirror-state";
 import type { EditorView } from "prosemirror-view";
 import * as Y from "yjs";
 import { KEPT_CHANGE } from "@/app/lib/ai/review/fork";
 import { isCanvasMapName } from "@/app/components/editor/canvas/collab/ymap";
 import type { DomainStep, WorkspaceHistory } from "./spine";
+import { AFTER, BEFORE, captureTextSteps, type StackItem } from "./textCapture";
 import {
   relativeSelection,
   restoreSelection,
   textStepOf,
   type RelativeSelection,
-  type TextStep,
 } from "./textSteps";
 
 /**
@@ -49,7 +50,6 @@ import {
  */
 
 type UM = Y.UndoManager;
-type StackItem = NonNullable<ReturnType<UM["undo"]>>;
 
 /** One manager per Y.Doc, born on first bridge, gone with the doc. */
 const managers = new WeakMap<Y.Doc, UM>();
@@ -86,10 +86,6 @@ function managerFor(fragment: Y.XmlFragment): UM | null {
   }
   return manager;
 }
-
-/** Where an entry keeps the selection on either side of it. */
-const BEFORE = "nt:selection-before";
-const AFTER = "nt:selection-after";
 
 /** The editor members this bridge needs — the same hop CanvasBlock makes. */
 export type UndoHostEditor = {
@@ -153,37 +149,16 @@ export function useTextUndoDomain(
     const manager = fragment && managerFor(fragment);
     if (!manager || !doc) return;
 
-    // The dispatch the sync plugin is writing: a block's reshaping may not
-    // join the entry before it, and nothing typed after may join it.
-    let writing: TextStep | undefined;
-    const onWrite = (transaction: Y.Transaction) => {
-      if (transaction.origin !== ySyncPluginKey) return;
-      writing = textStepOf(editor.prosemirrorState as EditorState);
-      if (writing?.boundary) manager.stopCapturing();
-    };
-    doc.on("beforeTransaction", onWrite);
-
-    let muted = false;
-    type Captured = { stackItem: StackItem; type: "undo" | "redo"; origin: unknown };
-    const onCaptured = (event: Captured) => {
-      if (muted || event.type !== "undo" || event.origin !== ySyncPluginKey) return;
-      const { meta } = event.stackItem;
-      if (!meta.has(BEFORE)) meta.set(BEFORE, writing?.before ?? null);
-      meta.set(AFTER, relativeSelection(editor.prosemirrorState as EditorState));
-      if (writing?.boundary) manager.stopCapturing();
-    };
-    const onAdded = (event: Captured) => {
-      if (muted) return;
-      // Only fresh edits reach here: 'redo'-type additions exist only inside
-      // manager.undo(), which is always muted.
-      if (event.type === "undo") spine.record(id, "edit");
-      onCaptured(event);
-    };
+    const capture = captureTextSteps(
+      manager,
+      doc,
+      () => textStepOf(editor.prosemirrorState as EditorState),
+      () => relativeSelection(editor.prosemirrorState as EditorState),
+      () => spine.record(id, "edit"),
+    );
     const onCleared = (event: { undoStackCleared: boolean }) => {
       if (event.undoStackCleared) spine.drop(id);
     };
-    manager.on("stack-item-added", onAdded);
-    manager.on("stack-item-updated", onCaptured);
     manager.on("stack-cleared", onCleared);
     if (process.env.NODE_ENV !== "production") {
       // Verification harnesses read the ledger through this; never shipped.
@@ -191,19 +166,14 @@ export function useTextUndoDomain(
     }
 
     /**
-     * Whatever the editor's plugins appended while re-rendering a step (a
-     * trailing paragraph, block ids) exists only in the editor: the sync
-     * plugin sits out the re-render it is itself dispatching. Left for the
-     * next keystroke or caret blink to write, that repair reached the doc as
-     * a fresh edit of the person's — emptying the redo stack and putting a
-     * phantom step on top of the one just undone, so the next ⌘Z walked
-     * forward instead of back. It is written here, as nobody's history.
-     *
-     * The same dispatch puts the caret back where the change happened —
-     * before it for an undo, after it for a redo — instead of wherever the
-     * re-render left it, which was usually the end of the page.
+     * Writes what the editor appended while re-rendering the step (see
+     * textSteps.ts) at once, so no keystroke can write it as theirs first, and
+     * puts the caret back where the change happened — before it for an undo,
+     * after it for a redo — instead of wherever the re-render left it, which
+     * was usually the end of the page. An entry that remembers no selection (a
+     * kept AI change) gets the caret where the page first differs.
      */
-    const settle = (item: StackItem | null, direction: "undo" | "redo") => {
+    const settle = (item: StackItem | null, direction: "undo" | "redo", prior: PMNode | undefined) => {
       const view = editor.prosemirrorView;
       if (!view || view.isDestroyed) return;
       const tr = view.state.tr.setMeta("addToHistory", false);
@@ -211,7 +181,15 @@ export function useTextUndoDomain(
         | RelativeSelection
         | null
         | undefined;
-      if (selection && restoreSelection(tr, view.state, selection)) tr.scrollIntoView();
+      if (selection && restoreSelection(tr, view.state, selection)) {
+        tr.scrollIntoView();
+      } else if (item && prior) {
+        const at = prior.content.findDiffStart(tr.doc.content);
+        if (at !== null) {
+          tr.setSelection(Selection.near(tr.doc.resolve(Math.min(at, tr.doc.content.size))));
+          tr.scrollIntoView();
+        }
+      }
       view.dispatch(tr);
       // A press from nowhere in particular brings the keyboard back to the
       // caret it just placed; one from another field leaves that field be.
@@ -220,26 +198,10 @@ export function useTextUndoDomain(
 
     const step = (direction: "undo" | "redo"): DomainStep => {
       if (forked()) return "blocked";
-      const from = direction === "undo" ? manager.undoStack : manager.redoStack;
-      const to = direction === "undo" ? manager.redoStack : manager.undoStack;
-      const before = from.length;
-      const toBefore = to.length;
-      let item: StackItem | null = null;
-      muted = true;
-      try {
-        item = direction === "undo" ? manager.undo() : manager.redo();
-      } finally {
-        muted = false;
-      }
-      const redoable = to.length > toBefore;
-      // The inverse entry is the same change seen from the other side, and
-      // keeps the same two selections.
-      if (item && redoable) {
-        const inverse = to[to.length - 1];
-        for (const [key, value] of item.meta) inverse.meta.set(key, value);
-      }
-      settle(item, direction);
-      return { consumed: before - from.length, redoable };
+      const prior = editor.prosemirrorView?.state.doc;
+      const { item, consumed, redoable } = capture.step(direction);
+      settle(item, direction, prior);
+      return { consumed, redoable };
     };
 
     const unregister = spine.register(
@@ -250,9 +212,7 @@ export function useTextUndoDomain(
 
     return () => {
       unregister();
-      doc.off("beforeTransaction", onWrite);
-      manager.off("stack-item-added", onAdded);
-      manager.off("stack-item-updated", onCaptured);
+      capture.dispose();
       manager.off("stack-cleared", onCleared);
     };
   }, [spine, editor, docId, pageId]);
