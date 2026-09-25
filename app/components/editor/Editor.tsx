@@ -77,6 +77,7 @@ import { ReadOnlyContext, useReadOnly } from "./readOnly";
 import { useAttachCommentsEditor } from "../comments/editorSlot";
 import { trailingParagraphExtension } from "./trailingParagraph";
 import { tableKeysExtension } from "./tableKeys";
+import { titleBoundaryExtension } from "./titleBoundary";
 import { dropDeadSelectors } from "./deadSelectors";
 import "./editor.css";
 
@@ -530,6 +531,7 @@ const EXTENSIONS = [
   commentExtension,
   // After the completion lane, whose Tab accepts a showing suggestion first.
   tableKeysExtension,
+  titleBoundaryExtension,
 ];
 
 const placeholder = <div className="min-h-[40vh]" aria-hidden />;

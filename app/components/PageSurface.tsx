@@ -12,6 +12,14 @@ import {
 import { Editable } from "./Editable";
 import { Editor } from "./editor/Editor";
 import { useEditorRegistry } from "./editor/EditorRegistry";
+import {
+  caretIntoBody,
+  caretOnLastLine,
+  caretX,
+  enterBody,
+  TITLE_ATTR,
+  titleSelection,
+} from "./editor/titleBoundary";
 import { ModeToggle } from "./ModeToggle";
 import { CurrentPageProvider, useOpenPage, type Pane } from "./OpenPageContext";
 import { ArrowLeft, X } from "./Icons";
@@ -227,24 +235,40 @@ export function PageSurface({
             {page.title || "Untitled"}
           </h1>
         ) : (
-        <div ref={titleHost} className="nt-page-in is-title" data-turn={turn} {...undoScope}>
+        <div
+          ref={titleHost}
+          className="nt-page-in is-title"
+          data-turn={turn}
+          {...{ [TITLE_ATTR]: "" }}
+          {...undoScope}
+        >
         <Editable
           value={page.title}
           onInput={persistTitle}
           onKeyDown={(e) => {
-            if (e.key !== "Enter") return;
-            e.preventDefault();
-            // Enter leaves the title for the document, the way it does in every
-            // editor this one resembles. Blurring instead left the caret
-            // nowhere at all, so the next thing typed went to the page rather
-            // than into the page.
             const title = e.currentTarget;
+            const plain = !e.shiftKey && !e.altKey && !e.metaKey && !e.ctrlKey;
+            const down = e.key === "ArrowDown" && plain && caretOnLastLine(title);
+            if ((e.key !== "Enter" && !down) || e.nativeEvent.isComposing) return;
+            e.preventDefault();
+            // Enter and ArrowDown leave the title for the document, the way they
+            // do in every editor this one resembles. Blurring instead left the
+            // caret nowhere at all, so the next thing typed went to the page
+            // rather than into the page. Enter splits: what follows the caret
+            // opens the document — taken off the title only once the document
+            // is there to receive it.
+            const x = caretX(title);
+            const { start, end } = titleSelection(title);
             registry
               .editorFor(pageId)
               .then((editor) => {
-                const first = editor.document[0];
-                if (first) editor.setTextCursorPosition(first, "start");
-                editor.focus();
+                if (down) return caretIntoBody(editor, x);
+                const text = title.textContent ?? "";
+                if (start < text.length) {
+                  title.textContent = text.slice(0, start);
+                  persistTitle(text.slice(0, start));
+                }
+                enterBody(editor, text.slice(end));
               })
               // A document that never finished loading has nowhere to put the
               // caret; letting go of the title is better than trapping it.
