@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useConvexAuth, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { settingsPath } from "@/app/lib/containerPaths";
-import { Face } from "../presence/Facepile";
+import { Face } from "../presence/Face";
 import type { WorkspaceContainer } from "./ContainerContext";
 import { useNaming } from "./people";
 import "./workspaces.css";
