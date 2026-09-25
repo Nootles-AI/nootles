@@ -342,6 +342,8 @@ type Gate = {
   refusedEmpty?: boolean;
   /** What a refused caller is told, when it is not "Not found". */
   refusal?: RegExp;
+  /** An editor's too: a link to hand out (`sendsLinks`). */
+  editors?: true;
   run: (caller: Caller, w: World) => Promise<unknown>;
 };
 
@@ -364,11 +366,13 @@ const gates: Gate[] = [
   {
     name: "share.links",
     kind: "read",
+    editors: true,
     run: (c, w) => c.query(api.share.links, { projectId: w.open.projectId }),
   },
   {
     name: "share.setLink",
     kind: "write",
+    editors: true,
     run: (c, w) =>
       c.mutation(api.share.setLink, { projectId: w.open.projectId, role: "viewer", enabled: true }),
   },
@@ -527,10 +531,27 @@ describe.each(gates)("$name", (gate) => {
     if (gate.refusedEmpty) expect(result).not.toEqual([]);
   });
 
-  test("is no one else's — not even the member who made the project", async () => {
+  if (gate.editors) {
+    test.each([
+      ["the member who made the project", CREATOR],
+      ["a member", MEMBER],
+    ])("is %s's too, to hand out", async (_, who) => {
+      const t = harness();
+      const w = await world(t);
+      await expect(gate.run(t.withIdentity(who), w)).resolves.toBeDefined();
+    });
+  }
+
+  test(gate.editors ? "is no one else's" : "is no one else's — not even the member who made the project", async () => {
     const t = harness();
     const w = await world(t);
-    const refused: (Identity | null)[] = [CREATOR, MEMBER, GUEST, REMOVED, STRANGER, null];
+    const refused: (Identity | null)[] = [
+      ...(gate.editors ? [] : [CREATOR, MEMBER]),
+      GUEST,
+      REMOVED,
+      STRANGER,
+      null,
+    ];
     for (const who of refused) {
       const attempt = gate.run(as(t, who), w);
       if (gate.refusedEmpty) await expect(attempt).resolves.toEqual([]);

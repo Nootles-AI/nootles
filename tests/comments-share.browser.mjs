@@ -285,6 +285,25 @@ try {
   await page.waitForSelector('[role="dialog"][aria-label="Share project"]', { state: "detached" });
   check("Escape closes it", true, true);
 
+  console.log("\nthe share popover, for an editor");
+  await page.evaluate(() => window.shareHarness.mountPopover(false));
+  await page.click('button[aria-label="Share project"]');
+  await page.waitForSelector('[role="dialog"][aria-label="Share project"]');
+  check("an editor gets every link to send", await page.$$eval('[role="group"][aria-label="Share links"] button', (b) => b.map((x) => x.firstChild.textContent)),
+    ["Editor link", "Commenter link", "Viewer link"]);
+  check("with none on, it offers to make one", await note(),
+    "There’s no editor link. Once one is made, anyone who has it can view, and edit once signed in.");
+  await page.click('button:has-text("Create editor link")');
+  await page.waitForSelector('input[aria-label="Editor link"]');
+  check("making it asks setLink for the editor link, and nothing more", (await mutations("share:setLink")).at(-1), { projectId: "project_1", role: "editor", enabled: true });
+  check("the link is theirs to copy", await page.inputValue('input[aria-label="Editor link"]'), `${origin}/share/tok-editor-3`);
+  check("but not to turn off", await page.$('[role="dialog"] button:has-text("Turn off link")'), null);
+  check("nor to move its expiry", await page.$('[role="dialog"] button[aria-label*="Change when the link expires"]'), null);
+  check("and who has access is not theirs to see", await page.$('[role="dialog"] ul[aria-label="People with access"]'), null);
+  await page.screenshot({ path: path.join(output, "share-popover-editor.png") });
+  await page.keyboard.press("Escape");
+  await page.waitForSelector('[role="dialog"][aria-label="Share project"]', { state: "detached" });
+
   console.log("\nthe share route, signed out, on a comment link");
   await page.evaluate(() => window.shareHarness.mountShare("tok-commenter-2", { isLoaded: true, isSignedIn: false }));
   await page.waitForSelector("#probe");

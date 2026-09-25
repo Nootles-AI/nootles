@@ -118,6 +118,16 @@ export function moderatesComments(role: ProjectRole | null): boolean {
 }
 
 /**
+ * Whether a role may hand the project's links out: whoever holds the pen.
+ * Handing out is copying a live link, or making one where there is none.
+ * Turning a link off or moving its expiry reaches everyone who came in by it,
+ * so that stays with whoever manages the project (`share.setLink`).
+ */
+export function sendsLinks(role: ProjectRole | null): boolean {
+  return role === "owner" || role === "editor";
+}
+
+/**
  * Whether any share link on the project is live at `now` — the condition every
  * claim and the anonymous document read are contingent on.
  */

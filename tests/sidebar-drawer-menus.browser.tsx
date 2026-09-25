@@ -52,6 +52,7 @@ function createBackend() {
           commenter: null,
           editor: null,
           expiresAt: { viewer: null, commenter: null, editor: null },
+          manages: true,
           allowed: true,
           defaultDays: null,
         };

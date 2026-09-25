@@ -17,10 +17,12 @@ import {
   type LinkRole,
   ownerId,
   readManageable,
+  requireEditable,
   requireManageable,
   requireOwner,
   roleForProject,
   seatRole,
+  sendsLinks,
 } from "./auth";
 import { recordInProject } from "./audit";
 import { ensureArrivalProfile, personOf } from "./profiles";
@@ -80,12 +82,14 @@ async function defaultDays(ctx: QueryCtx, project: Doc<"projects">): Promise<num
   return (await ctx.db.get(project.workspaceId))?.settings.linkTtlDays ?? null;
 }
 
-/** Every link as the share dialog draws them. Whoever manages the project. */
 /**
- * `readManageable` plus the throw, rather than `requireManageable`: this
- * reads, and `requireManageable` is a write gate — it refuses an operator's
- * stand-in, which would blind the one session most likely to be asking who a
- * project is shared with.
+ * Every link as the share dialog draws them, to whoever may hand one out
+ * (`sendsLinks`). `manages` says which dialog to draw — only a manager
+ * changes a link.
+ *
+ * Reads, so it goes by the project's role without `refuseStandIn`, the write
+ * gate: that would blind an operator standing in for a manager, the one
+ * session most likely to be asking who a project is shared with.
  *
  * `allowed` is false while the project's workspace allows no links; the
  * tokens then admit nobody, and `setLink` refuses to turn one on. An expiry
@@ -94,8 +98,9 @@ async function defaultDays(ctx: QueryCtx, project: Doc<"projects">): Promise<num
 export const links = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
-    const project = await readManageable(ctx, "projects", args.projectId);
-    if (!project) throw new Error("Not found");
+    const project = await ctx.db.get(args.projectId);
+    const role = project && !isTrashed(project) ? await roleForProject(ctx, project) : null;
+    if (!project || !sendsLinks(role)) throw new Error("Not found");
     return {
       viewer: project.shareToken ?? null,
       commenter: project.commentShareToken ?? null,
@@ -105,6 +110,7 @@ export const links = query({
         commenter: project.commentShareExpiresAt ?? null,
         editor: project.editShareExpiresAt ?? null,
       },
+      manages: role === "owner",
       allowed: await linksOpen(ctx, project),
       /** What a new link's expiry starts at, in days; null is never. */
       defaultDays: await defaultDays(ctx, project),
@@ -117,6 +123,11 @@ export const links = query({
  * 1–365, or null for never; left out, a live link keeps its expiry and a new
  * one starts at its workspace's default. A link that has run out is not
  * revived: turning it on again mints a new one, so the old address stays dead.
+ *
+ * An editor may only hand a link out (`sendsLinks`): on, with no expiry asked,
+ * which answers the live link as it stands or makes one at the default. Off
+ * and a new expiry reach everyone who came in by the link, so they are the
+ * project's managers' alone.
  */
 export const setLink = mutation({
   args: {
@@ -126,7 +137,11 @@ export const setLink = mutation({
     expiresInDays: v.optional(v.union(v.number(), v.null())),
   },
   handler: async (ctx, args) => {
-    const project = await requireManageable(ctx, "projects", args.projectId);
+    const project = await requireEditable(ctx, "projects", args.projectId);
+    const role = await roleForProject(ctx, project);
+    if (role !== "owner" && (!args.enabled || args.expiresInDays !== undefined)) {
+      throw new ConvexError("Only people who manage this project can change its links.");
+    }
     const fields = LINK_FIELDS[args.role];
     if (!args.enabled) {
       // Disabling IS revoking: the token goes, the old URL dies, and everyone
@@ -364,7 +379,7 @@ export const claim = mutation({
  * `paused` while the workspace allows no links: they hold nothing now, and
  * get `role` back when links are turned on.
  */
-/** Reads, so `readManageable` — see `links` above. */
+/** Reads, so `readManageable` rather than the write gate — see `links` above. */
 export const collaborators = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {

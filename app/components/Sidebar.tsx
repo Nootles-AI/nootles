@@ -129,8 +129,9 @@ export function Sidebar({
   const project = useQuery(api.projects.get, { projectId });
   const pages = useQuery(api.pages.listByProject, { projectId });
   const folders = useQuery(api.folders.listByProject, { projectId });
-  // What this sidebar may offer: editors get the page verbs, only the owner
-  // gets the project's own — sharing, renaming it, its context sheet.
+  // What this sidebar may offer: editors get the page verbs and may hand out
+  // its links; only the owner gets the project's own — managing who it is
+  // shared with, renaming it, its context sheet.
   const role = useQuery(api.projects.myRole, { projectId });
   const standIn = useStandIn();
   const owner = role === "owner";
@@ -707,7 +708,7 @@ export function Sidebar({
             {container.kind === "workspace" ? container.name : "Projects"}
           </span>
         </Link>
-        {owner && <SharePopover projectId={projectId} />}
+        {canEdit && <SharePopover projectId={projectId} manages={owner} />}
         <AccountMenu align="start" onShowKeys={onShowKeys} />
         <button
           onClick={onCollapse}
