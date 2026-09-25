@@ -46,6 +46,8 @@ jobs:
       - run: npm run test:canvas:browser
         env:
           CANVAS_PERF_GATE: "off"
+      # The editor's typing shortcuts and paste, on both undo pipelines.
+      - run: npm run test:editor:typing
       - uses: actions/upload-artifact@v4
         if: always()
         with:

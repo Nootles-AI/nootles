@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { dividersNotHeadings, isPlainPasteKey } from "./paste";
+import { dividersNotHeadings, isPlainPasteKey, plainLines } from "./paste";
 
 const chord = (over: Partial<Parameters<typeof isPlainPasteKey>[0]>) => ({
   metaKey: false,
@@ -51,5 +51,13 @@ describe("dividersNotHeadings", () => {
     for (const md of ["a | b\n--- | ---\n1 | 2", "Title\n===", "a\n--"]) {
       expect(dividersNotHeadings(md)).toBe(md);
     }
+  });
+});
+
+describe("plainLines", () => {
+  test("a line apiece, blank lines kept, any line ending", () => {
+    expect(plainLines("a\n\nb")).toEqual(["a", "", "b"]);
+    expect(plainLines("a\r\nb\rc")).toEqual(["a", "b", "c"]);
+    expect(plainLines("one")).toEqual(["one"]);
   });
 });

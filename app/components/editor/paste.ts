@@ -1,5 +1,6 @@
 import { createExtension, type BlockNoteEditorOptions } from "@blocknote/core";
-import { Plugin } from "prosemirror-state";
+import { Fragment, Slice } from "prosemirror-model";
+import { Plugin, TextSelection } from "prosemirror-state";
 import type { EditorView } from "prosemirror-view";
 
 type PasteHandler = NonNullable<
@@ -10,9 +11,8 @@ type PasteHandler = NonNullable<
 type KeyChord = Pick<KeyboardEvent, "metaKey" | "ctrlKey" | "altKey" | "shiftKey" | "code">;
 
 /**
- * Paste as plain text: ⌘⇧V on a Mac (⌥⇧⌘V, the system's own spelling, too),
- * Ctrl+Shift+V elsewhere. Read by physical key, so the Option layer's `◊`
- * still counts as V.
+ * ⌘⇧V on a Mac (⌥⇧⌘V too), Ctrl+Shift+V elsewhere — by physical key, so the
+ * Option layer's `◊` still counts as V.
  */
 export function isPlainPasteKey(event: KeyChord, mac: boolean): boolean {
   if (event.code !== "KeyV" || !event.shiftKey) return false;
@@ -21,39 +21,61 @@ export function isPlainPasteKey(event: KeyChord, mac: boolean): boolean {
 
 const MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
 
+/** Every line, blank ones included: Notion keeps an empty line as an empty block. */
+export function plainLines(text: string): string[] {
+  return text.split(/\r\n?|\n/);
+}
+
 /** Views whose next paste was asked for as plain text. */
 const plain = new WeakSet<EditorView>();
 
-/** Set for the length of `pastePlain`'s own paste. */
+/** Bumped by anything that should void a clipboard read still in flight. */
+let generation = 0;
+const READ_DEADLINE_MS = 1500;
+
+/** Set for the length of a fallback paste through ProseMirror's own path. */
 let pastingPlain = false;
 
 /**
- * ProseMirror's own plain-text paste — a paragraph a line, the marks at the
- * caret — landed without the `uiEvent: "paste"` that tiptap's paste rules
- * wait for, or they would turn `**this**` back into bold.
+ * The first line continues the caret's block and the last takes up what
+ * followed the caret, as typed text would — ProseMirror's own plain paste
+ * hands back a slice closed at its start, which put the first line in a block
+ * of its own. `tr.replace` rather than `replaceSelection`, whose defining-node
+ * rule would turn an empty bullet into the pasted paragraph.
  */
 function pastePlain(view: EditorView, text: string) {
-  pastingPlain = true;
-  try {
-    view.pasteText(text);
-  } finally {
-    pastingPlain = false;
+  const { state } = view;
+  const { selection, schema } = state;
+  const { $from, from, to } = selection;
+  const container = $from.depth > 0 ? $from.node($from.depth - 1) : null;
+  if ($from.parent.type.spec.code) {
+    view.dispatch(state.tr.insertText(text).scrollIntoView().setMeta("paste", true));
+    return;
   }
+  if (!(selection instanceof TextSelection) || container?.type.name !== "blockContainer") {
+    pastingPlain = true;
+    try {
+      view.pasteText(text);
+    } finally {
+      pastingPlain = false;
+    }
+    return;
+  }
+  const marks = state.storedMarks ?? $from.marks();
+  const blocks = plainLines(text).map((line) =>
+    container.type.create(null, schema.nodes.paragraph.create(null, line ? schema.text(line, marks) : null)),
+  );
+  const tr = state.tr.replace(from, to, new Slice(Fragment.from(blocks), 2, 2));
+  tr.setSelection(TextSelection.near(tr.doc.resolve(tr.mapping.map(to)), -1));
+  view.dispatch(tr.scrollIntoView().setMeta("paste", true));
 }
 
 /**
- * ⌘⇧V pastes the clipboard's text with none of its formatting, as Notion does.
- *
- * Two things stood in the way. BlockNote's paste handler reads every paste the
- * same way — its markdown or HTML over its text — so where the platform does
- * fire a paste for the chord, the formatting came along regardless. And
- * Chrome on a Mac fires none: ⌘⇧V is bound to nothing there, so the chord
- * pasted nothing at all.
- *
- * So the chord marks the view, and the paste handler below takes a marked
- * paste as plain text. A paste arrives inside the keydown's own task when the
- * platform sends one; when none has by the next task, the clipboard is read
- * directly, which the browser may first ask permission for.
+ * ⌘⇧V pastes the clipboard's text with none of its formatting. BlockNote reads
+ * every paste the same way, so the chord marks the view for the handler
+ * below; and Chrome on a Mac fires no paste for the chord at all, so when none
+ * has come by the next task the clipboard is read directly — dropped if the
+ * person has since moved on, since a permission prompt can hold it for long.
  */
 export const plainPasteExtension = createExtension({
   key: "nt-plain-paste",
@@ -61,18 +83,30 @@ export const plainPasteExtension = createExtension({
     new Plugin({
       props: {
         handleKeyDown(view, event) {
-          if (!isPlainPasteKey(event, MAC) || event.target !== view.dom) return false;
+          if (!isPlainPasteKey(event, MAC) || event.target !== view.dom) {
+            if (!/^(Meta|Control|Shift|Alt)$/.test(event.key)) generation++;
+            return false;
+          }
+          const chord = ++generation;
+          const deadline = Date.now() + READ_DEADLINE_MS;
           plain.add(view);
           setTimeout(() => {
             if (!plain.delete(view)) return;
             void navigator.clipboard?.readText().then(
               (text) => {
+                if (generation !== chord || Date.now() > deadline) return;
                 if (text && view.editable && !view.isDestroyed) pastePlain(view, text);
               },
               () => {},
             );
           });
           return false;
+        },
+        handleDOMEvents: {
+          mousedown() {
+            generation++;
+            return false;
+          },
         },
         handlePaste(view, _event, slice) {
           if (!pastingPlain) return false;
@@ -88,17 +122,16 @@ const DASH_RULE = /^ {0,3}-(?:[ \t]*-){2,}[ \t]*$/;
 const FENCE = /^ {0,3}(`{3,}|~{3,})/;
 
 /**
- * Markdown in which a `---` straight under a line of text is a divider, as
- * Notion reads it, rather than CommonMark's setext underline — which quietly
- * turned the line above into a heading and ate the divider someone meant.
- * A blank line before the rule is all the difference; code fences are left
- * exactly as they are.
+ * A `---` straight under a line is a divider, as Notion reads it, not
+ * CommonMark's setext underline, which turned the line into a heading and ate
+ * the rule. A blank line before it is all the difference; code fences are left
+ * exactly as they are. Known gaps: `===` is still a setext H1, and a quoted
+ * `> ---` is left alone, as a quote here holds no divider.
  */
 export function dividersNotHeadings(markdown: string): string {
-  const lines = markdown.split("\n");
   const out: string[] = [];
   let fence: string | null = null;
-  for (const line of lines) {
+  for (const line of markdown.split("\n")) {
     const opener = FENCE.exec(line)?.[1];
     if (fence) {
       if (opener?.[0] === fence[0] && opener.length >= fence.length && line.trim() === opener) {
@@ -115,15 +148,12 @@ export function dividersNotHeadings(markdown: string): string {
 }
 
 /**
- * The editor's paste: plain text when it was asked for, and otherwise
- * BlockNote's own, with dividers kept as dividers.
- *
- * BlockNote's handler is the one that knows which of the clipboard's flavours
- * to read as markdown — the detector it decides with isn't exported — so it
- * stays in charge, and only the markdown it is about to paste is rewritten,
+ * Plain text when it was asked for; otherwise BlockNote's own paste, which
+ * alone knows which flavour to read as markdown, with that markdown rewritten
  * for the length of the call.
  */
 export const pasteHandler: PasteHandler = ({ event, editor, defaultPasteHandler }) => {
+  generation++;
   const view = editor.prosemirrorView;
   if (view && plain.delete(view)) {
     const text = event.clipboardData?.getData("text/plain");
@@ -137,6 +167,6 @@ export const pasteHandler: PasteHandler = ({ event, editor, defaultPasteHandler 
   try {
     return defaultPasteHandler();
   } finally {
-    editor.pasteMarkdown = pasteMarkdown;
+    delete (editor as { pasteMarkdown?: unknown }).pasteMarkdown;
   }
 };

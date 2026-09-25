@@ -13,6 +13,7 @@
     "test": "vitest run",
     "figma:build": "node figma-plugin/build.mjs",
     "test:canvas:browser": "node tests/canvas-browser.mjs",
+    "test:editor:typing": "node tests/editor-typing-paste.browser.mjs",
     "test:canvas:drag": "node tests/canvas-block-drag.browser.mjs",
     "test:canvas:camera": "node tests/canvas-camera.browser.mjs",
     "test:canvas:camera:record": "node tests/canvas-camera.browser.mjs --record",

@@ -13,14 +13,9 @@ function endStep(view: EditorView) {
 }
 
 /**
- * Typography, `~strike~` and `$$equation$$`, as Notion replaces them while you
- * type — never inside inline code or a code block, where the characters are
- * the point.
- *
- * The typed character lands first, as its own write, and the replacement
- * follows as a step of its own, so ⌘Z straight after gives back exactly what
- * was typed — the escape hatch for someone who meant `->`. Both are ordinary
- * editor transactions, the same path every other edit takes to the document.
+ * Typography, `~strike~` and `$$equation$$`, replaced as typed — never in code.
+ * The typed character lands as its own write and the replacement as a step of
+ * its own, so ⌘Z straight after gives back exactly what was typed.
  */
 export const inlineShortcutsExtension = createExtension({
   key: "nt-inline-shortcuts",
@@ -47,6 +42,8 @@ export const inlineShortcutsExtension = createExtension({
             return false;
           }
 
+          // What the typed character wore, so the struck text's own marks don't carry on past it.
+          const typedMarks = state.storedMarks ?? $from.marks();
           view.dispatch(deflt());
           const end = from + typed.length;
           // Something appended to that write moved the text; the literal stands.
@@ -60,7 +57,7 @@ export const inlineShortcutsExtension = createExtension({
             tr.delete(end - 1, end)
               .delete(start, start + 1)
               .addMark(start, end - 2, strike.create())
-              .removeStoredMark(strike);
+              .setStoredMarks(strike.removeFromSet(typedMarks));
           } else {
             tr.replaceWith(start, end, math.create({ latex: shortcut.latex }));
           }

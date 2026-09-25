@@ -159,6 +159,14 @@ try {
     check("⌘Z after ~text~ gives back the tildes", (await first()).runs, ["so ~gone~"]);
 
     await fresh(pipeline);
+    await page.keyboard.type("~a ");
+    await page.keyboard.press(`${MOD}+b`);
+    await page.keyboard.type("b");
+    await page.keyboard.press(`${MOD}+b`);
+    await page.keyboard.type("~ c");
+    check("typing after ~text~ wears what the ~ wore", (await first()).runs, ["a [strike]", "b[bold,strike]", " c"]);
+
+    await fresh(pipeline);
     await page.keyboard.type("area $$x^2$$ m");
     check("$$x^2$$ becomes an inline equation", (await first()).runs, ["area ", "<math x^2>", " m"]);
     await fresh(pipeline);
@@ -196,6 +204,38 @@ try {
   await fresh("yjs");
   await page.evaluate(() => window.typingPaste.paste({ "text/html": "<p><strong>Bold</strong></p>", "text/plain": "Bold" }));
   check("and a paste after it is rich again", (await first()).runs, ["Bold[bold]"]);
+
+  const plainPaste = (text) => page.evaluate((t) => window.typingPaste.paste({ "text/html": "<p><em>x</em></p>", "text/plain": t }, true), text);
+  for (const pipeline of ["yjs", "legacy"]) {
+    await fresh(pipeline);
+    await page.keyboard.type("hello");
+    for (let i = 0; i < 3; i++) await page.keyboard.press("ArrowLeft");
+    await page.waitForTimeout(50); // ProseMirror reads the moved caret on selectionchange
+    await plainPaste("X\nY");
+    await page.keyboard.type("!");
+    check(`[${pipeline}] ⌘⇧V of lines continues the line at the caret`, (await doc()).slice(0, 2), [
+      { type: "paragraph", runs: ["heX"] },
+      { type: "paragraph", runs: ["Y!llo"] },
+    ]);
+    await fresh(pipeline);
+    await page.keyboard.type("- item ");
+    await plainPaste("a\nb");
+    check(`[${pipeline}] and joins a list item`, (await doc()).slice(0, 2), [
+      { type: "bulletListItem", runs: ["item a"] },
+      { type: "paragraph", runs: ["b"] },
+    ]);
+    await fresh(pipeline);
+    await page.keyboard.type("- ");
+    await plainPaste("a\nb");
+    check(`[${pipeline}] an empty list item stays one`, (await doc()).slice(0, 2).map((b) => b.type), ["bulletListItem", "paragraph"]);
+    await fresh(pipeline);
+    await plainPaste("**A**\n\nB");
+    check(`[${pipeline}] and keeps blank lines`, (await doc()).slice(0, 3), [
+      { type: "paragraph", runs: ["**A**"] },
+      { type: "paragraph", runs: [] },
+      { type: "paragraph", runs: ["B"] },
+    ]);
+  }
 
   console.log("\nPasted markdown");
   for (const pipeline of ["yjs", "legacy"]) {
