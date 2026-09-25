@@ -63,7 +63,8 @@ import { ReviewOverlay } from "./ai/ReviewOverlay";
 import { track } from "@/app/lib/telemetry";
 import { serializeStoryboard } from "./storyboard/serialize";
 import { emptyStoryboard } from "./storyboard/types";
-import { useTabCompletion, type PageMode } from "./ai/useTabCompletion";
+import { useTabCompletion } from "./ai/useTabCompletion";
+import { useAutocomplete } from "./ai/useAutocomplete";
 import { useCompletionProject } from "./ai/CompletionContext";
 import { PlanWall } from "../billing/PlanWall";
 import { useReformat } from "./ai/useReformat";
@@ -550,8 +551,6 @@ type EditorProps = {
   pageId?: Id<"pages">;
   /** Emitted as <title> in the model's view of the document. */
   title?: string;
-  /** How eager ambient suggestions should be on this page. */
-  mode?: PageMode;
   /**
    * The page row's own word that this document is on the Yjs pipeline
    * (`pages.yjs`). Known before any query about the document is, so the
@@ -692,7 +691,6 @@ function YjsEditor({
   docId,
   pageId,
   title = "",
-  mode = "create",
   served = false,
 }: EditorProps & { served?: boolean }) {
   const readOnly = useReadOnly();
@@ -740,7 +738,6 @@ function YjsEditor({
         pipeline="yjs"
         pageId={pageId}
         title={title}
-        mode={mode}
         served={served}
       />
       {held.stranded && provider && <HeldWritesNotice onRetry={() => provider.retryHeld()} />}
@@ -782,7 +779,7 @@ function HeldWritesNotice({ onRetry }: { onRetry: () => void }) {
   );
 }
 
-function LegacyEditor({ docId, pageId, title = "", mode = "create" }: EditorProps) {
+function LegacyEditor({ docId, pageId, title = "" }: EditorProps) {
   const readOnly = useReadOnly();
   const extensions = useMemo(
     () => [
@@ -803,7 +800,6 @@ function LegacyEditor({ docId, pageId, title = "", mode = "create" }: EditorProp
       pipeline="legacy"
       pageId={pageId}
       title={title}
-      mode={mode}
     />
   );
 }
@@ -815,7 +811,6 @@ function EditorSurface({
   pipeline,
   pageId,
   title,
-  mode,
   served = false,
 }: {
   editor: EditorInstance;
@@ -823,7 +818,6 @@ function EditorSurface({
   pipeline: "legacy" | "yjs";
   pageId?: Id<"pages">;
   title: string;
-  mode: PageMode;
   /** Canonical NML is authoritative; BlockNote is its live compatibility view. */
   served?: boolean;
 }) {
@@ -839,7 +833,11 @@ function EditorSurface({
 
   useRegisterEditor(pageId, editor, docId, pipeline);
   useAttachCommentsEditor(editor);
-  const completion = useTabCompletion(readOnly ? null : editor, pageId, title, mode, docId);
+  const autocomplete = useAutocomplete();
+  // Not started until the setting is known: a lane begun on the default would
+  // be torn down a round trip later by the account's own.
+  const reach = autocomplete.loaded && autocomplete.on ? autocomplete.reach : null;
+  const completion = useTabCompletion(readOnly ? null : editor, pageId, title, reach, docId);
   // Whose completions ran out when the lane walls: the project's container.
   const completionProject = useCompletionProject();
   const reformat = useReformat(readOnly ? null : editor, pageId);

@@ -645,7 +645,6 @@ describe("the gate, end to end with a real claim", () => {
     const refusals = [
       () => t.withIdentity(ADA).mutation(api.pages.create, { projectId: w.projectId, title: "Mine" }),
       () => t.withIdentity(ADA).mutation(api.pages.rename, { pageId: w.pageId, title: "Renamed" }),
-      () => t.withIdentity(ADA).mutation(api.pages.setMode, { pageId: w.pageId, mode: "complete" }),
       () => t.withIdentity(ADA).mutation(api.pages.remove, { pageId: w.pageId }),
       () => t.withIdentity(ADA).mutation(api.pages.duplicate, { pageId: w.pageId }),
       () => t.withIdentity(ADA).mutation(api.folders.create, { projectId: w.projectId, title: "G" }),

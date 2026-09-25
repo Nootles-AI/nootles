@@ -78,7 +78,6 @@ export const seedKestrel = internalMutation({
         ownerId: args.ownerId,
         projectId,
         title: page.title,
-        mode: "create",
         order,
         docId,
         yjs: true,

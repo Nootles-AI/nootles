@@ -139,3 +139,26 @@ export const seen = mutation({
     await ctx.db.patch(row._id, { hints: [...hints, args.id] });
   },
 });
+
+/**
+ * Autocomplete's two settings: whether it runs, and how far it reaches.
+ *
+ * The account's, not a page's — it is how this person likes to write, and it
+ * should follow them from page to page. Someone with no row yet arrived through
+ * a door that skips the welcome; their row lands the way that door leaves it.
+ */
+export const setAutocomplete = mutation({
+  args: { on: v.optional(v.boolean()), reach: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    const ownerId = await requireOwner(ctx);
+    await ensureArrivalProfile(ctx, ownerId);
+    const row = (await mine(ctx))!;
+    await ctx.db.patch(row._id, {
+      ...(args.on !== undefined && { autocomplete: args.on }),
+      ...(args.reach !== undefined &&
+        Number.isFinite(args.reach) && {
+          autocompleteReach: Math.min(1, Math.max(0, args.reach)),
+        }),
+    });
+  },
+});

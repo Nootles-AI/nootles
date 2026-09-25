@@ -64,7 +64,6 @@ export const createSeededProject = mutation({
         ownerId,
         projectId,
         title: page.title,
-        mode: args.defaultMode,
         order,
         docId,
         yjs: true,
@@ -120,7 +119,8 @@ export const createSeededProject = mutation({
     const profile = {
       role: args.role,
       useCase: args.useCase,
-      defaultMode: args.defaultMode,
+      // The survey's answer is a deliberate choice of an end of the dial.
+      autocompleteReach: args.defaultMode === "create" ? 1 : 0,
       seed: { projectId, template: args.template },
       hints: [],
       status: "touring" as const,

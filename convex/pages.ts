@@ -322,17 +322,6 @@ async function copyDoc(ctx: MutationCtx, from: string, to: string): Promise<bool
   return false;
 }
 
-export const setMode = mutation({
-  args: {
-    pageId: v.id("pages"),
-    mode: v.union(v.literal("create"), v.literal("complete")),
-  },
-  handler: async (ctx, args) => {
-    await requireEditable(ctx, "pages", args.pageId);
-    await ctx.db.patch(args.pageId, { mode: args.mode });
-  },
-});
-
 export const rename = mutation({
   args: { pageId: v.id("pages"), title: v.string() },
   handler: async (ctx, args) => {

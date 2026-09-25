@@ -1,0 +1,60 @@
+/* How much autocomplete writes — one dial, less to more. The thumb is ink: a
+   setting, not an accent, so it takes nothing from the AI colour. */
+
+.nt-reach {
+  display: flex;
+  flex-direction: column;
+}
+
+.nt-reach-name {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: var(--text-ui);
+  font-weight: 500;
+  line-height: 20px;
+  color: var(--foreground);
+}
+
+.nt-reach-off {
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.nt-reach-track {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  color: var(--muted);
+}
+
+.nt-reach-track > svg {
+  flex: none;
+}
+
+.nt-reach-range {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  accent-color: var(--foreground);
+  cursor: pointer;
+}
+
+.nt-reach-line {
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--muted);
+  text-wrap: pretty;
+}
+
+.nt-reach-pop {
+  width: 280px;
+  padding: 12px 14px;
+}
+
+/* In ⌘K, the page's gutters rather than a popover's. */
+.nt-pal-reach {
+  padding: 16px 20px 20px;
+}

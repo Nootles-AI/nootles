@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import { useQuery, useMutation } from "convex/react";
+import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Doc, Id } from "@/convex/_generated/dataModel";
 import { EntryDomain } from "@/app/lib/history/entryDomain";
@@ -23,8 +23,6 @@ import { PageCommentsProvider } from "./comments/PageComments";
 import { CommentsLayer } from "./comments/CommentsLayer";
 import { CommentsButton } from "./comments/CommentsButton";
 import { useCornerSlot } from "./cornerSlot";
-import { usePageCommands } from "./pageCommands";
-import type { PageMode } from "./editor/ai/useTabCompletion";
 
 /** Mirrors the real column so the title and first paragraphs land in place. */
 export function PageSkeleton() {
@@ -65,13 +63,11 @@ export function PageSurface({
   const live = useQuery(api.pages.get, { pageId });
   const page = live === undefined ? row : live;
   const rename = useRenamePage();
-  const setMode = useMutation(api.pages.setMode);
   // Provided by the workspace for viewer-role visitors; the whole column obeys.
   const readOnly = useReadOnly();
   const { main, aside, focus, back, closeAside, focusPane } = useOpenPage();
   const registry = useEditorRegistry();
   const cornerSlot = useCornerSlot();
-  const modeCommandRef = usePageCommands();
   const canGoBack = (pane === "aside" ? aside : main)?.canGoBack ?? false;
   /** Only ever true beside another pane: alone, a page is the one you are in. */
   const idle = aside !== null && focus !== pane;
@@ -113,28 +109,6 @@ export function PageSurface({
     // from the sidebar, moves the baseline the next entry diffs against.
     if (page && debounceRef.current === null) committedTitle.current = page.title;
   });
-  // The suggestion mode lives in ⌘K now; the main page answers for it there,
-  // and still records the change on its own timeline.
-  useEffect(() => {
-    if (!modeCommandRef || pane !== "main" || readOnly || !page) return;
-    const before = (page.mode ?? "create") as PageMode;
-    const command = {
-      mode: before,
-      set: (mode: PageMode) => {
-        if (mode === before) return;
-        void setMode({ pageId, mode });
-        pageDomainRef.current?.record({
-          undo: () => setMode({ pageId, mode: before }),
-          redo: () => setMode({ pageId, mode }),
-        });
-      },
-    };
-    modeCommandRef.current = command;
-    return () => {
-      if (modeCommandRef.current === command) modeCommandRef.current = null;
-    };
-  });
-
   if (page === undefined) return <PageSkeleton />;
   if (page === null) {
     return (
@@ -260,7 +234,6 @@ export function PageSurface({
             docId={page.docId}
             pageId={pageId}
             title={page.title}
-            mode={(page.mode ?? "create") as PageMode}
             yjs={page.yjs}
           />
         </div>

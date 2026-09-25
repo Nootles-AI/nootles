@@ -235,7 +235,7 @@ export function Welcome() {
           {step === 1 && (
             <Question
               title="How much should Nootles write?"
-              note="It is a setting on every page, so this only picks where you start."
+              note="This only picks where you start. Right-click autocomplete on the page's bar to change it."
             >
               <div className="nt-wc-modes">
                 <button

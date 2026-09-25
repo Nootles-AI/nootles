@@ -442,10 +442,10 @@ export const AI = {
   },
 
   /**
-   * Per-page eagerness. "create" is the default — the model writes what is not
-   * there yet. "complete" only finishes what you started: it cannot know what
-   * comes next while you are taking notes on something, so an ungrounded guess
-   * is invention no matter how good the model is.
+   * The two ends of the reach dial (see `reach.ts`). "create" writes what is
+   * not there yet. "complete" only finishes what you started: it cannot know
+   * what comes next while you are taking notes on something, so an ungrounded
+   * guess is invention no matter how good the model is.
    *
    * Complete does not switch suggestions off. It raises the bar to things
    * actually derivable from the page. Thresholds come from measured
@@ -455,24 +455,20 @@ export const AI = {
    * parrot the preamble's example identifiers, the tell that the model had
    * nothing to go on.
    */
-  modes: {
+  reach: {
     create: {
       debounceMs: 350,
       minContextChars: 14,
-      /** Blocks (code, math, diagram) may be proposed. */
-      allowBlocks: true,
       /**
        * Ghost text past this is not a continuation any more. Finite because
        * this is the only bound inside the read loop: unbounded, a model that
        * started looping was drawn in full and billed in full.
        */
       maxChars: 300,
-      minGrounding: 0,
     },
     complete: {
       debounceMs: 700,
       minContextChars: 40,
-      allowBlocks: false,
       /** One clause, never a paragraph. */
       maxChars: 90,
       /**

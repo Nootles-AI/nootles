@@ -659,8 +659,8 @@ export default defineSchema({
    * shown twice, so its absence is the "new account" signal.
    *
    * The survey answers are kept because they are not single-use: `role` and
-   * `useCase` seed the project's Context Sheet, and `defaultMode` is the mode
-   * new pages are created in. Nothing collected here is decoration.
+   * `useCase` seed the project's Context Sheet, and the autocomplete answer
+   * sets where the reach dial starts. Nothing collected here is decoration.
    */
   profiles: defineTable({
     ownerId: v.string(),
@@ -677,7 +677,16 @@ export default defineSchema({
     /** Free text: the survey offers choices but accepts anything. */
     role: v.optional(v.string()),
     useCase: v.optional(v.string()),
+    /** The old per-page mode's seed. Unwritten now; kept so legacy rows validate. */
     defaultMode: v.optional(v.union(v.literal("create"), v.literal("complete"))),
+    /** Ambient completion, account-wide. Absent is on. */
+    autocomplete: v.optional(v.boolean()),
+    /**
+     * How far it reaches, 0 (Complete: only finish what you started) to 1
+     * (Create: write what is not there yet). Absent is the middle. See
+     * `app/lib/ai/reach.ts`.
+     */
+    autocompleteReach: v.optional(v.number()),
     /** The old gated tour's state. Unwritten now; kept so legacy rows validate. */
     tour: v.optional(
       v.object({
@@ -773,15 +782,9 @@ export default defineSchema({
     projectId: v.id("projects"),
     title: v.string(),
     /**
-     * How eager ambient suggestions should be on this page.
-     *
-     * "create" is the default: the model writes what is not there yet, and may
-     * propose code, math and diagrams. "complete" only finishes what you have
-     * started — it keeps a suggestion solely when the page itself supports it,
-     * which is what you want while taking notes ON something, where the model
-     * cannot know what comes next and every guess is invention.
-     *
-     * Optional so existing pages read as "create" without a migration.
+     * The old per-page suggestion mode. Unread and unwritten: how far
+     * suggestions reach is the account's (`profiles.autocompleteReach`). Kept
+     * so legacy rows validate.
      */
     mode: v.optional(v.union(v.literal("create"), v.literal("complete"))),
     /** Containing sidebar folder; absent = the project's top level. */
@@ -1120,7 +1123,10 @@ export default defineSchema({
     /** Visible text just before the caret at generation time. */
     contextBefore: v.optional(v.string()),
     model: v.optional(v.string()),
+    /** Rows before the reach dial: the page's mode. */
     pageMode: v.optional(v.union(v.literal("create"), v.literal("complete"))),
+    /** Where the reach dial stood (see `profiles.autocompleteReach`). */
+    reach: v.optional(v.number()),
     docLength: v.optional(v.number()),
     // ---- Decision ----
     /** Time from shown to accept/dismiss — instant-dismiss vs read-then-reject. */
