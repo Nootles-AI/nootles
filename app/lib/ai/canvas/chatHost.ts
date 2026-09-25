@@ -8,6 +8,7 @@ import { serializeScene } from "@/app/components/editor/canvas/scene/serialize";
 import type { Batch } from "@/convex/ai/operations";
 import { findBlock } from "../html/serialize";
 import { fetchPage, notApplied, storedBlocks, type ToolContext } from "../chat/clientTools";
+import { retryableMutationResult } from "../chat/mutationResult";
 import { project, type AnyBlock } from "../projection";
 import { resolveBatch, warnRejected } from "../validate";
 import { refused, type CanvasHost, type CanvasRead, type Refusal, type WriteReceipt } from "./host";
@@ -91,11 +92,11 @@ export function toCanvasHost(ctx: ToolContext): CanvasHost {
           console.warn("[canvas-tool] stage failed\n  ", error);
         }
         return refused(
-          [
+          retryableMutationResult(
             "The change could not be applied just now — nothing on the diagram changed, and",
             "this was not a problem with what you sent. Call the same tool once more with the",
             "SAME arguments.",
-          ].join("\n"),
+          ),
         );
       }
     },

@@ -35,6 +35,7 @@ import {
 } from "./commentTools";
 import { CANVAS_TOOLS, noSuchPage, TOOLS, type CanvasToolName, type ClientToolName } from "./tools";
 import { lastContentBlock } from "@/app/lib/documentTail";
+import { retryableMutationResult } from "./mutationResult";
 import { SECTION_REF, splitSection } from "./writer";
 
 /** The surface the agent acts on: the page on screen, and its live editor. */
@@ -354,10 +355,10 @@ async function albumEdit(
     if (process.env.NODE_ENV !== "production") {
       console.warn("[album_edit] stage failed\n  ", error);
     }
-    return [
+    return retryableMutationResult(
       "The album could not be changed just now — nothing on the page changed, and",
       "this was not a problem with your ops. Call album_edit once more with the SAME ops.",
-    ].join("\n");
+    );
   }
 
   const kept = applied.album.items.length;
@@ -592,12 +593,12 @@ async function editPage(
         "fault cannot cost the rest.",
       ].join("\n");
     }
-    return [
+    return retryableMutationResult(
       "The edit could not be applied just now — nothing on the page changed, and",
       "this was not a problem with your HTML. Call edit_page once more with the",
       "SAME content. Reuse everything you already have — especially drawings from",
       "draw calls; do not draw them again.",
-    ].join("\n");
+    );
   }
   const counts = [
     staged.added && `${staged.added} block${staged.added === 1 ? "" : "s"} added`,

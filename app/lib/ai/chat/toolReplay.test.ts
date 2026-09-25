@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AbMessage } from "./types";
+import { retryableMutationResult } from "./mutationResult";
 import { duplicateMutationResult, isRepeatedMutation } from "./toolReplay";
 
 const user = (id: string): AbMessage =>
@@ -100,23 +101,44 @@ describe("turn-scoped mutation replay guard", () => {
     ).toBe(false);
   });
 
-  it("allows edit_page's explicit same-content transient retry", () => {
-    const input = { pageId: "page-1", html: '<p id="p1">New</p>' };
+  it("allows every marked no-write transient to retry unchanged", () => {
+    for (const [toolName, input, detail] of [
+      ["edit_page", { pageId: "page-1", html: '<p id="p1">New</p>' }, "same content"],
+      [
+        "album_edit",
+        { pageId: "page-1", blockId: "album-1", ops: [{ op: "grid", cols: 3 }] },
+        "same ops",
+      ],
+      ["move", currentMove.input, "same arguments"],
+    ] as const) {
+      const previous = {
+        type: `tool-${toolName}`,
+        toolCallId: `${toolName}-1`,
+        state: "output-available",
+        input,
+        output: retryableMutationResult(`Retry with the ${detail}.`),
+      } as AbMessage["parts"][number];
+      expect(
+        isRepeatedMutation([user("u1"), assistant(previous)], {
+          toolName,
+          toolCallId: `${toolName}-2`,
+          input,
+        }),
+      ).toBe(false);
+    }
+  });
+
+  it("does not infer retryability from unmarked instructions", () => {
     const previous = {
-      type: "tool-edit_page",
-      toolCallId: "edit-1",
+      type: "tool-move",
+      toolCallId: "move-1",
       state: "output-available",
-      input,
-      output:
-        "The edit could not be applied just now. Call edit_page once more with the SAME content.",
+      input: currentMove.input,
+      output: "Call the same tool once more with the SAME arguments.",
     } as AbMessage["parts"][number];
     expect(
-      isRepeatedMutation([user("u1"), assistant(previous)], {
-        toolName: "edit_page",
-        toolCallId: "edit-2",
-        input,
-      }),
-    ).toBe(false);
+      isRepeatedMutation([user("u1"), assistant(previous)], currentMove),
+    ).toBe(true);
   });
 
   it("returns a result that tells the model the second mutation did not run", () => {
