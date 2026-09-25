@@ -129,7 +129,11 @@ export const textStepsExtension = createExtension({
           // A plugin's repair rides in the edit that caused it; it never
           // decides that edit's grain.
           if (tr.getMeta("appendedTransaction")) return value;
-          if (!tr.docChanged) return { boundary: false, before: null };
+          // Off-history writes (a diagram's own store, a repair) are no one's
+          // step and must not cut the run they land in the middle of.
+          if (!tr.docChanged || tr.getMeta("addToHistory") === false) {
+            return { boundary: false, before: null };
+          }
           // Measured now, before the sync plugin's view writes this edit, so
           // the shared doc still matches the state it is measured against.
           return { boundary: breaksTypingRun(tr), before: relativeSelection(oldState) };
