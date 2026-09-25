@@ -94,6 +94,14 @@ body.nt-banding * {
   width: fit-content;
   min-width: 100%;
 }
+/* "One word" can be a pasted hash or a URL, and `break-word` still counts it
+   whole towards the minimum — so `fit-content` grew the block to hold it on one
+   line. `anywhere` wraps exactly as `break-word` does but lets the minimum be a
+   character, which keeps a selected paragraph at the column. Only a block's own
+   text: a table's cells keep sizing their columns the way they always have. */
+.nt-editor .nt-block-selected .bn-block-content > .bn-inline-content {
+  overflow-wrap: anywhere;
+}
 .nt-editor .bn-block-outer.nt-block-selected::after {
   content: "";
   position: absolute;
