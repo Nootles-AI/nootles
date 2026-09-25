@@ -71,6 +71,7 @@
 
 import { useCallback, useEffect, useRef } from "react";
 import type { RefObject } from "react";
+import { raiseVeil } from "@/app/lib/veil";
 import { type BlockSelectionStore } from "./blockSelection";
 import "./blockSelection.css";
 
@@ -323,6 +324,7 @@ export function useBlockMarquee({
       let pointerY = event.clientY;
       let dragging = false;
       let band: HTMLDivElement | null = null;
+      let lower: (() => void) | null = null;
       let frame = 0;
       let painting = 0;
       let applied: readonly string[] = before;
@@ -489,16 +491,15 @@ export function useBlockMarquee({
         // `selectionchange`, and emptying the selection out from under it makes
         // it resync and drop the very block selection the band is putting there
         // — the band draws and nothing stays selected. Off the blocks there is
-        // nothing to drop anyway, and `user-select` below is what holds the
-        // line for the rest of the gesture.
+        // nothing to drop anyway, and the veil below is what holds the line
+        // for the rest of the gesture.
         if (inBlock) window.getSelection()?.removeAllRanges();
-        // The document is contenteditable: without this the browser draws its
-        // own text selection under the band and fights it the whole way down.
-        document.body.style.userSelect = "none";
-        // ...and without this the pointer keeps turning into an I-beam every
-        // time the band crosses a word, which is most of the gesture. A rubber
-        // band is one thing the whole way down, so the cursor says one thing.
-        document.body.classList.add("nt-banding");
+        // The document is contenteditable: without the veil the browser draws
+        // its own text selection under the band and fights it the whole way
+        // down, and the pointer turns into an I-beam every time the band
+        // crosses a word. A rubber band is one thing the whole way down, so the
+        // cursor says one thing.
+        lower = raiseVeil();
         band = document.createElement("div");
         band.className = "nt-block-marquee";
         band.setAttribute("aria-hidden", "true");
@@ -538,8 +539,8 @@ export function useBlockMarquee({
         rows = [];
         band?.remove();
         band = null;
-        document.body.style.userSelect = "";
-        document.body.classList.remove("nt-banding");
+        lower?.();
+        lower = null;
       };
 
       const finish = () => {

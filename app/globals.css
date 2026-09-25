@@ -855,14 +855,11 @@ body[data-resizing] .nt-rail-face {
 .nt-resize[data-dragging]::after {
   background: var(--foreground);
 }
-/* Over everything for the length of a drag (`ResizeHandle.tsx`): it holds the
-   cursor wherever the hand goes, keeps the drag from selecting text, and stops
-   an embedded frame from swallowing the moves. */
-.nt-resize-veil {
+/* Over everything for the length of a gesture — see `app/lib/veil.ts`. */
+.nt-veil {
   position: fixed;
   inset: 0;
   z-index: var(--z-tooltip);
-  cursor: col-resize;
   user-select: none;
 }
 .nt-pane.is-idle {
