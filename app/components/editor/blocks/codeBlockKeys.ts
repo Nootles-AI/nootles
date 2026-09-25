@@ -1,15 +1,21 @@
 import {
+  createExtension,
+  getBlockInfoFromSelection,
   getNodeById,
   insertOrUpdateBlockForSlashMenu,
   type BlockNoteEditor,
 } from "@blocknote/core";
-import { NodeSelection, Selection } from "prosemirror-state";
+import { NodeSelection, Selection, TextSelection } from "prosemirror-state";
 import { blockSelection } from "../blockSelection";
 import type { CodeExit } from "../codemirror/exits";
 import { focusCodeBlock, type CodeCaret } from "../codemirror/focusRequests";
+import { fenceLanguage } from "../codemirror/languages";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Editor = BlockNoteEditor<any, any, any>;
+
+/** Notion's "turn into code". Also the slash menu's badge. */
+export const CODE_BLOCK_SHORTCUT = "Mod-Alt-8";
 
 /** Put the caret into block `id`'s code, now or as soon as its editor mounts. */
 export function enterCodeBlock(editor: Editor, id: string, at: CodeCaret): void {
@@ -92,3 +98,62 @@ export function leaveCodeBlock(editor: Editor, id: string, exit: CodeExit): bool
   view.focus();
   return true;
 }
+
+/**
+ * The block holding the caret, as code: its text becomes the code, and the
+ * caret follows it into the editor. False when there is no text block to turn.
+ */
+function turnIntoCode(editor: Editor): boolean {
+  const state = editor.prosemirrorState;
+  if (!(state.selection instanceof TextSelection)) return false;
+  const info = getBlockInfoFromSelection(state);
+  if (!info.isBlockContainer) return false;
+  if (editor.schema.blockSchema[info.blockNoteType]?.content !== "inline") {
+    return false;
+  }
+  const id: string = info.bnBlock.node.attrs.id;
+  editor.updateBlock(id, {
+    type: "codeBlock",
+    props: { code: info.blockContent.node.textContent },
+  });
+  enterCodeBlock(editor, id, "end");
+  return true;
+}
+
+/**
+ * A Markdown fence typed at the start of a line becomes a code block, and the
+ * rest of the line becomes its code. The rule reads the state before the
+ * closing character lands, so the caret is still where it was typed.
+ */
+function fence(editor: Editor, language?: string) {
+  const { $from } = editor.prosemirrorState.selection;
+  const rest = $from.parent.textBetween($from.parentOffset, $from.parent.content.size);
+  const id: unknown = $from.node(-1).attrs.id;
+  if (typeof id === "string") enterCodeBlock(editor, id, "start");
+  return {
+    type: "codeBlock",
+    props: language ? { code: rest, language } : { code: rest },
+    content: [],
+  };
+}
+
+/**
+ * The code block's keys on the document side. Its keys inside the block are
+ * CodeMirror's (see `codeExit`).
+ */
+export const codeBlockKeysExtension = createExtension({
+  key: "nt-code-block-keys",
+  keyboardShortcuts: {
+    [CODE_BLOCK_SHORTCUT]: ({ editor }) => turnIntoCode(editor),
+  },
+  inputRules: [
+    // Notion's: the third backtick converts, without waiting for a space.
+    { find: /^```$/, replace: ({ editor }) => fence(editor) },
+    // A fence that names its language, on a line that already reads "```py"
+    // — pasted, say — closed with a space or Enter.
+    {
+      find: /^```([^`\s]+)\s$/,
+      replace: ({ editor, match }) => fence(editor, fenceLanguage(match[1])),
+    },
+  ],
+});

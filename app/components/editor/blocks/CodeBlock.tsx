@@ -12,7 +12,7 @@ import { usePageTitle } from "../PageTitleContext";
 import type { AnyBlock } from "@/app/lib/ai/projection";
 import { LANGUAGES, languageLabel } from "../codemirror/languages";
 import type { CodeExit } from "../codemirror/exits";
-import { leaveCodeBlock } from "./codeBlockKeys";
+import { codeBlockKeysExtension, leaveCodeBlock } from "./codeBlockKeys";
 
 /** Quiet time before typed code reaches the block. Keystrokes are not writes. */
 const PERSIST_MS = 400;
@@ -182,4 +182,5 @@ export const codeBlockSpec = createReactBlockSpec(
       />
     ),
   },
+  [codeBlockKeysExtension],
 )();

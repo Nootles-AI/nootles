@@ -38,7 +38,8 @@ export const schema = BlockNoteSchema.create({
     numberedListItem: stepOutOfEmptyItems(defaultBlockSpecs.numberedListItem),
     checkListItem: stepOutOfEmptyItems(defaultBlockSpecs.checkListItem),
     toggleListItem: stepOutOfEmptyItems(defaultBlockSpecs.toggleListItem),
-    codeBlock: codeBlockSpec,
+    // Its "```" rule, like the heading's "# ", leaves a list item alone.
+    codeBlock: keepListItems(codeBlockSpec),
     mathBlock: mathBlockSpec,
     canvas: canvasBlockSpec,
     album: albumBlockSpec,

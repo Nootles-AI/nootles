@@ -27,5 +27,27 @@ const byId = new Map(LANGUAGES.map((l) => [l.id, l]));
 
 export const languageLabel = (id: string): string => byId.get(id)?.label ?? id;
 
+/** The short names a Markdown fence is usually written with. */
+const FENCE_ALIASES: Record<string, string> = {
+  ts: "typescript",
+  js: "javascript",
+  py: "python",
+  md: "markdown",
+  rs: "rust",
+  text: "plaintext",
+  txt: "plaintext",
+  plain: "plaintext",
+};
+
+/**
+ * The language a fence names — "```ts" — as one of ours. A name we have no
+ * grammar for is plain text rather than an id the dropdown cannot show.
+ */
+export function fenceLanguage(name: string): string {
+  const key = name.toLowerCase();
+  const id = FENCE_ALIASES[key] ?? key;
+  return byId.has(id) ? id : "plaintext";
+}
+
 export const loadLanguage = (id: string): Promise<Extension> =>
   byId.get(id)?.load() ?? Promise.resolve([]);
