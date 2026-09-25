@@ -4,6 +4,7 @@ import {
   defaultInlineContentSpecs,
 } from "@blocknote/core";
 import { codeBlockSpec } from "./blocks/CodeBlock";
+import { dividerBlockSpec } from "./blocks/divider";
 import { keepListItems, stepOutOfEmptyItems } from "./blocks/listSafe";
 import { mathBlockSpec } from "./blocks/MathBlock";
 import { canvasBlockSpec } from "./blocks/CanvasBlock";
@@ -38,6 +39,8 @@ export const schema = BlockNoteSchema.create({
     numberedListItem: stepOutOfEmptyItems(defaultBlockSpecs.numberedListItem),
     checkListItem: stepOutOfEmptyItems(defaultBlockSpecs.checkListItem),
     toggleListItem: stepOutOfEmptyItems(defaultBlockSpecs.toggleListItem),
+    // BlockNote's own divider, whose `---` leaves the caret below it.
+    divider: dividerBlockSpec,
     // Its "```" rule, like the heading's "# ", leaves a list item alone.
     codeBlock: keepListItems(codeBlockSpec),
     mathBlock: mathBlockSpec,
