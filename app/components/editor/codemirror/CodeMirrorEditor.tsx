@@ -10,7 +10,7 @@ import { eveningExtensions } from "./theme";
 import { codeGhostExtension, setCodeGhost } from "./ghost";
 import { loadLanguage } from "./languages";
 import { codeExit, EXIT_KEYS, type CodeExit } from "./exits";
-import { registerCodeBlock } from "./focusRequests";
+import { registerCodeBlock, type CodeCaret } from "./focusRequests";
 
 /**
  * A thin React wrapper around a CodeMirror 6 EditorView. CodeMirror owns the
@@ -169,8 +169,9 @@ export function CodeMirrorEditor({
   useEffect(() => {
     const view = viewRef.current;
     if (!view || !blockId || readOnly) return;
-    return registerCodeBlock(blockId, host.current, (at, typed) => {
-      const pos = at === "start" ? 0 : view.state.doc.length;
+    const focus = (at: CodeCaret, typed: string) => {
+      const length = view.state.doc.length;
+      const pos = at === "start" ? 0 : at === "end" ? length : Math.min(at, length);
       const { main } = view.state.selection;
       if (typed) {
         view.dispatch({
@@ -183,7 +184,14 @@ export function CodeMirrorEditor({
         view.dispatch({ selection: { anchor: pos }, scrollIntoView: true });
       }
       view.focus();
-    });
+    };
+    // Unmounted with the focus gone nowhere: this editor was replaced rather
+    // than left, and its caret carries over to the one taking its place.
+    const handoff = () => {
+      const active = document.activeElement;
+      return !active || active === document.body ? view.state.selection.main.head : null;
+    };
+    return registerCodeBlock(blockId, host.current, focus, handoff);
   }, [blockId, readOnly]);
 
   // Completion inside the block. The document is serialized into the Nootles

@@ -116,6 +116,47 @@ describe("code block focus requests", () => {
     }
     expect(mount("j", host)).toHaveBeenCalledWith("start", "kkkkk");
   });
+
+  it("passes the caret on when the editor holding it is replaced", () => {
+    const first = {};
+    const second = {};
+    const scope = page(first, second);
+    const dispose = registerCodeBlock("k", first, vi.fn(), () => 3);
+    focusCodeBlock(scope, "k", "start");
+    dispose();
+    expect(mount("k", second)).toHaveBeenCalledWith(3, "");
+  });
+
+  it("passes it on to a replacement that mounted first", () => {
+    const first = {};
+    const second = {};
+    const dispose = registerCodeBlock("l", first, vi.fn(), () => "end");
+    focusCodeBlock(page(first, second), "l", "start");
+    const replacement = mount("l", second);
+    expect(replacement).not.toHaveBeenCalled();
+    dispose();
+    expect(replacement).toHaveBeenCalledWith("end", "");
+  });
+
+  it("keeps the caret where it went when the editor was left, not replaced", () => {
+    const first = {};
+    const second = {};
+    const dispose = registerCodeBlock("m", first, vi.fn(), () => null);
+    focusCodeBlock(page(first, second), "m", "start");
+    dispose();
+    expect(mount("m", second)).not.toHaveBeenCalled();
+  });
+
+  it("passes nothing on once the editor has held the caret a while", () => {
+    vi.useFakeTimers();
+    const first = {};
+    const second = {};
+    const dispose = registerCodeBlock("n", first, vi.fn(), () => 2);
+    focusCodeBlock(page(first, second), "n", "start");
+    vi.advanceTimersByTime(5000);
+    dispose();
+    expect(mount("n", second)).not.toHaveBeenCalled();
+  });
 });
 
 function press(key: string, mods: { metaKey?: boolean; ctrlKey?: boolean } = {}) {

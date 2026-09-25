@@ -18,27 +18,38 @@
  * inside the asking page should answer.
  */
 
-export type CodeCaret = "start" | "end";
+/** Where the caret lands in the code: an edge, or an offset into it. */
+export type CodeCaret = "start" | "end" | number;
 
 /** An element that can say whether another is inside it — the page's root. */
 export type FocusScope = { contains(other: unknown): boolean };
 
 type Focus = (at: CodeCaret, typed: string) => void;
-type Host = { host: unknown; focus: Focus };
+type Handoff = () => CodeCaret | null;
+type Host = { host: unknown; focus: Focus; handoff?: Handoff };
 type Pending = { scope: FocusScope; at: CodeCaret; typed: string; until: number };
+type Delivered = { scope: FocusScope; to: Host; until: number };
 
 /** Long enough for a first visit to fetch the editor on a slow connection. */
 const HOLD_MS = 5000;
+/** How long after taking the caret an editor can be replaced and pass it on. */
+const HANDOFF_MS = 1000;
 
 const mounted = new Map<string, Set<Host>>();
 const pending = new Map<string, Pending>();
+const delivered = new Map<string, Delivered>();
+
+function deliver(id: string, scope: FocusScope, to: Host, at: CodeCaret, typed: string) {
+  pending.delete(id);
+  delivered.set(id, { scope, to, until: Date.now() + HANDOFF_MS });
+  to.focus(at, typed);
+}
 
 /** Put the caret into block `id`'s code editor, within `scope`. */
 export function focusCodeBlock(scope: FocusScope, id: string, at: CodeCaret): void {
   for (const entry of mounted.get(id) ?? []) {
     if (scope.contains(entry.host)) {
-      pending.delete(id);
-      entry.focus(at, "");
+      deliver(id, scope, entry, at, "");
       return;
     }
   }
@@ -59,6 +70,9 @@ function waitingIn(scope: FocusScope): Pending | null {
 export function cancelWaiting(scope: FocusScope): void {
   for (const [id, request] of pending) {
     if (request.scope === scope) pending.delete(id);
+  }
+  for (const [id, handed] of delivered) {
+    if (handed.scope === scope) delivered.delete(id);
   }
 }
 
@@ -94,9 +108,20 @@ export function holdKey(scope: FocusScope, event: HeldKey): boolean {
  * Called by a code editor as it mounts. Takes a request waiting for it, and
  * answers later ones until the returned function is called. `focus` is handed
  * what was typed while the request waited, to put in at the caret.
+ *
+ * The node view that has just taken the caret can be torn down and mounted
+ * again while the transaction that made its block settles, and the focus goes
+ * with it. `handoff`, asked as the editor unmounts, says where its caret was
+ * if nothing else has the focus since; the editor mounting in its place picks
+ * the caret up there.
  */
-export function registerCodeBlock(id: string, host: unknown, focus: Focus): () => void {
-  const entry: Host = { host, focus };
+export function registerCodeBlock(
+  id: string,
+  host: unknown,
+  focus: Focus,
+  handoff?: Handoff,
+): () => void {
+  const entry: Host = { host, focus, handoff };
   let hosts = mounted.get(id);
   if (!hosts) mounted.set(id, (hosts = new Set()));
   hosts.add(entry);
@@ -104,11 +129,19 @@ export function registerCodeBlock(id: string, host: unknown, focus: Focus): () =
   const waiting = pending.get(id);
   if (waiting && waiting.scope.contains(host)) {
     pending.delete(id);
-    if (waiting.until >= Date.now()) focus(waiting.at, waiting.typed);
+    if (waiting.until >= Date.now()) deliver(id, waiting.scope, entry, waiting.at, waiting.typed);
   }
 
   return () => {
     hosts.delete(entry);
     if (!hosts.size && mounted.get(id) === hosts) mounted.delete(id);
+    const handed = delivered.get(id);
+    if (handed?.to !== entry) return;
+    delivered.delete(id);
+    const at = handed.until >= Date.now() ? entry.handoff?.() : null;
+    if (at == null) return;
+    const next = [...(mounted.get(id) ?? [])].find((h) => handed.scope.contains(h.host));
+    if (next) deliver(id, handed.scope, next, at, "");
+    else pending.set(id, { scope: handed.scope, at, typed: "", until: Date.now() + HOLD_MS });
   };
 }
