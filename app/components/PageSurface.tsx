@@ -24,6 +24,25 @@ import { useCornerSlot } from "./cornerSlot";
 import { usePageCommands } from "./pageCommands";
 import type { PageMode } from "./editor/ai/useTabCompletion";
 
+/** Mirrors the real column so the title and first paragraphs land in place. */
+export function PageSkeleton() {
+  return (
+    <main className="flex flex-1 flex-col overflow-hidden" aria-busy="true">
+      <div
+        className="mx-auto w-full px-6 py-12 sm:px-14 sm:py-20"
+        style={{ maxWidth: "calc(var(--measure) + 7rem)" }}
+      >
+        <div className="nt-skeleton mt-[4.5rem] h-10 w-1/2" />
+        <div className="mt-4 space-y-3">
+          <div className="nt-skeleton h-4 w-full" />
+          <div className="nt-skeleton h-4 w-11/12" />
+          <div className="nt-skeleton h-4 w-2/3" />
+        </div>
+      </div>
+    </main>
+  );
+}
+
 export function PageSurface({
   pageId,
   pane,
@@ -124,24 +143,7 @@ export function PageSurface({
     };
   });
 
-  if (page === undefined) {
-    // Mirrors the real column so the title and first paragraphs land in place.
-    return (
-      <main className="flex flex-1 flex-col overflow-hidden" aria-busy="true">
-        <div
-          className="mx-auto w-full px-6 py-12 sm:px-14 sm:py-20"
-          style={{ maxWidth: "calc(var(--measure) + 7rem)" }}
-        >
-          <div className="nt-skeleton mt-[4.5rem] h-10 w-1/2" />
-          <div className="mt-4 space-y-3">
-            <div className="nt-skeleton h-4 w-full" />
-            <div className="nt-skeleton h-4 w-11/12" />
-            <div className="nt-skeleton h-4 w-2/3" />
-          </div>
-        </div>
-      </main>
-    );
-  }
+  if (page === undefined) return <PageSkeleton />;
   if (page === null) {
     return (
       <div className="flex flex-1 items-center justify-center text-sm text-muted">
