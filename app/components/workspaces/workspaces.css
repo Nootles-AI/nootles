@@ -251,7 +251,7 @@
 /* Another place picked: its name arrives as the palette's crumb does, while
    the projects under it rise, rather than being there in a frame. */
 .nt-ws-switch-name.is-swapped {
-  animation: nt-pal-crumb 400ms var(--spring) backwards;
+  animation: nt-pal-crumb 340ms var(--spring) backwards;
 }
 .nt-ws-switch-glyph {
   flex: none;
@@ -290,7 +290,7 @@
 /* The tick on where you are is on before the menu is, so its spring would
    never play: it lands once, after the rows have risen. */
 .nt-ws-switcher .nt-menu-check.is-on {
-  animation: nt-menu-check-in var(--dur-slow) var(--spring) 120ms backwards;
+  animation: nt-menu-check-in var(--dur-slow) var(--spring) 100ms backwards;
 }
 .nt-ws-tile {
   flex: none;
@@ -790,8 +790,8 @@
   transform: scale(0.97);
   pointer-events: none;
   transition:
-    opacity 220ms var(--ease),
-    transform 220ms cubic-bezier(0.7, 0, 0.84, 0);
+    opacity 190ms var(--ease),
+    transform 190ms cubic-bezier(0.5, 0, 0.75, 0);
 }
 /* The ⋯ fades in on the same beat as whatever it takes the place of, and
    keeps the icon button's own eased wash and press. */
@@ -851,7 +851,7 @@
     0 24px 64px oklch(0.25 0.005 90 / 0.11);
   text-align: center;
   transform-origin: 50% 30%;
-  animation: nt-ws-join-in 480ms var(--spring) backwards;
+  animation: nt-ws-join-in 410ms var(--spring) backwards;
 }
 @keyframes nt-ws-join-in {
   from {
@@ -870,7 +870,7 @@
   height: 48px;
   font-size: 20px;
   color: var(--foreground);
-  animation: nt-ws-tile-in 520ms var(--spring) 90ms backwards;
+  animation: nt-ws-tile-in 440ms var(--spring) 75ms backwards;
 }
 .nt-monogram.nt-ws-join-tile.is-square {
   border-radius: 12px;
@@ -1168,14 +1168,14 @@
 .nt-ws-table[data-stale] > .nt-ws-rows,
 .nt-ws-table[data-stale] > .nt-ws-empty {
   opacity: 0.55;
-  transition: opacity var(--dur) var(--ease) 150ms;
+  transition: opacity var(--dur) var(--ease) 130ms;
 }
 /* Arrives as rows do, in the slot they would have risen into. */
 .nt-ws-empty {
   padding: 40px 24px;
   text-align: center;
   text-wrap: balance;
-  animation: nt-rise 450ms var(--ease) backwards;
+  animation: nt-rise 380ms var(--ease) backwards;
 }
 @media (prefers-reduced-motion: reduce) {
   .nt-ws-empty {

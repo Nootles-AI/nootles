@@ -103,9 +103,9 @@ const NEVER_CHANGES = () => () => {};
 const FILL = "100%";
 const DRAWER_W = "288px";
 /** How long a rail takes to close; `.nt-rail-slot` in globals.css agrees. */
-const RAIL_MS = 320;
+const RAIL_MS = 220;
 /** How long the tool bar takes to leave; `nt-toolbar-out` agrees. */
-const TOOLS_MS = 200;
+const TOOLS_MS = 170;
 
 /* Everything that belongs to the canvas being edited. A press anywhere else is
    what "deselect" means — and the panels have to be in here, because a field in

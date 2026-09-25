@@ -39,7 +39,7 @@
     transparent 1.3px
   );
   background-size: 22px 22px;
-  animation: nt-graph-in 360ms var(--ease);
+  animation: nt-graph-in 310ms var(--ease);
 }
 .nt-graph-viewport.is-panning {
   cursor: grabbing;
@@ -425,7 +425,7 @@
   min-height: 0;
   overflow-y: auto;
   padding: 20px 20px 24px;
-  animation: nt-ginfo-in 240ms var(--ease);
+  animation: nt-ginfo-in 200ms var(--ease);
 }
 /* Answers the click: what changed is the panel's subject, so it arrives. */
 @keyframes nt-ginfo-in {

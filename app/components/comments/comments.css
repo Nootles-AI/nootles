@@ -51,7 +51,7 @@
 /* Only a card already in place glides; its first placement is not a move. */
 .nt-comment-card.is-margin[data-settled] {
   transition:
-    transform 240ms var(--ease),
+    transform 200ms var(--ease),
     box-shadow var(--dur-fast) var(--ease),
     opacity var(--dur-fast) var(--ease);
 }
@@ -301,7 +301,7 @@
 }
 .nt-comment-dot[data-settled] {
   transition:
-    transform 240ms var(--ease),
+    transform 200ms var(--ease),
     color var(--dur-fast) var(--ease),
     background var(--dur-fast) var(--ease);
 }

@@ -35,7 +35,7 @@ body:has(.nt-fixed) .nt-asks {
     0 1px 2px oklch(0.25 0.005 90 / 0.05),
     0 8px 26px oklch(0.25 0.005 90 / 0.12);
   font-size: var(--text-ui);
-  animation: nt-ask-in 420ms var(--ease) both;
+  animation: nt-ask-in 360ms var(--ease) both;
 }
 
 @keyframes nt-ask-in {
@@ -221,9 +221,9 @@ body:has(.nt-fixed) .nt-asks {
    kept until this ends: COLLAPSE_MS in SharePopover.tsx. */
 .nt-share-people > li {
   transition:
-    opacity 220ms var(--ease),
-    transform 220ms cubic-bezier(0.7, 0, 0.84, 0),
-    height var(--dur) var(--ease) 140ms;
+    opacity 190ms var(--ease),
+    transform 190ms cubic-bezier(0.5, 0, 0.75, 0),
+    height var(--dur) var(--ease) 120ms;
 }
 .nt-share-people > li.is-leaving {
   height: 0;

@@ -70,8 +70,7 @@
 
    The body fades, not each section: a rule keyed on an attribute with `> *`
    for its subject makes the browser restyle the whole subtree of *any*
-   element whose `data-turn` changes — and the page's own entrance flips one on
-   the container of the entire document (`.nt-page-in`, editor.css). */
+   element whose `data-turn` changes. */
 .nt-style-panel-body[data-turn="a"] {
   animation: nt-panel-turn-a var(--dur) var(--ease);
 }

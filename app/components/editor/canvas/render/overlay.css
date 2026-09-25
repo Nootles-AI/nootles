@@ -92,16 +92,16 @@
 .nt-ov-grips > rect {
   transform-box: fill-box;
   transform-origin: center;
-  animation: nt-ov-grip-in 300ms var(--spring) backwards;
+  animation: nt-ov-grip-in 260ms var(--spring) backwards;
 }
 .nt-ov-grips > rect:nth-child(2) {
-  animation-delay: 30ms;
+  animation-delay: 26ms;
 }
 .nt-ov-grips > rect:nth-child(3) {
-  animation-delay: 60ms;
+  animation-delay: 50ms;
 }
 .nt-ov-grips > rect:nth-child(4) {
-  animation-delay: 90ms;
+  animation-delay: 75ms;
 }
 @keyframes nt-ov-grip-in {
   from {

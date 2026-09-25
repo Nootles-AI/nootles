@@ -512,7 +512,7 @@ button.nt-notion-twist:hover {
 }
 
 .nt-pal-notion .nt-notion-twist svg {
-  transition: transform 350ms var(--spring);
+  transition: transform 300ms var(--spring);
 }
 
 /* The tick, redrawn: rounder, and it arrives. The svg is only in the tree while
@@ -533,7 +533,7 @@ button.nt-notion-twist:hover {
 }
 
 .nt-pal-notion .nt-notion-box svg {
-  animation: nt-pal-tick 360ms var(--spring);
+  animation: nt-pal-tick 310ms var(--spring);
 }
 
 @keyframes nt-pal-tick {
@@ -553,7 +553,7 @@ button.nt-notion-twist:hover {
   height: 26px;
   border-radius: 7px;
   transition:
-    transform 400ms var(--spring),
+    transform 340ms var(--spring),
     background var(--dur-fast) var(--ease),
     box-shadow var(--dur-fast) var(--ease);
 }
@@ -585,7 +585,7 @@ button.nt-notion-twist:hover {
   flex: 1 1 auto;
   display: grid;
   place-items: center;
-  animation: nt-pal-reading-in var(--dur-slow) var(--ease) 160ms backwards;
+  animation: nt-pal-reading-in var(--dur-slow) var(--ease) 140ms backwards;
 }
 /* The words hang below the bar rather than sharing the centre with it, so
    the bar stays put when they arrive. */

@@ -130,7 +130,7 @@ const SETTLE_MS = 140;
  * point, since a jump costs the user the place they were standing — and short
  * enough that a held ⌘+ still reads as a control and not as a ride.
  */
-const NAVIGATE_MS = 180;
+const NAVIGATE_MS = 155;
 
 const easeOutCubic = (t: number) => 1 - (1 - t) ** 3;
 
@@ -138,7 +138,7 @@ const easeOutCubic = (t: number) => 1 - (1 - t) ** 3;
 export type Bezier = readonly [number, number, number, number];
 
 /** `--ease`. */
-const APP_EASE: Bezier = [0.16, 1, 0.3, 1];
+const APP_EASE: Bezier = [0.25, 1, 0.5, 1];
 
 /**
  * A CSS cubic-bezier solved for y at a given x, so a glide can run on exactly

@@ -36,7 +36,7 @@ type Collaborator = FunctionReturnType<typeof api.share.collaborators>[number];
 type Departure = { person: Collaborator; after: string | null };
 
 /** How long a leaving row takes to close up: its fade, then its height (access.css). */
-const COLLAPSE_MS = 320;
+const COLLAPSE_MS = 270;
 
 /**
  * The people to draw: those the server lists, with anyone still closing up

@@ -65,7 +65,7 @@
   /* A list arrives as a list, top first. Rows are keyed by their node, so this
      plays for a row that is new — the panel opening, a group unfolding, a shape
      just drawn — and never for one that only moved. */
-  animation: nt-lyr-in 360ms var(--ease) calc(var(--i, 0) * 20ms) backwards;
+  animation: nt-lyr-in 310ms var(--ease) calc(var(--i, 0) * 17ms) backwards;
 }
 @keyframes nt-lyr-in {
   from {
@@ -207,8 +207,8 @@
   /* It steps between rows as the pointer crosses them; eased, the step reads as
      the line following the hand rather than as a second line appearing. */
   transition:
-    top 120ms var(--ease),
-    left 120ms var(--ease);
+    top 100ms var(--ease),
+    left 100ms var(--ease);
 }
 @media (prefers-reduced-motion: reduce) {
   .nt-lyr-line {

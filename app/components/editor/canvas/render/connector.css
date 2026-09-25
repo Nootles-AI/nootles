@@ -37,17 +37,17 @@
 .nt-connector-plug {
   transform-box: fill-box;
   transform-origin: center;
-  animation: nt-connector-plug-in 260ms var(--spring) backwards;
+  animation: nt-connector-plug-in 220ms var(--spring) backwards;
   transition: fill var(--dur-fast) var(--ease);
 }
 .nt-connector-plug:nth-of-type(4n + 2) {
-  animation-delay: 25ms;
+  animation-delay: 21ms;
 }
 .nt-connector-plug:nth-of-type(4n + 3) {
-  animation-delay: 50ms;
+  animation-delay: 40ms;
 }
 .nt-connector-plug:nth-of-type(4n + 4) {
-  animation-delay: 75ms;
+  animation-delay: 65ms;
 }
 @keyframes nt-connector-plug-in {
   from {

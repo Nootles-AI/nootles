@@ -25,7 +25,7 @@ const MAX_ZOOM = 2.5;
 const MIN_FIT = 0.55;
 /** Steps run before the first paint: the shaping nobody needs to watch. */
 const PRESETTLE = 160;
-const EASE_MS = 420;
+const EASE_MS = 360;
 const DOT = 22;
 
 /**
