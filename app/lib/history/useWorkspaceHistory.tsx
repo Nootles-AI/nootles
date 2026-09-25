@@ -37,10 +37,6 @@ export const undoScope = { [UNDO_SCOPE_ATTR]: "" } as const;
 
 const WorkspaceHistoryContext = createContext<WorkspaceHistory | null>(null);
 
-/** The Yjs pipeline is where the text domain lives; without it the old
- *  per-surface bindings stay in charge. */
-const YJS_ON = process.env.NEXT_PUBLIC_YJS === "1";
-
 export function WorkspaceHistoryProvider({
   projectId,
   children,
@@ -48,10 +44,9 @@ export function WorkspaceHistoryProvider({
   projectId: string;
   children: ReactNode;
 }) {
-  const spine = YJS_ON ? spineForProject(projectId) : null;
+  const spine = spineForProject(projectId);
 
   useEffect(() => {
-    if (!spine) return;
     const onKey = (event: KeyboardEvent) => {
       const key = undoKeyOf(event);
       if (!key || currentUndoRoute().to !== "spine") return;
@@ -68,7 +63,7 @@ export function WorkspaceHistoryProvider({
   );
 }
 
-/** The spine, or null outside the workspace (the share route, legacy sync). */
+/** The spine, or null outside the workspace (the share route). */
 export function useWorkspaceHistory(): WorkspaceHistory | null {
   return useContext(WorkspaceHistoryContext);
 }

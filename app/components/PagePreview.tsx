@@ -25,8 +25,6 @@ import type { AnyBlock } from "@/app/lib/ai/projection";
 import type { YReader } from "@/app/lib/ai/snapshot";
 import { COLUMN_WIDTH } from "@/app/lib/column";
 
-const YJS_ON = process.env.NEXT_PUBLIC_YJS === "1";
-
 /**
  * The closest together two reads of a page may be.
  *
@@ -202,9 +200,9 @@ function PreviewReader({ docId }: { docId: string | null }) {
    */
   const meta = useQuery(
     api.ydoc.meta,
-    YJS_ON && unkept && docId ? { docId } : "skip",
+    unkept && docId ? { docId } : "skip",
   );
-  const yjs = YJS_ON && meta != null;
+  const yjs = meta != null;
   const serveEnabled = useQuery(
     api.nmlMigration.nmlServeEnabled,
     yjs ? {} : "skip",
@@ -214,7 +212,7 @@ function PreviewReader({ docId }: { docId: string | null }) {
     yjs && serveEnabled && docId ? { docId } : "skip",
   );
   // Undefined is "not answered yet", null is "answered: not a Yjs doc".
-  const legacy = !YJS_ON || meta === null;
+  const legacy = meta === null;
   const snapshot = useQuery(
     api.prosemirror.getSnapshot,
     unkept && docId && legacy ? { id: docId } : "skip",

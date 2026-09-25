@@ -83,7 +83,7 @@ export async function bundleSurfaces(entry, output, { probe = true, rewrite = {}
     absWorkingDir: repo, entryPoints: [entry], bundle: true, splitting: true,
     format: "esm", outdir: output, platform: "browser", conditions: ["browser", "import", "style"],
     tsconfig: "tsconfig.json",
-    define: { "process.env.NODE_ENV": '"development"', "process.env.NEXT_PUBLIC_YJS": '"1"' },
+    define: { "process.env.NODE_ENV": '"development"' },
     banner: { js: 'globalThis.process ??= { env: { NODE_ENV: "development" }, browser: true };' },
     plugins: [{ name: "fixture", setup(builder) {
       const to = (fixture) => () => ({ path: fixture, namespace: "fixture" });

@@ -561,9 +561,6 @@ type EditorProps = {
   yjs?: boolean;
 };
 
-/** The flag the Yjs cutover ships behind; off means the app you had. */
-const YJS_ON = process.env.NEXT_PUBLIC_YJS === "1";
-
 /**
  * Step 13 — serve the canonical NML tree in the editor. The master switch lives
  * in Convex (`nmlServeEnabled`, flipped by `setNmlServe`), not a `NEXT_PUBLIC_*`
@@ -575,7 +572,7 @@ const YJS_ON = process.env.NEXT_PUBLIC_YJS === "1";
  * on the legacy editor.
  */
 function useServeEnabled(): boolean {
-  return useQuery(api.nmlMigration.nmlServeEnabled, YJS_ON ? {} : "skip") ?? false;
+  return useQuery(api.nmlMigration.nmlServeEnabled, {}) ?? false;
 }
 
 const EXTENSIONS = [
@@ -635,11 +632,9 @@ export function Editor(props: EditorProps) {
    * a thrown query. Memoized, since a new request object re-subscribes.
    */
   // Whether the canonical NML root is cleared to be served (migrated, in-cohort,
-  // and server-verified). Only asked when the flag is on, so production issues
-  // no extra query and the branch below is never taken.
+  // and server-verified).
   const serveEnabled = useServeEnabled();
   const request = useMemo((): Parameters<typeof useQueries>[0] => {
-    if (!YJS_ON) return {};
     const args = { docId: props.docId };
     return {
       meta: { query: api.ydoc.meta, args },
@@ -654,14 +649,13 @@ export function Editor(props: EditorProps) {
     | undefined;
   const state = useQuery(
     api.ydoc.state,
-    YJS_ON && meta === null ? { docId: props.docId } : "skip",
+    meta === null ? { docId: props.docId } : "skip",
   );
   // Served or not stays as it was last answered once the answer is a refusal,
   // so a served page does not change pipeline under someone who lost access.
   const [lastServed, setLastServed] = useState(false);
   const served = authority instanceof Error ? lastServed : serveEnabled && !!authority?.serve;
   if (served !== lastServed) setLastServed(served);
-  if (!YJS_ON) return <LegacyEditor {...props} />;
   // The page has stopped answering this reader. The Yjs editor already
   // mounted stays, holding their words and saying why it can't save them.
   if (meta instanceof Error) return props.yjs ? <YjsEditor {...props} served={served} /> : placeholder;
@@ -800,19 +794,6 @@ function LegacyEditor({ docId, pageId, title = "", mode = "create" }: EditorProp
   const sync = useBlockNoteSync<EditorInstance>(api.prosemirror, docId, {
     editorOptions: { schema, extensions, pasteHandler, links: { onClick: notionLinkClick } },
   });
-
-  // First open of a page has no document yet — create an empty one seamlessly.
-  // Guarded per-docId so StrictMode's double-invoke can't create twice. A
-  // viewer never creates one: they may only be here to read. (Under the flag,
-  // a brand-new doc is born on the Yjs side instead and never reaches here.)
-  const createdFor = useRef<string | null>(null);
-  useEffect(() => {
-    if (readOnly || YJS_ON) return;
-    if (!sync.isLoading && !sync.editor && createdFor.current !== docId) {
-      createdFor.current = docId;
-      void sync.create({ type: "doc", content: [] });
-    }
-  }, [sync, docId, readOnly]);
 
   if (!sync.editor) return placeholder;
   return (

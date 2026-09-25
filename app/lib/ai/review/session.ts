@@ -19,14 +19,6 @@ import { packTurn, unpackTurn } from "./pack";
 import { planReplay } from "./replay";
 import { restoreDocument, undoHunks } from "./undo";
 
-/**
- * On the Yjs pipeline an unanswered turn lives in a local fork (see fork.ts),
- * which changes two lifecycle facts: settling a page must MERGE the fork so
- * the kept edits finally reach the shared doc, and an editor that remounts
- * mid-review must have the staged content put back, because a fork dies with
- * its editor while the review row outlives both.
- */
-const YJS_ON = process.env.NEXT_PUBLIC_YJS === "1";
 
 /**
  * The apply-with-review pipeline.
@@ -856,7 +848,7 @@ export class ReviewSession {
     // only exists on a mounted editor. If the fork died with its editor, the
     // remount is followed by re-staging what was under review (see restage).
     let editor: LiveEditor | null = null;
-    if (rejected.length || (settled && YJS_ON)) {
+    if (rejected.length || settled) {
       this.deps.openPage(page.pageId);
       editor = await this.deps.editorFor(page.pageId).catch(() => null);
       if (!editor) {
@@ -933,7 +925,6 @@ export class ReviewSession {
     editor: LiveEditor,
     before: AnyBlock[],
   ) {
-    if (!YJS_ON) return;
     const surviving = page.hunks.filter((h) => hunkStatus(page, h.id) !== "rejected");
     const expected = surviving.flatMap((h) => h.added);
     if (expected.length) {
@@ -970,7 +961,6 @@ export class ReviewSession {
    */
   restageOnOpen(pageId: Id<"pages">) {
     return this.enqueue(async () => {
-      if (!YJS_ON) return;
       for (const turn of this.turns) {
         if (!this.isOpen(turn) || this.isWriting(turn.chatPromptId)) continue;
         const page = turn.pages.find((p) => p.pageId === pageId);

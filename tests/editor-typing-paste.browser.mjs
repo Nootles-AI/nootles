@@ -34,7 +34,7 @@ await build({
   absWorkingDir: repo, entryPoints: ["tests/editor-typing-paste.browser.tsx"], bundle: true, splitting: true,
   format: "esm", outdir: output, platform: "browser", conditions: ["browser", "import", "style"],
   tsconfig: "tsconfig.json",
-  define: { "process.env.NODE_ENV": '"development"', "process.env.NEXT_PUBLIC_YJS": '"1"' },
+  define: { "process.env.NODE_ENV": '"development"' },
   banner: { js: 'globalThis.process ??= { env: { NODE_ENV: "development" }, browser: true };' },
   plugins: [{ name: "reject-next-server-diagnostics", setup(builder) {
     builder.onResolve({ filter: /^next\/dist\/compiled\/gzip-size$/ }, () => ({ path: "server-only", namespace: "fixture" }));
