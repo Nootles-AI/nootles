@@ -109,6 +109,9 @@ const WOULD = {
   },
 } as const;
 
+/** The links an editor may hand out, as the server's `sendsLinks` has them. */
+const SENDS: readonly LinkRole[] = ["editor", "viewer"];
+
 const TABS: Record<keyof typeof SAYS, readonly Segment<LinkRole>[]> = {
   anyone: [
     { id: "editor", label: "Editor link", hint: "Anyone with it can view; signing in lets them edit" },
@@ -144,8 +147,19 @@ const ROW_MENU =
  * which URL you paste IS the decision, so handing someone view access can
  * never quietly become handing them the pen. Turning a link off revokes it:
  * the URL dies, and so does the access of everyone who signed in through it.
+ *
+ * An editor gets the same popover to send from: the editor and viewer links,
+ * to copy or to make. Everything that changes who already has access — a
+ * link turned off, its expiry, the people and their requests — is its
+ * managers' alone, and not drawn.
  */
-export function SharePopover({ projectId }: { projectId: Id<"projects"> }) {
+export function SharePopover({
+  projectId,
+  manages,
+}: {
+  projectId: Id<"projects">;
+  manages: boolean;
+}) {
   const [open, setOpen] = useState(false);
   // The popover outlives `open` by its exit animation, like Menu's.
   const [leaving, setLeaving] = useState(false);
@@ -177,6 +191,7 @@ export function SharePopover({ projectId }: { projectId: Id<"projects"> }) {
       {(open || leaving) && (
         <SharePopoverBody
           projectId={projectId}
+          manages={manages}
           anchor={triggerRef}
           closing={!open}
           onClose={close}
@@ -189,12 +204,14 @@ export function SharePopover({ projectId }: { projectId: Id<"projects"> }) {
 
 function SharePopoverBody({
   projectId,
+  manages,
   anchor,
   closing,
   onClose,
   onGone,
 }: {
   projectId: Id<"projects">;
+  manages: boolean;
   anchor: React.RefObject<HTMLButtonElement | null>;
   /** On its way out: drawn, but no longer answering anything. */
   closing: boolean;
@@ -202,7 +219,7 @@ function SharePopoverBody({
   onGone: () => void;
 }) {
   const links = useQuery(api.share.links, { projectId });
-  const collaborators = useQuery(api.share.collaborators, { projectId });
+  const collaborators = useQuery(api.share.collaborators, manages ? { projectId } : "skip");
   // In a workspace, most of who can reach a project is who is in it: the
   // popover says so before the links, so nobody sends one to a teammate who
   // needed none. A private one is its maker's and the workspace's owners' and
@@ -216,7 +233,7 @@ function SharePopoverBody({
   const hidden = project?.visibility === "private";
   const people = useQuery(
     api.members.list,
-    workspace && hidden ? { workspaceId: workspace.workspaceId } : "skip",
+    manages && workspace && hidden ? { workspaceId: workspace.workspaceId } : "skip",
   );
   const maker = hidden
     ? people?.members.find((m) => m.userId === project.ownerId && !m.isMe && m.role === "member")
@@ -227,7 +244,7 @@ function SharePopoverBody({
   // The same subscription the workspace's route already holds.
   const settings = useQuery(
     api.workspaces.bySlug,
-    workspace ? { slug: workspace.slug } : "skip",
+    manages && workspace ? { slug: workspace.slug } : "skip",
   )?.workspace.settings;
   const guests = !!collaborators?.some((person) => person.guest);
   const repos = useQuery(
@@ -239,7 +256,7 @@ function SharePopoverBody({
   // The owner's whole inbox, narrowed here: the toast and this list are the
   // same question in two places, so they read the same query rather than two
   // that could disagree about who is still waiting.
-  const waiting = (useQuery(api.share.incomingRequests) ?? []).filter(
+  const waiting = (useQuery(api.share.incomingRequests, manages ? {} : "skip") ?? []).filter(
     (ask) => ask.projectId === projectId,
   );
   const decide = useMutation(api.share.decideRequest);
@@ -478,11 +495,12 @@ function SharePopoverBody({
           // Whoever came in by one is only waiting, and is said to be.
           <p className="nt-note text-pretty">
             Share links are turned off in {workspace?.name ?? "this workspace"}, so nobody can
-            open this project through one.{" "}
-            {waitingOut > 0
+            open this project through one.
+            {manages && " "}
+            {manages && (waitingOut > 0
               ? `${waitingOut === 1 ? "The person" : `The ${waitingOut} people`} who joined by link will be back when links are turned on again`
-              : "They can be turned back on"}
-            {workspace ? (
+              : "They can be turned back on")}
+            {!manages ? null : workspace ? (
               <>
                 {" in "}
                 <Link href={settingsPath(workspace.slug)} className="nt-ws-aside-link">
@@ -498,7 +516,7 @@ function SharePopoverBody({
           <>
             <Segmented
               label="Share links"
-              segments={TABS[says]}
+              segments={manages ? TABS[says] : TABS[says].filter((tab) => SENDS.includes(tab.id))}
               value={role}
               onChange={(next) => {
                 setRole(next);
@@ -538,8 +556,12 @@ function SharePopoverBody({
                     {copied === role ? "Copied" : "Copy"}
                   </button>
                 </div>
-                <p className="nt-note mt-2 text-pretty">{SAYS[says][role]}</p>
-                {offAsked ? (
+                <p className="nt-note mt-2 text-pretty">
+                  {SAYS[says][role]}
+                  {/* Theirs to see, not to move: the lifetime is the managers'. */}
+                  {!manages && until !== null && ` It expires ${dayOf(until, now)}.`}
+                </p>
+                {!manages ? null : offAsked ? (
                   <div role="group" aria-labelledby={`${tipId}-ask`} className="mt-3">
                     <p id={`${tipId}-ask`} className="nt-note text-pretty">
                       Turn off the {role} link? Its address stops working for good, and a new
@@ -689,7 +711,7 @@ function SharePopoverBody({
           </div>
         )}
 
-        {rows === undefined ||
+        {!manages ? null : rows === undefined ||
         project === undefined ||
         (workspace && hidden && people === undefined) ? (
           <div aria-hidden className="mt-4">

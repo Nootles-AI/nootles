@@ -154,7 +154,7 @@ describe("setLink and links — the third link", () => {
     expect(new Set(tokens).size).toBe(3);
   });
 
-  test("only the owner may turn it on or off; nobody else learns the links", async () => {
+  test("only the owner may turn it on or off; below an editor nobody learns the links", async () => {
     const t = harness();
     const w = await world(t);
     const token = await on(t, w, "commenter");
@@ -167,10 +167,14 @@ describe("setLink and links — the third link", () => {
           t.withIdentity(who).mutation(api.share.setLink, { projectId: w.projectId, role: "commenter", enabled }),
         ).rejects.toThrow("Not found");
       }
+    }
+    for (const who of [ADA, STRANGER]) {
       await expect(
         t.withIdentity(who).query(api.share.links, { projectId: w.projectId }),
       ).rejects.toThrow("Not found");
     }
+    // An editor sees the links they may send, and not the comment link.
+    expect((await t.withIdentity(BOB).query(api.share.links, { projectId: w.projectId })).commenter).toBeNull();
     await expect(
       t.mutation(api.share.setLink, { projectId: w.projectId, role: "commenter", enabled: false }),
     ).rejects.toThrow("Not found");
@@ -181,6 +185,68 @@ describe("setLink and links — the third link", () => {
     expect(
       (await t.withIdentity(OWNER_STAND_IN).query(api.share.links, { projectId: w.projectId })).commenter,
     ).toBe(token);
+  });
+});
+
+describe("setLink and links — an editor hands links out", () => {
+  /** Bob, an editor by the edit link. */
+  async function editorWorld(t: T) {
+    const w = await world(t);
+    const edit = await on(t, w, "editor");
+    await claim(t, BOB, edit);
+    return { w, edit };
+  }
+
+  test("sees the editor and viewer links, never the comment link, and is told they don't manage", async () => {
+    const t = harness();
+    const { w, edit } = await editorWorld(t);
+    const viewer = await on(t, w, "viewer");
+    await on(t, w, "commenter");
+    expect(await t.withIdentity(BOB).query(api.share.links, { projectId: w.projectId })).toMatchObject({
+      viewer,
+      commenter: null,
+      editor: edit,
+      expiresAt: { commenter: null },
+      manages: false,
+    });
+    expect((await t.withIdentity(OWNER).query(api.share.links, { projectId: w.projectId })).manages).toBe(true);
+  });
+
+  test("copies a live link as it stands, and makes one where there is none", async () => {
+    const t = harness();
+    const { w, edit } = await editorWorld(t);
+    const send = (role: LinkRole) =>
+      t.withIdentity(BOB).mutation(api.share.setLink, { projectId: w.projectId, role, enabled: true });
+    expect(await send("editor")).toBe(edit);
+    const viewer = await send("viewer");
+    expect(viewer).toMatch(/^[0-9a-f-]{36}$/);
+    expect((await t.withIdentity(OWNER).query(api.share.links, { projectId: w.projectId })).viewer).toBe(viewer);
+    expect(await t.query(api.share.view, { token: viewer! })).toMatchObject({ role: "viewer" });
+  });
+
+  test("may not turn a link off, move its expiry, or touch the comment link", async () => {
+    const t = harness();
+    const { w, edit } = await editorWorld(t);
+    const set = (args: { role: LinkRole; enabled: boolean; expiresInDays?: number | null }) =>
+      t.withIdentity(BOB).mutation(api.share.setLink, { projectId: w.projectId, ...args });
+    await expect(set({ role: "editor", enabled: false })).rejects.toThrow("manage this project");
+    await expect(set({ role: "editor", enabled: true, expiresInDays: 7 })).rejects.toThrow("manage this project");
+    await expect(set({ role: "viewer", enabled: true, expiresInDays: null })).rejects.toThrow("manage this project");
+    await expect(set({ role: "commenter", enabled: true })).rejects.toThrow("Not found");
+    const links = await t.withIdentity(OWNER).query(api.share.links, { projectId: w.projectId });
+    expect(links).toMatchObject({ viewer: null, commenter: null, editor: edit, expiresAt: { editor: null } });
+  });
+
+  test("an operator standing in for an editor sends nothing", async () => {
+    const t = harness();
+    const { w } = await editorWorld(t);
+    await expect(
+      t.withIdentity({ subject: BOB.subject, act: "operator_1" }).mutation(api.share.setLink, {
+        projectId: w.projectId,
+        role: "viewer",
+        enabled: true,
+      }),
+    ).rejects.toThrow("Read-only");
   });
 });
 

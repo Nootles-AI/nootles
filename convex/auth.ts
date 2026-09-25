@@ -23,6 +23,7 @@ export {
   linkLive,
   mayAssignSeat,
   moderatesComments,
+  sendsLinks,
   type DocChannel,
   type LinkRole,
   type ProjectRole,

@@ -496,19 +496,23 @@ describe("a project row", () => {
       for (const field of LINK_FIELDS) expect(row).not.toHaveProperty(field);
     }
 
-    // The links themselves are the managers' to read, and theirs alone.
-    expect(
-      await t.withIdentity(OWNER).query(api.share.links, { projectId: w.personal.projectId }),
-    ).toMatchObject({ viewer: "p-view", editor: "p-edit" });
+    // The links themselves are read by whoever may hand them out: the
+    // managers, and editors — the member, and the stranger in by the edit link.
     for (const [who, projectId] of [
+      [OWNER, w.personal.projectId],
       [STRANGER, w.personal.projectId],
-      [MEMBER, w.team.projectId],
-      [GUEST, w.team.projectId],
     ] as const) {
-      await expect(t.withIdentity(who).query(api.share.links, { projectId })).rejects.toThrow(
-        "Not found",
-      );
+      expect(await t.withIdentity(who).query(api.share.links, { projectId })).toMatchObject({
+        viewer: "p-view",
+        editor: "p-edit",
+      });
     }
+    expect(
+      (await t.withIdentity(MEMBER).query(api.share.links, { projectId: w.team.projectId })).manages,
+    ).toBe(false);
+    await expect(
+      t.withIdentity(GUEST).query(api.share.links, { projectId: w.team.projectId }),
+    ).rejects.toThrow("Not found");
   });
 });
 

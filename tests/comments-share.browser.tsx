@@ -53,6 +53,7 @@ function createBackend() {
           commenter: project.commentShareToken ?? null,
           editor: project.editShareToken ?? null,
           expiresAt: { viewer: null, commenter: null, editor: null },
+          manages: true,
           allowed: true,
           defaultDays: null,
         };
@@ -162,7 +163,7 @@ declare global {
       backend: Backend;
       auth: Auth;
       replaced: string[];
-      mountPopover(): void;
+      mountPopover(manages?: boolean): void;
       mountShare(token: string, auth: Auth): void;
       seedClaim: Backend["seedClaim"];
       setLinks: Backend["setLinks"];
@@ -183,11 +184,11 @@ const harness: Window["shareHarness"] = {
   backend: createBackend(),
   auth: { isLoaded: true, isSignedIn: true },
   replaced: [],
-  mountPopover() {
+  mountPopover(manages = true) {
     harness.auth = { isLoaded: true, isSignedIn: true };
     mount(
       <div style={{ padding: 24 }}>
-        <SharePopover projectId={PROJECT} />
+        <SharePopover projectId={PROJECT} manages={manages} />
       </div>,
     );
   },
