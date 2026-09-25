@@ -497,6 +497,22 @@
 .nt-toolbar-dock > .nt-toolbar {
   pointer-events: auto;
 }
+/* Turning into the other bar (`BarMorph.tsx`): the surface is lent to a skin
+   that stretches from the old outline, and what only the old bar had leaves as
+   ghosts (styled inline: a ghost is a clone and keeps every class it had).
+   Both are children of the bar, so they ride with it wherever the column
+   carries it; the skin and the folding shapes paint under its buttons. */
+.nt-toolbar-dock > .nt-toolbar[data-morphing] {
+  position: relative;
+  isolation: isolate;
+  background: transparent;
+  box-shadow: none;
+}
+.nt-toolbar-skin {
+  position: absolute;
+  z-index: -1;
+  pointer-events: none;
+}
 /* Letting the diagram go: the bar sinks back the way it rose. */
 .nt-toolbar-dock[data-leaving] > .nt-toolbar {
   animation: nt-toolbar-out 170ms var(--ease) forwards;
